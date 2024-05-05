@@ -11,9 +11,10 @@ from pathlib import Path
 import base64
 import json
 import requests
+import math
 
 # 設定
-input_dir = Path(r'H:\lora\素材リスト\スクリプト\testimg_Processed')
+input_dir = Path(r'H:\lora\samulora-xl_v001\10_samurahiroaki_v002__Processed')
 MODEL = "gpt-4-turbo"
 config = configparser.ConfigParser()
 config.read('apikey.ini')
@@ -130,10 +131,10 @@ def caption_batch(input_dir):
     """
     batch_payloads = []
     # ディレクトリを走査してキャプションの生成
-    for filename in os.listdir(input_dir):
+    for filename in input_dir.rglob('*'):
         # 拡張子を除去したファイル名の取得
         base_filename = os.path.splitext(filename)[0]
-        if filename.lower().endswith(('webp')): #webp以外の画像の場合はリサイズ等の処理がされてないから無視
+        if filename.name.lower().endswith(('webp')): #webp以外の画像の場合はリサイズ等の処理がされてないから無視
             image_path = os.path.join(input_dir, filename)
             caption_path = os.path.join(input_dir, f'{base_filename}.caption')
             # キャプションファイルが存在しない場合のみ処理を行う
@@ -144,7 +145,27 @@ def caption_batch(input_dir):
                 batch_payloads.append(payload)
 
     jsonl_path = save_jsonline_to_file(batch_payloads, 'instructions.jsonl')
-    upload_file_id = upload_json_to_openai(jsonl_path)
-    start_batch_processing(upload_file_id)
+
+    # サイズチェックしてjsonlが96MB[OpenAIの制限]を超えないようにするために分割する
+    jsonl_size = os.path.getsize(jsonl_path)
+    if jsonl_size > 100663296:
+        print("JSONLファイルが大きすぎます。分割します。")
+        # jsonl_sizeに基づいてファイルを分割
+        split_size = math.ceil(jsonl_size / 100663296)
+        with open(jsonl_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        lines_per_file = math.ceil(len(lines) / split_size)  # 各ファイルに必要な行数
+        for i in range(split_size):
+            split_filename = f'instructions_{i}.jsonl'
+            split_path = os.path.join(os.path.dirname(jsonl_path), split_filename)
+            with open(split_path, 'w', encoding='utf-8') as f:
+                f.writelines(lines[i * lines_per_file:(i + 1) * lines_per_file])
+
+            upload_file_id = upload_json_to_openai(split_path)
+            start_batch_processing(upload_file_id)
+
+    else:
+        upload_file_id = upload_json_to_openai(jsonl_path)
+        start_batch_processing(upload_file_id)
 
 caption_batch(input_dir)
