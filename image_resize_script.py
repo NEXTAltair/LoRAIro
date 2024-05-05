@@ -10,7 +10,7 @@ from pathlib import Path
 from PIL import Image, ImageCms
 
 # 設定
-TARGET_FOLDER = Path(r'H:\lora\素材リスト\スクリプト\testimg')
+TARGET_FOLDER = Path(r'H:\lora\samulora-xl_v001\10_samurahiroaki_v002_')
 TARGET_RESOLUTION = 1024  # 長辺のピクセル数
 
 
@@ -67,6 +67,7 @@ def main():
 
     for root, dirs, files in os.walk(TARGET_FOLDER):
         root_path = Path(root)
+        relative_path = root_path.relative_to(TARGET_FOLDER)
         for file_name in files:
             file_path = root_path / file_name
             base_name, ext = os.path.splitext(file_name)
@@ -90,14 +91,15 @@ def main():
                     with Image.open(file_path) as img:
                         img = convert_to_srgb(img)
                         img = resize_image(img, TARGET_RESOLUTION)
-                        output_path = output_folder / f"{root_path.stem}_{sequence}.webp"
+                        output_path = output_folder / relative_path / f"{base_name}_{sequence}.webp"
+                        output_path.parent.mkdir(parents=True, exist_ok=True)
                         img.save(output_path, 'WEBP')
                         print(f'Saved:{output_path}')
 
                         for suffix in ['.txt', '.caption']:
                             text_file_path = root_path / (base_name + suffix)
                             if text_file_path.exists():
-                                output_text_path = output_folder / f"{root_path.stem}_{sequence}{suffix}"
+                                output_text_path = output_folder / relative_path / f"{base_name}_{sequence}{suffix}"
                                 shutil.copy(text_file_path, output_text_path)
                                 print(f'Saved:{output_text_path}')
                         sequence += 1
