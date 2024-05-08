@@ -8,7 +8,7 @@
 - **image_resize_script.py**: 複数の画像を一括で指定されたサイズにリサイズする。
 - **caption.py**: 画像の内容をGPT4が解析し、タグとキャプション自動生成する。
 - **caption_batch.py**: OpenAI BachAPIを使用した処理を一括で開始させる。
-- **captionjsonl_to_metadata.py**:バッチAPIのレスポンスをkohya-ss/sd-script用metadata.jsonに変換する
+- **bach_response_file.py**:バッチAPIのレスポンスを.txtや.caption､kohya-ss/sd-script用metadata.jsonに変換する
 - **cleanup_txt.py**: テキストファイルを整形するモジュール
 
 
