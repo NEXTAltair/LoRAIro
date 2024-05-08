@@ -19,6 +19,7 @@ MODEL = "gpt-4-turbo"
 config = configparser.ConfigParser()
 config.read('apikey.ini')
 api_key = config['KEYS']['openai_api_key']
+sprit_json_uploas = True
 
 def encode_image(image_path):
     '''画像をBase64エンコードして返す'''
@@ -161,9 +162,12 @@ def caption_batch(input_dir):
             with open(split_path, 'w', encoding='utf-8') as f:
                 f.writelines(lines[i * lines_per_file:(i + 1) * lines_per_file])
 
-            upload_file_id = upload_json_to_openai(split_path)
-            start_batch_processing(upload_file_id)
-
+            if sprit_json_uploas:
+                upload_file_id = upload_json_to_openai(split_path)
+                start_batch_processing(upload_file_id)
+            else:
+                print(f"分割ファイルを保存しました: {split_path}")
+                print("分割ファイルをアップロードしてバッチ処理を開始するには、sprit_json_uploasをTrueに設定してください。")
     else:
         upload_file_id = upload_json_to_openai(jsonl_path)
         start_batch_processing(upload_file_id)
