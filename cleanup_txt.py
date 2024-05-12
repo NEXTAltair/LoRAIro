@@ -1,7 +1,6 @@
 #https://github.com/kohya-ss/sd-scripts/blob/main/finetune/clean_captions_and_tags.py
-
-import json
 import re
+from pathlib import Path
 
 # 正規表現パターンの定義
 PATTERN_HAIR_LENGTH = re.compile(r'(long|short|medium) hair')
@@ -29,14 +28,15 @@ def clean_format(text):
     Returns:
         str: クリーニング後のテキスト。
     """
+    #TODO: 文字をいれるための""で括られた部分をエスケープ
     text = re.sub(r'\*\*', '', text) # GPT4 visionがたまに付けるマークダウンの強調を削除
     text = re.sub(r'\.\s*$', ', ', text) # ピリオドをカンマに変換
     text = re.sub(r'\.\s*(?=\S)', ', ', text)  # ピリオド後にスペースがあればカンマとスペースに置換し、新しい単語が続く場合はその前にスペースを追加
     text = re.sub(r'\.\n', ', ', text)  # 改行直前のピリオドをカンマに変換
     text = re.sub(r'\n+', ', ', text) # 改行をカンマに変換
     text = re.sub(r'\u2014', ' ', text) # エムダッシュをスペースに変換
-    text = re.sub(r'\(', r'\\(', text)  # '(' を '\(' にエスケープ
-    text = re.sub(r'\)', r'\\)', text)  # ')' を '\)' にエスケープ
+    text = re.sub(r'\(', '\\(', text)  # '(' を '\(' にエスケープ
+    text = re.sub(r'\)', '\)', text)  # ')' を '\)' にエスケープ
     return text
 
 def clean_underscore(tags):
@@ -53,8 +53,6 @@ def clean_individual_tags(tags_dict):
     """髪の長さを残して色の特徴とかいろいろを含むタグを削除する"""
     # 置き換え用のプレースホルダー
     placeholder = "@@@"
-    # 削除用のプレースホルダー
-    placeholder_remove = "***"
     # 保存されたオリジナルの長さタグ
     original_lengths = {}
 
@@ -69,8 +67,8 @@ def clean_individual_tags(tags_dict):
     for key, tag in tags_dict.items():
         modified_tag = tag  # 変更を加えるためのローカル変数
         for pattern in PATTERNS_REMOVE_IN_MULTI:
-            modified_tag = pattern.sub(placeholder_remove, modified_tag)
-        tags_dict[key] = modified_tag  # 最終的な変更を反映
+            modified_tag = pattern.sub("", modified_tag)
+            tags_dict[key] = modified_tag  # 最終的な変更を反映
 
     # 髪の長さタグを復元
     for key, tag in tags_dict.items():
@@ -175,3 +173,14 @@ def clean_caption(caption):
             caption = caption.replace(rf, rt)
             replaced = bef != caption
     return caption
+
+if __name__ == '__main__':
+    img_folder = Path(r'H:\lora\asscutout-XL\img_Processed')
+    for text_path in img_folder.rglob('*.txt'):
+        with open(text_path, 'r', encoding='utf-8') as f:
+            tags = f.read()
+        tags = clean_format(tags)
+        tags = clean_tags(tags)
+        with open(text_path, 'w', encoding='utf-8') as f:
+            f.write(tags)
+        print(f'Cleaned: {text_path.name}')
