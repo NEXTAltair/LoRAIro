@@ -13,12 +13,26 @@ import numpy as np
 import io
 import shutil
 from PIL import Image, ImageCms
+import torch
+
+#venv\Lib\site-packages\basicsr\data\degradations.py
+#https://github.com/xinntao/Real-ESRGAN/issues/768
+# line 8:
+#from torchvision.transforms.functional_tensor import rgb_to_grayscale
+#to:
+#from torchvision.transforms._functional_tensor import rgb_to_grayscale
+from realesrgan import RealESRGANer
+
 
 # 設定
 RESIZE = True # リサイズの使用
-CROP = True # クロップの使用
+CROP = False # クロップの使用
 
-RESIZE_FOLDER = Path(r'H:\lora\test-XL\img') # 変換リサイズ対象のフォルダ
+#TODO:作りかけ
+REALESRGANER_UPSCALE = False # TARGET_RESOLUTION以下の画像をRealESRGANerでアップスケールするかどうか
+REALESRGAN_MODEL = "RealESRGAN_x4plus_anime_6B.pth" # RealESRGANのモデルパス
+
+RESIZE_FOLDER = Path(r'H:\lora\asscutout-XL\img') # 変換リサイズ対象のフォルダ
 CROP_FOLDER = Path(r"H:\lora\素材リスト\スクリプト\testimg\bordercrop") # クロップ対象の画像フォルダ
 TARGET_RESOLUTION = 1024 #512  # 長辺のピクセル数
 IMAGE_EXTENSIONS = ['.jpg', '.png', '.bmp', '.gif', '.tif', '.tiff', '.jpeg', '.webp'] # 処理対象の画像ファイルの拡張子
@@ -56,6 +70,29 @@ def move_low_resolution_images(file_path):
             print(f'Moved {ext}: {related_file_path.name}')
 
 
+def upscale_images_to_webp(file_path, scale=4):
+    """画像をRealESRGANerでアップスケールして返す関数
+    #TODO: 他のモデルにも対応する
+    Args:
+        file_path (Path): 画像ファイルのパス
+        scale (int): アップスケール倍率
+    """
+    # モデルの設定
+    model = RealESRGANer(scale=scale, model_path=REALESRGAN_MODEL, half=True, device='cuda')
+    #画像をアップスケール
+    if file_path.stem in IMAGE_EXTENSIONS:
+        print(f'Processing {file_path.name}...')
+        # 画像を読み込んで短辺のサイズをチェック
+        with Image.open(file_path) as img:
+                img = convert_to_srgb(img)
+                img = np.array(img)
+                # アップスケール処理
+                output, _ = model.enhance(img, outscale=scale)
+                # 結果の保存 (WebP形式)
+                print(f'Upscaled  {output}')
+                return output
+
+
 def resize_image(img, max_dimension):
     """アスペクト比をできるだけ維持しつつ、両辺をできるだけ32の倍数に近づける
 
@@ -91,20 +128,26 @@ def get_next_sequence_number(output_folder, parent_folder):
     return len(existing_files) + 1
 
 
-def process_image(output_folder, file_path, parent_folder):
+def process_image(output_folder, file_path, parent_folder, up_img):
     """画像を変換して保存
     """
     resized_folder = output_folder / file_path.parent.stem
     sequence = get_next_sequence_number(resized_folder, parent_folder)
 
-    with Image.open(file_path) as img:
-        img = convert_to_srgb(img)
-        img = resize_image(img, TARGET_RESOLUTION)
-        output_path = resized_folder / f"{parent_folder}_{sequence}.webp"
+    if up_img is not None:
+        img = up_img
+    elif file_path.suffix in IMAGE_EXTENSIONS:
+        img = Image.open(file_path)
+    else:
+        return  # 画像ファイルではないため処理をスキップ
 
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        img.save(output_path, 'WEBP')
-        print(f'Saved webp File: {output_path}')
+    img = convert_to_srgb(img)
+    img = resize_image(img, TARGET_RESOLUTION)
+    output_path = resized_folder / f"{parent_folder}_{sequence}.webp"
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(output_path, 'WEBP')
+    print(f'Saved webp File: {output_path}')
 
     for suffix in TEXT_EXTENSIONS:
         text_file_path = file_path.parent / file_path.with_suffix(suffix)
@@ -112,6 +155,7 @@ def process_image(output_folder, file_path, parent_folder):
             output_text_path = resized_folder / f"{parent_folder}_{sequence}{suffix}"
             shutil.copy(text_file_path, output_text_path)
             print(f'Saved {suffix}: {output_text_path}')
+
 
 
 def auto_crop_image(image):
@@ -191,21 +235,26 @@ def image_resize(output_folder):
                 with Image.open(file_path) as img:
                     max_dimension = max(img.width, img.height)
 
-                # 解像度が未満の画像を移動
-                # 指定解像度以下移動先 スクリプトと同じ階層にunder_res_folderを作って
-                # 画像が入っているフォルダと同じ名前のフォルダを作成
-                under_res_folder = Path(f'.\\under-{TARGET_RESOLUTION}') / parent_folder
-                # under_res_folderがない場合は作成しないとエラーになる
-                if not under_res_folder.exists():
-                    under_res_folder.mkdir(parents=True)
+            # 解像度が未満の画像を移動
+            # 指定解像度以下移動先 スクリプトと同じ階層にunder_res_folderを作って
+            # 画像が入っているフォルダと同じ名前のフォルダを作成
+            under_res_folder = Path(f'.\\under-{TARGET_RESOLUTION}') / parent_folder
+            # under_res_folderがない場合は作成しないとエラーになる
+            if not under_res_folder.exists():
+                under_res_folder.mkdir(parents=True)
 
-                if max_dimension < TARGET_RESOLUTION:
+            if max_dimension < TARGET_RESOLUTION:
+                if REALESRGANER_UPSCALE:
+                    # RealESRGANerでアップスケール
+                    up_img = upscale_images_to_webp(file_path)
+                    process_image(output_folder, file_path, parent_folder, up_img=None)
+                else:
                     #ちっちゃい画像とそれに付随するテキストファイルを移動
                     move_low_resolution_images(file_path)
 
-                else:
-                    # 画像を変換して保存
-                    process_image(output_folder, file_path, parent_folder)
+            else:
+                # 画像を変換して保存
+                process_image(output_folder, file_path, parent_folder, up_img=None)
 
 
 if __name__ == "__main__":

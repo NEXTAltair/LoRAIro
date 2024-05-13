@@ -28,15 +28,25 @@ def clean_format(text):
     Returns:
         str: クリーニング後のテキスト。
     """
-    #TODO: 文字をいれるための""で括られた部分をエスケープ
+    text = re.sub(r'\"', '\"', text) # ダブルクォートをエスケープ
     text = re.sub(r'\*\*', '', text) # GPT4 visionがたまに付けるマークダウンの強調を削除
     text = re.sub(r'\.\s*$', ', ', text) # ピリオドをカンマに変換
     text = re.sub(r'\.\s*(?=\S)', ', ', text)  # ピリオド後にスペースがあればカンマとスペースに置換し、新しい単語が続く場合はその前にスペースを追加
     text = re.sub(r'\.\n', ', ', text)  # 改行直前のピリオドをカンマに変換
-    text = re.sub(r'\n+', ', ', text) # 改行をカンマに変換
-    text = re.sub(r'\u2014', ' ', text) # エムダッシュをスペースに変換
-    text = re.sub(r'\(', '\\(', text)  # '(' を '\(' にエスケープ
-    text = re.sub(r'\)', '\)', text)  # ')' を '\)' にエスケープ
+    text = re.sub(r'\\n+', ', ', text) # 改行をカンマに変換
+    text = re.sub(r'\\u2014', ' ', text) # エムダッシュをスペースに変換
+    text = re.sub(r'\(', r"\(", text)  # '(' を '\(' にエスケープ
+    text = re.sub(r'\)', r"\)", text)  # ')' を '\)' にエスケープ
+    return text
+
+
+def clean_repetition(text):
+    #重複した\を消す
+    text = re.sub(r'\\+', r"\\", text)
+    #重複した,を消す
+    text = re.sub(r',+', r",", text)
+    #重複したスペースを消す
+    text = re.sub(r'\s+', r" ", text)
     return text
 
 def clean_underscore(tags):
@@ -181,6 +191,7 @@ if __name__ == '__main__':
             tags = f.read()
         tags = clean_format(tags)
         tags = clean_tags(tags)
+        tags = clean_repetition(tags)
         with open(text_path, 'w', encoding='utf-8') as f:
             f.write(tags)
         print(f'Cleaned: {text_path.name}')
