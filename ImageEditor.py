@@ -13,6 +13,7 @@ import numpy as np
 import io
 import shutil
 from PIL import Image, ImageCms
+import imageio
 import torch
 
 #venv\Lib\site-packages\basicsr\data\degradations.py
@@ -32,7 +33,7 @@ CROP = False # クロップの使用
 REALESRGANER_UPSCALE = False # TARGET_RESOLUTION以下の画像をRealESRGANerでアップスケールするかどうか
 REALESRGAN_MODEL = "RealESRGAN_x4plus_anime_6B.pth" # RealESRGANのモデルパス
 
-RESIZE_FOLDER = Path(r'H:\lora\asscutout-XL\img') # 変換リサイズ対象のフォルダ
+RESIZE_FOLDER = Path(r'H:\lora\Fatima-XL\img\1Fatima_ADD') # 変換リサイズ対象のフォルダ
 CROP_FOLDER = Path(r"H:\lora\素材リスト\スクリプト\testimg\bordercrop") # クロップ対象の画像フォルダ
 TARGET_RESOLUTION = 1024 #512  # 長辺のピクセル数
 IMAGE_EXTENSIONS = ['.jpg', '.png', '.bmp', '.gif', '.tif', '.tiff', '.jpeg', '.webp'] # 処理対象の画像ファイルの拡張子
@@ -229,11 +230,13 @@ def image_resize(output_folder):
     for file_path in RESIZE_FOLDER.rglob('*'):
         if file_path.is_file():
             parent_path = file_path.parent #変換前の画像が入っているフォルダのpath
-            parent_folder = parent_path.relative_to(RESIZE_FOLDER) #変換前の画像が入っているフォルダの名前
+            parent_folder = parent_path.name #変換前の画像が入っているフォルダの名前
             _, ext = file_path.stem, file_path.suffix.lower() #拡張子
             if ext in IMAGE_EXTENSIONS:
                 with Image.open(file_path) as img:
                     max_dimension = max(img.width, img.height)
+            else:
+                continue
 
             # 解像度が未満の画像を移動
             # 指定解像度以下移動先 スクリプトと同じ階層にunder_res_folderを作って
