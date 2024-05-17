@@ -16,12 +16,12 @@ from cleanup_txt import clean_format, clean_tags, clean_caption
 
 #Path
 #学習元画像ファイルがあるディレクトリ
-IMAGE_FOLDER = Path(r'H:\lora\Fatima-XL\img\1_Fatima_002')
+IMAGE_FOLDER = Path(r'H:\lora\Colombine\ups_Processed\ups')
 
 #分割されてないjsonlファイルのパス
 JSONL_FILE_PATH = Path(r'')
 #分割されたjsonlファイルがある場合のディレクトリ
-JSONL_FILE_FOLDER = Path(r'H:\lora\素材リスト\スクリプト\jsonl')
+JSONL_FILE_FOLDER = Path(r'')
 
 #出力ディレクトリ(結合されたjsonlファイル、meta_clean.json､APIエラーを起こした画像の保存先)
 #TagとCaptionを別々に保存する場合は画像の存在するフォルダに保存されるので指定不要
@@ -29,6 +29,7 @@ output_dir =  Path(r'H:\lora\素材リスト\スクリプト\Testoutput')
 
 # 設定
 MODEL = "gpt-4o"
+ADDITIONAL_PROMPT = "This girl is called Colombine, an Automata from the manga 'Karakuri Circus'. The images feature her in various outfits suited to different seasons, or are cropped versions of such images. She usually wears gothic lolita fashion." #AIが理解しにくい画像の特徴やタグを追加する場合に使用
 GENERATE_BATCH_JSONL = False #バッチ処理用JSONを生成するか
 SPLIT_JSONL_UPLOADS = False #分割したJSONLファイルをアップロードするか
 NSFW_IMAGE = True #
@@ -87,15 +88,20 @@ def generate_openai_payload(model, base64img, api_key=None, img_id=None):
         tuple: headers (if api_key is provided), payload
     """
     prompt = "As an AI image tagging expert, your role is to provide accurate and specific tags for images to improve the CLIP model's performance. \
-                    Each image should have tags that accurately capture its main subjects, setting, artistic style, composition, and technical details like image quality and camera settings. \
-                    For images of people, detail gender, attire, actions, pose, expressions, and any notable accessories. \
-                    For landscapes or objects, focus on the material, historical context, and any significant features. \
-                    Always use precise and specific tags—prefer \"Gothic cathedral\" over \"building\" Avoid duplicative tags. \
-                    Each set of tags should be unique and relevant, separated only by commas, and kept within a 50-150 word count. \
-                    Also, provide a concise 1-2 sentence caption that captures the image's narrative or essence. \
-                    High-quality tagging and captioning will be compensated at $10 per image, rewarding exceptional clarity and precision that enhance image recreation"
+            Each image should have tags that accurately capture its main subjects, setting, artistic style, composition, and technical details like image quality and camera settings. \
+            For images of people, detail gender, attire, actions, pose, expressions, and any notable accessories. \
+            For landscapes or objects, focus on the material, historical context, and any significant features. \
+            Always use precise and specific tags—prefer \"gothic cathedral\" over \"building.\" Avoid duplicative tags. \
+            Each set of tags should be unique and relevant, separated only by commas, and kept within a 50-150 word count. \
+            Use tags that adhere to DANBOORU or e621 tagging conventions. \
+            Also, provide a concise 1-2 sentence caption that captures the image's narrative or essence. \
+            High-quality tagging and captioning will be compensated at $10 per image, rewarding exceptional clarity and precision that enhance image recreation."
     headers = {}
-    if api_key:
+
+    if ADDITIONAL_PROMPT:
+        prompt = f"{ADDITIONAL_PROMPT}\n\n{prompt}"
+
+    if api_key: #即レス用のヘッダーを生成
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}"
@@ -118,7 +124,7 @@ def generate_openai_payload(model, base64img, api_key=None, img_id=None):
         "max_tokens": 3000
     }
 
-    if img_id:
+    if img_id: #ある場合はバッチAPI用のペイロードを生成
         bach_payload = {
             "custom_id": img_id,
             "method": "POST",
@@ -304,7 +310,7 @@ def generate_caption_openai(model, base64img):
         return "Error generating caption: " + response.text
 
 
-def move_error_images(image_key, filename):
+def move_error_images(file_path):
     """APIがエラーを出した画像をエラー画像フォルダに移動する
     Args:
         image_key (str): エラーを出したwebpのフルパス
@@ -316,8 +322,9 @@ def move_error_images(image_key, filename):
     if not error_images_folder.exists():
         error_images_folder.mkdir(parents=True)
 
-    error_image_path = error_images_folder / f"{filename}.webp"
-    Path(image_key).rename(error_image_path)
+    error_image_path = error_images_folder / file_path.parent.name.suffix
+    Path(file_path).rename(error_image_path)
+    return error_image_path
 
 
 def create_data(json_list, file=None):
@@ -371,10 +378,12 @@ def create_data(json_list, file=None):
         if tags_index == -1 or caption_index == -1:
             print(f"Error Information:\n"
                 f"Filename: {filename}\n"
-                f"Image Key: {image_key}\n"
+                f"Image Key: {file_path}\n"
                 f"Content: {content}\n"
                 f"-----")
-            move_error_images(image_key, filename)
+            error_image_path = move_error_images(file)
+            print(f"Moved error image to {error_image_path}")
+            continue
 
         # タグとキャプションのテキストを抽出
         tags_text = content[tags_index + len('Tags:'):caption_index].strip()
