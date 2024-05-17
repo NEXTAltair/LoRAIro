@@ -7,6 +7,7 @@ PATTERN_HAIR_LENGTH = re.compile(r'(long|short|medium) hair')
 PATTERN_HAIR_CUT = re.compile(r'(bob|hime) cut')
 PATTERN_HAIR = re.compile(r'([\w\-]+) hair')
 PATTERN_WORD = re.compile(r'([\w\-]+|hair ornament)')
+PATTERN_STYLES = re.compile(r'anime|cartoon|manga', re.IGNORECASE)
 
 # 複数人がいるとき、複数の髪色や目の色が定義されていれば削除する
 PATTERNS_REMOVE_IN_MULTI = [
@@ -111,6 +112,29 @@ def clean_color_Object(tags_dict):
 
     return tags_dict
 
+def clean_Style(tags_dict):
+    """anime styleとanime artみたい重複タグをanimeに統一する"""
+    # 単語の出現を記録する辞書
+    word_tags = {}
+
+    for key, tag in tags_dict.items():
+        unified_tag = tag
+        match = PATTERN_STYLES.search(tag)
+        if match:
+            unified_tag = match.group().lower()  # 統一するタグを小文字に変換
+        word_tags[key] = unified_tag
+
+    # 重複タグの削除
+    seen_tags = set()
+    cleaned_tags_dict = {}
+    for key, tag in word_tags.items():
+        if tag not in seen_tags:
+            seen_tags.add(tag)
+            cleaned_tags_dict[key] = tag
+
+    return cleaned_tags_dict
+
+
 def tags_to_dict(tags):
     """タグを辞書に変換する"""
     # タグをカンマで分割し、不要な空白を取り除く
@@ -135,6 +159,7 @@ def clean_tags(tags):
         tags_dict = clean_individual_tags(tags_dict)
 
     tags_dict = clean_color_Object(tags_dict)
+    tags_dict = clean_Style(tags_dict)
 
     # クリーニングされたタグをカンマで再結合
     final_tags = ", ".join(tag for _, tag in tags_dict.items() if tag and tag != "***")
