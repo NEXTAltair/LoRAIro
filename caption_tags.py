@@ -16,7 +16,7 @@ from cleanup_txt import clean_format, clean_tags, clean_caption
 
 #Path
 #学習元画像ファイルがあるディレクトリ
-IMAGE_FOLDER = Path(r'H:\lora\Colombine\ups_Processed\ups')
+IMAGE_FOLDER = Path(r'H:\lora\Sadamitsu-XL\img_v04')
 
 #分割されてないjsonlファイルのパス
 JSONL_FILE_PATH = Path(r'')
@@ -29,15 +29,16 @@ output_dir =  Path(r'H:\lora\素材リスト\スクリプト\Testoutput')
 
 # 設定
 MODEL = "gpt-4o"
-ADDITIONAL_PROMPT = "This girl is called Colombine, an Automata from the manga 'Karakuri Circus'. The images feature her in various outfits suited to different seasons, or are cropped versions of such images. She usually wears gothic lolita fashion." #AIが理解しにくい画像の特徴やタグを追加する場合に使用
-GENERATE_BATCH_JSONL = False #バッチ処理用JSONを生成するか
-SPLIT_JSONL_UPLOADS = False #分割したJSONLファイルをアップロードするか
-NSFW_IMAGE = True #
+ADDITIONAL_PROMPT = "The image is a capture of Sadamitsu Usui from the game 'O.TO.GI: Hyakki Toubatsu Emaki' released by FromSoftware on XBOX. She is an early teenage girl wearing a long-layered kimono with a ribbon-like butterfly-tied obi. Underneath the long kimono, she wears hakama and thick-soled zori. She has black hair with parted bangs, hair tubes, sidelocks, and hair rings. Her back hair is styled in a looped ponytail, and she has a mark on her forehead with two dots. Her side hair is held with orb-like hair ornaments. She wields a large scythe as a weapon and has a crow as a familiar. The image is an upscaled capture of an old 3D game, so the original quality is coarse with many blur effects, including depth of field and a blurry background."
+ #AIが理解しにくい画像の特徴やタグを追加する場合に使用
+GENERATE_BATCH_JSONL = True #バッチ処理用JSONを生成するか
+SPLIT_JSONL_UPLOADS = True #分割したJSONLファイルをアップロードするか
+NSFW_IMAGE = False #
 
 #オプション設定
 GERERATE_META_CLEAN = True # meta_clean.jsonを生成するかどうか
 GERERATE_TAGS_AND_CAPTIONS_TXT = True # タグとキャプションを別々にしたテキストファイルを生成するかどうか
-JOIN_EXISTING_TXT = True # 既存のタグとキャプションがある場合新規のものとを結合するかどうか
+JOIN_EXISTING_TXT = True # 既存のタグとキャプションがある場合新規のものとを結合するかどうか,その後クリーニングもする
 
 
 config = configparser.ConfigParser()
@@ -131,8 +132,9 @@ def generate_openai_payload(model, base64img, api_key=None, img_id=None):
             "url": "/v1/chat/completions",
             "body": payload
         }
+        return bach_payload
 
-    return headers, payload if api_key else bach_payload
+    return payload
 
 
 def save_jsonline_to_file(batch_payload, jsonl_filename):
@@ -322,7 +324,7 @@ def move_error_images(file_path):
     if not error_images_folder.exists():
         error_images_folder.mkdir(parents=True)
 
-    error_image_path = error_images_folder / file_path.parent.name.suffix
+    error_image_path = error_images_folder / file_path.name
     Path(file_path).rename(error_image_path)
     return error_image_path
 
@@ -483,9 +485,12 @@ def caption_gpt4(input_dir):
 if __name__ == "__main__":
     if GENERATE_BATCH_JSONL:
         caption_batch(IMAGE_FOLDER, MODEL)
-
-    # GPT-4でキャプション生成
-    caption_gpt4(IMAGE_FOLDER)
+        if SPLIT_JSONL_UPLOADS:
+            uplode_file_id = upload_bach_jsonl('instructions.jsonl', api_key)
+            start_batch_processing(uplode_file_id, api_key)
+    else:
+        # GPT-4で即時
+        caption_gpt4(IMAGE_FOLDER)
 
     # if JSONL_FILE_FOLDER.is_dir():
     #     #指定されてる場合はJSOLファイルを結合するとみなす
