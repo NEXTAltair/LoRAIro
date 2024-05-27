@@ -1,7 +1,5 @@
 """
-OpenAIのAPIを利用して取得したJSONLファイルから、メタデータを生成するスクリプト
-メタデータは、画像のファイル名、パス、キャプション、タグの情報を含む辞書のリストを作成する
-メタデータは、meta_clean.jsonとして保存される
+APIを利用してtagとcaptionをいい感じに生成するスクリプト
 """
 #https://github.com/kohya-ss/sd-scripts/blob/main/finetune/merge_captions_to_metadata.py
 #https://github.com/kohya-ss/sd-scripts/blob/main/finetune/merge_dd_tags_to_metadata.py
@@ -14,36 +12,38 @@ import requests
 from cleanup_txt import clean_format, clean_tags, clean_caption
 import google.generativeai as genai
 
-#Path
-#学習元画像ファイルがあるディレクトリ
-IMAGE_FOLDER = Path(r'H:\lora\Sadamitsu-XL\img_v04')
-#分割されてないjsonlファイルのパス
-JSONL_FILE_PATH = Path(r"")
-#分割されたjsonlファイルがある場合のディレクトリ
-JSONL_FILE_FOLDER = Path(r'')
-#出力ディレクトリ(結合されたjsonlファイル、meta_clean.json､APIエラーを起こした画像の保存先)
-#TagとCaptionを別々に保存する場合は画像の存在するフォルダに保存されるので指定不要
-output_dir =  Path(r'H:\lora\素材リスト\スクリプト\Testoutput')
+# コンソールからユーザー入力を受け取る関数を追加
+def get_input_path(prompt):
+    return Path(input(prompt).strip())
+
+# コンソール入力を受け取るように変更
+IMAGE_FOLDER = Path(r"testimg\01")#get_input_path("学習元画像ファイルがあるディレクトリ: ")
+RESPONSE_FILE_FOLDER = Path(r"test_res_jsonl")#get_input_path("完了したバッチ(jsonl)ファイルのディレクトリ: ")
+output_dir = Path("Testoutput") #get_input_path("出力ディレクトリ (結合されたjsonlファイル、meta_clean.json､APIエラーを起こした画像の保存先): ")
 
 # 設定
 MODEL = "gpt-4o"
-GENERATE_BATCH_JSONL = False #バッチ処理用JSONを生成するか
-JSONL_UPLOADS = False #JSONLファイルをアップロードとバッチ処理を開始するか
-NSFW_IMAGE = False #
+GENERATE_BATCH_JSONL = input("バッチ処理用JSONを生成? (True/False): ").strip().lower() == 'true'
+GENERATE = input("即時生成?? (True/False): ").strip().lower() == 'true'
+JSONL_UPLOADS = input("JSONLファイルをアップロードとバッチ処理を開始? (True/False): ").strip().lower() == 'true'
+NSFW_IMAGE = input("NSFW画像を含む? (True/False): ").strip().lower() == 'true'
 
-#オプション設定
-GERERATE_META_CLEAN = False # meta_clean.jsonを生成するかどうか
-GERERATE_TAGS_AND_CAPTIONS_TXT = True # タグとキャプションを別々にしたテキストファイルを生成するかどうか
-JOIN_EXISTING_TXT = False # 既存のタグとキャプションがある場合新規のものとを結合するかどうか,その後クリーニングもする
+# オプション設定
+GERERATE_META_CLEAN = input("meta_clean.jsonを生成? (True/False): ").strip().lower() == 'true'
+GERERATE_TAGS_AND_CAPTIONS_TXT = bool("true") #input("タグとキャプションを別々にしたテキストファイルを生成? (True/False): ").strip().lower() == 'true'
+JOIN_EXISTING_TXT = input("既存のタグとキャプションがある場合新規のものとを結合? Falseは上書き保存(True/False): ").strip().lower() == 'true'
 
-ADDITIONAL_PROMPT = "sadamitsu, 1girl, kimono" #AIが理解しにくい画像の特徴やタグを追加する場合に使用
+# プロンプトの設定
 VISIONPROMPT = "As an AI image tagging expert, your role is to provide accurate and specific tags for images to improve the CLIP model's performance. \
                 Each image should have tags that accurately capture its main subjects, setting, artistic style, composition, and technical details like image quality and camera settings. For images of people, detail gender, attire, actions, pose, expressions, and any notable accessories. \
                 For landscapes or objects, focus on the material, historical context, and any significant features. Always use precise and specific tags—prefer \"gothic cathedral\" over \"building.\" Avoid duplicative tags. Each set of tags should be unique and relevant, separated only by commas, and kept within a 50-150 word count. Use tags that adhere to DANBOORU or e621 tagging conventions. Also, provide a concise 1-2 sentence caption that captures the image's narrative or essence. \
                 Ensure that the tags accurately reflect the content of the image. Avoid including tags for elements not present in the image. Focus on the visible details and specific characteristics of the character and setting. \
                 High-quality tagging and captioning will be compensated at $10 per image, rewarding exceptional clarity and precision that enhance image recreation."
-
-prompt = f"{ADDITIONAL_PROMPT}\n\n{VISIONPROMPT}"
+if GENERATE_BATCH_JSONL or GENERATE:
+    ADDITIONAL_PROMPT = input("AIが理解しにくい画像の特徴やタグを追加する場合のプロンプト: ").strip()
+    prompt = f"{ADDITIONAL_PROMPT}\n\n{VISIONPROMPT}"
+else:
+    prompt = VISIONPROMPT
 
 config = configparser.ConfigParser()
 config.read('apikey.ini')
@@ -53,7 +53,7 @@ google_api_key = config['KEYS']['google_api_key']
 
 class ImageData:
     def __init__(self, image_folder):
-        self.image_folder = Path(image_folder)
+        self.image_folder = image_folder
         self.data = self._load_images()
 
     def _load_images(self):
@@ -105,7 +105,7 @@ class Metadata:
         Args:
             json_input (list or dict): JSONオブジェクトのリストまたは辞書。各オブジェクトは読み込んだJSONLの一行から得られる。
         Returns:
-            list of dict: ファイル名、パス、キャプション、タグ情報を含む辞書のリスト。
+            dict: ファイル名、パス、キャプション、タグ情報を含む辞書
         """
         # json_inputが辞書の場合はリストに変換
         if isinstance(json_input, dict):
@@ -114,6 +114,10 @@ class Metadata:
             json_list = json_input
 
         for data in json_list:
+            if data.get('error') is not None:
+                move_error_images(file)
+                continue
+
             if file:
                 content = json_list[0]['choices'][0]['message']['content']
                 image_key = Path(file)
@@ -124,15 +128,15 @@ class Metadata:
                 custom_id = data.get('custom_id')
                 # self.metadata.data と照合する
                 matching_image = None
-                for image_key, value in Self.metadata.data.items():
+                for _, value in Self.metadata.data.items():
                     if value['name'] == custom_id or value['path'] == custom_id:
                         matching_image = value
                         break
-
                 if not matching_image:
                     print(f"画像ディレクトリに{custom_id}が存在しない\n"
                             "IMAGE_FOLDERの指定ミスか学習からハネた")
                     continue
+                image_key = matching_image['path']
 
                 # Path オブジェクトに変換
                 image_path = Path(image_key)
@@ -140,8 +144,7 @@ class Metadata:
                 file_path = image_path.parent
 
                 # JSONデータからタグとキャプションとタグを抽出して保存
-                content = json_list[1]['response']['body']['choices'][0]['message']['content']
-                image_key = file
+                content = data['response']['body']['choices'][0]['message']['content']
 
             content = clean_format(content)
 
@@ -475,28 +478,28 @@ class GoogleAI:
         return tags, caption
 
 
-def process_jsonl_files(input_path, join_files=False):
+def process_jsonl_files(input_path, file_count):
     """
     JSONLファイルを処理し、内容を読み込むか、複数のファイルを結合する。
     Args:
         input_path (Path): JSONLファイルのパスまたは結合するファイルが格納されたディレクトリ。
-        join_files (bool): 複数のファイルを結合するかどうか。
+        file_count (int): フォルダ内のファイル数
     Returns:
-        list or list: JSONオブジェクトのリスト、または結合した場合の行のリスト。
+        list or list: JSONオブジェクトのリスト
     """
-    if join_files:
-        # ディレクトリからすべてのJSONLファイルを結合
-        jsonl_files = list(input_path.glob('*.jsonl'))
-        combined_lines = []
-        for jsonl_file in jsonl_files:
-            with open(jsonl_file, 'r', encoding='utf-8') as infile:
-                combined_lines.extend(infile.readlines())
-        data = [json.loads(line.strip()) for line in combined_lines]
-    else:
-        # 単一のファイルを読み込む
-        with open(input_path, 'r', encoding='utf-8') as file:
-            data = [json.loads(line.strip()) for line in file]
-        return data
+    # if file_count >= 2:
+    # ディレクトリからすべてのJSONLファイルを結合
+    jsonl_files = list(input_path.glob('*.jsonl'))
+    combined_lines = []
+    for jsonl_file in jsonl_files:
+        with open(jsonl_file, 'r', encoding='utf-8') as infile:
+            combined_lines.extend(infile.readlines())
+    data = [json.loads(line.strip()) for line in combined_lines]
+    # else:
+    #     # 単一のファイルを読み込む
+    #     with open(input_path, 'r', encoding='utf-8') as file:
+    #         data = [json.loads(line.strip()) for line in file]
+    return data
 
 
 def save_jsonline_to_file(batch_payload, jsonl_filename):
@@ -553,21 +556,21 @@ def move_error_images(file_path):
 
 
 def save_tags_and_captions(metadata, filename=None):
-    """ImageDataオブジェクトの変数から.txtと.captionファイルを生成する
+    """dictの変数から.txtと.captionファイルを生成する
     Args:
-        metadata (list): JSONオブジェクトのリスト
+        metadata (dict): JSONオブジェクト
     """
     # metadataからimage_key､tags, captionを取得
-    for data in metadata.data:
+    for image_key, value in metadata.items():
         if data!= 'id':
-            filename = metadata.data[data]['name']
-            image_folder = Path(metadata.data[data]['path']).parent
-            tags = metadata.data[data]['tags']
-            caption = metadata.data[data]['caption']
+            filename = value['name']
+            image_folder = Path(value['path']).parent
+            tags = value['tags']
+            caption = value['caption']
         else:
             image_folder = Path(filename).parent
-            tags = metadata.data[data]['tags']
-            caption = metadata.data[data]['caption']
+            tags = value['tags']
+            caption = value['caption']
 
         # ファイル名の準備
         tags_filename = f"{filename}.txt"
@@ -632,20 +635,25 @@ if __name__ == "__main__":
         if JSONL_UPLOADS:
             uplode_file_id = oai.upload_jsonl_file(jsonl_path)
             oai.start_batch_processing(uplode_file_id)
+            print("バッチ処理が終了したらjsonlパスを指定して再度実行")
             exit() #バッチ処理が開始されたら終了
-    else:
+    elif GENERATE:
         # GPT-4で即時
         caption_gpt4(img, data, oai)
         exit()
 
-    if JSONL_FILE_FOLDER != Path('.') and JSONL_FILE_FOLDER.is_dir():
-        # 指定されている場合はJSONLファイルを結合するとみなす
-        response_jsonl_data = process_jsonl_files(JSONL_FILE_FOLDER, join_files=True)
-    else:
-        response_jsonl_data = process_jsonl_files(JSONL_FILE_PATH)
+    if RESPONSE_FILE_FOLDER.is_dir():
+        jsonl_count = len(list(RESPONSE_FILE_FOLDER.glob('*.jsonl')))
+        file_count = len(list(RESPONSE_FILE_FOLDER.glob('*')))
+        if jsonl_count == file_count:
+            response_jsonl_data = process_jsonl_files(RESPONSE_FILE_FOLDER, file_count)
+        else:
+            print("レスポンスのjsonl以外のファイルがある｡Pathをミスってる可能性")
+            exit()
+
 
     if GERERATE_META_CLEAN:
-        metadata = json_to_metadata(response_jsonl_data)
+        metadata = data.json_to_metadata(response_jsonl_data)
     if GERERATE_TAGS_AND_CAPTIONS_TXT:
         metadata = data.create_data(response_jsonl_data)
         save_tags_and_captions(metadata)
