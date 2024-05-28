@@ -17,8 +17,8 @@ def get_input_path(prompt):
     return Path(input(prompt).strip())
 
 # コンソール入力を受け取るように変更
-IMAGE_FOLDER = Path(r"testimg\01")#get_input_path("学習元画像ファイルがあるディレクトリ: ")
-RESPONSE_FILE_FOLDER = Path(r"test_res_jsonl")#get_input_path("完了したバッチ(jsonl)ファイルのディレクトリ: ")
+IMAGE_FOLDER = get_input_path("学習元画像ファイルがあるディレクトリ: ")
+RESPONSE_FILE_FOLDER = get_input_path("完了したバッチ(jsonl)ファイルのディレクトリ: ")
 output_dir = Path("Testoutput") #get_input_path("出力ディレクトリ (結合されたjsonlファイル、meta_clean.json､APIエラーを起こした画像の保存先): ")
 
 # 設定
@@ -115,16 +115,17 @@ class Metadata:
 
         for data in json_list:
             if data.get('error') is not None:
+                file = Path(file)
                 move_error_images(file)
                 continue
 
-            if file:
+            if file: #即時生成の場合
                 content = json_list[0]['choices'][0]['message']['content']
                 image_key = Path(file)
                 custom_id = image_key.stem
                 image_key = str(image_key.resolve())
 
-            elif 'custom_id' in data:
+            elif 'custom_id' in data: #バッチ生成の場合
                 custom_id = data.get('custom_id')
                 # self.metadata.data と照合する
                 matching_image = None
@@ -133,7 +134,7 @@ class Metadata:
                         matching_image = value
                         break
                 if not matching_image:
-                    print(f"画像ディレクトリに{custom_id}が存在しない\n"
+                    print(f"画像ディレクトリに｢ {custom_id} ｣が存在しない\n"
                             "IMAGE_FOLDERの指定ミスか学習からハネた")
                     continue
                 image_key = matching_image['path']
@@ -146,6 +147,14 @@ class Metadata:
                 # JSONデータからタグとキャプションとタグを抽出して保存
                 content = data['response']['body']['choices'][0]['message']['content']
 
+            else: #API不使用でデータのクリーンナップのみの場合
+                image_key = data['path']
+                image_path = Path(image_key)
+                file_path = image_path.parent
+                custom_id = image_path.stem
+                content = "Tags: " + Self.metadata.data[image_key]['existing_tags'] + " Caption: " + Self.metadata.data[image_key]['existing_caption']
+
+
             content = clean_format(content)
 
             # 'Tags:' と 'Caption:' が何番目に含まれているかを見つける
@@ -155,13 +164,12 @@ class Metadata:
             # 'Tags:' か 'Caption:'が含まれていない場合はAPIエラーか弾かれているので例外処理
             # APIの処理のブレでたまに｢### Tsgs,｣や｢###Captin,｣で始まることがあるのでそれも弾く
             # 数は多くないので手動で処理してくれることを期待
-            if tags_index == -1 or caption_index == -1:
+            if tags_index == -1 and caption_index == -1:
                 print(f"Error Information:\n"
-                    f"Image Key: {file_path}\n"
+                    f"Image Key: {image_key}\n"
                     f"Content: {content}\n"
                     f"-----")
-                error_image_path = move_error_images(file_path)
-                print(f"Moved error image to {error_image_path}")
+                move_error_images(Path(image_key)) # TODO:
                 continue
 
             # タグとキャプションのテキストを抽出
@@ -181,8 +189,8 @@ class Metadata:
                 "tags": tags,
                 "caption": caption
             })
-
-        return Self.metadata.data
+        data = Self.metadata.data
+        return data
 
     def json_to_metadata(Self):
         """ImageDataオブジェクトの変数からKohya/sd-scripts用メタデータを生成する
@@ -541,8 +549,7 @@ def split_jsonl(jsonl_path, jsonl_size):
 def move_error_images(file_path):
     """APIがエラーを出した画像をエラー画像フォルダに移動する
     Args:
-        image_key (str): エラーを出したwebpのフルパス
-        filename (stt): エラーを出したwebpのファイル名
+        file_path (Path): エラーを出したwebpのフルパス
     """
     # エラー画像を保存するフォルダを作成
     error_images_folder = output_dir / 'API_error_images'
@@ -552,6 +559,7 @@ def move_error_images(file_path):
 
     error_image_path = error_images_folder / file_path.name
     Path(file_path).rename(error_image_path)
+    print(f"この場合うっかりエロ画像をAPIに投げた可能性がある \n 対象ファイル: {file_path.name}")
     return error_image_path
 
 
@@ -565,21 +573,24 @@ def save_tags_and_captions(metadata, filename=None):
         if data!= 'id':
             filename = value['name']
             image_folder = Path(value['path']).parent
-            tags = value['tags']
-            caption = value['caption']
+            tags = value.get('tags') # きーがない場合はNoneを返す
+            caption = value.get('caption') #APIの時やタグ付けせずにクリーンナップのみの時
         else:
             image_folder = Path(filename).parent
-            tags = value['tags']
-            caption = value['caption']
+            tags = value.get('tags')
+            caption = value.get('caption')
 
         # ファイル名の準備
         tags_filename = f"{filename}.txt"
         caption_filename = f"{filename}.caption"
 
+        if tags is None and caption is None:
+            break
+
         if JOIN_EXISTING_TXT:
             # 既存のタグとキャプションを取得
-            existing_tags = metadata.data[data]['existing_tags']
-            existing_caption = metadata.data[data]['existing_caption']
+            existing_tags = metadata[image_key]['existing_tags']
+            existing_caption = metadata[image_key]['existing_caption']
 
             # 既存のタグとキャプションを新しいものと結合とクリーンアップ
             tags = existing_tags + tags
@@ -588,15 +599,22 @@ def save_tags_and_captions(metadata, filename=None):
             caption = clean_caption(caption)
 
         # タグをテキストファイルに保存
-        with open((image_folder / tags_filename), 'w', encoding='utf-8') as tags_file:
-            tags_file.write(tags)
+        if tags is not None:
+            tags_file_path = image_folder / tags_filename
+            if tags_file_path.exists():
+                with open(tags_file_path, 'w', encoding='utf-8') as tags_file:
+                    tags_file.write(tags)
+            else:
+                # Todo: とりあえずBREAK
+                break
 
         # キャプションをキャプションファイルに保存
-        with open((image_folder / caption_filename), 'w', encoding='utf-8') as cap_file:
-            cap_file.write(caption)
+        if caption is not None:
+            with open((image_folder / caption_filename), 'w', encoding='utf-8') as cap_file:
+                cap_file.write(caption)
 
-        print(f"Saved tags to {tags_filename}")
-        print(f"Saved caption to {caption_filename}")
+            print(f"Saved tags to {tags_filename}")
+            print(f"Saved caption to {caption_filename}")
 
 
 def write_to_file(filepath, content):
@@ -642,7 +660,7 @@ if __name__ == "__main__":
         caption_gpt4(img, data, oai)
         exit()
 
-    if RESPONSE_FILE_FOLDER.is_dir():
+    if RESPONSE_FILE_FOLDER != Path('.') and RESPONSE_FILE_FOLDER.is_dir():
         jsonl_count = len(list(RESPONSE_FILE_FOLDER.glob('*.jsonl')))
         file_count = len(list(RESPONSE_FILE_FOLDER.glob('*')))
         if jsonl_count == file_count:
@@ -655,7 +673,17 @@ if __name__ == "__main__":
     if GERERATE_META_CLEAN:
         metadata = data.json_to_metadata(response_jsonl_data)
     if GERERATE_TAGS_AND_CAPTIONS_TXT:
-        metadata = data.create_data(response_jsonl_data)
+        try:
+            if response_jsonl_data is not None:
+                metadata = data.create_data(response_jsonl_data)
+        except:
+            img_datas = []
+            for image_ley, img_data in img.data.items():
+                print(f'Processing {image_ley}...')
+                #valueをリストに追加
+                img_datas.append(img_data)
+
+            metadata = data.create_data(img_datas)
         save_tags_and_captions(metadata)
 
 
