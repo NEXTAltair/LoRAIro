@@ -152,7 +152,7 @@ class Metadata:
                 image_path = Path(image_key)
                 file_path = image_path.parent
                 custom_id = image_path.stem
-                content = "Tags: " + Self.metadata.data[image_key]['existing_tags'] + " Caption: " + Self.metadata.data[image_key]['existing_caption']
+                content = "Tags: " + Self.metadata.data[image_key]['existing_tags'] + ", Caption: " + Self.metadata.data[image_key]['existing_caption']
 
 
             content = clean_format(content)
@@ -568,6 +568,10 @@ def save_tags_and_captions(metadata, filename=None):
     Args:
         metadata (dict): JSONオブジェクト
     """
+    # TODO: 即時生成とバッチ生成の場合の分岐を追加
+    #metadataの中身が違うバッチだとファイルパスをキーにしたdict     for image_key, value in metadata.items():
+
+    
     # metadataからimage_key､tags, captionを取得
     for image_key, value in metadata.items():
         if data!= 'id':
@@ -593,15 +597,15 @@ def save_tags_and_captions(metadata, filename=None):
             existing_caption = metadata[image_key]['existing_caption']
 
             # 既存のタグとキャプションを新しいものと結合とクリーンアップ
-            tags = existing_tags + tags
-            caption = existing_caption + caption
+            tags = existing_tags + ", " + tags
+            caption = existing_caption + ", " + caption
             tags = clean_tags(tags)
             caption = clean_caption(caption)
 
         # タグをテキストファイルに保存
         if tags is not None:
             tags_file_path = image_folder / tags_filename
-            if tags_file_path.exists():
+            if not tags_file_path.exists():
                 with open(tags_file_path, 'w', encoding='utf-8') as tags_file:
                     tags_file.write(tags)
             else:
