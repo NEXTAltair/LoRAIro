@@ -26,7 +26,6 @@ MODEL = "gpt-4o"
 GENERATE_BATCH_JSONL = input("バッチ処理用JSONを生成? (True/False): ").strip().lower() == 'true'
 GENERATE = input("即時生成?? (True/False): ").strip().lower() == 'true'
 JSONL_UPLOADS = input("JSONLファイルをアップロードとバッチ処理を開始? (True/False): ").strip().lower() == 'true'
-NSFW_IMAGE = input("NSFW画像を含む? (True/False): ").strip().lower() == 'true'
 
 # オプション設定
 GERERATE_META_CLEAN = input("meta_clean.jsonを生成? (True/False): ").strip().lower() == 'true'
@@ -165,6 +164,7 @@ class Metadata:
             # APIの処理のブレでたまに｢### Tsgs,｣や｢###Captin,｣で始まることがあるのでそれも弾く
             # 数は多くないので手動で処理してくれることを期待
             if tags_index == -1 and caption_index == -1:
+                print(f"この場合うっかりエロ画像をAPIに投げた可能性がある")
                 print(f"Error Information:\n"
                     f"Image Key: {image_key}\n"
                     f"Content: {content}\n"
@@ -198,9 +198,8 @@ class Metadata:
         return: metadata (dict): メタデータ
         """
         metadata_clean = {}
-
         # metadataからimage_key､tags, captionを取得
-        for image_key, value in Self.metadata.data:
+        for image_key, value in Self.metadata.data.items():
             tags = value['tags']
             caption = value['caption']
 
@@ -305,7 +304,7 @@ class OpenAIApi:
 
 
     def caption_batch(self):
-        """#imageを走査してBachAPIのリクエストを生成
+        """#imageを走査してBachAPIのリクエストjsonlを生成
 
         Args:
             img (instance): ImageData インスタンス
@@ -314,6 +313,9 @@ class OpenAIApi:
         for image_key in oai.image_data.data:
             path = self.image_data.data[image_key]['path']
             path = Path(path)
+            #親フォルダ名を取得して nsfw が含まれるる場合そのフォルダに有る画像はスキップ
+            if "nsfw" in path.parent.name:
+                continue
             name = self.image_data.data[image_key]['name']
             if path.suffix == ".webp": #webp以外の画像の場合はリサイズ等の処理がされてないから無視
                 print(f'Processing {name}...')
@@ -559,21 +561,17 @@ def move_error_images(file_path):
 
     error_image_path = error_images_folder / file_path.name
     Path(file_path).rename(error_image_path)
-    print(f"この場合うっかりエロ画像をAPIに投げた可能性がある \n 対象ファイル: {file_path.name}")
     return error_image_path
 
 
-def save_tags_and_captions(metadata, filename=None):
-    """dictの変数から.txtと.captionファイルを生成する
+def save_tags_and_captions(imagedata, filename=None):
+    """instanceの変数から.txtと.captionファイルを生成する
     Args:
-        metadata (dict): JSONオブジェクト
+        imagedata (instance): JSONオブジェクト
     """
     # TODO: 即時生成とバッチ生成の場合の分岐を追加
-    #metadataの中身が違うバッチだとファイルパスをキーにしたdict     for image_key, value in metadata.items():
-
-    
-    # metadataからimage_key､tags, captionを取得
-    for image_key, value in metadata.items():
+    # imagedataからimage_key､tags, captionを取得
+    for image_key, value in imagedata.data.items():
         if data!= 'id':
             filename = value['name']
             image_folder = Path(value['path']).parent
@@ -591,10 +589,10 @@ def save_tags_and_captions(metadata, filename=None):
         if tags is None and caption is None:
             break
 
-        if JOIN_EXISTING_TXT:
+        if JOIN_EXISTING_TXT and imagedata.data[image_key].get('existing_tags') and imagedata.data[image_key].get('existing_caption'):
             # 既存のタグとキャプションを取得
-            existing_tags = metadata[image_key]['existing_tags']
-            existing_caption = metadata[image_key]['existing_caption']
+            existing_tags = imagedata.data[image_key]['existing_tags']
+            existing_caption = imagedata.data[image_key]['existing_caption']
 
             # 既存のタグとキャプションを新しいものと結合とクリーンアップ
             tags = existing_tags + ", " + tags
@@ -608,6 +606,9 @@ def save_tags_and_captions(metadata, filename=None):
             if not tags_file_path.exists():
                 with open(tags_file_path, 'w', encoding='utf-8') as tags_file:
                     tags_file.write(tags)
+            elif JOIN_EXISTING_TXT:
+                with open(tags_file_path, 'a', encoding='utf-8') as tags_file:
+                    tags_file.write(tags)
             else:
                 # Todo: とりあえずBREAK
                 break
@@ -617,8 +618,8 @@ def save_tags_and_captions(metadata, filename=None):
             with open((image_folder / caption_filename), 'w', encoding='utf-8') as cap_file:
                 cap_file.write(caption)
 
-            print(f"Saved tags to {tags_filename}")
-            print(f"Saved caption to {caption_filename}")
+            print(f"Saved tags to {tags_filename} \n {tags}")
+            print(f"Saved caption to {caption_filename} \n {caption}")
 
 
 def write_to_file(filepath, content):
@@ -638,19 +639,21 @@ def caption_gpt4(img, data, oai):
     """
     # フォルダを走査してキャプションの生成
     for file in img.data:
+        # 親フォルダ名にnsfwが含まれる場合はImagesDataの更新をスキップ
+        if "nsfw" in Path(file).parent.name:
+            return
         print(f'Processing {file}...')
-
         header, payload = oai.generate_payload(file)
         #キャプションの生成
         response = oai.generate_immediate_response(payload, header)
+        print(f"response: {response}")
         # responseを基にImagesDataの更新
         data.create_data(response, file)
-    save_tags_and_captions(img, file) # TODO:保存は一括じゃなくて個別にしたほうがいいかも
-
+    save_tags_and_captions(img, file)
 
 if __name__ == "__main__":
-    img = ImageData(IMAGE_FOLDER)
-    data = Metadata(img)
+    img = ImageData(IMAGE_FOLDER) #画像データの読み込み
+    data = Metadata(img) #画像データを編集するインスタンス
     oai = OpenAIApi(img)
     if GENERATE_BATCH_JSONL:
         jsonl_path = oai.caption_batch()
@@ -688,7 +691,9 @@ if __name__ == "__main__":
                 img_datas.append(img_data)
 
             metadata = data.create_data(img_datas)
-        save_tags_and_captions(metadata)
+            #metadata(dict)でInstanceの変数を更新
+            data.metadata = metadata
+        save_tags_and_captions(data)
 
 
 
