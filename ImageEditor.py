@@ -33,8 +33,8 @@ CROP = False # クロップの使用
 REALESRGANER_UPSCALE = False # TARGET_RESOLUTION以下の画像をRealESRGANerでアップスケールするかどうか
 REALESRGAN_MODEL = "RealESRGAN_x4plus_anime_6B.pth" # RealESRGANのモデルパス
 
-RESIZE_FOLDER = Path(r'H:\lora\Fatima-XL\img\1Fatima_ADD') # 変換リサイズ対象のフォルダ
-CROP_FOLDER = Path(r"H:\lora\素材リスト\スクリプト\testimg\bordercrop") # クロップ対象の画像フォルダ
+RESIZE_FOLDER = Path(r'H:\lora\shiromuku-XL\img') # 変換リサイズ対象のフォルダ
+CROP_FOLDER = Path(r"") # クロップ対象の画像フォルダ
 TARGET_RESOLUTION = 1024 #512  # 長辺のピクセル数
 IMAGE_EXTENSIONS = ['.jpg', '.png', '.bmp', '.gif', '.tif', '.tiff', '.jpeg', '.webp'] # 処理対象の画像ファイルの拡張子
 TEXT_EXTENSIONS = ['.txt', '.caption'] # 処理対象のテキストファイルの拡張子
@@ -60,7 +60,11 @@ def move_low_resolution_images(file_path):
 
     print(f'Low resolution: {file_path.name}')
     under_res_path = under_res_folder / file_path.name
-    file_path.rename(under_res_path)
+    try:
+        file_path.rename(under_res_path)
+        print(f'Moved: {file_path.name}')
+    except Exception as e:
+        print(f'Error: {e} 移動先処理できるディレクトリは同じドライブ内にある必要がある')
 
     # 同じ名前のテキストファイルとキャプションファイルも移動
     for ext in TEXT_EXTENSIONS:
@@ -126,7 +130,8 @@ def resize_image(img, max_dimension):
 def get_next_sequence_number(output_folder, parent_folder):
     """次の連番を取得"""
     existing_files = list(output_folder.glob(f'{parent_folder}_*.webp'))
-    return len(existing_files) + 1
+    next_number = len(existing_files)
+    return f'{next_number:05d}'
 
 
 def process_image(output_folder, file_path, parent_folder, up_img):
