@@ -1,6 +1,8 @@
 #https://github.com/kohya-ss/sd-scripts/blob/main/finetune/clean_captions_and_tags.py
 import re
+import sqlite3
 from pathlib import Path
+
 
 # 正規表現パターンの定義
 PATTERN_HAIR_LENGTH = re.compile(r'(long|short|medium) hair')
@@ -29,6 +31,9 @@ def clean_format(text):
     Returns:
         str: クリーニング後のテキスト。
     """
+    #str型でない場合はそのまま返す
+    if not isinstance(text, str):
+        return text
     text = re.sub(r'\"', '\"', text) # ダブルクォートをエスケープ
     text = re.sub(r'\*\*', '', text) # GPT4 visionがたまに付けるマークダウンの強調を削除
     text = re.sub(r'\.\s*$', ', ', text) # ピリオドをカンマに変換
@@ -52,6 +57,8 @@ def clean_repetition(text):
 
 def clean_underscore(tags):
     """アンダーバーをスペースに置き換える"""
+    if not isinstance(tags, str):
+        return tags
     # '^_^' をプレースホルダーに置き換える
     tags = tags.replace('^_^', '^@@@^')
     # アンダーバーを消す
@@ -150,21 +157,63 @@ def tags_to_dict(tags):
     return tags_dict
 
 def clean_tags(tags):
-    delete_underscore_tags = clean_underscore(tags)
-
-    tags_dict = tags_to_dict(delete_underscore_tags)
+    """タグをクリーニングする
+    Args:
+        tags (str): クリーニングするタグ
+    Returns:
+        final_tags (str): クリーニング後のタグ
+    """
+    delete_underscore_tags = clean_underscore(tags) # アンダーバーをスペースに置き換える
+    canonical_tags = cleanup_tag_sql('tags.db', delete_underscore_tags) # .dbを参照してタグを正規のタグ名に変換する
+    tags_dict = tags_to_dict(canonical_tags) # タグを辞書に変換する
 
     # 複数の人物がいる場合は髪色等のタグを削除する
     if 'girls' in tags or 'boys' in tags:
         tags_dict = clean_individual_tags(tags_dict)
 
-    tags_dict = clean_color_Object(tags_dict)
-    tags_dict = clean_Style(tags_dict)
+    tags_dict = clean_color_Object(tags_dict) # red eyesとeyesみたいな重複タグを削除
+    tags_dict = clean_Style(tags_dict) # anime styleとanime artみたい重複タグをanimeに統一する
 
-    # クリーニングされたタグをカンマで再結合
+    # クリーニングされたタグをカンマで再結合してstrに戻す
     final_tags = ", ".join(tag for _, tag in tags_dict.items() if tag and tag != "***")
     return final_tags
 
+def cleanup_tag_sql(db_path, tags):
+    """.dbファイルでタグをクリーニングする
+    Args:
+        db_path (str): 参照する.dbファイルのパス
+        tags (str): クリーニングするタグ
+    Returns:
+        cleaned_tags (list): クリーニング後のタグ
+    """
+    #タグを分割してtupleにする
+    tags_tuple = tags.split(", ")
+    # SQLite DBに接続する
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    # 結果を格納するリスト
+    cleaned_tags_list = []
+    # クリーンナップ前のタグを対応する正規のタグ名に置き換えるクエリ
+    query = """
+    SELECT name
+    FROM tags
+    WHERE aliases = ?
+    """
+    for tag_to_cleanup in tags_tuple:
+        print("sql cleaning tag", tag_to_cleanup)
+        cursor.execute(query, (tag_to_cleanup,))
+        results = cursor.fetchall()
+        # 結果があれば、正規のタグ名を返す。なければ元のタグを返す
+        if results:
+            #fetchallはタプルのリストを返すので、リスト内包表記でタプルの要素を取り出す
+            names = [result[0] for result in results]
+            print("sql cleaned tag", names)
+            cleaned_tags_list.append(','.join(names))
+        else:
+            cleaned_tags_list.append(tag_to_cleanup)
+    conn.close()
+    cleaned_tags = ','.join(cleaned_tags_list)
+    return cleaned_tags
 
 CAPTION_REPLACEMENTS = [
     ('anime anime', 'anime'),
