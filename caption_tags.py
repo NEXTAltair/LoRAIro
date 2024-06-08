@@ -3,59 +3,49 @@ APIを利用してtagとcaptionをいい感じに生成するスクリプト
 """
 #https://github.com/kohya-ss/sd-scripts/blob/main/finetune/merge_captions_to_metadata.py
 #https://github.com/kohya-ss/sd-scripts/blob/main/finetune/merge_dd_tags_to_metadata.py
-import configparser
+import toml
 from pathlib import Path
 import base64
 import json
 from cleanup_txt import clean_format, clean_tags, clean_caption
 from api_utils import OpenAIApi
 
-# コンソールからユーザー入力を受け取る関数を追加
-def get_input_path(prompt):
-    return Path(input(prompt).strip())
 
-# コンソール入力を受け取るように変更
-IMAGE_FOLDER = get_input_path("学習元画像ファイルがあるディレクトリ: ")
-RESPONSE_FILE_FOLDER = get_input_path("完了したバッチ(jsonl)ファイルのディレクトリ: ")
-output_dir = Path("Testoutput") #get_input_path("出力ディレクトリ (結合されたjsonlファイル、meta_clean.json､APIエラーを起こした画像の保存先): ")
+config = toml.load(Path("processing.toml"))
 
-# 設定
-MODEL = "gpt-4o"
-GENERATE_BATCH_JSONL = input("バッチ処理用JSONを生成? (True/False): ").strip().lower() == 'true'
-GENERATE = input("即時生成?? (True/False): ").strip().lower() == 'true'
-JSONL_UPLOADS = input("JSONLファイルをアップロードとバッチ処理を開始? (True/False): ").strip().lower() == 'true'
-
-# オプション設定
-GERERATE_META_CLEAN = input("meta_clean.jsonを生成? (True/False): ").strip().lower() == 'true'
-GERERATE_TAGS_AND_CAPTIONS_TXT = bool("true") #input("タグとキャプションを別々にしたテキストファイルを生成? (True/False): ").strip().lower() == 'true'
-JOIN_EXISTING_TXT = input("既存のタグとキャプションがある場合新規のものとを結合? Falseは上書き保存(True/False): ").strip().lower() == 'true'
-
+# APIキーの取得
+openai_api_key = config["APIKEYS"]["openai_api_key"]
+google_api_key = config["APIKEYS"]["google_api_key"]
+# ディレクトリ設定の取得
+dataset_dir = Path(config["directories"]["dataset_dir"])
+response_file_dir = Path(config["directories"]["response_file_dir"])
+output_dir = Path(config["directories"]["output_dir"])
+# 設定の取得
+model = config["settings"]["model"]
+generate_batch_jsonl = bool(config["settings"]["generate_batch_jsonl"])
+generate = bool(config["settings"]["generate"])
+jsonl_uploads = bool(config["settings"]["jsonl_uploads"])
+# オプション設定の取得
+generate_meta_clean = bool(config["options"]["generate_meta_clean"])
+generate_tags_and_captions_txt = bool(config["options"]["generate_tags_and_captions_txt"])
+join_existing_txt = bool(config["options"]["join_existing_txt"])
 # プロンプトの設定
-VISIONPROMPT = "As an AI image tagging expert, your role is to provide accurate and specific tags for images to improve the CLIP model's performance. \
-                Each image should have tags that accurately capture its main subjects, setting, artistic style, composition, and technical details like image quality and camera settings. For images of people, detail gender, attire, actions, pose, expressions, and any notable accessories. \
-                For landscapes or objects, focus on the material, historical context, and any significant features. Always use precise and specific tags—prefer \"gothic cathedral\" over \"building.\" Avoid duplicative tags. Each set of tags should be unique and relevant, separated only by commas, and kept within a 50-150 word count. Use tags that adhere to DANBOORU or e621 tagging conventions. Also, provide a concise 1-2 sentence caption that captures the image's narrative or essence. \
-                Ensure that the tags accurately reflect the content of the image. Avoid including tags for elements not present in the image. Focus on the visible details and specific characteristics of the character and setting. \
-                High-quality tagging and captioning will be compensated at $10 per image, rewarding exceptional clarity and precision that enhance image recreation."
-if GENERATE_BATCH_JSONL or GENERATE:
-    ADDITIONAL_PROMPT = input("AIが理解しにくい画像の特徴やタグを追加する場合のプロンプト: ").strip()
-    prompt = f"{ADDITIONAL_PROMPT}\n\n{VISIONPROMPT}"
+prompt = config["prompts"]["vision_prompt"]
+if generate_batch_jsonl or generate:
+    additional_prompt = config["prompts"]["additional_prompt"]
+    prompt = f"{additional_prompt}\n\n{prompt}"
 else:
-    prompt = VISIONPROMPT
-
-config = configparser.ConfigParser()
-config.read('apikey.ini')
-openai_api_key = config['KEYS']['openai_api_key']
-google_api_key = config['KEYS']['google_api_key']
+    prompt = prompt
 
 
 class ImageData:
-    def __init__(self, image_folder):
-        self.image_folder = image_folder
+    def __init__(self, dataset_dir):
+        self.dataset_dir = dataset_dir
         self.data = self._load_images()
 
     def _load_images(self):
         image_data = {}
-        for image_path in self.image_folder.rglob("*.webp"):
+        for image_path in self.dataset_dir.rglob("*.webp"):
             image_key = str(image_path.resolve())
             image_name = image_path.stem
             txt_file = image_path.with_suffix('.txt')
@@ -132,7 +122,7 @@ class Metadata:
                         break
                 if not matching_image:
                     print(f"画像ディレクトリに｢ {custom_id} ｣が存在しない\n"
-                            "IMAGE_FOLDERの指定ミスか学習からハネた")
+                            "dataset_dirの指定ミスか学習からハネた")
                     continue
                 image_key = matching_image['path']
 
@@ -282,11 +272,11 @@ def save_tags_and_captions(imagedata, filename=None):
     for image_key, value in imagedata.data.items():
         if data!= 'id':
             filename = value['name']
-            image_folder = Path(value['path']).parent
+            dataset_dir = Path(value['path']).parent
             tags = value.get('tags') # きーがない場合はNoneを返す
             caption = value.get('caption') #APIの時やタグ付けせずにクリーンナップのみの時
         else:
-            image_folder = Path(filename).parent
+            dataset_dir = Path(filename).parent
             tags = value.get('tags')
             caption = value.get('caption')
 
@@ -297,7 +287,7 @@ def save_tags_and_captions(imagedata, filename=None):
         if tags is None and caption is None:
             break
 
-        if JOIN_EXISTING_TXT and imagedata.data[image_key].get('existing_tags') and imagedata.data[image_key].get('existing_caption'):
+        if join_existing_txt and imagedata.data[image_key].get('existing_tags') and imagedata.data[image_key].get('existing_caption'):
             # 既存のタグとキャプションを取得
             existing_tags = imagedata.data[image_key]['existing_tags']
             existing_caption = imagedata.data[image_key]['existing_caption']
@@ -310,11 +300,11 @@ def save_tags_and_captions(imagedata, filename=None):
 
         # タグをテキストファイルに保存
         if tags is not None:
-            tags_file_path = image_folder / tags_filename
+            tags_file_path = dataset_dir / tags_filename
             if not tags_file_path.exists():
                 with open(tags_file_path, 'w', encoding='utf-8') as tags_file:
                     tags_file.write(tags)
-            elif JOIN_EXISTING_TXT:
+            elif join_existing_txt:
                 with open(tags_file_path, 'a', encoding='utf-8') as tags_file:
                     tags_file.write(tags)
             else:
@@ -323,7 +313,7 @@ def save_tags_and_captions(imagedata, filename=None):
 
         # キャプションをキャプションファイルに保存
         if caption is not None:
-            with open((image_folder / caption_filename), 'w', encoding='utf-8') as cap_file:
+            with open((dataset_dir / caption_filename), 'w', encoding='utf-8') as cap_file:
                 cap_file.write(caption)
 
             print(f"Saved tags to {tags_filename} \n {tags}")
@@ -360,34 +350,34 @@ def caption_gpt4(img, data, oai):
     save_tags_and_captions(img, file)
 
 if __name__ == "__main__":
-    img = ImageData(IMAGE_FOLDER) #画像データの読み込み
+    img = ImageData(dataset_dir) #画像データの読み込み
     data = Metadata(img) #画像データを編集するインスタンス
-    oai = OpenAIApi(openai_api_key, MODEL, prompt, img)
-    if GENERATE_BATCH_JSONL:
+    oai = OpenAIApi(openai_api_key, model, prompt, img)
+    if generate_batch_jsonl:
         jsonl_path = oai.caption_batch()
-        if JSONL_UPLOADS:
+        if jsonl_uploads:
             uplode_file_id = oai.upload_jsonl_file(jsonl_path)
             oai.start_batch_processing(uplode_file_id)
             print("バッチ処理が終了したらjsonlパスを指定して再度実行")
             exit() #バッチ処理が開始されたら終了
-    elif GENERATE:
+    elif generate:
         # GPT-4で即時
         caption_gpt4(img, data, oai)
         exit()
 
-    if RESPONSE_FILE_FOLDER != Path('.') and RESPONSE_FILE_FOLDER.is_dir():
-        jsonl_count = len(list(RESPONSE_FILE_FOLDER.glob('*.jsonl')))
-        file_count = len(list(RESPONSE_FILE_FOLDER.glob('*')))
+    if response_file_dir != Path('.') and response_file_dir.is_dir():
+        jsonl_count = len(list(response_file_dir.glob('*.jsonl')))
+        file_count = len(list(response_file_dir.glob('*')))
         if jsonl_count == file_count:
-            response_jsonl_data = process_jsonl_files(RESPONSE_FILE_FOLDER, file_count)
+            response_jsonl_data = process_jsonl_files(response_file_dir, file_count)
         else:
             print("レスポンスのjsonl以外のファイルがある｡Pathをミスってる可能性")
             exit()
 
 
-    if GERERATE_META_CLEAN:
+    if generate_meta_clean:
         metadata = data.json_to_metadata(response_jsonl_data)
-    if GERERATE_TAGS_AND_CAPTIONS_TXT:
+    if generate_tags_and_captions_txt:
         try:
             if response_jsonl_data is not None:
                 metadata = data.create_data(response_jsonl_data)

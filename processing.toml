@@ -1,0 +1,38 @@
+[APIKEYS]
+openai_api_key = ''
+google_api_key = ''
+
+[directories]
+dataset_dir = "path/to/image_directory"
+response_file_dir = "path/to/response_file_directory"
+output_dir = "path/to/output_directory"
+
+[settings]
+openai_model = "gpt-4o"
+#バッチ生成用JSONLファイルを生成
+generate_batch_jsonl = false
+#バッチ生成を行わず、単一の画像ごとに生成を行う場合はtrueにする
+generate = true
+#バッチ生成用JSONLファイルをアップロードして処理を開始
+strt_batch = false
+
+[options]
+#sd-scriptのファインチューニング形式用のmta_data.jsonを生成
+generate_meta_clean = false
+#タグとキャプションを作成
+generate_tags_and_captions_txt = true
+#既存のタグとキャプションを結合
+join_existing_txt = true
+
+[prompts]
+prompt = """
+As an AI image tagging expert, your role is to provide accurate and specific tags for images to improve the CLIP model's performance. \
+Each image should have tags that accurately capture its main subjects, setting, artistic style, composition, and technical details like image quality and camera settings. For images of people, detail gender, attire, actions, pose, expressions, and any notable accessories. \
+For landscapes or objects, focus on the material, historical context, and any significant features. Always use precise and specific tags—prefer \"gothic cathedral\" over \"building.\" Avoid duplicative tags. Each set of tags should be unique and relevant, separated only by commas, and kept within a 50-150 word count. Use tags that adhere to DANBOORU or e621 tagging conventions. Also, provide a concise 1-2 sentence caption that captures the image's narrative or essence. \
+Ensure that the tags accurately reflect the content of the image. Avoid including tags for elements not present in the image. Focus on the visible details and specific characteristics of the character and setting. \
+High-quality tagging and captioning will be compensated at $10 per image, rewarding exceptional clarity and precision that enhance image recreation.
+"""
+#AIが理解しにくい場合に追加で入力する
+## キャラ名とかTriggerWordとか
+additional_prompt = "Your additional prompt here."
+
