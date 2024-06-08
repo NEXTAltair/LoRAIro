@@ -184,7 +184,7 @@ def cleanup_tag_sql(db_path, tags):
         db_path (str): 参照する.dbファイルのパス
         tags (str): クリーニングするタグ
     Returns:
-        cleaned_tags (list): クリーニング後のタグ
+        cleaned_tags (str): クリーニング後のタグ
     """
     #タグを分割してtupleにする
     tags_tuple = tags.split(", ")
@@ -193,21 +193,21 @@ def cleanup_tag_sql(db_path, tags):
     cursor = conn.cursor()
     # 結果を格納するリスト
     cleaned_tags_list = []
-    # クリーンナップ前のタグを対応する正規のタグ名に置き換えるクエリ
+    # クリーンナップ前のタグを対応する正規のタグ名に置き換えるクエリ tags.type = '0'で一般タグに限定
     query = """
     SELECT name
     FROM tags
-    WHERE aliases = ?
+    WHERE aliases = ? AND type = '0'
     """
     for tag_to_cleanup in tags_tuple:
-        print("sql cleaning tag", tag_to_cleanup)
         cursor.execute(query, (tag_to_cleanup,))
         results = cursor.fetchall()
         # 結果があれば、正規のタグ名を返す。なければ元のタグを返す
         if results:
             #fetchallはタプルのリストを返すので、リスト内包表記でタプルの要素を取り出す
             names = [result[0] for result in results]
-            print("sql cleaned tag", names)
+            print("置換前", tag_to_cleanup)
+            print("置換後", names)
             cleaned_tags_list.append(','.join(names))
         else:
             cleaned_tags_list.append(tag_to_cleanup)
@@ -259,13 +259,6 @@ def clean_caption(caption):
     return caption
 
 if __name__ == '__main__':
-    img_folder = Path(r'H:\lora\asscutout-XL\img_Processed')
-    for text_path in img_folder.rglob('*.txt'):
-        with open(text_path, 'r', encoding='utf-8') as f:
-            tags = f.read()
-        tags = clean_format(tags)
-        tags = clean_tags(tags)
-        tags = clean_repetition(tags)
-        with open(text_path, 'w', encoding='utf-8') as f:
-            f.write(tags)
-        print(f'Cleaned: {text_path.name}')
+    tag_to_cleanup = "1girls,3boys,black neckerchief,black pants,blue hair,blue panties,breasts,clothed sex,clothes lift,cum,cum in pussy,cum inside,cum on body,female,female only,gangbang,group,group sex,hand to own mouth,handjob,large breasts,light skin,light-skinned female,male,male masturbation,masturbation,motion lines,multiple boys,naughty face,neckerchief,nipples,open pants,panties,panties around one leg,pants,penis,phone,pink eyes,public indecency,public nudity,sailor collar,school uniform,serafuku,sex,shirt,shirt lift,short hair,side-tie panties,skirt,smile,standing,standing sex,straight,surrounded by penises,train interior,underwear,vaginal penetration,white sailor collar,white serafuku,white shirt,akino komichi,original,bar censor,censored,hi res"
+    tags = clean_tags(tag_to_cleanup)
+    print(f'Cleaned tag: {tags}')
