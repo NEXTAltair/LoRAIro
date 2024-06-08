@@ -11,7 +11,7 @@ from cleanup_txt import clean_format, clean_tags, clean_caption
 from api_utils import OpenAIApi
 
 
-config = toml.load(Path("processing.toml"))
+config = toml.load("processing.toml")
 
 # APIキーの取得
 openai_api_key = config["APIKEYS"]["openai_api_key"]
@@ -21,16 +21,16 @@ dataset_dir = Path(config["directories"]["dataset_dir"])
 response_file_dir = Path(config["directories"]["response_file_dir"])
 output_dir = Path(config["directories"]["output_dir"])
 # 設定の取得
-model = config["settings"]["model"]
+model = config["settings"]["openai_model"]
 generate_batch_jsonl = bool(config["settings"]["generate_batch_jsonl"])
 generate = bool(config["settings"]["generate"])
-jsonl_uploads = bool(config["settings"]["jsonl_uploads"])
+strt_batch = bool(config["settings"]["strt_batch"])
 # オプション設定の取得
 generate_meta_clean = bool(config["options"]["generate_meta_clean"])
 generate_tags_and_captions_txt = bool(config["options"]["generate_tags_and_captions_txt"])
 join_existing_txt = bool(config["options"]["join_existing_txt"])
 # プロンプトの設定
-prompt = config["prompts"]["vision_prompt"]
+prompt = config["prompts"]["prompt"]
 if generate_batch_jsonl or generate:
     additional_prompt = config["prompts"]["additional_prompt"]
     prompt = f"{additional_prompt}\n\n{prompt}"
@@ -355,7 +355,7 @@ if __name__ == "__main__":
     oai = OpenAIApi(openai_api_key, model, prompt, img)
     if generate_batch_jsonl:
         jsonl_path = oai.caption_batch()
-        if jsonl_uploads:
+        if strt_batch:
             uplode_file_id = oai.upload_jsonl_file(jsonl_path)
             oai.start_batch_processing(uplode_file_id)
             print("バッチ処理が終了したらjsonlパスを指定して再度実行")
