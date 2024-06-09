@@ -34,6 +34,7 @@ def clean_format(text):
     #str型でない場合はそのまま返す
     if not isinstance(text, str):
         return text
+    text = text.lower() # 大文字を小文字に変換
     text = clean_underscore(text) # アンダーバーをスペースに置き換える
     text = re.sub(r'#', '', text) # #を削除
     text = re.sub(r'\"', '\"', text) # ダブルクォートをエスケープ

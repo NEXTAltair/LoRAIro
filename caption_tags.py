@@ -60,8 +60,10 @@ class ImageData:
             existing_caption = ""
             if txt_file.exists():
                 existing_tags = self._read_file(txt_file)
+                existing_tags = clean_format(existing_tags)
             if caption_file.exists():
                 existing_caption = self._read_file(caption_file)
+                caption_file = clean_format(existing_caption)
 
             image_data[image_key] = {
                 "path": image_key,
@@ -141,9 +143,9 @@ class Metadata:
 
             content = clean_format(content)
 
-            # 'Tags:' と 'Caption:' が何番目に含まれているかを見つける
-            tags_index = content.find('Tags:')
-            caption_index = content.find('Caption:')
+            # 'tags:' と 'caption:' が何番目に含まれているかを見つける
+            tags_index = content.find('tags:')
+            caption_index = content.find('caption:')
 
             # 'Tags:' か 'Caption:'が含まれていない場合はAPIエラーか弾かれているので例外処理
             # APIの処理のブレでたまに｢### Tsgs,｣や｢###Captin,｣で始まることがあるのでそれも弾く
@@ -282,26 +284,16 @@ def save_tags_and_captions(imagedata, filename=None):
             if imagedata.data[image_key].get('existing_tags'):
                 existing_tags = imagedata.data[image_key]['existing_tags']
                 tags = existing_tags + ", " + tags
-                tags = clean_format(tags)
                 tags = clean_tags(tags)
             if imagedata.data[image_key].get('existing_caption'):
                 existing_caption = imagedata.data[image_key]['existing_caption']
                 caption = existing_caption + ", " + caption
-                caption = clean_format(caption)
                 caption = clean_caption(caption)
 
         # タグをテキストファイルに保存
         if tags is not None:
-            tags_file_path = dataset_dir / tags_filename
-            if not tags_file_path.exists():
-                with open(tags_file_path, 'w', encoding='utf-8') as tags_file:
-                    tags_file.write(tags)
-            elif join_existing_txt:
-                with open(tags_file_path, 'a', encoding='utf-8') as tags_file:
-                    tags_file.write(tags)
-            else:
-                # Todo: とりあえずBREAK
-                break
+            with open((dataset_dir / tags_filename), 'w', encoding='utf-8') as tags_file:
+                tags_file.write(tags)
 
         # キャプションをキャプションファイルに保存
         if caption is not None:
