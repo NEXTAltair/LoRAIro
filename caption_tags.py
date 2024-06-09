@@ -116,7 +116,7 @@ class Metadata:
                 custom_id = data.get('custom_id')
                 # self.data と照合する
                 matching_image = None
-                for _, value in self.metadata.data.items():
+                for _, value in self.data.items():
                     if value['name'] == custom_id or value['path'] == custom_id:
                         matching_image = value
                         break
@@ -128,8 +128,6 @@ class Metadata:
 
                 # Path オブジェクトに変換
                 image_path = Path(image_key)
-                # 画像ファイルが存在するフォルダのパスを取得
-                file_path = image_path.parent
 
                 # JSONデータからタグとキャプションとタグを抽出して保存
                 content = data['response']['body']['choices'][0]['message']['content']
@@ -137,7 +135,6 @@ class Metadata:
             else: #API不使用でデータのクリーンナップのみの場合
                 image_key = data['path']
                 image_path = Path(image_key)
-                file_path = image_path.parent
                 custom_id = image_path.stem
                 content = "Tags: " + self.data[image_key]['existing_tags'] + ", Caption: " + self.data[image_key]['existing_caption']
 
@@ -223,27 +220,20 @@ class Metadata:
         """指定された画像キーのキャプションを取得する"""
         return self.metadata.get(image_key, {}).get("caption", "")
 
-def process_jsonl_files(input_path, file_count):
+def process_jsonl_files(input_path):
     """
     JSONLファイルを処理し、内容を読み込むか、複数のファイルを結合する。
     Args:
         input_path (Path): JSONLファイルのパスまたは結合するファイルが格納されたディレクトリ。
-        file_count (int): フォルダ内のファイル数
     Returns:
-        list or list: JSONオブジェクトのリスト
+        list: JSONオブジェクトのリスト
     """
-    # if file_count >= 2:
-    # ディレクトリからすべてのJSONLファイルを結合
     jsonl_files = list(input_path.glob('*.jsonl'))
     combined_lines = []
     for jsonl_file in jsonl_files:
         with open(jsonl_file, 'r', encoding='utf-8') as infile:
             combined_lines.extend(infile.readlines())
     data = [json.loads(line.strip()) for line in combined_lines]
-    # else:
-    #     # 単一のファイルを読み込む
-    #     with open(input_path, 'r', encoding='utf-8') as file:
-    #         data = [json.loads(line.strip()) for line in file]
     return data
 
 def move_error_images(file_path):
@@ -287,16 +277,18 @@ def save_tags_and_captions(imagedata, filename=None):
         if tags is None and caption is None:
             break
 
-        if join_existing_txt and imagedata.data[image_key].get('existing_tags') and imagedata.data[image_key].get('existing_caption'):
-            # 既存のタグとキャプションを取得
-            existing_tags = imagedata.data[image_key]['existing_tags']
-            existing_caption = imagedata.data[image_key]['existing_caption']
-
-            # 既存のタグとキャプションを新しいものと結合とクリーンアップ
-            tags = existing_tags + ", " + tags
-            caption = existing_caption + ", " + caption
-            tags = clean_tags(tags)
-            caption = clean_caption(caption)
+        if join_existing_txt:
+            # 既存のタグを取得
+            if imagedata.data[image_key].get('existing_tags'):
+                existing_tags = imagedata.data[image_key]['existing_tags']
+                tags = existing_tags + ", " + tags
+                tags = clean_format(tags)
+                tags = clean_tags(tags)
+            if imagedata.data[image_key].get('existing_caption'):
+                existing_caption = imagedata.data[image_key]['existing_caption']
+                caption = existing_caption + ", " + caption
+                caption = clean_format(caption)
+                caption = clean_caption(caption)
 
         # タグをテキストファイルに保存
         if tags is not None:
@@ -365,11 +357,14 @@ if __name__ == "__main__":
         caption_gpt4(img, data, oai)
         exit()
 
+    if response_file_dir != Path('.') and not response_file_dir.is_dir():
+        print("jsonlファイルでなくjsonlを保存しているディレクトリを指定")
+        exit()
     if response_file_dir != Path('.') and response_file_dir.is_dir():
         jsonl_count = len(list(response_file_dir.glob('*.jsonl')))
         file_count = len(list(response_file_dir.glob('*')))
         if jsonl_count == file_count:
-            response_jsonl_data = process_jsonl_files(response_file_dir, file_count)
+            response_jsonl_data = process_jsonl_files(response_file_dir)
         else:
             print("レスポンスのjsonl以外のファイルがある｡Pathをミスってる可能性")
             exit()

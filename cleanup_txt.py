@@ -34,6 +34,8 @@ def clean_format(text):
     #str型でない場合はそのまま返す
     if not isinstance(text, str):
         return text
+    text = clean_underscore(text) # アンダーバーをスペースに置き換える
+    text = re.sub(r'#', '', text) # #を削除
     text = re.sub(r'\"', '\"', text) # ダブルクォートをエスケープ
     text = re.sub(r'\*\*', '', text) # GPT4 visionがたまに付けるマークダウンの強調を削除
     text = re.sub(r'\.\s*$', ', ', text) # ピリオドをカンマに変換
@@ -43,16 +45,13 @@ def clean_format(text):
     text = re.sub(r'\\u2014', ' ', text) # エムダッシュをスペースに変換
     text = re.sub(r'\(', r"\(", text)  # '(' を '\(' にエスケープ
     text = re.sub(r'\)', r"\)", text)  # ')' を '\)' にエスケープ
+    text = clean_repetition(text) # 重複した記号を削除
     return text
 
-
 def clean_repetition(text):
-    #重複した\を消す
-    text = re.sub(r'\\+', r"\\", text)
-    #重複した,を消す
-    text = re.sub(r',+', r",", text)
-    #重複したスペースを消す
-    text = re.sub(r'\s+', r" ", text)
+    text = re.sub(r'\\+', r"\\", text) #重複した\を消す
+    text = re.sub(r',+', r",", text) #重複した,を消す
+    text = re.sub(r'\s+', r" ", text) #重複したスペースを消す
     return text
 
 def clean_underscore(tags):
@@ -143,7 +142,12 @@ def clean_Style(tags_dict):
 
 
 def tags_to_dict(tags):
-    """タグを辞書に変換する"""
+    """タグを辞書に変換するして重複を避ける
+    Args:
+        tags (str): タグ
+    Returns:
+        tags_dict (dict): タグの辞書
+    """
     # タグをカンマで分割し、不要な空白を取り除く
     tag_list = [tag.strip() for tag in tags.split(",") if tag.strip()]
 
@@ -163,8 +167,7 @@ def clean_tags(tags):
     Returns:
         final_tags (str): クリーニング後のタグ
     """
-    delete_underscore_tags = clean_underscore(tags) # アンダーバーをスペースに置き換える
-    canonical_tags = cleanup_tag_sql('tags.db', delete_underscore_tags) # .dbを参照してタグを正規のタグ名に変換する
+    canonical_tags = cleanup_tag_sql('tags.db', tags) # .dbを参照してタグを正規のタグ名に変換する
     tags_dict = tags_to_dict(canonical_tags) # タグを辞書に変換する
 
     # 複数の人物がいる場合は髪色等のタグを削除する
