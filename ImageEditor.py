@@ -29,7 +29,7 @@ from realesrgan import RealESRGANer
 RESIZE = True # リサイズの使用
 CROP = False # クロップの使用
 
-#TODO:作りかけ
+# TODO: 作りかけ
 REALESRGANER_UPSCALE = False # TARGET_RESOLUTION以下の画像をRealESRGANerでアップスケールするかどうか
 REALESRGAN_MODEL = "RealESRGAN_x4plus_anime_6B.pth" # RealESRGANのモデルパス
 
@@ -42,19 +42,32 @@ TEXT_EXTENSIONS = ['.txt', '.caption'] # 処理対象のテキストファイル
 
 def convert_to_srgb(img):
     """画像の色域を外部sRGBプロファイルを使用してsRGBに変換"""
+    # 画像が透過情報を持っているか確認する
+    has_alpha = img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info)
+
+    # ICCプロファイルがある場合は色域変換を行う
     if 'icc_profile' in img.info:
         icc = img.info['icc_profile']
         input_profile = ImageCms.ImageCmsProfile(io.BytesIO(icc))
         img_converted = ImageCms.profileToProfile(img, input_profile, ImageCms.createProfile('sRGB'), renderingIntent=0, outputMode='RGB')
+        # 透過情報を持っている場合、RGBAに再変換
+        if has_alpha:
+            img_converted = img_converted.convert('RGBA')
         return img_converted
     else:
-        # ICCプロファイルがない場合、RGBに変換
-        return img.convert('RGB')
+        # ICCプロファイルがない場合、透過情報を考慮して変換
+        if has_alpha:
+            return img.convert('RGBA')
+        else:
+            return img.convert('RGB')
 
 
 def move_low_resolution_images(file_path):
     """max_dimensionがTARGET_RESOLUTION未満の画像を移動"""
+    # 指定解像度以下移動先 スクリプトと同じ階層にunder_res_folderを作って
+    # 画像が入っているフォルダと同じ名前のフォルダを作成
     under_res_folder = Path(f'.\\under-{TARGET_RESOLUTION}') / file_path.parent.name
+    # under_res_folderがない場合は作成しないとエラーになる
     if not under_res_folder.exists():
         under_res_folder.mkdir(parents=True)
 
@@ -134,7 +147,7 @@ def get_next_sequence_number(output_folder, parent_folder):
     return f'{next_number:05d}'
 
 
-def process_image(output_folder, file_path, parent_folder, up_img):
+def process_image(output_folder, file_path, parent_folder, up_img=None):
     """画像を変換して保存
     """
     resized_folder = output_folder / file_path.parent.stem
@@ -243,19 +256,11 @@ def image_resize(output_folder):
             else:
                 continue
 
-            # 解像度が未満の画像を移動
-            # 指定解像度以下移動先 スクリプトと同じ階層にunder_res_folderを作って
-            # 画像が入っているフォルダと同じ名前のフォルダを作成
-            under_res_folder = Path(f'.\\under-{TARGET_RESOLUTION}') / parent_folder
-            # under_res_folderがない場合は作成しないとエラーになる
-            if not under_res_folder.exists():
-                under_res_folder.mkdir(parents=True)
-
             if max_dimension < TARGET_RESOLUTION:
                 if REALESRGANER_UPSCALE:
                     # RealESRGANerでアップスケール
                     up_img = upscale_images_to_webp(file_path)
-                    process_image(output_folder, file_path, parent_folder, up_img=None)
+                    process_image(output_folder, file_path, parent_folder, up_img)
                 else:
                     #ちっちゃい画像とそれに付随するテキストファイルを移動
                     move_low_resolution_images(file_path)
