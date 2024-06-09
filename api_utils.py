@@ -51,7 +51,7 @@ class OpenAIApi:
         self.prompt = prompt
         self.image_data = image_data
 
-    def generate_payload(self, image_key, batch_jsonl_flag):
+    def generate_payload(self, image_key, batch_jsonl_flag=False):
         """
         OpenAI APIに送信するペイロードを生成する。
 

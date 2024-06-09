@@ -79,14 +79,14 @@ class ImageData:
 
 class Metadata:
     def __init__(self, img_data):
-        self.metadata = img_data
+        self.data = img_data
 
     def _read_file(self, file_path):
         """ファイルの内容を読み込む"""
         with open(file_path, 'r', encoding='utf-8') as file:
             return file.read()
 
-    def create_data(Self, json_input, file=None):
+    def create_data(self, json_input, file=None):
         """
         JSONLから読み込んだデータを基に、ファイル名、パス、キャプション、タグの情報を追加する
         Args:
@@ -114,9 +114,9 @@ class Metadata:
 
             elif 'custom_id' in data: #バッチ生成の場合
                 custom_id = data.get('custom_id')
-                # self.metadata.data と照合する
+                # self.data と照合する
                 matching_image = None
-                for _, value in Self.metadata.data.items():
+                for _, value in self.metadata.data.items():
                     if value['name'] == custom_id or value['path'] == custom_id:
                         matching_image = value
                         break
@@ -139,7 +139,7 @@ class Metadata:
                 image_path = Path(image_key)
                 file_path = image_path.parent
                 custom_id = image_path.stem
-                content = "Tags: " + Self.metadata.data[image_key]['existing_tags'] + ", Caption: " + Self.metadata.data[image_key]['existing_caption']
+                content = "Tags: " + self.data[image_key]['existing_tags'] + ", Caption: " + self.data[image_key]['existing_caption']
 
 
             content = clean_format(content)
@@ -168,26 +168,26 @@ class Metadata:
             tags = clean_tags(tags_text)
             caption = clean_caption(caption_text)
 
-            # self.metadata.data に情報を追加
-            Self.metadata.data[image_key].update({
+            # self.data に情報を追加
+            self.data[image_key].update({
                 "path": image_key,
                 "name": custom_id,
-                "existing_tags": Self.metadata.data[image_key]['existing_tags'],  # 既存のタグ
-                "existing_caption": Self.metadata.data[image_key]['existing_caption'],  # 既存のキャプション
+                "existing_tags": self.data[image_key]['existing_tags'],  # 既存のタグ
+                "existing_caption": self.data[image_key]['existing_caption'],  # 既存のキャプション
                 "tags": tags,
                 "caption": caption
             })
-        data = Self.metadata.data
+        data = self.data
         return data
 
-    def json_to_metadata(Self):
+    def json_to_metadata(self):
         """ImageDataオブジェクトの変数からKohya/sd-scripts用メタデータを生成する
 
         return: metadata (dict): メタデータ
         """
         metadata_clean = {}
         # metadataからimage_key､tags, captionを取得
-        for image_key, value in Self.metadata.data.items():
+        for image_key, value in self.data.items():
             tags = value['tags']
             caption = value['caption']
 
@@ -201,7 +201,7 @@ class Metadata:
         with open(output_dir / 'meta_clean.json', 'w', encoding='utf-8') as file:
             json.dump(metadata_clean, file, ensure_ascii=False, indent=4)
 
-        return metadata
+        return metadata_clean
 
     def save_metadata(self, filename):
         """メタデータを指定された形式でファイルに保存する"""
@@ -351,8 +351,8 @@ def caption_gpt4(img, data, oai):
 
 if __name__ == "__main__":
     img = ImageData(dataset_dir) #画像データの読み込み
-    data = Metadata(img) #画像データを編集するインスタンス
-    oai = OpenAIApi(openai_api_key, model, prompt, img)
+    data = Metadata(img.data) #画像データを編集するインスタンス
+    oai = OpenAIApi(openai_api_key, model, prompt, data)
     if generate_batch_jsonl:
         jsonl_path = oai.caption_batch()
         if strt_batch:
