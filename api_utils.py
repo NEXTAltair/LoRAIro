@@ -128,7 +128,7 @@ class OpenAIApi:
             name = self.image_data.data[image_key]['name']
             if path.suffix == ".webp": #webp以外の画像の場合はリサイズ等の処理がされてないから無視
                 print(f'Processing {name}...')
-                payload = self.generate_payload(image_key, batch_jsonl_flag=False)
+                payload = self.generate_payload(image_key, batch_jsonl_flag=True)
                 batch_payloads.append(payload)
 
         jsonl_path = save_jsonline_to_file(batch_payloads, f"{path.parent.name}.jsonl")
