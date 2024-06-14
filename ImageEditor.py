@@ -39,6 +39,13 @@ TARGET_RESOLUTION = 1024 #512  # 長辺のピクセル数
 IMAGE_EXTENSIONS = ['.jpg', '.png', '.bmp', '.gif', '.tif', '.tiff', '.jpeg', '.webp'] # 処理対象の画像ファイルの拡張子
 TEXT_EXTENSIONS = ['.txt', '.caption'] # 処理対象のテキストファイルの拡張子
 
+PREFERRED_RESOLUTIONS = [(512,512),
+                        (768,512),
+                        (512,768),
+                        (1024, 1024),
+                        (1216,832),
+                        (832,1216)
+                        ]
 
 def convert_to_srgb(img):
     """画像の色域を外部sRGBプロファイルを使用してsRGBに変換"""
@@ -110,6 +117,44 @@ def upscale_images_to_webp(file_path, scale=4):
                 print(f'Upscaled  {output}')
                 return output
 
+def find_matching_resolution(original_width, original_height, max_dimension):
+    """
+    元のサイズのアスペクト比と同じ解像度を、優先解像度のリストから探す
+
+    Args:
+        max_dimension (int): 長辺のサイズ
+
+    Returns:
+        tuple or None: 元のサイズのアスペクト比の解像度を表すタプル。
+                       一致する解像度が見つからない場合は、None
+    """
+    # 対象としない小さな画像が指定された場合はエラー表示 None
+    if original_width < max_dimension and original_height < max_dimension:
+        print(f'find_matching_resolution Error: 意図しない小さな画像を受け取った: {original_width}x{original_height}')
+        return None
+    aspect_ratio = original_width / original_height
+
+    # アスペクト比が一致する解像度を探す
+    matching_resolutions = []
+    for resolution in PREFERRED_RESOLUTIONS:
+        res_width, res_height = resolution
+        res_aspect_ratio = res_width / res_height
+        if res_aspect_ratio == aspect_ratio:
+            matching_resolutions.append(resolution)
+    # 一致したアスペクト比の解像度がある場合、max_dimension**2に最も近い解像度を返す
+    if matching_resolutions:
+        target_area = max_dimension ** 2
+        best_resolution = matching_resolutions[0]
+        closest_diff = abs((best_resolution[0] * best_resolution[1]) - target_area)
+        for resolution in matching_resolutions:
+            res_area = resolution[0] * resolution[1]
+            diff = abs(res_area - target_area)
+            if diff < closest_diff:
+                best_resolution = resolution
+                closest_diff = diff
+        return best_resolution
+
+    return None
 
 def resize_image(img, max_dimension):
     """アスペクト比をできるだけ維持しつつ、両辺をできるだけ32の倍数に近づける
@@ -122,19 +167,23 @@ def resize_image(img, max_dimension):
         Image.Image: リサイズされたイメージオブジェクト
     """
     original_width, original_height = img.size
-    aspect_ratio = original_width / original_height
-
-    # max_dimensionに基づいて長辺を計算
-    if original_width > original_height:
-        new_width = max_dimension
-        new_height = int(new_width / aspect_ratio)
+    matching_resolution = find_matching_resolution(original_width, original_height, max_dimension)
+    if matching_resolution:
+        new_width, new_height = matching_resolution
     else:
-        new_height = max_dimension
-        new_width = int(new_height * aspect_ratio)
+        aspect_ratio = original_width / original_height
 
-    # 両辺を32の倍数に調整
-    new_width = round(new_width / 32) * 32
-    new_height = round(new_height / 32) * 32
+        # max_dimensionに基づいて長辺を計算
+        if original_width > original_height:
+            new_width = max_dimension
+            new_height = int(new_width / aspect_ratio)
+        else:
+            new_height = max_dimension
+            new_width = int(new_height * aspect_ratio)
+
+        # 両辺を32の倍数に調整
+        new_width = round(new_width / 32) * 32
+        new_height = round(new_height / 32) * 32
 
     # アスペクト比を保ちつつ、新しいサイズでリサイズ
     return img.resize((new_width, new_height), Image.Resampling.LANCZOS)
