@@ -13,34 +13,38 @@
 ### スクリプト
 
 - **ImageEditor.py**: 複数の画像を一括で指定されたサイズのwebpにリサイズする。
-    - cv2を使用して画像の枠を自動識別＆除去
-    - 色域をsRGBないしRGBに変換
-    - 長編が指定解像度未満の画像を移動
-    - 長編が指定解像度以下かつアスペクト比を維持したまま両辺が32の倍数になるように縮小
-    - 画像と付随する .txt と .caption  を親フォルダ+連番にリネーム
+  - cv2を使用して画像の枠を自動識別＆除去
+  - 色域をsRGBないしRGBに変換
+  - 長編が指定解像度未満の画像を移動
+  - 長編が指定解像度以下かつアスペクト比を維持したまま両辺が32の倍数になるように縮小
+  - 画像と付随する .txt と .caption  を親フォルダ+連番にリネーム
 - **caption_tags.py**: 画像の内容をGPT-4が解析し、タグとキャプションを自動生成する。
-    - 既存の画像情報をインスタンス変数に保存
-    - 画像の親フォルダに "nsfw" が含めれてる場合APIに処理させないように弾く
-    - 画像情報から kohya/sd-scripts 用 'meta_clean.json' を作成
-    - 画像情報から画像ファイルの場所にタグ(.txt)とキャプション(.caption)を作成
-    - 既存のタグとキャプションがある場合は結合する｡しない場合は上書き
-    - API エラーや キャプション生成の拒絶の場合そのファイルの移動
+  - 既存の画像情報をインスタンス変数に保存
+  - 画像の親フォルダに "nsfw" が含めれてる場合APIに処理させないように弾く
+  - 画像情報から kohya/sd-scripts 用 'meta_clean.json' を作成
+  - 画像情報から画像ファイルの場所にタグ(.txt)とキャプション(.caption)を作成
+  - 既存のタグとキャプションがある場合は結合する｡しない場合は上書き
+  - API エラーや キャプション生成の拒絶の場合そのファイルの移動
 - **api_utils.py**
-    - バッチ用payloadをまとめてjsonlに書き出す
-    - バッチ用jsonlが長すぎる場合分割
-    - バッチ用jsonlをAPIに投げてアップロードと実行
+  - バッチ用payloadをまとめてjsonlに書き出す
+  - バッチ用jsonlが長すぎる場合分割
+  - バッチ用jsonlをAPIに投げてアップロードと実行
 - **cleanup_txt.py**: テキストファイルを整形し、タグリストをクリーンアップする。
-    - アンダースコアの削除
-    - 改行の削除､()のエスケープなどの文字列の整形
-    - 重複したカンマの削除
-    - 複数人の映った画像の場合、髪色、目色の色要素を削除
-    - white shirtとshirtのように色についてより説明が詳細なタグがある場合、括りの大きなタグの削除
-    - tags.dbを使用して非推奨タグを推奨タグへ置換
+  - アンダースコアの削除
+  - 改行の削除､()のエスケープなどの文字列の整形
+  - 重複したカンマの削除
+  - 複数人の映った画像の場合、髪色、目色の色要素を削除
+  - white shirtとshirtのように色についてより説明が詳細なタグがある場合、括りの大きなタグの削除
+  - tags.dbを使用して非推奨タグを推奨タグへ置換
+- **TagDatasetCreat.py**
+  - 画像とtag､キャプションファイルをdatasetにまとめる
+  - huggingface にアップロード
+  - ついでに画像スコアリング
 - **tags.db**:  SQLite3で作成したタグデータベース(作りかけ)
-    - name タグ
-    - type タグの種類
-    - postCount タグが付いている画像の数
-    - alias タグの別名
+  - name タグ
+  - type タグの種類
+  - postCount タグが付いている画像の数
+  - alias タグの別名
 
 ### 必要条件
 
@@ -86,10 +90,12 @@ MIT
 - としあき製 CSV tag data の日本語翻訳
 - [AngelBottomless/danbooru-2023-sqlite-fixed-7110548](https://huggingface.co/datasets/KBlueLeaf/danbooru2023-sqlite) danbooru タグのデータベース
 - [hearmeneigh/e621-rising-v3-preliminary-data](https://huggingface.co/datasets/hearmeneigh/e621-rising-v3-preliminary-data) e621 rule34 タグのデータベース
+- [sd-webui-bayesian-merger](https://github.com/s1dlx/sd-webui-bayesian-merger) スコアリング実装
+- [stable-diffusion-webui-dataset-tag-editor](https://github.com/toshiaki1729/stable-diffusion-webui-dataset-tag-editor) スコアリング実装
+- 
 
 ## 今後
 
 - タグデータベース(tags.db)の機能拡充
 - GUIによる操作性の向上
 - google AI studio APIへの対応
-  
