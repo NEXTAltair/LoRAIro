@@ -1,8 +1,7 @@
 #https://github.com/kohya-ss/sd-scripts/blob/main/finetune/clean_captions_and_tags.py
+## original code is distributed in Apache License 2.0.
 import re
 import sqlite3
-from pathlib import Path
-
 
 # 正規表現パターンの定義
 PATTERN_HAIR_LENGTH = re.compile(r'(long|short|medium) hair')
