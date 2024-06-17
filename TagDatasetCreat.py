@@ -1,12 +1,19 @@
 from pathlib import Path
 from PIL import Image
 import toml
+import logging
 from datasets import Dataset, Features, Image as DatasetsImage, Value, load_dataset, concatenate_datasets
 from score_module.scorer import AestheticScorer
+
+# ログ設定 (必要に応じてカスタマイズ)
+logging.basicConfig(
+    filename='dataset_creation.log',
+    level=logging.WARNING,
+    encoding='utf-8'  # エンコーディングをUTF-8に設定無いと文字化け
+)
+
 IMAGE_EXTENSIONS = ['.jpg', '.png', '.bmp', '.gif', '.tif', '.tiff', '.jpeg', '.webp'] # 処理対象の画像ファイルの拡張子
 
-
-from pathlib import Path
 
 def read_textfile(file_path: Path) -> str:
     """
@@ -69,13 +76,35 @@ def process_image(img_path, scorer) -> dict:
 
     return None
 
-def create_hfdataset(image_dir: Path, existing_files: set) -> Dataset:
-    """画像ディレクトリからデータセットを作成する"""
+def create_hfdataset(image_dir: Path, existing_data: Dataset = None) -> Dataset:
+    """画像ディレクトリからデータセットを作成する
+    Args:
+        image_dir (Path): 画像ファイルのあるディレクトリ
+        existing_data (Dataset, optional): 既存のデータセット. Defaults to None.
+    Returns:
+        Dataset: Hugging Face Datasets
+    """
     data = []
-    # kループ前にスコアリングクラスを初期化してモデルロードしないと処理が遅い
+    # ループ前にスコアリングクラスを初期化してモデルロードしないと処理が遅い
     scorer = AestheticScorer()
     for img_path in image_dir.rglob('*'):
-        if img_path.suffix in IMAGE_EXTENSIONS and img_path.name not in existing_files:
+        if img_path.suffix in IMAGE_EXTENSIONS:
+            with open(img_path.with_suffix('.txt'), encoding='utf-8') as tags_file:
+                tags_lines = tags_file.readlines()  # 全ての行をリストとして読み込む
+
+            if len(tags_lines) > 1:
+                error_message = f"Error: タグファイルが複数行: {img_path.name}"
+                print(error_message)  # コンソールに出力
+                logging.warning(error_message)  # ログファイルに記録
+                continue
+            tags_text = tags_lines[0].strip()  # 末尾の改行文字を削除
+            if existing_data is not None:
+                # 既存データに同じタグのデータが存在するか確認
+                existing_tags = existing_dataset['train']['tags']
+                if tags_text in existing_tags:
+                    print(f"Skip (タグが重複): {img_path}")
+                    continue
+
             # 画像処理を行い、結果をリストに追加
             processed_data = process_image(img_path, scorer)
             if processed_data:
@@ -135,8 +164,13 @@ if __name__ == "__main__":
         existing_dataset = None
 
     # 新しいデータセットを作成
-    new_dataset = create_hfdataset(image_dir, existing_files)
+    new_dataset = create_hfdataset(image_dir, existing_dataset)
 
+    if not new_dataset:
+        message = f"新しいデータセットが空。処理を終了"
+        print(message)
+        logging.warning(message)
+        exit()
     # 既存のデータセットが存在する場合、マージ
     if existing_dataset:
         combined_dataset = concatenate_datasets([existing_dataset['train'], new_dataset])
