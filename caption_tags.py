@@ -7,8 +7,8 @@ import toml
 from pathlib import Path
 import base64
 import json
-from cleanup_txt import clean_format, clean_tags, clean_caption
-from api_utils import OpenAIApi
+from module.cleanup_txt import clean_format, clean_tags, clean_caption
+from module.api_utils import OpenAIApi
 
 
 config = toml.load("processing.toml")
