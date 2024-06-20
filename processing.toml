@@ -7,6 +7,12 @@ dataset_dir = "path/to/image_directory"
 response_file_dir = "path/to/response_file_directory"
 output_dir = "path/to/output_directory"
 
+[resized]
+target_resolution = 512
+realesrganer_upscale = false
+realesrgan_model = "RealESRGAN_x4plus_anime_6B.pth"
+
+
 [settings]
 openai_model = "gpt-4o"
 #バッチ生成用JSONLファイルを生成
