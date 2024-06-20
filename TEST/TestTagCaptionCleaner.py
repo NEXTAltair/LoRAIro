@@ -1,3 +1,8 @@
+"""
+タグクリーンナップのテスト
+未だにエスケープの処理が甘いかもしれない
+    """
+
 import unittest
 from cleanup_txt import clean_tags, clean_format, clean_caption
 
