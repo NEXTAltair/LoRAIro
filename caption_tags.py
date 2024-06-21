@@ -4,9 +4,11 @@ APIを利用してtagとcaptionをいい感じに生成するスクリプト
 #https://github.com/kohya-ss/sd-scripts/blob/main/finetune/merge_captions_to_metadata.py
 #https://github.com/kohya-ss/sd-scripts/blob/main/finetune/merge_dd_tags_to_metadata.py
 import toml
-from pathlib import Path
 import base64
 import json
+from pathlib import Path
+from dataclasses import dataclass, field, asdict
+from typing import Dict, List, Optional
 from module.cleanup_txt import clean_format, clean_tags, clean_caption
 from module.api_utils import OpenAIApi
 
@@ -38,12 +40,79 @@ else:
     prompt = prompt
 
 
-class ImageData:
-    def __init__(self, dataset_dir):
-        self.dataset_dir = dataset_dir
-        self.data = self._load_images()
+@dataclass
+class ImageSize:
+    width: int
+    height: int
+    resolution: str
+    aspect_ratio: str
+    color_profile: Optional[str] = None
 
-    def _load_images(self):
+@dataclass
+class ImageMetadata:
+    path: Path
+    image: str  # base64 encoded image
+    tags: Dict[str, List[str]] = field(default_factory=dict)
+    caption: Dict[str, str] = field(default_factory=dict)
+    size: Optional[ImageSize] = None
+    score: Dict[str, float] = field(default_factory=dict)
+
+    def __post_init__(self):
+        if "existing" not in self.tags:
+            self.tags["existing"] = []
+        if "existing" not in self.caption:
+            self.caption["existing"] = ""
+
+    @property
+    def name(self) -> str:
+        return self.path.stem
+
+    def add_tags(self, model: str, new_tags: List[str]):
+        if model not in self.tags:
+            self.tags[model] = []
+        self.tags[model].extend(new_tags)
+
+    def set_caption(self, model: str, new_caption: str):
+        self.caption[model] = new_caption
+
+    def set_score(self, model: str, score: float):
+        self.score[model] = score
+
+    def set_size(self, width: int, height: int, color_profile: Optional[str] = None):
+        resolution = f"{width}x{height}"
+        aspect_ratio = f"{width}:{height}"
+        self.size = ImageSize(width, height, resolution, aspect_ratio, color_profile)
+
+    def to_dict(self) -> dict:
+        return {
+            "path": str(self.path),
+            "name": self.name,
+            "image": self.image,
+            "tags": self.tags,
+            "caption": self.caption,
+            "size": vars(self.size) if self.size else None,
+            "score": self.score
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'ImageMetadata':
+        path = Path(data['path'])
+        metadata = cls(
+            path=path,
+            image=data['image'],
+            tags=data.get('tags', {"existing": []}),
+            caption=data.get('caption', {}),
+            score=data.get('score', {})
+        )
+        if data.get('size'):
+            metadata.size = ImageSize(**data['size'])
+        return metadata
+
+class ImageMetadataLoader:
+    def __init__(self, dataset_dir: Path):
+        self.dataset_dir = dataset_dir
+
+    def load_images(self) -> Dict[str, ImageMetadata]:
         image_data = {}
         for image_path in self.dataset_dir.rglob("*.webp"):
             image_key = str(image_path.resolve())
@@ -56,93 +125,60 @@ class ImageData:
                 encoded_image = base64.b64encode(image_file.read()).decode('utf-8')
 
             # 既存テキストの読み込み
-            existing_tags = ""
-            existing_caption = ""
-            if txt_file.exists():
-                existing_tags = self._read_file(txt_file)
-                existing_tags = clean_format(existing_tags)
-            if caption_file.exists():
-                existing_caption = self._read_file(caption_file)
-                caption_file = clean_format(existing_caption)
+            existing_tags = self._read_file(txt_file) if txt_file.exists() else ""
+            existing_caption = self._read_file(caption_file) if caption_file.exists() else ""
 
-            image_data[image_key] = {
-                "path": image_key,
-                "name": image_name,
-                "image": encoded_image,
-                "existing_tags": existing_tags, # 既存のタグ
-                "existing_caption": existing_caption # 既存のキャプション
-            }
+            metadata = ImageMetadata(
+                path=image_path,
+                image=encoded_image,
+                tags={"existing": clean_tags(existing_tags).split(", ")},
+                caption={"existing": clean_caption(existing_caption)}
+            )
+
+            image_data[image_key] = metadata
+
         return image_data
 
-    def _read_file(self, file_path):
-        """ファイルの内容を読み込む"""
+    @staticmethod
+    def _read_file(file_path: Path) -> str:
         with open(file_path, 'r', encoding='utf-8') as file:
             return file.read()
 
 class Metadata:
     def __init__(self, img_data):
-        self.data = img_data
+        loader = ImageMetadataLoader(dataset_dir)
+        self.data = loader.load_images()
 
-    def _read_file(self, file_path):
-        """ファイルの内容を読み込む"""
-        with open(file_path, 'r', encoding='utf-8') as file:
-            return file.read()
-
-    def create_data(self, json_input, file=None):
+    def create_data(self, json_input: List[Dict], file: str = None) -> Dict[str, Dict]:
         """
         JSONLから読み込んだデータを基に、ファイル名、パス、キャプション、タグの情報を追加する
         Args:
             json_input (list or dict): JSONオブジェクトのリストまたは辞書。各オブジェクトは読み込んだJSONLの一行から得られる。
+            file (str): 即時生成の場合のファイル名
         Returns:
             dict: ファイル名、パス、キャプション、タグ情報を含む辞書
         """
-        # json_inputが辞書の場合はリストに変換
-        if isinstance(json_input, dict):
-            json_list = [json_input]
-        else:
-            json_list = json_input
-
-        for data in json_list:
-            if data.get('error') is not None:
-                file = Path(file)
-                move_error_images(file)
-                continue
-
+        for data in json_input:
             if file: #即時生成の場合
-                content = json_list[0]['choices'][0]['message']['content']
-                image_key = Path(file)
-                custom_id = image_key.stem
-                image_key = str(image_key.resolve())
+                content = data['choices'][0]['message']['content']
+                image_key = str(Path(file).resolve())
 
             elif 'custom_id' in data: #バッチ生成の場合
                 custom_id = data.get('custom_id')
                 # self.data と照合する
-                matching_image = None
-                for _, value in self.data.items():
-                    if value['name'] == custom_id or value['path'] == custom_id:
-                        matching_image = value
-                        break
+                matching_image = next((v for v in self.data.values() if v.name == custom_id or str(v.path) == custom_id), None)
                 if not matching_image:
                     print(f"画像ディレクトリに｢ {custom_id} ｣が存在しない\n"
                             "dataset_dirの指定ミスか学習からハネた")
                     continue
-                image_key = matching_image['path']
-
-                # Path オブジェクトに変換
-                image_path = Path(image_key)
-
-                # JSONデータからタグとキャプションとタグを抽出して保存
+                image_key = str(matching_image.path)
                 content = data['response']['body']['choices'][0]['message']['content']
 
             else: #API不使用でデータのクリーンナップのみの場合
                 image_key = data['path']
-                image_path = Path(image_key)
-                custom_id = image_path.stem
-                content = "Tags: " + self.data[image_key]['existing_tags'] + ", Caption: " + self.data[image_key]['existing_caption']
-
+                content = f"Tags: {', '.join(self.data[image_key].tags['existing'])}, Caption: {self.data[image_key].caption['existing']}"
 
             content = clean_format(content)
-
             # 'tags:' と 'caption:' が何番目に含まれているかを見つける
             tags_index = content.find('tags:')
             caption_index = content.find('caption:')
@@ -152,10 +188,7 @@ class Metadata:
             # 数は多くないので手動で処理してくれることを期待
             if tags_index == -1 and caption_index == -1:
                 print(f"この場合うっかりエロ画像をAPIに投げた可能性がある")
-                print(f"Error Information:\n"
-                    f"Image Key: {image_key}\n"
-                    f"Content: {content}\n"
-                    f"-----")
+                print(f"Error Information:\nImage Key: {image_key}\nContent: {content}\n-----")
                 move_error_images(Path(image_key)) # TODO:
                 continue
 
@@ -164,31 +197,19 @@ class Metadata:
             caption_text = content[caption_index + len('Caption:'):].strip()
 
             # タグとキャプションをクリーンアップ
-            tags = clean_tags(tags_text)
-            caption = clean_caption(caption_text)
+            self.data[image_key].add_tags(model, clean_tags(tags_text).split(", "))
+            self.data[image_key].set_caption(model, clean_caption(caption_text))
 
-            # self.data に情報を追加
-            self.data[image_key].update({
-                "path": image_key,
-                "name": custom_id,
-                "existing_tags": self.data[image_key]['existing_tags'],  # 既存のタグ
-                "existing_caption": self.data[image_key]['existing_caption'],  # 既存のキャプション
-                "tags": tags,
-                "caption": caption
-            })
-        data = self.data
-        return data
+        return {k: asdict(v) for k, v in self.data.items()}
 
     def json_to_metadata(self):
         """ImageDataオブジェクトの変数からKohya/sd-scripts用メタデータを生成する
-
-        return: metadata (dict): メタデータ
         """
         metadata_clean = {}
         # metadataからimage_key､tags, captionを取得
         for image_key, value in self.data.items():
-            tags = value['tags']
-            caption = value['caption']
+            tags = value.tags
+            caption = value.caption
 
             # metadataからimage_key､tags, captionをmetadata_clene.jsonに保存
             # image_key をキーとしてメタデータを格納
@@ -199,8 +220,6 @@ class Metadata:
 
         with open(output_dir / 'meta_clean.json', 'w', encoding='utf-8') as file:
             json.dump(metadata_clean, file, ensure_ascii=False, indent=4)
-
-        return metadata_clean
 
     def save_metadata(self, filename):
         """メタデータを指定された形式でファイルに保存する"""
@@ -254,54 +273,43 @@ def move_error_images(file_path):
     return error_image_path
 
 
-def save_tags_and_captions(imagedata, filename=None):
-    """instanceの変数から.txtと.captionファイルを生成する
-    Args:
-        imagedata (instance): JSONオブジェクト
+def save_tags_and_captions(metadata, model_to_save="generated", filename=None):
     """
-    # TODO: 即時生成とバッチ生成の場合の分岐を追加
-    # imagedataからimage_key､tags, captionを取得
-    for image_key, value in imagedata.data.items():
-        if data!= 'id':
-            filename = value['name']
-            dataset_dir = Path(value['path']).parent
-            tags = value.get('tags') # きーがない場合はNoneを返す
-            caption = value.get('caption') #APIの時やタグ付けせずにクリーンナップのみの時
-        else:
-            dataset_dir = Path(filename).parent
-            tags = value.get('tags')
-            caption = value.get('caption')
+    インスタンスの変数から.txtと.captionファイルを生成する
+    Args:
+        metadata (Metadata): Metadataクラスのインスタンス
+        model_to_save (str): 保存するタグとキャプションのモデル名（デフォルトは"generated"）
+        filename (str, optional): 特定のファイル名を指定する場合に使用
+    """
+    for image_key, value in metadata.data.items():
+        filename = value.name
+        dataset_dir = value.path.parent
+
+        # タグの取得と結合
+        existing_tags = value.tags.get('existing', [])
+        model_tags = value.tags.get(model_to_save, [])
+        combined_tags = clean_tags(", ".join(existing_tags + model_tags))
+
+        # キャプションの取得と結合
+        existing_caption = value.caption.get('existing', '')
+        model_caption = value.caption.get(model_to_save, '')
+        combined_caption = clean_caption(f"{existing_caption}, {model_caption}".strip(', '))
 
         # ファイル名の準備
         tags_filename = f"{filename}.txt"
         caption_filename = f"{filename}.caption"
 
-        if tags is None and caption is None:
-            break
-
-        if join_existing_txt:
-            # 既存のタグを取得
-            if imagedata.data[image_key].get('existing_tags'):
-                existing_tags = imagedata.data[image_key]['existing_tags']
-                tags = existing_tags + ", " + tags
-                tags = clean_tags(tags)
-            if imagedata.data[image_key].get('existing_caption'):
-                existing_caption = imagedata.data[image_key]['existing_caption']
-                caption = existing_caption + ", " + caption
-                caption = clean_caption(caption)
-
         # タグをテキストファイルに保存
-        if tags is not None:
+        if combined_tags:
             with open((dataset_dir / tags_filename), 'w', encoding='utf-8') as tags_file:
-                tags_file.write(tags)
+                tags_file.write(combined_tags)
+            print(f"Saved tags to {tags_filename}\n{combined_tags}")
 
         # キャプションをキャプションファイルに保存
-        if caption is not None:
+        if combined_caption:
             with open((dataset_dir / caption_filename), 'w', encoding='utf-8') as cap_file:
-                cap_file.write(caption)
-
-            print(f"Saved tags to {tags_filename} \n {tags}")
-            print(f"Saved caption to {caption_filename} \n {caption}")
+                cap_file.write(combined_caption)
+            print(f"Saved caption to {caption_filename}\n{combined_caption}")
 
 
 def write_to_file(filepath, content):
@@ -314,40 +322,55 @@ def read_file(filepath):
         return file.read()
 
 
-def caption_gpt4(img, data, oai):
-    """#フォルダ内の画像に対応した.captionがない場合OpenAI API GTP-4を使って生成
+def caption_gpt4(data: Metadata, oai: OpenAIApi):
+    """
+    フォルダ内の画像に対応したキャプションをOpenAI API GPT-4を使って生成し、
+    その都度Metadataを更新する
 
     Args:
+        data (Metadata): 処理対象の画像メタデータ
+        oai (OpenAIApi): OpenAI APIクライアント
     """
-    # フォルダを走査してキャプションの生成
-    for file in img.data:
-        # 親フォルダ名にnsfwが含まれる場合はImagesDataの更新をスキップ
-        if "nsfw" in Path(file).parent.name:
-            return
-        print(f'Processing {file}...')
-        header, payload = oai.generate_payload(file)
-        #キャプションの生成
-        response = oai.generate_immediate_response(payload, header)
-        print(f"response: {response}")
-        # responseを基にImagesDataの更新
-        data.create_data(response, file)
-    save_tags_and_captions(img, file)
+    for image_key, image_metadata in data.data.items():
+        # 親フォルダ名にnsfwが含まれる場合はスキップ
+        if "nsfw" in Path(image_key).parent.name:
+            print(f"エロ･グロはスキップ: {image_key}")
+            continue
+
+        print(f'Processing {image_key}...')
+        try:
+            # APIペイロードの生成
+            header, payload = oai.generate_payload(image_key)
+            # キャプションの生成
+            response = oai.generate_immediate_response(payload, header)
+            print(f"Response received for {image_key}")
+            # Metadataの更新
+            updated_metadata = data.create_data([response], file=image_key, model=oai.model)
+
+            # 更新されたメタデータの確認
+            if image_key in updated_metadata:
+                print(f"Updated metadata for {image_key}")
+                print(f"New tags: {updated_metadata[image_key]['tags'].get(oai.model, [])}")
+                print(f"New caption: {updated_metadata[image_key]['caption'].get(oai.model, '')}")
+            else:
+                print(f"Warning: Metadata not updated for {image_key}")
+
+        except Exception as e:
+            print(f"Error processing {image_key}: {e}")
+
+    print("タグ､キャプションの生成完了")
 
 if __name__ == "__main__":
-    img = ImageData(dataset_dir) #画像データの読み込み
-    data = Metadata(img.data) #画像データを編集するインスタンス
+    data = Metadata(dataset_dir)
     oai = OpenAIApi(openai_api_key, model, prompt, data)
+
     if generate_batch_jsonl:
         jsonl_path = oai.caption_batch()
         if strt_batch:
-            uplode_file_id = oai.upload_jsonl_file(jsonl_path)
-            oai.start_batch_processing(uplode_file_id)
+            upload_file_id = oai.upload_jsonl_file(jsonl_path)
+            oai.start_batch_processing(upload_file_id)
             print("バッチ処理が終了したらjsonlパスを指定して再度実行")
-            exit() #バッチ処理が開始されたら終了
-    elif generate:
-        # GPT-4で即時
-        caption_gpt4(img, data, oai)
-        exit()
+            exit()
 
     if response_file_dir != Path('.') and not response_file_dir.is_dir():
         print("jsonlファイルでなくjsonlを保存しているディレクトリを指定")
@@ -361,24 +384,22 @@ if __name__ == "__main__":
             print("レスポンスのjsonl以外のファイルがある｡Pathをミスってる可能性")
             exit()
 
-
-    if generate_meta_clean:
-        metadata = data.json_to_metadata(response_jsonl_data)
     if generate_tags_and_captions_txt:
         try:
             if response_jsonl_data is not None:
-                metadata = data.create_data(response_jsonl_data)
+                metadata = data.create_data()
         except:
+            if generate:
+                caption_gpt4(data, oai) #Metadataの更新
             img_datas = []
-            for image_ley, img_data in img.data.items():
+            for image_ley, img_data in data.data.items():
                 print(f'Processing {image_ley}...')
                 #valueをリストに追加
                 img_datas.append(img_data)
 
-            metadata = data.create_data(img_datas)
-            #metadata(dict)でInstanceの変数を更新
-            data.metadata = metadata
         save_tags_and_captions(data)
+    if generate_meta_clean:
+        data.json_to_metadata()
 
 
 

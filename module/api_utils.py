@@ -76,7 +76,7 @@ class OpenAIApi:
                     "content": [
                         {"type": "text", "text": self.prompt},
                         {"type": "image_url", "image_url": {
-                            "url": f"data:image/webp;base64,{self.image_data.data[image_key]['image']}",
+                            "url": f"data:image/webp;base64,{self.image_data.data[image_key].image}",
                             "detail": "high"
                         }}
                     ]
@@ -87,7 +87,7 @@ class OpenAIApi:
 
         if batch_jsonl_flag:
             bach_payload = {
-                "custom_id": self.image_data.data[image_key]['name'],
+                "custom_id": self.image_data.data[image_key].name,
                 "method": "POST",
                 "url": "/v1/chat/completions",
                 "body": payload
@@ -120,12 +120,11 @@ class OpenAIApi:
         """
         batch_payloads = []
         for image_key in self.image_data.data:
-            path = self.image_data.data[image_key]['path']
-            path = Path(path)
+            path = self.image_data.data[image_key].path
             #親フォルダ名を取得して nsfw が含まれるる場合そのフォルダに有る画像はスキップ
             if "nsfw" in path.parent.name:
                 continue
-            name = self.image_data.data[image_key]['name']
+            name = self.image_data.data[image_key].name
             if path.suffix == ".webp": #webp以外の画像の場合はリサイズ等の処理がされてないから無視
                 print(f'Processing {name}...')
                 payload = self.generate_payload(image_key, batch_jsonl_flag=True)
