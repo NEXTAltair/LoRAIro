@@ -20,12 +20,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt  # 必要なライブラリをインストール
 
-      - name: Run tests
-        run: python -m unittest discover -s tests  # テストを実行
+      - name: Run TEST
+        run: python -m unittest discover -s TEST  # テストを実行
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()  # 常にテスト結果をアップロード
         with:
-          name: test-results
-          path: test-results  # テスト結果の出力先を指定
+          name: TEST-results
+          path: TEST-results  # テスト結果の出力先を指定
