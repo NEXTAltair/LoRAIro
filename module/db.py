@@ -31,22 +31,77 @@ class ImageDatabase:
         """with文を使用した際に自動的に接続を閉じるためのメソッド。"""
         self.close()  # データベース接続を閉じる
 
-    def create_tables(self):
-        """imagesテーブルを作成。"""
-        with self.connect() as conn:  # データベースに接続
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS images (  -- imagesテーブルが存在しない場合は作成
-                    id INTEGER PRIMARY KEY,  -- 画像ID、自動で増加する番号
-                    uuid TEXT UNIQUE NOT NULL,  -- 画像を一意に識別するID
-                    width INTEGER NOT NULL,  -- 画像の幅
-                    height INTEGER NOT NULL,  -- 画像の高さ
-                    format TEXT NOT NULL,  -- 画像のフォーマット（例：png、jpg）
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- 画像データの作成日時
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP  -- 画像データの更新日時
-                )
-            ''')
+def create_tables(self):
+    with self.connect() as conn:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS images (
+                id INTEGER PRIMARY KEY,
+                uuid TEXT UNIQUE NOT NULL,
+                original_path TEXT NOT NULL,
+                original_width INTEGER NOT NULL,
+                original_height INTEGER NOT NULL,
+                original_format TEXT NOT NULL,
+                color_profile TEXT,
+                has_alpha BOOLEAN,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS processed_images (
+                id INTEGER PRIMARY KEY,
+                image_id INTEGER,
+                processed_path TEXT NOT NULL,
+                processed_width INTEGER NOT NULL,
+                processed_height INTEGER NOT NULL,
+                processed_format TEXT NOT NULL,
+                processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (image_id) REFERENCES images (id)
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS models (
+                id INTEGER PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                type TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS tags (
+                id INTEGER PRIMARY KEY,
+                image_id INTEGER,
+                model_id INTEGER,
+                tag TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (image_id) REFERENCES images (id),
+                FOREIGN KEY (model_id) REFERENCES models (id)
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS captions (
+                id INTEGER PRIMARY KEY,
+                image_id INTEGER,
+                model_id INTEGER,
+                caption TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (image_id) REFERENCES images (id),
+                FOREIGN KEY (model_id) REFERENCES models (id)
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS scores (
+                id INTEGER PRIMARY KEY,
+                image_id INTEGER,
+                model_id INTEGER,
+                score FLOAT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (image_id) REFERENCES images (id),
+                FOREIGN KEY (model_id) REFERENCES models (id)
+            )
+        ''')
 
-    def add_image(self, width, height, format):
+    def add_image(self, width: int, height: int, format: str, file_path: str) -> int:
         """画像情報をデータベースに追加。"""
         image_uuid = str(uuid.uuid4())  # ユニークIDを生成
         with self.connect():  # データベースに接続

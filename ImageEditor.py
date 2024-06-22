@@ -1,11 +1,7 @@
 """
-画像の編集を行う機能を提供するモジュール
-リサイズ
-- 長編を基準にアスペクト比を維持したまま指定サイズに近似した値になる32の倍数にリサイズする
-プロファイル変換
-- 画像の色域をsRGBに変換する､プロファイルがない場合はRGBに変換する
-クロップ
-- 黒枠､白枠を検出して除去する
+画像編集スクリプト
+- 画像の色域を変換
+- 画像をリサイズ
 """
 import cv2
 import io
@@ -14,39 +10,89 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageCms
 import shutil
-from typing import Tuple, List, Optional
+from typing import Dict, Tuple, List, Optional, Any
 from dataclasses import dataclass
 
-@dataclass
-class ProcessingConfig:
-    dataset_dir: Path
-    target_resolution: int
-    realesrganer_upscale: bool
-    realesrgan_model: str
-    image_extensions: List[str]
-    text_extensions: List[str]
-    preferred_resolutions: List[Tuple[int, int]]
+def get_image_info(image_path: Path) -> Dict[str, Any]:
+    """
+    画像ファイルから基本的な情報を取得する
 
-    @classmethod
-    def from_toml(cls, file_path: str, image_extensions: List[str], text_extensions: List[str], preferred_resolutions: List[Tuple[int, int]]):
-        with open(file_path, 'r', encoding='utf-8') as f:
-            config_dict = toml.load(f)
-        return cls(
-            dataset_dir=Path(config_dict['directories']['dataset_dir']),
-            target_resolution=config_dict['resized']['target_resolution'],
-            realesrganer_upscale=config_dict['resized']['realesrganer_upscale'],
-            realesrgan_model=config_dict['resized']['realesrgan_model'],
-            image_extensions=image_extensions,
-            text_extensions=text_extensions,
-            preferred_resolutions=preferred_resolutions
-        )
+    Args:
+        image_path (Path): 画像ファイルのパス
+
+    Returns:
+        Dict[str, Any]: 画像の基本情報（幅、高さ、フォーマット、カラープロファイル）
+    """
+    try:
+        with Image.open(image_path) as img:
+            info = {
+                'width': img.width,
+                'height': img.height,
+                'format': img.format.lower() if img.format else 'unknown',
+                'mode': img.mode,
+            }
+
+            # カラープロファイル情報の取得
+            if 'icc_profile' in img.info:
+                icc_profile = img.info['icc_profile']
+                try:
+                    profile = ImageCms.ImageCmsProfile(io.BytesIO(icc_profile))
+                    info['color_profile'] = {
+                        'name': profile.profile.profile_description,
+                        'color_space': profile.profile.color_space,
+                    }
+                except:
+                    info['color_profile'] = 'Invalid ICC Profile'
+            else:
+                info['color_profile'] = 'No ICC Profile'
+
+            # 追加の画像情報
+            info['has_alpha'] = img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info)
+
+            return info
+    except Exception as e:
+        raise ValueError(f"画像情報の取得失敗: {image_path}. エラー: {str(e)}")
 
 class ImageProcessor:
-    def __init__(self, config: ProcessingConfig):
+    def __init__(self, config: Dict[str, Any]):
         self.config = config
 
-    def convert_to_srgb(self, img: Image.Image) -> Image.Image:
-        """画像の色域を外部sRGBプロファイルを使用してsRGBに変換"""
+class ImageProcessor:
+    def __init__(self, config, db):
+        self.config = config
+        self.original_dir = self.base_dir / "original"
+        self.processed_dir = self.base_dir / "processed"
+        self.db = db
+
+    def save_original_image(self, image_path):
+        # 元のファイルパスから必要な情報を抽出
+        original_path = Path(image_path)
+        relative_path = original_path.relative_to(original_path.parent.parent)
+        date_str = datetime.now().strftime("%Y/%m/%d")
+
+        # 新しいパスを構築
+        new_path = self.original_dir / date_str / relative_path
+        new_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # ファイルをコピー
+        shutil.copy2(image_path, new_path)
+
+        return str(new_path)
+
+    def normalize_color_profile(self, img: Image.Image) -> Image.Image:
+        """
+        画像の色プロファイルを正規化し、必要に応じて色域変換する
+
+        この関数は以下の処理：
+        1. 画像にICCプロファイルがある場合、そのプロファイルからsRGBに変換
+        2. ICCプロファイルがない場合、画像のモードに応じてRGBまたはRGBAに変換
+        3. 透過情報（アルファチャンネル）がある場合、それを保持
+        Args:
+            img (Image.Image): 処理する画像
+
+        Returns:
+            Image.Image: 色プロファイルが正規化された画像
+        """
         # 画像が透過情報を持っているか確認する
         has_alpha = img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info)
 
@@ -59,6 +105,7 @@ class ImageProcessor:
             )
             return img_converted.convert('RGBA') if has_alpha else img_converted
         else:
+            # ICCプロファイルがない場合、単純にRGBまたはRGBAに変換
             return img.convert('RGBA') if has_alpha else img.convert('RGB')
 
     def move_low_resolution_images(self, file_path: Path) -> None:
@@ -105,7 +152,7 @@ class ImageProcessor:
     def resize_image(self, img: Image.Image) -> Image.Image:
         original_width, original_height = img.size
         matching_resolution = self.find_matching_resolution(original_width, original_height)
-        
+
         if matching_resolution:
             new_width, new_height = matching_resolution
         else:
@@ -207,38 +254,39 @@ class ImageProcessor:
             return img.crop((x, y, x + w, y + h))
         return img
 
-    def process_images(self) -> None:
-        output_processed = self.config.dataset_dir.parent / f"{self.config.dataset_dir.name}_Processed"
-        for file_path in self.config.dataset_dir.rglob('*'):
-            if file_path.is_file() and file_path.suffix.lower() in self.config.image_extensions:
-                parent_folder = file_path.parent.name
-                with Image.open(file_path) as image:
-                    cropped_image = self.auto_crop_image(image)
-                    max_dimension = max(cropped_image.width, cropped_image.height)
+    def process_and_save_image(self, original_path, base_models, remove_alpha=False):
+        with Image.open(original_path) as img:
+            original_info = {
+                'width': img.width,
+                'height': img.height,
+                'format': img.format,
+                'has_alpha': img.mode == 'RGBA'
+            }
 
-                    if max_dimension < self.config.target_resolution:
-                        if self.config.realesrganer_upscale:
-                            # RealESRGANer implementation goes here
-                            pass
-                        else:
-                            print(f'最大解像度: {max_dimension}')
-                            self.move_low_resolution_images(file_path)
-                    else:
-                        self.process_image(output_processed, file_path, parent_folder, cropped_image)
+            image_id = self.db.add_image(original_path=str(original_path), **original_info)
 
+            for base_model in base_models:
+                processed_img = self.resize_image(img, base_model['target_resolution'])
+                if remove_alpha and original_info['has_alpha']:
+                    processed_img = processed_img.convert('RGB')
 
-def main():
-    config = ProcessingConfig.from_toml(
-        'processing.toml',
-        image_extensions=['.jpg', '.png', '.bmp', '.gif', '.tif', '.tiff', '.jpeg', '.webp'],
-        text_extensions=['.txt', '.caption'],
-        preferred_resolutions=[
-            (512, 512), (768, 512), (512, 768),
-            (1024, 1024), (1216, 832), (832, 1216)
-        ]
-    )
-    processor = ImageProcessor(config)
-    processor.process_images()
+                # 処理済み画像の保存パスを構築
+                original_path = Path(original_path)
+                relative_path = original_path.relative_to(self.original_dir)
+                date_str = datetime.now().strftime("%Y/%m/%d")
+                processed_filename = f"{original_path.stem}_processed_{base_model['name']}.webp"
+                processed_path = self.processed_dir / date_str / relative_path.parent / processed_filename
+                processed_path.parent.mkdir(parents=True, exist_ok=True)
 
-if __name__ == "__main__":
-    main()
+                processed_img.save(processed_path, 'WEBP')
+
+                processed_info = {
+                    'image_id': image_id,
+                    'base_model_id': base_model['id'],
+                    'processed_path': str(processed_path),
+                    'processed_width': processed_img.width,
+                    'processed_height': processed_img.height,
+                    'processed_format': 'WEBP',
+                    'alpha_removed': remove_alpha and original_info['has_alpha']
+                }
+                self.db.add_processed_image(**processed_info)

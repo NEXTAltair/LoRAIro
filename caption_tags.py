@@ -64,6 +64,14 @@ class ImageMetadata:
             self.caption["existing"] = ""
 
     @property
+    def aspect_ratio(self) -> float:
+        return self.width / self.height
+
+    @property
+    def calculated_pixel_count(self) -> int:
+        return self.width * self.height
+
+    @property
     def name(self) -> str:
         return self.path.stem
 
@@ -320,7 +328,6 @@ def write_to_file(filepath, content):
 def read_file(filepath):
     with open(filepath, 'r', encoding='utf-8') as file:
         return file.read()
-
 
 def caption_gpt4(data: Metadata, oai: OpenAIApi):
     """
