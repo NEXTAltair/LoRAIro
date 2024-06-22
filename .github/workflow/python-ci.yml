@@ -1,0 +1,31 @@
+on:
+  push:
+    branches: [ dev ]
+  pull_request:
+    branches: [ dev ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3  # リポジトリをチェックアウト
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'  # Pythonのバージョンを指定
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt  # 必要なライブラリをインストール
+
+      - name: Run tests
+        run: python -m unittest discover -s tests  # テストを実行
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        if: always()  # 常にテスト結果をアップロード
+        with:
+          name: test-results
+          path: test-results  # テスト結果の出力先を指定
