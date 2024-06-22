@@ -9,9 +9,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3  # リポジトリをチェックアウト
+      - uses: actions/checkout@v4  # リポジトリをチェックアウト
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'  # Pythonのバージョンを指定
 
@@ -24,7 +24,7 @@ jobs:
         run: python -m unittest discover -s tests  # テストを実行
 
       - name: Upload test results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()  # 常にテスト結果をアップロード
         with:
           name: test-results
