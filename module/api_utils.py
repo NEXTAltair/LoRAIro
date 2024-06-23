@@ -2,8 +2,10 @@
 from pathlib import Path
 import json
 import math
+from typing import Dict, Any
 import google.generativeai as genai
 import requests
+import base64
 
 def save_jsonline_to_file(batch_payload, jsonl_filename):
     """一行JSONファイルを纏めてJSONLines形式でファイルに保存する
@@ -45,29 +47,40 @@ def split_jsonl(jsonl_path, jsonl_size):
             f.writelines(lines[i * lines_per_file:(i + 1) * lines_per_file])
 
 class OpenAIApi:
-    def __init__(self, openai_api_key, model, prompt, image_data):
-        self.openai_api_key = openai_api_key
+    def __init__(self, api_key, model, prompt, image_data=None):
+        self.openai_api_key = api_key
         self.model = model
+        self.model_name_check()
         self.prompt = prompt
         self.image_data = image_data
+    def model_name_check(self):
+        """モデルがVision対応か確認"""
+        SUPPORTED_VISION_MODELS = ["gpt-4-turbo", "gpt-4o"]
+        if self.model not in self.SUPPORTED_VISION_MODELS:
+            raise ValueError(f"そのModelには非対応: {self.model}. Supported models: {', '.join(self.SUPPORTED_VISION_MODELS)}")
 
-    def generate_payload(self, image_key, batch_jsonl_flag=False):
+    def set_image_data(self, image_path: Path):
+        """APIクライアントに画像データを設定"""
+        with open(image_path, "rb") as image_file:
+            image_binary = base64.b64encode(image_file.read()).decode('utf-8')
+        self.image_data = image_binary
+        #image_dataに画像のバイナリデータを設定
+
+    def generate_payload(self,batch_jsonl_flag=False):
         """
         OpenAI APIに送信するペイロードを生成する。
 
         Args:
-            base64img (str): Base64エンコードされた画像データ
-            prompt (str): 画像に関連するプロンプトテキスト
-            img_id (str, optional): 画像ID（バッチ処理用）
+            batch_jsonl_flag (bool):
 
         Returns:
             tuple: headers（APIリクエストのヘッダー）, payload（APIに送信するペイロード）
         """
+        base64_image = self.image_data
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.openai_api_key}"
         }
-
         payload = {
             "model": self.model,
             "messages": [
@@ -76,7 +89,7 @@ class OpenAIApi:
                     "content": [
                         {"type": "text", "text": self.prompt},
                         {"type": "image_url", "image_url": {
-                            "url": f"data:image/webp;base64,{self.image_data.data[image_key].image}",
+                            "url": f"data:image/webp;base64,{base64_image}",
                             "detail": "high"
                         }}
                     ]
@@ -93,7 +106,6 @@ class OpenAIApi:
                 "body": payload
             }
             return bach_payload
-
         return headers, payload
 
 
@@ -108,9 +120,39 @@ class OpenAIApi:
         Returns:
             dict: APIからのレスポンス
         """
-        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=60)
-        return response.json()
+        try:
+            response = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=60
+            )
+            self.check_response(response)
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            raise APIError(f"Network error: {str(e)}")
 
+    def check_response(self, response):
+        if response.status_code == 200:
+            return
+        
+        error_data = response.json().get('error', {})
+        error_message = error_data.get('message', 'Unknown error')
+
+        if response.status_code == 400:
+            raise APIError(f"Bad Request: {error_message}", error_type=error_data.get('type'), param=error_data.get('param'), code=response.status_code)
+        elif response.status_code == 401:
+            raise APIError("Unauthorized: Invalid API key", code=response.status_code)
+        elif response.status_code == 403:
+            raise APIError("Forbidden: You don't have access to this resource", code=response.status_code)
+        elif response.status_code == 404:
+            raise APIError("Not Found: The requested resource doesn't exist", code=response.status_code)
+        elif response.status_code == 429:
+            raise APIError("Too Many Requests: You've hit the rate limit", code=response.status_code)
+        elif 500 <= response.status_code < 600:
+            raise APIError(f"Server Error: Something went wrong on OpenAI's end (status code: {response.status_code})", code=response.status_code)
+        else:
+            raise APIError(f"Unexpected status code: {response.status_code}", code=response.status_code)
 
     def caption_batch(self):
         """#imageを走査してBachAPIのリクエストjsonlを生成
@@ -127,7 +169,7 @@ class OpenAIApi:
             name = self.image_data.data[image_key].name
             if path.suffix == ".webp": #webp以外の画像の場合はリサイズ等の処理がされてないから無視
                 print(f'Processing {name}...')
-                payload = self.generate_payload(image_key, batch_jsonl_flag=True)
+                payload = self.generate_payload(base64img, batch_jsonl_flag=True)
                 batch_payloads.append(payload)
 
         jsonl_path = save_jsonline_to_file(batch_payloads, f"{path.parent.name}.jsonl")
@@ -296,3 +338,27 @@ class GoogleAI:
         print(f"Tags: {tags}")
         print(f"Caption: {caption}")
         return tags, caption
+
+class APIError(Exception):
+    """API呼び出し時のカスタムエラー"""
+    def __init__(self, message, error_type=None, param=None, code=None):
+        self.message = message
+        self.error_type = error_type
+        self.param = param
+        self.code = code
+        super().__init__(self.message)
+
+    def __str__(self):
+        error_details = []
+        if self.error_type:
+            error_details.append(f"Type: {self.error_type}")
+        if self.param:
+            error_details.append(f"Param: {self.param}")
+        if self.code:
+            error_details.append(f"Code: {self.code}")
+
+        if error_details:
+            return f"{self.message} ({', '.join(error_details)})"
+        return self.message
+
+
