@@ -1,0 +1,7 @@
+log_level: INFO
+log_file: app.log
+format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+console_level: DEBUG
+file_level: INFO
+max_bytes: 10485760  # 10MB
+backup_count: 5
