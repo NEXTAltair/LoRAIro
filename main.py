@@ -7,9 +7,6 @@ from ImageEditor import ImageProcessor, get_image_info
 from caption_tags import process_image as generate_caption_tags
 import traceback
 
-# 注: この変数は使用されていないため、削除するか設定から読み込むように変更することを推奨します
-# IMG_EXTRNSIONDS = ['.jpg', '.png', '.bmp', '.gif', '.tif', '.tiff', '.jpeg', '.webp']
-
 def main():
     # 設定ファイル読み込み
     config = get_config('processing.toml')
@@ -20,40 +17,47 @@ def main():
     setup_logger(log_level=log_level, log_file=log_file)
     logger = get_logger(__name__)
 
-    logger.info("Starting Image Database Management System")
-
     # ImageProcessorの初期化
-    image_processor = ImageProcessor(config)
+    image_processor = ImageProcessor(config, logger)
 
     # データベースの初期化
-    db = ImageDatabase(config['directories'].get('database', 'image_database.sqlite'))
+    output_dir = Path(config['directories']['output'])
+    db_path = output_dir  / "image_dataset" / "image_database.db"
+    db = ImageDatabase(db_path)
 
     try:
         db.connect()
-        db.create_tables()
 
         # 画像処理とデータベース更新のメインループ
         dataset_dir = Path(config['directories']['dataset'])
         for file_path in dataset_dir.rglob('*'):
+            # ファイルが画像かどうかを確認
             if file_path.is_file() and file_path.suffix.lower() in config['image_extensions']:
                 logger.info(f"Processing image: {file_path}")
 
                 try:
-                    # オリジナル画像の情報を取得してDBに保存
-                    original_info = get_image_info(file_path)
-                    image_id = db.add_image(
-                        width=original_info['width'],
-                        height=original_info['height'],
-                        format=original_info['format'],
-                        mode=original_info['mode'],
-                        color_profile=str(original_info['color_profile']),
-                        has_alpha=original_info['has_alpha'],
-                        file_path=str(file_path)
-                    )
+                    # 画像の編集とDBへ登録するための情報取得
+                    original_path, original_info = image_processor.save_original_and_return_metadata(file_path)
+                    # 編集前の画像情報をDBに登録
+                    image_id, uuid = db.add_image(original_path, original_info)
 
+                    # 既存タグ､キャプションをtxtファイルから取得してDBに登録
+                    # タグファイルの処理
+                    tag_file = file_path.with_suffix('.txt')
+                    if tag_file.exists():
+                        with open(tag_file, 'r', encoding='utf-8') as f:
+                            tags = f.read().strip()
+                            db.add_text(image_id=image_id, model_id=None, text=tags, type='tag', existing=True)
+                    # キャプションファイルの処理
+                    caption_file = file_path.with_suffix('.caption')
+                    if caption_file.exists():
+                        with open(caption_file, 'r', encoding='utf-8') as f:
+                            caption = f.read().strip()
+                            db.add_text(image_id=image_id, model_id=None, text=caption, type='cap', existing=True)
+
+# ----ここまで動いた----
                     # 画像処理
                     with Image.open(file_path) as img:
-                        # 注: 以下の3行は ImageProcessor クラス内のメソッドにまとめることを推奨します
                         processed_img = image_processor.process_image(img)
 
                     # 処理後の画像情報をDBに更新
@@ -74,7 +78,7 @@ def main():
                     logger.error(f"Error processing image {file_path}: {str(e)}")
                     logger.debug(traceback.format_exc())  # スタックトレースをログに追加
 
-        logger.info("All images processed successfully")
+            logger.info("All images processed successfully")
     except Exception as e:
         logger.error(f"An error occurred during processing: {str(e)}")
         logger.debug(traceback.format_exc())  # スタックトレースをログに追加

@@ -1,21 +1,24 @@
 import sqlite3  # SQLite3データベースを扱うためのライブラリをインポート
 import uuid  # ユニークIDを生成するためのライブラリをインポート
 from datetime import datetime  # 日時情報を扱うためのライブラリからdatetimeクラスをインポート
-from typing import Dict, List, Tuple, Optional, Any  # データ型を定義
+from pathlib import Path  # ファイルパスを扱うためのライブラリからPathクラスをインポート
+from typing import Dict, List, Tuple, Optional, Any, Literal  # データ型を定義
 
 
 class ImageDatabase:
     """画像データを管理するためのデータベース操作クラス"""
 
-    def __init__(self, db_name='image_dataset.db'):
+    def __init__(self, db_path: Path):
         """
         ImageDatabaseクラスのコンストラクタ
 
         Args:
             db_name (str): データベースファイルの名前
         """
-        self.db_name = db_name  # データベースファイル名を指定
+        self.db_name = db_path  # データベースファイル名を指定
         self.conn = None  # データベース接続オブジェクトを初期化
+        self.create_tables()  # テーブルを作成
+
 
     def connect(self):
         """
@@ -59,12 +62,15 @@ class ImageDatabase:
                 CREATE TABLE IF NOT EXISTS images (
                     id INTEGER PRIMARY KEY,
                     uuid TEXT UNIQUE NOT NULL,
-                    original_path TEXT NOT NULL,
-                    original_width INTEGER NOT NULL,
-                    original_height INTEGER NOT NULL,
-                    original_format TEXT NOT NULL,
+                    db_path TEXT NOT NULL,
+                    width INTEGER NOT NULL,
+                    height INTEGER NOT NULL,
+                    format TEXT NOT NULL,
+                    mode TEXT NOT NULL,
                     color_profile TEXT,
                     has_alpha BOOLEAN,
+                    filename TEXT NOT NULL,
+                    extension TEXT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
@@ -95,6 +101,7 @@ class ImageDatabase:
                     image_id INTEGER,
                     model_id INTEGER,
                     tag TEXT NOT NULL,
+                    existing BOOLEAN NOT NULL DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (image_id) REFERENCES images (id),
                     FOREIGN KEY (model_id) REFERENCES models (id)
@@ -106,6 +113,7 @@ class ImageDatabase:
                     image_id INTEGER,
                     model_id INTEGER,
                     caption TEXT NOT NULL,
+                    existing BOOLEAN NOT NULL DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (image_id) REFERENCES images (id),
                     FOREIGN KEY (model_id) REFERENCES models (id)
@@ -123,27 +131,33 @@ class ImageDatabase:
                 );
             ''')
 
-    def add_image(self, width: int, height: int, format: str, file_path: str, color_profile: str, has_alpha: bool) -> Tuple[int, str]:
+    def add_image(self, db_path: str, info: dict) -> Tuple[int, str]:
         """
         新しい画像情報をデータベースに追加します。
 
         Args:
-            width (int): 画像の幅
-            height (int): 画像の高さ
-            format (str): 画像のフォーマット
-            file_path (str): 画像ファイルのパス
-            color_profile (str): 画像のカラープロファイル
-            has_alpha (bool): アルファチャンネルの有無
+            db_path (str): dbに保存された画像のパス
+            info (dict): 画像情報を含む辞書
 
         Returns:
             Tuple[int, str]: 挿入された行のID（image_id）とランダムに生成されたUUID
         """
+        # 画像情報をバラす
+        width = info['width']
+        height = info['height']
+        format = info['format']
+        mode = info['mode']
+        color_profile = info['color_profile']
+        has_alpha = info['has_alpha']
+        filename = info['filename']
+        extension = info['extension']
+
         image_uuid = str(uuid.uuid4())  # ユニークなUUIDを生成
         with self.connect() as conn:
             cursor = conn.execute('''
-                INSERT INTO images (uuid, original_path, original_width, original_height, original_format, color_profile, has_alpha)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (image_uuid, file_path, width, height, format, color_profile, has_alpha))
+                INSERT INTO images (uuid, db_path, width, height, format, mode, color_profile, has_alpha, filename, extension)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (image_uuid, db_path, width, height, format, mode, color_profile, has_alpha, filename, extension))
         return cursor.lastrowid, image_uuid
 
     def get_image(self, image_id: int) -> Optional[Dict[str, Any]]:
@@ -248,38 +262,57 @@ class ImageDatabase:
             ''', (name, type))
         return cursor.lastrowid
 
-    def add_tags(self, image_id: int, model_id: int, tags: List[str]) -> None:
+    def add_text(self, image_id: int, model_id: Optional[int], text: str, type: Literal['cap', 'tag'], existing: bool = False) -> int:
         """
-        画像に関連付けられたタグをデータベースに追加します。
+        画像に関連付けられたテキスト（タグまたはキャプション）をデータベースに追加します。
 
         Args:
-            image_id (int): タグを追加する画像のID
-            model_id (int): タグを生成したモデルのID
-            tags (List[str]): 追加するタグのリスト
-        """
-        with self.connect() as conn:
-            conn.executemany('''
-                INSERT INTO tags (image_id, model_id, tag)
-                VALUES (?, ?, ?)
-            ''', [(image_id, model_id, tag) for tag in tags])
+            image_id (int): テキストを追加する画像のID
+            model_id (Optional[int]): テキストを生成したモデルのID（存在しない場合はNone）
+            text (str): 追加するテキスト
+            type (Literal['caption', 'tag']): 'caption' または 'tag' のいずれか
+            existing (bool): 既存のテキストかどうかを示すフラグ（デフォルトはFalse）
 
-    def add_caption(self, image_id: int, model_id: int, caption: str) -> int:
+        Returns:
+            int: 挿入された行のID
+
+        Raises:
+            ValueError: 無効なtype値が指定された場合
+        """
+        if type not in ['cap', 'tag']:
+            raise ValueError("Invalid type. Must be 'caption' or 'tag'.")
+
+        table_name = 'captions' if type == 'cap' else 'tags'
+        column_name = 'caption' if type == 'cap' else 'tag'
+
+        query = f'''
+            INSERT INTO {table_name} (image_id, model_id, {column_name}, existing)
+            VALUES (?, ?, ?, ?)
+        '''
+
+        with self.connect() as conn:
+            cursor = conn.execute(query, (image_id, model_id, text, existing))
+
+        return cursor.lastrowid
+
+    def add_caption(self, image_id: int, model_id: int, caption: str, existing: bool = False) -> int:
         """
         画像に関連付けられたキャプションをデータベースに追加します。
 
         Args:
             image_id (int): キャプションを追加する画像のID
-            model_id (int): キャプションを生成したモデルのID
+            model_id (int): キャプションを生成したモデルのID (存在しない場合はNone)
             caption (str): 追加するキャプション
+            existing (bool): 既存のタグかどうかを示すフラグ (デフォルトはFalse)
 
         Returns:
             int: 挿入された行のID
         """
         with self.connect() as conn:
             cursor = conn.execute('''
-                INSERT INTO captions (image_id, model_id, caption)
-                VALUES (?, ?, ?)
-            ''', (image_id, model_id, caption))
+                INSERT INTO captions (image_id, model_id, caption, existing)
+                VALUES (?, ?, ?, ?)
+            ''', (image_id, model_id, caption, existing))
         return cursor.lastrowid
 
     def add_score(self, image_id: int, model_id: int, score: float) -> int:
