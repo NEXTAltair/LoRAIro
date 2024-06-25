@@ -6,12 +6,13 @@
 """
 import cv2
 import io
+import json
 from pathlib import Path
 import logging
 import numpy as np
 from PIL import Image, ImageCms
 import shutil
-from typing import Dict, Tuple, Optional, Any, Literal, Type
+from typing import Dict, Tuple, Optional, Any, Literal, Type, Union
 from datetime import datetime
 
 
@@ -23,7 +24,7 @@ def get_image_info(image_path: Path) -> Dict[str, Any]:
         image_path (Path): 画像ファイルのパス
 
     Returns:
-        Dict[str, Any]: 画像の基本情報（UUID､幅、高さ、フォーマット､ モード､ カラープロファイル､ アルファチャンネル情報､元ファイル名､元ファイルの拡張子､元ファイルのパス）
+        Dict[str, Any]: 画像の基本情報（UUID､幅、高さ、フォーマット､ モード､ アルファチャンネル情報､元ファイル名､元ファイルの拡張子､元ファイルのパス）
     """
     try:
         with Image.open(image_path) as img:
@@ -35,19 +36,6 @@ def get_image_info(image_path: Path) -> Dict[str, Any]:
             original_filename = Path(image_path).name
             original_extension = Path(image_path).suffix
 
-            # カラープロファイル情報の取得
-            if 'icc_profile' in img.info:
-                icc_profile = img.info['icc_profile']
-                try:
-                    profile = ImageCms.ImageCmsProfile(io.BytesIO(icc_profile))
-                    color_profile = {
-                        'name': profile.profile.profile_description,
-                        'color_space': profile.profile.color_space,
-                    }
-                except:
-                    color_profile = 'Invalid ICC Profile'
-            else:
-                color_profile = 'No ICC Profile'
             # アルファチャンネル画像情報 BOOL
             has_alpha = img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info)
 
@@ -56,7 +44,6 @@ def get_image_info(image_path: Path) -> Dict[str, Any]:
                 'height': height,
                 'format': format,
                 'mode': mode,
-                'color_profile': str(color_profile),
                 'has_alpha': has_alpha,
                 'filename': original_filename,
                 'extension': original_extension,
@@ -68,6 +55,7 @@ class ImageProcessor:
     def __init__(self, config: Dict, logger: logging.Logger) -> None:
         self.config = config
         self.logger = logger
+        self.target_resolution = self.config['image_processing']['target_resolution']
         self.output_dir = Path(config['directories']['output']) / 'image_dataset'
         self.original_dir = self.output_dir / 'original_images'
         self.resolution_dir = self.output_dir / str(self.config['image_processing']['target_resolution'])
@@ -80,7 +68,7 @@ class ImageProcessor:
         画像を保存する。元画像と処理済み画像の両方に対応。
 
         Args:
-            image_path (Path): 保存する画像のパス
+            image_path (Path): 保存する画像のパスまたは画像オブジェクト
             image_type (Literal['original', 'processed']): 画像のタイプ（'original' または 'processed'）
 
         Returns:
@@ -88,82 +76,124 @@ class ImageProcessor:
         """
         try:
             file_name = image_path.name
+            parent_name = image_path.parent.name
 
             if image_type == 'original':
                 base_dir = self.original_dir
+                new_path = base_dir / self.date_str / parent_name / file_name
             elif image_type == 'processed':
                 base_dir = self.resolution_dir
+                new_parent = self.date_str / parent_name
+                sequence = self.get_next_sequence_number(new_parent)
+                new_filename = f"{parent_name}_{sequence}.webp"
+                new_path = base_dir / self.date_str / parent_name / new_filename
             else:
-                raise ValueError(f"画像のタイプが不正: {image_type}. 'original' か'processed'しか受け付けない。6")
+                raise ValueError(f"画像のタイプが不正: {image_type}. 'original' か 'processed' しか受け付けない。")
 
-            new_path = base_dir / self.date_str / image_path.parent.name / file_name
             new_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # ファイルが既に存在する場合、ユニークな名前を生成（元画像の場合のみ）
             if image_type == 'original':
+                existing_files = [f.name for f in new_path.parent.iterdir()]
                 counter = 1
-                while new_path.exists():
+                while new_path.name in existing_files:
                     new_path = new_path.with_name(f"{new_path.stem}_{counter}{new_path.suffix}")
                     counter += 1
 
-            # ファイルをコピー
-            shutil.copy2(image_path, new_path)
+                with Image.open(image_path) as img:
+                    img.save(new_path, format=new_path.suffix[1:].lower())
+            else:
+                with Image.open(image_path) as img:
+                    img.save(new_path, format='webp')
 
             self.logger.info(f"{image_type.capitalize()} 画像が保存完了: {new_path}")
             return str(new_path)
 
         except Exception as e:
-            self.logger.error(f"{image_type.capitalize()} 画像の保存中にエラー {image_path}: {str(e)}")
+            self.logger.error(f"{image_type.capitalize()} 画像の保存中にエラー: {str(e)}")
             raise
 
-
-    def normalize_color_profile(self, img: Image.Image) -> Image.Image:
+    def save_image_object(self, img: Image.Image, image_type: Literal['original', 'processed'], db_path: str) -> str:
         """
-        画像の色プロファイルを正規化し、必要に応じて色域変換する
+        画像オブジェクトを保存する。
 
-        この関数は以下の処理：
-        1. 画像にICCプロファイルがある場合、そのプロファイルからsRGBに変換
-        2. ICCプロファイルがない場合、画像のモードに応じてRGBまたはRGBAに変換
-        3. 透過情報（アルファチャンネル）がある場合、それを保持
         Args:
-            img (Image.Image): 処理する画像
+            img (Image.Image): 保存する画像オブジェクト
+            image_type (Literal['original', 'processed']): 画像のタイプ（'original' または 'processed'）
+            db_path (str): DB用のファイルパス
 
         Returns:
-            Image.Image: 色プロファイルが正規化された画像
+            str: 保存された画像のパス
         """
-        # 画像が透過情報を持っているか確認する
-        has_alpha = img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info)
-
-        # ICCプロファイルがある場合は色域変換を行う
-        if 'icc_profile' in img.info:
-            icc = img.info['icc_profile']
-            input_profile = ImageCms.ImageCmsProfile(io.BytesIO(icc))
-            img_converted = ImageCms.profileToProfile(
-                img, input_profile, ImageCms.createProfile('sRGB'), renderingIntent=0, outputMode='RGB'
-            )
-            return img_converted.convert('RGBA') if has_alpha else img_converted
-        else:
-            # ICCプロファイルがない場合、単純にRGBまたはRGBAに変換
-            return img.convert('RGBA') if has_alpha else img.convert('RGB')
-
-    def move_low_resolution_images(self, file_path: Path) -> None:
-        under_res_folder = Path(f'.\\under-{self.config.target_resolution}') / file_path.parent.name
-        under_res_folder.mkdir(parents=True, exist_ok=True)
-
-        under_res_path = under_res_folder / file_path.name
         try:
-            file_path.rename(under_res_path)
-            print(f'Moved: {file_path.name}')
-        except Exception as e:
-            print(f'Error: {e} 移動先処理できるディレクトリは同じドライブ内にある必要がある')
+            file_name = Path(db_path).name
+            parent_name = Path(db_path).parent.name
 
-        # 同じ名前のテキストファイルとキャプションファイルも移動
-        for ext in self.config.text_extensions:
-            related_file_path = file_path.with_suffix(ext)
-            if related_file_path.exists():
-                under_res_related_path = under_res_folder / related_file_path.name
-                related_file_path.rename(under_res_related_path)
-                print(f'Moved {ext}: {related_file_path.name}')
+            if image_type == 'original':
+                base_dir = self.original_dir
+                new_path = base_dir / self.date_str / parent_name / file_name
+            elif image_type == 'processed':
+                base_dir = self.resolution_dir
+                new_parent = base_dir / self.date_str / parent_name
+                sequence = self.get_next_sequence_number(new_parent)
+                new_filename = f"{parent_name}_{sequence}.webp"
+                new_path = base_dir / self.date_str / parent_name / new_filename
+            else:
+                raise ValueError(f"画像のタイプが不正: {image_type}. 'original' か 'processed' しか受け付けない。")
+
+            new_path.parent.mkdir(parents=True, exist_ok=True)
+
+            if image_type == 'original':
+                existing_files = [f.name for f in new_path.parent.iterdir()]
+                counter = 1
+                while new_path.name in existing_files:
+                    new_path = new_path.with_name(f"{new_path.stem}_{counter}{new_path.suffix}")
+                    counter += 1
+
+                img.save(new_path, format=new_path.suffix[1:].lower())
+            else:
+                img.save(new_path, format='webp')
+
+            self.logger.info(f"{image_type.capitalize()} 画像が保存完了: {new_path}")
+            return str(new_path)
+
+        except Exception as e:
+            self.logger.error(f"{image_type.capitalize()} 画像の保存中にエラー: {str(e)}")
+            raise
+
+    def get_next_sequence_number(self, parent_dir: Path) -> str:
+        """次の連番を取得"""
+        existing_files = list(parent_dir.glob(f'{parent_dir.name}_*.webp'))
+        return f'{len(existing_files):05d}'
+
+    def normalize_color_profile(self, img: Image.Image, has_alpha: bool, mode: str = 'RGB') -> Image.Image:
+        """
+        画像の色プロファイルを正規化し、必要に応じて色空間変換を行う。
+
+        Args:
+            img (Image.Image): 処理する画像
+            has_alpha (bool): 透過情報（アルファチャンネル）の有無
+            mode (str): 画像のモード (例: 'RGB', 'CMYK', 'P')
+
+        Returns:
+            Image.Image: 色空間が正規化された画像
+        """
+        try:
+            if mode in ['RGB', 'RGBA']:
+                return img.convert('RGBA') if has_alpha else img.convert('RGB')
+            elif mode == 'CMYK':
+                # CMYKからRGBに変換
+                return img.convert('RGB')
+            elif mode == 'P':
+                # パレットモードはRGBに変換してから処理
+                return self.normalize_color_profile(img.convert('RGB'), has_alpha, 'RGB')
+            else:
+                # サポートされていないモード
+                self.logger.warning(f"サポートされていないモード: {mode}")
+                return img.convert('RGBA') if has_alpha else img.convert('RGB')
+
+        except Exception as e:
+            self.logger.error(f"カラープロファイルの正規化中にエラー: {e}")
+            raise
 
     def find_matching_resolution(self, original_width: int, original_height: int) -> Optional[Tuple[int, int]]:
         """SDでよく使う解像度と同じアスペクト比の解像度を探す
@@ -175,15 +205,20 @@ class ImageProcessor:
         Returns:
             Optional[Tuple[int, int]]: 同じアスペクト比の解像度のタプル
         """
-        if original_width < self.config.target_resolution and original_height < self.config.target_resolution:
+        if original_width < self.target_resolution and original_height < self.target_resolution:
             print(f'find_matching_resolution Error: 意図しない小さな画像を受け取った: {original_width}x{original_height}')
             return None
 
         aspect_ratio = original_width / original_height
-        matching_resolutions = [res for res in self.config.preferred_resolutions if res[0] / res[1] == aspect_ratio]
+        preferred_resolutions = self.config['preferred_resolutions']
+
+        matching_resolutions = []
+        for res in preferred_resolutions:
+            if res[0] / res[1] == aspect_ratio:
+                matching_resolutions.append(res)
 
         if matching_resolutions:
-            target_area = self.config.target_resolution ** 2
+            target_area = self.target_resolution ** 2
             return min(matching_resolutions, key=lambda res: abs((res[0] * res[1]) - target_area))
         return None
 
@@ -198,10 +233,10 @@ class ImageProcessor:
 
             # max_dimensionに基づいて長辺を計算
             if original_width > original_height:
-                new_width = self.config.target_resolution
+                new_width = self.target_resolution
                 new_height = int(new_width / aspect_ratio)
             else:
-                new_height = self.config.target_resolution
+                new_height = self.target_resolution
                 new_width = int(new_height * aspect_ratio)
 
             # 両辺を32の倍数に調整
@@ -210,11 +245,6 @@ class ImageProcessor:
 
         # アスペクト比を保ちつつ、新しいサイズでリサイズ
         return img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-
-    def get_next_sequence_number(self, output_folder: Path, parent_folder: str) -> str:
-        """次の連番を取得"""
-        existing_files = list(output_folder.glob(f'{parent_folder}_*.webp'))
-        return f'{len(existing_files):05d}'
 
     @staticmethod
     def has_letterbox(image: np.ndarray, threshold: int = 10, border_percent: float = 0.03) -> bool:
@@ -236,13 +266,11 @@ class ImageProcessor:
         return (np.all(np.abs(top_color - bottom_color) < threshold) or
                 np.all(np.abs(left_color - right_color) < threshold))
 
-    def auto_crop_area(self, image_path: Path) -> Optional[Tuple[int, int, int, int]]:
+    def auto_crop_area(self, image_path: str) -> Optional[Tuple[int, int, int, int]]:
         try:
             with open(image_path, "rb") as file:
                 file_data = file.read()
                 image = cv2.imdecode(np.frombuffer(file_data, np.uint8), cv2.IMREAD_COLOR)
-            if image is None:
-                return None
 
             if not self.has_letterbox(image):
                 return None
@@ -265,13 +293,13 @@ class ImageProcessor:
             print(f"Error processing {image_path}: {e}")
             return None
 
-    def auto_crop_image(self, img: Image.Image) -> Image.Image:
-        image_path = Path(img.filename)
+    def auto_crop_image(self, image_path: str) -> Image.Image:
         crop_area = self.auto_crop_area(image_path)
-        if crop_area:
-            x, y, w, h = crop_area
-            return img.crop((x, y, x + w, y + h))
-        return img
+        with Image.open(image_path) as img:
+            if crop_area:
+                x, y, w, h = crop_area
+                return img.crop((x, y, x + w, y + h))
+            return img
 
     def save_original_and_return_metadata(self, file_path: Path) -> Tuple[str, Dict[str, Any]]:
         """編集前画像をDBディレクトリへ保存してmainにDB登録用Dictを返す
@@ -283,106 +311,65 @@ class ImageProcessor:
             Path (str): DB用ディレクトリ移動後ファイルパス
             Dict[str, Any]: 画像の基本情報（UUID､幅、高さ、フォーマット､ モード､ カラープロファイル､ アルファチャンネル情報､元ファイル名､元ファイルの拡張子､元ファイルのパス）
         """
-        # 画像の保存
-        path = self.save_image(file_path, 'original')
-        # 画像情報の取得
-        info = get_image_info(file_path)
-        return path, info
+        try:
+            # 画像の保存
+            path = self.save_image(file_path, 'original')
+            # 画像情報の取得
+            info = get_image_info(file_path)
+            return path, info
+        except Exception as e:
+            self.logger.error(f"編集前画像の保存とメタデータ取得中にエラー: {e}")
+            raise
 
-    def process_and_save_image(self, file_path: Path) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-            # 画像処理
-            processed_img = self.normalize_color_profile(img)  # 色域変換
-            processed_img = self.resize_image(processed_img)  # リサイズ
-            processed_img = self.resize_image(img, base_model['target_resolution'])
-    #             if remove_alpha and original_info['has_alpha']:
-    #                 processed_img = processed_img.convert('RGB')
+    def save_processed_and_return_metadata(self, processed_img: Image.Image, db_original_image_path: str) -> Dict[str, Any]:
+        """処理済み画像をDBディレクトリへ保存してmainにDB登録用Dictを返す
 
-    #             # 処理済み画像の保存パスを構築
-    #             original_path = Path(original_path)
-    #             relative_path = original_path.relative_to(self.original_dir)
-    #             date_str = datetime.now().strftime("%Y/%m/%d")
-    #             processed_filename = f"{original_path.stem}_processed_{base_model['name']}.webp"
-    #             processed_path = self.processed_dir / date_str / relative_path.parent / processed_filename
-    #             processed_path.parent.mkdir(parents=True, exist_ok=True)
+        Args:
+            processed_img (Image.Image): 処理済み画像オブジェクト
+            db_original_image_path (Path): 元の画像ファイルのパス
 
-    #             processed_img.save(processed_path, 'WEBP')
-
-    #             processed_info = {
-    #                 'image_id': image_id,
-    #                 'base_model_id': base_model['id'],
-    #                 'processed_path': str(processed_path),
-    #                 'processed_width': processed_img.width,
-    #                 'processed_height': processed_img.height,
-    #                 'processed_format': 'WEBP',
-    #                 'alpha_removed': remove_alpha and original_info['has_alpha']
-    #             }
-    #             return original_info, processed_info
-
-    # def process_image(self, img: Image.Image) -> None:
-    #     sequence = self.get_next_sequence_number(resized_folder, parent_folder)
-
-    #     img = self.convert_to_srgb(img) # 画像の色域変換
-    #     img = self.resize_image(img) # 画像をリサイズ
-    #     output_path = resized_folder / f"{parent_folder}_{sequence}.webp"
-
-    #     output_path.parent.mkdir(parents=True, exist_ok=True)
-    #     img.save(output_path, 'WEBP')
-    #     print(f'Saved webp File: {output_path}')
-
-    #     for suffix in self.config.text_extensions:
-    #         text_file_path = file_path.with_suffix(suffix)
-    #         if text_file_path.exists():
-    #             output_text_path = resized_folder / f"{parent_folder}_{sequence}{suffix}"
-    #             shutil.copy(text_file_path, output_text_path)
-    #             print(f'Saved {suffix}: {output_text_path}')
-
-
-
-    def process_and_save_image(self, file_path: Path, remove_alpha: bool = False) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        with Image.open(file_path) as img:
-            # 元画像の情報を取得
-            original_info = self.get_image_info(file_path)
-            
-            # 元画像を保存
-            original_saved_path = self.save_image(file_path, 'original')
-            original_info['saved_path'] = str(original_saved_path)
-
-
-            # ---------ここまでDBに依存しない処理--------->
-
-            # 画像処理
-            processed_img = self.convert_to_srgb(img)  # 色域変換 #img カラープロファイルはDB参照
-            processed_img = self.resize_image(processed_img)  # img データベース参照
-            
-            if remove_alpha and original_info['has_alpha']: #不要
-                processed_img = processed_img.convert('RGB') #不要
-
-            # 処理済み画像の保存パスを構築 #不要 save_imageで処理
-            date_str = datetime.now().strftime("%Y/%m/%d")
-            parent_folder = file_path.parent.name
-            sequence = self.get_next_sequence_number(self.resolution_dir / date_str / parent_folder, parent_folder)
-            processed_filename = f"{parent_folder}_{sequence}.webp"
-            processed_path = self.resolution_dir / date_str / parent_folder / processed_filename
-            processed_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # 処理済み画像を保存
-            processed_img.save(processed_path, 'WEBP')
-            self.logger.info(f'Saved webp File: {processed_path}')
-
-            # 関連するテキストファイルの処理 
-            for suffix in self.config['text_extensions']:
-                text_file_path = file_path.with_suffix(suffix)
-                if text_file_path.exists():
-                    output_text_path = processed_path.with_suffix(suffix)
-                    shutil.copy(text_file_path, output_text_path)
-                    self.logger.info(f'Saved {suffix}: {output_text_path}')
-            # DBに登録する情報を返す
+        Returns:
+            Tuple[str, Dict[str, Any]]:
+                str: DB用ディレクトリ保存後のファイルパス
+                Dict[str, Any]: 画像の基本情報（幅、高さ、フォーマット、モード、アルファチャンネル情報、元ファイル名、保存されたファイル名）
+        """
+        try:
+            # 処理済み画像の保存
+            processed_path = self.save_image_object(processed_img, 'processed', db_original_image_path)
+            # 画像情報の取得
             processed_info = {
-                'processed_path': str(processed_path),
-                'processed_width': processed_img.width,
-                'processed_height': processed_img.height,
-                'processed_format': 'WEBP',
-                'alpha_removed': remove_alpha and original_info['has_alpha']
+                'path' : processed_path,
+                'width': processed_img.width,
+                'height': processed_img.height,
+                'format': 'WEBP',  # 処理済み画像は常にWEBP形式
+                'mode': processed_img.mode,
+                'has_alpha': processed_img.mode == 'RGBA',
+                'saved_filename': Path(processed_path).name
             }
+            self.logger.info(f"処理済み画像を保存し、メタデータを取得しました: {processed_path}")
+            return processed_info
+        except Exception as e:
+            self.logger.error(f"処理済み画像の保存とメタデータ取得中にエラー: {e}")
+            raise
 
-            return original_info, processed_info
+    def process_image(self, img: Image.Image, has_alpha: bool, mode: str) -> Tuple[Image.Image, str]:
+        """
+        画像の色域を正規化してリサイズする
+
+        Args:
+            img (Image.Image): 処理する画像オブジェクト
+            db_path (str): dbファイルのパス
+            has_alpha (bool): アルファチャンネルの有無
+            mode (str): 画像のカラーモード（例：'RGB', 'RGBA'）
+
+        Returns:
+            Image.Image: 処理済み画像オブジェクト
+            mode (str): コンバート後の画像のカラーモード（例：'RGB', 'RGBA'）
+        """
+        try:
+            normalized_img = self.normalize_color_profile(img, has_alpha, mode)
+            self.resize_image(normalized_img)
+            return self.resize_image(normalized_img)
+        except Exception as e:
+            self.logger.error(f"画像処理中にエラーが発生しました: {e}")
+            raise

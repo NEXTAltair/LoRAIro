@@ -55,17 +55,30 @@ def main():
                             caption = f.read().strip()
                             db.add_text(image_id=image_id, model_id=None, text=caption, type='cap', existing=True)
 
-# ----ここまで動いた----
-                    # 画像処理
-                    with Image.open(file_path) as img:
-                        processed_img = image_processor.process_image(img)
+                    # 画像処理に必要な情報を取得
+                    image_data = db.get_image_from_db(image_id)
+                    db_original_image_path = image_data['db_path']
 
-                    # 処理後の画像情報をDBに更新
-                    db.update_image(image_id, processed_img.width, processed_img.height, processed_img.format)
+                    # レターボックス､ピラーボックスの除去
+                    cropped_img = image_processor.auto_crop_image(db_original_image_path)
+                    w = cropped_img.width
+                    h = cropped_img.height
 
-                    # 処理済み画像の保存
-                    output_path = image_processor.save_processed_image(processed_img, file_path)
+                    # 長辺がtarget_resolution未満は無視
+                    if max(w, h) < config['image_processing']['target_resolution']:
+                        logger.info(f"Image {file_path} は小さい画像なので無視 \n 自動アップスケールはそのうち実装する  \n width: {w} \n height: {h}") # TODO: 自動アップスケールの実装
+                        continue
+                    processed_img = image_processor.process_image(
+                        cropped_img,
+                        image_data['has_alpha'],
+                        image_data['mode'],
+                        )
+                    # 処理済み画像を保存とDBへの登録用の情報取得
+                    processed_info = image_processor.save_processed_and_return_metadata(processed_img, db_original_image_path)
 
+                    # 処理済み画像情報をDBに登録
+                    processed_id = db.add_processed_image(image_id, processed_info)
+# ----ここまで動いた-------
                     # キャプションとタグの生成
                     captions, tags = generate_caption_tags(processed_img, config['generation'])
 

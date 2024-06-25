@@ -67,7 +67,6 @@ class ImageDatabase:
                     height INTEGER NOT NULL,
                     format TEXT NOT NULL,
                     mode TEXT NOT NULL,
-                    color_profile TEXT,
                     has_alpha BOOLEAN,
                     filename TEXT NOT NULL,
                     extension TEXT NOT NULL,
@@ -78,13 +77,16 @@ class ImageDatabase:
                 -- processed_images テーブル：処理済み画像の情報を格納
                 CREATE TABLE IF NOT EXISTS processed_images (
                     id INTEGER PRIMARY KEY,
-                    image_id INTEGER,
+                    image_id INTEGER NOT NULL,
                     processed_path TEXT NOT NULL,
                     processed_width INTEGER NOT NULL,
                     processed_height INTEGER NOT NULL,
                     processed_format TEXT NOT NULL,
-                    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (image_id) REFERENCES images (id)
+                    processed_mode TEXT NOT NULL,
+                    processed_has_alpha BOOLEAN NOT NULL,
+                    saved_filename TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
                 );
 
                 -- models テーブル：使用されるモデルの情報を格納
@@ -129,6 +131,9 @@ class ImageDatabase:
                     FOREIGN KEY (image_id) REFERENCES images (id),
                     FOREIGN KEY (model_id) REFERENCES models (id)
                 );
+            -- インデックスの作成
+            CREATE INDEX IF NOT EXISTS idx_images_uuid ON images(uuid);
+            CREATE INDEX IF NOT EXISTS idx_processed_images_image_id ON processed_images(image_id);
             ''')
 
     def add_image(self, db_path: str, info: dict) -> Tuple[int, str]:
@@ -147,7 +152,6 @@ class ImageDatabase:
         height = info['height']
         format = info['format']
         mode = info['mode']
-        color_profile = info['color_profile']
         has_alpha = info['has_alpha']
         filename = info['filename']
         extension = info['extension']
@@ -155,12 +159,41 @@ class ImageDatabase:
         image_uuid = str(uuid.uuid4())  # ユニークなUUIDを生成
         with self.connect() as conn:
             cursor = conn.execute('''
-                INSERT INTO images (uuid, db_path, width, height, format, mode, color_profile, has_alpha, filename, extension)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (image_uuid, db_path, width, height, format, mode, color_profile, has_alpha, filename, extension))
+                INSERT INTO images (uuid, db_path, width, height, format, mode, has_alpha, filename, extension)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (image_uuid, db_path, width, height, format, mode, has_alpha, filename, extension))
         return cursor.lastrowid, image_uuid
 
-    def get_image(self, image_id: int) -> Optional[Dict[str, Any]]:
+    def add_processed_image(self, image_id: int, processed_info: Dict[str, Any]) -> int:
+        """
+        処理済み画像の情報をデータベースに追加します。
+
+        Args:
+            image_id (int): 元画像のID
+            processed_info (Dict[str, Any]): 処理済み画像の情報を含む辞書
+
+        Returns:
+            int: 挿入された行のID（processed_image_id）
+        """
+        processed_path = processed_info['path']
+        processed_width = processed_info['width']
+        processed_height = processed_info['height']
+        processed_format = processed_info['format']
+        processed_mode = processed_info['mode']
+        processed_has_alpha = processed_info['has_alpha']
+        saved_filename = processed_info['saved_filename']
+
+        with self.connect() as conn:
+            cursor = conn.execute('''
+                INSERT INTO processed_images
+                (image_id, processed_path, processed_width, processed_height,
+                 processed_format, processed_mode, processed_has_alpha, saved_filename)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (image_id, processed_path, processed_width, processed_height,
+                  processed_format, processed_mode, processed_has_alpha, saved_filename))
+        return cursor.lastrowid
+
+    def get_image_from_db(self, image_id: int) -> Optional[Dict[str, Any]]:
         """
         指定されたIDの画像情報を取得します。
 
@@ -175,28 +208,93 @@ class ImageDatabase:
             row = cursor.fetchone()
             return dict(row) if row else None
 
-    def update_image(self, image_id: int, **kwargs) -> bool:
+    def get_image_annotations(self, image_id: int) -> Dict[str, Any]:
         """
-        指定されたIDの画像情報を更新します。
+        指定された画像IDに関連するすべてのアノテーション（タグ、キャプション、スコア）を取得します。
 
         Args:
-            image_id (int): 更新する画像のID
-            **kwargs: 更新するフィールドと値のペア
+            image_id (int): アノテーションを取得する画像のID
 
         Returns:
-            bool: 更新が成功した場合はTrue、それ以外はFalse
+            Dict[str, Any]: 'tags', 'captions', 'scores'キーを持つ辞書。
+                            各キーの値はそれぞれのアノテーションのリスト。
         """
-        allowed_fields = {'original_width', 'original_height', 'original_format', 'color_profile', 'has_alpha'}
-        update_fields = {k: v for k, v in kwargs.items() if k in allowed_fields}
-        if not update_fields:
-            return False
-
-        set_clause = ', '.join(f"{k} = ?" for k in update_fields)
-        query = f"UPDATE images SET {set_clause}, updated_at = ? WHERE id = ?"
-        values = list(update_fields.values()) + [datetime.now(), image_id]
         with self.connect() as conn:
-            conn.execute(query, values)
-        return True
+            # タグを取得
+            tags = conn.execute('''
+                SELECT t.tag, m.name as model
+                FROM tags t
+                JOIN models m ON t.model_id = m.id
+                WHERE t.image_id = ?
+            ''', (image_id,)).fetchall()
+
+            # キャプションを取得
+            captions = conn.execute('''
+                SELECT c.caption, m.name as model
+                FROM captions c
+                JOIN models m ON c.model_id = m.id
+                WHERE c.image_id = ?
+            ''', (image_id,)).fetchall()
+
+            # スコアを取得
+            scores = conn.execute('''
+                SELECT s.score, m.name as model
+                FROM scores s
+                JOIN models m ON s.model_id = m.id
+                WHERE s.image_id = ?
+            ''', (image_id,)).fetchall()
+
+        return {
+            'tags': [dict(tag) for tag in tags],
+            'captions': [dict(caption) for caption in captions],
+            'scores': [dict(score) for score in scores]
+        }
+
+    def update_image(self, image_id: int, **kwargs) -> bool:
+            """
+            # TODO: 今のところ使用していないメソッド
+            データベース内の指定されたIDの画像情報 (`images` テーブル) を更新します。
+
+            このメソッドは、画像の幅、高さ、フォーマット、アルファチャンネルの有無といった情報を更新するために使用されます。
+            更新する項目は、キーワード引数 ( `key=value` の形式) で指定します。
+
+            Args:
+                image_id (int): 更新する画像のID。`images` テーブルの `id` カラムに対応します。
+                **kwargs: 更新するフィールドと値のペア。以下のキーがサポートされています。
+                    - `original_width` (int): オリジナル画像の幅 (ピクセル単位)
+                    - `original_height` (int): オリジナル画像の高さ (ピクセル単位)
+                    - `original_format` (str): オリジナル画像のフォーマット (例: "JPEG", "PNG", "WEBP")
+                    - `has_alpha` (bool): オリジナル画像にアルファチャンネル (透明度情報) があるかどうか
+
+            Returns:
+                bool: 更新が成功した場合は `True`、それ以外は `False` を返します。
+                    - 更新対象のフィールドが指定されていない場合は、`False` を返します。
+            """
+            # 更新可能なフィールドを定義
+            allowed_fields = {'original_width', 'original_height', 'original_format', 'has_alpha'}
+
+            # 渡されたキーワード引数から、更新可能なフィールドのみを抽出
+            update_fields = {k: v for k, v in kwargs.items() if k in allowed_fields}
+
+            # 更新対象のフィールドがない場合は、Falseを返す
+            if not update_fields:
+                return False
+
+            # SQLクエリを作成
+            set_clause = ', '.join(f"{k} = ?" for k in update_fields)  # 更新するフィールドとプレースホルダーを結合
+            query = f"UPDATE images SET {set_clause}, updated_at = ? WHERE id = ?"  # 更新日時も更新
+
+            # SQLクエリを実行するための値をリストにする
+            values = list(update_fields.values()) + [datetime.now(), image_id]
+
+            # データベースに接続し、クエリを実行
+            with self.connect() as conn:
+                conn.execute(query, values)
+
+            # 更新が成功したのでTrueを返す
+            return True
+
+
 
     def delete_image(self, image_id: int) -> bool:
         """
@@ -222,27 +320,6 @@ class ImageDatabase:
         with self.connect() as conn:
             cursor = conn.execute("SELECT * FROM images")
             return [dict(row) for row in cursor.fetchall()]
-
-    def add_processed_image(self, image_id: int, processed_path: str, width: int, height: int, format: str) -> int:
-        """
-        処理済み画像の情報をデータベースに追加します。
-
-        Args:
-            image_id (int): 元の画像のID
-            processed_path (str): 処理済み画像のファイルパス
-            width (int): 処理済み画像の幅
-            height (int): 処理済み画像の高さ
-            format (str): 処理済み画像のフォーマット
-
-        Returns:
-            int: 挿入された行のID
-        """
-        with self.connect() as conn:
-            cursor = conn.execute('''
-                INSERT INTO processed_images (image_id, processed_path, processed_width, processed_height, processed_format)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (image_id, processed_path, width, height, format))
-        return cursor.lastrowid
 
     def add_model(self, name: str, type: str) -> int:
         """
@@ -333,45 +410,3 @@ class ImageDatabase:
                 VALUES (?, ?, ?)
             ''', (image_id, model_id, score))
         return cursor.lastrowid
-
-    def get_image_annotations(self, image_id: int) -> Dict[str, Any]:
-        """
-        指定された画像IDに関連するすべてのアノテーション（タグ、キャプション、スコア）を取得します。
-
-        Args:
-            image_id (int): アノテーションを取得する画像のID
-
-        Returns:
-            Dict[str, Any]: 'tags', 'captions', 'scores'キーを持つ辞書。
-                            各キーの値はそれぞれのアノテーションのリスト。
-        """
-        with self.connect() as conn:
-            # タグを取得
-            tags = conn.execute('''
-                SELECT t.tag, m.name as model
-                FROM tags t
-                JOIN models m ON t.model_id = m.id
-                WHERE t.image_id = ?
-            ''', (image_id,)).fetchall()
-
-            # キャプションを取得
-            captions = conn.execute('''
-                SELECT c.caption, m.name as model
-                FROM captions c
-                JOIN models m ON c.model_id = m.id
-                WHERE c.image_id = ?
-            ''', (image_id,)).fetchall()
-
-            # スコアを取得
-            scores = conn.execute('''
-                SELECT s.score, m.name as model
-                FROM scores s
-                JOIN models m ON s.model_id = m.id
-                WHERE s.image_id = ?
-            ''', (image_id,)).fetchall()
-
-        return {
-            'tags': [dict(tag) for tag in tags],
-            'captions': [dict(caption) for caption in captions],
-            'scores': [dict(score) for score in scores]
-        }
