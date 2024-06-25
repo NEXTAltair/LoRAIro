@@ -2,6 +2,7 @@
 ## original code is distributed in Apache License 2.0.
 import re
 import sqlite3
+from typing import List
 
 # 正規表現パターンの定義
 PATTERN_HAIR_LENGTH = re.compile(r'(long|short|medium) hair')
@@ -21,7 +22,7 @@ PATTERNS_REMOVE_IN_MULTI = [
     re.compile(r'(ponytail|braid|ahoge|twintails|[\w\-]+ bun|single hair bun|single side bun|two side up|two tails|[\w\-]+ braid|sidelocks)'),
 ]
 
-def clean_format(text):
+def clean_format(text : str) -> str:
     """
     テキストから無駄な記号と改行を削除
     ()をエスケープする
@@ -48,13 +49,13 @@ def clean_format(text):
     text = clean_repetition(text) # 重複した記号を削除
     return text
 
-def clean_repetition(text):
+def clean_repetition(text : str) -> str:
     text = re.sub(r'\\+', r"\\", text) #重複した\を消す
     text = re.sub(r',+', r",", text) #重複した,を消す
     text = re.sub(r'\s+', r" ", text) #重複したスペースを消す
     return text
 
-def clean_underscore(tags):
+def clean_underscore(tags : str) -> str:
     """アンダーバーをスペースに置き換える"""
     if not isinstance(tags, str):
         return tags
@@ -66,7 +67,7 @@ def clean_underscore(tags):
     tags = tags.replace('^@@@^', '^_^')
     return tags
 
-def clean_individual_tags(tags_dict):
+def clean_individual_tags(tags_dict : dict) -> dict:
     """髪の長さを残して色の特徴とかいろいろを含むタグを削除する"""
     # 置き換え用のプレースホルダー
     placeholder = "@@@"
@@ -95,7 +96,7 @@ def clean_individual_tags(tags_dict):
 
     return tags_dict
 
-def clean_color_Object(tags_dict):
+def clean_color_Object(tags_dict : dict) -> dict:
     """white shirtとshirtみたいな重複タグの削除"""
     # 単語の出現を記録する辞書
     word_tags = {}
@@ -118,7 +119,7 @@ def clean_color_Object(tags_dict):
 
     return tags_dict
 
-def clean_Style(tags_dict):
+def clean_Style(tags_dict : dict) -> dict:
     """anime styleとanime artみたい重複タグをanimeに統一する"""
     # 単語の出現を記録する辞書
     word_tags = {}
@@ -141,7 +142,7 @@ def clean_Style(tags_dict):
     return cleaned_tags_dict
 
 
-def tags_to_dict(tags):
+def tags_to_dict(tags : str) -> dict:
     """タグを辞書に変換するして重複を避ける
     Args:
         tags (str): タグ
@@ -160,7 +161,7 @@ def tags_to_dict(tags):
             tags_dict[i] = tag
     return tags_dict
 
-def clean_tags(tags):
+def clean_tags(tags : str) -> str:
     """タグをクリーニングする
     Args:
         tags (str): クリーニングするタグ
@@ -181,7 +182,7 @@ def clean_tags(tags):
     final_tags = ", ".join(tag for _, tag in tags_dict.items() if tag and tag != "***")
     return final_tags
 
-def cleanup_tag_sql(db_path, tags):
+def cleanup_tag_sql(db_path : str, tags : str) -> str:
     """.dbファイルでタグをクリーニングする
     Args:
         db_path (str): 参照する.dbファイルのパス

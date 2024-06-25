@@ -48,14 +48,15 @@ def split_jsonl(jsonl_path, jsonl_size):
 
 class OpenAIApi:
     def __init__(self, api_key, model, prompt, image_data=None):
+        self.SUPPORTED_VISION_MODELS = ["gpt-4-turbo", "gpt-4o"]
         self.openai_api_key = api_key
         self.model = model
         self.model_name_check()
         self.prompt = prompt
         self.image_data = image_data
+
     def model_name_check(self):
         """モデルがVision対応か確認"""
-        SUPPORTED_VISION_MODELS = ["gpt-4-turbo", "gpt-4o"]
         if self.model not in self.SUPPORTED_VISION_MODELS:
             raise ValueError(f"そのModelには非対応: {self.model}. Supported models: {', '.join(self.SUPPORTED_VISION_MODELS)}")
 
@@ -341,11 +342,12 @@ class GoogleAI:
 
 class APIError(Exception):
     """API呼び出し時のカスタムエラー"""
-    def __init__(self, message, error_type=None, param=None, code=None):
+    def __init__(self, message, error_type=None, param=None, code=None, is_processing_error=False):
         self.message = message
         self.error_type = error_type
         self.param = param
         self.code = code
+        self.is_processing_error = is_processing_error
         super().__init__(self.message)
 
     def __str__(self):
@@ -356,7 +358,8 @@ class APIError(Exception):
             error_details.append(f"Param: {self.param}")
         if self.code:
             error_details.append(f"Code: {self.code}")
-
+        if self.is_processing_error:
+            error_details.append("Processing Error")
         if error_details:
             return f"{self.message} ({', '.join(error_details)})"
         return self.message
