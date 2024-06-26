@@ -45,3 +45,7 @@ Ensure that the tags accurately reflect the content of the image. Avoid includin
 High-quality tagging and captioning will be compensated at $10 per image, rewarding exceptional clarity and precision that enhance image recreation.
 """
 additional = "Your additional prompt here."
+
+[log]
+level = "INFO"
+file = "app.log"
