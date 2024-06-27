@@ -1,8 +1,20 @@
 import toml
-from typing import Dict, Any
-from pathlib import Path
+from typing import Dict, Any, TypedDict
 
-def load_config(config_file: str = 'processing.toml') -> Dict[str, Any]:
+class ConfigDict(TypedDict):
+    api: Dict[str, str]
+    huggingface: Dict[str, str]
+    directories: Dict[str, str]
+    image_processing: Dict[str, Any]
+    generation: Dict[str, bool]
+    options: Dict[str, bool]
+    prompts: Dict[str, str]
+    image_extensions: list[str]
+    text_extensions: list[str]
+    preferred_resolutions: list[tuple[int, int]]
+    log: Dict[str, str]
+
+def load_config(config_file: str = 'processing.toml') -> ConfigDict:
     """
     設定ファイルを読み込む
 
@@ -16,18 +28,19 @@ def load_config(config_file: str = 'processing.toml') -> Dict[str, Any]:
         with open(config_file, 'r', encoding='utf-8') as f:
             config = toml.load(f)
         # 必須の設定項目の存在チェック
-        required_sections = ['directories', 'image_processing', 'generation', 'options', 'prompts']
+        required_sections = ['directories', 'image_processing']
         for section in required_sections:
             if section not in config:
                 raise KeyError(f"必須の設定セクション '{section}' が見つかりません。")
         return config
+
     except FileNotFoundError:
-        raise FileNotFoundError(f"設定ファイル '{config_file}' が見つかりません。")
+        raise ValueError(f"設定ファイル '{config_file}' が見つかりません。")
     except toml.TomlDecodeError as e:
         raise ValueError(f"設定ファイルの解析エラー: {str(e)}")
 
 # 設定のデフォルト値
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: ConfigDict = {
     'directories': {
         'dataset': '',
         'output': 'output',
@@ -57,10 +70,14 @@ DEFAULT_CONFIG = {
     'preferred_resolutions': [
         (512, 512), (768, 512), (512, 768),
         (1024, 1024), (1216, 832), (832, 1216)
-    ]
+    ],
+    'log': {
+        'level': 'INFO',
+        'file': 'app.log'
+    }
 }
 
-def get_config(config_file: str = 'processing.toml') -> Dict[str, Any]:
+def get_config(config_file: str = 'processing.toml') -> ConfigDict:
     """
     設定を取得し、デフォルト値で補完する
 
@@ -74,26 +91,28 @@ def get_config(config_file: str = 'processing.toml') -> Dict[str, Any]:
     # デフォルト値で設定を補完
     for section, values in DEFAULT_CONFIG.items():
         if section not in config:
+            print(f"セクション '{section}' が見つかりません。デフォルト値を使用します。")
             config[section] = values
         elif isinstance(values, dict):
             for key, value in values.items():
                 if key not in config[section]:
+                    print(f"  項目 '{section}.{key}' が見つかりません。デフォルト値 '{value}' を使用します。")
                     config[section][key] = value
         else:
-            if section not in config:
+            if not config[section]:
+                print(f"  セクション '{section}' の値が空です。デフォルト値 '{values}' を使用します。")
                 config[section] = values
 
-    # 空の文字列をデフォルト値に置き換え
-    if config['directories']['dataset'] == '':
-        config['directories']['dataset'] = str(Path.cwd() / 'dataset')
-    if config['directories']['output'] == '':
-        config['directories']['output'] = str(Path.cwd() / 'output')
-    if config['directories']['response_file'] == '':
-        config['directories']['response_file'] = str(Path.cwd() / 'response_file')
 
+    # データセットディレクトリのチェック
+    if not config['directories']['dataset']:
+        raise ValueError("'dataset' ディレクトリは設定ファイルで指定する必要があります。")
     return config
 
 # 設定の使用例
 if __name__ == "__main__":
-    config = get_config()
-    print(config)
+    try:
+        config = get_config()
+        print(config)
+    except (FileNotFoundError, ValueError, KeyError) as e:
+        print(f"設定エラー processing.tomlを確認: {e}")
