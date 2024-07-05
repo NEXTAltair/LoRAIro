@@ -1,11 +1,12 @@
-
 from pathlib import Path
 import json
 import math
+import logging
 from typing import Dict, Any
 import google.generativeai as genai
 import requests
 import base64
+import time
 
 def save_jsonline_to_file(batch_payload, jsonl_filename):
     """一行JSONファイルを纏めてJSONLines形式でファイルに保存する
@@ -27,11 +28,11 @@ def save_jsonline_to_file(batch_payload, jsonl_filename):
 def split_jsonl(jsonl_path, jsonl_size):
     """JSONLが96MB[OpenAIの制限]を超えないようにするために分割して保存する
         保存先はjsonl_pathのサブフォルダに保存される
-    
+
     Args:
         jsonl_path (Path): 分割が必要なjsonlineファイルのpath
         jsonl_size (int): 分割が必要なjsonlineファイルのサイズ
-    
+
     """
     # jsonl_sizeに基づいてファイルを分割
     split_size = math.ceil(jsonl_size / 100663296)
@@ -47,31 +48,60 @@ def split_jsonl(jsonl_path, jsonl_size):
             f.writelines(lines[i * lines_per_file:(i + 1) * lines_per_file])
 
 class OpenAIApi:
+    SUPPORTED_VISION_MODELS = ["gpt-4-turbo", "gpt-4o"]
     def __init__(self, api_key, model, prompt, image_data=None):
-        self.SUPPORTED_VISION_MODELS = ["gpt-4-turbo", "gpt-4o"]
+        self.logger = logging.getLogger(__name__)
         self.openai_api_key = api_key
         self.model = model
         self.model_name_check()
         self.prompt = prompt
         self.image_data = image_data
+        self.last_request_time = 0
+        self.min_request_interval = 1  # 1秒間隔でリクエストを制
+
+
 
     def model_name_check(self):
         """モデルがVision対応か確認"""
         if self.model not in self.SUPPORTED_VISION_MODELS:
             raise ValueError(f"そのModelには非対応: {self.model}. Supported models: {', '.join(self.SUPPORTED_VISION_MODELS)}")
 
-    def set_image_data(self, image_path: Path):
-        """APIクライアントに画像データを設定"""
-        with open(image_path, "rb") as image_file:
-            image_binary = base64.b64encode(image_file.read()).decode('utf-8')
-        self.image_data = image_binary
-        #image_dataに画像のバイナリデータを設定
+    def set_image_data(self, image_path: Path) -> None:
+        """
+        APIクライアントに画像データを設定します。
 
-    def generate_payload(self,batch_jsonl_flag=False):
+        Args:
+            image_path (Path): 画像ファイルのパス
+
+        Raises:
+            FileNotFoundError: 指定されたパスに画像ファイルが存在しない場合
+            IOError: 画像ファイルの読み込み中にエラーが発生した場合
+        """
+        try:
+            if not image_path.exists():
+                raise FileNotFoundError(f"画像ファイルが見つかりません: {image_path}")
+
+            with open(image_path, "rb") as image_file:
+                image_binary = base64.b64encode(image_file.read()).decode('utf-8')
+
+            self.image_data = image_binary
+            self.logger.debug(f"画像データを正常に設定しました: {image_path}")
+        except FileNotFoundError as e:
+            self.logger.error(f"画像ファイルが見つかりません: {e}")
+            raise
+        except IOError as e:
+            self.logger.error(f"画像ファイルの読み込み中にエラーが発生しました: {e}")
+            raise
+        except Exception as e:
+            self.logger.error(f"予期せぬエラーが発生しました: {e}")
+            raise
+
+    def generate_payload(self,image_path: Path, batch_jsonl_flag=False):
         """
         OpenAI APIに送信するペイロードを生成する。
 
         Args:
+            image_path (Path): 画像ファイルのパス
             batch_jsonl_flag (bool):
 
         Returns:
@@ -101,7 +131,7 @@ class OpenAIApi:
 
         if batch_jsonl_flag:
             bach_payload = {
-                "custom_id": self.image_data.data[image_key].name,
+                "custom_id": self.image_data.data[image_path].name,
                 "method": "POST",
                 "url": "/v1/chat/completions",
                 "body": payload
@@ -109,18 +139,8 @@ class OpenAIApi:
             return bach_payload
         return headers, payload
 
-
-    def generate_immediate_response(self, payload, headers):
-        """
-        OpenAI APIを呼び出して即時にデータを生成する。
-
-        Args:
-            payload (dict): APIに送信するペイロード
-            headers (dict): APIリクエストのヘッダー
-
-        Returns:
-            dict: APIからのレスポンス
-        """
+    def analyze_single_image(self, payload: Dict[str, Any], headers: Dict[str, str]) -> Dict[str, Any]:
+        self._wait_for_rate_limit()
         try:
             response = requests.post(
                 "https://api.openai.com/v1/chat/completions",
@@ -128,61 +148,45 @@ class OpenAIApi:
                 json=payload,
                 timeout=60
             )
+            self.last_request_time = time.time()
             self.check_response(response)
             return response.json()
+        except requests.exceptions.Timeout:
+            raise APIError("リクエストがタイムアウトしました。後でもう一度お試しください。")
+        except requests.exceptions.ConnectionError:
+            raise APIError("ネットワーク接続エラーが発生しました。インターネット接続を確認してください。")
         except requests.exceptions.RequestException as e:
-            raise APIError(f"Network error: {str(e)}")
+            raise APIError(f"リクエスト中にエラーが発生しました: {str(e)}")
+        except json.JSONDecodeError:
+            raise APIError("APIレスポンスの解析に失敗しました。レスポンスが不正な形式である可能性があります。")
+
+    def _wait_for_rate_limit(self):
+        elapsed_time = time.time() - self.last_request_time
+        if elapsed_time < self.min_request_interval:
+            time.sleep(self.min_request_interval - elapsed_time)
 
     def check_response(self, response):
         if response.status_code == 200:
             return
-        
+
         error_data = response.json().get('error', {})
-        error_message = error_data.get('message', 'Unknown error')
+        error_message = error_data.get('message', '不明なエラー')
 
         if response.status_code == 400:
-            raise APIError(f"Bad Request: {error_message}", error_type=error_data.get('type'), param=error_data.get('param'), code=response.status_code)
+            raise APIError(f"不正なリクエスト: {error_message}", error_type=error_data.get('type'), param=error_data.get('param'), code=response.status_code)
         elif response.status_code == 401:
-            raise APIError("Unauthorized: Invalid API key", code=response.status_code)
+            raise APIError("認証エラー: 無効なAPIキーです", code=response.status_code)
         elif response.status_code == 403:
-            raise APIError("Forbidden: You don't have access to this resource", code=response.status_code)
+            raise APIError("アクセス拒否: このリソースにアクセスする権限がありません", code=response.status_code)
         elif response.status_code == 404:
-            raise APIError("Not Found: The requested resource doesn't exist", code=response.status_code)
+            raise APIError("リソースが見つかりません: 要求されたリソースが存在しません", code=response.status_code)
         elif response.status_code == 429:
-            raise APIError("Too Many Requests: You've hit the rate limit", code=response.status_code)
+            retry_after = int(response.headers.get('Retry-After', 60))
+            raise APIError(f"リクエスト制限に達しました: {retry_after}秒後に再試行してください", code=response.status_code)
         elif 500 <= response.status_code < 600:
-            raise APIError(f"Server Error: Something went wrong on OpenAI's end (status code: {response.status_code})", code=response.status_code)
+            raise APIError(f"サーバーエラー: OpenAI側で問題が発生しました (ステータスコード: {response.status_code})", code=response.status_code)
         else:
-            raise APIError(f"Unexpected status code: {response.status_code}", code=response.status_code)
-
-    def caption_batch(self):
-        """#imageを走査してBachAPIのリクエストjsonlを生成
-
-        Args:
-            img (instance): ImageData インスタンス
-        """
-        batch_payloads = []
-        for image_key in self.image_data.data:
-            path = self.image_data.data[image_key].path
-            #親フォルダ名を取得して nsfw が含まれるる場合そのフォルダに有る画像はスキップ
-            if "nsfw" in path.parent.name:
-                continue
-            name = self.image_data.data[image_key].name
-            if path.suffix == ".webp": #webp以外の画像の場合はリサイズ等の処理がされてないから無視
-                print(f'Processing {name}...')
-                payload = self.generate_payload(base64img, batch_jsonl_flag=True)
-                batch_payloads.append(payload)
-
-        jsonl_path = save_jsonline_to_file(batch_payloads, f"{path.parent.name}.jsonl")
-
-        # サイズチェックしてjsonlが96MB[OpenAIの制限]を超えないようにするために分割する
-        jsonl_size = jsonl_path.stat().st_size
-        if jsonl_size > 100663296:
-            print("JSONLファイル大きすぎ分割")
-            split_jsonl(jsonl_path, jsonl_size)
-        else:
-            return jsonl_path
-
+            raise APIError(f"予期しないステータスコード: {response.status_code}", code=response.status_code)
 
     def upload_jsonl_file(self, jsonl_path):
         """
@@ -213,7 +217,6 @@ class OpenAIApi:
             print(f"アップロード失敗: {response.status_code}")
             print(response.text)
             return None
-
 
     def start_batch_processing(self, input_file_id):
         """
@@ -342,26 +345,21 @@ class GoogleAI:
 
 class APIError(Exception):
     """API呼び出し時のカスタムエラー"""
-    def __init__(self, message, error_type=None, param=None, code=None, is_processing_error=False):
+    def __init__(self, message, error_type=None, param=None, code=None):
         self.message = message
         self.error_type = error_type
         self.param = param
         self.code = code
-        self.is_processing_error = is_processing_error
         super().__init__(self.message)
 
     def __str__(self):
         error_details = []
         if self.error_type:
-            error_details.append(f"Type: {self.error_type}")
+            error_details.append(f"タイプ: {self.error_type}")
         if self.param:
-            error_details.append(f"Param: {self.param}")
+            error_details.append(f"パラメータ: {self.param}")
         if self.code:
-            error_details.append(f"Code: {self.code}")
-        if self.is_processing_error:
-            error_details.append("Processing Error")
+            error_details.append(f"コード: {self.code}")
         if error_details:
             return f"{self.message} ({', '.join(error_details)})"
         return self.message
-
-
