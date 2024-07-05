@@ -71,7 +71,7 @@ class ImageProcessingManager:
 
                 # 3. クロップ後長辺が設定値以下の場合処理をしない
                 if max(cropped_img.width, cropped_img.height) < self.target_resolution:
-                    self.logger.info(f"画像サイズが小さすぎるため処理をスキップします: {db_stored_original_path}")
+                    self.logger.info("画像サイズが小さすぎるため処理をスキップ: %s", db_stored_original_path)
                     return None
 
                 # 4. 画像色域を変換
@@ -197,10 +197,15 @@ class AutoCrop:
 
         # グレースケールに変換
         if image.ndim == 3:
-            gray = np.mean(image, axis=2)
+            if image.shape[2] == 3:
+                gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+            elif image.shape[2] == 4:
+                rgb = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
+                gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+            else:
+                raise ValueError(f"サポートされていない画像形式です。形状: {image.shape}")
         else:
             gray = image
-
         # エッジ検出
         edges = ndimage.sobel(gray)
 
@@ -248,16 +253,27 @@ class AutoCrop:
                 return None
 
             # カラースペース変換の改善
-            if len(np_image.shape) == 3 and np_image.shape[2] == 3:
-                gray_image = cv2.cvtColor(np_image, cv2.COLOR_RGB2GRAY)
-            else:
+            if len(np_image.shape) == 3:
+                if np_image.shape[2] == 3:
+                    gray_image = cv2.cvtColor(np_image, cv2.COLOR_RGB2GRAY)
+                elif np_image.shape[2] == 4:
+                    # RGBA画像の場合、アルファチャンネルを無視してRGBに変換
+                    rgb_image = cv2.cvtColor(np_image, cv2.COLOR_RGBA2RGB)
+                    gray_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2GRAY)
+                else:
+                    self.logger.error(f"サポートされていない画像形式です。形状: {np_image.shape}")
+                    return None
+            elif len(np_image.shape) == 2:
                 gray_image = np_image
+            else:
+                self.logger.error(f"サポートされていない画像形式です。形状: {np_image.shape}")
+                return None
 
             # ノイズ除去のためのブラー処理
             blurred = cv2.GaussianBlur(gray_image, (5, 5), 0)
 
             # 適応的閾値処理
-            thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+            thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                         cv2.THRESH_BINARY, 11, 2)
 
             # 輪郭検出
