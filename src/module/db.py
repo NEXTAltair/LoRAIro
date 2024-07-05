@@ -11,6 +11,7 @@ class SQLiteManager:
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self._connection = None
+        self.logger = logging.getLogger(__name__)
 
     @staticmethod
     def dict_factory(cursor, row):
@@ -157,6 +158,14 @@ class SQLiteManager:
             CREATE INDEX IF NOT EXISTS idx_processed_images_image_id ON processed_images(image_id);
             ''')
 
+    def register_models(self, models: List[Dict[str, str]]):
+        query = "INSERT OR IGNORE INTO models (name, type) VALUES (?, ?)"
+        try:
+            with self.transaction() as conn:
+                conn.executemany(query, [(model['name'], model['type']) for model in models])
+        except sqlite3.Error as e:
+            self.logger.error(f"モデルの登録中にエラーが発生しました: {e}")
+            raise
 class ImageRepository:
     """
     画像関連のデータベース操作を担当するクラス。
@@ -269,7 +278,7 @@ class ImageRepository:
             raise ValueError("処理済みアノテーションには 'scores' が含まれている必要があります。")
 
         try:
-            self._save_tags(image_id, annotations.get('tags', []), existing=False)
+            self._save_tags(image_id, annotations.get('tags', ""), existing=False)
             self._save_captions(image_id, annotations.get('captions', []), existing=False)
             self._save_scores(image_id, annotations['scores'])
         except sqlite3.Error as e:
@@ -427,10 +436,11 @@ class ImageDatabaseManager:
     このクラスは、ImageRepositoryを使用して、画像メタデータとアノテーションの
     保存、取得、更新などの操作を行います。
     """
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, models: Dict[str, str]):
         self.db_manager = SQLiteManager(db_path)
         self.repository = ImageRepository(self.db_manager)
         self.db_manager.create_tables()
+        self.db_manager.register_models(models)
         self.logger = logging.getLogger(__name__)
         self.logger.info("データベーステーブルが初期化されました。")
 
@@ -589,5 +599,5 @@ class ImageDatabaseManager:
             self.logger.error(f"画像アノテーション取得中にエラーが発生しました: {e}")
             raise
 
-def initialize_database(db_path: Path) -> ImageDatabaseManager:
-    return ImageDatabaseManager(db_path)
+def initialize_database(db_path: Path, models: List[Dict[str, str]]) -> ImageDatabaseManager:
+    return ImageDatabaseManager(db_path, models)
