@@ -51,7 +51,10 @@ class MainControllBase(ABC):
     def _save_processed_metadata(self, image_id: int, processed_path: Path, metadata: Dict[str, Any]):
         self.image_database_manager.save_processed_metadata(image_id, processed_path, metadata)
 
-    def _save_annotations(self, image_id: int, annotations: Dict[str, Any]):
+    def _get_existing_annotations(self, db_stored_original_path: Path) -> Optional[Dict[str, List[Dict[str, str]]]]:
+        return self.image_analyzer.get_existing_annotations(db_stored_original_path)
+
+    def _save_annotations(self, image_id: int, annotations: Dict[str, List[Dict[str, str]]]):
         self.image_database_manager.save_annotations(image_id, annotations)
 
     def process_image(self, image_file: Path) -> Optional[Dict[str, Any]]:
@@ -59,6 +62,8 @@ class MainControllBase(ABC):
             db_stored_original_path = self._save_original_image(image_file)
             original_metadata = self.file_system_manager.get_image_info(image_file)
             image_id, _ = self._save_metadata(db_stored_original_path, original_metadata)
+            existing_annotations = self._get_existing_annotations(image_file)
+            self._save_annotations(image_id, existing_annotations)
 
             processed_image = self._process_image(db_stored_original_path,
                                                   original_metadata['has_alpha'],
