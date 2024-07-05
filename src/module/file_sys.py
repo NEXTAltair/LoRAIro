@@ -168,7 +168,7 @@ class FileSystemManager:
             self.logger.info(f"処理済み画像を保存: {output_path}")
             return output_path
         except Exception as e:
-            self.logger.error(f"画像の保存に失敗: {original_path}. エラー: {str(e)}")
+            self.logger.error("処理済み画像の保存に失敗: %s. FileSystemManager.save_original_image: %s", new_filename, str(e))
             raise
 
     def save_original_image(self, image_file: Path) -> Path:
@@ -198,28 +198,31 @@ class FileSystemManager:
             # 画像をコピー
             shutil.copy2(str(image_file), str(output_path))
 
-            self.logger.info(f"元画像を保存しました: {output_path}")
+            self.logger.info("元画像を保存: %s", output_path)
             return output_path
         except Exception as e:
-            self.logger.error(f"元画像の保存に失敗しました: {image_file}. エラー: {str(e)}")
+            self.logger.error("元画像の保存に失敗: %s. FileSystemManager.save_original_image: %s", image_file, str(e))
             raise
 
-    def save_batch_request(self, batch_request_data: List[Dict[str, Any]]) -> Path:
+    def create_batch_request_file(self) -> Path:
+        """新しいバッチリクエストJSONLファイルを作成します。
+
+        Returns:
+            Path: 作成されたJSONLファイルのパス
+        """
+        batch_request = self.batch_request_dir / 'batch_request.jsonl'
+        return batch_request
+
+    def save_batch_request(self, file_path: Path, data: Dict[str, Any]):
         """バッチリクエストデータをJSONLファイルとして保存します。
 
         Args:
-            batch_request_data (List[Dict[str, Any]]): バッチリクエストデータのリスト
-
-        Returns:
-            batch_request Path: 保存されたJSONLファイルのパス
+            file_path (Path): 追加先のJSONLファイルのパス
+            data (Dict[str, Any]): 追加するデータ
         """
-        batch_request = self.batch_request_dir / 'batch_request.jsonl'
-        with open(batch_request, 'w', encoding='utf-8') as f:
-            for item in batch_request_data:
-                json.dump(item, f)
-                f.write('\n')
-
-        return batch_request
+        with open(file_path, 'a', encoding='utf-8') as f:
+            json.dump(data, f)
+            f.write('\n')
 
     def split_jsonl(jsonl_path: Path, jsonl_size: int, json_maxsize: int) -> None:
         """
