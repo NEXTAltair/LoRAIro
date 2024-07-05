@@ -10,6 +10,7 @@ from caption_tags import ImageAnalyzer
 import traceback
 from pathlib import Path
 import logging
+import gc
 
 class MainControllBase(ABC):
     """ 画像処理のメインコントローラーの基底クラス
@@ -62,19 +63,26 @@ class MainControllBase(ABC):
             processed_image = self._process_image(db_stored_original_path,
                                                   original_metadata['has_alpha'],
                                                   original_metadata['mode'])
-            processed_path = self._save_processed_image(processed_image, image_file)
+            if processed_image:
+                processed_path = self._save_processed_image(processed_image, image_file)
+                processed_metadata = self.file_system_manager.get_image_info(processed_path)
+                self._save_processed_metadata(image_id, processed_path, processed_metadata)
 
-            processed_metadata = self.file_system_manager.get_image_info(processed_path)
-            self._save_processed_metadata(image_id, processed_path, processed_metadata)
-
-            if self._should_skip(processed_path):
-                self.logger.info(f"NSFW画像として検出されました。APIリクエストをスキップ: {image_file}")
+                if self._should_skip(processed_path):
+                    self.logger.info("NSFW画像として検出されました。APIリクエストをスキップ: %s", image_file)
+                    return None
+                return {"image_id": image_id, "processed_path": processed_path}
+            else:
+                self.logger.info("処理後画像はNone: %s", image_file)
                 return None
 
-            return {"image_id": image_id, "processed_path": processed_path}
         except Exception as e:
-            self.logger.error(f"画像処理中にエラーが発生: {image_file}, エラー: {str(e)}")
+            self.logger.error("画像処理中にエラーが発生: %s, MainControllBase.process_image: %s", image_file, str(e))
             return None
+        finally:
+            # 明示的にメモリを解放する
+            del processed_image,
+            gc.collect()
 
     def _should_skip(self, image_path: Path) -> bool:
         return "nsfw" in str(image_path).lower()
@@ -92,42 +100,50 @@ class RealtimeControll(MainControllBase):
                 if analyzed_data:
                     self._save_annotations(result["image_id"], analyzed_data)
 
+        # 明示的なメモリ解放
+        del result, analyzed_data
+        gc.collect()
+
         self.logger.info("リアルタイム処理が完了しました")
 
 class BatchControll(MainControllBase):
     def execute(self):
-        self.logger.info("バッチ処理を開始します")
+        self.logger.info("バッチ処理開始")
         dataset_path = Path(self.config['directories']['dataset'])
         image_files = self.file_system_manager.get_image_files(dataset_path)
+        batch_request_file = self.file_system_manager.create_batch_request_file()
+        processed_count = 0
 
-        batch_request_data = []
         for image_file in image_files:
-            result = self.process_image(image_file)
-            if result:
+            try:
+                result = self.process_image(image_file)
+                if not result:
+                    self.logger.info("処理対象外: %s", image_file)
+                    continue
+
                 request_data = self.image_analyzer.create_batch_request(result["processed_path"])
                 if request_data:
-                    batch_request_data.append(request_data)
+                    self.file_system_manager.save_batch_request(batch_request_file, request_data)
+                    processed_count += 1
+            except Exception as e:
+                self.logger.error("画像処理中にエラーが発生: %s, エラー: %s", image_file, str(e))
+            finally:
+                gc.collect()
 
-        if batch_request_data:
-            batch_request_file = self._save_batch_request(batch_request_data)
-            if self.config['generation']['start_batch']:
-                self._start_batch_processing(batch_request_file)
-        else:
-            self.logger.warning("処理可能な画像がありません。バッチ処理をスキップします。")
-
-        self.logger.info("バッチ処理の準備が完了しました")
+        self.logger.info("バッチ処理完了。処理画像数: %d", processed_count)
+        if processed_count > 0 and self.config['generation']['start_batch']:
+            self._start_batch_processing(batch_request_file)
 
     def _save_batch_request(self, batch_request: List[Dict[str, Any]]):
         batch_request_file = self.file_system_manager.save_batch_request(batch_request)
-        self.logger.info(f"バッチリクエストが保存されました: {batch_request_file}")
+        self.logger.info(f"バッチリクエスト保存終了: {batch_request_file}")
         return batch_request_file
 
     def _start_batch_processing(self, batch_request_file: Path):
         # サイズチェックしてjsonlが96MB[OpenAIの制限]を超えないようにするために分割する
         jsonl_size = batch_request_file.stat().st_size
         if jsonl_size > 100663296:
-            self.logger.warning(f"バッチリクエストのサイズが96MBを超えています: {jsonl_size}")
-            self.logger.warning("バッチリクエストを分割して処理を開始します")
+            self.logger.info("バッチリクエストを分割して処理を開始します")
             self.file_system_manager.split_jsonl(batch_request_file, jsonl_size, json_maxsize=100663296)
 
         # 単一/分割両対応用に指定はディレクトリバッチ処理の開始
@@ -135,6 +151,23 @@ class BatchControll(MainControllBase):
         batch_id = self.image_analyzer.start_batch_processing(batch_request_dir)
         self.logger.info(f"バッチ処理が開始されました ファイルID: {batch_id}")
 
+class ResizeControll(MainControllBase):
+    def execute(self):
+        self.logger.info("リサイズとDB保存処理を開始")
+        dataset_path = Path(self.config['directories']['dataset'])
+        image_files = self.file_system_manager.get_image_files(dataset_path)
+
+        for image_file in image_files:
+            try:
+                result = self.process_image(image_file)
+                if result:
+                    self.logger.info(f"画像処理成功: {image_file}")
+                else:
+                    self.logger.warning(f"画像処理失敗: {image_file}")
+            except Exception as e:
+                self.logger.error(f"画像処理中にエラーが発生: {image_file}, エラー: {str(e)}")
+
+        self.logger.info("リサイズとDB保存処理が完了しました")
 
 def start_processing(config_path: str = 'processing.toml'):
     try:
@@ -184,8 +217,7 @@ def start_processing(config_path: str = 'processing.toml'):
         elif config['generation']['single_image']:
             controll = RealtimeControll(config, file_system_manager, image_database_manager, image_processing_manager, image_analyzer)
         else:
-            raise ValueError("処理モードが不正です。")
-
+            controll = ResizeControll(config, file_system_manager, image_database_manager, image_processing_manager, image_analyzer)
         # 処理の実行
         controll.execute()
 
