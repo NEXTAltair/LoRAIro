@@ -199,5 +199,5 @@ class FileSystemManager:
             self.logger.info(f"元画像を保存しました: {output_path}")
             return output_path
         except Exception as e:
-            self.logger.error(f"元画像の保存に失敗しました: {image_file}. エラー: {str(e)}")
+            self.logger.error("元画像の保存に失敗しました: %s. save_processed_image: %s", image_file, str(e))
             raise

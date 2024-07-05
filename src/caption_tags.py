@@ -145,6 +145,24 @@ class ImageAnalyzer:
         payload = self.api_client.generate_payload(image_path, batch_jsonl_flag=True)
         return payload
 
+    def start_batch_processing(self, batch_request_dir: Path) -> List[str]:
+        """バッチファイルをアップロードして開始"""
+        # ループでjsonlを探して一つずつ処理
+        batch_id = []
+        for jsonl_file in batch_request_dir.glob('*.jsonl'):
+            # バッチリクエストをアップロード
+            file_id = self.api_client.upload_jsonl_file(jsonl_file)
+            if file_id:
+                try:
+                    # バッチ処理を開始
+                    start_response = self.api_client.start_batch_processing(file_id)
+                    self.logger.info("バッチ処理が開始")
+                    batch_id.append(start_response['id'])
+                except Exception as e:
+                    self.logger.error("バッチ処理の開始中にエラー:  start_batch_processing: %s", str(e))
+                    raise
+        return batch_id
+
     def analyze_image(self, image_path: Path) -> Dict[str, Any]:
         """
         指定された画像を分析し、結果を返します。
