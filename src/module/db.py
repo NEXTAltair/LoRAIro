@@ -444,6 +444,15 @@ class ImageDatabaseManager:
         self.logger = logging.getLogger(__name__)
         self.logger.info("データベーステーブルが初期化されました。")
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, _):
+        self.db_manager.close()
+        if exc_type:
+            self.logger.error("ImageDatabaseManager使用中にエラー: %s", exc_value)
+        return False  # 例外を伝播させる
+
     def save_original_metadata(self, stored_image_path: Path, info: Dict[str, Any]) -> Tuple[int, str]:
         """
         元の画像のメタデータを保存します。

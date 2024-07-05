@@ -17,10 +17,10 @@ class FileSystemManager:
             raise RuntimeError("FileSystemManagerが初期化されていません。")
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, _):
         if exc_type is not None:
             # 例外が発生した場合のログ記録
-            self.logger.error(f"FileSystemManager 使用中にエラーが発生: %s",exc_val)
+            self.logger.error("FileSystemManager使用中にエラーが発生: %s",exc_val)
         return False  # 例外を伝播させる
 
     def initialize(self, dataset_dir: Path, output_dir: Path, target_resolution: int, image_extensions: List[str]):
