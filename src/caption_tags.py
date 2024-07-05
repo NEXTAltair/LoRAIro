@@ -132,17 +132,17 @@ class ImageAnalyzer:
                     annotations.append({key: stripped_item})
             return annotations
 
-    def create_batch_request(self, image_path: Path):
-        """#imageを走査してBachAPIのリクエストjsonlを生成
+    def create_batch_request(self, processed_path: Path) -> Dict[str, Any]:
+        """単一の画像に対するバッチリクエストデータを生成します。
 
         Args:
-            image_path (Path): 処理済み画像のパス
+            processed_path (Path): 処理済み画像のパス
 
         Returns:
-            batch_payload (List[Dict[str, Any]): バッチリクエストのペイロード
+            Dict[str, Any]: バッチリクエスト用のデータ
         """
-        self.api_client.set_image_data(image_path)
-        payload = self.api_client.generate_payload(image_path, batch_jsonl_flag=True)
+        self.api_client.set_image_data(processed_path)
+        payload = self.api_client.generate_payload(processed_path, batch_jsonl_flag=True)
         return payload
 
     def start_batch_processing(self, batch_request_dir: Path) -> List[str]:
@@ -156,10 +156,10 @@ class ImageAnalyzer:
                 try:
                     # バッチ処理を開始
                     start_response = self.api_client.start_batch_processing(file_id)
-                    self.logger.info("バッチ処理が開始")
+                    self.logger.info("バッチ処理が開始されました。")
                     batch_id.append(start_response['id'])
                 except Exception as e:
-                    self.logger.error("バッチ処理の開始中にエラー:  start_batch_processing: %s", str(e))
+                    self.logger.error("バッチ処理の開始中にエラーが発生しました: %s", str(e))
                     raise
         return batch_id
 

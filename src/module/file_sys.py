@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import List, Dict, Any
 from PIL import Image
+import math
+import json
 import shutil
 import logging
 from datetime import datetime
@@ -166,7 +168,7 @@ class FileSystemManager:
             self.logger.info(f"処理済み画像を保存: {output_path}")
             return output_path
         except Exception as e:
-            self.logger.error("処理済み画像の保存に失敗: %s. save_processed_image: %s", original_path, str(e))
+            self.logger.error(f"画像の保存に失敗: {original_path}. エラー: {str(e)}")
             raise
 
     def save_original_image(self, image_file: Path) -> Path:
@@ -199,5 +201,45 @@ class FileSystemManager:
             self.logger.info(f"元画像を保存しました: {output_path}")
             return output_path
         except Exception as e:
-            self.logger.error("元画像の保存に失敗しました: %s. save_processed_image: %s", image_file, str(e))
+            self.logger.error(f"元画像の保存に失敗しました: {image_file}. エラー: {str(e)}")
             raise
+
+    def save_batch_request(self, batch_request_data: List[Dict[str, Any]]) -> Path:
+        """バッチリクエストデータをJSONLファイルとして保存します。
+
+        Args:
+            batch_request_data (List[Dict[str, Any]]): バッチリクエストデータのリスト
+
+        Returns:
+            batch_request Path: 保存されたJSONLファイルのパス
+        """
+        batch_request = self.batch_request_dir / 'batch_request.jsonl'
+        with open(batch_request, 'w', encoding='utf-8') as f:
+            for item in batch_request_data:
+                json.dump(item, f)
+                f.write('\n')
+
+        return batch_request
+
+    def split_jsonl(jsonl_path: Path, jsonl_size: int, json_maxsize: int) -> None:
+        """
+        JSONLが96MB[OpenAIの制限]を超えないようにするために分割して保存する
+        保存先はjsonl_pathのサブフォルダに保存される
+
+        Args:
+            jsonl_path (Path): 分割が必要なjsonlineファイルのpath
+            jsonl_size (int): 分割が必要なjsonlineファイルのサイズ
+            json_maxsize (int): OpenAI API が受け付ける最大サイズ
+        """
+        # jsonl_sizeに基づいてファイルを分割
+        split_size = math.ceil(jsonl_size / json_maxsize)
+        with open(jsonl_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        lines_per_file = math.ceil(len(lines) / split_size)  # 各ファイルに必要な行数
+        split_dir = jsonl_path / "split"
+        split_dir.mkdir(parents=True, exist_ok=True)
+        split_path = split_dir / split_filename
+        for i in range(split_size):
+            split_filename = f'instructions_{i}.jsonl'
+            with open(split_path, 'w', encoding='utf-8') as f:
+                f.writelines(lines[i * lines_per_file:(i + 1) * lines_per_file])

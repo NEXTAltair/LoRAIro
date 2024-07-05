@@ -44,7 +44,7 @@ class MainControllBase(ABC):
     def _process_image(self, db_stored_original_path: Path, has_alpha: bool, mode: str) ->  Optional[Image.Image]:
         return self.image_processing_manager.process_image(db_stored_original_path, has_alpha, mode)
 
-    def _save_processed_image(self, processed_image: Image.Image, original_path: Path) -> Path:
+    def _save_processed_image(self, processed_image: Any, original_path: Path) -> Path:
         return self.file_system_manager.save_processed_image(processed_image, original_path)
 
     def _save_processed_metadata(self, image_id: int, processed_path: Path, metadata: Dict[str, Any]):
@@ -53,6 +53,32 @@ class MainControllBase(ABC):
     def _save_annotations(self, image_id: int, annotations: Dict[str, Any]):
         self.image_database_manager.save_annotations(image_id, annotations)
 
+    def process_image(self, image_file: Path) -> Optional[Dict[str, Any]]:
+        try:
+            db_stored_original_path = self._save_original_image(image_file)
+            original_metadata = self.file_system_manager.get_image_info(image_file)
+            image_id, _ = self._save_metadata(db_stored_original_path, original_metadata)
+
+            processed_image = self._process_image(db_stored_original_path,
+                                                  original_metadata['has_alpha'],
+                                                  original_metadata['mode'])
+            processed_path = self._save_processed_image(processed_image, image_file)
+
+            processed_metadata = self.file_system_manager.get_image_info(processed_path)
+            self._save_processed_metadata(image_id, processed_path, processed_metadata)
+
+            if self._should_skip(processed_path):
+                self.logger.info(f"NSFW画像として検出されました。APIリクエストをスキップ: {image_file}")
+                return None
+
+            return {"image_id": image_id, "processed_path": processed_path}
+        except Exception as e:
+            self.logger.error(f"画像処理中にエラーが発生: {image_file}, エラー: {str(e)}")
+            return None
+
+    def _should_skip(self, image_path: Path) -> bool:
+        return "nsfw" in str(image_path).lower()
+
 class RealtimeControll(MainControllBase):
     def execute(self):
         self.logger.info("リアルタイム処理を開始")
@@ -60,40 +86,13 @@ class RealtimeControll(MainControllBase):
         image_files = self.file_system_manager.get_image_files(dataset_path)
 
         for image_file in image_files:
-            try:
-                self._process_single_image(image_file)
-            except Exception as e:
-                self.logger.error(f"画像処理中にエラーが発生しました: {image_file}, エラー: {str(e)}")
+            result = self.process_image(image_file)
+            if result:
+                analyzed_data = self.image_analyzer.analyze_image(result["processed_path"])
+                if analyzed_data:
+                    self._save_annotations(result["image_id"], analyzed_data)
 
         self.logger.info("リアルタイム処理が完了しました")
-
-    def _process_single_image(self, image_file: Path):
-        self.logger.info(f"画像の処理を開始: {image_file}")
-
-        db_stored_original_path = self._save_original_image(image_file)
-        original_metadata = self.file_system_manager.get_image_info(image_file)
-        image_id, _ = self._save_metadata(db_stored_original_path, original_metadata)
-
-        existing_annotations = self.image_analyzer.get_existing_annotations(image_file)
-        if existing_annotations:
-            self._save_annotations(image_id, existing_annotations)
-
-        processed_image = self._process_image(db_stored_original_path,
-                                              original_metadata['has_alpha'],
-                                              original_metadata['mode'])
-        processed_path = self._save_processed_image(processed_image, image_file)
-
-        processed_metadata = self.file_system_manager.get_image_info(processed_path)
-        self._save_processed_metadata(image_id, processed_path, processed_metadata)
-
-        if "nsfw" in str(processed_path): # パスにnsfwが含まれている画像は処理しない
-            return
-
-        analyzed_data = self.image_analyzer.analyze_image(processed_path)
-        if analyzed_data:
-            self._save_annotations(image_id, analyzed_data)
-
-        self.logger.info(f"画像の処理が完了しました: {image_file}")
 
 class BatchControll(MainControllBase):
     def execute(self):
@@ -103,77 +102,39 @@ class BatchControll(MainControllBase):
 
         batch_request_data = []
         for image_file in image_files:
-            try:
-                request_data = self._prepare_batch_request(image_file)
+            result = self.process_image(image_file)
+            if result:
+                request_data = self.image_analyzer.create_batch_request(result["processed_path"])
                 if request_data:
                     batch_request_data.append(request_data)
-            except Exception as e:
-                self.logger.error("BatchControll.execute: %s, 画像: %s", str(e), image_file)
 
-        if not batch_request_data:
-            self.logger.warning("処理可能な画像がありません。バッチ処理をスキップします。")
-            return
-        try:
+        if batch_request_data:
             batch_request_file = self._save_batch_request(batch_request_data)
-            if self.config['generation']['start_batch'] and batch_request_file:
+            if self.config['generation']['start_batch']:
                 self._start_batch_processing(batch_request_file)
-        except Exception as e:
-            self.logger.error("BatchControll.execute: %s", str(e))
+        else:
+            self.logger.warning("処理可能な画像がありません。バッチ処理をスキップします。")
 
         self.logger.info("バッチ処理の準備が完了しました")
 
-    def _prepare_batch_request(self, image_file: Path) -> Dict[str, Any]:
-        self.logger.info("バッチリクエストの準備: %s", image_file)
-        try:
-            db_stored_original_path = self._save_original_image(image_file)
-            original_metadata = self.file_system_manager.get_image_info(image_file)
-            self._save_metadata(db_stored_original_path, original_metadata)
-
-            processed_image = self._process_image(db_stored_original_path,
-                                                original_metadata['has_alpha'],
-                                                original_metadata['mode'])
-            if processed_image is None:
-                self.logger.debug("編集後画像がNone: %s", image_file)
-                return None
-            processed_path = self._save_processed_image(processed_image, image_file)
-
-            if "nsfw" in str(processed_path):
-                self.logger.info("_prepare_batch_request: NSFW画像をスキップ: %s", image_file)
-                return None
-            self.image_analyzer.create_batch_request(processed_path)
-
-        except Exception as e:
-            self.logger.error("_prepare_batch_request: %s, 画像: %s", str(e), image_file)
-            return None
-
     def _save_batch_request(self, batch_request: List[Dict[str, Any]]):
-        try:
-            batch_request_file = self.file_system_manager.save_batch_request(batch_request)
-            self.logger.info(f"バッチリクエストが保存されました: {batch_request_file}")
-            return batch_request_file
-        except Exception as e:
-            self.logger.error("BatchControll._save_batch_request: %s", str(e))
-            return None
+        batch_request_file = self.file_system_manager.save_batch_request(batch_request)
+        self.logger.info(f"バッチリクエストが保存されました: {batch_request_file}")
+        return batch_request_file
 
     def _start_batch_processing(self, batch_request_file: Path):
         # サイズチェックしてjsonlが96MB[OpenAIの制限]を超えないようにするために分割する
-        try:
-            jsonl_size = batch_request_file.stat().st_size
-            if jsonl_size > 100663296:
-                self.logger.warning(f"バッチリクエストのサイズが96MBを超えています: {jsonl_size}")
-                self.logger.warning("バッチリクエストを分割して処理を開始します")
-                self.file_system_manager.split_jsonl(batch_request_file, jsonl_size, json_maxsize=100663296)
+        jsonl_size = batch_request_file.stat().st_size
+        if jsonl_size > 100663296:
+            self.logger.warning(f"バッチリクエストのサイズが96MBを超えています: {jsonl_size}")
+            self.logger.warning("バッチリクエストを分割して処理を開始します")
+            self.file_system_manager.split_jsonl(batch_request_file, jsonl_size, json_maxsize=100663296)
 
-            # 単一/分割両対応用に指定はディレクトリバッチ処理の開始
-            batch_request_dir = batch_request_file.parent
-            batch_id = self.image_analyzer.start_batch_processing(batch_request_dir)
-            self.logger.info(f"バッチ処理が開始されました ファイルID: {batch_id}")
-            if batch_id:
-                self.logger.info("バッチ処理が開始されました ファイルID: %s", batch_id)
-            else:
-                self.logger.warning("BatchControll._start_batch_processing: バッチ処理の開始に失敗しました")
-        except Exception as e:
-            self.logger.error("_start_batch_processing: %s", str(e))
+        # 単一/分割両対応用に指定はディレクトリバッチ処理の開始
+        batch_request_dir = batch_request_file.parent
+        batch_id = self.image_analyzer.start_batch_processing(batch_request_dir)
+        self.logger.info(f"バッチ処理が開始されました ファイルID: {batch_id}")
+
 
 def start_processing(config_path: str = 'processing.toml'):
     try:
@@ -230,15 +191,23 @@ def start_processing(config_path: str = 'processing.toml'):
 
         logger.info("すべての処理が完了しました")
 
-    except Exception as e:
-        logger.error(f"処理中にエラーが発生しました: {str(e)}")
+    except FileNotFoundError as e:
+        logger.error(f"ファイルが見つかりません: {e}")
         logger.debug(traceback.format_exc())
-
+    except PermissionError as e:
+        logger.error(f"ファイルへのアクセス権限がありません: {e}")
+        logger.debug(traceback.format_exc())
+    except ValueError as e:
+        logger.error(f"設定値が不正です: {e}")
+        logger.debug(traceback.format_exc())
+    except Exception as e:
+        logger.error(f"予期せぬエラーが発生しました: {e}")
+        logger.debug(traceback.format_exc())
     finally:
-        if 'database_manager' in locals():
-            database_manager.disconnect()
-
-    logger.info("画像処理とデータベース管理システムが終了しました")
+        # リソースのクリーンアップ
+        if 'image_database_manager' in locals():
+            image_database_manager.db_manager.close()
+        logger.info("プログラムを終了します")
 
 if __name__ == "__main__":
     start_processing()

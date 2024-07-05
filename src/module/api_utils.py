@@ -2,51 +2,32 @@ from pathlib import Path
 import json
 import math
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import google.generativeai as genai
 import requests
 import base64
 import time
 
-def save_jsonline_to_file(batch_payload, jsonl_filename):
-    """一行JSONファイルを纏めてJSONLines形式でファイルに保存する
+class APIError(Exception):
+    """API呼び出し時のカスタムエラー"""
+    def __init__(self, message, error_type=None, param=None, code=None):
+        self.message = message
+        self.error_type = error_type
+        self.param = param
+        self.code = code
+        super().__init__(self.message)
 
-    Args:
-        batch_payloads (tuple): 一行のJSONファイルのtuple
-        jsonl_filename (str): 保存するファイル名
-
-    Returns:
-        jsonl_filename (Path): jsonline形式のファイルpath
-    """
-    with open(jsonl_filename, 'w', encoding='utf-8') as f:
-        for item in batch_payload:
-            json.dump(item, f)
-            f.write('\n')  # 各JSONオブジェクトの後に改行を追加
-    print(f"Data saved to {jsonl_filename}")
-    return Path(jsonl_filename)
-
-def split_jsonl(jsonl_path, jsonl_size):
-    """JSONLが96MB[OpenAIの制限]を超えないようにするために分割して保存する
-        保存先はjsonl_pathのサブフォルダに保存される
-
-    Args:
-        jsonl_path (Path): 分割が必要なjsonlineファイルのpath
-        jsonl_size (int): 分割が必要なjsonlineファイルのサイズ
-
-    """
-    # jsonl_sizeに基づいてファイルを分割
-    split_size = math.ceil(jsonl_size / 100663296)
-    with open(jsonl_path, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
-    lines_per_file = math.ceil(len(lines) / split_size)  # 各ファイルに必要な行数
-    split_dir = jsonl_path / "split"
-    split_dir.mkdir(parents=True, exist_ok=True)
-    split_path = split_dir / split_filename
-    for i in range(split_size):
-        split_filename = f'instructions_{i}.jsonl'
-        with open(split_path, 'w', encoding='utf-8') as f:
-            f.writelines(lines[i * lines_per_file:(i + 1) * lines_per_file])
-
+    def __str__(self):
+        error_details = []
+        if self.error_type:
+            error_details.append(f"タイプ: {self.error_type}")
+        if self.param:
+            error_details.append(f"パラメータ: {self.param}")
+        if self.code:
+            error_details.append(f"コード: {self.code}")
+        if error_details:
+            return f"{self.message} ({', '.join(error_details)})"
+        return self.message
 class OpenAIApi:
     SUPPORTED_VISION_MODELS = ["gpt-4-turbo", "gpt-4o"]
     def __init__(self, api_key, model, prompt, image_data=None):
@@ -58,8 +39,6 @@ class OpenAIApi:
         self.image_data = image_data
         self.last_request_time = 0
         self.min_request_interval = 1  # 1秒間隔でリクエストを制
-
-
 
     def model_name_check(self):
         """モデルがVision対応か確認"""
@@ -131,7 +110,7 @@ class OpenAIApi:
 
         if batch_jsonl_flag:
             bach_payload = {
-                "custom_id": self.image_data.data[image_path].name,
+                "custom_id": image_path.name,
                 "method": "POST",
                 "url": "/v1/chat/completions",
                 "body": payload
@@ -188,12 +167,12 @@ class OpenAIApi:
         else:
             raise APIError(f"予期しないステータスコード: {response.status_code}", code=response.status_code)
 
-    def upload_jsonl_file(self, jsonl_path):
+    def upload_jsonl_file(self, jsonl_path: Path) -> Optional[str]:
         """
         JSONLファイルをOpenAI APIにアップロードする。
 
         Args:
-            jsonl_path (str): アップロードするJSONLファイルのパス
+            jsonl_path (Path): アップロードするJSONLファイルのパス
 
         Returns:
             str: アップロードされたファイルのID
@@ -208,17 +187,22 @@ class OpenAIApi:
         data = {
             'purpose': 'batch'
         }
-        response = requests.post(url, headers=headers, files=files, data=data, timeout=500)
-        if response.status_code == 200:
-            print("アップロード成功")
+        try:
+            response = requests.post(url, headers=headers, files=files, data=data, timeout=500)
+            self.check_response(response)
             file_id = response.json().get('id')
             return file_id
-        else:
-            print(f"アップロード失敗: {response.status_code}")
-            print(response.text)
-            return None
+        except requests.exceptions.Timeout:
+            raise APIError("リクエストがタイムアウトしました。後でもう一度お試しください。")
+        except requests.exceptions.ConnectionError:
+            raise APIError("ネットワーク接続エラーが発生しました。インターネット接続を確認してください。")
+        except requests.exceptions.RequestException as e:
+            raise APIError(f"リクエスト中にエラーが発生しました: {str(e)}")
+        except json.JSONDecodeError:
+            raise APIError("APIレスポンスの解析に失敗しました。レスポンスが不正な形式である可能性があります。")
 
-    def start_batch_processing(self, input_file_id):
+
+    def start_batch_processing(self, input_file_id: str) -> Optional[dict]:
         """
         アップロードされたJSONLファイルを使ってバッチ処理を開始する。
 
@@ -238,14 +222,17 @@ class OpenAIApi:
             "endpoint": "/v1/chat/completions",
             "completion_window": "24h"
         }
-        response = requests.post(url, headers=headers, json=data, timeout=30)
-        if response.status_code == 200:
-            print("バッチ処理の開始")
+        try:
+            response = requests.post(url, headers=headers, json=data, timeout=30)
             return response.json()
-        else:
-            print(f"バッチ処理実行失敗 {response.status_code}")
-            print(response.text)
-            return None
+        except requests.exceptions.Timeout:
+            raise APIError("リクエストがタイムアウトしました。後でもう一度お試しください。")
+        except requests.exceptions.ConnectionError:
+            raise APIError("ネットワーク接続エラーが発生しました。インターネット接続を確認してください。")
+        except requests.exceptions.RequestException as e:
+            raise APIError(f"リクエスト中にエラーが発生しました: {str(e)}")
+        except json.JSONDecodeError:
+            raise APIError("APIレスポンスの解析に失敗しました。レスポンスが不正な形式である可能性があります。")
 
 class GoogleAI:
     def __init__(self, google_api_key, image_data, add_prompt):
@@ -342,24 +329,3 @@ class GoogleAI:
         print(f"Tags: {tags}")
         print(f"Caption: {caption}")
         return tags, caption
-
-class APIError(Exception):
-    """API呼び出し時のカスタムエラー"""
-    def __init__(self, message, error_type=None, param=None, code=None):
-        self.message = message
-        self.error_type = error_type
-        self.param = param
-        self.code = code
-        super().__init__(self.message)
-
-    def __str__(self):
-        error_details = []
-        if self.error_type:
-            error_details.append(f"タイプ: {self.error_type}")
-        if self.param:
-            error_details.append(f"パラメータ: {self.param}")
-        if self.code:
-            error_details.append(f"コード: {self.code}")
-        if error_details:
-            return f"{self.message} ({', '.join(error_details)})"
-        return self.message
