@@ -1,5 +1,6 @@
 import sys
 import locale
+from pathlib import Path
 
 # システムのデフォルトエンコーディングをUTF-8に設定
 if sys.platform.startswith('win'):
@@ -18,7 +19,7 @@ import io
 
 def setup_logger(config: Dict[str, str]) -> None:
     log_level = config['level'].upper()
-    log_file = config['file']
+    log_file = Path(config['file'])
 
     numeric_level = getattr(logging, log_level, None)
     if not isinstance(numeric_level, int):
@@ -33,7 +34,7 @@ def setup_logger(config: Dict[str, str]) -> None:
         root_logger.removeHandler(handler)
 
     # ログのフォーマット設定
-    formatter = logging.Formatter(config.get('format', '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
     # コンソールハンドラの設定
     console_handler = logging.StreamHandler(stream=sys.stderr)
@@ -45,8 +46,8 @@ def setup_logger(config: Dict[str, str]) -> None:
     # ファイルハンドラの設定
     file_handler = RotatingFileHandler(
         log_file,
-        maxBytes=config.get('max_bytes', 10*1024*1024),
-        backupCount=config.get('backup_count', 5),
+        maxBytes = 10*1024*1024,
+        backupCount = 5,
         encoding='utf-8'
     )
     file_handler.setLevel(numeric_level)
