@@ -1,6 +1,5 @@
 from pathlib import Path
 import json
-import math
 import logging
 from typing import Dict, Any, Optional
 import google.generativeai as genai
