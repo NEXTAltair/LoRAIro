@@ -1,16 +1,20 @@
-from module.config import get_config
-from typing import Dict, Any, Tuple, Optional, List
-from PIL import Image
-from abc import ABC, abstractmethod
-from module.log import setup_logger, get_logger
-from module.db import initialize_database
-from module.file_sys import FileSystemManager
-from ImageEditor import ImageProcessingManager
-from caption_tags import ImageAnalyzer
-import traceback
-from pathlib import Path
 import logging
 import gc
+from abc import ABC, abstractmethod
+from pathlib import Path
+
+from PIL import Image
+
+from module.config import get_config
+from module.db import initialize_database
+from module.file_sys import FileSystemManager
+from module.log import setup_logger, get_logger
+from ImageEditor import ImageProcessingManager
+from caption_tags import ImageAnalyzer
+
+import traceback
+from typing import Dict, Any, Tuple, Optional, List
+
 
 class MainControllBase(ABC):
     """ 画像処理のメインコントローラーの基底クラス
@@ -141,7 +145,7 @@ class BatchControll(MainControllBase):
 
     def _save_batch_request(self, batch_request: List[Dict[str, Any]]):
         batch_request_file = self.file_system_manager.save_batch_request(batch_request)
-        self.logger.info(f"バッチリクエスト保存終了: {batch_request_file}")
+        self.logger.info("バッチリクエスト保存終了: %s", batch_request_file)
         return batch_request_file
 
     def _start_batch_processing(self, batch_request_file: Path):
@@ -186,11 +190,10 @@ def start_processing(config_path: str = 'processing.toml'):
 
         # ファイルシステムマネージャーの初期化
         file_system_manager = FileSystemManager()
-        dataset_dir = Path(config['directories']['dataset'])
         output_dir = Path(config['directories']['output'])
         target_resolution = config['image_processing']['target_resolution']
         image_extensions = config['image_extensions']
-        file_system_manager.initialize(dataset_dir, output_dir, target_resolution, image_extensions)
+        file_system_manager.initialize(output_dir, target_resolution, image_extensions)
 
         # データベースの初期化
         database_name = config['image_database']
@@ -209,7 +212,7 @@ def start_processing(config_path: str = 'processing.toml'):
         image_processing_manager.initialize(target_resolution, preferred_resolutions)
 
         # 画像アナライザーの初期化
-        image_analyzer = ImageAnalyzer(models)
+        image_analyzer = ImageAnalyzer()
         prompt = config['prompts']['main']
         additional_prompt = config['prompts']['additional']
         apikey = config['api']['openai_api_key']

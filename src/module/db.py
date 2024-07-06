@@ -292,15 +292,18 @@ class ImageRepository:
                 model_id = None
             else:
                 if 'model' not in tag:
-                    raise ValueError("モデル情報が必要です。")
+                    message = "モデル情報が必要です。"
+                    logging.error(message)
+                    raise ValueError(message)
                 model_id = self._get_model_id(tag['model'])
-                logging.error(f"model_id: {model_id}")
+                logging.error("model_id: %s", model_id)
             data.append((image_id, tag['tag'], model_id, existing))
         query = "INSERT INTO tags (image_id, tag, model_id, existing) VALUES (?, ?, ?, ?)"
         try:
             self.db_manager.executemany(query, data)
+            logging.info("save_tags: %s", image_id)
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"_save_tagsメソッド内のクエリエラー: {e}")
+            raise sqlite3.Error(f"ImageRepository._save_tags: {str(e)}")
 
     def _save_captions(self, image_id: int, captions: List[Dict[str, str]], existing: bool) -> None:
         """キャプションを保存する内部メソッド"""
@@ -316,8 +319,9 @@ class ImageRepository:
         query = "INSERT INTO captions (image_id, caption, model_id, existing) VALUES (?, ?, ?, ?)"
         try:
             self.db_manager.executemany(query, data)
+            logging.info("captions: %s", image_id)
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"_save_captionsメソッド内のクエリエラー: {e}")
+            raise sqlite3.Error(f"ImageRepository._save_captions:, {str(e)}")
 
     def _save_scores(self, image_id: int, scores: List[Dict[str, float]]) -> None:
         """スコアを保存する内部メソッド"""

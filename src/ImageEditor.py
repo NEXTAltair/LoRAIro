@@ -8,9 +8,9 @@ import cv2
 import logging
 from pathlib import Path
 import numpy as np
-from PIL import Image, ImageCms
+from PIL import Image
 from module.file_sys import FileSystemManager
-from typing import Dict, List, Tuple, Optional, Any, Literal, Type
+from typing import List, Tuple, Optional
 from scipy import ndimage
 
 class ImageProcessingManager:
@@ -22,6 +22,7 @@ class ImageProcessingManager:
         self.processing_date = None
         self.original_images_dir = None
         self.resized_images_dir = None
+        self.target_resolution = None
 
     def initialize(self, target_resolution: int, preferred_resolutions: List[Tuple[int, int]]) -> None:
         """
@@ -32,22 +33,19 @@ class ImageProcessingManager:
             config (Dict[str, Any]): 画像処理設定を含む設定辞書。
         """
         self.target_resolution = target_resolution
-        self.preferred_resolutions = preferred_resolutions
-
-
         try:
             # 画像処理の設定をセットアップ
             self.original_images_dir = self.file_system_manager.original_images_dir
             self.resized_images_dir = self.file_system_manager.resized_images_dir
 
             # ImageProcessorの初期化
-            self.image_processor = ImageProcessor(self.file_system_manager, self.target_resolution, self.preferred_resolutions)
+            self.image_processor = ImageProcessor(self.file_system_manager, target_resolution, preferred_resolutions)
 
             self.logger.info("ImageProcessingManagerが正常に初期化。")
         except Exception as e:
             message = f"ImageProcessingManagerの初期化中エラー: {e}"
             self.logger.error(message)
-            raise ValueError(message)
+            raise ValueError(message) from e
 
     def process_image(self, db_stored_original_path: Path, original_has_alpha: bool, original_mode: str) -> Optional[Image.Image]:
         """
@@ -84,7 +82,7 @@ class ImageProcessingManager:
                 return resized_img
 
         except Exception as e:
-            self.logger.error(f"画像処理中にエラーが発生しました: {e}")
+            self.logger.error("画像処理中にエラーが発生しました: %s", e)
 
 class ImageProcessor:
     def __init__(self, file_system_manager: FileSystemManager, target_resolution: int, preferred_resolutions: List[Tuple[int, int]]) -> None:
@@ -116,11 +114,11 @@ class ImageProcessor:
                 return self.normalize_color_profile(img.convert('RGB'), has_alpha, 'RGB')
             else:
                 # サポートされていないモード
-                self.logger.warning(f"サポートされていないモード: {mode}")
+                self.logger.warning("ImageProcessor.normalize_color_profile サポートされていないモード: %s", mode)
                 return img.convert('RGBA') if has_alpha else img.convert('RGB')
 
         except Exception as e:
-            self.logger.error(f"カラープロファイルの正規化中にエラー: {e}")
+            self.logger.error("ImageProcessor.normalize_color_profile :%s", e)
             raise
 
     def _find_matching_resolution(self, original_width: int, original_height: int) -> Optional[Tuple[int, int]]:
@@ -261,12 +259,12 @@ class AutoCrop:
                     rgb_image = cv2.cvtColor(np_image, cv2.COLOR_RGBA2RGB)
                     gray_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2GRAY)
                 else:
-                    self.logger.error(f"サポートされていない画像形式です。形状: {np_image.shape}")
+                    self.logger.error("AutoCrop._get_crop_area: サポートされていない画像形式: %s", np_image.shape)
                     return None
             elif len(np_image.shape) == 2:
                 gray_image = np_image
             else:
-                self.logger.error(f"サポートされていない画像形式です。形状: {np_image.shape}")
+                self.logger.error("AutoCrop._get_crop_area: サポートされていない画像形式: %s", np_image.shape)
                 return None
 
             # ノイズ除去のためのブラー処理
@@ -292,7 +290,7 @@ class AutoCrop:
 
             return None
         except Exception as e:
-            self.logger.error(f"クロップ領域の特定中にエラーが発生しました: {e}")
+            self.logger.error("AutoCrop._get_crop_area: クロップ領域の特定中: %s", e)
             return None
 
     def _auto_crop_image(self, pil_image: Image.Image) -> Image.Image:
@@ -322,5 +320,5 @@ class AutoCrop:
             else:
                 return pil_image
         except Exception as e:
-            self.logger.error(f"自動クロップ処理中にエラーが発生しました: {e}")
+            self.logger.error("自動クロップ処理中にエラーが発生しました: %s", e)
             return pil_image  # エラーが発生した場合は元の画像を返す

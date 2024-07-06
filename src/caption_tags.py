@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 from typing import Dict, List, Tuple, Any, Optional
-from PIL import Image
 import logging
 from module.api_utils import OpenAIApi, APIError
 from module.cleanup_txt import clean_format, clean_tags, clean_caption
@@ -14,7 +13,7 @@ class ImageAnalyzer:
     画像分析タスクを実行します。OpenAI APIを使用して画像分析を行います。
     """
 
-    def __init__(self, models: List[Dict[str, str]]):
+    def __init__(self):
         """
         ImageAnalyzerクラスのコンストラクタ。
 
@@ -22,6 +21,9 @@ class ImageAnalyzer:
             config (Dict): アプリケーションの設定情報を含む辞書
         """
         self.logger = logging.getLogger(__name__)
+        self.models = None
+        self.vision_model = None
+        self.score_models = None
         self.api_client = None
         self.batch_payloads = []
 
@@ -66,7 +68,7 @@ class ImageAnalyzer:
         try:
             self.api_client = self._initialize_openai_api(prompt, additional_prompt, apikey, model)
         except Exception as e:
-            self.logger.error(f"OpenAI APIクライアントの初期化中にエラーが発生しました: {str(e)}")
+            self.logger.error("OpenAI APIクライアントの初期化中にエラーが発生しました: %s", str(e))
             raise
 
     def get_existing_annotations(self, image_path: Path) -> Optional[Dict[str, List[Dict[str, str]]]]:
@@ -173,7 +175,7 @@ class ImageAnalyzer:
         """
         try:
             self.api_client.set_image_data(image_path)
-            headers, payload = self.api_client.generate_payload()
+            headers, payload = self.api_client.generate_payload(image_path, batch_jsonl_flag=False)
             response = self.api_client.analyze_single_image(payload, headers)
             analysis_result = self._process_response(response, image_path)
             return analysis_result
@@ -263,11 +265,11 @@ class ImageAnalyzer:
                             batch_data[custom_id] = content
         return batch_data
 
-    def get_batch_analysis(self, batch_data: dict[str, str], processed_path: Path) -> dict:
+    def get_batch_analysis(self, response_list: List[dict[str, str]], processed_path: Path) -> dict:
         """
 
         Args:
-            batch_data (dict): バッチ処理結果のデータ
+            response_list (List): バッチ処理結果のJSONLの中身をバラしたリスト
             processed_path (Path): 処理後の画像のパス
 
         Returns:
@@ -275,7 +277,7 @@ class ImageAnalyzer:
         """
         # processed_pathから custom_id を取得
         custom_id = processed_path.stem
-        for batch_data in batch_data:
+        for batch_data in response_list:
             if custom_id in batch_data['custom_id']:
                 content = batch_data['response']['body']['choices'][0]['message']['content']
                 return self._process_response(processed_path, content)
@@ -288,7 +290,7 @@ if __name__ == "__main__":
     config = toml.load('processing.toml')
     image_path = Path(r'testimg\1_img\file02.png')
     Ia = ImageAnalyzer()
-    Ia.initialize(config['prompts']['main'], config['prompts']['additional'], config['api']['openai_api_key'], config['api']['openai_model'])
+    Ia.initialize(config['prompts']['main'], config['prompts']['additional'], config['api']['openai_api_key'], config['api']['openai_model'], config['models'])
     result = Ia.analyze_image(image_path)
     print(f"キャプション: {result['caption']}")
     print(f"タグ: {result['tags']}")
