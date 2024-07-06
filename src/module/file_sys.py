@@ -11,7 +11,13 @@ class FileSystemManager:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.initialized = False
-
+        self.image_extensions = None
+        self.image_dataset_dir = None
+        self.resolution_dir = None
+        self.original_images_dir = None
+        self.resized_images_dir = None
+        self.batch_request_dir = None
+        
     def __enter__(self):
         if not self.initialized:
             raise RuntimeError("FileSystemManagerが初期化されていません。")
@@ -23,37 +29,34 @@ class FileSystemManager:
             self.logger.error("FileSystemManager使用中にエラーが発生: %s",exc_val)
         return False  # 例外を伝播させる
 
-    def initialize(self, dataset_dir: Path, output_dir: Path, target_resolution: int, image_extensions: List[str]):
+    def initialize(self, output_dir: Path, target_resolution: int, image_extensions: List[str]):
         """
         FileSystemManagerを初期化｡
 
         Args:
-            dataset_dir (Path): データセットディレクトリのパス
             output_dir (Path): 出力ディレクトリのパス
             target_resolution (int): 学習元モデルのベース解像度
             image_extensions (List[str]): 画像ファイル拡張子
         """
         self.image_extensions = image_extensions
-        self.dataset_dir = dataset_dir
-        self.output_dir  = output_dir
         # 画像出力ディレクトリをセットアップ
-        self.image_dataset_dir = self.output_dir / 'image_dataset'
-        self.original_dir = self.image_dataset_dir / 'original_images'
+        self.image_dataset_dir = output_dir / 'image_dataset'
+        original_dir = self.image_dataset_dir / 'original_images'
         self.resolution_dir = self.image_dataset_dir  / str(target_resolution)
 
         # 日付ベースのサブディレクトリ
         current_date = datetime.now().strftime("%Y/%m/%d")
-        self.original_images_dir = self.original_dir / current_date
+        self.original_images_dir = original_dir / current_date
         self.resized_images_dir = self.resolution_dir / current_date
 
         # batch Request jsonl ファイルの保存先
-        self.batch_request_dir = self.output_dir / 'batch_request_jsonl'
+        self.batch_request_dir = output_dir / 'batch_request_jsonl'
 
 
         # 必要なすべてのディレクトリを作成
         directories_to_create = [
-            self.output_dir,
-            self.image_dataset_dir, self.original_dir, self.resolution_dir,
+            output_dir,
+            self.image_dataset_dir, original_dir, self.resolution_dir,
             self.original_images_dir, self.resized_images_dir,self.batch_request_dir
         ]
         for dir_path in directories_to_create:
@@ -72,9 +75,9 @@ class FileSystemManager:
         path = Path(path)
         try:
             path.mkdir(parents=True, exist_ok=True)
-            self.logger.debug (f"ディレクトリを作成: {path}")
+            self.logger.debug ("ディレクトリを作成: %s", path)
         except Exception as e:
-            self.logger.error(f"ディレクトリの作成に失敗: {path}. エラー: {str(e)}")
+            self.logger.error("ディレクトリの作成に失敗: %s. FileSystemManager._create_directory: %s", path, str(e))
             raise
 
     def get_db_path(self, database_name: str) -> Path:
@@ -106,7 +109,7 @@ class FileSystemManager:
         try:
             with Image.open(image_path) as img:
                 width, height = img.size
-                format = img.format.lower() if img.format else 'unknown'
+                format_value = img.format.lower() if img.format else 'unknown'
                 mode = img.mode
 
                 # アルファチャンネル画像情報 BOOL
@@ -115,15 +118,16 @@ class FileSystemManager:
                 return {
                     'width': width,
                     'height': height,
-                    'format': format,
+                    'format': format_value,
                     'mode': mode,
                     'has_alpha': has_alpha,
                     'filename': image_path.name,
                     'extension': image_path.suffix,
                 }
         except Exception as e:
-            self.logger.error(f"画像情報の取得失敗: {image_path}. エラー: {str(e)}")
-            raise ValueError(f"画像情報の取得失敗: {image_path}. エラー: {str(e)}")
+            message = f"画像情報の取得失敗: {image_path}. FileSystemManager.get_image_info: {str(e)}"
+            self.logger.error(message)
+            raise
 
     def _get_next_sequence_number(self, save_dir: str | Path ) -> int:
         """
@@ -141,7 +145,7 @@ class FileSystemManager:
             files = list(Path(save_dir).glob(f'{Path(save_dir).name}_*.webp'))
             return len(files)
         except Exception as e:
-            self.logger.error(f"シーケンス番号の取得に失敗: {save_dir}. エラー: {str(e)}")
+            self.logger.error("シーケンス番号の取得に失敗: %s. FileSystemManager._get_next_sequence_number: %s", save_dir, str(e))
             raise
 
     def save_processed_image(self, image: Image.Image, original_path: Path) -> Path:
@@ -165,7 +169,7 @@ class FileSystemManager:
             output_path = parent_dir /new_filename
 
             image.save(output_path)
-            self.logger.info(f"処理済み画像を保存: {output_path}")
+            self.logger.info("処理済み画像を保存: %s", output_path)
             return output_path
         except Exception as e:
             self.logger.error("処理済み画像の保存に失敗: %s. FileSystemManager.save_original_image: %s", new_filename, str(e))
@@ -224,7 +228,7 @@ class FileSystemManager:
             json.dump(data, f)
             f.write('\n')
 
-    def split_jsonl(jsonl_path: Path, jsonl_size: int, json_maxsize: int) -> None:
+    def split_jsonl(self, jsonl_path: Path, jsonl_size: int, json_maxsize: int) -> None:
         """
         JSONLが96MB[OpenAIの制限]を超えないようにするために分割して保存する
         保存先はjsonl_pathのサブフォルダに保存される
@@ -241,8 +245,8 @@ class FileSystemManager:
         lines_per_file = math.ceil(len(lines) / split_size)  # 各ファイルに必要な行数
         split_dir = jsonl_path / "split"
         split_dir.mkdir(parents=True, exist_ok=True)
-        split_path = split_dir / split_filename
         for i in range(split_size):
             split_filename = f'instructions_{i}.jsonl'
+            split_path = split_dir / split_filename
             with open(split_path, 'w', encoding='utf-8') as f:
                 f.writelines(lines[i * lines_per_file:(i + 1) * lines_per_file])
