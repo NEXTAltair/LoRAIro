@@ -2,7 +2,8 @@
 ## original code is distributed in Apache License 2.0.
 import re
 import sqlite3
-from typing import List
+from typing import List, Tuple
+from pathlib import Path
 
 # 正規表現パターンの定義
 PATTERN_HAIR_LENGTH = re.compile(r'(long|short|medium) hair')
@@ -42,8 +43,8 @@ def clean_format(text : str) -> str:
     text = re.sub(r'\.\s*$', ', ', text) # ピリオドをカンマに変換
     text = re.sub(r'\.\s*(?=\S)', ', ', text)  # ピリオド後にスペースがあればカンマとスペースに置換し、新しい単語が続く場合はその前にスペースを追加
     text = re.sub(r'\.\n', ', ', text)  # 改行直前のピリオドをカンマに変換
-    text = re.sub(r'\\n+', ', ', text) # 改行をカンマに変換
-    text = re.sub(r'\\u2014', ' ', text) # エムダッシュをスペースに変換
+    text = re.sub(r'\n', ', ', text) # 改行をカンマに変換
+    text = re.sub(r'\u2014', '-', text) # エムダッシュをハイフンに変換
     text = re.sub(r'\(', r"\(", text)  # '(' を '\(' にエスケープ
     text = re.sub(r'\)', r"\)", text)  # ')' を '\)' にエスケープ
     text = clean_repetition(text) # 重複した記号を削除
@@ -161,15 +162,15 @@ def tags_to_dict(tags : str) -> dict:
             tags_dict[i] = tag
     return tags_dict
 
-def clean_tags(tags : str) -> str:
+def clean_tags(tags: str, format_id: int = 2) -> str:
     """タグをクリーニングする
     Args:
         tags (str): クリーニングするタグ
+        format_id (int): タグの形式ID デフォルトでe621
     Returns:
         final_tags (str): クリーニング後のタグ
     """
-    canonical_tags = cleanup_tag_sql('tags.db', tags) # .dbを参照してタグを正規のタグ名に変換する
-    tags_dict = tags_to_dict(canonical_tags) # タグを辞書に変換する
+    tags_dict = tags_to_dict(tags) # タグを辞書に変換する
 
     # 複数の人物がいる場合は髪色等のタグを削除する
     if 'girls' in tags or 'boys' in tags:
@@ -179,45 +180,53 @@ def clean_tags(tags : str) -> str:
     tags_dict = clean_Style(tags_dict) # anime styleとanime artみたい重複タグをanimeに統一する
 
     # クリーニングされたタグをカンマで再結合してstrに戻す
-    final_tags = ", ".join(tag for _, tag in tags_dict.items() if tag and tag != "***")
+    tags = ", ".join(tag for _, tag in tags_dict.items() if tag and tag != "***")
+    project_root = Path(__file__).resolve().parents[2] 
+    db_path = project_root / "tsgs_v3.db" # .dbファイルのパス
+    final_tags = cleanup_tag_sql(db_path, tags, format_id) # .dbを参照してタグを正規のタグ名に変換する
     return final_tags
 
-def cleanup_tag_sql(db_path : str, tags : str) -> str:
+def cleanup_tag_sql(db_path : Path, tags: str, format_id: int) -> str:
     """.dbファイルでタグをクリーニングする
     Args:
-        db_path (str): 参照する.dbファイルのパス
+        db_path (Path): 参照する.dbファイルのパス
         tags (str): クリーニングするタグ
+        format_id (int): タグの形式ID
     Returns:
         cleaned_tags (str): クリーニング後のタグ
     """
-    #タグを分割してtupleにする
-    tags_tuple = tags.split(", ")
-    # SQLite DBに接続する
+    tags_list = tags.split(", ")
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    # 結果を格納するリスト
     cleaned_tags_list = []
-    # クリーンナップ前のタグを対応する正規のタグ名に置き換えるクエリ tags.type = '0'で一般タグに限定
+
     query = """
-    SELECT name
-    FROM tags
-    WHERE aliases = ? AND type = '0'
+    SELECT 
+        CASE 
+            WHEN TS.alias = 1 THEN PT.tag
+            ELSE T.tag
+        END AS cleaned_tag
+    FROM TAGS T
+    JOIN TAG_STATUS TS ON T.tag_id = TS.tag_id
+    LEFT JOIN TAGS PT ON TS.preferred_tag_id = PT.tag_id
+    WHERE T.tag = ? AND TS.format_id = ?
     """
-    for tag_to_cleanup in tags_tuple:
-        cursor.execute(query, (tag_to_cleanup,))
-        results = cursor.fetchall()
-        # 結果があれば、正規のタグ名を返す。なければ元のタグを返す
-        if results:
-            #fetchallはタプルのリストを返すので、リスト内包表記でタプルの要素を取り出す
-            names = [result[0] for result in results]
-            print("置換前", tag_to_cleanup)
-            print("置換後", names)
-            cleaned_tags_list.append(','.join(names))
+
+    for tag_to_cleanup in tags_list:
+        cursor.execute(query, (tag_to_cleanup, format_id))
+        result = cursor.fetchone()
+        
+        if result and result[0] != tag_to_cleanup:
+            cleaned_tag = result[0]
+            print(f"置換前: {tag_to_cleanup}")
+            print(f"置換後: {cleaned_tag}")
+            cleaned_tags_list.append(cleaned_tag)
         else:
+            print(f"タグ '{tag_to_cleanup}' は変更されませんでした")
             cleaned_tags_list.append(tag_to_cleanup)
+
     conn.close()
-    cleaned_tags = ','.join(cleaned_tags_list)
-    return cleaned_tags
+    return ", ".join(cleaned_tags_list)
 
 CAPTION_REPLACEMENTS = [
     ('anime anime', 'anime'),
@@ -263,6 +272,6 @@ def clean_caption(caption):
     return caption
 
 if __name__ == '__main__':
-    tag_to_cleanup = "1girls,3boys,black neckerchief,black pants,blue hair,blue panties,breasts,clothed sex,clothes lift,cum,cum in pussy,cum inside,cum on body,female,female only,gangbang,group,group sex,hand to own mouth,handjob,large breasts,light skin,light-skinned female,male,male masturbation,masturbation,motion lines,multiple boys,naughty face,neckerchief,nipples,open pants,panties,panties around one leg,pants,penis,phone,pink eyes,public indecency,public nudity,sailor collar,school uniform,serafuku,sex,shirt,shirt lift,short hair,side-tie panties,skirt,smile,standing,standing sex,straight,surrounded by penises,train interior,underwear,vaginal penetration,white sailor collar,white serafuku,white shirt,akino komichi,original,bar censor,censored,hi res"
+    tag_to_cleanup = "2girls, ponytail, braid, braid, red hair, blue eyes, long hair, ,"
     tags = clean_tags(tag_to_cleanup)
     print(f'Cleaned tag: {tags}')
