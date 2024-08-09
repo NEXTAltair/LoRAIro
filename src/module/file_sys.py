@@ -81,7 +81,7 @@ class FileSystemManager:
             raise
 
     def get_db_path(self, database_name: str) -> Path:
-        return self.image_dataset_dir / database_name
+        return self.image_dataset_dir / database_name # type: ignore
 
     def get_image_files(self, input_dir: Path) -> List[Path]:
         """
@@ -90,7 +90,7 @@ class FileSystemManager:
         Returns:
             List[Path]: 画像ファイルのパスのリスト
         """
-        return [f for f in input_dir.rglob('**/*') if f.suffix.lower() in self.image_extensions]
+        return [f for f in input_dir.rglob('**/*') if f.suffix.lower() in self.image_extensions] # type: ignore
 
     def get_image_info(self, image_path: Path) -> Dict[str, Any]:
         """
@@ -161,7 +161,7 @@ class FileSystemManager:
         """
         try:
             parent_name = original_path.parent.name
-            parent_dir = self.resized_images_dir / parent_name
+            parent_dir = self.resized_images_dir / parent_name # type: ignore
             self._create_directory(parent_dir)
 
             sequence = self._get_next_sequence_number(parent_dir)
@@ -188,7 +188,7 @@ class FileSystemManager:
         try:
             # 保存先のディレクトリパスを生成
             parent_name = image_file.parent.name
-            save_dir = self.original_images_dir / parent_name
+            save_dir = self.original_images_dir / parent_name # type: ignore
             self._create_directory(save_dir)
             # 新しいファイル名を生成（元のファイル名を保持）
             new_filename = image_file.name
@@ -214,7 +214,7 @@ class FileSystemManager:
         Returns:
             Path: 作成されたJSONLファイルのパス
         """
-        batch_request = self.batch_request_dir / 'batch_request.jsonl'
+        batch_request = self.batch_request_dir / 'batch_request.jsonl' # type: ignore
         return batch_request
 
     def save_batch_request(self, file_path: Path, data: Dict[str, Any]):

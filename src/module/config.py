@@ -68,7 +68,7 @@ def deep_update(d: Dict[str, Any], u: Dict[str, Any]) -> Dict[str, Any]:
             d[k] = v
     return d
 
-def get_config(config_file: str = 'processing.toml') -> Dict:
+def get_config(config_file = 'processing.toml') -> Dict:
     final_config = deepcopy(DEFAULT_CONFIG)
     loaded_config = load_config(config_file)
     final_config = deep_update(final_config, loaded_config)

@@ -14,25 +14,21 @@ from typing import List, Tuple, Optional
 from scipy import ndimage
 
 class ImageProcessingManager:
-    def __init__(self, file_system_manager: FileSystemManager):
-        self.file_system_manager = file_system_manager
-        self.logger = logging.getLogger(__name__)
-        self.config = None
-        self.image_processor = None
-        self.processing_date = None
-        self.original_images_dir = None
-        self.resized_images_dir = None
-        self.target_resolution = None
-
-    def initialize(self, target_resolution: int, preferred_resolutions: List[Tuple[int, int]]) -> None:
+    def __init__(self, file_system_manager: FileSystemManager, target_resolution: int,
+                 preferred_resolutions: List[Tuple[int, int]]):
         """
-        提供された設定でImageProcessingManagerを初期化
-        デフォルト値はmodule/config.pyに定義されている。
+        ImageProcessingManagerを初期化
+        デフォルト値はmodule/config.pyに定義
 
         Args:
-            config (Dict[str, Any]): 画像処理設定を含む設定辞書。
+            file_system_manager (FileSystemManager): ファイルシステムマネージャ
+            target_resolution (int): 目標解像度
+            preferred_resolutions (List[Tuple[int, int]]): 優先解像度リスト
         """
+        self.file_system_manager = file_system_manager
+        self.logger = logging.getLogger(__name__)
         self.target_resolution = target_resolution
+
         try:
             # 画像処理の設定をセットアップ
             self.original_images_dir = self.file_system_manager.original_images_dir
@@ -242,6 +238,8 @@ class AutoCrop:
 
         # 最終判定（上下両方、または左右両方にレターボックス/ピラーボックスがある場合のみ真）
         has_letterbox = (is_letterbox_top and is_letterbox_bottom) or (is_pillarbox_left and is_pillarbox_right)
+        has_letterbox = bool(has_letterbox)
+        is_gradient = bool(is_gradient)
         return has_letterbox and not is_gradient
 
     def _get_crop_area(self, np_image: np.ndarray) -> Optional[Tuple[int, int, int, int]]:

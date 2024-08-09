@@ -1,2 +1,13 @@
 Pillow
+opencv-python
+torch
+transformers
+clip
+numpy
+scipy
+toml
+google-generativea
+anthropic
+pandas
+ipywidgets
 pytest

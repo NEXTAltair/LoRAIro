@@ -1,52 +1,159 @@
+import traceback
 from pathlib import Path
 import json
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Tuple, List, Any, Optional
+from abc import ABC, abstractmethod
 import google.generativeai as genai
+import anthropic
 import requests
 import base64
 import time
 
 class APIError(Exception):
-    """API呼び出し時のカスタムエラー"""
-    def __init__(self, message, error_type=None, param=None, code=None):
-        self.message = message
-        self.error_type = error_type
-        self.param = param
-        self.code = code
-        super().__init__(self.message)
+    def __init__(self, message: str, api_provider: str = "", error_code: str = "", 
+                 status_code: int = 0, response: Optional[requests.Response] = None):
+        super().__init__(message)
+        self.api_provider = api_provider
+        self.error_code = error_code
+        self.status_code = status_code
+        self.response = response
 
     def __str__(self):
-        error_details = []
-        if self.error_type:
-            error_details.append(f"タイプ: {self.error_type}")
-        if self.param:
-            error_details.append(f"パラメータ: {self.param}")
-        if self.code:
-            error_details.append(f"コード: {self.code}")
-        if error_details:
-            return f"{self.message} ({', '.join(error_details)})"
-        return self.message
-class OpenAIApi:
-    SUPPORTED_VISION_MODELS = ["gpt-4-turbo", "gpt-4o"]
-    def __init__(self, api_key, model, prompt, image_data=None):
-        self.logger = logging.getLogger(__name__)
-        self.openai_api_key = api_key
-        self.model = model
-        self.model_name_check()
-        self.prompt = prompt
-        self.image_data = image_data
-        self.last_request_time = 0
-        self.min_request_interval = 1  # 1秒間隔でリクエストを制
+        parts = [f"{self.api_provider} API Error: {self.args[0]}"]
+        if self.error_code:
+            parts.append(f"Code: {self.error_code}")
+        if self.status_code:
+            parts.append(f"Status: {self.status_code}")
+        return " | ".join(parts)
 
-    def model_name_check(self):
-        """モデルがVision対応か確認"""
-        if self.model not in self.SUPPORTED_VISION_MODELS:
-            raise ValueError(f"そのModelには非対応: {self.model}. Supported models: {', '.join(self.SUPPORTED_VISION_MODELS)}")
+    @classmethod
+    def check_response(cls, response: requests.Response, api_provider: str):
+        if response.status_code == 200:
+            return
+
+        error_mapping = {
+            400: "リクエストの形式または内容に問題がありました",
+            401: "APIキー認証エラー",
+            403: "API キーには指定されたリソースを使用する権限がありません",
+            404: "要求されたリソースが見つかりません",
+            413: "リクエストが最大許容バイト数を超えています",
+            429: "リクエスト制限に達しました",
+            500: "サーバーエラーが発生しました",
+            503: "サービスは一時的に利用できません"
+        }
+
+        try:
+            error_data = response.json().get('error', {})
+        except ValueError:
+            error_data = {}
+
+        error_message = error_mapping.get(response.status_code, "予期しないエラーが発生しました")
+        error_code = error_data.get('code', '')
+        detailed_message = error_data.get('message', error_message)
+
+        raise cls(
+            message=f"{error_message}: {detailed_message}",
+            api_provider=api_provider,
+            error_code=error_code,
+            status_code=response.status_code,
+            response=response
+        )
+
+    def retry_after(self) -> Optional[int]:
+        if self.status_code == 429 and self.response is not None:
+            return int(self.response.headers.get('Retry-After', 0))
+        return None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "message": str(self.args[0]),
+            "api_provider": self.api_provider,
+            "error_code": self.error_code,
+            "status_code": self.status_code
+        }
+
+class APIInterface(ABC):
+    @abstractmethod
+    def generate_caption(self, image_path: Path) -> str:
+        """画像のキャプションとタグを生成。
+
+        Args:
+            image_path (Path): 画像のパス。
+
+        Returns:
+            str: 生成されたタグとキャプション。
+        """
+        pass
+
+    @abstractmethod
+    def start_batch_processing(self, image_paths: List[Path], options: Optional[Dict[str, Any]] = None) -> str:
+        """バッチ処理を開始
+
+        Args:
+            image_paths (List[Path]): 画像のパスリスト。
+            options (Optional[Dict[str, Any]]): API固有のオプション (例: Gemini の `gcs_output_uri`)。
+
+        Returns:
+            str: バッチ処理のIDやステータスなどを表す文字列。
+        """
+        pass
+
+    @abstractmethod
+    def get_batch_results(self, batch_result: Any) -> List[Dict[str, Any]]:
+        """バッチ処理の結果を取得します。
+
+        Args:
+            batch_result (Any): start_batch_processing メソッドから返されたバッチ処理結果オブジェクト。
+
+        Returns:
+            List[Dict[str, Any]]: 各画像の分析結果をJSON形式で格納したリスト。
+        """
+        pass
+
+    @abstractmethod
+    def set_image_data(self, image_path: Path) -> None:
+        """
+        image_dataにパスとバイナリのdictを保存する。
+
+        Args:
+            image_path (Path): 画像ファイルのパス
+
+        Raises:
+            FileNotFoundError: 指定されたパスに画像ファイルが存在しない場合
+            IOError: 画像ファイルの読み込み中にエラーが発生した場合
+        """
+        pass
+
+class BaseAPIClient(APIInterface):
+    """全ての API クライアントに共通する処理を実装したベースクラス。"""
+    def __init__(self, prompt: str, add_prompt: str):
+        self.prompt = prompt
+        self.add_prompt = add_prompt
+        self.image_data: Dict[str, bytes] = {}  # image_data を空の辞書で初期化:
+        self.logger = logging.getLogger(__name__)
+        self.last_request_time = 0
+        self.min_request_interval = 1.0  # 1秒間隔でリクエストを制限
+
+    def _wait_for_rate_limit(self):
+        elapsed_time = time.time() - self.last_request_time
+        if elapsed_time < self.min_request_interval:
+            time.sleep(self.min_request_interval - elapsed_time)
+
+    def _request(self, method: str, url: str, headers: Dict[str, str], data: Optional[Dict[str, Any]] = None) -> str:
+        self._wait_for_rate_limit()
+        try:
+            response = requests.request(method, url, headers=headers, json=data, timeout=60)
+            self.last_request_time = time.time()
+            APIError.check_response(response, self.__class__.__name__)
+            return response.text
+        except requests.exceptions.RequestException as e:
+            raise APIError(f"リクエスト中にエラーが発生しました: {str(e)}", self.__class__.__name__)
+
 
     def set_image_data(self, image_path: Path) -> None:
         """
-        APIクライアントに画像データを設定します。
+        画像データを読み込み、パスとバイナリデータの辞書に保存
 
         Args:
             image_path (Path): 画像ファイルのパス
@@ -56,16 +163,11 @@ class OpenAIApi:
             IOError: 画像ファイルの読み込み中にエラーが発生した場合
         """
         try:
-            if not image_path.exists():
-                raise FileNotFoundError(f"画像ファイルが見つかりません: {image_path}")
-
             with open(image_path, "rb") as image_file:
-                image_binary = base64.b64encode(image_file.read()).decode('utf-8')
-
-            self.image_data = image_binary
+                self.image_data[str(image_path)] = image_file.read()
             self.logger.debug(f"画像データを正常に設定しました: {image_path}")
-        except FileNotFoundError as e:
-            self.logger.error(f"画像ファイルが見つかりません: {e}")
+        except FileNotFoundError:
+            self.logger.error(f"画像ファイルが見つかりません: {image_path}")
             raise
         except IOError as e:
             self.logger.error(f"画像ファイルの読み込み中にエラーが発生しました: {e}")
@@ -74,29 +176,41 @@ class OpenAIApi:
             self.logger.error(f"予期せぬエラーが発生しました: {e}")
             raise
 
-    def generate_payload(self,image_path: Path, batch_jsonl_flag=False):
+class OpenAI(BaseAPIClient):
+    SUPPORTED_VISION_MODELS = ["gpt-4-turbo", "gpt-4o", "gpt-4o-mini"]
+    def __init__(self, api_key: str, prompt: str, add_prompt: str):
+        self.logger = logging.getLogger(__name__)
+        super().__init__(prompt, add_prompt)
+        self.model_name = None
+        self.openai_api_key = api_key
+
+    def _generate_payload(self, image_path: Path, model_name: str, prompt: str):
         """
         OpenAI APIに送信するペイロードを生成する。
 
         Args:
             image_path (Path): 画像ファイルのパス
-            batch_jsonl_flag (bool):
+            model_name (str): モデル名
+            prompt (str): プロンプト
 
         Returns:
-            tuple: headers（APIリクエストのヘッダー）, payload（APIに送信するペイロード）
+            dict: APIに送信するペイロード
         """
-        base64_image = self.image_data
+        if self.image_data is None:
+            raise ValueError("画像データが設定されていません。")
+
+        base64_image = base64.b64encode(self.image_data[str(image_path)]).decode('utf-8')
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.openai_api_key}"
         }
         payload = {
-            "model": self.model,
+            "model": model_name,
             "messages": [
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": self.prompt},
+                        {"type": "text", "text": prompt},
                         {"type": "image_url", "image_url": {
                             "url": f"data:image/webp;base64,{base64_image}",
                             "detail": "high"
@@ -106,18 +220,19 @@ class OpenAIApi:
             ],
             "max_tokens": 3000
         }
-
-        if batch_jsonl_flag:
-            bach_payload = {
-                "custom_id": image_path.name,
-                "method": "POST",
-                "url": "/v1/chat/completions",
-                "body": payload
-            }
-            return bach_payload
         return headers, payload
 
-    def analyze_single_image(self, payload: Dict[str, Any], headers: Dict[str, str]) -> Dict[str, Any]:
+    def _analyze_single_image(self, payload: Dict[str, Any], headers: Dict[str, str]) -> Dict[str, Any]:
+        """
+        単一画像の分析リクエストを送信
+
+        Args:
+            payload (Dict[str, Any]): APIに送信するペイロード
+            headers (Dict[str, str]): リクエストヘッダー
+
+        Returns:
+            Dict[str, Any]: APIからのレスポンス
+        """
         self._wait_for_rate_limit()
         try:
             response = requests.post(
@@ -127,7 +242,7 @@ class OpenAIApi:
                 timeout=60
             )
             self.last_request_time = time.time()
-            self.check_response(response)
+            APIError.check_response(response, self.__class__.__name__)
             return response.json()
         except requests.exceptions.Timeout:
             raise APIError("リクエストがタイムアウトしました。後でもう一度お試しください。")
@@ -138,43 +253,60 @@ class OpenAIApi:
         except json.JSONDecodeError:
             raise APIError("APIレスポンスの解析に失敗しました。レスポンスが不正な形式である可能性があります。")
 
-    def _wait_for_rate_limit(self):
-        elapsed_time = time.time() - self.last_request_time
-        if elapsed_time < self.min_request_interval:
-            time.sleep(self.min_request_interval - elapsed_time)
-
-    def check_response(self, response):
-        if response.status_code == 200:
-            return
-
-        error_data = response.json().get('error', {})
-        error_message = error_data.get('message', '不明なエラー')
-
-        if response.status_code == 400:
-            raise APIError(f"不正なリクエスト: {error_message}", error_type=error_data.get('type'), param=error_data.get('param'), code=response.status_code)
-        elif response.status_code == 401:
-            raise APIError("認証エラー: 無効なAPIキーです", code=response.status_code)
-        elif response.status_code == 403:
-            raise APIError("アクセス拒否: このリソースにアクセスする権限がありません", code=response.status_code)
-        elif response.status_code == 404:
-            raise APIError("リソースが見つかりません: 要求されたリソースが存在しません", code=response.status_code)
-        elif response.status_code == 429:
-            retry_after = int(response.headers.get('Retry-After', 60))
-            raise APIError(f"リクエスト制限に達しました: {retry_after}秒後に再試行してください", code=response.status_code)
-        elif 500 <= response.status_code < 600:
-            raise APIError(f"サーバーエラー: OpenAI側で問題が発生しました (ステータスコード: {response.status_code})", code=response.status_code)
-        else:
-            raise APIError(f"予期しないステータスコード: {response.status_code}", code=response.status_code)
-
-    def upload_jsonl_file(self, jsonl_path: Path) -> Optional[str]:
+    def generate_caption(self, image_path: Path, model_name: str) -> str:
         """
-        JSONLファイルをOpenAI APIにアップロードする。
+        画像のキャプションを生成
+
+        Args:
+            image_path (Path): キャプションを生成する画像のパス。
+            model_name (str): モデル名デフォルトは"gpt-4o"。
+            prompt (str): プロンプト
+
+        Returns:
+            str: 生成されたキャプション。
+        """
+        # プロンプトを作成
+        headers, payload = self._generate_payload(image_path, model_name, self.prompt)
+        # OpenAI APIにプロンプトを送信して応答を生成
+        response = self._analyze_single_image(payload, headers)
+        # 応答からキャプションを抽出
+        content = response['choices'][0]['message']['content']
+        return content
+
+    def create_batch_request(self, image_path: Path, model_name: str = "gpt-4o", prompt: str = "") -> Dict[str, Any]:
+        """
+        OpenAI APIに送信するバッチ処理用のペイロードを生成する。
+        OpenAI API のバッチ処理で使用する JSONL ファイルの各行に記述する JSON データを生成
+
+        Args:
+            image_path (Path): 画像ファイルのパス
+            model_name (str): モデル名, デフォルトは"gpt-4o"。
+            prompt (str): プロンプト
+
+        Returns:
+            Dict[str, Any]: バッチリクエスト用のデータ
+        """
+        if model_name not in self.SUPPORTED_VISION_MODELS:
+            raise ValueError(f"そのModelには非対応: {model_name}. Supported models: {', '.join(self.SUPPORTED_VISION_MODELS)}")
+
+        _, payload = self._generate_payload(image_path, model_name, prompt)
+        bach_payload = {
+            "custom_id": image_path.stem,
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "body": payload
+        }
+        return bach_payload
+
+    def start_batch_processing(self, jsonl_path: Path) -> str:
+        """
+        JSONLファイルをアップロードしてバッチ処理を開始する。
 
         Args:
             jsonl_path (Path): アップロードするJSONLファイルのパス
 
         Returns:
-            str: アップロードされたファイルのID
+            str: バッチ処理のID
         """
         url = "https://api.openai.com/v1/files"
         headers = {
@@ -188,9 +320,25 @@ class OpenAIApi:
         }
         try:
             response = requests.post(url, headers=headers, files=files, data=data, timeout=500)
-            self.check_response(response)
+            APIError.check_response(response, self.__class__.__name__)
             file_id = response.json().get('id')
-            return file_id
+
+            if file_id:
+                # バッチ処理を開始
+                url = "https://api.openai.com/v1/batches"
+                headers = {
+                    "Authorization": f"Bearer {self.openai_api_key}",
+                    "Content-Type": "application/json"
+                }
+                data = {
+                    "input_file_id": file_id,
+                    "endpoint": "/v1/chat/completions",
+                    "completion_window": "24h"
+                }
+                response = requests.post(url, headers=headers, json=data, timeout=30)
+                start_response = response.json()
+                self.logger.info("バッチ処理が開始されました。 ID: %s", start_response["id"])
+                return start_response['id']
         except requests.exceptions.Timeout:
             raise APIError("リクエストがタイムアウトしました。後でもう一度お試しください。")
         except requests.exceptions.ConnectionError:
@@ -199,52 +347,44 @@ class OpenAIApi:
             raise APIError(f"リクエスト中にエラーが発生しました: {str(e)}")
         except json.JSONDecodeError:
             raise APIError("APIレスポンスの解析に失敗しました。レスポンスが不正な形式である可能性があります。")
+        return ''
 
-
-    def start_batch_processing(self, input_file_id: str) -> Optional[dict]:
+    def get_batch_results(self, batch_result_dir: Path) -> Dict[str, str]:
         """
-        アップロードされたJSONLファイルを使ってバッチ処理を開始する。
+        OpenAI API のバッチ処理結果を読み込み、解析します。
 
         Args:
-            input_file_id (str): アップロードされたファイルのID
+            batch_result_dir (Path): バッチ結果ファイルが格納されているディレクトリのパス。
 
         Returns:
-            dict: APIからのレスポンス
+            Dict[str, str]: 画像パスをキー、分析結果を値とする辞書。
         """
-        url = "https://api.openai.com/v1/batches"
-        headers = {
-            "Authorization": f"Bearer {self.openai_api_key}",
-            "Content-Type": "application/json"
-        }
-        data = {
-            "input_file_id": input_file_id,
-            "endpoint": "/v1/chat/completions",
-            "completion_window": "24h"
-        }
-        try:
-            response = requests.post(url, headers=headers, json=data, timeout=30)
-            return response.json()
-        except requests.exceptions.Timeout:
-            raise APIError("リクエストがタイムアウトしました。後でもう一度お試しください。")
-        except requests.exceptions.ConnectionError:
-            raise APIError("ネットワーク接続エラーが発生しました。インターネット接続を確認してください。")
-        except requests.exceptions.RequestException as e:
-            raise APIError(f"リクエスト中にエラーが発生しました: {str(e)}")
-        except json.JSONDecodeError:
-            raise APIError("APIレスポンスの解析に失敗しました。レスポンスが不正な形式である可能性があります。")
+        results = {}
+        for jsonl_file in batch_result_dir.glob('*.jsonl'):
+            with open(jsonl_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    data = json.loads(line)
+                    if 'custom_id' in data and 'response' in data and 'body' in data['response']:
+                        custom_id = data['custom_id']
+                        content = data['response']['body']['choices'][0]['message']['content']
+                        results[custom_id] = content
+        return results
 
-class GoogleAI:
-    def __init__(self, google_api_key, image_data, add_prompt):
+class Google(BaseAPIClient):
+    SUPPORTED_VISION_MODELS = ["gemini-1.5-pro-exp-0801", "gemini-1.5-pro-preview-0409", "gemini-1.0-pro-vision"]
+    def __init__(self, api_key: str, prompt: str, add_prompt: str):
         """
         Google AI Studioとのインターフェースを作成
 
         Args:
-            google_api_key (str): Google AI StudioのAPIキー。
+            api_key (str): Google AI StudioのAPIキー。
         """
-        self.image_data = image_data
-        self.add_prompt = add_prompt
+        self.logger = logging.getLogger(__name__)
+        super().__init__(prompt, add_prompt)
+        self.google_api_key = api_key
+        self.model_name = None
         # Set up the model
-        generation_config = {
+        generation_config: dict = {
         "temperature": 1,
         "top_p": 0.95,
         "top_k": 64,
@@ -257,14 +397,31 @@ class GoogleAI:
             {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
             {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
         ]
-        genai.configure(api_key=google_api_key)
+        genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel(
             model_name="gemini-1.5-pro-latest",
-            generation_config=generation_config,
+            generation_config=generation_config, # type: ignore
             safety_settings=safety_settings
         )
 
-    def generate_prompt_parts(self, image_path):
+    def generate_caption(self, image_path: Path, prompt: str, add_prompt: str) -> str:
+        """
+        画像のキャプションを生成
+
+        Args:
+            image_path (Path): キャプションを生成する画像のパス。
+            prompt (str): プロンプト
+            add_prompt (str): 追加のプロンプト
+
+        Returns:
+            str: 生成されたキャプション。
+        """
+        prompt_parts = self.generate_prompt_parts(image_path, self.prompt, self.add_prompt)
+        response = self.model.generate_content(prompt_parts)
+        response_str =response.text
+        return response_str
+
+    def generate_prompt_parts(self, image_path: Path, prompt: str, add_prompt: str) -> list:
         """
         Google AI Studioに送信するプロンプトを作成
 
@@ -274,10 +431,10 @@ class GoogleAI:
         Returns:
             list: プロンプトの各部分をリストで返
         """
-        image = self.image_data.data[image_path]['image']
+        image = self.image_data[str(image_path)]
 
         prompt_parts = [
-            "As an AI image tagging expert, your role is to provide accurate and specific tags for images to improve the CLIP model's performance. \nEach image should have tags that accurately capture its main subjects, setting, artistic style, composition, and technical details like image quality and camera settings. \nFor images of people, detail gender, attire, actions, pose, expressions, and any notable accessories. \nFor landscapes or objects, focus on the material, historical context, and any significant features. \nAlways use precise and specific tags—prefer \"gothic cathedral\" over \"building.\" Avoid duplicative tags. \nEach set of tags should be unique and relevant, separated only by commas, and kept within a 50-150 word count. \nAlso, provide a concise 1-2 sentence caption that captures the image's narrative or essence.",
+            f"{prompt}",
             "image/webp: ",
             "",
             "formatJSON: {\"tags\": \"Tag1, Tag2, Tag3\",  \"caption\": \"This is the caption.\"}",
@@ -296,35 +453,140 @@ class GoogleAI:
             "image/webp: ",
             f"{image}",
             "formatJSON: {\"tags\": \"Tag1, Tag2, Tag3\",\n \"caption\": \"This is the caption.\"}",
-            f"ADDITIONAL_PROMPT: {self.add_prompt}",
+            f"ADDITIONAL_PROMPT: {add_prompt}",
             "TagsANDCaption: ",
             ]
 
         return prompt_parts
 
-    def generate_caption(self, image_path):
+    def start_batch_processing(self, image_paths: List[Path], options: Optional[Dict[str, Any]] = None) -> str:
+        #
+        #  TODO: 後で実装
+        text = "Not implemented yet"
+        return text
+
+    def get_batch_results(self, batch_result: Any) -> List[Dict[str, Any]]:
+        #
+        #  TODO: 後で実装
+        text = "Not implemented yet"
+        respons = []
+        return respons
+
+class Claude(BaseAPIClient):
+    """Claude API を使用するためのクライアントクラス。"""
+    SUPPORTED_VISION_MODELS = ["claude-3-5-sonnet-20240620","claude-3-opus-20240229",
+                               "claude-3-sonnet-20240229","claude-3-haiku-20240307"]
+    def __init__(self, api_key: str, prompt: str, add_prompt: str):
+        self.logger = logging.getLogger(__name__)
+        super().__init__(prompt, add_prompt)
+        self.model_name = None
+        self.client = anthropic.Anthropic(api_key=api_key)
+
+    def generate_caption(self, image_path: Path, model_name: str = "claude-3-5-sonnet-20240620", **kwargs) -> str:
         """
-        画像のキャプションを生成
+        Claude API を使用して画像のキャプションを生成します。
 
         Args:
-            image_path (Path): キャプションを生成する画像のパス。
-            safety_settings (dict): 安全設定。
+            image_path (Path): 画像のパス。
+            model_name (str): 使用する Claude モデル名。デフォルトは "claude-3-5-sonnet-20240620"。
+            **kwargs: API 固有のオプション (現時点では使用しません)。
 
         Returns:
-            str: 生成されたキャプション。
+            str: 生成されたキャプションを含む文字列。
         """
-        # プロンプトを作成
-        prompt_parts = self.generate_prompt_parts(image_path)
-        # Google AI Studioにプロンプトを送信して応答を生成
-        response = self.model.generate_content(prompt_parts)
-        # 応答からキャプションを抽出
-        response_text = response.strip()
-        data = json.loads(response_text)
+        if self.image_data is None:
+            raise ValueError("画像データが設定されていません。")
 
-        tags = data["tags"]
-        caption = data["caption"]
+        # 画像を base64 エンコード
+        image_base64 = base64.b64encode(self.image_data[str(image_path)]).decode('utf-8')
 
-        # 出力
-        print(f"Tags: {tags}")
-        print(f"Caption: {caption}")
-        return tags, caption
+        # プロンプトと画像データを含むメッセージを作成
+        message_payload = {
+            "model": model_name,
+            "max_tokens_to_sample": 300,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/webp",  # 適切なメディアタイプを設定
+                                "data": image_base64,
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": self.prompt
+                        }
+                    ],
+                }
+            ],
+        }
+
+        # メッセージを送信
+        message = self.client.messages.create(**message_payload)
+
+        # レスポンスを整形して返す
+        return message.completion.content
+
+
+    def start_batch_processing(self, image_paths: List[Path], options: Optional[Dict[str, Any]] = None) -> str:
+        """Claude API はバッチ処理をサポートしていません。"""
+        raise NotImplementedError("Claude API はバッチ処理をサポートしていません。")
+
+    def get_batch_results(self, batch_id: str) -> List[Dict[str, Any]]:
+        """Claude API はバッチ処理をサポートしていません。"""
+        raise NotImplementedError("Claude API はバッチ処理をサポートしていません。")
+
+class APIClientFactory:
+    def __init__(self, api_keys: Dict[str, str], prompt: str, add_prompt: str):
+        """
+        API クライアントファクトリーのコンストラクタ。
+
+        Args:
+            api_keys (Dict[str, str]): APIキーを含む辞書。
+            add_prompt (Dict[str, str]): 追加のプロンプトを含む辞書。
+        """
+        self.api_clients = {}
+        self.api_keys = api_keys
+        self.prompt = prompt
+        self.add_prompt = add_prompt
+        self._initialize_api_clients()
+
+    def _initialize_api_clients(self):
+        """有効な API キーに基づいて API クライアントを生成します。"""
+        if self.api_keys.get("openai_key"):
+            self.api_clients["openai"] = OpenAI(api_key=self.api_keys["openai_key"],
+                                                prompt=self.prompt,
+                                                add_prompt=self.add_prompt)
+        if self.api_keys.get("google_key"):
+            self.api_clients["google"] = Google(api_key=self.api_keys["google_key"],
+                                                prompt=self.prompt,
+                                                add_prompt=self.add_prompt)
+        if self.api_keys.get("claude_key"):
+            self.api_clients["claude"] = Claude(api_key=self.api_keys["claude_key"],
+                                                prompt=self.prompt,
+                                                add_prompt=self.add_prompt)
+
+    def get_api_client(self, model_name: str):
+        """
+        # ... (既存のコード)
+        """
+        if model_name in OpenAI.SUPPORTED_VISION_MODELS:
+            api_client = self.api_clients.get("openai")
+            if api_client:
+                api_client.model_name = model_name  # model_name を設定
+            return api_client, "openai"
+        if model_name in Google.SUPPORTED_VISION_MODELS:
+            api_client = self.api_clients.get("google")
+            if api_client:
+                api_client.model_name = model_name  # model_name を設定
+            return api_client, "google"
+        if model_name in Claude.SUPPORTED_VISION_MODELS:
+            api_client = self.api_clients.get("claude")
+            if api_client:
+                api_client.model_name = model_name  # model_name を設定
+            return api_client, "claude"
+        raise ValueError(f"指定されたモデル名に対応する API クライアントが見つかりません: {model_name}")

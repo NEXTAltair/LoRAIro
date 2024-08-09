@@ -1,60 +1,27 @@
 import json
 from pathlib import Path
-from typing import Dict, List, Tuple, Any, Optional
+from typing import List, Dict, Any, Tuple, Optional
 import logging
-from module.api_utils import OpenAIApi, APIError
-from module.cleanup_txt import clean_format, clean_tags, clean_caption
+from module.api_utils import APIClientFactory, APIError
+from module.cleanup_txt import initialize_tag_cleaner
 
 class ImageAnalyzer:
     """
-    タグ、キャプション、スコアリングなどの画像分析タスクを実行します。
-
-    このクラスは、画像のキャプション生成、タグ生成、スコアリングなどの
-    画像分析タスクを実行します。OpenAI APIを使用して画像分析を行います。
+    画像のキャプション生成、タグ生成などの
+    画像分析タスクを実行
     """
 
-    def __init__(self):
+    def __init__(self, api_client_factory: APIClientFactory, models_config: List[Dict[str, str]]):
         """
         ImageAnalyzerクラスのコンストラクタ。
 
         Args:
-            config (Dict): アプリケーションの設定情報を含む辞書
-        """
-        self.logger = logging.getLogger(__name__)
-        self.models = None
-        self.vision_model = None
-        self.score_models = None
-        self.api_client = None
-        self.batch_payloads = []
-
-    def _initialize_openai_api(self, prompt: str, additional_prompt: str, apikey: str, model: str) -> OpenAIApi:
-        """
-        OpenAI APIクライアントを初期化します。
-
-        Returns:
-            OpenAIApi: 初期化されたAPIクライアントオブジェクト
-        """
-        if additional_prompt:
-            prompt = prompt + "\n\n" + additional_prompt
-
-        return OpenAIApi(
-            apikey,
-            model,
-            prompt,
-            image_data=None
-        )
-
-    def initialize(self, prompt: str, additional_prompt: str, apikey: str, model: str, models_config: List[Dict[str, str]]):
-        """
-        ImageAnalyzerクラスを初期化します。
-
-        Args:
-            prompt (str): APIリクエストのプロンプト
-            additional_prompt (str): 追加のAPIリクエストプロンプト
-            apikey (str): OpenAI APIキー
-            model (str): 使用するOpenAIモデル
+            api_client_factory (APIClientFactory): API名とAPIクライアントの対応辞書
             models_config (List[Dict[str, str]]): モデル設定のリスト。各辞書は'name'と'type'キーを含む。
         """
+        self.logger = logging.getLogger(__name__)
+        self.tag_cleaner = initialize_tag_cleaner()
+        self.api_client_factory = api_client_factory
         self.models = {model['name']: model['type'] for model in models_config}
         self.vision_model = next((name for name, type in self.models.items() if type == 'vision'), None)
         self.score_models = [name for name, type in self.models.items() if type == 'score']
@@ -64,12 +31,6 @@ class ImageAnalyzer:
 
         if not self.score_models:
             self.logger.warning("Score modelが設定ファイルで指定されていません。スコア計算は行われません。")
-
-        try:
-            self.api_client = self._initialize_openai_api(prompt, additional_prompt, apikey, model)
-        except Exception as e:
-            self.logger.error("OpenAI APIクライアントの初期化中にエラーが発生しました: %s", str(e))
-            raise
 
     def get_existing_annotations(self, image_path: Path) -> Optional[Dict[str, List[Dict[str, str]]]]:
         """
@@ -125,7 +86,7 @@ class ImageAnalyzer:
             List[Dict[str, str]]: アノテーションの辞書リスト
         """
         with open(file_path, 'r', encoding='utf-8') as f:
-            clean_data = clean_format(f.read())
+            clean_data = self.tag_cleaner.clean_format(f.read())
             items = clean_data.strip().split(',')
             annotations = []
             for item in items:
@@ -134,50 +95,26 @@ class ImageAnalyzer:
                     annotations.append({key: stripped_item})
             return annotations
 
-    def create_batch_request(self, processed_path: Path) -> Dict[str, Any]:
-        """単一の画像に対するバッチリクエストデータを生成します。
-
-        Args:
-            processed_path (Path): 処理済み画像のパス
-
-        Returns:
-            Dict[str, Any]: バッチリクエスト用のデータ
+    def analyze_image(self, image_path: Path, model_name: str) -> Dict[str, Any]:
         """
-        self.api_client.set_image_data(processed_path)
-        payload = self.api_client.generate_payload(processed_path, batch_jsonl_flag=True)
-        return payload
+        指定された画像を分析し、結果を返す。
 
-    def start_batch_processing(self, batch_request_dir: Path) -> List[str]:
-        """バッチファイルをアップロードして開始"""
-        # ループでjsonlを探して一つずつ処理
-        batch_id = []
-        for jsonl_file in batch_request_dir.glob('*.jsonl'):
-            # バッチリクエストをアップロード
-            file_id = self.api_client.upload_jsonl_file(jsonl_file)
-            if file_id:
-                try:
-                    # バッチ処理を開始
-                    start_response = self.api_client.start_batch_processing(file_id)
-                    self.logger.info("バッチ処理が開始されました。")
-                    batch_id.append(start_response['id'])
-                except Exception as e:
-                    self.logger.error("バッチ処理の開始中にエラーが発生しました: %s", str(e))
-                    raise
-        return batch_id
-
-    def analyze_image(self, image_path: Path) -> Dict[str, Any]:
-        """
-        指定された画像を分析し、結果を返します。
         Args:
             image_path (Path): 分析する画像のファイルパス
+            model_name (str): Vision モデル
+
         Returns:
-            Dict[str, Any]: 分析結果を含む辞書（タグ、キャプション、スコア）
+            Dict[str, Any]: 分析結果を含む辞書（タグ、キャプション）
         """
         try:
-            self.api_client.set_image_data(image_path)
-            headers, payload = self.api_client.generate_payload(image_path, batch_jsonl_flag=False)
-            response = self.api_client.analyze_single_image(payload, headers)
-            analysis_result = self._process_response(response, image_path)
+            api_client, _ = self.api_client_factory.get_api_client(model_name)
+            if not api_client:
+                raise ValueError(f"'{model_name}' に対応するAPIクライアントが見つかりません。")
+
+            # APIクライアントの generate_caption メソッドを呼び出す
+            api_client.set_image_data(image_path)
+            tags_str = api_client.generate_caption(image_path, model_name)
+            analysis_result = self._process_response(image_path, tags_str)
             return analysis_result
         except APIError as e:
             self.logger.error("API処理中にエラーが発生しました（画像: %s）: %s", image_path, str(e))
@@ -186,10 +123,18 @@ class ImageAnalyzer:
             self.logger.error("画像処理中に予期せぬエラーが発生しました（画像: %s）: %s", image_path, str(e))
             return {'error': str(e), 'image_path': str(image_path)}
 
-    def _process_response(self, image_path: Path, content: str) -> Dict[str, Any]:
-        """APIレスポンスを処理し、タグ、キャプション、抽出します。"""
+    def _process_response(self, image_path: Path, tags_str: str) -> Dict[str, Any]:
+        """APIレスポンスを処理し、タグ、キャプション、抽出。
+
+        Args:
+            image_path (Path): 画像のパス
+            tags_str (str): APIからのレスポンス
+
+        Returns:
+            Dict[str, Any]: タグ、キャプション、画像パスを含む辞書
+        """
         try:
-            content = clean_format(content)
+            content = self.tag_cleaner.clean_format(tags_str)
             tags_str, caption = self._extract_tags_and_caption(content, str(image_path))
 
             # タグを分割し、各タグをトリムして空のタグを除外
@@ -202,6 +147,24 @@ class ImageAnalyzer:
         except Exception as e:
             self.logger.error("レスポンス処理中にエラーが発生しました（画像: %s）: %s", image_path, str(e))
             raise
+
+    def create_batch_request(self, image_path: Path, model_name: str) -> Dict[str, Any]:
+        """単一の画像に対するバッチリクエストデータを生成します。
+
+        Args:
+            image_path (Path): 処理済み画像のパス
+            model_name (str): 使用するモデル名
+
+        Returns:
+            Dict[str, Any]: バッチリクエスト用のデータ
+        """
+        api_client, api_provider = self.api_client_factory.get_api_client(model_name)
+        if not api_client:
+            raise ValueError(f"APIクライアント '{api_provider}' が見つかりません。")
+
+        api_client.set_image_data(image_path)
+        api_client.generate_payload(image_path, model_name)
+        return api_client.create_batch_request(image_path)
 
     def _extract_tags_and_caption(self, content: str, image_key: str) -> Tuple[str, str]:
         """
@@ -224,7 +187,7 @@ class ImageAnalyzer:
         tags_text = content[tags_index + len('tags:'):caption_index].strip() if tags_index != -1 else ""
         caption_text = content[caption_index + len('caption:'):].strip() if caption_index != -1 else ""
 
-        return clean_tags(tags_text), clean_caption(caption_text)
+        return self.tag_cleaner.clean_tags(tags_text), self.tag_cleaner.clean_caption(caption_text)
 
     def _calculate_score(self, tags: List[str], caption: str) -> float:
         """
@@ -243,33 +206,12 @@ class ImageAnalyzer:
         caption_score = len(caption.split()) * 0.05  # キャプションの単語1つにつき0.05ポイント
         return min(tag_score + caption_score, 1.0)  # スコアの上限を1.0に設定 TODO: そのうちやる
 
-    def load_batch_data(self, batch_response_dir: Path) -> dict:
+    def get_batch_analysis(self, batch_results: Dict[str, str], processed_path: Path):
         """
-        バッチ処理されたJSONLファイルを読み込む
+        バッチ処理結果から指定された画像の分析結果を取得します。
 
         Args:
-            batch_response_dir (Path): バッチ処理結果のJSONLファイルが格納されているディレクトリ
-
-        Returns:
-            dict: custom_idをキー、分析結果を値とする辞書
-        """
-        batch_data = {}
-        if batch_response_dir.is_dir():
-            for jsonl_file in batch_response_dir.glob('*.jsonl'):
-                with open(jsonl_file, 'r') as f:
-                    for line in f:
-                        data = json.loads(line)
-                        if 'custom_id' in data and 'response' in data and 'body' in data['response']:
-                            custom_id = data['custom_id']
-                            content = data['response']['body']['choices'][0]['message']['content']
-                            batch_data[custom_id] = content
-        return batch_data
-
-    def get_batch_analysis(self, response_list: List[dict[str, str]], processed_path: Path) -> dict:
-        """
-
-        Args:
-            response_list (List): バッチ処理結果のJSONLの中身をバラしたリスト
+            batch_results (Dict[str, str]): バッチ処理結果 (画像パスをキー、分析結果を値とする辞書)
             processed_path (Path): 処理後の画像のパス
 
         Returns:
@@ -277,21 +219,24 @@ class ImageAnalyzer:
         """
         # processed_pathから custom_id を取得
         custom_id = processed_path.stem
-        for batch_data in response_list:
-            if custom_id in batch_data['custom_id']:
-                content = batch_data['response']['body']['choices'][0]['message']['content']
-                return self._process_response(processed_path, content)
-        return None
-
+        content = batch_results.get(custom_id)
+        if content:
+            return self._process_response(processed_path, content)
 
 # 画像処理のテスト
 if __name__ == "__main__":
     import toml
-    config = toml.load('processing.toml')
+    from module.api_utils import APIClientFactory
+    from module.config import get_config
+    config = get_config()
     image_path = Path(r'testimg\1_img\file02.png')
-    Ia = ImageAnalyzer()
-    Ia.initialize(config['prompts']['main'], config['prompts']['additional'], config['api']['openai_api_key'], config['api']['openai_model'], config['models'])
-    result = Ia.analyze_image(image_path)
+    prompt = config['prompts']['main']
+    add_prompt = config['prompts']['additional']
+    api_keys = config['api']
+    # API クライアントファクトリーを作成
+    acf = APIClientFactory(api_keys, prompt, add_prompt)
+    Ia = ImageAnalyzer(acf, config["models"])
+    result = Ia.analyze_image(image_path, 'gpt-4o')
     print(f"キャプション: {result['caption']}")
     print(f"タグ: {result['tags']}")
     print(f"スコア: {result['score']}")
