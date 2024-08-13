@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 ################################################################################
-## Form generated from reading UI file 'settingspage.ui'
+## Form generated from reading UI file 'SettingspageWidget.ui'
 ##
 ## Created by: Qt User Interface Compiler version 6.7.2
 ##
@@ -20,112 +20,55 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QFormLayout, QGridLayout
     QPushButton, QScrollArea, QSizePolicy, QSpacerItem,
     QVBoxLayout, QWidget)
 
-class Ui_SettingsPageWidget(object):
-    def setupUi(self, SettingsPageWidget):
-        if not SettingsPageWidget.objectName():
-            SettingsPageWidget.setObjectName(u"SettingsPageWidget")
-        SettingsPageWidget.resize(797, 930)
-        self.mainLayout = QVBoxLayout(SettingsPageWidget)
-        self.mainLayout.setObjectName(u"mainLayout")
-        self.labelSettingsTitle = QLabel(SettingsPageWidget)
-        self.labelSettingsTitle.setObjectName(u"labelSettingsTitle")
-        font = QFont()
-        font.setPointSize(14)
-        font.setBold(True)
-        self.labelSettingsTitle.setFont(font)
+from DirectoryPickerWidget import DirectoryPickerWidget
+from FilePickerWidget import FilePickerWidget
 
-        self.mainLayout.addWidget(self.labelSettingsTitle)
-
-        self.scrollAreaSettings = QScrollArea(SettingsPageWidget)
+class Ui_SettingspageWidget(object):
+    def setupUi(self, SettingspageWidget):
+        if not SettingspageWidget.objectName():
+            SettingspageWidget.setObjectName(u"SettingspageWidget")
+        SettingspageWidget.resize(705, 935)
+        self.horizontalLayout = QHBoxLayout(SettingspageWidget)
+        self.horizontalLayout.setObjectName(u"horizontalLayout")
+        self.scrollAreaSettings = QScrollArea(SettingspageWidget)
         self.scrollAreaSettings.setObjectName(u"scrollAreaSettings")
         self.scrollAreaSettings.setWidgetResizable(True)
         self.scrollAreaWidgetContents = QWidget()
         self.scrollAreaWidgetContents.setObjectName(u"scrollAreaWidgetContents")
+        self.scrollAreaWidgetContents.setGeometry(QRect(0, 0, 685, 915))
         self.layoutScrollArea = QVBoxLayout(self.scrollAreaWidgetContents)
         self.layoutScrollArea.setObjectName(u"layoutScrollArea")
         self.groupBoxFolders = QGroupBox(self.scrollAreaWidgetContents)
         self.groupBoxFolders.setObjectName(u"groupBoxFolders")
         self.layoutFolders = QVBoxLayout(self.groupBoxFolders)
         self.layoutFolders.setObjectName(u"layoutFolders")
-        self.layoutDatasetFolder = QHBoxLayout()
+        self.dataset_DirPickerWidget = DirectoryPickerWidget(self.groupBoxFolders)
+        self.dataset_DirPickerWidget.setObjectName(u"dataset_DirPickerWidget")
+        self.layoutDatasetFolder = QHBoxLayout(self.dataset_DirPickerWidget)
         self.layoutDatasetFolder.setObjectName(u"layoutDatasetFolder")
-        self.labelDatasetFolder = QLabel(self.groupBoxFolders)
-        self.labelDatasetFolder.setObjectName(u"labelDatasetFolder")
 
-        self.layoutDatasetFolder.addWidget(self.labelDatasetFolder)
+        self.layoutFolders.addWidget(self.dataset_DirPickerWidget)
 
-        self.lineEditDatasetFolder = QLineEdit(self.groupBoxFolders)
-        self.lineEditDatasetFolder.setObjectName(u"lineEditDatasetFolder")
-
-        self.layoutDatasetFolder.addWidget(self.lineEditDatasetFolder)
-
-        self.buttonBrowseDataset = QPushButton(self.groupBoxFolders)
-        self.buttonBrowseDataset.setObjectName(u"buttonBrowseDataset")
-
-        self.layoutDatasetFolder.addWidget(self.buttonBrowseDataset)
-
-
-        self.layoutFolders.addLayout(self.layoutDatasetFolder)
-
-        self.layoutOutputFolder = QHBoxLayout()
+        self.output_DirPickerWidget = DirectoryPickerWidget(self.groupBoxFolders)
+        self.output_DirPickerWidget.setObjectName(u"output_DirPickerWidget")
+        self.layoutOutputFolder = QHBoxLayout(self.output_DirPickerWidget)
         self.layoutOutputFolder.setObjectName(u"layoutOutputFolder")
-        self.labelOutputFolder = QLabel(self.groupBoxFolders)
-        self.labelOutputFolder.setObjectName(u"labelOutputFolder")
 
-        self.layoutOutputFolder.addWidget(self.labelOutputFolder)
+        self.layoutFolders.addWidget(self.output_DirPickerWidget)
 
-        self.lineEditOutputFolder = QLineEdit(self.groupBoxFolders)
-        self.lineEditOutputFolder.setObjectName(u"lineEditOutputFolder")
+        self.response_DirPickerWidget = DirectoryPickerWidget(self.groupBoxFolders)
+        self.response_DirPickerWidget.setObjectName(u"response_DirPickerWidget")
+        self._2 = QHBoxLayout(self.response_DirPickerWidget)
+        self._2.setObjectName(u"_2")
 
-        self.layoutOutputFolder.addWidget(self.lineEditOutputFolder)
+        self.layoutFolders.addWidget(self.response_DirPickerWidget)
 
-        self.buttonBrowseOutput = QPushButton(self.groupBoxFolders)
-        self.buttonBrowseOutput.setObjectName(u"buttonBrowseOutput")
-
-        self.layoutOutputFolder.addWidget(self.buttonBrowseOutput)
-
-
-        self.layoutFolders.addLayout(self.layoutOutputFolder)
-
-        self.layoutResponseFolder = QHBoxLayout()
-        self.layoutResponseFolder.setObjectName(u"layoutResponseFolder")
-        self.labelResponseFolder = QLabel(self.groupBoxFolders)
-        self.labelResponseFolder.setObjectName(u"labelResponseFolder")
-
-        self.layoutResponseFolder.addWidget(self.labelResponseFolder)
-
-        self.lineEditResponseFolder = QLineEdit(self.groupBoxFolders)
-        self.lineEditResponseFolder.setObjectName(u"lineEditResponseFolder")
-
-        self.layoutResponseFolder.addWidget(self.lineEditResponseFolder)
-
-        self.buttonBrowseResponse = QPushButton(self.groupBoxFolders)
-        self.buttonBrowseResponse.setObjectName(u"buttonBrowseResponse")
-
-        self.layoutResponseFolder.addWidget(self.buttonBrowseResponse)
-
-
-        self.layoutFolders.addLayout(self.layoutResponseFolder)
-
-        self.layoutEditedOutputFolder = QHBoxLayout()
+        self.new_output_DirPickerWidget = DirectoryPickerWidget(self.groupBoxFolders)
+        self.new_output_DirPickerWidget.setObjectName(u"new_output_DirPickerWidget")
+        self.layoutEditedOutputFolder = QHBoxLayout(self.new_output_DirPickerWidget)
         self.layoutEditedOutputFolder.setObjectName(u"layoutEditedOutputFolder")
-        self.labelEditedOutputFolder = QLabel(self.groupBoxFolders)
-        self.labelEditedOutputFolder.setObjectName(u"labelEditedOutputFolder")
 
-        self.layoutEditedOutputFolder.addWidget(self.labelEditedOutputFolder)
-
-        self.lineEditEditedOutputFolder = QLineEdit(self.groupBoxFolders)
-        self.lineEditEditedOutputFolder.setObjectName(u"lineEditEditedOutputFolder")
-
-        self.layoutEditedOutputFolder.addWidget(self.lineEditEditedOutputFolder)
-
-        self.buttonBrowseEditedOutput = QPushButton(self.groupBoxFolders)
-        self.buttonBrowseEditedOutput.setObjectName(u"buttonBrowseEditedOutput")
-
-        self.layoutEditedOutputFolder.addWidget(self.buttonBrowseEditedOutput)
-
-
-        self.layoutFolders.addLayout(self.layoutEditedOutputFolder)
+        self.layoutFolders.addWidget(self.new_output_DirPickerWidget)
 
 
         self.layoutScrollArea.addWidget(self.groupBoxFolders)
@@ -267,22 +210,12 @@ class Ui_SettingsPageWidget(object):
         self.comboBoxLogLevel = QComboBox(self.groupBoxLogging)
         self.comboBoxLogLevel.setObjectName(u"comboBoxLogLevel")
 
-        self.layoutLogging.addWidget(self.comboBoxLogLevel, 0, 1, 1, 1)
+        self.layoutLogging.addWidget(self.comboBoxLogLevel, 0, 1, 1, 1, Qt.AlignmentFlag.AlignLeft)
 
-        self.labelLogFile = QLabel(self.groupBoxLogging)
-        self.labelLogFile.setObjectName(u"labelLogFile")
+        self.log_PilePickerWidget = FilePickerWidget(self.groupBoxLogging)
+        self.log_PilePickerWidget.setObjectName(u"log_PilePickerWidget")
 
-        self.layoutLogging.addWidget(self.labelLogFile, 1, 0, 1, 1)
-
-        self.lineEditLogFile = QLineEdit(self.groupBoxLogging)
-        self.lineEditLogFile.setObjectName(u"lineEditLogFile")
-
-        self.layoutLogging.addWidget(self.lineEditLogFile, 1, 1, 1, 1)
-
-        self.buttonBrowseLogFile = QPushButton(self.groupBoxLogging)
-        self.buttonBrowseLogFile.setObjectName(u"buttonBrowseLogFile")
-
-        self.layoutLogging.addWidget(self.buttonBrowseLogFile, 1, 2, 1, 1)
+        self.layoutLogging.addWidget(self.log_PilePickerWidget, 1, 0, 1, 1)
 
 
         self.layoutScrollArea.addWidget(self.groupBoxLogging)
@@ -310,45 +243,34 @@ class Ui_SettingsPageWidget(object):
 
         self.scrollAreaSettings.setWidget(self.scrollAreaWidgetContents)
 
-        self.mainLayout.addWidget(self.scrollAreaSettings)
+        self.horizontalLayout.addWidget(self.scrollAreaSettings)
 
 
-        self.retranslateUi(SettingsPageWidget)
+        self.retranslateUi(SettingspageWidget)
 
-        QMetaObject.connectSlotsByName(SettingsPageWidget)
+        QMetaObject.connectSlotsByName(SettingspageWidget)
     # setupUi
 
-    def retranslateUi(self, SettingsPageWidget):
-        SettingsPageWidget.setWindowTitle(QCoreApplication.translate("SettingsPageWidget", u"\u8a2d\u5b9a", None))
-        self.labelSettingsTitle.setText(QCoreApplication.translate("SettingsPageWidget", u"\u8a2d\u5b9a", None))
-        self.groupBoxFolders.setTitle(QCoreApplication.translate("SettingsPageWidget", u"\u30d5\u30a9\u30eb\u30c0\u8a2d\u5b9a", None))
-        self.labelDatasetFolder.setText(QCoreApplication.translate("SettingsPageWidget", u"\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8\u30d5\u30a9\u30eb\u30c0:", None))
-        self.buttonBrowseDataset.setText(QCoreApplication.translate("SettingsPageWidget", u"\u53c2\u7167", None))
-        self.labelOutputFolder.setText(QCoreApplication.translate("SettingsPageWidget", u"\u51fa\u529b\u30d5\u30a9\u30eb\u30c0:", None))
-        self.buttonBrowseOutput.setText(QCoreApplication.translate("SettingsPageWidget", u"\u53c2\u7167", None))
-        self.labelResponseFolder.setText(QCoreApplication.translate("SettingsPageWidget", u"\u30ec\u30b9\u30dd\u30f3\u30b9\u30d5\u30a9\u30eb\u30c0:", None))
-        self.buttonBrowseResponse.setText(QCoreApplication.translate("SettingsPageWidget", u"\u53c2\u7167", None))
-        self.labelEditedOutputFolder.setText(QCoreApplication.translate("SettingsPageWidget", u"\u7de8\u96c6\u6e08\u307f\u30d5\u30a1\u30a4\u30eb\u51fa\u529b\u30d5\u30a9\u30eb\u30c0:", None))
-        self.buttonBrowseEditedOutput.setText(QCoreApplication.translate("SettingsPageWidget", u"\u53c2\u7167", None))
-        self.groupBoxAPI.setTitle(QCoreApplication.translate("SettingsPageWidget", u"API\u8a2d\u5b9a", None))
-        self.groupBoxOpenAI.setTitle(QCoreApplication.translate("SettingsPageWidget", u"OpenAI", None))
-        self.labelOpenAIApiKey.setText(QCoreApplication.translate("SettingsPageWidget", u"API\u30ad\u30fc:", None))
-        self.labelOpenAIModel.setText(QCoreApplication.translate("SettingsPageWidget", u"\u30e2\u30c7\u30eb:", None))
-        self.groupBoxGoogleVision.setTitle(QCoreApplication.translate("SettingsPageWidget", u"Google Vision API", None))
-        self.labelGoogleApiKey.setText(QCoreApplication.translate("SettingsPageWidget", u"API\u30ad\u30fc:", None))
-        self.labelGoogleApiModel.setText(QCoreApplication.translate("SettingsPageWidget", u"\u30e2\u30c7\u30eb:", None))
-        self.groupBoxAnthropic.setTitle(QCoreApplication.translate("SettingsPageWidget", u"Anthropic", None))
-        self.labelAnthropicApiKey.setText(QCoreApplication.translate("SettingsPageWidget", u"API\u30ad\u30fc:", None))
-        self.labelAnthropicApiModel.setText(QCoreApplication.translate("SettingsPageWidget", u"\u30e2\u30c7\u30eb:", None))
-        self.groupBoxHuggingFace.setTitle(QCoreApplication.translate("SettingsPageWidget", u"Hugging Face", None))
-        self.labelHuggingFaceUsername.setText(QCoreApplication.translate("SettingsPageWidget", u"\u30e6\u30fc\u30b6\u30fc\u540d:", None))
-        self.labelHuggingFaceRepoName.setText(QCoreApplication.translate("SettingsPageWidget", u"\u30ea\u30dd\u30b8\u30c8\u30ea\u540d:", None))
-        self.labelHuggingFaceToken.setText(QCoreApplication.translate("SettingsPageWidget", u"\u30c8\u30fc\u30af\u30f3:", None))
-        self.groupBoxLogging.setTitle(QCoreApplication.translate("SettingsPageWidget", u"\u30ed\u30b0\u8a2d\u5b9a", None))
-        self.labelLogLevel.setText(QCoreApplication.translate("SettingsPageWidget", u"\u30ed\u30b0\u30ec\u30d9\u30eb:", None))
-        self.labelLogFile.setText(QCoreApplication.translate("SettingsPageWidget", u"\u30ed\u30b0\u30d5\u30a1\u30a4\u30eb:", None))
-        self.buttonBrowseLogFile.setText(QCoreApplication.translate("SettingsPageWidget", u"\u53c2\u7167", None))
-        self.buttonSave.setText(QCoreApplication.translate("SettingsPageWidget", u"\u4fdd\u5b58", None))
-        self.buttonSaveAs.setText(QCoreApplication.translate("SettingsPageWidget", u"\u540d\u524d\u3092\u4ed8\u3051\u3066\u4fdd\u5b58", None))
+    def retranslateUi(self, SettingspageWidget):
+        SettingspageWidget.setWindowTitle(QCoreApplication.translate("SettingspageWidget", u"Form", None))
+        self.groupBoxFolders.setTitle(QCoreApplication.translate("SettingspageWidget", u"\u30d5\u30a9\u30eb\u30c0\u8a2d\u5b9a", None))
+        self.groupBoxAPI.setTitle(QCoreApplication.translate("SettingspageWidget", u"API\u8a2d\u5b9a", None))
+        self.groupBoxOpenAI.setTitle(QCoreApplication.translate("SettingspageWidget", u"OpenAI", None))
+        self.labelOpenAIApiKey.setText(QCoreApplication.translate("SettingspageWidget", u"API\u30ad\u30fc:", None))
+        self.labelOpenAIModel.setText(QCoreApplication.translate("SettingspageWidget", u"\u30e2\u30c7\u30eb:", None))
+        self.groupBoxGoogleVision.setTitle(QCoreApplication.translate("SettingspageWidget", u"Google Vision API", None))
+        self.labelGoogleApiKey.setText(QCoreApplication.translate("SettingspageWidget", u"API\u30ad\u30fc:", None))
+        self.labelGoogleApiModel.setText(QCoreApplication.translate("SettingspageWidget", u"\u30e2\u30c7\u30eb:", None))
+        self.groupBoxAnthropic.setTitle(QCoreApplication.translate("SettingspageWidget", u"Anthropic", None))
+        self.labelAnthropicApiKey.setText(QCoreApplication.translate("SettingspageWidget", u"API\u30ad\u30fc:", None))
+        self.labelAnthropicApiModel.setText(QCoreApplication.translate("SettingspageWidget", u"\u30e2\u30c7\u30eb:", None))
+        self.groupBoxHuggingFace.setTitle(QCoreApplication.translate("SettingspageWidget", u"Hugging Face", None))
+        self.labelHuggingFaceUsername.setText(QCoreApplication.translate("SettingspageWidget", u"\u30e6\u30fc\u30b6\u30fc\u540d:", None))
+        self.labelHuggingFaceRepoName.setText(QCoreApplication.translate("SettingspageWidget", u"\u30ea\u30dd\u30b8\u30c8\u30ea\u540d:", None))
+        self.labelHuggingFaceToken.setText(QCoreApplication.translate("SettingspageWidget", u"\u30c8\u30fc\u30af\u30f3:", None))
+        self.groupBoxLogging.setTitle(QCoreApplication.translate("SettingspageWidget", u"\u30ed\u30b0\u8a2d\u5b9a", None))
+        self.labelLogLevel.setText(QCoreApplication.translate("SettingspageWidget", u"\u30ed\u30b0\u30ec\u30d9\u30eb:", None))
+        self.buttonSave.setText(QCoreApplication.translate("SettingspageWidget", u"\u4fdd\u5b58", None))
+        self.buttonSaveAs.setText(QCoreApplication.translate("SettingspageWidget", u"\u540d\u524d\u3092\u4ed8\u3051\u3066\u4fdd\u5b58", None))
     # retranslateUi
 
