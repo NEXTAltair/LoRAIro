@@ -1,3 +1,4 @@
+from email.mime import image
 from pathlib import Path
 from typing import List, Dict, Any
 from PIL import Image
@@ -11,13 +12,13 @@ class FileSystemManager:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.initialized = False
-        self.image_extensions = None
+        self.image_extensions = ['.jpg', '.png', '.bmp', '.gif', '.tif', '.tiff', '.jpeg', '.webp'] # 処理対象の画像拡張子
         self.image_dataset_dir = None
         self.resolution_dir = None
         self.original_images_dir = None
         self.resized_images_dir = None
         self.batch_request_dir = None
-        
+
     def __enter__(self):
         if not self.initialized:
             raise RuntimeError("FileSystemManagerが初期化されていません。")
@@ -29,16 +30,14 @@ class FileSystemManager:
             self.logger.error("FileSystemManager使用中にエラーが発生: %s",exc_val)
         return False  # 例外を伝播させる
 
-    def initialize(self, output_dir: Path, target_resolution: int, image_extensions: List[str]):
+    def initialize(self, output_dir: Path, target_resolution: int):
         """
         FileSystemManagerを初期化｡
 
         Args:
             output_dir (Path): 出力ディレクトリのパス
             target_resolution (int): 学習元モデルのベース解像度
-            image_extensions (List[str]): 画像ファイル拡張子
         """
-        self.image_extensions = image_extensions
         # 画像出力ディレクトリをセットアップ
         self.image_dataset_dir = output_dir / 'image_dataset'
         original_dir = self.image_dataset_dir / 'original_images'
@@ -90,7 +89,12 @@ class FileSystemManager:
         Returns:
             List[Path]: 画像ファイルのパスのリスト
         """
-        return [f for f in input_dir.rglob('**/*') if f.suffix.lower() in self.image_extensions] # type: ignore
+        image_files = []
+        for ext in self.image_extensions:
+            for image_file in input_dir.rglob(f'*{ext}'):
+                image_files.append(image_file)
+        return image_files
+
 
     def get_image_info(self, image_path: Path) -> Dict[str, Any]:
         """

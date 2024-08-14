@@ -28,7 +28,6 @@ DEFAULT_CONFIG = {
         'main': "",
         'additional': ""
     },
-    'image_extensions': ['.jpg', '.png', '.bmp', '.gif', '.tif', '.tiff', '.jpeg', '.webp'],
     'text_extensions': ['.txt', '.caption'],
     'preferred_resolutions': [
         (512, 512), (768, 512), (512, 768),
@@ -75,6 +74,14 @@ def get_config(config_file = 'processing.toml') -> Dict:
     if not final_config['directories']['dataset']:
         raise ValueError("'dataset' ディレクトリは設定ファイルで指定する必要があります。")
     return final_config
+
+def write_config_file(config_data: Dict[str, Any], file_name: str = "processing.toml"):
+    """設定をファイルに保存します。"""
+    try:
+        with open(file_name, "w", encoding="utf-8") as f:
+            toml.dump(config_data, f)
+    except Exception as e:
+        print(f"設定ファイルの保存に失敗しました: {e}")
 
 if __name__ == "__main__":
     try:
