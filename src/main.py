@@ -6,7 +6,7 @@ from pathlib import Path
 from PIL import Image
 
 from module.config import get_config
-from module.db import initialize_database
+from module.db import ImageDatabaseManager
 from module.file_sys import FileSystemManager
 from module.log import setup_logger, get_logger
 from module.api_utils import APIClientFactory
@@ -196,13 +196,10 @@ def start_processing(config_path: str = 'processing.toml'):
         output_dir = Path(config['directories']['output'])
         target_resolution = config['image_processing']['target_resolution']
         image_extensions = config['image_extensions']
-        file_system_manager.initialize(output_dir, target_resolution, image_extensions)
+        file_system_manager.initialize(output_dir, target_resolution)
 
         # データベースの初期化
-        database_name = config['image_database']
-        db_path = file_system_manager.get_db_path(database_name)
-        models = config['models']
-        image_database_manager = initialize_database(db_path, models)
+        image_database_manager = ImageDatabaseManager()
         connection_status = image_database_manager.db_manager.connect()
         if not connection_status:
             logger.error("データベースへの接続に失敗しました。")

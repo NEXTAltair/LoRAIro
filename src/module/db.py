@@ -111,14 +111,6 @@ class SQLiteManager:
                     FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
                 );
 
-                -- models テーブル：使用されるモデルの情報を格納
-                CREATE TABLE IF NOT EXISTS models (
-                    id INTEGER PRIMARY KEY,
-                    name TEXT UNIQUE NOT NULL,
-                    type TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-
                 -- tags テーブル：画像に関連付けられたタグを格納
                 CREATE TABLE IF NOT EXISTS tags (
                     id INTEGER PRIMARY KEY,
@@ -157,15 +149,6 @@ class SQLiteManager:
             CREATE INDEX IF NOT EXISTS idx_images_uuid ON images(uuid);
             CREATE INDEX IF NOT EXISTS idx_processed_images_image_id ON processed_images(image_id);
             ''')
-
-    def register_models(self, models: List[Dict[str, str]]):
-        query = "INSERT OR IGNORE INTO models (name, type) VALUES (?, ?)"
-        try:
-            with self.transaction() as conn:
-                conn.executemany(query, [(model['name'], model['type']) for model in models])
-        except sqlite3.Error as e:
-            self.logger.error(f"モデルの登録中にエラーが発生しました: {e}")
-            raise
 class ImageRepository:
     """
     画像関連のデータベース操作を担当するクラス。
@@ -216,7 +199,7 @@ class ImageRepository:
         else:
             query = processed
         try:
-            cursor = self.db_manager.execute(query, info)
+            cursor = self.db_manager.execute(query, tuple(info.values()))
             return cursor.lastrowid
         except sqlite3.Error as e:
             raise sqlite3.Error(f"画像情動の追加中にエラーが発生しました: {e}")
@@ -440,11 +423,13 @@ class ImageDatabaseManager:
     このクラスは、ImageRepositoryを使用して、画像メタデータとアノテーションの
     保存、取得、更新などの操作を行います。
     """
-    def __init__(self, db_path: Path, models: Dict[str, str]):
+    def __init__(self, models: Dict[str, str]):
+        db_path = Path("Image_database") / "image_database.db"
         self.db_manager = SQLiteManager(db_path)
         self.repository = ImageRepository(self.db_manager)
         self.db_manager.create_tables()
         self.db_manager.register_models(models)
+        self.repository = self.repository
         self.logger = logging.getLogger(__name__)
         self.logger.info("データベーステーブルが初期化されました。")
 
@@ -611,6 +596,3 @@ class ImageDatabaseManager:
         except Exception as e:
             self.logger.error(f"画像アノテーション取得中にエラーが発生しました: {e}")
             raise
-
-def initialize_database(db_path: Path, models: List[Dict[str, str]]) -> ImageDatabaseManager:
-    return ImageDatabaseManager(db_path, models)

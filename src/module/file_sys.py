@@ -79,9 +79,6 @@ class FileSystemManager:
             self.logger.error("ディレクトリの作成に失敗: %s. FileSystemManager._create_directory: %s", path, str(e))
             raise
 
-    def get_db_path(self, database_name: str) -> Path:
-        return self.image_dataset_dir / database_name # type: ignore
-
     def get_image_files(self, input_dir: Path) -> List[Path]:
         """
         ディレクトリから画像ファイルのリストを取得｡
