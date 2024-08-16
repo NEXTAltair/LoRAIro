@@ -24,6 +24,7 @@ class Ui_PickerWidget(object):
         if not PickerWidget.objectName():
             PickerWidget.setObjectName(u"PickerWidget")
         PickerWidget.resize(540, 210)
+        PickerWidget.setMinimumSize(QSize(80, 0))
         PickerWidget.setAcceptDrops(True)
         self.horizontalLayout = QHBoxLayout(PickerWidget)
         self.horizontalLayout.setObjectName(u"horizontalLayout")
@@ -34,17 +35,22 @@ class Ui_PickerWidget(object):
 
         self.lineEditPicker = QLineEdit(PickerWidget)
         self.lineEditPicker.setObjectName(u"lineEditPicker")
+        sizePolicy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        sizePolicy.setHorizontalStretch(1)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.lineEditPicker.sizePolicy().hasHeightForWidth())
+        self.lineEditPicker.setSizePolicy(sizePolicy)
 
         self.horizontalLayout.addWidget(self.lineEditPicker)
 
         self.listWidgetHistory = QListWidget(PickerWidget)
         self.listWidgetHistory.setObjectName(u"listWidgetHistory")
-        sizePolicy = QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        sizePolicy.setHorizontalStretch(0)
-        sizePolicy.setVerticalStretch(0)
-        sizePolicy.setHeightForWidth(self.listWidgetHistory.sizePolicy().hasHeightForWidth())
-        self.listWidgetHistory.setSizePolicy(sizePolicy)
-        self.listWidgetHistory.setMinimumSize(QSize(0, 0))
+        sizePolicy1 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        sizePolicy1.setHorizontalStretch(0)
+        sizePolicy1.setVerticalStretch(0)
+        sizePolicy1.setHeightForWidth(self.listWidgetHistory.sizePolicy().hasHeightForWidth())
+        self.listWidgetHistory.setSizePolicy(sizePolicy1)
+        self.listWidgetHistory.setMinimumSize(QSize(100, 0))
         self.listWidgetHistory.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustIgnored)
         self.listWidgetHistory.setUniformItemSizes(False)
         self.listWidgetHistory.setSelectionRectVisible(False)
@@ -53,6 +59,7 @@ class Ui_PickerWidget(object):
 
         self.pushButtonHistory = QPushButton(PickerWidget)
         self.pushButtonHistory.setObjectName(u"pushButtonHistory")
+        self.pushButtonHistory.setMinimumSize(QSize(80, 0))
 
         self.horizontalLayout.addWidget(self.pushButtonHistory)
 

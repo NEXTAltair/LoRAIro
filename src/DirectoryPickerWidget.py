@@ -8,9 +8,19 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
         self.set_label_text("フォルダを選択")
 
         self.DirectoryPicker.pushButtonPicker.clicked.connect(self.select_folder)
+        self.DirectoryPicker.pushButtonHistory.clicked.connect(self.DirectoryPicker.toggle_history_visibility)
+        self.DirectoryPicker.pushButtonHistory.clicked.disconnect()  # 既存の接続を切断
+        self.DirectoryPicker.pushButtonHistory.clicked.connect(self.DirectoryPicker.toggle_history_visibility)
 
-    def select_folder(self, event):
-        self.DirectoryPicker.select_folder()
+    def select_folder(self):
+        dir_path = QFileDialog.getExistingDirectory(self, "フォルダを選択")
+        if dir_path:
+            self.DirectoryPicker.lineEditPicker.setText(dir_path)
+            self.DirectoryPicker.add_to_history(dir_path)
+
+    def on_history_item_clicked(self, item):
+        self.DirectoryPicker.lineEditPicker.setText(item.text())
+        self.DirectoryPicker.listWidgetHistory.hide()
 
     def set_label_text(self, text):
         self.DirectoryPicker.set_label_text(text)

@@ -1,6 +1,4 @@
 from PySide6.QtWidgets import QWidget, QFileDialog, QListWidgetItem
-from PySide6.QtCore import Slot
-from PySide6.QtCore import Signal
 from PickerWidget_ui import Ui_PickerWidget  # ここでUIファイルをインポートします
 
 class PickerWidget(QWidget, Ui_PickerWidget):
@@ -32,16 +30,22 @@ class PickerWidget(QWidget, Ui_PickerWidget):
             self.history.append(dir_path)
 
     def toggle_history_visibility(self):
-        """履歴ウィジェットの表示/非表示を切り替え、リストを更新する"""
-        self.listWidgetHistory.clear()  # リストウィジェットをクリア
-        for item in self.history:
-            list_item = QListWidgetItem(item)
-            self.listWidgetHistory.addItem(list_item)
-
         if self.listWidgetHistory.isVisible():
             self.listWidgetHistory.hide()
         else:
+            self.update_history_list()
             self.listWidgetHistory.show()
+
+    def update_history_list(self):
+        self.listWidgetHistory.clear()
+        for item in reversed(self.history):
+            self.listWidgetHistory.addItem(item)
+
+    def add_to_history(self, path):
+        if path and path not in self.history:
+            self.history.append(path)
+            if len(self.history) > 10:  # 履歴の最大数を制限
+                self.history.pop(0)
 
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
