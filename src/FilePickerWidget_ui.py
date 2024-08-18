@@ -23,7 +23,6 @@ class Ui_FilePickerWidget(object):
     def setupUi(self, FilePickerWidget):
         if not FilePickerWidget.objectName():
             FilePickerWidget.setObjectName(u"FilePickerWidget")
-        FilePickerWidget.resize(562, 253)
         self.horizontalLayout = QHBoxLayout(FilePickerWidget)
         self.horizontalLayout.setObjectName(u"horizontalLayout")
         self.FilePicker = PickerWidget(FilePickerWidget)

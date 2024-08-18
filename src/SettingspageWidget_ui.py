@@ -15,10 +15,10 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QFont, QFontDatabase, QGradient, QIcon,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
-from PySide6.QtWidgets import (QApplication, QComboBox, QFormLayout, QGridLayout,
-    QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QScrollArea, QSizePolicy, QSpacerItem,
-    QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QComboBox, QFormLayout, QGroupBox,
+    QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QScrollArea, QSizePolicy, QSpacerItem, QVBoxLayout,
+    QWidget)
 
 from DirectoryPickerWidget import DirectoryPickerWidget
 from FilePickerWidget import FilePickerWidget
@@ -28,222 +28,203 @@ class Ui_SettingspageWidget(object):
         if not SettingspageWidget.objectName():
             SettingspageWidget.setObjectName(u"SettingspageWidget")
         SettingspageWidget.resize(705, 935)
-        self.horizontalLayout = QHBoxLayout(SettingspageWidget)
-        self.horizontalLayout.setObjectName(u"horizontalLayout")
-        self.scrollAreaSettings = QScrollArea(SettingspageWidget)
-        self.scrollAreaSettings.setObjectName(u"scrollAreaSettings")
-        self.scrollAreaSettings.setWidgetResizable(True)
+        self.verticalLayout_2 = QVBoxLayout(SettingspageWidget)
+        self.verticalLayout_2.setObjectName(u"verticalLayout_2")
+        self.scrollAreaMain = QScrollArea(SettingspageWidget)
+        self.scrollAreaMain.setObjectName(u"scrollAreaMain")
+        self.scrollAreaMain.setWidgetResizable(True)
         self.scrollAreaWidgetContents = QWidget()
         self.scrollAreaWidgetContents.setObjectName(u"scrollAreaWidgetContents")
-        self.scrollAreaWidgetContents.setGeometry(QRect(0, 0, 685, 915))
+        self.scrollAreaWidgetContents.setGeometry(QRect(0, 0, 681, 911))
         self.layoutScrollArea = QVBoxLayout(self.scrollAreaWidgetContents)
         self.layoutScrollArea.setObjectName(u"layoutScrollArea")
         self.groupBoxFolders = QGroupBox(self.scrollAreaWidgetContents)
         self.groupBoxFolders.setObjectName(u"groupBoxFolders")
         self.layoutFolders = QVBoxLayout(self.groupBoxFolders)
         self.layoutFolders.setObjectName(u"layoutFolders")
-        self.dataset_DirPickerWidget = DirectoryPickerWidget(self.groupBoxFolders)
-        self.dataset_DirPickerWidget.setObjectName(u"dataset_DirPickerWidget")
-        self.layoutDatasetFolder = QHBoxLayout(self.dataset_DirPickerWidget)
-        self.layoutDatasetFolder.setObjectName(u"layoutDatasetFolder")
-
-        self.layoutFolders.addWidget(self.dataset_DirPickerWidget)
-
-        self.output_DirPickerWidget = DirectoryPickerWidget(self.groupBoxFolders)
-        self.output_DirPickerWidget.setObjectName(u"output_DirPickerWidget")
-        self.layoutOutputFolder = QHBoxLayout(self.output_DirPickerWidget)
+        self.dirPickerOutput = DirectoryPickerWidget(self.groupBoxFolders)
+        self.dirPickerOutput.setObjectName(u"dirPickerOutput")
+        self.layoutOutputFolder = QHBoxLayout(self.dirPickerOutput)
         self.layoutOutputFolder.setObjectName(u"layoutOutputFolder")
 
-        self.layoutFolders.addWidget(self.output_DirPickerWidget)
+        self.layoutFolders.addWidget(self.dirPickerOutput)
 
-        self.response_DirPickerWidget = DirectoryPickerWidget(self.groupBoxFolders)
-        self.response_DirPickerWidget.setObjectName(u"response_DirPickerWidget")
-        self._2 = QHBoxLayout(self.response_DirPickerWidget)
+        self.dirPickerResponse = DirectoryPickerWidget(self.groupBoxFolders)
+        self.dirPickerResponse.setObjectName(u"dirPickerResponse")
+        self._2 = QHBoxLayout(self.dirPickerResponse)
         self._2.setObjectName(u"_2")
 
-        self.layoutFolders.addWidget(self.response_DirPickerWidget)
+        self.layoutFolders.addWidget(self.dirPickerResponse)
 
-        self.new_output_DirPickerWidget = DirectoryPickerWidget(self.groupBoxFolders)
-        self.new_output_DirPickerWidget.setObjectName(u"new_output_DirPickerWidget")
-        self.layoutEditedOutputFolder = QHBoxLayout(self.new_output_DirPickerWidget)
+        self.dirPickerEditedOutput = DirectoryPickerWidget(self.groupBoxFolders)
+        self.dirPickerEditedOutput.setObjectName(u"dirPickerEditedOutput")
+        self.layoutEditedOutputFolder = QHBoxLayout(self.dirPickerEditedOutput)
         self.layoutEditedOutputFolder.setObjectName(u"layoutEditedOutputFolder")
 
-        self.layoutFolders.addWidget(self.new_output_DirPickerWidget)
+        self.layoutFolders.addWidget(self.dirPickerEditedOutput)
 
 
         self.layoutScrollArea.addWidget(self.groupBoxFolders)
 
-        self.groupBoxAPI = QGroupBox(self.scrollAreaWidgetContents)
-        self.groupBoxAPI.setObjectName(u"groupBoxAPI")
-        self.layoutAPI = QVBoxLayout(self.groupBoxAPI)
+        self.groupBoxApiSettings = QGroupBox(self.scrollAreaWidgetContents)
+        self.groupBoxApiSettings.setObjectName(u"groupBoxApiSettings")
+        self.layoutAPI = QVBoxLayout(self.groupBoxApiSettings)
         self.layoutAPI.setObjectName(u"layoutAPI")
-        self.groupBoxOpenAI = QGroupBox(self.groupBoxAPI)
+        self.groupBoxOpenAI = QGroupBox(self.groupBoxApiSettings)
         self.groupBoxOpenAI.setObjectName(u"groupBoxOpenAI")
         self.layoutOpenAI = QFormLayout(self.groupBoxOpenAI)
         self.layoutOpenAI.setObjectName(u"layoutOpenAI")
-        self.labelOpenAIApiKey = QLabel(self.groupBoxOpenAI)
-        self.labelOpenAIApiKey.setObjectName(u"labelOpenAIApiKey")
+        self.labelOpenAiKey = QLabel(self.groupBoxOpenAI)
+        self.labelOpenAiKey.setObjectName(u"labelOpenAiKey")
 
-        self.layoutOpenAI.setWidget(0, QFormLayout.LabelRole, self.labelOpenAIApiKey)
+        self.layoutOpenAI.setWidget(0, QFormLayout.LabelRole, self.labelOpenAiKey)
 
-        self.lineEditOpenAIApiKey = QLineEdit(self.groupBoxOpenAI)
-        self.lineEditOpenAIApiKey.setObjectName(u"lineEditOpenAIApiKey")
+        self.lineEditOpenAiKey = QLineEdit(self.groupBoxOpenAI)
+        self.lineEditOpenAiKey.setObjectName(u"lineEditOpenAiKey")
 
-        self.layoutOpenAI.setWidget(0, QFormLayout.FieldRole, self.lineEditOpenAIApiKey)
-
-        self.labelOpenAIModel = QLabel(self.groupBoxOpenAI)
-        self.labelOpenAIModel.setObjectName(u"labelOpenAIModel")
-
-        self.layoutOpenAI.setWidget(1, QFormLayout.LabelRole, self.labelOpenAIModel)
-
-        self.lineEditOpenAIModel = QLineEdit(self.groupBoxOpenAI)
-        self.lineEditOpenAIModel.setObjectName(u"lineEditOpenAIModel")
-
-        self.layoutOpenAI.setWidget(1, QFormLayout.FieldRole, self.lineEditOpenAIModel)
+        self.layoutOpenAI.setWidget(0, QFormLayout.FieldRole, self.lineEditOpenAiKey)
 
 
         self.layoutAPI.addWidget(self.groupBoxOpenAI)
 
-        self.groupBoxGoogleVision = QGroupBox(self.groupBoxAPI)
+        self.groupBoxGoogleVision = QGroupBox(self.groupBoxApiSettings)
         self.groupBoxGoogleVision.setObjectName(u"groupBoxGoogleVision")
         self.layoutGoogleVision = QFormLayout(self.groupBoxGoogleVision)
         self.layoutGoogleVision.setObjectName(u"layoutGoogleVision")
-        self.labelGoogleApiKey = QLabel(self.groupBoxGoogleVision)
-        self.labelGoogleApiKey.setObjectName(u"labelGoogleApiKey")
+        self.labelGoogleKey = QLabel(self.groupBoxGoogleVision)
+        self.labelGoogleKey.setObjectName(u"labelGoogleKey")
 
-        self.layoutGoogleVision.setWidget(0, QFormLayout.LabelRole, self.labelGoogleApiKey)
+        self.layoutGoogleVision.setWidget(0, QFormLayout.LabelRole, self.labelGoogleKey)
 
-        self.lineEditGoogleApiKey = QLineEdit(self.groupBoxGoogleVision)
-        self.lineEditGoogleApiKey.setObjectName(u"lineEditGoogleApiKey")
+        self.lineEditGoogleVisionKey = QLineEdit(self.groupBoxGoogleVision)
+        self.lineEditGoogleVisionKey.setObjectName(u"lineEditGoogleVisionKey")
 
-        self.layoutGoogleVision.setWidget(0, QFormLayout.FieldRole, self.lineEditGoogleApiKey)
-
-        self.labelGoogleApiModel = QLabel(self.groupBoxGoogleVision)
-        self.labelGoogleApiModel.setObjectName(u"labelGoogleApiModel")
-
-        self.layoutGoogleVision.setWidget(1, QFormLayout.LabelRole, self.labelGoogleApiModel)
-
-        self.lineEditGoogleApiModel = QLineEdit(self.groupBoxGoogleVision)
-        self.lineEditGoogleApiModel.setObjectName(u"lineEditGoogleApiModel")
-
-        self.layoutGoogleVision.setWidget(1, QFormLayout.FieldRole, self.lineEditGoogleApiModel)
+        self.layoutGoogleVision.setWidget(0, QFormLayout.FieldRole, self.lineEditGoogleVisionKey)
 
 
         self.layoutAPI.addWidget(self.groupBoxGoogleVision)
 
-        self.groupBoxAnthropic = QGroupBox(self.groupBoxAPI)
+        self.groupBoxAnthropic = QGroupBox(self.groupBoxApiSettings)
         self.groupBoxAnthropic.setObjectName(u"groupBoxAnthropic")
         self.layoutAnthropic = QFormLayout(self.groupBoxAnthropic)
         self.layoutAnthropic.setObjectName(u"layoutAnthropic")
-        self.labelAnthropicApiKey = QLabel(self.groupBoxAnthropic)
-        self.labelAnthropicApiKey.setObjectName(u"labelAnthropicApiKey")
+        self.labelAnthropicKey = QLabel(self.groupBoxAnthropic)
+        self.labelAnthropicKey.setObjectName(u"labelAnthropicKey")
 
-        self.layoutAnthropic.setWidget(0, QFormLayout.LabelRole, self.labelAnthropicApiKey)
+        self.layoutAnthropic.setWidget(0, QFormLayout.LabelRole, self.labelAnthropicKey)
 
-        self.lineEditAnthropicApiKey = QLineEdit(self.groupBoxAnthropic)
-        self.lineEditAnthropicApiKey.setObjectName(u"lineEditAnthropicApiKey")
+        self.lineEditAnthropicKey = QLineEdit(self.groupBoxAnthropic)
+        self.lineEditAnthropicKey.setObjectName(u"lineEditAnthropicKey")
 
-        self.layoutAnthropic.setWidget(0, QFormLayout.FieldRole, self.lineEditAnthropicApiKey)
-
-        self.labelAnthropicApiModel = QLabel(self.groupBoxAnthropic)
-        self.labelAnthropicApiModel.setObjectName(u"labelAnthropicApiModel")
-
-        self.layoutAnthropic.setWidget(1, QFormLayout.LabelRole, self.labelAnthropicApiModel)
-
-        self.lineEditAnthropicApiModel = QLineEdit(self.groupBoxAnthropic)
-        self.lineEditAnthropicApiModel.setObjectName(u"lineEditAnthropicApiModel")
-
-        self.layoutAnthropic.setWidget(1, QFormLayout.FieldRole, self.lineEditAnthropicApiModel)
+        self.layoutAnthropic.setWidget(0, QFormLayout.FieldRole, self.lineEditAnthropicKey)
 
 
         self.layoutAPI.addWidget(self.groupBoxAnthropic)
 
 
-        self.layoutScrollArea.addWidget(self.groupBoxAPI)
+        self.layoutScrollArea.addWidget(self.groupBoxApiSettings)
 
-        self.groupBoxHuggingFace = QGroupBox(self.scrollAreaWidgetContents)
-        self.groupBoxHuggingFace.setObjectName(u"groupBoxHuggingFace")
-        self.layoutHuggingFace = QFormLayout(self.groupBoxHuggingFace)
+        self.groupBoxHuggingFaceSettings = QGroupBox(self.scrollAreaWidgetContents)
+        self.groupBoxHuggingFaceSettings.setObjectName(u"groupBoxHuggingFaceSettings")
+        self.layoutHuggingFace = QFormLayout(self.groupBoxHuggingFaceSettings)
         self.layoutHuggingFace.setObjectName(u"layoutHuggingFace")
-        self.labelHuggingFaceUsername = QLabel(self.groupBoxHuggingFace)
-        self.labelHuggingFaceUsername.setObjectName(u"labelHuggingFaceUsername")
+        self.labelHfUsername = QLabel(self.groupBoxHuggingFaceSettings)
+        self.labelHfUsername.setObjectName(u"labelHfUsername")
 
-        self.layoutHuggingFace.setWidget(0, QFormLayout.LabelRole, self.labelHuggingFaceUsername)
+        self.layoutHuggingFace.setWidget(0, QFormLayout.LabelRole, self.labelHfUsername)
 
-        self.lineEditHuggingFaceUsername = QLineEdit(self.groupBoxHuggingFace)
-        self.lineEditHuggingFaceUsername.setObjectName(u"lineEditHuggingFaceUsername")
+        self.lineEditHfUsername = QLineEdit(self.groupBoxHuggingFaceSettings)
+        self.lineEditHfUsername.setObjectName(u"lineEditHfUsername")
 
-        self.layoutHuggingFace.setWidget(0, QFormLayout.FieldRole, self.lineEditHuggingFaceUsername)
+        self.layoutHuggingFace.setWidget(0, QFormLayout.FieldRole, self.lineEditHfUsername)
 
-        self.labelHuggingFaceRepoName = QLabel(self.groupBoxHuggingFace)
-        self.labelHuggingFaceRepoName.setObjectName(u"labelHuggingFaceRepoName")
+        self.labelHfRepoName = QLabel(self.groupBoxHuggingFaceSettings)
+        self.labelHfRepoName.setObjectName(u"labelHfRepoName")
 
-        self.layoutHuggingFace.setWidget(1, QFormLayout.LabelRole, self.labelHuggingFaceRepoName)
+        self.layoutHuggingFace.setWidget(1, QFormLayout.LabelRole, self.labelHfRepoName)
 
-        self.lineEditHuggingFaceRepoName = QLineEdit(self.groupBoxHuggingFace)
-        self.lineEditHuggingFaceRepoName.setObjectName(u"lineEditHuggingFaceRepoName")
+        self.lineEditHfRepoName = QLineEdit(self.groupBoxHuggingFaceSettings)
+        self.lineEditHfRepoName.setObjectName(u"lineEditHfRepoName")
 
-        self.layoutHuggingFace.setWidget(1, QFormLayout.FieldRole, self.lineEditHuggingFaceRepoName)
+        self.layoutHuggingFace.setWidget(1, QFormLayout.FieldRole, self.lineEditHfRepoName)
 
-        self.labelHuggingFaceToken = QLabel(self.groupBoxHuggingFace)
-        self.labelHuggingFaceToken.setObjectName(u"labelHuggingFaceToken")
+        self.labelHfToken = QLabel(self.groupBoxHuggingFaceSettings)
+        self.labelHfToken.setObjectName(u"labelHfToken")
 
-        self.layoutHuggingFace.setWidget(2, QFormLayout.LabelRole, self.labelHuggingFaceToken)
+        self.layoutHuggingFace.setWidget(2, QFormLayout.LabelRole, self.labelHfToken)
 
-        self.lineEditHuggingFaceToken = QLineEdit(self.groupBoxHuggingFace)
-        self.lineEditHuggingFaceToken.setObjectName(u"lineEditHuggingFaceToken")
+        self.lineEditHfToken = QLineEdit(self.groupBoxHuggingFaceSettings)
+        self.lineEditHfToken.setObjectName(u"lineEditHfToken")
 
-        self.layoutHuggingFace.setWidget(2, QFormLayout.FieldRole, self.lineEditHuggingFaceToken)
+        self.layoutHuggingFace.setWidget(2, QFormLayout.FieldRole, self.lineEditHfToken)
 
 
-        self.layoutScrollArea.addWidget(self.groupBoxHuggingFace)
+        self.layoutScrollArea.addWidget(self.groupBoxHuggingFaceSettings)
 
-        self.groupBoxLogging = QGroupBox(self.scrollAreaWidgetContents)
-        self.groupBoxLogging.setObjectName(u"groupBoxLogging")
-        self.layoutLogging = QGridLayout(self.groupBoxLogging)
-        self.layoutLogging.setObjectName(u"layoutLogging")
-        self.labelLogLevel = QLabel(self.groupBoxLogging)
+        self.groupBoxLogSettings = QGroupBox(self.scrollAreaWidgetContents)
+        self.groupBoxLogSettings.setObjectName(u"groupBoxLogSettings")
+        self.verticalLayout = QVBoxLayout(self.groupBoxLogSettings)
+        self.verticalLayout.setObjectName(u"verticalLayout")
+        self.LoglLevel = QWidget(self.groupBoxLogSettings)
+        self.LoglLevel.setObjectName(u"LoglLevel")
+        sizePolicy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.LoglLevel.sizePolicy().hasHeightForWidth())
+        self.LoglLevel.setSizePolicy(sizePolicy)
+        self.horizontalLayout_2 = QHBoxLayout(self.LoglLevel)
+        self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
+        self.labelLogLevel = QLabel(self.LoglLevel)
         self.labelLogLevel.setObjectName(u"labelLogLevel")
 
-        self.layoutLogging.addWidget(self.labelLogLevel, 0, 0, 1, 1)
+        self.horizontalLayout_2.addWidget(self.labelLogLevel)
 
-        self.comboBoxLogLevel = QComboBox(self.groupBoxLogging)
+        self.comboBoxLogLevel = QComboBox(self.LoglLevel)
         self.comboBoxLogLevel.setObjectName(u"comboBoxLogLevel")
 
-        self.layoutLogging.addWidget(self.comboBoxLogLevel, 0, 1, 1, 1, Qt.AlignmentFlag.AlignLeft)
+        self.horizontalLayout_2.addWidget(self.comboBoxLogLevel)
 
-        self.log_PilePickerWidget = FilePickerWidget(self.groupBoxLogging)
-        self.log_PilePickerWidget.setObjectName(u"log_PilePickerWidget")
+        self.HSpacerLogLevel = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
-        self.layoutLogging.addWidget(self.log_PilePickerWidget, 1, 0, 1, 1)
+        self.horizontalLayout_2.addItem(self.HSpacerLogLevel)
 
 
-        self.layoutScrollArea.addWidget(self.groupBoxLogging)
+        self.verticalLayout.addWidget(self.LoglLevel)
 
-        self.widgetButtons = QWidget(self.scrollAreaWidgetContents)
-        self.widgetButtons.setObjectName(u"widgetButtons")
-        self.layoutButtons = QHBoxLayout(self.widgetButtons)
+        self.filePickerLogFile = FilePickerWidget(self.groupBoxLogSettings)
+        self.filePickerLogFile.setObjectName(u"filePickerLogFile")
+        sizePolicy.setHeightForWidth(self.filePickerLogFile.sizePolicy().hasHeightForWidth())
+        self.filePickerLogFile.setSizePolicy(sizePolicy)
+
+        self.verticalLayout.addWidget(self.filePickerLogFile)
+
+
+        self.layoutScrollArea.addWidget(self.groupBoxLogSettings)
+
+        self.SaveSettings = QWidget(self.scrollAreaWidgetContents)
+        self.SaveSettings.setObjectName(u"SaveSettings")
+        self.layoutButtons = QHBoxLayout(self.SaveSettings)
         self.layoutButtons.setObjectName(u"layoutButtons")
-        self.spacerButtons = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.HSpacerSaveButtons = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
-        self.layoutButtons.addItem(self.spacerButtons)
+        self.layoutButtons.addItem(self.HSpacerSaveButtons)
 
-        self.buttonSave = QPushButton(self.widgetButtons)
+        self.buttonSave = QPushButton(self.SaveSettings)
         self.buttonSave.setObjectName(u"buttonSave")
 
         self.layoutButtons.addWidget(self.buttonSave)
 
-        self.buttonSaveAs = QPushButton(self.widgetButtons)
+        self.buttonSaveAs = QPushButton(self.SaveSettings)
         self.buttonSaveAs.setObjectName(u"buttonSaveAs")
 
         self.layoutButtons.addWidget(self.buttonSaveAs)
 
 
-        self.layoutScrollArea.addWidget(self.widgetButtons)
+        self.layoutScrollArea.addWidget(self.SaveSettings)
 
-        self.scrollAreaSettings.setWidget(self.scrollAreaWidgetContents)
+        self.scrollAreaMain.setWidget(self.scrollAreaWidgetContents)
 
-        self.horizontalLayout.addWidget(self.scrollAreaSettings)
+        self.verticalLayout_2.addWidget(self.scrollAreaMain)
 
 
         self.retranslateUi(SettingspageWidget)
@@ -254,21 +235,18 @@ class Ui_SettingspageWidget(object):
     def retranslateUi(self, SettingspageWidget):
         SettingspageWidget.setWindowTitle(QCoreApplication.translate("SettingspageWidget", u"Form", None))
         self.groupBoxFolders.setTitle(QCoreApplication.translate("SettingspageWidget", u"\u30d5\u30a9\u30eb\u30c0\u8a2d\u5b9a", None))
-        self.groupBoxAPI.setTitle(QCoreApplication.translate("SettingspageWidget", u"API\u8a2d\u5b9a", None))
+        self.groupBoxApiSettings.setTitle(QCoreApplication.translate("SettingspageWidget", u"API\u8a2d\u5b9a", None))
         self.groupBoxOpenAI.setTitle(QCoreApplication.translate("SettingspageWidget", u"OpenAI", None))
-        self.labelOpenAIApiKey.setText(QCoreApplication.translate("SettingspageWidget", u"API\u30ad\u30fc:", None))
-        self.labelOpenAIModel.setText(QCoreApplication.translate("SettingspageWidget", u"\u30e2\u30c7\u30eb:", None))
+        self.labelOpenAiKey.setText(QCoreApplication.translate("SettingspageWidget", u"API\u30ad\u30fc:", None))
         self.groupBoxGoogleVision.setTitle(QCoreApplication.translate("SettingspageWidget", u"Google Vision API", None))
-        self.labelGoogleApiKey.setText(QCoreApplication.translate("SettingspageWidget", u"API\u30ad\u30fc:", None))
-        self.labelGoogleApiModel.setText(QCoreApplication.translate("SettingspageWidget", u"\u30e2\u30c7\u30eb:", None))
+        self.labelGoogleKey.setText(QCoreApplication.translate("SettingspageWidget", u"API\u30ad\u30fc:", None))
         self.groupBoxAnthropic.setTitle(QCoreApplication.translate("SettingspageWidget", u"Anthropic", None))
-        self.labelAnthropicApiKey.setText(QCoreApplication.translate("SettingspageWidget", u"API\u30ad\u30fc:", None))
-        self.labelAnthropicApiModel.setText(QCoreApplication.translate("SettingspageWidget", u"\u30e2\u30c7\u30eb:", None))
-        self.groupBoxHuggingFace.setTitle(QCoreApplication.translate("SettingspageWidget", u"Hugging Face", None))
-        self.labelHuggingFaceUsername.setText(QCoreApplication.translate("SettingspageWidget", u"\u30e6\u30fc\u30b6\u30fc\u540d:", None))
-        self.labelHuggingFaceRepoName.setText(QCoreApplication.translate("SettingspageWidget", u"\u30ea\u30dd\u30b8\u30c8\u30ea\u540d:", None))
-        self.labelHuggingFaceToken.setText(QCoreApplication.translate("SettingspageWidget", u"\u30c8\u30fc\u30af\u30f3:", None))
-        self.groupBoxLogging.setTitle(QCoreApplication.translate("SettingspageWidget", u"\u30ed\u30b0\u8a2d\u5b9a", None))
+        self.labelAnthropicKey.setText(QCoreApplication.translate("SettingspageWidget", u"API\u30ad\u30fc:", None))
+        self.groupBoxHuggingFaceSettings.setTitle(QCoreApplication.translate("SettingspageWidget", u"Hugging Face", None))
+        self.labelHfUsername.setText(QCoreApplication.translate("SettingspageWidget", u"\u30e6\u30fc\u30b6\u30fc\u540d:", None))
+        self.labelHfRepoName.setText(QCoreApplication.translate("SettingspageWidget", u"\u30ea\u30dd\u30b8\u30c8\u30ea\u540d:", None))
+        self.labelHfToken.setText(QCoreApplication.translate("SettingspageWidget", u"\u30c8\u30fc\u30af\u30f3:", None))
+        self.groupBoxLogSettings.setTitle(QCoreApplication.translate("SettingspageWidget", u"\u30ed\u30b0\u8a2d\u5b9a", None))
         self.labelLogLevel.setText(QCoreApplication.translate("SettingspageWidget", u"\u30ed\u30b0\u30ec\u30d9\u30eb:", None))
         self.buttonSave.setText(QCoreApplication.translate("SettingspageWidget", u"\u4fdd\u5b58", None))
         self.buttonSaveAs.setText(QCoreApplication.translate("SettingspageWidget", u"\u540d\u524d\u3092\u4ed8\u3051\u3066\u4fdd\u5b58", None))

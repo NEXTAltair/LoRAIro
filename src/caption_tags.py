@@ -11,7 +11,11 @@ class ImageAnalyzer:
     画像分析タスクを実行
     """
 
-    def __init__(self, api_client_factory: APIClientFactory, models_config: List[Dict[str, str]]):
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+        self.tag_cleaner = initialize_tag_cleaner()
+
+    def initialize(self, api_client_factory: APIClientFactory, models_config: List[Dict[str, str]]):
         """
         ImageAnalyzerクラスのコンストラクタ。
 
@@ -19,13 +23,10 @@ class ImageAnalyzer:
             api_client_factory (APIClientFactory): API名とAPIクライアントの対応辞書
             models_config (List[Dict[str, str]]): モデル設定のリスト。各辞書は'name'と'type'キーを含む。
         """
-        self.logger = logging.getLogger(__name__)
-        self.tag_cleaner = initialize_tag_cleaner()
         self.api_client_factory = api_client_factory
         self.models = {model['name']: model['type'] for model in models_config}
         self.vision_model = next((name for name, type in self.models.items() if type == 'vision'), None)
         self.score_models = [name for name, type in self.models.items() if type == 'score']
-
         if not self.vision_model:
             raise ValueError("Vision modelが設定ファイルで指定されていません。")
 
@@ -71,6 +72,7 @@ class ImageAnalyzer:
 
         except Exception as e:
             self.logger.warning(f"アノテーションファイルの読み込み中にエラーが発生しました: {str(e)}")
+            return None
 
         return existing_annotations
 
@@ -225,17 +227,20 @@ class ImageAnalyzer:
 
 # 画像処理のテスト
 if __name__ == "__main__":
-    import toml
     from module.api_utils import APIClientFactory
+    from module.db import ImageDatabaseManager
     from module.config import get_config
     config = get_config()
     image_path = Path(r'testimg\1_img\file02.png')
     prompt = config['prompts']['main']
     add_prompt = config['prompts']['additional']
     api_keys = config['api']
+    idm = ImageDatabaseManager()
+    models = idm.get_models()
     # API クライアントファクトリーを作成
     acf = APIClientFactory(api_keys, prompt, add_prompt)
-    Ia = ImageAnalyzer(acf, config["models"])
+    Ia = ImageAnalyzer()
+    Ia.initialize(acf, models)
     result = Ia.analyze_image(image_path, 'gpt-4o')
     print(f"キャプション: {result['caption']}")
     print(f"タグ: {result['tags']}")

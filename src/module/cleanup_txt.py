@@ -61,7 +61,8 @@ class TagCleaner:
         self.tag_searcher = tag_search.initialize_tag_searcher()
         logger = logging.getLogger(__name__)
 
-    def clean_format(self, text: str) -> str:
+    @staticmethod
+    def clean_format(text: str) -> str:
         """
         テキストから無駄な記号と改行を削除
         ()をエスケープする
@@ -73,7 +74,7 @@ class TagCleaner:
         if not isinstance(text, str):
             return text
         text = text.lower() # 大文字を小文字に変換
-        text = self._clean_underscore(text) # アンダーバーをスペースに置き換える
+        text = TagCleaner._clean_underscore(text) # アンダーバーをスペースに置き換える
         text = re.sub(r'#', '', text) # #を削除
         text = re.sub(r'\"', '\"', text) # ダブルクォートをエスケープ
         text = re.sub(r'\*\*', '', text) # GPT4 visionがたまに付けるマークダウンの強調を削除
@@ -84,7 +85,7 @@ class TagCleaner:
         text = re.sub(r'\u2014', '-', text) # エムダッシュをハイフンに変換
         text = re.sub(r'\(', r"\(", text)  # '(' を '\(' にエスケープ
         text = re.sub(r'\)', r"\)", text)  # ')' を '\)' にエスケープ
-        return self._clean_repetition(text) # 重複した記号を削除
+        return TagCleaner._clean_repetition(text) # 重複した記号を削除
 
     @staticmethod
     def _clean_repetition(text: str) -> str:

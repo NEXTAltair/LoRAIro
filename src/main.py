@@ -195,7 +195,6 @@ def start_processing(config_path: str = 'processing.toml'):
         file_system_manager = FileSystemManager()
         output_dir = Path(config['directories']['output'])
         target_resolution = config['image_processing']['target_resolution']
-        image_extensions = config['image_extensions']
         file_system_manager.initialize(output_dir, target_resolution)
 
         # データベースの初期化
@@ -217,7 +216,7 @@ def start_processing(config_path: str = 'processing.toml'):
         api_client_factory = APIClientFactory(api_keys, prompt, add_prompt)
 
         # ImageAnalyzer を初期化
-        image_analyzer = ImageAnalyzer(api_client_factory, config["models"])
+        image_analyzer = ImageAnalyzer(api_client_factory)
 
         # 処理モードの選択
         if config['generation']['batch_jsonl']:

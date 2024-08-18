@@ -319,4 +319,18 @@ class AutoCrop:
                 return pil_image
         except Exception as e:
             self.logger.error("自動クロップ処理中にエラーが発生しました: %s", e)
-            return pil_image  # エラーが発生した場合は元の画像を返す
+            return pil_image
+
+# 以下はテストコード
+if __name__ == '__main__':
+    ##自動クロップのテスト
+    import matplotlib.pyplot as plt
+    from PIL import Image
+
+    img_path = Path(r'testimg\bordercrop\image_0001.png')
+    img = Image.open(img_path)
+
+    cropped_img = AutoCrop.auto_crop_image(img)
+    plt.imshow(cropped_img)
+    plt.show()
+    print(cropped_img.size)

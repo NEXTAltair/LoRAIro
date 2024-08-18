@@ -199,10 +199,10 @@ class ImageRepository:
         else:
             query = processed
         try:
-            cursor = self.db_manager.execute(query, tuple(info.values()))
+            cursor = self.db_manager.execute(query, info)
             return cursor.lastrowid
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"画像情動の追加中にエラーが発生しました: {e}")
+            raise sqlite3.Error(f"画像情報の追加中にエラーが発生しました: {e}")
 
     def get_image_metadata(self, image_id: int) -> Optional[Dict[str, Any]]:
         """
@@ -417,18 +417,18 @@ class ImageRepository:
             return metadata
         except sqlite3.Error as e:
             raise sqlite3.Error(f"処理済み画像の取得中にエラーが発生しました: {e}")
+
 class ImageDatabaseManager:
     """
     画像データベース操作の高レベルインターフェースを提供するクラス。
     このクラスは、ImageRepositoryを使用して、画像メタデータとアノテーションの
     保存、取得、更新などの操作を行います。
     """
-    def __init__(self, models: Dict[str, str]):
+    def __init__(self):
         db_path = Path("Image_database") / "image_database.db"
         self.db_manager = SQLiteManager(db_path)
         self.repository = ImageRepository(self.db_manager)
         self.db_manager.create_tables()
-        self.db_manager.register_models(models)
         self.repository = self.repository
         self.logger = logging.getLogger(__name__)
         self.logger.info("データベーステーブルが初期化されました。")
@@ -595,4 +595,19 @@ class ImageDatabaseManager:
             return annotations
         except Exception as e:
             self.logger.error(f"画像アノテーション取得中にエラーが発生しました: {e}")
+            raise
+
+    def get_models(self) -> List[Dict[str, str]]:
+        """
+        データベースに登録されているビジョンモデルのリストを取得します。
+
+        Returns:
+            List[Dict[str, str]]: ビジョンモデルのリスト。
+        """
+        query = "SELECT * FROM models"
+        try:
+            models = self.db_manager.fetch_all(query)
+            return models
+        except sqlite3.Error as e:
+            self.logger.error(f"ビジョンモデルの取得中にエラーが発生しました: {e}")
             raise

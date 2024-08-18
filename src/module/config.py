@@ -7,6 +7,7 @@ DEFAULT_CONFIG = {
     'directories': {
         'dataset': '',
         'output': 'output',
+        'edited_output': 'edited_output',
         'response_file': 'response_file'
     },
     'image_processing': {
@@ -34,12 +35,6 @@ DEFAULT_CONFIG = {
         (1024, 1024), (1216, 832), (832, 1216)
     ],
     'image_database': 'image_database.db',
-    'models' : [
-        {'name': 'gpt-4o', 'type': 'vision'},
-        {'name': 'gpt-4-turbo', 'type': 'vision'},
-        {'name': 'laion', 'type': 'score'},
-        {'name': 'cafe', 'type': 'score'}
-        ],
     'log': {
         'level': 'INFO',
         'file': 'app.log'

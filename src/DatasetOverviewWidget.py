@@ -23,8 +23,8 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
         self.infoSplitter.setSizes([self.height() * 2 // 10, self.height() * 2 // 10 + self.height() * 6 // 10])
 
 
-    def load_images(self, file_system_manager: FileSystemManager, image_files: list):
-        self.file_system_manager = file_system_manager
+    def load_images(self, fsm: FileSystemManager, image_files: list):
+        self.fsm = fsm
         self.image_files = image_files
         self.display_dataset_info()
         self.dataset_loaded.emit()
@@ -131,8 +131,8 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
 
     def update_metadata(self, image_path: Path):
         """メタデータを更新する"""
-        if image_path and self.file_system_manager:
-            metadata = self.file_system_manager.get_image_info(image_path)
+        if image_path and self.fsm:
+            metadata = self.fsm.get_image_info(image_path)
             self.set_metadata_labels(metadata, image_path)
             self.update_preview(image_path)
         else:

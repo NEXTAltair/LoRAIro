@@ -20,7 +20,8 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         super().__init__(parent)
         self.setupUi(self)
 
-        self.idm = ImageDatabaseManager()
+    def initialize(self, idm: ImageDatabaseManager):
+        self.idm = idm
         self.models = self.idm.get_models()
         self.webp_file = None
         self.prompt = ""
