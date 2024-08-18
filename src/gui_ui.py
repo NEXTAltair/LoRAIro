@@ -93,6 +93,8 @@ class Ui_mainWindow(object):
         self.contentStackedWidget.addWidget(self.pageImageEdit)
         self.pageImageTagger = ImageTaggerWidget()
         self.pageImageTagger.setObjectName(u"pageImageTagger")
+        sizePolicy.setHeightForWidth(self.pageImageTagger.sizePolicy().hasHeightForWidth())
+        self.pageImageTagger.setSizePolicy(sizePolicy)
         self.contentStackedWidget.addWidget(self.pageImageTagger)
         self.pageTagCaptionEdit = QWidget()
         self.pageTagCaptionEdit.setObjectName(u"pageTagCaptionEdit")
@@ -151,7 +153,7 @@ class Ui_mainWindow(object):
         self.retranslateUi(mainWindow)
         self.sidebarList.currentRowChanged.connect(self.contentStackedWidget.setCurrentIndex)
 
-        self.contentStackedWidget.setCurrentIndex(5)
+        self.contentStackedWidget.setCurrentIndex(1)
 
 
         QMetaObject.connectSlotsByName(mainWindow)

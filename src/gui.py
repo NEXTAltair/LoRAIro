@@ -66,7 +66,7 @@ class MainWindow(QMainWindow, Ui_mainWindow):
     def init_pages(self):
         self.pageImageEdit.initialize(self.config, self.ia, self.fsm, self.idm)
         self.pageSettings.initialize(self.config)
-        self.pageImageTagger.initialize(self.idm)
+        self.pageImageTagger.initialize(self.config, self.idm)
 
     def init_file_system(self):
         # TODO: target_resolutionはウィジェットの操作で変更されるので別のばしょで初期化

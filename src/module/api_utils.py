@@ -541,7 +541,7 @@ class Claude(BaseAPIClient):
         raise NotImplementedError("Claude API はバッチ処理をサポートしていません。")
 
 class APIClientFactory:
-    def __init__(self, api_keys: Dict[str, str], prompt: str, add_prompt: str):
+    def __init__(self, api_keys: Dict[str, str], models, main_prompt: str, add_prompt: str):
         """
         API クライアントファクトリーのコンストラクタ。
 
@@ -551,29 +551,32 @@ class APIClientFactory:
         """
         self.api_clients = {}
         self.api_keys = api_keys
-        self.prompt = prompt
+        self.models = models
+        self.main_prompt = main_prompt
         self.add_prompt = add_prompt
         self._initialize_api_clients()
 
     def _initialize_api_clients(self):
-        """有効な API キーに基づいて API クライアントを生成します。"""
         if self.api_keys.get("openai_key"):
-            self.api_clients["openai"] = OpenAI(api_key=self.api_keys["openai_key"],
-                                                prompt=self.prompt,
-                                                add_prompt=self.add_prompt)
+            self.api_clients["openai"] = OpenAI(
+                api_key=self.api_keys["openai_key"],
+                prompt=self.main_prompt,
+                add_prompt=self.add_prompt
+            )
         if self.api_keys.get("google_key"):
-            self.api_clients["google"] = Google(api_key=self.api_keys["google_key"],
-                                                prompt=self.prompt,
-                                                add_prompt=self.add_prompt)
+            self.api_clients["google"] = Google(
+                api_key=self.api_keys["google_key"],
+                prompt=self.main_prompt,
+                add_prompt=self.add_prompt
+            )
         if self.api_keys.get("claude_key"):
-            self.api_clients["claude"] = Claude(api_key=self.api_keys["claude_key"],
-                                                prompt=self.prompt,
-                                                add_prompt=self.add_prompt)
+            self.api_clients["claude"] = Claude(
+                api_key=self.api_keys["claude_key"],
+                prompt=self.main_prompt,
+                add_prompt=self.add_prompt
+            )
 
     def get_api_client(self, model_name: str):
-        """
-        # ... (既存のコード)
-        """
         if model_name in OpenAI.SUPPORTED_VISION_MODELS:
             api_client = self.api_clients.get("openai")
             if api_client:

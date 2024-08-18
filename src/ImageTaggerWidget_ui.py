@@ -166,7 +166,6 @@ class Ui_ImageTaggerWidget(object):
         self.retranslateUi(ImageTaggerWidget)
         self.textEditPrompt.textChanged.connect(ImageTaggerWidget.send_vision_prompt)
         self.comboBoxModel.currentTextChanged.connect(ImageTaggerWidget.send_vision_model)
-        self.pushButtonGenerate.clicked.connect(ImageTaggerWidget.generate_tags_and_caption)
 
         QMetaObject.connectSlotsByName(ImageTaggerWidget)
     # setupUi

@@ -70,7 +70,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         return x, y
 
     def on_thumbnail_clicked(self, image_path: Path):
-        self.imageSelected.emit(image_path)  # imageSelected シグナルを発火
+        print(f"シグナル発行: {image_path}") # デバッグ用
+        self.imageSelected.emit(image_path)
 
 class ThumbnailItem(QGraphicsPixmapItem):
     def __init__(self, pixmap: QPixmap, image_path: Path, parent: QWidget):
