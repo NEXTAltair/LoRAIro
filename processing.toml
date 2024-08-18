@@ -15,6 +15,7 @@ token = "" # Hugging FaceのAPIトークン
 [directories]
 dataset = ""  # 画像ディレクトリのパス
 output = ""   # 出力ディレクトリのパス（空の場合はカレントディレクトリの'output'を使用）
+edited_output = ""  # 編集済みデータセットのパス（空の場合はカレントディレクトリの'edited_output'を使用）
 response_file = ""  # レスポンスファイルディレクトリのパス（空の場合はカレントディレクトリの'response_file'を使用）
 
 # 画像処理設定
