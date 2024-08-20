@@ -52,6 +52,11 @@ class APIError(Exception):
         error_code = error_data.get('code', '')
         detailed_message = error_data.get('message', error_message)
 
+        # Anthropic APIのクレジット不足エラーを特別に処理
+        if api_provider.lower() == "claude" and "credit balance is too low" in detailed_message.lower():
+            error_message = "クレジット残高が不足しています"
+            detailed_message = "Claude APIにアクセスするためのクレジット残高が不足しています。Plans & Billingでアップグレードまたはクレジットを購入してください。"
+
         raise cls(
             message=f"{error_message}: {detailed_message}",
             api_provider=api_provider,
@@ -59,6 +64,20 @@ class APIError(Exception):
             status_code=response.status_code,
             response=response
         )
+
+    @classmethod
+    def from_anthropic_error(cls, e: anthropic.APIError, api_provider: str):
+        status_code = getattr(e, 'status_code', 400)
+        error_code = getattr(e, 'error_code', '')
+        error_message = str(e)
+
+        # AnthropicのAPIErrorを擬似的なResponseオブジェクトに変換
+        pseudo_response = type('PseudoResponse', (), {
+            'status_code': status_code,
+            'json': lambda: {'error': {'message': error_message, 'code': error_code}}
+        })()
+
+        return cls.check_response(pseudo_response, api_provider)
 
     def retry_after(self) -> Optional[int]:
         if self.status_code == 429 and self.response is not None:
@@ -485,51 +504,65 @@ class Claude(BaseAPIClient):
     def generate_caption(self, image_path: Path, model_name: str = "claude-3-5-sonnet-20240620", **kwargs) -> str:
         """
         Claude API を使用して画像のキャプションを生成します。
-
         Args:
             image_path (Path): 画像のパス。
             model_name (str): 使用する Claude モデル名。デフォルトは "claude-3-5-sonnet-20240620"。
             **kwargs: API 固有のオプション (現時点では使用しません)。
-
         Returns:
             str: 生成されたキャプションを含む文字列。
         """
-        if self.image_data is None:
-            raise ValueError("画像データが設定されていません。")
+        try:
+            if self.image_data is None or str(image_path) not in self.image_data:
+                raise ValueError("画像データが設定されていません。")
 
-        # 画像を base64 エンコード
-        image_base64 = base64.b64encode(self.image_data[str(image_path)]).decode('utf-8')
+            # 画像を base64 エンコード
+            image_base64 = base64.b64encode(self.image_data[str(image_path)]).decode('utf-8')
 
-        # プロンプトと画像データを含むメッセージを作成
-        message_payload = {
-            "model": model_name,
-            "max_tokens_to_sample": 300,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/webp",  # 適切なメディアタイプを設定
-                                "data": image_base64,
+            # プロンプトと画像データを含むメッセージを作成
+            response = self.client.messages.create(
+                model=model_name,
+                max_tokens=300,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/webp",
+                                    "data": image_base64,
+                                },
                             },
-                        },
-                        {
-                            "type": "text",
-                            "text": self.prompt
-                        }
-                    ],
-                }
-            ],
-        }
+                            {
+                                "type": "text",
+                                "text": self.prompt
+                            }
+                        ],
+                    }
+                ],
+            )
 
-        # メッセージを送信
-        message = self.client.messages.create(**message_payload)
+            if hasattr(response, 'content') and isinstance(response.content, list):
+                # TextBlock オブジェクトから text 属性を抽出
+                text_content = [block.text for block in response.content if hasattr(block, 'text')]
+                return ' '.join(text_content)
+            elif isinstance(response, dict) and 'content' in response:
+                if isinstance(response['content'], list):
+                    # 辞書形式の場合、'text' キーから内容を抽出
+                    text_content = [item.get('text', '') for item in response['content'] if 'text' in item]
+                    return ' '.join(text_content)
+                elif isinstance(response['content'], str):
+                    return response['content']
 
-        # レスポンスを整形して返す
-        return message.completion.content
+            raise ValueError(f"Unexpected response format: {type(response)}")
+
+        except anthropic.APIError as e:
+            # Anthropic APIエラーを APIError クラスに変換
+            raise APIError.from_anthropic_error(e, "Claude")
+        except Exception as e:
+            self.logger.error(f"予期せぬエラーが発生しました: {str(e)}")
+            raise APIError(str(e), "Claude")
 
 
     def start_batch_processing(self, image_paths: List[Path], options: Optional[Dict[str, Any]] = None) -> str:
@@ -542,54 +575,137 @@ class Claude(BaseAPIClient):
 
 class APIClientFactory:
     def __init__(self, api_keys: Dict[str, str], models, main_prompt: str, add_prompt: str):
-        """
-        API クライアントファクトリーのコンストラクタ。
-
-        Args:
-            api_keys (Dict[str, str]): APIキーを含む辞書。
-            add_prompt (Dict[str, str]): 追加のプロンプトを含む辞書。
-        """
         self.api_clients = {}
         self.api_keys = api_keys
         self.models = models
         self.main_prompt = main_prompt
         self.add_prompt = add_prompt
+        self.logger = logging.getLogger(__name__)
         self._initialize_api_clients()
 
     def _initialize_api_clients(self):
         if self.api_keys.get("openai_key"):
-            self.api_clients["openai"] = OpenAI(
-                api_key=self.api_keys["openai_key"],
-                prompt=self.main_prompt,
-                add_prompt=self.add_prompt
-            )
+            if self._validate_openai_key(self.api_keys["openai_key"]):
+                self.api_clients["openai"] = OpenAI(
+                    api_key=self.api_keys["openai_key"],
+                    prompt=self.main_prompt,
+                    add_prompt=self.add_prompt
+                )
+            else:
+                self.logger.error("Invalid OpenAI API key")
+
         if self.api_keys.get("google_key"):
-            self.api_clients["google"] = Google(
-                api_key=self.api_keys["google_key"],
-                prompt=self.main_prompt,
-                add_prompt=self.add_prompt
-            )
+            if self._validate_google_key(self.api_keys["google_key"]):
+                self.api_clients["google"] = Google(
+                    api_key=self.api_keys["google_key"],
+                    prompt=self.main_prompt,
+                    add_prompt=self.add_prompt
+                )
+            else:
+                self.logger.error("Invalid Google API key")
+
         if self.api_keys.get("claude_key"):
-            self.api_clients["claude"] = Claude(
-                api_key=self.api_keys["claude_key"],
-                prompt=self.main_prompt,
-                add_prompt=self.add_prompt
+            if self._validate_claude_key(self.api_keys["claude_key"]):
+                self.api_clients["claude"] = Claude(
+                    api_key=self.api_keys["claude_key"],
+                    prompt=self.main_prompt,
+                    add_prompt=self.add_prompt
+                )
+            else:
+                self.logger.error("Invalid Claude API key")
+
+    def _validate_openai_key(self, api_key: str) -> bool:
+        headers = {
+            "Authorization": f"Bearer {api_key}"
+        }
+        response = requests.get("https://api.openai.com/v1/models", headers=headers)
+        return response.status_code == 200
+
+    def _validate_google_key(self, api_key: str) -> bool:
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-pro')
+            response = model.generate_content("Test")
+            return True
+        except Exception as e:
+            self.logger.error(f"Google API key validation failed: {str(e)}")
+            return False
+
+    def _validate_claude_key(self, api_key: str) -> bool:
+        client = anthropic.Anthropic(api_key=api_key)
+        try:
+            client.messages.create(
+                model="claude-3-sonnet-20240229",
+                max_tokens=10,
+                messages=[
+                    {"role": "user", "content": "Hello"}
+                ]
             )
+            return True
+        except anthropic.APIError:
+            return False
 
     def get_api_client(self, model_name: str):
         if model_name in OpenAI.SUPPORTED_VISION_MODELS:
             api_client = self.api_clients.get("openai")
             if api_client:
-                api_client.model_name = model_name  # model_name を設定
+                api_client.model_name = model_name
             return api_client, "openai"
         if model_name in Google.SUPPORTED_VISION_MODELS:
             api_client = self.api_clients.get("google")
             if api_client:
-                api_client.model_name = model_name  # model_name を設定
+                api_client.model_name = model_name
             return api_client, "google"
         if model_name in Claude.SUPPORTED_VISION_MODELS:
             api_client = self.api_clients.get("claude")
             if api_client:
-                api_client.model_name = model_name  # model_name を設定
+                api_client.model_name = model_name
             return api_client, "claude"
         raise ValueError(f"指定されたモデル名に対応する API クライアントが見つかりません: {model_name}")
+
+# ... (既存のコードはそのまま) ...
+
+if __name__ == "__main__":
+    # ロギングの設定
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+
+    # テスト用のAPIキー（実際の使用時は環境変数や設定ファイルから読み込むべきです）
+    api_keys = {
+        "openai_key": "your_openai_api_key_here",
+        "google_key": "your_google_api_key_here",
+        "claude_key": "your_claude_api_key_here"
+    }
+
+    # テスト用のプロンプトとモデル設定
+    main_prompt = "Describe this image in detail."
+    add_prompt = "Focus on the main subject."
+    models = [
+        {"name": "gpt-4-vision-preview", "provider": "openai", "type": "vision"},
+        {"name": "gemini-pro-vision", "provider": "google", "type": "vision"},
+        {"name": "claude-3-opus-20240229", "provider": "anthropic", "type": "vision"}
+    ]
+
+    try:
+        # APIClientFactoryのインスタンス化
+        factory = APIClientFactory(api_keys, models, main_prompt, add_prompt)
+
+        # 各APIクライアントの取得とテスト
+        for model in models:
+            try:
+                client, provider = factory.get_api_client(model["name"])
+                if client:
+                    logger.info(f"Successfully initialized {provider} client for model: {model['name']}")
+                    # ここで実際のAPIリクエストをテストすることもできます
+                    # 例: result = client.generate_caption(Path("test_image.jpg"))
+                    # logger.info(f"Test result: {result}")
+                else:
+                    logger.warning(f"Failed to initialize client for {provider}")
+            except ValueError as e:
+                logger.error(f"Error getting API client: {str(e)}")
+
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {str(e)}")
+        logger.debug(traceback.format_exc())
+
+    logger.info("API client initialization test completed.")
