@@ -92,6 +92,8 @@ class SQLiteManager:
                     has_alpha BOOLEAN,
                     filename TEXT NULL,
                     extension TEXT NOT NULL,
+                    color_space TEXT,
+                    icc_profile TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
@@ -107,6 +109,8 @@ class SQLiteManager:
                     mode TEXT NULL,
                     has_alpha BOOLEAN NOT NULL,
                     filename TEXT NULL,
+                    color_space TEXT,
+                    icc_profile TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
                 );
@@ -170,8 +174,8 @@ class ImageRepository:
 
         Args:
             info (Dict[str, Any]): 画像情報を含む辞書。
-                必須キー: 'stored_image_path', 'width', 'height', 'format', 'mode', 'has_alpha', 'filename', 'created_at'
-                オプションキー編集前: 'UUID', 'extension', 'updated_at'
+                必須キー: 'stored_image_path', 'width', 'height', 'format', 'mode', 'has_alpha', 'filename', 'created_at', 'color_space', 'icc_profile'
+                オプションキー編集前: 'uuid', 'extension', 'updated_at'
                 オプションキー編集後: 'image_id'
 
         Returns:
@@ -181,13 +185,17 @@ class ImageRepository:
             ValueError: 必須情報が不足している場合。
             sqlite3.Error: データベース操作でエラーが発生した場合。
         """
+        required_keys = ['stored_image_path', 'width', 'height', 'format', 'mode', 'has_alpha', 'filename', 'color_space', 'icc_profile']
+        if not all(key in info for key in required_keys):
+            missing_keys = [key for key in required_keys if key not in info]
+            raise ValueError(f"必須情報が不足しています: {', '.join(missing_keys)}")
         original = """
-        INSERT INTO images (uuid, stored_image_path, width, height, format, mode, has_alpha, filename, extension, created_at, updated_at)
-        VALUES (:uuid, :stored_image_path, :width, :height, :format, :mode, :has_alpha, :filename, :extension, :created_at, :updated_at)
+        INSERT INTO images (uuid, stored_image_path, width, height, format, mode, has_alpha, filename, extension, color_space, icc_profile, created_at, updated_at)
+        VALUES (:uuid, :stored_image_path, :width, :height, :format, :mode, :has_alpha, :filename, :extension, :color_space, :icc_profile, :created_at, :updated_at)
         """
         processed = """
-        INSERT INTO processed_images (image_id, stored_image_path, width, height, format, mode, has_alpha, filename, created_at)
-        VALUES (:image_id, :stored_image_path, :width, :height, :format, :mode, :has_alpha, :filename, :created_at)
+        INSERT INTO processed_images (image_id, stored_image_path, width, height, format, mode, has_alpha, filename, color_space, icc_profile, created_at)
+        VALUES (:image_id, :stored_image_path, :width, :height, :format, :mode, :has_alpha, :filename, :color_space, :icc_profile, :created_at)
         """
 
         current_time = datetime.now().isoformat()
@@ -611,3 +619,70 @@ class ImageDatabaseManager:
         except sqlite3.Error as e:
             self.logger.error(f"ビジョンモデルの取得中にエラーが発生しました: {e}")
             raise
+
+    def get_images_by_filter(self, tag_filter: str, caption_filter: str, min_resolution: int) -> List[Dict[str, Any]]:
+        """
+        指定されたフィルタ条件に基づいて画像を取得します。
+
+        Args:
+            tag_filter (str): タグによるフィルタ文字列
+            caption_filter (str): キャプションによるフィルタ文字列
+            min_resolution (int): 最小解像度（ピクセル単位）
+
+        Returns:
+            List[Dict[str, Any]]: フィルタ条件に合致する画像のリスト
+        """
+        query = """
+        SELECT DISTINCT i.id, i.stored_image_path, i.width, i.height
+        FROM images i
+        LEFT JOIN tags t ON i.id = t.image_id
+        LEFT JOIN captions c ON i.id = c.image_id
+        WHERE 1=1
+        """
+        params = []
+
+        if tag_filter:
+            tags = [tag.strip() for tag in tag_filter.split(',')]
+            query += " AND t.tag IN ({})".format(','.join(['?'] * len(tags)))
+            params.extend(tags)
+
+        if caption_filter:
+            query += " AND c.caption LIKE ?"
+            params.append(f"%{caption_filter}%")
+
+        query += " AND (i.width >= ? OR i.height >= ?)"
+        params.extend([min_resolution, min_resolution])
+
+        try:
+            with self.db_manager.transaction():
+                rows = self.db_manager.fetch_all(query, tuple(params))
+
+            results = []
+            for row in rows:
+                results.append({
+                    'id': row['id'],
+                    'path': Path(row['stored_image_path']),
+                    'width': row['width'],
+                    'height': row['height']
+                })
+
+            return results
+
+        except Exception as e:
+            self.logger.error(f"Error in get_images_by_filter: {e}")
+            return []
+
+    def get_total_image_count(self) -> int:
+        """
+        データベース内の総画像数を取得します。
+
+        Returns:
+            int: 総画像数
+        """
+        try:
+            query = "SELECT COUNT(*) FROM images"
+            result = self.db_manager.fetch_one(query)
+            return result[0] if result else 0
+        except Exception as e:
+            self.logger.error(f"総画像数の取得中にエラーが発生しました: {e}")
+            return 0

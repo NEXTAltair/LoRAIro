@@ -1,7 +1,8 @@
-from email.mime import image
+import os
 from pathlib import Path
-from typing import List, Dict, Any
-from PIL import Image
+from typing import Any
+from PIL import Image, ImageCms
+from io import BytesIO
 import math
 import json
 import shutil
@@ -12,7 +13,7 @@ class FileSystemManager:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.initialized = False
-        self.image_extensions = ['.jpg', '.png', '.bmp', '.gif', '.tif', '.tiff', '.jpeg', '.webp'] # 処理対象の画像拡張子
+        self.image_extensions = ['.jpg', '.png', '.bmp', '.gif', '.tif', '.tiff', '.jpeg', '.webp']
         self.image_dataset_dir = None
         self.resolution_dir = None
         self.original_images_dir = None
@@ -79,12 +80,12 @@ class FileSystemManager:
             self.logger.error("ディレクトリの作成に失敗: %s. FileSystemManager._create_directory: %s", path, str(e))
             raise
 
-    def get_image_files(self, input_dir: Path) -> List[Path]:
+    def get_image_files(self, input_dir: Path) -> list[Path]:
         """
         ディレクトリから画像ファイルのリストを取得｡
 
         Returns:
-            List[Path]: 画像ファイルのパスのリスト
+            list[Path]: 画像ファイルのパスのリスト
         """
         image_files = []
         for ext in self.image_extensions:
@@ -93,7 +94,7 @@ class FileSystemManager:
         return image_files
 
 
-    def get_image_info(self, image_path: Path) -> Dict[str, Any]:
+    def get_image_info(self, image_path: Path) -> dict[str, Any]:
         """
         画像ファイルから基本的な情報を取得する 不足している情報は登録時に設定
 
@@ -105,26 +106,37 @@ class FileSystemManager:
             image_path (Path): 画像ファイルのパス
 
         Returns:
-            Dict[str, Any]: 画像の基本情報（幅、高さ、フォーマット、モード、アルファチャンネル情報、ファイル名、ファイルの拡張子）
+            dict[str, Any]: 画像の基本情報（幅、高さ、フォーマット、モード、アルファチャンネル情報、ファイル名、ファイルの拡張子）
         """
         try:
             with Image.open(image_path) as img:
                 width, height = img.size
                 format_value = img.format.lower() if img.format else 'unknown'
                 mode = img.mode
-
                 # アルファチャンネル画像情報 BOOL
                 has_alpha = img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info)
 
-                return {
-                    'width': width,
-                    'height': height,
-                    'format': format_value,
-                    'mode': mode,
-                    'has_alpha': has_alpha,
-                    'filename': image_path.name,
-                    'extension': image_path.suffix,
-                }
+            # 色域情報の詳細な取得
+            color_space = mode
+            icc_profile = img.info.get('icc_profile')
+            if icc_profile:
+                try:
+                    profile = ImageCms.ImageCmsProfile(BytesIO(icc_profile))
+                    color_space = ImageCms.getProfileName(profile).strip()
+                except:
+                    pass
+
+            return {
+                'width': width,
+                'height': height,
+                'format': format_value,
+                'mode': mode,
+                'has_alpha': has_alpha,
+                'filename': image_path.name,
+                'extension': image_path.suffix,
+                'color_space': color_space,
+                'icc_profile': 'Present' if icc_profile else 'Not present'
+            }
         except Exception as e:
             message = f"画像情報の取得失敗: {image_path}. FileSystemManager.get_image_info: {str(e)}"
             self.logger.error(message)
@@ -176,6 +188,28 @@ class FileSystemManager:
             self.logger.error("処理済み画像の保存に失敗: %s. FileSystemManager.save_original_image: %s", new_filename, str(e))
             raise
 
+    def _copy_file(self, src: Path, dst: Path):
+        """
+        ファイルをコピーする独自の関数。
+        異なるドライブ間でのコピーにも対応。
+
+        Args:
+            src (Path): コピー元のファイルパス
+            dst (Path): コピー先のファイルパス
+        """
+        with open(src, 'rb') as fsrc:
+            with open(dst, 'wb') as fdst:
+                buffer_size = 10 * 1024 * 1024  # 10MB buffer
+                while True:
+                    buffer = fsrc.read(buffer_size)
+                    if not buffer:
+                        break
+                    fdst.write(buffer)
+
+        # ファイルの更新日時と作成日時を設定
+        os.utime(dst, (os.path.getatime(src), os.path.getmtime(src)))
+        shutil.copystat(src, dst)
+
     def save_original_image(self, image_file: Path) -> Path:
         """
         元の画像をデータベース用ディレクトリに保存します。
@@ -201,7 +235,7 @@ class FileSystemManager:
                 output_path = save_dir / new_filename
                 counter += 1
             # 画像をコピー
-            shutil.copy2(str(image_file), str(output_path))
+            self._copy_file(image_file, output_path)
 
             self.logger.info("元画像を保存: %s", output_path)
             return output_path
@@ -218,12 +252,12 @@ class FileSystemManager:
         batch_request = self.batch_request_dir / 'batch_request.jsonl' # type: ignore
         return batch_request
 
-    def save_batch_request(self, file_path: Path, data: Dict[str, Any]):
+    def save_batch_request(self, file_path: Path, data: dict[str, Any]):
         """バッチリクエストデータをJSONLファイルとして保存します。
 
         Args:
             file_path (Path): 追加先のJSONLファイルのパス
-            data (Dict[str, Any]): 追加するデータ
+            data (dict[str, Any]): 追加するデータ
         """
         with open(file_path, 'a', encoding='utf-8') as f:
             json.dump(data, f)
