@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 import logging
@@ -10,10 +9,11 @@ class ImageAnalyzer:
     画像のキャプション生成、タグ生成などの
     画像分析タスクを実行
     """
+    logger = logging.getLogger(__name__)
 
     def __init__(self):
-        self.logger = logging.getLogger(__name__)
         self.tag_cleaner = initialize_tag_cleaner()
+        self.logger = ImageAnalyzer.logger
 
     def initialize(self, api_client_factory: APIClientFactory, models_config: List[Dict[str, str]]):
         """
@@ -33,7 +33,8 @@ class ImageAnalyzer:
         if not self.score_models:
             self.logger.warning("Score modelが設定ファイルで指定されていません。スコア計算は行われません。")
 
-    def get_existing_annotations(self, image_path: Path) -> Optional[Dict[str, List[Dict[str, str]]]]:
+    @staticmethod
+    def get_existing_annotations(image_path: Path) -> Optional[Dict[str, List[Dict[str, str]]]]:
         """
         画像の参照元ディレクトリから既存のタグとキャプションを取得。
 
@@ -62,21 +63,22 @@ class ImageAnalyzer:
 
         try:
             if tag_path.exists():
-                existing_annotations['tags'] = self._read_annotations(tag_path, 'tag')
+                existing_annotations['tags'] = ImageAnalyzer._read_annotations(tag_path, 'tag')
             if caption_path.exists():
-                existing_annotations['captions'] = self._read_annotations(caption_path, 'caption')
+                existing_annotations['captions'] = ImageAnalyzer._read_annotations(caption_path, 'caption')
 
             if not existing_annotations['tags'] and not existing_annotations['captions']:
-                self.logger.info(f"既存アノテーション無し: {image_path}")
+                ImageAnalyzer.logger.info(f"既存アノテーション無し: {image_path}")
                 return None
 
         except Exception as e:
-            self.logger.warning(f"アノテーションファイルの読み込み中にエラーが発生しました: {str(e)}")
+            ImageAnalyzer.logger.warning(f"アノテーションファイルの読み込み中にエラーが発生しました: {str(e)}")
             return None
 
         return existing_annotations
 
-    def _read_annotations(self, file_path: Path, key: str) -> List[Dict[str, str]]:
+    @staticmethod
+    def _read_annotations(file_path: Path, key: str) -> List[Dict[str, str]]:
         """
         指定されたファイルからアノテーションを読み込み、辞書のリストとして返す。
 
@@ -87,8 +89,9 @@ class ImageAnalyzer:
         Returns:
             List[Dict[str, str]]: アノテーションの辞書リスト
         """
+        from module.cleanup_txt import TagCleaner
         with open(file_path, 'r', encoding='utf-8') as f:
-            clean_data = self.tag_cleaner.clean_format(f.read())
+            clean_data = TagCleaner.clean_format(f.read())
             items = clean_data.strip().split(',')
             annotations = []
             for item in items:
@@ -97,17 +100,19 @@ class ImageAnalyzer:
                     annotations.append({key: stripped_item})
             return annotations
 
-    def analyze_image(self, image_path: Path, model_name: str) -> Dict[str, Any]:
+    def analyze_image(self, image_path: Path, model_name: str, format_name: Optional[str] =None) -> Dict[str, Any]:
         """
         指定された画像を分析し、結果を返す。
 
         Args:
             image_path (Path): 分析する画像のファイルパス
             model_name (str): Vision モデル
+            tag_format (str): タグのフォーマット (オプション)
 
         Returns:
             Dict[str, Any]: 分析結果を含む辞書（タグ、キャプション）
         """
+        self.format_name = format_name
         try:
             api_client, _ = self.api_client_factory.get_api_client(model_name)
             if not api_client:
@@ -189,7 +194,7 @@ class ImageAnalyzer:
         tags_text = content[tags_index + len('tags:'):caption_index].strip() if tags_index != -1 else ""
         caption_text = content[caption_index + len('caption:'):].strip() if caption_index != -1 else ""
 
-        return self.tag_cleaner.clean_tags(tags_text), self.tag_cleaner.clean_caption(caption_text)
+        return self.tag_cleaner.clean_tags(tags_text, self.format_name), self.tag_cleaner.clean_caption(caption_text)
 
     def _calculate_score(self, tags: List[str], caption: str) -> float:
         """
