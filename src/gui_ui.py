@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (QApplication, QLabel, QListWidget, QListWidgetIte
     QSplitter, QStackedWidget, QStatusBar, QVBoxLayout,
     QWidget)
 
+from DatasetExportWidget import DatasetExportWidget
 from DatasetOverviewWidget import DatasetOverviewWidget
 from DirectoryPickerWidget import DirectoryPickerWidget
 from ImageEditWidget import ImageEditWidget
@@ -31,7 +32,7 @@ class Ui_mainWindow(object):
     def setupUi(self, mainWindow):
         if not mainWindow.objectName():
             mainWindow.setObjectName(u"mainWindow")
-        mainWindow.resize(1355, 836)
+        mainWindow.resize(802, 565)
         sizePolicy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
@@ -74,9 +75,10 @@ class Ui_mainWindow(object):
         QListWidgetItem(self.sidebarList)
         QListWidgetItem(self.sidebarList)
         QListWidgetItem(self.sidebarList)
+        QListWidgetItem(self.sidebarList)
         self.sidebarList.setObjectName(u"sidebarList")
         sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        sizePolicy2.setHorizontalStretch(2)
+        sizePolicy2.setHorizontalStretch(1)
         sizePolicy2.setVerticalStretch(0)
         sizePolicy2.setHeightForWidth(self.sidebarList.sizePolicy().hasHeightForWidth())
         self.sidebarList.setSizePolicy(sizePolicy2)
@@ -84,10 +86,15 @@ class Ui_mainWindow(object):
         self.mainWindowSplitter.addWidget(self.sidebarList)
         self.contentStackedWidget = QStackedWidget(self.mainWindowSplitter)
         self.contentStackedWidget.setObjectName(u"contentStackedWidget")
-        sizePolicy.setHeightForWidth(self.contentStackedWidget.sizePolicy().hasHeightForWidth())
-        self.contentStackedWidget.setSizePolicy(sizePolicy)
+        sizePolicy3 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        sizePolicy3.setHorizontalStretch(2)
+        sizePolicy3.setVerticalStretch(0)
+        sizePolicy3.setHeightForWidth(self.contentStackedWidget.sizePolicy().hasHeightForWidth())
+        self.contentStackedWidget.setSizePolicy(sizePolicy3)
         self.pageImageEdit = ImageEditWidget()
         self.pageImageEdit.setObjectName(u"pageImageEdit")
+        sizePolicy.setHeightForWidth(self.pageImageEdit.sizePolicy().hasHeightForWidth())
+        self.pageImageEdit.setSizePolicy(sizePolicy)
         self.verticalLayoutImageEdit = QVBoxLayout(self.pageImageEdit)
         self.verticalLayoutImageEdit.setObjectName(u"verticalLayoutImageEdit")
         self.contentStackedWidget.addWidget(self.pageImageEdit)
@@ -96,8 +103,15 @@ class Ui_mainWindow(object):
         sizePolicy.setHeightForWidth(self.pageImageTagger.sizePolicy().hasHeightForWidth())
         self.pageImageTagger.setSizePolicy(sizePolicy)
         self.contentStackedWidget.addWidget(self.pageImageTagger)
+        self.pageDatasetOverview = DatasetOverviewWidget()
+        self.pageDatasetOverview.setObjectName(u"pageDatasetOverview")
+        sizePolicy.setHeightForWidth(self.pageDatasetOverview.sizePolicy().hasHeightForWidth())
+        self.pageDatasetOverview.setSizePolicy(sizePolicy)
+        self.contentStackedWidget.addWidget(self.pageDatasetOverview)
         self.pageTagCaptionEdit = QWidget()
         self.pageTagCaptionEdit.setObjectName(u"pageTagCaptionEdit")
+        sizePolicy.setHeightForWidth(self.pageTagCaptionEdit.sizePolicy().hasHeightForWidth())
+        self.pageTagCaptionEdit.setSizePolicy(sizePolicy)
         self.verticalLayoutTagCaptionEdit = QVBoxLayout(self.pageTagCaptionEdit)
         self.verticalLayoutTagCaptionEdit.setObjectName(u"verticalLayoutTagCaptionEdit")
         self.labelTagCaptionEditTitle = QLabel(self.pageTagCaptionEdit)
@@ -106,23 +120,17 @@ class Ui_mainWindow(object):
         self.verticalLayoutTagCaptionEdit.addWidget(self.labelTagCaptionEditTitle)
 
         self.contentStackedWidget.addWidget(self.pageTagCaptionEdit)
-        self.pageDatasetOverview = DatasetOverviewWidget()
-        self.pageDatasetOverview.setObjectName(u"pageDatasetOverview")
-        sizePolicy.setHeightForWidth(self.pageDatasetOverview.sizePolicy().hasHeightForWidth())
-        self.pageDatasetOverview.setSizePolicy(sizePolicy)
-        self.contentStackedWidget.addWidget(self.pageDatasetOverview)
-        self.pageBatchProcessing = QWidget()
-        self.pageBatchProcessing.setObjectName(u"pageBatchProcessing")
-        self.verticalLayoutBatchProcessing = QVBoxLayout(self.pageBatchProcessing)
+        self.pageExport = DatasetExportWidget()
+        self.pageExport.setObjectName(u"pageExport")
+        sizePolicy.setHeightForWidth(self.pageExport.sizePolicy().hasHeightForWidth())
+        self.pageExport.setSizePolicy(sizePolicy)
+        self.verticalLayoutBatchProcessing = QVBoxLayout(self.pageExport)
         self.verticalLayoutBatchProcessing.setObjectName(u"verticalLayoutBatchProcessing")
-        self.labelBatchProcessingTitle = QLabel(self.pageBatchProcessing)
-        self.labelBatchProcessingTitle.setObjectName(u"labelBatchProcessingTitle")
-
-        self.verticalLayoutBatchProcessing.addWidget(self.labelBatchProcessingTitle)
-
-        self.contentStackedWidget.addWidget(self.pageBatchProcessing)
+        self.contentStackedWidget.addWidget(self.pageExport)
         self.pageSettings = SettingspageWidget()
         self.pageSettings.setObjectName(u"pageSettings")
+        sizePolicy.setHeightForWidth(self.pageSettings.sizePolicy().hasHeightForWidth())
+        self.pageSettings.setSizePolicy(sizePolicy)
         self.verticalLayoutSettings = QVBoxLayout(self.pageSettings)
         self.verticalLayoutSettings.setObjectName(u"verticalLayoutSettings")
         self.contentStackedWidget.addWidget(self.pageSettings)
@@ -133,7 +141,7 @@ class Ui_mainWindow(object):
         mainWindow.setCentralWidget(self.centralWidget)
         self.menuBar = QMenuBar(mainWindow)
         self.menuBar.setObjectName(u"menuBar")
-        self.menuBar.setGeometry(QRect(0, 0, 1355, 21))
+        self.menuBar.setGeometry(QRect(0, 0, 802, 21))
         self.menuFile = QMenu(self.menuBar)
         self.menuFile.setObjectName(u"menuFile")
         self.menuHelp = QMenu(self.menuBar)
@@ -153,7 +161,7 @@ class Ui_mainWindow(object):
         self.retranslateUi(mainWindow)
         self.sidebarList.currentRowChanged.connect(self.contentStackedWidget.setCurrentIndex)
 
-        self.contentStackedWidget.setCurrentIndex(1)
+        self.contentStackedWidget.setCurrentIndex(4)
 
 
         QMetaObject.connectSlotsByName(mainWindow)
@@ -173,18 +181,19 @@ class Ui_mainWindow(object):
         ___qlistwidgetitem1 = self.sidebarList.item(1)
         ___qlistwidgetitem1.setText(QCoreApplication.translate("mainWindow", u"\u81ea\u52d5\u30bf\u30b0\u4ed8\u3051", None));
         ___qlistwidgetitem2 = self.sidebarList.item(2)
-        ___qlistwidgetitem2.setText(QCoreApplication.translate("mainWindow", u"\u30bf\u30b0/\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3\u7de8\u96c6", None));
+        ___qlistwidgetitem2.setText(QCoreApplication.translate("mainWindow", u"\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8\u6982\u8981", None));
         ___qlistwidgetitem3 = self.sidebarList.item(3)
-        ___qlistwidgetitem3.setText(QCoreApplication.translate("mainWindow", u"\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8\u6982\u8981", None));
+        ___qlistwidgetitem3.setText(QCoreApplication.translate("mainWindow", u"\u30bf\u30b0/\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3\u7de8\u96c6", None));
         ___qlistwidgetitem4 = self.sidebarList.item(4)
-        ___qlistwidgetitem4.setText(QCoreApplication.translate("mainWindow", u"\u30d0\u30c3\u30c1\u51e6\u7406", None));
+        ___qlistwidgetitem4.setText(QCoreApplication.translate("mainWindow", u"\u30a8\u30af\u30b9\u30dd\u30fc\u30c8", None));
         ___qlistwidgetitem5 = self.sidebarList.item(5)
-        ___qlistwidgetitem5.setText(QCoreApplication.translate("mainWindow", u"\u8a2d\u5b9a", None));
+        ___qlistwidgetitem5.setText(QCoreApplication.translate("mainWindow", u"\u30d0\u30c3\u30c1\u51e6\u7406", None));
+        ___qlistwidgetitem6 = self.sidebarList.item(6)
+        ___qlistwidgetitem6.setText(QCoreApplication.translate("mainWindow", u"\u8a2d\u5b9a", None));
         self.sidebarList.setSortingEnabled(__sortingEnabled)
 
-        self.labelTagCaptionEditTitle.setText(QCoreApplication.translate("mainWindow", u"\u30bf\u30b0/\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3\u7de8\u96c6", None))
         self.pageDatasetOverview.setWindowTitle(QCoreApplication.translate("mainWindow", u"\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8\u6982\u8981", None))
-        self.labelBatchProcessingTitle.setText(QCoreApplication.translate("mainWindow", u"\u30d0\u30c3\u30c1\u51e6\u7406", None))
+        self.labelTagCaptionEditTitle.setText(QCoreApplication.translate("mainWindow", u"\u30bf\u30b0/\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3\u7de8\u96c6", None))
         self.menuFile.setTitle(QCoreApplication.translate("mainWindow", u"\u30d5\u30a1\u30a4\u30eb", None))
         self.menuHelp.setTitle(QCoreApplication.translate("mainWindow", u"\u30d8\u30eb\u30d7", None))
     # retranslateUi
