@@ -107,11 +107,11 @@ class TagCleaner:
         # プレースホルダーを元の '^_^' に戻す
         return text.replace('^@@@^', '^_^')
 
-    def clean_tags(self, tags: str, format_name: str = "e621") -> str:
+    def clean_tags(self, tags: str, format_name: str = "unknown") -> str:
         """タグをクリーニングする
         Args:
             tags (str): クリーニングするタグ
-            format_id (int): タグの形式ID デフォルトでe621
+            format_id (int): タグの形式ID デフォルトでunknown
         Returns:
             final_tags (str): クリーニング後のタグ
         """
@@ -220,60 +220,6 @@ class TagCleaner:
                 cleaned_tags_dict[key] = tag
 
         return cleaned_tags_dict
-
-    # def _cleanup_tag_sql(self, tags: Dict[int, str], format_id: int) -> str:
-    #     """.dbファイルでタグをクリーニングする
-    #     Args:
-    #         tags (dict): クリーニングするタグ
-    #         format_id (int): タグの形式ID
-    #     Returns:
-    #         cleaned_tags (str): クリーニング後のタグ
-    #     """
-    #     cleaned_tags_list = []
-
-    #     try:
-    #         with sqlite3.connect(self.db_path) as conn:
-    #             cursor = conn.cursor()
-
-    #             # テーブル構造を確認
-    #             cursor.execute("PRAGMA table_info(TAGS)")
-    #             columns = cursor.fetchall()
-    #             logger.debug(f"TAGS テーブルの構造: {columns}")
-
-    #             query = """
-    #             SELECT T.TAGS AS tag
-    #             FROM TAGS T
-    #             LEFT JOIN TAG_STATUS TS ON T.tag_id = TS.tag_id
-    #             LEFT JOIN TAGS PT ON TS.preferred_tag_id = PT.tag_id
-    #             WHERE T.tag = ? AND (TS.format_id = ? OR TS.format_id IS NULL)
-    #             """
-
-    #             logger.debug(f"実行クエリ: {query}")
-    #             logger.debug(f"format_id: {format_id}")
-
-    #             for _, tag_to_cleanup in tags:
-    #                 try:
-    #                     logger.debug(f"処理中のタグ: {tag_to_cleanup}")
-    #                     cursor.execute(query, (tag_to_cleanup, format_id))
-    #                     result = cursor.fetchone()
-                        
-    #                     if result:
-    #                         cleaned_tag = result[0]
-    #                         logger.info(f"置換前: {tag_to_cleanup}")
-    #                         logger.info(f"置換後: {cleaned_tag}")
-    #                         cleaned_tags_list.append(cleaned_tag)
-    #                     else:
-    #                         logger.info(f"タグ '{tag_to_cleanup}' は変更されませんでした")
-    #                         cleaned_tags_list.append(tag_to_cleanup)
-    #                 except sqlite3.Error as e:
-    #                     logger.error(f"タグ '{tag_to_cleanup}' の処理中にSQLiteエラーが発生しました: {e}")
-    #                     cleaned_tags_list.append(tag_to_cleanup)
-
-    #     except sqlite3.Error as e:
-    #         logger.error(f"データベース接続またはクエリ実行中にエラーが発生しました: {e}")
-    #         return tags  # エラーが発生した場合、元のタグをそのまま返す
-
-    #     return ", ".join(cleaned_tags_list)
 
     @staticmethod
     def clean_caption(caption: str) -> str:
