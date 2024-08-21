@@ -14,14 +14,15 @@ class ImageAnalyzer:
     def __init__(self):
         self.tag_cleaner = initialize_tag_cleaner()
         self.logger = ImageAnalyzer.logger
+        self.format_name = "unknown"
 
-    def initialize(self, api_client_factory: APIClientFactory, models_config: List[Dict[str, str]]):
+    def initialize(self, api_client_factory: APIClientFactory, models_config: List[dict[str, str]]):
         """
         ImageAnalyzerクラスのコンストラクタ。
 
         Args:
             api_client_factory (APIClientFactory): API名とAPIクライアントの対応辞書
-            models_config (List[Dict[str, str]]): モデル設定のリスト。各辞書は'name'と'type'キーを含む。
+            models_config (List[dict[str, str]]): モデル設定のリスト。各辞書は'name'と'type'キーを含む。
         """
         self.api_client_factory = api_client_factory
         self.models = {model['name']: model['type'] for model in models_config}
@@ -34,7 +35,7 @@ class ImageAnalyzer:
             self.logger.warning("Score modelが設定ファイルで指定されていません。スコア計算は行われません。")
 
     @staticmethod
-    def get_existing_annotations(image_path: Path) -> Optional[Dict[str, List[Dict[str, str]]]]:
+    def get_existing_annotations(image_path: Path) -> Optional[dict[str, List[dict[str, str]]]]:
         """
         画像の参照元ディレクトリから既存のタグとキャプションを取得。
 
@@ -42,7 +43,7 @@ class ImageAnalyzer:
             image_path (Path): 画像ファイルのパス
 
         Returns:
-            Dict[str, List[Dict[str, str]]]: 'tags'と'captions'をキーとする辞書。
+            dict[str, List[dict[str, str]]]: 'tags'と'captions'をキーとする辞書。
             None : 既存のアノテーションが見つからない場合
         例:
         {
@@ -78,7 +79,7 @@ class ImageAnalyzer:
         return existing_annotations
 
     @staticmethod
-    def _read_annotations(file_path: Path, key: str) -> List[Dict[str, str]]:
+    def _read_annotations(file_path: Path, key: str) -> list[dict[str, str]]:
         """
         指定されたファイルからアノテーションを読み込み、辞書のリストとして返す。
 
@@ -87,7 +88,7 @@ class ImageAnalyzer:
             key (str): 辞書のキー ('tag' または 'caption')
 
         Returns:
-            List[Dict[str, str]]: アノテーションの辞書リスト
+            list[dict[str, str]]: アノテーションの辞書リスト
         """
         from module.cleanup_txt import TagCleaner
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -100,7 +101,7 @@ class ImageAnalyzer:
                     annotations.append({key: stripped_item})
             return annotations
 
-    def analyze_image(self, image_path: Path, model_name: str, format_name: Optional[str] =None) -> Dict[str, Any]:
+    def analyze_image(self, image_path: Path, model_name: str, format_name: str="unknown") -> dict[str, Any]:
         """
         指定された画像を分析し、結果を返す。
 
@@ -110,7 +111,7 @@ class ImageAnalyzer:
             tag_format (str): タグのフォーマット (オプション)
 
         Returns:
-            Dict[str, Any]: 分析結果を含む辞書（タグ、キャプション）
+            dict[str, Any]: 分析結果を含む辞書（タグ、キャプション）
         """
         self.format_name = format_name
         try:
@@ -130,7 +131,7 @@ class ImageAnalyzer:
             self.logger.error("画像処理中に予期せぬエラーが発生しました（画像: %s）: %s", image_path, str(e))
             return {'error': str(e), 'image_path': str(image_path)}
 
-    def _process_response(self, image_path: Path, tags_str: str) -> Dict[str, Any]:
+    def _process_response(self, image_path: Path, tags_str: str) -> dict[str, Any]:
         """APIレスポンスを処理し、タグ、キャプション、抽出。
 
         Args:
@@ -138,7 +139,7 @@ class ImageAnalyzer:
             tags_str (str): APIからのレスポンス
 
         Returns:
-            Dict[str, Any]: タグ、キャプション、画像パスを含む辞書
+            dict[str, Any]: タグ、キャプション、画像パスを含む辞書
         """
         try:
             content = self.tag_cleaner.clean_format(tags_str)
@@ -155,7 +156,7 @@ class ImageAnalyzer:
             self.logger.error("レスポンス処理中にエラーが発生しました（画像: %s）: %s", image_path, str(e))
             raise
 
-    def create_batch_request(self, image_path: Path, model_name: str) -> Dict[str, Any]:
+    def create_batch_request(self, image_path: Path, model_name: str) -> dict[str, Any]:
         """単一の画像に対するバッチリクエストデータを生成します。
 
         Args:
@@ -163,7 +164,7 @@ class ImageAnalyzer:
             model_name (str): 使用するモデル名
 
         Returns:
-            Dict[str, Any]: バッチリクエスト用のデータ
+            dict[str, Any]: バッチリクエスト用のデータ
         """
         api_client, api_provider = self.api_client_factory.get_api_client(model_name)
         if not api_client:
@@ -189,6 +190,7 @@ class ImageAnalyzer:
 
         if tags_index == -1 and caption_index == -1:
             self.logger.error("画像 %s の処理に失敗しました。タグまたはキャプションが見つかりません。", image_key)
+            self.logger.error(" APIからの応答: %s ", content)
             return "", ""
 
         tags_text = content[tags_index + len('tags:'):caption_index].strip() if tags_index != -1 else ""
@@ -213,12 +215,12 @@ class ImageAnalyzer:
         caption_score = len(caption.split()) * 0.05  # キャプションの単語1つにつき0.05ポイント
         return min(tag_score + caption_score, 1.0)  # スコアの上限を1.0に設定 TODO: そのうちやる
 
-    def get_batch_analysis(self, batch_results: Dict[str, str], processed_path: Path):
+    def get_batch_analysis(self, batch_results: dict[str, str], processed_path: Path):
         """
         バッチ処理結果から指定された画像の分析結果を取得します。
 
         Args:
-            batch_results (Dict[str, str]): バッチ処理結果 (画像パスをキー、分析結果を値とする辞書)
+            batch_results (dict[str, str]): バッチ処理結果 (画像パスをキー、分析結果を値とする辞書)
             processed_path (Path): 処理後の画像のパス
 
         Returns:
@@ -243,7 +245,7 @@ if __name__ == "__main__":
     idm = ImageDatabaseManager()
     models = idm.get_models()
     # API クライアントファクトリーを作成
-    acf = APIClientFactory(api_keys, prompt, add_prompt)
+    acf = APIClientFactory(api_keys, models, prompt, add_prompt)
     Ia = ImageAnalyzer()
     Ia.initialize(acf, models)
     result = Ia.analyze_image(image_path, 'gpt-4o')

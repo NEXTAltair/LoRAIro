@@ -10,7 +10,6 @@ class ThumbnailItem(QGraphicsObject):
     サムネイル画像を表すクラス。
     選択されたときに枠を表示します。
     """
-
     def __init__(self, pixmap: QPixmap, image_path: Path, parent: 'ThumbnailSelectorWidget'):
         super().__init__()
         self.pixmap = pixmap
@@ -47,7 +46,6 @@ class CustomGraphicsView(QGraphicsView):
     def mousePressEvent(self, event):
         """
         アイテムがクリックされたときに信号を発行します。
-
         Args:
             event (QMouseEvent): マウスイベント
         """
@@ -63,12 +61,10 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     imageSelected = Signal(Path)
     multipleImagesSelected = Signal(list)
     deselected = Signal()
-    selectionChanged = Signal(list)
 
     def __init__(self, parent=None):
         """
         コンストラクタ
-
         Args:
             parent (QWidget, optional): 親ウィジェット. Defaults to None.
         """
@@ -92,7 +88,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     def resizeEvent(self, event):
         """
         ウィジェットがリサイズされたときにサムネイルのレイアウトを更新します。
-
         Args:
             event (QResizeEvent): リサイズイベント
         """
@@ -103,7 +98,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     def load_images(self, image_paths: list[Path]):
         """
         画像のリストをウィジェットにロードし、サムネイルとして表示します。
-
         Args:
             image_paths (list[Path]): 画像のパスのリスト
         """
@@ -129,7 +123,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     def add_thumbnail_item(self, image_path: Path, index: int, column_count: int):
         """
         指定されたグリッド位置にサムネイルアイテムをシーンに追加します。
-
         Args:
             image_path (Path): 画像のファイルパス
             index (int): アイテムのインデックス
@@ -150,12 +143,10 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     def handle_item_selection(self, item: ThumbnailItem, modifiers: Qt.KeyboardModifier):
         """
         アイテムの選択を処理し、単一選択、コントロール選択、シフト選択をサポートします。
-
         Args:
             item (ThumbnailItem): 選択されたサムネイルアイテム
             modifiers (Qt.KeyboardModifier): キーボード修飾キー
         """
-        # print(f"Selection: {item.image_path}, Ctrl: {bool(modifiers & Qt.KeyboardModifier.ControlModifier)}, Shift: {bool(modifiers & Qt.KeyboardModifier.ShiftModifier)}")
         if modifiers & Qt.KeyboardModifier.ControlModifier:
             item.setSelected(not item.isSelected())
         elif modifiers & Qt.KeyboardModifier.ShiftModifier and self.last_selected_item:
@@ -165,13 +156,16 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
                 if other_item != item:
                     other_item.setSelected(False)
             item.setSelected(True)
-
         self.last_selected_item = item
-        self.imageSelected.emit(item.image_path)
         self.update_selection()
-        self.scene.update()  # シーン全体の更新を強制
 
     def select_range(self, start_item, end_item):
+        """
+        開始アイテムと終了アイテムの間の範囲を選択します。
+        Args:
+            start_item (ThumbnailItem): 範囲選択の開始アイテム
+            end_item (ThumbnailItem): 範囲選択の終了アイテム
+        """
         if start_item is None or end_item is None:
             return
         start_index = self.thumbnail_items.index(start_item)
@@ -179,12 +173,12 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         start_index, end_index = min(start_index, end_index), max(start_index, end_index)
         for i, item in enumerate(self.thumbnail_items):
             item.setSelected(start_index <= i <= end_index)
-        self.scene.update()
+        self.update_selection()
 
     def update_selection(self):
-        selected_images = self.get_selected_images()
-        # print(f"Selected images: {[str(path) for path in selected_images]}")
-        # print("Selection state of all items:")
+        """
+        現在選択されている画像のリストを取得し、対応するシグナルを発行します。
+        """
         selected_images = self.get_selected_images()
         if len(selected_images) > 1:
             self.multipleImagesSelected.emit(selected_images)
@@ -192,12 +186,10 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             self.imageSelected.emit(selected_images[0])
         else:
             self.deselected.emit()
-        self.scene.update()
 
     def get_selected_images(self) -> list[Path]:
         """
         現在選択されている画像のパスのリストを返します。
-
         Returns:
             list[Path]: 選択された画像のパスのリスト
         """
@@ -206,13 +198,13 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     def select_first_image(self):
         """
         リスト内の最初の画像を選択します（存在する場合）。
+        ディレクトリ選択時最初の画像をプレビューに表示するため｡
         """
         if self.thumbnail_items:
             first_item = self.thumbnail_items[0]
             self.scene.clearSelection()
             first_item.setSelected(True)
             self.last_selected_item = first_item
-            self.imageSelected.emit(first_item.image_path)
             self.update_selection()
 
 if __name__ == "__main__":
@@ -237,7 +229,6 @@ if __name__ == "__main__":
             print(f"警告: ファイルが見つかりません: {path}")
     widget.load_images(image_paths)
     widget.imageSelected.connect(lambda path:  print(f"選択された画像: {path}"))
-    widget.selectionChanged.connect(lambda paths:  print(f"選択された画像数: {len(paths)}"))
     widget.setMinimumSize(400, 300)  # ウィジェットの最小サイズを設定
     widget.show()
     sys.exit(app.exec())

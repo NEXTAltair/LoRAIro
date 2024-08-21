@@ -188,7 +188,8 @@ class FileSystemManager:
             self.logger.error("処理済み画像の保存に失敗: %s. FileSystemManager.save_original_image: %s", new_filename, str(e))
             raise
 
-    def _copy_file(self, src: Path, dst: Path):
+    @staticmethod
+    def copy_file(src: Path, dst: Path, buffer_size: int = 64 * 1024 * 1024):  # デフォルト64MB
         """
         ファイルをコピーする独自の関数。
         異なるドライブ間でのコピーにも対応。
@@ -196,10 +197,10 @@ class FileSystemManager:
         Args:
             src (Path): コピー元のファイルパス
             dst (Path): コピー先のファイルパス
+            buffer_size (int): バッファサイズ（バイト）。デフォルトは64MB。
         """
         with open(src, 'rb') as fsrc:
             with open(dst, 'wb') as fdst:
-                buffer_size = 10 * 1024 * 1024  # 10MB buffer
                 while True:
                     buffer = fsrc.read(buffer_size)
                     if not buffer:
@@ -235,7 +236,7 @@ class FileSystemManager:
                 output_path = save_dir / new_filename
                 counter += 1
             # 画像をコピー
-            self._copy_file(image_file, output_path)
+            self.copy_file(image_file, output_path)
 
             self.logger.info("元画像を保存: %s", output_path)
             return output_path
@@ -285,3 +286,44 @@ class FileSystemManager:
             split_path = split_dir / split_filename
             with open(split_path, 'w', encoding='utf-8') as f:
                 f.writelines(lines[i * lines_per_file:(i + 1) * lines_per_file])
+
+    @staticmethod
+    def export_dataset_to_txt(image_paths: list[Path], all_tags: list[str], all_captions: list[str], save_dir: Path):
+        """学習用データセットをテキスト形式で指定ディレクトリに出力する
+
+        Args:
+            image_paths (list[Path]): 画像ファイルのパスのリスト
+            all_tags (list[str]): 各画像に対応するカンマ区切りのタグ文字列のリスト
+            all_captions (list[str]): 各画像に対応するキャプション文字列のリスト
+            save_dir (Path): 保存先のディレクトリパス
+        """
+        for i, image_path in enumerate(image_paths):
+            file_name = image_path.stem
+
+            with open(save_dir / f"{file_name}.txt", "w", encoding="utf-8") as f:
+                f.write(all_tags[i])
+
+            with open(save_dir / f"{file_name}.caption", "w", encoding="utf-8") as f:
+                f.write(all_captions[i])
+
+            FileSystemManager.copy_file(image_path, save_dir / image_path.name)
+
+    @staticmethod
+    def export_dataset_to_json(image_paths: list[Path], all_tags: list[str], all_captions: list[str], save_dir: Path):
+        """学習用データセットをJSON形式で指定ディレクトリに出力する
+
+        Args:
+            image_paths (list[Path]): 画像ファイルのパスのリスト
+            all_tags (list[str]): 各画像に対応するカンマ区切りのタグ文字列のリスト
+            all_captions (list[str]): 各画像に対応するキャプション文字列のリスト
+            save_dir (Path): 保存先のディレクトリパス
+        """
+        data = {}
+        for image_path, tags, caption in zip(image_paths, all_tags, all_captions):
+            save_image = save_dir / image_path.name
+            FileSystemManager.copy_file(image_path, save_image)
+            data[str(image_path)] = {"tags": tags, "caption": caption}
+
+
+        with open(save_dir / "meta_data.json", "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
