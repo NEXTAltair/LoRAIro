@@ -61,6 +61,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     サムネイル画像を表示し、選択操作を管理するウィジェット。
     """
     imageSelected = Signal(Path)
+    multipleImagesSelected = Signal(list)
+    deselected = Signal()
     selectionChanged = Signal(list)
 
     def __init__(self, parent=None):
@@ -183,9 +185,13 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         selected_images = self.get_selected_images()
         # print(f"Selected images: {[str(path) for path in selected_images]}")
         # print("Selection state of all items:")
-        for item in self.thumbnail_items:
-            print(f"  {item.image_path}: {item.isSelected()}")
-        self.selectionChanged.emit(selected_images)
+        selected_images = self.get_selected_images()
+        if len(selected_images) > 1:
+            self.multipleImagesSelected.emit(selected_images)
+        elif len(selected_images) == 1:
+            self.imageSelected.emit(selected_images[0])
+        else:
+            self.deselected.emit()
         self.scene.update()
 
     def get_selected_images(self) -> list[Path]:
