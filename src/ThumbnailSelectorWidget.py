@@ -178,21 +178,13 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         for i, item in enumerate(self.thumbnail_items):
             item.setSelected(start_index <= i <= end_index)
         self.scene.update()
-        def update_selection(self):
-            """
-            現在選択されている画像のリストを含む信号を発行します。
-            """
-            selected_images = self.get_selected_images()
-            # print(f"Selected images: {[str(path) for path in selected_images]}")
-            self.selectionChanged.emit(selected_images)
-            self.scene.update()
 
     def update_selection(self):
         selected_images = self.get_selected_images()
         # print(f"Selected images: {[str(path) for path in selected_images]}")
         # print("Selection state of all items:")
         for item in self.thumbnail_items:
-            # print(f"  {item.image_path}: {item.isSelected()}")
+            print(f"  {item.image_path}: {item.isSelected()}")
         self.selectionChanged.emit(selected_images)
         self.scene.update()
 
@@ -236,10 +228,10 @@ if __name__ == "__main__":
     # 画像の存在確認
     for path in image_paths:
         if not path.exists():
-            # print(f"警告: ファイルが見つかりません: {path}")
+            print(f"警告: ファイルが見つかりません: {path}")
     widget.load_images(image_paths)
-    widget.imageSelected.connect(lambda path: # print(f"選択された画像: {path}"))
-    widget.selectionChanged.connect(lambda paths: # print(f"選択された画像数: {len(paths)}"))
+    widget.imageSelected.connect(lambda path:  print(f"選択された画像: {path}"))
+    widget.selectionChanged.connect(lambda paths:  print(f"選択された画像数: {len(paths)}"))
     widget.setMinimumSize(400, 300)  # ウィジェットの最小サイズを設定
     widget.show()
     sys.exit(app.exec())
