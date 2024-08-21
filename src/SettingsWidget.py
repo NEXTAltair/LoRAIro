@@ -1,19 +1,21 @@
-import sys
 from PySide6.QtWidgets import QWidget, QFileDialog, QMessageBox
 from PySide6.QtCore import Slot
 
-from SettingspageWidget_ui import Ui_SettingspageWidget
+from module.file_sys import FileSystemManager
 
-import toml
+from SettingsWidget_ui import Ui_SettingsWidget
 
-class SettingspageWidget(QWidget, Ui_SettingspageWidget):
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from gui import ConfigManager
+
+class SettingspageWidget(QWidget, Ui_SettingsWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setupUi(self)
-        self.config = None
 
-    def initialize(self, config):
-        self.config = config
+    def initialize(self, cm: 'ConfigManager'):
+        self.cm = cm
         self.initialize_ui()
         self.connect_custom_widgets()
 
@@ -31,7 +33,7 @@ class SettingspageWidget(QWidget, Ui_SettingspageWidget):
         }
         for key, picker in directories.items():
             picker.set_label_text(f"{key.capitalize()} Directory")
-            picker.set_path(self.config['directories'][key])
+            picker.set_path(self.cm.config['directories'][key])
 
     def initialize_api_settings(self):
         api_settings = {
@@ -40,7 +42,7 @@ class SettingspageWidget(QWidget, Ui_SettingspageWidget):
             'claude_key': self.lineEditAnthropicKey
         }
         for key, widget in api_settings.items():
-            widget.setText(self.config['api'][key])
+            widget.setText(self.cm.config['api'][key])
 
     def initialize_huggingface_settings(self):
         hf_settings = {
@@ -49,87 +51,79 @@ class SettingspageWidget(QWidget, Ui_SettingspageWidget):
             'token': self.lineEditHfToken
         }
         for key, widget in hf_settings.items():
-            widget.setText(self.config['huggingface'][key])
+            widget.setText(self.cm.config['huggingface'][key])
 
-    # 自動接続のためのon_プレフィックスを持つメソッド
+    def initialize_log_settings(self):
+        self.comboBoxLogLevel.addItems(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
+        self.comboBoxLogLevel.setCurrentText(self.cm.config['log']['level'])
+        self.filePickerLogFile.set_label_text("Log File")
+        self.filePickerLogFile.set_path(self.cm.config['log']['file'])
+
+    def _save_config(self, filename: str) -> bool:
+        try:
+            FileSystemManager.save_toml_config(self.cm.config, filename)
+            return True
+        except IOError as e:
+            QMessageBox.critical(self, "保存エラー", str(e))
+            return False
+
     @Slot()
     def on_buttonSave_clicked(self):
-        try:
-            self.cm.save()
+        if self._save_config("processing.toml"):
             QMessageBox.information(self, "保存成功", "設定を保存しました。")
-        except Exception as e:
-            QMessageBox.critical(self, "保存エラー", f"設定の保存中にエラーが発生しました: {str(e)}")
 
     @Slot()
     def on_buttonSaveAs_clicked(self):
         filename, _ = QFileDialog.getSaveFileName(self, "名前を付けて保存", "", "TOML Files (*.toml)")
-        if filename:
-            try:
-                with open(filename, 'w') as f:
-                    toml.dump(self.config, f)
-                QMessageBox.information(self, "保存成功", f"設定を {filename} に保存しました。")
-            except Exception as e:
-                QMessageBox.critical(self, "保存エラー", f"設定の保存中にエラーが発生しました: {str(e)}")
-
-
-    def initialize_log_settings(self):
-        self.comboBoxLogLevel.addItems(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
-        self.comboBoxLogLevel.setCurrentText(self.config['log']['level'])
-        self.filePickerLogFile.set_label_text("Log File")
-        self.filePickerLogFile.set_path(self.config['log']['file'])
+        if filename and self._save_config(filename):
+            QMessageBox.information(self, "保存成功", f"設定を {filename} に保存しました。")
 
     def on_lineEditOpenAiKey_editingFinished(self):
-        self.config['api']['openai_key'] = self.lineEditOpenAiKey.text()
+        self.cm.config['api']['openai_key'] = self.lineEditOpenAiKey.text()
 
     def on_lineEditGoogleVisionKey_editingFinished(self):
-        self.config['api']['google_key'] = self.lineEditGoogleVisionKey.text()
+        self.cm.config['api']['google_key'] = self.lineEditGoogleVisionKey.text()
 
     def on_lineEditAnthropicKey_editingFinished(self):
-        self.config['api']['claude_key'] = self.lineEditAnthropicKey.text()
+        self.cm.config['api']['claude_key'] = self.lineEditAnthropicKey.text()
 
     def on_lineEditHfUsername_editingFinished(self):
-        self.config['huggingface']['hf_username'] = self.lineEditHfUsername.text()
+        self.cm.config['huggingface']['hf_username'] = self.lineEditHfUsername.text()
 
     def on_lineEditHfRepoName_editingFinished(self):
-        self.config['huggingface']['repo_name'] = self.lineEditHfRepoName.text()
+        self.cm.config['huggingface']['repo_name'] = self.lineEditHfRepoName.text()
 
     def on_lineEditHfToken_editingFinished(self):
-        self.config['huggingface']['token'] = self.lineEditHfToken.text()
+        self.cm.config['huggingface']['token'] = self.lineEditHfToken.text()
 
     def on_comboBoxLogLevel_currentIndexChanged(self, index):
-        self.config['log']['level'] = self.comboBoxLogLevel.itemText(index)
+        self.cm.config['log']['level'] = self.comboBoxLogLevel.itemText(index)
 
     def connect_custom_widgets(self):
-        # DirectoryPickerWidgetの接続
         self.dirPickerOutput.DirectoryPicker.lineEditPicker.textChanged.connect(self.on_dirPickerOutput_changed)
         self.dirPickerResponse.DirectoryPicker.lineEditPicker.textChanged.connect(self.on_dirPickerResponse_changed)
         self.dirPickerEditedOutput.DirectoryPicker.lineEditPicker.textChanged.connect(self.on_dirPickerEditedOutput_changed)
-
-        # FilePickerWidgetの接続
         self.filePickerLogFile.FilePicker.lineEditPicker.textChanged.connect(self.on_filePickerLogFile_changed)
 
     def on_dirPickerOutput_changed(self, new_path):
-        self.config['directories']['output'] = new_path
-        #print(f"Output directory changed to: {new_path}")  # デバッグ用
+        self.cm.config['directories']['output'] = new_path
 
     def on_dirPickerResponse_changed(self, new_path):
-        self.config['directories']['response_file'] = new_path
-        #print(f"Response file directory changed to: {new_path}")  # デバッグ用
+        self.cm.config['directories']['response_file'] = new_path
 
     def on_dirPickerEditedOutput_changed(self, new_path):
-        self.config['directories']['edited_output'] = new_path
-        #print(f"Edited output directory changed to: {new_path}")  # デバッグ用
+        self.cm.config['directories']['edited_output'] = new_path
 
     def on_filePickerLogFile_changed(self, new_path):
-        self.config['log']['file'] = new_path
-        #print(f"Log file path changed to: {new_path}")  # デバッグ用
-
-
+        self.cm.config['log']['file'] = new_path
 
 if __name__ == "__main__":
+    import sys
     from PySide6.QtWidgets import QApplication
-
+    from gui import ConfigManager
     app = QApplication(sys.argv)
-    settings_page = SettingspageWidget(cm)
+    cm = ConfigManager()
+    settings_page = SettingspageWidget()
+    settings_page.initialize(cm)
     settings_page.show()
     sys.exit(app.exec())
