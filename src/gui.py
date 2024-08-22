@@ -12,7 +12,7 @@ from module.file_sys import FileSystemManager
 
 class ConfigManager:
     _instance = None
-    config = None  # クラス属性として宣言
+    config = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -26,31 +26,18 @@ class ConfigManager:
 
 class MainWindow(QMainWindow, Ui_mainWindow):
     def __init__(self):
-        super().__init__()
         self.cm = ConfigManager()
-        self.cm.config = self.cm.config
+        self.init_logging()
+        super().__init__()
         self.setupUi(self)
         self.init_managers()
         self.init_pages()
-        self.init_logging()
 
-        # スプリッターの初期サイズを設定
-        self.mainWindowSplitter.setSizes([self.width() // 5, self.width() * 4 // 5])
+        self.mainWindowSplitter.setSizes([self.width() * 2 // 5, self.width() * 3 // 5])
 
-        # シグナル/スロットの接続
-        self.sidebarList.currentRowChanged.connect(self.contentStackedWidget.setCurrentIndex)
-        self.datasetSelector.DirectoryPicker.lineEditPicker.textChanged.connect(self.dataset_dir_changed)
-        self.actionExit.triggered.connect(self.close)
-
-        # データセット選択用の DirectoryPickerWidget の設定
-        self.datasetSelector.set_label_text("データセット:")
-        self.datasetSelector.set_path(self.cm.config['directories']['dataset'])
-
-        # ステータスバーの初期化
-        if not hasattr(self, 'statusbar') or self.statusbar is None:
-            self.statusbar = QStatusBar(self)
-            self.setStatusBar(self.statusbar)
-        self.statusbar.showMessage("準備完了")
+        self.connect_signals()
+        self.init_dataset_selector()
+        self.init_statusbar()
 
     def init_logging(self):
         setup_logger(self.cm.config['log'])
@@ -61,55 +48,42 @@ class MainWindow(QMainWindow, Ui_mainWindow):
         prompt = self.cm.config['prompts']['main']
         add_prompt = self.cm.config['prompts']['additional']
         api_keys = self.cm.config['api']
-        vision_models = self.idm.get_models()
-        self.acf = APIClientFactory(api_keys, vision_models, prompt, add_prompt)
-
-        self.ia = ImageAnalyzer()
-
-    def init_pages(self):
-        # 各ウィジェットにconfigを渡す
-        self.pageImageEdit.initialize(self.cm, self.ia, self.idm)
-        self.pageSettings.initialize(self.cm)
-        self.pageImageTagger.initialize(self.cm, self.idm)
-
-    def init_image_database(self):
-        self.idm = ImageDatabaseManager()
-        connection_status = self.idm.db_manager.connect()
-        if not connection_status:
-            self.logger.error("データベースへの接続に失敗しました。")
-            return
-
-    def init_api_client(self):
-        # TODO: タグ付けを実行するウィジェット内で初期化するほうが良さそう？
-        prompt = self.cm.config['prompts']['main']
-        add_prompt = self.cm.config['prompts']['additional']
-        api_keys = self.cm.config['api']
         self.acf = APIClientFactory(api_keys, prompt, add_prompt)
+        self.fsm = FileSystemManager()
+        self.init_image_analyzer()
 
     def init_image_analyzer(self):
-        vision_models = self.idm.get_models()
-        self.image_analyzer = ImageAnalyzer(self.acf, vision_models)
+        models = self.idm.get_models()
+        self.ia = ImageAnalyzer()
+        self.ia.initialize(self.acf, models)
+
+    def init_pages(self):
+        self.pageImageEdit.initialize(self.cm, self.idm)
+        self.pageImageTagger.initialize(self.cm, self.idm)
+        self.pageSettings.initialize(self.cm)
+
+    def connect_signals(self):
+        self.sidebarList.currentRowChanged.connect(self.contentStackedWidget.setCurrentIndex)
+        self.datasetSelector.DirectoryPicker.lineEditPicker.textChanged.connect(self.dataset_dir_changed)
+        self.actionExit.triggered.connect(self.close)
+
+    def init_dataset_selector(self):
+        self.datasetSelector.set_label_text("データセット:")
+        self.datasetSelector.set_path(self.cm.config['directories']['dataset'])
+
+    def init_statusbar(self):
+        if not hasattr(self, 'statusbar') or self.statusbar is None:
+            self.statusbar = QStatusBar(self)
+            self.setStatusBar(self.statusbar)
+        self.statusbar.showMessage("準備完了")
 
     def dataset_dir_changed(self, new_path):
-        """
-        データセットディレクトリが変更されたときに呼び出されるスロット
-
-        Args:
-            new_path (str): 変更後のデータセットディレクトリのパス
-        """
-        print(f"データセットディレクトリが変更されました: {new_path}")
-        self.cm.config['directories']['dataset']= new_path
+        self.logger.info(f"データセットディレクトリが変更されました: {new_path}")
+        self.cm.config['directories']['dataset'] = new_path
         self.load_images(new_path)
 
     def load_images(self, directory: str):
-        """
-        指定されたディレクトリから画像を読み込み、
-
-        Args:
-            directory (str): 画像が保存されているディレクトリのパス
-        """
-        self.fsm = FileSystemManager()
-        image_files: list[Path] = self.fsm.get_image_files(Path(directory))
+        image_files = self.fsm.get_image_files(Path(directory))
         self.pageDatasetOverview.load_images(self.fsm, image_files)
         self.pageImageEdit.load_images(image_files)
         self.pageImageTagger.load_images(image_files)

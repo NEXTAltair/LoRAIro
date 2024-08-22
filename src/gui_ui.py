@@ -26,7 +26,7 @@ from DatasetOverviewWidget import DatasetOverviewWidget
 from DirectoryPickerWidget import DirectoryPickerWidget
 from ImageEditWidget import ImageEditWidget
 from ImageTaggerWidget import ImageTaggerWidget
-from SettingspageWidget import SettingspageWidget
+from SettingsWidget import SettingsWidget
 
 class Ui_mainWindow(object):
     def setupUi(self, mainWindow):
@@ -127,7 +127,10 @@ class Ui_mainWindow(object):
         self.verticalLayoutBatchProcessing = QVBoxLayout(self.pageExport)
         self.verticalLayoutBatchProcessing.setObjectName(u"verticalLayoutBatchProcessing")
         self.contentStackedWidget.addWidget(self.pageExport)
-        self.pageSettings = SettingspageWidget()
+        self.pageBatch = QWidget()
+        self.pageBatch.setObjectName(u"pageBatch")
+        self.contentStackedWidget.addWidget(self.pageBatch)
+        self.pageSettings = SettingsWidget()
         self.pageSettings.setObjectName(u"pageSettings")
         sizePolicy.setHeightForWidth(self.pageSettings.sizePolicy().hasHeightForWidth())
         self.pageSettings.setSizePolicy(sizePolicy)
@@ -141,7 +144,7 @@ class Ui_mainWindow(object):
         mainWindow.setCentralWidget(self.centralWidget)
         self.menuBar = QMenuBar(mainWindow)
         self.menuBar.setObjectName(u"menuBar")
-        self.menuBar.setGeometry(QRect(0, 0, 802, 21))
+        self.menuBar.setGeometry(QRect(0, 0, 802, 25))
         self.menuFile = QMenu(self.menuBar)
         self.menuFile.setObjectName(u"menuFile")
         self.menuHelp = QMenu(self.menuBar)
@@ -161,7 +164,7 @@ class Ui_mainWindow(object):
         self.retranslateUi(mainWindow)
         self.sidebarList.currentRowChanged.connect(self.contentStackedWidget.setCurrentIndex)
 
-        self.contentStackedWidget.setCurrentIndex(4)
+        self.contentStackedWidget.setCurrentIndex(6)
 
 
         QMetaObject.connectSlotsByName(mainWindow)

@@ -2,22 +2,13 @@ from PySide6.QtWidgets import QWidget, QFileDialog, QMessageBox
 from PySide6.QtCore import Slot
 
 from ImageTaggerWidget_ui import Ui_ImageTaggerWidget
-from module.file_sys import FileSystemManager #initializeメソッドはoutput_dir target_resolutionが必要なのでここじゃない
-from caption_tags import ImageAnalyzer #initializeメソッドはAPIClientFactoryが必要のでここじゃない
-from module.api_utils import APIClientFactory #必要な引数全部がGUIで変更される可能性があるのでここじゃない
+from module.file_sys import FileSystemManager
+from caption_tags import ImageAnalyzer
+from module.api_utils import APIClientFactory
 from pathlib import Path
 from module.log import get_logger
 
-
-
-from module.db import ImageDatabaseManager #データベースのパスはハードコーディングなのgui.pyでやるべき
-
-from typing import TYPE_CHECKING
-
-from timing_decorator import timing_decorator, timing_stats #最適化用後で消す
-
-if TYPE_CHECKING:
-    from gui import ConfigManager
+from module.db import ImageDatabaseManager
 class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
     def __init__(self, parent=None):
         self.logger = get_logger(__name__)
@@ -112,7 +103,6 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         self.format_name = self.comboBoxTagFormat.currentText()
 
     @Slot()
-    @timing_decorator
     def on_pushButtonGenerate_clicked(self):
         self.logger.info("タグとキャプションの生成を開始")
         self.ia = ImageAnalyzer()
@@ -152,7 +142,6 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
             self.textEditCaption.setPlainText("Error generating caption")
 
     @Slot()
-    @timing_decorator
     def on_pushButtonSave_clicked(self):
         if not self.selected_webp:
             QMessageBox.warning(self, "エラー", "画像が選択されていません。")
@@ -188,7 +177,6 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         except Exception as e:
             QMessageBox.critical(self, "エラー", f"保存中にエラーが発生しました: {e}")
 
-    @timing_decorator
     def save_to_db(self):
         fsm = FileSystemManager() # TODO: 暫定後で設計から見直す
         fsm.initialize(Path(self.cm.config['directories']['output']), self.cm.config['image_processing']['target_resolution'])
@@ -196,7 +184,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
             image_path = Path(result['image_path'])
             image_id = self.idm.get_id_by_image_name(image_path.name)# TODO: 重複チェックロジックがイマイチ
             if image_id is None:
-                image_id = idm.register_original_image(image_path, fsm)
+                image_id = self.idm.register_original_image(image_path, fsm)
                 self.logger.info(f"ImageTaggerWidget.save_to_db {image_path.name}")
 
             self.idm.save_annotations(image_id, result)

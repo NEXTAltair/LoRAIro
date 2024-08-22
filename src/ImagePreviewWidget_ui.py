@@ -24,7 +24,9 @@ class Ui_ImagePreviewWidget(object):
             ImagePreviewWidget.setObjectName(u"ImagePreviewWidget")
         ImagePreviewWidget.resize(512, 512)
         self.verticalLayout = QVBoxLayout(ImagePreviewWidget)
+        self.verticalLayout.setSpacing(0)
         self.verticalLayout.setObjectName(u"verticalLayout")
+        self.verticalLayout.setContentsMargins(0, 0, 0, 0)
         self.previewGraphicsView = QGraphicsView(ImagePreviewWidget)
         self.previewGraphicsView.setObjectName(u"previewGraphicsView")
 

@@ -83,20 +83,17 @@ class Ui_ImageEditWidget(object):
         self.verticalImagePreview.setContentsMargins(0, 0, 0, 0)
         self.ImagePreview = ImagePreviewWidget(self.widget_PreviewArea_2)
         self.ImagePreview.setObjectName(u"ImagePreview")
-        sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        sizePolicy2.setHorizontalStretch(1)
-        sizePolicy2.setVerticalStretch(0)
-        sizePolicy2.setHeightForWidth(self.ImagePreview.sizePolicy().hasHeightForWidth())
-        self.ImagePreview.setSizePolicy(sizePolicy2)
+        sizePolicy1.setHeightForWidth(self.ImagePreview.sizePolicy().hasHeightForWidth())
+        self.ImagePreview.setSizePolicy(sizePolicy1)
         self.ImagePreview.setMinimumSize(QSize(126, 0))
         self.labelPreviewTitle = QLabel(self.ImagePreview)
         self.labelPreviewTitle.setObjectName(u"labelPreviewTitle")
         self.labelPreviewTitle.setGeometry(QRect(0, 0, 177, 21))
-        sizePolicy3 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        sizePolicy3.setHorizontalStretch(0)
-        sizePolicy3.setVerticalStretch(0)
-        sizePolicy3.setHeightForWidth(self.labelPreviewTitle.sizePolicy().hasHeightForWidth())
-        self.labelPreviewTitle.setSizePolicy(sizePolicy3)
+        sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        sizePolicy2.setHorizontalStretch(0)
+        sizePolicy2.setVerticalStretch(0)
+        sizePolicy2.setHeightForWidth(self.labelPreviewTitle.sizePolicy().hasHeightForWidth())
+        self.labelPreviewTitle.setSizePolicy(sizePolicy2)
 
         self.verticalImagePreview.addWidget(self.ImagePreview)
 
@@ -125,11 +122,13 @@ class Ui_ImageEditWidget(object):
 
         self.labelUpscaler = QLabel(self.groupBoxEditOptions)
         self.labelUpscaler.setObjectName(u"labelUpscaler")
+        self.labelUpscaler.setEnabled(False)
 
         self.horizontalLayout_EditOptions_2.addWidget(self.labelUpscaler)
 
         self.comboBoxUpscaler = QComboBox(self.groupBoxEditOptions)
         self.comboBoxUpscaler.setObjectName(u"comboBoxUpscaler")
+        self.comboBoxUpscaler.setEnabled(False)
 
         self.horizontalLayout_EditOptions_2.addWidget(self.comboBoxUpscaler)
 

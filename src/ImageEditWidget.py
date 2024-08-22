@@ -9,26 +9,25 @@ from module.file_sys import FileSystemManager
 from module.db import ImageDatabaseManager
 from caption_tags import ImageAnalyzer
 from ImageEditor import ImageProcessingManager
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from gui import ConfigManager
 class ImageEditWidget(QWidget, Ui_ImageEditWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.logger = get_logger(__name__)
         self.setupUi(self)
-        self.ia = None
-        self.fsm = None
         self.idm = None
-        self.ipm = None
 
-    def initialize(self, config: dict, ia: ImageAnalyzer, fsm: FileSystemManager, idm: ImageDatabaseManager):
-        self.config = config
-        self.ia = ia
-        self.fsm = fsm
+    def initialize(self, cm: 'ConfigManager', idm: ImageDatabaseManager):
+        self.cm = cm
         self.idm = idm
-        self.ipm = ImageProcessingManager(
-            self.fsm,
-            config['image_processing']['target_resolution'],
-            config['preferred_resolutions']
-        )
+        self.target_resolution = self.cm.config['image_processing']['target_resolution']
+        self.preferred_resolutions = self.cm.config['preferred_resolutions']
+        self.comboBoxResizeOption.currentText()
+
         header = self.tableWidgetImageList.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         header.setStretchLastSection(False)
@@ -78,7 +77,7 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         self.tableWidgetImageList.setItem(row_position, 4, QTableWidgetItem(f"{file_size / 1024:.2f} KB"))
 
         #既存タグ
-        existing_annotations = self.ia.get_existing_annotations(file_path)
+        existing_annotations = ImageAnalyzer.get_existing_annotations(file_path)
         if existing_annotations:
             # existing_annotationsから 'tag' キーの値を取り出してカンマ区切りの文字列にする
             tags_str = ', '.join([tag['tag'] for tag in existing_annotations['tags']])
@@ -94,7 +93,8 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         selected_option = self.comboBoxResizeOption.currentText()
         try:
             resolution = int(selected_option.split('x')[0])
-            self.config['image_processing']['target_resolution'] = resolution
+            self.target_resolution = resolution
+            self.cm.config['image_processing']['target_resolution'] = resolution
             # print(f"Target resolution updated to: {resolution}")  # デバッグ用
 
         except ValueError:
@@ -107,12 +107,16 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         """
         # TODO: アップスケーラの選択肢はdb_managerから取得するべきかもしれない
         selected_option = self.comboBoxUpscaler.currentText()
-        self.config['image_processing']['upscaler'] = selected_option
+        self.cm.config['image_processing']['upscaler'] = selected_option
         # print(f"Upscaler updated to: {selected_option}")  # デバッグ用
 
     @Slot()
     def on_pushButtonStartProcess_clicked(self):
         try:
+            self.fsm = FileSystemManager()
+            self.fsm.initialize(Path(self.cm.config['directories']['output']), self.target_resolution)
+            self.ipm = ImageProcessingManager(self.fsm, self.target_resolution, 
+                                              self.preferred_resolutions)
             # 処理対象の画像を取得
             image_files = self.get_selected_images()
 
@@ -124,9 +128,12 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
                 image_file = Path(image_file)
                 # 元画像の情報を取得
                 original_metadata = self.fsm.get_image_info(image_file)
-
-                # データベースに元画像情報を保存
-                image_id, _ = self.idm.save_original_metadata(image_file, original_metadata)
+                # データベースに画像情報を保存
+                db_stored_original_path = self.fsm.save_original_image(image_file)
+                image_id, _ = self.idm.save_original_metadata(db_stored_original_path, original_metadata)
+                existing_annotations = ImageAnalyzer.get_existing_annotations(image_file)
+                if existing_annotations:
+                    self.idm.save_annotations(image_id, existing_annotations)
 
                 # 画像処理を実行
                 processed_image = self.ipm.process_image(
@@ -151,9 +158,6 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
 
             QMessageBox.information(self, "完了", "すべての画像の処理が完了しました。")
 
-            # UI更新（必要に応じて実装）
-            self.update_ui_after_processing()
-
         except Exception as e:
             self.logger.error(f"画像処理中にエラーが発生しました: {str(e)}")
             QMessageBox.critical(self, "エラー", f"処理中にエラーが発生しました: {str(e)}")
@@ -164,13 +168,13 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         return [self.tableWidgetImageList.item(row, 2).text()
                 for row in range(self.tableWidgetImageList.rowCount())]
 
-    def update_ui_after_processing(self):
-        # 処理後のUI更新ロジックをここに実装
-        # 例: テーブルの更新、プレビューの更新など
-        pass
+    def refresh_config(self, new_config):
+        self.cm.config = new_config
+        # 必要に応じてUIを更新
 
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
+    from gui import ConfigManager
     from module.config import get_config
     import sys
 
@@ -179,9 +183,10 @@ if __name__ == "__main__":
     fsm = FileSystemManager()
     ia = ImageAnalyzer()
     idm = ImageDatabaseManager()
+    cm = ConfigManager()
     image_paths = fsm.get_image_files(Path(r"testimg\10_Kaya")) # 画像ファイルのディレクトリを指定
     widget = ImageEditWidget()
-    widget.initialize(config, ia, fsm, idm)
+    widget.initialize(cm, ia, idm)
     widget.load_images(image_paths)
     widget.show()
     sys.exit(app.exec())

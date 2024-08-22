@@ -5,11 +5,7 @@ from module.file_sys import FileSystemManager
 
 from SettingsWidget_ui import Ui_SettingsWidget
 
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from gui import ConfigManager
-
-class SettingspageWidget(QWidget, Ui_SettingsWidget):
+class SettingsWidget(QWidget, Ui_SettingsWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setupUi(self)
@@ -123,7 +119,7 @@ if __name__ == "__main__":
     from gui import ConfigManager
     app = QApplication(sys.argv)
     cm = ConfigManager()
-    settings_page = SettingspageWidget()
+    settings_page = SettingsWidget()
     settings_page.initialize(cm)
     settings_page.show()
     sys.exit(app.exec())

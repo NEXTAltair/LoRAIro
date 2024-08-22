@@ -15,58 +15,46 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QFont, QFontDatabase, QGradient, QIcon,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
-from PySide6.QtWidgets import (QApplication, QFormLayout, QGraphicsView, QGridLayout,
-    QGroupBox, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QSizePolicy, QSplitter, QTextEdit,
-    QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QFormLayout, QGridLayout, QGroupBox,
+    QHBoxLayout, QLabel, QSizePolicy, QSplitter,
+    QTextEdit, QVBoxLayout, QWidget)
+
+from ImagePreviewWidget import ImagePreviewWidget
+from ThumbnailSelectorWidget import ThumbnailSelectorWidget
 
 class Ui_DatasetOverviewWidget(object):
     def setupUi(self, DatasetOverviewWidget):
         if not DatasetOverviewWidget.objectName():
             DatasetOverviewWidget.setObjectName(u"DatasetOverviewWidget")
-        DatasetOverviewWidget.resize(1331, 1192)
+        DatasetOverviewWidget.resize(690, 788)
+        sizePolicy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(DatasetOverviewWidget.sizePolicy().hasHeightForWidth())
+        DatasetOverviewWidget.setSizePolicy(sizePolicy)
         self.horizontalDatasetOverviewWidget = QHBoxLayout(DatasetOverviewWidget)
         self.horizontalDatasetOverviewWidget.setObjectName(u"horizontalDatasetOverviewWidget")
         self.mainSplitter = QSplitter(DatasetOverviewWidget)
         self.mainSplitter.setObjectName(u"mainSplitter")
-        sizePolicy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        sizePolicy.setHorizontalStretch(1)
-        sizePolicy.setVerticalStretch(0)
-        sizePolicy.setHeightForWidth(self.mainSplitter.sizePolicy().hasHeightForWidth())
-        self.mainSplitter.setSizePolicy(sizePolicy)
-        self.mainSplitter.setOrientation(Qt.Orientation.Horizontal)
-        self.previewScrollArea = QScrollArea(self.mainSplitter)
-        self.previewScrollArea.setObjectName(u"previewScrollArea")
-        sizePolicy.setHeightForWidth(self.previewScrollArea.sizePolicy().hasHeightForWidth())
-        self.previewScrollArea.setSizePolicy(sizePolicy)
-        self.previewScrollArea.setWidgetResizable(True)
-        self.previewContainer = QWidget()
-        self.previewContainer.setObjectName(u"previewContainer")
-        self.previewContainer.setGeometry(QRect(0, 0, 996, 1168))
         sizePolicy1 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        sizePolicy1.setHorizontalStretch(0)
+        sizePolicy1.setHorizontalStretch(1)
         sizePolicy1.setVerticalStretch(0)
-        sizePolicy1.setHeightForWidth(self.previewContainer.sizePolicy().hasHeightForWidth())
-        self.previewContainer.setSizePolicy(sizePolicy1)
-        self.horizontalpreviewContainer = QHBoxLayout(self.previewContainer)
-        self.horizontalpreviewContainer.setObjectName(u"horizontalpreviewContainer")
-        self.previewgraphicsView = QGraphicsView(self.previewContainer)
-        self.previewgraphicsView.setObjectName(u"previewgraphicsView")
-        sizePolicy1.setHeightForWidth(self.previewgraphicsView.sizePolicy().hasHeightForWidth())
-        self.previewgraphicsView.setSizePolicy(sizePolicy1)
-        self.previewgraphicsView.setMinimumSize(QSize(128, 128))
-
-        self.horizontalpreviewContainer.addWidget(self.previewgraphicsView)
-
-        self.previewScrollArea.setWidget(self.previewContainer)
-        self.mainSplitter.addWidget(self.previewScrollArea)
+        sizePolicy1.setHeightForWidth(self.mainSplitter.sizePolicy().hasHeightForWidth())
+        self.mainSplitter.setSizePolicy(sizePolicy1)
+        self.mainSplitter.setOrientation(Qt.Orientation.Horizontal)
+        self.ImagePreview = ImagePreviewWidget(self.mainSplitter)
+        self.ImagePreview.setObjectName(u"ImagePreview")
+        sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        sizePolicy2.setHorizontalStretch(2)
+        sizePolicy2.setVerticalStretch(2)
+        sizePolicy2.setHeightForWidth(self.ImagePreview.sizePolicy().hasHeightForWidth())
+        self.ImagePreview.setSizePolicy(sizePolicy2)
+        self.ImagePreview.setMinimumSize(QSize(512, 512))
+        self.mainSplitter.addWidget(self.ImagePreview)
         self.infoContainer = QWidget(self.mainSplitter)
         self.infoContainer.setObjectName(u"infoContainer")
-        sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
-        sizePolicy2.setHorizontalStretch(0)
-        sizePolicy2.setVerticalStretch(0)
-        sizePolicy2.setHeightForWidth(self.infoContainer.sizePolicy().hasHeightForWidth())
-        self.infoContainer.setSizePolicy(sizePolicy2)
+        sizePolicy1.setHeightForWidth(self.infoContainer.sizePolicy().hasHeightForWidth())
+        self.infoContainer.setSizePolicy(sizePolicy1)
         self.verticalLayout = QVBoxLayout(self.infoContainer)
         self.verticalLayout.setObjectName(u"verticalLayout")
         self.infoSplitter = QSplitter(self.infoContainer)
@@ -77,6 +65,11 @@ class Ui_DatasetOverviewWidget(object):
         self.metadataGroupBox.setMinimumSize(QSize(0, 64))
         self.metadataLayout = QFormLayout(self.metadataGroupBox)
         self.metadataLayout.setObjectName(u"metadataLayout")
+        self.fileNameLabel = QLabel(self.metadataGroupBox)
+        self.fileNameLabel.setObjectName(u"fileNameLabel")
+
+        self.metadataLayout.setWidget(0, QFormLayout.LabelRole, self.fileNameLabel)
+
         self.fileNameValueLabel = QLabel(self.metadataGroupBox)
         self.fileNameValueLabel.setObjectName(u"fileNameValueLabel")
 
@@ -152,13 +145,11 @@ class Ui_DatasetOverviewWidget(object):
 
         self.metadataLayout.setWidget(7, QFormLayout.FieldRole, self.aspectRatioValueLabel)
 
-        self.fileNameLabel = QLabel(self.metadataGroupBox)
-        self.fileNameLabel.setObjectName(u"fileNameLabel")
-
-        self.metadataLayout.setWidget(0, QFormLayout.LabelRole, self.fileNameLabel)
-
         self.infoSplitter.addWidget(self.metadataGroupBox)
-        self.annotationGroupBox = QGroupBox(self.infoSplitter)
+        self.annotationSplitter = QSplitter(self.infoSplitter)
+        self.annotationSplitter.setObjectName(u"annotationSplitter")
+        self.annotationSplitter.setOrientation(Qt.Orientation.Vertical)
+        self.annotationGroupBox = QGroupBox(self.annotationSplitter)
         self.annotationGroupBox.setObjectName(u"annotationGroupBox")
         sizePolicy3 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         sizePolicy3.setHorizontalStretch(0)
@@ -189,61 +180,11 @@ class Ui_DatasetOverviewWidget(object):
 
         self.gridLayout_2.addWidget(self.captionTextEdit, 3, 0, 1, 1)
 
-        self.infoSplitter.addWidget(self.annotationGroupBox)
-        self.thumbnailScrollArea = QScrollArea(self.infoSplitter)
-        self.thumbnailScrollArea.setObjectName(u"thumbnailScrollArea")
-        sizePolicy4 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        sizePolicy4.setHorizontalStretch(0)
-        sizePolicy4.setVerticalStretch(1)
-        sizePolicy4.setHeightForWidth(self.thumbnailScrollArea.sizePolicy().hasHeightForWidth())
-        self.thumbnailScrollArea.setSizePolicy(sizePolicy4)
-        self.thumbnailScrollArea.setMinimumSize(QSize(0, 128))
-        self.thumbnailScrollArea.setWidgetResizable(True)
-        self.thumbnailContainer = QWidget()
-        self.thumbnailContainer.setObjectName(u"thumbnailContainer")
-        self.thumbnailContainer.setGeometry(QRect(0, 0, 282, 380))
-        self.thumbnailContainer.setMinimumSize(QSize(64, 64))
-#if QT_CONFIG(whatsthis)
-        self.thumbnailContainer.setWhatsThis(u"")
-#endif // QT_CONFIG(whatsthis)
-#if QT_CONFIG(accessibility)
-        self.thumbnailContainer.setAccessibleName(u"")
-#endif // QT_CONFIG(accessibility)
-#if QT_CONFIG(accessibility)
-        self.thumbnailContainer.setAccessibleDescription(u"")
-#endif // QT_CONFIG(accessibility)
-        self.thumbnailContainer.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
-        self.thumbnailContainer.setAutoFillBackground(False)
-        self.gridLayout = QGridLayout(self.thumbnailContainer)
-        self.gridLayout.setObjectName(u"gridLayout")
-        self.gridLayout.setContentsMargins(5, -1, -1, -1)
-        self.thumbnailButtonTemplate = QPushButton(self.thumbnailContainer)
-        self.thumbnailButtonTemplate.setObjectName(u"thumbnailButtonTemplate")
-        sizePolicy5 = QSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
-        sizePolicy5.setHorizontalStretch(0)
-        sizePolicy5.setVerticalStretch(1)
-        sizePolicy5.setHeightForWidth(self.thumbnailButtonTemplate.sizePolicy().hasHeightForWidth())
-        self.thumbnailButtonTemplate.setSizePolicy(sizePolicy5)
-        self.thumbnailButtonTemplate.setMinimumSize(QSize(0, 0))
-#if QT_CONFIG(tooltip)
-        self.thumbnailButtonTemplate.setToolTip(u"")
-#endif // QT_CONFIG(tooltip)
-        self.thumbnailButtonTemplate.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
-        self.thumbnailButtonTemplate.setText(u"")
-        self.thumbnailButtonTemplate.setIconSize(QSize(150, 150))
-#if QT_CONFIG(shortcut)
-        self.thumbnailButtonTemplate.setShortcut(u"")
-#endif // QT_CONFIG(shortcut)
-        self.thumbnailButtonTemplate.setCheckable(False)
-        self.thumbnailButtonTemplate.setAutoRepeatDelay(0)
-        self.thumbnailButtonTemplate.setAutoRepeatInterval(0)
-        self.thumbnailButtonTemplate.setAutoDefault(False)
-        self.thumbnailButtonTemplate.setFlat(True)
-
-        self.gridLayout.addWidget(self.thumbnailButtonTemplate, 0, 0, 1, 1)
-
-        self.thumbnailScrollArea.setWidget(self.thumbnailContainer)
-        self.infoSplitter.addWidget(self.thumbnailScrollArea)
+        self.annotationSplitter.addWidget(self.annotationGroupBox)
+        self.thumbnailSelector = ThumbnailSelectorWidget(self.annotationSplitter)
+        self.thumbnailSelector.setObjectName(u"thumbnailSelector")
+        self.annotationSplitter.addWidget(self.thumbnailSelector)
+        self.infoSplitter.addWidget(self.annotationSplitter)
 
         self.verticalLayout.addWidget(self.infoSplitter)
 
@@ -253,14 +194,14 @@ class Ui_DatasetOverviewWidget(object):
 
 
         self.retranslateUi(DatasetOverviewWidget)
-        self.mainSplitter.splitterMoved.connect(self.previewgraphicsView.invalidateScene)
 
         QMetaObject.connectSlotsByName(DatasetOverviewWidget)
     # setupUi
 
     def retranslateUi(self, DatasetOverviewWidget):
-        DatasetOverviewWidget.setWindowTitle(QCoreApplication.translate("DatasetOverviewWidget", u"Form", None))
+        DatasetOverviewWidget.setWindowTitle(QCoreApplication.translate("DatasetOverviewWidget", u"Dataset Overview", None))
         self.metadataGroupBox.setTitle(QCoreApplication.translate("DatasetOverviewWidget", u"\u753b\u50cf\u30e1\u30bf\u30c7\u30fc\u30bf", None))
+        self.fileNameLabel.setText(QCoreApplication.translate("DatasetOverviewWidget", u"\u30d5\u30a1\u30a4\u30eb\u540d:", None))
         self.imagePathLabel.setText(QCoreApplication.translate("DatasetOverviewWidget", u"\u753b\u50cf\u30d1\u30b9:", None))
         self.extensionLabel.setText(QCoreApplication.translate("DatasetOverviewWidget", u"\u62e1\u5f35\u5b50:", None))
         self.formatLabel.setText(QCoreApplication.translate("DatasetOverviewWidget", u"\u30d5\u30a9\u30fc\u30de\u30c3\u30c8:", None))
@@ -268,7 +209,6 @@ class Ui_DatasetOverviewWidget(object):
         self.alphaChannelLabel.setText(QCoreApplication.translate("DatasetOverviewWidget", u"\u30a2\u30eb\u30d5\u30a1\u30c1\u30e3\u30f3\u30cd\u30eb:", None))
         self.resolutionLabel.setText(QCoreApplication.translate("DatasetOverviewWidget", u"\u89e3\u50cf\u5ea6:", None))
         self.aspectRatioLabel.setText(QCoreApplication.translate("DatasetOverviewWidget", u"\u30a2\u30b9\u30da\u30af\u30c8\u6bd4:", None))
-        self.fileNameLabel.setText(QCoreApplication.translate("DatasetOverviewWidget", u"\u30d5\u30a1\u30a4\u30eb\u540d:", None))
         self.annotationGroupBox.setTitle(QCoreApplication.translate("DatasetOverviewWidget", u"\u65e2\u5b58\u30bf\u30b0/\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3", None))
         self.tagsLabel.setText(QCoreApplication.translate("DatasetOverviewWidget", u"\u30bf\u30b0:", None))
         self.captionLabel.setText(QCoreApplication.translate("DatasetOverviewWidget", u"\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3:", None))

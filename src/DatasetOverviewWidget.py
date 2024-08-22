@@ -1,10 +1,9 @@
-from PySide6.QtWidgets import QWidget, QPushButton, QGraphicsScene, QGraphicsPixmapItem
-from PySide6.QtGui import QPixmap, QIcon
-from PySide6.QtCore import Qt, QSize, Signal, Slot, QTimer
+from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import Signal, Slot
 from pathlib import Path
-
 from DatasetOverviewWidget_ui import Ui_DatasetOverviewWidget
 from module.file_sys import FileSystemManager
+from caption_tags import ImageAnalyzer
 
 class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
     dataset_loaded = Signal()
@@ -12,134 +11,40 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setupUi(self)
-        self.minimum_thumbnail_size = QSize(150, 150)
-        self.current_pixmap = None
-        self.graphics_scene = QGraphicsScene(self)
-        self.previewgraphicsView.setScene(self.graphics_scene)
-        self.mainSplitter.splitterMoved.connect(self.on_splitter_moved)
+        self.fsm = None
+        self.image_files = []
 
         # スプリッターの初期サイズを設定
-        self.mainSplitter.setSizes([self.width() * 2 // 3, self.width() // 3])
-        self.infoSplitter.setSizes([self.height() * 2 // 10, self.height() * 2 // 10 + self.height() * 6 // 10])
+        self.mainSplitter.setSizes([self.width()  // 3, self.width() * 2 // 3])
+        self.infoSplitter.setSizes([self.height() * 1 // 5, self.height() * 2 // 5])
 
+        # シグナル/スロット接続
+        self.thumbnailSelector.imageSelected.connect(self.update_preview)
 
     def load_images(self, fsm: FileSystemManager, image_files: list):
         self.fsm = fsm
         self.image_files = image_files
-        self.display_dataset_info()
+        self.thumbnailSelector.load_images(image_files)
         self.dataset_loaded.emit()
 
         # 初期画像の表示
         if self.image_files:
             self.update_preview(Path(self.image_files[0]))
 
-    @Slot(int, int)
-    def on_splitter_moved(self, pos, index):
-        self.adjust_preview_size()
-
-    def adjust_preview_size(self):
-        if self.current_pixmap:
-            self.resize_preview()
-            self.previewgraphicsView.invalidateScene()
-
-    def resize_preview(self):
-        if self.current_pixmap:
-            QTimer.singleShot(0, self._do_resize_preview)
-
-    def _do_resize_preview(self):
-        if self.current_pixmap:
-            view_size = self.previewScrollArea.viewport().size()
-            scaled_pixmap = self.current_pixmap.scaled(
-                view_size,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
-            )
-            self.graphics_scene.clear()
-            self.graphics_scene.addPixmap(scaled_pixmap)
-            self.graphics_scene.setSceneRect(scaled_pixmap.rect())
-            self.previewgraphicsView.setSceneRect(self.graphics_scene.sceneRect())
-            self.previewgraphicsView.fitInView(self.graphics_scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
-
+    @Slot(Path)
     def update_preview(self, image_path: Path):
-        self.current_pixmap = QPixmap(str(image_path))
-        self.resize_preview()
-        # ここで明示的に fitInView を呼び出す
-        self.previewgraphicsView.fitInView(self.graphics_scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
-
-    def display_dataset_info(self):
-        self.clear_layout(self.gridLayout)
-        num_columns = 4  # 例: 4列のグリッドを作成
-        for i, image_path in enumerate(self.image_files):
-            row = i // num_columns
-            col = i % num_columns
-            self.add_thumbnail_item(image_path, row, col)
-        if self.image_files:
-            self.update_metadata(self.image_files[0])
-
-    def clear_layout(self, layout):
-        """レイアウトからウィジェットを削除する"""
-        while layout.count():
-            item = layout.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.deleteLater()
-
-    def add_thumbnail_item(self, image_path: Path, row: int, col: int):
-        try:
-            button = self.create_thumbnail_button(image_path)
-            self.gridLayout.addWidget(button, row, col)
-        except Exception as e:
-            print(f"サムネイル追加エラー: {e}")
-
-    def create_thumbnail_button(self, image_path: Path):
-        button = QPushButton(self.thumbnailContainer)
-        # テンプレートの設定を継承
-        button.setIconSize(self.thumbnailButtonTemplate.iconSize())
-        button.setFlat(self.thumbnailButtonTemplate.isFlat())
-        button.setSizePolicy(self.thumbnailButtonTemplate.sizePolicy())
-
-        # 個別の設定
-        button.setToolTip(str(image_path))
-        button.clicked.connect(self.onThumbnailClicked)
-
-        pixmap = QPixmap(str(image_path))
-        scaled_pixmap = self.scale_pixmap(pixmap, button.iconSize().width())
-        button.setIcon(QIcon(scaled_pixmap))
-
-        return button
-
-    def scale_pixmap(self, pixmap, size):
-        return pixmap.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, 
-                             Qt.TransformationMode.SmoothTransformation)
-
-    def onThumbnailClicked(self):
-        """サムネイルボタンのクリックを処理する"""
-        clicked_button = self.sender()
-        if isinstance(clicked_button, QPushButton):
-            image_path = clicked_button.toolTip()
-            self.update_metadata(Path(image_path))
-
-    def calculate_aspect_ratio(self, width, height):
-        """アスペクト比を計算する"""
-        def gcd(a, b):
-            while b:
-                a, b = b, a % b
-            return a
-
-        ratio_gcd = gcd(width, height)
-        return f"{width // ratio_gcd} : {height // ratio_gcd}"
+        self.ImagePreview.load_image(image_path)
+        self.update_metadata(image_path)
 
     def update_metadata(self, image_path: Path):
-        """メタデータを更新する"""
         if image_path and self.fsm:
             metadata = self.fsm.get_image_info(image_path)
             self.set_metadata_labels(metadata, image_path)
-            self.update_preview(image_path)
+            self.update_annotations(image_path)
         else:
             self.clear_metadata()
 
     def set_metadata_labels(self, metadata, image_path):
-        """メタデータラベルを設定する"""
         self.fileNameValueLabel.setText(metadata['filename'])
         self.imagePathValueLabel.setText(str(image_path))
         self.formatValueLabel.setText(metadata['format'])
@@ -150,7 +55,6 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
         self.extensionValueLabel.setText(metadata['extension'])
 
     def clear_metadata(self):
-        """メタデータをクリアする"""
         labels = [
             self.fileNameValueLabel, self.imagePathValueLabel, self.formatValueLabel,
             self.modeValueLabel, self.alphaChannelValueLabel, self.resolutionValueLabel,
@@ -158,21 +62,46 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
         ]
         for label in labels:
             label.clear()
-        self.clear_preview()
+        self.tagsTextEdit.clear()
+        self.captionTextEdit.clear()
 
-    def clear_preview(self):
-        self.current_pixmap = None
-        self.graphics_scene.clear()
+    def update_annotations(self, image_path: Path):
+        # この部分は実際のデータ取得方法に応じて実装する必要があります
+        annotations = ImageAnalyzer.get_existing_annotations(image_path)
+        if annotations:
+            # タグを抽出して結合
+            tags = [tag_info['tag'] for tag_info in annotations.get('tags', [])]
+            tags_text = ", ".join(tags)
+            self.tagsTextEdit.setPlainText(tags_text)
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.resize_preview()
+            # キャプションを抽出して結合
+            captions = [caption_info['caption'] for caption_info in annotations.get('captions', [])]
+            captions_text = " | ".join(captions)  # キャプションをパイプで区切って結合
+            self.captionTextEdit.setPlainText(captions_text)
+
+        else:
+            self.tagsTextEdit.clear()
+            self.captionTextEdit.clear()
+
+    @staticmethod
+    def calculate_aspect_ratio(width, height):
+        def gcd(a, b):
+            while b:
+                a, b = b, a % b
+            return a
+        ratio_gcd = gcd(width, height)
+        return f"{width // ratio_gcd} : {height // ratio_gcd}"
 
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
+    from module.file_sys import FileSystemManager
     import sys
 
+    fsm = FileSystemManager()
+    directory = Path(r"testimg\10_shira")
+    image_files: list[Path] = fsm.get_image_files(directory)
     app = QApplication(sys.argv)
     widget = DatasetOverviewWidget()
+    widget.load_images(fsm, image_files)
     widget.show()
     sys.exit(app.exec())

@@ -16,6 +16,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         # スムーススケーリングを有効にする
         self.previewGraphicsView.setRenderHints(QPainter.RenderHint.Antialiasing 
                                                | QPainter.RenderHint.SmoothPixmapTransform)
+        self.pixmap_item = None
 
     @Slot(Path)
     def load_image(self, image_path: Path):

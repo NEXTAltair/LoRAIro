@@ -64,7 +64,6 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
         self.logger = get_logger(__name__)
         self.fsm = FileSystemManager()
         self.idm = ImageDatabaseManager()
-        self.ia = ImageAnalyzer()
 
         self.init_ui()
         self.connect_signals()
