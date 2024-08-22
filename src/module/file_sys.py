@@ -5,13 +5,15 @@ from PIL import Image, ImageCms
 from io import BytesIO
 import math
 import json
+import toml
 import shutil
 import logging
 from datetime import datetime
 
 class FileSystemManager:
+    logger = logging.getLogger(__name__)
     def __init__(self):
-        self.logger = logging.getLogger(__name__)
+        self.logger = FileSystemManager.logger
         self.initialized = False
         self.image_extensions = ['.jpg', '.png', '.bmp', '.gif', '.tif', '.tiff', '.jpeg', '.webp']
         self.image_dataset_dir = None
@@ -327,3 +329,12 @@ class FileSystemManager:
 
         with open(save_dir / "meta_data.json", "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
+
+    @staticmethod
+    def save_toml_config(config: dict, filename: str) -> None:
+        try:
+            with open(filename, 'w') as f:
+                toml.dump(config, f)
+        except Exception as e:
+            FileSystemManager.logger.error("保存エラー", str(e))
+            raise IOError(f"設定の保存中にエラーが発生しました: {str(e)}")
