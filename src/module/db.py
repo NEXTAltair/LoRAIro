@@ -550,7 +550,7 @@ class ImageDatabaseManager:
         """
         try:
             # annotations の中にmodel が含まれているかでアノテーションタイプを判定
-            if not annotations['tags'][0]['model_id']:
+            if not annotations.get("model_id"):
                 self.repository.save_existing_annotations(image_id, annotations)
             else:
                 self.repository.save_processed_annotations(image_id, annotations)
@@ -736,7 +736,7 @@ class ImageDatabaseManager:
             WHERE filename = ?
             """
             result = self.db_manager.fetch_one(query, (image_name,))
-            return result[0] if result else None
+            return result.get("id") if result else None
         except Exception as e:
             self.logger.error(f"画像IDの取得中にエラーが発生しました: {e}")
             return None
