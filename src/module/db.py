@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 import uuid
 
+from module.file_sys import FileSystemManager
 
 class SQLiteManager:
     def __init__(self, db_path: Path):
@@ -265,13 +266,14 @@ class ImageRepository:
         """
         if not self._image_exists(image_id):
             raise ValueError(f"指定されたimage_id {image_id} は存在しません。")
-        if 'scores' not in annotations:
-            raise ValueError("処理済みアノテーションには 'scores' が含まれている必要があります。")
+        # TODO: scoreはまた今度
+        # if 'scores' not in annotations:
+        #     raise ValueError("処理済みアノテーションには 'scores' が含まれている必要があります。")
 
         try:
             self._save_tags(image_id, annotations.get('tags', ""), existing=False)
             self._save_captions(image_id, annotations.get('captions', []), existing=False)
-            self._save_scores(image_id, annotations['scores'])
+            # self._save_scores(image_id, annotations['scores'])
         except sqlite3.Error as e:
             raise sqlite3.Error(f"処理済みアノテーションの保存中にエラーが発生しました: {e}")
 
@@ -433,12 +435,12 @@ class ImageDatabaseManager:
     保存、取得、更新などの操作を行います。
     """
     def __init__(self):
+        self.logger = logging.getLogger(__name__)
         db_path = Path("Image_database") / "image_database.db"
         self.db_manager = SQLiteManager(db_path)
         self.repository = ImageRepository(self.db_manager)
         self.db_manager.create_tables()
         self.repository = self.repository
-        self.logger = logging.getLogger(__name__)
         self.logger.info("データベーステーブルが初期化されました。")
 
     def __enter__(self):
@@ -449,6 +451,25 @@ class ImageDatabaseManager:
         if exc_type:
             self.logger.error("ImageDatabaseManager使用中にエラー: %s", exc_value)
         return False  # 例外を伝播させる
+
+    def register_original_image(self, image_path: Path, fsm: FileSystemManager) -> Optional[int]:  # fsm を引数に追加
+        """オリジナル画像を保存し、メタデータをデータベースに登録
+
+        Args:
+            image_path (Path): 画像パス
+            fsm (FileSystemManager): FileSystemManager のインスタンス
+
+        Returns:
+            Optional[int]: 登録成功時は image_id, 失敗時は None
+        """
+        try:
+            original_metadata = fsm.get_image_info(image_path)
+            db_stored_original_path = fsm.save_original_image(image_path)
+            image_id, _ = self.save_original_metadata(db_stored_original_path, original_metadata)
+            return image_id
+        except Exception as e:
+            self.logger.error(f"オリジナル画像の登録中にエラーが発生しました: {e}")
+            return None
 
     def save_original_metadata(self, stored_image_path: Path, info: Dict[str, Any]) -> Tuple[int, str]:
         """
@@ -529,10 +550,10 @@ class ImageDatabaseManager:
         """
         try:
             # annotations の中にmodel が含まれているかでアノテーションタイプを判定
-            if 'scores' in annotations:
-                self.repository.save_processed_annotations(image_id, annotations)
-            else:
+            if not annotations['tags'][0]['model_id']:
                 self.repository.save_existing_annotations(image_id, annotations)
+            else:
+                self.repository.save_processed_annotations(image_id, annotations)
 
             self.logger.info(f"画像 ID {image_id} のアノテーションを保存しました")
         except Exception as e:
@@ -605,19 +626,32 @@ class ImageDatabaseManager:
             self.logger.error(f"画像アノテーション取得中にエラーが発生しました: {e}")
             raise
 
-    def get_models(self) -> List[Dict[str, str]]:
+    def get_models(self) -> Tuple[Dict[int, Dict[str, Any]], Dict[int, Dict[str, Any]]]:
         """
-        データベースに登録されているビジョンモデルのリストを取得します。
+        データベースに登録されているモデルの情報を取得します。
 
         Returns:
-            List[Dict[str, str]]: ビジョンモデルのリスト。
+            Tuple[Dict[int, Dict[str, Any]], Dict[int, Dict[str, Any]]]: (vision_models, score_models) のタプル。
+            vision_models: {model_id: {'name': model_name, 'provider': provider}},
+            score_models: {model_id: {'name': model_name, 'provider': provider}}
         """
-        query = "SELECT * FROM models"
+        query = "SELECT id, name, provider, type FROM models"
         try:
             models = self.db_manager.fetch_all(query)
-            return models
+            vision_models = {}
+            score_models = {}
+            for model in models:
+                model_id = model['id']
+                name = model['name']
+                provider = model['provider']
+                model_type = model['type']
+                if model_type == 'vision':
+                    vision_models[model_id] = {'name': name, 'provider': provider}
+                elif model_type == 'score':
+                    score_models[model_id] = {'name': name, 'provider': provider}
+            return vision_models, score_models
         except sqlite3.Error as e:
-            self.logger.error(f"ビジョンモデルの取得中にエラーが発生しました: {e}")
+            self.logger.error(f"モデルの取得中にエラーが発生しました: {e}")
             raise
 
     def get_images_by_filter(self, tag_filter: str, caption_filter: str, min_resolution: int) -> List[Dict[str, Any]]:
@@ -686,3 +720,23 @@ class ImageDatabaseManager:
         except Exception as e:
             self.logger.error(f"総画像数の取得中にエラーが発生しました: {e}")
             return 0
+
+    def get_id_by_image_name(self, image_name: str) -> Optional[int]:
+        """画像名からimage_idを取得
+
+        Args:
+            image_na,e (str): 画像名
+
+        Returns:
+            int: image_id
+        """
+        try:
+            query = """
+            SELECT id FROM images
+            WHERE filename = ?
+            """
+            result = self.db_manager.fetch_one(query, (image_name,))
+            return result[0] if result else None
+        except Exception as e:
+            self.logger.error(f"画像IDの取得中にエラーが発生しました: {e}")
+            return None

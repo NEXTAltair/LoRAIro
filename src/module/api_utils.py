@@ -574,10 +574,9 @@ class Claude(BaseAPIClient):
         raise NotImplementedError("Claude API はバッチ処理をサポートしていません。")
 
 class APIClientFactory:
-    def __init__(self, api_keys: Dict[str, str], models, main_prompt: str, add_prompt: str):
+    def __init__(self, api_keys: Dict[str, str], main_prompt: str, add_prompt: str):
         self.api_clients = {}
         self.api_keys = api_keys
-        self.models = models
         self.main_prompt = main_prompt
         self.add_prompt = add_prompt
         self.logger = logging.getLogger(__name__)
@@ -662,8 +661,6 @@ class APIClientFactory:
                 api_client.model_name = model_name
             return api_client, "claude"
         raise ValueError(f"指定されたモデル名に対応する API クライアントが見つかりません: {model_name}")
-
-# ... (既存のコードはそのまま) ...
 
 if __name__ == "__main__":
     # ロギングの設定
