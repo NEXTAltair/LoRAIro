@@ -2,7 +2,7 @@ import traceback
 from pathlib import Path
 import json
 import logging
-from typing import Dict, Tuple, List, Any, Optional
+from typing import Any, Optional
 from abc import ABC, abstractmethod
 import google.generativeai as genai
 import anthropic
@@ -84,7 +84,7 @@ class APIError(Exception):
             return int(self.response.headers.get('Retry-After', 0))
         return None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "message": str(self.args[0]),
             "api_provider": self.api_provider,
@@ -106,12 +106,12 @@ class APIInterface(ABC):
         pass
 
     @abstractmethod
-    def start_batch_processing(self, image_paths: List[Path], options: Optional[Dict[str, Any]] = None) -> str:
+    def start_batch_processing(self, image_paths: list[Path], options: Optional[dict[str, Any]] = None) -> str:
         """バッチ処理を開始
 
         Args:
-            image_paths (List[Path]): 画像のパスリスト。
-            options (Optional[Dict[str, Any]]): API固有のオプション (例: Gemini の `gcs_output_uri`)。
+            image_paths (list[Path]): 画像のパスリスト。
+            options (Optional[dict[str, Any]]): API固有のオプション (例: Gemini の `gcs_output_uri`)。
 
         Returns:
             str: バッチ処理のIDやステータスなどを表す文字列。
@@ -119,14 +119,14 @@ class APIInterface(ABC):
         pass
 
     @abstractmethod
-    def get_batch_results(self, batch_result: Any) -> List[Dict[str, Any]]:
+    def get_batch_results(self, batch_result: Any) -> list[dict[str, Any]]:
         """バッチ処理の結果を取得します。
 
         Args:
             batch_result (Any): start_batch_processing メソッドから返されたバッチ処理結果オブジェクト。
 
         Returns:
-            List[Dict[str, Any]]: 各画像の分析結果をJSON形式で格納したリスト。
+            list[dict[str, Any]]: 各画像の分析結果をJSON形式で格納したリスト。
         """
         pass
 
@@ -149,7 +149,7 @@ class BaseAPIClient(APIInterface):
     def __init__(self, prompt: str, add_prompt: str):
         self.prompt = prompt
         self.add_prompt = add_prompt
-        self.image_data: Dict[str, bytes] = {}  # image_data を空の辞書で初期化:
+        self.image_data: dict[str, bytes] = {}  # image_data を空の辞書で初期化:
         self.logger = logging.getLogger(__name__)
         self.last_request_time = 0
         self.min_request_interval = 1.0  # 1秒間隔でリクエストを制限
@@ -159,7 +159,7 @@ class BaseAPIClient(APIInterface):
         if elapsed_time < self.min_request_interval:
             time.sleep(self.min_request_interval - elapsed_time)
 
-    def _request(self, method: str, url: str, headers: Dict[str, str], data: Optional[Dict[str, Any]] = None) -> str:
+    def _request(self, method: str, url: str, headers: dict[str, str], data: Optional[dict[str, Any]] = None) -> str:
         self._wait_for_rate_limit()
         try:
             response = requests.request(method, url, headers=headers, json=data, timeout=60)
@@ -241,16 +241,16 @@ class OpenAI(BaseAPIClient):
         }
         return headers, payload
 
-    def _analyze_single_image(self, payload: Dict[str, Any], headers: Dict[str, str]) -> Dict[str, Any]:
+    def _analyze_single_image(self, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
         """
         単一画像の分析リクエストを送信
 
         Args:
-            payload (Dict[str, Any]): APIに送信するペイロード
-            headers (Dict[str, str]): リクエストヘッダー
+            payload (dict[str, Any]): APIに送信するペイロード
+            headers (dict[str, str]): リクエストヘッダー
 
         Returns:
-            Dict[str, Any]: APIからのレスポンス
+            dict[str, Any]: APIからのレスポンス
         """
         self._wait_for_rate_limit()
         try:
@@ -292,7 +292,7 @@ class OpenAI(BaseAPIClient):
         content = response['choices'][0]['message']['content']
         return content
 
-    def create_batch_request(self, image_path: Path, model_name: str = "gpt-4o", prompt: str = "") -> Dict[str, Any]:
+    def create_batch_request(self, image_path: Path, model_name: str = "gpt-4o", prompt: str = "") -> dict[str, Any]:
         """
         OpenAI APIに送信するバッチ処理用のペイロードを生成する。
         OpenAI API のバッチ処理で使用する JSONL ファイルの各行に記述する JSON データを生成
@@ -303,7 +303,7 @@ class OpenAI(BaseAPIClient):
             prompt (str): プロンプト
 
         Returns:
-            Dict[str, Any]: バッチリクエスト用のデータ
+            dict[str, Any]: バッチリクエスト用のデータ
         """
         if model_name not in self.SUPPORTED_VISION_MODELS:
             raise ValueError(f"そのModelには非対応: {model_name}. Supported models: {', '.join(self.SUPPORTED_VISION_MODELS)}")
@@ -368,7 +368,7 @@ class OpenAI(BaseAPIClient):
             raise APIError("APIレスポンスの解析に失敗しました。レスポンスが不正な形式である可能性があります。")
         return ''
 
-    def get_batch_results(self, batch_result_dir: Path) -> Dict[str, str]:
+    def get_batch_results(self, batch_result_dir: Path) -> dict[str, str]:
         """
         OpenAI API のバッチ処理結果を読み込み、解析します。
 
@@ -376,7 +376,7 @@ class OpenAI(BaseAPIClient):
             batch_result_dir (Path): バッチ結果ファイルが格納されているディレクトリのパス。
 
         Returns:
-            Dict[str, str]: 画像パスをキー、分析結果を値とする辞書。
+            dict[str, str]: 画像パスをキー、分析結果を値とする辞書。
         """
         results = {}
         for jsonl_file in batch_result_dir.glob('*.jsonl'):
@@ -478,13 +478,13 @@ class Google(BaseAPIClient):
 
         return prompt_parts
 
-    def start_batch_processing(self, image_paths: List[Path], options: Optional[Dict[str, Any]] = None) -> str:
+    def start_batch_processing(self, image_paths: list[Path], options: Optional[dict[str, Any]] = None) -> str:
         #
         #  TODO: 後で実装
         text = "Not implemented yet"
         return text
 
-    def get_batch_results(self, batch_result: Any) -> List[Dict[str, Any]]:
+    def get_batch_results(self, batch_result: Any) -> list[dict[str, Any]]:
         #
         #  TODO: 後で実装
         text = "Not implemented yet"
@@ -565,24 +565,23 @@ class Claude(BaseAPIClient):
             raise APIError(str(e), "Claude")
 
 
-    def start_batch_processing(self, image_paths: List[Path], options: Optional[Dict[str, Any]] = None) -> str:
+    def start_batch_processing(self, image_paths: list[Path], options: Optional[dict[str, Any]] = None) -> str:
         """Claude API はバッチ処理をサポートしていません。"""
         raise NotImplementedError("Claude API はバッチ処理をサポートしていません。")
 
-    def get_batch_results(self, batch_id: str) -> List[Dict[str, Any]]:
+    def get_batch_results(self, batch_id: str) -> list[dict[str, Any]]:
         """Claude API はバッチ処理をサポートしていません。"""
         raise NotImplementedError("Claude API はバッチ処理をサポートしていません。")
 
 class APIClientFactory:
-    def __init__(self, api_keys: Dict[str, str], main_prompt: str, add_prompt: str):
+    def __init__(self, api_keys: dict[str, str]):
+        self.logger = logging.getLogger(__name__)
         self.api_clients = {}
         self.api_keys = api_keys
+
+    def init_api_clients(self, main_prompt: str, add_prompt: str):
         self.main_prompt = main_prompt
         self.add_prompt = add_prompt
-        self.logger = logging.getLogger(__name__)
-        self._initialize_api_clients()
-
-    def _initialize_api_clients(self):
         if self.api_keys.get("openai_key"):
             if self._validate_openai_key(self.api_keys["openai_key"]):
                 self.api_clients["openai"] = OpenAI(
