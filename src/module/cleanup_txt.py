@@ -239,10 +239,3 @@ def initialize_tag_cleaner() -> TagCleaner:
     project_root = Path(__file__).resolve().parents[2]
     db_path = project_root / "tags_v3.db"
     return TagCleaner(db_path)
-
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    cleaner = initialize_tag_cleaner()
-    tag_to_cleanup = "2girls, ponytail, braid, braid, red hair, blue eyes, long hair, ,"
-    cleaned_tags = cleaner.clean_tags(tag_to_cleanup)
-    print(f'Cleaned tags: {cleaned_tags}')
