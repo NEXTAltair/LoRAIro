@@ -167,6 +167,7 @@ class ImageRepository:
         Args:
             db_manager (SQLiteManager): データベース接続を管理するオブジェクト。
         """
+        self.logger = logging.getLogger(__name__)
         self.db_manager = db_manager
 
     def add_image(self, info: Dict[str, Any]) -> int:
@@ -233,32 +234,15 @@ class ImageRepository:
         except sqlite3.Error as e:
             raise sqlite3.Error(f"画像メタデータの取得中にエラーが発生しました: {e}")
 
-    def save_existing_annotations(self, image_id: int, annotations: Dict[str, List[Dict[str, Any]]]) -> None:
+    def save_annotations(self, image_id: int, annotations: Dict[str, List[Dict[str, Any]]]) -> None:
         """
-        既存の画像アノテーション（タグ、キャプション）を保存します。
+        画像のアノテーション（タグ、キャプション、スコア）を保存します。
 
         Args:
             image_id (int): アノテーションを追加する画像のID。
             annotations (Dict[str, List[Dict[str, Any]]]): アノテーションデータ。
-
-        Raises:
-            sqlite3.Error: データベース操作でエラーが発生した場合。
-        """
-        if not self._image_exists(image_id):
-            raise ValueError(f"指定されたimage_id {image_id} は存在しません。")
-        try:
-            self._save_tags(image_id, annotations.get('tags', []), existing=True)
-            self._save_captions(image_id, annotations.get('captions', []), existing=True)
-        except sqlite3.Error as e:
-            raise sqlite3.Error(f"既存のアノテーションの保存中にエラーが発生しました: {e}")
-
-    def save_processed_annotations(self, image_id: int, annotations: Dict[str, List[Dict[str, Any]]]) -> None:
-        """
-        処理済みの画像アノテーション（タグ、キャプション、スコア）を保存します。
-
-        Args:
-            image_id (int): アノテーションを追加する画像のID。
-            annotations (Dict[str, List[Dict[str, Any]]]): アノテーションデータ。
+                'tags', 'captions', 'scores' をキーとし、それぞれリストを値とする辞書。
+                各リストの要素は {'value': str, 'model_id': Optional[int]} の形式。
 
         Raises:
             sqlite3.Error: データベース操作でエラーが発生した場合。
@@ -266,69 +250,62 @@ class ImageRepository:
         """
         if not self._image_exists(image_id):
             raise ValueError(f"指定されたimage_id {image_id} は存在しません。")
-        # TODO: scoreはまた今度
-        # if 'scores' not in annotations:
-        #     raise ValueError("処理済みアノテーションには 'scores' が含まれている必要があります。")
 
         try:
-            self._save_tags(image_id, annotations.get('tags', ""), existing=False)
-            self._save_captions(image_id, annotations.get('captions', []), existing=False)
-            # self._save_scores(image_id, annotations['scores'])
+            self._save_tags(image_id, annotations.get('tags', []))
+            self._save_captions(image_id, annotations.get('captions', []))
+            self._save_scores(image_id, annotations.get('scores', []))
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"処理済みアノテーションの保存中にエラーが発生しました: {e}")
+            raise sqlite3.Error(f"アノテーションの保存中にエラーが発生しました: {e}")
 
-    def _save_tags(self, image_id: int, tags: List[Dict[str, str]], existing: bool) -> None:
+    def _save_tags(self, image_id: int, tags: List[Dict[str, Any]]) -> None:
         """タグを保存する内部メソッド"""
-        data = []
-        for tag in tags:
-            if existing:
-                model_id = None
-            else:
-                if 'model' not in tag:
-                    message = "モデル情報が必要です。"
-                    logging.error(message)
-                    raise ValueError(message)
-                model_id = self._get_model_id(tag['model'])
-                logging.error("model_id: %s", model_id)
-            data.append((image_id, tag['tag'], model_id, existing))
         query = "INSERT INTO tags (image_id, tag, model_id, existing) VALUES (?, ?, ?, ?)"
-        try:
-            self.db_manager.executemany(query, data)
-            logging.info("save_tags: %s", image_id)
-        except sqlite3.Error as e:
-            raise sqlite3.Error(f"ImageRepository._save_tags: {str(e)}")
-
-    def _save_captions(self, image_id: int, captions: List[Dict[str, str]], existing: bool) -> None:
-        """キャプションを保存する内部メソッド"""
         data = []
-        for caption in captions:
-            if existing:
-                model_id = None
-            else:
-                if 'model' not in caption:
-                    raise ValueError("モデル情報が必要です。")
-                model_id = self._get_model_id(caption['model'])
-            data.append((image_id, caption['caption'], model_id, existing))
-        query = "INSERT INTO captions (image_id, caption, model_id, existing) VALUES (?, ?, ?, ?)"
-        try:
-            self.db_manager.executemany(query, data)
-            logging.info("captions: %s", image_id)
-        except sqlite3.Error as e:
-            raise sqlite3.Error(f"ImageRepository._save_captions:, {str(e)}")
 
-    def _save_scores(self, image_id: int, scores: List[Dict[str, float]]) -> None:
+        for tag in tags:
+            tag_value = tag['tag']
+            model_id = tag.get('model_id')
+            existing = 1 if model_id is None else 0
+            data.append((image_id, tag_value, model_id, existing))
+            self.logger.debug(f"ImageRepository._save_tags: {tag_value} ")
+
+        self.db_manager.executemany(query, data)
+
+    def _save_captions(self, image_id: int, captions: List[Dict[str, Any]]) -> None:
+        """キャプションを保存する内部メソッド"""
+        query = "INSERT INTO captions (image_id, caption, model_id, existing) VALUES (?, ?, ?, ?)"
+        data = []
+
+        for caption in captions:
+            caption_value = caption['caption']
+            model_id = caption.get('model_id')
+            existing = 1 if model_id is None else 0
+            data.append((image_id, caption_value, model_id, existing))
+            self.logger.debug(f"ImageRepository._save_captions: {caption_value} ")
+
+        self.db_manager.executemany(query, data)
+
+
+    def _save_scores(self, image_id: int, scores: List[Dict[str, Any]]) -> None:
         """スコアを保存する内部メソッド"""
         query = "INSERT INTO scores (image_id, score, model_id) VALUES (?, ?, ?)"
         data = []
+
         for score in scores:
-            if 'model' not in score:
-                raise ValueError("モデル情報が必要です。")
-            model_id = self._get_model_id(score['model'])
-            data.append((image_id, score['score'], model_id))
-        try:
+            score_value = score['score']
+            model_id = score.get('model_id')
+
+            if model_id is not None:
+                data.append((image_id, score_value, model_id))
+                self.logger.debug(f"ImageRepository._save_scores: {score_value} ")
+            else:
+                self.logger.warning(f"スコア {score_value} にmodel_idが設定されていません。このスコアはスキップされます。")
+
+        if data:
             self.db_manager.executemany(query, data)
-        except sqlite3.Error as e:
-            raise sqlite3.Error(f"_save_scoresメソッド内のクエリエラー: {e}")
+        else:
+            self.logger.info("保存するスコアがありません。")
 
     def _get_model_id(self, model_name: str) -> int:
         """モデル名からモデルIDを取得するメソッド"""
@@ -452,7 +429,7 @@ class ImageDatabaseManager:
             self.logger.error("ImageDatabaseManager使用中にエラー: %s", exc_value)
         return False  # 例外を伝播させる
 
-    def register_original_image(self, image_path: Path, fsm: FileSystemManager) -> Optional[int]:  # fsm を引数に追加
+    def register_original_image(self, image_path: Path, fsm: FileSystemManager) -> Optional[tuple]:
         """オリジナル画像を保存し、メタデータをデータベースに登録
 
         Args:
@@ -460,13 +437,13 @@ class ImageDatabaseManager:
             fsm (FileSystemManager): FileSystemManager のインスタンス
 
         Returns:
-            Optional[int]: 登録成功時は image_id, 失敗時は None
+            Optional[tuple]: 登録成功時は image_id, original_metadata 失敗時は None
         """
         try:
-            original_metadata = fsm.get_image_info(image_path)
+            original_image_metadata = fsm.get_image_info(image_path)
             db_stored_original_path = fsm.save_original_image(image_path)
-            image_id, _ = self.save_original_metadata(db_stored_original_path, original_metadata)
-            return image_id
+            image_id, _ = self.save_original_metadata(db_stored_original_path, original_image_metadata)
+            return image_id, original_image_metadata
         except Exception as e:
             self.logger.error(f"オリジナル画像の登録中にエラーが発生しました: {e}")
             return None
@@ -504,7 +481,7 @@ class ImageDatabaseManager:
             self.logger.error(f"元画像のメタデータ登録中に予期せぬエラーが発生しました: {e}")
             raise
 
-    def save_processed_metadata(self, image_id: int, processed_path: Path, info: Dict[str, Any]) -> int:
+    def register_processed_metadata(self, image_id: int, processed_path: Path, info: Dict[str, Any]) -> int:
         """
         処理済み画像のメタデータを保存します。
 
@@ -523,7 +500,7 @@ class ImageDatabaseManager:
         try:
             # infoディクショナリに元画像IDと保存パスを追加
             info['image_id'] = image_id
-            info['stored_image_path'] = str(processed_path)
+            info['stored_image_path'] = str(processed_path) #TODO: これは不要なカラムかも他の部分との整合性を要確認
 
             # リポジトリを使用して処理済み画像メタデータを保存
             processed_image_id = self.repository.add_image(info)
@@ -539,8 +516,6 @@ class ImageDatabaseManager:
         """
         画像のアノテーション（タグ、キャプション、スコア）を保存します。
 
-        渡されたano_dict の トップレベルのキーによってアノテーションの種類を判定し､保存処理を行う
-
         Args:
             image_id (int): アノテーションを追加する画像のID。
             annotations (Dict[str, List[Dict[str, Any]]]): アノテーションデータ。
@@ -549,12 +524,7 @@ class ImageDatabaseManager:
             Exception: アノテーションの保存に失敗した場合。
         """
         try:
-            # annotations の中にmodel が含まれているかでアノテーションタイプを判定
-            if not annotations.get("model_id"):
-                self.repository.save_existing_annotations(image_id, annotations)
-            else:
-                self.repository.save_processed_annotations(image_id, annotations)
-
+            self.repository.save_annotations(image_id, annotations)
             self.logger.info(f"画像 ID {image_id} のアノテーションを保存しました")
         except Exception as e:
             self.logger.error(f"アノテーションの保存中にエラーが発生しました: {e}")
@@ -721,8 +691,8 @@ class ImageDatabaseManager:
             self.logger.error(f"総画像数の取得中にエラーが発生しました: {e}")
             return 0
 
-    def get_id_by_image_name(self, image_name: str) -> Optional[int]:
-        """画像名からimage_idを取得
+    def get_image_id_by_name(self, image_name: str) -> Optional[int]:
+        """オリジナル画像の重複チェック用 画像名からimage_idを取得
 
         Args:
             image_na,e (str): 画像名
