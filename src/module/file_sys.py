@@ -7,15 +7,16 @@ import math
 import json
 import toml
 import shutil
-import logging
+from module.log import get_logger
 from datetime import datetime
 
 class FileSystemManager:
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__)
+    image_extensions = ['.jpg', '.png', '.bmp', '.gif', '.tif', '.tiff', '.jpeg', '.webp']
     def __init__(self):
         self.logger = FileSystemManager.logger
         self.initialized = False
-        self.image_extensions = ['.jpg', '.png', '.bmp', '.gif', '.tif', '.tiff', '.jpeg', '.webp']
+        self.image_extensions = FileSystemManager.image_extensions
         self.image_dataset_dir = None
         self.resolution_dir = None
         self.original_images_dir = None
@@ -35,7 +36,7 @@ class FileSystemManager:
 
     def initialize(self, output_dir: Path, target_resolution: int):
         """
-        FileSystemManagerを初期化｡
+        FileSystemManagerを初期化｡ 2つの引数はGUI操作で変更可能
 
         Args:
             output_dir (Path): 出力ディレクトリのパス
@@ -82,7 +83,8 @@ class FileSystemManager:
             self.logger.error("ディレクトリの作成に失敗: %s. FileSystemManager._create_directory: %s", path, str(e))
             raise
 
-    def get_image_files(self, input_dir: Path) -> list[Path]:
+    @staticmethod
+    def get_image_files(input_dir: Path) -> list[Path]:
         """
         ディレクトリから画像ファイルのリストを取得｡
 
@@ -90,13 +92,13 @@ class FileSystemManager:
             list[Path]: 画像ファイルのパスのリスト
         """
         image_files = []
-        for ext in self.image_extensions:
+        for ext in FileSystemManager.image_extensions:
             for image_file in input_dir.rglob(f'*{ext}'):
                 image_files.append(image_file)
         return image_files
 
-
-    def get_image_info(self, image_path: Path) -> dict[str, Any]:
+    @staticmethod
+    def get_image_info(image_path: Path) -> dict[str, Any]:
         """
         画像ファイルから基本的な情報を取得する 不足している情報は登録時に設定
 
@@ -141,7 +143,7 @@ class FileSystemManager:
             }
         except Exception as e:
             message = f"画像情報の取得失敗: {image_path}. FileSystemManager.get_image_info: {str(e)}"
-            self.logger.error(message)
+            FileSystemManager.logger.error(message)
             raise
 
     def _get_next_sequence_number(self, save_dir: str | Path ) -> int:
