@@ -182,7 +182,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         fsm.initialize(Path(self.cm.config['directories']['output']), self.cm.config['image_processing']['target_resolution'])
         for result in self.all_results:
             image_path = Path(result['image_path'])
-            image_id = self.idm.get_id_by_image_name(image_path.name)# TODO: 重複チェックロジックがイマイチ
+            image_id = self.idm.get_image_id_by_name(image_path.name)# TODO: 重複チェックロジックがイマイチ
             if image_id is None:
                 image_id = self.idm.register_original_image(image_path, fsm)
                 self.logger.info(f"ImageTaggerWidget.save_to_db {image_path.name}")
