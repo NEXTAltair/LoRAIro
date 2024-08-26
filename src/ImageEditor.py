@@ -5,17 +5,19 @@
 - 画像をリサイズ
 """
 import cv2
-import logging
 from pathlib import Path
+from spandrel import ModelLoader, ImageModelDescriptor
+import torch
 import numpy as np
 from PIL import Image
 from module.file_sys import FileSystemManager
-from typing import List, Tuple, Optional
+from module.log import get_logger
+from typing import Optional
 from scipy import ndimage
 
 class ImageProcessingManager:
     def __init__(self, file_system_manager: FileSystemManager, target_resolution: int,
-                 preferred_resolutions: List[Tuple[int, int]]):
+                 preferred_resolutions: list[tuple[int, int]]):
         """
         ImageProcessingManagerを初期化
         デフォルト値はmodule/config.pyに定義
@@ -23,10 +25,10 @@ class ImageProcessingManager:
         Args:
             file_system_manager (FileSystemManager): ファイルシステムマネージャ
             target_resolution (int): 目標解像度
-            preferred_resolutions (List[Tuple[int, int]]): 優先解像度リスト
+            preferred_resolutions (list[tuple[int, int]]): 優先解像度リスト #TODO: 解像度じゃなくてアスペクト比表記のほうがいいかも
         """
+        self.logger = get_logger(__name__)
         self.file_system_manager = file_system_manager
-        self.logger = logging.getLogger(__name__)
         self.target_resolution = target_resolution
 
         try:
@@ -43,7 +45,7 @@ class ImageProcessingManager:
             self.logger.error(message)
             raise ValueError(message) from e
 
-    def process_image(self, db_stored_original_path: Path, original_has_alpha: bool, original_mode: str) -> Optional[Image.Image]:
+    def process_image(self, db_stored_original_path: Path, original_has_alpha: bool, original_mode: str, upscaler: str = None) -> Optional[Image.Image]:
         """
         画像を処理し、処理後の画像オブジェクトを返す
 
@@ -51,38 +53,35 @@ class ImageProcessingManager:
             db_stored_original_path (Path): 処理する画像ファイルのパス
             original_has_alpha (bool): 元画像がアルファチャンネルを持つかどうか
             original_mode (str): 元画像のモード (例: 'RGB', 'CMYK', 'P')
+            upscaler (str): アップスケーラーの名前
 
         Returns:
             Optional[Image.Image]: 処理済み画像オブジェクト。処理不要の場合はNone
 
-        Ret            Optional[Image.Image]: 処理済み画像オブジェクト。処理不要の場合はNone
         """
         try:
-            # . 元画像を受け取る
             with Image.open(db_stored_original_path) as img:
-                # 1. 画像の枠を自動でクロップ
                 cropped_img = AutoCrop.auto_crop_image(img)
 
-                # 3. クロップ後長辺が設定値以下の場合処理をしない
-                if max(cropped_img.width, cropped_img.height) < self.target_resolution:
-                    self.logger.info("画像サイズが小さすぎるため処理をスキップ: %s", db_stored_original_path)
-                    return None
-
-                # 4. 画像色域を変換
                 converted_img = self.image_processor.normalize_color_profile(cropped_img, original_has_alpha, original_mode)
 
-                # 5. リサイズ
+                if max(cropped_img.width, cropped_img.height) < self.target_resolution:
+                    if upscaler: #TODO: アップスケールした画像はそれを示すデータも保存すべきか？
+                        self.logger.debug("長編が指定解像度未満のため%sをアップスケールします: %s", db_stored_original_path, upscaler)
+                        converted_img = Upscaler.upscale_image(converted_img, upscaler)
+                        if max(converted_img.width, converted_img.height) < self.target_resolution:
+                            self.logger.info("画像サイズが小さすぎるため処理をスキップ: %s", db_stored_original_path)
+                            return None
                 resized_img = self.image_processor.resize_image(converted_img)
 
-                # 6. 画像オブジェクトを返す
                 return resized_img
 
         except Exception as e:
             self.logger.error("画像処理中にエラーが発生しました: %s", e)
 
 class ImageProcessor:
-    def __init__(self, file_system_manager: FileSystemManager, target_resolution: int, preferred_resolutions: List[Tuple[int, int]]) -> None:
-        self.logger = logging.getLogger(__name__)
+    def __init__(self, file_system_manager: FileSystemManager, target_resolution: int, preferred_resolutions: list[tuple[int, int]]) -> None:
+        self.logger = get_logger(__name__)
         self.file_system_manager = file_system_manager
         self.target_resolution = target_resolution
         self.preferred_resolutions = preferred_resolutions
@@ -117,7 +116,7 @@ class ImageProcessor:
             self.logger.error("ImageProcessor.normalize_color_profile :%s", e)
             raise
 
-    def _find_matching_resolution(self, original_width: int, original_height: int) -> Optional[Tuple[int, int]]:
+    def _find_matching_resolution(self, original_width: int, original_height: int) -> Optional[tuple[int, int]]:
         """SDでよく使う解像度と同じアスペクト比の解像度を探す
 
         Args:
@@ -125,7 +124,7 @@ class ImageProcessor:
             original_height (int): もとの画像の高さ
 
         Returns:
-            Optional[Tuple[int, int]]: 同じアスペクト比の解像度のタプル
+            Optional[tuple[int, int]]: 同じアスペクト比の解像度のタプル
         """
         if original_width < self.target_resolution and original_height < self.target_resolution:
             print(f'find_matching_resolution Error: 意図しない小さな画像を受け取った: {original_width}x{original_height}')
@@ -177,7 +176,7 @@ class AutoCrop:
         return cls._instance
 
     def _initialize(self):
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger(__name__)
 
     @classmethod
     def auto_crop_image(cls, pil_image: Image.Image) -> Image.Image:
@@ -242,7 +241,7 @@ class AutoCrop:
         is_gradient = bool(is_gradient)
         return has_letterbox and not is_gradient
 
-    def _get_crop_area(self, np_image: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
+    def _get_crop_area(self, np_image: np.ndarray) -> Optional[tuple[int, int, int, int]]:
         try:
             # レターボックス/ピラーボックスのチェックを維持
             if not self.has_letterbox(np_image):
@@ -321,7 +320,65 @@ class AutoCrop:
             self.logger.error("自動クロップ処理中にエラーが発生しました: %s", e)
             return pil_image
 
-# 以下はテストコード
+class Upscaler:
+    # TODO: 暫定的なモデルパスとスケール値､もっと追加がしやすいようにする
+    MODEL_PATHS: dict[str, tuple[Path, float]] = {
+        "RealESRGAN_x4plus": (Path(r"H:\StabilityMatrix-win-x64\Data\Models\RealESRGAN\RealESRGAN_x4plus.pth"), 4.0),
+    }
+    def __init__(self, model_name: str):
+        self.logger = get_logger(__name__)
+        self.model_path, self.recommended_scale = self.MODEL_PATHS[model_name]
+        self.model = self._load_model(self.model_path)
+        self.model.cuda().eval()
+
+    @classmethod
+    def get_available_models(cls) -> list[str]:
+        return list(cls.MODEL_PATHS.keys())
+
+    @classmethod
+    def upscale_image(cls, img: Image.Image, model_name: str, scale: float = None) -> Image.Image:
+        upscaler = cls(model_name)
+        scale = scale or upscaler.recommended_scale
+        return upscaler._upscale(img, scale)
+
+    def _load_model(self, model_path: Path) -> ImageModelDescriptor:
+        model = ModelLoader().load_from_file(model_path)
+        if not isinstance(model, ImageModelDescriptor):
+            self.logger.error("読み込まれたモデルは ImageModelDescriptor のインスタンスではありません")
+        return model
+
+    def _upscale(self, img: Image.Image, scale: float) -> Image.Image:
+        """
+        画像をアップスケールする
+        Args:
+            img (Image.Image): アップスケールする画像
+            scale (float): スケール倍率
+        Returns:
+            Image.Image: アップスケールされた画像
+        """
+        try:
+            img_tensor = self._convert_image_to_tensor(img)
+            with torch.no_grad():
+                output = self.model(img_tensor)
+            return self._convert_tensor_to_image(output, scale, img.size)
+        except Exception as e:
+            self.logger.error("アップスケーリング中のエラー: %s", e, exc_info=True)
+            return img
+
+    def _convert_image_to_tensor(self, image: Image.Image) -> torch.Tensor:
+        img_np = np.array(image).astype(np.float32) / 255.0
+        img_tensor = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0).cuda()
+        return img_tensor
+
+    def _convert_tensor_to_image(self, tensor: torch.Tensor, scale: float, original_size: tuple) -> Image.Image:
+        output_np = tensor.squeeze().cpu().numpy().transpose(1, 2, 0)
+        output_np = (output_np * 255).clip(0, 255).astype(np.uint8)
+        output_image = Image.fromarray(output_np)
+        expected_size = (int(original_size[0] * scale), int(original_size[1] * scale))
+        if output_image.size != expected_size:
+            output_image = output_image.resize(expected_size, Image.LANCZOS)
+        return output_image
+
 if __name__ == '__main__':
     ##自動クロップのテスト
     import matplotlib.pyplot as plt

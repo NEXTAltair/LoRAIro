@@ -37,10 +37,9 @@ class Ui_ImageEditWidget(object):
         sizePolicy.setHeightForWidth(self.splitterMainContent.sizePolicy().hasHeightForWidth())
         self.splitterMainContent.setSizePolicy(sizePolicy)
         self.splitterMainContent.setOrientation(Qt.Orientation.Horizontal)
-        self.splitterMainContent.setHandleWidth(10)
         self.tableWidgetImageList = QTableWidget(self.splitterMainContent)
-        if (self.tableWidgetImageList.columnCount() < 7):
-            self.tableWidgetImageList.setColumnCount(7)
+        if (self.tableWidgetImageList.columnCount() < 6):
+            self.tableWidgetImageList.setColumnCount(6)
         __qtablewidgetitem = QTableWidgetItem()
         self.tableWidgetImageList.setHorizontalHeaderItem(0, __qtablewidgetitem)
         __qtablewidgetitem1 = QTableWidgetItem()
@@ -53,27 +52,24 @@ class Ui_ImageEditWidget(object):
         self.tableWidgetImageList.setHorizontalHeaderItem(4, __qtablewidgetitem4)
         __qtablewidgetitem5 = QTableWidgetItem()
         self.tableWidgetImageList.setHorizontalHeaderItem(5, __qtablewidgetitem5)
-        __qtablewidgetitem6 = QTableWidgetItem()
-        self.tableWidgetImageList.setHorizontalHeaderItem(6, __qtablewidgetitem6)
         self.tableWidgetImageList.setObjectName(u"tableWidgetImageList")
         sizePolicy1 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        sizePolicy1.setHorizontalStretch(2)
+        sizePolicy1.setHorizontalStretch(1)
         sizePolicy1.setVerticalStretch(2)
         sizePolicy1.setHeightForWidth(self.tableWidgetImageList.sizePolicy().hasHeightForWidth())
         self.tableWidgetImageList.setSizePolicy(sizePolicy1)
-        self.tableWidgetImageList.setMinimumSize(QSize(128, 0))
         self.tableWidgetImageList.setFrameShape(QFrame.Shape.StyledPanel)
         self.tableWidgetImageList.setFrameShadow(QFrame.Shadow.Sunken)
         self.tableWidgetImageList.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.splitterMainContent.addWidget(self.tableWidgetImageList)
         self.tableWidgetImageList.horizontalHeader().setCascadingSectionResizes(False)
-        self.tableWidgetImageList.horizontalHeader().setMinimumSectionSize(64)
-        self.tableWidgetImageList.horizontalHeader().setDefaultSectionSize(64)
+        self.tableWidgetImageList.horizontalHeader().setMinimumSectionSize(0)
+        self.tableWidgetImageList.horizontalHeader().setDefaultSectionSize(0)
         self.tableWidgetImageList.horizontalHeader().setHighlightSections(True)
         self.tableWidgetImageList.horizontalHeader().setStretchLastSection(False)
         self.tableWidgetImageList.verticalHeader().setVisible(False)
-        self.tableWidgetImageList.verticalHeader().setMinimumSectionSize(64)
-        self.tableWidgetImageList.verticalHeader().setDefaultSectionSize(129)
+        self.tableWidgetImageList.verticalHeader().setMinimumSectionSize(50)
+        self.tableWidgetImageList.verticalHeader().setDefaultSectionSize(126)
         self.tableWidgetImageList.verticalHeader().setHighlightSections(False)
         self.widget_PreviewArea_2 = QWidget(self.splitterMainContent)
         self.widget_PreviewArea_2.setObjectName(u"widget_PreviewArea_2")
@@ -83,17 +79,20 @@ class Ui_ImageEditWidget(object):
         self.verticalImagePreview.setContentsMargins(0, 0, 0, 0)
         self.ImagePreview = ImagePreviewWidget(self.widget_PreviewArea_2)
         self.ImagePreview.setObjectName(u"ImagePreview")
-        sizePolicy1.setHeightForWidth(self.ImagePreview.sizePolicy().hasHeightForWidth())
-        self.ImagePreview.setSizePolicy(sizePolicy1)
+        sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        sizePolicy2.setHorizontalStretch(1)
+        sizePolicy2.setVerticalStretch(0)
+        sizePolicy2.setHeightForWidth(self.ImagePreview.sizePolicy().hasHeightForWidth())
+        self.ImagePreview.setSizePolicy(sizePolicy2)
         self.ImagePreview.setMinimumSize(QSize(126, 0))
         self.labelPreviewTitle = QLabel(self.ImagePreview)
         self.labelPreviewTitle.setObjectName(u"labelPreviewTitle")
         self.labelPreviewTitle.setGeometry(QRect(0, 0, 177, 21))
-        sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        sizePolicy2.setHorizontalStretch(0)
-        sizePolicy2.setVerticalStretch(0)
-        sizePolicy2.setHeightForWidth(self.labelPreviewTitle.sizePolicy().hasHeightForWidth())
-        self.labelPreviewTitle.setSizePolicy(sizePolicy2)
+        sizePolicy3 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        sizePolicy3.setHorizontalStretch(0)
+        sizePolicy3.setVerticalStretch(0)
+        sizePolicy3.setHeightForWidth(self.labelPreviewTitle.sizePolicy().hasHeightForWidth())
+        self.labelPreviewTitle.setSizePolicy(sizePolicy3)
 
         self.verticalImagePreview.addWidget(self.ImagePreview)
 
@@ -122,13 +121,14 @@ class Ui_ImageEditWidget(object):
 
         self.labelUpscaler = QLabel(self.groupBoxEditOptions)
         self.labelUpscaler.setObjectName(u"labelUpscaler")
-        self.labelUpscaler.setEnabled(False)
 
         self.horizontalLayout_EditOptions_2.addWidget(self.labelUpscaler)
 
         self.comboBoxUpscaler = QComboBox(self.groupBoxEditOptions)
+        self.comboBoxUpscaler.addItem("")
+        self.comboBoxUpscaler.addItem("")
         self.comboBoxUpscaler.setObjectName(u"comboBoxUpscaler")
-        self.comboBoxUpscaler.setEnabled(False)
+        self.comboBoxUpscaler.setCurrentText(u"None")
 
         self.horizontalLayout_EditOptions_2.addWidget(self.comboBoxUpscaler)
 
@@ -162,13 +162,11 @@ class Ui_ImageEditWidget(object):
         ___qtablewidgetitem2 = self.tableWidgetImageList.horizontalHeaderItem(2)
         ___qtablewidgetitem2.setText(QCoreApplication.translate("ImageEditWidget", u"\u30d1\u30b9", None));
         ___qtablewidgetitem3 = self.tableWidgetImageList.horizontalHeaderItem(3)
-        ___qtablewidgetitem3.setText(QCoreApplication.translate("ImageEditWidget", u"\u9ad8 x \u5e45", None));
+        ___qtablewidgetitem3.setText(QCoreApplication.translate("ImageEditWidget", u"\u30b5\u30a4\u30ba", None));
         ___qtablewidgetitem4 = self.tableWidgetImageList.horizontalHeaderItem(4)
-        ___qtablewidgetitem4.setText(QCoreApplication.translate("ImageEditWidget", u"\u30b5\u30a4\u30ba", None));
+        ___qtablewidgetitem4.setText(QCoreApplication.translate("ImageEditWidget", u"\u65e2\u5b58\u30bf\u30b0", None));
         ___qtablewidgetitem5 = self.tableWidgetImageList.horizontalHeaderItem(5)
-        ___qtablewidgetitem5.setText(QCoreApplication.translate("ImageEditWidget", u"\u65e2\u5b58\u30bf\u30b0", None));
-        ___qtablewidgetitem6 = self.tableWidgetImageList.horizontalHeaderItem(6)
-        ___qtablewidgetitem6.setText(QCoreApplication.translate("ImageEditWidget", u"\u65e2\u5b58\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3", None));
+        ___qtablewidgetitem5.setText(QCoreApplication.translate("ImageEditWidget", u"\u65e2\u5b58\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3", None));
         self.labelPreviewTitle.setText(QCoreApplication.translate("ImageEditWidget", u"\u30d7\u30ec\u30d3\u30e5\u30fc", None))
         self.groupBoxEditOptions.setTitle(QCoreApplication.translate("ImageEditWidget", u"\u7de8\u96c6\u30aa\u30d7\u30b7\u30e7\u30f3", None))
         self.labelResizeOption.setText(QCoreApplication.translate("ImageEditWidget", u"\u30ea\u30b5\u30a4\u30ba:", None))
@@ -177,6 +175,9 @@ class Ui_ImageEditWidget(object):
         self.comboBoxResizeOption.setItemText(2, QCoreApplication.translate("ImageEditWidget", u"1024x1024", None))
 
         self.labelUpscaler.setText(QCoreApplication.translate("ImageEditWidget", u"\u30a2\u30c3\u30d7\u30b9\u30b1\u30fc\u30e9\u30fc", None))
+        self.comboBoxUpscaler.setItemText(0, QCoreApplication.translate("ImageEditWidget", u"None", None))
+        self.comboBoxUpscaler.setItemText(1, QCoreApplication.translate("ImageEditWidget", u"RealESRGAN_x4plus", None))
+
         self.pushButtonStartProcess.setText(QCoreApplication.translate("ImageEditWidget", u"\u51e6\u7406\u958b\u59cb", None))
     # retranslateUi
 
