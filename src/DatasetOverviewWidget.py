@@ -11,7 +11,6 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setupUi(self)
-        self.fsm = None
         self.image_files = []
 
         # スプリッターの初期サイズを設定
@@ -21,8 +20,7 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
         # シグナル/スロット接続
         self.thumbnailSelector.imageSelected.connect(self.update_preview)
 
-    def load_images(self, fsm: FileSystemManager, image_files: list):
-        self.fsm = fsm
+    def load_images(self, image_files: list):
         self.image_files = image_files
         self.thumbnailSelector.load_images(image_files)
         self.dataset_loaded.emit()
@@ -37,12 +35,10 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
         self.update_metadata(image_path)
 
     def update_metadata(self, image_path: Path):
-        if image_path and self.fsm:
-            metadata = self.fsm.get_image_info(image_path)
+        if image_path:
+            metadata = FileSystemManager.get_image_info(image_path)
             self.set_metadata_labels(metadata, image_path)
             self.update_annotations(image_path)
-        else:
-            self.clear_metadata()
 
     def set_metadata_labels(self, metadata, image_path):
         self.fileNameValueLabel.setText(metadata['filename'])
