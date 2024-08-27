@@ -1,8 +1,8 @@
 import sqlite3
 from contextlib import contextmanager
-from typing import Dict, List, Any, Tuple, Optional
+from typing import Any, Union, Optional
 from datetime import datetime
-import logging
+from module.log import get_logger
 from pathlib import Path
 import uuid
 
@@ -12,7 +12,7 @@ class SQLiteManager:
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self._connection = None
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger("SQLiteManager")
 
     @staticmethod
     def dict_factory(cursor, row):
@@ -42,27 +42,27 @@ class SQLiteManager:
             conn.rollback()
             raise
 
-    def execute(self, query: str, params: Tuple[Any, ...] = ()) -> Optional[sqlite3.Cursor]:
+    def execute(self, query: str, params: tuple[Any, ...] = ()) -> Optional[sqlite3.Cursor]:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, params)
             conn.commit()
             return cursor
 
-    def executemany(self, query: str, params: List[Tuple[Any, ...]]) -> Optional[sqlite3.Cursor]:
+    def executemany(self, query: str, params: list[tuple[Any, ...]]) -> Optional[sqlite3.Cursor]:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.executemany(query, params)
             conn.commit()
             return cursor
 
-    def fetch_one(self, query: str, params: Tuple[Any, ...] = ()) -> Optional[Tuple[Any, ...]]:
+    def fetch_one(self, query: str, params: tuple[Any, ...] = ()) -> Optional[tuple[Any, ...]]:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, params)
             return cursor.fetchone()
 
-    def fetch_all(self, query: str, params: Tuple[Any, ...] = ()) -> List[Tuple[Any, ...]]:
+    def fetch_all(self, query: str, params: tuple[Any, ...] = ()) -> list[tuple[Any, ...]]:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, params)
@@ -116,6 +116,15 @@ class SQLiteManager:
                     FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
                 );
 
+                -- models テーブル：モデル情報を格納
+                CREATE TABLE IF NOT EXISTS models (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT UNIQUE NOT NULL,
+                    type TEXT NOT NULL,
+                    provider TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
                 -- tags テーブル：画像に関連付けられたタグを格納
                 CREATE TABLE IF NOT EXISTS tags (
                     id INTEGER PRIMARY KEY,
@@ -124,8 +133,8 @@ class SQLiteManager:
                     tag TEXT NOT NULL,
                     existing BOOLEAN NOT NULL DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (image_id) REFERENCES images (id),
-                    FOREIGN KEY (model_id) REFERENCES models (id)
+                    FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,
+                    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL
                 );
 
                 -- captions テーブル：画像に関連付けられたキャプションを格納
@@ -136,8 +145,8 @@ class SQLiteManager:
                     caption TEXT NOT NULL,
                     existing BOOLEAN NOT NULL DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (image_id) REFERENCES images (id),
-                    FOREIGN KEY (model_id) REFERENCES models (id)
+                    FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,
+                    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL
                 );
 
                 -- scores テーブル：画像に関連付けられたスコアを格納
@@ -147,13 +156,18 @@ class SQLiteManager:
                     model_id INTEGER,
                     score FLOAT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (image_id) REFERENCES images (id),
-                    FOREIGN KEY (model_id) REFERENCES models (id)
+                    FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,
+                    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL
                 );
+
             -- インデックスの作成
             CREATE INDEX IF NOT EXISTS idx_images_uuid ON images(uuid);
             CREATE INDEX IF NOT EXISTS idx_processed_images_image_id ON processed_images(image_id);
+            CREATE INDEX IF NOT EXISTS idx_tags_image_id ON tags(image_id);
+            CREATE INDEX IF NOT EXISTS idx_captions_image_id ON captions(image_id);
+            CREATE INDEX IF NOT EXISTS idx_scores_image_id ON scores(image_id);
             ''')
+
 class ImageRepository:
     """
     画像関連のデータベース操作を担当するクラス。
@@ -167,15 +181,15 @@ class ImageRepository:
         Args:
             db_manager (SQLiteManager): データベース接続を管理するオブジェクト。
         """
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger("ImageRepository")
         self.db_manager = db_manager
 
-    def add_image(self, info: Dict[str, Any]) -> int:
+    def add_image(self, info: dict[str, Any]) -> int:
         """
         画像情報をデータベースに追加します。
 
         Args:
-            info (Dict[str, Any]): 画像情報を含む辞書。
+            info (dict[str, Any]): 画像情報を含む辞書。
                 必須キー: 'stored_image_path', 'width', 'height', 'format', 'mode', 'has_alpha', 'filename', 'created_at', 'color_space', 'icc_profile'
                 オプションキー編集前: 'uuid', 'extension', 'updated_at'
                 オプションキー編集後: 'image_id'
@@ -202,7 +216,7 @@ class ImageRepository:
 
         current_time = datetime.now().isoformat()
         info['created_at'] = current_time
-        #info Dict に uuid が含まれているかで 編集前､編集後を判定してSQL文を変更
+        #info dict に uuid が含まれているかで 編集前､編集後を判定してSQL文を変更
         if 'uuid' in info:
             info['updated_at'] = current_time
             query = original
@@ -214,7 +228,7 @@ class ImageRepository:
         except sqlite3.Error as e:
             raise sqlite3.Error(f"画像情報の追加中にエラーが発生しました: {e}")
 
-    def get_image_metadata(self, image_id: int) -> Optional[Dict[str, Any]]:
+    def get_image_metadata(self, image_id: int) -> Optional[dict[str, Any]]:
         """
         指定されたIDの画像メタデータを取得します。
 
@@ -222,7 +236,7 @@ class ImageRepository:
             image_id (int): 取得する画像のID。
 
         Returns:
-            Optional[Dict[str, Any]]: 画像メタデータを含む辞書。画像が見つからない場合はNone。
+            Optional[dict[str, Any]]: 画像メタデータを含む辞書。画像が見つからない場合はNone。
 
         Raises:
             sqlite3.Error: データベース操作でエラーが発生した場合。
@@ -234,13 +248,13 @@ class ImageRepository:
         except sqlite3.Error as e:
             raise sqlite3.Error(f"画像メタデータの取得中にエラーが発生しました: {e}")
 
-    def save_annotations(self, image_id: int, annotations: Dict[str, List[Dict[str, Any]]]) -> None:
+    def save_annotations(self, image_id: int, annotations: dict[str, list[dict[str, Any]]]) -> None:
         """
         画像のアノテーション（タグ、キャプション、スコア）を保存します。
 
         Args:
             image_id (int): アノテーションを追加する画像のID。
-            annotations (Dict[str, List[Dict[str, Any]]]): アノテーションデータ。
+            annotations (dict[str, list[dict[str, Any]]]): アノテーションデータ。
                 'tags', 'captions', 'scores' をキーとし、それぞれリストを値とする辞書。
                 各リストの要素は {'value': str, 'model_id': Optional[int]} の形式。
 
@@ -258,7 +272,7 @@ class ImageRepository:
         except sqlite3.Error as e:
             raise sqlite3.Error(f"アノテーションの保存中にエラーが発生しました: {e}")
 
-    def _save_tags(self, image_id: int, tags: List[Dict[str, Any]]) -> None:
+    def _save_tags(self, image_id: int, tags: list[dict[str, Any]]) -> None:
         """タグを保存する内部メソッド"""
         query = "INSERT INTO tags (image_id, tag, model_id, existing) VALUES (?, ?, ?, ?)"
         data = []
@@ -272,7 +286,7 @@ class ImageRepository:
 
         self.db_manager.executemany(query, data)
 
-    def _save_captions(self, image_id: int, captions: List[Dict[str, Any]]) -> None:
+    def _save_captions(self, image_id: int, captions: list[dict[str, Any]]) -> None:
         """キャプションを保存する内部メソッド"""
         query = "INSERT INTO captions (image_id, caption, model_id, existing) VALUES (?, ?, ?, ?)"
         data = []
@@ -287,7 +301,7 @@ class ImageRepository:
         self.db_manager.executemany(query, data)
 
 
-    def _save_scores(self, image_id: int, scores: List[Dict[str, Any]]) -> None:
+    def _save_scores(self, image_id: int, scores: list[dict[str, Any]]) -> None:
         """スコアを保存する内部メソッド"""
         query = "INSERT INTO scores (image_id, score, model_id) VALUES (?, ?, ?)"
         data = []
@@ -334,7 +348,7 @@ class ImageRepository:
         result = self.db_manager.fetch_one(query, (image_id,))
         return result is not None
 
-    def get_image_annotations(self, image_id: int) -> Dict[str, List[Dict[str, Any]]]:
+    def get_image_annotations(self, image_id: int) -> dict[str, list[dict[str, Any]]]:
         """
         指定された画像IDのアノテーション（タグ、キャプション、スコア）を取得します。
 
@@ -342,7 +356,7 @@ class ImageRepository:
             image_id (int): アノテーションを取得する画像のID。
 
         Returns:
-            Dict[str, List[Dict[str, Any]]]: アノテーションデータを含む辞書。
+            dict[str, list[dict[str, Any]]]: アノテーションデータを含む辞書。
             形式: {
                 'tags': [{'tag': str, 'model': str}, ...],
                 'captions': [{'caption': str, 'model': str}, ...],
@@ -364,33 +378,78 @@ class ImageRepository:
             return annotations
 
         except sqlite3.Error as e:
-            logging.error(f"アノテーションの取得中にデータベースエラーが発生しました: {e}")
+            self.logger.error(f"アノテーションの取得中にデータベースエラーが発生しました: {e}")
             raise sqlite3.Error(f"アノテーションの取得中にエラーが発生しました: {e}")
 
-    def _get_tags(self, image_id: int) -> List[Dict[str, str]]:
-        """タグを取得する内部メソッド"""
+    def _get_tags(self, image_id: int) -> list[dict[str, str]]:
+        """image_idからタグを取得する内部メソッド"""
         query = "SELECT tag, model_id FROM tags WHERE image_id = ?"
         return self.db_manager.fetch_all(query, (image_id,))
 
-    def _get_captions(self, image_id: int) -> List[Dict[str, str]]:
-        """キャプションを取得する内部メソッド"""
+    def _get_captions(self, image_id: int) -> list[dict[str, str]]:
+        """image_idからキャプションを取得する内部メソッド"""
         query = "SELECT caption, model_id FROM captions WHERE image_id = ?"
         return self.db_manager.fetch_all(query, (image_id,))
 
-    def _get_scores(self, image_id: int) -> List[Dict[str, Any]]:
-        """スコアを取得する内部メソッド"""
+    def _get_scores(self, image_id: int) -> list[dict[str, Any]]:
+        """image_idからスコアを取得する内部メソッド"""
         query = "SELECT score, model_id FROM scores WHERE image_id = ?"
         return self.db_manager.fetch_all(query, (image_id,))
 
-    def get_processed_images(self, original_image_id: int) -> List[Dict[str, Any]]:
+
+class ImageRepository:
+    def __init__(self, db_manager):
+        self.logger = get_logger("ImageRepository")
+        self.db_manager = db_manager
+
+    def get_images_by_tag(self, tag: str) -> list[int]:
         """
-        指定された元画像IDに関連する全ての処理済み画像のメタデータを取得します。
+        指定されたタグを持つ画像のIDリストを取得する
 
         Args:
-            original_image_id (int): 元画像のID。
+            tag (str): 検索するタグ
 
         Returns:
-            Dict[str, Any]]: 処理済み画像のメタデータのリスト。
+            list[int]: タグを持つ画像IDのリスト
+        """
+        query = """
+        SELECT DISTINCT i.id
+        FROM images i
+        JOIN tags t ON i.id = t.image_id
+        WHERE t.tag = ?
+        """
+        rows = self.db_manager.fetch_all(query, [tag])
+        return [row['id'] for row in rows]
+
+
+    def get_images_by_caption(self, caption: str) -> list[int]:
+        """
+        指定されたキャプションを含む画像のIDリストを取得する
+
+        Args:
+            caption (str): 検索するキャプション
+
+        Returns:
+            list[int]: 加工済み画像IDのリスト
+        """
+        query = """
+        SELECT DISTINCT i.id
+        FROM images i
+        JOIN captions c ON i.id = c.image_id
+        WHERE c.caption = ?
+        """
+        rows = self.db_manager.fetch_all(query, [caption])
+        return [row['id'] for row in rows]
+
+    def get_processed_image(self, image_id: int) -> list[dict[str, Any]]:
+        """
+        image_idから関連する全ての処理済み画像のメタデータを取得します。
+
+        Args:
+            image_id (int): 元画像のID。
+
+        Returns:
+            dict[str, Any]]: 処理済み画像のメタデータのリスト。
 
         Raises:
             sqlite3.Error: データベース操作でエラーが発生した場合。
@@ -400,10 +459,41 @@ class ImageRepository:
         WHERE image_id = ?
         """
         try:
-            metadata = self.db_manager.fetch_all(query, (original_image_id,))
+            metadata = self.db_manager.fetch_all(query, (image_id,))
+            self.logger.debug("ID %s の処理済み画像メタデータを取得しました: %s", image_id, metadata)
             return metadata
         except sqlite3.Error as e:
             raise sqlite3.Error(f"処理済み画像の取得中にエラーが発生しました: {e}")
+
+    def get_total_image_count(self) -> int:
+        try:
+            query = "SELECT COUNT(*) FROM images"
+            result = self.db_manager.fetch_one(query)
+            return result['COUNT(*)'] if result else 0
+        except Exception as e:
+            self.logger.error(f"総画像数の取得中にエラーが発生しました: {e}")
+            return 0
+
+    def get_image_id_by_name(self, image_name: str) -> Optional[int]:
+        """オリジナル画像の重複チェック用 画像名からimage_idを取得
+
+        Args:
+            image_name (str): 画像名
+
+        Returns:
+            int: image_id
+        """
+        try:
+            query = """
+            SELECT id FROM images
+            WHERE filename = ?
+            """
+            result = self.db_manager.fetch_one(query, (image_name,))
+            self.logger.info(f"画像名 {image_name} のimage_idを取得しました: {result[0]}")
+            return result.get("id") if result else None
+        except Exception as e:
+            self.logger.error(f"画像IDの取得中にエラーが発生しました: {e}")
+            return None
 
 class ImageDatabaseManager:
     """
@@ -412,11 +502,11 @@ class ImageDatabaseManager:
     保存、取得、更新などの操作を行います。
     """
     def __init__(self):
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger("ImageDatabaseManager")
         db_path = Path("Image_database") / "image_database.db"
         self.db_manager = SQLiteManager(db_path)
         self.repository = ImageRepository(self.db_manager)
-        self.db_manager.create_tables()
+        self.db_manager.create_tables() # TODO: 要らない処理かもしれないが、一応残しておく
         self.repository = self.repository
         self.logger.info("データベーステーブルが初期化されました。")
 
@@ -448,16 +538,16 @@ class ImageDatabaseManager:
             self.logger.error(f"オリジナル画像の登録中にエラーが発生しました: {e}")
             return None
 
-    def save_original_metadata(self, stored_image_path: Path, info: Dict[str, Any]) -> Tuple[int, str]:
+    def save_original_metadata(self, stored_image_path: Path, info: dict[str, Any]) -> tuple[int, str]:
         """
         元の画像のメタデータを保存します。
 
         Args:
             stored_image_path (Path): 保存された画像のパス。
-            info (Dict[str, Any]): 画像のメタデータ。
+            info (dict[str, Any]): 画像のメタデータ。
 
         Returns:
-            Tuple[int, str]: 保存された画像のID、生成されたUUID。
+            tuple[int, str]: 保存された画像のID、生成されたUUID。
 
         Raises:
             ValueError: 必要な情報が不足している場合。
@@ -481,14 +571,14 @@ class ImageDatabaseManager:
             self.logger.error(f"元画像のメタデータ登録中に予期せぬエラーが発生しました: {e}")
             raise
 
-    def register_processed_metadata(self, image_id: int, processed_path: Path, info: Dict[str, Any]) -> int:
+    def register_processed_metadata(self, image_id: int, processed_path: Path, info: dict[str, Any]) -> int:
         """
         処理済み画像のメタデータを保存します。
 
         Args:
             image_id (int): 元画像のID。
             processed_path (Path): 処理済み画像の保存パス。
-            info (Dict[str, Any]): 処理済み画像のメタデータ。
+            info (dict[str, Any]): 処理済み画像のメタデータ。
 
         Returns:
             int: 保存された処理済み画像のID。
@@ -512,13 +602,13 @@ class ImageDatabaseManager:
             self.logger.error(f"処理済み画像メタデータの保存中にエラーが発生しました: {e}")
             raise
 
-    def save_annotations(self, image_id: int, annotations: Dict[str, List[Dict[str, Any]]]) -> None:
+    def save_annotations(self, image_id: int, annotations: dict[str, list[dict[str, Any]]]) -> None:
         """
         画像のアノテーション（タグ、キャプション、スコア）を保存します。
 
         Args:
             image_id (int): アノテーションを追加する画像のID。
-            annotations (Dict[str, List[Dict[str, Any]]]): アノテーションデータ。
+            annotations (dict[str, list[dict[str, Any]]]): アノテーションデータ。
 
         Raises:
             Exception: アノテーションの保存に失敗した場合。
@@ -530,7 +620,7 @@ class ImageDatabaseManager:
             self.logger.error(f"アノテーションの保存中にエラーが発生しました: {e}")
             raise
 
-    def get_image_metadata(self, image_id: int) -> Optional[Dict[str, Any]]:
+    def get_image_metadata(self, image_id: int) -> Optional[dict[str, Any]]:
         """
         指定されたIDの画像メタデータを取得します。
 
@@ -538,7 +628,7 @@ class ImageDatabaseManager:
             image_id (int): 取得する画像のID。
 
         Returns:
-            Optional[Dict[str, Any]]: 画像メタデータを含む辞書。画像が見つからない場合はNone。
+            Optional[dict[str, Any]]: 画像メタデータを含む辞書。画像が見つからない場合はNone。
 
         Raises:
             Exception: メタデータの取得に失敗した場合。
@@ -552,29 +642,29 @@ class ImageDatabaseManager:
             self.logger.error(f"画像メタデータ取得中にエラーが発生しました: {e}")
             raise
 
-    def get_processed_metadata(self, original_image_id: int) -> List[Dict[str, Any]]:
+    def get_processed_metadata(self, image_id: int) -> list[dict[str, Any]]:
         """
         指定された元画像IDに関連する全ての処理済み画像のメタデータを取得します。
 
         Args:
-            original_image_id (int): 元画像のID。
+            image_id (int): 元画像のID。
 
         Returns:
-            List[Dict[str, Any]]: 処理済み画像のメタデータのリスト。
+            list[dict[str, Any]]: 処理済み画像のメタデータのリスト。
 
         Raises:
             Exception: メタデータの取得に失敗した場合。
         """
         try:
-            processed_images = self.repository.get_processed_images(original_image_id)
+            processed_images = self.repository.get_processed_image(image_id)
             if not processed_images:
-                self.logger.info(f"ID {original_image_id} の元画像に関連する処理済み画像が見つかりません。")
+                self.logger.info(f"ID {image_id} の元画像に関連する処理済み画像が見つかりません。")
             return processed_images
         except Exception as e:
             self.logger.error(f"処理済み画像メタデータ取得中にエラーが発生しました: {e}")
             raise
 
-    def get_image_annotations(self, image_id: int) -> Dict[str, List[Dict[str, Any]]]:
+    def get_image_annotations(self, image_id: int) -> dict[str, list[dict[str, Any]]]:
         """
         指定された画像IDのアノテーション（タグ、キャプション、スコア）を取得します。
 
@@ -582,7 +672,7 @@ class ImageDatabaseManager:
             image_id (int): アノテーションを取得する画像のID。
 
         Returns:
-            Dict[str, List[Dict[str, Any]]]: アノテーションデータを含む辞書。
+            dict[str, list[dict[str, Any]]]: アノテーションデータを含む辞書。
 
         Raises:
             Exception: アノテーションの取得に失敗した場合。
@@ -596,12 +686,13 @@ class ImageDatabaseManager:
             self.logger.error(f"画像アノテーション取得中にエラーが発生しました: {e}")
             raise
 
-    def get_models(self) -> Tuple[Dict[int, Dict[str, Any]], Dict[int, Dict[str, Any]]]:
+    def get_models(self) -> tuple[dict[int, dict[str, Any]], dict[int, dict[str, Any]]]:
         """
+        TODO: データベースに問い合わせるのでImageRepositoryに移動したほうがキレイ その時処理は分割する
         データベースに登録されているモデルの情報を取得します。
 
         Returns:
-            Tuple[Dict[int, Dict[str, Any]], Dict[int, Dict[str, Any]]]: (vision_models, score_models) のタプル。
+            tuple[dict[int, dict[str, Any]], dict[int, dict[str, Any]]]: (vision_models, score_models) のタプル。
             vision_models: {model_id: {'name': model_name, 'provider': provider}},
             score_models: {model_id: {'name': model_name, 'provider': provider}}
         """
@@ -624,89 +715,62 @@ class ImageDatabaseManager:
             self.logger.error(f"モデルの取得中にエラーが発生しました: {e}")
             raise
 
-    def get_images_by_filter(self, tag_filter: str, caption_filter: str, min_resolution: int) -> List[Dict[str, Any]]:
-        """
-        指定されたフィルタ条件に基づいて画像を取得します。
+    def get_images_by_filter(self, tags: list[str], caption: str, resolution: int, use_and: bool = True) -> list[dict[str, Any]]:
+        image_ids = set()
 
-        Args:
-            tag_filter (str): タグによるフィルタ文字列
-            caption_filter (str): キャプションによるフィルタ文字列
-            min_resolution (int): 最小解像度（ピクセル単位）
+        # タグによる検索
+        if tags:
+            tag_results = [set(self.repository.get_images_by_tag(tag)) for tag in tags]
+            image_ids = set.intersection(*tag_results) if use_and else set.union(*tag_results)
 
-        Returns:
-            List[Dict[str, Any]]: フィルタ条件に合致する画像のリスト
-        """
-        query = """
-        SELECT DISTINCT i.id, i.stored_image_path, i.width, i.height
-        FROM images i
-        LEFT JOIN tags t ON i.id = t.image_id
-        LEFT JOIN captions c ON i.id = c.image_id
-        WHERE 1=1
-        """
-        params = []
+        # キャプションによる検索
+        if caption:
+            caption_results = set(self.repository.get_images_by_caption(caption))
+            image_ids = image_ids.intersection(caption_results) if image_ids else caption_results
 
-        if tag_filter:
-            tags = [tag.strip() for tag in tag_filter.split(',')]
-            query += " AND t.tag IN ({})".format(','.join(['?'] * len(tags)))
-            params.extend(tags)
+        # 画像情報の取得
+        if image_ids:
+            metadata_list = []
+            for image_id in image_ids:
+                metadata = self.repository.get_processed_image(image_id)
+                metadata_list.extend(metadata)
 
-        if caption_filter:
-            query += " AND c.caption LIKE ?"
-            params.append(f"%{caption_filter}%")
+        if resolution:
+            filtered_metadata_list = []
+            for metadata in metadata_list:
+                width = metadata['width']
+                height = metadata['height']
+                long_side = max(width, height)
+                short_side = min(width, height)
 
-        query += " AND (i.width >= ? OR i.height >= ?)"
-        params.extend([min_resolution, min_resolution])
+                # 長辺が resolution と同じ場合は追加
+                if long_side == resolution:
+                    filtered_metadata_list.append(metadata)
+                else:
+                    # 面積の誤差を計算 (1216, 832) や (832, 1216)の横長縦長用
+                    target_area = resolution * resolution
+                    actual_area = long_side * short_side
+                    error_ratio = abs(target_area - actual_area) / target_area
 
-        try:
-            with self.db_manager.transaction():
-                rows = self.db_manager.fetch_all(query, tuple(params))
+                    # 誤差が 20% 以内であれば追加
+                    if error_ratio <= 0.2:
+                        filtered_metadata_list.append(metadata)
 
-            results = []
-            for row in rows:
-                results.append({
-                    'id': row['id'],
-                    'path': Path(row['stored_image_path']),
-                    'width': row['width'],
-                    'height': row['height']
-                })
-
-            return results
-
-        except Exception as e:
-            self.logger.error(f"Error in get_images_by_filter: {e}")
-            return []
-
-    def get_total_image_count(self) -> int:
-        """
-        データベース内の総画像数を取得します。
-
-        Returns:
-            int: 総画像数
-        """
-        try:
-            query = "SELECT COUNT(*) FROM images"
-            result = self.db_manager.fetch_one(query)
-            return result[0] if result else 0
-        except Exception as e:
-            self.logger.error(f"総画像数の取得中にエラーが発生しました: {e}")
-            return 0
+        return filtered_metadata_list
 
     def get_image_id_by_name(self, image_name: str) -> Optional[int]:
         """オリジナル画像の重複チェック用 画像名からimage_idを取得
 
         Args:
-            image_na,e (str): 画像名
+            image_name (str): 画像名
 
         Returns:
             int: image_id
         """
-        try:
-            query = """
-            SELECT id FROM images
-            WHERE filename = ?
-            """
-            result = self.db_manager.fetch_one(query, (image_name,))
-            return result.get("id") if result else None
-        except Exception as e:
-            self.logger.error(f"画像IDの取得中にエラーが発生しました: {e}")
-            return None
+        image_id = self.repository.get_image_id_by_name(image_name)
+        return image_id
+
+    def get_total_image_count(self):
+        """データベース内に登録された編集前画像の総数を取得"""
+        count = self.repository.get_total_image_count()
+        return count

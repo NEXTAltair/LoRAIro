@@ -17,8 +17,8 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QPalette, QPixmap, QRadialGradient, QTransform)
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QGroupBox,
     QHBoxLayout, QLabel, QLineEdit, QProgressBar,
-    QPushButton, QSizePolicy, QSplitter, QVBoxLayout,
-    QWidget)
+    QPushButton, QRadioButton, QSizePolicy, QSplitter,
+    QVBoxLayout, QWidget)
 
 from DirectoryPickerWidget import DirectoryPickerWidget
 from ImagePreviewWidget import ImagePreviewWidget
@@ -99,6 +99,11 @@ class Ui_DatasetExportWidget(object):
         self.filterTypeComboBox.setObjectName(u"filterTypeComboBox")
 
         self.filterTypeLayout.addWidget(self.filterTypeComboBox)
+
+        self.andRadioButton = QRadioButton(self.filterGroupBox)
+        self.andRadioButton.setObjectName(u"andRadioButton")
+
+        self.filterTypeLayout.addWidget(self.andRadioButton)
 
 
         self.filterLayout.addLayout(self.filterTypeLayout)
@@ -235,6 +240,7 @@ class Ui_DatasetExportWidget(object):
         self.filterTypeComboBox.setItemText(0, QCoreApplication.translate("DatasetExportWidget", u"Tags", None))
         self.filterTypeComboBox.setItemText(1, QCoreApplication.translate("DatasetExportWidget", u"Caption", None))
 
+        self.andRadioButton.setText(QCoreApplication.translate("DatasetExportWidget", u"AND\u691c\u7d22", None))
         self.filterLineEdit.setPlaceholderText(QCoreApplication.translate("DatasetExportWidget", u"Enter filter criteria", None))
         self.resolutionLabel.setText(QCoreApplication.translate("DatasetExportWidget", u"\u5b66\u7fd2\u89e3\u50cf\u5ea6:", None))
         self.resolutionComboBox.setItemText(0, QCoreApplication.translate("DatasetExportWidget", u"512x512", None))
