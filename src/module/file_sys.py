@@ -292,45 +292,46 @@ class FileSystemManager:
                 f.writelines(lines[i * lines_per_file:(i + 1) * lines_per_file])
 
     @staticmethod
-    def export_dataset_to_txt(image_paths: list[Path], all_tags: list[str], all_captions: list[str], save_dir: Path):
+    def export_dataset_to_txt(image_data: dict, save_dir: Path):
         """学習用データセットをテキスト形式で指定ディレクトリに出力する
 
         Args:
-            image_paths (list[Path]): 画像ファイルのパスのリスト
-            all_tags (list[str]): 各画像に対応するカンマ区切りのタグ文字列のリスト
-            all_captions (list[str]): 各画像に対応するキャプション文字列のリスト
+            image_data (list[dict]): 画像データのリスト. 各辞書は 'path', 'tags', 'caption' をキーに持つ
             save_dir (Path): 保存先のディレクトリパス
         """
-        for i, image_path in enumerate(image_paths):
+        for data in image_data:
+            image_path = data['path']
             file_name = image_path.stem
 
             with open(save_dir / f"{file_name}.txt", "w", encoding="utf-8") as f:
-                f.write(all_tags[i])
-
+                tags = ', '.join([tag_data['tag'] for tag_data in data['tags']])
+                f.write(tags)
             with open(save_dir / f"{file_name}.caption", "w", encoding="utf-8") as f:
-                f.write(all_captions[i])
-
+                captions = ', '.join([caption_data['caption'] for caption_data in data['captions']])
+                f.write(captions)
             FileSystemManager.copy_file(image_path, save_dir / image_path.name)
 
     @staticmethod
-    def export_dataset_to_json(image_paths: list[Path], all_tags: list[str], all_captions: list[str], save_dir: Path):
+    def export_dataset_to_json(image_data: dict, save_dir: Path):
         """学習用データセットをJSON形式で指定ディレクトリに出力する
 
         Args:
-            image_paths (list[Path]): 画像ファイルのパスのリスト
-            all_tags (list[str]): 各画像に対応するカンマ区切りのタグ文字列のリスト
-            all_captions (list[str]): 各画像に対応するキャプション文字列のリスト
+            image_data (list[dict]): 画像データのリスト. 各辞書は 'path', 'tags', 'caption' をキーに持つ
             save_dir (Path): 保存先のディレクトリパス
         """
-        data = {}
-        for image_path, tags, caption in zip(image_paths, all_tags, all_captions):
+        json_data = {}
+        for data in image_data:
+            image_path = data['path']
             save_image = save_dir / image_path.name
             FileSystemManager.copy_file(image_path, save_image)
-            data[str(image_path)] = {"tags": tags, "caption": caption}
+            tags = ', '.join([tag_data['tag'] for tag_data in data['tags']])
+            captions = ', '.join([caption_data['caption'] for caption_data in data['captions']])
+            image_key = str(save_image)
+            json_data[image_key] = {"tags": tags, "caption": captions}
 
-
-        with open(save_dir / "meta_data.json", "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
+        with open(save_dir / "meta_data.json", "a", encoding="utf-8") as f:
+            json.dump(json_data, f, indent=4, ensure_ascii=False)
+            f.write('\n')
 
     @staticmethod
     def save_toml_config(config: dict, filename: str) -> None:

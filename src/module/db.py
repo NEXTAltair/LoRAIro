@@ -173,7 +173,6 @@ class ImageRepository:
     画像関連のデータベース操作を担当するクラス。
     このクラスは、画像メタデータの保存、取得、アノテーションの管理などを行います。
     """
-
     def __init__(self, db_manager: SQLiteManager):
         """
         ImageRepositoryクラスのコンストラクタ。
@@ -369,7 +368,7 @@ class ImageRepository:
         try:
             cursor = self.db_manager.execute("SELECT id FROM images WHERE id = ?", (image_id,))
             if cursor.fetchone() is None:
-                raise ValueError(f"指定されたimage_id {image_id} は存在しません。")
+                self.logger.error(f"指定されたimage_id {image_id} は存在しません。")
             annotations = {
                 'tags': self._get_tags(image_id),
                 'captions': self._get_captions(image_id),
@@ -379,12 +378,19 @@ class ImageRepository:
 
         except sqlite3.Error as e:
             self.logger.error(f"アノテーションの取得中にデータベースエラーが発生しました: {e}")
-            raise sqlite3.Error(f"アノテーションの取得中にエラーが発生しました: {e}")
 
     def _get_tags(self, image_id: int) -> list[dict[str, str]]:
-        """image_idからタグを取得する内部メソッド"""
         query = "SELECT tag, model_id FROM tags WHERE image_id = ?"
-        return self.db_manager.fetch_all(query, (image_id,))
+        try:
+            self.logger.debug("タグを取得するimage_id: %s", image_id)
+            result = self.db_manager.fetch_all(query, (image_id,))
+            if not result:
+                self.logger.warning(f"Image_id: {image_id} にタグは登録されていません｡")
+                raise
+            return result
+        except sqlite3.Error as e:
+            self.logger.error("image_id: %s のタグを取得中にデータベースエラーが発生しました。%s",image_id, e)
+            raise
 
     def _get_captions(self, image_id: int) -> list[dict[str, str]]:
         """image_idからキャプションを取得する内部メソッド"""
@@ -396,31 +402,28 @@ class ImageRepository:
         query = "SELECT score, model_id FROM scores WHERE image_id = ?"
         return self.db_manager.fetch_all(query, (image_id,))
 
-
-class ImageRepository:
-    def __init__(self, db_manager):
-        self.logger = get_logger("ImageRepository")
-        self.db_manager = db_manager
-
     def get_images_by_tag(self, tag: str) -> list[int]:
-        """
-        指定されたタグを持つ画像のIDリストを取得する
+            """
+            指定されたタグを持つ画像のIDリストを取得する
 
-        Args:
-            tag (str): 検索するタグ
+            Args:
+                tag (str): 検索するタグ
 
-        Returns:
-            list[int]: タグを持つ画像IDのリスト
-        """
-        query = """
-        SELECT DISTINCT i.id
-        FROM images i
-        JOIN tags t ON i.id = t.image_id
-        WHERE t.tag = ?
-        """
-        rows = self.db_manager.fetch_all(query, [tag])
-        return [row['id'] for row in rows]
-
+            Returns:
+                list[int]: タグを持つ画像IDのリスト か 空リスト
+            """
+            query = """
+            SELECT DISTINCT i.id
+            FROM images i
+            JOIN tags t ON i.id = t.image_id
+            WHERE t.tag = ?
+            """
+            rows = self.db_manager.fetch_all(query, [tag])
+            if not rows:
+                self.logger.info("%s を含む画像はありません", tag)
+                return []
+            else:
+                return [row['id'] for row in rows]
 
     def get_images_by_caption(self, caption: str) -> list[int]:
         """
@@ -430,16 +433,20 @@ class ImageRepository:
             caption (str): 検索するキャプション
 
         Returns:
-            list[int]: 加工済み画像IDのリスト
+            list[int]: 加工済み画像IDのリスト か 空リスト
         """
         query = """
         SELECT DISTINCT i.id
         FROM images i
         JOIN captions c ON i.id = c.image_id
-        WHERE c.caption = ?
+        WHERE c.caption LIKE ?
         """
-        rows = self.db_manager.fetch_all(query, [caption])
-        return [row['id'] for row in rows]
+        rows = self.db_manager.fetch_all(query, ['%' + caption + '%'])
+        if not rows:
+            self.logger.info("'%s' を含むキャプションを持つ画像はありません", caption)
+            return []
+        else:
+            return [row['id'] for row in rows]
 
     def get_processed_image(self, image_id: int) -> list[dict[str, Any]]:
         """
@@ -507,7 +514,6 @@ class ImageDatabaseManager:
         self.db_manager = SQLiteManager(db_path)
         self.repository = ImageRepository(self.db_manager)
         self.db_manager.create_tables() # TODO: 要らない処理かもしれないが、一応残しておく
-        self.repository = self.repository
         self.logger.info("データベーステーブルが初期化されました。")
 
     def __enter__(self):
@@ -718,15 +724,20 @@ class ImageDatabaseManager:
     def get_images_by_filter(self, tags: list[str], caption: str, resolution: int, use_and: bool = True) -> list[dict[str, Any]]:
         image_ids = set()
 
-        # タグによる検索
         if tags:
-            tag_results = [set(self.repository.get_images_by_tag(tag)) for tag in tags]
-            image_ids = set.intersection(*tag_results) if use_and else set.union(*tag_results)
+            tag_results = []
+            for tag in tags:
+                tag_results.append(set(self.repository.get_images_by_tag(tag)))
+            if use_and:
+                image_ids = set.intersection(*tag_results)
+            else:
+                image_ids = set.union(*tag_results)
 
         # キャプションによる検索
         if caption:
             caption_results = set(self.repository.get_images_by_caption(caption))
-            image_ids = image_ids.intersection(caption_results) if image_ids else caption_results
+            if caption_results:
+                image_ids = image_ids.intersection(caption_results) if image_ids else caption_results
 
         # 画像情報の取得
         if image_ids:
