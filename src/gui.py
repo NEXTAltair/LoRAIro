@@ -45,8 +45,6 @@ class MainWindow(QMainWindow, Ui_mainWindow):
 
     def init_managers(self):
         self.idm = ImageDatabaseManager() #.db のパスはハードコーディングなので変わらない
-        api_keys = self.cm.config['api']
-        self.acf = APIClientFactory(api_keys)
         self.fsm = FileSystemManager()
 
     def init_pages(self):
