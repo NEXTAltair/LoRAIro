@@ -15,9 +15,8 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QFont, QFontDatabase, QGradient, QIcon,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
-from PySide6.QtWidgets import (QAbstractScrollArea, QApplication, QHBoxLayout, QLabel,
-    QLineEdit, QListWidget, QListWidgetItem, QPushButton,
-    QSizePolicy, QWidget)
+from PySide6.QtWidgets import (QApplication, QComboBox, QHBoxLayout, QLabel,
+    QLineEdit, QPushButton, QSizePolicy, QWidget)
 
 class Ui_PickerWidget(object):
     def setupUi(self, PickerWidget):
@@ -43,40 +42,18 @@ class Ui_PickerWidget(object):
 
         self.horizontalLayout.addWidget(self.lineEditPicker)
 
-        self.listWidgetHistory = QListWidget(PickerWidget)
-        self.listWidgetHistory.setObjectName(u"listWidgetHistory")
-        sizePolicy1 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
-        sizePolicy1.setHorizontalStretch(0)
-        sizePolicy1.setVerticalStretch(0)
-        sizePolicy1.setHeightForWidth(self.listWidgetHistory.sizePolicy().hasHeightForWidth())
-        self.listWidgetHistory.setSizePolicy(sizePolicy1)
-        self.listWidgetHistory.setMinimumSize(QSize(100, 0))
-        self.listWidgetHistory.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustIgnored)
-        self.listWidgetHistory.setUniformItemSizes(False)
-        self.listWidgetHistory.setSelectionRectVisible(False)
+        self.comboBoxHistory = QComboBox(PickerWidget)
+        self.comboBoxHistory.setObjectName(u"comboBoxHistory")
 
-        self.horizontalLayout.addWidget(self.listWidgetHistory)
-
-        self.pushButtonHistory = QPushButton(PickerWidget)
-        self.pushButtonHistory.setObjectName(u"pushButtonHistory")
-        self.pushButtonHistory.setMinimumSize(QSize(80, 0))
-
-        self.horizontalLayout.addWidget(self.pushButtonHistory)
+        self.horizontalLayout.addWidget(self.comboBoxHistory)
 
         self.pushButtonPicker = QPushButton(PickerWidget)
         self.pushButtonPicker.setObjectName(u"pushButtonPicker")
 
         self.horizontalLayout.addWidget(self.pushButtonPicker)
 
-#if QT_CONFIG(shortcut)
-        self.labelPicker.setBuddy(self.lineEditPicker)
-#endif // QT_CONFIG(shortcut)
-        QWidget.setTabOrder(self.lineEditPicker, self.listWidgetHistory)
-        QWidget.setTabOrder(self.listWidgetHistory, self.pushButtonHistory)
-        QWidget.setTabOrder(self.pushButtonHistory, self.pushButtonPicker)
 
         self.retranslateUi(PickerWidget)
-        self.pushButtonHistory.clicked.connect(PickerWidget.toggle_history_visibility)
 
         QMetaObject.connectSlotsByName(PickerWidget)
     # setupUi
@@ -84,7 +61,6 @@ class Ui_PickerWidget(object):
     def retranslateUi(self, PickerWidget):
         PickerWidget.setWindowTitle(QCoreApplication.translate("PickerWidget", u"Form", None))
         self.labelPicker.setText(QCoreApplication.translate("PickerWidget", u"Path", None))
-        self.pushButtonHistory.setText(QCoreApplication.translate("PickerWidget", u"\u5c65\u6b74", None))
         self.pushButtonPicker.setText(QCoreApplication.translate("PickerWidget", u"\u9078\u629e...", None))
     # retranslateUi
 

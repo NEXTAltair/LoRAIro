@@ -1,12 +1,20 @@
 from PySide6.QtWidgets import QWidget, QFileDialog, QListWidgetItem
-from PickerWidget_ui import Ui_PickerWidget  # ここでUIファイルをインポートします
+from PySide6.QtCore import Qt
+
+from pathlib import Path
+
+from module.log import get_logger
+
+from PickerWidget_ui import Ui_PickerWidget
 
 class PickerWidget(QWidget, Ui_PickerWidget):
     def __init__(self, parent=None):
+        self.logger = get_logger("PickerWidget")
         super().__init__(parent)
         self.setupUi(self)
-        self.listWidgetHistory.hide()  # 履歴ウィジェットを非表示にする
         self.history = []  # 履歴を保存するリスト
+
+        self.comboBoxHistory.currentIndexChanged.connect(self.on_history_item_selected)
 
     def configure(self, label_text="Select File"):
         self.set_label_text(label_text)
@@ -29,23 +37,28 @@ class PickerWidget(QWidget, Ui_PickerWidget):
             self.lineEditPicker.setText(dir_path)
             self.history.append(dir_path)
 
-    def toggle_history_visibility(self):
-        if self.listWidgetHistory.isVisible():
-            self.listWidgetHistory.hide()
-        else:
-            self.update_history_list()
-            self.listWidgetHistory.show()
-
-    def update_history_list(self):
-        self.listWidgetHistory.clear()
-        for item in reversed(self.history):
-            self.listWidgetHistory.addItem(item)
-
-    def add_to_history(self, path):
+    def update_history(self, path):
         if path and path not in self.history:
             self.history.append(path)
-            if len(self.history) > 10:  # 履歴の最大数を制限
+            self.lineEditPicker.setText(path)
+            # コンボボックスにdir名だけを追加
+            dir_name = Path(path).name
+            self.comboBoxHistory.blockSignals(True) # シグナルを無効にしないとon_history_item_selectedが呼び出されてバグる
+            self.comboBoxHistory.addItem(dir_name)
+            # マウスオーバーでフルパスを表示
+            self.comboBoxHistory.setItemData(self.comboBoxHistory.count() - 1, path, Qt.ToolTipRole)
+            self.comboBoxHistory.blockSignals(False) # シグナルを有効に戻す
+            if len(self.history) > 10:
                 self.history.pop(0)
+                self.comboBoxHistory.removeItem(0)
+
+    def on_history_item_selected(self, index):
+        """履歴項目が選択されたときの処理"""
+        selected_path = self.comboBoxHistory.itemData(index, Qt.ToolTipRole) # フルパスを取得
+        self.lineEditPicker.setText(selected_path)
+        self.logger.debug(f"on_history_item_selected \n 履歴からファイルを選択: {selected_path}")
+
+
 
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
