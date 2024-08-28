@@ -55,6 +55,11 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         self.comboBoxModel.addItems(model_list)
         self.model_name = self.comboBoxModel.currentText()
 
+    def showEvent(self, event):
+        """ウィジェットが表示される際に呼び出されるイベントハンドラ"""
+        super().showEvent(event)
+        self.load_images(self.cm.dataset_image_paths)
+
     def load_images(self, image_files: list):
         """
         画像のリストをウィジェットにロードし、サムネイルとして表示します。

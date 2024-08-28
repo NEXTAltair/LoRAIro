@@ -733,18 +733,18 @@ class ImageDatabaseManager:
             else:
                 image_ids = set.union(*tag_results)
 
-        # キャプションによる検索
         if caption:
             caption_results = set(self.repository.get_images_by_caption(caption))
             if caption_results:
                 image_ids = image_ids.intersection(caption_results) if image_ids else caption_results
 
-        # 画像情報の取得
         if image_ids:
             metadata_list = []
             for image_id in image_ids:
                 metadata = self.repository.get_processed_image(image_id)
                 metadata_list.extend(metadata)
+        else:
+            return []
 
         if resolution:
             filtered_metadata_list = []

@@ -16,7 +16,7 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
     FILE_SIZE_UNIT = 1024  # KB
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.logger = get_logger(__name__)
+        self.logger = get_logger("ImageEditWidget")
         self.setupUi(self)
         self.idm = None
 
@@ -35,7 +35,11 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         header.setStretchLastSection(False)
 
-    @Slot(list)
+    def showEvent(self, event):
+        """ウィジェットが表示される際に呼び出されるイベントハンドラ"""
+        super().showEvent(event)
+        self.load_images(self.cm.dataset_image_paths)
+
     def load_images(self, directory_images: list):
         self.directory_images = directory_images
         self.tableWidgetImageList.setRowCount(0)
@@ -140,8 +144,6 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         if existing_annotations:
             self.idm.save_annotations(image_id, existing_annotations)
 
-        # 画像処理を実行
-        # アップスケーラーの処理を実装するときはここから引数でアップスケーラーの名前を渡すとかする
         processed_image = self.ipm.process_image(
             image_file,
             original_image_metadata['has_alpha'],

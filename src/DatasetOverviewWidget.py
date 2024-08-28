@@ -3,6 +3,7 @@ from PySide6.QtCore import Signal, Slot
 from pathlib import Path
 from DatasetOverviewWidget_ui import Ui_DatasetOverviewWidget
 from module.file_sys import FileSystemManager
+from module.log import get_logger
 from caption_tags import ImageAnalyzer
 
 class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
@@ -10,6 +11,7 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.logger = get_logger("DatasetOverviewWidget")
         self.setupUi(self)
         self.image_files = []
 
@@ -19,6 +21,14 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
 
         # シグナル/スロット接続
         self.thumbnailSelector.imageSelected.connect(self.update_preview)
+
+    def initialize(self, cm: 'ConfigManager'):
+        self.cm = cm
+
+    def showEvent(self, event):
+        """ウィジェットが表示される際に呼び出されるイベントハンドラ"""
+        super().showEvent(event)
+        self.load_images(self.cm.dataset_image_paths)
 
     def load_images(self, image_files: list):
         self.image_files = image_files
@@ -90,14 +100,19 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
 
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
+    from gui import ConfigManager
     from module.file_sys import FileSystemManager
     import sys
-
+    from module.log import  setup_logger
+    logconf = {'level': 'DEBUG', 'file': 'DatasetOverviewWidget.log'}
+    setup_logger(logconf)
+    cm = ConfigManager()
     fsm = FileSystemManager()
     directory = Path(r"testimg\10_shira")
     image_files: list[Path] = fsm.get_image_files(directory)
     app = QApplication(sys.argv)
     widget = DatasetOverviewWidget()
-    widget.load_images(fsm, image_files)
+    widget.initialize(cm)
+    widget.load_images(image_files)
     widget.show()
     sys.exit(app.exec())
