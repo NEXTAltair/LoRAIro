@@ -29,49 +29,6 @@ class Ui_DatasetExportWidget(object):
         if not DatasetExportWidget.objectName():
             DatasetExportWidget.setObjectName(u"DatasetExportWidget")
         DatasetExportWidget.resize(1200, 800)
-        DatasetExportWidget.setStyleSheet(u"\n"
-"    QWidget {\n"
-"      background-color: #f0f0f0;\n"
-"      color: #333333;\n"
-"      font-family: Arial, sans-serif;\n"
-"    }\n"
-"    QGroupBox {\n"
-"      background-color: white;\n"
-"      border: 1px solid #cccccc;\n"
-"      border-radius: 5px;\n"
-"      margin-top: 1ex;\n"
-"      font-weight: bold;\n"
-"    }\n"
-"    QGroupBox::title {\n"
-"      subcontrol-origin: margin;\n"
-"      left: 10px;\n"
-"      padding: 0 3px 0 3px;\n"
-"    }\n"
-"    QPushButton {\n"
-"      background-color: #4CAF50;\n"
-"      color: white;\n"
-"      border: none;\n"
-"      padding: 5px 15px;\n"
-"      border-radius: 3px;\n"
-"    }\n"
-"    QPushButton:hover {\n"
-"      background-color: #45a049;\n"
-"    }\n"
-"    QLineEdit, QComboBox {\n"
-"      border: 1px solid #cccccc;\n"
-"      padding: 5px;\n"
-"      border-radius: 3px;\n"
-"    }\n"
-"    QProgressBar {\n"
-"      border: 1px solid #cccccc;\n"
-"      border-radius: 3px;\n"
-"      text-align: center;\n"
-"    }\n"
-"    QProgressBar::chunk {\n"
-"      background-color: #4CA"
-                        "F50;\n"
-"    }\n"
-"   ")
         self.mainLayout = QHBoxLayout(DatasetExportWidget)
         self.mainLayout.setObjectName(u"mainLayout")
         self.mainSplitter = QSplitter(DatasetExportWidget)
@@ -133,9 +90,6 @@ class Ui_DatasetExportWidget(object):
 
         self.applyFilterButton = QPushButton(self.filterGroupBox)
         self.applyFilterButton.setObjectName(u"applyFilterButton")
-        icon = QIcon()
-        icon.addFile(u":/icons/filter.png", QSize(), QIcon.Mode.Normal, QIcon.State.Off)
-        self.applyFilterButton.setIcon(icon)
 
         self.filterLayout.addWidget(self.applyFilterButton)
 
@@ -203,9 +157,6 @@ class Ui_DatasetExportWidget(object):
 
         self.exportButton = QPushButton(self.exportGroupBox)
         self.exportButton.setObjectName(u"exportButton")
-        icon1 = QIcon()
-        icon1.addFile(u":/icons/export.png", QSize(), QIcon.Mode.Normal, QIcon.State.Off)
-        self.exportButton.setIcon(icon1)
 
         self.exportLayout.addWidget(self.exportButton)
 
@@ -242,7 +193,7 @@ class Ui_DatasetExportWidget(object):
 
         self.andRadioButton.setText(QCoreApplication.translate("DatasetExportWidget", u"AND\u691c\u7d22", None))
         self.filterLineEdit.setPlaceholderText(QCoreApplication.translate("DatasetExportWidget", u"Enter filter criteria", None))
-        self.resolutionLabel.setText(QCoreApplication.translate("DatasetExportWidget", u"\u5b66\u7fd2\u89e3\u50cf\u5ea6:", None))
+        self.resolutionLabel.setText(QCoreApplication.translate("DatasetExportWidget", u"Resolution:", None))
         self.resolutionComboBox.setItemText(0, QCoreApplication.translate("DatasetExportWidget", u"512x512", None))
         self.resolutionComboBox.setItemText(1, QCoreApplication.translate("DatasetExportWidget", u"768x768", None))
         self.resolutionComboBox.setItemText(2, QCoreApplication.translate("DatasetExportWidget", u"1024x1024", None))

@@ -11,7 +11,7 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setupUi(self)
-        self.logger = get_logger(__name__)
+        self.logger = get_logger("DatasetExportWidget")
         self.fsm = None
         self.idm = None
         self.image_selection_data = {}
@@ -78,12 +78,11 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
                 QApplication.processEvents()
 
             except Exception as e:
-                self.logger.error("Error", "エクスポート中にエラーが発生しました: %s", e)
+                self.logger.error(f"エクスポート中にエラーが発生しました: {str(e)}")
                 QMessageBox.critical(self, "Error", f"エクスポート中にエラーが発生しました: {str(e)}")
                 break
 
         self.exportButton.setEnabled(True)
-        self.statusLabel.setText("Status: Export completed")
         QMessageBox.information(self, "Success", "Dataset export completed successfully.")
 
     @Slot(int)
@@ -126,6 +125,10 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
             resolution=min_resolution,
             use_and=use_and
         )
+        if not image_selection_data:
+            self.logger.info(f"{filter_type} に {filter_text} を含む検索結果がありません")
+            QMessageBox.critical(self,  "info", f"{filter_type} に {filter_text} を含む検索結果がありません")
+
         self.update_thumbnail_selector(image_selection_data)
 
     def update_thumbnail_selector(self, images):
@@ -149,13 +152,19 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
     from gui import ConfigManager
+    from module.config import get_config
+    from module.log import setup_logger
     import sys
+
+    app = QApplication(sys.argv)
+    config = get_config()
+    logconf = {'level': 'DEBUG', 'file': 'DatasetExportWidget.log'}
+    setup_logger(logconf)
 
     cm = ConfigManager()
     fsm = FileSystemManager()
     idm = ImageDatabaseManager()
 
-    app = QApplication(sys.argv)
     widget = DatasetExportWidget()
     widget.initialize(cm, fsm, idm)
     widget.show()
