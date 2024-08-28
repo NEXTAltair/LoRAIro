@@ -111,7 +111,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
     def on_pushButtonGenerate_clicked(self):
         self.logger.info("タグとキャプションの生成を開始")
         self.ia = ImageAnalyzer()
-        self.acf = APIClientFactory(self.cm.config['api'], self.main_prompt, self.add_prompt)
+        self.acf = APIClientFactory(self.cm.config['api'])
         self.ia.initialize(self.acf, (self.vision_models, self.score_models))
 
         self.all_tags = []

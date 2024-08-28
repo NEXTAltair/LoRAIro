@@ -67,9 +67,6 @@ class Ui_ImageTaggerWidget(object):
         self.gridLayoutApiOptions.addWidget(self.labelTagFormat, 2, 0, 1, 1)
 
         self.comboBoxTagFormat = QComboBox(self.taggingAreaWidget)
-        self.comboBoxTagFormat.addItem("")
-        self.comboBoxTagFormat.addItem("")
-        self.comboBoxTagFormat.addItem("")
         self.comboBoxTagFormat.setObjectName(u"comboBoxTagFormat")
 
         self.gridLayoutApiOptions.addWidget(self.comboBoxTagFormat, 2, 1, 1, 1)
@@ -206,10 +203,6 @@ class Ui_ImageTaggerWidget(object):
         self.labelAPI.setText(QCoreApplication.translate("ImageTaggerWidget", u"API:", None))
         self.labelModel.setText(QCoreApplication.translate("ImageTaggerWidget", u"\u30e2\u30c7\u30eb:", None))
         self.labelTagFormat.setText(QCoreApplication.translate("ImageTaggerWidget", u"FORMT:", None))
-        self.comboBoxTagFormat.setItemText(0, QCoreApplication.translate("ImageTaggerWidget", u"\u30c6\u30ad\u30b9\u30c8\u30d5\u30a1\u30a4\u30eb", None))
-        self.comboBoxTagFormat.setItemText(1, QCoreApplication.translate("ImageTaggerWidget", u"JSON\u30d5\u30a1\u30a4\u30eb", None))
-        self.comboBoxTagFormat.setItemText(2, QCoreApplication.translate("ImageTaggerWidget", u"\u30c7\u30fc\u30bf\u30d9\u30fc\u30b9", None))
-
         self.groupBoxPrompt.setTitle(QCoreApplication.translate("ImageTaggerWidget", u"\u30d7\u30ed\u30f3\u30d7\u30c8", None))
         self.textEditMainPrompt.setPlaceholderText(QCoreApplication.translate("ImageTaggerWidget", u"\u8a73\u7d30\u306a\u30d7\u30ed\u30f3\u30d7\u30c8\u3092\u5165\u529b (\u4f8b: \u9ad8\u753b\u8cea, \u5177\u4f53\u7684\u306a\u63cf\u5199\u306a\u3069)", None))
         self.textEditAddPrompt.setPlaceholderText(QCoreApplication.translate("ImageTaggerWidget", u"\u9078\u629e\u3057\u305f\u753b\u50cf\u306e\u5927\u307e\u304b\u306a\u50be\u5411\u3092\u6307\u793a\u3059\u308b\u30d7\u30ed\u30f3\u30d7\u30c8", None))
