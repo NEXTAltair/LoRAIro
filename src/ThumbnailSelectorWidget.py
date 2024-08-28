@@ -118,16 +118,16 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         row_count = (len(self.image_paths) + column_count - 1) // column_count
         scene_height = row_count * self.thumbnail_size.height()
         self.scene.setSceneRect(0, 0, grid_width, scene_height)
-        self.graphics_view.setFixedHeight(scene_height)
 
     def add_thumbnail_item(self, image_path: Path, index: int, column_count: int):
         """
         指定されたグリッド位置にサムネイルアイテムをシーンに追加します。
         Args:
             image_path (Path): 画像のファイルパス
-            index (int): アイテムのインデックス
+            index (int): アイテムのインデックス #TODO: 何に対してのインデックスか俺もわかってない
             column_count (int): グリッドの列数
         """
+
         pixmap = QPixmap(str(image_path)).scaled(
             self.thumbnail_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
         )

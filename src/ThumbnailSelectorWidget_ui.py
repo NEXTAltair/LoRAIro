@@ -22,7 +22,7 @@ class Ui_ThumbnailSelectorWidget(object):
     def setupUi(self, ThumbnailSelectorWidget):
         if not ThumbnailSelectorWidget.objectName():
             ThumbnailSelectorWidget.setObjectName(u"ThumbnailSelectorWidget")
-        ThumbnailSelectorWidget.resize(107, 107)
+        ThumbnailSelectorWidget.resize(400, 300)
         self.verticalLayout = QVBoxLayout(ThumbnailSelectorWidget)
         self.verticalLayout.setObjectName(u"verticalLayout")
         self.scrollAreaThumbnails = QScrollArea(ThumbnailSelectorWidget)
@@ -30,7 +30,7 @@ class Ui_ThumbnailSelectorWidget(object):
         self.scrollAreaThumbnails.setWidgetResizable(True)
         self.widgetThumbnailsContent = QWidget()
         self.widgetThumbnailsContent.setObjectName(u"widgetThumbnailsContent")
-        self.widgetThumbnailsContent.setGeometry(QRect(0, 0, 83, 83))
+        self.widgetThumbnailsContent.setGeometry(QRect(0, 0, 380, 280))
         self.widgetThumbnailsContent.setMinimumSize(QSize(64, 64))
         self.scrollAreaThumbnails.setWidget(self.widgetThumbnailsContent)
 
