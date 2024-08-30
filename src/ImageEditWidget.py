@@ -134,11 +134,16 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
                                           self.preferred_resolutions)
 
     def process_image(self, image_file: Path):
-        image_id = self.idm.get_image_id_by_name(image_file.name) #TODO;名前だけで重複チェックだと甘い､解像度もチェックする
+        image_id = self.idm.get_image_id_by_name(image_file.name)
         if not image_id:
             image_id, original_image_metadata = self.idm.register_original_image(image_file, self.fsm)
         else:
             original_image_metadata = self.idm.get_image_metadata(image_id)
+
+        existing_processed_image = self.idm.check_processed_image_exists(image_id, self.target_resolution)
+        if existing_processed_image:
+            self.logger.info(f"既に処理済みの画像が存在します: {image_file}")
+            return
 
         existing_annotations = ImageAnalyzer.get_existing_annotations(image_file)
         if existing_annotations:

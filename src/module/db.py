@@ -482,22 +482,24 @@ class ImageRepository:
             return 0
 
     def get_image_id_by_name(self, image_name: str) -> Optional[int]:
-        """オリジナル画像の重複チェック用 画像名からimage_idを取得
+        """
+        オリジナル画像の重複チェック用 画像名からimage_idを取得
 
         Args:
             image_name (str): 画像名
 
         Returns:
-            int: image_id
+            Optional[int]: image_id。画像が見つからない場合はNone。
         """
+        query = "SELECT id FROM images WHERE filename = ?"
         try:
-            query = """
-            SELECT id FROM images
-            WHERE filename = ?
-            """
             result = self.db_manager.fetch_one(query, (image_name,))
-            self.logger.info(f"画像名 {image_name} のimage_idを取得しました: {result[0]}")
-            return result.get("id") if result else None
+            if result:
+                image_id = result['id']
+                self.logger.info(f"画像名 {image_name} のimage_id {image_id} を取得しました")
+                return image_id
+            self.logger.info(f"画像名 {image_name} のimage_idを取得できませんでした")
+            return None
         except Exception as e:
             self.logger.error(f"画像IDの取得中にエラーが発生しました: {e}")
             return None
@@ -514,7 +516,7 @@ class ImageDatabaseManager:
         self.db_manager = SQLiteManager(db_path)
         self.repository = ImageRepository(self.db_manager)
         self.db_manager.create_tables() # TODO: 要らない処理かもしれないが、一応残しておく
-        self.logger.info("データベーステーブルが初期化されました。")
+        self.logger.debug("初期化")
 
     def __enter__(self):
         return self
@@ -785,3 +787,28 @@ class ImageDatabaseManager:
         """データベース内に登録された編集前画像の総数を取得"""
         count = self.repository.get_total_image_count()
         return count
+
+    def check_processed_image_exists(self, image_id: int, target_resolution: int) -> Optional[dict]:
+        """
+        指定された画像IDと目標解像度に一致する処理済み画像が存在するかチェックします。
+
+        Args:
+            image_id (int): 元画像のID
+            target_resolution (int): 目標解像度
+
+        Returns:
+            Optional[dict]: 処理済み画像が存在する場合はそのメタデータ、存在しない場合はNone
+        """
+        try:
+            processed_images = self.repository.get_processed_image(image_id)
+
+            for processed_image in processed_images:
+                width = processed_image['width']
+                height = processed_image['height']
+                if width == target_resolution or height == target_resolution:
+                    return processed_image
+
+            return None
+        except Exception as e:
+            self.logger.error(f"処理済み画像のチェック中にエラーが発生しました: {e}")
+            return None
