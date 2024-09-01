@@ -21,10 +21,11 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         self.idm = None
 
     def initialize(self, cm: 'ConfigManager', fsm: FileSystemManager,
-                         idm: ImageDatabaseManager):
+                         idm: ImageDatabaseManager, main_window):
         self.cm = cm
         self.idm = idm
         self.fsm = fsm
+        self.main_window = main_window
         self.target_resolution = self.cm.config['image_processing']['target_resolution']
         self.preferred_resolutions = self.cm.config['preferred_resolutions']
         self.upscaler = None
@@ -119,13 +120,21 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
     def on_pushButtonStartProcess_clicked(self):
         try:
             self.initialize_processing()
-            for image_path in self.directory_images:
-                self.process_image(image_path)
-            self.logger.info("すべての画像の処理が完了しました。")
-            QMessageBox.information(self, "完了", "すべての画像の処理が完了しました。")
+            self.main_window.some_long_process(self.process_all_images)
         except Exception as e:
             self.logger.error(f"画像処理中にエラーが発生しました: {str(e)}")
             QMessageBox.critical(self, "エラー", f"処理中にエラーが発生しました: {str(e)}")
+
+    def process_all_images(self):
+        try:
+            for _, image_path in enumerate(self.directory_images):
+                if self.main_window.progress_controller.worker._is_canceled:
+                    break
+                self.process_image(image_path)
+        except Exception as e:
+            self.logger.error(f"画像処理中にエラーが発生しました: {str(e)}")
+        finally:
+            self.main_window.progress_controller.worker.finished.emit()
 
     def initialize_processing(self):
         """画像処理に必要なクラスの初期化"""

@@ -1,4 +1,5 @@
 import sqlite3
+import threading
 from contextlib import contextmanager
 from typing import Any, Union, Optional
 from datetime import datetime
@@ -10,9 +11,10 @@ from module.file_sys import FileSystemManager
 
 class SQLiteManager:
     def __init__(self, db_path: Path):
+        self.logger = get_logger("SQLiteManager")
         self.db_path = db_path
         self._connection = None
-        self.logger = get_logger("SQLiteManager")
+        self._local = threading.local()
 
     @staticmethod
     def dict_factory(cursor, row):
@@ -22,25 +24,27 @@ class SQLiteManager:
         return d
 
     def connect(self):
-        if self._connection is None:
-            self._connection = sqlite3.connect(self.db_path)
-            self._connection.row_factory = self.dict_factory
-        return self._connection
+        if not hasattr(self._local, 'connection') or self._local.connection is None:
+            self._local.connection = sqlite3.connect(self.db_path)
+            self._local.connection.row_factory = self.dict_factory
+        return self._local.connection
 
     def close(self):
-        if self._connection:
-            self._connection.close()
-            self._connection = None
+        if hasattr(self._local, 'connection') and self._local.connection is not None:
+            self._local.connection.close()
+            self._local.connection = None
 
     @contextmanager
     def get_connection(self):
-        conn = self.connect()  # 明示的に接続を開く
+        conn = self.connect()
         try:
             yield conn
             conn.commit()
         except Exception:
             conn.rollback()
             raise
+        finally:
+            self.close()
 
     def execute(self, query: str, params: tuple[Any, ...] = ()) -> Optional[sqlite3.Cursor]:
         with self.get_connection() as conn:
