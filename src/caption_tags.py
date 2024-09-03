@@ -94,7 +94,7 @@ class ImageAnalyzer:
                     annotations.append({key: stripped_item})
             return annotations
 
-    def analyze_image(self, image_path: Path, model_id: str, format_name: str="unknown") -> dict[str, Any]:
+    def analyze_image(self, image_path: Path, model_id: str, format_name: str="e621") -> dict[str, Any]:
         """
         指定された画像を分析し、結果を返す。
 
@@ -248,3 +248,4 @@ if __name__ == "__main__":
     print(f"キャプション: {result['caption']}")
     print(f"タグ: {result['tags']}")
     print(f"スコア: {result['score']}")
+ 
