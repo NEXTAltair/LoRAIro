@@ -67,11 +67,14 @@ class ImageProcessingManager:
 
                 if max(cropped_img.width, cropped_img.height) < self.target_resolution:
                     if upscaler: #TODO: アップスケールした画像はそれを示すデータも保存すべきか？
-                        self.logger.debug("長編が指定解像度未満のため%sをアップスケールします: %s", db_stored_original_path, upscaler)
-                        converted_img = Upscaler.upscale_image(converted_img, upscaler)
-                        if max(converted_img.width, converted_img.height) < self.target_resolution:
-                            self.logger.info("画像サイズが小さすぎるため処理をスキップ: %s", db_stored_original_path)
-                            return None
+                        if converted_img.mode == 'RGBA':
+                            self.logger.info(f"RGBA 画像のためアップスケールをスキップ: {db_stored_original_path}")
+                        else:
+                            self.logger.debug(f"長編が指定解像度未満のため{db_stored_original_path}をアップスケールします: {upscaler}")
+                            converted_img = Upscaler.upscale_image(converted_img, upscaler)
+                            if max(converted_img.width, converted_img.height) < self.target_resolution:
+                                self.logger.info(f"画像サイズが小さすぎるため処理をスキップ: {db_stored_original_path}")
+                                return None
                 resized_img = self.image_processor.resize_image(converted_img)
 
                 return resized_img
