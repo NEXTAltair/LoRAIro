@@ -11,7 +11,7 @@ from module.log import get_logger
 from datetime import datetime
 
 class FileSystemManager:
-    logger = get_logger(__name__)
+    logger = get_logger("FileSystemManager")
     image_extensions = ['.jpg', '.png', '.bmp', '.gif', '.tif', '.tiff', '.jpeg', '.webp']
     def __init__(self):
         self.logger = FileSystemManager.logger
@@ -22,6 +22,7 @@ class FileSystemManager:
         self.original_images_dir = None
         self.resized_images_dir = None
         self.batch_request_dir = None
+        self.logger.debug("初期化")
 
     def __enter__(self):
         if not self.initialized:
@@ -95,6 +96,7 @@ class FileSystemManager:
         for ext in FileSystemManager.image_extensions:
             for image_file in input_dir.rglob(f'*{ext}'):
                 image_files.append(image_file)
+        FileSystemManager.logger.debug(f"get_image_files \n image_file list:{image_files}")
         return image_files
 
     @staticmethod

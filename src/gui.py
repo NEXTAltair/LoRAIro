@@ -1,8 +1,11 @@
 import sys
 from pathlib import Path
+import time
+
 from PySide6.QtWidgets import QApplication, QMainWindow, QStatusBar, QMessageBox
 
 from gui_ui import Ui_mainWindow
+import inspect
 from ProgressWidget import ProgressWidget, Controller
 
 from module.log import setup_logger, get_logger
@@ -81,23 +84,19 @@ class MainWindow(QMainWindow, Ui_mainWindow):
         # 現在表示されているページを更新するため current_page の load_images メソッドを呼び出す
         current_page = self.contentStackedWidget.currentWidget()
         if hasattr(current_page, 'load_images'):
-            current_page.load_images(self.cm.dataset_image_paths)
+            self.some_long_process(current_page.load_images, self.cm.dataset_image_paths, is_list_process=True)
 
-    def some_long_process(self, process_function, *args, **kwargs):
+    def some_long_process(self, process_function, *args, is_list_process=False, **kwargs):
         self.progress_widget.show()  # プログレスウィジェットを表示
-
-        # process_function が引数を必要とするかチェック
-        if callable(process_function):
-            import inspect
-            sig = inspect.signature(process_function)
-            if len(sig.parameters) == 0:
-                # 引数が不要な場合
-                self.progress_controller.start_process_no_args(process_function)
-            else:
-                # 引数が必要な場合
+        try:
+            # process_function がリスト処理かどうかをチェック
+            if is_list_process or (callable(process_function) and len(inspect.signature(process_function).parameters) > 1):  # self を除く
                 self.progress_controller.start_process_with_args(process_function, *args, **kwargs)
-        else:
-            raise ValueError("process_function must be callable")
+            else:
+                self.progress_controller.start_process_no_args(process_function)
+
+        except Exception as e:
+            self.logger.error(f"ProgressWidgetを使用した処理中にエラーが発生しました: {e}")
 
     def closeEvent(self, event):
         if self.progress_controller.thread.isRunning():

@@ -575,9 +575,10 @@ class Claude(BaseAPIClient):
 
 class APIClientFactory:
     def __init__(self, api_keys: dict[str, str]):
-        self.logger = logging.getLogger(__name__)
+        self.logger = logging.getLogger("APIClientFactory")
         self.api_clients = {}
         self.api_keys = api_keys
+        self.logger.debug("初期化")
 
     def init_api_clients(self, main_prompt: str, add_prompt: str):
         self.main_prompt = main_prompt

@@ -3,6 +3,9 @@ from PySide6.QtWidgets import (QWidget, QGraphicsObject, QGraphicsScene, QGraphi
 from PySide6.QtGui import QPixmap, QColor, QPen
 from PySide6.QtCore import Qt, QSize, Signal, Slot, QRectF
 from pathlib import Path
+
+from module.log import get_logger
+
 from ThumbnailSelectorWidget_ui import Ui_ThumbnailSelectorWidget
 
 class ThumbnailItem(QGraphicsObject):
@@ -68,6 +71,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         Args:
             parent (QWidget, optional): 親ウィジェット. Defaults to None.
         """
+        self.logger = get_logger("ThumbnailSelectorWidget")
         super().__init__(parent)
         self.setupUi(self)
         self.thumbnail_size = QSize(128, 128)
@@ -149,13 +153,16 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         """
         if modifiers & Qt.KeyboardModifier.ControlModifier:
             item.setSelected(not item.isSelected())
+            self.logger.debug(f"画像がCtrl+クリックで{'選択' if item.isSelected() else '選択解除'}: \n item.image_path: {item.image_path}")
         elif modifiers & Qt.KeyboardModifier.ShiftModifier and self.last_selected_item:
             self.select_range(self.last_selected_item, item)
+            self.logger.debug(f"画像がShift+クリックで範囲選択")
         else:
             for other_item in self.thumbnail_items:
                 if other_item != item:
                     other_item.setSelected(False)
             item.setSelected(True)
+            self.logger.debug(f"画像が選択: \n item.image_path: {item.image_path}")
         self.last_selected_item = item
         self.update_selection()
 
@@ -193,7 +200,9 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         Returns:
             list[Path]: 選択された画像のパスのリスト
         """
-        return [item.image_path for item in self.thumbnail_items if item.isSelected()]
+        selected_images = [item.image_path for item in self.thumbnail_items if item.isSelected()]
+        self.logger.debug(f"選択された画像のリスト: \n selected_images: {selected_images}")
+        return selected_images
 
     def select_first_image(self):
         """
@@ -209,9 +218,14 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
 if __name__ == "__main__":
     import sys
+    from module.log import setup_logger
+    from PySide6.QtWidgets import QApplication
+
+
+    logconf = {'level': 'DEBUG', 'file': 'ThumbnailSelectorWidget.log'}
+    setup_logger(logconf)
     app = QApplication(sys.argv)
     widget = ThumbnailSelectorWidget()
-    # テスト用の画像パスリスト
     image_paths = [
         Path(r"testimg/1_img/file01.png"),
         Path(r"testimg/1_img/file02.png"),
@@ -223,12 +237,7 @@ if __name__ == "__main__":
         Path(r"testimg/1_img/file08.png"),
         Path(r"testimg/1_img/file09.png"),
     ]
-    # 画像の存在確認
-    for path in image_paths:
-        if not path.exists():
-            print(f"警告: ファイルが見つかりません: {path}")
     widget.load_images(image_paths)
-    widget.imageSelected.connect(lambda path:  print(f"選択された画像: {path}"))
     widget.setMinimumSize(400, 300)  # ウィジェットの最小サイズを設定
     widget.show()
     sys.exit(app.exec())

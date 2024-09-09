@@ -27,7 +27,7 @@ class Ui_SettingsWidget(object):
     def setupUi(self, SettingsWidget):
         if not SettingsWidget.objectName():
             SettingsWidget.setObjectName(u"SettingsWidget")
-        SettingsWidget.resize(705, 935)
+        SettingsWidget.resize(718, 681)
         self.verticalLayout_2 = QVBoxLayout(SettingsWidget)
         self.verticalLayout_2.setObjectName(u"verticalLayout_2")
         self.scrollAreaMain = QScrollArea(SettingsWidget)
@@ -35,7 +35,7 @@ class Ui_SettingsWidget(object):
         self.scrollAreaMain.setWidgetResizable(True)
         self.scrollAreaWidgetContents = QWidget()
         self.scrollAreaWidgetContents.setObjectName(u"scrollAreaWidgetContents")
-        self.scrollAreaWidgetContents.setGeometry(QRect(0, 0, 681, 911))
+        self.scrollAreaWidgetContents.setGeometry(QRect(0, 0, 694, 657))
         self.layoutScrollArea = QVBoxLayout(self.scrollAreaWidgetContents)
         self.layoutScrollArea.setObjectName(u"layoutScrollArea")
         self.groupBoxFolders = QGroupBox(self.scrollAreaWidgetContents)
@@ -62,58 +62,37 @@ class Ui_SettingsWidget(object):
 
         self.groupBoxApiSettings = QGroupBox(self.scrollAreaWidgetContents)
         self.groupBoxApiSettings.setObjectName(u"groupBoxApiSettings")
-        self.layoutAPI = QVBoxLayout(self.groupBoxApiSettings)
-        self.layoutAPI.setObjectName(u"layoutAPI")
-        self.groupBoxOpenAI = QGroupBox(self.groupBoxApiSettings)
-        self.groupBoxOpenAI.setObjectName(u"groupBoxOpenAI")
-        self.layoutOpenAI = QFormLayout(self.groupBoxOpenAI)
-        self.layoutOpenAI.setObjectName(u"layoutOpenAI")
-        self.labelOpenAiKey = QLabel(self.groupBoxOpenAI)
+        self.formLayout = QFormLayout(self.groupBoxApiSettings)
+        self.formLayout.setObjectName(u"formLayout")
+        self.labelOpenAiKey = QLabel(self.groupBoxApiSettings)
         self.labelOpenAiKey.setObjectName(u"labelOpenAiKey")
 
-        self.layoutOpenAI.setWidget(0, QFormLayout.LabelRole, self.labelOpenAiKey)
+        self.formLayout.setWidget(0, QFormLayout.LabelRole, self.labelOpenAiKey)
 
-        self.lineEditOpenAiKey = QLineEdit(self.groupBoxOpenAI)
+        self.lineEditOpenAiKey = QLineEdit(self.groupBoxApiSettings)
         self.lineEditOpenAiKey.setObjectName(u"lineEditOpenAiKey")
 
-        self.layoutOpenAI.setWidget(0, QFormLayout.FieldRole, self.lineEditOpenAiKey)
+        self.formLayout.setWidget(0, QFormLayout.FieldRole, self.lineEditOpenAiKey)
 
-
-        self.layoutAPI.addWidget(self.groupBoxOpenAI)
-
-        self.groupBoxGoogleVision = QGroupBox(self.groupBoxApiSettings)
-        self.groupBoxGoogleVision.setObjectName(u"groupBoxGoogleVision")
-        self.layoutGoogleVision = QFormLayout(self.groupBoxGoogleVision)
-        self.layoutGoogleVision.setObjectName(u"layoutGoogleVision")
-        self.labelGoogleKey = QLabel(self.groupBoxGoogleVision)
+        self.labelGoogleKey = QLabel(self.groupBoxApiSettings)
         self.labelGoogleKey.setObjectName(u"labelGoogleKey")
 
-        self.layoutGoogleVision.setWidget(0, QFormLayout.LabelRole, self.labelGoogleKey)
+        self.formLayout.setWidget(1, QFormLayout.LabelRole, self.labelGoogleKey)
 
-        self.lineEditGoogleVisionKey = QLineEdit(self.groupBoxGoogleVision)
+        self.lineEditGoogleVisionKey = QLineEdit(self.groupBoxApiSettings)
         self.lineEditGoogleVisionKey.setObjectName(u"lineEditGoogleVisionKey")
 
-        self.layoutGoogleVision.setWidget(0, QFormLayout.FieldRole, self.lineEditGoogleVisionKey)
+        self.formLayout.setWidget(1, QFormLayout.FieldRole, self.lineEditGoogleVisionKey)
 
-
-        self.layoutAPI.addWidget(self.groupBoxGoogleVision)
-
-        self.groupBoxAnthropic = QGroupBox(self.groupBoxApiSettings)
-        self.groupBoxAnthropic.setObjectName(u"groupBoxAnthropic")
-        self.layoutAnthropic = QFormLayout(self.groupBoxAnthropic)
-        self.layoutAnthropic.setObjectName(u"layoutAnthropic")
-        self.labelAnthropicKey = QLabel(self.groupBoxAnthropic)
+        self.labelAnthropicKey = QLabel(self.groupBoxApiSettings)
         self.labelAnthropicKey.setObjectName(u"labelAnthropicKey")
 
-        self.layoutAnthropic.setWidget(0, QFormLayout.LabelRole, self.labelAnthropicKey)
+        self.formLayout.setWidget(2, QFormLayout.LabelRole, self.labelAnthropicKey)
 
-        self.lineEditAnthropicKey = QLineEdit(self.groupBoxAnthropic)
+        self.lineEditAnthropicKey = QLineEdit(self.groupBoxApiSettings)
         self.lineEditAnthropicKey.setObjectName(u"lineEditAnthropicKey")
 
-        self.layoutAnthropic.setWidget(0, QFormLayout.FieldRole, self.lineEditAnthropicKey)
-
-
-        self.layoutAPI.addWidget(self.groupBoxAnthropic)
+        self.formLayout.setWidget(2, QFormLayout.FieldRole, self.lineEditAnthropicKey)
 
 
         self.layoutScrollArea.addWidget(self.groupBoxApiSettings)
@@ -229,13 +208,10 @@ class Ui_SettingsWidget(object):
     def retranslateUi(self, SettingsWidget):
         SettingsWidget.setWindowTitle(QCoreApplication.translate("SettingsWidget", u"Form", None))
         self.groupBoxFolders.setTitle(QCoreApplication.translate("SettingsWidget", u"\u30d5\u30a9\u30eb\u30c0\u8a2d\u5b9a", None))
-        self.groupBoxApiSettings.setTitle(QCoreApplication.translate("SettingsWidget", u"API\u8a2d\u5b9a", None))
-        self.groupBoxOpenAI.setTitle(QCoreApplication.translate("SettingsWidget", u"OpenAI", None))
-        self.labelOpenAiKey.setText(QCoreApplication.translate("SettingsWidget", u"API\u30ad\u30fc:", None))
-        self.groupBoxGoogleVision.setTitle(QCoreApplication.translate("SettingsWidget", u"Google Vision API", None))
-        self.labelGoogleKey.setText(QCoreApplication.translate("SettingsWidget", u"API\u30ad\u30fc:", None))
-        self.groupBoxAnthropic.setTitle(QCoreApplication.translate("SettingsWidget", u"Anthropic", None))
-        self.labelAnthropicKey.setText(QCoreApplication.translate("SettingsWidget", u"API\u30ad\u30fc:", None))
+        self.groupBoxApiSettings.setTitle(QCoreApplication.translate("SettingsWidget", u"API KEY", None))
+        self.labelOpenAiKey.setText(QCoreApplication.translate("SettingsWidget", u"OpenAI", None))
+        self.labelGoogleKey.setText(QCoreApplication.translate("SettingsWidget", u"Google AI Studio", None))
+        self.labelAnthropicKey.setText(QCoreApplication.translate("SettingsWidget", u"Anthropic", None))
         self.groupBoxHuggingFaceSettings.setTitle(QCoreApplication.translate("SettingsWidget", u"Hugging Face", None))
         self.labelHfUsername.setText(QCoreApplication.translate("SettingsWidget", u"\u30e6\u30fc\u30b6\u30fc\u540d:", None))
         self.labelHfRepoName.setText(QCoreApplication.translate("SettingsWidget", u"\u30ea\u30dd\u30b8\u30c8\u30ea\u540d:", None))
