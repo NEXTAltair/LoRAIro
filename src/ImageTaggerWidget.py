@@ -1,14 +1,17 @@
+from pathlib import Path
+
 from PySide6.QtWidgets import QWidget, QFileDialog, QMessageBox
 from PySide6.QtCore import Slot
 
-from ImageTaggerWidget_ui import Ui_ImageTaggerWidget
+from gui_file.ImageTaggerWidget_ui import Ui_ImageTaggerWidget
+
 from module.file_sys import FileSystemManager
 from caption_tags import ImageAnalyzer
 from module.api_utils import APIClientFactory
-from pathlib import Path
 from module.log import get_logger
-
 from module.db import ImageDatabaseManager
+
+
 class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
     def __init__(self, parent=None):
         self.logger = get_logger(__name__)

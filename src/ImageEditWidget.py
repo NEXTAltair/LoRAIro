@@ -1,9 +1,11 @@
+from pathlib import Path
+from typing import Optional
+
 from PySide6.QtWidgets import QWidget, QTableWidgetItem, QHeaderView, QMessageBox
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QPixmap
-from pathlib import Path
-from typing import Optional
-from ImageEditWidget_ui import Ui_ImageEditWidget
+
+from gui_file.ImageEditWidget_ui import Ui_ImageEditWidget
 
 from module.log import get_logger
 from module.file_sys import FileSystemManager

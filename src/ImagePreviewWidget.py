@@ -1,11 +1,11 @@
+from pathlib import Path
+
 from PySide6.QtWidgets import QWidget, QGraphicsScene, QSizePolicy
 from PySide6.QtGui import QPixmap, QPainter
 from PySide6.QtCore import Qt, QTimer, Slot
-from pathlib import Path
+from gui_file.ImagePreviewWidget_ui import Ui_ImagePreviewWidget
 
 from module.log import get_logger
-
-from ImagePreviewWidget_ui import Ui_ImagePreviewWidget
 
 class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
     def __init__(self, parent=None):

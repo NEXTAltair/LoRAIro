@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import QWidget, QFileDialog
 from PySide6.QtCore import Qt
-from DirectoryPickerWidget_ui import Ui_DirectoryPickerWidget
+from gui_file.DirectoryPickerWidget_ui import Ui_DirectoryPickerWidget
 from module.log import get_logger
 
 class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):

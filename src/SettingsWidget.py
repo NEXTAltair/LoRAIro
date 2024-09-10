@@ -1,9 +1,9 @@
 from PySide6.QtWidgets import QWidget, QFileDialog, QMessageBox
 from PySide6.QtCore import Slot
 
-from module.file_sys import FileSystemManager
+from gui_file.SettingsWidget_ui import Ui_SettingsWidget
 
-from SettingsWidget_ui import Ui_SettingsWidget
+from module.file_sys import FileSystemManager
 
 class SettingsWidget(QWidget, Ui_SettingsWidget):
     def __init__(self, parent=None):

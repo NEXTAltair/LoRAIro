@@ -1,11 +1,10 @@
 import sys
+import inspect
 from pathlib import Path
-import time
 
 from PySide6.QtWidgets import QApplication, QMainWindow, QStatusBar, QMessageBox
 
-from gui_ui import Ui_mainWindow
-import inspect
+from gui_file.gui_ui import Ui_mainWindow
 from ProgressWidget import ProgressWidget, Controller
 
 from module.log import setup_logger, get_logger

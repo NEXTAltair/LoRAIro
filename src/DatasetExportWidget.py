@@ -2,7 +2,7 @@ from PySide6.QtWidgets import QWidget, QMessageBox
 from PySide6.QtCore import Slot
 from module.file_sys import FileSystemManager
 from module.db import ImageDatabaseManager
-from DatasetExportWidget_ui import Ui_DatasetExportWidget
+from gui_file.DatasetExportWidget_ui import Ui_DatasetExportWidget
 from module.log import get_logger
 from pathlib import Path
 

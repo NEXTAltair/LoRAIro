@@ -26,6 +26,7 @@ class Ui_DatasetOverviewWidget(object):
     def setupUi(self, DatasetOverviewWidget):
         if not DatasetOverviewWidget.objectName():
             DatasetOverviewWidget.setObjectName(u"DatasetOverviewWidget")
+        DatasetOverviewWidget.resize(328, 800)
         self.horizontalDatasetOverviewWidget = QHBoxLayout(DatasetOverviewWidget)
         self.horizontalDatasetOverviewWidget.setObjectName(u"horizontalDatasetOverviewWidget")
         self.mainSplitter = QSplitter(DatasetOverviewWidget)

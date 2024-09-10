@@ -1,12 +1,13 @@
+from pathlib import Path
+
 from PySide6.QtWidgets import (QWidget, QGraphicsObject, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem,
                                QVBoxLayout, QApplication, QGraphicsItem)
 from PySide6.QtGui import QPixmap, QColor, QPen
 from PySide6.QtCore import Qt, QSize, Signal, Slot, QRectF
-from pathlib import Path
 
 from module.log import get_logger
 
-from ThumbnailSelectorWidget_ui import Ui_ThumbnailSelectorWidget
+from gui_file.ThumbnailSelectorWidget_ui import Ui_ThumbnailSelectorWidget
 
 class ThumbnailItem(QGraphicsObject):
     """

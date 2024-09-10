@@ -1,11 +1,12 @@
-from PySide6.QtWidgets import QWidget, QFileDialog, QListWidgetItem
+from pathlib import Path
+
+from PySide6.QtWidgets import QWidget, QFileDialog
 from PySide6.QtCore import Qt
 
-from pathlib import Path
+from gui_file.PickerWidget_ui import Ui_PickerWidget
 
 from module.log import get_logger
 
-from PickerWidget_ui import Ui_PickerWidget
 
 class PickerWidget(QWidget, Ui_PickerWidget):
     def __init__(self, parent=None):

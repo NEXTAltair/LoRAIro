@@ -1,7 +1,10 @@
+from pathlib import Path
+
 from PySide6.QtWidgets import QWidget
 from PySide6.QtCore import Signal, Slot
-from pathlib import Path
-from DatasetOverviewWidget_ui import Ui_DatasetOverviewWidget
+
+from gui_file.DatasetOverviewWidget_ui import Ui_DatasetOverviewWidget
+
 from module.file_sys import FileSystemManager
 from module.log import get_logger
 from caption_tags import ImageAnalyzer

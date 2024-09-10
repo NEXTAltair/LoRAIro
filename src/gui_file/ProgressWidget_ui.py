@@ -22,6 +22,7 @@ class Ui_ProgressWidget(object):
     def setupUi(self, ProgressWidget):
         if not ProgressWidget.objectName():
             ProgressWidget.setObjectName(u"ProgressWidget")
+        ProgressWidget.setWindowModality(Qt.WindowModality.WindowModal)
         ProgressWidget.resize(400, 113)
         self.verticalLayout = QVBoxLayout(ProgressWidget)
         self.verticalLayout.setObjectName(u"verticalLayout")
