@@ -4,3 +4,10 @@ ComicPanelSplitter/
 AnimeShakitto_v1.0.0.0/
 testimg/
 under-*/
+output/
+src/.tmp.driveupload
+**/__pycache__/
+app.log
+
+src/score_module/
+TEST/
