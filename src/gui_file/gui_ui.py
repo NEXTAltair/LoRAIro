@@ -93,6 +93,16 @@ class Ui_mainWindow(object):
         self.pageExport = DatasetExportWidget()
         self.pageExport.setObjectName(u"pageExport")
         self.contentStackedWidget.addWidget(self.pageExport)
+        self.pageBatch = QWidget()
+        self.pageBatch.setObjectName(u"pageBatch")
+        self.verticalLayout_2 = QVBoxLayout(self.pageBatch)
+        self.verticalLayout_2.setObjectName(u"verticalLayout_2")
+        self.labelBatch = QLabel(self.pageBatch)
+        self.labelBatch.setObjectName(u"labelBatch")
+
+        self.verticalLayout_2.addWidget(self.labelBatch)
+
+        self.contentStackedWidget.addWidget(self.pageBatch)
         self.pageSettings = SettingsWidget()
         self.pageSettings.setObjectName(u"pageSettings")
         self.contentStackedWidget.addWidget(self.pageSettings)
@@ -121,6 +131,9 @@ class Ui_mainWindow(object):
         self.menuHelp.addAction(self.actionAbout)
 
         self.retranslateUi(mainWindow)
+
+        self.contentStackedWidget.setCurrentIndex(5)
+
 
         QMetaObject.connectSlotsByName(mainWindow)
     # setupUi
@@ -151,6 +164,7 @@ class Ui_mainWindow(object):
         self.sidebarList.setSortingEnabled(__sortingEnabled)
 
         self.labelTagCaptionEditTitle.setText(QCoreApplication.translate("mainWindow", u"\u30bf\u30b0/\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3\u7de8\u96c6", None))
+        self.labelBatch.setText(QCoreApplication.translate("mainWindow", u"\u30d0\u30c3\u30c1\u51e6\u7406", None))
         self.menuFile.setTitle(QCoreApplication.translate("mainWindow", u"\u30d5\u30a1\u30a4\u30eb", None))
         self.menuHelp.setTitle(QCoreApplication.translate("mainWindow", u"\u30d8\u30eb\u30d7", None))
     # retranslateUi
