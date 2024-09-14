@@ -40,7 +40,7 @@ class MainWindow(QMainWindow, Ui_mainWindow):
         self.init_pages()
 
         # ここでサイドメニューのウィンドウ上での割合を決めないと表示が汚くなる
-        self.mainWindowSplitter.setSizes([self.width() * 3 // 10, self.width() * 7 // 10])
+        self.mainWindowSplitter.setSizes([self.width() * 1 // 5, self.width() * 4 // 5])
 
         self.connect_signals()
         self.init_dataset_selector()

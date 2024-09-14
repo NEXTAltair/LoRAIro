@@ -50,14 +50,6 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         for image_path in directory_images:
             self._add_image_to_table(image_path)
 
-    @Slot()
-    def on_tableWidgetImageList_itemSelectionChanged(self):
-        selected_items = self.tableWidgetImageList.selectedItems()
-        if selected_items:
-            row = self.tableWidgetImageList.currentRow()
-            file_path = self.tableWidgetImageList.item(row, 2).text()
-            self.ImagePreview.load_image(Path(file_path))
-
     def _add_image_to_table(self, file_path: Path):
         str_filename = str(file_path.name)
         str_file_path = str(file_path)
@@ -96,6 +88,14 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
             self.tableWidgetImageList.setItem(row_position, 5, QTableWidgetItem(tags_str))
             captions_str = ', '.join([caption['caption'] for caption in existing_annotations['captions']])
             self.tableWidgetImageList.setItem(row_position, 6, QTableWidgetItem(captions_str))
+
+    @Slot()
+    def on_tableWidgetImageList_itemSelectionChanged(self):
+        selected_items = self.tableWidgetImageList.selectedItems()
+        if selected_items:
+            row = self.tableWidgetImageList.currentRow()
+            file_path = self.tableWidgetImageList.item(row, 2).text()
+            self.ImagePreview.load_image(Path(file_path))
 
     @Slot()
     def on_comboBoxResizeOption_currentIndexChanged(self):
@@ -159,6 +159,8 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         existing_annotations = ImageAnalyzer.get_existing_annotations(image_file)
         if existing_annotations:
             self.idm.save_annotations(image_id, existing_annotations)
+        else:
+            self.idm.save_annotations(image_id, {'tags': [], 'captions': []})
 
         processed_image = self.ipm.process_image(
             image_file,

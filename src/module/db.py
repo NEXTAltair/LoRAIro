@@ -1,11 +1,12 @@
 import sqlite3
 import threading
+import uuid
+
 from contextlib import contextmanager
 from typing import Any, Union, Optional
 from datetime import datetime
 from module.log import get_logger
 from pathlib import Path
-import uuid
 
 from module.file_sys import FileSystemManager
 
@@ -171,6 +172,35 @@ class SQLiteManager:
             CREATE INDEX IF NOT EXISTS idx_captions_image_id ON captions(image_id);
             CREATE INDEX IF NOT EXISTS idx_scores_image_id ON scores(image_id);
             ''')
+    def insert_models(self) -> None:
+        """
+        モデル情報の初期設定がされてない場合データベースに追加
+
+        Args:
+            model_name (str): モデルの名前。
+            model_type (str): モデルのタイプ。
+            provider (str): モデルのプロバイダ。
+        """
+        query = """
+        INSERT OR IGNORE INTO models (name, type, provider) VALUES (?, ?, ?)
+        """
+        models = [
+            ('gpt-4o', 'vision', 'OpenAI'),
+            ('gpt-4-turbo', 'vision', 'OpenAI'),
+            ('laion', 'score', ''),
+            ('cafe', 'score', ''),
+            ('gpt-4o-mini', 'vision', 'OpenAI'),
+            ('gemini-1.5-pro-exp-0801', 'vision', 'Google'),
+            ('gemini-1.5-pro-preview-0409', 'vision', 'Google'),
+            ('gemini-1.0-pro-vision', 'vision', 'Google'),
+            ('claude-3-5-sonnet-20240620', 'vision', 'Anthropic'),
+            ('claude-3-opus-20240229', 'vision', 'Anthropic'),
+            ('claude-3-sonnet-20240229', 'vision', 'Anthropic'),
+            ('claude-3-haiku-20240307', 'vision', 'Anthropic'),
+            ('RealESRGAN_x4plus', 'upscaler', 'xinntao')
+        ]
+        for model in models:
+            self.execute(query, model)
 
 class ImageRepository:
     """
@@ -519,7 +549,8 @@ class ImageDatabaseManager:
         db_path = Path("Image_database") / "image_database.db"
         self.db_manager = SQLiteManager(db_path)
         self.repository = ImageRepository(self.db_manager)
-        self.db_manager.create_tables() # TODO: 要らない処理かもしれないが、一応残しておく
+        self.db_manager.create_tables()
+        self.db_manager.insert_models()
         self.logger.debug("初期化")
 
     def __enter__(self):
@@ -621,13 +652,14 @@ class ImageDatabaseManager:
         Args:
             image_id (int): アノテーションを追加する画像のID。
             annotations (dict[str, list[dict[str, Any]]]): アノテーションデータ。
-
+                'tags', 'captions', 'scores' をキーとし、それぞれリストを値とする辞書。
+                各リストの要素は {'value': str, 'model': str} の形式。
         Raises:
             Exception: アノテーションの保存に失敗した場合。
         """
         try:
             self.repository.save_annotations(image_id, annotations)
-            self.logger.info(f"画像 ID {image_id} のアノテーションを保存しました")
+            self.logger.info(f"画像 ID {image_id} のアノテーション{annotations}を保存しました")
         except Exception as e:
             self.logger.error(f"アノテーションの保存中にエラーが発生しました: {e}")
             raise
