@@ -15,13 +15,13 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QFont, QFontDatabase, QGradient, QIcon,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QGroupBox,
-    QHBoxLayout, QLabel, QLineEdit, QProgressBar,
-    QPushButton, QRadioButton, QSizePolicy, QSplitter,
-    QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QGroupBox, QHBoxLayout,
+    QLabel, QProgressBar, QPushButton, QSizePolicy,
+    QSplitter, QVBoxLayout, QWidget)
 
 from DirectoryPickerWidget import DirectoryPickerWidget
 from ImagePreviewWidget import ImagePreviewWidget
+from TagFilterWidget import TagFilterWidget
 from ThumbnailSelectorWidget import ThumbnailSelectorWidget
 
 class Ui_DatasetExportWidget(object):
@@ -39,62 +39,12 @@ class Ui_DatasetExportWidget(object):
         self.leftPanelLayout = QVBoxLayout(self.leftPanel)
         self.leftPanelLayout.setObjectName(u"leftPanelLayout")
         self.leftPanelLayout.setContentsMargins(0, 0, 0, 0)
-        self.filterGroupBox = QGroupBox(self.leftPanel)
-        self.filterGroupBox.setObjectName(u"filterGroupBox")
-        self.filterLayout = QVBoxLayout(self.filterGroupBox)
+        self.filterWidget = TagFilterWidget(self.leftPanel)
+        self.filterWidget.setObjectName(u"filterWidget")
+        self.filterLayout = QVBoxLayout(self.filterWidget)
         self.filterLayout.setObjectName(u"filterLayout")
-        self.filterTypeLayout = QHBoxLayout()
-        self.filterTypeLayout.setObjectName(u"filterTypeLayout")
-        self.filterTypeLabel = QLabel(self.filterGroupBox)
-        self.filterTypeLabel.setObjectName(u"filterTypeLabel")
 
-        self.filterTypeLayout.addWidget(self.filterTypeLabel)
-
-        self.filterTypeComboBox = QComboBox(self.filterGroupBox)
-        self.filterTypeComboBox.addItem("")
-        self.filterTypeComboBox.addItem("")
-        self.filterTypeComboBox.setObjectName(u"filterTypeComboBox")
-
-        self.filterTypeLayout.addWidget(self.filterTypeComboBox)
-
-        self.andRadioButton = QRadioButton(self.filterGroupBox)
-        self.andRadioButton.setObjectName(u"andRadioButton")
-
-        self.filterTypeLayout.addWidget(self.andRadioButton)
-
-
-        self.filterLayout.addLayout(self.filterTypeLayout)
-
-        self.filterLineEdit = QLineEdit(self.filterGroupBox)
-        self.filterLineEdit.setObjectName(u"filterLineEdit")
-
-        self.filterLayout.addWidget(self.filterLineEdit)
-
-        self.resolutionLayout = QHBoxLayout()
-        self.resolutionLayout.setObjectName(u"resolutionLayout")
-        self.resolutionLabel = QLabel(self.filterGroupBox)
-        self.resolutionLabel.setObjectName(u"resolutionLabel")
-
-        self.resolutionLayout.addWidget(self.resolutionLabel)
-
-        self.resolutionComboBox = QComboBox(self.filterGroupBox)
-        self.resolutionComboBox.addItem("")
-        self.resolutionComboBox.addItem("")
-        self.resolutionComboBox.addItem("")
-        self.resolutionComboBox.setObjectName(u"resolutionComboBox")
-
-        self.resolutionLayout.addWidget(self.resolutionComboBox)
-
-
-        self.filterLayout.addLayout(self.resolutionLayout)
-
-        self.applyFilterButton = QPushButton(self.filterGroupBox)
-        self.applyFilterButton.setObjectName(u"applyFilterButton")
-
-        self.filterLayout.addWidget(self.applyFilterButton)
-
-
-        self.leftPanelLayout.addWidget(self.filterGroupBox)
+        self.leftPanelLayout.addWidget(self.filterWidget)
 
         self.thumbnailSelector = ThumbnailSelectorWidget(self.leftPanel)
         self.thumbnailSelector.setObjectName(u"thumbnailSelector")
@@ -108,7 +58,6 @@ class Ui_DatasetExportWidget(object):
 
         self.imageCountLabel = QLabel(self.leftPanel)
         self.imageCountLabel.setObjectName(u"imageCountLabel")
-        self.imageCountLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.leftPanelLayout.addWidget(self.imageCountLabel)
 
@@ -186,20 +135,7 @@ class Ui_DatasetExportWidget(object):
 
     def retranslateUi(self, DatasetExportWidget):
         DatasetExportWidget.setWindowTitle(QCoreApplication.translate("DatasetExportWidget", u"Dataset Export", None))
-        self.filterGroupBox.setTitle(QCoreApplication.translate("DatasetExportWidget", u"Filter Criteria", None))
-        self.filterTypeLabel.setText(QCoreApplication.translate("DatasetExportWidget", u"Filter Type:", None))
-        self.filterTypeComboBox.setItemText(0, QCoreApplication.translate("DatasetExportWidget", u"Tags", None))
-        self.filterTypeComboBox.setItemText(1, QCoreApplication.translate("DatasetExportWidget", u"Caption", None))
-
-        self.andRadioButton.setText(QCoreApplication.translate("DatasetExportWidget", u"AND\u691c\u7d22", None))
-        self.filterLineEdit.setPlaceholderText(QCoreApplication.translate("DatasetExportWidget", u"Enter filter criteria", None))
-        self.resolutionLabel.setText(QCoreApplication.translate("DatasetExportWidget", u"Resolution:", None))
-        self.resolutionComboBox.setItemText(0, QCoreApplication.translate("DatasetExportWidget", u"512x512", None))
-        self.resolutionComboBox.setItemText(1, QCoreApplication.translate("DatasetExportWidget", u"768x768", None))
-        self.resolutionComboBox.setItemText(2, QCoreApplication.translate("DatasetExportWidget", u"1024x1024", None))
-
-        self.applyFilterButton.setText(QCoreApplication.translate("DatasetExportWidget", u"Apply Filters", None))
-        self.imageCountLabel.setText(QCoreApplication.translate("DatasetExportWidget", u"Selected Images: 0 / Total Images: 0", None))
+        self.imageCountLabel.setText("")
         self.exportGroupBox.setTitle(QCoreApplication.translate("DatasetExportWidget", u"Export Settings", None))
         self.exportFormatLabel.setText(QCoreApplication.translate("DatasetExportWidget", u"Export Format:", None))
         self.checkBoxTxtCap.setText(QCoreApplication.translate("DatasetExportWidget", u"txt/caption", None))

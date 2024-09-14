@@ -1,11 +1,12 @@
-from PySide6.QtWidgets import QWidget, QMessageBox
-from PySide6.QtCore import Slot
-from module.file_sys import FileSystemManager
-from module.db import ImageDatabaseManager
-from gui_file.DatasetExportWidget_ui import Ui_DatasetExportWidget
-from module.log import get_logger
 from pathlib import Path
 
+from PySide6.QtWidgets import QWidget, QMessageBox
+from PySide6.QtCore import Slot
+from gui_file.DatasetExportWidget_ui import Ui_DatasetExportWidget
+
+from module.file_sys import FileSystemManager
+from module.db import ImageDatabaseManager
+from module.log import get_logger
 
 class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
     def __init__(self, parent=None):
@@ -20,12 +21,39 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
         self.exportDirectoryPicker.set_label_text("Export Directory:")
         self.exportDirectoryPicker.set_path(self.cm.config['directories']['edited_output'])
         self.exportProgressBar.setVisible(False)
+        self.filterWidget.filterApplied.connect(self.on_filter_applied)
+        self.filterWidget.countRangeGroupBox.hide() # ここでは使わないを非表示にする
 
     def initialize(self, cm, fsm: FileSystemManager, idm: ImageDatabaseManager):
         self.cm = cm
         self.fsm = fsm
         self.idm = idm
         self.init_ui()
+
+    def on_filter_applied(self, filter_conditions: dict):
+        filter_type = filter_conditions['filter_type']
+        filter_text = filter_conditions['filter_text']
+        min_resolution, _ = filter_conditions['resolution']
+        use_and = filter_conditions['use_and']
+
+        tags = []
+        caption = ""
+        if filter_type == "tags":
+            tags = [tag.strip() for tag in filter_text.split(',')]
+        elif filter_type == "caption":
+            caption = filter_text
+
+        image_selection_data, list_count = self.idm.get_images_by_filter(
+            tags=tags,
+            caption=caption,
+            resolution=int(min_resolution),
+            use_and=use_and
+        )
+        if not image_selection_data:
+            self.logger.info(f"{filter_type} に {filter_text} を含む検索結果がありません")
+            QMessageBox.critical(self,  "info", f"{filter_type} に {filter_text} を含む検索結果がありません")
+
+        self.update_thumbnail_selector(list_count)
 
     @Slot()
     def on_exportButton_clicked(self):
@@ -103,43 +131,9 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
         self.statusLabel.setText("Status: Export failed")
         QMessageBox.critical(self, "Error", f"An error occurred during export: {error_message}")
 
-    @Slot()
-    def on_applyFilterButton_clicked(self):
-        filter_type = self.filterTypeComboBox.currentText().lower()
-        filter_text = self.filterLineEdit.text()
-        resolution = self.resolutionComboBox.currentText()
-        min_resolution = int(resolution.split('x')[0])
-
-        tags = []
-        caption = ""
-        if filter_type == "tags":
-            tags = [tag.strip() for tag in filter_text.split(',')]
-        elif filter_type == "caption":
-            caption = filter_text
-
-        use_and = self.andRadioButton.isChecked()
-
-        image_selection_data = self.idm.get_images_by_filter(
-            tags=tags,
-            caption=caption,
-            resolution=min_resolution,
-            use_and=use_and
-        )
-        if not image_selection_data:
-            self.logger.info(f"{filter_type} に {filter_text} を含む検索結果がありません")
-            QMessageBox.critical(self,  "info", f"{filter_type} に {filter_text} を含む検索結果がありません")
-
-        self.update_thumbnail_selector(image_selection_data)
-
-    def update_thumbnail_selector(self, images):
+    def update_thumbnail_selector(self, list_count):
         self.image_selection_data.clear()
-        image_path_list = []
-        for image in images:
-            path = Path(image['stored_image_path'])
-            image_path_list.append(path)
-            self.image_selection_data[path] = image['image_id']
-        self.thumbnailSelector.load_images(image_path_list)
-        self.update_image_count_label(len(images))
+        self.update_image_count_label(list_count)
 
     def update_image_count_label(self, count):
         total = self.idm.get_total_image_count()

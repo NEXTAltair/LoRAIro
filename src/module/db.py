@@ -727,7 +727,7 @@ class ImageDatabaseManager:
             self.logger.error(f"モデルの取得中にエラーが発生しました: {e}")
             raise
 
-    def get_images_by_filter(self, tags: list[str], caption: str, resolution: int, use_and: bool = True) -> list[dict[str, Any]]:
+    def get_images_by_filter(self, tags: list[str], caption: str, resolution: int, use_and: bool = True) -> tuple[list[dict[str, Any]], int]:
         image_ids = set()
 
         if tags:
@@ -772,8 +772,10 @@ class ImageDatabaseManager:
                     # 誤差が 20% 以内であれば追加
                     if error_ratio <= 0.2:
                         filtered_metadata_list.append(metadata)
+        list_count = len(filtered_metadata_list)
+        self.logger.info(f"フィルタリング後の画像数: {list_count}")
 
-        return filtered_metadata_list
+        return filtered_metadata_list, list_count
 
     def get_image_id_by_name(self, image_name: str) -> Optional[int]:
         """オリジナル画像の重複チェック用 画像名からimage_idを取得
