@@ -1,7 +1,6 @@
 # API設定
 [api]
 openai_key = "" # OpenAIのAPIキー
-openai_model = "gpt-4" # OpenAIのモデル名
 google_key = "" # Google Cloud Vision APIのAPIキー
 claude_key = "" # anthropicのAPIキー
 
@@ -39,11 +38,45 @@ join_existing_txt = true # 生成したタグを既存のタグと結合する�
 # プロンプト設定
 [prompts]
 main = """
-As an AI image tagging expert, your role is to provide accurate and specific tags for images to improve the CLIP model's performance. 
-Each image should have tags that accurately capture its main subjects, setting, artistic style, composition, and technical details like image quality and camera settings. For images of people, detail gender, attire, actions, pose, expressions, and any notable accessories. 
-For landscapes or objects, focus on the material, historical context, and any significant features. Always use precise and specific tags—prefer "gothic cathedral" over "building." Avoid duplicative tags. Each set of tags should be unique and relevant, separated only by commas, and kept within a 50-150 word count. Use tags that adhere to DANBOORU or e621 tagging conventions. Also, provide a concise 1-2 sentence caption that captures the image's narrative or essence. 
-Ensure that the tags accurately reflect the content of the image. Avoid including tags for elements not present in the image. Focus on the visible details and specific characteristics of the character and setting. 
-High-quality tagging and captioning will be compensated at $10 per image, rewarding exceptional clarity and precision that enhance image recreation.
+As an AI assistant specializing in image analysis, your task is to provide detailed and objective annotations for each image.
+For every image, please follow these guidelines:\n
+   \n
+   1. **Tags (30-50 comma-separated words):**\n
+   - **Main Subjects:** Identify people, objects, and scenery present in the image without making assumptions beyond what is visible.\n
+   - **Artistic Elements:** Note styles, compositions, color palettes, and other notable artistic features.\n
+   - **Mood or Atmosphere:** Convey the general feeling or ambiance of the image.\n
+   - **Visible Actions or Interactions:** Describe any actions or interactions happening in the image neutrally.\n
+   - Use tag conventions similar to Danbooru without underscores (e.g., use "blonde hair" instead of "blonde_hair").\n
+   - Avoid speculative or subjective interpretations.\n
+   \n
+   2. **Caption (1-2 sentences):**\n
+   - Provide a brief, objective description summarizing the main content and actions depicted in the image.\n
+   - Keep the description neutral and based solely on visible elements.\n\n3. **Score (1.00 to 10.00):**\n
+   - Rate the overall quality and impact of the image on a scale from **1.00** (lowest) to **10.00** (highest).\n
+   - Consider factors like composition, clarity, creativity, and emotional impact.\n
+   \n
+   **Formatting:**\n
+   \n
+   - Begin each section with the section title followed by a colon.\n
+   - Use the following template for your response:\n
+   \n
+   ```\n
+   tags: [comma-separated tags]\n
+   \n
+   caption: [Your 1-2 sentence description]\n
+   \n
+   score: [Your rating between 1.00 and 10.00]\n
+   ```\n
+   \n
+   **Example Output:**\n
+   \n
+   ```\n
+   tags: 1girl, blonde hair, blue eyes, school uniform, classroom, desk, textbook, pencil, studying, daylight, window, serious expression, detailed background, realistic style, soft lighting\n
+   \n
+   caption: A young student with blonde hair and blue eyes sits at a desk in a sunlit classroom, focusing intently on her textbook with a pencil in hand.\n
+   \n
+   score: 8.50\n
+   ```\n
 """
 additional = "Your additional prompt here."
 
