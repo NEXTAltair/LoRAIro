@@ -24,7 +24,6 @@ class CustomRangeSlider(QWidget):
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)  # 余白を削除
 
         self.slider = QDoubleRangeSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(0, 100)
@@ -83,7 +82,7 @@ class TagFilterWidget(QWidget, Ui_TagFilterWidget):
     def setup_slider(self):
         # CustomLRangeSliderをcountRangeSlideウィジェットとして追加
         self.count_range_slider = CustomRangeSlider(self, min_value=0, max_value=100000)
-        layout = self.countRangeGroupBox.layout()
+        layout = self.countRangeWidget.layout()
         # 既存のcountRangeSlideウィジェットを削除（存在する場合）
         if self.countRangeSlide is not None:
             layout.removeWidget(self.countRangeSlide)
