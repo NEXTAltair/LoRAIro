@@ -149,6 +149,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
 
         self.all_tags = []
         self.all_captions = []
+        self.all_scores = []
         self.all_results = []
         try:
             for image_path in self.selected_webp:
@@ -158,6 +159,9 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
 
                 tags_data = result.get("tags", [])
                 captions_data = result.get("captions", [])
+                score = result.get("score", 0)
+                self.all_scores.append(score['score'])
+                self.scoreSlider.setValue(score['score'] * 100)
 
                 tags_dict = [tag_info['tag'] for tag_info in tags_data if 'tag' in tag_info]
                 self.all_tags.append(", ".join(tags_dict))
@@ -225,6 +229,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
                 image_id = self.idm.register_original_image(image_path, fsm)
                 self.logger.info(f"ImageTaggerWidget.save_to_db {image_path.name}")
 
+            self.idm.save_score(image_id, result['score'])
             self.idm.save_annotations(image_id, result)
 
 

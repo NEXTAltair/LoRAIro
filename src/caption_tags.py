@@ -140,13 +140,14 @@ class ImageAnalyzer:
         """
         try:
             content = self.tag_cleaner.clean_format(tags_str)
-            tags_str, caption = self._extract_tags_and_caption(content, str(image_path))
+            tags_str, caption, score = self._extract_tags_and_caption(content, str(image_path))
 
             # タグを分割し、各タグをトリムして空のタグを除外
             tags = [tag.strip() for tag in tags_str.split(',') if tag.strip()]
             return {
                 'tags': [{'tag': tag, 'model_id': model_id} for tag in tags],
                 'captions': [{'caption': caption, 'model_id': model_id}],
+                'score': {'score': score, 'model_id': model_id},
                 'image_path': str(image_path)
             }
         except Exception as e:
@@ -171,7 +172,7 @@ class ImageAnalyzer:
         api_client.generate_payload(image_path, model_name)
         return api_client.create_batch_request(image_path)
 
-    def _extract_tags_and_caption(self, content: str, image_key: str) -> tuple[str, str]:
+    def _extract_tags_and_caption(self, content: str, image_key: str) -> tuple[str, str, float]:
         """
         APIレスポンスからタグとキャプションを抽出します。
 
@@ -184,6 +185,7 @@ class ImageAnalyzer:
         """
         tags_index = content.lower().find('tags:')
         caption_index = content.lower().find('caption:')
+        score_index = content.lower().find('score:')
 
         if tags_index == -1 and caption_index == -1:
             self.logger.error("画像 %s の処理に失敗しました。タグまたはキャプションが見つかりません。", image_key)
@@ -191,9 +193,12 @@ class ImageAnalyzer:
             return "", ""
 
         tags_text = content[tags_index + len('tags:'):caption_index].strip() if tags_index != -1 else ""
-        caption_text = content[caption_index + len('caption:'):].strip() if caption_index != -1 else ""
+        caption_text = content[caption_index + len('caption:'):score_index].strip() if caption_index != -1 else ""
+        score = content[score_index + len('score:'):].strip() if score_index != -1 else ""
+        converted = score.replace(' ', '')
+        converted = converted.replace(',', '.')
 
-        return self.tag_cleaner.clean_tags(tags_text, self.format_name), self.tag_cleaner.clean_caption(caption_text)
+        return self.tag_cleaner.clean_tags(tags_text, self.format_name), self.tag_cleaner.clean_caption(caption_text), float(converted)
 
     def _calculate_score(self, tags: list[str], caption: str) -> float:
         """

@@ -17,8 +17,8 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QPalette, QPixmap, QRadialGradient, QTransform)
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QGridLayout,
     QGroupBox, QHBoxLayout, QLabel, QPushButton,
-    QSizePolicy, QSplitter, QTextEdit, QVBoxLayout,
-    QWidget)
+    QSizePolicy, QSlider, QSplitter, QTextEdit,
+    QVBoxLayout, QWidget)
 
 from DirectoryPickerWidget import DirectoryPickerWidget
 from ImagePreviewWidget import ImagePreviewWidget
@@ -121,27 +121,35 @@ class Ui_ImageTaggerWidget(object):
 
         self.verticalLayoutResults.addWidget(self.textEditCaption)
 
-        self.widget = QWidget(self.groupBoxResults)
-        self.widget.setObjectName(u"widget")
-        self.horizontalLayout_2 = QHBoxLayout(self.widget)
+        self.scoreSlider = QSlider(self.groupBoxResults)
+        self.scoreSlider.setObjectName(u"scoreSlider")
+        self.scoreSlider.setMaximum(1000)
+        self.scoreSlider.setSingleStep(1)
+        self.scoreSlider.setOrientation(Qt.Orientation.Horizontal)
+
+        self.verticalLayoutResults.addWidget(self.scoreSlider)
+
+        self.savecheckWidget = QWidget(self.groupBoxResults)
+        self.savecheckWidget.setObjectName(u"savecheckWidget")
+        self.horizontalLayout_2 = QHBoxLayout(self.savecheckWidget)
         self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
-        self.checkBoxText = QCheckBox(self.widget)
+        self.checkBoxText = QCheckBox(self.savecheckWidget)
         self.checkBoxText.setObjectName(u"checkBoxText")
 
         self.horizontalLayout_2.addWidget(self.checkBoxText)
 
-        self.checkBoxJson = QCheckBox(self.widget)
+        self.checkBoxJson = QCheckBox(self.savecheckWidget)
         self.checkBoxJson.setObjectName(u"checkBoxJson")
 
         self.horizontalLayout_2.addWidget(self.checkBoxJson)
 
-        self.checkBoxDB = QCheckBox(self.widget)
+        self.checkBoxDB = QCheckBox(self.savecheckWidget)
         self.checkBoxDB.setObjectName(u"checkBoxDB")
 
         self.horizontalLayout_2.addWidget(self.checkBoxDB)
 
 
-        self.verticalLayoutResults.addWidget(self.widget)
+        self.verticalLayoutResults.addWidget(self.savecheckWidget)
 
         self.horizontalLayoutSave = QHBoxLayout()
         self.horizontalLayoutSave.setObjectName(u"horizontalLayoutSave")
@@ -210,7 +218,7 @@ class Ui_ImageTaggerWidget(object):
         self.labelModel.setText(QCoreApplication.translate("ImageTaggerWidget", u"\u30e2\u30c7\u30eb:", None))
         self.labelTagFormat.setText(QCoreApplication.translate("ImageTaggerWidget", u"FORMT:", None))
         self.groupBoxPrompt.setTitle(QCoreApplication.translate("ImageTaggerWidget", u"\u30d7\u30ed\u30f3\u30d7\u30c8", None))
-        self.textEditMainPrompt.setPlaceholderText(QCoreApplication.translate("ImageTaggerWidget", u"\u8a73\u7d30\u306a\u30d7\u30ed\u30f3\u30d7\u30c8\u3092\u5165\u529b (\u4f8b: \u9ad8\u753b\u8cea, \u5177\u4f53\u7684\u306a\u63cf\u5199\u306a\u3069)", None))
+        self.textEditMainPrompt.setPlaceholderText(QCoreApplication.translate("ImageTaggerWidget", u"\u30d7\u30ed\u30f3\u30d7\u30c8\u3092\u5165\u529b (\u4f8b: \u9ad8\u753b\u8cea, \u5177\u4f53\u7684\u306a\u63cf\u5199\u306a\u3069)", None))
         self.textEditAddPrompt.setPlaceholderText(QCoreApplication.translate("ImageTaggerWidget", u"\u9078\u629e\u3057\u305f\u753b\u50cf\u306e\u5927\u307e\u304b\u306a\u50be\u5411\u3092\u6307\u793a\u3059\u308b\u30d7\u30ed\u30f3\u30d7\u30c8", None))
         self.pushButtonGenerate.setText(QCoreApplication.translate("ImageTaggerWidget", u"\u30bf\u30b0/\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3\u751f\u6210", None))
         self.groupBoxResults.setTitle(QCoreApplication.translate("ImageTaggerWidget", u"\u7d50\u679c", None))

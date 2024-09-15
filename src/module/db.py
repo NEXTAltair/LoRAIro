@@ -338,7 +338,6 @@ class ImageRepository:
 
         self.db_manager.executemany(query, data)
 
-
     def _save_scores(self, image_id: int, scores: list[dict[str, Any]]) -> None:
         """スコアを保存する内部メソッド"""
         query = "INSERT INTO scores (image_id, score, model_id) VALUES (?, ?, ?)"
@@ -358,6 +357,19 @@ class ImageRepository:
             self.db_manager.executemany(query, data)
         else:
             self.logger.info("保存するスコアがありません。")
+
+    def save_score(self, image_id: int, score: float, model_id: int) -> None:
+        """
+        スコアを保存するメソッド
+
+        Args:
+            image_id (int): スコアを追加する画像のID。
+            score (float): スコアの値。
+            model_id (int): スコアを算出したモデルのID。
+        """
+        query = "INSERT OR IGNORE INTO scores (image_id, score, model_id) VALUES (?, ?, ?)"
+        data = (image_id, score, model_id)
+        self.db_manager.execute(query, data)
 
     def _get_model_id(self, model_name: str) -> int:
         """モデル名からモデルIDを取得するメソッド"""
@@ -668,6 +680,23 @@ class ImageDatabaseManager:
             self.logger.info(f"画像 ID {image_id} のアノテーション{annotations}を保存しました")
         except Exception as e:
             self.logger.error(f"アノテーションの保存中にエラーが発生しました: {e}")
+            raise
+
+    def save_score(self, image_id: int, score_dict: dict[str, Any]) -> None:
+        """
+        画像のスコアを保存します。
+
+        Args:
+            image_id (int): スコアを追加する画像のID。
+            score (dict[str, Any]): スコアの値と算出に使ったモデルのID
+        """
+        score_float = score_dict['score']
+        model_id = score_dict['model_id']
+        try:
+            self.repository.save_score(image_id, score_float, model_id)
+            self.logger.info(f"画像 ID {image_id} のスコア{score_float}を保存しました")
+        except Exception as e:
+            self.logger.error(f"スコアの保存中にエラーが発生しました: {e}")
             raise
 
     def get_image_metadata(self, image_id: int) -> Optional[dict[str, Any]]:
