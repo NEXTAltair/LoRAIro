@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Any,  Optional
-import logging
+
+from module.log import get_logger
 from module.api_utils import APIClientFactory, APIError
 from module.cleanup_txt import initialize_tag_cleaner
 
@@ -9,7 +10,7 @@ class ImageAnalyzer:
     画像のキャプション生成、タグ生成などの
     画像分析タスクを実行
     """
-    logger = logging.getLogger(__name__)
+    logger = get_logger("ImageAnalyzer")
 
     def __init__(self):
         self.tag_cleaner = initialize_tag_cleaner()
@@ -248,4 +249,3 @@ if __name__ == "__main__":
     print(f"キャプション: {result['caption']}")
     print(f"タグ: {result['tags']}")
     print(f"スコア: {result['score']}")
- 

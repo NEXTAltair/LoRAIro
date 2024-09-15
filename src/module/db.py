@@ -11,9 +11,10 @@ from pathlib import Path
 from module.file_sys import FileSystemManager
 
 class SQLiteManager:
-    def __init__(self, db_path: Path):
+    def __init__(self, img_db_path: Path, tag_db_path: Path):
         self.logger = get_logger("SQLiteManager")
-        self.db_path = db_path
+        self.img_db_path = img_db_path
+        self.tag_db_path = tag_db_path
         self._connection = None
         self._local = threading.local()
 
@@ -26,7 +27,8 @@ class SQLiteManager:
 
     def connect(self):
         if not hasattr(self._local, 'connection') or self._local.connection is None:
-            self._local.connection = sqlite3.connect(self.db_path)
+            self._local.connection = sqlite3.connect(self.img_db_path)
+            self._local.connection(f"ATTACH DATABASE '{self.tag_db_path}' AS tag_db")
             self._local.connection.row_factory = self.dict_factory
         return self._local.connection
 
@@ -84,12 +86,14 @@ class SQLiteManager:
                 raise
 
     def create_tables(self):
+        # TODO: pHashによる画像の重複対策はそのうち
         with self.get_connection() as conn:
             conn.executescript('''
                 -- images テーブル：オリジナル画像の情報を格納
                 CREATE TABLE IF NOT EXISTS images (
                     id INTEGER PRIMARY KEY,
                     uuid TEXT UNIQUE NOT NULL,
+                    phash TEXT,
                     stored_image_path TEXT NOT NULL,
                     width INTEGER NOT NULL,
                     height INTEGER NOT NULL,
@@ -172,6 +176,7 @@ class SQLiteManager:
             CREATE INDEX IF NOT EXISTS idx_captions_image_id ON captions(image_id);
             CREATE INDEX IF NOT EXISTS idx_scores_image_id ON scores(image_id);
             ''')
+
     def insert_models(self) -> None:
         """
         モデル情報の初期設定がされてない場合データベースに追加
@@ -546,8 +551,9 @@ class ImageDatabaseManager:
     """
     def __init__(self):
         self.logger = get_logger("ImageDatabaseManager")
-        db_path = Path("Image_database") / "image_database.db"
-        self.db_manager = SQLiteManager(db_path)
+        img_db_path = Path("Image_database") / "image_database.db"
+        tag_db_path = Path("src") / "module" / "genai-tag-db-tools" / "tags_v3.db"
+        self.db_manager = SQLiteManager(img_db_path, tag_db_path)
         self.repository = ImageRepository(self.db_manager)
         self.db_manager.create_tables()
         self.db_manager.insert_models()
@@ -764,54 +770,53 @@ class ImageDatabaseManager:
             raise
 
     def get_images_by_filter(self, tags: list[str], caption: str, resolution: int, use_and: bool = True) -> tuple[list[dict[str, Any]], int]:
+        if not tags and not caption:
+            self.logger.info("タグもキャプションも指定されていない")
+            return None, 0
+
         image_ids = set()
 
+        # タグによるフィルタリング
         if tags:
-            tag_results = []
-            for tag in tags:
-                tag_results.append(set(self.repository.get_images_by_tag(tag)))
-            if use_and:
-                image_ids = set.intersection(*tag_results)
-            else:
-                image_ids = set.union(*tag_results)
+            tag_results = [set(self.repository.get_images_by_tag(tag)) for tag in tags]
+            if tag_results:
+                image_ids = set.intersection(*tag_results) if use_and else set.union(*tag_results)
 
+        # キャプションによるフィルタリング
         if caption:
             caption_results = set(self.repository.get_images_by_caption(caption))
-            if caption_results:
-                image_ids = image_ids.intersection(caption_results) if image_ids else caption_results
+            image_ids = image_ids.intersection(caption_results) if image_ids else caption_results
 
-        if image_ids:
-            metadata_list = []
-            for image_id in image_ids:
-                metadata = self.repository.get_processed_image(image_id)
-                metadata_list.extend(metadata)
-        else:
-            return []
+        # 画像メタデータの取得
+        metadata_list = []
+        for image_id in image_ids:
+            metadata = self.repository.get_processed_image(image_id)
+            metadata_list.extend(metadata)
 
-        if resolution:
-            filtered_metadata_list = []
-            for metadata in metadata_list:
-                width = metadata['width']
-                height = metadata['height']
-                long_side = max(width, height)
-                short_side = min(width, height)
+        # 解像度によるフィルタリング
+        filtered_metadata_list = self._filter_by_resolution(metadata_list, resolution) if resolution else metadata_list
 
-                # 長辺が resolution と同じ場合は追加
-                if long_side == resolution:
-                    filtered_metadata_list.append(metadata)
-                else:
-                    # 面積の誤差を計算 (1216, 832) や (832, 1216)の横長縦長用
-                    target_area = resolution * resolution
-                    actual_area = long_side * short_side
-                    error_ratio = abs(target_area - actual_area) / target_area
-
-                    # 誤差が 20% 以内であれば追加
-                    if error_ratio <= 0.2:
-                        filtered_metadata_list.append(metadata)
         list_count = len(filtered_metadata_list)
         self.logger.info(f"フィルタリング後の画像数: {list_count}")
 
         return filtered_metadata_list, list_count
+
+    def _filter_by_resolution(self, metadata_list: list[dict[str, Any]], resolution: int) -> list[dict[str, Any]]:
+        filtered_list = []
+        for metadata in metadata_list:
+            width, height = metadata['width'], metadata['height']
+            long_side, short_side = max(width, height), min(width, height)
+
+            if long_side == resolution:
+                filtered_list.append(metadata)
+            else:
+                target_area = resolution * resolution
+                actual_area = long_side * short_side
+                error_ratio = abs(target_area - actual_area) / target_area
+
+                if error_ratio <= 0.2:
+                    filtered_list.append(metadata)
+        return filtered_list
 
     def get_image_id_by_name(self, image_name: str) -> Optional[int]:
         """オリジナル画像の重複チェック用 画像名からimage_idを取得

@@ -22,7 +22,7 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
         self.exportDirectoryPicker.set_path(self.cm.config['directories']['edited_output'])
         self.exportProgressBar.setVisible(False)
         self.filterWidget.filterApplied.connect(self.on_filter_applied)
-        self.filterWidget.countRangeGroupBox.hide() # ここでは使わないを非表示にする
+        self.filterWidget.countRangeWidget.hide() # ここでは使わないを非表示にする
 
     def initialize(self, cm, fsm: FileSystemManager, idm: ImageDatabaseManager):
         self.cm = cm

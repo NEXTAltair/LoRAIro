@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QGridLayout,
 
 from DirectoryPickerWidget import DirectoryPickerWidget
 from ImagePreviewWidget import ImagePreviewWidget
+from TagFilterWidget import TagFilterWidget
 from ThumbnailSelectorWidget import ThumbnailSelectorWidget
 
 class Ui_ImageTaggerWidget(object):
@@ -165,6 +166,11 @@ class Ui_ImageTaggerWidget(object):
         self.imageAreaWidget.setObjectName(u"imageAreaWidget")
         self.verticalLayoutImageArea = QVBoxLayout(self.imageAreaWidget)
         self.verticalLayoutImageArea.setObjectName(u"verticalLayoutImageArea")
+        self.dbSearchWidget = TagFilterWidget(self.imageAreaWidget)
+        self.dbSearchWidget.setObjectName(u"dbSearchWidget")
+
+        self.verticalLayoutImageArea.addWidget(self.dbSearchWidget)
+
         self.splitterImage = QSplitter(self.imageAreaWidget)
         self.splitterImage.setObjectName(u"splitterImage")
         self.splitterImage.setOrientation(Qt.Orientation.Vertical)

@@ -10,6 +10,8 @@ import requests
 import base64
 import time
 
+from module.log import get_logger
+
 class APIError(Exception):
     def __init__(self, message: str, api_provider: str = "", error_code: str = "", 
                  status_code: int = 0, response: Optional[requests.Response] = None):
@@ -150,7 +152,7 @@ class BaseAPIClient(APIInterface):
         self.prompt = prompt
         self.add_prompt = add_prompt
         self.image_data: dict[str, bytes] = {}  # image_data を空の辞書で初期化:
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger("BaseAPIClient")
         self.last_request_time = 0
         self.min_request_interval = 1.0  # 1秒間隔でリクエストを制限
 
@@ -198,7 +200,7 @@ class BaseAPIClient(APIInterface):
 class OpenAI(BaseAPIClient):
     SUPPORTED_VISION_MODELS = ["gpt-4-turbo", "gpt-4o", "gpt-4o-mini"]
     def __init__(self, api_key: str, prompt: str, add_prompt: str):
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger("OpenAI Claude")
         super().__init__(prompt, add_prompt)
         self.model_name = None
         self.openai_api_key = api_key
@@ -398,7 +400,7 @@ class Google(BaseAPIClient):
         Args:
             api_key (str): Google AI StudioのAPIキー。
         """
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger("Google Claude")
         super().__init__(prompt, add_prompt)
         self.google_api_key = api_key
         self.model_name = None
@@ -496,7 +498,7 @@ class Claude(BaseAPIClient):
     SUPPORTED_VISION_MODELS = ["claude-3-5-sonnet-20240620","claude-3-opus-20240229",
                                "claude-3-sonnet-20240229","claude-3-haiku-20240307"]
     def __init__(self, api_key: str, prompt: str, add_prompt: str):
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger("Claude Client")
         super().__init__(prompt, add_prompt)
         self.model_name = None
         self.client = anthropic.Anthropic(api_key=api_key)
@@ -575,12 +577,13 @@ class Claude(BaseAPIClient):
 
 class APIClientFactory:
     def __init__(self, api_keys: dict[str, str]):
-        self.logger = logging.getLogger("APIClientFactory")
-        self.api_clients = {}
+        self.logger = get_logger("APIClientFactory")
+        self.api_clients = None
         self.api_keys = api_keys
         self.logger.debug("初期化")
 
-    def init_api_clients(self, main_prompt: str, add_prompt: str):
+    def initialize(self, main_prompt: str, add_prompt: str):
+        self.api_clients = {}
         self.main_prompt = main_prompt
         self.add_prompt = add_prompt
         if self.api_keys.get("openai_key"):

@@ -14,7 +14,7 @@ from module.db import ImageDatabaseManager
 
 class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
     def __init__(self, parent=None):
-        self.logger = get_logger(__name__)
+        self.logger = get_logger("ImageTaggerWidget")
         super().__init__(parent)
         self.setupUi(self)
 
@@ -42,6 +42,11 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         self.textEditAddPrompt.setPlainText(self.add_prompt)
         self.DirectoryPickerSave.set_label_text("保存先:")
         self.DirectoryPickerSave.set_path(self.cm.config['directories']['edited_output'])
+
+        self.dbSearchWidget.filterGroupBox.setTitle("Search Tag")
+        self.dbSearchWidget.filterTypeWidget.hide()
+        self.dbSearchWidget.countRangeWidget.hide()
+        self.dbSearchWidget.resolutionWidget.hide()
 
         self.ThumbnailSelector.imageSelected.connect(self.single_image_selection)
         self.ThumbnailSelector.multipleImagesSelected.connect(self.multiple_image_selection)
@@ -75,15 +80,40 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         if self.all_webp_files:
             self.ThumbnailSelector.select_first_image()
 
+    @Slot(dict)
+    def on_dbSearchWidget_filterApplied(self, filter_conditions: dict):
+        self.logger.debug(f"on_dbSearchWidget_filterApplied: {filter_conditions}")
+        filter_text = filter_conditions['filter_text']
+        use_and = True
+
+        tags = []
+        tags = [tag.strip() for tag in filter_text.split(',')]
+
+
+        filtered_images, list_count = self.idm.get_images_by_filter(
+            tags=tags,
+            caption="",
+            resolution=0,
+            use_and=use_and
+        )
+        if not filtered_images:
+            self.logger.info(f"Tag に {filter_text} を含む検索結果がありません")
+            QMessageBox.critical(self,  "info", f"Tag に {filter_text} を含む検索結果がありません")
+
+        image_list = [Path(image['stored_image_path']) for image in filtered_images]
+        self.ThumbnailSelector.load_images(image_list)
+        if image_list:
+            self.ThumbnailSelector.select_first_image()
+
     @Slot(Path)
     def single_image_selection(self, image_path: Path):
-        # print(f"スロット呼び出し: {image_path}") # デバッグ用
+        self.logger.debug(f"single_image_selection: {image_path}")
         self.selected_webp = [image_path]
         self.ImagePreview.load_image(image_path)
 
     @Slot(list)
     def multiple_image_selection(self, image_list: list[Path]):
-        # print(f"スロット呼び出し: {image_path}") # デバッグ用
+        self.logger.debug(f"multiple_image_selection: {image_list}")
         self.selected_webp = image_list
         self.ImagePreview.load_image(image_list[0])
 
@@ -114,6 +144,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         self.logger.info("タグとキャプションの生成を開始")
         self.ia = ImageAnalyzer()
         self.acf = APIClientFactory(self.cm.config['api'])
+        self.acf.initialize(self.cm.config['prompts']['main'], self.cm.config['prompts']['additional'])
         self.ia.initialize(self.acf, (self.cm.vision_models, self.cm.score_models))
 
         self.all_tags = []

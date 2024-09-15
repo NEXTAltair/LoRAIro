@@ -126,7 +126,7 @@ class TagCleaner:
 
         normalized_tags = []
         for tag in tags_dict.values():
-            normalized_tag = self.tag_searcher.prompt_convert(tag, format_name)
+            normalized_tag = self.tag_searcher.convert_prompt(tag, format_name)
             normalized_tags.append(normalized_tag)
         return ", ".join(filter(None, normalized_tags))
 
