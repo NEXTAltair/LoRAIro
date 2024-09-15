@@ -738,6 +738,7 @@ class ImageDatabaseManager:
         Returns:
             tuple[dict[int, dict[str, Any]], dict[int, dict[str, Any]]]: (vision_models, score_models) のタプル。
             vision_models: {model_id: {'name': model_name, 'provider': provider}},
+            upscaler_models: {model_id: {'name': model_name, 'provider': provider}}
             score_models: {model_id: {'name': model_name, 'provider': provider}}
         """
         query = "SELECT id, name, provider, type FROM models"
@@ -745,6 +746,7 @@ class ImageDatabaseManager:
             models = self.db_manager.fetch_all(query)
             vision_models = {}
             score_models = {}
+            upscaler_models = {}
             for model in models:
                 model_id = model['id']
                 name = model['name']
@@ -754,7 +756,9 @@ class ImageDatabaseManager:
                     vision_models[model_id] = {'name': name, 'provider': provider}
                 elif model_type == 'score':
                     score_models[model_id] = {'name': name, 'provider': provider}
-            return vision_models, score_models
+                elif model_type == 'upscaler':
+                    upscaler_models[model_id] = {'name': name, 'provider': provider}
+            return vision_models, score_models, upscaler_models
         except sqlite3.Error as e:
             self.logger.error(f"モデルの取得中にエラーが発生しました: {e}")
             raise

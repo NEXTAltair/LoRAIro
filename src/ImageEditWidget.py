@@ -30,9 +30,9 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         self.main_window = main_window
         self.target_resolution = self.cm.config['image_processing']['target_resolution']
         self.preferred_resolutions = self.cm.config['preferred_resolutions']
-        self.upscaler = None
         self.comboBoxResizeOption.currentText()
-        self.comboBoxUpscaler.currentText() # TODO: モデル名は暫定的にsrc.ImageEditor.Upscalerに固定で設定｡None以外は動的に取得するように変更する
+        upscalers = [upscaler['name'] for upscaler in self.cm.upscaler_models.values()]
+        self.comboBoxUpscaler.addItems(upscalers)
 
         header = self.tableWidgetImageList.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -112,7 +112,6 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
     def on_comboBoxUpscaler_currentIndexChanged(self):
         """選択したアップスケーラに応じて_configのupscalerに設定する
         """
-        # TODO: アップスケーラの選択肢はdb_managerから取得するべきかもしれない､Databaseからだとアップスケーラの追加が難しくなる
         selected_option = self.comboBoxUpscaler.currentText()
         self.upscaler = selected_option
         self.cm.config['image_processing']['upscaler'] = selected_option

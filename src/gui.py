@@ -51,6 +51,11 @@ class MainWindow(QMainWindow, Ui_mainWindow):
         self.fsm = FileSystemManager()
         self.progress_widget = ProgressWidget()
         self.progress_controller = Controller(self.progress_widget)
+        vision_models, score_models, upscaler_models = self.idm.get_models()
+        self.cm.vision_models = vision_models
+        self.cm.score_models = score_models
+        self.cm.upscaler_models = upscaler_models
+
 
     def init_pages(self):
         self.pageImageEdit.initialize(self.cm, self.fsm, self.idm, self)

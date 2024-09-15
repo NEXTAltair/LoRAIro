@@ -23,8 +23,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
     def initialize(self, cm: 'ConfigManager', idm: ImageDatabaseManager):
         self.cm = cm
         self.idm = idm
-        self.vision_models, self.score_models = self.idm.get_models()
-        self.vision_providers = list(set(model['provider'] for model in self.vision_models.values()))
+        self.vision_providers = list(set(model['provider'] for model in self.cm.vision_models.values()))
         self.format_name = ["danbooru", "e621", "derpibooru"] # TODO:そのうちDatabase参照に変更する
         self.all_webp_files = []
         self.selected_webp = []
@@ -54,7 +53,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         """
         api = self.comboBoxAPI.itemText(index)
         self.comboBoxModel.clear()
-        model_list = [model['name'] for model in self.vision_models.values() if model['provider'] == api]
+        model_list = [model['name'] for model in self.cm.vision_models.values() if model['provider'] == api]
         self.comboBoxModel.addItems(model_list)
         self.model_name = self.comboBoxModel.currentText()
 
@@ -101,7 +100,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
     @Slot()
     def on_comboBoxModel_currentTextChanged(self):
         model_name = self.comboBoxModel.currentText()
-        for model_id, model_info in self.vision_models.items():
+        for model_id, model_info in self.cm.vision_models.items():
             if model_info['name'] == model_name:
                 self.model_id = model_id
                 break
@@ -115,7 +114,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         self.logger.info("タグとキャプションの生成を開始")
         self.ia = ImageAnalyzer()
         self.acf = APIClientFactory(self.cm.config['api'])
-        self.ia.initialize(self.acf, (self.vision_models, self.score_models))
+        self.ia.initialize(self.acf, (self.cm.vision_models, self.cm.score_models))
 
         self.all_tags = []
         self.all_captions = []
