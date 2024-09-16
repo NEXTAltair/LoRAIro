@@ -62,6 +62,22 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         self.comboBoxModel.addItems(model_list)
         self.model_name = self.comboBoxModel.currentText()
 
+    @Slot()
+    def on_comboBoxModel_currentTextChanged(self):
+        model_name = self.comboBoxModel.currentText()
+        for model_id, model_info in self.cm.vision_models.items():
+            if model_info['name'] == model_name:
+                self.model_id = model_id
+                break
+
+    @Slot()
+    def on_comboBoxTagFormat_currentTextChanged(self):
+        self.format_name = self.comboBoxTagFormat.currentText()
+
+    @Slot()
+    def on_lowRescheckBox_clicked(self):
+        self.check_low_res = self.checkBoxLowRes.isChecked()
+
     def showEvent(self, event):
         """ウィジェットが表示される際に呼び出されるイベントハンドラ"""
         super().showEvent(event)
@@ -84,18 +100,11 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
     def on_dbSearchWidget_filterApplied(self, filter_conditions: dict):
         self.logger.debug(f"on_dbSearchWidget_filterApplied: {filter_conditions}")
         filter_text = filter_conditions['filter_text']
-        use_and = True
 
         tags = []
         tags = [tag.strip() for tag in filter_text.split(',')]
 
-
-        filtered_images, list_count = self.idm.get_images_by_filter(
-            tags=tags,
-            caption="",
-            resolution=0,
-            use_and=use_and
-        )
+        filtered_images, list_count = self.idm.get_images_by_filter(tags=tags)
         if not filtered_images:
             self.logger.info(f"Tag に {filter_text} を含む検索結果がありません")
             QMessageBox.critical(self,  "info", f"Tag に {filter_text} を含む検索結果がありません")
@@ -128,18 +137,6 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         self.cm.config['prompts']['additional'] = self.add_prompt
 
     @Slot()
-    def on_comboBoxModel_currentTextChanged(self):
-        model_name = self.comboBoxModel.currentText()
-        for model_id, model_info in self.cm.vision_models.items():
-            if model_info['name'] == model_name:
-                self.model_id = model_id
-                break
-
-    @Slot()
-    def on_comboBoxTagFormat_currentTextChanged(self):
-        self.format_name = self.comboBoxTagFormat.currentText()
-
-    @Slot()
     def on_pushButtonGenerate_clicked(self):
         self.logger.info("タグとキャプションの生成を開始")
         self.ia = ImageAnalyzer()
@@ -154,6 +151,14 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         try:
             for image_path in self.selected_webp:
                 self.logger.info(f"{image_path.stem}の処理中")
+
+                if self.check_low_res:
+                    image_id = self.idm.get_image_id_by_name(image_path.name)
+                    if image_id is None:
+                        self.logger.info(f"DBに登録されていない画像です。{image_path.name}")
+                    else:
+                        image_path = self.idm.get_low_res_image(image_id)
+
                 result = self.ia.analyze_image(image_path, self.model_id, self.format_name)
                 self.all_results.append(result)
 
@@ -178,6 +183,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
                     self.textEditCaption.setPlainText("No caption available")
 
                 self.logger.info(f"画像 {image_path.name} のタグとキャプションの生成が完了しました")
+
         except Exception as e:
             self.logger.error(f"タグとキャプションの生成中にエラーが発生しました: {e}")
             self.textEditTags.setPlainText("Error generating tags")

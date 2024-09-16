@@ -699,6 +699,46 @@ class ImageDatabaseManager:
             self.logger.error(f"スコアの保存中にエラーが発生しました: {e}")
             raise
 
+    def get_low_res_image(self, image_id: int) -> Optional[str]:
+        """
+        指定されたIDで長辺が最小の処理済み画像のパスを取得します。
+
+        Args:
+            image_id (int): 取得する元画像のID。
+
+        Returns:
+            Optional[str]: 長辺が最小の処理済み画像のパス。見つからない場合はNone。
+        """
+        try:
+            processed_images = self.get_processed_image(image_id)
+            if not processed_images:
+                self.logger.warning(f"画像ID {image_id} に対する処理済み画像が見つかりません。")
+                return None
+
+            # 長辺が最小の画像を見つける
+            min_long_edge = float('inf')
+            min_image_path = None
+
+            for image in processed_images:
+                width = image['width']
+                height = image['height']
+                long_edge = max(width, height)
+
+                if long_edge < min_long_edge:
+                    min_long_edge = long_edge
+                    min_image_path = image['stored_image_path']
+
+            if min_image_path:
+                self.logger.info(f"画像ID {image_id} の最小長辺画像（{min_long_edge}px）を取得しました。")
+                return min_image_path
+            else:
+                self.logger.warning(f"画像ID {image_id} に対する適切な低解像度画像が見つかりません。")
+                return None
+
+        except Exception as e:
+            self.logger.error(f"低解像度画像の取得中にエラーが発生しました: {e}")
+            return None
+
     def get_image_metadata(self, image_id: int) -> Optional[dict[str, Any]]:
         """
         指定されたIDの画像メタデータを取得します。
@@ -798,7 +838,7 @@ class ImageDatabaseManager:
             self.logger.error(f"モデルの取得中にエラーが発生しました: {e}")
             raise
 
-    def get_images_by_filter(self, tags: list[str], caption: str, resolution: int, use_and: bool = True) -> tuple[list[dict[str, Any]], int]:
+    def get_images_by_filter(self, tags: list[str] = None, caption: str = None, resolution: int = 0, use_and: bool = True) -> tuple[list[dict[str, Any]], int]:
         if not tags and not caption:
             self.logger.info("タグもキャプションも指定されていない")
             return None, 0
@@ -823,7 +863,10 @@ class ImageDatabaseManager:
             metadata_list.extend(metadata)
 
         # 解像度によるフィルタリング
-        filtered_metadata_list = self._filter_by_resolution(metadata_list, resolution) if resolution else metadata_list
+        if resolution != 0:
+            filtered_metadata_list = self._filter_by_resolution(metadata_list, resolution)
+        else:
+            filtered_metadata_list = metadata_list
 
         list_count = len(filtered_metadata_list)
         self.logger.info(f"フィルタリング後の画像数: {list_count}")

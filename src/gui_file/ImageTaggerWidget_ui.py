@@ -75,6 +75,11 @@ class Ui_ImageTaggerWidget(object):
 
         self.verticalLayoutTaggingArea.addLayout(self.gridLayoutApiOptions)
 
+        self.lowRescheckBox = QCheckBox(self.taggingAreaWidget)
+        self.lowRescheckBox.setObjectName(u"lowRescheckBox")
+
+        self.verticalLayoutTaggingArea.addWidget(self.lowRescheckBox)
+
         self.groupBoxPrompt = QGroupBox(self.taggingAreaWidget)
         self.groupBoxPrompt.setObjectName(u"groupBoxPrompt")
         self.verticalLayoutPrompt = QVBoxLayout(self.groupBoxPrompt)
@@ -217,6 +222,7 @@ class Ui_ImageTaggerWidget(object):
         self.labelAPI.setText(QCoreApplication.translate("ImageTaggerWidget", u"API:", None))
         self.labelModel.setText(QCoreApplication.translate("ImageTaggerWidget", u"\u30e2\u30c7\u30eb:", None))
         self.labelTagFormat.setText(QCoreApplication.translate("ImageTaggerWidget", u"FORMT:", None))
+        self.lowRescheckBox.setText(QCoreApplication.translate("ImageTaggerWidget", u"API\u8ca0\u8377\u8efd\u6e1b\u7528\u4f4e\u89e3\u50cf\u5ea6\u753b\u50cf\u3092\u4f7f\u7528", None))
         self.groupBoxPrompt.setTitle(QCoreApplication.translate("ImageTaggerWidget", u"\u30d7\u30ed\u30f3\u30d7\u30c8", None))
         self.textEditMainPrompt.setPlaceholderText(QCoreApplication.translate("ImageTaggerWidget", u"\u30d7\u30ed\u30f3\u30d7\u30c8\u3092\u5165\u529b (\u4f8b: \u9ad8\u753b\u8cea, \u5177\u4f53\u7684\u306a\u63cf\u5199\u306a\u3069)", None))
         self.textEditAddPrompt.setPlaceholderText(QCoreApplication.translate("ImageTaggerWidget", u"\u9078\u629e\u3057\u305f\u753b\u50cf\u306e\u5927\u307e\u304b\u306a\u50be\u5411\u3092\u6307\u793a\u3059\u308b\u30d7\u30ed\u30f3\u30d7\u30c8", None))
