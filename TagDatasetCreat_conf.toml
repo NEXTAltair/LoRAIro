@@ -1,7 +1,0 @@
-[paths]
-image_dir = ""
-output_dir = ""
-
-[hf]
-repo_name = "/test"
-token = ""

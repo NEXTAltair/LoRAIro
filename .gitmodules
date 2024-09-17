@@ -1,0 +1,3 @@
+[submodule "src/module/genai-tag-db-tools"]
+	path = src/module/genai-tag-db-tools
+	url = https://github.com/NEXTAltair/genai-tag-db-tools
