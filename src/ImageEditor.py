@@ -32,14 +32,10 @@ class ImageProcessingManager:
         self.target_resolution = target_resolution
 
         try:
-            # 画像処理の設定をセットアップ
-            self.original_images_dir = self.file_system_manager.original_images_dir
-            self.resized_images_dir = self.file_system_manager.resized_images_dir
-
             # ImageProcessorの初期化
             self.image_processor = ImageProcessor(self.file_system_manager, target_resolution, preferred_resolutions)
-
             self.logger.info("ImageProcessingManagerが正常に初期化。")
+
         except Exception as e:
             message = f"ImageProcessingManagerの初期化中エラー: {e}"
             self.logger.error(message)
@@ -83,13 +79,15 @@ class ImageProcessingManager:
             self.logger.error("画像処理中にエラーが発生しました: %s", e)
 
 class ImageProcessor:
+    logger = get_logger("ImageProcessor")
     def __init__(self, file_system_manager: FileSystemManager, target_resolution: int, preferred_resolutions: list[tuple[int, int]]) -> None:
-        self.logger = get_logger(__name__)
+        self.logger = ImageProcessor.logger
         self.file_system_manager = file_system_manager
         self.target_resolution = target_resolution
         self.preferred_resolutions = preferred_resolutions
 
-    def normalize_color_profile(self, img: Image.Image, has_alpha: bool, mode: str = 'RGB') -> Image.Image:
+    @staticmethod
+    def normalize_color_profile(img: Image.Image, has_alpha: bool, mode: str = 'RGB') -> Image.Image:
         """
         画像の色プロファイルを正規化し、必要に応じて色空間変換を行う。
 
@@ -109,14 +107,14 @@ class ImageProcessor:
                 return img.convert('RGB')
             elif mode == 'P':
                 # パレットモードはRGBに変換してから処理
-                return self.normalize_color_profile(img.convert('RGB'), has_alpha, 'RGB')
+                return ImageProcessor.normalize_color_profile(img.convert('RGB'), has_alpha, 'RGB')
             else:
                 # サポートされていないモード
-                self.logger.warning("ImageProcessor.normalize_color_profile サポートされていないモード: %s", mode)
+                ImageProcessor.logger.warning("ImageProcessor.normalize_color_profile サポートされていないモード: %s", mode)
                 return img.convert('RGBA') if has_alpha else img.convert('RGB')
 
         except Exception as e:
-            self.logger.error("ImageProcessor.normalize_color_profile :%s", e)
+            ImageProcessor.logger.error(f"ImageProcessor.normalize_color_profile :{e}")
             raise
 
     def _find_matching_resolution(self, original_width: int, original_height: int) -> Optional[tuple[int, int]]:
@@ -187,7 +185,7 @@ class AutoCrop:
         return instance._auto_crop_image(pil_image)
 
     @staticmethod #TODO: 使えるが調整不足
-    def has_letterbox(image: np.ndarray, color_threshold: float = 0.15, std_threshold: float = 0.05,
+    def _has_letterbox(image: np.ndarray, color_threshold: float = 0.15, std_threshold: float = 0.05,
                     edge_threshold: float = 0.1, gradient_threshold: float = 0.5) -> bool:
         height, width = image.shape[:2]
 
@@ -247,7 +245,7 @@ class AutoCrop:
     def _get_crop_area(self, np_image: np.ndarray) -> Optional[tuple[int, int, int, int]]:
         try:
             # レターボックス/ピラーボックスのチェックを維持
-            if not self.has_letterbox(np_image):
+            if not self._has_letterbox(np_image):
                 return None
 
             # カラースペース変換の改善
@@ -269,11 +267,9 @@ class AutoCrop:
 
             # ノイズ除去のためのブラー処理
             blurred = cv2.GaussianBlur(gray_image, (5, 5), 0)
-
             # 適応的閾値処理
             thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                         cv2.THRESH_BINARY, 11, 2)
-
             # 輪郭検出
             contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -287,10 +283,10 @@ class AutoCrop:
                 if (w > 0.5 * image_width and h > 0.5 * image_height and
                     (w < 0.98 * image_width or h < 0.98 * image_height)):
                     return x, y, w, h
-
             return None
+
         except Exception as e:
-            self.logger.error("AutoCrop._get_crop_area: クロップ領域の特定中: %s", e)
+            self.logger.error(f"AutoCrop._get_crop_area: クロップ領域の特定中: {e}")
             return None
 
     def _auto_crop_image(self, pil_image: Image.Image) -> Image.Image:
@@ -320,7 +316,7 @@ class AutoCrop:
             else:
                 return pil_image
         except Exception as e:
-            self.logger.error("自動クロップ処理中にエラーが発生しました: %s", e)
+            self.logger.error(f"自動クロップ処理中にエラーが発生しました: {e}")
             return pil_image
 
 class Upscaler:
@@ -365,7 +361,7 @@ class Upscaler:
                 output = self.model(img_tensor)
             return self._convert_tensor_to_image(output, scale, img.size)
         except Exception as e:
-            self.logger.error("アップスケーリング中のエラー: %s", e, exc_info=True)
+            self.logger.error(f"アップスケーリング中のエラー: {e}")
             return img
 
     def _convert_image_to_tensor(self, image: Image.Image) -> torch.Tensor:

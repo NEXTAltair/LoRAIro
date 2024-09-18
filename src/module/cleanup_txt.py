@@ -233,6 +233,7 @@ class TagCleaner:
                 bef = caption
                 caption = caption.replace(rf, rt)
                 replaced = bef != caption
+        caption = caption.strip(' ,')
         return caption
 
 def initialize_tag_cleaner() -> TagCleaner:

@@ -9,7 +9,7 @@ output/
 app.log
 
 src/score_module/
-TEST/
+TEST/pytest_temp/
 
 output/image_dataset/
 __pycache__/
