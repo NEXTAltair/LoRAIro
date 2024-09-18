@@ -10,4 +10,4 @@ src/.tmp.driveupload
 app.log
 
 src/score_module/
-TEST/
+TEST/pytest_temp/
