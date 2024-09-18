@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from typing import Any,  Optional
 
@@ -26,7 +27,7 @@ class ImageAnalyzer:
                 models_config (tuple[dict, dict]): (vision_models, score_models) のタプル
             """
             self.api_client_factory = api_client_factory
-            self.vision_models, self.score_models = models_config
+            self.vision_models = models_config
 
     @staticmethod
     def get_existing_annotations(image_path: Path) -> Optional[dict[str, list[dict[str, str]]]]:
@@ -95,13 +96,13 @@ class ImageAnalyzer:
                     annotations.append({key: stripped_item})
             return annotations
 
-    def analyze_image(self, image_path: Path, model_id: str, format_name: str="e621") -> dict[str, Any]:
+    def analyze_image(self, image_path: Path, model_id: int, format_name: str="e621") -> dict[str, Any]:
         """
         指定された画像を分析し、結果を返す。
 
         Args:
             image_path (Path): 分析する画像のファイルパス
-            model_id (str): Vision typeのモデルid
+            model_id (int): Vision typeのモデルid
             tag_format (str): タグのフォーマット (オプション)
 
         Returns:
@@ -122,10 +123,10 @@ class ImageAnalyzer:
             self.logger.debug(f"img: {image_path} model: {model_name} format: {format_name}" )
             return analysis_result
         except APIError as e:
-            self.logger.error("API処理中にエラーが発生しました（画像: %s）: %s", image_path, str(e))
+            self.logger.error(f"API処理中にエラーが発生しました（画像: {image_path}）: {e}")
             return {'error': str(e), 'image_path': str(image_path)}
         except Exception as e:
-            self.logger.error("画像処理中に予期せぬエラーが発生しました（画像: %s）: %s", image_path, str(e))
+            self.logger.error(f"画像処理中に予期せぬエラーが発生しました（画像: {image_path}）: {e}")
             return {'error': str(e), 'image_path': str(image_path)}
 
     def _process_response(self, image_path: Path, tags_str: str ,model_id: int) -> dict[str, Any]:
@@ -151,7 +152,7 @@ class ImageAnalyzer:
                 'image_path': str(image_path)
             }
         except Exception as e:
-            self.logger.error("レスポンス処理中にエラーが発生しました（画像: %s）: %s", image_path, str(e))
+            self.logger.error(f"レスポンス処理中にエラーが発生しました（画像: {image_path}）: {str(e)}")
             raise
 
     def create_batch_request(self, image_path: Path, model_name: str) -> dict[str, Any]:
@@ -183,39 +184,26 @@ class ImageAnalyzer:
         Returns:
             tuple[list[str], str]: 抽出されたタグのリストとキャプション
         """
+        # content から : と , スペース以外の記号を削除
+        content = re.sub(r'[^:,\da-zA-Z ]', '', content)
+        # content から 末尾の ， を削除
+        content = content.rstrip(' ,')
         tags_index = content.lower().find('tags:')
         caption_index = content.lower().find('caption:')
         score_index = content.lower().find('score:')
 
         if tags_index == -1 and caption_index == -1:
-            self.logger.error("画像 %s の処理に失敗しました。タグまたはキャプションが見つかりません。", image_key)
-            self.logger.error(" APIからの応答: %s ", content)
+            self.logger.error(f"画像 {image_key} の処理に失敗しました。タグまたはキャプションが見つかりません。")
+            self.logger.error(f" APIからの応答: {content} ")
             return "", ""
 
         tags_text = content[tags_index + len('tags:'):caption_index].strip() if tags_index != -1 else ""
         caption_text = content[caption_index + len('caption:'):score_index].strip() if caption_index != -1 else ""
-        score = content[score_index + len('score:'):].strip() if score_index != -1 else ""
-        converted = score.replace(' ', '')
+        score_text = content[score_index + len('score:'):].strip() if score_index != -1 else ""
+        converted = score_text.replace(' ', '')
         converted = converted.replace(',', '.')
 
         return self.tag_cleaner.clean_tags(tags_text, self.format_name), self.tag_cleaner.clean_caption(caption_text), float(converted)
-
-    def _calculate_score(self, tags: list[str], caption: str) -> float:
-        """
-        タグとキャプションに基づいて画像スコアを計算します。
-
-        Args:
-            tags (list[str]): 画像のタグリスト
-            caption (str): 画像のキャプション
-
-        Returns:
-            float: 計算されたスコア（0.0から1.0の範囲）
-        """
-        # ここにスコアリングロジックを実装
-        # これは簡単な例で、より洗練された方法に置き換えることができます
-        tag_score = len(tags) * 0.1  # タグ1つにつき0.1ポイント
-        caption_score = len(caption.split()) * 0.05  # キャプションの単語1つにつき0.05ポイント
-        return min(tag_score + caption_score, 1.0)  # スコアの上限を1.0に設定 TODO: そのうちやる
 
     def get_batch_analysis(self, batch_results: dict[str, str], processed_path: Path):
         """
@@ -245,12 +233,13 @@ if __name__ == "__main__":
     add_prompt = config['prompts']['additional']
     api_keys = config['api']
     idm = ImageDatabaseManager()
-    vision, score = idm.get_models()
+    vision, score, upscaler = idm.get_models()
     # API クライアントファクトリーを作成
-    acf = APIClientFactory(api_keys, vision, prompt, add_prompt)
+    acf = APIClientFactory(api_keys)
+    acf.initialize(prompt, add_prompt)
     Ia = ImageAnalyzer()
     Ia.initialize(acf, vision)
-    result = Ia.analyze_image(image_path, 'gpt-4o')
-    print(f"キャプション: {result['caption']}")
+    result = Ia.analyze_image(image_path, 5)
+    print(f"キャプション: {result['captions']}")
     print(f"タグ: {result['tags']}")
     print(f"スコア: {result['score']}")

@@ -13,7 +13,7 @@ import time
 from module.log import get_logger
 
 class APIError(Exception):
-    def __init__(self, message: str, api_provider: str = "", error_code: str = "", 
+    def __init__(self, message: str, api_provider: str = "", error_code: str = "",
                  status_code: int = 0, response: Optional[requests.Response] = None):
         super().__init__(message)
         self.api_provider = api_provider
@@ -22,7 +22,7 @@ class APIError(Exception):
         self.response = response
 
     def __str__(self):
-        parts = [f"{self.api_provider} API Error: {self.args[0]}"]
+        parts = [f"{self.api_provider}API Error: {self.args[0]}"]
         if self.error_code:
             parts.append(f"Code: {self.error_code}")
         if self.status_code:
@@ -358,7 +358,7 @@ class OpenAI(BaseAPIClient):
                 }
                 response = requests.post(url, headers=headers, json=data, timeout=30)
                 start_response = response.json()
-                self.logger.info("バッチ処理が開始されました。 ID: %s", start_response["id"])
+                self.logger.info(f"バッチ処理が開始されました。 ID: {start_response['id']}")
                 return start_response['id']
         except requests.exceptions.Timeout:
             raise APIError("リクエストがタイムアウトしました。後でもう一度お試しください。")
