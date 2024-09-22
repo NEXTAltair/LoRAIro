@@ -3,6 +3,7 @@ add/
 ComicPanelSplitter/
 AnimeShakitto_v1.0.0.0/
 testimg/
+!testimg/1_img/
 under-*/
 output/
 **/__pycache__/
@@ -14,3 +15,4 @@ TEST/pytest_temp/
 output/image_dataset/
 __pycache__/
 .tmp.driveupload/
+Image_database/image_database.db
