@@ -1,6 +1,8 @@
 import sqlite3
 import threading
 import uuid
+import imagehash
+from PIL import Image
 
 from contextlib import contextmanager
 from typing import Any, Union, Optional
@@ -9,6 +11,10 @@ from module.log import get_logger
 from pathlib import Path
 
 from module.file_sys import FileSystemManager
+
+def calculate_phash(image_path: str) -> str:
+    with Image.open(image_path) as img:
+        return str(imagehash.phash(img))
 
 class SQLiteManager:
     def __init__(self, img_db_path: Path, tag_db_path: Path):
@@ -27,8 +33,9 @@ class SQLiteManager:
 
     def connect(self):
         if not hasattr(self._local, 'connection') or self._local.connection is None:
-            self._local.connection = sqlite3.connect(self.img_db_path)
-            self._local.connection(f"ATTACH DATABASE '{self.tag_db_path}' AS tag_db")
+            self._local.connection = sqlite3.connect(self.img_db_path, check_same_thread=False)
+            self._local.connection.execute(f"ATTACH DATABASE '{self.tag_db_path}' AS tag_db")
+            self._local.connection.execute("PRAGMA foreign_keys = ON")
             self._local.connection.row_factory = self.dict_factory
         return self._local.connection
 
@@ -42,25 +49,23 @@ class SQLiteManager:
         conn = self.connect()
         try:
             yield conn
-            conn.commit()
-        except Exception:
+        except Exception as e:
+            self.logger.error(f"Database operation failed: {e}")
             conn.rollback()
             raise
-        finally:
-            self.close()
+        else:
+            conn.commit()
 
     def execute(self, query: str, params: tuple[Any, ...] = ()) -> Optional[sqlite3.Cursor]:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, params)
-            conn.commit()
             return cursor
 
     def executemany(self, query: str, params: list[tuple[Any, ...]]) -> Optional[sqlite3.Cursor]:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.executemany(query, params)
-            conn.commit()
             return cursor
 
     def fetch_one(self, query: str, params: tuple[Any, ...] = ()) -> Optional[tuple[Any, ...]]:
@@ -74,16 +79,6 @@ class SQLiteManager:
             cursor = conn.cursor()
             cursor.execute(query, params)
             return cursor.fetchall()
-
-    @contextmanager
-    def transaction(self):
-        with self.get_connection() as conn:
-            try:
-                yield conn
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
 
     def create_tables(self):
         # TODO: pHashによる画像の重複対策はそのうち
@@ -115,13 +110,13 @@ class SQLiteManager:
                     stored_image_path TEXT NOT NULL,
                     width INTEGER NOT NULL,
                     height INTEGER NOT NULL,
-                    format TEXT NOT NULL,
                     mode TEXT NULL,
                     has_alpha BOOLEAN NOT NULL,
                     filename TEXT NULL,
                     color_space TEXT,
                     icc_profile TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
                 );
 
@@ -131,7 +126,8 @@ class SQLiteManager:
                     name TEXT UNIQUE NOT NULL,
                     type TEXT NOT NULL,
                     provider TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
 
                 -- tags テーブル：画像に関連付けられたタグを格納
@@ -222,15 +218,12 @@ class ImageRepository:
         self.logger = get_logger("ImageRepository")
         self.db_manager = db_manager
 
-    def add_image(self, info: dict[str, Any]) -> int:
+    def add_original_image(self, info: dict[str, Any]) -> int:
         """
-        画像情報をデータベースに追加します。
+        オリジナル画像のメタデータを images テーブルに追加します。
 
         Args:
             info (dict[str, Any]): 画像情報を含む辞書。
-                必須キー: 'stored_image_path', 'width', 'height', 'format', 'mode', 'has_alpha', 'filename', 'created_at', 'color_space', 'icc_profile'
-                オプションキー編集前: 'uuid', 'extension', 'updated_at'
-                オプションキー編集後: 'image_id'
 
         Returns:
             int: 挿入された画像のID。
@@ -239,32 +232,103 @@ class ImageRepository:
             ValueError: 必須情報が不足している場合。
             sqlite3.Error: データベース操作でエラーが発生した場合。
         """
-        required_keys = ['stored_image_path', 'width', 'height', 'format', 'mode', 'has_alpha', 'filename', 'color_space', 'icc_profile']
+
+        # pHashの計算と重複チェック
+        try:
+            phash = calculate_phash(Path(info['stored_image_path']))
+            info['phash'] = phash
+            duplicate = self.find_duplicate_image(phash)
+            if duplicate:
+                self.logger.warning(f"画像が既に存在します: ID {duplicate}")
+                return duplicate
+        except Exception as e:
+            self.logger.error(f"pHashの処理中にエラーが発生しました: {e}")
+            raise
+
+        required_keys = ['uuid', 'stored_image_path', 'width', 'height', 'format', 'mode',
+                         'has_alpha', 'filename', 'extension', 'color_space', 'icc_profile', 'phash']
         if not all(key in info for key in required_keys):
             missing_keys = [key for key in required_keys if key not in info]
             raise ValueError(f"必須情報が不足しています: {', '.join(missing_keys)}")
-        original = """
-        INSERT INTO images (uuid, stored_image_path, width, height, format, mode, has_alpha, filename, extension, color_space, icc_profile, created_at, updated_at)
-        VALUES (:uuid, :stored_image_path, :width, :height, :format, :mode, :has_alpha, :filename, :extension, :color_space, :icc_profile, :created_at, :updated_at)
-        """
-        processed = """
-        INSERT INTO processed_images (image_id, stored_image_path, width, height, format, mode, has_alpha, filename, color_space, icc_profile, created_at)
-        VALUES (:image_id, :stored_image_path, :width, :height, :format, :mode, :has_alpha, :filename, :color_space, :icc_profile, :created_at)
-        """
 
-        current_time = datetime.now().isoformat()
-        info['created_at'] = current_time
-        #info dict に uuid が含まれているかで 編集前､編集後を判定してSQL文を変更
-        if 'uuid' in info:
-            info['updated_at'] = current_time
-            query = original
-        else:
-            query = processed
+        query = """
+        INSERT INTO images (uuid, stored_image_path, width, height, format, mode, has_alpha,
+                            filename, extension, color_space, icc_profile, phash, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
         try:
-            cursor = self.db_manager.execute(query, info)
+            created_at = datetime.now().isoformat()
+            updated_at = created_at
+            params = (
+                info['uuid'],
+                info['stored_image_path'],
+                info['width'],
+                info['height'],
+                info['format'],
+                info['mode'],
+                info['has_alpha'],
+                info['filename'],
+                info['extension'],
+                info['color_space'],
+                info['icc_profile'],
+                info['phash'],
+                created_at,
+                updated_at
+            )
+            cursor = self.db_manager.execute(query, params)
+            self.logger.info(f"オリジナル画像をDBに追加しました: UUID={info['uuid']}")
             return cursor.lastrowid
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"画像情報の追加中にエラーが発生しました: {e}")
+            self.logger.error(f"オリジナル画像の追加中にエラーが発生しました: {e}")
+            raise
+
+    def add_processed_image(self, info: dict[str, Any]) -> int:
+        """
+        処理済み画像のメタデータを images テーブルに追加します。
+
+        Args:
+            info (dict[str, Any]): 処理済み画像情報を含む辞書。
+
+        Returns:
+            int: 挿入された処理済み画像のID。
+
+        Raises:
+            ValueError: 必須情報が不足している場合。
+            sqlite3.Error: データベース操作でエラーが発生した場合。
+        """
+        required_keys = ['stored_image_path', 'width', 'height', 'format', 'mode',
+                         'has_alpha', 'filename', 'color_space', 'icc_profile', 'image_id']
+        if not all(key in info for key in required_keys):
+            missing_keys = [key for key in required_keys if key not in info]
+            raise ValueError(f"必須情報が不足しています: {', '.join(missing_keys)}")
+
+        query = """
+        INSERT INTO processed_images (image_id, stored_image_path, width, height, mode, has_alpha,
+                                filename, color_space, icc_profile, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        try:
+            created_at = datetime.now().isoformat()
+            updated_at = created_at
+            params = (
+                info['image_id'],
+                info['stored_image_path'],
+                info['width'],
+                info['height'],
+                info['mode'],
+                info['has_alpha'],
+                info['filename'],
+                info['color_space'],
+                info['icc_profile'],
+                created_at,
+                updated_at
+            )
+            cursor = self.db_manager.execute(query, params)
+            self.logger.info(f"処理済み画像をDBに追加しました: 親画像ID={info['image_id']}")
+            return cursor.lastrowid
+        except sqlite3.Error as e:
+            self.logger.error(f"処理済み画像の追加中にエラーが発生しました: {e}")
+            raise
 
     def get_image_metadata(self, image_id: int) -> Optional[dict[str, Any]]:
         """
@@ -312,7 +376,7 @@ class ImageRepository:
 
     def _save_tags(self, image_id: int, tags: list[dict[str, Any]]) -> None:
         """タグを保存する内部メソッド"""
-        query = "INSERT INTO tags (image_id, tag, model_id, existing) VALUES (?, ?, ?, ?)"
+        query = "INSERT OR REPLACE INTO tags (image_id, tag, model_id, existing) VALUES (?, ?, ?, ?)"
         data = []
 
         for tag in tags:
@@ -320,9 +384,13 @@ class ImageRepository:
             model_id = tag.get('model_id')
             existing = 1 if model_id is None else 0
             data.append((image_id, tag_value, model_id, existing))
-            self.logger.debug(f"ImageRepository._save_tags: {tag_value} ")
-
-        self.db_manager.executemany(query, data)
+            self.logger.debug(f"ImageRepository._save_tags: {tag_value}")
+        try:
+            self.db_manager.executemany(query, data)
+            self.logger.info(f"画像ID {image_id} に {len(data)} 個のタグを保存しました")
+        except Exception as e:
+            self.logger.error(f"タグの保存中にエラーが発生しました: {e}")
+            raise
 
     def _save_captions(self, image_id: int, captions: list[dict[str, Any]]) -> None:
         """キャプションを保存する内部メソッド"""
@@ -398,6 +466,27 @@ class ImageRepository:
         result = self.db_manager.fetch_one(query, (image_id,))
         return result is not None
 
+    def find_duplicate_image(self, phash: str) -> int:
+        """
+        指定されたpHashに一致する画像をデータベースから検索しImage IDを返します。
+
+        Args:
+            phash (str): 検索するpHash。
+
+        Returns:
+            Optional[int]: 重複する画像のメタデータ。見つからない場合はNone。
+        """
+        query = "SELECT * FROM images WHERE phash = ?"
+        try:
+            duplicate = self.db_manager.fetch_one(query, (phash,))
+            image_id = duplicate['id'] if duplicate else None
+            if duplicate:
+                self.logger.info(f"重複画像が見つかりました: ID {duplicate['id']}, UUID {duplicate['uuid']}")
+            return image_id
+        except sqlite3.Error as e:
+            self.logger.error(f"重複画像の検索中にエラーが発生しました: {e}")
+            raise
+
     def get_image_annotations(self, image_id: int) -> dict[str, list[dict[str, Any]]]:
         """
         指定された画像IDのアノテーション（タグ、キャプション、スコア）を取得します。
@@ -407,19 +496,18 @@ class ImageRepository:
 
         Returns:
             dict[str, list[dict[str, Any]]]: アノテーションデータを含む辞書。
-            形式: {
-                'tags': [{'tag': str, 'model': str}, ...],
-                'captions': [{'caption': str, 'model': str}, ...],
-                'scores': [{'score': float, 'model': str}, ...]
-            }
+            画像が存在しない場合は空の辞書を返します。
 
         Raises:
             sqlite3.Error: データベース操作でエラーが発生した場合。
         """
         try:
-            cursor = self.db_manager.execute("SELECT id FROM images WHERE id = ?", (image_id,))
-            if cursor.fetchone() is None:
-                self.logger.error(f"指定されたimage_id {image_id} は存在しません。")
+            # 画像の存在確認
+            if not self._image_exists(image_id):
+                self.logger.warning(f"指定されたimage_id {image_id} の画像が存在しません。")
+                return {'tags': [], 'captions': [], 'scores': []}
+
+            # アノテーションの取得
             annotations = {
                 'tags': self._get_tags(image_id),
                 'captions': self._get_captions(image_id),
@@ -429,29 +517,49 @@ class ImageRepository:
 
         except sqlite3.Error as e:
             self.logger.error(f"アノテーションの取得中にデータベースエラーが発生しました: {e}")
-
-    def _get_tags(self, image_id: int) -> list[dict[str, str]]:
-        query = "SELECT tag, model_id FROM tags WHERE image_id = ?"
-        try:
-            self.logger.debug("タグを取得するimage_id: %s", image_id)
-            result = self.db_manager.fetch_all(query, (image_id,))
-            if not result:
-                self.logger.warning(f"Image_id: {image_id} にタグは登録されていません｡")
-                raise
-            return result
-        except sqlite3.Error as e:
-            self.logger.error("image_id: %s のタグを取得中にデータベースエラーが発生しました。%s",image_id, e)
+            raise
+        except Exception as e:
+            self.logger.error(f"予期せぬエラーが発生しました: {e}")
             raise
 
-    def _get_captions(self, image_id: int) -> list[dict[str, str]]:
+    def _get_tags(self, image_id: int) -> list[dict[str, Any]]:
+        """image_idからタグを取得する内部メソッド"""
+        query = "SELECT tag, model_id FROM tags WHERE image_id = ?"
+        try:
+            self.logger.debug(f"タグを取得するimage_id: {image_id}")
+            result = self.db_manager.fetch_all(query, (image_id,))
+            if not result:
+                self.logger.info(f"Image_id: {image_id} にタグは登録されていません。")
+            return result
+        except sqlite3.Error as e:
+            self.logger.error(f"image_id: {image_id} のタグを取得中にデータベースエラーが発生しました: {e}")
+            raise
+
+    def _get_captions(self, image_id: int) -> list[dict[str, Any]]:
         """image_idからキャプションを取得する内部メソッド"""
         query = "SELECT caption, model_id FROM captions WHERE image_id = ?"
-        return self.db_manager.fetch_all(query, (image_id,))
+        try:
+            self.logger.debug(f"キャプションを取得するimage_id: {image_id}")
+            result = self.db_manager.fetch_all(query, (image_id,))
+            if not result:
+                self.logger.info(f"Image_id: {image_id} にキャプションは登録されていません。")
+            return result
+        except sqlite3.Error as e:
+            self.logger.error(f"image_id: {image_id} のキャプションを取得中にデータベースエラーが発生しました: {e}")
+            raise
 
     def _get_scores(self, image_id: int) -> list[dict[str, Any]]:
         """image_idからスコアを取得する内部メソッド"""
         query = "SELECT score, model_id FROM scores WHERE image_id = ?"
-        return self.db_manager.fetch_all(query, (image_id,))
+        try:
+            self.logger.debug(f"スコアを取得するimage_id: {image_id}")
+            result = self.db_manager.fetch_all(query, (image_id,))
+            if not result:
+                self.logger.info(f"Image_id: {image_id} にスコアは登録されていません。")
+            return result
+        except sqlite3.Error as e:
+            self.logger.error(f"image_id: {image_id} のスコアを取得中にデータベースエラーが発生しました: {e}")
+            raise
 
     def get_images_by_tag(self, tag: str) -> list[int]:
             """
@@ -555,6 +663,50 @@ class ImageRepository:
             self.logger.error(f"画像IDの取得中にエラーが発生しました: {e}")
             return None
 
+    def update_image_metadata(self, image_id: int, updated_info: dict[str, Any]) -> None:
+        """
+        指定された画像IDのメタデータを更新します。
+
+        Args:
+            image_id (int): 更新する画像のID。
+            updated_info (dict[str, Any]): 更新するメタデータの辞書。
+
+        Raises:
+            sqlite3.Error: データベース操作でエラーが発生した場合。
+        """
+        if not updated_info:
+            self.logger.warning("更新する情報が提供されていません。")
+            return
+        fields = ", ".join(f"{key} = ?" for key in updated_info.keys())
+        values = list(updated_info.values())
+        query = f"UPDATE images SET {fields}, updated_at = ? WHERE id = ?"
+        values.append(datetime.now().isoformat())  # updated_atを追加
+        values.append(image_id)  # image_idを追加
+        try:
+            self.db_manager.execute(query, tuple(values))
+            self.logger.info(f"画像ID {image_id} のメタデータを更新しました。")
+        except sqlite3.Error as e:
+            self.logger.error(f"画像メタデータの更新中にエラーが発生しました: {e}")
+            raise
+
+    def delete_image(self, image_id: int) -> None:
+        """
+        指定された画像IDの画像と関連するデータを削除します。
+
+        Args:
+            image_id (int): 削除する画像のID。
+
+        Raises:
+            sqlite3.Error: データベース操作でエラーが発生した場合。
+        """
+        query = "DELETE FROM images WHERE id = ?"
+        try:
+            self.db_manager.execute(query, (image_id,))
+            self.logger.info(f"画像ID {image_id} と関連するデータを削除しました。")
+        except sqlite3.Error as e:
+            self.logger.error(f"画像の削除中にエラーが発生しました: {e}")
+            raise
+
 class ImageDatabaseManager:
     """
     画像データベース操作の高レベルインターフェースを提供するクラス。
@@ -588,53 +740,29 @@ class ImageDatabaseManager:
             fsm (FileSystemManager): FileSystemManager のインスタンス
 
         Returns:
-            Optional[tuple]: 登録成功時は image_id, original_metadata 失敗時は None
+            Optional[tuple]: 登録成功時は (image_id, original_metadata)、失敗時は None
         """
         try:
             original_image_metadata = fsm.get_image_info(image_path)
             db_stored_original_path = fsm.save_original_image(image_path)
-            image_id, _ = self.save_original_metadata(db_stored_original_path, original_image_metadata)
+            # UUIDの生成
+            image_uuid = str(uuid.uuid4())
+            # メタデータにUUIDと保存パスを追加
+            original_image_metadata.update({
+                'uuid': image_uuid,
+                'stored_image_path': str(db_stored_original_path)
+            })
+            # データベースに挿入
+            image_id = self.repository.add_original_image(original_image_metadata)
             return image_id, original_image_metadata
         except Exception as e:
             self.logger.error(f"オリジナル画像の登録中にエラーが発生しました: {e}")
             return None
 
-    def save_original_metadata(self, stored_image_path: Path, info: dict[str, Any]) -> tuple[int, str]:
+
+    def register_processed_image(self, image_id: int, processed_path: Path, info: dict[str, Any]) -> Optional[int]:
         """
-        元の画像のメタデータを保存します。
-
-        Args:
-            stored_image_path (Path): 保存された画像のパス。
-            info (dict[str, Any]): 画像のメタデータ。
-
-        Returns:
-            tuple[int, str]: 保存された画像のID、生成されたUUID。
-
-        Raises:
-            ValueError: 必要な情報が不足している場合。
-            Exception: データベース操作に失敗した場合。
-        """
-        try:
-            # UUIDを生成
-            image_uuid = str(uuid.uuid4())
-
-            # infoディクショナリにUUIDと保存パスを追加
-            info['uuid'] = image_uuid
-            info['stored_image_path'] = str(stored_image_path)
-
-            # リポジトリを使用して画像メタデータを保存
-            image_id = self.repository.add_image(info)
-
-            self.logger.info(f"元画像のメタデータをDBに保存しました: ID {image_id}, UUID {image_uuid}")
-            return image_id, image_uuid
-
-        except Exception as e:
-            self.logger.error(f"元画像のメタデータ登録中に予期せぬエラーが発生しました: {e}")
-            raise
-
-    def register_processed_metadata(self, image_id: int, processed_path: Path, info: dict[str, Any]) -> int:
-        """
-        処理済み画像のメタデータを保存します。
+        処理済み画像を保存し、メタデータをデータベースに登録します。
 
         Args:
             image_id (int): 元画像のID。
@@ -642,26 +770,28 @@ class ImageDatabaseManager:
             info (dict[str, Any]): 処理済み画像のメタデータ。
 
         Returns:
-            int: 保存された処理済み画像のID。
-
-        Raises:
-            ValueError: 必要な情報が不足している場合。
-            Exception: データベース操作に失敗した場合。
+            Optional[int]: 保存された処理済み画像のID。失敗時は None。
         """
         try:
-            # infoディクショナリに元画像IDと保存パスを追加
-            info['image_id'] = image_id
-            info['stored_image_path'] = str(processed_path) #TODO: これは不要なカラムかも他の部分との整合性を要確認
+            # 必須情報を確認
+            required_keys = ['width', 'height', 'mode', 'has_alpha',
+                             'filename', 'color_space', 'icc_profile']
+            if not all(key in info for key in required_keys):
+                missing_keys = [key for key in required_keys if key not in info]
+                raise ValueError(f"必須情報が不足しています: {', '.join(missing_keys)}")
 
-            # リポジトリを使用して処理済み画像メタデータを保存
-            processed_image_id = self.repository.add_image(info)
+            # メタデータに親画像IDを追加
+            info.update({
+                'image_id': image_id,
+                'stored_image_path': str(processed_path),
+            })
 
-            self.logger.info(f"処理済み画像メタデータをDBに保存しました: ID {processed_image_id}, 元画像ID {image_id}")
+            # データベースに挿入
+            processed_image_id = self.repository.add_processed_image(info)
             return processed_image_id
-
         except Exception as e:
             self.logger.error(f"処理済み画像メタデータの保存中にエラーが発生しました: {e}")
-            raise
+            return None
 
     def save_annotations(self, image_id: int, annotations: dict[str, list[dict[str, Any]]]) -> None:
         """

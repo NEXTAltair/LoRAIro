@@ -34,6 +34,7 @@ def test_resize_image_without_matching_resolution(mock_file_system_manager, samp
 
 def test_auto_crop_image_with_letterbox(sample_images, preferred_resolutions):
     # レターボックスがある画像を作成
+    # TODO: このテストは通らない
     img = Image.new('RGB', (800, 600), color='black')
     draw = ImageDraw.Draw(img)  # ImageDraw を使用
     draw.rectangle([100, 100, 700, 500], fill='white')
