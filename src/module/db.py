@@ -81,7 +81,6 @@ class SQLiteManager:
             return cursor.fetchall()
 
     def create_tables(self):
-        # TODO: pHashによる画像の重複対策はそのうち
         with self.get_connection() as conn:
             conn.executescript('''
                 -- images テーブル：オリジナル画像の情報を格納
@@ -485,7 +484,7 @@ class ImageRepository:
             return image_id
         except sqlite3.Error as e:
             self.logger.error(f"重複画像の検索中にエラーが発生しました: {e}")
-            raise
+            return None
 
     def get_image_annotations(self, image_id: int) -> dict[str, list[dict[str, Any]]]:
         """

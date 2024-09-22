@@ -237,3 +237,37 @@ def test_get_images_by_filter(sqlite_manager, sample_image_info):
     filtered_images, count = manager.get_images_by_filter(tags=['filter_tag'])
     assert count == 1
     assert filtered_images[0]['image_id'] == image_id
+
+def test_create_tables(sqlite_manager):
+    """テーブル作成のテスト"""
+    sqlite_manager.create_tables()
+
+    # images テーブルの存在を確認
+    query = "SELECT name FROM sqlite_master WHERE type='table' AND name='images';"
+    result = sqlite_manager.fetch_one(query)
+    assert result is not None
+
+    # processed_images テーブルの存在を確認
+    query = "SELECT name FROM sqlite_master WHERE type='table' AND name='processed_images';"
+    result = sqlite_manager.fetch_one(query)
+    assert result is not None
+
+    # models テーブルの存在を確認
+    query = "SELECT name FROM sqlite_master WHERE type='table' AND name='models';"
+    result = sqlite_manager.fetch_one(query)
+    assert result is not None
+
+    # tags テーブルの存在を確認
+    query = "SELECT name FROM sqlite_master WHERE type='table' AND name='tags';"
+    result = sqlite_manager.fetch_one(query)
+    assert result is not None
+
+    # captions テーブルの存在を確認
+    query = "SELECT name FROM sqlite_master WHERE type='table' AND name='captions';"
+    result = sqlite_manager.fetch_one(query)
+    assert result is not None
+
+    # scores テーブルの存在を確認
+    query = "SELECT name FROM sqlite_master WHERE type='table' AND name='scores';"
+    result = sqlite_manager.fetch_one(query)
+    assert result is not None

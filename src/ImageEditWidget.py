@@ -175,7 +175,7 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
     def handle_processing_result(self, processed_image, image_file, image_id):
         processed_path = self.fsm.save_processed_image(processed_image, image_file)
         processed_metadata = self.fsm.get_image_info(processed_path)
-        self.idm.register_processed_metadata(image_id, processed_path, processed_metadata)
+        self.idm.register_processed_image(image_id, processed_path, processed_metadata)
         self.logger.info(f"画像処理完了: {image_file} -> {processed_path}")
 
 if __name__ == "__main__":
