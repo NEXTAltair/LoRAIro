@@ -30,7 +30,7 @@ class ImageAnalyzer:
             self.vision_models = models_config
 
     @staticmethod
-    def get_existing_annotations(image_path: Path) -> Optional[dict[str, list[dict[str, str]]]]:
+    def get_existing_annotations(image_path: Path) -> Optional[dict[str, list[str, str]]]:
         """
         画像の参照元ディレクトリから既存のタグとキャプションを取得。
 
@@ -42,13 +42,8 @@ class ImageAnalyzer:
             None : 既存のアノテーションが見つからない場合
         例:
         {
-            'tags': [
-                {'tag': 'nature'},
-                {'tag': 'mountain'}
-            ],
-            'captions': [
-                {'caption': 'A beautiful mountain landscape'}
-            ]
+            'tags': [tag1, tag2, tag3],
+            'captions': [caption1, caption2]
         }
         """
         existing_annotations = {'tags': [],
@@ -59,9 +54,9 @@ class ImageAnalyzer:
 
         try:
             if tag_path.exists():
-                existing_annotations['tags'] = ImageAnalyzer._read_annotations(tag_path, 'tag')
+                existing_annotations['tags'].append(ImageAnalyzer._read_annotations(tag_path, 'tag'))
             if caption_path.exists():
-                existing_annotations['captions'] = ImageAnalyzer._read_annotations(caption_path, 'caption')
+                existing_annotations['captions'].append(ImageAnalyzer._read_annotations(caption_path, 'caption'))
 
             if not existing_annotations['tags'] and not existing_annotations['captions']:
                 ImageAnalyzer.logger.info(f"既存アノテーション無し: {image_path}")
@@ -74,16 +69,16 @@ class ImageAnalyzer:
         return existing_annotations
 
     @staticmethod
-    def _read_annotations(file_path: Path, key: str) -> list[dict[str, str]]:
+    def _read_annotations(file_path: Path) -> list[str]:
         """
-        指定されたファイルからアノテーションを読み込み、辞書のリストとして返す。
+        指定されたファイルからアノテーションを読み込みカンマで分割してリストとして返す。
 
         Args:
             file_path (Path): 読み込むファイルのパス
             key (str): 辞書のキー ('tag' または 'caption')
 
         Returns:
-            list[dict[str, str]]: アノテーションの辞書リスト
+            list[str]: アノテーションのリスト
         """
         from module.cleanup_txt import TagCleaner
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -93,7 +88,7 @@ class ImageAnalyzer:
             for item in items:
                 stripped_item = item.strip()
                 if stripped_item:
-                    annotations.append({key: stripped_item})
+                    annotations.append(stripped_item)
             return annotations
 
     def analyze_image(self, image_path: Path, model_id: int, format_name: str="e621") -> dict[str, Any]:

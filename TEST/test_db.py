@@ -110,38 +110,75 @@ def test_register_processed_image(sqlite_manager, sample_image_info, tmp_path):
     assert processed_metadata['width'] == 256
     assert processed_metadata['height'] == 256
 
+def assert_annotations(retrieved_data, expected_data, model_id, test_case_index):
+    for key in ['tags', 'captions', 'scores']:
+        if key in expected_data:
+            expected = expected_data[key]
+            if key == 'tags':
+                filtered = [item['tag'] for item in retrieved_data['tags'] if item['model_id'] == model_id]
+            elif key == 'captions':
+                filtered = [item['caption'] for item in retrieved_data['captions'] if item['model_id'] == model_id]
+            elif key == 'scores':
+                filtered = [item['score'] for item in retrieved_data['scores'] if item['model_id'] == model_id]
+
+            if key == 'scores':
+                assert len(filtered) == 1, (
+                    f"テストケース {test_case_index}: {key} の数が1ではありません。実際: {len(filtered)}"
+                )
+                assert filtered[0] == expected, (
+                    f"テストケース {test_case_index}: {key} が一致しません。期待: {expected}, 実際: {filtered[0]}"
+                )
+            else:
+                assert len(filtered) == len(expected), (
+                    f"テストケース {test_case_index}: {key} の数が一致しません。期待: {len(expected)}, 実際: {len(filtered)}"
+                )
+                assert set(filtered) == set(expected), (
+                    f"テストケース {test_case_index}: {key} の内容が一致しません。期待: {expected}, 実際: {filtered}"
+                )
+
 def test_save_annotations(sqlite_manager, sample_image_info):
-    """アノテーションの保存と取得の確認"""
+    """アノテーションの保存と取得の確認、欠損値のテストを含む"""
     repo = ImageRepository(sqlite_manager)
     image_id = repo.add_original_image(sample_image_info)
 
-    annotations = {
-        'tags': [{'tag': 'test_tag', 'model_id': None}],
-        'captions': [{'caption': 'test_caption', 'model_id': None}],
-        'scores': [{'score': 0.95, 'model_id': 1}]
-    }
+    test_cases = [
+        {
+            'tags': ['tag1', 'tag2', 'tag3'],
+            'captions': ['caption1', 'caption2'],
+            'score': 0.95,
+            'model_id': 1
+        },
+        {
+            'tags': ['tag4', 'tag5'],
+            'captions': ['caption3'],
+            'model_id': 2
+        },
+        {
+            'captions': ['caption4'],
+            'score': 0.85,
+            'model_id': 3
+        },
+        {
+            'tags': ['tag6'],
+            'score': 0.75,
+            # 'model_id' がない場合
+        }
+    ]
 
-    repo.save_annotations(image_id, annotations)
+    for index, case in enumerate(test_cases, start=1):
+        repo.save_annotations(image_id, case)
 
-    retrieved_annotations = repo.get_image_annotations(image_id)
-    assert 'tags' in retrieved_annotations
-    assert 'captions' in retrieved_annotations
-    assert 'scores' in retrieved_annotations
+        retrieved = repo.get_image_annotations(image_id)
 
-    assert len(retrieved_annotations['tags']) == 1
-    assert retrieved_annotations['tags'][0]['tag'] == 'test_tag'
+        current_model_id = case.get('model_id')
 
-    assert len(retrieved_annotations['captions']) == 1
-    assert retrieved_annotations['captions'][0]['caption'] == 'test_caption'
-
-    assert len(retrieved_annotations['scores']) == 1
-    assert retrieved_annotations['scores'][0]['score'] == 0.95
+        assert_annotations(retrieved, case, current_model_id, index)
 
 def test_get_images_by_tag(sqlite_manager, sample_image_info):
     """タグによる画像検索の確認"""
     repo = ImageRepository(sqlite_manager)
     image_id = repo.add_original_image(sample_image_info)
-    repo.save_annotations(image_id, {'tags': [{'tag': 'test_tag', 'model_id': None}]})
+    repo.save_annotations(image_id, {'tags': ['test_tag'], 'model_id': None})
 
     image_ids = repo.get_images_by_tag('test_tag')
     assert image_id in image_ids
@@ -150,7 +187,7 @@ def test_get_images_by_caption(sqlite_manager, sample_image_info):
     """キャプションによる画像検索の確認"""
     repo = ImageRepository(sqlite_manager)
     image_id = repo.add_original_image(sample_image_info)
-    repo.save_annotations(image_id, {'captions': [{'caption': 'test_caption', 'model_id': None}]})
+    repo.save_annotations(image_id, {'captions': ['test_caption'], 'model_id': None})
 
     image_ids = repo.get_images_by_caption('test_caption')
     assert image_id in image_ids
@@ -173,17 +210,10 @@ def test_delete_image(sqlite_manager_function, sample_image_info):
     repo = ImageRepository(sqlite_manager_function)
     image_id = repo.add_original_image(sample_image_info)
     repo.save_annotations(image_id, {
-        'tags': [
-            {'tag': 'test_tag1', 'model_id': None},
-            {'tag': 'test_tag2', 'model_id': 1},
-            {'tag': 'test_tag3', 'model_id': 2}
-        ],
-        'captions': [
-            {'caption': 'test_caption1', 'model_id': None},
-            {'caption': 'test_caption2', 'model_id': 1},
-            {'caption': 'test_caption3', 'model_id': 2}
-        ],
-        'scores': [{'score': 0.95, 'model_id': 1}]
+        'tags': ['test_tag1','test_tag2','test_tag3'],
+        'captions': ['test_caption1','test_caption2','test_caption3'],
+        'score': 0.95,
+        'model_id': 1
     })
 
     # 削除前にアノテーションが存在することを確認
@@ -232,7 +262,7 @@ def test_get_images_by_filter(sqlite_manager, sample_image_info):
     manager.repository = ImageRepository(sqlite_manager)
 
     image_id = manager.repository.add_original_image(sample_image_info)
-    manager.repository.save_annotations(image_id, {'tags': [{'tag': 'filter_tag', 'model_id': None}]})
+    manager.repository.save_annotations(image_id, {'tags': ['filter_tag'], 'model_id': None})
 
     filtered_images, count = manager.get_images_by_filter(tags=['filter_tag'])
     assert count == 1

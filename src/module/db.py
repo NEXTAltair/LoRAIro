@@ -99,7 +99,8 @@ class SQLiteManager:
                     color_space TEXT,
                     icc_profile TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (uuid, phash)
                 );
 
                 -- processed_images テーブル：処理済み画像の情報を格納
@@ -116,7 +117,8 @@ class SQLiteManager:
                     icc_profile TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
+                    FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,
+                    UNIQUE (image_id, width, height, filename)
                 );
 
                 -- models テーブル：モデル情報を格納
@@ -138,7 +140,8 @@ class SQLiteManager:
                     existing BOOLEAN NOT NULL DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,
-                    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL
+                    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL,
+                    UNIQUE (image_id, tag, model_id)
                 );
 
                 -- captions テーブル：画像に関連付けられたキャプションを格納
@@ -150,7 +153,8 @@ class SQLiteManager:
                     existing BOOLEAN NOT NULL DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,
-                    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL
+                    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL,
+                    UNIQUE (image_id, caption, model_id)
                 );
 
                 -- scores テーブル：画像に関連付けられたスコアを格納
@@ -161,7 +165,8 @@ class SQLiteManager:
                     score FLOAT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,
-                    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL
+                    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL,
+                    UNIQUE (image_id, score, model_id)
                 );
 
             -- インデックスの作成
@@ -349,15 +354,19 @@ class ImageRepository:
         except sqlite3.Error as e:
             raise sqlite3.Error(f"画像メタデータの取得中にエラーが発生しました: {e}")
 
-    def save_annotations(self, image_id: int, annotations: dict[str, list[dict[str, Any]]]) -> None:
+    def save_annotations(self, image_id: int, annotations: dict[str, Union[list[str], float, int]]) -> None:
         """
         画像のアノテーション（タグ、キャプション、スコア）を保存します。
 
         Args:
             image_id (int): アノテーションを追加する画像のID。
-            annotations (dict[str, list[dict[str, Any]]]): アノテーションデータ。
-                'tags', 'captions', 'scores' をキーとし、それぞれリストを値とする辞書。
-                各リストの要素は {'value': str, 'model_id': Optional[int]} の形式。
+            annotations (dict): アノテーションデータ。
+            {
+                'tags': list[str],
+                'caption': list[str],
+                'score': float,
+                'model_id': int
+            }
 
         Raises:
             sqlite3.Error: データベース操作でエラーが発生した場合。
@@ -366,77 +375,103 @@ class ImageRepository:
         if not self._image_exists(image_id):
             raise ValueError(f"指定されたimage_id {image_id} は存在しません。")
 
+        model_id = annotations.get('model_id', None)
+
+        if model_id is None:
+            self.logger.warning("model_idはすべてNoneで保存されます。")
+
         try:
-            self._save_tags(image_id, annotations.get('tags', []))
-            self._save_captions(image_id, annotations.get('captions', []))
-            self._save_scores(image_id, annotations.get('scores', []))
+            self._save_tags(image_id, annotations.get('tags', []), model_id)
+            self._save_captions(image_id, annotations.get('captions', []), model_id)
+            self._save_score(image_id, annotations.get('score', 0), model_id)
         except sqlite3.Error as e:
             raise sqlite3.Error(f"アノテーションの保存中にエラーが発生しました: {e}")
 
-    def _save_tags(self, image_id: int, tags: list[dict[str, Any]]) -> None:
-        """タグを保存する内部メソッド"""
-        query = "INSERT OR REPLACE INTO tags (image_id, tag, model_id, existing) VALUES (?, ?, ?, ?)"
+    def _save_tags(self, image_id: int, tags: list[str], model_id: Optional[int]) -> None:
+        """タグを保存する内部メソッド
+
+        Args:
+            image_id (int): タグを追加する画像のID。
+            tags (list[str]): タグのリスト。
+            model_id (Optional[int]): タグ付けに使用されたモデルのID。Noneの場合は既存タグとして扱う。
+
+        Raises:
+            sqlite3.Error: データベース操作でエラーが発生した場合。
+        """
+        if not tags:
+            self.logger.info(f"画像ID {image_id} のタグリストが空のため、保存をスキップします。")
+            return
+
+        query = "INSERT OR IGNORE INTO tags (image_id, tag, model_id, existing) VALUES (?, ?, ?, ?)"
         data = []
 
         for tag in tags:
-            tag_value = tag['tag']
-            model_id = tag.get('model_id')
             existing = 1 if model_id is None else 0
-            data.append((image_id, tag_value, model_id, existing))
-            self.logger.debug(f"ImageRepository._save_tags: {tag_value}")
+            data.append((image_id, tag, model_id, existing))
+            self.logger.debug(f"ImageRepository._save_tags: {tag}")
+
         try:
             self.db_manager.executemany(query, data)
             self.logger.info(f"画像ID {image_id} に {len(data)} 個のタグを保存しました")
-        except Exception as e:
+        except sqlite3.Error as e:
             self.logger.error(f"タグの保存中にエラーが発生しました: {e}")
             raise
 
-    def _save_captions(self, image_id: int, captions: list[dict[str, Any]]) -> None:
-        """キャプションを保存する内部メソッド"""
-        query = "INSERT INTO captions (image_id, caption, model_id, existing) VALUES (?, ?, ?, ?)"
+    def _save_captions(self, image_id: int, captions: list[str], model_id: Optional[int]) -> None:
+        """キャプションを保存する
+
+        Args:
+            image_id (int): キャプションを追加する画像のID。
+            captions (list[str]): キャプションのリスト。
+            model_id (Optional[int]): キャプションに関連付けられたモデルのID。Noneの場合は既存キャプションとして扱う。
+
+        Raises:
+            sqlite3.Error: データベース操作でエラーが発生した場合。
+        """
+        if not captions:
+            self.logger.info(f"画像ID {image_id} のキャプションリストが空のため、保存をスキップします。")
+            return
+
+        query = "INSERT OR IGNORE INTO captions (image_id, caption, model_id, existing) VALUES (?, ?, ?, ?)"
         data = []
 
         for caption in captions:
-            caption_value = caption['caption']
-            model_id = caption.get('model_id')
             existing = 1 if model_id is None else 0
-            data.append((image_id, caption_value, model_id, existing))
-            self.logger.debug(f"ImageRepository._save_captions: {caption_value} ")
+            data.append((image_id, caption, model_id, existing))
+            self.logger.debug(f"ImageRepository._save_captions: {caption} ")
 
-        self.db_manager.executemany(query, data)
-
-    def _save_scores(self, image_id: int, scores: list[dict[str, Any]]) -> None:
-        """スコアを保存する内部メソッド"""
-        query = "INSERT INTO scores (image_id, score, model_id) VALUES (?, ?, ?)"
-        data = []
-
-        for score in scores:
-            score_value = score['score']
-            model_id = score.get('model_id')
-
-            if model_id is not None:
-                data.append((image_id, score_value, model_id))
-                self.logger.debug(f"ImageRepository._save_scores: {score_value} ")
-            else:
-                self.logger.warning(f"スコア {score_value} にmodel_idが設定されていません。このスコアはスキップされます。")
-
-        if data:
+        try:
             self.db_manager.executemany(query, data)
-        else:
-            self.logger.info("保存するスコアがありません。")
+            self.logger.info(f"画像ID {image_id} に {len(data)} 個のキャプションを保存しました")
+        except sqlite3.Error as e:
+            self.logger.error(f"キャプションの保存中にエラーが発生しました: {e}")
+            raise
 
-    def save_score(self, image_id: int, score: float, model_id: int) -> None:
-        """
-        スコアを保存するメソッド
+    def _save_score(self, image_id: int, score: float, model_id: int) -> None:
+        """スコアを保存
 
         Args:
             image_id (int): スコアを追加する画像のID。
             score (float): スコアの値。
-            model_id (int): スコアを算出したモデルのID。
+            model_id (int): スコアに関連付けられたモデルのID。
+
+        Raises:
+            sqlite3.Error: データベース操作でエラーが発生した場合。
+            ValueError: 必要なデータが不足している場合。
         """
+        if score == 0:
+            self.logger.info(f"スコアが0のため、保存をスキップします。")
+            return
+
         query = "INSERT OR IGNORE INTO scores (image_id, score, model_id) VALUES (?, ?, ?)"
         data = (image_id, score, model_id)
-        self.db_manager.execute(query, data)
+
+        try:
+            self.db_manager.execute(query, data)
+            self.logger.debug(f"Score saved: image_id={image_id}, score={score}, model_id={model_id}")
+        except sqlite3.Error as e:
+            self.logger.error(f"Failed to save score: {e}")
+            raise
 
     def _get_model_id(self, model_name: str) -> int:
         """モデル名からモデルIDを取得するメソッド"""
@@ -486,7 +521,7 @@ class ImageRepository:
             self.logger.error(f"重複画像の検索中にエラーが発生しました: {e}")
             return None
 
-    def get_image_annotations(self, image_id: int) -> dict[str, list[dict[str, Any]]]:
+    def get_image_annotations(self, image_id: int) -> dict[str, Union[list[dict[str, Any]], float, int]]:
         """
         指定された画像IDのアノテーション（タグ、キャプション、スコア）を取得します。
 
@@ -792,14 +827,14 @@ class ImageDatabaseManager:
             self.logger.error(f"処理済み画像メタデータの保存中にエラーが発生しました: {e}")
             return None
 
-    def save_annotations(self, image_id: int, annotations: dict[str, list[dict[str, Any]]]) -> None:
+    def save_annotations(self, image_id: int, annotations: dict[str, list[Any, Any]]) -> None:
         """
         画像のアノテーション（タグ、キャプション、スコア）を保存します。
 
         Args:
             image_id (int): アノテーションを追加する画像のID。
-            annotations (dict[str, list[dict[str, Any]]]): アノテーションデータ。
-                'tags', 'captions', 'scores' をキーとし、それぞれリストを値とする辞書。
+            annotations (dict[str, list[Any, Any]]): アノテーションデータ。
+                'tags', 'captions', 'score' をキーとし、それぞれリストを値とする辞書。
                 各リストの要素は {'value': str, 'model': str} の形式。
         Raises:
             Exception: アノテーションの保存に失敗した場合。

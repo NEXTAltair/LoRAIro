@@ -80,13 +80,15 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         file_size = file_path.stat().st_size
         self.tableWidgetImageList.setItem(row_position, 4, QTableWidgetItem(f"{file_size / 1024:.2f} KB"))
 
-        #既存タグ
+        # 既存アノテーション
         existing_annotations = ImageAnalyzer.get_existing_annotations(file_path)
         if existing_annotations:
-            # existing_annotationsから 'tag' キーの値を取り出してカンマ区切りの文字列にする
-            tags_str = ', '.join([tag['tag'] for tag in existing_annotations['tags']])
+            # タグをカンマ区切りの文字列に結合
+            tags_str = ', '.join(existing_annotations['tags'])
             self.tableWidgetImageList.setItem(row_position, 5, QTableWidgetItem(tags_str))
-            captions_str = ', '.join([caption['caption'] for caption in existing_annotations['captions']])
+
+            # キャプションをカンマ区切りの文字列に結合
+            captions_str = ', '.join(existing_annotations['captions'])
             self.tableWidgetImageList.setItem(row_position, 6, QTableWidgetItem(captions_str))
 
     @Slot()
