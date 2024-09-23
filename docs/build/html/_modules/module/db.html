@@ -1,0 +1,1286 @@
+<!DOCTYPE html>
+
+<html lang="ja" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>module.db &#8212; lora_dataset_toolsy 1.01 ドキュメント</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=d1102ebc" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=c058f7c8" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=27fed22d" />
+    <script src="../../_static/documentation_options.js?v=e77f40a7"></script>
+    <script src="../../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/translations.js?v=91613774"></script>
+    <link rel="index" title="索引" href="../../genindex.html" />
+    <link rel="search" title="検索" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>module.db のソースコード</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">sqlite3</span>
+<span class="kn">import</span> <span class="nn">threading</span>
+<span class="kn">import</span> <span class="nn">uuid</span>
+<span class="kn">import</span> <span class="nn">imagehash</span>
+<span class="kn">from</span> <span class="nn">PIL</span> <span class="kn">import</span> <span class="n">Image</span>
+
+<span class="kn">from</span> <span class="nn">contextlib</span> <span class="kn">import</span> <span class="n">contextmanager</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Union</span><span class="p">,</span> <span class="n">Optional</span>
+<span class="kn">from</span> <span class="nn">datetime</span> <span class="kn">import</span> <span class="n">datetime</span>
+<span class="kn">from</span> <span class="nn">module.log</span> <span class="kn">import</span> <span class="n">get_logger</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">from</span> <span class="nn">module.file_sys</span> <span class="kn">import</span> <span class="n">FileSystemManager</span>
+
+<div class="viewcode-block" id="calculate_phash">
+<a class="viewcode-back" href="../../module.db.html#module.db.calculate_phash">[ドキュメント]</a>
+<span class="k">def</span> <span class="nf">calculate_phash</span><span class="p">(</span><span class="n">image_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="k">with</span> <span class="n">Image</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">image_path</span><span class="p">)</span> <span class="k">as</span> <span class="n">img</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">imagehash</span><span class="o">.</span><span class="n">phash</span><span class="p">(</span><span class="n">img</span><span class="p">))</span></div>
+
+
+<div class="viewcode-block" id="SQLiteManager">
+<a class="viewcode-back" href="../../module.db.html#module.db.SQLiteManager">[ドキュメント]</a>
+<span class="k">class</span> <span class="nc">SQLiteManager</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">img_db_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">tag_db_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;SQLiteManager&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">img_db_path</span> <span class="o">=</span> <span class="n">img_db_path</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tag_db_path</span> <span class="o">=</span> <span class="n">tag_db_path</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_connection</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_local</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">local</span><span class="p">()</span>
+
+<div class="viewcode-block" id="SQLiteManager.dict_factory">
+<a class="viewcode-back" href="../../module.db.html#module.db.SQLiteManager.dict_factory">[ドキュメント]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">dict_factory</span><span class="p">(</span><span class="n">cursor</span><span class="p">,</span> <span class="n">row</span><span class="p">):</span>
+        <span class="n">d</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">col</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">description</span><span class="p">):</span>
+            <span class="n">d</span><span class="p">[</span><span class="n">col</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">d</span></div>
+
+
+<div class="viewcode-block" id="SQLiteManager.connect">
+<a class="viewcode-back" href="../../module.db.html#module.db.SQLiteManager.connect">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">connect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_local</span><span class="p">,</span> <span class="s1">&#39;connection&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">connection</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">connection</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">img_db_path</span><span class="p">,</span> <span class="n">check_same_thread</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">connection</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ATTACH DATABASE &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">tag_db_path</span><span class="si">}</span><span class="s2">&#39; AS tag_db&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">connection</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;PRAGMA foreign_keys = ON&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">connection</span><span class="o">.</span><span class="n">row_factory</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dict_factory</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">connection</span></div>
+
+
+<div class="viewcode-block" id="SQLiteManager.close">
+<a class="viewcode-back" href="../../module.db.html#module.db.SQLiteManager.close">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_local</span><span class="p">,</span> <span class="s1">&#39;connection&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">connection</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">connection</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">connection</span> <span class="o">=</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="SQLiteManager.get_connection">
+<a class="viewcode-back" href="../../module.db.html#module.db.SQLiteManager.get_connection">[ドキュメント]</a>
+    <span class="nd">@contextmanager</span>
+    <span class="k">def</span> <span class="nf">get_connection</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">conn</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">connect</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">yield</span> <span class="n">conn</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Database operation failed: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">conn</span><span class="o">.</span><span class="n">rollback</span><span class="p">()</span>
+            <span class="k">raise</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">conn</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="SQLiteManager.execute">
+<a class="viewcode-back" href="../../module.db.html#module.db.SQLiteManager.execute">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">query</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">())</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">sqlite3</span><span class="o">.</span><span class="n">Cursor</span><span class="p">]:</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_connection</span><span class="p">()</span> <span class="k">as</span> <span class="n">conn</span><span class="p">:</span>
+            <span class="n">cursor</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">cursor</span></div>
+
+
+<div class="viewcode-block" id="SQLiteManager.executemany">
+<a class="viewcode-back" href="../../module.db.html#module.db.SQLiteManager.executemany">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">executemany</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">query</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">sqlite3</span><span class="o">.</span><span class="n">Cursor</span><span class="p">]:</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_connection</span><span class="p">()</span> <span class="k">as</span> <span class="n">conn</span><span class="p">:</span>
+            <span class="n">cursor</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+            <span class="n">cursor</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">cursor</span></div>
+
+
+<div class="viewcode-block" id="SQLiteManager.fetch_one">
+<a class="viewcode-back" href="../../module.db.html#module.db.SQLiteManager.fetch_one">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">fetch_one</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">query</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">())</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">]]:</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_connection</span><span class="p">()</span> <span class="k">as</span> <span class="n">conn</span><span class="p">:</span>
+            <span class="n">cursor</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">cursor</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="SQLiteManager.fetch_all">
+<a class="viewcode-back" href="../../module.db.html#module.db.SQLiteManager.fetch_all">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">fetch_all</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">query</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">())</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">]]:</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_connection</span><span class="p">()</span> <span class="k">as</span> <span class="n">conn</span><span class="p">:</span>
+            <span class="n">cursor</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">cursor</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="SQLiteManager.create_tables">
+<a class="viewcode-back" href="../../module.db.html#module.db.SQLiteManager.create_tables">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">create_tables</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_connection</span><span class="p">()</span> <span class="k">as</span> <span class="n">conn</span><span class="p">:</span>
+            <span class="n">conn</span><span class="o">.</span><span class="n">executescript</span><span class="p">(</span><span class="s1">&#39;&#39;&#39;</span>
+<span class="s1">                -- images テーブル：オリジナル画像の情報を格納</span>
+<span class="s1">                CREATE TABLE IF NOT EXISTS images (</span>
+<span class="s1">                    id INTEGER PRIMARY KEY,</span>
+<span class="s1">                    uuid TEXT UNIQUE NOT NULL,</span>
+<span class="s1">                    phash TEXT,</span>
+<span class="s1">                    stored_image_path TEXT NOT NULL,</span>
+<span class="s1">                    width INTEGER NOT NULL,</span>
+<span class="s1">                    height INTEGER NOT NULL,</span>
+<span class="s1">                    format TEXT NOT NULL,</span>
+<span class="s1">                    mode TEXT NULL,</span>
+<span class="s1">                    has_alpha BOOLEAN,</span>
+<span class="s1">                    filename TEXT NULL,</span>
+<span class="s1">                    extension TEXT NOT NULL,</span>
+<span class="s1">                    color_space TEXT,</span>
+<span class="s1">                    icc_profile TEXT,</span>
+<span class="s1">                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,</span>
+<span class="s1">                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP</span>
+<span class="s1">                );</span>
+
+<span class="s1">                -- processed_images テーブル：処理済み画像の情報を格納</span>
+<span class="s1">                CREATE TABLE IF NOT EXISTS processed_images (</span>
+<span class="s1">                    id INTEGER PRIMARY KEY,</span>
+<span class="s1">                    image_id INTEGER NOT NULL,</span>
+<span class="s1">                    stored_image_path TEXT NOT NULL,</span>
+<span class="s1">                    width INTEGER NOT NULL,</span>
+<span class="s1">                    height INTEGER NOT NULL,</span>
+<span class="s1">                    mode TEXT NULL,</span>
+<span class="s1">                    has_alpha BOOLEAN NOT NULL,</span>
+<span class="s1">                    filename TEXT NULL,</span>
+<span class="s1">                    color_space TEXT,</span>
+<span class="s1">                    icc_profile TEXT,</span>
+<span class="s1">                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,</span>
+<span class="s1">                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,</span>
+<span class="s1">                    FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE</span>
+<span class="s1">                );</span>
+
+<span class="s1">                -- models テーブル：モデル情報を格納</span>
+<span class="s1">                CREATE TABLE IF NOT EXISTS models (</span>
+<span class="s1">                    id INTEGER PRIMARY KEY,</span>
+<span class="s1">                    name TEXT UNIQUE NOT NULL,</span>
+<span class="s1">                    type TEXT NOT NULL,</span>
+<span class="s1">                    provider TEXT,</span>
+<span class="s1">                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,</span>
+<span class="s1">                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP</span>
+<span class="s1">                );</span>
+
+<span class="s1">                -- tags テーブル：画像に関連付けられたタグを格納</span>
+<span class="s1">                CREATE TABLE IF NOT EXISTS tags (</span>
+<span class="s1">                    id INTEGER PRIMARY KEY,</span>
+<span class="s1">                    image_id INTEGER,</span>
+<span class="s1">                    model_id INTEGER,</span>
+<span class="s1">                    tag TEXT NOT NULL,</span>
+<span class="s1">                    existing BOOLEAN NOT NULL DEFAULT 0,</span>
+<span class="s1">                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,</span>
+<span class="s1">                    FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,</span>
+<span class="s1">                    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL</span>
+<span class="s1">                );</span>
+
+<span class="s1">                -- captions テーブル：画像に関連付けられたキャプションを格納</span>
+<span class="s1">                CREATE TABLE IF NOT EXISTS captions (</span>
+<span class="s1">                    id INTEGER PRIMARY KEY,</span>
+<span class="s1">                    image_id INTEGER,</span>
+<span class="s1">                    model_id INTEGER,</span>
+<span class="s1">                    caption TEXT NOT NULL,</span>
+<span class="s1">                    existing BOOLEAN NOT NULL DEFAULT 0,</span>
+<span class="s1">                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,</span>
+<span class="s1">                    FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,</span>
+<span class="s1">                    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL</span>
+<span class="s1">                );</span>
+
+<span class="s1">                -- scores テーブル：画像に関連付けられたスコアを格納</span>
+<span class="s1">                CREATE TABLE IF NOT EXISTS scores (</span>
+<span class="s1">                    id INTEGER PRIMARY KEY,</span>
+<span class="s1">                    image_id INTEGER,</span>
+<span class="s1">                    model_id INTEGER,</span>
+<span class="s1">                    score FLOAT NOT NULL,</span>
+<span class="s1">                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,</span>
+<span class="s1">                    FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,</span>
+<span class="s1">                    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL</span>
+<span class="s1">                );</span>
+
+<span class="s1">            -- インデックスの作成</span>
+<span class="s1">            CREATE INDEX IF NOT EXISTS idx_images_uuid ON images(uuid);</span>
+<span class="s1">            CREATE INDEX IF NOT EXISTS idx_processed_images_image_id ON processed_images(image_id);</span>
+<span class="s1">            CREATE INDEX IF NOT EXISTS idx_tags_image_id ON tags(image_id);</span>
+<span class="s1">            CREATE INDEX IF NOT EXISTS idx_captions_image_id ON captions(image_id);</span>
+<span class="s1">            CREATE INDEX IF NOT EXISTS idx_scores_image_id ON scores(image_id);</span>
+<span class="s1">            &#39;&#39;&#39;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SQLiteManager.insert_models">
+<a class="viewcode-back" href="../../module.db.html#module.db.SQLiteManager.insert_models">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">insert_models</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        モデル情報の初期設定がされてない場合データベースに追加</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            model_name (str): モデルの名前。</span>
+<span class="sd">            model_type (str): モデルのタイプ。</span>
+<span class="sd">            provider (str): モデルのプロバイダ。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">        INSERT OR IGNORE INTO models (name, type, provider) VALUES (?, ?, ?)</span>
+<span class="s2">        &quot;&quot;&quot;</span>
+        <span class="n">models</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="p">(</span><span class="s1">&#39;gpt-4o&#39;</span><span class="p">,</span> <span class="s1">&#39;vision&#39;</span><span class="p">,</span> <span class="s1">&#39;OpenAI&#39;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s1">&#39;gpt-4-turbo&#39;</span><span class="p">,</span> <span class="s1">&#39;vision&#39;</span><span class="p">,</span> <span class="s1">&#39;OpenAI&#39;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s1">&#39;laion&#39;</span><span class="p">,</span> <span class="s1">&#39;score&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s1">&#39;cafe&#39;</span><span class="p">,</span> <span class="s1">&#39;score&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s1">&#39;gpt-4o-mini&#39;</span><span class="p">,</span> <span class="s1">&#39;vision&#39;</span><span class="p">,</span> <span class="s1">&#39;OpenAI&#39;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s1">&#39;gemini-1.5-pro-exp-0801&#39;</span><span class="p">,</span> <span class="s1">&#39;vision&#39;</span><span class="p">,</span> <span class="s1">&#39;Google&#39;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s1">&#39;gemini-1.5-pro-preview-0409&#39;</span><span class="p">,</span> <span class="s1">&#39;vision&#39;</span><span class="p">,</span> <span class="s1">&#39;Google&#39;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s1">&#39;gemini-1.0-pro-vision&#39;</span><span class="p">,</span> <span class="s1">&#39;vision&#39;</span><span class="p">,</span> <span class="s1">&#39;Google&#39;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s1">&#39;claude-3-5-sonnet-20240620&#39;</span><span class="p">,</span> <span class="s1">&#39;vision&#39;</span><span class="p">,</span> <span class="s1">&#39;Anthropic&#39;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s1">&#39;claude-3-opus-20240229&#39;</span><span class="p">,</span> <span class="s1">&#39;vision&#39;</span><span class="p">,</span> <span class="s1">&#39;Anthropic&#39;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s1">&#39;claude-3-sonnet-20240229&#39;</span><span class="p">,</span> <span class="s1">&#39;vision&#39;</span><span class="p">,</span> <span class="s1">&#39;Anthropic&#39;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s1">&#39;claude-3-haiku-20240307&#39;</span><span class="p">,</span> <span class="s1">&#39;vision&#39;</span><span class="p">,</span> <span class="s1">&#39;Anthropic&#39;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s1">&#39;RealESRGAN_x4plus&#39;</span><span class="p">,</span> <span class="s1">&#39;upscaler&#39;</span><span class="p">,</span> <span class="s1">&#39;xinntao&#39;</span><span class="p">)</span>
+        <span class="p">]</span>
+        <span class="k">for</span> <span class="n">model</span> <span class="ow">in</span> <span class="n">models</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">model</span><span class="p">)</span></div>
+</div>
+
+
+<div class="viewcode-block" id="ImageRepository">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository">[ドキュメント]</a>
+<span class="k">class</span> <span class="nc">ImageRepository</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    画像関連のデータベース操作を担当するクラス。</span>
+<span class="sd">    このクラスは、画像メタデータの保存、取得、アノテーションの管理などを行います。</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">db_manager</span><span class="p">:</span> <span class="n">SQLiteManager</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        ImageRepositoryクラスのコンストラクタ。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            db_manager (SQLiteManager): データベース接続を管理するオブジェクト。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;ImageRepository&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span> <span class="o">=</span> <span class="n">db_manager</span>
+
+<div class="viewcode-block" id="ImageRepository.add_original_image">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository.add_original_image">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">add_original_image</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">info</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        オリジナル画像のメタデータを images テーブルに追加します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            info (dict[str, Any]): 画像情報を含む辞書。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            int: 挿入された画像のID。</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: 必須情報が不足している場合。</span>
+<span class="sd">            sqlite3.Error: データベース操作でエラーが発生した場合。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="c1"># pHashの計算と重複チェック</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">phash</span> <span class="o">=</span> <span class="n">calculate_phash</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="s1">&#39;stored_image_path&#39;</span><span class="p">]))</span>
+            <span class="n">info</span><span class="p">[</span><span class="s1">&#39;phash&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">phash</span>
+            <span class="n">duplicate</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">find_duplicate_image</span><span class="p">(</span><span class="n">phash</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">duplicate</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像が既に存在します: ID </span><span class="si">{</span><span class="n">duplicate</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">duplicate</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;pHashの処理中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span>
+
+        <span class="n">required_keys</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;uuid&#39;</span><span class="p">,</span> <span class="s1">&#39;stored_image_path&#39;</span><span class="p">,</span> <span class="s1">&#39;width&#39;</span><span class="p">,</span> <span class="s1">&#39;height&#39;</span><span class="p">,</span> <span class="s1">&#39;format&#39;</span><span class="p">,</span> <span class="s1">&#39;mode&#39;</span><span class="p">,</span>
+                         <span class="s1">&#39;has_alpha&#39;</span><span class="p">,</span> <span class="s1">&#39;filename&#39;</span><span class="p">,</span> <span class="s1">&#39;extension&#39;</span><span class="p">,</span> <span class="s1">&#39;color_space&#39;</span><span class="p">,</span> <span class="s1">&#39;icc_profile&#39;</span><span class="p">,</span> <span class="s1">&#39;phash&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">(</span><span class="n">key</span> <span class="ow">in</span> <span class="n">info</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">required_keys</span><span class="p">):</span>
+            <span class="n">missing_keys</span> <span class="o">=</span> <span class="p">[</span><span class="n">key</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">required_keys</span> <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">info</span><span class="p">]</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;必須情報が不足しています: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">missing_keys</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">        INSERT INTO images (uuid, stored_image_path, width, height, format, mode, has_alpha,</span>
+<span class="s2">                            filename, extension, color_space, icc_profile, phash, created_at, updated_at)</span>
+<span class="s2">        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)</span>
+<span class="s2">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">created_at</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">()</span>
+            <span class="n">updated_at</span> <span class="o">=</span> <span class="n">created_at</span>
+            <span class="n">params</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;uuid&#39;</span><span class="p">],</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;stored_image_path&#39;</span><span class="p">],</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;width&#39;</span><span class="p">],</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;height&#39;</span><span class="p">],</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;format&#39;</span><span class="p">],</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;mode&#39;</span><span class="p">],</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;has_alpha&#39;</span><span class="p">],</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;filename&#39;</span><span class="p">],</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;extension&#39;</span><span class="p">],</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;color_space&#39;</span><span class="p">],</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;icc_profile&#39;</span><span class="p">],</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;phash&#39;</span><span class="p">],</span>
+                <span class="n">created_at</span><span class="p">,</span>
+                <span class="n">updated_at</span>
+            <span class="p">)</span>
+            <span class="n">cursor</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;オリジナル画像をDBに追加しました: UUID=</span><span class="si">{</span><span class="n">info</span><span class="p">[</span><span class="s1">&#39;uuid&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">cursor</span><span class="o">.</span><span class="n">lastrowid</span>
+        <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;オリジナル画像の追加中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span></div>
+
+
+<div class="viewcode-block" id="ImageRepository.add_processed_image">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository.add_processed_image">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">add_processed_image</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">info</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        処理済み画像のメタデータを images テーブルに追加します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            info (dict[str, Any]): 処理済み画像情報を含む辞書。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            int: 挿入された処理済み画像のID。</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: 必須情報が不足している場合。</span>
+<span class="sd">            sqlite3.Error: データベース操作でエラーが発生した場合。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">required_keys</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;stored_image_path&#39;</span><span class="p">,</span> <span class="s1">&#39;width&#39;</span><span class="p">,</span> <span class="s1">&#39;height&#39;</span><span class="p">,</span> <span class="s1">&#39;format&#39;</span><span class="p">,</span> <span class="s1">&#39;mode&#39;</span><span class="p">,</span>
+                         <span class="s1">&#39;has_alpha&#39;</span><span class="p">,</span> <span class="s1">&#39;filename&#39;</span><span class="p">,</span> <span class="s1">&#39;color_space&#39;</span><span class="p">,</span> <span class="s1">&#39;icc_profile&#39;</span><span class="p">,</span> <span class="s1">&#39;image_id&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">(</span><span class="n">key</span> <span class="ow">in</span> <span class="n">info</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">required_keys</span><span class="p">):</span>
+            <span class="n">missing_keys</span> <span class="o">=</span> <span class="p">[</span><span class="n">key</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">required_keys</span> <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">info</span><span class="p">]</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;必須情報が不足しています: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">missing_keys</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">        INSERT INTO processed_images (image_id, stored_image_path, width, height, mode, has_alpha,</span>
+<span class="s2">                                filename, color_space, icc_profile, created_at, updated_at)</span>
+<span class="s2">        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)</span>
+<span class="s2">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">created_at</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">()</span>
+            <span class="n">updated_at</span> <span class="o">=</span> <span class="n">created_at</span>
+            <span class="n">params</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;image_id&#39;</span><span class="p">],</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;stored_image_path&#39;</span><span class="p">],</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;width&#39;</span><span class="p">],</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;height&#39;</span><span class="p">],</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;mode&#39;</span><span class="p">],</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;has_alpha&#39;</span><span class="p">],</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;filename&#39;</span><span class="p">],</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;color_space&#39;</span><span class="p">],</span>
+                <span class="n">info</span><span class="p">[</span><span class="s1">&#39;icc_profile&#39;</span><span class="p">],</span>
+                <span class="n">created_at</span><span class="p">,</span>
+                <span class="n">updated_at</span>
+            <span class="p">)</span>
+            <span class="n">cursor</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;処理済み画像をDBに追加しました: 親画像ID=</span><span class="si">{</span><span class="n">info</span><span class="p">[</span><span class="s1">&#39;image_id&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">cursor</span><span class="o">.</span><span class="n">lastrowid</span>
+        <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;処理済み画像の追加中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span></div>
+
+
+<div class="viewcode-block" id="ImageRepository.get_image_metadata">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository.get_image_metadata">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">get_image_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        指定されたIDの画像メタデータを取得します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_id (int): 取得する画像のID。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Optional[dict[str, Any]]: 画像メタデータを含む辞書。画像が見つからない場合はNone。</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            sqlite3.Error: データベース操作でエラーが発生した場合。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;SELECT * FROM images WHERE id = ?&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">metadata</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_one</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">(</span><span class="n">image_id</span><span class="p">,))</span>
+            <span class="k">return</span> <span class="n">metadata</span>
+        <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像メタデータの取得中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="ImageRepository.save_annotations">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository.save_annotations">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">save_annotations</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">annotations</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        画像のアノテーション（タグ、キャプション、スコア）を保存します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_id (int): アノテーションを追加する画像のID。</span>
+<span class="sd">            annotations (dict[str, list[dict[str, Any]]]): アノテーションデータ。</span>
+<span class="sd">                &#39;tags&#39;, &#39;captions&#39;, &#39;scores&#39; をキーとし、それぞれリストを値とする辞書。</span>
+<span class="sd">                各リストの要素は {&#39;value&#39;: str, &#39;model_id&#39;: Optional[int]} の形式。</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            sqlite3.Error: データベース操作でエラーが発生した場合。</span>
+<span class="sd">            ValueError: 必要なデータが不足している場合。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_image_exists</span><span class="p">(</span><span class="n">image_id</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;指定されたimage_id </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> は存在しません。&quot;</span><span class="p">)</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_save_tags</span><span class="p">(</span><span class="n">image_id</span><span class="p">,</span> <span class="n">annotations</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;tags&#39;</span><span class="p">,</span> <span class="p">[]))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_save_captions</span><span class="p">(</span><span class="n">image_id</span><span class="p">,</span> <span class="n">annotations</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;captions&#39;</span><span class="p">,</span> <span class="p">[]))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_save_scores</span><span class="p">(</span><span class="n">image_id</span><span class="p">,</span> <span class="n">annotations</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;scores&#39;</span><span class="p">,</span> <span class="p">[]))</span>
+        <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;アノテーションの保存中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_save_tags</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">tags</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;タグを保存する内部メソッド&quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;INSERT OR REPLACE INTO tags (image_id, tag, model_id, existing) VALUES (?, ?, ?, ?)&quot;</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">for</span> <span class="n">tag</span> <span class="ow">in</span> <span class="n">tags</span><span class="p">:</span>
+            <span class="n">tag_value</span> <span class="o">=</span> <span class="n">tag</span><span class="p">[</span><span class="s1">&#39;tag&#39;</span><span class="p">]</span>
+            <span class="n">model_id</span> <span class="o">=</span> <span class="n">tag</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;model_id&#39;</span><span class="p">)</span>
+            <span class="n">existing</span> <span class="o">=</span> <span class="mi">1</span> <span class="k">if</span> <span class="n">model_id</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="mi">0</span>
+            <span class="n">data</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">image_id</span><span class="p">,</span> <span class="n">tag_value</span><span class="p">,</span> <span class="n">model_id</span><span class="p">,</span> <span class="n">existing</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ImageRepository._save_tags: </span><span class="si">{</span><span class="n">tag_value</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像ID </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> に </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span><span class="si">}</span><span class="s2"> 個のタグを保存しました&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;タグの保存中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span>
+
+    <span class="k">def</span> <span class="nf">_save_captions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">captions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;キャプションを保存する内部メソッド&quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;INSERT INTO captions (image_id, caption, model_id, existing) VALUES (?, ?, ?, ?)&quot;</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">for</span> <span class="n">caption</span> <span class="ow">in</span> <span class="n">captions</span><span class="p">:</span>
+            <span class="n">caption_value</span> <span class="o">=</span> <span class="n">caption</span><span class="p">[</span><span class="s1">&#39;caption&#39;</span><span class="p">]</span>
+            <span class="n">model_id</span> <span class="o">=</span> <span class="n">caption</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;model_id&#39;</span><span class="p">)</span>
+            <span class="n">existing</span> <span class="o">=</span> <span class="mi">1</span> <span class="k">if</span> <span class="n">model_id</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="mi">0</span>
+            <span class="n">data</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">image_id</span><span class="p">,</span> <span class="n">caption_value</span><span class="p">,</span> <span class="n">model_id</span><span class="p">,</span> <span class="n">existing</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ImageRepository._save_captions: </span><span class="si">{</span><span class="n">caption_value</span><span class="si">}</span><span class="s2"> &quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_save_scores</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">scores</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;スコアを保存する内部メソッド&quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;INSERT INTO scores (image_id, score, model_id) VALUES (?, ?, ?)&quot;</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">for</span> <span class="n">score</span> <span class="ow">in</span> <span class="n">scores</span><span class="p">:</span>
+            <span class="n">score_value</span> <span class="o">=</span> <span class="n">score</span><span class="p">[</span><span class="s1">&#39;score&#39;</span><span class="p">]</span>
+            <span class="n">model_id</span> <span class="o">=</span> <span class="n">score</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;model_id&#39;</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">model_id</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">data</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">image_id</span><span class="p">,</span> <span class="n">score_value</span><span class="p">,</span> <span class="n">model_id</span><span class="p">))</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ImageRepository._save_scores: </span><span class="si">{</span><span class="n">score_value</span><span class="si">}</span><span class="s2"> &quot;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;スコア </span><span class="si">{</span><span class="n">score_value</span><span class="si">}</span><span class="s2"> にmodel_idが設定されていません。このスコアはスキップされます。&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">data</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;保存するスコアがありません。&quot;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="ImageRepository.save_score">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository.save_score">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">save_score</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">score</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        スコアを保存するメソッド</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_id (int): スコアを追加する画像のID。</span>
+<span class="sd">            score (float): スコアの値。</span>
+<span class="sd">            model_id (int): スコアを算出したモデルのID。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;INSERT OR IGNORE INTO scores (image_id, score, model_id) VALUES (?, ?, ?)&quot;</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="p">(</span><span class="n">image_id</span><span class="p">,</span> <span class="n">score</span><span class="p">,</span> <span class="n">model_id</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_get_model_id</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;モデル名からモデルIDを取得するメソッド&quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;SELECT id FROM models WHERE name = ?&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">cursor</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">(</span><span class="n">model_name</span><span class="p">,))</span>
+            <span class="n">row</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">row</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;モデル名 &#39;</span><span class="si">{</span><span class="n">model_name</span><span class="si">}</span><span class="s2">&#39; が見つかりません。&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;_get_model_idメソッド内のクエリエラー: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_image_exists</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        指定された画像IDが存在するかを確認します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_id (int): 確認する画像のID。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            bool: 画像が存在する場合はTrue、存在しない場合はFalse。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;SELECT 1 FROM images WHERE id = ?&quot;</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_one</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">(</span><span class="n">image_id</span><span class="p">,))</span>
+        <span class="k">return</span> <span class="n">result</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+
+<div class="viewcode-block" id="ImageRepository.find_duplicate_image">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository.find_duplicate_image">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">find_duplicate_image</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">phash</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        指定されたpHashに一致する画像をデータベースから検索しImage IDを返します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            phash (str): 検索するpHash。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Optional[int]: 重複する画像のメタデータ。見つからない場合はNone。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;SELECT * FROM images WHERE phash = ?&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">duplicate</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_one</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">(</span><span class="n">phash</span><span class="p">,))</span>
+            <span class="n">image_id</span> <span class="o">=</span> <span class="n">duplicate</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]</span> <span class="k">if</span> <span class="n">duplicate</span> <span class="k">else</span> <span class="kc">None</span>
+            <span class="k">if</span> <span class="n">duplicate</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;重複画像が見つかりました: ID </span><span class="si">{</span><span class="n">duplicate</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">, UUID </span><span class="si">{</span><span class="n">duplicate</span><span class="p">[</span><span class="s1">&#39;uuid&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">image_id</span>
+        <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;重複画像の検索中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="ImageRepository.get_image_annotations">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository.get_image_annotations">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">get_image_annotations</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        指定された画像IDのアノテーション（タグ、キャプション、スコア）を取得します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_id (int): アノテーションを取得する画像のID。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            dict[str, list[dict[str, Any]]]: アノテーションデータを含む辞書。</span>
+<span class="sd">            画像が存在しない場合は空の辞書を返します。</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            sqlite3.Error: データベース操作でエラーが発生した場合。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># 画像の存在確認</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_image_exists</span><span class="p">(</span><span class="n">image_id</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;指定されたimage_id </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> の画像が存在しません。&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="p">{</span><span class="s1">&#39;tags&#39;</span><span class="p">:</span> <span class="p">[],</span> <span class="s1">&#39;captions&#39;</span><span class="p">:</span> <span class="p">[],</span> <span class="s1">&#39;scores&#39;</span><span class="p">:</span> <span class="p">[]}</span>
+
+            <span class="c1"># アノテーションの取得</span>
+            <span class="n">annotations</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s1">&#39;tags&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_tags</span><span class="p">(</span><span class="n">image_id</span><span class="p">),</span>
+                <span class="s1">&#39;captions&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_captions</span><span class="p">(</span><span class="n">image_id</span><span class="p">),</span>
+                <span class="s1">&#39;scores&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_scores</span><span class="p">(</span><span class="n">image_id</span><span class="p">)</span>
+            <span class="p">}</span>
+            <span class="k">return</span> <span class="n">annotations</span>
+
+        <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;アノテーションの取得中にデータベースエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;予期せぬエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_get_tags</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;image_idからタグを取得する内部メソッド&quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;SELECT tag, model_id FROM tags WHERE image_id = ?&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;タグを取得するimage_id: </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_all</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">(</span><span class="n">image_id</span><span class="p">,))</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">result</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Image_id: </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> にタグは登録されていません。&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">result</span>
+        <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;image_id: </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> のタグを取得中にデータベースエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span>
+
+    <span class="k">def</span> <span class="nf">_get_captions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;image_idからキャプションを取得する内部メソッド&quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;SELECT caption, model_id FROM captions WHERE image_id = ?&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;キャプションを取得するimage_id: </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_all</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">(</span><span class="n">image_id</span><span class="p">,))</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">result</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Image_id: </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> にキャプションは登録されていません。&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">result</span>
+        <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;image_id: </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> のキャプションを取得中にデータベースエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span>
+
+    <span class="k">def</span> <span class="nf">_get_scores</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;image_idからスコアを取得する内部メソッド&quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;SELECT score, model_id FROM scores WHERE image_id = ?&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;スコアを取得するimage_id: </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_all</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">(</span><span class="n">image_id</span><span class="p">,))</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">result</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Image_id: </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> にスコアは登録されていません。&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">result</span>
+        <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;image_id: </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> のスコアを取得中にデータベースエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span>
+
+<div class="viewcode-block" id="ImageRepository.get_images_by_tag">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository.get_images_by_tag">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">get_images_by_tag</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tag</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+<span class="w">            </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">            指定されたタグを持つ画像のIDリストを取得する</span>
+
+<span class="sd">            Args:</span>
+<span class="sd">                tag (str): 検索するタグ</span>
+
+<span class="sd">            Returns:</span>
+<span class="sd">                list[int]: タグを持つ画像IDのリスト か 空リスト</span>
+<span class="sd">            &quot;&quot;&quot;</span>
+            <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">            SELECT DISTINCT i.id</span>
+<span class="s2">            FROM images i</span>
+<span class="s2">            JOIN tags t ON i.id = t.image_id</span>
+<span class="s2">            WHERE t.tag = ?</span>
+<span class="s2">            &quot;&quot;&quot;</span>
+            <span class="n">rows</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_all</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">[</span><span class="n">tag</span><span class="p">])</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">rows</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;</span><span class="si">%s</span><span class="s2"> を含む画像はありません&quot;</span><span class="p">,</span> <span class="n">tag</span><span class="p">)</span>
+                <span class="k">return</span> <span class="p">[]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="p">[</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">rows</span><span class="p">]</span></div>
+
+
+<div class="viewcode-block" id="ImageRepository.get_images_by_caption">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository.get_images_by_caption">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">get_images_by_caption</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">caption</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        指定されたキャプションを含む画像のIDリストを取得する</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            caption (str): 検索するキャプション</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            list[int]: 加工済み画像IDのリスト か 空リスト</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">        SELECT DISTINCT i.id</span>
+<span class="s2">        FROM images i</span>
+<span class="s2">        JOIN captions c ON i.id = c.image_id</span>
+<span class="s2">        WHERE c.caption LIKE ?</span>
+<span class="s2">        &quot;&quot;&quot;</span>
+        <span class="n">rows</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_all</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">[</span><span class="s1">&#39;%&#39;</span> <span class="o">+</span> <span class="n">caption</span> <span class="o">+</span> <span class="s1">&#39;%&#39;</span><span class="p">])</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">rows</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;&#39;</span><span class="si">%s</span><span class="s2">&#39; を含むキャプションを持つ画像はありません&quot;</span><span class="p">,</span> <span class="n">caption</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">[]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">rows</span><span class="p">]</span></div>
+
+
+<div class="viewcode-block" id="ImageRepository.get_processed_image">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository.get_processed_image">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">get_processed_image</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        image_idから関連する全ての処理済み画像のメタデータを取得します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_id (int): 元画像のID。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            dict[str, Any]]: 処理済み画像のメタデータのリスト。</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            sqlite3.Error: データベース操作でエラーが発生した場合。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">        SELECT * FROM processed_images</span>
+<span class="s2">        WHERE image_id = ?</span>
+<span class="s2">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">metadata</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_all</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">(</span><span class="n">image_id</span><span class="p">,))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;ID </span><span class="si">%s</span><span class="s2"> の処理済み画像メタデータを取得しました: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">image_id</span><span class="p">,</span> <span class="n">metadata</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">metadata</span>
+        <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;処理済み画像の取得中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="ImageRepository.get_total_image_count">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository.get_total_image_count">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">get_total_image_count</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;SELECT COUNT(*) FROM images&quot;</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_one</span><span class="p">(</span><span class="n">query</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">result</span><span class="p">[</span><span class="s1">&#39;COUNT(*)&#39;</span><span class="p">]</span> <span class="k">if</span> <span class="n">result</span> <span class="k">else</span> <span class="mi">0</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;総画像数の取得中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="mi">0</span></div>
+
+
+<div class="viewcode-block" id="ImageRepository.get_image_id_by_name">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository.get_image_id_by_name">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">get_image_id_by_name</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        オリジナル画像の重複チェック用 画像名からimage_idを取得</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_name (str): 画像名</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Optional[int]: image_id。画像が見つからない場合はNone。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;SELECT id FROM images WHERE filename = ?&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_one</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">(</span><span class="n">image_name</span><span class="p">,))</span>
+            <span class="k">if</span> <span class="n">result</span><span class="p">:</span>
+                <span class="n">image_id</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像名 </span><span class="si">{</span><span class="n">image_name</span><span class="si">}</span><span class="s2"> のimage_id </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> を取得しました&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">image_id</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像名 </span><span class="si">{</span><span class="n">image_name</span><span class="si">}</span><span class="s2"> のimage_idを取得できませんでした&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像IDの取得中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="ImageRepository.update_image_metadata">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository.update_image_metadata">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">update_image_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">updated_info</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        指定された画像IDのメタデータを更新します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_id (int): 更新する画像のID。</span>
+<span class="sd">            updated_info (dict[str, Any]): 更新するメタデータの辞書。</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            sqlite3.Error: データベース操作でエラーが発生した場合。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">updated_info</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;更新する情報が提供されていません。&quot;</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="n">fields</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2"> = ?&quot;</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">updated_info</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+        <span class="n">values</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">updated_info</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;UPDATE images SET </span><span class="si">{</span><span class="n">fields</span><span class="si">}</span><span class="s2">, updated_at = ? WHERE id = ?&quot;</span>
+        <span class="n">values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">())</span>  <span class="c1"># updated_atを追加</span>
+        <span class="n">values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">image_id</span><span class="p">)</span>  <span class="c1"># image_idを追加</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">values</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像ID </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> のメタデータを更新しました。&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像メタデータの更新中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span></div>
+
+
+<div class="viewcode-block" id="ImageRepository.delete_image">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository.delete_image">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">delete_image</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        指定された画像IDの画像と関連するデータを削除します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_id (int): 削除する画像のID。</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            sqlite3.Error: データベース操作でエラーが発生した場合。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;DELETE FROM images WHERE id = ?&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">(</span><span class="n">image_id</span><span class="p">,))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像ID </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> と関連するデータを削除しました。&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像の削除中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span></div>
+</div>
+
+
+<div class="viewcode-block" id="ImageDatabaseManager">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageDatabaseManager">[ドキュメント]</a>
+<span class="k">class</span> <span class="nc">ImageDatabaseManager</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    画像データベース操作の高レベルインターフェースを提供するクラス。</span>
+<span class="sd">    このクラスは、ImageRepositoryを使用して、画像メタデータとアノテーションの</span>
+<span class="sd">    保存、取得、更新などの操作を行います。</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;ImageDatabaseManager&quot;</span><span class="p">)</span>
+        <span class="n">img_db_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;Image_database&quot;</span><span class="p">)</span> <span class="o">/</span> <span class="s2">&quot;image_database.db&quot;</span>
+        <span class="n">tag_db_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;src&quot;</span><span class="p">)</span> <span class="o">/</span> <span class="s2">&quot;module&quot;</span> <span class="o">/</span> <span class="s2">&quot;genai-tag-db-tools&quot;</span> <span class="o">/</span> <span class="s2">&quot;tags_v3.db&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span> <span class="o">=</span> <span class="n">SQLiteManager</span><span class="p">(</span><span class="n">img_db_path</span><span class="p">,</span> <span class="n">tag_db_path</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">repository</span> <span class="o">=</span> <span class="n">ImageRepository</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">create_tables</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">insert_models</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;初期化&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="fm">__enter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span>
+
+    <span class="k">def</span> <span class="fm">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc_type</span><span class="p">,</span> <span class="n">exc_value</span><span class="p">,</span> <span class="n">_</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">exc_type</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;ImageDatabaseManager使用中にエラー: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">exc_value</span><span class="p">)</span>
+        <span class="k">return</span> <span class="kc">False</span>  <span class="c1"># 例外を伝播させる</span>
+
+<div class="viewcode-block" id="ImageDatabaseManager.register_original_image">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageDatabaseManager.register_original_image">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">register_original_image</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">fsm</span><span class="p">:</span> <span class="n">FileSystemManager</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">tuple</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;オリジナル画像を保存し、メタデータをデータベースに登録</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_path (Path): 画像パス</span>
+<span class="sd">            fsm (FileSystemManager): FileSystemManager のインスタンス</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Optional[tuple]: 登録成功時は (image_id, original_metadata)、失敗時は None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">original_image_metadata</span> <span class="o">=</span> <span class="n">fsm</span><span class="o">.</span><span class="n">get_image_info</span><span class="p">(</span><span class="n">image_path</span><span class="p">)</span>
+            <span class="n">db_stored_original_path</span> <span class="o">=</span> <span class="n">fsm</span><span class="o">.</span><span class="n">save_original_image</span><span class="p">(</span><span class="n">image_path</span><span class="p">)</span>
+            <span class="c1"># UUIDの生成</span>
+            <span class="n">image_uuid</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
+            <span class="c1"># メタデータにUUIDと保存パスを追加</span>
+            <span class="n">original_image_metadata</span><span class="o">.</span><span class="n">update</span><span class="p">({</span>
+                <span class="s1">&#39;uuid&#39;</span><span class="p">:</span> <span class="n">image_uuid</span><span class="p">,</span>
+                <span class="s1">&#39;stored_image_path&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">db_stored_original_path</span><span class="p">)</span>
+            <span class="p">})</span>
+            <span class="c1"># データベースに挿入</span>
+            <span class="n">image_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">add_original_image</span><span class="p">(</span><span class="n">original_image_metadata</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">image_id</span><span class="p">,</span> <span class="n">original_image_metadata</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;オリジナル画像の登録中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span></div>
+
+
+
+<div class="viewcode-block" id="ImageDatabaseManager.register_processed_image">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageDatabaseManager.register_processed_image">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">register_processed_image</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">processed_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">info</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        処理済み画像を保存し、メタデータをデータベースに登録します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_id (int): 元画像のID。</span>
+<span class="sd">            processed_path (Path): 処理済み画像の保存パス。</span>
+<span class="sd">            info (dict[str, Any]): 処理済み画像のメタデータ。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Optional[int]: 保存された処理済み画像のID。失敗時は None。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># 必須情報を確認</span>
+            <span class="n">required_keys</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;width&#39;</span><span class="p">,</span> <span class="s1">&#39;height&#39;</span><span class="p">,</span> <span class="s1">&#39;mode&#39;</span><span class="p">,</span> <span class="s1">&#39;has_alpha&#39;</span><span class="p">,</span>
+                             <span class="s1">&#39;filename&#39;</span><span class="p">,</span> <span class="s1">&#39;color_space&#39;</span><span class="p">,</span> <span class="s1">&#39;icc_profile&#39;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">(</span><span class="n">key</span> <span class="ow">in</span> <span class="n">info</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">required_keys</span><span class="p">):</span>
+                <span class="n">missing_keys</span> <span class="o">=</span> <span class="p">[</span><span class="n">key</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">required_keys</span> <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">info</span><span class="p">]</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;必須情報が不足しています: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">missing_keys</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+            <span class="c1"># メタデータに親画像IDを追加</span>
+            <span class="n">info</span><span class="o">.</span><span class="n">update</span><span class="p">({</span>
+                <span class="s1">&#39;image_id&#39;</span><span class="p">:</span> <span class="n">image_id</span><span class="p">,</span>
+                <span class="s1">&#39;stored_image_path&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">processed_path</span><span class="p">),</span>
+            <span class="p">})</span>
+
+            <span class="c1"># データベースに挿入</span>
+            <span class="n">processed_image_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">add_processed_image</span><span class="p">(</span><span class="n">info</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">processed_image_id</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;処理済み画像メタデータの保存中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="ImageDatabaseManager.save_annotations">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageDatabaseManager.save_annotations">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">save_annotations</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">annotations</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        画像のアノテーション（タグ、キャプション、スコア）を保存します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_id (int): アノテーションを追加する画像のID。</span>
+<span class="sd">            annotations (dict[str, list[dict[str, Any]]]): アノテーションデータ。</span>
+<span class="sd">                &#39;tags&#39;, &#39;captions&#39;, &#39;scores&#39; をキーとし、それぞれリストを値とする辞書。</span>
+<span class="sd">                各リストの要素は {&#39;value&#39;: str, &#39;model&#39;: str} の形式。</span>
+<span class="sd">        Raises:</span>
+<span class="sd">            Exception: アノテーションの保存に失敗した場合。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">save_annotations</span><span class="p">(</span><span class="n">image_id</span><span class="p">,</span> <span class="n">annotations</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像 ID </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> のアノテーション</span><span class="si">{</span><span class="n">annotations</span><span class="si">}</span><span class="s2">を保存しました&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;アノテーションの保存中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span></div>
+
+
+<div class="viewcode-block" id="ImageDatabaseManager.save_score">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageDatabaseManager.save_score">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">save_score</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">score_dict</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        画像のスコアを保存します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_id (int): スコアを追加する画像のID。</span>
+<span class="sd">            score (dict[str, Any]): スコアの値と算出に使ったモデルのID</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">score_float</span> <span class="o">=</span> <span class="n">score_dict</span><span class="p">[</span><span class="s1">&#39;score&#39;</span><span class="p">]</span>
+        <span class="n">model_id</span> <span class="o">=</span> <span class="n">score_dict</span><span class="p">[</span><span class="s1">&#39;model_id&#39;</span><span class="p">]</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">save_score</span><span class="p">(</span><span class="n">image_id</span><span class="p">,</span> <span class="n">score_float</span><span class="p">,</span> <span class="n">model_id</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像 ID </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> のスコア</span><span class="si">{</span><span class="n">score_float</span><span class="si">}</span><span class="s2">を保存しました&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;スコアの保存中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span></div>
+
+
+<div class="viewcode-block" id="ImageDatabaseManager.get_low_res_image">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageDatabaseManager.get_low_res_image">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">get_low_res_image</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        指定されたIDで長辺が最小の処理済み画像のパスを取得します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_id (int): 取得する元画像のID。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Optional[str]: 長辺が最小の処理済み画像のパス。見つからない場合はNone。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">processed_images</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_processed_image</span><span class="p">(</span><span class="n">image_id</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">processed_images</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像ID </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> に対する処理済み画像が見つかりません。&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="kc">None</span>
+
+            <span class="c1"># 長辺が最小の画像を見つける</span>
+            <span class="n">min_long_edge</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="s1">&#39;inf&#39;</span><span class="p">)</span>
+            <span class="n">min_image_path</span> <span class="o">=</span> <span class="kc">None</span>
+
+            <span class="k">for</span> <span class="n">image</span> <span class="ow">in</span> <span class="n">processed_images</span><span class="p">:</span>
+                <span class="n">width</span> <span class="o">=</span> <span class="n">image</span><span class="p">[</span><span class="s1">&#39;width&#39;</span><span class="p">]</span>
+                <span class="n">height</span> <span class="o">=</span> <span class="n">image</span><span class="p">[</span><span class="s1">&#39;height&#39;</span><span class="p">]</span>
+                <span class="n">long_edge</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="p">)</span>
+
+                <span class="k">if</span> <span class="n">long_edge</span> <span class="o">&lt;</span> <span class="n">min_long_edge</span><span class="p">:</span>
+                    <span class="n">min_long_edge</span> <span class="o">=</span> <span class="n">long_edge</span>
+                    <span class="n">min_image_path</span> <span class="o">=</span> <span class="n">image</span><span class="p">[</span><span class="s1">&#39;stored_image_path&#39;</span><span class="p">]</span>
+
+            <span class="k">if</span> <span class="n">min_image_path</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像ID </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> の最小長辺画像（</span><span class="si">{</span><span class="n">min_long_edge</span><span class="si">}</span><span class="s2">px）を取得しました。&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">min_image_path</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像ID </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> に対する適切な低解像度画像が見つかりません。&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="kc">None</span>
+
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;低解像度画像の取得中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="ImageDatabaseManager.get_image_metadata">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageDatabaseManager.get_image_metadata">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">get_image_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        指定されたIDの画像メタデータを取得します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_id (int): 取得する画像のID。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Optional[dict[str, Any]]: 画像メタデータを含む辞書。画像が見つからない場合はNone。</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            Exception: メタデータの取得に失敗した場合。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">metadata</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">get_image_metadata</span><span class="p">(</span><span class="n">image_id</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">metadata</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ID </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> の画像が見つかりません。&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">metadata</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像メタデータ取得中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span></div>
+
+
+<div class="viewcode-block" id="ImageDatabaseManager.get_processed_metadata">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageDatabaseManager.get_processed_metadata">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">get_processed_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        指定された元画像IDに関連する全ての処理済み画像のメタデータを取得します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_id (int): 元画像のID。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            list[dict[str, Any]]: 処理済み画像のメタデータのリスト。</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            Exception: メタデータの取得に失敗した場合。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">processed_images</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">get_processed_image</span><span class="p">(</span><span class="n">image_id</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">processed_images</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ID </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> の元画像に関連する処理済み画像が見つかりません。&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">processed_images</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;処理済み画像メタデータ取得中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span></div>
+
+
+<div class="viewcode-block" id="ImageDatabaseManager.get_image_annotations">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageDatabaseManager.get_image_annotations">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">get_image_annotations</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        指定された画像IDのアノテーション（タグ、キャプション、スコア）を取得します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_id (int): アノテーションを取得する画像のID。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            dict[str, list[dict[str, Any]]]: アノテーションデータを含む辞書。</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            Exception: アノテーションの取得に失敗した場合。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">annotations</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">get_image_annotations</span><span class="p">(</span><span class="n">image_id</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">any</span><span class="p">(</span><span class="n">annotations</span><span class="o">.</span><span class="n">values</span><span class="p">()):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ID </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> の画像にアノテーションが見つかりません。&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">annotations</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像アノテーション取得中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span></div>
+
+
+<div class="viewcode-block" id="ImageDatabaseManager.get_models">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageDatabaseManager.get_models">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">get_models</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        TODO: データベースに問い合わせるのでImageRepositoryに移動したほうがキレイ その時処理は分割する</span>
+<span class="sd">        データベースに登録されているモデルの情報を取得します。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            tuple[dict[int, dict[str, Any]], dict[int, dict[str, Any]]]: (vision_models, score_models) のタプル。</span>
+<span class="sd">            vision_models: {model_id: {&#39;name&#39;: model_name, &#39;provider&#39;: provider}},</span>
+<span class="sd">            upscaler_models: {model_id: {&#39;name&#39;: model_name, &#39;provider&#39;: provider}}</span>
+<span class="sd">            score_models: {model_id: {&#39;name&#39;: model_name, &#39;provider&#39;: provider}}</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;SELECT id, name, provider, type FROM models&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">models</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_all</span><span class="p">(</span><span class="n">query</span><span class="p">)</span>
+            <span class="n">vision_models</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="n">score_models</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="n">upscaler_models</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="k">for</span> <span class="n">model</span> <span class="ow">in</span> <span class="n">models</span><span class="p">:</span>
+                <span class="n">model_id</span> <span class="o">=</span> <span class="n">model</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]</span>
+                <span class="n">name</span> <span class="o">=</span> <span class="n">model</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span>
+                <span class="n">provider</span> <span class="o">=</span> <span class="n">model</span><span class="p">[</span><span class="s1">&#39;provider&#39;</span><span class="p">]</span>
+                <span class="n">model_type</span> <span class="o">=</span> <span class="n">model</span><span class="p">[</span><span class="s1">&#39;type&#39;</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">model_type</span> <span class="o">==</span> <span class="s1">&#39;vision&#39;</span><span class="p">:</span>
+                    <span class="n">vision_models</span><span class="p">[</span><span class="n">model_id</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="n">name</span><span class="p">,</span> <span class="s1">&#39;provider&#39;</span><span class="p">:</span> <span class="n">provider</span><span class="p">}</span>
+                <span class="k">elif</span> <span class="n">model_type</span> <span class="o">==</span> <span class="s1">&#39;score&#39;</span><span class="p">:</span>
+                    <span class="n">score_models</span><span class="p">[</span><span class="n">model_id</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="n">name</span><span class="p">,</span> <span class="s1">&#39;provider&#39;</span><span class="p">:</span> <span class="n">provider</span><span class="p">}</span>
+                <span class="k">elif</span> <span class="n">model_type</span> <span class="o">==</span> <span class="s1">&#39;upscaler&#39;</span><span class="p">:</span>
+                    <span class="n">upscaler_models</span><span class="p">[</span><span class="n">model_id</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="n">name</span><span class="p">,</span> <span class="s1">&#39;provider&#39;</span><span class="p">:</span> <span class="n">provider</span><span class="p">}</span>
+            <span class="k">return</span> <span class="n">vision_models</span><span class="p">,</span> <span class="n">score_models</span><span class="p">,</span> <span class="n">upscaler_models</span>
+        <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;モデルの取得中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span></div>
+
+
+<div class="viewcode-block" id="ImageDatabaseManager.get_images_by_filter">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageDatabaseManager.get_images_by_filter">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">get_images_by_filter</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tags</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">caption</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">resolution</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">use_and</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span> <span class="nb">int</span><span class="p">]:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">tags</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">caption</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;タグもキャプションも指定されていない&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="mi">0</span>
+
+        <span class="n">image_ids</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+
+        <span class="c1"># タグによるフィルタリング</span>
+        <span class="k">if</span> <span class="n">tags</span><span class="p">:</span>
+            <span class="n">tag_results</span> <span class="o">=</span> <span class="p">[</span><span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">get_images_by_tag</span><span class="p">(</span><span class="n">tag</span><span class="p">))</span> <span class="k">for</span> <span class="n">tag</span> <span class="ow">in</span> <span class="n">tags</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">tag_results</span><span class="p">:</span>
+                <span class="n">image_ids</span> <span class="o">=</span> <span class="nb">set</span><span class="o">.</span><span class="n">intersection</span><span class="p">(</span><span class="o">*</span><span class="n">tag_results</span><span class="p">)</span> <span class="k">if</span> <span class="n">use_and</span> <span class="k">else</span> <span class="nb">set</span><span class="o">.</span><span class="n">union</span><span class="p">(</span><span class="o">*</span><span class="n">tag_results</span><span class="p">)</span>
+
+        <span class="c1"># キャプションによるフィルタリング</span>
+        <span class="k">if</span> <span class="n">caption</span><span class="p">:</span>
+            <span class="n">caption_results</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">get_images_by_caption</span><span class="p">(</span><span class="n">caption</span><span class="p">))</span>
+            <span class="n">image_ids</span> <span class="o">=</span> <span class="n">image_ids</span><span class="o">.</span><span class="n">intersection</span><span class="p">(</span><span class="n">caption_results</span><span class="p">)</span> <span class="k">if</span> <span class="n">image_ids</span> <span class="k">else</span> <span class="n">caption_results</span>
+
+        <span class="c1"># 画像メタデータの取得</span>
+        <span class="n">metadata_list</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">image_id</span> <span class="ow">in</span> <span class="n">image_ids</span><span class="p">:</span>
+            <span class="n">metadata</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">get_processed_image</span><span class="p">(</span><span class="n">image_id</span><span class="p">)</span>
+            <span class="n">metadata_list</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">metadata</span><span class="p">)</span>
+
+        <span class="c1"># 解像度によるフィルタリング</span>
+        <span class="k">if</span> <span class="n">resolution</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">filtered_metadata_list</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filter_by_resolution</span><span class="p">(</span><span class="n">metadata_list</span><span class="p">,</span> <span class="n">resolution</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">filtered_metadata_list</span> <span class="o">=</span> <span class="n">metadata_list</span>
+
+        <span class="n">list_count</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">filtered_metadata_list</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;フィルタリング後の画像数: </span><span class="si">{</span><span class="n">list_count</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">filtered_metadata_list</span><span class="p">,</span> <span class="n">list_count</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_filter_by_resolution</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">metadata_list</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span> <span class="n">resolution</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+        <span class="n">filtered_list</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">metadata</span> <span class="ow">in</span> <span class="n">metadata_list</span><span class="p">:</span>
+            <span class="n">width</span><span class="p">,</span> <span class="n">height</span> <span class="o">=</span> <span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;width&#39;</span><span class="p">],</span> <span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;height&#39;</span><span class="p">]</span>
+            <span class="n">long_side</span><span class="p">,</span> <span class="n">short_side</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="p">),</span> <span class="nb">min</span><span class="p">(</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">long_side</span> <span class="o">==</span> <span class="n">resolution</span><span class="p">:</span>
+                <span class="n">filtered_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">metadata</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">target_area</span> <span class="o">=</span> <span class="n">resolution</span> <span class="o">*</span> <span class="n">resolution</span>
+                <span class="n">actual_area</span> <span class="o">=</span> <span class="n">long_side</span> <span class="o">*</span> <span class="n">short_side</span>
+                <span class="n">error_ratio</span> <span class="o">=</span> <span class="nb">abs</span><span class="p">(</span><span class="n">target_area</span> <span class="o">-</span> <span class="n">actual_area</span><span class="p">)</span> <span class="o">/</span> <span class="n">target_area</span>
+
+                <span class="k">if</span> <span class="n">error_ratio</span> <span class="o">&lt;=</span> <span class="mf">0.2</span><span class="p">:</span>
+                    <span class="n">filtered_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">metadata</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">filtered_list</span>
+
+<div class="viewcode-block" id="ImageDatabaseManager.get_image_id_by_name">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageDatabaseManager.get_image_id_by_name">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">get_image_id_by_name</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;オリジナル画像の重複チェック用 画像名からimage_idを取得</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_name (str): 画像名</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            int: image_id</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">image_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">get_image_id_by_name</span><span class="p">(</span><span class="n">image_name</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">image_id</span></div>
+
+
+<div class="viewcode-block" id="ImageDatabaseManager.get_total_image_count">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageDatabaseManager.get_total_image_count">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">get_total_image_count</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;データベース内に登録された編集前画像の総数を取得&quot;&quot;&quot;</span>
+        <span class="n">count</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">get_total_image_count</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">count</span></div>
+
+
+<div class="viewcode-block" id="ImageDatabaseManager.check_processed_image_exists">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageDatabaseManager.check_processed_image_exists">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">check_processed_image_exists</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">target_resolution</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        指定された画像IDと目標解像度に一致する処理済み画像が存在するかチェックします。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_id (int): 元画像のID</span>
+<span class="sd">            target_resolution (int): 目標解像度</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Optional[dict]: 処理済み画像が存在する場合はそのメタデータ、存在しない場合はNone</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">processed_images</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">get_processed_image</span><span class="p">(</span><span class="n">image_id</span><span class="p">)</span>
+
+            <span class="k">for</span> <span class="n">processed_image</span> <span class="ow">in</span> <span class="n">processed_images</span><span class="p">:</span>
+                <span class="n">width</span> <span class="o">=</span> <span class="n">processed_image</span><span class="p">[</span><span class="s1">&#39;width&#39;</span><span class="p">]</span>
+                <span class="n">height</span> <span class="o">=</span> <span class="n">processed_image</span><span class="p">[</span><span class="s1">&#39;height&#39;</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">width</span> <span class="o">==</span> <span class="n">target_resolution</span> <span class="ow">or</span> <span class="n">height</span> <span class="o">==</span> <span class="n">target_resolution</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="n">processed_image</span>
+
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;処理済み画像のチェック中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span></div>
+</div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">lora_dataset_toolsy</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="検索" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>ナビゲーション</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modules.html">src</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">モジュールコード</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2024, NEXTAltair.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.0.2</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

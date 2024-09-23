@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+
+<html lang="ja" data-content_root="../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ImagePreviewWidget &#8212; lora_dataset_toolsy 1.01 ドキュメント</title>
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d1102ebc" />
+    <link rel="stylesheet" type="text/css" href="../_static/basic.css?v=c058f7c8" />
+    <link rel="stylesheet" type="text/css" href="../_static/alabaster.css?v=27fed22d" />
+    <script src="../_static/documentation_options.js?v=e77f40a7"></script>
+    <script src="../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/translations.js?v=91613774"></script>
+    <link rel="index" title="索引" href="../genindex.html" />
+    <link rel="search" title="検索" href="../search.html" />
+   
+  <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>ImagePreviewWidget のソースコード</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">from</span> <span class="nn">PySide6.QtWidgets</span> <span class="kn">import</span> <span class="n">QWidget</span><span class="p">,</span> <span class="n">QGraphicsScene</span><span class="p">,</span> <span class="n">QSizePolicy</span>
+<span class="kn">from</span> <span class="nn">PySide6.QtGui</span> <span class="kn">import</span> <span class="n">QPixmap</span><span class="p">,</span> <span class="n">QPainter</span>
+<span class="kn">from</span> <span class="nn">PySide6.QtCore</span> <span class="kn">import</span> <span class="n">Qt</span><span class="p">,</span> <span class="n">QTimer</span><span class="p">,</span> <span class="n">Slot</span>
+<span class="kn">from</span> <span class="nn">gui_file.ImagePreviewWidget_ui</span> <span class="kn">import</span> <span class="n">Ui_ImagePreviewWidget</span>
+
+<span class="kn">from</span> <span class="nn">module.log</span> <span class="kn">import</span> <span class="n">get_logger</span>
+
+<div class="viewcode-block" id="ImagePreviewWidget">
+<a class="viewcode-back" href="../ImagePreviewWidget.html#ImagePreviewWidget.ImagePreviewWidget">[ドキュメント]</a>
+<span class="k">class</span> <span class="nc">ImagePreviewWidget</span><span class="p">(</span><span class="n">QWidget</span><span class="p">,</span> <span class="n">Ui_ImagePreviewWidget</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parent</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;ImagePreviewWidget&quot;</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">parent</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">setupUi</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+
+        <span class="c1"># QGraphicsScene を作成</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">graphics_scene</span> <span class="o">=</span> <span class="n">QGraphicsScene</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">previewGraphicsView</span><span class="o">.</span><span class="n">setScene</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">graphics_scene</span><span class="p">)</span>
+
+        <span class="c1"># スムーススケーリングを有効にする</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">previewGraphicsView</span><span class="o">.</span><span class="n">setRenderHints</span><span class="p">(</span><span class="n">QPainter</span><span class="o">.</span><span class="n">RenderHint</span><span class="o">.</span><span class="n">Antialiasing</span> 
+                                               <span class="o">|</span> <span class="n">QPainter</span><span class="o">.</span><span class="n">RenderHint</span><span class="o">.</span><span class="n">SmoothPixmapTransform</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pixmap_item</span> <span class="o">=</span> <span class="kc">None</span>
+
+<div class="viewcode-block" id="ImagePreviewWidget.load_image">
+<a class="viewcode-back" href="../ImagePreviewWidget.html#ImagePreviewWidget.ImagePreviewWidget.load_image">[ドキュメント]</a>
+    <span class="nd">@Slot</span><span class="p">(</span><span class="n">Path</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">load_image</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">):</span>
+        <span class="c1"># 既存の表示をクリア</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">graphics_scene</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+
+        <span class="c1"># 画像を読み込み</span>
+        <span class="n">pixmap</span> <span class="o">=</span> <span class="n">QPixmap</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">image_path</span><span class="p">))</span>
+
+        <span class="c1"># 画像をシーンに追加</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">graphics_scene</span><span class="o">.</span><span class="n">addPixmap</span><span class="p">(</span><span class="n">pixmap</span><span class="p">)</span>
+
+        <span class="c1"># シーンの矩形を画像のサイズに設定</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">graphics_scene</span><span class="o">.</span><span class="n">setSceneRect</span><span class="p">(</span><span class="n">pixmap</span><span class="o">.</span><span class="n">rect</span><span class="p">())</span>
+
+        <span class="c1"># サイズ調整処理を遅延</span>
+        <span class="n">QTimer</span><span class="o">.</span><span class="n">singleShot</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_adjust_view_size</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">image_path</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> を プレビュー領域に表示&quot;</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_adjust_view_size</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c1"># graphicsView のサイズポリシーを一時的に Ignored に設定</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">previewGraphicsView</span><span class="o">.</span><span class="n">setSizePolicy</span><span class="p">(</span><span class="n">QSizePolicy</span><span class="o">.</span><span class="n">Policy</span><span class="o">.</span><span class="n">Ignored</span><span class="p">,</span> <span class="n">QSizePolicy</span><span class="o">.</span><span class="n">Policy</span><span class="o">.</span><span class="n">Ignored</span><span class="p">)</span>
+
+        <span class="c1"># graphicsView のサイズを表示領域のサイズに設定</span>
+        <span class="n">view_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">previewGraphicsView</span><span class="o">.</span><span class="n">viewport</span><span class="p">()</span><span class="o">.</span><span class="n">size</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">previewGraphicsView</span><span class="o">.</span><span class="n">resize</span><span class="p">(</span><span class="n">view_size</span><span class="p">)</span>
+
+        <span class="c1"># fitInView を呼び出して画像をフィット</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">previewGraphicsView</span><span class="o">.</span><span class="n">fitInView</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">graphics_scene</span><span class="o">.</span><span class="n">sceneRect</span><span class="p">(),</span> <span class="n">Qt</span><span class="o">.</span><span class="n">AspectRatioMode</span><span class="o">.</span><span class="n">KeepAspectRatio</span><span class="p">)</span>
+
+    <span class="c1"># resizeEvent をオーバーライドしてウィンドウサイズ変更時にサイズ調整</span>
+<div class="viewcode-block" id="ImagePreviewWidget.resizeEvent">
+<a class="viewcode-back" href="../ImagePreviewWidget.html#ImagePreviewWidget.ImagePreviewWidget.resizeEvent">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">resizeEvent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">resizeEvent</span><span class="p">(</span><span class="n">event</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_adjust_view_size</span><span class="p">()</span></div>
+</div>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">PySide6.QtWidgets</span> <span class="kn">import</span> <span class="n">QApplication</span>
+    <span class="n">app</span> <span class="o">=</span> <span class="n">QApplication</span><span class="p">([])</span>
+    <span class="n">widget</span> <span class="o">=</span> <span class="n">ImagePreviewWidget</span><span class="p">()</span>
+    <span class="n">widget</span><span class="o">.</span><span class="n">load_image</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;testimg\1_img\file01.png&quot;</span><span class="p">))</span>  <span class="c1"># 画像パスを指定</span>
+    <span class="n">widget</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+    <span class="n">app</span><span class="o">.</span><span class="n">exec</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../index.html">lora_dataset_toolsy</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="検索" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>ナビゲーション</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../modules.html">src</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../index.html">Documentation overview</a><ul>
+  <li><a href="index.html">モジュールコード</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2024, NEXTAltair.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.0.2</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>
