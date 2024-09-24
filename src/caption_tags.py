@@ -54,16 +54,16 @@ class ImageAnalyzer:
 
         try:
             if tag_path.exists():
-                existing_annotations['tags'].append(ImageAnalyzer._read_annotations(tag_path))
+                existing_annotations['tags'] = ImageAnalyzer._read_annotations(tag_path)
             if caption_path.exists():
-                existing_annotations['captions'].append(ImageAnalyzer._read_annotations(caption_path))
+                existing_annotations['captions'] = ImageAnalyzer._read_annotations(caption_path)
 
             if not existing_annotations['tags'] and not existing_annotations['captions']:
                 ImageAnalyzer.logger.info(f"既存アノテーション無し: {image_path}")
                 return None
 
         except Exception as e:
-            ImageAnalyzer.logger.warning(f"アノテーションファイルの読み込み中にエラーが発生しました: {str(e)}")
+            ImageAnalyzer.logger.info(f"アノテーションファイルの読み込み中にエラーが発生しました: {str(e)}")
             return None
 
         return existing_annotations
@@ -84,12 +84,7 @@ class ImageAnalyzer:
         with open(file_path, 'r', encoding='utf-8') as f:
             clean_data = TagCleaner.clean_format(f.read())
             items = clean_data.strip().split(',')
-            annotations = []
-            for item in items:
-                stripped_item = item.strip()
-                if stripped_item:
-                    annotations.append(stripped_item)
-            return annotations
+            return items
 
     def analyze_image(self, image_path: Path, model_id: int, format_name: str="e621") -> dict[str, Any]:
         """
