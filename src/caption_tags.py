@@ -54,9 +54,9 @@ class ImageAnalyzer:
 
         try:
             if tag_path.exists():
-                existing_annotations['tags'].append(ImageAnalyzer._read_annotations(tag_path, 'tag'))
+                existing_annotations['tags'].append(ImageAnalyzer._read_annotations(tag_path))
             if caption_path.exists():
-                existing_annotations['captions'].append(ImageAnalyzer._read_annotations(caption_path, 'caption'))
+                existing_annotations['captions'].append(ImageAnalyzer._read_annotations(caption_path))
 
             if not existing_annotations['tags'] and not existing_annotations['captions']:
                 ImageAnalyzer.logger.info(f"既存アノテーション無し: {image_path}")
