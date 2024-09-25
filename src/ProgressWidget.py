@@ -1,10 +1,9 @@
 from PySide6.QtWidgets import QDialog
-from PySide6.QtCore import Qt,Signal, Slot, QThread, QObject
+from PySide6.QtCore import Qt, Signal, Slot, QThread, QObject
 
 from gui_file.ProgressWidget_ui import Ui_ProgressWidget
 
 from module.log import get_logger
-
 
 class ProgressWidget(QDialog, Ui_ProgressWidget):
     """
@@ -12,28 +11,24 @@ class ProgressWidget(QDialog, Ui_ProgressWidget):
 
     Attributes:
         canceled (Signal): キャンセルボタンがクリックされたときに発行されるシグナル。
-        logger: ロガー
-        buffer: 進捗値を一時的に保存するバッファ
+        logger (Logger): ロガーオブジェクト。
 
     Signals:
-        canceled: キャンセルボタンクリック時に発行
+        canceled: キャンセルボタンクリック時に発行されるシグナル。
 
-    Slots:
-        on_cancelButton_clicked(): キャンセルボタンクリック時の処理
-        update_status(str): ステータスラベルの更新
+    Methods:
+        update_status(status: str): ステータスラベルのテキストを更新する。
+        update_progress(value: int): プログレスバーの値を更新する。
     """
     canceled = Signal()
 
     def __init__(self, parent=None):
         """ProgressWidgetの初期化"""
-        self.logger = get_logger("ProgressWidget")
         super().__init__(parent, Qt.Dialog)  # 親ウィジェットとダイアログフラグを設定して初期化
+        self.logger = get_logger("ProgressWidget")
         self.setupUi(self)
-        self.setModal(True) # 補湯侍中操作を受け付けないようにする
-        self.logger.debug("初期化")
-
-        # プログレスバーの機能を無効化
-        self.progressBar.setVisible(False)
+        self.setModal(True)  # モーダルに設定して他の操作を受け付けないようにする
+        self.logger.debug("ProgressWidget initialized")
 
     @Slot()
     def on_cancelButton_clicked(self):
@@ -47,62 +42,90 @@ class ProgressWidget(QDialog, Ui_ProgressWidget):
         ステータスラベルのテキストを更新する。
 
         Args:
-            status (str): 新しいステータステキスト
+            status (str): 新しいステータステキスト。
         """
         self.statusLabel.setText(status)
 
+    @Slot(int)
+    def update_progress(self, value):
+        """
+        プログレスバーの値を更新する。
+
+        Args:
+            value (int): プログレスバーの新しい値（0から100の範囲）。
+        """
+        self.progressBar.setValue(value)
+
 class Worker(QObject):
     """
-    バックグラウンドで長時間実行されるタスクを処理するワーカースレッド。
+    バックグラウンドで長時間実行されるタスクを処理するワーカークラス。
 
     Attributes:
         progress_updated (Signal): 進捗状況が更新されたときに発行されるシグナル。
         status_updated (Signal): ステータスが更新されたときに発行されるシグナル。
         finished (Signal): タスクが完了したときに発行されるシグナル。
-        logger: ロガー
-        _is_canceled: キャンセルリクエストを受けたかどうかを示すフラグ
-        process_function: 実行する処理の関数
-        args: 関数に渡す位置引数
-        kwargs: 関数に渡すキーワード引数
+        error_occurred (Signal): エラーが発生したときに発行されるシグナル。
+        logger (Logger): ロガーオブジェクト。
+        _is_canceled (bool): キャンセルリクエストを受けたかどうかを示すフラグ。
+        function (callable): 実行する処理の関数。
+        args (tuple): 関数に渡す位置引数。
+        kwargs (dict): 関数に渡すキーワード引数。
 
     Signals:
-        progress_updated(int): 進捗値更新時に発行
-        status_updated(str): ステータスラベル更新時に発行
-        finished: 処理終了時に発行
+        progress_updated(int): 進捗値が更新されたときに発行。
+        status_updated(str): ステータスラベルが更新されたときに発行。
+        finished: 処理が完了したときに発行。
+        error_occurred(str): エラーが発生したときに発行。
 
-    Slots:
-        run(): ワーカースレッドの処理実行
-        cancel(): キャンセルリクエスト処理
+    Methods:
+        run(): ワーカースレッドで実行する処理。
+        cancel(): ワーカースレッドのキャンセル処理。
     """
     progress_updated = Signal(int)
     status_updated = Signal(str)
     finished = Signal()
+    error_occurred = Signal(str)
 
-    def __init__(self, process_function=None, *args, **kwargs):  # 初期化時に関数と引数を受け取る
-        """Workerの初期化"""
-        self.logger = get_logger(f"Worker: {process_function.__name__}")
+    def __init__(self, function, *args, **kwargs):
+        """Workerの初期化
+
+        Args:
+            function (callable): 実行する関数。
+            *args: 関数に渡す位置引数。
+            **kwargs: 関数に渡すキーワード引数。
+        """
         super().__init__()
+        self.logger = get_logger(f"Worker: {function.__name__}")
         self._is_canceled = False  # キャンセルリクエストを受けたかどうかを示すフラグ
-        self.process_function = process_function  # 実行する処理の関数
+        self.function = function  # 実行する処理の関数
         self.args = args  # 関数に渡す位置引数
         self.kwargs = kwargs  # 関数に渡すキーワード引数
-        self.logger.debug("初期化")
+        self.logger.debug("Worker initialized")
 
     @Slot()
     def run(self):
         """
-        Worker スレッドで実行する処理。
+        ワーカースレッドで実行する処理。
         外部から渡された関数を実行します。
         """
         self.logger.info("Worker: 処理開始")
         try:
             if self._is_canceled:
+                self.logger.info("Worker: キャンセルされました")
                 return
-            self.process_function(*self.args, **self.kwargs)  # process_function を実行
+            # 関数にコールバックを渡す
+            self.function(
+                *self.args,
+                progress_callback=self.progress_updated.emit,
+                status_callback=self.status_updated.emit,
+                is_canceled=lambda: self._is_canceled,
+                **self.kwargs
+            )
         except Exception as e:
-            self.logger.error(f"ワーカースレッドでエラーが発生しました: {e}")
+            self.logger.error(f"Worker: エラーが発生しました: {e}")
+            self.error_occurred.emit(str(e))
         finally:
-            self.logger.info("処理完了")
+            self.logger.info("Worker: 処理完了")
             self.finished.emit()  # 処理完了シグナルを発行
 
     @Slot()
@@ -111,123 +134,103 @@ class Worker(QObject):
         ワーカースレッドのキャンセル処理。
         _is_canceled フラグを True に設定して、処理を中断します。
         """
-        self.logger.debug("Cancel requested")
+        self.logger.debug("Worker: キャンセルリクエストを受け付けました")
         self._is_canceled = True
 
-class Controller:
+class Controller(QObject):
     """
     ProgressWidgetとWorkerを管理し、タスクの実行を制御するコントローラクラス。
 
     Attributes:
-        logger: ロガー
-        progress_widget: 進捗状況を表示する ProgressWidget
-        worker: バックグラウンド処理を実行する Worker
-        thread: ワーカースレッド
+        progress_widget (ProgressWidget): 進捗状況を表示する ProgressWidget。
+        worker (Worker): バックグラウンド処理を実行する Worker。
+        thread (QThread): ワーカースレッド。
+        logger (Logger): ロガーオブジェクト。
 
     Methods:
-        __init__(self, progress_widget: ProgressWidget = None): コンストラクタ
-        start_process_no_args(self, process_function): 引数なしの処理を実行
-        start_process_with_args(self, process_function, *args, **kwargs): 引数ありの処理を実行
-        _setup_and_start_thread(self, process_function, *args, **kwargs): スレッドとワーカーのセットアップと開始
-        cleanup(self): スレッドとワーカーのリソースを解放
-        on_worker_finished(self): ワーカースレッド終了時の処理
+        start_process(self, function, *args, **kwargs): 処理を開始する。
+        cleanup(self): スレッドとワーカーのリソースを解放する。
+
+    Signals:
+        None
     """
-    def __init__(self, progress_widget: ProgressWidget = None):  # ProgressWidget を受け取るように修正
-        """Controllerの初期化"""
-        self.logger = get_logger("Controller")
+    def __init__(self, progress_widget=None):
+        """Controllerの初期化
+
+        Args:
+            progress_widget (ProgressWidget, optional): 既存のProgressWidgetを使用する場合に指定。
+        """
         super().__init__()
-        self.progress_widget = progress_widget if progress_widget else ProgressWidget() # ProgressWidgetを初期化または引数から取得
+        self.logger = get_logger("Controller")
+        self.progress_widget = progress_widget if progress_widget else ProgressWidget()
         self.worker = None
-        self.thread = QThread()  # ワーカースレッド
-        self.logger.debug("初期化")
+        self.thread = None
+        self.logger.debug("Controller initialized")
 
-    def setup_connections(self):
-        """Worker、ProgressWidget、スレッド間のシグナルとスロットを接続する"""
-        self.worker.status_updated.connect(self.progress_widget.update_status)  # WorkerのステータスをProgressWidgetに接続
-        self.worker.finished.connect(self.on_worker_finished) # Workerの終了シグナルをon_worker_finishedスロットに接続
-        self.progress_widget.canceled.connect(self.worker.cancel) # ProgressWidgetのキャンセルシグナルをWorkerのcancelスロットに接続
-        self.thread.started.connect(lambda: self.worker.run())  # スレッド開始シグナルをWorkerのrunスロットに接続
-
-    def start_process_no_args(self, process_function):
+    def start_process(self, function, *args, **kwargs):
         """
-        引数を必要としないプロセスを開始します。
+        処理を開始する。
 
         Args:
-            process_function (callable): 実行する関数（引数なし）
-        """
-        self.logger.debug("Controller: start_process_no_args called")
-        self._setup_and_start_thread(process_function) # スレッドとワーカーのセットアップと開始
-
-    def start_process_with_args(self, process_function, *args, **kwargs):
-        """
-        引数を必要とするプロセスを開始します。
-
-        Args:
-            process_function (callable): 実行する関数
-            *args: 位置引数
-            **kwargs: キーワード引数
-        """
-        self.logger.debug("Controller: start_process_with_args called")
-        self._setup_and_start_thread(process_function, *args, **kwargs) # スレッドとワーカーのセットアップと開始
-
-    def _setup_and_start_thread(self, process_function, *args, **kwargs):
-        """
-        スレッドとワーカーのセットアップと開始を行う内部メソッド
+            function (callable): 実行する関数。
+            *args: 関数に渡す位置引数。
+            **kwargs: 関数に渡すキーワード引数。
         """
         # 既存のスレッドとワーカーをクリーンアップ
         self.cleanup()
 
         # 新しいスレッドとワーカーを作成
         self.thread = QThread()
-        if args or kwargs: # 引数がある場合
-            self.logger.debug(f"Creating new worker: {process_function.__name__} \n with args: {args}, kwargs: {kwargs}")
-            self.worker = Worker(process_function, *args, **kwargs)
-        else: # 引数がない場合
-            self.logger.debug(f"引数なしの新しいワーカー{process_function.__name__}を作成")
-            self.worker = Worker(process_function)
-        self.worker.moveToThread(self.thread) # Workerオブジェクトをスレッドに移動
+        self.worker = Worker(function, *args, **kwargs)
+        self.worker.moveToThread(self.thread)
 
-        # 接続を設定
+        # シグナルとスロットの接続
         self.thread.started.connect(self.worker.run)
         self.worker.finished.connect(self.thread.quit)
         self.worker.finished.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.thread.deleteLater)
+        self.worker.progress_updated.connect(self.progress_widget.update_progress)
         self.worker.status_updated.connect(self.progress_widget.update_status)
+        self.worker.error_occurred.connect(self.on_error)
         self.worker.finished.connect(self.on_worker_finished)
         self.progress_widget.canceled.connect(self.worker.cancel)
 
         # スレッドを開始
         self.thread.start()
-        self.logger.debug("New thread started")
+        self.logger.debug("Controller: スレッドを開始しました")
 
     @Slot()
     def on_worker_finished(self):
         """
         Workerの処理が終了したときに呼び出されるスロット。
-        スレッドをクリーンアップし、progress_widgetを非表示にします。
+        ProgressWidgetを非表示にし、リソースを解放します。
         """
-        self.logger.debug("Controller: on_worker_finished called")
+        self.logger.debug("Controller: Workerが完了しました")
         self.progress_widget.hide()
-        self.cleanup() # スレッドとワーカーのリソースを解放
+        self.cleanup()
+
+    @Slot(str)
+    def on_error(self, message):
+        """
+        Workerでエラーが発生したときに呼び出されるスロット。
+
+        Args:
+            message (str): エラーメッセージ。
+        """
+        self.logger.error(f"Controller: エラーが発生しました: {message}")
+        # ここでエラーをユーザーに通知するための処理を追加できます
+        # 例えば、QMessageBoxを表示するなど
+        self.progress_widget.hide()
+        self.cleanup()
 
     def cleanup(self):
         """
         スレッドとワーカーのリソースを解放する。
         """
         if self.thread and self.thread.isRunning():
-            self.logger.debug("Cleaning up existing thread and worker")
-            self.worker.cancel() # ワーカースレッドにキャンセルリクエストを送信
-            self.thread.quit() # スレッドを終了
-            self.thread.wait() # スレッドが完全に終了するまで待機
+            self.logger.debug("Controller: スレッドとワーカーをクリーンアップします")
+            self.worker.cancel()
+            self.thread.quit()
+            self.thread.wait()
         self.thread = None
         self.worker = None
-
-if __name__ == "__main__":
-    from PySide6.QtWidgets import QApplication
-    from module.log import setup_logger
-    logconf = {'level': 'DEBUG', 'file': 'ProgressWidget.log'}
-    setup_logger(logconf)
-    app = QApplication([])
-    controller = Controller()
-    controller.progress_widget.show()
-    app.exec()

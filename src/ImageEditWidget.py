@@ -38,6 +38,12 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         header.setStretchLastSection(False)
 
+    def initialize_processing(self):
+        """画像処理に必要なクラスの初期化"""
+        self.fsm.initialize(Path(self.cm.config['directories']['output']), self.target_resolution)
+        self.ipm = ImageProcessingManager(self.fsm, self.target_resolution,
+                                          self.preferred_resolutions)
+
     def showEvent(self, event):
         """ウィジェットが表示される際に呼び出されるイベントハンドラ"""
         super().showEvent(event)
@@ -128,22 +134,23 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
             self.logger.error(f"画像処理中にエラーが発生しました: {str(e)}")
             QMessageBox.critical(self, "エラー", f"処理中にエラーが発生しました: {str(e)}")
 
-    def process_all_images(self):
+    def process_all_images(self, progress_callback=None, status_callback=None, is_canceled=None):
         try:
-            for _, image_path in enumerate(self.directory_images):
-                if self.main_window.progress_controller.worker._is_canceled:
+            total_images = len(self.directory_images)
+            for index, image_path in enumerate(self.directory_images):
+                if is_canceled and is_canceled():
                     break
                 self.process_image(image_path)
+                # 進捗の更新
+                if progress_callback:
+                    progress = int((index + 1) / total_images * 100)
+                    progress_callback(progress)
+                # ステータスの更新
+                if status_callback:
+                    status_callback(f"画像 {index + 1}/{total_images} を処理中")
         except Exception as e:
             self.logger.error(f"画像処理中にエラーが発生しました: {str(e)}")
-        finally:
-            self.main_window.progress_controller.worker.finished.emit()
-
-    def initialize_processing(self):
-        """画像処理に必要なクラスの初期化"""
-        self.fsm.initialize(Path(self.cm.config['directories']['output']), self.target_resolution)
-        self.ipm = ImageProcessingManager(self.fsm, self.target_resolution,
-                                          self.preferred_resolutions)
+            raise e
 
     def process_image(self, image_file: Path):
         image_id = self.idm.get_image_id_by_name(image_file.name)
@@ -182,21 +189,19 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
 
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
-    from gui import ConfigManager
+    from gui import MainWindow, ConfigManager
     from module.config import get_config
-    from module.log import setup_logger
     import sys
 
     app = QApplication(sys.argv)
     config = get_config()
-    logconf = {'level': 'DEBUG', 'file': 'ImageEditWidget.log'}
-    setup_logger(logconf)
     fsm = FileSystemManager()
     idm = ImageDatabaseManager()
     cm = ConfigManager()
+    main_window = MainWindow()
     image_paths = fsm.get_image_files(Path(r"testimg\10_Kaya")) # 画像ファイルのディレクトリを指定
     widget = ImageEditWidget()
-    widget.initialize(cm, fsm, idm)
+    widget.initialize(cm, fsm, idm, main_window)
     widget.load_images(image_paths)
     widget.show()
     sys.exit(app.exec())

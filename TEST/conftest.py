@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from pathlib import Path
 import sys
 # プロジェクトルートの src ディレクトリを追加
@@ -8,6 +8,9 @@ sys.path.append(str(Path(__file__).resolve().parent.parent / 'src'))
 from module.file_sys import FileSystemManager
 from module.db import SQLiteManager, ImageRepository, ImageDatabaseManager
 from src.module.config import get_config
+from module.log import setup_logger
+
+from PySide6.QtWidgets import QApplication
 
 # 一時ディレクトリのパスをここで指定しないと、パーミッションエラーが出る
 @pytest.fixture(scope="session")
@@ -38,13 +41,13 @@ def sqlite_manager(test_db_paths):
     tag_db.unlink(missing_ok=True)
 
 @pytest.fixture
-def sqlite_manager_function(tmp_path):
+def mock_image_database_manager(tmp_path):
     img_db, tag_db = tmp_path / "test_image.db", tmp_path / "test_tag.db"
-    manager = SQLiteManager(img_db, tag_db)
-    manager.create_tables()
-    manager.insert_models()
-    yield manager
-    manager.close()
+    mock_idm = SQLiteManager(img_db, tag_db)
+    mock_idm.create_tables()
+    mock_idm.insert_models()
+    yield mock_idm
+    mock_idm.close()
     img_db.unlink(missing_ok=True)
     tag_db.unlink(missing_ok=True)
 
@@ -62,6 +65,20 @@ def mock_file_system_manager(tmp_path):
     mock_fs.resized_images_dir.mkdir(parents=True, exist_ok=True)
     mock_fs.batch_request_dir.mkdir(parents=True, exist_ok=True)
     return mock_fs
+
+# ImageProcessingManager のモックを作成
+@pytest.fixture
+def mock_image_processing_manager():
+    ipm = MagicMock()
+    ipm.process_image = MagicMock(return_value='processed_image_data')
+    return ipm
+
+# ImageAnalyzer のモックを作成
+@pytest.fixture
+def mock_image_analyzer():
+    with patch('src.ImageEditWidget.ImageAnalyzer') as mock_analyzer:
+        mock_analyzer.get_existing_annotations = MagicMock(return_value={'tags': ['tag1', 'tag2'], 'captions': ['caption1']})
+        yield mock_analyzer
 
 @pytest.fixture(scope="session")
 def preferred_resolutions():
@@ -158,3 +175,43 @@ def sample_image_info():
         'color_space': 'sRGB',
         'icc_profile': None
     }
+
+
+# GUIのモック############################################################
+# QApplication のインスタンスを作成
+@pytest.fixture(scope="session")
+def app():
+    return QApplication([])
+
+@pytest.fixture
+def mock_main_window():
+    class MockMainWindow:
+        def __init__(self):
+            self.logger = setup_logger({'level': 'DEBUG', 'file': 'test.log'})
+            self.progress_controller = MagicMock()
+            self.some_long_process = MagicMock()
+    return MockMainWindow()
+
+# ConfigManager のモックを作成
+@pytest.fixture
+def mock_config_manager():
+    class MockConfigManager:
+        def __init__(self):
+            self.config = {
+                'image_processing': {
+                    'target_resolution': 512,
+                    'upscaler': 'Lanczos'
+                },
+                'preferred_resolutions': [512, 768, 1024],
+                'directories': {
+                    'output': 'output_directory'
+                }
+            }
+            self.dataset_image_paths = []
+            self.vision_models = {}
+            self.score_models = {}
+            self.upscaler_models = {
+                '1': {'name': 'Lanczos'},
+                '2': {'name': 'Bicubic'}
+            }
+    return MockConfigManager()
