@@ -90,15 +90,10 @@ class MainWindow(QMainWindow, Ui_mainWindow):
         if hasattr(current_page, 'load_images'):
             self.some_long_process(current_page.load_images, self.cm.dataset_image_paths, is_list_process=True)
 
-    def some_long_process(self, process_function, *args, is_list_process=False, **kwargs):
-        self.progress_widget.show()  # プログレスウィジェットを表示
+    def some_long_process(self, process_function, *args, **kwargs):
+        self.progress_widget.show()
         try:
-            # process_function がリスト処理かどうかをチェック
-            if is_list_process or (callable(process_function) and len(inspect.signature(process_function).parameters) > 1):  # self を除く
-                self.progress_controller.start_process_with_args(process_function, *args, **kwargs)
-            else:
-                self.progress_controller.start_process_no_args(process_function)
-
+            self.progress_controller.start_process(process_function, *args, **kwargs)
         except Exception as e:
             self.logger.error(f"ProgressWidgetを使用した処理中にエラーが発生しました: {e}")
 

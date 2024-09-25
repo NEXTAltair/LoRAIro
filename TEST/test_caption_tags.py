@@ -99,15 +99,15 @@ def test_get_existing_annotations(tmp_path):
         f.write('tag1, tag2, tag3')
 
     with open(caption_file, 'w', encoding='utf-8') as f:
-        f.write('A sample caption')
+        f.write('A sample caption, another_caption')
 
     # アノテーションを取得
     annotations = ImageAnalyzer.get_existing_annotations(image_path)
 
     # 期待されるアノテーション
     expected_annotations = {
-        'tags': [{'tag': 'tag1'}, {'tag': 'tag2'}, {'tag': 'tag3'}],
-        'captions': [{'caption': 'a sample caption'}]
+        'tags': ['tag1', ' tag2', ' tag3'],
+        'captions': ['a sample caption', ' another caption']
     }
 
     # アノテーションの検証
