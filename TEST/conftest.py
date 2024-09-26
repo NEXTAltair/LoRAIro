@@ -1,3 +1,5 @@
+# conftest.py
+
 import pytest
 from unittest.mock import MagicMock, patch
 from pathlib import Path
@@ -8,9 +10,14 @@ sys.path.append(str(Path(__file__).resolve().parent.parent / 'src'))
 from module.file_sys import FileSystemManager
 from module.db import SQLiteManager, ImageRepository, ImageDatabaseManager
 from src.module.config import get_config
-from module.log import setup_logger
+from module.log import setup_logger, get_logger
 
 from PySide6.QtWidgets import QApplication
+
+@pytest.fixture(scope="session")
+def preferred_resolutions():
+    config = get_config()
+    return config['preferred_resolutions']
 
 # 一時ディレクトリのパスをここで指定しないと、パーミッションエラーが出る
 @pytest.fixture(scope="session")
@@ -21,42 +28,15 @@ def tmp_path_factory(request):
 def tmp_path(tmp_path_factory):
     return tmp_path_factory
 
-@pytest.fixture(scope="session")
-def test_db_paths(tmp_path):
-    img_db = tmp_path / "db" / "test_image_database.db"
-    tag_db = tmp_path / "db" / "test_tag_database.db"
-    img_db.parent.mkdir(parents=True, exist_ok=True)
-    tag_db.parent.mkdir(parents=True, exist_ok=True)
-    return img_db, tag_db
-
-@pytest.fixture(scope="module")
-def sqlite_manager(test_db_paths):
-    img_db, tag_db = test_db_paths
-    manager = SQLiteManager(img_db, tag_db)
-    manager.create_tables()
-    manager.insert_models()
-    yield manager
-    manager.close()
-    img_db.unlink(missing_ok=True)
-    tag_db.unlink(missing_ok=True)
-
+# ImageDatabaseManager のモックを提供するフィクスチャ（他のテストでも使用）
 @pytest.fixture
-def mock_image_database_manager(tmp_path):
-    img_db, tag_db = tmp_path / "test_image.db", tmp_path / "test_tag.db"
-    mock_idm = SQLiteManager(img_db, tag_db)
-    mock_idm.create_tables()
-    mock_idm.insert_models()
-    yield mock_idm
-    mock_idm.close()
-    img_db.unlink(missing_ok=True)
-    tag_db.unlink(missing_ok=True)
+def mock_image_database_manager():
+    idm_mock = MagicMock(spec=ImageDatabaseManager)
+    return idm_mock
 
+# FileSystemManager のモックを提供するフィクスチャ
 @pytest.fixture
 def mock_file_system_manager(tmp_path):
-    """
-    FileSystemManager のモックを提供します。
-    テスト用の一時ディレクトリを使用します。
-    """
     mock_fs = MagicMock(spec=FileSystemManager)
     mock_fs.original_images_dir = tmp_path / "original_images"
     mock_fs.resized_images_dir = tmp_path / "resized_images"
@@ -66,24 +46,62 @@ def mock_file_system_manager(tmp_path):
     mock_fs.batch_request_dir.mkdir(parents=True, exist_ok=True)
     return mock_fs
 
-# ImageProcessingManager のモックを作成
+# ImageProcessingManager のモックを提供するフィクスチャ
 @pytest.fixture
 def mock_image_processing_manager():
     ipm = MagicMock()
     ipm.process_image = MagicMock(return_value='processed_image_data')
     return ipm
 
-# ImageAnalyzer のモックを作成
+# ImageAnalyzer のモックを提供するフィクスチャ
 @pytest.fixture
 def mock_image_analyzer():
     with patch('src.ImageEditWidget.ImageAnalyzer') as mock_analyzer:
-        mock_analyzer.get_existing_annotations = MagicMock(return_value={'tags': ['tag1', 'tag2'], 'captions': ['caption1']})
+        mock_analyzer.get_existing_annotations.return_value = {'tags': ['tag1', 'tag2'], 'captions': ['caption1']}
         yield mock_analyzer
 
+# QApplication のインスタンスを提供するフィクスチャ
 @pytest.fixture(scope="session")
-def preferred_resolutions():
-    config = get_config()
-    return config['preferred_resolutions']
+def app():
+    return QApplication([])
+
+# MainWindow のモックを提供するフィクスチャ
+@pytest.fixture
+def mock_main_window():
+    class MockMainWindow:
+        def __init__(self):
+            self.logger = setup_logger({'level': 'DEBUG', 'file': 'test.log'})
+            self.progress_controller = MagicMock()
+            self.some_long_process = MagicMock()
+    return MockMainWindow()
+
+# ConfigManager のモックを提供するフィクスチャ
+@pytest.fixture
+def mock_config_manager():
+    class MockConfigManager:
+        def __init__(self):
+            self.config = {
+                'image_processing': {
+                    'target_resolution': 512,
+                    'upscaler': 'Lanczos'
+                },
+                'preferred_resolutions': [512, 768, 1024],
+                'directories': {
+                    'output': 'output_directory'
+                }
+            }
+            self.dataset_image_paths = []
+            self.vision_models = {}
+            self.score_models = {}
+            self.upscaler_models = {
+                '1': {'name': 'Lanczos'},
+                '2': {'name': 'Bicubic'}
+            }
+    return MockConfigManager()
+
+# 既存のフィクスチャをそのまま残す
+import shutil
+import uuid
 
 @pytest.fixture
 def sample_images(tmp_path):
@@ -132,9 +150,6 @@ def sample_images(tmp_path):
         "p": p_path
     }
 
-import shutil
-import uuid
-
 @pytest.fixture(scope="session")
 def test_image_path(tmp_path):
     source_image = Path("testimg/1_img/file01.webp")  # プロジェクトルートからの相対パス
@@ -175,43 +190,3 @@ def sample_image_info():
         'color_space': 'sRGB',
         'icc_profile': None
     }
-
-
-# GUIのモック############################################################
-# QApplication のインスタンスを作成
-@pytest.fixture(scope="session")
-def app():
-    return QApplication([])
-
-@pytest.fixture
-def mock_main_window():
-    class MockMainWindow:
-        def __init__(self):
-            self.logger = setup_logger({'level': 'DEBUG', 'file': 'test.log'})
-            self.progress_controller = MagicMock()
-            self.some_long_process = MagicMock()
-    return MockMainWindow()
-
-# ConfigManager のモックを作成
-@pytest.fixture
-def mock_config_manager():
-    class MockConfigManager:
-        def __init__(self):
-            self.config = {
-                'image_processing': {
-                    'target_resolution': 512,
-                    'upscaler': 'Lanczos'
-                },
-                'preferred_resolutions': [512, 768, 1024],
-                'directories': {
-                    'output': 'output_directory'
-                }
-            }
-            self.dataset_image_paths = []
-            self.vision_models = {}
-            self.score_models = {}
-            self.upscaler_models = {
-                '1': {'name': 'Lanczos'},
-                '2': {'name': 'Bicubic'}
-            }
-    return MockConfigManager()
