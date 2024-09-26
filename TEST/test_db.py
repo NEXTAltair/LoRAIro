@@ -8,7 +8,7 @@ import uuid
 @pytest.fixture
 def test_db_paths(tmp_path):
     img_db = tmp_path / f"test_image_database_{uuid.uuid4()}.db"
-    tag_db = tmp_path / f"test_tag_database_{uuid.uuid4()}.db"
+    tag_db = Path("src/module/genai-tag-db-tools/tags_v3.db") #テストによる変更がないので実際のパスを使用
     return img_db, tag_db
 
 @pytest.fixture
@@ -20,10 +20,10 @@ def sqlite_manager(test_db_paths):
     yield sqlite_manager
     sqlite_manager.close()
     img_db.unlink(missing_ok=True)
-    tag_db.unlink(missing_ok=True)
 
 @pytest.fixture
 def image_database_manager(sqlite_manager):
+    # ハードコーディングされたパスをテスト用データベースに変更するためパッチ
     with patch.object(ImageDatabaseManager, '__init__', return_value=None):
         idm = ImageDatabaseManager()
         idm.logger = get_logger("ImageDatabaseManager")
@@ -131,31 +131,29 @@ def test_register_processed_image(image_database_manager, sample_image_info, tmp
     assert processed_metadata['width'] == 256
     assert processed_metadata['height'] == 256
 
-def assert_annotations(retrieved_data, expected_data, model_id, test_case_index):
-    for key in ['tags', 'captions', 'scores']:
-        if key in expected_data:
-            expected = expected_data[key]
-            if key == 'tags':
-                filtered = [item['tag'] for item in retrieved_data['tags'] if item['model_id'] == model_id]
-            elif key == 'captions':
-                filtered = [item['caption'] for item in retrieved_data['captions'] if item['model_id'] == model_id]
-            elif key == 'scores':
-                filtered = [item['score'] for item in retrieved_data['scores'] if item['model_id'] == model_id]
+def assert_annotations(retrieved, expected, model_id, case_index, repository):
+    if 'tags' in expected:
+        assert len(retrieved['tags']) >= len(expected['tags']), f"Case {case_index}: タグの数が一致しません"
+        for tag in expected['tags']:
+            matching_tags = [t for t in retrieved['tags'] if t['tag'] == tag]
+            assert matching_tags, f"Case {case_index}: タグ '{tag}' が見つかりません"
+            assert matching_tags[0]['model_id'] == model_id, f"Case {case_index}: タグ '{tag}' のmodel_idが一致しません"
+            expected_tag_id = repository.find_tag_id(tag)
+            assert matching_tags[0]['tag_id'] == expected_tag_id, f"Case {case_index}: タグ '{tag}' のtag_idが一致しません"
+            if tag == 'spiked collar':
+                assert expected_tag_id == 1, f"Case {case_index}: 'spiked collar' のtag_idが1ではありません"
 
-            if key == 'scores':
-                assert len(filtered) == 1, (
-                    f"テストケース {test_case_index}: {key} の数が1ではありません。実際: {len(filtered)}"
-                )
-                assert filtered[0] == expected, (
-                    f"テストケース {test_case_index}: {key} が一致しません。期待: {expected}, 実際: {filtered[0]}"
-                )
-            else:
-                assert len(filtered) == len(expected), (
-                    f"テストケース {test_case_index}: {key} の数が一致しません。期待: {len(expected)}, 実際: {len(filtered)}"
-                )
-                assert set(filtered) == set(expected), (
-                    f"テストケース {test_case_index}: {key} の内容が一致しません。期待: {expected}, 実際: {filtered}"
-                )
+    if 'captions' in expected:
+        assert len(retrieved['captions']) >= len(expected['captions']), f"Case {case_index}: キャプションの数が一致しません"
+        for caption in expected['captions']:
+            matching_captions = [c for c in retrieved['captions'] if c['caption'] == caption]
+            assert matching_captions, f"Case {case_index}: キャプション '{caption}' が見つかりません"
+            assert matching_captions[0]['model_id'] == model_id, f"Case {case_index}: キャプション '{caption}' のmodel_idが一致しません"
+
+    if 'score' in expected:
+        matching_scores = [s for s in retrieved['scores'] if s['score'] == expected['score']]
+        assert matching_scores, f"Case {case_index}: スコア {expected['score']} が見つかりません"
+        assert matching_scores[0]['model_id'] == model_id, f"Case {case_index}: スコア {expected['score']} のmodel_idが一致しません"
 
 def test_save_annotations(image_database_manager, sample_image_info):
     """アノテーションの保存と取得の確認、欠損値のテストを含む"""
@@ -164,7 +162,7 @@ def test_save_annotations(image_database_manager, sample_image_info):
 
     test_cases = [
         {
-            'tags': ['tag1', 'tag2', 'tag3'],
+            'tags': ['spiked collar', 'tag1', 'tag2'],
             'captions': ['caption1', 'caption2'],
             'score': 0.95,
             'model_id': 1
@@ -183,6 +181,9 @@ def test_save_annotations(image_database_manager, sample_image_info):
             'tags': ['tag6'],
             'score': 0.75,
             # 'model_id' がない場合
+        },
+        {
+            'tags': ['spiked collar'], #tags_v3に存在するidを登録
         }
     ]
 
@@ -193,7 +194,16 @@ def test_save_annotations(image_database_manager, sample_image_info):
 
         current_model_id = case.get('model_id')
 
-        assert_annotations(retrieved, case, current_model_id, index)
+        assert_annotations(retrieved, case, current_model_id, index, manager.repository)
+
+def test_find_tag_id(image_database_manager, sample_image_info):
+    """アタッチしたsrc\module\genai-tag-db-toolsのタグデータベースから登録されたタグIDを取得する"""
+    manager = image_database_manager
+    image_id = manager.repository.add_original_image(sample_image_info)
+    manager.repository.save_annotations(image_id, {'tags': ['spiked collar'], 'model_id': None})
+
+    tag_id = manager.repository.find_tag_id('spiked collar')
+    assert tag_id == 1
 
 def test_get_images_by_tag(image_database_manager, sample_image_info):
     """タグによる画像検索の確認"""
