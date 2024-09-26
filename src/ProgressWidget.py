@@ -1,3 +1,5 @@
+import inspect
+
 from PySide6.QtWidgets import QDialog
 from PySide6.QtCore import Qt, Signal, Slot, QThread, QObject
 
@@ -113,14 +115,23 @@ class Worker(QObject):
             if self._is_canceled:
                 self.logger.info("Worker: キャンセルされました")
                 return
-            # 関数にコールバックを渡す
-            self.function(
-                *self.args,
-                progress_callback=self.progress_updated.emit,
-                status_callback=self.status_updated.emit,
-                is_canceled=lambda: self._is_canceled,
-                **self.kwargs
-            )
+
+            # 関数のシグネチャを取得
+            sig = inspect.signature(self.function)
+            params = sig.parameters
+
+            # 渡すキーワード引数を準備
+            kwargs = dict(self.kwargs)
+            if 'progress_callback' in params:
+                kwargs['progress_callback'] = self.progress_updated.emit
+            if 'status_callback' in params:
+                kwargs['status_callback'] = self.status_updated.emit
+            if 'is_canceled' in params:
+                kwargs['is_canceled'] = lambda: self._is_canceled
+
+            # 関数を実行
+            self.function(*self.args, **kwargs)
+
         except Exception as e:
             self.logger.error(f"Worker: エラーが発生しました: {e}")
             self.error_occurred.emit(str(e))

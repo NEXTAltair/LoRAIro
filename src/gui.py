@@ -88,7 +88,7 @@ class MainWindow(QMainWindow, Ui_mainWindow):
         # 現在表示されているページを更新するため current_page の load_images メソッドを呼び出す
         current_page = self.contentStackedWidget.currentWidget()
         if hasattr(current_page, 'load_images'):
-            self.some_long_process(current_page.load_images, self.cm.dataset_image_paths, is_list_process=True)
+            self.some_long_process(current_page.load_images, self.cm.dataset_image_paths)
 
     def some_long_process(self, process_function, *args, **kwargs):
         self.progress_widget.show()
