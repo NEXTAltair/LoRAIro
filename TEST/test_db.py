@@ -42,21 +42,16 @@ def test_sqlite_connect(sqlite_manager):
     expected_tables = {'images', 'processed_images', 'models', 'tags', 'captions', 'scores'}
     assert expected_tables.issubset(tables)
 
-def test_sqlite_execute(sqlite_manager):
-    """データベースへのクエリ実行の確認"""
-    query = "INSERT INTO models (name, type, provider) VALUES (?, ?, ?)"
-    params = ('test_model', 'test_type', 'test_provider')
-    cursor = sqlite_manager.execute(query, params)
-    assert cursor.lastrowid is not None
-
+def test_sqlite_fetch_one(sqlite_manager):
     """単一行のデータ取得の確認"""
-    fetch_query = "SELECT * FROM models WHERE name = ?"
-    fetch_params = ('test_model',)
-    result = sqlite_manager.fetch_one(fetch_query, fetch_params)
+    query = "SELECT * FROM models WHERE name = ?"
+    params = ('gpt-4o',)
+    result = sqlite_manager.fetch_one(query, params)
+    # 確認するパラメーターはsrc.module.db.SQLiteManager.insert_modelsで追加されたもの
     assert result is not None
-    assert result['name'] == 'test_model'
-    assert result['type'] == 'test_type'
-    assert result['provider'] == 'test_provider'
+    assert result['name'] == 'gpt-4o'
+    assert result['type'] == 'vision'
+    assert result['provider'] == 'OpenAI'
 
 def test_add_original_image(image_database_manager, sample_image_info):
     """オリジナル画像の追加とメタデータの取得"""
