@@ -58,6 +58,7 @@ def test_process_all_images(widget, mocker):
     widget.target_resolution = 512
 
     mock_get_existing_annotations = mocker.patch('src.ImageEditWidget.ImageAnalyzer.get_existing_annotations', return_value={'tags': [], 'captions': []})
+    widget.ipm = mocker.Mock()
     mock_process_image = mocker.patch.object(widget.ipm, 'process_image', return_value='processed_image_data')
 
     # idm のモックを明示的に設定
