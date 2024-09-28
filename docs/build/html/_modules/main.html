@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+
+<html lang="ja" data-content_root="../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>main &#8212; lora_dataset_toolsy 1.01 ドキュメント</title>
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d1102ebc" />
+    <link rel="stylesheet" type="text/css" href="../_static/basic.css?v=c058f7c8" />
+    <link rel="stylesheet" type="text/css" href="../_static/alabaster.css?v=27fed22d" />
+    <script src="../_static/documentation_options.js?v=e77f40a7"></script>
+    <script src="../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/translations.js?v=91613774"></script>
+    <link rel="index" title="索引" href="../genindex.html" />
+    <link rel="search" title="検索" href="../search.html" />
+   
+  <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>main のソースコード</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">gc</span>
+<span class="kn">from</span> <span class="nn">abc</span> <span class="kn">import</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">abstractmethod</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">from</span> <span class="nn">PIL</span> <span class="kn">import</span> <span class="n">Image</span>
+
+<span class="kn">from</span> <span class="nn">module.config</span> <span class="kn">import</span> <span class="n">get_config</span>
+<span class="kn">from</span> <span class="nn">module.db</span> <span class="kn">import</span> <span class="n">ImageDatabaseManager</span>
+<span class="kn">from</span> <span class="nn">module.file_sys</span> <span class="kn">import</span> <span class="n">FileSystemManager</span>
+<span class="kn">from</span> <span class="nn">module.log</span> <span class="kn">import</span> <span class="n">setup_logger</span><span class="p">,</span> <span class="n">get_logger</span>
+<span class="kn">from</span> <span class="nn">module.api_utils</span> <span class="kn">import</span> <span class="n">APIClientFactory</span>
+<span class="kn">from</span> <span class="nn">ImageEditor</span> <span class="kn">import</span> <span class="n">ImageProcessingManager</span>
+<span class="kn">from</span> <span class="nn">caption_tags</span> <span class="kn">import</span> <span class="n">ImageAnalyzer</span>
+
+<span class="kn">import</span> <span class="nn">traceback</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">List</span>
+
+
+<div class="viewcode-block" id="MainControllBase">
+<a class="viewcode-back" href="../main.html#main.MainControllBase">[ドキュメント]</a>
+<span class="k">class</span> <span class="nc">MainControllBase</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot; 画像処理のメインコントローラーの基底クラス</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        ABC (ABC): 抽象基底クラス</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">file_system_manager</span><span class="p">,</span> <span class="n">image_database_manager</span><span class="p">,</span> <span class="n">image_processing_manager</span><span class="p">,</span> <span class="n">image_analyzer</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;コンストラクタ</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">file_system_manager</span> <span class="o">=</span> <span class="n">file_system_manager</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">image_database_manager</span> <span class="o">=</span> <span class="n">image_database_manager</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">image_processing_manager</span> <span class="o">=</span> <span class="n">image_processing_manager</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">image_analyzer</span> <span class="o">=</span> <span class="n">image_analyzer</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_setup_logger</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_setup_logger</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+
+<div class="viewcode-block" id="MainControllBase.execute">
+<a class="viewcode-back" href="../main.html#main.MainControllBase.execute">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;処理を開始&quot;</span><span class="p">)</span>
+        <span class="n">dataset_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s1">&#39;directories&#39;</span><span class="p">][</span><span class="s1">&#39;dataset&#39;</span><span class="p">])</span>
+        <span class="n">image_files</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_system_manager</span><span class="o">.</span><span class="n">get_image_files</span><span class="p">(</span><span class="n">dataset_path</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">image_file</span> <span class="ow">in</span> <span class="n">image_files</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">process_image</span><span class="p">(</span><span class="n">image_file</span><span class="p">)</span>  <span class="c1"># 共通処理をここに移動</span>
+            <span class="k">if</span> <span class="n">result</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_process_result</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">image_file</span><span class="p">)</span>  <span class="c1"># サブクラス固有の処理</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像処理失敗: </span><span class="si">{</span><span class="n">image_file</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;処理が完了しました&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="MainControllBase.process_image">
+<a class="viewcode-back" href="../main.html#main.MainControllBase.process_image">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">process_image</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">db_stored_original_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_save_original_image</span><span class="p">(</span><span class="n">image_file</span><span class="p">)</span>
+            <span class="n">original_metadata</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_system_manager</span><span class="o">.</span><span class="n">get_image_info</span><span class="p">(</span><span class="n">image_file</span><span class="p">)</span>
+            <span class="n">image_id</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_save_metadata</span><span class="p">(</span><span class="n">db_stored_original_path</span><span class="p">,</span> <span class="n">original_metadata</span><span class="p">)</span>
+            <span class="n">existing_annotations</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_existing_annotations</span><span class="p">(</span><span class="n">image_file</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_save_annotations</span><span class="p">(</span><span class="n">image_id</span><span class="p">,</span> <span class="n">existing_annotations</span><span class="p">)</span>
+
+            <span class="n">processed_image</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_process_image</span><span class="p">(</span><span class="n">db_stored_original_path</span><span class="p">,</span>
+                                                  <span class="n">original_metadata</span><span class="p">[</span><span class="s1">&#39;has_alpha&#39;</span><span class="p">],</span>
+                                                  <span class="n">original_metadata</span><span class="p">[</span><span class="s1">&#39;mode&#39;</span><span class="p">])</span>
+            <span class="k">if</span> <span class="n">processed_image</span><span class="p">:</span>
+                <span class="n">processed_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_save_processed_image</span><span class="p">(</span><span class="n">processed_image</span><span class="p">,</span> <span class="n">image_file</span><span class="p">)</span>
+                <span class="n">processed_metadata</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_system_manager</span><span class="o">.</span><span class="n">get_image_info</span><span class="p">(</span><span class="n">processed_path</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_save_processed_metadata</span><span class="p">(</span><span class="n">image_id</span><span class="p">,</span> <span class="n">processed_path</span><span class="p">,</span> <span class="n">processed_metadata</span><span class="p">)</span>
+
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_should_skip</span><span class="p">(</span><span class="n">processed_path</span><span class="p">):</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;NSFW画像として検出されました。APIリクエストをスキップ: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">image_file</span><span class="p">)</span>
+                    <span class="k">return</span> <span class="kc">None</span>
+                <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;image_id&quot;</span><span class="p">:</span> <span class="n">image_id</span><span class="p">,</span> <span class="s2">&quot;processed_path&quot;</span><span class="p">:</span> <span class="n">processed_path</span><span class="p">}</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;処理後画像はNone: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">image_file</span><span class="p">)</span>
+                <span class="k">return</span> <span class="kc">None</span>
+
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;画像処理中にエラーが発生: </span><span class="si">%s</span><span class="s2">, MainControllBase.process_image: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">image_file</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="c1"># 明示的にメモリを解放する</span>
+            <span class="k">del</span> <span class="n">processed_image</span><span class="p">,</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_save_original_image</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_system_manager</span><span class="o">.</span><span class="n">save_original_image</span><span class="p">(</span><span class="n">image_file</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_save_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">db_stored_original_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">metadata</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_database_manager</span><span class="o">.</span><span class="n">save_original_metadata</span><span class="p">(</span><span class="n">db_stored_original_path</span><span class="p">,</span> <span class="n">metadata</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_process_image</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">db_stored_original_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">has_alpha</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span>  <span class="n">Optional</span><span class="p">[</span><span class="n">Image</span><span class="o">.</span><span class="n">Image</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_processing_manager</span><span class="o">.</span><span class="n">process_image</span><span class="p">(</span><span class="n">db_stored_original_path</span><span class="p">,</span> <span class="n">has_alpha</span><span class="p">,</span> <span class="n">mode</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_save_processed_image</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">processed_image</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">original_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_system_manager</span><span class="o">.</span><span class="n">save_processed_image</span><span class="p">(</span><span class="n">processed_image</span><span class="p">,</span> <span class="n">original_path</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_save_processed_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">processed_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">metadata</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">image_database_manager</span><span class="o">.</span><span class="n">save_processed_metadata</span><span class="p">(</span><span class="n">image_id</span><span class="p">,</span> <span class="n">processed_path</span><span class="p">,</span> <span class="n">metadata</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_get_existing_annotations</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">db_stored_original_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]]]:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_analyzer</span><span class="o">.</span><span class="n">get_existing_annotations</span><span class="p">(</span><span class="n">db_stored_original_path</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_save_annotations</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">annotations</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]]]):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">image_database_manager</span><span class="o">.</span><span class="n">save_annotations</span><span class="p">(</span><span class="n">image_id</span><span class="p">,</span> <span class="n">annotations</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_should_skip</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;nsfw&quot;</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span><span class="n">image_path</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_process_result</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">result</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">image_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;処理結果に基づいてサブクラス固有の処理を実行&quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>  <span class="c1"># サブクラスで実装</span></div>
+
+
+<div class="viewcode-block" id="RealtimeControll">
+<a class="viewcode-back" href="../main.html#main.RealtimeControll">[ドキュメント]</a>
+<span class="k">class</span> <span class="nc">RealtimeControll</span><span class="p">(</span><span class="n">MainControllBase</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">_process_result</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">result</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">image_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">):</span>
+        <span class="n">analyzed_data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_analyzer</span><span class="o">.</span><span class="n">analyze_image</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s2">&quot;processed_path&quot;</span><span class="p">],</span> <span class="s2">&quot;gpt-4o&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">analyzed_data</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_save_annotations</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s2">&quot;image_id&quot;</span><span class="p">],</span> <span class="n">analyzed_data</span><span class="p">)</span>
+
+        <span class="c1"># 明示的なメモリ解放</span>
+        <span class="k">del</span> <span class="n">result</span><span class="p">,</span> <span class="n">analyzed_data</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;リアルタイム処理が完了しました&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="BatchControll">
+<a class="viewcode-back" href="../main.html#main.BatchControll">[ドキュメント]</a>
+<span class="k">class</span> <span class="nc">BatchControll</span><span class="p">(</span><span class="n">MainControllBase</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">file_system_manager</span><span class="p">:</span> <span class="n">FileSystemManager</span><span class="p">,</span>
+                 <span class="n">image_database_manager</span><span class="p">,</span>
+                 <span class="n">image_processing_manager</span><span class="p">:</span> <span class="n">ImageProcessingManager</span><span class="p">,</span>
+                 <span class="n">image_analyzer</span><span class="p">:</span> <span class="n">ImageAnalyzer</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">file_system_manager</span><span class="p">,</span> <span class="n">image_database_manager</span><span class="p">,</span>
+                         <span class="n">image_processing_manager</span><span class="p">,</span> <span class="n">image_analyzer</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">batch_request_file</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_system_manager</span><span class="o">.</span><span class="n">create_batch_request_file</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">processed_count</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">def</span> <span class="nf">_process_result</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">result</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">image_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        処理結果に基づいてバッチ処理のリクエストデータを作成し、保存します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            result (Dict[str, Any]): 画像処理結果。</span>
+<span class="sd">            image_file (Path): 処理対象の画像ファイルのパス。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">model_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s2">&quot;api&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;model_name&quot;</span><span class="p">,</span> <span class="s2">&quot;gpt-4o&quot;</span><span class="p">)</span>
+            <span class="n">request_data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_analyzer</span><span class="o">.</span><span class="n">create_batch_request</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s2">&quot;processed_path&quot;</span><span class="p">],</span> <span class="n">model_name</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">request_data</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">file_system_manager</span><span class="o">.</span><span class="n">save_batch_request</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">batch_request_file</span><span class="p">,</span> <span class="n">request_data</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">processed_count</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;バッチリクエスト作成中にエラーが発生: </span><span class="si">%s</span><span class="s2">, エラー: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">image_file</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>
+
+<div class="viewcode-block" id="BatchControll.execute">
+<a class="viewcode-back" href="../main.html#main.BatchControll.execute">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c1"># 共通の execute メソッドを継承</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">execute</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;バッチ処理完了。処理画像数: </span><span class="si">%d</span><span class="s2">&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">processed_count</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">processed_count</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s1">&#39;generation&#39;</span><span class="p">][</span><span class="s1">&#39;start_batch&#39;</span><span class="p">]:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_start_batch_processing</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">batch_request_file</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_save_batch_request</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch_request</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]):</span>
+        <span class="n">batch_request_file</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_system_manager</span><span class="o">.</span><span class="n">save_batch_request</span><span class="p">(</span><span class="n">batch_request</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;バッチリクエスト保存終了: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">batch_request_file</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">batch_request_file</span>
+
+    <span class="k">def</span> <span class="nf">_start_batch_processing</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch_request_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">):</span>
+        <span class="c1"># サイズチェックしてjsonlが96MB[OpenAIの制限]を超えないようにするために分割する</span>
+        <span class="n">jsonl_size</span> <span class="o">=</span> <span class="n">batch_request_file</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span>
+        <span class="k">if</span> <span class="n">jsonl_size</span> <span class="o">&gt;</span> <span class="mi">100663296</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;バッチリクエストを分割して処理を開始します&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">file_system_manager</span><span class="o">.</span><span class="n">split_jsonl</span><span class="p">(</span><span class="n">batch_request_file</span><span class="p">,</span> <span class="n">jsonl_size</span><span class="p">,</span> <span class="n">json_maxsize</span><span class="o">=</span><span class="mi">100663296</span><span class="p">)</span>
+
+        <span class="c1"># 単一/分割両対応用に指定はディレクトリバッチ処理の開始</span>
+        <span class="n">batch_request_dir</span> <span class="o">=</span> <span class="n">batch_request_file</span><span class="o">.</span><span class="n">parent</span>
+        <span class="n">batch_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_analyzer</span><span class="o">.</span><span class="n">start_batch_processing</span><span class="p">(</span><span class="n">batch_request_dir</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;バッチ処理が開始されました ファイルID: </span><span class="si">{</span><span class="n">batch_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="ResizeControll">
+<a class="viewcode-back" href="../main.html#main.ResizeControll">[ドキュメント]</a>
+<span class="k">class</span> <span class="nc">ResizeControll</span><span class="p">(</span><span class="n">MainControllBase</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">_process_result</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">result</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">image_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">):</span>
+        <span class="c1"># リサイズのみの場合は追加処理なし</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;リサイズとDB保存処理が完了しました&quot;</span><span class="p">)</span>
+        <span class="k">pass</span></div>
+
+
+<div class="viewcode-block" id="start_processing">
+<a class="viewcode-back" href="../main.html#main.start_processing">[ドキュメント]</a>
+<span class="k">def</span> <span class="nf">start_processing</span><span class="p">(</span><span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;processing.toml&#39;</span><span class="p">):</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># 設定ファイルの読み込み</span>
+        <span class="n">config</span> <span class="o">=</span> <span class="n">get_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span>
+
+        <span class="c1"># ロギングの設定</span>
+        <span class="n">setup_logger</span><span class="p">(</span><span class="n">config</span><span class="p">[</span><span class="s1">&#39;log&#39;</span><span class="p">])</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;プログラムの開始&quot;</span><span class="p">)</span>
+
+        <span class="c1"># ファイルシステムマネージャーの初期化</span>
+        <span class="n">file_system_manager</span> <span class="o">=</span> <span class="n">FileSystemManager</span><span class="p">()</span>
+        <span class="n">output_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">config</span><span class="p">[</span><span class="s1">&#39;directories&#39;</span><span class="p">][</span><span class="s1">&#39;output&#39;</span><span class="p">])</span>
+        <span class="n">target_resolution</span> <span class="o">=</span> <span class="n">config</span><span class="p">[</span><span class="s1">&#39;image_processing&#39;</span><span class="p">][</span><span class="s1">&#39;target_resolution&#39;</span><span class="p">]</span>
+        <span class="n">file_system_manager</span><span class="o">.</span><span class="n">initialize</span><span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="n">target_resolution</span><span class="p">)</span>
+
+        <span class="c1"># データベースの初期化</span>
+        <span class="n">image_database_manager</span> <span class="o">=</span> <span class="n">ImageDatabaseManager</span><span class="p">()</span>
+        <span class="n">connection_status</span> <span class="o">=</span> <span class="n">image_database_manager</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">connect</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">connection_status</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;データベースへの接続に失敗しました。&quot;</span><span class="p">)</span>
+            <span class="k">return</span>
+
+        <span class="c1"># 画像処理マネージャーの初期化</span>
+        <span class="n">preferred_resolutions</span> <span class="o">=</span> <span class="n">config</span><span class="p">[</span><span class="s1">&#39;preferred_resolutions&#39;</span><span class="p">]</span>
+
+        <span class="n">image_processing_manager</span> <span class="o">=</span> <span class="n">ImageProcessingManager</span><span class="p">(</span><span class="n">file_system_manager</span><span class="p">,</span> <span class="n">target_resolution</span><span class="p">,</span> <span class="n">preferred_resolutions</span><span class="p">)</span>
+
+        <span class="n">prompt</span> <span class="o">=</span> <span class="n">config</span><span class="p">[</span><span class="s1">&#39;prompts&#39;</span><span class="p">][</span><span class="s1">&#39;main&#39;</span><span class="p">]</span>
+        <span class="n">add_prompt</span> <span class="o">=</span> <span class="n">config</span><span class="p">[</span><span class="s1">&#39;prompts&#39;</span><span class="p">][</span><span class="s1">&#39;additional&#39;</span><span class="p">]</span>
+        <span class="n">api_keys</span> <span class="o">=</span> <span class="n">config</span><span class="p">[</span><span class="s1">&#39;api&#39;</span><span class="p">]</span>
+        <span class="c1"># API クライアントファクトリーを作成</span>
+        <span class="n">api_client_factory</span> <span class="o">=</span> <span class="n">APIClientFactory</span><span class="p">(</span><span class="n">api_keys</span><span class="p">,</span> <span class="n">prompt</span><span class="p">,</span> <span class="n">add_prompt</span><span class="p">)</span>
+
+        <span class="c1"># ImageAnalyzer を初期化</span>
+        <span class="n">image_analyzer</span> <span class="o">=</span> <span class="n">ImageAnalyzer</span><span class="p">(</span><span class="n">api_client_factory</span><span class="p">)</span>
+
+        <span class="c1"># 処理モードの選択</span>
+        <span class="k">if</span> <span class="n">config</span><span class="p">[</span><span class="s1">&#39;generation&#39;</span><span class="p">][</span><span class="s1">&#39;batch_jsonl&#39;</span><span class="p">]:</span>
+            <span class="n">controll</span> <span class="o">=</span> <span class="n">BatchControll</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">file_system_manager</span><span class="p">,</span> <span class="n">image_database_manager</span><span class="p">,</span> <span class="n">image_processing_manager</span><span class="p">,</span> <span class="n">image_analyzer</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">config</span><span class="p">[</span><span class="s1">&#39;generation&#39;</span><span class="p">][</span><span class="s1">&#39;single_image&#39;</span><span class="p">]:</span>
+            <span class="n">controll</span> <span class="o">=</span> <span class="n">RealtimeControll</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">file_system_manager</span><span class="p">,</span> <span class="n">image_database_manager</span><span class="p">,</span> <span class="n">image_processing_manager</span><span class="p">,</span> <span class="n">image_analyzer</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">controll</span> <span class="o">=</span> <span class="n">ResizeControll</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">file_system_manager</span><span class="p">,</span> <span class="n">image_database_manager</span><span class="p">,</span> <span class="n">image_processing_manager</span><span class="p">,</span> <span class="n">image_analyzer</span><span class="p">)</span>
+        <span class="c1"># 処理の実行</span>
+        <span class="n">controll</span><span class="o">.</span><span class="n">execute</span><span class="p">()</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;すべての処理が完了しました&quot;</span><span class="p">)</span>
+
+    <span class="k">except</span> <span class="ne">FileNotFoundError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ファイルが見つかりません: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">traceback</span><span class="o">.</span><span class="n">format_exc</span><span class="p">())</span>
+    <span class="k">except</span> <span class="ne">PermissionError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ファイルへのアクセス権限がありません: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">traceback</span><span class="o">.</span><span class="n">format_exc</span><span class="p">())</span>
+    <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;設定値が不正です: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">traceback</span><span class="o">.</span><span class="n">format_exc</span><span class="p">())</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;予期せぬエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">traceback</span><span class="o">.</span><span class="n">format_exc</span><span class="p">())</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="c1"># リソースのクリーンアップ</span>
+        <span class="k">if</span> <span class="s1">&#39;image_database_manager&#39;</span> <span class="ow">in</span> <span class="nb">locals</span><span class="p">():</span>
+            <span class="n">image_database_manager</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;プログラムを終了します&quot;</span><span class="p">)</span></div>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">start_processing</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../index.html">lora_dataset_toolsy</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="検索" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>ナビゲーション</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../modules.html">src</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../index.html">Documentation overview</a><ul>
+  <li><a href="index.html">モジュールコード</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2024, NEXTAltair.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.0.2</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

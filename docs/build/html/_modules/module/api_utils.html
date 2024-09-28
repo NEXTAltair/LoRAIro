@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+
+<html lang="ja" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>module.api_utils &#8212; lora_dataset_toolsy 1.01 ドキュメント</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=d1102ebc" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=c058f7c8" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=27fed22d" />
+    <script src="../../_static/documentation_options.js?v=e77f40a7"></script>
+    <script src="../../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/translations.js?v=91613774"></script>
+    <link rel="index" title="索引" href="../../genindex.html" />
+    <link rel="search" title="検索" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>module.api_utils のソースコード</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">traceback</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">import</span> <span class="nn">json</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Optional</span>
+<span class="kn">from</span> <span class="nn">abc</span> <span class="kn">import</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">abstractmethod</span>
+<span class="kn">import</span> <span class="nn">google.generativeai</span> <span class="k">as</span> <span class="nn">genai</span>
+<span class="kn">import</span> <span class="nn">anthropic</span>
+<span class="kn">import</span> <span class="nn">requests</span>
+<span class="kn">import</span> <span class="nn">base64</span>
+<span class="kn">import</span> <span class="nn">time</span>
+
+<span class="kn">from</span> <span class="nn">module.log</span> <span class="kn">import</span> <span class="n">get_logger</span>
+
+<div class="viewcode-block" id="APIError">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.APIError">[ドキュメント]</a>
+<span class="k">class</span> <span class="nc">APIError</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">api_provider</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="n">error_code</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+                 <span class="n">status_code</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">response</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">requests</span><span class="o">.</span><span class="n">Response</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">api_provider</span> <span class="o">=</span> <span class="n">api_provider</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">error_code</span> <span class="o">=</span> <span class="n">error_code</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">status_code</span> <span class="o">=</span> <span class="n">status_code</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">response</span> <span class="o">=</span> <span class="n">response</span>
+
+    <span class="k">def</span> <span class="fm">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">parts</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">api_provider</span><span class="si">}</span><span class="s2">API Error: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">error_code</span><span class="p">:</span>
+            <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Code: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">error_code</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">status_code</span><span class="p">:</span>
+            <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Status: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">status_code</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="s2">&quot; | &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span>
+
+<div class="viewcode-block" id="APIError.check_response">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.APIError.check_response">[ドキュメント]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">check_response</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">response</span><span class="p">:</span> <span class="n">requests</span><span class="o">.</span><span class="n">Response</span><span class="p">,</span> <span class="n">api_provider</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">response</span><span class="o">.</span><span class="n">status_code</span> <span class="o">==</span> <span class="mi">200</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="n">error_mapping</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="mi">400</span><span class="p">:</span> <span class="s2">&quot;リクエストの形式または内容に問題がありました&quot;</span><span class="p">,</span>
+            <span class="mi">401</span><span class="p">:</span> <span class="s2">&quot;APIキー認証エラー&quot;</span><span class="p">,</span>
+            <span class="mi">403</span><span class="p">:</span> <span class="s2">&quot;API キーには指定されたリソースを使用する権限がありません&quot;</span><span class="p">,</span>
+            <span class="mi">404</span><span class="p">:</span> <span class="s2">&quot;要求されたリソースが見つかりません&quot;</span><span class="p">,</span>
+            <span class="mi">413</span><span class="p">:</span> <span class="s2">&quot;リクエストが最大許容バイト数を超えています&quot;</span><span class="p">,</span>
+            <span class="mi">429</span><span class="p">:</span> <span class="s2">&quot;リクエスト制限に達しました&quot;</span><span class="p">,</span>
+            <span class="mi">500</span><span class="p">:</span> <span class="s2">&quot;サーバーエラーが発生しました&quot;</span><span class="p">,</span>
+            <span class="mi">503</span><span class="p">:</span> <span class="s2">&quot;サービスは一時的に利用できません&quot;</span>
+        <span class="p">}</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">error_data</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">()</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;error&#39;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="n">error_data</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="n">error_message</span> <span class="o">=</span> <span class="n">error_mapping</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">status_code</span><span class="p">,</span> <span class="s2">&quot;予期しないエラーが発生しました&quot;</span><span class="p">)</span>
+        <span class="n">error_code</span> <span class="o">=</span> <span class="n">error_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;code&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span>
+        <span class="n">detailed_message</span> <span class="o">=</span> <span class="n">error_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;message&#39;</span><span class="p">,</span> <span class="n">error_message</span><span class="p">)</span>
+
+        <span class="c1"># Anthropic APIのクレジット不足エラーを特別に処理</span>
+        <span class="k">if</span> <span class="n">api_provider</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s2">&quot;claude&quot;</span> <span class="ow">and</span> <span class="s2">&quot;credit balance is too low&quot;</span> <span class="ow">in</span> <span class="n">detailed_message</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+            <span class="n">error_message</span> <span class="o">=</span> <span class="s2">&quot;クレジット残高が不足しています&quot;</span>
+            <span class="n">detailed_message</span> <span class="o">=</span> <span class="s2">&quot;Claude APIにアクセスするためのクレジット残高が不足しています。Plans &amp; Billingでアップグレードまたはクレジットを購入してください。&quot;</span>
+
+        <span class="k">raise</span> <span class="bp">cls</span><span class="p">(</span>
+            <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">error_message</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">detailed_message</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="n">api_provider</span><span class="o">=</span><span class="n">api_provider</span><span class="p">,</span>
+            <span class="n">error_code</span><span class="o">=</span><span class="n">error_code</span><span class="p">,</span>
+            <span class="n">status_code</span><span class="o">=</span><span class="n">response</span><span class="o">.</span><span class="n">status_code</span><span class="p">,</span>
+            <span class="n">response</span><span class="o">=</span><span class="n">response</span>
+        <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="APIError.from_anthropic_error">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.APIError.from_anthropic_error">[ドキュメント]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">from_anthropic_error</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">e</span><span class="p">:</span> <span class="n">anthropic</span><span class="o">.</span><span class="n">APIError</span><span class="p">,</span> <span class="n">api_provider</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="n">status_code</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">e</span><span class="p">,</span> <span class="s1">&#39;status_code&#39;</span><span class="p">,</span> <span class="mi">400</span><span class="p">)</span>
+        <span class="n">error_code</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">e</span><span class="p">,</span> <span class="s1">&#39;error_code&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span>
+        <span class="n">error_message</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+
+        <span class="c1"># AnthropicのAPIErrorを擬似的なResponseオブジェクトに変換</span>
+        <span class="n">pseudo_response</span> <span class="o">=</span> <span class="nb">type</span><span class="p">(</span><span class="s1">&#39;PseudoResponse&#39;</span><span class="p">,</span> <span class="p">(),</span> <span class="p">{</span>
+            <span class="s1">&#39;status_code&#39;</span><span class="p">:</span> <span class="n">status_code</span><span class="p">,</span>
+            <span class="s1">&#39;json&#39;</span><span class="p">:</span> <span class="k">lambda</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;error&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;message&#39;</span><span class="p">:</span> <span class="n">error_message</span><span class="p">,</span> <span class="s1">&#39;code&#39;</span><span class="p">:</span> <span class="n">error_code</span><span class="p">}}</span>
+        <span class="p">})()</span>
+
+        <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">check_response</span><span class="p">(</span><span class="n">pseudo_response</span><span class="p">,</span> <span class="n">api_provider</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="APIError.retry_after">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.APIError.retry_after">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">retry_after</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">status_code</span> <span class="o">==</span> <span class="mi">429</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">response</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">response</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;Retry-After&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="k">return</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="APIError.to_dict">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.APIError.to_dict">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">to_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span>
+            <span class="s2">&quot;api_provider&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">api_provider</span><span class="p">,</span>
+            <span class="s2">&quot;error_code&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">error_code</span><span class="p">,</span>
+            <span class="s2">&quot;status_code&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">status_code</span>
+        <span class="p">}</span></div>
+</div>
+
+
+<div class="viewcode-block" id="APIInterface">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.APIInterface">[ドキュメント]</a>
+<span class="k">class</span> <span class="nc">APIInterface</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
+<div class="viewcode-block" id="APIInterface.generate_caption">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.APIInterface.generate_caption">[ドキュメント]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">def</span> <span class="nf">generate_caption</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;画像のキャプションとタグを生成。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_path (Path): 画像のパス。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            str: 生成されたタグとキャプション。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">pass</span></div>
+
+
+<div class="viewcode-block" id="APIInterface.start_batch_processing">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.APIInterface.start_batch_processing">[ドキュメント]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">def</span> <span class="nf">start_batch_processing</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_paths</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Path</span><span class="p">],</span> <span class="n">options</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;バッチ処理を開始</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_paths (list[Path]): 画像のパスリスト。</span>
+<span class="sd">            options (Optional[dict[str, Any]]): API固有のオプション (例: Gemini の `gcs_output_uri`)。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            str: バッチ処理のIDやステータスなどを表す文字列。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">pass</span></div>
+
+
+<div class="viewcode-block" id="APIInterface.get_batch_results">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.APIInterface.get_batch_results">[ドキュメント]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">def</span> <span class="nf">get_batch_results</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch_result</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;バッチ処理の結果を取得します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            batch_result (Any): start_batch_processing メソッドから返されたバッチ処理結果オブジェクト。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            list[dict[str, Any]]: 各画像の分析結果をJSON形式で格納したリスト。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">pass</span></div>
+
+
+<div class="viewcode-block" id="APIInterface.set_image_data">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.APIInterface.set_image_data">[ドキュメント]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">def</span> <span class="nf">set_image_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        image_dataにパスとバイナリのdictを保存する。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_path (Path): 画像ファイルのパス</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            FileNotFoundError: 指定されたパスに画像ファイルが存在しない場合</span>
+<span class="sd">            IOError: 画像ファイルの読み込み中にエラーが発生した場合</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">pass</span></div>
+</div>
+
+
+<div class="viewcode-block" id="BaseAPIClient">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.BaseAPIClient">[ドキュメント]</a>
+<span class="k">class</span> <span class="nc">BaseAPIClient</span><span class="p">(</span><span class="n">APIInterface</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;全ての API クライアントに共通する処理を実装したベースクラス。&quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">add_prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">prompt</span> <span class="o">=</span> <span class="n">prompt</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">add_prompt</span> <span class="o">=</span> <span class="n">add_prompt</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">image_data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>  <span class="c1"># image_data を空の辞書で初期化:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;BaseAPIClient&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">last_request_time</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">min_request_interval</span> <span class="o">=</span> <span class="mf">1.0</span>  <span class="c1"># 1秒間隔でリクエストを制限</span>
+
+    <span class="k">def</span> <span class="nf">_wait_for_rate_limit</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">elapsed_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">last_request_time</span>
+        <span class="k">if</span> <span class="n">elapsed_time</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">min_request_interval</span><span class="p">:</span>
+            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">min_request_interval</span> <span class="o">-</span> <span class="n">elapsed_time</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_request</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">url</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">headers</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="n">data</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_wait_for_rate_limit</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">response</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">request</span><span class="p">(</span><span class="n">method</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="n">headers</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">data</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">last_request_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+            <span class="n">APIError</span><span class="o">.</span><span class="n">check_response</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">response</span><span class="o">.</span><span class="n">text</span>
+        <span class="k">except</span> <span class="n">requests</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">RequestException</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">APIError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;リクエスト中にエラーが発生しました: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="BaseAPIClient.set_image_data">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.BaseAPIClient.set_image_data">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">set_image_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        画像データを読み込み、パスとバイナリデータの辞書に保存</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_path (Path): 画像ファイルのパス</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            FileNotFoundError: 指定されたパスに画像ファイルが存在しない場合</span>
+<span class="sd">            IOError: 画像ファイルの読み込み中にエラーが発生した場合</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">image_path</span><span class="p">,</span> <span class="s2">&quot;rb&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">image_file</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">image_data</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">image_path</span><span class="p">)]</span> <span class="o">=</span> <span class="n">image_file</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像データを正常に設定しました: </span><span class="si">{</span><span class="n">image_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">FileNotFoundError</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像ファイルが見つかりません: </span><span class="si">{</span><span class="n">image_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span>
+        <span class="k">except</span> <span class="ne">IOError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像ファイルの読み込み中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;予期せぬエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span></div>
+</div>
+
+
+<div class="viewcode-block" id="OpenAI">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.OpenAI">[ドキュメント]</a>
+<span class="k">class</span> <span class="nc">OpenAI</span><span class="p">(</span><span class="n">BaseAPIClient</span><span class="p">):</span>
+    <span class="n">SUPPORTED_VISION_MODELS</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;gpt-4-turbo&quot;</span><span class="p">,</span> <span class="s2">&quot;gpt-4o&quot;</span><span class="p">,</span> <span class="s2">&quot;gpt-4o-mini&quot;</span><span class="p">]</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">api_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">add_prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;OpenAI Claude&quot;</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">prompt</span><span class="p">,</span> <span class="n">add_prompt</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">model_name</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">openai_api_key</span> <span class="o">=</span> <span class="n">api_key</span>
+
+    <span class="k">def</span> <span class="nf">_generate_payload</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">model_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        OpenAI APIに送信するペイロードを生成する。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_path (Path): 画像ファイルのパス</span>
+<span class="sd">            model_name (str): モデル名</span>
+<span class="sd">            prompt (str): プロンプト</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            dict: APIに送信するペイロード</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_data</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;画像データが設定されていません。&quot;</span><span class="p">)</span>
+
+        <span class="n">base64_image</span> <span class="o">=</span> <span class="n">base64</span><span class="o">.</span><span class="n">b64encode</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">image_data</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">image_path</span><span class="p">)])</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span>
+        <span class="n">headers</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;Content-Type&quot;</span><span class="p">:</span> <span class="s2">&quot;application/json&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;Authorization&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Bearer </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">openai_api_key</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">}</span>
+        <span class="n">payload</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="n">model_name</span><span class="p">,</span>
+            <span class="s2">&quot;messages&quot;</span><span class="p">:</span> <span class="p">[</span>
+                <span class="p">{</span>
+                    <span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;user&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="p">[</span>
+                        <span class="p">{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;text&quot;</span><span class="p">,</span> <span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="n">prompt</span><span class="p">},</span>
+                        <span class="p">{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;image_url&quot;</span><span class="p">,</span> <span class="s2">&quot;image_url&quot;</span><span class="p">:</span> <span class="p">{</span>
+                            <span class="s2">&quot;url&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;data:image/webp;base64,</span><span class="si">{</span><span class="n">base64_image</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;detail&quot;</span><span class="p">:</span> <span class="s2">&quot;high&quot;</span>
+                        <span class="p">}}</span>
+                    <span class="p">]</span>
+                <span class="p">}</span>
+            <span class="p">],</span>
+            <span class="s2">&quot;max_tokens&quot;</span><span class="p">:</span> <span class="mi">3000</span>
+        <span class="p">}</span>
+        <span class="k">return</span> <span class="n">headers</span><span class="p">,</span> <span class="n">payload</span>
+
+    <span class="k">def</span> <span class="nf">_analyze_single_image</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">payload</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">headers</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        単一画像の分析リクエストを送信</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            payload (dict[str, Any]): APIに送信するペイロード</span>
+<span class="sd">            headers (dict[str, str]): リクエストヘッダー</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            dict[str, Any]: APIからのレスポンス</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_wait_for_rate_limit</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">response</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span>
+                <span class="s2">&quot;https://api.openai.com/v1/chat/completions&quot;</span><span class="p">,</span>
+                <span class="n">headers</span><span class="o">=</span><span class="n">headers</span><span class="p">,</span>
+                <span class="n">json</span><span class="o">=</span><span class="n">payload</span><span class="p">,</span>
+                <span class="n">timeout</span><span class="o">=</span><span class="mi">60</span>
+            <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">last_request_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+            <span class="n">APIError</span><span class="o">.</span><span class="n">check_response</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+        <span class="k">except</span> <span class="n">requests</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">Timeout</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">APIError</span><span class="p">(</span><span class="s2">&quot;リクエストがタイムアウトしました。後でもう一度お試しください。&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">requests</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ConnectionError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">APIError</span><span class="p">(</span><span class="s2">&quot;ネットワーク接続エラーが発生しました。インターネット接続を確認してください。&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">requests</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">RequestException</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">APIError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;リクエスト中にエラーが発生しました: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">json</span><span class="o">.</span><span class="n">JSONDecodeError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">APIError</span><span class="p">(</span><span class="s2">&quot;APIレスポンスの解析に失敗しました。レスポンスが不正な形式である可能性があります。&quot;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="OpenAI.generate_caption">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.OpenAI.generate_caption">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">generate_caption</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">model_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        画像のキャプションを生成</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_path (Path): キャプションを生成する画像のパス。</span>
+<span class="sd">            model_name (str): モデル名デフォルトは&quot;gpt-4o&quot;。</span>
+<span class="sd">            prompt (str): プロンプト</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            str: 生成されたキャプション。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># プロンプトを作成</span>
+        <span class="n">headers</span><span class="p">,</span> <span class="n">payload</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_generate_payload</span><span class="p">(</span><span class="n">image_path</span><span class="p">,</span> <span class="n">model_name</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">prompt</span><span class="p">)</span>
+        <span class="c1"># OpenAI APIにプロンプトを送信して応答を生成</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_analyze_single_image</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="n">headers</span><span class="p">)</span>
+        <span class="c1"># 応答からキャプションを抽出</span>
+        <span class="n">content</span> <span class="o">=</span> <span class="n">response</span><span class="p">[</span><span class="s1">&#39;choices&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">][</span><span class="s1">&#39;message&#39;</span><span class="p">][</span><span class="s1">&#39;content&#39;</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">content</span></div>
+
+
+<div class="viewcode-block" id="OpenAI.create_batch_request">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.OpenAI.create_batch_request">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">create_batch_request</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">model_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;gpt-4o&quot;</span><span class="p">,</span> <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        OpenAI APIに送信するバッチ処理用のペイロードを生成する。</span>
+<span class="sd">        OpenAI API のバッチ処理で使用する JSONL ファイルの各行に記述する JSON データを生成</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_path (Path): 画像ファイルのパス</span>
+<span class="sd">            model_name (str): モデル名, デフォルトは&quot;gpt-4o&quot;。</span>
+<span class="sd">            prompt (str): プロンプト</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            dict[str, Any]: バッチリクエスト用のデータ</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">model_name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">SUPPORTED_VISION_MODELS</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;そのModelには非対応: </span><span class="si">{</span><span class="n">model_name</span><span class="si">}</span><span class="s2">. Supported models: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">SUPPORTED_VISION_MODELS</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">_</span><span class="p">,</span> <span class="n">payload</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_generate_payload</span><span class="p">(</span><span class="n">image_path</span><span class="p">,</span> <span class="n">model_name</span><span class="p">,</span> <span class="n">prompt</span><span class="p">)</span>
+        <span class="n">bach_payload</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;custom_id&quot;</span><span class="p">:</span> <span class="n">image_path</span><span class="o">.</span><span class="n">stem</span><span class="p">,</span>
+            <span class="s2">&quot;method&quot;</span><span class="p">:</span> <span class="s2">&quot;POST&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;url&quot;</span><span class="p">:</span> <span class="s2">&quot;/v1/chat/completions&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;body&quot;</span><span class="p">:</span> <span class="n">payload</span>
+        <span class="p">}</span>
+        <span class="k">return</span> <span class="n">bach_payload</span></div>
+
+
+<div class="viewcode-block" id="OpenAI.start_batch_processing">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.OpenAI.start_batch_processing">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">start_batch_processing</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">jsonl_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        JSONLファイルをアップロードしてバッチ処理を開始する。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            jsonl_path (Path): アップロードするJSONLファイルのパス</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            str: バッチ処理のID</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">url</span> <span class="o">=</span> <span class="s2">&quot;https://api.openai.com/v1/files&quot;</span>
+        <span class="n">headers</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;Authorization&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Bearer </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">openai_api_key</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">}</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s1">&#39;file&#39;</span><span class="p">:</span> <span class="nb">open</span><span class="p">(</span><span class="n">jsonl_path</span><span class="p">,</span> <span class="s1">&#39;rb&#39;</span><span class="p">)</span>
+        <span class="p">}</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s1">&#39;purpose&#39;</span><span class="p">:</span> <span class="s1">&#39;batch&#39;</span>
+        <span class="p">}</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">response</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="n">headers</span><span class="p">,</span> <span class="n">files</span><span class="o">=</span><span class="n">files</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">data</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">500</span><span class="p">)</span>
+            <span class="n">APIError</span><span class="o">.</span><span class="n">check_response</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+            <span class="n">file_id</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">()</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;id&#39;</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">file_id</span><span class="p">:</span>
+                <span class="c1"># バッチ処理を開始</span>
+                <span class="n">url</span> <span class="o">=</span> <span class="s2">&quot;https://api.openai.com/v1/batches&quot;</span>
+                <span class="n">headers</span> <span class="o">=</span> <span class="p">{</span>
+                    <span class="s2">&quot;Authorization&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Bearer </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">openai_api_key</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;Content-Type&quot;</span><span class="p">:</span> <span class="s2">&quot;application/json&quot;</span>
+                <span class="p">}</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="p">{</span>
+                    <span class="s2">&quot;input_file_id&quot;</span><span class="p">:</span> <span class="n">file_id</span><span class="p">,</span>
+                    <span class="s2">&quot;endpoint&quot;</span><span class="p">:</span> <span class="s2">&quot;/v1/chat/completions&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;completion_window&quot;</span><span class="p">:</span> <span class="s2">&quot;24h&quot;</span>
+                <span class="p">}</span>
+                <span class="n">response</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="n">headers</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">data</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
+                <span class="n">start_response</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;バッチ処理が開始されました。 ID: </span><span class="si">{</span><span class="n">start_response</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">start_response</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]</span>
+        <span class="k">except</span> <span class="n">requests</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">Timeout</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">APIError</span><span class="p">(</span><span class="s2">&quot;リクエストがタイムアウトしました。後でもう一度お試しください。&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">requests</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ConnectionError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">APIError</span><span class="p">(</span><span class="s2">&quot;ネットワーク接続エラーが発生しました。インターネット接続を確認してください。&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">requests</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">RequestException</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">APIError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;リクエスト中にエラーが発生しました: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">json</span><span class="o">.</span><span class="n">JSONDecodeError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">APIError</span><span class="p">(</span><span class="s2">&quot;APIレスポンスの解析に失敗しました。レスポンスが不正な形式である可能性があります。&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="s1">&#39;&#39;</span></div>
+
+
+<div class="viewcode-block" id="OpenAI.get_batch_results">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.OpenAI.get_batch_results">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">get_batch_results</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch_result_dir</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        OpenAI API のバッチ処理結果を読み込み、解析します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            batch_result_dir (Path): バッチ結果ファイルが格納されているディレクトリのパス。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            dict[str, str]: 画像パスをキー、分析結果を値とする辞書。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">results</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">jsonl_file</span> <span class="ow">in</span> <span class="n">batch_result_dir</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="s1">&#39;*.jsonl&#39;</span><span class="p">):</span>
+            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">jsonl_file</span><span class="p">,</span> <span class="s1">&#39;r&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">f</span><span class="p">:</span>
+                    <span class="n">data</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="s1">&#39;custom_id&#39;</span> <span class="ow">in</span> <span class="n">data</span> <span class="ow">and</span> <span class="s1">&#39;response&#39;</span> <span class="ow">in</span> <span class="n">data</span> <span class="ow">and</span> <span class="s1">&#39;body&#39;</span> <span class="ow">in</span> <span class="n">data</span><span class="p">[</span><span class="s1">&#39;response&#39;</span><span class="p">]:</span>
+                        <span class="n">custom_id</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s1">&#39;custom_id&#39;</span><span class="p">]</span>
+                        <span class="n">content</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s1">&#39;response&#39;</span><span class="p">][</span><span class="s1">&#39;body&#39;</span><span class="p">][</span><span class="s1">&#39;choices&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">][</span><span class="s1">&#39;message&#39;</span><span class="p">][</span><span class="s1">&#39;content&#39;</span><span class="p">]</span>
+                        <span class="n">results</span><span class="p">[</span><span class="n">custom_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">content</span>
+        <span class="k">return</span> <span class="n">results</span></div>
+</div>
+
+
+<div class="viewcode-block" id="Google">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.Google">[ドキュメント]</a>
+<span class="k">class</span> <span class="nc">Google</span><span class="p">(</span><span class="n">BaseAPIClient</span><span class="p">):</span>
+    <span class="n">SUPPORTED_VISION_MODELS</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;gemini-1.5-pro-exp-0801&quot;</span><span class="p">,</span> <span class="s2">&quot;gemini-1.5-pro-preview-0409&quot;</span><span class="p">,</span> <span class="s2">&quot;gemini-1.0-pro-vision&quot;</span><span class="p">]</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">api_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">add_prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Google AI Studioとのインターフェースを作成</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            api_key (str): Google AI StudioのAPIキー。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;Google Claude&quot;</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">prompt</span><span class="p">,</span> <span class="n">add_prompt</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">google_api_key</span> <span class="o">=</span> <span class="n">api_key</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">model_name</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="c1"># Set up the model</span>
+        <span class="n">generation_config</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;temperature&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="s2">&quot;top_p&quot;</span><span class="p">:</span> <span class="mf">0.95</span><span class="p">,</span>
+        <span class="s2">&quot;top_k&quot;</span><span class="p">:</span> <span class="mi">64</span><span class="p">,</span>
+        <span class="s2">&quot;max_output_tokens&quot;</span><span class="p">:</span> <span class="mi">8192</span><span class="p">,</span>
+        <span class="p">}</span>
+
+        <span class="n">safety_settings</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="p">{</span><span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;HARM_CATEGORY_HARASSMENT&quot;</span><span class="p">,</span> <span class="s2">&quot;threshold&quot;</span><span class="p">:</span> <span class="s2">&quot;BLOCK_NONE&quot;</span><span class="p">},</span>
+            <span class="p">{</span><span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;HARM_CATEGORY_HATE_SPEECH&quot;</span><span class="p">,</span> <span class="s2">&quot;threshold&quot;</span><span class="p">:</span> <span class="s2">&quot;BLOCK_NONE&quot;</span><span class="p">},</span>
+            <span class="p">{</span><span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;HARM_CATEGORY_SEXUALLY_EXPLICIT&quot;</span><span class="p">,</span> <span class="s2">&quot;threshold&quot;</span><span class="p">:</span> <span class="s2">&quot;BLOCK_NONE&quot;</span><span class="p">},</span>
+            <span class="p">{</span><span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;HARM_CATEGORY_DANGEROUS_CONTENT&quot;</span><span class="p">,</span> <span class="s2">&quot;threshold&quot;</span><span class="p">:</span> <span class="s2">&quot;BLOCK_NONE&quot;</span><span class="p">},</span>
+        <span class="p">]</span>
+        <span class="n">genai</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span><span class="n">api_key</span><span class="o">=</span><span class="n">api_key</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">genai</span><span class="o">.</span><span class="n">GenerativeModel</span><span class="p">(</span>
+            <span class="n">model_name</span><span class="o">=</span><span class="s2">&quot;gemini-1.5-pro-latest&quot;</span><span class="p">,</span>
+            <span class="n">generation_config</span><span class="o">=</span><span class="n">generation_config</span><span class="p">,</span> <span class="c1"># type: ignore</span>
+            <span class="n">safety_settings</span><span class="o">=</span><span class="n">safety_settings</span>
+        <span class="p">)</span>
+
+<div class="viewcode-block" id="Google.generate_caption">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.Google.generate_caption">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">generate_caption</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">add_prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        画像のキャプションを生成</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_path (Path): キャプションを生成する画像のパス。</span>
+<span class="sd">            prompt (str): プロンプト</span>
+<span class="sd">            add_prompt (str): 追加のプロンプト</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            str: 生成されたキャプション。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">prompt_parts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">generate_prompt_parts</span><span class="p">(</span><span class="n">image_path</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">add_prompt</span><span class="p">)</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">generate_content</span><span class="p">(</span><span class="n">prompt_parts</span><span class="p">)</span>
+        <span class="n">response_str</span> <span class="o">=</span><span class="n">response</span><span class="o">.</span><span class="n">text</span>
+        <span class="k">return</span> <span class="n">response_str</span></div>
+
+
+<div class="viewcode-block" id="Google.generate_prompt_parts">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.Google.generate_prompt_parts">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">generate_prompt_parts</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">add_prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Google AI Studioに送信するプロンプトを作成</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            image_path (str): アップロードされる画像のパス。</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            list: プロンプトの各部分をリストで返</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">image</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_data</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">image_path</span><span class="p">)]</span>
+
+        <span class="n">prompt_parts</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prompt</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;image/webp: &quot;</span><span class="p">,</span>
+            <span class="s2">&quot;&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;formatJSON: {</span><span class="se">\&quot;</span><span class="s2">tags</span><span class="se">\&quot;</span><span class="s2">: </span><span class="se">\&quot;</span><span class="s2">Tag1, Tag2, Tag3</span><span class="se">\&quot;</span><span class="s2">,  </span><span class="se">\&quot;</span><span class="s2">caption</span><span class="se">\&quot;</span><span class="s2">: </span><span class="se">\&quot;</span><span class="s2">This is the caption.</span><span class="se">\&quot;</span><span class="s2">}&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;ADDITIONAL_PROMPT: Korean girl in a comic book.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;TagsANDCaption: {</span><span class="se">\&quot;</span><span class="s2">tags</span><span class="se">\&quot;</span><span class="s2">: </span><span class="se">\&quot;</span><span class="s2">dress, long hair, text, sitting, black hair, blue eyes, heterochromia, flower, high heels, two-tone hair, armpits, elbow gloves, red eyes, boots, gloves, white hair, hat flower, nail polish, panties, red rose, pantyshot, purple nails, rose petals, looking at viewer, hat, navel, bare shoulders, choker, petals, red flower, cross-laced clothes, underwear, split-color hair, brown hair</span><span class="se">\&quot;</span><span class="s2">, </span><span class="se">\&quot;</span><span class="s2">caption</span><span class="se">\&quot;</span><span class="s2">: </span><span class="se">\&quot;</span><span class="s2">A stylish Korean girl, with heterochromia and a confident gaze, poses amidst scattered roses against a graffiti-marked wall, rendered in a vibrant comic book art style.</span><span class="se">\&quot;</span><span class="s2"> }&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;image/webp: &quot;</span><span class="p">,</span>
+            <span class="s2">&quot;&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;formatJSON: {</span><span class="se">\&quot;</span><span class="s2">tags</span><span class="se">\&quot;</span><span class="s2">: </span><span class="se">\&quot;</span><span class="s2">Tag1, Tag2, Tag3</span><span class="se">\&quot;</span><span class="s2">, </span><span class="se">\&quot;</span><span class="s2">caption</span><span class="se">\&quot;</span><span class="s2">: </span><span class="se">\&quot;</span><span class="s2">This is the caption.</span><span class="se">\&quot;</span><span class="s2">}&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;ADDITIONAL_PROMPT: japanese idol&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;TagsANDCaption: {</span><span class="se">\&quot;</span><span class="s2">tags</span><span class="se">\&quot;</span><span class="s2">: </span><span class="se">\&quot;</span><span class="s2">1girl, solo, long hair, brown hair, brown eyes, short sleeves, school uniform, white shirt, upper body, collared shirt, hair bobbles, blue bowtie, realistic, japanese, finger frame</span><span class="se">\&quot;</span><span class="s2">, </span><span class="se">\&quot;</span><span class="s2">caption</span><span class="se">\&quot;</span><span class="s2">: </span><span class="se">\&quot;</span><span class="s2">A young Japanese idol in a classic school uniform strikes a pose while performing, her energy and focus evident in her expression and hand gestures.</span><span class="se">\&quot;</span><span class="s2"> }&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;image/webp: &quot;</span><span class="p">,</span>
+            <span class="s2">&quot;&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;formatJSON: {</span><span class="se">\&quot;</span><span class="s2">tags</span><span class="se">\&quot;</span><span class="s2">: </span><span class="se">\&quot;</span><span class="s2">Tag1, Tag2, Tag3</span><span class="se">\&quot;</span><span class="s2">, </span><span class="se">\&quot;</span><span class="s2">caption</span><span class="se">\&quot;</span><span class="s2">: </span><span class="se">\&quot;</span><span class="s2">This is the caption.</span><span class="se">\&quot;</span><span class="s2">}&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;ADDITIONAL_PROMPT: 1boy, tate eboshi, expressionless, fake horns, shoulder armor resembling onigawara with ornamental horns, 3d, full body, a person standing in a circle with their arms spread out., bridge, horizon, lake, mountain, ocean, planet, river, scenery, shore, snow, water, waterfall, solo, weapon, male focus, ornamental horn, white japanese armor, glowing, letterboxed, pillar, full armor, column, tree, outstretched arms, no humans, spread arms, animated character, fantasy setting, mysterious armor, ethereal glow, purple hues, virtual environment, crystals, otherworldly, long black hair, artistic filter, video game graphics, surreal atmosphere, front-facing pose, enigmatic expression, soft focus, virtual costume, obscured eyes, shoulder armor, arm bracers, magical ambiance, An animated fantasy character stands enigmatically in a surreal, crystal-laden environment, exuding a mystical presence as light softly radiates from their ethereal armor.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;TagsANDCaption: {</span><span class="se">\&quot;</span><span class="s2">tags</span><span class="se">\&quot;</span><span class="s2">: </span><span class="se">\&quot;</span><span class="s2">1boy, solo, tate eboshi, expressionless, fake horns, shoulder armor resembling onigawara with ornamental horns, 3d, full body, a person standing in a circle with their arms spread out., bridge, ornamental horn, white japanese armor, glowing, outstretched arms, fantasy setting, mysterious armor, ethereal glow, purple hues, otherworldly, long black hair, video game graphics, soft focus, obscured eyes, shoulder armor</span><span class="se">\&quot;</span><span class="s2">, </span><span class="se">\&quot;</span><span class="s2">caption</span><span class="se">\&quot;</span><span class="s2">: </span><span class="se">\&quot;</span><span class="s2">An animated fantasy character stands enigmatically in a surreal, crystal-laden environment, exuding a mystical presence as light softly radiates from their ethereal armor.</span><span class="se">\&quot;</span><span class="s2"> }&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;image/webp: &quot;</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">image</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;formatJSON: {</span><span class="se">\&quot;</span><span class="s2">tags</span><span class="se">\&quot;</span><span class="s2">: </span><span class="se">\&quot;</span><span class="s2">Tag1, Tag2, Tag3</span><span class="se">\&quot;</span><span class="s2">,</span><span class="se">\n</span><span class="s2"> </span><span class="se">\&quot;</span><span class="s2">caption</span><span class="se">\&quot;</span><span class="s2">: </span><span class="se">\&quot;</span><span class="s2">This is the caption.</span><span class="se">\&quot;</span><span class="s2">}&quot;</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;ADDITIONAL_PROMPT: </span><span class="si">{</span><span class="n">add_prompt</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;TagsANDCaption: &quot;</span><span class="p">,</span>
+            <span class="p">]</span>
+
+        <span class="k">return</span> <span class="n">prompt_parts</span></div>
+
+
+<div class="viewcode-block" id="Google.start_batch_processing">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.Google.start_batch_processing">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">start_batch_processing</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_paths</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Path</span><span class="p">],</span> <span class="n">options</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="c1">#</span>
+        <span class="c1">#  TODO: 後で実装</span>
+        <span class="n">text</span> <span class="o">=</span> <span class="s2">&quot;Not implemented yet&quot;</span>
+        <span class="k">return</span> <span class="n">text</span></div>
+
+
+<div class="viewcode-block" id="Google.get_batch_results">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.Google.get_batch_results">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">get_batch_results</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch_result</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+        <span class="c1">#</span>
+        <span class="c1">#  TODO: 後で実装</span>
+        <span class="n">text</span> <span class="o">=</span> <span class="s2">&quot;Not implemented yet&quot;</span>
+        <span class="n">respons</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">return</span> <span class="n">respons</span></div>
+</div>
+
+
+<div class="viewcode-block" id="Claude">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.Claude">[ドキュメント]</a>
+<span class="k">class</span> <span class="nc">Claude</span><span class="p">(</span><span class="n">BaseAPIClient</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Claude API を使用するためのクライアントクラス。&quot;&quot;&quot;</span>
+    <span class="n">SUPPORTED_VISION_MODELS</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;claude-3-5-sonnet-20240620&quot;</span><span class="p">,</span><span class="s2">&quot;claude-3-opus-20240229&quot;</span><span class="p">,</span>
+                               <span class="s2">&quot;claude-3-sonnet-20240229&quot;</span><span class="p">,</span><span class="s2">&quot;claude-3-haiku-20240307&quot;</span><span class="p">]</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">api_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">add_prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;Claude Client&quot;</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">prompt</span><span class="p">,</span> <span class="n">add_prompt</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">model_name</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">client</span> <span class="o">=</span> <span class="n">anthropic</span><span class="o">.</span><span class="n">Anthropic</span><span class="p">(</span><span class="n">api_key</span><span class="o">=</span><span class="n">api_key</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Claude.generate_caption">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.Claude.generate_caption">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">generate_caption</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">model_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;claude-3-5-sonnet-20240620&quot;</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Claude API を使用して画像のキャプションを生成します。</span>
+<span class="sd">        Args:</span>
+<span class="sd">            image_path (Path): 画像のパス。</span>
+<span class="sd">            model_name (str): 使用する Claude モデル名。デフォルトは &quot;claude-3-5-sonnet-20240620&quot;。</span>
+<span class="sd">            **kwargs: API 固有のオプション (現時点では使用しません)。</span>
+<span class="sd">        Returns:</span>
+<span class="sd">            str: 生成されたキャプションを含む文字列。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_data</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="nb">str</span><span class="p">(</span><span class="n">image_path</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_data</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;画像データが設定されていません。&quot;</span><span class="p">)</span>
+
+            <span class="c1"># 画像を base64 エンコード</span>
+            <span class="n">image_base64</span> <span class="o">=</span> <span class="n">base64</span><span class="o">.</span><span class="n">b64encode</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">image_data</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">image_path</span><span class="p">)])</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span>
+
+            <span class="c1"># プロンプトと画像データを含むメッセージを作成</span>
+            <span class="n">response</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">messages</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+                <span class="n">model</span><span class="o">=</span><span class="n">model_name</span><span class="p">,</span>
+                <span class="n">max_tokens</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span>
+                <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
+                    <span class="p">{</span>
+                        <span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;user&quot;</span><span class="p">,</span>
+                        <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="p">[</span>
+                            <span class="p">{</span>
+                                <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;image&quot;</span><span class="p">,</span>
+                                <span class="s2">&quot;source&quot;</span><span class="p">:</span> <span class="p">{</span>
+                                    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;base64&quot;</span><span class="p">,</span>
+                                    <span class="s2">&quot;media_type&quot;</span><span class="p">:</span> <span class="s2">&quot;image/webp&quot;</span><span class="p">,</span>
+                                    <span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="n">image_base64</span><span class="p">,</span>
+                                <span class="p">},</span>
+                            <span class="p">},</span>
+                            <span class="p">{</span>
+                                <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;text&quot;</span><span class="p">,</span>
+                                <span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">prompt</span>
+                            <span class="p">}</span>
+                        <span class="p">],</span>
+                    <span class="p">}</span>
+                <span class="p">],</span>
+            <span class="p">)</span>
+
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="s1">&#39;content&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">content</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+                <span class="c1"># TextBlock オブジェクトから text 属性を抽出</span>
+                <span class="n">text_content</span> <span class="o">=</span> <span class="p">[</span><span class="n">block</span><span class="o">.</span><span class="n">text</span> <span class="k">for</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">response</span><span class="o">.</span><span class="n">content</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="s1">&#39;text&#39;</span><span class="p">)]</span>
+                <span class="k">return</span> <span class="s1">&#39; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">text_content</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="s1">&#39;content&#39;</span> <span class="ow">in</span> <span class="n">response</span><span class="p">:</span>
+                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">response</span><span class="p">[</span><span class="s1">&#39;content&#39;</span><span class="p">],</span> <span class="nb">list</span><span class="p">):</span>
+                    <span class="c1"># 辞書形式の場合、&#39;text&#39; キーから内容を抽出</span>
+                    <span class="n">text_content</span> <span class="o">=</span> <span class="p">[</span><span class="n">item</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;text&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">response</span><span class="p">[</span><span class="s1">&#39;content&#39;</span><span class="p">]</span> <span class="k">if</span> <span class="s1">&#39;text&#39;</span> <span class="ow">in</span> <span class="n">item</span><span class="p">]</span>
+                    <span class="k">return</span> <span class="s1">&#39; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">text_content</span><span class="p">)</span>
+                <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">response</span><span class="p">[</span><span class="s1">&#39;content&#39;</span><span class="p">],</span> <span class="nb">str</span><span class="p">):</span>
+                    <span class="k">return</span> <span class="n">response</span><span class="p">[</span><span class="s1">&#39;content&#39;</span><span class="p">]</span>
+
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unexpected response format: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">response</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">except</span> <span class="n">anthropic</span><span class="o">.</span><span class="n">APIError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="c1"># Anthropic APIエラーを APIError クラスに変換</span>
+            <span class="k">raise</span> <span class="n">APIError</span><span class="o">.</span><span class="n">from_anthropic_error</span><span class="p">(</span><span class="n">e</span><span class="p">,</span> <span class="s2">&quot;Claude&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;予期せぬエラーが発生しました: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="n">APIError</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">),</span> <span class="s2">&quot;Claude&quot;</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="Claude.start_batch_processing">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.Claude.start_batch_processing">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">start_batch_processing</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_paths</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Path</span><span class="p">],</span> <span class="n">options</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Claude API はバッチ処理をサポートしていません。&quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;Claude API はバッチ処理をサポートしていません。&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Claude.get_batch_results">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.Claude.get_batch_results">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">get_batch_results</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Claude API はバッチ処理をサポートしていません。&quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;Claude API はバッチ処理をサポートしていません。&quot;</span><span class="p">)</span></div>
+</div>
+
+
+<div class="viewcode-block" id="APIClientFactory">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.APIClientFactory">[ドキュメント]</a>
+<span class="k">class</span> <span class="nc">APIClientFactory</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">api_keys</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;APIClientFactory&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">api_clients</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">api_keys</span> <span class="o">=</span> <span class="n">api_keys</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;初期化&quot;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="APIClientFactory.initialize">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.APIClientFactory.initialize">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">initialize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">main_prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">add_prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">api_clients</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">main_prompt</span> <span class="o">=</span> <span class="n">main_prompt</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">add_prompt</span> <span class="o">=</span> <span class="n">add_prompt</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">api_keys</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;openai_key&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_validate_openai_key</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">api_keys</span><span class="p">[</span><span class="s2">&quot;openai_key&quot;</span><span class="p">]):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">api_clients</span><span class="p">[</span><span class="s2">&quot;openai&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">OpenAI</span><span class="p">(</span>
+                    <span class="n">api_key</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">api_keys</span><span class="p">[</span><span class="s2">&quot;openai_key&quot;</span><span class="p">],</span>
+                    <span class="n">prompt</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">main_prompt</span><span class="p">,</span>
+                    <span class="n">add_prompt</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">add_prompt</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;Invalid OpenAI API key&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">api_keys</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;google_key&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_validate_google_key</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">api_keys</span><span class="p">[</span><span class="s2">&quot;google_key&quot;</span><span class="p">]):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">api_clients</span><span class="p">[</span><span class="s2">&quot;google&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">Google</span><span class="p">(</span>
+                    <span class="n">api_key</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">api_keys</span><span class="p">[</span><span class="s2">&quot;google_key&quot;</span><span class="p">],</span>
+                    <span class="n">prompt</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">main_prompt</span><span class="p">,</span>
+                    <span class="n">add_prompt</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">add_prompt</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;Invalid Google API key&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">api_keys</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;claude_key&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_validate_claude_key</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">api_keys</span><span class="p">[</span><span class="s2">&quot;claude_key&quot;</span><span class="p">]):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">api_clients</span><span class="p">[</span><span class="s2">&quot;claude&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">Claude</span><span class="p">(</span>
+                    <span class="n">api_key</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">api_keys</span><span class="p">[</span><span class="s2">&quot;claude_key&quot;</span><span class="p">],</span>
+                    <span class="n">prompt</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">main_prompt</span><span class="p">,</span>
+                    <span class="n">add_prompt</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">add_prompt</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;Invalid Claude API key&quot;</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_validate_openai_key</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">api_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="n">headers</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;Authorization&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Bearer </span><span class="si">{</span><span class="n">api_key</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">}</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;https://api.openai.com/v1/models&quot;</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="n">headers</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">response</span><span class="o">.</span><span class="n">status_code</span> <span class="o">==</span> <span class="mi">200</span>
+
+    <span class="k">def</span> <span class="nf">_validate_google_key</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">api_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">genai</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span><span class="n">api_key</span><span class="o">=</span><span class="n">api_key</span><span class="p">)</span>
+            <span class="n">model</span> <span class="o">=</span> <span class="n">genai</span><span class="o">.</span><span class="n">GenerativeModel</span><span class="p">(</span><span class="s1">&#39;gemini-pro&#39;</span><span class="p">)</span>
+            <span class="n">response</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">generate_content</span><span class="p">(</span><span class="s2">&quot;Test&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">True</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Google API key validation failed: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">False</span>
+
+    <span class="k">def</span> <span class="nf">_validate_claude_key</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">api_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="n">client</span> <span class="o">=</span> <span class="n">anthropic</span><span class="o">.</span><span class="n">Anthropic</span><span class="p">(</span><span class="n">api_key</span><span class="o">=</span><span class="n">api_key</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">client</span><span class="o">.</span><span class="n">messages</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+                <span class="n">model</span><span class="o">=</span><span class="s2">&quot;claude-3-sonnet-20240229&quot;</span><span class="p">,</span>
+                <span class="n">max_tokens</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+                <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
+                    <span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;Hello&quot;</span><span class="p">}</span>
+                <span class="p">]</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="kc">True</span>
+        <span class="k">except</span> <span class="n">anthropic</span><span class="o">.</span><span class="n">APIError</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+
+<div class="viewcode-block" id="APIClientFactory.get_api_client">
+<a class="viewcode-back" href="../../module.api_utils.html#module.api_utils.APIClientFactory.get_api_client">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">get_api_client</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">model_name</span> <span class="ow">in</span> <span class="n">OpenAI</span><span class="o">.</span><span class="n">SUPPORTED_VISION_MODELS</span><span class="p">:</span>
+            <span class="n">api_client</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">api_clients</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;openai&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">api_client</span><span class="p">:</span>
+                <span class="n">api_client</span><span class="o">.</span><span class="n">model_name</span> <span class="o">=</span> <span class="n">model_name</span>
+            <span class="k">return</span> <span class="n">api_client</span><span class="p">,</span> <span class="s2">&quot;openai&quot;</span>
+        <span class="k">if</span> <span class="n">model_name</span> <span class="ow">in</span> <span class="n">Google</span><span class="o">.</span><span class="n">SUPPORTED_VISION_MODELS</span><span class="p">:</span>
+            <span class="n">api_client</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">api_clients</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;google&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">api_client</span><span class="p">:</span>
+                <span class="n">api_client</span><span class="o">.</span><span class="n">model_name</span> <span class="o">=</span> <span class="n">model_name</span>
+            <span class="k">return</span> <span class="n">api_client</span><span class="p">,</span> <span class="s2">&quot;google&quot;</span>
+        <span class="k">if</span> <span class="n">model_name</span> <span class="ow">in</span> <span class="n">Claude</span><span class="o">.</span><span class="n">SUPPORTED_VISION_MODELS</span><span class="p">:</span>
+            <span class="n">api_client</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">api_clients</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;claude&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">api_client</span><span class="p">:</span>
+                <span class="n">api_client</span><span class="o">.</span><span class="n">model_name</span> <span class="o">=</span> <span class="n">model_name</span>
+            <span class="k">return</span> <span class="n">api_client</span><span class="p">,</span> <span class="s2">&quot;claude&quot;</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;指定されたモデル名に対応する API クライアントが見つかりません: </span><span class="si">{</span><span class="n">model_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+</div>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="c1"># ロギングの設定</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">basicConfig</span><span class="p">(</span><span class="n">level</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
+    <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+    <span class="c1"># テスト用のAPIキー（実際の使用時は環境変数や設定ファイルから読み込むべきです）</span>
+    <span class="n">api_keys</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;openai_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your_openai_api_key_here&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;google_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your_google_api_key_here&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;claude_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your_claude_api_key_here&quot;</span>
+    <span class="p">}</span>
+
+    <span class="c1"># テスト用のプロンプトとモデル設定</span>
+    <span class="n">main_prompt</span> <span class="o">=</span> <span class="s2">&quot;Describe this image in detail.&quot;</span>
+    <span class="n">add_prompt</span> <span class="o">=</span> <span class="s2">&quot;Focus on the main subject.&quot;</span>
+    <span class="n">models</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="p">{</span><span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;gpt-4-vision-preview&quot;</span><span class="p">,</span> <span class="s2">&quot;provider&quot;</span><span class="p">:</span> <span class="s2">&quot;openai&quot;</span><span class="p">,</span> <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;vision&quot;</span><span class="p">},</span>
+        <span class="p">{</span><span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;gemini-pro-vision&quot;</span><span class="p">,</span> <span class="s2">&quot;provider&quot;</span><span class="p">:</span> <span class="s2">&quot;google&quot;</span><span class="p">,</span> <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;vision&quot;</span><span class="p">},</span>
+        <span class="p">{</span><span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;claude-3-opus-20240229&quot;</span><span class="p">,</span> <span class="s2">&quot;provider&quot;</span><span class="p">:</span> <span class="s2">&quot;anthropic&quot;</span><span class="p">,</span> <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;vision&quot;</span><span class="p">}</span>
+    <span class="p">]</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># APIClientFactoryのインスタンス化</span>
+        <span class="n">factory</span> <span class="o">=</span> <span class="n">APIClientFactory</span><span class="p">(</span><span class="n">api_keys</span><span class="p">,</span> <span class="n">models</span><span class="p">,</span> <span class="n">main_prompt</span><span class="p">,</span> <span class="n">add_prompt</span><span class="p">)</span>
+
+        <span class="c1"># 各APIクライアントの取得とテスト</span>
+        <span class="k">for</span> <span class="n">model</span> <span class="ow">in</span> <span class="n">models</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">client</span><span class="p">,</span> <span class="n">provider</span> <span class="o">=</span> <span class="n">factory</span><span class="o">.</span><span class="n">get_api_client</span><span class="p">(</span><span class="n">model</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">])</span>
+                <span class="k">if</span> <span class="n">client</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Successfully initialized </span><span class="si">{</span><span class="n">provider</span><span class="si">}</span><span class="s2"> client for model: </span><span class="si">{</span><span class="n">model</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                    <span class="c1"># ここで実際のAPIリクエストをテストすることもできます</span>
+                    <span class="c1"># 例: result = client.generate_caption(Path(&quot;test_image.jpg&quot;))</span>
+                    <span class="c1"># logger.info(f&quot;Test result: {result}&quot;)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to initialize client for </span><span class="si">{</span><span class="n">provider</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error getting API client: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;An unexpected error occurred: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">traceback</span><span class="o">.</span><span class="n">format_exc</span><span class="p">())</span>
+
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;API client initialization test completed.&quot;</span><span class="p">)</span>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">lora_dataset_toolsy</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="検索" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>ナビゲーション</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modules.html">src</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">モジュールコード</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2024, NEXTAltair.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.0.2</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

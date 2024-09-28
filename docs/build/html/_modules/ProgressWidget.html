@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+
+<html lang="ja" data-content_root="../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ProgressWidget &#8212; lora_dataset_toolsy 1.01 ドキュメント</title>
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d1102ebc" />
+    <link rel="stylesheet" type="text/css" href="../_static/basic.css?v=c058f7c8" />
+    <link rel="stylesheet" type="text/css" href="../_static/alabaster.css?v=27fed22d" />
+    <script src="../_static/documentation_options.js?v=e77f40a7"></script>
+    <script src="../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/translations.js?v=91613774"></script>
+    <link rel="index" title="索引" href="../genindex.html" />
+    <link rel="search" title="検索" href="../search.html" />
+   
+  <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>ProgressWidget のソースコード</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span> <span class="nn">PySide6.QtWidgets</span> <span class="kn">import</span> <span class="n">QDialog</span>
+<span class="kn">from</span> <span class="nn">PySide6.QtCore</span> <span class="kn">import</span> <span class="n">Qt</span><span class="p">,</span><span class="n">Signal</span><span class="p">,</span> <span class="n">Slot</span><span class="p">,</span> <span class="n">QThread</span><span class="p">,</span> <span class="n">QObject</span>
+
+<span class="kn">from</span> <span class="nn">gui_file.ProgressWidget_ui</span> <span class="kn">import</span> <span class="n">Ui_ProgressWidget</span>
+
+<span class="kn">from</span> <span class="nn">module.log</span> <span class="kn">import</span> <span class="n">get_logger</span>
+
+
+<div class="viewcode-block" id="ProgressWidget">
+<a class="viewcode-back" href="../ProgressWidget.html#ProgressWidget.ProgressWidget">[ドキュメント]</a>
+<span class="k">class</span> <span class="nc">ProgressWidget</span><span class="p">(</span><span class="n">QDialog</span><span class="p">,</span> <span class="n">Ui_ProgressWidget</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    処理の進捗状況を表示するダイアログウィジェット。</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        canceled (Signal): キャンセルボタンがクリックされたときに発行されるシグナル。</span>
+<span class="sd">        logger: ロガー</span>
+<span class="sd">        buffer: 進捗値を一時的に保存するバッファ</span>
+
+<span class="sd">    Signals:</span>
+<span class="sd">        canceled: キャンセルボタンクリック時に発行</span>
+
+<span class="sd">    Slots:</span>
+<span class="sd">        on_cancelButton_clicked(): キャンセルボタンクリック時の処理</span>
+<span class="sd">        update_status(str): ステータスラベルの更新</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">canceled</span> <span class="o">=</span> <span class="n">Signal</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parent</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;ProgressWidgetの初期化&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;ProgressWidget&quot;</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">parent</span><span class="p">,</span> <span class="n">Qt</span><span class="o">.</span><span class="n">Dialog</span><span class="p">)</span>  <span class="c1"># 親ウィジェットとダイアログフラグを設定して初期化</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">setupUi</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">setModal</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span> <span class="c1"># 補湯侍中操作を受け付けないようにする</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;初期化&quot;</span><span class="p">)</span>
+
+        <span class="c1"># プログレスバーの機能を無効化</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">progressBar</span><span class="o">.</span><span class="n">setVisible</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+
+<div class="viewcode-block" id="ProgressWidget.on_cancelButton_clicked">
+<a class="viewcode-back" href="../ProgressWidget.html#ProgressWidget.ProgressWidget.on_cancelButton_clicked">[ドキュメント]</a>
+    <span class="nd">@Slot</span><span class="p">()</span>
+    <span class="k">def</span> <span class="nf">on_cancelButton_clicked</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;キャンセルボタンがクリックされたときの処理&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Cancel button clicked&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">canceled</span><span class="o">.</span><span class="n">emit</span><span class="p">()</span>  <span class="c1"># canceledシグナルを発行</span></div>
+
+
+<div class="viewcode-block" id="ProgressWidget.update_status">
+<a class="viewcode-back" href="../ProgressWidget.html#ProgressWidget.ProgressWidget.update_status">[ドキュメント]</a>
+    <span class="nd">@Slot</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">update_status</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">status</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        ステータスラベルのテキストを更新する。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            status (str): 新しいステータステキスト</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">statusLabel</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="n">status</span><span class="p">)</span></div>
+</div>
+
+
+<div class="viewcode-block" id="Worker">
+<a class="viewcode-back" href="../ProgressWidget.html#ProgressWidget.Worker">[ドキュメント]</a>
+<span class="k">class</span> <span class="nc">Worker</span><span class="p">(</span><span class="n">QObject</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    バックグラウンドで長時間実行されるタスクを処理するワーカースレッド。</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        progress_updated (Signal): 進捗状況が更新されたときに発行されるシグナル。</span>
+<span class="sd">        status_updated (Signal): ステータスが更新されたときに発行されるシグナル。</span>
+<span class="sd">        finished (Signal): タスクが完了したときに発行されるシグナル。</span>
+<span class="sd">        logger: ロガー</span>
+<span class="sd">        _is_canceled: キャンセルリクエストを受けたかどうかを示すフラグ</span>
+<span class="sd">        process_function: 実行する処理の関数</span>
+<span class="sd">        args: 関数に渡す位置引数</span>
+<span class="sd">        kwargs: 関数に渡すキーワード引数</span>
+
+<span class="sd">    Signals:</span>
+<span class="sd">        progress_updated(int): 進捗値更新時に発行</span>
+<span class="sd">        status_updated(str): ステータスラベル更新時に発行</span>
+<span class="sd">        finished: 処理終了時に発行</span>
+
+<span class="sd">    Slots:</span>
+<span class="sd">        run(): ワーカースレッドの処理実行</span>
+<span class="sd">        cancel(): キャンセルリクエスト処理</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">progress_updated</span> <span class="o">=</span> <span class="n">Signal</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="n">status_updated</span> <span class="o">=</span> <span class="n">Signal</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span>
+    <span class="n">finished</span> <span class="o">=</span> <span class="n">Signal</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">process_function</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>  <span class="c1"># 初期化時に関数と引数を受け取る</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Workerの初期化&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Worker: </span><span class="si">{</span><span class="n">process_function</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_is_canceled</span> <span class="o">=</span> <span class="kc">False</span>  <span class="c1"># キャンセルリクエストを受けたかどうかを示すフラグ</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">process_function</span> <span class="o">=</span> <span class="n">process_function</span>  <span class="c1"># 実行する処理の関数</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">args</span> <span class="o">=</span> <span class="n">args</span>  <span class="c1"># 関数に渡す位置引数</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">kwargs</span> <span class="o">=</span> <span class="n">kwargs</span>  <span class="c1"># 関数に渡すキーワード引数</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;初期化&quot;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Worker.run">
+<a class="viewcode-back" href="../ProgressWidget.html#ProgressWidget.Worker.run">[ドキュメント]</a>
+    <span class="nd">@Slot</span><span class="p">()</span>
+    <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Worker スレッドで実行する処理。</span>
+<span class="sd">        外部から渡された関数を実行します。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Worker: 処理開始&quot;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_is_canceled</span><span class="p">:</span>
+                <span class="k">return</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">process_function</span><span class="p">(</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="bp">self</span><span class="o">.</span><span class="n">kwargs</span><span class="p">)</span>  <span class="c1"># process_function を実行</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ワーカースレッドでエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;処理完了&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">finished</span><span class="o">.</span><span class="n">emit</span><span class="p">()</span>  <span class="c1"># 処理完了シグナルを発行</span></div>
+
+
+<div class="viewcode-block" id="Worker.cancel">
+<a class="viewcode-back" href="../ProgressWidget.html#ProgressWidget.Worker.cancel">[ドキュメント]</a>
+    <span class="nd">@Slot</span><span class="p">()</span>
+    <span class="k">def</span> <span class="nf">cancel</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        ワーカースレッドのキャンセル処理。</span>
+<span class="sd">        _is_canceled フラグを True に設定して、処理を中断します。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Cancel requested&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_is_canceled</span> <span class="o">=</span> <span class="kc">True</span></div>
+</div>
+
+
+<div class="viewcode-block" id="Controller">
+<a class="viewcode-back" href="../ProgressWidget.html#ProgressWidget.Controller">[ドキュメント]</a>
+<span class="k">class</span> <span class="nc">Controller</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    ProgressWidgetとWorkerを管理し、タスクの実行を制御するコントローラクラス。</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        logger: ロガー</span>
+<span class="sd">        progress_widget: 進捗状況を表示する ProgressWidget</span>
+<span class="sd">        worker: バックグラウンド処理を実行する Worker</span>
+<span class="sd">        thread: ワーカースレッド</span>
+
+<span class="sd">    Methods:</span>
+<span class="sd">        __init__(self, progress_widget: ProgressWidget = None): コンストラクタ</span>
+<span class="sd">        start_process_no_args(self, process_function): 引数なしの処理を実行</span>
+<span class="sd">        start_process_with_args(self, process_function, *args, **kwargs): 引数ありの処理を実行</span>
+<span class="sd">        _setup_and_start_thread(self, process_function, *args, **kwargs): スレッドとワーカーのセットアップと開始</span>
+<span class="sd">        cleanup(self): スレッドとワーカーのリソースを解放</span>
+<span class="sd">        on_worker_finished(self): ワーカースレッド終了時の処理</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">progress_widget</span><span class="p">:</span> <span class="n">ProgressWidget</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>  <span class="c1"># ProgressWidget を受け取るように修正</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Controllerの初期化&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;Controller&quot;</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">progress_widget</span> <span class="o">=</span> <span class="n">progress_widget</span> <span class="k">if</span> <span class="n">progress_widget</span> <span class="k">else</span> <span class="n">ProgressWidget</span><span class="p">()</span> <span class="c1"># ProgressWidgetを初期化または引数から取得</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">worker</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">thread</span> <span class="o">=</span> <span class="n">QThread</span><span class="p">()</span>  <span class="c1"># ワーカースレッド</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;初期化&quot;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Controller.setup_connections">
+<a class="viewcode-back" href="../ProgressWidget.html#ProgressWidget.Controller.setup_connections">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">setup_connections</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Worker、ProgressWidget、スレッド間のシグナルとスロットを接続する&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">worker</span><span class="o">.</span><span class="n">status_updated</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">progress_widget</span><span class="o">.</span><span class="n">update_status</span><span class="p">)</span>  <span class="c1"># WorkerのステータスをProgressWidgetに接続</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">worker</span><span class="o">.</span><span class="n">finished</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">on_worker_finished</span><span class="p">)</span> <span class="c1"># Workerの終了シグナルをon_worker_finishedスロットに接続</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">progress_widget</span><span class="o">.</span><span class="n">canceled</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">worker</span><span class="o">.</span><span class="n">cancel</span><span class="p">)</span> <span class="c1"># ProgressWidgetのキャンセルシグナルをWorkerのcancelスロットに接続</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">thread</span><span class="o">.</span><span class="n">started</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">worker</span><span class="o">.</span><span class="n">run</span><span class="p">())</span>  <span class="c1"># スレッド開始シグナルをWorkerのrunスロットに接続</span></div>
+
+
+<div class="viewcode-block" id="Controller.start_process_no_args">
+<a class="viewcode-back" href="../ProgressWidget.html#ProgressWidget.Controller.start_process_no_args">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">start_process_no_args</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">process_function</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        引数を必要としないプロセスを開始します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            process_function (callable): 実行する関数（引数なし）</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Controller: start_process_no_args called&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_setup_and_start_thread</span><span class="p">(</span><span class="n">process_function</span><span class="p">)</span> <span class="c1"># スレッドとワーカーのセットアップと開始</span></div>
+
+
+<div class="viewcode-block" id="Controller.start_process_with_args">
+<a class="viewcode-back" href="../ProgressWidget.html#ProgressWidget.Controller.start_process_with_args">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">start_process_with_args</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">process_function</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        引数を必要とするプロセスを開始します。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            process_function (callable): 実行する関数</span>
+<span class="sd">            *args: 位置引数</span>
+<span class="sd">            **kwargs: キーワード引数</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Controller: start_process_with_args called&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_setup_and_start_thread</span><span class="p">(</span><span class="n">process_function</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="c1"># スレッドとワーカーのセットアップと開始</span></div>
+
+
+<div class="viewcode-block" id="Controller._setup_and_start_thread">
+<a class="viewcode-back" href="../ProgressWidget.html#ProgressWidget.Controller._setup_and_start_thread">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">_setup_and_start_thread</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">process_function</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        スレッドとワーカーのセットアップと開始を行う内部メソッド</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># 既存のスレッドとワーカーをクリーンアップ</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cleanup</span><span class="p">()</span>
+
+        <span class="c1"># 新しいスレッドとワーカーを作成</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">thread</span> <span class="o">=</span> <span class="n">QThread</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">args</span> <span class="ow">or</span> <span class="n">kwargs</span><span class="p">:</span> <span class="c1"># 引数がある場合</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Creating new worker: </span><span class="si">{</span><span class="n">process_function</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> </span><span class="se">\n</span><span class="s2"> with args: </span><span class="si">{</span><span class="n">args</span><span class="si">}</span><span class="s2">, kwargs: </span><span class="si">{</span><span class="n">kwargs</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">worker</span> <span class="o">=</span> <span class="n">Worker</span><span class="p">(</span><span class="n">process_function</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span> <span class="c1"># 引数がない場合</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;引数なしの新しいワーカー</span><span class="si">{</span><span class="n">process_function</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">を作成&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">worker</span> <span class="o">=</span> <span class="n">Worker</span><span class="p">(</span><span class="n">process_function</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">worker</span><span class="o">.</span><span class="n">moveToThread</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">thread</span><span class="p">)</span> <span class="c1"># Workerオブジェクトをスレッドに移動</span>
+
+        <span class="c1"># 接続を設定</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">thread</span><span class="o">.</span><span class="n">started</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">worker</span><span class="o">.</span><span class="n">run</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">worker</span><span class="o">.</span><span class="n">finished</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">thread</span><span class="o">.</span><span class="n">quit</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">worker</span><span class="o">.</span><span class="n">finished</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">worker</span><span class="o">.</span><span class="n">deleteLater</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">thread</span><span class="o">.</span><span class="n">finished</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">thread</span><span class="o">.</span><span class="n">deleteLater</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">worker</span><span class="o">.</span><span class="n">status_updated</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">progress_widget</span><span class="o">.</span><span class="n">update_status</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">worker</span><span class="o">.</span><span class="n">finished</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">on_worker_finished</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">progress_widget</span><span class="o">.</span><span class="n">canceled</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">worker</span><span class="o">.</span><span class="n">cancel</span><span class="p">)</span>
+
+        <span class="c1"># スレッドを開始</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">thread</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;New thread started&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Controller.on_worker_finished">
+<a class="viewcode-back" href="../ProgressWidget.html#ProgressWidget.Controller.on_worker_finished">[ドキュメント]</a>
+    <span class="nd">@Slot</span><span class="p">()</span>
+    <span class="k">def</span> <span class="nf">on_worker_finished</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Workerの処理が終了したときに呼び出されるスロット。</span>
+<span class="sd">        スレッドをクリーンアップし、progress_widgetを非表示にします。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Controller: on_worker_finished called&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">progress_widget</span><span class="o">.</span><span class="n">hide</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cleanup</span><span class="p">()</span> <span class="c1"># スレッドとワーカーのリソースを解放</span></div>
+
+
+<div class="viewcode-block" id="Controller.cleanup">
+<a class="viewcode-back" href="../ProgressWidget.html#ProgressWidget.Controller.cleanup">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">cleanup</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        スレッドとワーカーのリソースを解放する。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">thread</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">thread</span><span class="o">.</span><span class="n">isRunning</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Cleaning up existing thread and worker&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">worker</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span> <span class="c1"># ワーカースレッドにキャンセルリクエストを送信</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">thread</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span> <span class="c1"># スレッドを終了</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">thread</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span> <span class="c1"># スレッドが完全に終了するまで待機</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">thread</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">worker</span> <span class="o">=</span> <span class="kc">None</span></div>
+</div>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">PySide6.QtWidgets</span> <span class="kn">import</span> <span class="n">QApplication</span>
+    <span class="kn">from</span> <span class="nn">module.log</span> <span class="kn">import</span> <span class="n">setup_logger</span>
+    <span class="n">logconf</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;level&#39;</span><span class="p">:</span> <span class="s1">&#39;DEBUG&#39;</span><span class="p">,</span> <span class="s1">&#39;file&#39;</span><span class="p">:</span> <span class="s1">&#39;ProgressWidget.log&#39;</span><span class="p">}</span>
+    <span class="n">setup_logger</span><span class="p">(</span><span class="n">logconf</span><span class="p">)</span>
+    <span class="n">app</span> <span class="o">=</span> <span class="n">QApplication</span><span class="p">([])</span>
+    <span class="n">controller</span> <span class="o">=</span> <span class="n">Controller</span><span class="p">()</span>
+    <span class="n">controller</span><span class="o">.</span><span class="n">progress_widget</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+    <span class="n">app</span><span class="o">.</span><span class="n">exec</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../index.html">lora_dataset_toolsy</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="検索" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>ナビゲーション</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../modules.html">src</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../index.html">Documentation overview</a><ul>
+  <li><a href="index.html">モジュールコード</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2024, NEXTAltair.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.0.2</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

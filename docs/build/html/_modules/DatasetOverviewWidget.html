@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+
+<html lang="ja" data-content_root="../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DatasetOverviewWidget &#8212; lora_dataset_toolsy 1.01 ドキュメント</title>
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d1102ebc" />
+    <link rel="stylesheet" type="text/css" href="../_static/basic.css?v=c058f7c8" />
+    <link rel="stylesheet" type="text/css" href="../_static/alabaster.css?v=27fed22d" />
+    <script src="../_static/documentation_options.js?v=e77f40a7"></script>
+    <script src="../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/translations.js?v=91613774"></script>
+    <link rel="index" title="索引" href="../genindex.html" />
+    <link rel="search" title="検索" href="../search.html" />
+   
+  <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>DatasetOverviewWidget のソースコード</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">from</span> <span class="nn">PySide6.QtWidgets</span> <span class="kn">import</span> <span class="n">QWidget</span>
+<span class="kn">from</span> <span class="nn">PySide6.QtCore</span> <span class="kn">import</span> <span class="n">Signal</span><span class="p">,</span> <span class="n">Slot</span>
+
+<span class="kn">from</span> <span class="nn">gui_file.DatasetOverviewWidget_ui</span> <span class="kn">import</span> <span class="n">Ui_DatasetOverviewWidget</span>
+
+<span class="kn">from</span> <span class="nn">module.file_sys</span> <span class="kn">import</span> <span class="n">FileSystemManager</span>
+<span class="kn">from</span> <span class="nn">module.log</span> <span class="kn">import</span> <span class="n">get_logger</span>
+<span class="kn">from</span> <span class="nn">caption_tags</span> <span class="kn">import</span> <span class="n">ImageAnalyzer</span>
+
+<div class="viewcode-block" id="DatasetOverviewWidget">
+<a class="viewcode-back" href="../DatasetOverviewWidget.html#DatasetOverviewWidget.DatasetOverviewWidget">[ドキュメント]</a>
+<span class="k">class</span> <span class="nc">DatasetOverviewWidget</span><span class="p">(</span><span class="n">QWidget</span><span class="p">,</span> <span class="n">Ui_DatasetOverviewWidget</span><span class="p">):</span>
+    <span class="n">dataset_loaded</span> <span class="o">=</span> <span class="n">Signal</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parent</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">parent</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;DatasetOverviewWidget&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">setupUi</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">image_files</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c1"># スプリッターの初期サイズを設定</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">mainSplitter</span><span class="o">.</span><span class="n">setSizes</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">width</span><span class="p">()</span>  <span class="o">//</span> <span class="mi">3</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">width</span><span class="p">()</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">//</span> <span class="mi">3</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">infoSplitter</span><span class="o">.</span><span class="n">setSizes</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">height</span><span class="p">()</span> <span class="o">*</span> <span class="mi">1</span> <span class="o">//</span> <span class="mi">5</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">height</span><span class="p">()</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">//</span> <span class="mi">5</span><span class="p">])</span>
+
+        <span class="c1"># シグナル/スロット接続</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">thumbnailSelector</span><span class="o">.</span><span class="n">imageSelected</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">update_preview</span><span class="p">)</span>
+
+<div class="viewcode-block" id="DatasetOverviewWidget.initialize">
+<a class="viewcode-back" href="../DatasetOverviewWidget.html#DatasetOverviewWidget.DatasetOverviewWidget.initialize">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">initialize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cm</span><span class="p">:</span> <span class="s1">&#39;ConfigManager&#39;</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cm</span> <span class="o">=</span> <span class="n">cm</span></div>
+
+
+<div class="viewcode-block" id="DatasetOverviewWidget.showEvent">
+<a class="viewcode-back" href="../DatasetOverviewWidget.html#DatasetOverviewWidget.DatasetOverviewWidget.showEvent">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">showEvent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;ウィジェットが表示される際に呼び出されるイベントハンドラ&quot;&quot;&quot;</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">showEvent</span><span class="p">(</span><span class="n">event</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">load_images</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cm</span><span class="o">.</span><span class="n">dataset_image_paths</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="DatasetOverviewWidget.load_images">
+<a class="viewcode-back" href="../DatasetOverviewWidget.html#DatasetOverviewWidget.DatasetOverviewWidget.load_images">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">load_images</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_files</span><span class="p">:</span> <span class="nb">list</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">image_files</span> <span class="o">=</span> <span class="n">image_files</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">thumbnailSelector</span><span class="o">.</span><span class="n">load_images</span><span class="p">(</span><span class="n">image_files</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dataset_loaded</span><span class="o">.</span><span class="n">emit</span><span class="p">()</span>
+
+        <span class="c1"># 初期画像の表示</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_files</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">update_preview</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">image_files</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span></div>
+
+
+<div class="viewcode-block" id="DatasetOverviewWidget.update_preview">
+<a class="viewcode-back" href="../DatasetOverviewWidget.html#DatasetOverviewWidget.DatasetOverviewWidget.update_preview">[ドキュメント]</a>
+    <span class="nd">@Slot</span><span class="p">(</span><span class="n">Path</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">update_preview</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ImagePreview</span><span class="o">.</span><span class="n">load_image</span><span class="p">(</span><span class="n">image_path</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">update_metadata</span><span class="p">(</span><span class="n">image_path</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="DatasetOverviewWidget.update_metadata">
+<a class="viewcode-back" href="../DatasetOverviewWidget.html#DatasetOverviewWidget.DatasetOverviewWidget.update_metadata">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">update_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">image_path</span><span class="p">:</span>
+            <span class="n">metadata</span> <span class="o">=</span> <span class="n">FileSystemManager</span><span class="o">.</span><span class="n">get_image_info</span><span class="p">(</span><span class="n">image_path</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">set_metadata_labels</span><span class="p">(</span><span class="n">metadata</span><span class="p">,</span> <span class="n">image_path</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">update_annotations</span><span class="p">(</span><span class="n">image_path</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="DatasetOverviewWidget.set_metadata_labels">
+<a class="viewcode-back" href="../DatasetOverviewWidget.html#DatasetOverviewWidget.DatasetOverviewWidget.set_metadata_labels">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">set_metadata_labels</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">metadata</span><span class="p">,</span> <span class="n">image_path</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fileNameValueLabel</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;filename&#39;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">imagePathValueLabel</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">image_path</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">formatValueLabel</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;format&#39;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">modeValueLabel</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;mode&#39;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">alphaChannelValueLabel</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="s2">&quot;あり&quot;</span> <span class="k">if</span> <span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;has_alpha&#39;</span><span class="p">]</span> <span class="k">else</span> <span class="s2">&quot;なし&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">resolutionValueLabel</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;width&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> x </span><span class="si">{</span><span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;height&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">aspectRatioValueLabel</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">calculate_aspect_ratio</span><span class="p">(</span><span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;width&#39;</span><span class="p">],</span> <span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;height&#39;</span><span class="p">]))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">extensionValueLabel</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;extension&#39;</span><span class="p">])</span></div>
+
+
+<div class="viewcode-block" id="DatasetOverviewWidget.clear_metadata">
+<a class="viewcode-back" href="../DatasetOverviewWidget.html#DatasetOverviewWidget.DatasetOverviewWidget.clear_metadata">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">clear_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">labels</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fileNameValueLabel</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">imagePathValueLabel</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">formatValueLabel</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">modeValueLabel</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">alphaChannelValueLabel</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">resolutionValueLabel</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">extensionValueLabel</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">aspectRatioValueLabel</span><span class="p">,</span>
+        <span class="p">]</span>
+        <span class="k">for</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">labels</span><span class="p">:</span>
+            <span class="n">label</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tagsTextEdit</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">captionTextEdit</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="DatasetOverviewWidget.update_annotations">
+<a class="viewcode-back" href="../DatasetOverviewWidget.html#DatasetOverviewWidget.DatasetOverviewWidget.update_annotations">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">update_annotations</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">):</span>
+        <span class="c1"># この部分は実際のデータ取得方法に応じて実装する必要があります</span>
+        <span class="n">annotations</span> <span class="o">=</span> <span class="n">ImageAnalyzer</span><span class="o">.</span><span class="n">get_existing_annotations</span><span class="p">(</span><span class="n">image_path</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">annotations</span><span class="p">:</span>
+            <span class="c1"># タグを抽出して結合</span>
+            <span class="n">tags</span> <span class="o">=</span> <span class="p">[</span><span class="n">tag_info</span><span class="p">[</span><span class="s1">&#39;tag&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">tag_info</span> <span class="ow">in</span> <span class="n">annotations</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;tags&#39;</span><span class="p">,</span> <span class="p">[])]</span>
+            <span class="n">tags_text</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tags</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">tagsTextEdit</span><span class="o">.</span><span class="n">setPlainText</span><span class="p">(</span><span class="n">tags_text</span><span class="p">)</span>
+
+            <span class="c1"># キャプションを抽出して結合</span>
+            <span class="n">captions</span> <span class="o">=</span> <span class="p">[</span><span class="n">caption_info</span><span class="p">[</span><span class="s1">&#39;caption&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">caption_info</span> <span class="ow">in</span> <span class="n">annotations</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;captions&#39;</span><span class="p">,</span> <span class="p">[])]</span>
+            <span class="n">captions_text</span> <span class="o">=</span> <span class="s2">&quot; | &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">captions</span><span class="p">)</span>  <span class="c1"># キャプションをパイプで区切って結合</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">captionTextEdit</span><span class="o">.</span><span class="n">setPlainText</span><span class="p">(</span><span class="n">captions_text</span><span class="p">)</span>
+
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">tagsTextEdit</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">captionTextEdit</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="DatasetOverviewWidget.calculate_aspect_ratio">
+<a class="viewcode-back" href="../DatasetOverviewWidget.html#DatasetOverviewWidget.DatasetOverviewWidget.calculate_aspect_ratio">[ドキュメント]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">calculate_aspect_ratio</span><span class="p">(</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="p">):</span>
+        <span class="k">def</span> <span class="nf">gcd</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
+            <span class="k">while</span> <span class="n">b</span><span class="p">:</span>
+                <span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="n">b</span><span class="p">,</span> <span class="n">a</span> <span class="o">%</span> <span class="n">b</span>
+            <span class="k">return</span> <span class="n">a</span>
+        <span class="n">ratio_gcd</span> <span class="o">=</span> <span class="n">gcd</span><span class="p">(</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="p">)</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">width</span><span class="w"> </span><span class="o">//</span><span class="w"> </span><span class="n">ratio_gcd</span><span class="si">}</span><span class="s2"> : </span><span class="si">{</span><span class="n">height</span><span class="w"> </span><span class="o">//</span><span class="w"> </span><span class="n">ratio_gcd</span><span class="si">}</span><span class="s2">&quot;</span></div>
+</div>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">PySide6.QtWidgets</span> <span class="kn">import</span> <span class="n">QApplication</span>
+    <span class="kn">from</span> <span class="nn">gui</span> <span class="kn">import</span> <span class="n">ConfigManager</span>
+    <span class="kn">from</span> <span class="nn">module.file_sys</span> <span class="kn">import</span> <span class="n">FileSystemManager</span>
+    <span class="kn">import</span> <span class="nn">sys</span>
+    <span class="kn">from</span> <span class="nn">module.log</span> <span class="kn">import</span>  <span class="n">setup_logger</span>
+    <span class="n">logconf</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;level&#39;</span><span class="p">:</span> <span class="s1">&#39;DEBUG&#39;</span><span class="p">,</span> <span class="s1">&#39;file&#39;</span><span class="p">:</span> <span class="s1">&#39;DatasetOverviewWidget.log&#39;</span><span class="p">}</span>
+    <span class="n">setup_logger</span><span class="p">(</span><span class="n">logconf</span><span class="p">)</span>
+    <span class="n">cm</span> <span class="o">=</span> <span class="n">ConfigManager</span><span class="p">()</span>
+    <span class="n">fsm</span> <span class="o">=</span> <span class="n">FileSystemManager</span><span class="p">()</span>
+    <span class="n">directory</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;testimg\10_shira&quot;</span><span class="p">)</span>
+    <span class="n">image_files</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="n">fsm</span><span class="o">.</span><span class="n">get_image_files</span><span class="p">(</span><span class="n">directory</span><span class="p">)</span>
+    <span class="n">app</span> <span class="o">=</span> <span class="n">QApplication</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">)</span>
+    <span class="n">widget</span> <span class="o">=</span> <span class="n">DatasetOverviewWidget</span><span class="p">()</span>
+    <span class="n">widget</span><span class="o">.</span><span class="n">initialize</span><span class="p">(</span><span class="n">cm</span><span class="p">)</span>
+    <span class="n">widget</span><span class="o">.</span><span class="n">load_images</span><span class="p">(</span><span class="n">image_files</span><span class="p">)</span>
+    <span class="n">widget</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+    <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="n">app</span><span class="o">.</span><span class="n">exec</span><span class="p">())</span>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../index.html">lora_dataset_toolsy</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="検索" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>ナビゲーション</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../modules.html">src</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../index.html">Documentation overview</a><ul>
+  <li><a href="index.html">モジュールコード</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2024, NEXTAltair.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.0.2</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

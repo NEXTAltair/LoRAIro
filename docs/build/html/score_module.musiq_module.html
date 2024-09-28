@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+
+<html lang="ja" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>score_module.musiq_module module &#8212; lora_dataset_toolsy 1.01 ドキュメント</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=d1102ebc" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=c058f7c8" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=e77f40a7"></script>
+    <script src="_static/doctools.js?v=9a2dae69"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/translations.js?v=91613774"></script>
+    <link rel="index" title="索引" href="genindex.html" />
+    <link rel="search" title="検索" href="search.html" />
+    <link rel="next" title="score_module.rewardfunction_score module" href="score_module.rewardfunction_score.html" />
+    <link rel="prev" title="score_module.clip_aethetic_score module" href="score_module.clip_aethetic_score.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="module-score_module.musiq_module">
+<span id="score-module-musiq-module-module"></span><h1>score_module.musiq_module module<a class="headerlink" href="#module-score_module.musiq_module" title="Link to this heading">¶</a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="score_module.musiq_module.Bottleneck">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">Bottleneck</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">inplanes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">planes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stride</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">downsample</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_relu</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#Bottleneck"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.Bottleneck" title="Link to this definition">¶</a></dt>
+<dd><p>ベースクラス: <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="score_module.musiq_module.Bottleneck.expansion">
+<span class="sig-name descname"><span class="pre">expansion</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">4</span></em><a class="headerlink" href="#score_module.musiq_module.Bottleneck.expansion" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.Bottleneck.forward">
+<span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#Bottleneck.forward"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.Bottleneck.forward" title="Link to this definition">¶</a></dt>
+<dd><p>Define the computation performed at every call.</p>
+<p>Should be overridden by all subclasses.</p>
+<div class="admonition note">
+<p class="admonition-title">注釈</p>
+<p>Although the recipe for forward pass needs to be defined within
+this function, one should call the <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code> instance afterwards
+instead of this since the former takes care of running the
+registered hooks while the latter silently ignores them.</p>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="score_module.musiq_module.Create_MUSIQ_Model">
+<span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">Create_MUSIQ_Model</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_layer</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">h_dim</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_head</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_head</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_ff</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">grid_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dropout</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">layer_norm_epsilon</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">score_model_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#Create_MUSIQ_Model"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.Create_MUSIQ_Model" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="score_module.musiq_module.Create_MUSIQ_SCORE_Model">
+<span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">Create_MUSIQ_SCORE_Model</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_layer</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">h_dim</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_head</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_head</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_ff</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">grid_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dropout</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">layer_norm_epsilon</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">score_model_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_scale</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#Create_MUSIQ_SCORE_Model"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.Create_MUSIQ_SCORE_Model" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="score_module.musiq_module.Encoder_Layer">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">Encoder_Layer</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">h_dim</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_head</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_head</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_ff</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dropout</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">layer_norm_epsilon</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#Encoder_Layer"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.Encoder_Layer" title="Link to this definition">¶</a></dt>
+<dd><p>ベースクラス: <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.Encoder_Layer.enable_math">
+<span class="sig-name descname"><span class="pre">enable_math</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">enable_math</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#Encoder_Layer.enable_math"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.Encoder_Layer.enable_math" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.Encoder_Layer.forward">
+<span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">attn_mask</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#Encoder_Layer.forward"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.Encoder_Layer.forward" title="Link to this definition">¶</a></dt>
+<dd><p>Define the computation performed at every call.</p>
+<p>Should be overridden by all subclasses.</p>
+<div class="admonition note">
+<p class="admonition-title">注釈</p>
+<p>Although the recipe for forward pass needs to be defined within
+this function, one should call the <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code> instance afterwards
+instead of this since the former takes care of running the
+registered hooks while the latter silently ignores them.</p>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="score_module.musiq_module.MLP">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">MLP</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">768</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">h_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MLP"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MLP" title="Link to this definition">¶</a></dt>
+<dd><p>ベースクラス: <code class="xref py py-class docutils literal notranslate"><span class="pre">LightningModule</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.MLP.forward">
+<span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MLP.forward"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MLP.forward" title="Link to this definition">¶</a></dt>
+<dd><p>Same as <code class="xref py py-meth docutils literal notranslate"><span class="pre">torch.nn.Module.forward()</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">パラメータ<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>*args</strong> -- Whatever you decide to pass into the forward method.</p></li>
+<li><p><strong>**kwargs</strong> -- Keyword arguments are also possible.</p></li>
+</ul>
+</dd>
+<dt class="field-even">戻り値<span class="colon">:</span></dt>
+<dd class="field-even"><p>Your model's output</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="score_module.musiq_module.MUSIQ">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">MUSIQ</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_layer</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">h_dim</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_head</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_head</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_ff</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">grid_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dropout</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">layer_norm_epsilon</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MUSIQ"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MUSIQ" title="Link to this definition">¶</a></dt>
+<dd><p>ベースクラス: <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.MUSIQ.enable_math">
+<span class="sig-name descname"><span class="pre">enable_math</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">enable_math</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MUSIQ.enable_math"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MUSIQ.enable_math" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.MUSIQ.forward">
+<span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">latents</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale_1_latents</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale_2_latents</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MUSIQ.forward"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MUSIQ.forward" title="Link to this definition">¶</a></dt>
+<dd><p>Define the computation performed at every call.</p>
+<p>Should be overridden by all subclasses.</p>
+<div class="admonition note">
+<p class="admonition-title">注釈</p>
+<p>Although the recipe for forward pass needs to be defined within
+this function, one should call the <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code> instance afterwards
+instead of this since the former takes care of running the
+registered hooks while the latter silently ignores them.</p>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="score_module.musiq_module.MUSIQ_Encoder">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">MUSIQ_Encoder</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_layer</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">h_dim</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_head</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_head</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_ff</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">grid_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dropout</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">layer_norm_epsilon</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MUSIQ_Encoder"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MUSIQ_Encoder" title="Link to this definition">¶</a></dt>
+<dd><p>ベースクラス: <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.MUSIQ_Encoder.enable_math">
+<span class="sig-name descname"><span class="pre">enable_math</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">enable_math</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MUSIQ_Encoder.enable_math"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MUSIQ_Encoder.enable_math" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.MUSIQ_Encoder.forward">
+<span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">org_emb</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale_1_emb</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale_2_emb</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mask_input</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MUSIQ_Encoder.forward"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MUSIQ_Encoder.forward" title="Link to this definition">¶</a></dt>
+<dd><p>Define the computation performed at every call.</p>
+<p>Should be overridden by all subclasses.</p>
+<div class="admonition note">
+<p class="admonition-title">注釈</p>
+<p>Although the recipe for forward pass needs to be defined within
+this function, one should call the <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code> instance afterwards
+instead of this since the former takes care of running the
+registered hooks while the latter silently ignores them.</p>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="score_module.musiq_module.MUSIQ_SCORE_Model">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">MUSIQ_SCORE_Model</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_layer</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">h_dim</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_head</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_head</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_ff</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">grid_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dropout</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">layer_norm_epsilon</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_scale</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MUSIQ_SCORE_Model"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MUSIQ_SCORE_Model" title="Link to this definition">¶</a></dt>
+<dd><p>ベースクラス: <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.MUSIQ_SCORE_Model.enable_math">
+<span class="sig-name descname"><span class="pre">enable_math</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">enable_math</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MUSIQ_SCORE_Model.enable_math"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MUSIQ_SCORE_Model.enable_math" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.MUSIQ_SCORE_Model.forward">
+<span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">latents</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale_1_latents</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale_2_latents</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MUSIQ_SCORE_Model.forward"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MUSIQ_SCORE_Model.forward" title="Link to this definition">¶</a></dt>
+<dd><p>Define the computation performed at every call.</p>
+<p>Should be overridden by all subclasses.</p>
+<div class="admonition note">
+<p class="admonition-title">注釈</p>
+<p>Although the recipe for forward pass needs to be defined within
+this function, one should call the <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code> instance afterwards
+instead of this since the former takes care of running the
+registered hooks while the latter silently ignores them.</p>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="score_module.musiq_module.MUSIQ_Score_Dataset">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">MUSIQ_Score_Dataset</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reso_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">divisible</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">patche_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">patche_stride</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">grid_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale_list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_patches</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">batch_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eval_per</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hdf5</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hdf5_resume</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hdf5_add_load</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hdf5_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resume</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_cashe</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'auto'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MUSIQ_Score_Dataset"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MUSIQ_Score_Dataset" title="Link to this definition">¶</a></dt>
+<dd><p>ベースクラス: <code class="xref py py-class docutils literal notranslate"><span class="pre">Dataset</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.MUSIQ_Score_Dataset.create_datalist">
+<span class="sig-name descname"><span class="pre">create_datalist</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">resnet</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MUSIQ_Score_Dataset.create_datalist"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MUSIQ_Score_Dataset.create_datalist" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.MUSIQ_Score_Dataset.get_data_list">
+<span class="sig-name descname"><span class="pre">get_data_list</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">base_dir</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MUSIQ_Score_Dataset.get_data_list"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MUSIQ_Score_Dataset.get_data_list" title="Link to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">戻り値の型<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">dict</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">list</span></code>]</span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.MUSIQ_Score_Dataset.load_dataset">
+<span class="sig-name descname"><span class="pre">load_dataset</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">resume</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MUSIQ_Score_Dataset.load_dataset"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MUSIQ_Score_Dataset.load_dataset" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.MUSIQ_Score_Dataset.merge_hdf5">
+<span class="sig-name descname"><span class="pre">merge_hdf5</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MUSIQ_Score_Dataset.merge_hdf5"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MUSIQ_Score_Dataset.merge_hdf5" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.MUSIQ_Score_Dataset.print_datacount">
+<span class="sig-name descname"><span class="pre">print_datacount</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MUSIQ_Score_Dataset.print_datacount"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MUSIQ_Score_Dataset.print_datacount" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.MUSIQ_Score_Dataset.print_datacount_score">
+<span class="sig-name descname"><span class="pre">print_datacount_score</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MUSIQ_Score_Dataset.print_datacount_score"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MUSIQ_Score_Dataset.print_datacount_score" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.MUSIQ_Score_Dataset.save_dataset">
+<span class="sig-name descname"><span class="pre">save_dataset</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">save_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MUSIQ_Score_Dataset.save_dataset"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MUSIQ_Score_Dataset.save_dataset" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="score_module.musiq_module.MultiHeadAttention">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">MultiHeadAttention</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">h_dim</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_head</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_head</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dropout</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MultiHeadAttention"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MultiHeadAttention" title="Link to this definition">¶</a></dt>
+<dd><p>ベースクラス: <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.MultiHeadAttention.enable_math">
+<span class="sig-name descname"><span class="pre">enable_math</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">enable_math</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MultiHeadAttention.enable_math"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MultiHeadAttention.enable_math" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.MultiHeadAttention.forward">
+<span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Q</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">K</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">V</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">attn_mask</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#MultiHeadAttention.forward"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.MultiHeadAttention.forward" title="Link to this definition">¶</a></dt>
+<dd><p>Define the computation performed at every call.</p>
+<p>Should be overridden by all subclasses.</p>
+<div class="admonition note">
+<p class="admonition-title">注釈</p>
+<p>Although the recipe for forward pass needs to be defined within
+this function, one should call the <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code> instance afterwards
+instead of this since the former takes care of running the
+registered hooks while the latter silently ignores them.</p>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="score_module.musiq_module.PoswiseFeedForwardNet">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">PoswiseFeedForwardNet</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">h_dim</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_ff</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dropout</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#PoswiseFeedForwardNet"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.PoswiseFeedForwardNet" title="Link to this definition">¶</a></dt>
+<dd><p>ベースクラス: <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.PoswiseFeedForwardNet.forward">
+<span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#PoswiseFeedForwardNet.forward"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.PoswiseFeedForwardNet.forward" title="Link to this definition">¶</a></dt>
+<dd><p>Define the computation performed at every call.</p>
+<p>Should be overridden by all subclasses.</p>
+<div class="admonition note">
+<p class="admonition-title">注釈</p>
+<p>Although the recipe for forward pass needs to be defined within
+this function, one should call the <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code> instance afterwards
+instead of this since the former takes care of running the
+registered hooks while the latter silently ignores them.</p>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="score_module.musiq_module.ResNetBackbone">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">ResNetBackbone</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">block</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">layers</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#ResNetBackbone"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.ResNetBackbone" title="Link to this definition">¶</a></dt>
+<dd><p>ベースクラス: <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.ResNetBackbone.forward">
+<span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#ResNetBackbone.forward"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.ResNetBackbone.forward" title="Link to this definition">¶</a></dt>
+<dd><p>Define the computation performed at every call.</p>
+<p>Should be overridden by all subclasses.</p>
+<div class="admonition note">
+<p class="admonition-title">注釈</p>
+<p>Although the recipe for forward pass needs to be defined within
+this function, one should call the <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code> instance afterwards
+instead of this since the former takes care of running the
+registered hooks while the latter silently ignores them.</p>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="score_module.musiq_module.Score_Manager">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">Score_Manager</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">model_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">device</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">score_max</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">args</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#Score_Manager"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.Score_Manager" title="Link to this definition">¶</a></dt>
+<dd><p>ベースクラス: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.Score_Manager.get_score">
+<span class="sig-name descname"><span class="pre">get_score</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">raw_image</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prompt</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#Score_Manager.get_score"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.Score_Manager.get_score" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.Score_Manager.to_cpu">
+<span class="sig-name descname"><span class="pre">to_cpu</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#Score_Manager.to_cpu"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.Score_Manager.to_cpu" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="score_module.musiq_module.Score_Manager.to_gpu">
+<span class="sig-name descname"><span class="pre">to_gpu</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#Score_Manager.to_gpu"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.Score_Manager.to_gpu" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="score_module.musiq_module.calculate_pad_size">
+<span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">calculate_pad_size</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">image_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">patch_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">patch_stride</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#calculate_pad_size"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.calculate_pad_size" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="score_module.musiq_module.check_hash">
+<span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">check_hash</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">file_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'md5'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#check_hash"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.check_hash" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="score_module.musiq_module.collate_fn">
+<span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">collate_fn</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">examples</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#collate_fn"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.collate_fn" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="score_module.musiq_module.create_pos_idx">
+<span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">create_pos_idx</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">grid_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">count_w</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">count_h</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale_id</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#create_pos_idx"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.create_pos_idx" title="Link to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">戻り値<span class="colon">:</span></dt>
+<dd class="field-odd"><p>tensor(1, 1, h, w)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="score_module.musiq_module.extract_patches">
+<span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">extract_patches</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">image</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">patch_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">patch_stride</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">padding</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'same'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'tf'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">transform</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#extract_patches"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.extract_patches" title="Link to this definition">¶</a></dt>
+<dd><p>Extract patches from an input image using PyTorch.</p>
+<dl class="field-list simple">
+<dt class="field-odd">パラメータ<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>image</strong> (<em>torch.Tensor</em>) -- Input image (shape: [batch_size, channels, height, width]).</p></li>
+<li><p><strong>patch_size</strong> (<em>int</em>) -- Size of the patches (assumed to be square).</p></li>
+<li><p><strong>patch_stride</strong> (<em>int</em>) -- Stride for patch extraction.</p></li>
+<li><p><strong>padding</strong> (<em>str</em>) -- Padding mode ('same' or 'valid').</p></li>
+<li><p><strong>output_mode</strong> -- 'tf' or 'else' tfの場合tf.image.extract_patchesと同じ出力形式になる(b,patch_count, patch_size*patch_size*3) -&gt; patches.view(b,pc,h,w,c)</p></li>
+</ul>
+</dd>
+<dt class="field-even">戻り値<span class="colon">:</span></dt>
+<dd class="field-even"><p>Extracted patches (tf shape: [batch_size, num_patches, channels * patch_size * patch_size]), (torch: [batch_size, num_pathes, pathe_size_h, pathe_size_w, channel]), other shape: [bs, channel, x, y, w, h]
+Int: count_w
+Int: count_h</p>
+</dd>
+<dt class="field-odd">戻り値の型<span class="colon">:</span></dt>
+<dd class="field-odd"><p>torch.Tensor</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="score_module.musiq_module.get_attn_pad_mask">
+<span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">get_attn_pad_mask</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">seq_q</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">seq_k</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i_pad</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#get_attn_pad_mask"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.get_attn_pad_mask" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="score_module.musiq_module.get_image_preprocess">
+<span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">get_image_preprocess</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#get_image_preprocess"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.get_image_preprocess" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="score_module.musiq_module.get_property">
+<span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">get_property</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">batch_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_patches</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eval_per</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reso_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hdf5</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hdf5_resume</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hdf5_add_load</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hdf5_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'musiq'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">version</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resnet_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'./score_module'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dataset_resume</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dataset_save_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#get_property"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.get_property" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="score_module.musiq_module.get_resize_latents">
+<span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">get_resize_latents</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">resnet</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">device</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">image</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resos</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">division</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">32</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#get_resize_latents"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.get_resize_latents" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="score_module.musiq_module.get_sinusoid_encoding_table">
+<span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">get_sinusoid_encoding_table</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_seq</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_hidn</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#get_sinusoid_encoding_table"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.get_sinusoid_encoding_table" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="score_module.musiq_module.load_img">
+<span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">load_img</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">img_path</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#load_img"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.load_img" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="score_module.musiq_module.print_dict">
+<span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">print_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#print_dict"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.print_dict" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="score_module.musiq_module.resize_image">
+<span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">resize_image</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">image</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resize</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#resize_image"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.resize_image" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="score_module.musiq_module.resize_img_resos">
+<span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">resize_img_resos</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">image</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_resos</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reso_steps</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#resize_img_resos"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.resize_img_resos" title="Link to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">戻り値の型<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">list</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>]</span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="score_module.musiq_module.resnet50_backbone">
+<span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">resnet50_backbone</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">score_model_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#resnet50_backbone"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.resnet50_backbone" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="score_module.musiq_module.round_to_steps">
+<span class="sig-prename descclassname"><span class="pre">score_module.musiq_module.</span></span><span class="sig-name descname"><span class="pre">round_to_steps</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reso_steps</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/score_module/musiq_module.html#round_to_steps"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#score_module.musiq_module.round_to_steps" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">lora_dataset_toolsy</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="検索" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>ナビゲーション</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="modules.html">src</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="DatasetExportWidget.html">DatasetExportWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="DatasetOverviewWidget.html">DatasetOverviewWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="DirectoryPickerWidget.html">DirectoryPickerWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="FilePickerWidget.html">FilePickerWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ImageEditWidget.html">ImageEditWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ImageEditor.html">ImageEditor module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ImagePreviewWidget.html">ImagePreviewWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ImageTaggerWidget.html">ImageTaggerWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="PickerWidget.html">PickerWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ProgressWidget.html">ProgressWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="SettingsWidget.html">SettingsWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="TagFilterWidget.html">TagFilterWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ThumbnailSelectorWidget.html">ThumbnailSelectorWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="caption_tags.html">caption_tags module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gui.html">gui module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gui_file.html">gui_file package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="main.html">main module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="module.html">module package</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="score_module.html">score_module package</a></li>
+</ul>
+</li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+  <li><a href="modules.html">src</a><ul>
+  <li><a href="score_module.html">score_module package</a><ul>
+      <li>Previous: <a href="score_module.clip_aethetic_score.html" title="前の章へ">score_module.clip_aethetic_score module</a></li>
+      <li>Next: <a href="score_module.rewardfunction_score.html" title="次の章へ">score_module.rewardfunction_score module</a></li>
+  </ul></li>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2024, NEXTAltair.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.0.2</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/score_module.musiq_module.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+
+<html lang="ja" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>ImageTaggerWidget module &#8212; lora_dataset_toolsy 1.01 ドキュメント</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=d1102ebc" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=c058f7c8" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=e77f40a7"></script>
+    <script src="_static/doctools.js?v=9a2dae69"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/translations.js?v=91613774"></script>
+    <link rel="index" title="索引" href="genindex.html" />
+    <link rel="search" title="検索" href="search.html" />
+    <link rel="next" title="PickerWidget module" href="PickerWidget.html" />
+    <link rel="prev" title="ImagePreviewWidget module" href="ImagePreviewWidget.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="module-ImageTaggerWidget">
+<span id="imagetaggerwidget-module"></span><h1>ImageTaggerWidget module<a class="headerlink" href="#module-ImageTaggerWidget" title="Link to this heading">¶</a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="ImageTaggerWidget.ImageTaggerWidget">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ImageTaggerWidget.</span></span><span class="sig-name descname"><span class="pre">ImageTaggerWidget</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/ImageTaggerWidget.html#ImageTaggerWidget"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#ImageTaggerWidget.ImageTaggerWidget" title="Link to this definition">¶</a></dt>
+<dd><p>ベースクラス: <code class="xref py py-class docutils literal notranslate"><span class="pre">QWidget</span></code>, <a class="reference internal" href="gui_file.ImageTaggerWidget_ui.html#gui_file.ImageTaggerWidget_ui.Ui_ImageTaggerWidget" title="gui_file.ImageTaggerWidget_ui.Ui_ImageTaggerWidget"><code class="xref py py-class docutils literal notranslate"><span class="pre">Ui_ImageTaggerWidget</span></code></a></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="ImageTaggerWidget.ImageTaggerWidget.init_ui">
+<span class="sig-name descname"><span class="pre">init_ui</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/ImageTaggerWidget.html#ImageTaggerWidget.init_ui"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#ImageTaggerWidget.ImageTaggerWidget.init_ui" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ImageTaggerWidget.ImageTaggerWidget.initialize">
+<span class="sig-name descname"><span class="pre">initialize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cm</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">idm</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/ImageTaggerWidget.html#ImageTaggerWidget.initialize"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#ImageTaggerWidget.ImageTaggerWidget.initialize" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ImageTaggerWidget.ImageTaggerWidget.load_images">
+<span class="sig-name descname"><span class="pre">load_images</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">image_files</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/ImageTaggerWidget.html#ImageTaggerWidget.load_images"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#ImageTaggerWidget.ImageTaggerWidget.load_images" title="Link to this definition">¶</a></dt>
+<dd><p>画像のリストをウィジェットにロードし、サムネイルとして表示します。
+トークン数節約のため.webpファイルに限定されます。
+# IDEA: トークン数節約ならあえて低解像度に落とした画像を送り込んでもいいかも
+:type image_files: <span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">list</span></code></span>
+:param image_files: 画像のパスのリスト
+:type image_files: list[Path]</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ImageTaggerWidget.ImageTaggerWidget.multiple_image_selection">
+<span class="sig-name descname"><span class="pre">multiple_image_selection</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">image_list</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/ImageTaggerWidget.html#ImageTaggerWidget.multiple_image_selection"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#ImageTaggerWidget.ImageTaggerWidget.multiple_image_selection" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ImageTaggerWidget.ImageTaggerWidget.on_comboBoxAPI_currentIndexChanged">
+<span class="sig-name descname"><span class="pre">on_comboBoxAPI_currentIndexChanged</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">index</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/ImageTaggerWidget.html#ImageTaggerWidget.on_comboBoxAPI_currentIndexChanged"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#ImageTaggerWidget.ImageTaggerWidget.on_comboBoxAPI_currentIndexChanged" title="Link to this definition">¶</a></dt>
+<dd><p>comboBoxAPIのインデックスが変更されたときに呼び出されるスロット。</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ImageTaggerWidget.ImageTaggerWidget.on_comboBoxModel_currentTextChanged">
+<span class="sig-name descname"><span class="pre">on_comboBoxModel_currentTextChanged</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/ImageTaggerWidget.html#ImageTaggerWidget.on_comboBoxModel_currentTextChanged"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#ImageTaggerWidget.ImageTaggerWidget.on_comboBoxModel_currentTextChanged" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ImageTaggerWidget.ImageTaggerWidget.on_comboBoxTagFormat_currentTextChanged">
+<span class="sig-name descname"><span class="pre">on_comboBoxTagFormat_currentTextChanged</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/ImageTaggerWidget.html#ImageTaggerWidget.on_comboBoxTagFormat_currentTextChanged"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#ImageTaggerWidget.ImageTaggerWidget.on_comboBoxTagFormat_currentTextChanged" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ImageTaggerWidget.ImageTaggerWidget.on_dbSearchWidget_filterApplied">
+<span class="sig-name descname"><span class="pre">on_dbSearchWidget_filterApplied</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">filter_conditions</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/ImageTaggerWidget.html#ImageTaggerWidget.on_dbSearchWidget_filterApplied"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#ImageTaggerWidget.ImageTaggerWidget.on_dbSearchWidget_filterApplied" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ImageTaggerWidget.ImageTaggerWidget.on_lowRescheckBox_clicked">
+<span class="sig-name descname"><span class="pre">on_lowRescheckBox_clicked</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/ImageTaggerWidget.html#ImageTaggerWidget.on_lowRescheckBox_clicked"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#ImageTaggerWidget.ImageTaggerWidget.on_lowRescheckBox_clicked" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ImageTaggerWidget.ImageTaggerWidget.on_pushButtonGenerate_clicked">
+<span class="sig-name descname"><span class="pre">on_pushButtonGenerate_clicked</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/ImageTaggerWidget.html#ImageTaggerWidget.on_pushButtonGenerate_clicked"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#ImageTaggerWidget.ImageTaggerWidget.on_pushButtonGenerate_clicked" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ImageTaggerWidget.ImageTaggerWidget.on_pushButtonSave_clicked">
+<span class="sig-name descname"><span class="pre">on_pushButtonSave_clicked</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/ImageTaggerWidget.html#ImageTaggerWidget.on_pushButtonSave_clicked"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#ImageTaggerWidget.ImageTaggerWidget.on_pushButtonSave_clicked" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ImageTaggerWidget.ImageTaggerWidget.on_textEditAddPrompt_textChanged">
+<span class="sig-name descname"><span class="pre">on_textEditAddPrompt_textChanged</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/ImageTaggerWidget.html#ImageTaggerWidget.on_textEditAddPrompt_textChanged"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#ImageTaggerWidget.ImageTaggerWidget.on_textEditAddPrompt_textChanged" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ImageTaggerWidget.ImageTaggerWidget.on_textEditMainPrompt_textChanged">
+<span class="sig-name descname"><span class="pre">on_textEditMainPrompt_textChanged</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/ImageTaggerWidget.html#ImageTaggerWidget.on_textEditMainPrompt_textChanged"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#ImageTaggerWidget.ImageTaggerWidget.on_textEditMainPrompt_textChanged" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ImageTaggerWidget.ImageTaggerWidget.save_to_db">
+<span class="sig-name descname"><span class="pre">save_to_db</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/ImageTaggerWidget.html#ImageTaggerWidget.save_to_db"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#ImageTaggerWidget.ImageTaggerWidget.save_to_db" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ImageTaggerWidget.ImageTaggerWidget.showEvent">
+<span class="sig-name descname"><span class="pre">showEvent</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">event</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/ImageTaggerWidget.html#ImageTaggerWidget.showEvent"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#ImageTaggerWidget.ImageTaggerWidget.showEvent" title="Link to this definition">¶</a></dt>
+<dd><p>ウィジェットが表示される際に呼び出されるイベントハンドラ</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ImageTaggerWidget.ImageTaggerWidget.single_image_selection">
+<span class="sig-name descname"><span class="pre">single_image_selection</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">image_path</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/ImageTaggerWidget.html#ImageTaggerWidget.single_image_selection"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#ImageTaggerWidget.ImageTaggerWidget.single_image_selection" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="ImageTaggerWidget.ImageTaggerWidget.staticMetaObject">
+<span class="sig-name descname"><span class="pre">staticMetaObject</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">PySide6.QtCore.QMetaObject(&quot;ImageTaggerWidget&quot;</span> <span class="pre">inherits</span> <span class="pre">&quot;QWidget&quot;:</span> <span class="pre">Methods:</span>&#160;&#160; <span class="pre">#33</span> <span class="pre">type=Slot,</span> <span class="pre">signature=on_comboBoxAPI_currentIndexChanged(int),</span> <span class="pre">parameters=int</span>&#160;&#160; <span class="pre">#34</span> <span class="pre">type=Slot,</span> <span class="pre">signature=on_comboBoxModel_currentTextChanged()</span>&#160;&#160; <span class="pre">#35</span> <span class="pre">type=Slot,</span> <span class="pre">signature=on_comboBoxTagFormat_currentTextChanged()</span>&#160;&#160; <span class="pre">#36</span> <span class="pre">type=Slot,</span> <span class="pre">signature=on_lowRescheckBox_clicked()</span>&#160;&#160; <span class="pre">#37</span> <span class="pre">type=Slot,</span> <span class="pre">signature=on_dbSearchWidget_filterApplied(QVariantMap),</span> <span class="pre">parameters=QVariantMap</span>&#160;&#160; <span class="pre">#38</span> <span class="pre">type=Slot,</span> <span class="pre">signature=single_image_selection(PyObject),</span> <span class="pre">parameters=PyObject</span>&#160;&#160; <span class="pre">#39</span> <span class="pre">type=Slot,</span> <span class="pre">signature=multiple_image_selection(QVariantList),</span> <span class="pre">parameters=QVariantList</span>&#160;&#160; <span class="pre">#40</span> <span class="pre">type=Slot,</span> <span class="pre">signature=on_textEditMainPrompt_textChanged()</span>&#160;&#160; <span class="pre">#41</span> <span class="pre">type=Slot,</span> <span class="pre">signature=on_textEditAddPrompt_textChanged()</span>&#160;&#160; <span class="pre">#42</span> <span class="pre">type=Slot,</span> <span class="pre">signature=on_pushButtonGenerate_clicked()</span>&#160;&#160; <span class="pre">#43</span> <span class="pre">type=Slot,</span> <span class="pre">signature=on_pushButtonSave_clicked()</span> <span class="pre">)</span></em><a class="headerlink" href="#ImageTaggerWidget.ImageTaggerWidget.staticMetaObject" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">lora_dataset_toolsy</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="検索" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>ナビゲーション</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="modules.html">src</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="DatasetExportWidget.html">DatasetExportWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="DatasetOverviewWidget.html">DatasetOverviewWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="DirectoryPickerWidget.html">DirectoryPickerWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="FilePickerWidget.html">FilePickerWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ImageEditWidget.html">ImageEditWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ImageEditor.html">ImageEditor module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ImagePreviewWidget.html">ImagePreviewWidget module</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">ImageTaggerWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="PickerWidget.html">PickerWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ProgressWidget.html">ProgressWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="SettingsWidget.html">SettingsWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="TagFilterWidget.html">TagFilterWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ThumbnailSelectorWidget.html">ThumbnailSelectorWidget module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="caption_tags.html">caption_tags module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gui.html">gui module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gui_file.html">gui_file package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="main.html">main module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="module.html">module package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="score_module.html">score_module package</a></li>
+</ul>
+</li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+  <li><a href="modules.html">src</a><ul>
+      <li>Previous: <a href="ImagePreviewWidget.html" title="前の章へ">ImagePreviewWidget module</a></li>
+      <li>Next: <a href="PickerWidget.html" title="次の章へ">PickerWidget module</a></li>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2024, NEXTAltair.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.0.2</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/ImageTaggerWidget.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

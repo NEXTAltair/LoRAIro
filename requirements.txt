@@ -13,3 +13,5 @@ ipywidgets
 pytest
 spandrel
 ImageHash
+joblib
+pytorch_lightning
