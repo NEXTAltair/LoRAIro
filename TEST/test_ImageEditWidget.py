@@ -5,14 +5,18 @@ from PySide6.QtCore import Qt
 from pathlib import Path
 
 from src.ImageEditWidget import ImageEditWidget
-from module.file_sys import FileSystemManager
-from module.db import ImageDatabaseManager
-from gui_file.ImageEditWidget_ui import Ui_ImageEditWidget
+
+@pytest.fixture
+def widget(qtbot, mock_config_manager, mock_file_system_manager, mock_image_database_manager, mock_main_window):
+    widget = ImageEditWidget()
+    widget.initialize(mock_config_manager, mock_file_system_manager, mock_image_database_manager, mock_main_window)
+    qtbot.addWidget(widget)
+    return widget
 
 def test_initialization(app, mock_config_manager, mock_file_system_manager,
-                         mock_mock_image_database_manager, mock_main_window):
+                         mock_image_database_manager, mock_main_window):
     widget = ImageEditWidget()
-    widget.initialize(mock_config_manager, mock_file_system_manager, mock_mock_image_database_manager, mock_main_window)
+    widget.initialize(mock_config_manager, mock_file_system_manager, mock_image_database_manager, mock_main_window)
 
     assert widget.cm == mock_config_manager
     assert widget.idm == mock_image_database_manager
@@ -23,11 +27,7 @@ def test_initialization(app, mock_config_manager, mock_file_system_manager,
     assert widget.comboBoxUpscaler.count() == 4
     assert [widget.comboBoxUpscaler.itemText(i) for i in range(4)] == ['None', 'RealESRGAN_x4plus', 'Lanczos', 'Bicubic']
 
-@pytest.mark.parametrize("test_images", [
-    [Path('test_image1.png'), Path('test_image2.png')],
-    [Path('test_image3.jpg')]
-])
-def test_load_images(widget, mocker, test_images):
+def test_load_images(widget, mocker, sample_image_path_list):
     mock_load_image = mocker.patch.object(widget.ImagePreview, 'load_image')
     mock_pixmap = mocker.patch('src.ImageEditWidget.QPixmap')
     mock_stat = mocker.patch('pathlib.Path.stat')
@@ -35,11 +35,11 @@ def test_load_images(widget, mocker, test_images):
     mock_pixmap.return_value = mocker.Mock()
     mock_stat.return_value.st_size = 1024
 
-    widget.load_images(test_images)
+    widget.load_images(sample_image_path_list)
 
-    assert widget.directory_images == test_images
-    assert widget.tableWidgetImageList.rowCount() == len(test_images)
-    mock_load_image.assert_called_with(test_images[0])
+    assert widget.directory_images == sample_image_path_list
+    assert widget.tableWidgetImageList.rowCount() == len(sample_image_path_list)
+    mock_load_image.assert_called_with(sample_image_path_list[0])
 
 def test_process_all_images(widget, mocker):
     test_image_paths = [Path('test_image1.png'), Path('test_image2.png')]

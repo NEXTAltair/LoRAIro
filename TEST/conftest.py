@@ -20,7 +20,6 @@ from ImageEditor import ImageProcessingManager
 def app():
     return QApplication([])
 
-
 # テスト用パス############################################################
 @pytest.fixture(scope="session")
 def tmp_path_factory(request):
@@ -76,8 +75,6 @@ def mock_file_system_manager(tmp_path):
     mock_fs.batch_request_dir.mkdir(parents=True, exist_ok=True)
     return mock_fs
 
-
-# QApplication のインスタンスを提供するフィクスチャ
 @pytest.fixture(scope="session")
 def preferred_resolutions():
     config = get_config()
