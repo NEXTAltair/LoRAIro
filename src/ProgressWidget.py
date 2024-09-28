@@ -30,6 +30,7 @@ class ProgressWidget(QDialog, Ui_ProgressWidget):
         self.logger = get_logger("ProgressWidget")
         self.setupUi(self)
         self.setModal(True)  # モーダルに設定して他の操作を受け付けないようにする
+        self.progressBar.setRange(0, 0)  # インジターミネートモードに設定
         self.logger.debug("ProgressWidget initialized")
 
     @Slot()
