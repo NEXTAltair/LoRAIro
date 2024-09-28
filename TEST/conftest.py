@@ -12,7 +12,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent / 'src'))
 from module.file_sys import FileSystemManager
 from module.db import SQLiteManager, ImageDatabaseManager
 from module.config import get_config
-from module.log import setup_logger
+from module.log import setup_logger, get_logger
 from ImageEditor import ImageProcessingManager
 
 # QApplication のインスタンスを作成
@@ -182,13 +182,19 @@ from PySide6.QtCore import Signal
 def app():
     return QApplication.instance() or QApplication(sys.argv)
 
+# 一回だけ初期化しないとValueError: I/O operation on closed file
+@pytest.fixture(scope="session")
+def setup_logging_once():
+    setup_logger({'level': 'DEBUG', 'file': 'test.log'})
+
 @pytest.fixture
-def mock_main_window():
+def mock_main_window(setup_logging_once, mocker):
     class MockMainWindow:
         def __init__(self):
-            self.logger = setup_logger({'level': 'DEBUG', 'file': 'test.log'})
-            self.progress_controller = MagicMock()
-            self.some_long_process = MagicMock()
+            self.logger = get_logger('MockMainWindow')  # 既にセットアップされたロガーを使用
+            self.progress_controller = mocker.Mock()
+            self.some_long_process = mocker.Mock()
+
     return MockMainWindow()
 
 # ConfigManager のモックを作成
