@@ -134,6 +134,7 @@ class SQLiteManager:
                 -- tags テーブル：画像に関連付けられたタグを格納
                 CREATE TABLE IF NOT EXISTS tags (
                     id INTEGER PRIMARY KEY,
+                    tag_id INTEGER,
                     image_id INTEGER,
                     model_id INTEGER,
                     tag TEXT NOT NULL,
@@ -141,7 +142,7 @@ class SQLiteManager:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,
                     FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL,
-                    UNIQUE (image_id, tag, model_id)
+                    UNIQUE (image_id, tag, tag_id, model_id)
                 );
 
                 -- captions テーブル：画像に関連付けられたキャプションを格納
@@ -388,7 +389,7 @@ class ImageRepository:
             raise sqlite3.Error(f"アノテーションの保存中にエラーが発生しました: {e}")
 
     def _save_tags(self, image_id: int, tags: list[str], model_id: Optional[int]) -> None:
-        """タグを保存する内部メソッド
+        """タグとそのIDを保存する内部メソッド
 
         Args:
             image_id (int): タグを追加する画像のID。
@@ -399,22 +400,23 @@ class ImageRepository:
             sqlite3.Error: データベース操作でエラーが発生した場合。
         """
         if not tags:
-            self.logger.info(f"画像ID {image_id} のタグリストが空のため、保存をスキップします。")
+            self.logger.debug(f"画像ID {image_id} のタグリストが空のため、保存をスキップします。")
             return
 
-        query = "INSERT OR IGNORE INTO tags (image_id, tag, model_id, existing) VALUES (?, ?, ?, ?)"
+        query = "INSERT OR IGNORE INTO tags (image_id, tag_id, tag, model_id, existing) VALUES (?, ?, ?, ?, ?)"
         data = []
 
         for tag in tags:
+            tag_id = self.find_tag_id(tag)
             existing = 1 if model_id is None else 0
-            data.append((image_id, tag, model_id, existing))
-            self.logger.debug(f"ImageRepository._save_tags: {tag}")
+            data.append((image_id, tag_id, tag, model_id, existing))
+            self.logger.debug(f"ImageRepository._save_tags_with_ids: tag={tag}, tag_id={tag_id}")
 
         try:
             self.db_manager.executemany(query, data)
-            self.logger.info(f"画像ID {image_id} に {len(data)} 個のタグを保存しました")
+            self.logger.info(f"画像ID {image_id} に {len(data)} 個のタグとIDを保存しました")
         except sqlite3.Error as e:
-            self.logger.error(f"タグの保存中にエラーが発生しました: {e}")
+            self.logger.error(f"タグとIDの保存中にエラーが発生しました: {e}")
             raise
 
     def _save_captions(self, image_id: int, captions: list[str], model_id: Optional[int]) -> None:
@@ -558,12 +560,12 @@ class ImageRepository:
 
     def _get_tags(self, image_id: int) -> list[dict[str, Any]]:
         """image_idからタグを取得する内部メソッド"""
-        query = "SELECT tag, model_id FROM tags WHERE image_id = ?"
+        query = "SELECT tag, model_id, tag_id FROM tags WHERE image_id = ?"
         try:
             self.logger.debug(f"タグを取得するimage_id: {image_id}")
             result = self.db_manager.fetch_all(query, (image_id,))
             if not result:
-                self.logger.info(f"Image_id: {image_id} にタグは登録されていません。")
+                self.logger.debug(f"Image_id: {image_id} にタグは登録されていません。")
             return result
         except sqlite3.Error as e:
             self.logger.error(f"image_id: {image_id} のタグを取得中にデータベースエラーが発生しました: {e}")
@@ -739,6 +741,33 @@ class ImageRepository:
             self.logger.info(f"画像ID {image_id} と関連するデータを削除しました。")
         except sqlite3.Error as e:
             self.logger.error(f"画像の削除中にエラーが発生しました: {e}")
+            raise
+
+    def find_tag_id(self, keyword: str) -> Optional[int]:
+        """tags_v3.db TAGSテーブルからタグを完全一致で検索
+
+        Args:
+            keyword (str): 検索キーワード
+        Returns:
+            tag_id (Optional[int]): タグID
+        Raises:
+            ValueError: 複数または0件のタグが見つかった場合
+        """
+        query = "SELECT tag_id FROM tag_db.TAGS WHERE tag = ?"
+        try:
+            result = self.db_manager.fetch_one(query, (keyword,))
+            if result:
+                if len(result) > 1:
+                    self.logger.warning(f"タグ '{keyword}' に対して複数のIDが見つかりました。\n {result}")
+                    return result['tag_id'][0]
+                else:
+                    tag_id = result['tag_id']
+                    self.logger.debug(f"タグ '{keyword}' のtag_id {tag_id} を取得しました")
+                return tag_id
+            self.logger.info(f"タグ '{keyword}' のtag_idを取得できませんでした")
+            return None
+        except sqlite3.Error as e:
+            self.logger.error(f"タグIDの取得中にエラーが発生しました: {e}")
             raise
 
 class ImageDatabaseManager:

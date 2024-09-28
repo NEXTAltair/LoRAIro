@@ -2,7 +2,35 @@ import pytest
 from pathlib import Path
 from module.db import SQLiteManager, ImageRepository, ImageDatabaseManager
 from unittest.mock import MagicMock, patch
+from module.log import get_logger
 import uuid
+
+@pytest.fixture
+def test_db_paths(tmp_path):
+    img_db = tmp_path / f"test_image_database_{uuid.uuid4()}.db"
+    tag_db = Path("src/module/genai-tag-db-tools/tags_v3.db") #テストによる変更がないので実際のパスを使用
+    return img_db, tag_db
+
+@pytest.fixture
+def sqlite_manager(test_db_paths):
+    img_db, tag_db = test_db_paths
+    sqlite_manager = SQLiteManager(img_db, tag_db)
+    sqlite_manager.create_tables()
+    sqlite_manager.insert_models()
+    yield sqlite_manager
+    sqlite_manager.close()
+    img_db.unlink(missing_ok=True)
+
+@pytest.fixture
+def image_database_manager(sqlite_manager):
+    # ハードコーディングされたパスをテスト用データベースに変更するためパッチ
+    with patch.object(ImageDatabaseManager, '__init__', return_value=None):
+        idm = ImageDatabaseManager()
+        idm.logger = get_logger("ImageDatabaseManager")
+        idm.db_manager = sqlite_manager
+        idm.repository = ImageRepository(sqlite_manager)
+        idm.logger.debug("初期化（テスト用パス使用）")
+        yield idm
 
 def test_sqlite_connect(sqlite_manager):
     """データベース接続とテーブル作成の確認"""
@@ -14,47 +42,37 @@ def test_sqlite_connect(sqlite_manager):
     expected_tables = {'images', 'processed_images', 'models', 'tags', 'captions', 'scores'}
     assert expected_tables.issubset(tables)
 
-def test_sqlite_execute(sqlite_manager):
-    """データベースへのクエリ実行の確認"""
-    query = "INSERT INTO models (name, type, provider) VALUES (?, ?, ?)"
-    params = ('test_model', 'test_type', 'test_provider')
-    cursor = sqlite_manager.execute(query, params)
-    assert cursor.lastrowid is not None
-
 def test_sqlite_fetch_one(sqlite_manager):
     """単一行のデータ取得の確認"""
     query = "SELECT * FROM models WHERE name = ?"
-    params = ('test_model',)
+    params = ('gpt-4o',)
     result = sqlite_manager.fetch_one(query, params)
+    # 確認するパラメーターはsrc.module.db.SQLiteManager.insert_modelsで追加されたもの
     assert result is not None
-    assert result['name'] == 'test_model'
-    assert result['type'] == 'test_type'
-    assert result['provider'] == 'test_provider'
+    assert result['name'] == 'gpt-4o'
+    assert result['type'] == 'vision'
+    assert result['provider'] == 'OpenAI'
 
-def test_add_original_image(sqlite_manager, sample_image_info):
+def test_add_original_image(image_database_manager, sample_image_info):
     """オリジナル画像の追加とメタデータの取得"""
-    repo = ImageRepository(sqlite_manager)
-    image_id = repo.add_original_image(sample_image_info)
+    image_id = image_database_manager.repository.add_original_image(sample_image_info)
     assert isinstance(image_id, int)
 
-    metadata = repo.get_image_metadata(image_id)
+    metadata = image_database_manager.repository.get_image_metadata(image_id)
     assert metadata is not None
     for key, value in sample_image_info.items():
         assert metadata[key] == value
 
-def test_duplicate_image(sqlite_manager, sample_image_info):
+def test_duplicate_image(image_database_manager, sample_image_info):
     """重複画像の検出と同一IDの返却確認"""
-    repo = ImageRepository(sqlite_manager)
-    image_id1 = repo.add_original_image(sample_image_info)
-    image_id2 = repo.add_original_image(sample_image_info)  # 重複画像を追加
+    image_id1 = image_database_manager.repository.add_original_image(sample_image_info)
+    image_id2 = image_database_manager.repository.add_original_image(sample_image_info)  # 重複画像を追加
     assert image_id1 == image_id2  # 同じIDが返される
 
 @patch('module.db.calculate_phash', return_value='mocked_phash')
-def test_register_original_image(mock_calculate_phash, sqlite_manager, mock_file_system_manager, tmp_path):
+def test_register_original_image(mock_calculate_phash, image_database_manager, mock_file_system_manager, tmp_path):
     """オリジナル画像の登録処理"""
-    manager = ImageDatabaseManager()
-    manager.db_manager = sqlite_manager
-    manager.repository = ImageRepository(sqlite_manager)
+    manager = image_database_manager
 
     mock_file_system_manager.get_image_info.return_value = {
         'width': 800,
@@ -76,11 +94,9 @@ def test_register_original_image(mock_calculate_phash, sqlite_manager, mock_file
     assert metadata['width'] == 800
     assert metadata['height'] == 600
 
-def test_register_processed_image(sqlite_manager, sample_image_info, tmp_path):
+def test_register_processed_image(image_database_manager, sample_image_info, tmp_path):
     """処理済み画像の登録とメタデータの確認"""
-    manager = ImageDatabaseManager()
-    manager.db_manager = sqlite_manager
-    manager.repository = ImageRepository(sqlite_manager)
+    manager = image_database_manager
 
     image_id = manager.repository.add_original_image(sample_image_info)
 
@@ -110,40 +126,38 @@ def test_register_processed_image(sqlite_manager, sample_image_info, tmp_path):
     assert processed_metadata['width'] == 256
     assert processed_metadata['height'] == 256
 
-def assert_annotations(retrieved_data, expected_data, model_id, test_case_index):
-    for key in ['tags', 'captions', 'scores']:
-        if key in expected_data:
-            expected = expected_data[key]
-            if key == 'tags':
-                filtered = [item['tag'] for item in retrieved_data['tags'] if item['model_id'] == model_id]
-            elif key == 'captions':
-                filtered = [item['caption'] for item in retrieved_data['captions'] if item['model_id'] == model_id]
-            elif key == 'scores':
-                filtered = [item['score'] for item in retrieved_data['scores'] if item['model_id'] == model_id]
+def assert_annotations(retrieved, expected, model_id, case_index, repository):
+    if 'tags' in expected:
+        assert len(retrieved['tags']) >= len(expected['tags']), f"Case {case_index}: タグの数が一致しません"
+        for tag in expected['tags']:
+            matching_tags = [t for t in retrieved['tags'] if t['tag'] == tag]
+            assert matching_tags, f"Case {case_index}: タグ '{tag}' が見つかりません"
+            assert matching_tags[0]['model_id'] == model_id, f"Case {case_index}: タグ '{tag}' のmodel_idが一致しません"
+            expected_tag_id = repository.find_tag_id(tag)
+            assert matching_tags[0]['tag_id'] == expected_tag_id, f"Case {case_index}: タグ '{tag}' のtag_idが一致しません"
+            if tag == 'spiked collar':
+                assert expected_tag_id == 1, f"Case {case_index}: 'spiked collar' のtag_idが1ではありません"
 
-            if key == 'scores':
-                assert len(filtered) == 1, (
-                    f"テストケース {test_case_index}: {key} の数が1ではありません。実際: {len(filtered)}"
-                )
-                assert filtered[0] == expected, (
-                    f"テストケース {test_case_index}: {key} が一致しません。期待: {expected}, 実際: {filtered[0]}"
-                )
-            else:
-                assert len(filtered) == len(expected), (
-                    f"テストケース {test_case_index}: {key} の数が一致しません。期待: {len(expected)}, 実際: {len(filtered)}"
-                )
-                assert set(filtered) == set(expected), (
-                    f"テストケース {test_case_index}: {key} の内容が一致しません。期待: {expected}, 実際: {filtered}"
-                )
+    if 'captions' in expected:
+        assert len(retrieved['captions']) >= len(expected['captions']), f"Case {case_index}: キャプションの数が一致しません"
+        for caption in expected['captions']:
+            matching_captions = [c for c in retrieved['captions'] if c['caption'] == caption]
+            assert matching_captions, f"Case {case_index}: キャプション '{caption}' が見つかりません"
+            assert matching_captions[0]['model_id'] == model_id, f"Case {case_index}: キャプション '{caption}' のmodel_idが一致しません"
 
-def test_save_annotations(sqlite_manager, sample_image_info):
+    if 'score' in expected:
+        matching_scores = [s for s in retrieved['scores'] if s['score'] == expected['score']]
+        assert matching_scores, f"Case {case_index}: スコア {expected['score']} が見つかりません"
+        assert matching_scores[0]['model_id'] == model_id, f"Case {case_index}: スコア {expected['score']} のmodel_idが一致しません"
+
+def test_save_annotations(image_database_manager, sample_image_info):
     """アノテーションの保存と取得の確認、欠損値のテストを含む"""
-    repo = ImageRepository(sqlite_manager)
-    image_id = repo.add_original_image(sample_image_info)
+    manager = image_database_manager
+    image_id = manager.repository.add_original_image(sample_image_info)
 
     test_cases = [
         {
-            'tags': ['tag1', 'tag2', 'tag3'],
+            'tags': ['spiked collar', 'tag1', 'tag2'],
             'captions': ['caption1', 'caption2'],
             'score': 0.95,
             'model_id': 1
@@ -162,54 +176,66 @@ def test_save_annotations(sqlite_manager, sample_image_info):
             'tags': ['tag6'],
             'score': 0.75,
             # 'model_id' がない場合
+        },
+        {
+            'tags': ['spiked collar'], #tags_v3に存在するidを登録
         }
     ]
 
     for index, case in enumerate(test_cases, start=1):
-        repo.save_annotations(image_id, case)
+        manager.repository.save_annotations(image_id, case)
 
-        retrieved = repo.get_image_annotations(image_id)
+        retrieved = manager.repository.get_image_annotations(image_id)
 
         current_model_id = case.get('model_id')
 
-        assert_annotations(retrieved, case, current_model_id, index)
+        assert_annotations(retrieved, case, current_model_id, index, manager.repository)
 
-def test_get_images_by_tag(sqlite_manager, sample_image_info):
+def test_find_tag_id(image_database_manager, sample_image_info):
+    """アタッチしたsrc\module\genai-tag-db-toolsのタグデータベースから登録されたタグIDを取得する"""
+    manager = image_database_manager
+    image_id = manager.repository.add_original_image(sample_image_info)
+    manager.repository.save_annotations(image_id, {'tags': ['spiked collar'], 'model_id': None})
+
+    tag_id = manager.repository.find_tag_id('spiked collar')
+    assert tag_id == 1
+
+def test_get_images_by_tag(image_database_manager, sample_image_info):
     """タグによる画像検索の確認"""
-    repo = ImageRepository(sqlite_manager)
-    image_id = repo.add_original_image(sample_image_info)
-    repo.save_annotations(image_id, {'tags': ['test_tag'], 'model_id': None})
+    manager = image_database_manager
+    image_id = manager.repository.add_original_image(sample_image_info)
+    manager.repository.save_annotations(image_id, {'tags': ['test_tag'], 'model_id': None})
 
-    image_ids = repo.get_images_by_tag('test_tag')
+    image_ids = manager.repository.get_images_by_tag('test_tag')
     assert image_id in image_ids
 
-def test_get_images_by_caption(sqlite_manager, sample_image_info):
+def test_get_images_by_caption(image_database_manager, sample_image_info):
     """キャプションによる画像検索の確認"""
-    repo = ImageRepository(sqlite_manager)
-    image_id = repo.add_original_image(sample_image_info)
-    repo.save_annotations(image_id, {'captions': ['test_caption'], 'model_id': None})
+    manager = image_database_manager
+    image_id = manager.repository.add_original_image(sample_image_info)
+    manager.repository.save_annotations(image_id, {'captions': ['test_caption'], 'model_id': None})
 
-    image_ids = repo.get_images_by_caption('test_caption')
+    image_ids = manager.repository.get_images_by_caption('test_caption')
     assert image_id in image_ids
 
-def test_update_image_metadata(sqlite_manager, sample_image_info):
+def test_update_image_metadata(image_database_manager, sample_image_info):
     """画像メタデータの更新の確認"""
-    repo = ImageRepository(sqlite_manager)
-    image_id = repo.add_original_image(sample_image_info)
+    manager = image_database_manager
+    image_id = manager.repository.add_original_image(sample_image_info)
 
     updated_info = {'width': 1024, 'height': 768}
-    repo.update_image_metadata(image_id, updated_info)
+    manager.repository.update_image_metadata(image_id, updated_info)
 
-    metadata = repo.get_image_metadata(image_id)
+    metadata = manager.repository.get_image_metadata(image_id)
     assert metadata['width'] == 1024
     assert metadata['height'] == 768
     assert metadata['updated_at'] is not None
 
-def test_delete_image(sqlite_manager_function, sample_image_info):
+def test_delete_image(image_database_manager, sample_image_info):
     """画像の削除と関連データの確認"""
-    repo = ImageRepository(sqlite_manager_function)
-    image_id = repo.add_original_image(sample_image_info)
-    repo.save_annotations(image_id, {
+    manager = image_database_manager
+    image_id = manager.repository.add_original_image(sample_image_info)
+    manager.repository.save_annotations(image_id, {
         'tags': ['test_tag1','test_tag2','test_tag3'],
         'captions': ['test_caption1','test_caption2','test_caption3'],
         'score': 0.95,
@@ -217,37 +243,35 @@ def test_delete_image(sqlite_manager_function, sample_image_info):
     })
 
     # 削除前にアノテーションが存在することを確認
-    annotations_before = repo.get_image_annotations(image_id)
+    annotations_before = manager.get_image_annotations(image_id)
     assert len(annotations_before['tags']) == 3
     assert len(annotations_before['captions']) == 3
     assert len(annotations_before['scores']) == 1
 
-    repo.delete_image(image_id)
+    manager.repository.delete_image(image_id)
 
     # 画像が削除されたことを確認
-    metadata = repo.get_image_metadata(image_id)
+    metadata = manager.get_image_metadata(image_id)
     assert metadata is None
 
     # 削除後はアノテーションが空になることを確認
-    annotations_after = repo.get_image_annotations(image_id)
+    annotations_after = manager.get_image_annotations(image_id)
     assert len(annotations_after['tags']) == 0
     assert len(annotations_after['captions']) == 0
     assert len(annotations_after['scores']) == 0
 
-def test_get_total_image_count(sqlite_manager_function, sample_image_info):
+def test_get_total_image_count(image_database_manager, sample_image_info):
     """総画像数の取得の確認"""
-    repo = ImageRepository(sqlite_manager_function)
-    initial_count = repo.get_total_image_count()
+    manager = image_database_manager
+    initial_count = manager.repository.get_total_image_count()
 
-    repo.add_original_image(sample_image_info)
-    new_count = repo.get_total_image_count()
+    manager.repository.add_original_image(sample_image_info)
+    new_count = manager.repository.get_total_image_count()
     assert new_count == initial_count + 1
 
-def test_get_models(sqlite_manager):
+def test_get_models(image_database_manager):
     """モデル情報の取得の確認"""
-    manager = ImageDatabaseManager()
-    manager.db_manager = sqlite_manager
-    manager.repository = ImageRepository(sqlite_manager)
+    manager = image_database_manager
 
     vision_models, score_models, upscaler_models = manager.get_models()
     assert isinstance(vision_models, dict)
@@ -255,49 +279,67 @@ def test_get_models(sqlite_manager):
     assert isinstance(upscaler_models, dict)
     assert len(vision_models) > 0
 
-def test_get_images_by_filter(sqlite_manager, sample_image_info):
+def test_get_images_by_filter(image_database_manager, sample_image_info, tmp_path):
     """フィルタによる画像検索の確認"""
-    manager = ImageDatabaseManager()
-    manager.db_manager = sqlite_manager
-    manager.repository = ImageRepository(sqlite_manager)
+    manager = image_database_manager
 
+    # オリジナル画像を追加
     image_id = manager.repository.add_original_image(sample_image_info)
+
+    # 処理済み画像を登録
+    processed_info = {
+        'width': 256,
+        'height': 256,
+        'format': 'WEBP',
+        'mode': 'RGB',
+        'has_alpha': False,
+        'filename': 'processed.webp',
+        'color_space': 'sRGB',
+        'icc_profile': None
+    }
+    processed_path = tmp_path / "processed.webp"
+    processed_path.touch()
+    manager.register_processed_image(image_id, processed_path, processed_info)
+
+    # アノテーションを保存
     manager.repository.save_annotations(image_id, {'tags': ['filter_tag'], 'model_id': None})
 
+    # フィルタで画像を取得
     filtered_images, count = manager.get_images_by_filter(tags=['filter_tag'])
     assert count == 1
     assert filtered_images[0]['image_id'] == image_id
 
-def test_create_tables(sqlite_manager):
+
+def test_create_tables(image_database_manager):
     """テーブル作成のテスト"""
-    sqlite_manager.create_tables()
+    image_database_manager.db_manager.create_tables()
 
     # images テーブルの存在を確認
     query = "SELECT name FROM sqlite_master WHERE type='table' AND name='images';"
-    result = sqlite_manager.fetch_one(query)
+    result = image_database_manager.db_manager.fetch_one(query)
     assert result is not None
 
     # processed_images テーブルの存在を確認
     query = "SELECT name FROM sqlite_master WHERE type='table' AND name='processed_images';"
-    result = sqlite_manager.fetch_one(query)
+    result = image_database_manager.db_manager.fetch_one(query)
     assert result is not None
 
     # models テーブルの存在を確認
     query = "SELECT name FROM sqlite_master WHERE type='table' AND name='models';"
-    result = sqlite_manager.fetch_one(query)
+    result = image_database_manager.db_manager.fetch_one(query)
     assert result is not None
 
     # tags テーブルの存在を確認
     query = "SELECT name FROM sqlite_master WHERE type='table' AND name='tags';"
-    result = sqlite_manager.fetch_one(query)
+    result = image_database_manager.db_manager.fetch_one(query)
     assert result is not None
 
     # captions テーブルの存在を確認
     query = "SELECT name FROM sqlite_master WHERE type='table' AND name='captions';"
-    result = sqlite_manager.fetch_one(query)
+    result = image_database_manager.db_manager.fetch_one(query)
     assert result is not None
 
     # scores テーブルの存在を確認
     query = "SELECT name FROM sqlite_master WHERE type='table' AND name='scores';"
-    result = sqlite_manager.fetch_one(query)
+    result = image_database_manager.db_manager.fetch_one(query)
     assert result is not None

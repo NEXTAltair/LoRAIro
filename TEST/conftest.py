@@ -77,6 +77,7 @@ def mock_file_system_manager(tmp_path):
     return mock_fs
 
 
+# QApplication のインスタンスを提供するフィクスチャ
 @pytest.fixture(scope="session")
 def preferred_resolutions():
     config = get_config()
