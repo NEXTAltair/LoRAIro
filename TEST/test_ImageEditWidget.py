@@ -10,12 +10,12 @@ from module.db import ImageDatabaseManager
 from gui_file.ImageEditWidget_ui import Ui_ImageEditWidget
 
 def test_initialization(app, mock_config_manager, mock_file_system_manager,
-                         image_database_manager, mock_main_window):
+                         mock_mock_image_database_manager, mock_main_window):
     widget = ImageEditWidget()
-    widget.initialize(mock_config_manager, mock_file_system_manager, image_database_manager, mock_main_window)
+    widget.initialize(mock_config_manager, mock_file_system_manager, mock_mock_image_database_manager, mock_main_window)
 
     assert widget.cm == mock_config_manager
-    assert widget.idm == image_database_manager
+    assert widget.idm == mock_mock_image_database_manager
     assert widget.fsm == mock_file_system_manager
     assert widget.main_window == mock_main_window
     assert widget.target_resolution == 512
@@ -26,14 +26,14 @@ def test_initialization(app, mock_config_manager, mock_file_system_manager,
     assert widget.comboBoxUpscaler.itemText(2) == 'Lanczos'
     assert widget.comboBoxUpscaler.itemText(3) == 'Bicubic'
 
-def test_load_images(app, mock_config_manager, mock_file_system_manager, image_database_manager, 
+def test_load_images(app, mock_config_manager, mock_file_system_manager, mock_mock_image_database_manager, 
                      mock_main_window, mock_image_analyzer, sample_images):
     test_image_paths = [sample_images["rgb"], sample_images["rgb512"]]
     mock_config_manager.dataset_image_paths = test_image_paths
 
     # `widget` を先に作成
     widget = ImageEditWidget()
-    widget.initialize(mock_config_manager, mock_file_system_manager, image_database_manager, mock_main_window)
+    widget.initialize(mock_config_manager, mock_file_system_manager, mock_image_database_manager, mock_main_window)
 
     # ここで `widget.ImagePreview.load_image` をモック化
     with patch('src.ImageEditWidget.QPixmap') as mock_pixmap, \
@@ -97,9 +97,9 @@ def test_process_all_images(app, mock_config_manager, mock_file_system_manager,
     status_callback.assert_called()
 
 
-def test_on_pushButtonStartProcess_clicked(app, mock_config_manager, mock_file_system_manager, mock_image_database_manager, mock_main_window):
+def test_on_pushButtonStartProcess_clicked(app, mock_config_manager, mock_file_system_manager, mock_mock_image_database_manager, mock_main_window):
     widget = ImageEditWidget()
-    widget.initialize(mock_config_manager, mock_file_system_manager, mock_image_database_manager, mock_main_window)
+    widget.initialize(mock_config_manager, mock_file_system_manager, mock_mock_image_database_manager, mock_main_window)
     widget.initialize_processing = MagicMock()
     widget.process_all_images = MagicMock()
     widget.main_window.some_long_process = MagicMock()

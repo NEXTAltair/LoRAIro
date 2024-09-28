@@ -1,18 +1,27 @@
+# conftest.py
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import Mock, MagicMock, patch
 from pathlib import Path
 import sys
+import uuid
+import shutil
+
 # プロジェクトルートの src ディレクトリを追加
 sys.path.append(str(Path(__file__).resolve().parent.parent / 'src'))
 
 from module.file_sys import FileSystemManager
-from module.db import SQLiteManager, ImageRepository, ImageDatabaseManager
-from src.module.config import get_config
+from module.db import SQLiteManager, ImageDatabaseManager
+from module.config import get_config
 from module.log import setup_logger
+from ImageEditor import ImageProcessingManager
 
-from PySide6.QtWidgets import QApplication
+# QApplication のインスタンスを作成
+@pytest.fixture(scope="session")
+def app():
+    return QApplication([])
 
-# 一時ディレクトリのパスをここで指定しないと、パーミッションエラーが出る
+
+# テスト用パス############################################################
 @pytest.fixture(scope="session")
 def tmp_path_factory(request):
     return request.config.rootpath / "TEST" / "pytest_temp"
@@ -21,6 +30,7 @@ def tmp_path_factory(request):
 def tmp_path(tmp_path_factory):
     return tmp_path_factory
 
+# テスト用データベース############################################################
 @pytest.fixture(scope="session")
 def test_db_paths(tmp_path):
     img_db = tmp_path / "db" / "test_image_database.db"
@@ -40,16 +50,16 @@ def sqlite_manager(test_db_paths):
     img_db.unlink(missing_ok=True)
     tag_db.unlink(missing_ok=True)
 
+# 主要なクラスのモック############################################################
 @pytest.fixture
-def mock_image_database_manager(tmp_path):
-    img_db, tag_db = tmp_path / "test_image.db", tmp_path / "test_tag.db"
-    mock_idm = SQLiteManager(img_db, tag_db)
-    mock_idm.create_tables()
-    mock_idm.insert_models()
-    yield mock_idm
-    mock_idm.close()
-    img_db.unlink(missing_ok=True)
-    tag_db.unlink(missing_ok=True)
+def mock_image_database_manager(mocker):
+    mock_idm = mocker.Mock(spec=ImageDatabaseManager)
+    return mock_idm
+
+@pytest.fixture
+def mock_image_processing_manager(mocker):
+    mock_ipm = mocker.Mock(spec=ImageProcessingManager)
+    return mock_ipm
 
 @pytest.fixture
 def mock_file_system_manager(tmp_path):
@@ -66,25 +76,13 @@ def mock_file_system_manager(tmp_path):
     mock_fs.batch_request_dir.mkdir(parents=True, exist_ok=True)
     return mock_fs
 
-# ImageProcessingManager のモックを作成
-@pytest.fixture
-def mock_image_processing_manager():
-    ipm = MagicMock()
-    ipm.process_image = MagicMock(return_value='processed_image_data')
-    return ipm
-
-# ImageAnalyzer のモックを作成
-@pytest.fixture
-def mock_image_analyzer():
-    with patch('src.ImageEditWidget.ImageAnalyzer') as mock_analyzer:
-        mock_analyzer.get_existing_annotations = MagicMock(return_value={'tags': ['tag1', 'tag2'], 'captions': ['caption1']})
-        yield mock_analyzer
 
 @pytest.fixture(scope="session")
 def preferred_resolutions():
     config = get_config()
     return config['preferred_resolutions']
 
+# サンプル画像とデータ############################################################
 @pytest.fixture
 def sample_images(tmp_path):
     """
@@ -132,8 +130,10 @@ def sample_images(tmp_path):
         "p": p_path
     }
 
-import shutil
-import uuid
+@pytest.fixture
+def sample_image_path_list(sample_images):
+    path_list = list(sample_images.values())
+    yield path_list
 
 @pytest.fixture(scope="session")
 def test_image_path(tmp_path):
@@ -176,12 +176,13 @@ def sample_image_info():
         'icc_profile': None
     }
 
-
 # GUIのモック############################################################
-# QApplication のインスタンスを作成
-@pytest.fixture(scope="session")
+from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtCore import Signal
+
+@pytest.fixture(scope='session')
 def app():
-    return QApplication([])
+    return QApplication.instance() or QApplication(sys.argv)
 
 @pytest.fixture
 def mock_main_window():
@@ -204,7 +205,7 @@ def mock_config_manager():
                 },
                 'preferred_resolutions': [512, 768, 1024],
                 'directories': {
-                    'output': 'output_directory'
+                    'edited_output': 'edited_output_directory'
                 }
             }
             self.dataset_image_paths = []
@@ -215,3 +216,62 @@ def mock_config_manager():
                 '2': {'name': 'Bicubic'}
             }
     return MockConfigManager()
+
+class MockThumbnailSelectorWidget(QWidget):
+    imageSelected = Signal(Path)
+    multipleImagesSelected = Signal(list)
+    deselected = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.image_paths = []
+        self.thumbnail_items = []
+        self.load_images = Mock()
+        self.get_selected_images = Mock(return_value=[])
+        self.select_first_image = Mock()
+        self.update_thumbnail_layout = Mock()
+
+    def setMinimumSize(self, width, height):
+        pass  # サイズ設定をモック化
+
+@pytest.fixture
+def mock_thumbnail_selector_widget(mocker):
+    return mocker.patch('src.ThumbnailSelectorWidget.ThumbnailSelectorWidget', MockThumbnailSelectorWidget)
+
+class MockTagFilterWidget(QWidget):
+    filterApplied = Signal(dict)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.filterTypeComboBox = Mock()
+        self.filterLineEdit = Mock()
+        self.resolutionComboBox = Mock()
+        self.andRadioButton = Mock()
+        self.count_range_slider = Mock()
+        self.applyFilterButton = Mock()
+
+    def setup_slider(self):
+        pass
+
+    def on_applyFilterButton_clicked(self):
+        filter_conditions = {
+            'filter_type': self.filterTypeComboBox.currentText().lower(),
+            'filter_text': self.filterLineEdit.text(),
+            'resolution': int(1024),  # デフォルト値
+            'use_and': self.andRadioButton.isChecked(),
+            'count_range': (0, 100000)  # デフォルト値
+        }
+        self.filterApplied.emit(filter_conditions)
+
+@pytest.fixture
+def mock_tag_filter_widget(mocker):
+    mock_widget = MockTagFilterWidget()
+    mocker.patch('src.TagFilterWidget.TagFilterWidget', return_value=mock_widget)
+    return mock_widget
+
+from src.DirectoryPickerWidget import DirectoryPickerWidget
+@pytest.fixture
+def mock_directory_picker_widget(mocker):
+    mock_widget = mocker.Mock(spec=DirectoryPickerWidget)
+    mock_widget.get_selected_path.return_value = '/path/to/export'
+    return mock_widget

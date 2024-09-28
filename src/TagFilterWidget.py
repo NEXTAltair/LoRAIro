@@ -1,17 +1,12 @@
 import numpy as np
 
-from PySide6.QtWidgets import QWidget, QLabel, QHBoxLayout, QGroupBox
+from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QLabel
 from PySide6.QtCore import Qt, Signal, Slot
 from superqt import QDoubleRangeSlider
 
 from gui_file.TagFilterWidget_ui import Ui_TagFilterWidget
 
 from module.log import get_logger
-
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
-from PySide6.QtCore import Qt, Signal, Slot
-from superqt import QRangeSlider
-import numpy as np
 
 class CustomRangeSlider(QWidget):
     valueChanged = Signal(int, int)  # 最小値と最大値の変更を通知するシグナル
@@ -72,6 +67,14 @@ class CustomRangeSlider(QWidget):
 
 class TagFilterWidget(QWidget, Ui_TagFilterWidget):
     filterApplied = Signal(dict)
+    """{
+        filter_type: str,
+        filter_text: str,
+        resolution: int,
+        use_and: bool,
+        count_range: tuple
+    }
+    """
 
     def __init__(self, parent=None):
         self.logger = get_logger(__class__.__name__)
@@ -92,12 +95,13 @@ class TagFilterWidget(QWidget, Ui_TagFilterWidget):
 
     @Slot()
     def on_applyFilterButton_clicked(self):
+        """フィルター条件を取得して、filterAppliedシグナルを発行"""
         resolution = self.resolutionComboBox.currentText()
         split_resolution = resolution.split('x')
         filter_conditions = {
             'filter_type': self.filterTypeComboBox.currentText().lower() if self.filterTypeComboBox.isVisible() else None,
             'filter_text': self.filterLineEdit.text(),
-            'resolution': (split_resolution[0], split_resolution[1]) if split_resolution else None,
+            'resolution': int(split_resolution[0]) if split_resolution else None,
             'use_and': self.andRadioButton.isChecked() if self.andRadioButton.isVisible() else False,
             'count_range': self.count_range_slider.get_range() if self.count_range_slider.isVisible() else None
         }

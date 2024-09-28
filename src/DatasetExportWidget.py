@@ -15,7 +15,8 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
         self.logger = get_logger("DatasetExportWidget")
         self.fsm = None
         self.idm = None
-        self.image_selection_data = {}
+        self.filtered_image_metadata = {}
+        self.image_path_id_map = {}
 
     def init_ui(self):
         self.exportDirectoryPicker.set_label_text("Export Directory:")
@@ -33,27 +34,33 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
     def on_filter_applied(self, filter_conditions: dict):
         filter_type = filter_conditions['filter_type']
         filter_text = filter_conditions['filter_text']
-        min_resolution, _ = filter_conditions['resolution']
+        resolution = filter_conditions['resolution']
         use_and = filter_conditions['use_and']
 
         tags = []
         caption = ""
         if filter_type == "tags":
+            # タグはカンマ区切りで複数指定されるため、リストに変換
             tags = [tag.strip() for tag in filter_text.split(',')]
         elif filter_type == "caption":
             caption = filter_text
 
-        image_selection_data, list_count = self.idm.get_images_by_filter(
+        filtered_image_metadata, list_count = self.idm.get_images_by_filter(
             tags=tags,
             caption=caption,
-            resolution=int(min_resolution),
+            resolution=resolution,
             use_and=use_and
         )
-        if not image_selection_data:
+        if not filtered_image_metadata:
             self.logger.info(f"{filter_type} に {filter_text} を含む検索結果がありません")
             QMessageBox.critical(self,  "info", f"{filter_type} に {filter_text} を含む検索結果がありません")
+            return
 
-        self.update_thumbnail_selector(list_count)
+        # idとpathの対応だけを取り出す
+        self.image_path_id_map = {Path(item['stored_image_path']): item['id'] for item in filtered_image_metadata}
+
+        # サムネイルセレクターを更新
+        self.update_thumbnail_selector(list(self.image_path_id_map.keys()), list_count)
 
     @Slot()
     def on_exportButton_clicked(self):
@@ -84,9 +91,10 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
             return
 
         total_images = len(selected_images)
+        export_successful = True
         for i, image_path in enumerate(selected_images):
             try:
-                image_id = self.image_selection_data.get(image_path)
+                image_id = self.image_path_id_map.get(image_path)
                 if image_id is not None:
                     annotations = self.idm.get_image_annotations(image_id)
                     image_data = {
@@ -98,20 +106,23 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
                         self.fsm.export_dataset_to_txt(image_data, export_dir)
                     if "json" in formats:
                         self.fsm.export_dataset_to_json(image_data, export_dir)
+                else:
+                    self.logger.warning(f"Image ID not found for {image_path}")
+                    continue  # 次の画像へ
 
                 progress = int((i + 1) / total_images * 100)
                 self.exportProgressBar.setValue(progress)
                 self.statusLabel.setText(f"Status: Exporting... {progress}%")
-                # GUIの更新を強制
-                QApplication.processEvents()
 
             except Exception as e:
                 self.logger.error(f"エクスポート中にエラーが発生しました: {str(e)}")
                 QMessageBox.critical(self, "Error", f"エクスポート中にエラーが発生しました: {str(e)}")
+                export_successful = False
                 break
 
         self.exportButton.setEnabled(True)
-        QMessageBox.information(self, "Success", "Dataset export completed successfully.")
+        if export_successful:
+            QMessageBox.information(self, "Success", "Dataset export completed successfully.")
 
     @Slot(int)
     def update_export_progress(self, value: int):
@@ -131,8 +142,9 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
         self.statusLabel.setText("Status: Export failed")
         QMessageBox.critical(self, "Error", f"An error occurred during export: {error_message}")
 
-    def update_thumbnail_selector(self, list_count):
-        self.image_selection_data.clear()
+    def update_thumbnail_selector(self, image_paths: list[Path], list_count: int):
+        # サムネイルセレクターに新しい画像リストをロード
+        self.thumbnailSelector.load_images(image_paths)
         self.update_image_count_label(list_count)
 
     def update_image_count_label(self, count):

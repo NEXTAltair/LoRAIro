@@ -1003,6 +1003,23 @@ class ImageDatabaseManager:
             raise
 
     def get_images_by_filter(self, tags: list[str] = None, caption: str = None, resolution: int = 0, use_and: bool = True) -> tuple[list[dict[str, Any]], int]:
+        """_summary_
+
+        Args:
+            tags (list[str], optional): カンマ区切りをリスト化したタグ. Defaults to None.
+            caption (str, optional): _キャプション
+            resolution (int, optional): 検索する解像度x解像度の値が誤差20%以内の画像を取得. Defaults to 0.
+            use_and (bool, optional): _description_. Defaults to True.
+
+        Returns:
+            tuple[list[dict[str, Any]], int]: 条件にマッチした画像データのリストとその数
+            例:([
+                {'id': 516, 'image_id': 515, 'stored_image_path': 'psth', 
+                'width': 1024, 'height': 768, 'mode': 'RGB', 'has_alpha': 0, 'filename': '1_240925_00304.webp', 'color_space': 'RGB', 'icc_profile': 'Not present', 'created_at': '2024-09-26T20:21:08.451199', 'updated_at': '2024-09-26T20:21:08.451199'},
+                {'id': 517, 'image_id': 516, 'stored_image_path': 'psth',...}
+                ],
+                2)
+        """
         if not tags and not caption:
             self.logger.info("タグもキャプションも指定されていない")
             return None, 0
@@ -1038,21 +1055,33 @@ class ImageDatabaseManager:
         return filtered_metadata_list, list_count
 
     def _filter_by_resolution(self, metadata_list: list[dict[str, Any]], resolution: int) -> list[dict[str, Any]]:
-        filtered_list = []
-        for metadata in metadata_list:
-            width, height = metadata['width'], metadata['height']
-            long_side, short_side = max(width, height), min(width, height)
+            """
+            解像度に基づいてメタデータのリストをフィルタリングします。
 
-            if long_side == resolution:
-                filtered_list.append(metadata)
-            else:
-                target_area = resolution * resolution
-                actual_area = long_side * short_side
-                error_ratio = abs(target_area - actual_area) / target_area
+            Args:
+                metadata_list (list[dict[str, Any]]): メタデータの辞書のリスト。
+                resolution (int): ディレクトリの解像度。
 
-                if error_ratio <= 0.2:
+            Returns:
+                list[dict[str, Any]]: フィルタリングされたメタデータの辞書のリスト。解像度が条件に一致するか、
+                解像度の条件に誤差が0.2以下のメタデータが含まれます。
+
+            """
+            filtered_list = []
+            for metadata in metadata_list:
+                width, height = metadata['width'], metadata['height']
+                long_side, short_side = max(width, height), min(width, height)
+
+                if long_side == resolution:
                     filtered_list.append(metadata)
-        return filtered_list
+                else:
+                    target_area = resolution * resolution
+                    actual_area = long_side * short_side
+                    error_ratio = abs(target_area - actual_area) / target_area
+
+                    if error_ratio <= 0.2:
+                        filtered_list.append(metadata)
+            return filtered_list
 
     def get_image_id_by_name(self, image_name: str) -> Optional[int]:
         """オリジナル画像の重複チェック用 画像名からimage_idを取得
