@@ -167,6 +167,7 @@ class ImageProcessor:
         # アスペクト比を保ちつつ、新しいサイズでリサイズ
         return img.resize((new_width, new_height), Image.Resampling.LANCZOS)
 
+
 class AutoCrop:
     _instance = None
 
@@ -184,116 +185,146 @@ class AutoCrop:
         instance = cls()
         return instance._auto_crop_image(pil_image)
 
-    @staticmethod #TODO: 使えるが調整不足
-    def _has_letterbox(image: np.ndarray, color_threshold: float = 0.15, std_threshold: float = 0.05,
-                    edge_threshold: float = 0.1, gradient_threshold: float = 0.5) -> bool:
-        height, width = image.shape[:2]
+    @staticmethod
+    def _convert_to_gray(image: np.ndarray) -> np.ndarray:
+        """RGBまたはRGBA画像をグレースケールに変換する"""
+        if image.ndim == 2:
+            return image
+        if image.shape[2] == 3:
+            return cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        if image.shape[2] == 4:
+            return cv2.cvtColor(cv2.cvtColor(image, cv2.COLOR_RGBA2RGB), cv2.COLOR_RGB2GRAY)
+        raise ValueError(f"サポートされていない画像形式です。形状: {image.shape}")
 
-        # グレースケールに変換
-        if image.ndim == 3:
-            if image.shape[2] == 3:
-                gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-            elif image.shape[2] == 4:
-                rgb = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
-                gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
-            else:
-                raise ValueError(f"サポートされていない画像形式です。形状: {image.shape}")
-        else:
-            gray = image
-        # エッジ検出
-        edges = ndimage.sobel(gray)
+    @staticmethod
+    def _calculate_edge_strength(gray_image: np.ndarray) -> np.ndarray:
+        """グレースケール画像でエッジの強さを計算する"""
+        return ndimage.sobel(gray_image)
 
-        # 領域のスライスを定義
-        slices = [
-            (slice(0, height//20), slice(None)),  # top
-            (slice(-height//20, None), slice(None)),  # bottom
-            (slice(None), slice(0, width//20)),  # left
-            (slice(None), slice(-width//20, None)),  # right
-            (slice(height//5, 4*height//5), slice(width//5, 4*width//5))  # center
+    @staticmethod
+    def _get_slices(height: int, width: int) -> list[tuple[slice, slice]]:
+        """画像の特定の領域（上下左右および中央）をスライスで定義する"""
+        return [
+            (slice(0, height // 20), slice(None)),  # top
+            (slice(-height // 20, None), slice(None)),  # bottom
+            (slice(None), slice(0, width // 20)),  # left
+            (slice(None), slice(-width // 20, None)),  # right
+            (slice(height // 5, 4 * height // 5), slice(width // 5, 4 * width // 5))  # center
         ]
 
-        # 各領域の平均値と標準偏差を計算
-        means = [np.mean(gray[s]) for s in slices]
-        stds = [np.std(gray[s]) for s in slices]
-
-        # エッジの強さを計算
+    @staticmethod
+    def _calculate_region_statistics(gray_image: np.ndarray, edges: np.ndarray, slices: list[tuple[slice, slice]]) -> tuple[list[float], list[float], list[float]]:
+        """各領域の平均値、標準偏差、およびエッジ強度を計算する"""
+        means = [np.mean(gray_image[s]) for s in slices]
+        stds = [np.std(gray_image[s]) for s in slices]
         edge_strengths = [np.mean(edges[s]) for s in slices]
+        return means, stds, edge_strengths
 
-        # 各辺の評価
-        def evaluate_edge(edge_index, center_index):
-            color_diff = abs(means[edge_index] - means[center_index]) / 255
-            is_uniform = stds[edge_index] < std_threshold * 255
-            has_strong_edge = edge_strengths[edge_index] > edge_threshold * 255
-            return color_diff > color_threshold and (is_uniform or has_strong_edge)
+    @staticmethod
+    def _evaluate_edge(means: list[float], stds: list[float], edge_strengths: list[float],
+                       edge_index: int, center_index: int,
+                       color_threshold: float, std_threshold: float, edge_threshold: float) -> bool:
+        """各辺の評価を行う"""
+        color_diff = abs(means[edge_index] - means[center_index]) / 255
+        is_uniform = stds[edge_index] < std_threshold * 255
+        has_strong_edge = edge_strengths[edge_index] > edge_threshold * 255
+        return color_diff > color_threshold and (is_uniform or has_strong_edge)
 
-        is_letterbox_top = evaluate_edge(0, 4)
-        is_letterbox_bottom = evaluate_edge(1, 4)
-        is_pillarbox_left = evaluate_edge(2, 4)
-        is_pillarbox_right = evaluate_edge(3, 4)
-
-        # グラデーションの検出
+    @staticmethod
+    def _detect_gradient(means: list[float], gradient_threshold: float) -> bool:
+        """グラデーションを検出する"""
         vertical_gradient = abs(means[0] - means[1]) / 255
         horizontal_gradient = abs(means[2] - means[3]) / 255
-        is_gradient = vertical_gradient > gradient_threshold or horizontal_gradient > gradient_threshold
+        return vertical_gradient > gradient_threshold or horizontal_gradient > gradient_threshold
 
-        # 最終判定（上下両方、または左右両方にレターボックス/ピラーボックスがある場合のみ真）
-        has_letterbox = (is_letterbox_top and is_letterbox_bottom) or (is_pillarbox_left and is_pillarbox_right)
-        has_letterbox = bool(has_letterbox)
-        is_gradient = bool(is_gradient)
-        return has_letterbox and not is_gradient
+    @staticmethod
+    def _detect_border_shape(image: np.ndarray, color_threshold: float = 0.15, std_threshold: float = 0.05,
+                             edge_threshold: float = 0.1, gradient_threshold: float = 0.5) -> list[str]:
+        height, width = image.shape[:2]
+        gray_image = AutoCrop._convert_to_gray(image)
+        edges = AutoCrop._calculate_edge_strength(gray_image)
+        slices = AutoCrop._get_slices(height, width)
+        means, stds, edge_strengths = AutoCrop._calculate_region_statistics(gray_image, edges, slices)
+
+        detected_borders = []
+        if AutoCrop._evaluate_edge(means, stds, edge_strengths, 0, 4, color_threshold, std_threshold, edge_threshold):
+            detected_borders.append("TOP")
+        if AutoCrop._evaluate_edge(means, stds, edge_strengths, 1, 4, color_threshold, std_threshold, edge_threshold):
+            detected_borders.append("BOTTOM")
+        if AutoCrop._evaluate_edge(means, stds, edge_strengths, 2, 4, color_threshold, std_threshold, edge_threshold):
+            detected_borders.append("LEFT")
+        if AutoCrop._evaluate_edge(means, stds, edge_strengths, 3, 4, color_threshold, std_threshold, edge_threshold):
+            detected_borders.append("RIGHT")
+
+        if AutoCrop._detect_gradient(means, gradient_threshold):
+            return []  # グラデーションが検出された場合は境界なしとする
+
+        return detected_borders
 
     def _get_crop_area(self, np_image: np.ndarray) -> Optional[tuple[int, int, int, int]]:
+        """
+        クロップ領域を検出するためのメソッド。OpenCV を使ったエリア検出。
+        """
         try:
-            # レターボックス/ピラーボックスのチェックを維持
-            if not self._has_letterbox(np_image):
-                return None
+            # 差分によるクロップ領域検出を追加
+            complementary_color = [255 - np.mean(np_image[..., i]) for i in range(3)]
+            background = np.full(np_image.shape, complementary_color, dtype=np.uint8)
+            diff = cv2.absdiff(np_image, background)
 
-            # カラースペース変換の改善
-            if len(np_image.shape) == 3:
-                if np_image.shape[2] == 3:
-                    gray_image = cv2.cvtColor(np_image, cv2.COLOR_RGB2GRAY)
-                elif np_image.shape[2] == 4:
-                    # RGBA画像の場合、アルファチャンネルを無視してRGBに変換
-                    rgb_image = cv2.cvtColor(np_image, cv2.COLOR_RGBA2RGB)
-                    gray_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2GRAY)
-                else:
-                    self.logger.error("AutoCrop._get_crop_area: サポートされていない画像形式: %s", np_image.shape)
-                    return None
-            elif len(np_image.shape) == 2:
-                gray_image = np_image
-            else:
-                self.logger.error("AutoCrop._get_crop_area: サポートされていない画像形式: %s", np_image.shape)
-                return None
+            # 差分をグレースケール変換
+            gray_diff = self._convert_to_gray(diff)
 
-            # ノイズ除去のためのブラー処理
-            blurred = cv2.GaussianBlur(gray_image, (5, 5), 0)
-            # 適応的閾値処理
-            thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                        cv2.THRESH_BINARY, 11, 2)
+            # ブラー処理を適用してノイズ除去
+            blurred_diff = cv2.GaussianBlur(gray_diff, (5, 5), 0)
+
+            # しきい値処理
+            thresh = cv2.adaptiveThreshold(
+                blurred_diff,  # グレースケール化された差分画像を使う
+                255,  # 最大値（白）
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,  # 適応的しきい値の種類（ガウス法）
+                cv2.THRESH_BINARY,  # 2値化（白か黒）
+                11,  # ピクセル近傍のサイズ (奇数で指定)
+                2   # 平均値または加重平均から減算する定数
+            )
+            # エッジ検出
+            edges = cv2.Canny(thresh, threshold1=30, threshold2=100)
             # 輪郭検出
-            contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
             if contours:
-                # 最大の輪郭を選択
-                largest_contour = max(contours, key=cv2.contourArea)
-                x, y, w, h = cv2.boundingRect(largest_contour)
+                x_min, y_min, x_max, y_max = np_image.shape[1], np_image.shape[0], 0, 0
+                for contour in contours:
+                    x, y, w, h = cv2.boundingRect(contour)
+                    x_min, y_min = min(x_min, x), min(y_min, y)
+                    x_max, y_max = max(x_max, x + w), max(y_max, y + h)
 
-                # レターボックス/ピラーボックスの特性を考慮したクロップ領域の検証
-                image_height, image_width = np_image.shape[:2]
-                if (w > 0.5 * image_width and h > 0.5 * image_height and
-                    (w < 0.98 * image_width or h < 0.98 * image_height)):
-                    return x, y, w, h
+                # マスク処理によってクロップ領域を決定する
+                mask = np.zeros(np_image.shape[:2], dtype=np.uint8)
+                for contour in contours:
+                    cv2.drawContours(mask, [contour], -1, 255, thickness=cv2.FILLED)
+
+                # マスクの白い領域の座標を取得
+                y_coords, x_coords = np.where(mask == 255)
+                if len(x_coords) > 0 and len(y_coords) > 0:
+                    x_min, y_min = np.min(x_coords), np.min(y_coords)
+                    x_max, y_max = np.max(x_coords), np.max(y_coords)
+
+                    # エリアを検証する必要がなくなり、ここで余分な領域を削るロジックを追加する
+                    margin = 5  # 余分に削るピクセル数
+                    x_min = max(0, x_min + margin)
+                    y_min = max(0, y_min + margin)
+                    x_max = min(np_image.shape[1], x_max - margin)
+                    y_max = min(np_image.shape[0], y_max - margin)
+
+                    return x_min, y_min, x_max - x_min, y_max - y_min
             return None
-
         except Exception as e:
-            self.logger.error(f"AutoCrop._get_crop_area: クロップ領域の特定中: {e}")
+            self.logger.error(f"AutoCrop._get_crop_area: クロップ領域の検出中にエラーが発生しました: {e}")
             return None
 
     def _auto_crop_image(self, pil_image: Image.Image) -> Image.Image:
         """
         PIL.Image オブジェクトを受け取り、必要に応じて自動クロップを行います。
-
-        PILでのクロップのほうが画質絵の影響が少ないらしい
 
         Args:
             pil_image (Image.Image): 処理する PIL.Image オブジェクト
@@ -302,18 +333,21 @@ class AutoCrop:
             Image.Image: クロップされた（または元の）PIL.Image オブジェクト
         """
         try:
-            # PIL.Image を NumPy 配列に変換
             np_image = np.array(pil_image)
-
-            # RGB to BGR (OpenCV uses BGR)
-            if len(np_image.shape) == 3 and np_image.shape[2] == 3:
-                np_image = cv2.cvtColor(np_image, cv2.COLOR_RGB2BGR)
             crop_area = self._get_crop_area(np_image)
+
+            # デバッグ情報の出力
+            self.logger.debug(f"Crop area: {crop_area}")
+            self.logger.debug(f"Original image size: {pil_image.size}")
 
             if crop_area:
                 x, y, w, h = crop_area
-                return pil_image.crop((x, y, w, h))
+                right, bottom = x + w, y + h
+                cropped_image = pil_image.crop((x, y, right, bottom))
+                self.logger.debug(f"Cropped image size: {cropped_image.size}")
+                return cropped_image
             else:
+                self.logger.debug("No crop area detected, returning original image")
                 return pil_image
         except Exception as e:
             self.logger.error(f"自動クロップ処理中にエラーが発生しました: {e}")
