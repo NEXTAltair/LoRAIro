@@ -57,7 +57,7 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
             return
 
         # idとpathの対応だけを取り出す
-        self.image_path_id_map = {Path(item['stored_image_path']): item['id'] for item in filtered_image_metadata}
+        self.image_path_id_map = {Path(item['stored_image_path']): item['image_id'] for item in filtered_image_metadata}
 
         # サムネイルセレクターを更新
         self.update_thumbnail_selector(list(self.image_path_id_map.keys()), list_count)
