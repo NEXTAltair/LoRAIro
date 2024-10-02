@@ -273,7 +273,7 @@ def mock_tag_filter_widget(mocker):
     mocker.patch('src.TagFilterWidget.TagFilterWidget', return_value=mock_widget)
     return mock_widget
 
-from src.DirectoryPickerWidget import DirectoryPickerWidget
+from DirectoryPickerWidget import DirectoryPickerWidget
 @pytest.fixture
 def mock_directory_picker_widget(mocker):
     mock_widget = mocker.Mock(spec=DirectoryPickerWidget)

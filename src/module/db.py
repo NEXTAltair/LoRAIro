@@ -407,6 +407,7 @@ class ImageRepository:
         data = []
 
         for tag in tags:
+            tag = tag.lower().strip()
             tag_id = self.find_tag_id(tag)
             existing = 1 if model_id is None else 0
             data.append((image_id, tag_id, tag, model_id, existing))
@@ -438,6 +439,7 @@ class ImageRepository:
         data = []
 
         for caption in captions:
+            caption = caption.lower().strip()
             existing = 1 if model_id is None else 0
             data.append((image_id, caption, model_id, existing))
             self.logger.debug(f"ImageRepository._save_captions: {caption} ")
@@ -597,46 +599,100 @@ class ImageRepository:
             self.logger.error(f"image_id: {image_id} のスコアを取得中にデータベースエラーが発生しました: {e}")
             raise
 
+    def escape_special_characters(self, input_string: str) -> str:
+        """
+        SQLの特殊文字（% と _）をエスケープし、ワイルドカードの * を % に置換する。
+        ダブルクオートで囲まれた部分は完全一致として扱う。
+
+        Args:
+            input_string (str): エスケープする入力文字列
+
+        Returns:
+            str: エスケープされた文字列
+        """
+        # ダブルクオートで囲まれた部分は完全一致として扱う
+        if input_string.startswith('"') and input_string.endswith('"'):
+            # ダブルクオートを外してそのまま戻す
+            return input_string.strip('"')
+
+        # 特殊文字のエスケープとワイルドカードの置換
+        escaped_string = input_string.replace('\\', '\\\\').replace('%', r'\%').replace('_', r'\_')
+        return escaped_string.replace('*', '%')
+
     def get_images_by_tag(self, tag: str) -> list[int]:
-            """
-            指定されたタグを持つ画像のIDリストを取得する
+        """
+        指定されたタグを持つ画像のIDリストを取得する（部分一致とワイルドカードに対応）
 
-            Args:
-                tag (str): 検索するタグ
+        Args:
+            tag (str): 検索するタグ（ワイルドカード '*' を含むことができます）
 
-            Returns:
-                list[int]: タグを持つ画像IDのリスト か 空リスト
-            """
+        Returns:
+            list[int]: タグを持つ画像IDのリスト か 空リスト
+        """
+        if tag.startswith('"') and tag.endswith('"'):
+            # 完全一致検索用のクエリ
             query = """
             SELECT DISTINCT i.id
             FROM images i
             JOIN tags t ON i.id = t.image_id
             WHERE t.tag = ?
             """
-            rows = self.db_manager.fetch_all(query, [tag])
-            if not rows:
-                self.logger.info("%s を含む画像はありません", tag)
-                return []
-            else:
-                return [row['id'] for row in rows]
+            # ダブルクオートを外したタグで検索
+            pattern = tag.strip('"')
+        else:
+            # ワイルドカードなしでも部分一致検索にする
+            pattern = self.escape_special_characters(tag)
+            if '*' not in tag:
+                # '*' がない場合も部分一致のLIKEを使う
+                pattern = f'%{pattern}%'
+
+            query = """
+            SELECT DISTINCT i.id
+            FROM images i
+            JOIN tags t ON i.id = t.image_id
+            WHERE t.tag LIKE ? ESCAPE '\\'
+            """
+        rows = self.db_manager.fetch_all(query, [pattern])
+        if not rows:
+            self.logger.info("%s を含む画像はありません", tag)
+            return []
+        else:
+            return [row['id'] for row in rows]
 
     def get_images_by_caption(self, caption: str) -> list[int]:
         """
-        指定されたキャプションを含む画像のIDリストを取得する
+        指定されたキャプションを含む画像のIDリストを取得する（部分一致、ワイルドカード、完全一致に対応）
 
         Args:
-            caption (str): 検索するキャプション
+            caption (str): 検索するキャプション（ワイルドカード '*' やダブルクオートを含むことができます）
 
         Returns:
-            list[int]: 加工済み画像IDのリスト か 空リスト
+            list[int]: キャプションを持つ画像IDのリスト か 空リスト
         """
-        query = """
-        SELECT DISTINCT i.id
-        FROM images i
-        JOIN captions c ON i.id = c.image_id
-        WHERE c.caption LIKE ?
-        """
-        rows = self.db_manager.fetch_all(query, ['%' + caption + '%'])
+        # キャプションがダブルクオートで囲まれている場合は完全一致検索を行う
+        if caption.startswith('"') and caption.endswith('"'):
+            # 完全一致検索用のクエリ
+            query = """
+            SELECT DISTINCT i.id
+            FROM images i
+            JOIN captions c ON i.id = c.image_id
+            WHERE c.caption = ?
+            """
+            # ダブルクオートを外したキャプションで検索
+            pattern = caption.strip('"')
+        else:
+            # 部分一致検索用のパターン作成
+            pattern = self.escape_special_characters(caption)
+            if '*' not in caption:
+                pattern = f'%{pattern}%'
+            query = """
+            SELECT DISTINCT i.id
+            FROM images i
+            JOIN captions c ON i.id = c.image_id
+            WHERE c.caption LIKE ? ESCAPE '\\'
+            """
+
+        rows = self.db_manager.fetch_all(query, [pattern])
         if not rows:
             self.logger.info("'%s' を含むキャプションを持つ画像はありません", caption)
             return []
@@ -1065,6 +1121,11 @@ class ImageDatabaseManager:
         if caption:
             caption_results = set(self.repository.get_images_by_caption(caption))
             image_ids = image_ids.intersection(caption_results) if image_ids else caption_results
+
+        # image_idsが空の場合は空リストを返す
+        if not image_ids:
+            self.logger.info("条件に一致する画像が見つかりませんでした")
+            return [], 0
 
         # 画像メタデータの取得
         metadata_list = []

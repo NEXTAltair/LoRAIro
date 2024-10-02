@@ -200,24 +200,6 @@ def test_find_tag_id(image_database_manager, sample_image_info):
     tag_id = manager.repository.find_tag_id('spiked collar')
     assert tag_id == 1
 
-def test_get_images_by_tag(image_database_manager, sample_image_info):
-    """タグによる画像検索の確認"""
-    manager = image_database_manager
-    image_id = manager.repository.add_original_image(sample_image_info)
-    manager.repository.save_annotations(image_id, {'tags': ['test_tag'], 'model_id': None})
-
-    image_ids = manager.repository.get_images_by_tag('test_tag')
-    assert image_id in image_ids
-
-def test_get_images_by_caption(image_database_manager, sample_image_info):
-    """キャプションによる画像検索の確認"""
-    manager = image_database_manager
-    image_id = manager.repository.add_original_image(sample_image_info)
-    manager.repository.save_annotations(image_id, {'captions': ['test_caption'], 'model_id': None})
-
-    image_ids = manager.repository.get_images_by_caption('test_caption')
-    assert image_id in image_ids
-
 def test_update_image_metadata(image_database_manager, sample_image_info):
     """画像メタデータの更新の確認"""
     manager = image_database_manager
@@ -279,6 +261,232 @@ def test_get_models(image_database_manager):
     assert isinstance(upscaler_models, dict)
     assert len(vision_models) > 0
 
+from datetime import datetime
+
+@pytest.fixture
+def setup_test_data(image_database_manager, sample_image_info, tmp_path):
+    manager = image_database_manager
+
+    # テスト用の画像データを作成
+    image_data = [
+        {"tags": ["cat", "cute"], "caption": "A cute cat playing"},
+        {"tags": ["dog", "playful"], "caption": "A playful dog in the park"},
+        {"tags": ["cat", "sleeping"], "caption": "A cat sleeping on a couch"},
+        {"tags": ["bird", "flying"], "caption": "A bird flying in the sky"},
+        {"tags": ["catfish", "swimming"], "caption": "A catfish swimming in a pond"}
+    ]
+
+    image_ids = []
+    for idx, data in enumerate(image_data):
+        # 直接SQLでオリジナル画像を追加（phashチェックを避けるため）
+        query = """
+        INSERT INTO images (uuid, stored_image_path, width, height, format, mode, has_alpha, filename,
+                            extension, color_space, icc_profile, phash, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        created_at = datetime.now().isoformat()
+        params = (
+            str(uuid.uuid4()),  # uuid
+            f"image_path_{idx}.jpg",  # stored_image_path
+            256,  # width
+            256,  # height
+            "WEBP",  # format
+            "RGB",  # mode
+            False,  # has_alpha
+            f'image_{idx}.jpg',  # filename
+            'webp',  # extension
+            'sRGB',  # color_space
+            None,  # icc_profile
+            f'unique_phash_{idx}',  # phash
+            created_at,  # created_at
+            created_at   # updated_at
+        )
+        cursor = manager.db_manager.execute(query, params)
+        image_id = cursor.lastrowid
+        image_ids.append(image_id)
+        # 処理済み画像を登録
+        processed_info = {
+            'width': 256,
+            'height': 256,
+            'format': 'WEBP',
+            'mode': 'RGB',
+            'has_alpha': False,
+            'filename': f'processed_{idx}.webp',
+            'color_space': 'sRGB',
+            'icc_profile': None
+        }
+        processed_path = tmp_path / f"processed_{idx}.webp"
+        processed_path.touch()
+        manager.register_processed_image(image_id, processed_path, processed_info)
+
+        # アノテーションを保存
+        manager.repository.save_annotations(image_id, {
+            'tags': data['tags'],
+            'captions': [data['caption']],
+            'model_id': None
+        })
+
+    return manager, image_ids
+
+test_cases = [
+    # テストケース1: 完全一致タグ検索
+    {
+        "description": "完全一致タグ検索",
+        "tags": ['"cat"'],
+        "caption": None,
+        "expected_count": 2,
+        "expected_ids": lambda ids: {ids[0], ids[2]}
+    },
+    # テストケース1.1: 部分一致タグ検索
+    {
+        "description": "部分一致タグ検索",
+        "tags": ['cat'],
+        "caption": None,
+        "expected_count": 3,
+        "expected_ids": lambda ids: {ids[0], ids[2], ids[4]}
+    },
+    # テストケース2: ワイルドカードタグ検索
+    {
+        "description": "ワイルドカードタグ検索",
+        "tags": ['cat*'],
+        "caption": None,
+        "expected_count": 3,
+        "expected_ids": lambda ids: {ids[0], ids[2], ids[4]}
+    },
+    # テストケース3: AND検索
+    {
+        "description": "AND検索",
+        "tags": ['cat', 'cute'],
+        "caption": None,
+        "use_and": True,
+        "expected_count": 1,
+        "expected_ids": lambda ids: {ids[0]}
+    },
+    # テストケース4: OR検索
+    {
+        "description": "OR検索",
+        "tags": ['dog', 'bird'],
+        "caption": None,
+        "use_and": False,
+        "expected_count": 2,
+        "expected_ids": lambda ids: {ids[1], ids[3]}
+    },
+    # テストケース5: 部分一致キャプション検索
+    {
+        "description": "部分一致キャプション検索",
+        "tags": None,
+        "caption": 'sleeping',
+        "expected_count": 1,
+        "expected_ids": lambda ids: {ids[2]}
+    },
+    # テストケース6: ワイルドカードキャプション検索
+    {
+        "description": "ワイルドカードキャプション検索",
+        "tags": None,
+        "caption": '* in *',
+        "expected_count": 3,
+        "expected_ids": lambda ids: {ids[1], ids[3], ids[4]}
+    },
+    # テストケース7: タグとキャプションの組み合わせ検索
+    {
+        "description": "タグとキャプションの組み合わせ検索",
+        "tags": ['cat*'],
+        "caption": '*ing*',
+        "expected_count": 3,
+        "expected_ids": lambda ids: {ids[0], ids[2], ids[4]}
+    },
+    # テストケース8: 存在しないタグでの検索
+    {
+        "description": "存在しないタグでの検索",
+        "tags": ['nonexistent'],
+        "caption": None,
+        "expected_count": 0,
+        "expected_ids": lambda ids: set()
+    },
+    # テストケース9: 空のタグリストでの検索
+    {
+        "description": "空のタグリストでの検索",
+        "tags": [],
+        "caption": None,
+        "expected_count": 0,
+        "expected_ids": lambda ids: None
+    },
+    # テストケース10: 解像度フィルタ
+    {
+        "description": "解像度フィルタ",
+        "tags": ['cat'],
+        "caption": None,
+        "resolution": 256,
+        "expected_count": 3,
+        "expected_ids": lambda ids: {ids[0], ids[2], ids[4]}
+    },
+    # エッジケース1: タグが存在しない
+    {
+        "description": "エッジケース - 存在しないタグ",
+        "tags": ['nonexistent'],
+        "caption": None,
+        "expected_count": 0,
+        "expected_ids": lambda ids: set()
+    },
+    # エッジケース2: タグと存在しないタグのAND検索
+    {
+        "description": "エッジケース - タグと存在しないタグのAND検索",
+        "tags": ['cat', 'nonexistent'],
+        "caption": None,
+        "use_and": True,
+        "expected_count": 0,
+        "expected_ids": lambda ids: set()
+    },
+    # エッジケース3: 存在しないキャプション
+    {
+        "description": "エッジケース - 存在しないキャプション",
+        "tags": None,
+        "caption": 'nonexistent',
+        "expected_count": 0,
+        "expected_ids": lambda ids: set()
+    },
+    # エッジケース4: ワイルドカードタグ検索で全ての画像を取得
+    {
+        "description": "エッジケース - ワイルドカードタグ検索で全ての画像を取得",
+        "tags": ['*'],
+        "caption": None,
+        "expected_count": 5,
+        "expected_ids": lambda ids: set(ids)
+    },
+    # エッジケース5: ワイルドカードキャプション検索で全ての画像を取得
+    {
+        "description": "エッジケース - ワイルドカードキャプション検索で全ての画像を取得",
+        "tags": None,
+        "caption": '*',
+        "expected_count": 5,
+        "expected_ids": lambda ids: set(ids)
+    },
+]
+
+@pytest.mark.parametrize("case", test_cases)
+def test_get_images_by_filter_cases(setup_test_data, case):
+    """フィルタリングのテストケース"""
+    manager, image_ids = setup_test_data
+    description = case.get("description")
+    tags = case.get("tags")
+    caption = case.get("caption")
+    resolution = case.get("resolution", 0)
+    use_and = case.get("use_and", True)
+    expected_count = case.get("expected_count")
+    expected_ids = case.get("expected_ids")(image_ids)
+
+    filtered_images, count = manager.get_images_by_filter(
+        tags=tags, caption=caption, resolution=resolution, use_and=use_and
+    )
+
+    assert count == expected_count, f"{description} - 期待される画像数と一致しません"
+    # None が返ってくる場合に備える
+    if filtered_images is None:
+        assert expected_ids is None, f"{description} - 期待される画像IDと一致しません"
+    else:
+        actual_ids = set(img['image_id'] for img in filtered_images)
+        assert actual_ids == expected_ids, f"{description} - 期待される画像IDと一致しません"
+
 def test_get_images_by_filter(image_database_manager, sample_image_info, tmp_path):
     """フィルタによる画像検索の確認"""
     manager = image_database_manager
@@ -308,7 +516,6 @@ def test_get_images_by_filter(image_database_manager, sample_image_info, tmp_pat
     filtered_images, count = manager.get_images_by_filter(tags=['filter_tag'])
     assert count == 1
     assert filtered_images[0]['image_id'] == image_id
-
 
 def test_create_tables(image_database_manager):
     """テーブル作成のテスト"""
