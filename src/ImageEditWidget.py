@@ -45,7 +45,7 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
                                           self.preferred_resolutions)
 
     def showEvent(self, event):
-        """ウィジェットが表示される際に呼び出されるイベントハンドラ"""
+        """ウィジェットが表示される際にメインウィンドウで選択された画像を表示する"""
         super().showEvent(event)
         self.load_images(self.cm.dataset_image_paths)
 
