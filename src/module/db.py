@@ -2,6 +2,7 @@ import sqlite3
 import threading
 import uuid
 import imagehash
+import inspect
 from PIL import Image
 
 from contextlib import contextmanager
@@ -140,6 +141,7 @@ class SQLiteManager:
                     tag TEXT NOT NULL,
                     existing BOOLEAN NOT NULL DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,
                     FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL,
                     UNIQUE (image_id, tag, tag_id, model_id)
@@ -153,6 +155,7 @@ class SQLiteManager:
                     caption TEXT NOT NULL,
                     existing BOOLEAN NOT NULL DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,
                     FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL,
                     UNIQUE (image_id, caption, model_id)
@@ -353,7 +356,8 @@ class ImageRepository:
             metadata = self.db_manager.fetch_one(query, (image_id,))
             return metadata
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"画像メタデータの取得中にエラーが発生しました: {e}")
+            current_method = inspect.currentframe().f_code.co_name
+            raise sqlite3.Error(f"{current_method} 画像メタデータの取得中にエラーが発生しました : {e}")
 
     def save_annotations(self, image_id: int, annotations: dict[str, Union[list[str], float, int]]) -> None:
         """
@@ -386,7 +390,8 @@ class ImageRepository:
             self._save_captions(image_id, annotations.get('captions', []), model_id)
             self._save_score(image_id, annotations.get('score', 0), model_id)
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"アノテーションの保存中にエラーが発生しました: {e}")
+            current_method = inspect.currentframe().f_code.co_name
+            raise sqlite3.Error(f"{current_method} アノテーションの保存中にエラーが発生しました: {e}")
 
     def _save_tags(self, image_id: int, tags: list[str], model_id: Optional[int]) -> None:
         """タグとそのIDを保存する内部メソッド
@@ -403,15 +408,25 @@ class ImageRepository:
             self.logger.debug(f"画像ID {image_id} のタグリストが空のため、保存をスキップします。")
             return
 
-        query = "INSERT OR IGNORE INTO tags (image_id, tag_id, tag, model_id, existing) VALUES (?, ?, ?, ?, ?)"
+        query = """
+                INSERT INTO tags (image_id, tag_id, tag, model_id, existing, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT(image_id, tag, tag_id, model_id) DO UPDATE SET
+                    existing = EXCLUDED.existing,
+                    updated_at = CURRENT_TIMESTAMP
+                """
         data = []
 
         for tag in tags:
             tag = tag.lower().strip()
             tag_id = self.find_tag_id(tag)
             existing = 1 if model_id is None else 0
-            data.append((image_id, tag_id, tag, model_id, existing))
-            self.logger.debug(f"ImageRepository._save_tags_with_ids: tag={tag}, tag_id={tag_id}")
+            if model_id is None:
+                # None の場合は明示的に NULL を設定
+                data.append((image_id, tag_id, tag, None, existing))
+            else:
+                data.append((image_id, tag_id, tag, model_id, existing))
+        self.logger.debug(f"ImageRepository._save_tags_with_ids: tag={tag}, tag_id={tag_id}")
 
         try:
             self.db_manager.executemany(query, data)
@@ -435,13 +450,22 @@ class ImageRepository:
             self.logger.info(f"画像ID {image_id} のキャプションリストが空のため、保存をスキップします。")
             return
 
-        query = "INSERT OR IGNORE INTO captions (image_id, caption, model_id, existing) VALUES (?, ?, ?, ?)"
+        query = """
+                INSERT INTO captions (image_id, caption, model_id, existing, created_at, updated_at)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT(image_id, caption, model_id) DO UPDATE SET
+                    existing = EXCLUDED.existing,
+                    updated_at = CURRENT_TIMESTAMP
+                """
         data = []
 
         for caption in captions:
             caption = caption.lower().strip()
             existing = 1 if model_id is None else 0
-            data.append((image_id, caption, model_id, existing))
+            if model_id is None:
+                data.append((image_id, caption, None, existing))
+            else:
+                data.append((image_id, caption, model_id, existing))
             self.logger.debug(f"ImageRepository._save_captions: {caption} ")
 
         try:
@@ -488,7 +512,8 @@ class ImageRepository:
             else:
                 raise ValueError(f"モデル名 '{model_name}' が見つかりません。")
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"_get_model_idメソッド内のクエリエラー: {e}")
+            current_method = inspect.currentframe().f_code.co_name
+            raise sqlite3.Error(f"{current_method} エラー: {e}")
 
     def _image_exists(self, image_id: int) -> bool:
         """
@@ -562,7 +587,7 @@ class ImageRepository:
 
     def _get_tags(self, image_id: int) -> list[dict[str, Any]]:
         """image_idからタグを取得する内部メソッド"""
-        query = "SELECT tag, model_id, tag_id FROM tags WHERE image_id = ?"
+        query = "SELECT tag, model_id, tag_id, updated_at FROM tags WHERE image_id = ?"
         try:
             self.logger.debug(f"タグを取得するimage_id: {image_id}")
             result = self.db_manager.fetch_all(query, (image_id,))
@@ -575,7 +600,7 @@ class ImageRepository:
 
     def _get_captions(self, image_id: int) -> list[dict[str, Any]]:
         """image_idからキャプションを取得する内部メソッド"""
-        query = "SELECT caption, model_id FROM captions WHERE image_id = ?"
+        query = "SELECT caption, model_id, updated_at FROM captions WHERE image_id = ?"
         try:
             self.logger.debug(f"キャプションを取得するimage_id: {image_id}")
             result = self.db_manager.fetch_all(query, (image_id,))
@@ -721,7 +746,8 @@ class ImageRepository:
             self.logger.debug("ID %s の処理済み画像メタデータを取得しました: %s", image_id, metadata)
             return metadata
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"処理済み画像の取得中にエラーが発生しました: {e}")
+            current_method = inspect.currentframe().f_code.co_name
+            raise sqlite3.Error(f"{current_method} 処理済み画像の取得中にエラーが発生しました: {e}")
 
     def get_total_image_count(self) -> int:
         try:

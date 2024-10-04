@@ -4,6 +4,8 @@ from module.db import SQLiteManager, ImageRepository, ImageDatabaseManager
 from unittest.mock import MagicMock, patch
 from module.log import get_logger
 import uuid
+from datetime import datetime, timezone, timedelta
+import time
 
 @pytest.fixture
 def test_db_paths(tmp_path):
@@ -137,6 +139,10 @@ def assert_annotations(retrieved, expected, model_id, case_index, repository):
             assert matching_tags[0]['tag_id'] == expected_tag_id, f"Case {case_index}: タグ '{tag}' のtag_idが一致しません"
             if tag == 'spiked collar':
                 assert expected_tag_id == 1, f"Case {case_index}: 'spiked collar' のtag_idが1ではありません"
+            
+            # 新しい検証: updated_at が現在時刻に近いことを確認
+            assert (datetime.now(timezone.utc) - datetime.fromisoformat(matching_tags[0]['updated_at']).replace(tzinfo=timezone.utc)) < timedelta(seconds=100), \
+                f"Case {case_index}: タグ '{tag}' のupdated_atが最新ではありません"
 
     if 'captions' in expected:
         assert len(retrieved['captions']) >= len(expected['captions']), f"Case {case_index}: キャプションの数が一致しません"
@@ -151,7 +157,7 @@ def assert_annotations(retrieved, expected, model_id, case_index, repository):
         assert matching_scores[0]['model_id'] == model_id, f"Case {case_index}: スコア {expected['score']} のmodel_idが一致しません"
 
 def test_save_annotations(image_database_manager, sample_image_info):
-    """アノテーションの保存と取得の確認、欠損値のテストを含む"""
+    """アノテーションの保存、取得、更新の確認、欠損値のテストを含む"""
     manager = image_database_manager
     image_id = manager.repository.add_original_image(sample_image_info)
 
@@ -190,6 +196,28 @@ def test_save_annotations(image_database_manager, sample_image_info):
         current_model_id = case.get('model_id')
 
         assert_annotations(retrieved, case, current_model_id, index, manager.repository)
+
+    # タグの再登録のテスト
+    time.sleep(1)  # updated_at の変更を確実に検出するため
+    reregister_case = {
+        'tags': ['spiked collar', 'tag1'],
+        'model_id': 4
+    }
+    manager.repository.save_annotations(image_id, reregister_case)
+    retrieved = manager.repository.get_image_annotations(image_id)
+
+    # 再登録されたタグの検証
+    for tag in reregister_case['tags']:
+        matching_tags = [t for t in retrieved['tags'] if t['tag'] == tag]
+        assert matching_tags, f"再登録: タグ '{tag}' が見つかりません"
+        assert matching_tags[0]['model_id'] == 4, f"再登録: タグ '{tag}' のmodel_idが更新されていません"
+        assert (datetime.now(timezone.utc) - datetime.fromisoformat(matching_tags[0]['updated_at']).replace(tzinfo=timezone.utc)) < timedelta(seconds=100), \
+            f"再登録: タグ '{tag}' のupdated_atが更新されていません"
+
+    # 他のタグが影響を受けていないことを確認
+    other_tags = [t for t in retrieved['tags'] if t['tag'] not in reregister_case['tags']]
+    for tag in other_tags:
+        assert tag['model_id'] != 4, f"再登録: 他のタグ '{tag['tag']}' のmodel_idが誤って更新されています"
 
 def test_find_tag_id(image_database_manager, sample_image_info):
     """アタッチしたsrc\module\genai-tag-db-toolsのタグデータベースから登録されたタグIDを取得する"""
