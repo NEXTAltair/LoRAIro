@@ -1,7 +1,7 @@
 import numpy as np
 
 from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QLabel
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, Signal, Slot, QDateTime, QTimeZone, QTime
 from superqt import QDoubleRangeSlider
 
 from gui_file.TagFilterWidget_ui import Ui_TagFilterWidget
@@ -9,15 +9,47 @@ from gui_file.TagFilterWidget_ui import Ui_TagFilterWidget
 from module.log import get_logger
 
 class CustomRangeSlider(QWidget):
+    """日付または数値の範囲を選択するためのカスタムレンジスライダーウィジェット。
+
+    このウィジェットは、日付または数値の範囲を選択するためのスライダーを提供します。
+    現在の範囲の値をラベルとして表示します。
+
+    属性:
+        valueChanged (Signal): スライダーの値が変更されたときに発行されるシグナル。
+            このシグナルは、選択された範囲の最小値と最大値を表す2つの整数値を発行します。
+
+            日付範囲の場合、これらの整数値はローカルタイムゾーンでのUnixタイムスタンプ
+            （エポックからの秒数）を表します。数値範囲の場合、実際に選択された値を表します。
+
+            引数:
+                min_value (int): 選択された範囲の最小値。
+                max_value (int): 選択された範囲の最大値。
+
+    """
     valueChanged = Signal(int, int)  # 最小値と最大値の変更を通知するシグナル
 
     def __init__(self, parent=None, min_value=0, max_value=100000):
         super().__init__(parent)
         self.min_value = min_value
         self.max_value = max_value
+        self.is_date_mode = False
         self.setup_ui()
 
     def setup_ui(self):
+        """CustomRangeSliderのユーザーインターフェースをセットアップします。
+
+        このメソッドは、スライダーとラベルを初期化し、必要なシグナルを接続します。
+
+        スライダーは0から100の範囲で設定され、後にユーザーが設定した実際の範囲
+        （日付または数値）にマッピングされます。
+
+        現在の範囲の最小値と最大値を表示するために2つのラベルが作成されます。
+        これらのラベルは、スライダーの値が変更されるたびに更新されます。
+
+        注意:
+            このメソッドはクラスのコンストラクタ内部で呼び出されるため、
+            ユーザーが直接呼び出す必要はありません。
+        """
         layout = QVBoxLayout(self)
 
         self.slider = QDoubleRangeSlider(Qt.Orientation.Horizontal)
@@ -40,13 +72,22 @@ class CustomRangeSlider(QWidget):
     @Slot()
     def update_labels(self):
         min_val, max_val = self.slider.value()
-        min_count = self.scale_to_count(min_val)
-        max_count = self.scale_to_count(max_val)
-        self.min_label.setText(f"{min_count:,}")
-        self.max_label.setText(f"{max_count:,}")
+        min_count = self.scale_to_value(min_val)
+        max_count = self.scale_to_value(max_val)
+
+        if self.is_date_mode:
+            local_tz = QTimeZone.systemTimeZone()
+            min_date = QDateTime.fromSecsSinceEpoch(min_count, local_tz)
+            max_date = QDateTime.fromSecsSinceEpoch(max_count, local_tz)
+            self.min_label.setText(min_date.toString("yyyy-MM-dd"))
+            self.max_label.setText(max_date.toString("yyyy-MM-dd"))
+        else:
+            self.min_label.setText(f"{min_count:,}")
+            self.max_label.setText(f"{max_count:,}")
+
         self.valueChanged.emit(min_count, max_count)
 
-    def scale_to_count(self, value):
+    def scale_to_value(self, value):
         if value == 0:
             return self.min_value
         if value == 100:
@@ -58,11 +99,48 @@ class CustomRangeSlider(QWidget):
 
     def get_range(self):
         min_val, max_val = self.slider.value()
-        return (self.scale_to_count(min_val), self.scale_to_count(max_val))
+        return (self.scale_to_value(min_val), self.scale_to_value(max_val))
 
     def set_range(self, min_value, max_value):
         self.min_value = min_value
         self.max_value = max_value
+        self.update_labels()
+
+    def set_date_range(self, min_timestamp, max_timestamp):
+        # タイムスタンプが有効であることを確認
+        if not isinstance(min_timestamp, (int, float)) or not isinstance(max_timestamp, (int, float)):
+            raise ValueError("タイムスタンプは数値である必要があります")
+
+        # タイムスタンプを QDateTime オブジェクトに変換
+        min_date = QDateTime.fromSecsSinceEpoch(int(min_timestamp), QTimeZone.UTC)
+        max_date = QDateTime.fromSecsSinceEpoch(int(max_timestamp), QTimeZone.UTC)
+
+        # 日付の範囲が有効であることを確認
+        if min_date > max_date:
+            raise ValueError("開始日は終了日よりも前である必要があります")
+
+        # 日付モードをオンにする
+        self.is_date_mode = True
+
+        # システムのローカルタイムゾーンを取得
+        local_tz = QTimeZone.systemTimeZone()
+
+        # 日付をローカルタイムゾーンに変換
+        min_date_local = min_date.toTimeZone(local_tz)
+        max_date_local = max_date.toTimeZone(local_tz)
+
+        # ローカルタイムゾーンの日付の開始時刻（0時0分0秒）と終了時刻（23時59分59秒）を設定
+        min_date_local = QDateTime(min_date_local.date(), QTime(0, 0, 0), local_tz)
+        max_date_local = QDateTime(max_date_local.date(), QTime(23, 59, 59), local_tz)
+
+        # ローカルタイムゾーンのタイムスタンプを取得
+        min_timestamp_local = min_date_local.toSecsSinceEpoch()
+        max_timestamp_local = max_date_local.toSecsSinceEpoch()
+
+        # 範囲を設定
+        self.set_range(min_timestamp_local, max_timestamp_local)
+
+        # ラベルを更新
         self.update_labels()
 
 class TagFilterWidget(QWidget, Ui_TagFilterWidget):

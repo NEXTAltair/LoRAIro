@@ -1,7 +1,8 @@
+import sys
 from pathlib import Path
 
 from PySide6.QtWidgets import QWidget, QMessageBox
-from PySide6.QtCore import Slot
+from PySide6.QtCore import Qt, QDateTime, QTimeZone, QTime, Slot
 from gui_file.DatasetExportWidget_ui import Ui_DatasetExportWidget
 
 from module.file_sys import FileSystemManager
@@ -23,19 +24,33 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
         self.exportDirectoryPicker.set_path(self.cm.config['directories']['edited_output'])
         self.exportProgressBar.setVisible(False)
         self.filterWidget.filterApplied.connect(self.on_filter_applied)
-        self.filterWidget.countRangeWidget.hide() # ここでは使わないを非表示にする
 
     def initialize(self, cm, fsm: FileSystemManager, idm: ImageDatabaseManager):
         self.cm = cm
         self.fsm = fsm
         self.idm = idm
+        self.init_date_range()
         self.init_ui()
+
+    def init_date_range(self):
+        # 2023年1月1日の0時をローカル時間で設定
+        start_date = QDateTime(2023, 1, 1, 0, 0, 0)
+        start_timestamp = start_date.toSecsSinceEpoch()
+
+        # 現在の日付の0時
+        end_date = QDateTime.currentDateTime().date()
+        end_time = QTime(0, 0, 0)  # 0時0分0秒
+        end_datetime = QDateTime(end_date, end_time)
+        end_timestamp = end_datetime.toSecsSinceEpoch()
+
+        self.filterWidget.count_range_slider.set_date_range(start_timestamp, end_timestamp)
 
     def on_filter_applied(self, filter_conditions: dict):
         filter_type = filter_conditions['filter_type']
         filter_text = filter_conditions['filter_text']
         resolution = filter_conditions['resolution']
         use_and = filter_conditions['use_and']
+        utc_start_timestamp, utc_end_timestamp = filter_conditions['count_range']
 
         tags = []
         caption = ""
@@ -49,7 +64,9 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
             tags=tags,
             caption=caption,
             resolution=resolution,
-            use_and=use_and
+            use_and=use_and,
+            utc_start_timestamp=utc_start_timestamp,
+            utc_end_timestamp=utc_end_timestamp
         )
         if not filtered_image_metadata:
             self.logger.info(f"{filter_type} に {filter_text} を含む検索結果がありません")

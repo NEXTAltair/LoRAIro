@@ -59,6 +59,11 @@ class Ui_TagFilterWidget(object):
         self.countRangeWidget.setInputMethodHints(Qt.InputMethodHint.ImhNone)
         self.horizontalLayout = QHBoxLayout(self.countRangeWidget)
         self.horizontalLayout.setObjectName(u"horizontalLayout")
+        self.tagUpdateatLabel = QLabel(self.countRangeWidget)
+        self.tagUpdateatLabel.setObjectName(u"tagUpdateatLabel")
+
+        self.horizontalLayout.addWidget(self.tagUpdateatLabel)
+
         self.countRangeSlide = QWidget(self.countRangeWidget)
         self.countRangeSlide.setObjectName(u"countRangeSlide")
 
@@ -114,6 +119,7 @@ class Ui_TagFilterWidget(object):
         self.filterTypeComboBox.setItemText(1, QCoreApplication.translate("TagFilterWidget", u"Caption", None))
 
         self.andRadioButton.setText(QCoreApplication.translate("TagFilterWidget", u"AND\u691c\u7d22", None))
+        self.tagUpdateatLabel.setText(QCoreApplication.translate("TagFilterWidget", u"\u30bf\u30b0\u7de8\u96c6\u65e5", None))
         self.filterLineEdit.setPlaceholderText(QCoreApplication.translate("TagFilterWidget", u"Enter filter criteria", None))
         self.resolutionLabel.setText(QCoreApplication.translate("TagFilterWidget", u"Resolution:", None))
         self.resolutionComboBox.setItemText(0, QCoreApplication.translate("TagFilterWidget", u"512x512", None))
