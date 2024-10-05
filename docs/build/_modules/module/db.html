@@ -491,6 +491,7 @@
         <span class="n">data</span> <span class="o">=</span> <span class="p">[]</span>
 
         <span class="k">for</span> <span class="n">tag</span> <span class="ow">in</span> <span class="n">tags</span><span class="p">:</span>
+            <span class="n">tag</span> <span class="o">=</span> <span class="n">tag</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
             <span class="n">tag_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">find_tag_id</span><span class="p">(</span><span class="n">tag</span><span class="p">)</span>
             <span class="n">existing</span> <span class="o">=</span> <span class="mi">1</span> <span class="k">if</span> <span class="n">model_id</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="mi">0</span>
             <span class="n">data</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">image_id</span><span class="p">,</span> <span class="n">tag_id</span><span class="p">,</span> <span class="n">tag</span><span class="p">,</span> <span class="n">model_id</span><span class="p">,</span> <span class="n">existing</span><span class="p">))</span>
@@ -522,6 +523,7 @@
         <span class="n">data</span> <span class="o">=</span> <span class="p">[]</span>
 
         <span class="k">for</span> <span class="n">caption</span> <span class="ow">in</span> <span class="n">captions</span><span class="p">:</span>
+            <span class="n">caption</span> <span class="o">=</span> <span class="n">caption</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
             <span class="n">existing</span> <span class="o">=</span> <span class="mi">1</span> <span class="k">if</span> <span class="n">model_id</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="mi">0</span>
             <span class="n">data</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">image_id</span><span class="p">,</span> <span class="n">caption</span><span class="p">,</span> <span class="n">model_id</span><span class="p">,</span> <span class="n">existing</span><span class="p">))</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ImageRepository._save_captions: </span><span class="si">{</span><span class="n">caption</span><span class="si">}</span><span class="s2"> &quot;</span><span class="p">)</span>
@@ -687,51 +689,108 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;image_id: </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> のスコアを取得中にデータベースエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="k">raise</span>
 
+<div class="viewcode-block" id="ImageRepository.escape_special_characters">
+<a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository.escape_special_characters">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">escape_special_characters</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_string</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        SQLの特殊文字（% と _）をエスケープし、ワイルドカードの * を % に置換する。</span>
+<span class="sd">        ダブルクオートで囲まれた部分は完全一致として扱う。</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            input_string (str): エスケープする入力文字列</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            str: エスケープされた文字列</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># ダブルクオートで囲まれた部分は完全一致として扱う</span>
+        <span class="k">if</span> <span class="n">input_string</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">input_string</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">):</span>
+            <span class="c1"># ダブルクオートを外してそのまま戻す</span>
+            <span class="k">return</span> <span class="n">input_string</span><span class="o">.</span><span class="n">strip</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">)</span>
+
+        <span class="c1"># 特殊文字のエスケープとワイルドカードの置換</span>
+        <span class="n">escaped_string</span> <span class="o">=</span> <span class="n">input_string</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\\</span><span class="s1">&#39;</span><span class="p">,</span> <span class="s1">&#39;</span><span class="se">\\\\</span><span class="s1">&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;%&#39;</span><span class="p">,</span> <span class="sa">r</span><span class="s1">&#39;\%&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;_&#39;</span><span class="p">,</span> <span class="sa">r</span><span class="s1">&#39;\_&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">escaped_string</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;*&#39;</span><span class="p">,</span> <span class="s1">&#39;%&#39;</span><span class="p">)</span></div>
+
+
 <div class="viewcode-block" id="ImageRepository.get_images_by_tag">
 <a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository.get_images_by_tag">[ドキュメント]</a>
     <span class="k">def</span> <span class="nf">get_images_by_tag</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tag</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
-<span class="w">            </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">            指定されたタグを持つ画像のIDリストを取得する</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        指定されたタグを持つ画像のIDリストを取得する（部分一致とワイルドカードに対応）</span>
 
-<span class="sd">            Args:</span>
-<span class="sd">                tag (str): 検索するタグ</span>
+<span class="sd">        Args:</span>
+<span class="sd">            tag (str): 検索するタグ（ワイルドカード &#39;*&#39; を含むことができます）</span>
 
-<span class="sd">            Returns:</span>
-<span class="sd">                list[int]: タグを持つ画像IDのリスト か 空リスト</span>
-<span class="sd">            &quot;&quot;&quot;</span>
+<span class="sd">        Returns:</span>
+<span class="sd">            list[int]: タグを持つ画像IDのリスト か 空リスト</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">tag</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">tag</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">):</span>
+            <span class="c1"># 完全一致検索用のクエリ</span>
             <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
 <span class="s2">            SELECT DISTINCT i.id</span>
 <span class="s2">            FROM images i</span>
 <span class="s2">            JOIN tags t ON i.id = t.image_id</span>
 <span class="s2">            WHERE t.tag = ?</span>
 <span class="s2">            &quot;&quot;&quot;</span>
-            <span class="n">rows</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_all</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">[</span><span class="n">tag</span><span class="p">])</span>
-            <span class="k">if</span> <span class="ow">not</span> <span class="n">rows</span><span class="p">:</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;</span><span class="si">%s</span><span class="s2"> を含む画像はありません&quot;</span><span class="p">,</span> <span class="n">tag</span><span class="p">)</span>
-                <span class="k">return</span> <span class="p">[]</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="k">return</span> <span class="p">[</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">rows</span><span class="p">]</span></div>
+            <span class="c1"># ダブルクオートを外したタグで検索</span>
+            <span class="n">pattern</span> <span class="o">=</span> <span class="n">tag</span><span class="o">.</span><span class="n">strip</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># ワイルドカードなしでも部分一致検索にする</span>
+            <span class="n">pattern</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">escape_special_characters</span><span class="p">(</span><span class="n">tag</span><span class="p">)</span>
+            <span class="k">if</span> <span class="s1">&#39;*&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">tag</span><span class="p">:</span>
+                <span class="c1"># &#39;*&#39; がない場合も部分一致のLIKEを使う</span>
+                <span class="n">pattern</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;%</span><span class="si">{</span><span class="n">pattern</span><span class="si">}</span><span class="s1">%&#39;</span>
+
+            <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">            SELECT DISTINCT i.id</span>
+<span class="s2">            FROM images i</span>
+<span class="s2">            JOIN tags t ON i.id = t.image_id</span>
+<span class="s2">            WHERE t.tag LIKE ? ESCAPE &#39;</span><span class="se">\\</span><span class="s2">&#39;</span>
+<span class="s2">            &quot;&quot;&quot;</span>
+        <span class="n">rows</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_all</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">[</span><span class="n">pattern</span><span class="p">])</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">rows</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;</span><span class="si">%s</span><span class="s2"> を含む画像はありません&quot;</span><span class="p">,</span> <span class="n">tag</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">[]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">rows</span><span class="p">]</span></div>
 
 
 <div class="viewcode-block" id="ImageRepository.get_images_by_caption">
 <a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository.get_images_by_caption">[ドキュメント]</a>
     <span class="k">def</span> <span class="nf">get_images_by_caption</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">caption</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        指定されたキャプションを含む画像のIDリストを取得する</span>
+<span class="sd">        指定されたキャプションを含む画像のIDリストを取得する（部分一致、ワイルドカード、完全一致に対応）</span>
 
 <span class="sd">        Args:</span>
-<span class="sd">            caption (str): 検索するキャプション</span>
+<span class="sd">            caption (str): 検索するキャプション（ワイルドカード &#39;*&#39; やダブルクオートを含むことができます）</span>
 
 <span class="sd">        Returns:</span>
-<span class="sd">            list[int]: 加工済み画像IDのリスト か 空リスト</span>
+<span class="sd">            list[int]: キャプションを持つ画像IDのリスト か 空リスト</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
-<span class="s2">        SELECT DISTINCT i.id</span>
-<span class="s2">        FROM images i</span>
-<span class="s2">        JOIN captions c ON i.id = c.image_id</span>
-<span class="s2">        WHERE c.caption LIKE ?</span>
-<span class="s2">        &quot;&quot;&quot;</span>
-        <span class="n">rows</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_all</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">[</span><span class="s1">&#39;%&#39;</span> <span class="o">+</span> <span class="n">caption</span> <span class="o">+</span> <span class="s1">&#39;%&#39;</span><span class="p">])</span>
+        <span class="c1"># キャプションがダブルクオートで囲まれている場合は完全一致検索を行う</span>
+        <span class="k">if</span> <span class="n">caption</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">caption</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">):</span>
+            <span class="c1"># 完全一致検索用のクエリ</span>
+            <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">            SELECT DISTINCT i.id</span>
+<span class="s2">            FROM images i</span>
+<span class="s2">            JOIN captions c ON i.id = c.image_id</span>
+<span class="s2">            WHERE c.caption = ?</span>
+<span class="s2">            &quot;&quot;&quot;</span>
+            <span class="c1"># ダブルクオートを外したキャプションで検索</span>
+            <span class="n">pattern</span> <span class="o">=</span> <span class="n">caption</span><span class="o">.</span><span class="n">strip</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># 部分一致検索用のパターン作成</span>
+            <span class="n">pattern</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">escape_special_characters</span><span class="p">(</span><span class="n">caption</span><span class="p">)</span>
+            <span class="k">if</span> <span class="s1">&#39;*&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">caption</span><span class="p">:</span>
+                <span class="n">pattern</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;%</span><span class="si">{</span><span class="n">pattern</span><span class="si">}</span><span class="s1">%&#39;</span>
+            <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">            SELECT DISTINCT i.id</span>
+<span class="s2">            FROM images i</span>
+<span class="s2">            JOIN captions c ON i.id = c.image_id</span>
+<span class="s2">            WHERE c.caption LIKE ? ESCAPE &#39;</span><span class="se">\\</span><span class="s2">&#39;</span>
+<span class="s2">            &quot;&quot;&quot;</span>
+
+        <span class="n">rows</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_all</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">[</span><span class="n">pattern</span><span class="p">])</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">rows</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;&#39;</span><span class="si">%s</span><span class="s2">&#39; を含むキャプションを持つ画像はありません&quot;</span><span class="p">,</span> <span class="n">caption</span><span class="p">)</span>
             <span class="k">return</span> <span class="p">[]</span>
@@ -1211,6 +1270,11 @@
         <span class="k">if</span> <span class="n">caption</span><span class="p">:</span>
             <span class="n">caption_results</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">get_images_by_caption</span><span class="p">(</span><span class="n">caption</span><span class="p">))</span>
             <span class="n">image_ids</span> <span class="o">=</span> <span class="n">image_ids</span><span class="o">.</span><span class="n">intersection</span><span class="p">(</span><span class="n">caption_results</span><span class="p">)</span> <span class="k">if</span> <span class="n">image_ids</span> <span class="k">else</span> <span class="n">caption_results</span>
+
+        <span class="c1"># image_idsが空の場合は空リストを返す</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">image_ids</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;条件に一致する画像が見つかりませんでした&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">[],</span> <span class="mi">0</span>
 
         <span class="c1"># 画像メタデータの取得</span>
         <span class="n">metadata_list</span> <span class="o">=</span> <span class="p">[]</span>

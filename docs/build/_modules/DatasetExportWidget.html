@@ -101,7 +101,7 @@
             <span class="k">return</span>
 
         <span class="c1"># idとpathの対応だけを取り出す</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">image_path_id_map</span> <span class="o">=</span> <span class="p">{</span><span class="n">Path</span><span class="p">(</span><span class="n">item</span><span class="p">[</span><span class="s1">&#39;stored_image_path&#39;</span><span class="p">]):</span> <span class="n">item</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">filtered_image_metadata</span><span class="p">}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">image_path_id_map</span> <span class="o">=</span> <span class="p">{</span><span class="n">Path</span><span class="p">(</span><span class="n">item</span><span class="p">[</span><span class="s1">&#39;stored_image_path&#39;</span><span class="p">]):</span> <span class="n">item</span><span class="p">[</span><span class="s1">&#39;image_id&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">filtered_image_metadata</span><span class="p">}</span>
 
         <span class="c1"># サムネイルセレクターを更新</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">update_thumbnail_selector</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">image_path_id_map</span><span class="o">.</span><span class="n">keys</span><span class="p">()),</span> <span class="n">list_count</span><span class="p">)</span></div>
