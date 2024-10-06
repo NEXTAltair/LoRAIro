@@ -3,6 +3,7 @@ import threading
 import uuid
 import imagehash
 import inspect
+from datetime import datetime, timezone, timedelta
 from PIL import Image
 
 from contextlib import contextmanager
@@ -168,6 +169,7 @@ class SQLiteManager:
                     model_id INTEGER,
                     score FLOAT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,
                     FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL,
                     UNIQUE (image_id, score, model_id)
@@ -181,9 +183,116 @@ class SQLiteManager:
             CREATE INDEX IF NOT EXISTS idx_scores_image_id ON scores(image_id);
             ''')
 
+    # def migrate_tables(self):
+    #     """既存のテーブルに不足しているカラムを追加し、必要に応じてテーブルを再作成する"""
+    #     with self.get_connection() as conn:
+    #         cursor = conn.cursor()
+    #         # テーブルごとの新しい定義
+    #         table_definitions = {
+    #             'tags': [
+    #                 ('id', 'INTEGER PRIMARY KEY'),
+    #                 ('tag_id', 'INTEGER'),
+    #                 ('image_id', 'INTEGER'),
+    #                 ('model_id', 'INTEGER'),
+    #                 ('tag', 'TEXT NOT NULL'),
+    #                 ('existing', 'BOOLEAN NOT NULL DEFAULT 0'),
+    #                 ('created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'),
+    #                 ('updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'),
+    #                 ('FOREIGN KEY(image_id)', 'REFERENCES images(id) ON DELETE CASCADE'),
+    #                 ('FOREIGN KEY(model_id)', 'REFERENCES models(id) ON DELETE SET NULL'),
+    #                 ('UNIQUE(image_id, tag, tag_id, model_id)', '')
+    #             ],
+    #             # 他のテーブルも同様に定義
+    #             'captions': [
+    #                 ('id', 'INTEGER PRIMARY KEY'),
+    #                 ('image_id', 'INTEGER'),
+    #                 ('model_id', 'INTEGER'),
+    #                 ('caption', 'TEXT NOT NULL'),
+    #                 ('existing', 'BOOLEAN NOT NULL DEFAULT 0'),
+    #                 ('created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'),
+    #                 ('updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'),
+    #                 ('FOREIGN KEY(image_id)', 'REFERENCES images(id) ON DELETE CASCADE'),
+    #                 ('FOREIGN KEY(model_id)', 'REFERENCES models(id) ON DELETE SET NULL'),
+    #                 ('UNIQUE(image_id, caption, model_id)', '')
+    #             ],
+    #             'scores': [
+    #                 ('id', 'INTEGER PRIMARY KEY'),
+    #                 ('image_id', 'INTEGER'),
+    #                 ('model_id', 'INTEGER'),
+    #                 ('score', 'FLOAT NOT NULL'),
+    #                 ('created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'),
+    #                 ('updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'),
+    #                 ('FOREIGN KEY(image_id)', 'REFERENCES images(id) ON DELETE CASCADE'),
+    #                 ('FOREIGN KEY(model_id)', 'REFERENCES models(id) ON DELETE SET NULL'),
+    #                 ('UNIQUE(image_id, score, model_id)', '')
+    #             ]
+    #         }
+
+    #         for table_name, columns in table_definitions.items():
+    #             # 既存テーブルのカラムを取得
+    #             cursor.execute(f"PRAGMA table_info({table_name});")
+    #             existing_columns_info = cursor.fetchall()
+    #             existing_column_names = {col['name'] for col in existing_columns_info}
+
+    #             # 必要なカラムがすべて存在するか確認
+    #             required_columns = [col[0] for col in columns if not col[0].startswith('FOREIGN KEY') and not col[0].startswith('UNIQUE')]
+    #             missing_columns = set(required_columns) - existing_column_names
+
+    #             # カラムが不足している場合、テーブルを再作成
+    #             if missing_columns or self.need_to_recreate_table(table_name, columns, existing_columns_info):
+    #                 self.logger.info(f"テーブル '{table_name}' を再作成します。")
+    #                 self.recreate_table(conn, table_name, columns)
+    #             else:
+    #                 self.logger.info(f"テーブル '{table_name}' は再作成の必要がありません。")
+
+    # def need_to_recreate_table(self, table_name, columns, existing_columns_info):
+    #     """テーブルの再作成が必要かどうかを判断する"""
+    #     # FOREIGN KEY や UNIQUE 制約の変更が必要かどうかをチェックする
+    #     # この例では簡略化のため、常に False を返す
+    #     # 必要に応じて実装を追加する
+    #     return True  # 常に再作成する
+
+    # def recreate_table(self, conn, table_name, columns):
+    #     """テーブルを再作成してデータを移行する"""
+    #     cursor = conn.cursor()
+
+    #     # 一時テーブル名を生成
+    #     temp_table_name = f"{table_name}_backup"
+
+    #     # テーブルをリネーム（バックアップ）
+    #     cursor.execute(f"ALTER TABLE {table_name} RENAME TO {temp_table_name};")
+    #     self.logger.info(f"テーブル '{table_name}' を '{temp_table_name}' にリネームしました。")
+
+    #     # 新しいテーブルを作成
+    #     columns_definitions = []
+    #     for col_name, col_def in columns:
+    #         if col_def:  # 制約や FOREIGN KEY も含む
+    #             columns_definitions.append(f"{col_name} {col_def}")
+    #         else:
+    #             columns_definitions.append(f"{col_name}")
+
+    #     create_table_sql = f"CREATE TABLE {table_name} (\n" + ",\n".join(columns_definitions) + "\n);"
+    #     cursor.execute(create_table_sql)
+    #     self.logger.info(f"テーブル '{table_name}' を新しい定義で作成しました。")
+
+    #     # データを移行
+    #     old_columns = [col['name'] for col in cursor.execute(f"PRAGMA table_info({temp_table_name});")]
+    #     new_columns = [col[0] for col in columns if not col[0].startswith('FOREIGN KEY') and not col[0].startswith('UNIQUE')]
+    #     common_columns = set(old_columns) & set(new_columns)
+    #     common_columns_str = ", ".join(common_columns)
+
+    #     cursor.execute(f"INSERT INTO {table_name} ({common_columns_str}) SELECT {common_columns_str} FROM {temp_table_name};")
+    #     self.logger.info(f"データを '{temp_table_name}' から '{table_name}' に移行しました。")
+
+    #     # 一時テーブルを削除
+    #     cursor.execute(f"DROP TABLE {temp_table_name};")
+    #     self.logger.info(f"一時テーブル '{temp_table_name}' を削除しました。")
+
+    #     conn.commit()
+
     def insert_models(self) -> None:
         """
-        モデル情報の初期設定がされてない場合データベースに追加
+        モデル情報の初期設定をデータベースに追加
 
         Args:
             model_name (str): モデルの名前。
@@ -644,12 +753,14 @@ class ImageRepository:
         escaped_string = input_string.replace('\\', '\\\\').replace('%', r'\%').replace('_', r'\_')
         return escaped_string.replace('*', '%')
 
-    def get_images_by_tag(self, tag: str) -> list[int]:
+    def get_images_by_tag(self, tag: str, start_date: str, end_date: str) -> list[int]:
         """
-        指定されたタグを持つ画像のIDリストを取得する（部分一致とワイルドカードに対応）
+        指定された日付の範囲で更新されたタグを持つ画像のIDリストを取得する（部分一致とワイルドカードに対応）
 
         Args:
             tag (str): 検索するタグ（ワイルドカード '*' を含むことができます）
+            start_date (str): 検索開始日時（UTCタイムスタンプ）
+            end_date (str): 検索終了日時（UTCタイムスタンプ）
 
         Returns:
             list[int]: タグを持つ画像IDのリスト か 空リスト
@@ -657,10 +768,11 @@ class ImageRepository:
         if tag.startswith('"') and tag.endswith('"'):
             # 完全一致検索用のクエリ
             query = """
-            SELECT DISTINCT i.id
+            SELECT i.id
             FROM images i
             JOIN tags t ON i.id = t.image_id
             WHERE t.tag = ?
+            AND t.updated_at BETWEEN ? AND ?
             """
             # ダブルクオートを外したタグで検索
             pattern = tag.strip('"')
@@ -672,24 +784,29 @@ class ImageRepository:
                 pattern = f'%{pattern}%'
 
             query = """
-            SELECT DISTINCT i.id
+            SELECT i.id
             FROM images i
             JOIN tags t ON i.id = t.image_id
             WHERE t.tag LIKE ? ESCAPE '\\'
+            AND t.updated_at BETWEEN ? AND ?
             """
-        rows = self.db_manager.fetch_all(query, [pattern])
+        # タイムスタンプをパラメータに追加
+        params = [pattern, start_date, end_date]
+        rows = self.db_manager.fetch_all(query, params)
         if not rows:
             self.logger.info("%s を含む画像はありません", tag)
             return []
         else:
             return [row['id'] for row in rows]
 
-    def get_images_by_caption(self, caption: str) -> list[int]:
+    def get_images_by_caption(self, caption: str, start_date: int, end_date: int) -> list[int]:
         """
         指定されたキャプションを含む画像のIDリストを取得する（部分一致、ワイルドカード、完全一致に対応）
 
         Args:
             caption (str): 検索するキャプション（ワイルドカード '*' やダブルクオートを含むことができます）
+            start_date (str): 検索開始日時('%Y-%m-%d %H:%M:%S')
+            end_date (str): 検索終了日時
 
         Returns:
             list[int]: キャプションを持つ画像IDのリスト か 空リスト
@@ -702,6 +819,7 @@ class ImageRepository:
             FROM images i
             JOIN captions c ON i.id = c.image_id
             WHERE c.caption = ?
+            AND c.updated_at BETWEEN ? AND ?
             """
             # ダブルクオートを外したキャプションで検索
             pattern = caption.strip('"')
@@ -715,9 +833,11 @@ class ImageRepository:
             FROM images i
             JOIN captions c ON i.id = c.image_id
             WHERE c.caption LIKE ? ESCAPE '\\'
+            AND c.updated_at BETWEEN ? AND ?
             """
 
-        rows = self.db_manager.fetch_all(query, [pattern])
+        params = [pattern, start_date, end_date]
+        rows = self.db_manager.fetch_all(query, params)
         if not rows:
             self.logger.info("'%s' を含むキャプションを持つ画像はありません", caption)
             return []
@@ -1113,14 +1233,17 @@ class ImageDatabaseManager:
             self.logger.error(f"モデルの取得中にエラーが発生しました: {e}")
             raise
 
-    def get_images_by_filter(self, tags: list[str] = None, caption: str = None, resolution: int = 0, use_and: bool = True) -> tuple[list[dict[str, Any]], int]:
-        """_summary_
+    def get_images_by_filter(self, tags: list[str] = None, caption: str = None, resolution: int = 0, 
+                             use_and: bool = True, start_date: str = None, end_date: str = None) -> tuple[list[dict[str, Any]], int]:
+        """
 
         Args:
             tags (list[str], optional): カンマ区切りをリスト化したタグ. Defaults to None.
             caption (str, optional): _キャプション
             resolution (int, optional): 検索する解像度x解像度の値が誤差20%以内の画像を取得. Defaults to 0.
             use_and (bool, optional): _description_. Defaults to True.
+            start_date (str): 検索する画像の作成日時の下限('%Y-%m-%d %H:%M:%S')
+            end_date (str,): 検索する画像の作成日時の上限
 
         Returns:
             tuple[list[dict[str, Any]], int]: 条件にマッチした画像データのリストとその数
@@ -1135,17 +1258,22 @@ class ImageDatabaseManager:
             self.logger.info("タグもキャプションも指定されていない")
             return None, 0
 
+        # 現在の日付を取得
+        current_datetime = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+        start_date = start_date or ('2020-01-01 00:00:00')  # 2020年1月1日
+        end_date = end_date or current_datetime  # 現在
+
         image_ids = set()
 
         # タグによるフィルタリング
         if tags:
-            tag_results = [set(self.repository.get_images_by_tag(tag)) for tag in tags]
+            tag_results = [set(self.repository.get_images_by_tag(tag, start_date, end_date)) for tag in tags]
             if tag_results:
                 image_ids = set.intersection(*tag_results) if use_and else set.union(*tag_results)
 
         # キャプションによるフィルタリング
         if caption:
-            caption_results = set(self.repository.get_images_by_caption(caption))
+            caption_results = set(self.repository.get_images_by_caption(caption, start_date, end_date))
             image_ids = image_ids.intersection(caption_results) if image_ids else caption_results
 
         # image_idsが空の場合は空リストを返す

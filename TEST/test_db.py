@@ -134,7 +134,9 @@ def assert_annotations(retrieved, expected, model_id, case_index, repository):
         for tag in expected['tags']:
             matching_tags = [t for t in retrieved['tags'] if t['tag'] == tag]
             assert matching_tags, f"Case {case_index}: タグ '{tag}' が見つかりません"
-            assert matching_tags[0]['model_id'] == model_id, f"Case {case_index}: タグ '{tag}' のmodel_idが一致しません"
+            matching_tag = next((t for t in matching_tags if t['model_id'] == model_id), None)
+            assert matching_tag is not None, f"Case {case_index}: タグ '{tag}' に期待される model_id が見つかりません"
+            assert matching_tag['model_id'] == model_id, f"Case {case_index}: タグ '{tag}' のmodel_idが一致しません"
             expected_tag_id = repository.find_tag_id(tag)
             assert matching_tags[0]['tag_id'] == expected_tag_id, f"Case {case_index}: タグ '{tag}' のtag_idが一致しません"
             if tag == 'spiked collar':
@@ -209,10 +211,13 @@ def test_save_annotations(image_database_manager, sample_image_info):
     # 再登録されたタグの検証
     for tag in reregister_case['tags']:
         matching_tags = [t for t in retrieved['tags'] if t['tag'] == tag]
-        assert matching_tags, f"再登録: タグ '{tag}' が見つかりません"
-        assert matching_tags[0]['model_id'] == 4, f"再登録: タグ '{tag}' のmodel_idが更新されていません"
-        assert (datetime.now(timezone.utc) - datetime.fromisoformat(matching_tags[0]['updated_at']).replace(tzinfo=timezone.utc)) < timedelta(seconds=100), \
-            f"再登録: タグ '{tag}' のupdated_atが更新されていません"
+        assert len(matching_tags) > 1, f"再登録: タグ '{tag}' の追加が行われませんでした"
+
+        # 新しく追加されたタグの検証
+        new_matching_tag = next((t for t in matching_tags if t['model_id'] == 4), None)
+        assert new_matching_tag is not None, f"再登録: タグ '{tag}' に新しい model_id が見つかりません"
+        assert (datetime.now(timezone.utc) - datetime.fromisoformat(new_matching_tag['updated_at']).replace(tzinfo=timezone.utc)) < timedelta(seconds=100), \
+            f"再登録: タグ '{tag}' の updated_at が更新されていません"
 
     # 他のタグが影響を受けていないことを確認
     other_tags = [t for t in retrieved['tags'] if t['tag'] not in reregister_case['tags']]
@@ -537,44 +542,90 @@ def test_get_images_by_filter(image_database_manager, sample_image_info, tmp_pat
     processed_path.touch()
     manager.register_processed_image(image_id, processed_path, processed_info)
 
-    # アノテーションを保存
+    # アノテーションを保存（タグの updated_at が更新される）
     manager.repository.save_annotations(image_id, {'tags': ['filter_tag'], 'model_id': None})
 
-    # フィルタで画像を取得
-    filtered_images, count = manager.get_images_by_filter(tags=['filter_tag'])
-    assert count == 1
+    # タグの updated_at を確認する
+    rows = manager.db_manager.fetch_all(
+        "SELECT created_at, updated_at FROM tags WHERE image_id = ?", [image_id]
+    )
+    for row in rows:
+        print(f"Tag created_at: {row['created_at']}, updated_at: {row['updated_at']}")
+
+    # 現在の日時をUTCで取得
+    current_datetime = datetime.now(timezone.utc)
+
+    # 日付範囲を設定
+    start_date = (current_datetime - timedelta(seconds=10)).strftime('%Y-%m-%d %H:%M:%S')  # 10秒前
+    end_date = (current_datetime + timedelta(seconds=10)).strftime('%Y-%m-%d %H:%M:%S')    # 10秒後
+
+    filtered_images, count = manager.get_images_by_filter(
+        tags=['filter_tag'],
+        start_date=start_date,
+        end_date=end_date
+    )
+
+    assert count == 1, f"Expected 1 image, but got {count}"
     assert filtered_images[0]['image_id'] == image_id
 
+    # 時間範囲外の画像を検索（マッチしないはず）
+    past_start_date = (current_datetime - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')  # 1日前
+    past_end_date = (current_datetime - timedelta(hours=23)).strftime('%Y-%m-%d %H:%M:%S')   # 1日前+1時間
+
+    filtered_images, count = manager.get_images_by_filter(
+        tags=['filter_tag'],
+        start_date=past_start_date,
+        end_date=past_end_date
+    )
+
+    assert count == 0, f"Expected 0 images, but got {count}"
+    assert len(filtered_images) == 0
+
 def test_create_tables(image_database_manager):
-    """テーブル作成のテスト"""
-    image_database_manager.db_manager.create_tables()
+    """テーブル作成のテストとカラムの存在確認"""
+    manager = image_database_manager
+    manager.db_manager.create_tables()
 
-    # images テーブルの存在を確認
-    query = "SELECT name FROM sqlite_master WHERE type='table' AND name='images';"
-    result = image_database_manager.db_manager.fetch_one(query)
-    assert result is not None
+    # テーブルとそのカラムの定義
+    table_definitions = {
+        'images': [
+            'id', 'uuid', 'phash', 'stored_image_path', 'width', 'height', 'format',
+            'mode', 'has_alpha', 'filename', 'extension', 'color_space',
+            'icc_profile', 'created_at', 'updated_at'
+        ],
+        'processed_images': [
+            'id', 'image_id', 'stored_image_path', 'width', 'height', 'mode',
+            'has_alpha', 'filename', 'color_space', 'icc_profile',
+            'created_at', 'updated_at'
+        ],
+        'models': [
+            'id', 'name', 'type', 'provider', 'created_at', 'updated_at'
+        ],
+        'tags': [
+            'id', 'tag_id', 'image_id', 'model_id', 'tag', 'existing',
+            'created_at', 'updated_at'
+        ],
+        'captions': [
+            'id', 'image_id', 'model_id', 'caption', 'existing',
+            'created_at', 'updated_at'
+        ],
+        'scores': [
+            'id', 'image_id', 'model_id', 'score',
+            'created_at', 'updated_at'
+        ]
+    }
 
-    # processed_images テーブルの存在を確認
-    query = "SELECT name FROM sqlite_master WHERE type='table' AND name='processed_images';"
-    result = image_database_manager.db_manager.fetch_one(query)
-    assert result is not None
+    for table, expected_columns in table_definitions.items():
+        # テーブルの存在を確認
+        query = f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}';"
+        result = manager.db_manager.fetch_one(query)
+        assert result is not None, f"テーブル '{table}' が存在しません。"
 
-    # models テーブルの存在を確認
-    query = "SELECT name FROM sqlite_master WHERE type='table' AND name='models';"
-    result = image_database_manager.db_manager.fetch_one(query)
-    assert result is not None
+        # テーブルのカラムを取得
+        query = f"PRAGMA table_info({table});"
+        columns_info = manager.db_manager.fetch_all(query)
+        existing_columns = {col['name'] for col in columns_info}
 
-    # tags テーブルの存在を確認
-    query = "SELECT name FROM sqlite_master WHERE type='table' AND name='tags';"
-    result = image_database_manager.db_manager.fetch_one(query)
-    assert result is not None
-
-    # captions テーブルの存在を確認
-    query = "SELECT name FROM sqlite_master WHERE type='table' AND name='captions';"
-    result = image_database_manager.db_manager.fetch_one(query)
-    assert result is not None
-
-    # scores テーブルの存在を確認
-    query = "SELECT name FROM sqlite_master WHERE type='table' AND name='scores';"
-    result = image_database_manager.db_manager.fetch_one(query)
-    assert result is not None
+        # 期待されるカラムがすべて存在するか確認
+        for column in expected_columns:
+            assert column in existing_columns, f"テーブル '{table}' にカラム '{column}' が存在しません。"

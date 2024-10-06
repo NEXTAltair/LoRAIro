@@ -50,7 +50,15 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
         filter_text = filter_conditions['filter_text']
         resolution = filter_conditions['resolution']
         use_and = filter_conditions['use_and']
-        utc_start_timestamp, utc_end_timestamp = filter_conditions['count_range']
+        min, max = filter_conditions['count_range']
+
+        # UTCタイムスタンプをQDateTimeに変換し、ローカルタイムゾーンに設定
+        start_date_qt = QDateTime.fromSecsSinceEpoch(min)
+        end_date_qt = QDateTime.fromSecsSinceEpoch(max)
+
+        # ローカルタイムゾーンを使用してISO 8601形式の文字列に変換
+        start_date = start_date_qt.toLocalTime().toString(Qt.ISODate)
+        end_date = end_date_qt.toLocalTime().toString(Qt.ISODate)
 
         tags = []
         caption = ""
@@ -65,8 +73,8 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
             caption=caption,
             resolution=resolution,
             use_and=use_and,
-            utc_start_timestamp=utc_start_timestamp,
-            utc_end_timestamp=utc_end_timestamp
+            start_date=start_date,
+            end_date=end_date
         )
         if not filtered_image_metadata:
             self.logger.info(f"{filter_type} に {filter_text} を含む検索結果がありません")
