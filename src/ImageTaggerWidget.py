@@ -30,6 +30,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         self.prompt = ""
         self.model_name = ""
         self.model = ""
+        self.check_low_res = False
 
         self.init_ui()
 
@@ -76,7 +77,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
 
     @Slot()
     def on_lowRescheckBox_clicked(self):
-        self.check_low_res = self.checkBoxLowRes.isChecked()
+        self.check_low_res = True
 
     def showEvent(self, event):
         """ウィジェットが表示される際に呼び出されるイベントハンドラ"""
@@ -153,23 +154,23 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
                 self.logger.info(f"{image_path.stem}の処理中")
 
                 if self.check_low_res:
-                    image_id = self.idm.get_image_id_by_name(image_path.name)
+                    image_id = self.idm.detect_duplicate_image(image_path)
                     if image_id is None:
                         self.logger.info(f"DBに登録されていない画像です。{image_path.name}")
                     else:
-                        image_path = self.idm.get_low_res_image(image_id)
+                        image_path = Path(self.idm.get_low_res_image(image_id))
 
                 result = self.ia.analyze_image(image_path, self.model_id, self.format_name)
                 self.all_results.append(result)
 
                 tags_data = result.get("tags", [])
                 captions_data = result.get("captions", [])
-                score = result.get("score", 0)
-                self.all_scores.append(score['score'])
-                self.scoreSlider.setValue(score['score'] * 100)
+                score = result.get('score', {}).get('score', 0)
+                self.scoreSlider.setValue(int(score * 100))
+                self.scoreSlider.setToolTip(f"{score:.2f}")
 
-                tags_dict = [tag_info['tag'] for tag_info in tags_data if 'tag' in tag_info]
-                self.all_tags.append(", ".join(tags_dict))
+                tags_list = [tag_info['tag'] for tag_info in tags_data if 'tag' in tag_info]
+                self.all_tags.append(", ".join(tags_list))
                 self.textEditTags.setPlainText(self.all_tags[-1])  # 最後に生成されたタグを表示
 
                 if captions_data:
@@ -230,12 +231,11 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         fsm.initialize(Path(self.cm.config['directories']['output']), self.cm.config['image_processing']['target_resolution'])
         for result in self.all_results:
             image_path = Path(result['image_path'])
-            image_id = self.idm.get_image_id_by_name(image_path.name)# TODO: 重複チェックロジックがイマイチ
+            image_id = self.idm.detect_duplicate_image(image_path)
             if image_id is None:
-                image_id = self.idm.register_original_image(image_path, fsm)
+                image_id, original_metadata = self.idm.register_original_image(image_path, fsm)
                 self.logger.info(f"ImageTaggerWidget.save_to_db {image_path.name}")
 
-            self.idm.save_score(image_id, result['score'])
             self.idm.save_annotations(image_id, result)
 
 

@@ -153,7 +153,7 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
             raise e
 
     def process_image(self, image_file: Path):
-        image_id = self.idm.get_image_id_by_name(image_file.name)
+        image_id = self.idm.detect_duplicate_image(image_file)
         if not image_id:
             image_id, original_image_metadata = self.idm.register_original_image(image_file, self.fsm)
         else:

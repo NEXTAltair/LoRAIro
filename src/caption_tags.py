@@ -27,7 +27,7 @@ class ImageAnalyzer:
                 models_config (tuple[dict, dict]): (vision_models, score_models) のタプル
             """
             self.api_client_factory = api_client_factory
-            self.vision_models = models_config
+            self.vision_models, self.score_models = models_config
 
     @staticmethod
     def get_existing_annotations(image_path: Path) -> Optional[dict[str, list[str, str]]]:
@@ -116,7 +116,7 @@ class ImageAnalyzer:
             self.logger.error(f"API処理中にエラーが発生しました（画像: {image_path}）: {e}")
             return {'error': str(e), 'image_path': str(image_path)}
         except Exception as e:
-            self.logger.error(f"画像処理中に予期せぬエラーが発生しました（画像: {image_path}）: {e}")
+            self.logger.error(f"アノテーション生成中に予期せぬエラーが発生しました（画像: {image_path}）: {e}")
             return {'error': str(e), 'image_path': str(image_path)}
 
     def _process_response(self, image_path: Path, tags_str: str ,model_id: int) -> dict[str, Any]:
@@ -131,13 +131,14 @@ class ImageAnalyzer:
         """
         try:
             content = self.tag_cleaner.clean_format(tags_str)
-            tags_str, caption, score = self._extract_tags_and_caption(content, str(image_path))
+            tags_str, caption_str, score = self._extract_tags_and_caption(content, str(image_path))
 
             # タグを分割し、各タグをトリムして空のタグを除外
             tags = [tag.strip() for tag in tags_str.split(',') if tag.strip()]
+            captions = [caption.strip() for caption in caption_str.split(',') if caption.strip()]
             return {
                 'tags': [{'tag': tag, 'model_id': model_id} for tag in tags],
-                'captions': [{'caption': caption, 'model_id': model_id}],
+                'captions': [{'caption': caption, 'model_id': model_id} for caption in captions],
                 'score': {'score': score, 'model_id': model_id},
                 'image_path': str(image_path)
             }

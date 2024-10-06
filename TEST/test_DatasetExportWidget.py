@@ -111,7 +111,9 @@ def test_on_filter_applied(qtbot, mock_config_manager, mock_file_system_manager,
             tags=case['expected_tags'],
             caption=case['expected_caption'],
             resolution=case['expected_resolution'],
-            use_and=case['expected_use_and']
+            use_and=case['expected_use_and'],
+            start_date=None,
+            end_date=None
         )
 
         if case['expect_no_results']:
