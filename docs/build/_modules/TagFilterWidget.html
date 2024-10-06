@@ -35,7 +35,7 @@
 <span></span><span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
 
 <span class="kn">from</span> <span class="nn">PySide6.QtWidgets</span> <span class="kn">import</span> <span class="n">QWidget</span><span class="p">,</span> <span class="n">QLabel</span><span class="p">,</span> <span class="n">QVBoxLayout</span><span class="p">,</span> <span class="n">QHBoxLayout</span><span class="p">,</span> <span class="n">QLabel</span>
-<span class="kn">from</span> <span class="nn">PySide6.QtCore</span> <span class="kn">import</span> <span class="n">Qt</span><span class="p">,</span> <span class="n">Signal</span><span class="p">,</span> <span class="n">Slot</span>
+<span class="kn">from</span> <span class="nn">PySide6.QtCore</span> <span class="kn">import</span> <span class="n">Qt</span><span class="p">,</span> <span class="n">Signal</span><span class="p">,</span> <span class="n">Slot</span><span class="p">,</span> <span class="n">QDateTime</span><span class="p">,</span> <span class="n">QTimeZone</span><span class="p">,</span> <span class="n">QTime</span>
 <span class="kn">from</span> <span class="nn">superqt</span> <span class="kn">import</span> <span class="n">QDoubleRangeSlider</span>
 
 <span class="kn">from</span> <span class="nn">gui_file.TagFilterWidget_ui</span> <span class="kn">import</span> <span class="n">Ui_TagFilterWidget</span>
@@ -45,17 +45,49 @@
 <div class="viewcode-block" id="CustomRangeSlider">
 <a class="viewcode-back" href="../TagFilterWidget.html#TagFilterWidget.CustomRangeSlider">[ドキュメント]</a>
 <span class="k">class</span> <span class="nc">CustomRangeSlider</span><span class="p">(</span><span class="n">QWidget</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;日付または数値の範囲を選択するためのカスタムレンジスライダーウィジェット。</span>
+
+<span class="sd">    このウィジェットは、日付または数値の範囲を選択するためのスライダーを提供します。</span>
+<span class="sd">    現在の範囲の値をラベルとして表示します。</span>
+
+<span class="sd">    属性:</span>
+<span class="sd">        valueChanged (Signal): スライダーの値が変更されたときに発行されるシグナル。</span>
+<span class="sd">            このシグナルは、選択された範囲の最小値と最大値を表す2つの整数値を発行します。</span>
+
+<span class="sd">            日付範囲の場合、これらの整数値はローカルタイムゾーンでのUnixタイムスタンプ</span>
+<span class="sd">            （エポックからの秒数）を表します。数値範囲の場合、実際に選択された値を表します。</span>
+
+<span class="sd">            引数:</span>
+<span class="sd">                min_value (int): 選択された範囲の最小値。</span>
+<span class="sd">                max_value (int): 選択された範囲の最大値。</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">valueChanged</span> <span class="o">=</span> <span class="n">Signal</span><span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">)</span>  <span class="c1"># 最小値と最大値の変更を通知するシグナル</span>
 
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parent</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">min_value</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_value</span><span class="o">=</span><span class="mi">100000</span><span class="p">):</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">parent</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">min_value</span> <span class="o">=</span> <span class="n">min_value</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">max_value</span> <span class="o">=</span> <span class="n">max_value</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">is_date_mode</span> <span class="o">=</span> <span class="kc">False</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">setup_ui</span><span class="p">()</span>
 
 <div class="viewcode-block" id="CustomRangeSlider.setup_ui">
 <a class="viewcode-back" href="../TagFilterWidget.html#TagFilterWidget.CustomRangeSlider.setup_ui">[ドキュメント]</a>
     <span class="k">def</span> <span class="nf">setup_ui</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;CustomRangeSliderのユーザーインターフェースをセットアップします。</span>
+
+<span class="sd">        このメソッドは、スライダーとラベルを初期化し、必要なシグナルを接続します。</span>
+
+<span class="sd">        スライダーは0から100の範囲で設定され、後にユーザーが設定した実際の範囲</span>
+<span class="sd">        （日付または数値）にマッピングされます。</span>
+
+<span class="sd">        現在の範囲の最小値と最大値を表示するために2つのラベルが作成されます。</span>
+<span class="sd">        これらのラベルは、スライダーの値が変更されるたびに更新されます。</span>
+
+<span class="sd">        注意:</span>
+<span class="sd">            このメソッドはクラスのコンストラクタ内部で呼び出されるため、</span>
+<span class="sd">            ユーザーが直接呼び出す必要はありません。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">layout</span> <span class="o">=</span> <span class="n">QVBoxLayout</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">slider</span> <span class="o">=</span> <span class="n">QDoubleRangeSlider</span><span class="p">(</span><span class="n">Qt</span><span class="o">.</span><span class="n">Orientation</span><span class="o">.</span><span class="n">Horizontal</span><span class="p">)</span>
@@ -81,16 +113,25 @@
     <span class="nd">@Slot</span><span class="p">()</span>
     <span class="k">def</span> <span class="nf">update_labels</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">min_val</span><span class="p">,</span> <span class="n">max_val</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">slider</span><span class="o">.</span><span class="n">value</span><span class="p">()</span>
-        <span class="n">min_count</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale_to_count</span><span class="p">(</span><span class="n">min_val</span><span class="p">)</span>
-        <span class="n">max_count</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale_to_count</span><span class="p">(</span><span class="n">max_val</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">min_label</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">min_count</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">max_label</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">max_count</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">min_count</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale_to_value</span><span class="p">(</span><span class="n">min_val</span><span class="p">)</span>
+        <span class="n">max_count</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale_to_value</span><span class="p">(</span><span class="n">max_val</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_date_mode</span><span class="p">:</span>
+            <span class="n">local_tz</span> <span class="o">=</span> <span class="n">QTimeZone</span><span class="o">.</span><span class="n">systemTimeZone</span><span class="p">()</span>
+            <span class="n">min_date</span> <span class="o">=</span> <span class="n">QDateTime</span><span class="o">.</span><span class="n">fromSecsSinceEpoch</span><span class="p">(</span><span class="n">min_count</span><span class="p">,</span> <span class="n">local_tz</span><span class="p">)</span>
+            <span class="n">max_date</span> <span class="o">=</span> <span class="n">QDateTime</span><span class="o">.</span><span class="n">fromSecsSinceEpoch</span><span class="p">(</span><span class="n">max_count</span><span class="p">,</span> <span class="n">local_tz</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">min_label</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="n">min_date</span><span class="o">.</span><span class="n">toString</span><span class="p">(</span><span class="s2">&quot;yyyy-MM-dd&quot;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">max_label</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="n">max_date</span><span class="o">.</span><span class="n">toString</span><span class="p">(</span><span class="s2">&quot;yyyy-MM-dd&quot;</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">min_label</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">min_count</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">max_label</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">max_count</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
         <span class="bp">self</span><span class="o">.</span><span class="n">valueChanged</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span><span class="n">min_count</span><span class="p">,</span> <span class="n">max_count</span><span class="p">)</span></div>
 
 
-<div class="viewcode-block" id="CustomRangeSlider.scale_to_count">
-<a class="viewcode-back" href="../TagFilterWidget.html#TagFilterWidget.CustomRangeSlider.scale_to_count">[ドキュメント]</a>
-    <span class="k">def</span> <span class="nf">scale_to_count</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+<div class="viewcode-block" id="CustomRangeSlider.scale_to_value">
+<a class="viewcode-back" href="../TagFilterWidget.html#TagFilterWidget.CustomRangeSlider.scale_to_value">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">scale_to_value</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">value</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">min_value</span>
         <span class="k">if</span> <span class="n">value</span> <span class="o">==</span> <span class="mi">100</span><span class="p">:</span>
@@ -105,7 +146,7 @@
 <a class="viewcode-back" href="../TagFilterWidget.html#TagFilterWidget.CustomRangeSlider.get_range">[ドキュメント]</a>
     <span class="k">def</span> <span class="nf">get_range</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">min_val</span><span class="p">,</span> <span class="n">max_val</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">slider</span><span class="o">.</span><span class="n">value</span><span class="p">()</span>
-        <span class="k">return</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">scale_to_count</span><span class="p">(</span><span class="n">min_val</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale_to_count</span><span class="p">(</span><span class="n">max_val</span><span class="p">))</span></div>
+        <span class="k">return</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">scale_to_value</span><span class="p">(</span><span class="n">min_val</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale_to_value</span><span class="p">(</span><span class="n">max_val</span><span class="p">))</span></div>
 
 
 <div class="viewcode-block" id="CustomRangeSlider.set_range">
@@ -113,6 +154,46 @@
     <span class="k">def</span> <span class="nf">set_range</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">min_value</span><span class="p">,</span> <span class="n">max_value</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">min_value</span> <span class="o">=</span> <span class="n">min_value</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">max_value</span> <span class="o">=</span> <span class="n">max_value</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">update_labels</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="CustomRangeSlider.set_date_range">
+<a class="viewcode-back" href="../TagFilterWidget.html#TagFilterWidget.CustomRangeSlider.set_date_range">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">set_date_range</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">min_timestamp</span><span class="p">,</span> <span class="n">max_timestamp</span><span class="p">):</span>
+        <span class="c1"># タイムスタンプが有効であることを確認</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">min_timestamp</span><span class="p">,</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">))</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">max_timestamp</span><span class="p">,</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">)):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;タイムスタンプは数値である必要があります&quot;</span><span class="p">)</span>
+
+        <span class="c1"># タイムスタンプを QDateTime オブジェクトに変換</span>
+        <span class="n">min_date</span> <span class="o">=</span> <span class="n">QDateTime</span><span class="o">.</span><span class="n">fromSecsSinceEpoch</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">min_timestamp</span><span class="p">),</span> <span class="n">QTimeZone</span><span class="o">.</span><span class="n">UTC</span><span class="p">)</span>
+        <span class="n">max_date</span> <span class="o">=</span> <span class="n">QDateTime</span><span class="o">.</span><span class="n">fromSecsSinceEpoch</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">max_timestamp</span><span class="p">),</span> <span class="n">QTimeZone</span><span class="o">.</span><span class="n">UTC</span><span class="p">)</span>
+
+        <span class="c1"># 日付の範囲が有効であることを確認</span>
+        <span class="k">if</span> <span class="n">min_date</span> <span class="o">&gt;</span> <span class="n">max_date</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;開始日は終了日よりも前である必要があります&quot;</span><span class="p">)</span>
+
+        <span class="c1"># 日付モードをオンにする</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">is_date_mode</span> <span class="o">=</span> <span class="kc">True</span>
+
+        <span class="c1"># システムのローカルタイムゾーンを取得</span>
+        <span class="n">local_tz</span> <span class="o">=</span> <span class="n">QTimeZone</span><span class="o">.</span><span class="n">systemTimeZone</span><span class="p">()</span>
+
+        <span class="c1"># 日付をローカルタイムゾーンに変換</span>
+        <span class="n">min_date_local</span> <span class="o">=</span> <span class="n">min_date</span><span class="o">.</span><span class="n">toTimeZone</span><span class="p">(</span><span class="n">local_tz</span><span class="p">)</span>
+        <span class="n">max_date_local</span> <span class="o">=</span> <span class="n">max_date</span><span class="o">.</span><span class="n">toTimeZone</span><span class="p">(</span><span class="n">local_tz</span><span class="p">)</span>
+
+        <span class="c1"># ローカルタイムゾーンの日付の開始時刻（0時0分0秒）と終了時刻（23時59分59秒）を設定</span>
+        <span class="n">min_date_local</span> <span class="o">=</span> <span class="n">QDateTime</span><span class="p">(</span><span class="n">min_date_local</span><span class="o">.</span><span class="n">date</span><span class="p">(),</span> <span class="n">QTime</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">local_tz</span><span class="p">)</span>
+        <span class="n">max_date_local</span> <span class="o">=</span> <span class="n">QDateTime</span><span class="p">(</span><span class="n">max_date_local</span><span class="o">.</span><span class="n">date</span><span class="p">(),</span> <span class="n">QTime</span><span class="p">(</span><span class="mi">23</span><span class="p">,</span> <span class="mi">59</span><span class="p">,</span> <span class="mi">59</span><span class="p">),</span> <span class="n">local_tz</span><span class="p">)</span>
+
+        <span class="c1"># ローカルタイムゾーンのタイムスタンプを取得</span>
+        <span class="n">min_timestamp_local</span> <span class="o">=</span> <span class="n">min_date_local</span><span class="o">.</span><span class="n">toSecsSinceEpoch</span><span class="p">()</span>
+        <span class="n">max_timestamp_local</span> <span class="o">=</span> <span class="n">max_date_local</span><span class="o">.</span><span class="n">toSecsSinceEpoch</span><span class="p">()</span>
+
+        <span class="c1"># 範囲を設定</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">set_range</span><span class="p">(</span><span class="n">min_timestamp_local</span><span class="p">,</span> <span class="n">max_timestamp_local</span><span class="p">)</span>
+
+        <span class="c1"># ラベルを更新</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">update_labels</span><span class="p">()</span></div>
 </div>
 

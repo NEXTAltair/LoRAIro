@@ -36,6 +36,8 @@
 <span class="kn">import</span> <span class="nn">threading</span>
 <span class="kn">import</span> <span class="nn">uuid</span>
 <span class="kn">import</span> <span class="nn">imagehash</span>
+<span class="kn">import</span> <span class="nn">inspect</span>
+<span class="kn">from</span> <span class="nn">datetime</span> <span class="kn">import</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timezone</span><span class="p">,</span> <span class="n">timedelta</span>
 <span class="kn">from</span> <span class="nn">PIL</span> <span class="kn">import</span> <span class="n">Image</span>
 
 <span class="kn">from</span> <span class="nn">contextlib</span> <span class="kn">import</span> <span class="n">contextmanager</span>
@@ -205,6 +207,7 @@
 <span class="s1">                    tag TEXT NOT NULL,</span>
 <span class="s1">                    existing BOOLEAN NOT NULL DEFAULT 0,</span>
 <span class="s1">                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,</span>
+<span class="s1">                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,</span>
 <span class="s1">                    FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,</span>
 <span class="s1">                    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL,</span>
 <span class="s1">                    UNIQUE (image_id, tag, tag_id, model_id)</span>
@@ -218,6 +221,7 @@
 <span class="s1">                    caption TEXT NOT NULL,</span>
 <span class="s1">                    existing BOOLEAN NOT NULL DEFAULT 0,</span>
 <span class="s1">                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,</span>
+<span class="s1">                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,</span>
 <span class="s1">                    FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,</span>
 <span class="s1">                    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL,</span>
 <span class="s1">                    UNIQUE (image_id, caption, model_id)</span>
@@ -230,6 +234,7 @@
 <span class="s1">                    model_id INTEGER,</span>
 <span class="s1">                    score FLOAT NOT NULL,</span>
 <span class="s1">                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,</span>
+<span class="s1">                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,</span>
 <span class="s1">                    FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,</span>
 <span class="s1">                    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE SET NULL,</span>
 <span class="s1">                    UNIQUE (image_id, score, model_id)</span>
@@ -244,11 +249,118 @@
 <span class="s1">            &#39;&#39;&#39;</span><span class="p">)</span></div>
 
 
+    <span class="c1"># def migrate_tables(self):</span>
+    <span class="c1">#     &quot;&quot;&quot;既存のテーブルに不足しているカラムを追加し、必要に応じてテーブルを再作成する&quot;&quot;&quot;</span>
+    <span class="c1">#     with self.get_connection() as conn:</span>
+    <span class="c1">#         cursor = conn.cursor()</span>
+    <span class="c1">#         # テーブルごとの新しい定義</span>
+    <span class="c1">#         table_definitions = {</span>
+    <span class="c1">#             &#39;tags&#39;: [</span>
+    <span class="c1">#                 (&#39;id&#39;, &#39;INTEGER PRIMARY KEY&#39;),</span>
+    <span class="c1">#                 (&#39;tag_id&#39;, &#39;INTEGER&#39;),</span>
+    <span class="c1">#                 (&#39;image_id&#39;, &#39;INTEGER&#39;),</span>
+    <span class="c1">#                 (&#39;model_id&#39;, &#39;INTEGER&#39;),</span>
+    <span class="c1">#                 (&#39;tag&#39;, &#39;TEXT NOT NULL&#39;),</span>
+    <span class="c1">#                 (&#39;existing&#39;, &#39;BOOLEAN NOT NULL DEFAULT 0&#39;),</span>
+    <span class="c1">#                 (&#39;created_at&#39;, &#39;TIMESTAMP DEFAULT CURRENT_TIMESTAMP&#39;),</span>
+    <span class="c1">#                 (&#39;updated_at&#39;, &#39;TIMESTAMP DEFAULT CURRENT_TIMESTAMP&#39;),</span>
+    <span class="c1">#                 (&#39;FOREIGN KEY(image_id)&#39;, &#39;REFERENCES images(id) ON DELETE CASCADE&#39;),</span>
+    <span class="c1">#                 (&#39;FOREIGN KEY(model_id)&#39;, &#39;REFERENCES models(id) ON DELETE SET NULL&#39;),</span>
+    <span class="c1">#                 (&#39;UNIQUE(image_id, tag, tag_id, model_id)&#39;, &#39;&#39;)</span>
+    <span class="c1">#             ],</span>
+    <span class="c1">#             # 他のテーブルも同様に定義</span>
+    <span class="c1">#             &#39;captions&#39;: [</span>
+    <span class="c1">#                 (&#39;id&#39;, &#39;INTEGER PRIMARY KEY&#39;),</span>
+    <span class="c1">#                 (&#39;image_id&#39;, &#39;INTEGER&#39;),</span>
+    <span class="c1">#                 (&#39;model_id&#39;, &#39;INTEGER&#39;),</span>
+    <span class="c1">#                 (&#39;caption&#39;, &#39;TEXT NOT NULL&#39;),</span>
+    <span class="c1">#                 (&#39;existing&#39;, &#39;BOOLEAN NOT NULL DEFAULT 0&#39;),</span>
+    <span class="c1">#                 (&#39;created_at&#39;, &#39;TIMESTAMP DEFAULT CURRENT_TIMESTAMP&#39;),</span>
+    <span class="c1">#                 (&#39;updated_at&#39;, &#39;TIMESTAMP DEFAULT CURRENT_TIMESTAMP&#39;),</span>
+    <span class="c1">#                 (&#39;FOREIGN KEY(image_id)&#39;, &#39;REFERENCES images(id) ON DELETE CASCADE&#39;),</span>
+    <span class="c1">#                 (&#39;FOREIGN KEY(model_id)&#39;, &#39;REFERENCES models(id) ON DELETE SET NULL&#39;),</span>
+    <span class="c1">#                 (&#39;UNIQUE(image_id, caption, model_id)&#39;, &#39;&#39;)</span>
+    <span class="c1">#             ],</span>
+    <span class="c1">#             &#39;scores&#39;: [</span>
+    <span class="c1">#                 (&#39;id&#39;, &#39;INTEGER PRIMARY KEY&#39;),</span>
+    <span class="c1">#                 (&#39;image_id&#39;, &#39;INTEGER&#39;),</span>
+    <span class="c1">#                 (&#39;model_id&#39;, &#39;INTEGER&#39;),</span>
+    <span class="c1">#                 (&#39;score&#39;, &#39;FLOAT NOT NULL&#39;),</span>
+    <span class="c1">#                 (&#39;created_at&#39;, &#39;TIMESTAMP DEFAULT CURRENT_TIMESTAMP&#39;),</span>
+    <span class="c1">#                 (&#39;updated_at&#39;, &#39;TIMESTAMP DEFAULT CURRENT_TIMESTAMP&#39;),</span>
+    <span class="c1">#                 (&#39;FOREIGN KEY(image_id)&#39;, &#39;REFERENCES images(id) ON DELETE CASCADE&#39;),</span>
+    <span class="c1">#                 (&#39;FOREIGN KEY(model_id)&#39;, &#39;REFERENCES models(id) ON DELETE SET NULL&#39;),</span>
+    <span class="c1">#                 (&#39;UNIQUE(image_id, score, model_id)&#39;, &#39;&#39;)</span>
+    <span class="c1">#             ]</span>
+    <span class="c1">#         }</span>
+
+    <span class="c1">#         for table_name, columns in table_definitions.items():</span>
+    <span class="c1">#             # 既存テーブルのカラムを取得</span>
+    <span class="c1">#             cursor.execute(f&quot;PRAGMA table_info({table_name});&quot;)</span>
+    <span class="c1">#             existing_columns_info = cursor.fetchall()</span>
+    <span class="c1">#             existing_column_names = {col[&#39;name&#39;] for col in existing_columns_info}</span>
+
+    <span class="c1">#             # 必要なカラムがすべて存在するか確認</span>
+    <span class="c1">#             required_columns = [col[0] for col in columns if not col[0].startswith(&#39;FOREIGN KEY&#39;) and not col[0].startswith(&#39;UNIQUE&#39;)]</span>
+    <span class="c1">#             missing_columns = set(required_columns) - existing_column_names</span>
+
+    <span class="c1">#             # カラムが不足している場合、テーブルを再作成</span>
+    <span class="c1">#             if missing_columns or self.need_to_recreate_table(table_name, columns, existing_columns_info):</span>
+    <span class="c1">#                 self.logger.info(f&quot;テーブル &#39;{table_name}&#39; を再作成します。&quot;)</span>
+    <span class="c1">#                 self.recreate_table(conn, table_name, columns)</span>
+    <span class="c1">#             else:</span>
+    <span class="c1">#                 self.logger.info(f&quot;テーブル &#39;{table_name}&#39; は再作成の必要がありません。&quot;)</span>
+
+    <span class="c1"># def need_to_recreate_table(self, table_name, columns, existing_columns_info):</span>
+    <span class="c1">#     &quot;&quot;&quot;テーブルの再作成が必要かどうかを判断する&quot;&quot;&quot;</span>
+    <span class="c1">#     # FOREIGN KEY や UNIQUE 制約の変更が必要かどうかをチェックする</span>
+    <span class="c1">#     # この例では簡略化のため、常に False を返す</span>
+    <span class="c1">#     # 必要に応じて実装を追加する</span>
+    <span class="c1">#     return True  # 常に再作成する</span>
+
+    <span class="c1"># def recreate_table(self, conn, table_name, columns):</span>
+    <span class="c1">#     &quot;&quot;&quot;テーブルを再作成してデータを移行する&quot;&quot;&quot;</span>
+    <span class="c1">#     cursor = conn.cursor()</span>
+
+    <span class="c1">#     # 一時テーブル名を生成</span>
+    <span class="c1">#     temp_table_name = f&quot;{table_name}_backup&quot;</span>
+
+    <span class="c1">#     # テーブルをリネーム（バックアップ）</span>
+    <span class="c1">#     cursor.execute(f&quot;ALTER TABLE {table_name} RENAME TO {temp_table_name};&quot;)</span>
+    <span class="c1">#     self.logger.info(f&quot;テーブル &#39;{table_name}&#39; を &#39;{temp_table_name}&#39; にリネームしました。&quot;)</span>
+
+    <span class="c1">#     # 新しいテーブルを作成</span>
+    <span class="c1">#     columns_definitions = []</span>
+    <span class="c1">#     for col_name, col_def in columns:</span>
+    <span class="c1">#         if col_def:  # 制約や FOREIGN KEY も含む</span>
+    <span class="c1">#             columns_definitions.append(f&quot;{col_name} {col_def}&quot;)</span>
+    <span class="c1">#         else:</span>
+    <span class="c1">#             columns_definitions.append(f&quot;{col_name}&quot;)</span>
+
+    <span class="c1">#     create_table_sql = f&quot;CREATE TABLE {table_name} (\n&quot; + &quot;,\n&quot;.join(columns_definitions) + &quot;\n);&quot;</span>
+    <span class="c1">#     cursor.execute(create_table_sql)</span>
+    <span class="c1">#     self.logger.info(f&quot;テーブル &#39;{table_name}&#39; を新しい定義で作成しました。&quot;)</span>
+
+    <span class="c1">#     # データを移行</span>
+    <span class="c1">#     old_columns = [col[&#39;name&#39;] for col in cursor.execute(f&quot;PRAGMA table_info({temp_table_name});&quot;)]</span>
+    <span class="c1">#     new_columns = [col[0] for col in columns if not col[0].startswith(&#39;FOREIGN KEY&#39;) and not col[0].startswith(&#39;UNIQUE&#39;)]</span>
+    <span class="c1">#     common_columns = set(old_columns) &amp; set(new_columns)</span>
+    <span class="c1">#     common_columns_str = &quot;, &quot;.join(common_columns)</span>
+
+    <span class="c1">#     cursor.execute(f&quot;INSERT INTO {table_name} ({common_columns_str}) SELECT {common_columns_str} FROM {temp_table_name};&quot;)</span>
+    <span class="c1">#     self.logger.info(f&quot;データを &#39;{temp_table_name}&#39; から &#39;{table_name}&#39; に移行しました。&quot;)</span>
+
+    <span class="c1">#     # 一時テーブルを削除</span>
+    <span class="c1">#     cursor.execute(f&quot;DROP TABLE {temp_table_name};&quot;)</span>
+    <span class="c1">#     self.logger.info(f&quot;一時テーブル &#39;{temp_table_name}&#39; を削除しました。&quot;)</span>
+
+    <span class="c1">#     conn.commit()</span>
+
 <div class="viewcode-block" id="SQLiteManager.insert_models">
 <a class="viewcode-back" href="../../module.db.html#module.db.SQLiteManager.insert_models">[ドキュメント]</a>
     <span class="k">def</span> <span class="nf">insert_models</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        モデル情報の初期設定がされてない場合データベースに追加</span>
+<span class="sd">        モデル情報の初期設定をデータベースに追加</span>
 
 <span class="sd">        Args:</span>
 <span class="sd">            model_name (str): モデルの名前。</span>
@@ -433,7 +545,8 @@
             <span class="n">metadata</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_one</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">(</span><span class="n">image_id</span><span class="p">,))</span>
             <span class="k">return</span> <span class="n">metadata</span>
         <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像メタデータの取得中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+            <span class="n">current_method</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">currentframe</span><span class="p">()</span><span class="o">.</span><span class="n">f_code</span><span class="o">.</span><span class="n">co_name</span>
+            <span class="k">raise</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">current_method</span><span class="si">}</span><span class="s2"> 画像メタデータの取得中にエラーが発生しました : </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="ImageRepository.save_annotations">
@@ -469,7 +582,8 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">_save_captions</span><span class="p">(</span><span class="n">image_id</span><span class="p">,</span> <span class="n">annotations</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;captions&#39;</span><span class="p">,</span> <span class="p">[]),</span> <span class="n">model_id</span><span class="p">)</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_save_score</span><span class="p">(</span><span class="n">image_id</span><span class="p">,</span> <span class="n">annotations</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;score&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">model_id</span><span class="p">)</span>
         <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;アノテーションの保存中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+            <span class="n">current_method</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">currentframe</span><span class="p">()</span><span class="o">.</span><span class="n">f_code</span><span class="o">.</span><span class="n">co_name</span>
+            <span class="k">raise</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">current_method</span><span class="si">}</span><span class="s2"> アノテーションの保存中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
 
 
     <span class="k">def</span> <span class="nf">_save_tags</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">tags</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -487,15 +601,25 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像ID </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> のタグリストが空のため、保存をスキップします。&quot;</span><span class="p">)</span>
             <span class="k">return</span>
 
-        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;INSERT OR IGNORE INTO tags (image_id, tag_id, tag, model_id, existing) VALUES (?, ?, ?, ?, ?)&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">                INSERT INTO tags (image_id, tag_id, tag, model_id, existing, created_at, updated_at)</span>
+<span class="s2">                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)</span>
+<span class="s2">                ON CONFLICT(image_id, tag, tag_id, model_id) DO UPDATE SET</span>
+<span class="s2">                    existing = EXCLUDED.existing,</span>
+<span class="s2">                    updated_at = CURRENT_TIMESTAMP</span>
+<span class="s2">                &quot;&quot;&quot;</span>
         <span class="n">data</span> <span class="o">=</span> <span class="p">[]</span>
 
         <span class="k">for</span> <span class="n">tag</span> <span class="ow">in</span> <span class="n">tags</span><span class="p">:</span>
             <span class="n">tag</span> <span class="o">=</span> <span class="n">tag</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
             <span class="n">tag_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">find_tag_id</span><span class="p">(</span><span class="n">tag</span><span class="p">)</span>
             <span class="n">existing</span> <span class="o">=</span> <span class="mi">1</span> <span class="k">if</span> <span class="n">model_id</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="mi">0</span>
-            <span class="n">data</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">image_id</span><span class="p">,</span> <span class="n">tag_id</span><span class="p">,</span> <span class="n">tag</span><span class="p">,</span> <span class="n">model_id</span><span class="p">,</span> <span class="n">existing</span><span class="p">))</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ImageRepository._save_tags_with_ids: tag=</span><span class="si">{</span><span class="n">tag</span><span class="si">}</span><span class="s2">, tag_id=</span><span class="si">{</span><span class="n">tag_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">model_id</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="c1"># None の場合は明示的に NULL を設定</span>
+                <span class="n">data</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">image_id</span><span class="p">,</span> <span class="n">tag_id</span><span class="p">,</span> <span class="n">tag</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">existing</span><span class="p">))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">data</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">image_id</span><span class="p">,</span> <span class="n">tag_id</span><span class="p">,</span> <span class="n">tag</span><span class="p">,</span> <span class="n">model_id</span><span class="p">,</span> <span class="n">existing</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ImageRepository._save_tags_with_ids: tag=</span><span class="si">{</span><span class="n">tag</span><span class="si">}</span><span class="s2">, tag_id=</span><span class="si">{</span><span class="n">tag_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
         <span class="k">try</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
@@ -519,13 +643,22 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像ID </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2"> のキャプションリストが空のため、保存をスキップします。&quot;</span><span class="p">)</span>
             <span class="k">return</span>
 
-        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;INSERT OR IGNORE INTO captions (image_id, caption, model_id, existing) VALUES (?, ?, ?, ?)&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">                INSERT INTO captions (image_id, caption, model_id, existing, created_at, updated_at)</span>
+<span class="s2">                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)</span>
+<span class="s2">                ON CONFLICT(image_id, caption, model_id) DO UPDATE SET</span>
+<span class="s2">                    existing = EXCLUDED.existing,</span>
+<span class="s2">                    updated_at = CURRENT_TIMESTAMP</span>
+<span class="s2">                &quot;&quot;&quot;</span>
         <span class="n">data</span> <span class="o">=</span> <span class="p">[]</span>
 
         <span class="k">for</span> <span class="n">caption</span> <span class="ow">in</span> <span class="n">captions</span><span class="p">:</span>
             <span class="n">caption</span> <span class="o">=</span> <span class="n">caption</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
             <span class="n">existing</span> <span class="o">=</span> <span class="mi">1</span> <span class="k">if</span> <span class="n">model_id</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="mi">0</span>
-            <span class="n">data</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">image_id</span><span class="p">,</span> <span class="n">caption</span><span class="p">,</span> <span class="n">model_id</span><span class="p">,</span> <span class="n">existing</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">model_id</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">data</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">image_id</span><span class="p">,</span> <span class="n">caption</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">existing</span><span class="p">))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">data</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">image_id</span><span class="p">,</span> <span class="n">caption</span><span class="p">,</span> <span class="n">model_id</span><span class="p">,</span> <span class="n">existing</span><span class="p">))</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ImageRepository._save_captions: </span><span class="si">{</span><span class="n">caption</span><span class="si">}</span><span class="s2"> &quot;</span><span class="p">)</span>
 
         <span class="k">try</span><span class="p">:</span>
@@ -572,7 +705,8 @@
             <span class="k">else</span><span class="p">:</span>
                 <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;モデル名 &#39;</span><span class="si">{</span><span class="n">model_name</span><span class="si">}</span><span class="s2">&#39; が見つかりません。&quot;</span><span class="p">)</span>
         <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;_get_model_idメソッド内のクエリエラー: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">current_method</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">currentframe</span><span class="p">()</span><span class="o">.</span><span class="n">f_code</span><span class="o">.</span><span class="n">co_name</span>
+            <span class="k">raise</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">current_method</span><span class="si">}</span><span class="s2"> エラー: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_image_exists</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
@@ -652,7 +786,7 @@
 
     <span class="k">def</span> <span class="nf">_get_tags</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;image_idからタグを取得する内部メソッド&quot;&quot;&quot;</span>
-        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;SELECT tag, model_id, tag_id FROM tags WHERE image_id = ?&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;SELECT tag, model_id, tag_id, updated_at FROM tags WHERE image_id = ?&quot;</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;タグを取得するimage_id: </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_all</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">(</span><span class="n">image_id</span><span class="p">,))</span>
@@ -665,7 +799,7 @@
 
     <span class="k">def</span> <span class="nf">_get_captions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;image_idからキャプションを取得する内部メソッド&quot;&quot;&quot;</span>
-        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;SELECT caption, model_id FROM captions WHERE image_id = ?&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;SELECT caption, model_id, updated_at FROM captions WHERE image_id = ?&quot;</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;キャプションを取得するimage_id: </span><span class="si">{</span><span class="n">image_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_all</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">(</span><span class="n">image_id</span><span class="p">,))</span>
@@ -714,12 +848,14 @@
 
 <div class="viewcode-block" id="ImageRepository.get_images_by_tag">
 <a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository.get_images_by_tag">[ドキュメント]</a>
-    <span class="k">def</span> <span class="nf">get_images_by_tag</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tag</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+    <span class="k">def</span> <span class="nf">get_images_by_tag</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tag</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">start_date</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">end_date</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        指定されたタグを持つ画像のIDリストを取得する（部分一致とワイルドカードに対応）</span>
+<span class="sd">        指定された日付の範囲で更新されたタグを持つ画像のIDリストを取得する（部分一致とワイルドカードに対応）</span>
 
 <span class="sd">        Args:</span>
 <span class="sd">            tag (str): 検索するタグ（ワイルドカード &#39;*&#39; を含むことができます）</span>
+<span class="sd">            start_date (str): 検索開始日時（UTCタイムスタンプ）</span>
+<span class="sd">            end_date (str): 検索終了日時（UTCタイムスタンプ）</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            list[int]: タグを持つ画像IDのリスト か 空リスト</span>
@@ -727,10 +863,11 @@
         <span class="k">if</span> <span class="n">tag</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">tag</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">):</span>
             <span class="c1"># 完全一致検索用のクエリ</span>
             <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
-<span class="s2">            SELECT DISTINCT i.id</span>
+<span class="s2">            SELECT i.id</span>
 <span class="s2">            FROM images i</span>
 <span class="s2">            JOIN tags t ON i.id = t.image_id</span>
 <span class="s2">            WHERE t.tag = ?</span>
+<span class="s2">            AND t.updated_at BETWEEN ? AND ?</span>
 <span class="s2">            &quot;&quot;&quot;</span>
             <span class="c1"># ダブルクオートを外したタグで検索</span>
             <span class="n">pattern</span> <span class="o">=</span> <span class="n">tag</span><span class="o">.</span><span class="n">strip</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">)</span>
@@ -742,12 +879,15 @@
                 <span class="n">pattern</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;%</span><span class="si">{</span><span class="n">pattern</span><span class="si">}</span><span class="s1">%&#39;</span>
 
             <span class="n">query</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
-<span class="s2">            SELECT DISTINCT i.id</span>
+<span class="s2">            SELECT i.id</span>
 <span class="s2">            FROM images i</span>
 <span class="s2">            JOIN tags t ON i.id = t.image_id</span>
 <span class="s2">            WHERE t.tag LIKE ? ESCAPE &#39;</span><span class="se">\\</span><span class="s2">&#39;</span>
+<span class="s2">            AND t.updated_at BETWEEN ? AND ?</span>
 <span class="s2">            &quot;&quot;&quot;</span>
-        <span class="n">rows</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_all</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">[</span><span class="n">pattern</span><span class="p">])</span>
+        <span class="c1"># タイムスタンプをパラメータに追加</span>
+        <span class="n">params</span> <span class="o">=</span> <span class="p">[</span><span class="n">pattern</span><span class="p">,</span> <span class="n">start_date</span><span class="p">,</span> <span class="n">end_date</span><span class="p">]</span>
+        <span class="n">rows</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_all</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">rows</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;</span><span class="si">%s</span><span class="s2"> を含む画像はありません&quot;</span><span class="p">,</span> <span class="n">tag</span><span class="p">)</span>
             <span class="k">return</span> <span class="p">[]</span>
@@ -757,12 +897,14 @@
 
 <div class="viewcode-block" id="ImageRepository.get_images_by_caption">
 <a class="viewcode-back" href="../../module.db.html#module.db.ImageRepository.get_images_by_caption">[ドキュメント]</a>
-    <span class="k">def</span> <span class="nf">get_images_by_caption</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">caption</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+    <span class="k">def</span> <span class="nf">get_images_by_caption</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">caption</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">start_date</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">end_date</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        指定されたキャプションを含む画像のIDリストを取得する（部分一致、ワイルドカード、完全一致に対応）</span>
 
 <span class="sd">        Args:</span>
 <span class="sd">            caption (str): 検索するキャプション（ワイルドカード &#39;*&#39; やダブルクオートを含むことができます）</span>
+<span class="sd">            start_date (str): 検索開始日時(&#39;%Y-%m-%d %H:%M:%S&#39;)</span>
+<span class="sd">            end_date (str): 検索終了日時</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            list[int]: キャプションを持つ画像IDのリスト か 空リスト</span>
@@ -775,6 +917,7 @@
 <span class="s2">            FROM images i</span>
 <span class="s2">            JOIN captions c ON i.id = c.image_id</span>
 <span class="s2">            WHERE c.caption = ?</span>
+<span class="s2">            AND c.updated_at BETWEEN ? AND ?</span>
 <span class="s2">            &quot;&quot;&quot;</span>
             <span class="c1"># ダブルクオートを外したキャプションで検索</span>
             <span class="n">pattern</span> <span class="o">=</span> <span class="n">caption</span><span class="o">.</span><span class="n">strip</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">)</span>
@@ -788,9 +931,11 @@
 <span class="s2">            FROM images i</span>
 <span class="s2">            JOIN captions c ON i.id = c.image_id</span>
 <span class="s2">            WHERE c.caption LIKE ? ESCAPE &#39;</span><span class="se">\\</span><span class="s2">&#39;</span>
+<span class="s2">            AND c.updated_at BETWEEN ? AND ?</span>
 <span class="s2">            &quot;&quot;&quot;</span>
 
-        <span class="n">rows</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_all</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">[</span><span class="n">pattern</span><span class="p">])</span>
+        <span class="n">params</span> <span class="o">=</span> <span class="p">[</span><span class="n">pattern</span><span class="p">,</span> <span class="n">start_date</span><span class="p">,</span> <span class="n">end_date</span><span class="p">]</span>
+        <span class="n">rows</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_manager</span><span class="o">.</span><span class="n">fetch_all</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">rows</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;&#39;</span><span class="si">%s</span><span class="s2">&#39; を含むキャプションを持つ画像はありません&quot;</span><span class="p">,</span> <span class="n">caption</span><span class="p">)</span>
             <span class="k">return</span> <span class="p">[]</span>
@@ -822,7 +967,8 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;ID </span><span class="si">%s</span><span class="s2"> の処理済み画像メタデータを取得しました: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">image_id</span><span class="p">,</span> <span class="n">metadata</span><span class="p">)</span>
             <span class="k">return</span> <span class="n">metadata</span>
         <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;処理済み画像の取得中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+            <span class="n">current_method</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">currentframe</span><span class="p">()</span><span class="o">.</span><span class="n">f_code</span><span class="o">.</span><span class="n">co_name</span>
+            <span class="k">raise</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">current_method</span><span class="si">}</span><span class="s2"> 処理済み画像の取得中にエラーが発生しました: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="ImageRepository.get_total_image_count">
@@ -1236,14 +1382,17 @@
 
 <div class="viewcode-block" id="ImageDatabaseManager.get_images_by_filter">
 <a class="viewcode-back" href="../../module.db.html#module.db.ImageDatabaseManager.get_images_by_filter">[ドキュメント]</a>
-    <span class="k">def</span> <span class="nf">get_images_by_filter</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tags</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">caption</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">resolution</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">use_and</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span> <span class="nb">int</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;_summary_</span>
+    <span class="k">def</span> <span class="nf">get_images_by_filter</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tags</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">caption</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">resolution</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> 
+                             <span class="n">use_and</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">start_date</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">end_date</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span> <span class="nb">int</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 
 <span class="sd">        Args:</span>
 <span class="sd">            tags (list[str], optional): カンマ区切りをリスト化したタグ. Defaults to None.</span>
 <span class="sd">            caption (str, optional): _キャプション</span>
 <span class="sd">            resolution (int, optional): 検索する解像度x解像度の値が誤差20%以内の画像を取得. Defaults to 0.</span>
 <span class="sd">            use_and (bool, optional): _description_. Defaults to True.</span>
+<span class="sd">            start_date (str): 検索する画像の作成日時の下限(&#39;%Y-%m-%d %H:%M:%S&#39;)</span>
+<span class="sd">            end_date (str,): 検索する画像の作成日時の上限</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            tuple[list[dict[str, Any]], int]: 条件にマッチした画像データのリストとその数</span>
@@ -1258,17 +1407,22 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;タグもキャプションも指定されていない&quot;</span><span class="p">)</span>
             <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="mi">0</span>
 
+        <span class="c1"># 現在の日付を取得</span>
+        <span class="n">current_datetime</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s1">&#39;%Y-%m-</span><span class="si">%d</span><span class="s1"> %H:%M:%S&#39;</span><span class="p">)</span>
+        <span class="n">start_date</span> <span class="o">=</span> <span class="n">start_date</span> <span class="ow">or</span> <span class="p">(</span><span class="s1">&#39;2020-01-01 00:00:00&#39;</span><span class="p">)</span>  <span class="c1"># 2020年1月1日</span>
+        <span class="n">end_date</span> <span class="o">=</span> <span class="n">end_date</span> <span class="ow">or</span> <span class="n">current_datetime</span>  <span class="c1"># 現在</span>
+
         <span class="n">image_ids</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
 
         <span class="c1"># タグによるフィルタリング</span>
         <span class="k">if</span> <span class="n">tags</span><span class="p">:</span>
-            <span class="n">tag_results</span> <span class="o">=</span> <span class="p">[</span><span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">get_images_by_tag</span><span class="p">(</span><span class="n">tag</span><span class="p">))</span> <span class="k">for</span> <span class="n">tag</span> <span class="ow">in</span> <span class="n">tags</span><span class="p">]</span>
+            <span class="n">tag_results</span> <span class="o">=</span> <span class="p">[</span><span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">get_images_by_tag</span><span class="p">(</span><span class="n">tag</span><span class="p">,</span> <span class="n">start_date</span><span class="p">,</span> <span class="n">end_date</span><span class="p">))</span> <span class="k">for</span> <span class="n">tag</span> <span class="ow">in</span> <span class="n">tags</span><span class="p">]</span>
             <span class="k">if</span> <span class="n">tag_results</span><span class="p">:</span>
                 <span class="n">image_ids</span> <span class="o">=</span> <span class="nb">set</span><span class="o">.</span><span class="n">intersection</span><span class="p">(</span><span class="o">*</span><span class="n">tag_results</span><span class="p">)</span> <span class="k">if</span> <span class="n">use_and</span> <span class="k">else</span> <span class="nb">set</span><span class="o">.</span><span class="n">union</span><span class="p">(</span><span class="o">*</span><span class="n">tag_results</span><span class="p">)</span>
 
         <span class="c1"># キャプションによるフィルタリング</span>
         <span class="k">if</span> <span class="n">caption</span><span class="p">:</span>
-            <span class="n">caption_results</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">get_images_by_caption</span><span class="p">(</span><span class="n">caption</span><span class="p">))</span>
+            <span class="n">caption_results</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">get_images_by_caption</span><span class="p">(</span><span class="n">caption</span><span class="p">,</span> <span class="n">start_date</span><span class="p">,</span> <span class="n">end_date</span><span class="p">))</span>
             <span class="n">image_ids</span> <span class="o">=</span> <span class="n">image_ids</span><span class="o">.</span><span class="n">intersection</span><span class="p">(</span><span class="n">caption_results</span><span class="p">)</span> <span class="k">if</span> <span class="n">image_ids</span> <span class="k">else</span> <span class="n">caption_results</span>
 
         <span class="c1"># image_idsが空の場合は空リストを返す</span>
