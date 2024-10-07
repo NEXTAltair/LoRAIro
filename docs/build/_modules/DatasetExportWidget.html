@@ -77,17 +77,7 @@
 <div class="viewcode-block" id="DatasetExportWidget.init_date_range">
 <a class="viewcode-back" href="../DatasetExportWidget.html#DatasetExportWidget.DatasetExportWidget.init_date_range">[ドキュメント]</a>
     <span class="k">def</span> <span class="nf">init_date_range</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="c1"># 2023年1月1日の0時をローカル時間で設定</span>
-        <span class="n">start_date</span> <span class="o">=</span> <span class="n">QDateTime</span><span class="p">(</span><span class="mi">2023</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
-        <span class="n">start_timestamp</span> <span class="o">=</span> <span class="n">start_date</span><span class="o">.</span><span class="n">toSecsSinceEpoch</span><span class="p">()</span>
-
-        <span class="c1"># 現在の日付の0時</span>
-        <span class="n">end_date</span> <span class="o">=</span> <span class="n">QDateTime</span><span class="o">.</span><span class="n">currentDateTime</span><span class="p">()</span><span class="o">.</span><span class="n">date</span><span class="p">()</span>
-        <span class="n">end_time</span> <span class="o">=</span> <span class="n">QTime</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>  <span class="c1"># 0時0分0秒</span>
-        <span class="n">end_datetime</span> <span class="o">=</span> <span class="n">QDateTime</span><span class="p">(</span><span class="n">end_date</span><span class="p">,</span> <span class="n">end_time</span><span class="p">)</span>
-        <span class="n">end_timestamp</span> <span class="o">=</span> <span class="n">end_datetime</span><span class="o">.</span><span class="n">toSecsSinceEpoch</span><span class="p">()</span>
-
-        <span class="bp">self</span><span class="o">.</span><span class="n">filterWidget</span><span class="o">.</span><span class="n">count_range_slider</span><span class="o">.</span><span class="n">set_date_range</span><span class="p">(</span><span class="n">start_timestamp</span><span class="p">,</span> <span class="n">end_timestamp</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filterWidget</span><span class="o">.</span><span class="n">count_range_slider</span><span class="o">.</span><span class="n">set_date_range</span><span class="p">()</span></div>
 
 
 <div class="viewcode-block" id="DatasetExportWidget.on_filter_applied">
@@ -97,15 +87,16 @@
         <span class="n">filter_text</span> <span class="o">=</span> <span class="n">filter_conditions</span><span class="p">[</span><span class="s1">&#39;filter_text&#39;</span><span class="p">]</span>
         <span class="n">resolution</span> <span class="o">=</span> <span class="n">filter_conditions</span><span class="p">[</span><span class="s1">&#39;resolution&#39;</span><span class="p">]</span>
         <span class="n">use_and</span> <span class="o">=</span> <span class="n">filter_conditions</span><span class="p">[</span><span class="s1">&#39;use_and&#39;</span><span class="p">]</span>
-        <span class="nb">min</span><span class="p">,</span> <span class="nb">max</span> <span class="o">=</span> <span class="n">filter_conditions</span><span class="p">[</span><span class="s1">&#39;count_range&#39;</span><span class="p">]</span>
+        <span class="n">start_date</span><span class="p">,</span> <span class="n">end_date</span> <span class="o">=</span> <span class="n">filter_conditions</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;date_range&#39;</span><span class="p">,</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">))</span>
+        <span class="c1"># 日付範囲の処理</span>
+        <span class="k">if</span> <span class="n">start_date</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">end_date</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># UTCタイムスタンプをQDateTimeに変換し、ローカルタイムゾーンに設定</span>
+            <span class="n">start_date_qt</span> <span class="o">=</span> <span class="n">QDateTime</span><span class="o">.</span><span class="n">fromSecsSinceEpoch</span><span class="p">(</span><span class="n">start_date</span><span class="p">)</span><span class="o">.</span><span class="n">toLocalTime</span><span class="p">()</span>
+            <span class="n">end_date_qt</span> <span class="o">=</span> <span class="n">QDateTime</span><span class="o">.</span><span class="n">fromSecsSinceEpoch</span><span class="p">(</span><span class="n">end_date</span><span class="p">)</span><span class="o">.</span><span class="n">toLocalTime</span><span class="p">()</span>
 
-        <span class="c1"># UTCタイムスタンプをQDateTimeに変換し、ローカルタイムゾーンに設定</span>
-        <span class="n">start_date_qt</span> <span class="o">=</span> <span class="n">QDateTime</span><span class="o">.</span><span class="n">fromSecsSinceEpoch</span><span class="p">(</span><span class="nb">min</span><span class="p">)</span>
-        <span class="n">end_date_qt</span> <span class="o">=</span> <span class="n">QDateTime</span><span class="o">.</span><span class="n">fromSecsSinceEpoch</span><span class="p">(</span><span class="nb">max</span><span class="p">)</span>
-
-        <span class="c1"># ローカルタイムゾーンを使用してISO 8601形式の文字列に変換</span>
-        <span class="n">start_date</span> <span class="o">=</span> <span class="n">start_date_qt</span><span class="o">.</span><span class="n">toLocalTime</span><span class="p">()</span><span class="o">.</span><span class="n">toString</span><span class="p">(</span><span class="n">Qt</span><span class="o">.</span><span class="n">ISODate</span><span class="p">)</span>
-        <span class="n">end_date</span> <span class="o">=</span> <span class="n">end_date_qt</span><span class="o">.</span><span class="n">toLocalTime</span><span class="p">()</span><span class="o">.</span><span class="n">toString</span><span class="p">(</span><span class="n">Qt</span><span class="o">.</span><span class="n">ISODate</span><span class="p">)</span>
+            <span class="c1"># ローカルタイムゾーンを使用してISO 8601形式の文字列に変換</span>
+            <span class="n">start_date</span> <span class="o">=</span> <span class="n">start_date_qt</span><span class="o">.</span><span class="n">toString</span><span class="p">(</span><span class="n">Qt</span><span class="o">.</span><span class="n">ISODate</span><span class="p">)</span>
+            <span class="n">end_date</span> <span class="o">=</span> <span class="n">end_date_qt</span><span class="o">.</span><span class="n">toString</span><span class="p">(</span><span class="n">Qt</span><span class="o">.</span><span class="n">ISODate</span><span class="p">)</span>
 
         <span class="n">tags</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="n">caption</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
