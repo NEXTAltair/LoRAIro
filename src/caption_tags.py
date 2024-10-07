@@ -30,33 +30,43 @@ class ImageAnalyzer:
             self.vision_models, self.score_models = models_config
 
     @staticmethod
-    def get_existing_annotations(image_path: Path) -> Optional[dict[str, list[str, str]]]:
+    def get_existing_annotations(image_path: Path) -> Optional[dict[str, Any]]:
         """
         画像の参照元ディレクトリから既存のタグとキャプションを取得。
+        scoreとmodel_idはダミー値を設定。
 
         Args:
             image_path (Path): 画像ファイルのパス
 
         Returns:
-            dict[str, list[dict[str, str]]]: 'tags'と'captions'をキーとする辞書。
+            Optional[dict[str, Any]]: 'tags', 'captions', 'score', 'model_id', 'image_path' をキーとする辞書。
             None : 既存のアノテーションが見つからない場合
         例:
         {
-            'tags': [tag1, tag2, tag3],
-            'captions': [caption1, caption2]
+            'tags': [{'tag': 'tag1', 'model_id': None}, {'tag': 'tag2', 'model_id': None}],
+            'captions': [{'caption': 'caption1', 'model_id': None}],
+            'score': {'score': 0, 'model_id': None},
+            'model_id': None,
+            'image_path': str(image_path)
         }
         """
-        existing_annotations = {'tags': [],
-                                'captions': []
-                                }
+        existing_annotations = {
+            'tags': [],
+            'captions': [],
+            'score': {'score': 0, 'model_id': None},
+            'model_id': None,
+            'image_path': str(image_path)
+        }
         tag_path = image_path.with_suffix('.txt')
         caption_path = image_path.with_suffix('.caption')
 
         try:
             if tag_path.exists():
-                existing_annotations['tags'] = ImageAnalyzer._read_annotations(tag_path)
+                tags = ImageAnalyzer._read_annotations(tag_path)
+                existing_annotations['tags'] = [{'tag': tag, 'model_id': None} for tag in tags]
             if caption_path.exists():
-                existing_annotations['captions'] = ImageAnalyzer._read_annotations(caption_path)
+                captions = ImageAnalyzer._read_annotations(caption_path)
+                existing_annotations['captions'] = [{'caption': caption, 'model_id': None} for caption in captions]
 
             if not existing_annotations['tags'] and not existing_annotations['captions']:
                 ImageAnalyzer.logger.info(f"既存アノテーション無し: {image_path}")

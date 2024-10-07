@@ -41,6 +41,7 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
         resolution = filter_conditions['resolution']
         use_and = filter_conditions['use_and']
         start_date, end_date = filter_conditions.get('date_range', (None, None))
+        include_untagged=filter_conditions['include_untagged']
         # 日付範囲の処理
         if start_date is not None and end_date is not None:
             # UTCタイムスタンプをQDateTimeに変換し、ローカルタイムゾーンに設定
@@ -65,7 +66,8 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
             resolution=resolution,
             use_and=use_and,
             start_date=start_date,
-            end_date=end_date
+            end_date=end_date,
+            include_untagged=include_untagged
         )
         if not filtered_image_metadata:
             self.logger.info(f"{filter_type} に {filter_text} を含む検索結果がありません")

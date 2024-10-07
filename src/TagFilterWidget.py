@@ -165,7 +165,9 @@ class TagFilterWidget(QWidget, Ui_TagFilterWidget):
             'filter_text': self.filterLineEdit.text(),
             'resolution': int(split_resolution[0]) if split_resolution else None,
             'use_and': self.andRadioButton.isChecked() if self.andRadioButton.isVisible() else False,
-            'count_range': self.count_range_slider.get_range() if self.count_range_slider.isVisible() else None
+            'count_range': self.count_range_slider.get_range() if self.count_range_slider.isVisible() else None,
+            'include_untagged': self.noTagscheckBox.isChecked(),  # タグ情報がない画像を含めるかどうか
+            'include_nsfw': self.NSFWcheckBox.isChecked()  # NSFWコンテンツを含めるかどうか（デフォルトは除外）
         }
         self.logger.debug(f"Filter conditions: {filter_conditions}")
         self.filterApplied.emit(filter_conditions)

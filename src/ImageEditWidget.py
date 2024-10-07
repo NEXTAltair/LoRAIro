@@ -90,11 +90,11 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         existing_annotations = ImageAnalyzer.get_existing_annotations(file_path)
         if existing_annotations:
             # タグをカンマ区切りの文字列に結合
-            tags_str = ', '.join(existing_annotations['tags'])
+            tags_str = ', '.join([tag_info['tag'] for tag_info in existing_annotations['tags']])
             self.tableWidgetImageList.setItem(row_position, 5, QTableWidgetItem(tags_str))
 
             # キャプションをカンマ区切りの文字列に結合
-            captions_str = ', '.join(existing_annotations['captions'])
+            captions_str = ', '.join([caption_info['caption'] for caption_info in existing_annotations['captions']])
             self.tableWidgetImageList.setItem(row_position, 6, QTableWidgetItem(captions_str))
 
     @Slot()

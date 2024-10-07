@@ -505,14 +505,13 @@ class ImageRepository:
 
         tags_list = [tag_dict.get('tag') for tag_dict in tags]
         caption_list = [caption_dict.get('caption') for caption_dict in captions]
-        # scoreの中のscoreとmodel_idを取得
-        score = score_data.get('score', 0)
-        score_model_id = score_data.get('model_id', None)
-
         try:
             self._save_tags(image_id, tags_list, model_id)
             self._save_captions(image_id, caption_list, model_id)
-            self.save_score(image_id, score, score_model_id)
+            if score_data:
+                score = score_data.get('score', 0)
+                score_model_id = score_data.get('model_id', model_id)
+                self.save_score(image_id, score, score_model_id)
         except sqlite3.Error as e:
             current_method = inspect.currentframe().f_code.co_name
             raise sqlite3.Error(f"{current_method} アノテーションの保存中にエラーが発生しました: {e}")
@@ -528,6 +527,8 @@ class ImageRepository:
         Raises:
             sqlite3.Error: データベース操作でエラーが発生した場合。
         """
+        self.logger.debug(f"_save_tags called with image_id: {image_id}, tags: {tags}, model_id: {model_id}")
+        self.logger.debug(f"Type of tags: {type(tags)}")
         if not tags:
             self.logger.debug(f"画像ID {image_id} のタグリストが空のため、保存をスキップします。")
             return
@@ -768,7 +769,8 @@ class ImageRepository:
 
     def get_images_by_tag(self, tag: str, start_date: str, end_date: str) -> list[int]:
         """
-        指定された日付の範囲で更新されたタグを持つ画像のIDリストを取得する（部分一致とワイルドカードに対応）
+        指定された日付の範囲で更新されたタグを持つ画像のIDリストを取得する
+        （部分一致とワイルドカードに対応）
 
         Args:
             tag (str): 検索するタグ（ワイルドカード '*' を含むことができます）
@@ -811,6 +813,14 @@ class ImageRepository:
             return []
         else:
             return [row['id'] for row in rows]
+
+    def get_untagged_images(self) -> list[int]:
+        query = """
+        SELECT id
+        FROM images
+        WHERE id NOT IN (SELECT DISTINCT image_id FROM tags WHERE image_id)
+        """
+        return [row['id'] for row in self.db_manager.fetch_all(query, ())]
 
     def get_images_by_caption(self, caption: str, start_date: int, end_date: int) -> list[int]:
         """
@@ -923,19 +933,19 @@ class ImageRepository:
 
         Returns:
             Optional[int]: image_id。画像が見つからない場合はNone。
-        """        
+        """
         THRESHOLD = 5  # この値は調整可能です。小さいほど厳密な一致を要求します。
 
         query = "SELECT id, phash FROM images"
         try:
             results = self.db_manager.fetch_all(query)
-            
+
             for row in results:
                 db_id, db_phash = row['id'], row['phash']
                 if imagehash.hex_to_hash(phash) - imagehash.hex_to_hash(db_phash) <= THRESHOLD:
                     self.logger.info(f"類似画像が見つかりました: ID {db_id}, 元のpHash: {phash}, DB内pHash: {db_phash}")
                     return db_id
-            
+
             self.logger.info(f"類似画像は見つかりませんでした: pHash {phash}")
             return None
         except Exception as e:
@@ -1110,6 +1120,9 @@ class ImageDatabaseManager:
         Raises:
             Exception: アノテーションの保存に失敗した場合。
         """
+        self.logger.debug(f"save_annotations called with image_id: {image_id}, annotations: {annotations}")
+        self.logger.debug(f"Type of annotations: {type(annotations)}")
+
         try:
             self.repository.save_annotations(image_id, annotations)
             self.logger.info(f"画像 ID {image_id} のアノテーション{annotations}を保存しました")
@@ -1274,7 +1287,8 @@ class ImageDatabaseManager:
             raise
 
     def get_images_by_filter(self, tags: list[str] = None, caption: str = None, resolution: int = 0, 
-                             use_and: bool = True, start_date: str = None, end_date: str = None) -> tuple[list[dict[str, Any]], int]:
+                             use_and: bool = True, start_date: str = None, end_date: str = None, 
+                             include_untagged: bool = False, include_nsfw: bool = False) -> tuple[list[dict[str, Any]], int]:
         """
 
         Args:
@@ -1284,6 +1298,8 @@ class ImageDatabaseManager:
             use_and (bool, optional): _description_. Defaults to True.
             start_date (str): 検索する画像の作成日時の下限('%Y-%m-%d %H:%M:%S')
             end_date (str,): 検索する画像の作成日時の上限
+            include_untagged (bool, optional): タグが付いていない画像のみを取得. Defaults to False.
+            include_nsfw (bool, optional): NSFW画像を含めるかどうか. Defaults to False.
 
         Returns:
             tuple[list[dict[str, Any]], int]: 条件にマッチした画像データのリストとその数
@@ -1294,7 +1310,7 @@ class ImageDatabaseManager:
                 ],
                 2)
         """
-        if not tags and not caption:
+        if not tags and not caption and not include_untagged:
             self.logger.info("タグもキャプションも指定されていない")
             return None, 0
 
@@ -1305,14 +1321,20 @@ class ImageDatabaseManager:
 
         image_ids = set()
 
+        if include_untagged:
+            if tags or caption:
+                self.logger.warning("検索語句とinclude_untaggedが同時に指定されています。検索語句を無視します。")
+            untagged_image_ids = set(self.repository.get_untagged_images())
+            image_ids.update(untagged_image_ids)
+
         # タグによるフィルタリング
-        if tags:
+        if tags and not include_untagged:
             tag_results = [set(self.repository.get_images_by_tag(tag, start_date, end_date)) for tag in tags]
             if tag_results:
                 image_ids = set.intersection(*tag_results) if use_and else set.union(*tag_results)
 
         # キャプションによるフィルタリング
-        if caption:
+        if caption and not include_untagged:
             caption_results = set(self.repository.get_images_by_caption(caption, start_date, end_date))
             image_ids = image_ids.intersection(caption_results) if image_ids else caption_results
 
@@ -1423,7 +1445,7 @@ class ImageDatabaseManager:
                 height = processed_image['height']
                 if width == target_resolution or height == target_resolution:
                     return processed_image
-
+            self.logger.info(f"ID {image_id} の画像に解像度 {target_resolution} に一致する処理済み画像が見つかりませんでした")
             return None
         except Exception as e:
             self.logger.error(f"処理済み画像のチェック中にエラーが発生しました: {e}")
