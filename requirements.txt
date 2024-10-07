@@ -15,3 +15,5 @@ spandrel
 ImageHash
 joblib
 pytorch_lightning
+PySide6
+superqt
