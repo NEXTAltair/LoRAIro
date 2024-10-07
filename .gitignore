@@ -17,3 +17,4 @@ __pycache__/
 .tmp.driveupload/
 Image_database/image_database.db
 .coverage
+processing.toml
