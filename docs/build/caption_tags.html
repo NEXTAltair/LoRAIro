@@ -106,24 +106,28 @@
 <dl class="py method">
 <dt class="sig sig-object py" id="caption_tags.ImageAnalyzer.get_existing_annotations">
 <em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_existing_annotations</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">image_path</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/caption_tags.html#ImageAnalyzer.get_existing_annotations"><span class="viewcode-link"><span class="pre">[ソース]</span></span></a><a class="headerlink" href="#caption_tags.ImageAnalyzer.get_existing_annotations" title="Link to this definition">¶</a></dt>
-<dd><p>画像の参照元ディレクトリから既存のタグとキャプションを取得。</p>
+<dd><p>画像の参照元ディレクトリから既存のタグとキャプションを取得。
+scoreとmodel_idはダミー値を設定。</p>
 <dl class="field-list simple">
 <dt class="field-odd">パラメータ<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>image_path</strong> (<em>Path</em>) -- 画像ファイルのパス</p>
 </dd>
 <dt class="field-even">戻り値<span class="colon">:</span></dt>
-<dd class="field-even"><p>'tags'と'captions'をキーとする辞書。
+<dd class="field-even"><p>'tags', 'captions', 'score', 'model_id', 'image_path' をキーとする辞書。
 None : 既存のアノテーションが見つからない場合</p>
 </dd>
 <dt class="field-odd">戻り値の型<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, list[dict[str, str]]]</p>
+<dd class="field-odd"><p>Optional[dict[str, Any]]</p>
 </dd>
 </dl>
 <p>例:
 {</p>
 <blockquote>
-<div><p>'tags': [tag1, tag2, tag3],
-'captions': [caption1, caption2]</p>
+<div><p>'tags': [{'tag': 'tag1', 'model_id': None}, {'tag': 'tag2', 'model_id': None}],
+'captions': [{'caption': 'caption1', 'model_id': None}],
+'score': {'score': 0, 'model_id': None},
+'model_id': None,
+'image_path': str(image_path)</p>
 </div></blockquote>
 <p>}</p>
 </dd></dl>

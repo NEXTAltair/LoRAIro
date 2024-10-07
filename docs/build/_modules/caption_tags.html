@@ -65,39 +65,49 @@
 <span class="sd">                models_config (tuple[dict, dict]): (vision_models, score_models) のタプル</span>
 <span class="sd">            &quot;&quot;&quot;</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">api_client_factory</span> <span class="o">=</span> <span class="n">api_client_factory</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">vision_models</span> <span class="o">=</span> <span class="n">models_config</span></div>
+            <span class="bp">self</span><span class="o">.</span><span class="n">vision_models</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">score_models</span> <span class="o">=</span> <span class="n">models_config</span></div>
 
 
 <div class="viewcode-block" id="ImageAnalyzer.get_existing_annotations">
 <a class="viewcode-back" href="../caption_tags.html#caption_tags.ImageAnalyzer.get_existing_annotations">[ドキュメント]</a>
     <span class="nd">@staticmethod</span>
-    <span class="k">def</span> <span class="nf">get_existing_annotations</span><span class="p">(</span><span class="n">image_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]]:</span>
+    <span class="k">def</span> <span class="nf">get_existing_annotations</span><span class="p">(</span><span class="n">image_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        画像の参照元ディレクトリから既存のタグとキャプションを取得。</span>
+<span class="sd">        scoreとmodel_idはダミー値を設定。</span>
 
 <span class="sd">        Args:</span>
 <span class="sd">            image_path (Path): 画像ファイルのパス</span>
 
 <span class="sd">        Returns:</span>
-<span class="sd">            dict[str, list[dict[str, str]]]: &#39;tags&#39;と&#39;captions&#39;をキーとする辞書。</span>
+<span class="sd">            Optional[dict[str, Any]]: &#39;tags&#39;, &#39;captions&#39;, &#39;score&#39;, &#39;model_id&#39;, &#39;image_path&#39; をキーとする辞書。</span>
 <span class="sd">            None : 既存のアノテーションが見つからない場合</span>
 <span class="sd">        例:</span>
 <span class="sd">        {</span>
-<span class="sd">            &#39;tags&#39;: [tag1, tag2, tag3],</span>
-<span class="sd">            &#39;captions&#39;: [caption1, caption2]</span>
+<span class="sd">            &#39;tags&#39;: [{&#39;tag&#39;: &#39;tag1&#39;, &#39;model_id&#39;: None}, {&#39;tag&#39;: &#39;tag2&#39;, &#39;model_id&#39;: None}],</span>
+<span class="sd">            &#39;captions&#39;: [{&#39;caption&#39;: &#39;caption1&#39;, &#39;model_id&#39;: None}],</span>
+<span class="sd">            &#39;score&#39;: {&#39;score&#39;: 0, &#39;model_id&#39;: None},</span>
+<span class="sd">            &#39;model_id&#39;: None,</span>
+<span class="sd">            &#39;image_path&#39;: str(image_path)</span>
 <span class="sd">        }</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">existing_annotations</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;tags&#39;</span><span class="p">:</span> <span class="p">[],</span>
-                                <span class="s1">&#39;captions&#39;</span><span class="p">:</span> <span class="p">[]</span>
-                                <span class="p">}</span>
+        <span class="n">existing_annotations</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s1">&#39;tags&#39;</span><span class="p">:</span> <span class="p">[],</span>
+            <span class="s1">&#39;captions&#39;</span><span class="p">:</span> <span class="p">[],</span>
+            <span class="s1">&#39;score&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;score&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s1">&#39;model_id&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span>
+            <span class="s1">&#39;model_id&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s1">&#39;image_path&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">image_path</span><span class="p">)</span>
+        <span class="p">}</span>
         <span class="n">tag_path</span> <span class="o">=</span> <span class="n">image_path</span><span class="o">.</span><span class="n">with_suffix</span><span class="p">(</span><span class="s1">&#39;.txt&#39;</span><span class="p">)</span>
         <span class="n">caption_path</span> <span class="o">=</span> <span class="n">image_path</span><span class="o">.</span><span class="n">with_suffix</span><span class="p">(</span><span class="s1">&#39;.caption&#39;</span><span class="p">)</span>
 
         <span class="k">try</span><span class="p">:</span>
             <span class="k">if</span> <span class="n">tag_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-                <span class="n">existing_annotations</span><span class="p">[</span><span class="s1">&#39;tags&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">ImageAnalyzer</span><span class="o">.</span><span class="n">_read_annotations</span><span class="p">(</span><span class="n">tag_path</span><span class="p">)</span>
+                <span class="n">tags</span> <span class="o">=</span> <span class="n">ImageAnalyzer</span><span class="o">.</span><span class="n">_read_annotations</span><span class="p">(</span><span class="n">tag_path</span><span class="p">)</span>
+                <span class="n">existing_annotations</span><span class="p">[</span><span class="s1">&#39;tags&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[{</span><span class="s1">&#39;tag&#39;</span><span class="p">:</span> <span class="n">tag</span><span class="p">,</span> <span class="s1">&#39;model_id&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">}</span> <span class="k">for</span> <span class="n">tag</span> <span class="ow">in</span> <span class="n">tags</span><span class="p">]</span>
             <span class="k">if</span> <span class="n">caption_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-                <span class="n">existing_annotations</span><span class="p">[</span><span class="s1">&#39;captions&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">ImageAnalyzer</span><span class="o">.</span><span class="n">_read_annotations</span><span class="p">(</span><span class="n">caption_path</span><span class="p">)</span>
+                <span class="n">captions</span> <span class="o">=</span> <span class="n">ImageAnalyzer</span><span class="o">.</span><span class="n">_read_annotations</span><span class="p">(</span><span class="n">caption_path</span><span class="p">)</span>
+                <span class="n">existing_annotations</span><span class="p">[</span><span class="s1">&#39;captions&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[{</span><span class="s1">&#39;caption&#39;</span><span class="p">:</span> <span class="n">caption</span><span class="p">,</span> <span class="s1">&#39;model_id&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">}</span> <span class="k">for</span> <span class="n">caption</span> <span class="ow">in</span> <span class="n">captions</span><span class="p">]</span>
 
             <span class="k">if</span> <span class="ow">not</span> <span class="n">existing_annotations</span><span class="p">[</span><span class="s1">&#39;tags&#39;</span><span class="p">]</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">existing_annotations</span><span class="p">[</span><span class="s1">&#39;captions&#39;</span><span class="p">]:</span>
                 <span class="n">ImageAnalyzer</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;既存アノテーション無し: </span><span class="si">{</span><span class="n">image_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
@@ -160,7 +170,7 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;API処理中にエラーが発生しました（画像: </span><span class="si">{</span><span class="n">image_path</span><span class="si">}</span><span class="s2">）: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="k">return</span> <span class="p">{</span><span class="s1">&#39;error&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">),</span> <span class="s1">&#39;image_path&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">image_path</span><span class="p">)}</span>
         <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;画像処理中に予期せぬエラーが発生しました（画像: </span><span class="si">{</span><span class="n">image_path</span><span class="si">}</span><span class="s2">）: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;アノテーション生成中に予期せぬエラーが発生しました（画像: </span><span class="si">{</span><span class="n">image_path</span><span class="si">}</span><span class="s2">）: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="k">return</span> <span class="p">{</span><span class="s1">&#39;error&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">),</span> <span class="s1">&#39;image_path&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">image_path</span><span class="p">)}</span></div>
 
 
@@ -176,13 +186,14 @@
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="n">content</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">tag_cleaner</span><span class="o">.</span><span class="n">clean_format</span><span class="p">(</span><span class="n">tags_str</span><span class="p">)</span>
-            <span class="n">tags_str</span><span class="p">,</span> <span class="n">caption</span><span class="p">,</span> <span class="n">score</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extract_tags_and_caption</span><span class="p">(</span><span class="n">content</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">image_path</span><span class="p">))</span>
+            <span class="n">tags_str</span><span class="p">,</span> <span class="n">caption_str</span><span class="p">,</span> <span class="n">score</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extract_tags_and_caption</span><span class="p">(</span><span class="n">content</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">image_path</span><span class="p">))</span>
 
             <span class="c1"># タグを分割し、各タグをトリムして空のタグを除外</span>
             <span class="n">tags</span> <span class="o">=</span> <span class="p">[</span><span class="n">tag</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">tag</span> <span class="ow">in</span> <span class="n">tags_str</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;,&#39;</span><span class="p">)</span> <span class="k">if</span> <span class="n">tag</span><span class="o">.</span><span class="n">strip</span><span class="p">()]</span>
+            <span class="n">captions</span> <span class="o">=</span> <span class="p">[</span><span class="n">caption</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">caption</span> <span class="ow">in</span> <span class="n">caption_str</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;,&#39;</span><span class="p">)</span> <span class="k">if</span> <span class="n">caption</span><span class="o">.</span><span class="n">strip</span><span class="p">()]</span>
             <span class="k">return</span> <span class="p">{</span>
                 <span class="s1">&#39;tags&#39;</span><span class="p">:</span> <span class="p">[{</span><span class="s1">&#39;tag&#39;</span><span class="p">:</span> <span class="n">tag</span><span class="p">,</span> <span class="s1">&#39;model_id&#39;</span><span class="p">:</span> <span class="n">model_id</span><span class="p">}</span> <span class="k">for</span> <span class="n">tag</span> <span class="ow">in</span> <span class="n">tags</span><span class="p">],</span>
-                <span class="s1">&#39;captions&#39;</span><span class="p">:</span> <span class="p">[{</span><span class="s1">&#39;caption&#39;</span><span class="p">:</span> <span class="n">caption</span><span class="p">,</span> <span class="s1">&#39;model_id&#39;</span><span class="p">:</span> <span class="n">model_id</span><span class="p">}],</span>
+                <span class="s1">&#39;captions&#39;</span><span class="p">:</span> <span class="p">[{</span><span class="s1">&#39;caption&#39;</span><span class="p">:</span> <span class="n">caption</span><span class="p">,</span> <span class="s1">&#39;model_id&#39;</span><span class="p">:</span> <span class="n">model_id</span><span class="p">}</span> <span class="k">for</span> <span class="n">caption</span> <span class="ow">in</span> <span class="n">captions</span><span class="p">],</span>
                 <span class="s1">&#39;score&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;score&#39;</span><span class="p">:</span> <span class="n">score</span><span class="p">,</span> <span class="s1">&#39;model_id&#39;</span><span class="p">:</span> <span class="n">model_id</span><span class="p">},</span>
                 <span class="s1">&#39;image_path&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">image_path</span><span class="p">)</span>
             <span class="p">}</span>
