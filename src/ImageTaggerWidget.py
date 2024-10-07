@@ -101,11 +101,13 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
     def on_dbSearchWidget_filterApplied(self, filter_conditions: dict):
         self.logger.debug(f"on_dbSearchWidget_filterApplied: {filter_conditions}")
         filter_text = filter_conditions['filter_text']
+        include_untagged = filter_conditions['include_untagged']
+        include_nsfw = filter_conditions['include_nsfw']
 
         tags = []
         tags = [tag.strip() for tag in filter_text.split(',')]
 
-        filtered_images, list_count = self.idm.get_images_by_filter(tags=tags)
+        filtered_images, list_count = self.idm.get_images_by_filter(tags=tags, include_untagged=include_untagged, include_nsfw=include_nsfw)
         if not filtered_images:
             self.logger.info(f"Tag に {filter_text} を含む検索結果がありません")
             QMessageBox.critical(self,  "info", f"Tag に {filter_text} を含む検索結果がありません")

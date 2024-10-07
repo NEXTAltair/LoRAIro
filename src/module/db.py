@@ -1343,6 +1343,11 @@ class ImageDatabaseManager:
             self.logger.info("条件に一致する画像が見つかりませんでした")
             return [], 0
 
+        # image_idsの画像のアノテーションを取得､キーワード一致するNSFWが含まれるimage_idを除外
+        if not include_nsfw:
+            exclude_keywords = ['nsfw', 'explicit', 'sex', 'pussy', 'nude', 'penis', 'cum', 'bdsm']  # 除外したいキーワードのリスト
+            image_ids = self._filter_images_by_exclude_keywords(image_ids, exclude_keywords)
+
         # 画像メタデータの取得
         metadata_list = []
         for image_id in image_ids:
@@ -1388,6 +1393,38 @@ class ImageDatabaseManager:
                     if error_ratio <= 0.2:
                         filtered_list.append(metadata)
             return filtered_list
+
+    def _filter_images_by_exclude_keywords(self, image_ids: set[int], exclude_keywords: list[str]) -> set[int]:
+        """
+        指定された除外キーワードがタグまたはキャプションに含まれる画像IDを除外して、フィルタリングされた画像IDのセットを返します。
+
+        引数:
+            image_ids (set[int]): フィルタリング対象の画像IDのセット。
+            exclude_keywords (list[str]): 除外キーワードのリスト。これらのキーワードを含む画像は除外されます。
+
+        戻り値:
+            set[int]: 除外キーワードが一致しない画像IDのセット。
+
+        方法:
+            1. `image_ids` の各画像IDに対して、その画像のタグとキャプションのアノテーションを取得します。
+            2. タグとキャプションを小文字に変換し、大文字小文字を区別せずに比較します。
+            3. 除外キーワードのいずれかがタグまたはキャプションに含まれているかを確認します。
+            4. 除外キーワードが一致する場合、その画像IDを `image_ids` から削除します。
+            5. フィルタリングされた画像IDのセットを返します。
+        """
+        image_ids_copy = image_ids.copy()  # `set` のコピーを作成します
+        for image_id in image_ids_copy:
+            annotations = self.repository.get_image_annotations(image_id)
+            tags = [tag['tag'].lower() for tag in annotations.get('tags', [])]
+            captions = [caption['caption'].lower() for caption in annotations.get('captions', [])]
+            # 除外キーワードのチェック
+            annotations = tags + captions
+            exclude_match = any(keyword.lower() in annotation for keyword in exclude_keywords for annotation in annotations)
+
+            if exclude_match:
+                image_ids.remove(image_id)  # `set` から直接削除します
+
+        return image_ids
 
     def detect_duplicate_image(self, image_path: Path) -> Optional[int]:
         """
