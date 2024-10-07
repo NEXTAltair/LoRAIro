@@ -6,7 +6,7 @@ clip
 numpy
 scipy
 toml
-google-generativea
+google-generativeai
 anthropic
 pandas
 ipywidgets
