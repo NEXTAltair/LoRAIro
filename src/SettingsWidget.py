@@ -74,42 +74,54 @@ class SettingsWidget(QWidget, Ui_SettingsWidget):
         if filename and self._save_config(filename):
             QMessageBox.information(self, "保存成功", f"設定を {filename} に保存しました。")
 
+    @Slot()
     def on_lineEditOpenAiKey_editingFinished(self):
         self.cm.config['api']['openai_key'] = self.lineEditOpenAiKey.text()
 
+    @Slot()
     def on_lineEditGoogleVisionKey_editingFinished(self):
         self.cm.config['api']['google_key'] = self.lineEditGoogleVisionKey.text()
 
+    @Slot()
     def on_lineEditAnthropicKey_editingFinished(self):
         self.cm.config['api']['claude_key'] = self.lineEditAnthropicKey.text()
 
+    @Slot()
     def on_lineEditHfUsername_editingFinished(self):
         self.cm.config['huggingface']['hf_username'] = self.lineEditHfUsername.text()
 
+    @Slot()
     def on_lineEditHfRepoName_editingFinished(self):
         self.cm.config['huggingface']['repo_name'] = self.lineEditHfRepoName.text()
 
+    @Slot()
     def on_lineEditHfToken_editingFinished(self):
         self.cm.config['huggingface']['token'] = self.lineEditHfToken.text()
 
+    @Slot()
     def on_comboBoxLogLevel_currentIndexChanged(self, index):
         self.cm.config['log']['level'] = self.comboBoxLogLevel.itemText(index)
 
+    @Slot()
     def connect_custom_widgets(self):
         self.dirPickerOutput.DirectoryPicker.lineEditPicker.textChanged.connect(self.on_dirPickerOutput_changed)
         self.dirPickerResponse.DirectoryPicker.lineEditPicker.textChanged.connect(self.on_dirPickerResponse_changed)
         self.dirPickerEditedOutput.DirectoryPicker.lineEditPicker.textChanged.connect(self.on_dirPickerEditedOutput_changed)
         self.filePickerLogFile.FilePicker.lineEditPicker.textChanged.connect(self.on_filePickerLogFile_changed)
 
+    @Slot()
     def on_dirPickerOutput_changed(self, new_path):
         self.cm.config['directories']['output'] = new_path
 
+    @Slot()
     def on_dirPickerResponse_changed(self, new_path):
         self.cm.config['directories']['response_file'] = new_path
 
+    @Slot()
     def on_dirPickerEditedOutput_changed(self, new_path):
         self.cm.config['directories']['edited_output'] = new_path
 
+    @Slot()
     def on_filePickerLogFile_changed(self, new_path):
         self.cm.config['log']['file'] = new_path
 
