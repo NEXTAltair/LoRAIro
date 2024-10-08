@@ -66,9 +66,6 @@ def get_config(config_file = 'processing.toml') -> dict:
     final_config = deepcopy(DEFAULT_CONFIG)
     loaded_config = load_config(config_file)
     final_config = deep_update(final_config, loaded_config)
-    if not final_config['directories']['dataset']:
-        # TODO: UI実装したので必須ではなくなった
-        raise ValueError("'dataset' ディレクトリはprocessing.tomlで指定する必要があります。")
     return final_config
 
 def write_config_file(config_data: dict[str, Any], file_name: str = "processing.toml"):
