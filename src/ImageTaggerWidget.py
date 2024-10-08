@@ -109,11 +109,19 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         tags = [tag.strip() for tag in filter_text.split(',')]
 
         filtered_images, list_count = self.idm.get_images_by_filter(tags=tags, include_untagged=include_untagged, include_nsfw=include_nsfw)
+
         if not filtered_images:
             self.logger.info(f"Tag に {filter_text} を含む検索結果がありません")
             QMessageBox.critical(self,  "info", f"Tag に {filter_text} を含む検索結果がありません")
 
-        image_list = [Path(image['stored_image_path']) for image in filtered_images]
+        # 重複を除いた画像のリストを作成
+        unique_images = {}
+        for metadata in filtered_images:
+            image_id = metadata['image_id']
+            if image_id not in unique_images:
+                unique_images[image_id] = Path(metadata['stored_image_path'])
+        image_list = list(unique_images.values())
+
         self.ThumbnailSelector.load_images(image_list)
         if image_list:
             self.ThumbnailSelector.select_first_image()
