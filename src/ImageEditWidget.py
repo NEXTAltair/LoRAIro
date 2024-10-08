@@ -47,7 +47,8 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
     def showEvent(self, event):
         """ウィジェットが表示される際にメインウィンドウで選択された画像を表示する"""
         super().showEvent(event)
-        self.load_images(self.cm.dataset_image_paths)
+        if self.cm.dataset_image_paths:
+            self.load_images(self.cm.dataset_image_paths)
 
     def load_images(self, directory_images: list):
         self.directory_images = directory_images

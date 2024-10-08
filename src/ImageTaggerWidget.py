@@ -82,7 +82,8 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
     def showEvent(self, event):
         """ウィジェットが表示される際に呼び出されるイベントハンドラ"""
         super().showEvent(event)
-        self.load_images(self.cm.dataset_image_paths)
+        if self.cm.dataset_image_paths:
+            self.load_images(self.cm.dataset_image_paths)
 
     def load_images(self, image_files: list):
         """
