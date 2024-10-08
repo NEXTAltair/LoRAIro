@@ -30,6 +30,7 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         self.main_window = main_window
         self.target_resolution = self.cm.config['image_processing']['target_resolution']
         self.preferred_resolutions = self.cm.config['preferred_resolutions']
+        self.upscaler = None
         self.comboBoxResizeOption.currentText()
         upscalers = [upscaler['name'] for upscaler in self.cm.upscaler_models.values()]
         self.comboBoxUpscaler.addItems(upscalers)
