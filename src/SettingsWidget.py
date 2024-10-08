@@ -29,7 +29,7 @@ class SettingsWidget(QWidget, Ui_SettingsWidget):
         }
         for key, picker in directories.items():
             picker.set_label_text(f"{key.capitalize()} Directory")
-            picker.set_path(self.cm.config['directories'][key])
+            picker.set_path(self.cm.config.get('directories', {}).get(key, ""))
 
     def initialize_api_settings(self):
         api_settings = {
@@ -38,7 +38,7 @@ class SettingsWidget(QWidget, Ui_SettingsWidget):
             'claude_key': self.lineEditAnthropicKey
         }
         for key, widget in api_settings.items():
-            widget.setText(self.cm.config['api'][key])
+            widget.setText(self.cm.config.get('api', {}).get(key, ""))
 
     def initialize_huggingface_settings(self):
         hf_settings = {
@@ -47,7 +47,7 @@ class SettingsWidget(QWidget, Ui_SettingsWidget):
             'token': self.lineEditHfToken
         }
         for key, widget in hf_settings.items():
-            widget.setText(self.cm.config['huggingface'][key])
+            widget.setText(self.cm.config.get('huggingface', {}).get(key, ""))
 
     def initialize_log_settings(self):
         self.comboBoxLogLevel.addItems(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])

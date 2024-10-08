@@ -85,6 +85,9 @@ class MainWindow(QMainWindow, Ui_mainWindow):
         self.logger.info(f"データセットディレクトリが変更されました: {new_path}")
         self.cm.config['directories']['dataset'] = new_path
         self.cm.dataset_image_paths = FileSystemManager.get_image_files(Path(new_path))
+        # path がない場合は何もしない
+        if not self.cm.dataset_image_paths:
+            return
         # 現在表示されているページを更新するため current_page の load_images メソッドを呼び出す
         current_page = self.contentStackedWidget.currentWidget()
         if hasattr(current_page, 'load_images'):

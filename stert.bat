@@ -38,13 +38,13 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-REM Rename processing.template.toml to processing.toml if it doesn't exist
-REM processing.tomlが存在しない場合、processing.template.tomlをリネームします
+REM Copy processing.template.toml to processing.toml if processing.toml doesn't exist
+REM processing.tomlが存在しない場合、processing.template.tomlをコピーします
 if not exist "processing.toml" (
     if exist "processing.template.toml" (
-        echo Renaming processing.template.toml to processing.toml...
-        echo processing.template.tomlをprocessing.tomlにリネームしています...
-        ren "processing.template.toml" "processing.toml"
+        echo Copying processing.template.toml to processing.toml...
+        echo processing.template.tomlをprocessing.tomlにコピーしています...
+        copy "processing.template.toml" "processing.toml"
     ) else (
         echo Warning: processing.template.toml not found. Please ensure you have the correct configuration file.
         echo 警告: processing.template.tomlが見つかりません。正しい設定ファイルがあることを確認してください。
