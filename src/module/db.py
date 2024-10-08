@@ -1348,7 +1348,7 @@ class ImageDatabaseManager:
 
         # image_idsの画像のアノテーションを取得､キーワード一致するNSFWが含まれるimage_idを除外
         if not include_nsfw:
-            exclude_keywords = ['nsfw', 'explicit', 'sex', 'pussy', 'nude', 'penis', 'cum', 'bdsm']  # 除外したいキーワードのリスト
+            exclude_keywords = ['nsfw', 'explicit', 'sex', 'pussy', 'nude', 'penis', 'cum', 'bdsm', 'explicit']  # 除外したいキーワードのリスト
             image_ids = self._filter_images_by_exclude_keywords(image_ids, exclude_keywords)
 
         # 画像メタデータの取得

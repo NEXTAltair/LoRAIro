@@ -160,16 +160,16 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         else:
             original_image_metadata = self.idm.get_image_metadata(image_id)
 
-        existing_processed_image = self.idm.check_processed_image_exists(image_id, self.target_resolution)
-        if existing_processed_image:
-            self.logger.info(f"既に処理済みの画像が存在します: {image_file}")
-            return
-
         existing_annotations = ImageAnalyzer.get_existing_annotations(image_file)
         if existing_annotations:
             self.idm.save_annotations(image_id, existing_annotations)
         else:
             self.idm.save_annotations(image_id, {'tags': [], 'captions': []})
+
+        existing_processed_image = self.idm.check_processed_image_exists(image_id, self.target_resolution)
+        if existing_processed_image:
+            self.logger.info(f"指定解像度の画像は保存済みです: {image_file}")
+            return
 
         processed_image = self.ipm.process_image(
             image_file,
