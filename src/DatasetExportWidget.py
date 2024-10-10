@@ -33,32 +33,24 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
         self.init_ui()
 
     def init_date_range(self):
-        # 2023年1月1日の0時をローカル時間で設定
-        start_date = QDateTime(2023, 1, 1, 0, 0, 0)
-        start_timestamp = start_date.toSecsSinceEpoch()
-
-        # 現在の日付の0時
-        end_date = QDateTime.currentDateTime().date()
-        end_time = QTime(0, 0, 0)  # 0時0分0秒
-        end_datetime = QDateTime(end_date, end_time)
-        end_timestamp = end_datetime.toSecsSinceEpoch()
-
-        self.filterWidget.count_range_slider.set_date_range(start_timestamp, end_timestamp)
+        self.filterWidget.count_range_slider.set_date_range()
 
     def on_filter_applied(self, filter_conditions: dict):
         filter_type = filter_conditions['filter_type']
         filter_text = filter_conditions['filter_text']
         resolution = filter_conditions['resolution']
         use_and = filter_conditions['use_and']
-        min, max = filter_conditions['count_range']
+        start_date, end_date = filter_conditions.get('date_range', (None, None))
+        include_untagged=filter_conditions['include_untagged']
+        # 日付範囲の処理
+        if start_date is not None and end_date is not None:
+            # UTCタイムスタンプをQDateTimeに変換し、ローカルタイムゾーンに設定
+            start_date_qt = QDateTime.fromSecsSinceEpoch(start_date).toLocalTime()
+            end_date_qt = QDateTime.fromSecsSinceEpoch(end_date).toLocalTime()
 
-        # UTCタイムスタンプをQDateTimeに変換し、ローカルタイムゾーンに設定
-        start_date_qt = QDateTime.fromSecsSinceEpoch(min)
-        end_date_qt = QDateTime.fromSecsSinceEpoch(max)
-
-        # ローカルタイムゾーンを使用してISO 8601形式の文字列に変換
-        start_date = start_date_qt.toLocalTime().toString(Qt.ISODate)
-        end_date = end_date_qt.toLocalTime().toString(Qt.ISODate)
+            # ローカルタイムゾーンを使用してISO 8601形式の文字列に変換
+            start_date = start_date_qt.toString(Qt.ISODate)
+            end_date = end_date_qt.toString(Qt.ISODate)
 
         tags = []
         caption = ""
@@ -74,7 +66,8 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
             resolution=resolution,
             use_and=use_and,
             start_date=start_date,
-            end_date=end_date
+            end_date=end_date,
+            include_untagged=include_untagged
         )
         if not filtered_image_metadata:
             self.logger.info(f"{filter_type} に {filter_text} を含む検索結果がありません")

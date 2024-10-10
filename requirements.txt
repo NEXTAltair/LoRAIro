@@ -6,7 +6,7 @@ clip
 numpy
 scipy
 toml
-google-generativea
+google-generativeai
 anthropic
 pandas
 ipywidgets
@@ -15,3 +15,5 @@ spandrel
 ImageHash
 joblib
 pytorch_lightning
+PySide6
+superqt

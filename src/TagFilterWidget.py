@@ -1,7 +1,7 @@
 import numpy as np
 
 from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QLabel
-from PySide6.QtCore import Qt, Signal, Slot, QDateTime, QTimeZone, QTime
+from PySide6.QtCore import Qt, Signal, Slot, QDateTime, QTimeZone, QDate, QTime
 from superqt import QDoubleRangeSlider
 
 from gui_file.TagFilterWidget_ui import Ui_TagFilterWidget
@@ -106,39 +106,23 @@ class CustomRangeSlider(QWidget):
         self.max_value = max_value
         self.update_labels()
 
-    def set_date_range(self, min_timestamp, max_timestamp):
-        # タイムスタンプが有効であることを確認
-        if not isinstance(min_timestamp, (int, float)) or not isinstance(max_timestamp, (int, float)):
-            raise ValueError("タイムスタンプは数値である必要があります")
+    def set_date_range(self):
+        # 開始日を2023年1月1日の0時に設定（UTC）
+        start_date = QDateTime(QDate(2023, 1, 1), QTime(0, 0), QTimeZone.UTC)
 
-        # タイムスタンプを QDateTime オブジェクトに変換
-        min_date = QDateTime.fromSecsSinceEpoch(int(min_timestamp), QTimeZone.UTC)
-        max_date = QDateTime.fromSecsSinceEpoch(int(max_timestamp), QTimeZone.UTC)
-
-        # 日付の範囲が有効であることを確認
-        if min_date > max_date:
-            raise ValueError("開始日は終了日よりも前である必要があります")
+        # 終了日を現在の日付の23:59:59に設定（UTC）
+        end_date = QDateTime.currentDateTimeUtc()
+        end_date.setTime(QTime(23, 59, 59))
 
         # 日付モードをオンにする
         self.is_date_mode = True
 
-        # システムのローカルタイムゾーンを取得
-        local_tz = QTimeZone.systemTimeZone()
-
-        # 日付をローカルタイムゾーンに変換
-        min_date_local = min_date.toTimeZone(local_tz)
-        max_date_local = max_date.toTimeZone(local_tz)
-
-        # ローカルタイムゾーンの日付の開始時刻（0時0分0秒）と終了時刻（23時59分59秒）を設定
-        min_date_local = QDateTime(min_date_local.date(), QTime(0, 0, 0), local_tz)
-        max_date_local = QDateTime(max_date_local.date(), QTime(23, 59, 59), local_tz)
-
-        # ローカルタイムゾーンのタイムスタンプを取得
-        min_timestamp_local = min_date_local.toSecsSinceEpoch()
-        max_timestamp_local = max_date_local.toSecsSinceEpoch()
+        # UTCタイムスタンプを取得（秒単位の整数）
+        start_timestamp = int(start_date.toSecsSinceEpoch())
+        end_timestamp = int(end_date.toSecsSinceEpoch())
 
         # 範囲を設定
-        self.set_range(min_timestamp_local, max_timestamp_local)
+        self.set_range(start_timestamp, end_timestamp)
 
         # ラベルを更新
         self.update_labels()
@@ -181,7 +165,9 @@ class TagFilterWidget(QWidget, Ui_TagFilterWidget):
             'filter_text': self.filterLineEdit.text(),
             'resolution': int(split_resolution[0]) if split_resolution else None,
             'use_and': self.andRadioButton.isChecked() if self.andRadioButton.isVisible() else False,
-            'count_range': self.count_range_slider.get_range() if self.count_range_slider.isVisible() else None
+            'count_range': self.count_range_slider.get_range() if self.count_range_slider.isVisible() else None,
+            'include_untagged': self.noTagscheckBox.isChecked(),  # タグ情報がない画像を含めるかどうか
+            'include_nsfw': self.NSFWcheckBox.isChecked()  # NSFWコンテンツを含めるかどうか（デフォルトは除外）
         }
         self.logger.debug(f"Filter conditions: {filter_conditions}")
         self.filterApplied.emit(filter_conditions)

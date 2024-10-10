@@ -15,9 +15,9 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QFont, QFontDatabase, QGradient, QIcon,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
-from PySide6.QtWidgets import (QApplication, QComboBox, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton, QRadioButton,
-    QSizePolicy, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QGroupBox,
+    QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QRadioButton, QSizePolicy, QVBoxLayout, QWidget)
 
 class Ui_TagFilterWidget(object):
     def setupUi(self, TagFilterWidget):
@@ -54,6 +54,28 @@ class Ui_TagFilterWidget(object):
 
         self.filterLayout.addWidget(self.filterTypeWidget)
 
+        self.filterLineEdit = QLineEdit(self.filterGroupBox)
+        self.filterLineEdit.setObjectName(u"filterLineEdit")
+
+        self.filterLayout.addWidget(self.filterLineEdit)
+
+        self.taggingFilter = QWidget(self.filterGroupBox)
+        self.taggingFilter.setObjectName(u"taggingFilter")
+        self.horizontalLayout_2 = QHBoxLayout(self.taggingFilter)
+        self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
+        self.noTagscheckBox = QCheckBox(self.taggingFilter)
+        self.noTagscheckBox.setObjectName(u"noTagscheckBox")
+
+        self.horizontalLayout_2.addWidget(self.noTagscheckBox)
+
+        self.NSFWcheckBox = QCheckBox(self.taggingFilter)
+        self.NSFWcheckBox.setObjectName(u"NSFWcheckBox")
+
+        self.horizontalLayout_2.addWidget(self.NSFWcheckBox)
+
+
+        self.filterLayout.addWidget(self.taggingFilter)
+
         self.countRangeWidget = QWidget(self.filterGroupBox)
         self.countRangeWidget.setObjectName(u"countRangeWidget")
         self.countRangeWidget.setInputMethodHints(Qt.InputMethodHint.ImhNone)
@@ -71,11 +93,6 @@ class Ui_TagFilterWidget(object):
 
 
         self.filterLayout.addWidget(self.countRangeWidget)
-
-        self.filterLineEdit = QLineEdit(self.filterGroupBox)
-        self.filterLineEdit.setObjectName(u"filterLineEdit")
-
-        self.filterLayout.addWidget(self.filterLineEdit)
 
         self.resolutionWidget = QWidget(self.filterGroupBox)
         self.resolutionWidget.setObjectName(u"resolutionWidget")
@@ -119,8 +136,10 @@ class Ui_TagFilterWidget(object):
         self.filterTypeComboBox.setItemText(1, QCoreApplication.translate("TagFilterWidget", u"Caption", None))
 
         self.andRadioButton.setText(QCoreApplication.translate("TagFilterWidget", u"AND\u691c\u7d22", None))
-        self.tagUpdateatLabel.setText(QCoreApplication.translate("TagFilterWidget", u"\u30bf\u30b0\u7de8\u96c6\u65e5", None))
         self.filterLineEdit.setPlaceholderText(QCoreApplication.translate("TagFilterWidget", u"Enter filter criteria", None))
+        self.noTagscheckBox.setText(QCoreApplication.translate("TagFilterWidget", u"\u30bf\u30b0\u306e\u7121\u3044\u753b\u50cf", None))
+        self.NSFWcheckBox.setText(QCoreApplication.translate("TagFilterWidget", u"NSFW", None))
+        self.tagUpdateatLabel.setText(QCoreApplication.translate("TagFilterWidget", u"\u30bf\u30b0\u7de8\u96c6\u65e5", None))
         self.resolutionLabel.setText(QCoreApplication.translate("TagFilterWidget", u"Resolution:", None))
         self.resolutionComboBox.setItemText(0, QCoreApplication.translate("TagFilterWidget", u"512x512", None))
         self.resolutionComboBox.setItemText(1, QCoreApplication.translate("TagFilterWidget", u"768x768", None))

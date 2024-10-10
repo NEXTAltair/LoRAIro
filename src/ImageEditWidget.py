@@ -30,6 +30,7 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         self.main_window = main_window
         self.target_resolution = self.cm.config['image_processing']['target_resolution']
         self.preferred_resolutions = self.cm.config['preferred_resolutions']
+        self.upscaler = None
         self.comboBoxResizeOption.currentText()
         upscalers = [upscaler['name'] for upscaler in self.cm.upscaler_models.values()]
         self.comboBoxUpscaler.addItems(upscalers)
@@ -47,7 +48,8 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
     def showEvent(self, event):
         """ウィジェットが表示される際にメインウィンドウで選択された画像を表示する"""
         super().showEvent(event)
-        self.load_images(self.cm.dataset_image_paths)
+        if self.cm.dataset_image_paths:
+            self.load_images(self.cm.dataset_image_paths)
 
     def load_images(self, directory_images: list):
         self.directory_images = directory_images
@@ -90,11 +92,11 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         existing_annotations = ImageAnalyzer.get_existing_annotations(file_path)
         if existing_annotations:
             # タグをカンマ区切りの文字列に結合
-            tags_str = ', '.join(existing_annotations['tags'])
+            tags_str = ', '.join([tag_info['tag'] for tag_info in existing_annotations['tags']])
             self.tableWidgetImageList.setItem(row_position, 5, QTableWidgetItem(tags_str))
 
             # キャプションをカンマ区切りの文字列に結合
-            captions_str = ', '.join(existing_annotations['captions'])
+            captions_str = ', '.join([caption_info['caption'] for caption_info in existing_annotations['captions']])
             self.tableWidgetImageList.setItem(row_position, 6, QTableWidgetItem(captions_str))
 
     @Slot()
@@ -153,22 +155,22 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
             raise e
 
     def process_image(self, image_file: Path):
-        image_id = self.idm.get_image_id_by_name(image_file.name)
+        image_id = self.idm.detect_duplicate_image(image_file)
         if not image_id:
             image_id, original_image_metadata = self.idm.register_original_image(image_file, self.fsm)
         else:
             original_image_metadata = self.idm.get_image_metadata(image_id)
-
-        existing_processed_image = self.idm.check_processed_image_exists(image_id, self.target_resolution)
-        if existing_processed_image:
-            self.logger.info(f"既に処理済みの画像が存在します: {image_file}")
-            return
 
         existing_annotations = ImageAnalyzer.get_existing_annotations(image_file)
         if existing_annotations:
             self.idm.save_annotations(image_id, existing_annotations)
         else:
             self.idm.save_annotations(image_id, {'tags': [], 'captions': []})
+
+        existing_processed_image = self.idm.check_processed_image_exists(image_id, self.target_resolution)
+        if existing_processed_image:
+            self.logger.info(f"指定解像度の画像は保存済みです: {image_file}")
+            return
 
         processed_image = self.ipm.process_image(
             image_file,

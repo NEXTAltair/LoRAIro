@@ -32,10 +32,11 @@
           <div class="body" role="main">
             
   <h1>DatasetExportWidget のソースコード</h1><div class="highlight"><pre>
-<span></span><span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+<span></span><span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
 
 <span class="kn">from</span> <span class="nn">PySide6.QtWidgets</span> <span class="kn">import</span> <span class="n">QWidget</span><span class="p">,</span> <span class="n">QMessageBox</span>
-<span class="kn">from</span> <span class="nn">PySide6.QtCore</span> <span class="kn">import</span> <span class="n">Slot</span>
+<span class="kn">from</span> <span class="nn">PySide6.QtCore</span> <span class="kn">import</span> <span class="n">Qt</span><span class="p">,</span> <span class="n">QDateTime</span><span class="p">,</span> <span class="n">QTimeZone</span><span class="p">,</span> <span class="n">QTime</span><span class="p">,</span> <span class="n">Slot</span>
 <span class="kn">from</span> <span class="nn">gui_file.DatasetExportWidget_ui</span> <span class="kn">import</span> <span class="n">Ui_DatasetExportWidget</span>
 
 <span class="kn">from</span> <span class="nn">module.file_sys</span> <span class="kn">import</span> <span class="n">FileSystemManager</span>
@@ -60,8 +61,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">exportDirectoryPicker</span><span class="o">.</span><span class="n">set_label_text</span><span class="p">(</span><span class="s2">&quot;Export Directory:&quot;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">exportDirectoryPicker</span><span class="o">.</span><span class="n">set_path</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cm</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s1">&#39;directories&#39;</span><span class="p">][</span><span class="s1">&#39;edited_output&#39;</span><span class="p">])</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">exportProgressBar</span><span class="o">.</span><span class="n">setVisible</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">filterWidget</span><span class="o">.</span><span class="n">filterApplied</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">on_filter_applied</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">filterWidget</span><span class="o">.</span><span class="n">countRangeWidget</span><span class="o">.</span><span class="n">hide</span><span class="p">()</span> <span class="c1"># ここでは使わないを非表示にする</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filterWidget</span><span class="o">.</span><span class="n">filterApplied</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">on_filter_applied</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="DatasetExportWidget.initialize">
@@ -70,7 +70,14 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">cm</span> <span class="o">=</span> <span class="n">cm</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">fsm</span> <span class="o">=</span> <span class="n">fsm</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">idm</span> <span class="o">=</span> <span class="n">idm</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">init_date_range</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">init_ui</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="DatasetExportWidget.init_date_range">
+<a class="viewcode-back" href="../DatasetExportWidget.html#DatasetExportWidget.DatasetExportWidget.init_date_range">[ドキュメント]</a>
+    <span class="k">def</span> <span class="nf">init_date_range</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filterWidget</span><span class="o">.</span><span class="n">count_range_slider</span><span class="o">.</span><span class="n">set_date_range</span><span class="p">()</span></div>
 
 
 <div class="viewcode-block" id="DatasetExportWidget.on_filter_applied">
@@ -80,6 +87,17 @@
         <span class="n">filter_text</span> <span class="o">=</span> <span class="n">filter_conditions</span><span class="p">[</span><span class="s1">&#39;filter_text&#39;</span><span class="p">]</span>
         <span class="n">resolution</span> <span class="o">=</span> <span class="n">filter_conditions</span><span class="p">[</span><span class="s1">&#39;resolution&#39;</span><span class="p">]</span>
         <span class="n">use_and</span> <span class="o">=</span> <span class="n">filter_conditions</span><span class="p">[</span><span class="s1">&#39;use_and&#39;</span><span class="p">]</span>
+        <span class="n">start_date</span><span class="p">,</span> <span class="n">end_date</span> <span class="o">=</span> <span class="n">filter_conditions</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;date_range&#39;</span><span class="p">,</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">))</span>
+        <span class="n">include_untagged</span><span class="o">=</span><span class="n">filter_conditions</span><span class="p">[</span><span class="s1">&#39;include_untagged&#39;</span><span class="p">]</span>
+        <span class="c1"># 日付範囲の処理</span>
+        <span class="k">if</span> <span class="n">start_date</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">end_date</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># UTCタイムスタンプをQDateTimeに変換し、ローカルタイムゾーンに設定</span>
+            <span class="n">start_date_qt</span> <span class="o">=</span> <span class="n">QDateTime</span><span class="o">.</span><span class="n">fromSecsSinceEpoch</span><span class="p">(</span><span class="n">start_date</span><span class="p">)</span><span class="o">.</span><span class="n">toLocalTime</span><span class="p">()</span>
+            <span class="n">end_date_qt</span> <span class="o">=</span> <span class="n">QDateTime</span><span class="o">.</span><span class="n">fromSecsSinceEpoch</span><span class="p">(</span><span class="n">end_date</span><span class="p">)</span><span class="o">.</span><span class="n">toLocalTime</span><span class="p">()</span>
+
+            <span class="c1"># ローカルタイムゾーンを使用してISO 8601形式の文字列に変換</span>
+            <span class="n">start_date</span> <span class="o">=</span> <span class="n">start_date_qt</span><span class="o">.</span><span class="n">toString</span><span class="p">(</span><span class="n">Qt</span><span class="o">.</span><span class="n">ISODate</span><span class="p">)</span>
+            <span class="n">end_date</span> <span class="o">=</span> <span class="n">end_date_qt</span><span class="o">.</span><span class="n">toString</span><span class="p">(</span><span class="n">Qt</span><span class="o">.</span><span class="n">ISODate</span><span class="p">)</span>
 
         <span class="n">tags</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="n">caption</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
@@ -93,7 +111,10 @@
             <span class="n">tags</span><span class="o">=</span><span class="n">tags</span><span class="p">,</span>
             <span class="n">caption</span><span class="o">=</span><span class="n">caption</span><span class="p">,</span>
             <span class="n">resolution</span><span class="o">=</span><span class="n">resolution</span><span class="p">,</span>
-            <span class="n">use_and</span><span class="o">=</span><span class="n">use_and</span>
+            <span class="n">use_and</span><span class="o">=</span><span class="n">use_and</span><span class="p">,</span>
+            <span class="n">start_date</span><span class="o">=</span><span class="n">start_date</span><span class="p">,</span>
+            <span class="n">end_date</span><span class="o">=</span><span class="n">end_date</span><span class="p">,</span>
+            <span class="n">include_untagged</span><span class="o">=</span><span class="n">include_untagged</span>
         <span class="p">)</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">filtered_image_metadata</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">filter_type</span><span class="si">}</span><span class="s2"> に </span><span class="si">{</span><span class="n">filter_text</span><span class="si">}</span><span class="s2"> を含む検索結果がありません&quot;</span><span class="p">)</span>

@@ -30,6 +30,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         self.prompt = ""
         self.model_name = ""
         self.model = ""
+        self.check_low_res = False
 
         self.init_ui()
 
@@ -76,12 +77,13 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
 
     @Slot()
     def on_lowRescheckBox_clicked(self):
-        self.check_low_res = self.checkBoxLowRes.isChecked()
+        self.check_low_res = True
 
     def showEvent(self, event):
         """ウィジェットが表示される際に呼び出されるイベントハンドラ"""
         super().showEvent(event)
-        self.load_images(self.cm.dataset_image_paths)
+        if self.cm.dataset_image_paths:
+            self.load_images(self.cm.dataset_image_paths)
 
     def load_images(self, image_files: list):
         """
@@ -100,16 +102,26 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
     def on_dbSearchWidget_filterApplied(self, filter_conditions: dict):
         self.logger.debug(f"on_dbSearchWidget_filterApplied: {filter_conditions}")
         filter_text = filter_conditions['filter_text']
+        include_untagged = filter_conditions['include_untagged']
+        include_nsfw = filter_conditions['include_nsfw']
 
         tags = []
         tags = [tag.strip() for tag in filter_text.split(',')]
 
-        filtered_images, list_count = self.idm.get_images_by_filter(tags=tags)
+        filtered_images, list_count = self.idm.get_images_by_filter(tags=tags, include_untagged=include_untagged, include_nsfw=include_nsfw)
+
         if not filtered_images:
             self.logger.info(f"Tag に {filter_text} を含む検索結果がありません")
             QMessageBox.critical(self,  "info", f"Tag に {filter_text} を含む検索結果がありません")
 
-        image_list = [Path(image['stored_image_path']) for image in filtered_images]
+        # 重複を除いた画像のリストを作成
+        unique_images = {}
+        for metadata in filtered_images:
+            image_id = metadata['image_id']
+            if image_id not in unique_images:
+                unique_images[image_id] = Path(metadata['stored_image_path'])
+        image_list = list(unique_images.values())
+
         self.ThumbnailSelector.load_images(image_list)
         if image_list:
             self.ThumbnailSelector.select_first_image()
@@ -153,23 +165,23 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
                 self.logger.info(f"{image_path.stem}の処理中")
 
                 if self.check_low_res:
-                    image_id = self.idm.get_image_id_by_name(image_path.name)
+                    image_id = self.idm.detect_duplicate_image(image_path)
                     if image_id is None:
                         self.logger.info(f"DBに登録されていない画像です。{image_path.name}")
                     else:
-                        image_path = self.idm.get_low_res_image(image_id)
+                        image_path = Path(self.idm.get_low_res_image(image_id))
 
                 result = self.ia.analyze_image(image_path, self.model_id, self.format_name)
                 self.all_results.append(result)
 
                 tags_data = result.get("tags", [])
                 captions_data = result.get("captions", [])
-                score = result.get("score", 0)
-                self.all_scores.append(score['score'])
-                self.scoreSlider.setValue(score['score'] * 100)
+                score = result.get('score', {}).get('score', 0)
+                self.scoreSlider.setValue(int(score * 100))
+                self.scoreSlider.setToolTip(f"{score:.2f}")
 
-                tags_dict = [tag_info['tag'] for tag_info in tags_data if 'tag' in tag_info]
-                self.all_tags.append(", ".join(tags_dict))
+                tags_list = [tag_info['tag'] for tag_info in tags_data if 'tag' in tag_info]
+                self.all_tags.append(", ".join(tags_list))
                 self.textEditTags.setPlainText(self.all_tags[-1])  # 最後に生成されたタグを表示
 
                 if captions_data:
@@ -230,12 +242,11 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         fsm.initialize(Path(self.cm.config['directories']['output']), self.cm.config['image_processing']['target_resolution'])
         for result in self.all_results:
             image_path = Path(result['image_path'])
-            image_id = self.idm.get_image_id_by_name(image_path.name)# TODO: 重複チェックロジックがイマイチ
+            image_id = self.idm.detect_duplicate_image(image_path)
             if image_id is None:
-                image_id = self.idm.register_original_image(image_path, fsm)
+                image_id, original_metadata = self.idm.register_original_image(image_path, fsm)
                 self.logger.info(f"ImageTaggerWidget.save_to_db {image_path.name}")
 
-            self.idm.save_score(image_id, result['score'])
             self.idm.save_annotations(image_id, result)
 
 

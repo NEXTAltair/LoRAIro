@@ -1,5 +1,5 @@
 import toml
-from typing import Dict, Any
+from typing import Any
 from copy import deepcopy
 
 # デフォルト設定
@@ -41,7 +41,7 @@ DEFAULT_CONFIG = {
     }
 }
 
-def load_config(config_file: str = 'processing.toml') -> Dict:
+def load_config(config_file: str = 'processing.toml') -> dict:
     try:
         with open(config_file, 'r', encoding='utf-8') as f:
             config = toml.load(f)
@@ -54,7 +54,7 @@ def load_config(config_file: str = 'processing.toml') -> Dict:
     except toml.TomlDecodeError as e:
         raise ValueError(f"設定ファイルの解析エラー: {str(e)}")
 
-def deep_update(d: Dict[str, Any], u: Dict[str, Any]) -> Dict[str, Any]:
+def deep_update(d: dict[str, Any], u: dict[str, Any]) -> dict[str, Any]:
     for k, v in u.items():
         if isinstance(v, dict):
             d[k] = deep_update(d.get(k, {}), v)
@@ -62,15 +62,13 @@ def deep_update(d: Dict[str, Any], u: Dict[str, Any]) -> Dict[str, Any]:
             d[k] = v
     return d
 
-def get_config(config_file = 'processing.toml') -> Dict:
+def get_config(config_file = 'processing.toml') -> dict:
     final_config = deepcopy(DEFAULT_CONFIG)
     loaded_config = load_config(config_file)
     final_config = deep_update(final_config, loaded_config)
-    if not final_config['directories']['dataset']:
-        raise ValueError("'dataset' ディレクトリは設定ファイルで指定する必要があります。")
     return final_config
 
-def write_config_file(config_data: Dict[str, Any], file_name: str = "processing.toml"):
+def write_config_file(config_data: dict[str, Any], file_name: str = "processing.toml"):
     """設定をファイルに保存します。"""
     try:
         with open(file_name, "w", encoding="utf-8") as f:

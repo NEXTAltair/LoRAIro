@@ -225,7 +225,9 @@ def test_save_annotations(image_database_manager, sample_image_info):
         assert tag['model_id'] != 4, f"再登録: 他のタグ '{tag['tag']}' のmodel_idが誤って更新されています"
 
 def test_find_tag_id(image_database_manager, sample_image_info):
-    """アタッチしたsrc\module\genai-tag-db-toolsのタグデータベースから登録されたタグIDを取得する"""
+    """
+    アタッチしたsrc\module\genai-tag-db-toolsのタグデータベースから登録されたタグIDを取得する
+    """
     manager = image_database_manager
     image_id = manager.repository.add_original_image(sample_image_info)
     manager.repository.save_annotations(image_id, {'tags': ['spiked collar'], 'model_id': None})
