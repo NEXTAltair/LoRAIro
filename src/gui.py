@@ -47,7 +47,7 @@ class MainWindow(QMainWindow, Ui_mainWindow):
         self.init_statusbar()
 
     def init_managers(self):
-        self.idm = ImageDatabaseManager() #.db のパスはハードコーディングなので変わらない
+        self.idm = ImageDatabaseManager(Path(self.cm.config['directories']['database']))
         self.fsm = FileSystemManager()
         self.progress_widget = ProgressWidget()
         self.progress_controller = Controller(self.progress_widget)

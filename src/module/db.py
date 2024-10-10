@@ -1029,12 +1029,12 @@ class ImageDatabaseManager:
     このクラスは、ImageRepositoryを使用して、画像メタデータとアノテーションの
     保存、取得、更新などの操作を行います。
     """
-    def __init__(self):
+    def __init__(self, db_path: Path) -> None:
         self.logger = get_logger("ImageDatabaseManager")
-        if not Path("Image_database").exists():
+        if not db_path.exists():
             Path("Image_database").mkdir(parents=True, exist_ok=True)
             Path("Image_database").joinpath("image_database.db").touch()
-        img_db_path = Path("Image_database") / "image_database.db"
+        img_db_path = db_path
         tag_db_path = Path("src") / "module" / "genai-tag-db-tools" / "tags_v3.db"
         self.db_manager = SQLiteManager(img_db_path, tag_db_path)
         self.repository = ImageRepository(self.db_manager)
