@@ -3,6 +3,7 @@ import threading
 import uuid
 import imagehash
 import inspect
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from PIL import Image
 
@@ -1029,12 +1030,12 @@ class ImageDatabaseManager:
     このクラスは、ImageRepositoryを使用して、画像メタデータとアノテーションの
     保存、取得、更新などの操作を行います。
     """
-    def __init__(self, db_path: Path) -> None:
+    def __init__(self, db_dir: Path):
         self.logger = get_logger("ImageDatabaseManager")
-        if not db_path.exists():
+        if Path("Image_database").exists():
             Path("Image_database").mkdir(parents=True, exist_ok=True)
             Path("Image_database").joinpath("image_database.db").touch()
-        img_db_path = db_path
+        img_db_path = db_dir / "image_database.db"
         tag_db_path = Path("src") / "module" / "genai-tag-db-tools" / "tags_v3.db"
         self.db_manager = SQLiteManager(img_db_path, tag_db_path)
         self.repository = ImageRepository(self.db_manager)
@@ -1490,3 +1491,55 @@ class ImageDatabaseManager:
         except Exception as e:
             self.logger.error(f"処理済み画像のチェック中にエラーが発生しました: {e}")
             return None
+
+    def filter_recent_annotations(self, annotations: dict) -> dict:
+        """
+        最新のアノテーションのみをフィルタリングします。
+
+        Args:
+            annotations (dict): 'tags' と 'captions' キーを持つ辞書
+
+        Returns:
+            dict: フィルタリングされたアノテーション
+        """
+        # 1. 最新の更新時刻を見つける
+        latest_update = self._find_latest_update(annotations)
+
+        # 2. 最新の更新時刻と同じアノテーションのみをフィルタリング
+        filtered_tags = [
+            tag for tag in annotations['tags']
+            if 'updated_at' in tag and tag['updated_at'] == latest_update
+        ]
+
+        filtered_captions = [
+            caption for caption in annotations['captions']
+            if 'updated_at' in caption and caption['updated_at'] == latest_update
+        ]
+
+        return {
+            'tags': filtered_tags,
+            'captions': filtered_captions
+        }
+
+    def _find_latest_update(self, annotations: dict) -> str:
+        """
+        アノテーションの中で最新の更新時刻を見つけます。
+
+        Args:
+            annotations (dict): 'tags' と 'captions' キーを持つ辞書
+
+        Returns:
+            str: 最新の更新時刻（ISO形式の文字列）
+        """
+        all_updates = []
+        for tag in annotations['tags']:
+            if 'updated_at' in tag:
+                all_updates.append(tag['updated_at'])
+        for caption in annotations['captions']:
+            if 'updated_at' in caption:
+                all_updates.append(caption['updated_at'])
+
+        if not all_updates:
+            return None  # 更新時刻が見つからない場合
+
+        return max(all_updates)
