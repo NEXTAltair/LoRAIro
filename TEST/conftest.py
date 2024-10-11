@@ -213,12 +213,20 @@ def mock_config_manager():
                 }
             }
             self.dataset_image_paths = []
-            self.vision_models = {}
-            self.score_models = {}
+            self.vision_models = {
+                1: {'name': 'gpt-4o', 'provider': 'OpenAI'},
+                2: {'name': 'gpt-4-turbo', 'provider': 'OpenAI'},
+                5: {'name': 'gpt-4o-mini', 'provider': 'OpenAI'},
+                6: {'name': 'gemini-1.5-pro-exp-0801', 'provider': 'Google'},
+                7: {'name': 'gemini-1.5-pro-preview-0409', 'provider': 'Google'}
+                }
+            self.score_models = {
+                3: {'name': 'laion', 'provider': ''},
+                4: {'name': 'cafe', 'provider': ''}
+                }
             self.upscaler_models = {
-                '1': {'name': 'Lanczos'},
-                '2': {'name': 'Bicubic'}
-            }
+                13: {'name': 'RealESRGAN_x4plus', 'provider': 'xinntao'}
+                }
     return MockConfigManager()
 
 class MockThumbnailSelectorWidget(QWidget):

@@ -1,10 +1,12 @@
 import toml
+from pathlib import Path
 from typing import Any
 from copy import deepcopy
 
 # デフォルト設定
 DEFAULT_CONFIG = {
     'directories': {
+        'database': 'Image_database',
         'dataset': '',
         'output': 'output',
         'edited_output': 'edited_output',

@@ -115,10 +115,13 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
                 image_id = self.image_path_id_map.get(image_path)
                 if image_id is not None:
                     annotations = self.idm.get_image_annotations(image_id)
+                    if self.latestcheckBox.isChecked():
+                        # 最近のアノテーションのみをフィルタリング
+                        recent_annotations = self.idm.filter_recent_annotations(annotations)
                     image_data = {
                         'path': image_path,
-                        'tags': annotations['tags'],
-                        'captions': annotations['captions']
+                        'tags': recent_annotations['tags'],
+                        'captions': recent_annotations['captions']
                     }
                     if "txt_cap" in formats:
                         self.fsm.export_dataset_to_txt(image_data, export_dir)

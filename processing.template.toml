@@ -12,6 +12,7 @@ token = "" # Hugging FaceのAPIトークン
 
 # ディレクトリ設定
 [directories]
+database = ""  # 画像databaseのパス (空の場合はカレントディレクトリの'Image_database.image_database.db'を使用)
 dataset = ""  # 画像ディレクトリのパス
 output = ""   # 出力ディレクトリのパス（空の場合はカレントディレクトリの'output'を使用）
 edited_output = ""  # 編集済みデータセットのパス（空の場合はカレントディレクトリの'edited_output'を使用）

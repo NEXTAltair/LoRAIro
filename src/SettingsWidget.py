@@ -98,7 +98,6 @@ class SettingsWidget(QWidget, Ui_SettingsWidget):
     def on_lineEditHfToken_editingFinished(self):
         self.cm.config['huggingface']['token'] = self.lineEditHfToken.text()
 
-    @Slot()
     def on_comboBoxLogLevel_currentIndexChanged(self, index):
         self.cm.config['log']['level'] = self.comboBoxLogLevel.itemText(index)
 

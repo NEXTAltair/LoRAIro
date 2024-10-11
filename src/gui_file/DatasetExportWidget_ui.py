@@ -104,6 +104,11 @@ class Ui_DatasetExportWidget(object):
 
         self.exportLayout.addLayout(self.exportFormatLayout)
 
+        self.latestcheckBox = QCheckBox(self.exportGroupBox)
+        self.latestcheckBox.setObjectName(u"latestcheckBox")
+
+        self.exportLayout.addWidget(self.latestcheckBox, 0, Qt.AlignmentFlag.AlignLeft)
+
         self.exportButton = QPushButton(self.exportGroupBox)
         self.exportButton.setObjectName(u"exportButton")
 
@@ -140,6 +145,7 @@ class Ui_DatasetExportWidget(object):
         self.exportFormatLabel.setText(QCoreApplication.translate("DatasetExportWidget", u"Export Format:", None))
         self.checkBoxTxtCap.setText(QCoreApplication.translate("DatasetExportWidget", u"txt/caption", None))
         self.checkBoxJson.setText(QCoreApplication.translate("DatasetExportWidget", u"metadata.json", None))
+        self.latestcheckBox.setText(QCoreApplication.translate("DatasetExportWidget", u"\u6700\u5f8c\u306b\u66f4\u65b0\u3055\u308c\u305f\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u3060\u3051\u3092\u51fa\u529b\u3059\u308b", None))
         self.exportButton.setText(QCoreApplication.translate("DatasetExportWidget", u"Export Dataset", None))
         self.statusLabel.setText(QCoreApplication.translate("DatasetExportWidget", u"Status: Ready", None))
     # retranslateUi
