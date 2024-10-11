@@ -226,7 +226,7 @@ def test_save_annotations(image_database_manager, sample_image_info):
 
 def test_find_tag_id(image_database_manager, sample_image_info):
     """
-    アタッチしたsrc\module\genai-tag-db-toolsのタグデータベースから登録されたタグIDを取得する
+    アタッチしたsrc.module.genai-tag-db-toolsのタグデータベースから登録されたタグIDを取得する
     """
     manager = image_database_manager
     image_id = manager.repository.add_original_image(sample_image_info)

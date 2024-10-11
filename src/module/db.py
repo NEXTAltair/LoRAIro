@@ -1035,6 +1035,7 @@ class ImageDatabaseManager:
         if Path("Image_database").exists():
             Path("Image_database").mkdir(parents=True, exist_ok=True)
             Path("Image_database").joinpath("image_database.db").touch()
+            db_dir = Path("Image_database")
         img_db_path = db_dir / "image_database.db"
         tag_db_path = Path("src") / "module" / "genai-tag-db-tools" / "tags_v3.db"
         self.db_manager = SQLiteManager(img_db_path, tag_db_path)
@@ -1505,15 +1506,19 @@ class ImageDatabaseManager:
         # 1. 最新の更新時刻を見つける
         latest_update = self._find_latest_update(annotations)
 
-        # 2. 最新の更新時刻と同じアノテーションのみをフィルタリング
+        # 2. 時間範囲を計算
+        latest_datetime = datetime.fromisoformat(latest_update)
+        time_threshold = latest_datetime - timedelta(minutes=5)
+        self.logger.debug(f"最新の更新時刻 {latest_datetime} から {time_threshold} 以内に更新されたアノテーションをエクスポート")
+        # 3. 5分以内に更新されたアノテーションのみをフィルタリング
         filtered_tags = [
             tag for tag in annotations['tags']
-            if 'updated_at' in tag and tag['updated_at'] == latest_update
+            if 'updated_at' in tag and tag['updated_at'] >= time_threshold
         ]
 
         filtered_captions = [
             caption for caption in annotations['captions']
-            if 'updated_at' in caption and caption['updated_at'] == latest_update
+            if 'updated_at' in caption and caption['updated_at'] >= time_threshold
         ]
 
         return {

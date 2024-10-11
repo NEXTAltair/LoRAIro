@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Dict, Set
 
 from module import tag_search
+from module.log import get_logger
 
 HAIR_PATTERNS = {
     'length': re.compile(r'(long|short|medium) hair'),
@@ -59,7 +60,7 @@ class TagCleaner:
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self.tag_searcher = tag_search.initialize_tag_searcher()
-        logger = logging.getLogger(__name__)
+        self.logger = get_logger(__name__)
 
     @staticmethod
     def clean_format(text: str) -> str:
@@ -238,5 +239,5 @@ class TagCleaner:
 
 def initialize_tag_cleaner() -> TagCleaner:
     project_root = Path(__file__).resolve().parents[2]
-    db_path = project_root / "tags_v3.db"
+    db_path = project_root / 'src' / 'module' / 'genai-tag-db-tools' / 'tags_v3.db'
     return TagCleaner(db_path)

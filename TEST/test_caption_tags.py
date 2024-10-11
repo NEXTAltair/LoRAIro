@@ -25,14 +25,12 @@ def mock_api_client_factory(mock_api_client):
     return factory
 
 @pytest.fixture
-def mock_models_config():
+def mock_models_config(mock_config_manager):
     """
     モックされたモデル設定を提供するフィクスチャ。
     """
-    vision_models = {
-        1: {'name': 'mock_model'}
-    }
-    return vision_models
+    cm = mock_config_manager
+    return cm.vision_models, cm.score_models
 
 def test_analyze_image(sample_images, mock_api_client_factory, mock_models_config):
     """
@@ -47,7 +45,7 @@ def test_analyze_image(sample_images, mock_api_client_factory, mock_models_confi
     # analyze_image メソッドを呼び出し
     result = analyzer.analyze_image(image_path, model_id=1)
 
-    # 期待される結果
+    # 期待される結果 sample_images
     expected_tags = [{'tag': 'tag1', 'model_id': 1}, {'tag': 'tag2', 'model_id': 1}, {'tag': 'tag3', 'model_id': 1}]
     expected_captions = [{'caption': 'a sample caption', 'model_id': 1}]
     expected_score = {'score': 0.85, 'model_id': 1}
@@ -61,7 +59,7 @@ def test_analyze_image(sample_images, mock_api_client_factory, mock_models_confi
     # モックされたAPIクライアントのメソッドが正しく呼び出されたか確認
     mock_api_client = mock_api_client_factory.get_api_client.return_value[0]
     mock_api_client.set_image_data.assert_called_with(image_path)
-    mock_api_client.generate_caption.assert_called_with(image_path, 'mock_model')
+    mock_api_client.generate_caption.assert_called_with(image_path, 'gpt-4o')
 
 def test_analyze_image_with_exception(sample_images, mock_api_client_factory, mock_models_config):
     """
@@ -106,8 +104,11 @@ def test_get_existing_annotations(tmp_path):
 
     # 期待されるアノテーション
     expected_annotations = {
-        'tags': ['tag1', ' tag2', ' tag3'],
-        'captions': ['a sample caption', ' another caption']
+        'tags': [{'tag': 'tag1', 'model_id': None}, {'tag': ' tag2', 'model_id': None}, {'tag': ' tag3', 'model_id': None}],
+        'captions': [{'caption': 'a sample caption', 'model_id': None}, {'caption': ' another caption', 'model_id': None}],
+        'score': {'score': 0, 'model_id': None},
+        'model_id': None,
+        'image_path': str(image_path)
     }
 
     # アノテーションの検証
