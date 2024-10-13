@@ -134,7 +134,9 @@ class TagFilterWidget(QWidget, Ui_TagFilterWidget):
         filter_text: str,
         resolution: int,
         use_and: bool,
-        count_range: tuple
+        count_range: tuple,
+        include_untagged: bool,
+        include_nsfw
     }
     """
 

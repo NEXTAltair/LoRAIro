@@ -1,11 +1,12 @@
 from pathlib import Path
 
-from PySide6.QtWidgets import QWidget
-from PySide6.QtCore import Signal, Slot
+from PySide6.QtWidgets import QWidget, QMessageBox
+from PySide6.QtCore import Qt, Signal, Slot, QDateTime
 
 from gui_file.DatasetOverviewWidget_ui import Ui_DatasetOverviewWidget
 
 from module.file_sys import FileSystemManager
+from module.db import ImageDatabaseManager
 from module.log import get_logger
 from caption_tags import ImageAnalyzer
 
@@ -24,9 +25,11 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
 
         # シグナル/スロット接続
         self.thumbnailSelector.imageSelected.connect(self.update_preview)
+        self.dbSearchWidget.filterApplied.connect(self.on_filter_applied)
 
-    def initialize(self, cm: 'ConfigManager'):
+    def initialize(self, cm: 'ConfigManager', idm: 'ImageDatabaseManager'):
         self.cm = cm
+        self.idm = idm
 
     def showEvent(self, event):
         """ウィジェットが表示される際に呼び出されるイベントハンドラ"""
@@ -42,6 +45,51 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
         if self.image_files:
             self.update_preview(Path(self.image_files[0]))
 
+    def on_filter_applied(self, filter_conditions: dict):
+        filter_type = filter_conditions['filter_type']
+        filter_text = filter_conditions['filter_text']
+        resolution = filter_conditions['resolution']
+        use_and = filter_conditions['use_and']
+        start_date, end_date = filter_conditions.get('date_range', (None, None))
+        include_untagged = filter_conditions['include_untagged']
+        # 日付範囲の処理
+        if start_date is not None and end_date is not None:
+            # UTCタイムスタンプをQDateTimeに変換し、ローカルタイムゾーンに設定
+            start_date_qt = QDateTime.fromSecsSinceEpoch(start_date).toLocalTime()
+            end_date_qt = QDateTime.fromSecsSinceEpoch(end_date).toLocalTime()
+
+            # ローカルタイムゾーンを使用してISO 8601形式の文字列に変換
+            start_date = start_date_qt.toString(Qt.ISODate)
+            end_date = end_date_qt.toString(Qt.ISODate)
+
+        tags = []
+        caption = ""
+        if filter_type == "tags":
+            # タグはカンマ区切りで複数指定されるため、リストに変換
+            tags = [tag.strip() for tag in filter_text.split(',')]
+        elif filter_type == "caption":
+            caption = filter_text
+
+        filtered_image_metadata, list_count = self.idm.get_images_by_filter(
+            tags=tags,
+            caption=caption,
+            resolution=resolution,
+            use_and=use_and,
+            start_date=start_date,
+            end_date=end_date,
+            include_untagged=include_untagged
+        )
+        if not filtered_image_metadata:
+            self.logger.info(f"{filter_type} に {filter_text} を含む検索結果がありません")
+            QMessageBox.critical(self,  "info", f"{filter_type} に {filter_text} を含む検索結果がありません")
+            return
+
+        # idとpathの対応だけを取り出す
+        self.image_path_id_map = {item['image_id']: Path(item['stored_image_path']) for item in filtered_image_metadata}
+
+        # サムネイルセレクターを更新
+        self.update_thumbnail_selector(list(self.image_path_id_map.values()))
+
     @Slot(Path)
     def update_preview(self, image_path: Path):
         self.ImagePreview.load_image(image_path)
@@ -52,6 +100,10 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
             metadata = FileSystemManager.get_image_info(image_path)
             self.set_metadata_labels(metadata, image_path)
             self.update_annotations(image_path)
+
+    def update_thumbnail_selector(self, image_paths: list[Path]):
+        # サムネイルセレクターに新しい画像リストをロード
+        self.thumbnailSelector.load_images(image_paths)
 
     def set_metadata_labels(self, metadata, image_path):
         self.fileNameValueLabel.setText(metadata['filename'])
@@ -88,6 +140,14 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
             captions_text = " | ".join(captions)  # キャプションをパイプで区切って結合
             self.captionTextEdit.setPlainText(captions_text)
 
+        elif annotations is None:
+            # DBkからアノテーション情報を検索
+            image_id = self.idm.detect_duplicate_image(image_path)
+            image_data = self.idm.get_image_annotations(image_id)
+            tags_text = ', '.join([tag_data.get('tag','') for tag_data in image_data['tags']])
+            self.tagsTextEdit.setPlainText(tags_text)
+            captions_text = ', '.join([caption_data.get('caption', '') for caption_data in image_data['captions']])
+            self.captionTextEdit.setPlainText(captions_text)
         else:
             self.tagsTextEdit.clear()
             self.captionTextEdit.clear()

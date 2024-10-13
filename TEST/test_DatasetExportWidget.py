@@ -26,11 +26,13 @@ def test_on_filter_applied(qtbot, mock_config_manager, mock_file_system_manager,
                 'filter_text': 'tag1, tag2',
                 'resolution': 1024,
                 'use_and': True,
+                'include_untagged': False
             },
             'expected_tags': ['tag1', 'tag2'],
             'expected_caption': '',
             'expected_resolution': 1024,
             'expected_use_and': True,
+            'expected_include_untagged': False,
             'filtered_image_metadata': [
                 {
                     'id': 1,
@@ -71,6 +73,7 @@ def test_on_filter_applied(qtbot, mock_config_manager, mock_file_system_manager,
                 'filter_text': 'nonexistent_tag',
                 'resolution': 1024,
                 'use_and': True,
+                'include_untagged': False
             },
             'expected_tags': ['nonexistent_tag'],
             'expected_caption': '',
@@ -78,7 +81,8 @@ def test_on_filter_applied(qtbot, mock_config_manager, mock_file_system_manager,
             'expected_use_and': True,
             'filtered_image_metadata': [],
             'list_count': 0,
-            'expect_no_results': True
+            'expect_no_results': True,
+            'expected_include_untagged': False
         }
     ]
 
@@ -113,7 +117,8 @@ def test_on_filter_applied(qtbot, mock_config_manager, mock_file_system_manager,
             resolution=case['expected_resolution'],
             use_and=case['expected_use_and'],
             start_date=None,
-            end_date=None
+            end_date=None,
+            include_untagged=case['expected_include_untagged']
         )
 
         if case['expect_no_results']:

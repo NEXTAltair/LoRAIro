@@ -23,7 +23,7 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
         self.exportDirectoryPicker.set_label_text("Export Directory:")
         self.exportDirectoryPicker.set_path(self.cm.config['directories']['edited_output'])
         self.exportProgressBar.setVisible(False)
-        self.filterWidget.filterApplied.connect(self.on_filter_applied)
+        self.dbSearchWidget.filterApplied.connect(self.on_filter_applied)
 
     def initialize(self, cm, fsm: FileSystemManager, idm: ImageDatabaseManager):
         self.cm = cm
@@ -33,7 +33,7 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
         self.init_ui()
 
     def init_date_range(self):
-        self.filterWidget.count_range_slider.set_date_range()
+        self.dbSearchWidget.count_range_slider.set_date_range()
 
     def on_filter_applied(self, filter_conditions: dict):
         filter_type = filter_conditions['filter_type']
@@ -41,7 +41,7 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
         resolution = filter_conditions['resolution']
         use_and = filter_conditions['use_and']
         start_date, end_date = filter_conditions.get('date_range', (None, None))
-        include_untagged=filter_conditions['include_untagged']
+        include_untagged = filter_conditions['include_untagged']
         # 日付範囲の処理
         if start_date is not None and end_date is not None:
             # UTCタイムスタンプをQDateTimeに変換し、ローカルタイムゾーンに設定
@@ -75,10 +75,10 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
             return
 
         # idとpathの対応だけを取り出す
-        self.image_path_id_map = {Path(item['stored_image_path']): item['image_id'] for item in filtered_image_metadata}
+        self.image_path_id_map = {item['image_id']: Path(item['stored_image_path']) for item in filtered_image_metadata}
 
         # サムネイルセレクターを更新
-        self.update_thumbnail_selector(list(self.image_path_id_map.keys()), list_count)
+        self.update_thumbnail_selector(list(self.image_path_id_map.valuse()), list_count)
 
     @Slot()
     def on_exportButton_clicked(self):

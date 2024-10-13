@@ -60,7 +60,7 @@ class MainWindow(QMainWindow, Ui_mainWindow):
     def init_pages(self):
         self.pageImageEdit.initialize(self.cm, self.fsm, self.idm, self)
         self.pageImageTagger.initialize(self.cm, self.idm)
-        self.pageDatasetOverview.initialize(self.cm)
+        self.pageDatasetOverview.initialize(self.cm, self.idm)
         self.pageExport.initialize(self.cm, self.fsm, self.idm)
         self.pageSettings.initialize(self.cm)
 

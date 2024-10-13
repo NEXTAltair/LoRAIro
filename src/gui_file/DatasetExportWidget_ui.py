@@ -39,12 +39,12 @@ class Ui_DatasetExportWidget(object):
         self.leftPanelLayout = QVBoxLayout(self.leftPanel)
         self.leftPanelLayout.setObjectName(u"leftPanelLayout")
         self.leftPanelLayout.setContentsMargins(0, 0, 0, 0)
-        self.filterWidget = TagFilterWidget(self.leftPanel)
-        self.filterWidget.setObjectName(u"filterWidget")
-        self.filterLayout = QVBoxLayout(self.filterWidget)
+        self.dbSearchWidget = TagFilterWidget(self.leftPanel)
+        self.dbSearchWidget.setObjectName(u"dbSearchWidget")
+        self.filterLayout = QVBoxLayout(self.dbSearchWidget)
         self.filterLayout.setObjectName(u"filterLayout")
 
-        self.leftPanelLayout.addWidget(self.filterWidget)
+        self.leftPanelLayout.addWidget(self.dbSearchWidget)
 
         self.thumbnailSelector = ThumbnailSelectorWidget(self.leftPanel)
         self.thumbnailSelector.setObjectName(u"thumbnailSelector")

@@ -23,11 +23,17 @@ class Ui_TagFilterWidget(object):
     def setupUi(self, TagFilterWidget):
         if not TagFilterWidget.objectName():
             TagFilterWidget.setObjectName(u"TagFilterWidget")
-        TagFilterWidget.resize(400, 300)
+        TagFilterWidget.resize(400, 355)
         self.verticalLayout = QVBoxLayout(TagFilterWidget)
         self.verticalLayout.setObjectName(u"verticalLayout")
         self.filterGroupBox = QGroupBox(TagFilterWidget)
         self.filterGroupBox.setObjectName(u"filterGroupBox")
+        sizePolicy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.filterGroupBox.sizePolicy().hasHeightForWidth())
+        self.filterGroupBox.setSizePolicy(sizePolicy)
+        self.filterGroupBox.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.filterLayout = QVBoxLayout(self.filterGroupBox)
         self.filterLayout.setObjectName(u"filterLayout")
         self.filterTypeWidget = QWidget(self.filterGroupBox)
