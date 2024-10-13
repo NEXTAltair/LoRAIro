@@ -868,30 +868,77 @@ class ImageRepository:
         else:
             return [row['id'] for row in rows]
 
-    def get_processed_image(self, image_id: int) -> list[dict[str, Any]]:
+    def get_original_image(self, image_id: int) -> dict[str, Any]:
         """
-        image_idから関連する全ての処理済み画像のメタデータを取得します。
+        指定されたIDのオリジナル画像のメタデータを取得します。
 
         Args:
-            image_id (int): 元画像のID。
+            image_id (int): 取得する画像のID。
 
         Returns:
-            dict[str, Any]]: 処理済み画像のメタデータのリスト。
+            list[dict[str, Any]]: 画像メタデータを含む辞書。画像が見つからない場合はNone。
 
         Raises:
             sqlite3.Error: データベース操作でエラーが発生した場合。
         """
-        query = """
-        SELECT * FROM processed_images
-        WHERE image_id = ?
-        """
+        query = "SELECT * FROM images WHERE id = ?"
         try:
-            metadata = self.db_manager.fetch_all(query, (image_id,))
-            self.logger.debug("ID %s の処理済み画像メタデータを取得しました: %s", image_id, metadata)
+            metadata = self.db_manager.fetch_one(query, (image_id,))
             return metadata
         except sqlite3.Error as e:
             current_method = inspect.currentframe().f_code.co_name
+            raise sqlite3.Error(f"{current_method} オリジナル画像の取得中にエラーが発生しました: {e}")
+
+    def get_processed_image(self, image_id: int, resolution: int) -> dict[str, Any]:
+        """
+        image_idとresolutionから関連する処理済み画像のメタデータを取得後､指定した解像度でリサイズされた画像のメタデータを返します。
+
+        Args:
+            image_id (int): 元画像のID。
+            resolution (int): リサイズ処理の基準にした解像度｡
+
+        Returns:
+            dict[str, Any]: 処理済み画像のメタデータを含む辞書。画像が見つからない場合はNon
+
+        Raises:
+            sqlite3.Error: データベース操作でエラーが発生した場合。
+        """
+        query = "SELECT * FROM processed_images WHERE image_id = ?"
+        try:
+            metadata = self.db_manager.fetch_one(query, (image_id,))
+            self.logger.debug("ID %s の処理済み画像メタデータを取得しました: %s", image_id, metadata)
+            filtered_metadata_list = self._filter_by_resolution(metadata, resolution)
+            return filtered_metadata_list
+        except sqlite3.Error as e:
+            current_method = inspect.currentframe().f_code.co_name
             raise sqlite3.Error(f"{current_method} 処理済み画像の取得中にエラーが発生しました: {e}")
+
+    def _filter_by_resolution(self, metadata: dict[str, Any], resolution: int) -> Optional[dict[str, Any]]:
+            """
+            解像度に基づいてメタデータをフィルタリングします。
+
+            Args:
+                metadata (dict[str, Any]): メタデータの辞書。
+                resolution (int): ディレクトリの解像度。
+
+            Returns:
+                list[dict[str, Any]]: フィルタリングされたメタデータの辞書のリスト。解像度が条件に一致するか、
+                解像度の条件に誤差が0.2以下のメタデータが含まれます。
+
+            """
+            filtered_list = []
+            width, height = metadata['width'], metadata['height']
+            long_side, short_side = max(width, height), min(width, height)
+
+            if long_side == resolution:
+                return metadata
+            else:
+                target_area = resolution * resolution
+                actual_area = long_side * short_side
+                error_ratio = abs(target_area - actual_area) / target_area
+
+                if error_ratio <= 0.2:
+                    filtered_list.append(metadata)
 
     def get_total_image_count(self) -> int:
         try:
@@ -1355,49 +1402,26 @@ class ImageDatabaseManager:
 
         # 画像メタデータの取得
         metadata_list = []
-        for image_id in image_ids:
-            metadata = self.repository.get_processed_image(image_id)
-            metadata_list.extend(metadata)
-
-        # 解像度によるフィルタリング
         if resolution != 0:
-            filtered_metadata_list = self._filter_by_resolution(metadata_list, resolution)
+            for image_id in image_ids:
+                metadata = self.repository.get_processed_image(image_id, resolution)
+                if metadata is not None:
+                    metadata_list.append(metadata)
         else:
-            filtered_metadata_list = metadata_list
+            for image_id in image_ids:
+                metadata = self.repository.get_original_image(image_id)
+                if metadata is not None:
+                    metadata['image_id'] = image_id
+                    metadata_list.append(metadata)
 
-        list_count = len(filtered_metadata_list)
+        if not metadata_list:
+            self.logger.info(f'解像度基準:{resolution} pxの画像はDBに登録されていません')
+            return None, None
+
+        list_count = len(metadata_list)
         self.logger.info(f"フィルタリング後の画像数: {list_count}")
 
-        return filtered_metadata_list, list_count
-
-    def _filter_by_resolution(self, metadata_list: list[dict[str, Any]], resolution: int) -> list[dict[str, Any]]:
-            """
-            解像度に基づいてメタデータのリストをフィルタリングします。
-
-            Args:
-                metadata_list (list[dict[str, Any]]): メタデータの辞書のリスト。
-                resolution (int): ディレクトリの解像度。
-
-            Returns:
-                list[dict[str, Any]]: フィルタリングされたメタデータの辞書のリスト。解像度が条件に一致するか、
-                解像度の条件に誤差が0.2以下のメタデータが含まれます。
-
-            """
-            filtered_list = []
-            for metadata in metadata_list:
-                width, height = metadata['width'], metadata['height']
-                long_side, short_side = max(width, height), min(width, height)
-
-                if long_side == resolution:
-                    filtered_list.append(metadata)
-                else:
-                    target_area = resolution * resolution
-                    actual_area = long_side * short_side
-                    error_ratio = abs(target_area - actual_area) / target_area
-
-                    if error_ratio <= 0.2:
-                        filtered_list.append(metadata)
-            return filtered_list
+        return metadata_list, list_count
 
     def _filter_images_by_exclude_keywords(self, image_ids: set[int], exclude_keywords: list[str]) -> set[int]:
         """

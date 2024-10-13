@@ -23,7 +23,7 @@ class Ui_TagFilterWidget(object):
     def setupUi(self, TagFilterWidget):
         if not TagFilterWidget.objectName():
             TagFilterWidget.setObjectName(u"TagFilterWidget")
-        TagFilterWidget.resize(400, 355)
+        TagFilterWidget.resize(269, 277)
         self.verticalLayout = QVBoxLayout(TagFilterWidget)
         self.verticalLayout.setObjectName(u"verticalLayout")
         self.filterGroupBox = QGroupBox(TagFilterWidget)
@@ -34,8 +34,8 @@ class Ui_TagFilterWidget(object):
         sizePolicy.setHeightForWidth(self.filterGroupBox.sizePolicy().hasHeightForWidth())
         self.filterGroupBox.setSizePolicy(sizePolicy)
         self.filterGroupBox.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.filterLayout = QVBoxLayout(self.filterGroupBox)
-        self.filterLayout.setObjectName(u"filterLayout")
+        self.vboxLayout = QVBoxLayout(self.filterGroupBox)
+        self.vboxLayout.setObjectName(u"vboxLayout")
         self.filterTypeWidget = QWidget(self.filterGroupBox)
         self.filterTypeWidget.setObjectName(u"filterTypeWidget")
         self.filterTypeLayout = QHBoxLayout(self.filterTypeWidget)
@@ -58,12 +58,12 @@ class Ui_TagFilterWidget(object):
         self.filterTypeLayout.addWidget(self.andRadioButton)
 
 
-        self.filterLayout.addWidget(self.filterTypeWidget)
+        self.vboxLayout.addWidget(self.filterTypeWidget)
 
         self.filterLineEdit = QLineEdit(self.filterGroupBox)
         self.filterLineEdit.setObjectName(u"filterLineEdit")
 
-        self.filterLayout.addWidget(self.filterLineEdit)
+        self.vboxLayout.addWidget(self.filterLineEdit)
 
         self.taggingFilter = QWidget(self.filterGroupBox)
         self.taggingFilter.setObjectName(u"taggingFilter")
@@ -80,7 +80,7 @@ class Ui_TagFilterWidget(object):
         self.horizontalLayout_2.addWidget(self.NSFWcheckBox)
 
 
-        self.filterLayout.addWidget(self.taggingFilter)
+        self.vboxLayout.addWidget(self.taggingFilter)
 
         self.countRangeWidget = QWidget(self.filterGroupBox)
         self.countRangeWidget.setObjectName(u"countRangeWidget")
@@ -98,7 +98,7 @@ class Ui_TagFilterWidget(object):
         self.horizontalLayout.addWidget(self.countRangeSlide)
 
 
-        self.filterLayout.addWidget(self.countRangeWidget)
+        self.vboxLayout.addWidget(self.countRangeWidget)
 
         self.resolutionWidget = QWidget(self.filterGroupBox)
         self.resolutionWidget.setObjectName(u"resolutionWidget")
@@ -113,17 +113,18 @@ class Ui_TagFilterWidget(object):
         self.resolutionComboBox.addItem("")
         self.resolutionComboBox.addItem("")
         self.resolutionComboBox.addItem("")
+        self.resolutionComboBox.addItem("")
         self.resolutionComboBox.setObjectName(u"resolutionComboBox")
 
         self.resolutionLayout.addWidget(self.resolutionComboBox)
 
 
-        self.filterLayout.addWidget(self.resolutionWidget)
+        self.vboxLayout.addWidget(self.resolutionWidget)
 
         self.applyFilterButton = QPushButton(self.filterGroupBox)
         self.applyFilterButton.setObjectName(u"applyFilterButton")
 
-        self.filterLayout.addWidget(self.applyFilterButton)
+        self.vboxLayout.addWidget(self.applyFilterButton)
 
 
         self.verticalLayout.addWidget(self.filterGroupBox)
@@ -147,9 +148,10 @@ class Ui_TagFilterWidget(object):
         self.NSFWcheckBox.setText(QCoreApplication.translate("TagFilterWidget", u"NSFW", None))
         self.tagUpdateatLabel.setText(QCoreApplication.translate("TagFilterWidget", u"\u30bf\u30b0\u7de8\u96c6\u65e5", None))
         self.resolutionLabel.setText(QCoreApplication.translate("TagFilterWidget", u"Resolution:", None))
-        self.resolutionComboBox.setItemText(0, QCoreApplication.translate("TagFilterWidget", u"512x512", None))
-        self.resolutionComboBox.setItemText(1, QCoreApplication.translate("TagFilterWidget", u"768x768", None))
-        self.resolutionComboBox.setItemText(2, QCoreApplication.translate("TagFilterWidget", u"1024x1024", None))
+        self.resolutionComboBox.setItemText(0, QCoreApplication.translate("TagFilterWidget", u"None", None))
+        self.resolutionComboBox.setItemText(1, QCoreApplication.translate("TagFilterWidget", u"512x512", None))
+        self.resolutionComboBox.setItemText(2, QCoreApplication.translate("TagFilterWidget", u"768x768", None))
+        self.resolutionComboBox.setItemText(3, QCoreApplication.translate("TagFilterWidget", u"1024x1024", None))
 
         self.applyFilterButton.setText(QCoreApplication.translate("TagFilterWidget", u"Apply Filters", None))
     # retranslateUi

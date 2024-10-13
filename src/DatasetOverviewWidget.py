@@ -80,8 +80,8 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
             include_untagged=include_untagged
         )
         if not filtered_image_metadata:
-            self.logger.info(f"{filter_type} に {filter_text} を含む検索結果がありません")
-            QMessageBox.critical(self,  "info", f"{filter_type} に {filter_text} を含む検索結果がありません")
+            self.logger.info(f"検索条件に一致する画像がありませんでした: {filter_type}  {filter_text}")
+            QMessageBox.critical(self, "info", f"検索条件に一致する画像がありませんでした: {filter_type}  {filter_text}")
             return
 
         # idとpathの対応だけを取り出す
@@ -153,7 +153,7 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
             self.captionTextEdit.clear()
 
     @staticmethod
-    def calculate_aspect_ratio(width, height):
+    def calculate_aspect_ratio(width, height): #TODO: アスペクト比の計算がなにかおかしい
         def gcd(a, b):
             while b:
                 a, b = b, a % b
@@ -171,11 +171,12 @@ if __name__ == "__main__":
     setup_logger(logconf)
     cm = ConfigManager()
     fsm = FileSystemManager()
+    idm = ImageDatabaseManager(cm.config['directories']['database'])
     directory = Path(r"testimg\10_shira")
     image_files: list[Path] = fsm.get_image_files(directory)
     app = QApplication(sys.argv)
     widget = DatasetOverviewWidget()
-    widget.initialize(cm)
+    widget.initialize(cm, idm)
     widget.load_images(image_files)
     widget.show()
     sys.exit(app.exec())
