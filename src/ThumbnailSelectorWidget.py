@@ -3,7 +3,7 @@ from pathlib import Path
 from PySide6.QtWidgets import (QWidget, QGraphicsObject, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem,
                                QVBoxLayout, QApplication, QGraphicsItem)
 from PySide6.QtGui import QPixmap, QColor, QPen
-from PySide6.QtCore import Qt, QSize, Signal, Slot, QRectF
+from PySide6.QtCore import Qt, QSize, Signal, Slot, QRectF, QTimer
 
 from module.log import get_logger
 
@@ -90,14 +90,20 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.thumbnail_items = []
         self.last_selected_item = None
 
+        # リサイズ用のタイマーを初期化
+        self.resize_timer = QTimer(self)
+        self.resize_timer.setSingleShot(True)
+        self.resize_timer.timeout.connect(self.update_thumbnail_layout)
+
     def resizeEvent(self, event):
         """
-        ウィジェットがリサイズされたときにサムネイルのレイアウトを更新します。
+        ウィジェットがリサイズされたときにタイマーをリセットします。
         Args:
             event (QResizeEvent): リサイズイベント
         """
         super().resizeEvent(event)
-        self.update_thumbnail_layout()
+        # タイマーをリセットし、250ミリ秒後にupdate_thumbnail_layoutを呼び出す
+        self.resize_timer.start(250)
 
     @Slot(list)
     def load_images(self, image_paths: list[Path]):
