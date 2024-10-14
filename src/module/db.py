@@ -307,9 +307,9 @@ class SQLiteManager:
         models = [
             ('gpt-4o', 'vision', 'OpenAI'),
             ('gpt-4-turbo', 'vision', 'OpenAI'),
+            ('gpt-4o-mini', 'vision', 'OpenAI'),
             ('laion', 'score', ''),
             ('cafe', 'score', ''),
-            ('gpt-4o-mini', 'vision', 'OpenAI'),
             ('gemini-1.5-pro-exp-0801', 'vision', 'Google'),
             ('gemini-1.5-pro-preview-0409', 'vision', 'Google'),
             ('gemini-1.0-pro-vision', 'vision', 'Google'),
@@ -889,44 +889,53 @@ class ImageRepository:
             current_method = inspect.currentframe().f_code.co_name
             raise sqlite3.Error(f"{current_method} オリジナル画像の取得中にエラーが発生しました: {e}")
 
-    def get_processed_image(self, image_id: int, resolution: int) -> dict[str, Any]:
+    def get_processed_image(self, image_id: int, resolution: int = 0) -> Optional[dict[str, Any]]:
         """
-        image_idとresolutionから関連する処理済み画像のメタデータを取得後､指定した解像度でリサイズされた画像のメタデータを返します。
+        image_idとresolutionから関連する処理済み画像のメタデータを取得し、指定した解像度でリサイズされた画像のメタデータを返します。
 
         Args:
             image_id (int): 元画像のID。
-            resolution (int): リサイズ処理の基準にした解像度｡
+            resolution (int): リサイズ処理の基準にした解像度。0の場合は最も解像度が低い画像を返します。
 
         Returns:
-            dict[str, Any]: 処理済み画像のメタデータを含む辞書。画像が見つからない場合はNon
+            Optional[dict[str, Any]]: 処理済み画像のメタデータを含む辞書。画像が見つからない場合はNone。
 
         Raises:
             sqlite3.Error: データベース操作でエラーが発生した場合。
         """
         query = "SELECT * FROM processed_images WHERE image_id = ?"
         try:
-            metadata = self.db_manager.fetch_one(query, (image_id,))
-            self.logger.debug("ID %s の処理済み画像メタデータを取得しました: %s", image_id, metadata)
-            filtered_metadata_list = self._filter_by_resolution(metadata, resolution)
-            return filtered_metadata_list
+            # 全ての処理済み画像を取得
+            metadata_list = self.db_manager.fetch_all(query, (image_id,))
+            if not metadata_list:
+                return None
+            self.logger.debug(f"ID {image_id} の処理済み画像メタデータを {len(metadata_list)} 取得しました")
+            # resolutionが0の場合は最も解像度が低いものを選択
+            if resolution == 0:
+                metadata = min(metadata_list, key=lambda x: x['width'] * x['height'])
+            else:
+                # 指定された解像度に近いものをフィルタリング
+                metadata = self._filter_by_resolution(metadata_list, resolution)
+            return metadata
+
         except sqlite3.Error as e:
             current_method = inspect.currentframe().f_code.co_name
             raise sqlite3.Error(f"{current_method} 処理済み画像の取得中にエラーが発生しました: {e}")
 
-    def _filter_by_resolution(self, metadata: dict[str, Any], resolution: int) -> Optional[dict[str, Any]]:
-            """
-            解像度に基づいてメタデータをフィルタリングします。
+    def _filter_by_resolution(self, metadata_list: list[dict[str, Any]], resolution: int) -> dict[str, Any]:
+        """
+        解像度に基づいてメタデータをフィルタリングします。
 
-            Args:
-                metadata (dict[str, Any]): メタデータの辞書。
-                resolution (int): ディレクトリの解像度。
+        Args:
+            metadata_list (list[dict[str, Any]]): メタデータの辞書のリスト。
+            resolution (int): 解像度。
 
-            Returns:
-                list[dict[str, Any]]: フィルタリングされたメタデータの辞書のリスト。解像度が条件に一致するか、
-                解像度の条件に誤差が0.2以下のメタデータが含まれます。
+        Returns:
+            dict[str, Any]]: フィルタリングされたメタデータの辞書。解像度が条件に一致するか、
+            指定した解像度に対して誤差が20%以下であるメタデータを返します。
 
-            """
-            filtered_list = []
+        """
+        for metadata in metadata_list:
             width, height = metadata['width'], metadata['height']
             long_side, short_side = max(width, height), min(width, height)
 
@@ -938,7 +947,8 @@ class ImageRepository:
                 error_ratio = abs(target_area - actual_area) / target_area
 
                 if error_ratio <= 0.2:
-                    filtered_list.append(metadata)
+                    return metadata
+        return None
 
     def get_total_image_count(self) -> int:
         try:
@@ -1210,30 +1220,15 @@ class ImageDatabaseManager:
             Optional[str]: 長辺が最小の処理済み画像のパス。見つからない場合はNone。
         """
         try:
-            processed_images = self.repository.get_processed_image(image_id)
-            if not processed_images:
+            min_image_metdata = self.repository.get_processed_image(image_id)
+            if not min_image_metdata:
                 self.logger.warning(f"画像ID {image_id} に対する処理済み画像が見つかりません。")
                 return None
-
-            # 長辺が最小の画像を見つける
-            min_long_edge = float('inf')
-            min_image_path = None
-
-            for image in processed_images:
-                width = image['width']
-                height = image['height']
-                long_edge = max(width, height)
-
-                if long_edge < min_long_edge:
-                    min_long_edge = long_edge
-                    min_image_path = image['stored_image_path']
-
+            min_long_edge = max(min_image_metdata.get('width'), min_image_metdata.get('height'))
+            min_image_path = min_image_metdata.get('stored_image_path')
             if min_image_path:
-                self.logger.info(f"画像ID {image_id} の最小長辺画像（{min_long_edge}px）を取得しました。")
+                self.logger.debug(f"画像ID {image_id} の最小長辺画像（{min_long_edge}px）を取得しました。")
                 return min_image_path
-            else:
-                self.logger.warning(f"画像ID {image_id} に対する適切な低解像度画像が見つかりません。")
-                return None
 
         except Exception as e:
             self.logger.error(f"低解像度画像の取得中にエラーが発生しました: {e}")

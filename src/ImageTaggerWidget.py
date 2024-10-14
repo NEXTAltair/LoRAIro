@@ -75,10 +75,6 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
     def on_comboBoxTagFormat_currentTextChanged(self):
         self.format_name = self.comboBoxTagFormat.currentText()
 
-    @Slot()
-    def on_lowRescheckBox_clicked(self):
-        self.check_low_res = True
-
     def showEvent(self, event):
         """ウィジェットが表示される際に呼び出されるイベントハンドラ"""
         super().showEvent(event)
@@ -164,7 +160,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
             for image_path in self.selected_webp:
                 self.logger.info(f"{image_path.stem}の処理中")
 
-                if self.check_low_res:
+                if self.lowRescheckBox.isChecked():
                     image_id = self.idm.detect_duplicate_image(image_path)
                     if image_id is None:
                         self.logger.info(f"DBに登録されていない画像です。{image_path.name}")
@@ -260,7 +256,7 @@ if __name__ == "__main__":
     logger = get_logger(__name__)
     app = QApplication(sys.argv)
     fsm = FileSystemManager()
-    idm = ImageDatabaseManager()
+    idm = ImageDatabaseManager(cm.config['directories']['database'])
     image_files = fsm.get_image_files(Path(r"testimg\1_img")) # 画像ファイルのディレクトリを指定
     widget = ImageTaggerWidget()
     widget.initialize(cm, idm)
