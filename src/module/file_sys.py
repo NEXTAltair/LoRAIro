@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from typing import Any
 from PIL import Image, ImageCms
+Image.MAX_IMAGE_PIXELS = 1000000000 #クソデカファイルに対応､ローカルアプリななので攻撃の心配はない
 from io import BytesIO
 import math
 import json
