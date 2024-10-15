@@ -75,10 +75,10 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
             return
 
         # idとpathの対応だけを取り出す
-        self.image_path_id_map = {item['image_id']: Path(item['stored_image_path']) for item in filtered_image_metadata}
+        self.image_path_id_map = {Path(item['stored_image_path']): item['image_id'] for item in filtered_image_metadata}
 
         # サムネイルセレクターを更新
-        self.update_thumbnail_selector(list(self.image_path_id_map.values()), list_count)
+        self.update_thumbnail_selector(list(self.image_path_id_map.keys()), list_count)
 
     @Slot()
     def on_exportButton_clicked(self):
@@ -87,18 +87,9 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
             QMessageBox.warning(self, "Warning", "出力先ディレクトリを選択してください")
             return
 
-        export_formats = []
-        if self.checkBoxTxtCap.isChecked():
-            export_formats.append("txt_cap")
-        if self.checkBoxJson.isChecked():
-            export_formats.append("json")
+        self.export_dataset(Path(export_directory))
 
-        if not export_formats:
-            QMessageBox.warning(self, "Warning", "出力形式を選択してください")
-            return
-        self.export_dataset(Path(export_directory), export_formats)
-
-    def export_dataset(self, export_dir: Path, formats: list):
+    def export_dataset(self, export_dir: Path):
         self.exportButton.setEnabled(False)
         self.statusLabel.setText("Status: Exporting...")
 
@@ -117,18 +108,18 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
                     annotations = self.idm.get_image_annotations(image_id)
                     if self.latestcheckBox.isChecked():
                         # 最近のアノテーションのみをフィルタリング
-                        recent_annotations = self.idm.filter_recent_annotations(annotations)
+                        annotations = self.idm.filter_recent_annotations(annotations)
                     image_data = {
                         'path': image_path,
-                        'tags': recent_annotations['tags'],
-                        'captions': recent_annotations['captions']
+                        'tags': annotations.get('tags', []),
+                        'captions': annotations.get('captions', [])
                     }
-                    if "txt_cap" in formats:
+                    if self.checkBoxTxtCap.isChecked():
                         self.fsm.export_dataset_to_txt(image_data, export_dir)
-                    if "json" in formats:
+                    if self.checkBoxJson.isChecked():
                         self.fsm.export_dataset_to_json(image_data, export_dir)
                 else:
-                    self.logger.warning(f"Image ID not found for {image_path}")
+                    self.logger.error(f"Image ID not found for {image_path}")
                     continue  # 次の画像へ
 
                 progress = int((i + 1) / total_images * 100)
