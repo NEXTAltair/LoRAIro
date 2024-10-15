@@ -78,7 +78,7 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
         self.image_path_id_map = {item['image_id']: Path(item['stored_image_path']) for item in filtered_image_metadata}
 
         # サムネイルセレクターを更新
-        self.update_thumbnail_selector(list(self.image_path_id_map.valuse()), list_count)
+        self.update_thumbnail_selector(list(self.image_path_id_map.values()), list_count)
 
     @Slot()
     def on_exportButton_clicked(self):
