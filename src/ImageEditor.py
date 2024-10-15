@@ -310,6 +310,7 @@ class AutoCrop:
                     x_max, y_max = np.max(x_coords), np.max(y_coords)
 
                     # エリアを検証する必要がなくなり、ここで余分な領域を削るロジックを追加する
+                    # TODO: このロジックは適切かどうかを検討する
                     margin = 5  # 余分に削るピクセル数
                     x_min = max(0, x_min + margin)
                     y_min = max(0, y_min + margin)

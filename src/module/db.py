@@ -1,5 +1,6 @@
 import sqlite3
 import threading
+import traceback
 import uuid
 import imagehash
 import inspect
@@ -502,7 +503,7 @@ class ImageRepository:
             if model_id is None:
                 model_id = next((caption.get('model_id') for caption in captions if caption.get('model_id') is not None), None)
             if model_id is None:
-                self.logger.warning("model_idはすべてNoneで保存されます。")
+                self.logger.info("model_idはすべてNoneで保存されます。")
 
         tags_list = [tag_dict.get('tag') for tag_dict in tags]
         caption_list = [caption_dict.get('caption') for caption_dict in captions]
@@ -889,13 +890,14 @@ class ImageRepository:
             current_method = inspect.currentframe().f_code.co_name
             raise sqlite3.Error(f"{current_method} オリジナル画像の取得中にエラーが発生しました: {e}")
 
-    def get_processed_image(self, image_id: int, resolution: int = 0) -> Optional[dict[str, Any]]:
+    def get_processed_image(self, image_id: int, resolution: int = 0, all_data: bool = False) -> Optional[dict[str, Any]]:
         """
         image_idとresolutionから関連する処理済み画像のメタデータを取得し、指定した解像度でリサイズされた画像のメタデータを返します。
 
         Args:
             image_id (int): 元画像のID。
             resolution (int): リサイズ処理の基準にした解像度。0の場合は最も解像度が低い画像を返します。
+            all_data (bool): Trueの場合は全ての処理済み画像のメタデータを返します。
 
         Returns:
             Optional[dict[str, Any]]: 処理済み画像のメタデータを含む辞書。画像が見つからない場合はNone。
@@ -910,6 +912,8 @@ class ImageRepository:
             if not metadata_list:
                 return None
             self.logger.debug(f"ID {image_id} の処理済み画像メタデータを {len(metadata_list)} 取得しました")
+            if all_data:
+                return metadata_list
             # resolutionが0の場合は最も解像度が低いものを選択
             if resolution == 0:
                 metadata = min(metadata_list, key=lambda x: x['width'] * x['height'])
@@ -1256,7 +1260,7 @@ class ImageDatabaseManager:
             self.logger.error(f"画像メタデータ取得中にエラーが発生しました: {e}")
             raise
 
-    def get_processed_metadata(self, image_id: int) -> list[dict[str, Any]]:
+    def get_processed_metadata(self, image_id: int) -> Optional[list[dict[str, Any]]]:
         """
         指定された元画像IDに関連する全ての処理済み画像のメタデータを取得します。
 
@@ -1270,10 +1274,11 @@ class ImageDatabaseManager:
             Exception: メタデータの取得に失敗した場合。
         """
         try:
-            processed_images = self.repository.get_processed_image(image_id)
-            if not processed_images:
+            metadata_list = self.repository.get_processed_image(image_id, all_data=True)
+            if not metadata_list:
                 self.logger.info(f"ID {image_id} の元画像に関連する処理済み画像が見つかりません。")
-            return processed_images
+                return None
+            return metadata_list
         except Exception as e:
             self.logger.error(f"処理済み画像メタデータ取得中にエラーが発生しました: {e}")
             raise
@@ -1499,17 +1504,18 @@ class ImageDatabaseManager:
             Optional[dict]: 処理済み画像が存在する場合はそのメタデータ、存在しない場合はNone
         """
         try:
-            processed_images = self.repository.get_processed_image(image_id)
+            processed_image = self.repository.get_processed_image(image_id, target_resolution)
 
-            for processed_image in processed_images:
-                width = processed_image['width']
-                height = processed_image['height']
-                if width == target_resolution or height == target_resolution:
-                    return processed_image
+            if processed_image:
+                return processed_image
             self.logger.info(f"ID {image_id} の画像に解像度 {target_resolution} に一致する処理済み画像が見つかりませんでした")
             return None
         except Exception as e:
-            self.logger.error(f"処理済み画像のチェック中にエラーが発生しました: {e}")
+            current_method = inspect.currentframe().f_code.co_name
+            error_msg = (f"{current_method}: 処理済み画像のチェック中にエラーが発生しました。"
+                         f" image_id={image_id}, target_resolution={target_resolution}. エラー: {str(e)}")
+            self.logger.error(error_msg)
+            self.logger.error(f"トレースバック:\n{traceback.format_exc()}")
             return None
 
     def filter_recent_annotations(self, annotations: dict) -> dict:
