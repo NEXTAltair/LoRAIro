@@ -14,7 +14,6 @@
 
 ### 主要コンポーネント
 
-- **main.py**: メインコントローラー。全体の処理フローを制御します。
 - **ImageEditor.py**: 画像処理を担当。リサイズ、クロップ、フォーマット変換などを行います。
 - **caption_tags.py**: 画像分析とタグ・キャプション生成を行います。
 - **api_utils.py**: APIとの通信を管理。バッチ処理のサポートも含みます。
@@ -29,17 +28,16 @@
 ### 必要条件
 
 - Python 3.11以上
-- 必要なPythonパッケージ（requirements.txtを参照）
 
 ### インストール手順
 
 1. リポジトリをクローンします：
-   ```
-   git clone [リポジトリURL]
+   ```bash
+   git clone https://github.com/NEXTAltair/Lorayougazouwoiroirosurusukuriputo.git
    ```
 
 2. 必要なパッケージをインストールします：
-   ```
+   ```bash
    pip install -r requirements.txt
    ```
 
@@ -49,8 +47,8 @@
 
 1. `processing.toml` ファイルで必要な設定を行います。
 2. メイン処理を実行します：
-   ```
-   python main.py
+   ```bash
+   stert.bat
    ```
 
 ## 設定
