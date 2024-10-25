@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'ThumbnailSelectorWidget.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.7.2
+## Created by: Qt User Interface Compiler version 6.8.0
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -30,7 +30,7 @@ class Ui_ThumbnailSelectorWidget(object):
         self.scrollAreaThumbnails.setWidgetResizable(True)
         self.widgetThumbnailsContent = QWidget()
         self.widgetThumbnailsContent.setObjectName(u"widgetThumbnailsContent")
-        self.widgetThumbnailsContent.setGeometry(QRect(0, 0, 380, 280))
+        self.widgetThumbnailsContent.setGeometry(QRect(0, 0, 376, 276))
         self.widgetThumbnailsContent.setMinimumSize(QSize(64, 64))
         self.scrollAreaThumbnails.setWidget(self.widgetThumbnailsContent)
 
