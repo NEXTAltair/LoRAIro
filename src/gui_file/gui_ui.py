@@ -68,30 +68,6 @@ class Ui_mainWindow(object):
         QListWidgetItem(self.sidebarList)
         self.sidebarList.setObjectName(u"sidebarList")
         self.sidebarList.setMaximumSize(QSize(512, 16777215))
-        self.sidebarList.setStyleSheet("QListWidget {"
-                                       "    background-color: #f0f0f0;"
-                                       "    font-family: Arial, sans-serif;"
-                                       "    font-size: 14px;"
-                                       "    color: #333333;"
-                                       "}"
-                                       "QListWidget::item {"
-                                       "    padding: 10px;"
-                                       "    margin: 5px;"
-                                       "}"
-                                       "QListWidget::item:selected {"
-                                       "    background-color: #d0d0d0;"
-                                       "    color: #000000;"
-                                       "}"
-                                       "QListWidget::item {"
-                                       "    border: 1px solid #cccccc;"
-                                       "    border-radius: 5px;"
-                                       "    margin-bottom: 5px;"
-                                       "}"
-                                       "QListWidget::item:selected {"
-                                       "    background-color: #d0d0d0;"
-                                       "    color: #000000;"
-                                       "    border: 1px solid #aaaaaa;"
-                                       "}")
         self.mainWindowSplitter.addWidget(self.sidebarList)
         self.contentStackedWidget = QStackedWidget(self.mainWindowSplitter)
         self.contentStackedWidget.setObjectName(u"contentStackedWidget")
