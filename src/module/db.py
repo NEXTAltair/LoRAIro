@@ -1104,10 +1104,10 @@ class ImageDatabaseManager:
     """
     def __init__(self, db_dir: Path):
         self.logger = get_logger("ImageDatabaseManager")
-        if Path("Image_database").exists():
-            Path("Image_database").mkdir(parents=True, exist_ok=True)
-            Path("Image_database").joinpath("image_database.db").touch()
-            db_dir = Path("Image_database")
+        if not db_dir.exists():
+            db_dir.mkdir(parents=True, exist_ok=True)
+            db_path = db_dir / "image_database.db"
+            db_path.touch(exist_ok=True)
         img_db_path = db_dir / "image_database.db"
         tag_db_path = Path("src") / "module" / "genai-tag-db-tools" / "tags_v3.db"
         self.db_manager = SQLiteManager(img_db_path, tag_db_path)
