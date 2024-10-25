@@ -14,20 +14,33 @@ from ImageEditor import ImageProcessingManager
 
 class ImageEditWidget(QWidget, Ui_ImageEditWidget):
     THUMBNAIL_SIZE = 64
-    FILE_SIZE_UNIT = 1024  # KB
     def __init__(self, parent=None):
         super().__init__(parent)
         self.logger = get_logger("ImageEditWidget")
         self.setupUi(self)
+        self.main_window = None
         self.cm = None
         self.idm = None
         self.fsm = None
+        self.ipm = None
+        self.target_resolution = 0
+        self.preferred_resolutions = []
+        self.upscaler = None
+        self.directory_images = None
 
-    def initialize(self, cm: 'ConfigManager', fsm: FileSystemManager,
-                         idm: ImageDatabaseManager, main_window=None):
-        self.cm = cm
-        self.idm = idm
-        self.fsm = fsm
+    def initialize(self, config_manager: 'ConfigManager', file_system_manager: FileSystemManager,
+                         image_database_manager: ImageDatabaseManager, main_window=None):
+        """ウィジェットの初期化を行う
+
+        Args:
+            config_manager (ConfigManager): 設定管理クラス
+            file_system_manager (FileSystemManager): ファイルシステム管理クラス
+            image_database_manager (ImageDatabaseManager): 画像データベース管理クラス
+            main_window (Optional): メインウィンドウインスタンス
+        """
+        self.cm = config_manager
+        self.fsm = file_system_manager
+        self.idm = image_database_manager
         self.main_window = main_window
         self.target_resolution = self.cm.config['image_processing']['target_resolution']
         self.preferred_resolutions = self.cm.config['preferred_resolutions']
@@ -205,7 +218,7 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         self.logger.info(f"画像処理完了: {image_file} -> {processed_path}")
 
 if __name__ == "__main__":
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QWidget
     from gui import MainWindow, ConfigManager
     from module.config import get_config
     import sys

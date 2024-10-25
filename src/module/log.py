@@ -1,6 +1,11 @@
 import sys
 import locale
+import logging
+import traceback
+import io
 from pathlib import Path
+from logging.handlers import RotatingFileHandler
+from typing import Dict
 
 # システムのデフォルトエンコーディングをUTF-8に設定
 if sys.platform.startswith('win'):
@@ -11,12 +16,6 @@ if sys.platform.startswith('win'):
 else:
     # Unix系の場合
     locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
-
-import logging
-import traceback
-from logging.handlers import RotatingFileHandler
-from typing import Dict
-import io
 
 def setup_logger(config: Dict[str, str]) -> None:
     log_level = config['level'].upper()
