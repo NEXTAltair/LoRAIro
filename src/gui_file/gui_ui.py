@@ -81,6 +81,16 @@ class Ui_mainWindow(object):
                                        "QListWidget::item:selected {"
                                        "    background-color: #d0d0d0;"
                                        "    color: #000000;"
+                                       "}"
+                                       "QListWidget::item {"
+                                       "    border: 1px solid #cccccc;"
+                                       "    border-radius: 5px;"
+                                       "    margin-bottom: 5px;"
+                                       "}"
+                                       "QListWidget::item:selected {"
+                                       "    background-color: #d0d0d0;"
+                                       "    color: #000000;"
+                                       "    border: 1px solid #aaaaaa;"
                                        "}")
         self.mainWindowSplitter.addWidget(self.sidebarList)
         self.contentStackedWidget = QStackedWidget(self.mainWindowSplitter)
