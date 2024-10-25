@@ -1,3 +1,4 @@
+"""使い回せそうなスタティックメソッドを提供するモジュール"""
 from pathlib import Path
 
 class ToolsStatic:
@@ -8,6 +9,7 @@ class ToolsStatic:
     @staticmethod
     def join_txt_and_caption_files(dir_path: Path):
         """指定したディレクトリ内の.captionファイルを.txtファイルに追加する
+        # TODO: 使用箇所なし src.ImageEditor.py src.DatasetExportWidget.py で使えるように実装
         """
         file_dict = {}
         for file in dir_path.iterdir():
@@ -19,8 +21,8 @@ class ToolsStatic:
                 file_dict[basename].append(ext)
 
         # .txtと.captionの両方が存在するファイルを処理
-        for basename, exts in file_dict.items():
-            if '.txt' in exts and '.caption' in exts:
+        for basename, extensions in file_dict.items():
+            if '.txt' in extensions and '.caption' in extensions:
                 txt_file = dir_path / f"{basename}.txt"
                 caption_file = dir_path / f"{basename}.caption"
 
