@@ -38,6 +38,8 @@ class Ui_ImageTaggerWidget(object):
         self.splitterMain.setProperty(u"sizes", 667)
         self.taggingAreaWidget = QWidget(self.splitterMain)
         self.taggingAreaWidget.setObjectName(u"taggingAreaWidget")
+        self.taggingAreaWidget.setMinimumSize(QSize(300, 0))
+        self.taggingAreaWidget.setMaximumSize(QSize(600, 16777215))
         self.verticalLayoutTaggingArea = QVBoxLayout(self.taggingAreaWidget)
         self.verticalLayoutTaggingArea.setObjectName(u"verticalLayoutTaggingArea")
         self.gridLayoutApiOptions = QGridLayout()
@@ -188,6 +190,7 @@ class Ui_ImageTaggerWidget(object):
         self.verticalLayoutImageArea.setObjectName(u"verticalLayoutImageArea")
         self.dbSearchWidget = TagFilterWidget(self.imageAreaWidget)
         self.dbSearchWidget.setObjectName(u"dbSearchWidget")
+        self.dbSearchWidget.setMaximumSize(QSize(16777215, 200))
 
         self.verticalLayoutImageArea.addWidget(self.dbSearchWidget)
 

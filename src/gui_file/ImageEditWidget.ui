@@ -108,13 +108,13 @@
         <widget class="ImagePreviewWidget" name="ImagePreview" native="true">
          <property name="sizePolicy">
           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-           <horstretch>1</horstretch>
+           <horstretch>2</horstretch>
            <verstretch>0</verstretch>
           </sizepolicy>
          </property>
          <property name="minimumSize">
           <size>
-           <width>126</width>
+           <width>500</width>
            <height>0</height>
           </size>
          </property>

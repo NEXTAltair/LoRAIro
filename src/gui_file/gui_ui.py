@@ -32,7 +32,7 @@ class Ui_mainWindow(object):
     def setupUi(self, mainWindow):
         if not mainWindow.objectName():
             mainWindow.setObjectName(u"mainWindow")
-        mainWindow.resize(802, 565)
+        mainWindow.resize(1500, 1000)
         self.actionOpen = QAction(mainWindow)
         self.actionOpen.setObjectName(u"actionOpen")
         self.actionSave = QAction(mainWindow)
@@ -67,10 +67,21 @@ class Ui_mainWindow(object):
         QListWidgetItem(self.sidebarList)
         QListWidgetItem(self.sidebarList)
         self.sidebarList.setObjectName(u"sidebarList")
-        self.sidebarList.setMaximumSize(QSize(512, 16777215))
+        self.sidebarList.setMinimumSize(QSize(150, 0))
+        self.sidebarList.setMaximumSize(QSize(200, 16777215))
+        font = QFont()
+        font.setFamilies([u"Arial"])
+        font.setPointSize(10)
+        self.sidebarList.setFont(font)
         self.mainWindowSplitter.addWidget(self.sidebarList)
         self.contentStackedWidget = QStackedWidget(self.mainWindowSplitter)
         self.contentStackedWidget.setObjectName(u"contentStackedWidget")
+        sizePolicy1 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        sizePolicy1.setHorizontalStretch(2)
+        sizePolicy1.setVerticalStretch(1)
+        sizePolicy1.setHeightForWidth(self.contentStackedWidget.sizePolicy().hasHeightForWidth())
+        self.contentStackedWidget.setSizePolicy(sizePolicy1)
+        self.contentStackedWidget.setMinimumSize(QSize(500, 500))
         self.pageImageEdit = ImageEditWidget()
         self.pageImageEdit.setObjectName(u"pageImageEdit")
         self.contentStackedWidget.addWidget(self.pageImageEdit)
@@ -113,7 +124,7 @@ class Ui_mainWindow(object):
         mainWindow.setCentralWidget(self.centralWidget)
         self.menuBar = QMenuBar(mainWindow)
         self.menuBar.setObjectName(u"menuBar")
-        self.menuBar.setGeometry(QRect(0, 0, 802, 33))
+        self.menuBar.setGeometry(QRect(0, 0, 1500, 25))
         self.menuFile = QMenu(self.menuBar)
         self.menuFile.setObjectName(u"menuFile")
         self.menuHelp = QMenu(self.menuBar)
@@ -149,25 +160,18 @@ class Ui_mainWindow(object):
         self.sidebarList.setSortingEnabled(False)
         ___qlistwidgetitem = self.sidebarList.item(0)
         ___qlistwidgetitem.setText(QCoreApplication.translate("mainWindow", u"\u753b\u50cf\u7de8\u96c6", None));
-        ___qlistwidgetitem.setIcon(QIcon(":/icons/edit.png"))
         ___qlistwidgetitem1 = self.sidebarList.item(1)
         ___qlistwidgetitem1.setText(QCoreApplication.translate("mainWindow", u"\u81ea\u52d5\u30bf\u30b0\u4ed8\u3051", None));
-        ___qlistwidgetitem1.setIcon(QIcon(":/icons/tag.png"))
         ___qlistwidgetitem2 = self.sidebarList.item(2)
         ___qlistwidgetitem2.setText(QCoreApplication.translate("mainWindow", u"\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8\u6982\u8981", None));
-        ___qlistwidgetitem2.setIcon(QIcon(":/icons/overview.png"))
         ___qlistwidgetitem3 = self.sidebarList.item(3)
         ___qlistwidgetitem3.setText(QCoreApplication.translate("mainWindow", u"\u30bf\u30b0/\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3\u7de8\u96c6", None));
-        ___qlistwidgetitem3.setIcon(QIcon(":/icons/edit_tag.png"))
         ___qlistwidgetitem4 = self.sidebarList.item(4)
         ___qlistwidgetitem4.setText(QCoreApplication.translate("mainWindow", u"\u30a8\u30af\u30b9\u30dd\u30fc\u30c8", None));
-        ___qlistwidgetitem4.setIcon(QIcon(":/icons/export.png"))
         ___qlistwidgetitem5 = self.sidebarList.item(5)
         ___qlistwidgetitem5.setText(QCoreApplication.translate("mainWindow", u"\u30d0\u30c3\u30c1\u51e6\u7406", None));
-        ___qlistwidgetitem5.setIcon(QIcon(":/icons/batch.png"))
         ___qlistwidgetitem6 = self.sidebarList.item(6)
         ___qlistwidgetitem6.setText(QCoreApplication.translate("mainWindow", u"\u8a2d\u5b9a", None));
-        ___qlistwidgetitem6.setIcon(QIcon(":/icons/settings.png"))
         self.sidebarList.setSortingEnabled(__sortingEnabled)
 
         self.labelTagCaptionEditTitle.setText(QCoreApplication.translate("mainWindow", u"\u30bf\u30b0/\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3\u7de8\u96c6", None))
