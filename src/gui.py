@@ -106,7 +106,10 @@ class MainWindow(QMainWindow, Ui_mainWindow):
             self.logger.error(f"ProgressWidgetを使用した処理中にエラーが発生しました: {e}")
 
     def closeEvent(self, event):
-        if self.progress_controller.thread.isRunning():
+        if hasattr(self, 'progress_controller') and self.progress_controller and \
+        hasattr(self.progress_controller, 'thread') and \
+        self.progress_controller.thread and \
+        self.progress_controller.thread.isRunning():
             event.ignore()
             QMessageBox.warning(self, "Warning", "Process is still running.")
         else:
