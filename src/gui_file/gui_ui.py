@@ -68,6 +68,20 @@ class Ui_mainWindow(object):
         QListWidgetItem(self.sidebarList)
         self.sidebarList.setObjectName(u"sidebarList")
         self.sidebarList.setMaximumSize(QSize(512, 16777215))
+        self.sidebarList.setStyleSheet("QListWidget {"
+                                       "    background-color: #f0f0f0;"
+                                       "    font-family: Arial, sans-serif;"
+                                       "    font-size: 14px;"
+                                       "    color: #333333;"
+                                       "}"
+                                       "QListWidget::item {"
+                                       "    padding: 10px;"
+                                       "    margin: 5px;"
+                                       "}"
+                                       "QListWidget::item:selected {"
+                                       "    background-color: #d0d0d0;"
+                                       "    color: #000000;"
+                                       "}")
         self.mainWindowSplitter.addWidget(self.sidebarList)
         self.contentStackedWidget = QStackedWidget(self.mainWindowSplitter)
         self.contentStackedWidget.setObjectName(u"contentStackedWidget")
@@ -149,18 +163,25 @@ class Ui_mainWindow(object):
         self.sidebarList.setSortingEnabled(False)
         ___qlistwidgetitem = self.sidebarList.item(0)
         ___qlistwidgetitem.setText(QCoreApplication.translate("mainWindow", u"\u753b\u50cf\u7de8\u96c6", None));
+        ___qlistwidgetitem.setIcon(QIcon(":/icons/edit.png"))
         ___qlistwidgetitem1 = self.sidebarList.item(1)
         ___qlistwidgetitem1.setText(QCoreApplication.translate("mainWindow", u"\u81ea\u52d5\u30bf\u30b0\u4ed8\u3051", None));
+        ___qlistwidgetitem1.setIcon(QIcon(":/icons/tag.png"))
         ___qlistwidgetitem2 = self.sidebarList.item(2)
         ___qlistwidgetitem2.setText(QCoreApplication.translate("mainWindow", u"\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8\u6982\u8981", None));
+        ___qlistwidgetitem2.setIcon(QIcon(":/icons/overview.png"))
         ___qlistwidgetitem3 = self.sidebarList.item(3)
         ___qlistwidgetitem3.setText(QCoreApplication.translate("mainWindow", u"\u30bf\u30b0/\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3\u7de8\u96c6", None));
+        ___qlistwidgetitem3.setIcon(QIcon(":/icons/edit_tag.png"))
         ___qlistwidgetitem4 = self.sidebarList.item(4)
         ___qlistwidgetitem4.setText(QCoreApplication.translate("mainWindow", u"\u30a8\u30af\u30b9\u30dd\u30fc\u30c8", None));
+        ___qlistwidgetitem4.setIcon(QIcon(":/icons/export.png"))
         ___qlistwidgetitem5 = self.sidebarList.item(5)
         ___qlistwidgetitem5.setText(QCoreApplication.translate("mainWindow", u"\u30d0\u30c3\u30c1\u51e6\u7406", None));
+        ___qlistwidgetitem5.setIcon(QIcon(":/icons/batch.png"))
         ___qlistwidgetitem6 = self.sidebarList.item(6)
         ___qlistwidgetitem6.setText(QCoreApplication.translate("mainWindow", u"\u8a2d\u5b9a", None));
+        ___qlistwidgetitem6.setIcon(QIcon(":/icons/settings.png"))
         self.sidebarList.setSortingEnabled(__sortingEnabled)
 
         self.labelTagCaptionEditTitle.setText(QCoreApplication.translate("mainWindow", u"\u30bf\u30b0/\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3\u7de8\u96c6", None))
