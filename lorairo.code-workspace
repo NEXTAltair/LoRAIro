@@ -5,30 +5,42 @@
             "name": "LoRAIro"
         },
         {
-            "path": "./lorairo", // プロジェクトのルートディレクトリ
+            "path": "lorairo", // プロジェクトのルートディレクトリ
             "name": "project_lorairo" // name はワークスペース名なのでルートフォルダと別の名前にしたいときだけ設定
         },
         {
-            "path": "./genai-tag-db-tools", // もう一つのプロジェクトのルートディレクトリ
+            "path": "genai-tag-db-tools", // もう一つのプロジェクトのルートディレクトリ
             "name": "project_genai-tag-db-tools"
         }
     ],
     "settings": {
+        "python.testing.pytestArgs": [
+            "lorairo/tests",     // プロジェクト1のテスト
+            "genai-tag-db-tools/tests",  // プロジェクト2のテスト
+        ],
         "python.testing.pytestEnabled": true,
+        "python.testing.unittestEnabled": false,
         "python.terminal.activateEnvironment": true,
         "terminal.integrated.environmentChangesRelaunch": true,
         "terminal.integrated.shellIntegration.enabled": true,
+        "terminal.integrated.cwd": "${workspaceFolder}", // ターミナルのカレントディレクトリをワークスペースのルートに設定
+        "terminal.integrated.splitCwd": "inherited", // ターミナルの分割時にカレントディレクトリを引き継ぐ
+        "terminal.integrated.windowsEnableConpty": true, // WindowsターミナルでPTYを有効にする
         "python.analysis.autoImportCompletions": true,
         "python.analysis.typeCheckingMode": "basic",
 
-        "python.envFile": "${workspaceFolder:project_lorairo}/.env",
+        "python.analysis.extraPaths": [
+            "${workspaceFolder}/lorairo/src",
+            "${workspaceFolder}/genai-tag-db-tools/genai_tag_db_tools",
+        ],
 
-        // "pylint.args": [
-        //     "--disable=W1203", // ロギングのとき `%s` 使えって怒られるので無効化
-        //     "--extension-pkg-allow-list=cv2, PySide6", // OpenCV PySide6 のエラーを無視 不具合？ 知らん
-        //     "--ignore-patterns=.*?_ui.py", // ファイル名が `_ui.py` で終わるファイルを無視
-        // ],
+        "python.envFile": "${workspaceFolder}/.env",
 
+        "pylint.args": [
+            "--disable=W1203", // ロギングのとき `%s` 使えって怒られるので無効化
+            "--extension-pkg-allow-list=cv2, PySide6", // OpenCV PySide6 のエラーを無視 不具合？ 知らん
+            "--ignore-patterns=.*?_ui.py", // ファイル名が `_ui.py` で終わるファイルを無視
+        ],
 
         // "black-formatter.args": [
         //     "--ignore-patterns=.*?_ui.py", // ファイル名が `_ui.py` で終わるファイルを無視
@@ -42,7 +54,10 @@
             "QSS",
         ],
 
-        "python.defaultInterpreterPath": "${workspaceFolder:project_lorairo}/venv/Scripts/python.exe",
+        "python.defaultInterpreterPath": "${workspaceFolder}/venv/Scripts/python.exe",
+        "terminal.integrated.env.windows": { // Windowsターミナルでの環境変数を設定
+            "PYTHONPATH": "${workspaceFolder}"
+        },
         "[python]": {
             "editor.formatOnSave": true,
             "editor.formatOnPaste": false,
@@ -97,6 +112,7 @@
         "cSpell.words": [
             "pytest"
         ],
+        "powershell.cwd": "LoRAIro",
     },
     "extensions": {
         "recommendations": [
