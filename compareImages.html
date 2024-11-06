@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Comparison Slider</title>
+    <link rel="stylesheet" href="https://unpkg.com/image-compare-viewer/dist/image-compare-viewer.min.css">
+    <style>
+        .container {
+            width: 80%;
+            margin: 0 auto;
+        }
+        .img-comp-container {
+            position: relative;
+            width: 100%;
+            height: auto;
+            margin-bottom: 20px;
+        }
+        .image-compare img {
+            width: 100%;
+            height: auto;
+        }
+        .icv__label {
+            background-color: rgba(0, 0, 0, 0.5);
+            color: white;
+            padding: 5px;
+            font-size: 14px;
+        }
+        .download-buttons {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+        }
+        .download-buttons a {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px;
+            text-decoration: none;
+            border-radius: 5px;
+        }
+        .download-buttons a:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Image Comparison Slider</h1>
+        <input type="file" id="folderInput1" webkitdirectory directory multiple>
+        <input type="file" id="folderInput2" webkitdirectory directory multiple>
+        <button onclick="compareImages()">Compare Images</button>
+        <div id="comparisonContainer"></div>
+    </div>
+
+    <script src="https://unpkg.com/image-compare-viewer/dist/image-compare-viewer.min.js"></script>
+    <script>
+        let folder1Name = '';
+        let folder2Name = '';
+
+        function createImageCompareElement(img1Src, img2Src, labelBefore, labelAfter, fileName) {
+            const container = document.createElement('div');
+            container.classList.add('img-comp-container');
+
+            const imageCompare = document.createElement('div');
+            imageCompare.setAttribute('id', 'image-compare');
+
+            const img1 = document.createElement('img');
+            img1.src = img1Src;
+            img1.alt = labelBefore;
+
+            const img2 = document.createElement('img');
+            img2.src = img2Src;
+            img2.alt = labelAfter;
+
+            imageCompare.appendChild(img1);
+            imageCompare.appendChild(img2);
+            container.appendChild(imageCompare);
+
+            const downloadButtons = document.createElement('div');
+            downloadButtons.classList.add('download-buttons');
+
+            const downloadButton1 = document.createElement('a');
+            downloadButton1.href = img1Src;
+            downloadButton1.download = fileName;  // Same file name
+            downloadButton1.textContent = `Save ${labelBefore}`;
+
+            const downloadButton2 = document.createElement('a');
+            downloadButton2.href = img2Src;
+            downloadButton2.download = fileName;  // Same file name
+            downloadButton2.textContent = `Save ${labelAfter}`;
+
+            downloadButtons.appendChild(downloadButton1);
+            downloadButtons.appendChild(downloadButton2);
+            container.appendChild(downloadButtons);
+
+            return container;
+        }
+
+        function handleFiles(event) {
+            const input = event.target;
+            const files = input.files;
+            const folderId = input.id;
+            const folderFiles = {};
+
+            Array.from(files).forEach(file => {
+                folderFiles[file.name] = URL.createObjectURL(file);
+            });
+
+            const folderPath = files[0].webkitRelativePath;
+            const folderName = folderPath.split('/')[0];
+
+            if (folderId === 'folderInput1') {
+                window.folder1Files = folderFiles;
+                folder1Name = folderName;
+            } else if (folderId === 'folderInput2') {
+                window.folder2Files = folderFiles;
+                folder2Name = folderName;
+            }
+        }
+
+        function compareImages() {
+            if (!window.folder1Files || !window.folder2Files) {
+                return;
+            }
+
+            const comparisonContainer = document.getElementById('comparisonContainer');
+            comparisonContainer.innerHTML = '';
+
+            Object.keys(window.folder1Files).forEach(fileName => {
+                if (window.folder2Files[fileName]) {
+                    const imgCompareElement = createImageCompareElement(
+                        window.folder1Files[fileName], 
+                        window.folder2Files[fileName], 
+                        folder1Name, 
+                        folder2Name,
+                        fileName  // Use the same file name
+                    );
+                    comparisonContainer.appendChild(imgCompareElement);
+                }
+            });
+
+            // Image Compare Viewerを再初期化
+            const viewers = document.querySelectorAll('#image-compare');
+            viewers.forEach(viewer => new ImageCompare(viewer, {
+                showLabels: true,
+                labelOptions: {
+                    before: folder1Name,
+                    after: folder2Name,
+                    onHover: false
+                }
+            }).mount());
+        }
+
+        document.getElementById('folderInput1').addEventListener('change', handleFiles);
+        document.getElementById('folderInput2').addEventListener('change', handleFiles);
+    </script>
+</body>
+</html>

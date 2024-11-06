@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "lorairo"
+version = "0.0.5"
+description = "画像生成AI 学習用データセットの整備や管理をするツール"
+authors = ["Your Name <you@example.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+pillow = "opencv"
+opencv-python = "^4.10.0.84"
+numpy = "^2.1.2"
+ImageHash = "^4.3.1"
+google-generativeai = "^0.8.3"
+anthropic = "^0.37.1"
+openai = "^1.53.0"
+toml = "^0.10.2"
+PySide6 = "^6.8.0.2"
+superqt = "^0.6.7"
+torch = "^2.5.1"
+pytorch-lightning = "^2.4.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.3"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

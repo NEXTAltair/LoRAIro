@@ -20,22 +20,19 @@
         "terminal.integrated.shellIntegration.enabled": true,
         "python.analysis.autoImportCompletions": true,
         "python.analysis.typeCheckingMode": "basic",
-        "python.analysis.extraPaths": [
-            "${workspaceFolder:project_genai-tag-db-tools}/genai_tag_db_tools",
-            "${workspaceFolder:project_lorairo}/src"
-        ],
 
         "python.envFile": "${workspaceFolder:project_lorairo}/.env",
 
-        "pylint.args": [
-            "--disable=W1203", // ロギングのとき `%s` 使えって怒られるので無効化
-            "--extension-pkg-allow-list=cv2, PySide6", // OpenCV PySide6 のエラーを無視 不具合？ 知らん
-            "--ignore-patterns=.*?_ui.py", // ファイル名が `_ui.py` で終わるファイルを無視
-        ],
+        // "pylint.args": [
+        //     "--disable=W1203", // ロギングのとき `%s` 使えって怒られるので無効化
+        //     "--extension-pkg-allow-list=cv2, PySide6", // OpenCV PySide6 のエラーを無視 不具合？ 知らん
+        //     "--ignore-patterns=.*?_ui.py", // ファイル名が `_ui.py` で終わるファイルを無視
+        // ],
 
-        "flake8.args": [
-            "--ignore-patterns=.*?_ui.py",
-        ],
+
+        // "black-formatter.args": [
+        //     "--ignore-patterns=.*?_ui.py", // ファイル名が `_ui.py` で終わるファイルを無視
+        // ],
 
         "cSpell.userWords": [
             "LoRAIro",
@@ -46,9 +43,11 @@
         ],
 
         "python.defaultInterpreterPath": "${workspaceFolder:project_lorairo}/venv/Scripts/python.exe",
-
-        "editor.formatOnSave": true,
-        "editor.formatOnPaste": false,
+        "[python]": {
+            "editor.formatOnSave": true,
+            "editor.formatOnPaste": false,
+            "editor.defaultFormatter": "charliermarsh.ruff"
+        },
         "editor.renderWhitespace": "boundary",
         "editor.bracketPairColorization.enabled": true,
         "editor.insertSpaces": true,
@@ -101,6 +100,8 @@
     },
     "extensions": {
         "recommendations": [
+            // "ms-python.black-formatter", // black 拡張機能を無効化
+            // "ms-python.flake8", // flake8 拡張機能を無効化
             "ms-python.python",
             "ms-python.vscode-pylance",
             "njpwerner.autodocstring",
@@ -115,8 +116,6 @@
             "tamasfe.even-better-toml",
             "gruntfuggly.todo-tree",
             "cweijan.vscode-typora",
-            "ms-python.black-formatter",
-            "ms-python.flake8",
             "seanwu.vscode-qt-for-python",
             "theqtcompany.qt-core",
             "theqtcompany.qt-qml"
