@@ -25,7 +25,10 @@ Image_database/
 app.log
 *.log*
 output/
-src\module\genai-tag-db-tools
+docs/
+# src/lorairo.egg-info/ フォルダはビルド生成物のためコミットしない
+src/lorairo.egg-info
+
 
 # Temporary files
 .tmp*/
@@ -34,19 +37,24 @@ src\module\genai-tag-db-tools
 *.bak
 *.swp
 
-# Test files
-!TEST/testimg/1_img/
-TEST/testimg/*
-TEST/pytest_temp/
-
 # Large binary files
 *.pth
 *.ckpt
 *.bin
 *.h5
 
+# Teat files
+tests/pytest_temp/
+tests/resources/img/
+!tests/results/img/1_mag
+
 # Data files
 *.jsonl
 *.json
 tag.jsonl
 jsonl/
+
+# temp コミットしない
+TEST_backup/
+TEST/pytest_temp
+/cmyk_image.tiff

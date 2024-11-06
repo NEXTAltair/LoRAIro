@@ -1,0 +1,248 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>SettingsWidget</class>
+ <widget class="QWidget" name="SettingsWidget">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>718</width>
+    <height>681</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Form</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout_2">
+   <item>
+    <widget class="QScrollArea" name="scrollAreaMain">
+     <property name="widgetResizable">
+      <bool>true</bool>
+     </property>
+     <widget class="QWidget" name="scrollAreaWidgetContents">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>0</y>
+        <width>694</width>
+        <height>657</height>
+       </rect>
+      </property>
+      <layout class="QVBoxLayout" name="layoutScrollArea">
+       <item>
+        <widget class="QGroupBox" name="groupBoxFolders">
+         <property name="title">
+          <string>フォルダ設定</string>
+         </property>
+         <layout class="QVBoxLayout" name="layoutFolders">
+          <item>
+           <widget class="DirectoryPickerWidget" name="dirPickerOutput" native="true"/>
+          </item>
+          <item>
+           <widget class="DirectoryPickerWidget" name="dirPickerResponse" native="true"/>
+          </item>
+          <item>
+           <widget class="DirectoryPickerWidget" name="dirPickerEditedOutput" native="true"/>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupBoxApiSettings">
+         <property name="title">
+          <string>API KEY</string>
+         </property>
+         <layout class="QFormLayout" name="formLayout">
+          <item row="0" column="0">
+           <widget class="QLabel" name="labelOpenAiKey">
+            <property name="text">
+             <string>OpenAI</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLineEdit" name="lineEditOpenAiKey"/>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="labelGoogleKey">
+            <property name="text">
+             <string>Google AI Studio</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QLineEdit" name="lineEditGoogleVisionKey"/>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="labelAnthropicKey">
+            <property name="text">
+             <string>Anthropic</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QLineEdit" name="lineEditAnthropicKey"/>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupBoxHuggingFaceSettings">
+         <property name="title">
+          <string>Hugging Face</string>
+         </property>
+         <layout class="QFormLayout" name="layoutHuggingFace">
+          <item row="0" column="0">
+           <widget class="QLabel" name="labelHfUsername">
+            <property name="text">
+             <string>ユーザー名:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLineEdit" name="lineEditHfUsername"/>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="labelHfRepoName">
+            <property name="text">
+             <string>リポジトリ名:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QLineEdit" name="lineEditHfRepoName"/>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="labelHfToken">
+            <property name="text">
+             <string>トークン:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QLineEdit" name="lineEditHfToken"/>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupBoxLogSettings">
+         <property name="title">
+          <string>ログ設定</string>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayout">
+          <item>
+           <widget class="QWidget" name="LoglLevel" native="true">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <layout class="QHBoxLayout" name="horizontalLayout_2">
+             <item>
+              <widget class="QLabel" name="labelLogLevel">
+               <property name="text">
+                <string>ログレベル:</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QComboBox" name="comboBoxLogLevel"/>
+             </item>
+             <item>
+              <spacer name="HSpacerLogLevel">
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="FilePickerWidget" name="filePickerLogFile" native="true">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QWidget" name="SaveSettings" native="true">
+         <layout class="QHBoxLayout" name="layoutButtons">
+          <item>
+           <spacer name="HSpacerSaveButtons">
+            <property name="orientation">
+             <enum>Qt::Orientation::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QPushButton" name="buttonSave">
+            <property name="text">
+             <string>保存</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="buttonSaveAs">
+            <property name="text">
+             <string>名前を付けて保存</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>DirectoryPickerWidget</class>
+   <extends>QWidget</extends>
+   <header>..widgets.directory_picker</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>FilePickerWidget</class>
+   <extends>QWidget</extends>
+   <header>..widgets.file_picker</header>
+   <container>1</container>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+ <slots>
+  <slot>on_buttonSave_clicked()</slot>
+  <slot>on_buttonSaveAs_clicked()</slot>
+  <slot>on_lineEditOpenAiKey_editingFinished()</slot>
+  <slot>on_lineEditGoogleVisionKey_editingFinished()</slot>
+  <slot>on_lineEditAnthropicKey_editingFinished()</slot>
+  <slot>on_lineEditHfUsername_editingFinished()</slot>
+  <slot>on_lineEditHfRepoName_editingFinished()</slot>
+  <slot>on_lineEditHfToken_editingFinished()</slot>
+  <slot>on_comboBoxLogLevel_currentIndexChanged(int)</slot>
+ </slots>
+</ui>
