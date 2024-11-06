@@ -1,17 +1,21 @@
-import pytest
-from pathlib import Path
-from module.db import SQLiteManager, ImageRepository, ImageDatabaseManager
-from unittest.mock import MagicMock, patch
-from module.log import get_logger
-import uuid
-from datetime import datetime, timezone, timedelta
 import time
+import uuid
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from database.database import ImageDatabaseManager, ImageRepository, SQLiteManager
+from utils.log import get_logger
+
 
 @pytest.fixture
 def test_db_paths(tmp_path):
     img_db = tmp_path / f"test_image_database_{uuid.uuid4()}.db"
-    tag_db = Path("src/module/genai-tag-db-tools/tags_v3.db") #テストによる変更がないので実際のパスを使用
+    tag_db = Path("src/module/genai-tag-db-tools/tags_v3.db")  # テストによる変更がないので実際のパスを使用
     return img_db, tag_db
+
 
 @pytest.fixture
 def sqlite_manager(test_db_paths):
@@ -23,10 +27,11 @@ def sqlite_manager(test_db_paths):
     sqlite_manager.close()
     img_db.unlink(missing_ok=True)
 
+
 @pytest.fixture
 def image_database_manager(sqlite_manager):
     # ハードコーディングされたパスをテスト用データベースに変更するためパッチ
-    with patch.object(ImageDatabaseManager, '__init__', return_value=None):
+    with patch.object(ImageDatabaseManager, "__init__", return_value=None):
         idm = ImageDatabaseManager()
         idm.logger = get_logger("ImageDatabaseManager")
         idm.db_manager = sqlite_manager
@@ -34,26 +39,29 @@ def image_database_manager(sqlite_manager):
         idm.logger.debug("初期化（テスト用パス使用）")
         yield idm
 
+
 def test_sqlite_connect(sqlite_manager):
     """データベース接続とテーブル作成の確認"""
     conn = sqlite_manager.connect()
     assert conn is not None
     cursor = conn.cursor()
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-    tables = {table['name'] for table in cursor.fetchall()}
-    expected_tables = {'images', 'processed_images', 'models', 'tags', 'captions', 'scores'}
+    tables = {table["name"] for table in cursor.fetchall()}
+    expected_tables = {"images", "processed_images", "models", "tags", "captions", "scores"}
     assert expected_tables.issubset(tables)
+
 
 def test_sqlite_fetch_one(sqlite_manager):
     """単一行のデータ取得の確認"""
     query = "SELECT * FROM models WHERE name = ?"
-    params = ('gpt-4o',)
+    params = ("gpt-4o",)
     result = sqlite_manager.fetch_one(query, params)
     # 確認するパラメーターはsrc.module.db.SQLiteManager.insert_modelsで追加されたもの
     assert result is not None
-    assert result['name'] == 'gpt-4o'
-    assert result['type'] == 'vision'
-    assert result['provider'] == 'OpenAI'
+    assert result["name"] == "gpt-4o"
+    assert result["type"] == "vision"
+    assert result["provider"] == "OpenAI"
+
 
 def test_add_original_image(image_database_manager, sample_image_info):
     """オリジナル画像の追加とメタデータの取得"""
@@ -65,27 +73,29 @@ def test_add_original_image(image_database_manager, sample_image_info):
     for key, value in sample_image_info.items():
         assert metadata[key] == value
 
+
 def test_duplicate_image(image_database_manager, sample_image_info):
     """重複画像の検出と同一IDの返却確認"""
     image_id1 = image_database_manager.repository.add_original_image(sample_image_info)
     image_id2 = image_database_manager.repository.add_original_image(sample_image_info)  # 重複画像を追加
     assert image_id1 == image_id2  # 同じIDが返される
 
-@patch('module.db.calculate_phash', return_value='mocked_phash')
+
+@patch("module.db.calculate_phash", return_value="mocked_phash")
 def test_register_original_image(mock_calculate_phash, image_database_manager, mock_file_system_manager, tmp_path):
     """オリジナル画像の登録処理"""
     manager = image_database_manager
 
     mock_file_system_manager.get_image_info.return_value = {
-        'width': 800,
-        'height': 600,
-        'format': 'JPEG',
-        'mode': 'RGB',
-        'has_alpha': False,
-        'filename': 'image.jpg',
-        'extension': 'jpg',
-        'color_space': 'sRGB',
-        'icc_profile': None
+        "width": 800,
+        "height": 600,
+        "format": "JPEG",
+        "mode": "RGB",
+        "has_alpha": False,
+        "filename": "image.jpg",
+        "extension": "jpg",
+        "color_space": "sRGB",
+        "icc_profile": None,
     }
     mock_file_system_manager.save_original_image.return_value = tmp_path / "image.jpg"
 
@@ -93,8 +103,9 @@ def test_register_original_image(mock_calculate_phash, image_database_manager, m
     assert result is not None
     image_id, metadata = result
     assert isinstance(image_id, int)
-    assert metadata['width'] == 800
-    assert metadata['height'] == 600
+    assert metadata["width"] == 800
+    assert metadata["height"] == 600
+
 
 def test_register_processed_image(image_database_manager, sample_image_info, tmp_path):
     """処理済み画像の登録とメタデータの確認"""
@@ -104,14 +115,14 @@ def test_register_processed_image(image_database_manager, sample_image_info, tmp
 
     # processed_info に extension と phash は不要なため削除
     processed_info = {
-        'width': 256,
-        'height': 256,
-        'format': 'WEBP',
-        'mode': 'RGB',
-        'has_alpha': False,
-        'filename': 'processed.webp',
-        'color_space': 'sRGB',
-        'icc_profile': None
+        "width": 256,
+        "height": 256,
+        "format": "WEBP",
+        "mode": "RGB",
+        "has_alpha": False,
+        "filename": "processed.webp",
+        "color_space": "sRGB",
+        "icc_profile": None,
     }
     processed_path = tmp_path / "processed.webp"
     processed_path.touch()
@@ -124,39 +135,51 @@ def test_register_processed_image(image_database_manager, sample_image_info, tmp
     assert metadata is not None
     assert len(metadata) > 0
     processed_metadata = metadata[0]
-    assert processed_metadata['image_id'] == image_id
-    assert processed_metadata['width'] == 256
-    assert processed_metadata['height'] == 256
+    assert processed_metadata["image_id"] == image_id
+    assert processed_metadata["width"] == 256
+    assert processed_metadata["height"] == 256
+
 
 def assert_annotations(retrieved, expected, model_id, case_index, repository):
-    if 'tags' in expected:
-        assert len(retrieved['tags']) >= len(expected['tags']), f"Case {case_index}: タグの数が一致しません"
-        for tag in expected['tags']:
-            matching_tags = [t for t in retrieved['tags'] if t['tag'] == tag]
+    if "tags" in expected:
+        assert len(retrieved["tags"]) >= len(expected["tags"]), f"Case {case_index}: タグの数が一致しません"
+        for tag in expected["tags"]:
+            matching_tags = [t for t in retrieved["tags"] if t["tag"] == tag]
             assert matching_tags, f"Case {case_index}: タグ '{tag}' が見つかりません"
-            matching_tag = next((t for t in matching_tags if t['model_id'] == model_id), None)
+            matching_tag = next((t for t in matching_tags if t["model_id"] == model_id), None)
             assert matching_tag is not None, f"Case {case_index}: タグ '{tag}' に期待される model_id が見つかりません"
-            assert matching_tag['model_id'] == model_id, f"Case {case_index}: タグ '{tag}' のmodel_idが一致しません"
+            assert matching_tag["model_id"] == model_id, f"Case {case_index}: タグ '{tag}' のmodel_idが一致しません"
             expected_tag_id = repository.find_tag_id(tag)
-            assert matching_tags[0]['tag_id'] == expected_tag_id, f"Case {case_index}: タグ '{tag}' のtag_idが一致しません"
-            if tag == 'spiked collar':
+            assert (
+                matching_tags[0]["tag_id"] == expected_tag_id
+            ), f"Case {case_index}: タグ '{tag}' のtag_idが一致しません"
+            if tag == "spiked collar":
                 assert expected_tag_id == 1, f"Case {case_index}: 'spiked collar' のtag_idが1ではありません"
-            
+
             # 新しい検証: updated_at が現在時刻に近いことを確認
-            assert (datetime.now(timezone.utc) - datetime.fromisoformat(matching_tags[0]['updated_at']).replace(tzinfo=timezone.utc)) < timedelta(seconds=100), \
-                f"Case {case_index}: タグ '{tag}' のupdated_atが最新ではありません"
+            assert (
+                datetime.now(timezone.utc)
+                - datetime.fromisoformat(matching_tags[0]["updated_at"]).replace(tzinfo=timezone.utc)
+            ) < timedelta(seconds=100), f"Case {case_index}: タグ '{tag}' のupdated_atが最新ではありません"
 
-    if 'captions' in expected:
-        assert len(retrieved['captions']) >= len(expected['captions']), f"Case {case_index}: キャプションの数が一致しません"
-        for caption in expected['captions']:
-            matching_captions = [c for c in retrieved['captions'] if c['caption'] == caption]
+    if "captions" in expected:
+        assert len(retrieved["captions"]) >= len(
+            expected["captions"]
+        ), f"Case {case_index}: キャプションの数が一致しません"
+        for caption in expected["captions"]:
+            matching_captions = [c for c in retrieved["captions"] if c["caption"] == caption]
             assert matching_captions, f"Case {case_index}: キャプション '{caption}' が見つかりません"
-            assert matching_captions[0]['model_id'] == model_id, f"Case {case_index}: キャプション '{caption}' のmodel_idが一致しません"
+            assert (
+                matching_captions[0]["model_id"] == model_id
+            ), f"Case {case_index}: キャプション '{caption}' のmodel_idが一致しません"
 
-    if 'score' in expected:
-        matching_scores = [s for s in retrieved['scores'] if s['score'] == expected['score']]
+    if "score" in expected:
+        matching_scores = [s for s in retrieved["scores"] if s["score"] == expected["score"]]
         assert matching_scores, f"Case {case_index}: スコア {expected['score']} が見つかりません"
-        assert matching_scores[0]['model_id'] == model_id, f"Case {case_index}: スコア {expected['score']} のmodel_idが一致しません"
+        assert (
+            matching_scores[0]["model_id"] == model_id
+        ), f"Case {case_index}: スコア {expected['score']} のmodel_idが一致しません"
+
 
 def test_save_annotations(image_database_manager, sample_image_info):
     """アノテーションの保存、取得、更新の確認、欠損値のテストを含む"""
@@ -164,30 +187,17 @@ def test_save_annotations(image_database_manager, sample_image_info):
     image_id = manager.repository.add_original_image(sample_image_info)
 
     test_cases = [
+        {"tags": ["spiked collar", "tag1", "tag2"], "captions": ["caption1", "caption2"], "score": 0.95, "model_id": 1},
+        {"tags": ["tag4", "tag5"], "captions": ["caption3"], "model_id": 2},
+        {"captions": ["caption4"], "score": 0.85, "model_id": 3},
         {
-            'tags': ['spiked collar', 'tag1', 'tag2'],
-            'captions': ['caption1', 'caption2'],
-            'score': 0.95,
-            'model_id': 1
-        },
-        {
-            'tags': ['tag4', 'tag5'],
-            'captions': ['caption3'],
-            'model_id': 2
-        },
-        {
-            'captions': ['caption4'],
-            'score': 0.85,
-            'model_id': 3
-        },
-        {
-            'tags': ['tag6'],
-            'score': 0.75,
+            "tags": ["tag6"],
+            "score": 0.75,
             # 'model_id' がない場合
         },
         {
-            'tags': ['spiked collar'], #tags_v3に存在するidを登録
-        }
+            "tags": ["spiked collar"],  # tags_v3に存在するidを登録
+        },
     ]
 
     for index, case in enumerate(test_cases, start=1):
@@ -195,34 +205,34 @@ def test_save_annotations(image_database_manager, sample_image_info):
 
         retrieved = manager.repository.get_image_annotations(image_id)
 
-        current_model_id = case.get('model_id')
+        current_model_id = case.get("model_id")
 
         assert_annotations(retrieved, case, current_model_id, index, manager.repository)
 
     # タグの再登録のテスト
     time.sleep(1)  # updated_at の変更を確実に検出するため
-    reregister_case = {
-        'tags': ['spiked collar', 'tag1'],
-        'model_id': 4
-    }
+    reregister_case = {"tags": ["spiked collar", "tag1"], "model_id": 4}
     manager.repository.save_annotations(image_id, reregister_case)
     retrieved = manager.repository.get_image_annotations(image_id)
 
     # 再登録されたタグの検証
-    for tag in reregister_case['tags']:
-        matching_tags = [t for t in retrieved['tags'] if t['tag'] == tag]
+    for tag in reregister_case["tags"]:
+        matching_tags = [t for t in retrieved["tags"] if t["tag"] == tag]
         assert len(matching_tags) > 1, f"再登録: タグ '{tag}' の追加が行われませんでした"
 
         # 新しく追加されたタグの検証
-        new_matching_tag = next((t for t in matching_tags if t['model_id'] == 4), None)
+        new_matching_tag = next((t for t in matching_tags if t["model_id"] == 4), None)
         assert new_matching_tag is not None, f"再登録: タグ '{tag}' に新しい model_id が見つかりません"
-        assert (datetime.now(timezone.utc) - datetime.fromisoformat(new_matching_tag['updated_at']).replace(tzinfo=timezone.utc)) < timedelta(seconds=100), \
-            f"再登録: タグ '{tag}' の updated_at が更新されていません"
+        assert (
+            datetime.now(timezone.utc)
+            - datetime.fromisoformat(new_matching_tag["updated_at"]).replace(tzinfo=timezone.utc)
+        ) < timedelta(seconds=100), f"再登録: タグ '{tag}' の updated_at が更新されていません"
 
     # 他のタグが影響を受けていないことを確認
-    other_tags = [t for t in retrieved['tags'] if t['tag'] not in reregister_case['tags']]
+    other_tags = [t for t in retrieved["tags"] if t["tag"] not in reregister_case["tags"]]
     for tag in other_tags:
-        assert tag['model_id'] != 4, f"再登録: 他のタグ '{tag['tag']}' のmodel_idが誤って更新されています"
+        assert tag["model_id"] != 4, f"再登録: 他のタグ '{tag['tag']}' のmodel_idが誤って更新されています"
+
 
 def test_find_tag_id(image_database_manager, sample_image_info):
     """
@@ -230,40 +240,45 @@ def test_find_tag_id(image_database_manager, sample_image_info):
     """
     manager = image_database_manager
     image_id = manager.repository.add_original_image(sample_image_info)
-    manager.repository.save_annotations(image_id, {'tags': ['spiked collar'], 'model_id': None})
+    manager.repository.save_annotations(image_id, {"tags": ["spiked collar"], "model_id": None})
 
-    tag_id = manager.repository.find_tag_id('spiked collar')
+    tag_id = manager.repository.find_tag_id("spiked collar")
     assert tag_id == 1
+
 
 def test_update_image_metadata(image_database_manager, sample_image_info):
     """画像メタデータの更新の確認"""
     manager = image_database_manager
     image_id = manager.repository.add_original_image(sample_image_info)
 
-    updated_info = {'width': 1024, 'height': 768}
+    updated_info = {"width": 1024, "height": 768}
     manager.repository.update_image_metadata(image_id, updated_info)
 
     metadata = manager.repository.get_image_metadata(image_id)
-    assert metadata['width'] == 1024
-    assert metadata['height'] == 768
-    assert metadata['updated_at'] is not None
+    assert metadata["width"] == 1024
+    assert metadata["height"] == 768
+    assert metadata["updated_at"] is not None
+
 
 def test_delete_image(image_database_manager, sample_image_info):
     """画像の削除と関連データの確認"""
     manager = image_database_manager
     image_id = manager.repository.add_original_image(sample_image_info)
-    manager.repository.save_annotations(image_id, {
-        'tags': ['test_tag1','test_tag2','test_tag3'],
-        'captions': ['test_caption1','test_caption2','test_caption3'],
-        'score': 0.95,
-        'model_id': 1
-    })
+    manager.repository.save_annotations(
+        image_id,
+        {
+            "tags": ["test_tag1", "test_tag2", "test_tag3"],
+            "captions": ["test_caption1", "test_caption2", "test_caption3"],
+            "score": 0.95,
+            "model_id": 1,
+        },
+    )
 
     # 削除前にアノテーションが存在することを確認
     annotations_before = manager.get_image_annotations(image_id)
-    assert len(annotations_before['tags']) == 3
-    assert len(annotations_before['captions']) == 3
-    assert len(annotations_before['scores']) == 1
+    assert len(annotations_before["tags"]) == 3
+    assert len(annotations_before["captions"]) == 3
+    assert len(annotations_before["scores"]) == 1
 
     manager.repository.delete_image(image_id)
 
@@ -273,9 +288,10 @@ def test_delete_image(image_database_manager, sample_image_info):
 
     # 削除後はアノテーションが空になることを確認
     annotations_after = manager.get_image_annotations(image_id)
-    assert len(annotations_after['tags']) == 0
-    assert len(annotations_after['captions']) == 0
-    assert len(annotations_after['scores']) == 0
+    assert len(annotations_after["tags"]) == 0
+    assert len(annotations_after["captions"]) == 0
+    assert len(annotations_after["scores"]) == 0
+
 
 def test_get_total_image_count(image_database_manager, sample_image_info):
     """総画像数の取得の確認"""
@@ -285,6 +301,7 @@ def test_get_total_image_count(image_database_manager, sample_image_info):
     manager.repository.add_original_image(sample_image_info)
     new_count = manager.repository.get_total_image_count()
     assert new_count == initial_count + 1
+
 
 def test_get_models(image_database_manager):
     """モデル情報の取得の確認"""
@@ -296,7 +313,9 @@ def test_get_models(image_database_manager):
     assert isinstance(upscaler_models, dict)
     assert len(vision_models) > 0
 
+
 from datetime import datetime
+
 
 @pytest.fixture
 def setup_test_data(image_database_manager, sample_image_info, tmp_path):
@@ -308,7 +327,7 @@ def setup_test_data(image_database_manager, sample_image_info, tmp_path):
         {"tags": ["dog", "playful"], "caption": "A playful dog in the park"},
         {"tags": ["cat", "sleeping"], "caption": "A cat sleeping on a couch"},
         {"tags": ["bird", "flying"], "caption": "A bird flying in the sky"},
-        {"tags": ["catfish", "swimming"], "caption": "A catfish swimming in a pond"}
+        {"tags": ["catfish", "swimming"], "caption": "A catfish swimming in a pond"},
     ]
 
     image_ids = []
@@ -328,40 +347,39 @@ def setup_test_data(image_database_manager, sample_image_info, tmp_path):
             "WEBP",  # format
             "RGB",  # mode
             False,  # has_alpha
-            f'image_{idx}.jpg',  # filename
-            'webp',  # extension
-            'sRGB',  # color_space
+            f"image_{idx}.jpg",  # filename
+            "webp",  # extension
+            "sRGB",  # color_space
             None,  # icc_profile
-            f'unique_phash_{idx}',  # phash
+            f"unique_phash_{idx}",  # phash
             created_at,  # created_at
-            created_at   # updated_at
+            created_at,  # updated_at
         )
         cursor = manager.db_manager.execute(query, params)
         image_id = cursor.lastrowid
         image_ids.append(image_id)
         # 処理済み画像を登録
         processed_info = {
-            'width': 256,
-            'height': 256,
-            'format': 'WEBP',
-            'mode': 'RGB',
-            'has_alpha': False,
-            'filename': f'processed_{idx}.webp',
-            'color_space': 'sRGB',
-            'icc_profile': None
+            "width": 256,
+            "height": 256,
+            "format": "WEBP",
+            "mode": "RGB",
+            "has_alpha": False,
+            "filename": f"processed_{idx}.webp",
+            "color_space": "sRGB",
+            "icc_profile": None,
         }
         processed_path = tmp_path / f"processed_{idx}.webp"
         processed_path.touch()
         manager.register_processed_image(image_id, processed_path, processed_info)
 
         # アノテーションを保存
-        manager.repository.save_annotations(image_id, {
-            'tags': data['tags'],
-            'captions': [data['caption']],
-            'model_id': None
-        })
+        manager.repository.save_annotations(
+            image_id, {"tags": data["tags"], "captions": [data["caption"]], "model_id": None}
+        )
 
     return manager, image_ids
+
 
 test_cases = [
     # テストケース1: 完全一致タグ検索
@@ -370,73 +388,73 @@ test_cases = [
         "tags": ['"cat"'],
         "caption": None,
         "expected_count": 2,
-        "expected_ids": lambda ids: {ids[0], ids[2]}
+        "expected_ids": lambda ids: {ids[0], ids[2]},
     },
     # テストケース1.1: 部分一致タグ検索
     {
         "description": "部分一致タグ検索",
-        "tags": ['cat'],
+        "tags": ["cat"],
         "caption": None,
         "expected_count": 3,
-        "expected_ids": lambda ids: {ids[0], ids[2], ids[4]}
+        "expected_ids": lambda ids: {ids[0], ids[2], ids[4]},
     },
     # テストケース2: ワイルドカードタグ検索
     {
         "description": "ワイルドカードタグ検索",
-        "tags": ['cat*'],
+        "tags": ["cat*"],
         "caption": None,
         "expected_count": 3,
-        "expected_ids": lambda ids: {ids[0], ids[2], ids[4]}
+        "expected_ids": lambda ids: {ids[0], ids[2], ids[4]},
     },
     # テストケース3: AND検索
     {
         "description": "AND検索",
-        "tags": ['cat', 'cute'],
+        "tags": ["cat", "cute"],
         "caption": None,
         "use_and": True,
         "expected_count": 1,
-        "expected_ids": lambda ids: {ids[0]}
+        "expected_ids": lambda ids: {ids[0]},
     },
     # テストケース4: OR検索
     {
         "description": "OR検索",
-        "tags": ['dog', 'bird'],
+        "tags": ["dog", "bird"],
         "caption": None,
         "use_and": False,
         "expected_count": 2,
-        "expected_ids": lambda ids: {ids[1], ids[3]}
+        "expected_ids": lambda ids: {ids[1], ids[3]},
     },
     # テストケース5: 部分一致キャプション検索
     {
         "description": "部分一致キャプション検索",
         "tags": None,
-        "caption": 'sleeping',
+        "caption": "sleeping",
         "expected_count": 1,
-        "expected_ids": lambda ids: {ids[2]}
+        "expected_ids": lambda ids: {ids[2]},
     },
     # テストケース6: ワイルドカードキャプション検索
     {
         "description": "ワイルドカードキャプション検索",
         "tags": None,
-        "caption": '* in *',
+        "caption": "* in *",
         "expected_count": 3,
-        "expected_ids": lambda ids: {ids[1], ids[3], ids[4]}
+        "expected_ids": lambda ids: {ids[1], ids[3], ids[4]},
     },
     # テストケース7: タグとキャプションの組み合わせ検索
     {
         "description": "タグとキャプションの組み合わせ検索",
-        "tags": ['cat*'],
-        "caption": '*ing*',
+        "tags": ["cat*"],
+        "caption": "*ing*",
         "expected_count": 3,
-        "expected_ids": lambda ids: {ids[0], ids[2], ids[4]}
+        "expected_ids": lambda ids: {ids[0], ids[2], ids[4]},
     },
     # テストケース8: 存在しないタグでの検索
     {
         "description": "存在しないタグでの検索",
-        "tags": ['nonexistent'],
+        "tags": ["nonexistent"],
         "caption": None,
         "expected_count": 0,
-        "expected_ids": lambda ids: set()
+        "expected_ids": lambda ids: set(),
     },
     # テストケース9: 空のタグリストでの検索
     {
@@ -444,59 +462,60 @@ test_cases = [
         "tags": [],
         "caption": None,
         "expected_count": 0,
-        "expected_ids": lambda ids: None
+        "expected_ids": lambda ids: None,
     },
     # テストケース10: 解像度フィルタ
     {
         "description": "解像度フィルタ",
-        "tags": ['cat'],
+        "tags": ["cat"],
         "caption": None,
         "resolution": 256,
         "expected_count": 3,
-        "expected_ids": lambda ids: {ids[0], ids[2], ids[4]}
+        "expected_ids": lambda ids: {ids[0], ids[2], ids[4]},
     },
     # エッジケース1: タグが存在しない
     {
         "description": "エッジケース - 存在しないタグ",
-        "tags": ['nonexistent'],
+        "tags": ["nonexistent"],
         "caption": None,
         "expected_count": 0,
-        "expected_ids": lambda ids: set()
+        "expected_ids": lambda ids: set(),
     },
     # エッジケース2: タグと存在しないタグのAND検索
     {
         "description": "エッジケース - タグと存在しないタグのAND検索",
-        "tags": ['cat', 'nonexistent'],
+        "tags": ["cat", "nonexistent"],
         "caption": None,
         "use_and": True,
         "expected_count": 0,
-        "expected_ids": lambda ids: set()
+        "expected_ids": lambda ids: set(),
     },
     # エッジケース3: 存在しないキャプション
     {
         "description": "エッジケース - 存在しないキャプション",
         "tags": None,
-        "caption": 'nonexistent',
+        "caption": "nonexistent",
         "expected_count": 0,
-        "expected_ids": lambda ids: set()
+        "expected_ids": lambda ids: set(),
     },
     # エッジケース4: ワイルドカードタグ検索で全ての画像を取得
     {
         "description": "エッジケース - ワイルドカードタグ検索で全ての画像を取得",
-        "tags": ['*'],
+        "tags": ["*"],
         "caption": None,
         "expected_count": 5,
-        "expected_ids": lambda ids: set(ids)
+        "expected_ids": lambda ids: set(ids),
     },
     # エッジケース5: ワイルドカードキャプション検索で全ての画像を取得
     {
         "description": "エッジケース - ワイルドカードキャプション検索で全ての画像を取得",
         "tags": None,
-        "caption": '*',
+        "caption": "*",
         "expected_count": 5,
-        "expected_ids": lambda ids: set(ids)
+        "expected_ids": lambda ids: set(ids),
     },
 ]
+
 
 @pytest.mark.parametrize("case", test_cases)
 def test_get_images_by_filter_cases(setup_test_data, case):
@@ -519,8 +538,9 @@ def test_get_images_by_filter_cases(setup_test_data, case):
     if filtered_images is None:
         assert expected_ids is None, f"{description} - 期待される画像IDと一致しません"
     else:
-        actual_ids = set(img['image_id'] for img in filtered_images)
+        actual_ids = set(img["image_id"] for img in filtered_images)
         assert actual_ids == expected_ids, f"{description} - 期待される画像IDと一致しません"
+
 
 def test_get_images_by_filter(image_database_manager, sample_image_info, tmp_path):
     """フィルタによる画像検索の確認"""
@@ -531,26 +551,24 @@ def test_get_images_by_filter(image_database_manager, sample_image_info, tmp_pat
 
     # 処理済み画像を登録
     processed_info = {
-        'width': 256,
-        'height': 256,
-        'format': 'WEBP',
-        'mode': 'RGB',
-        'has_alpha': False,
-        'filename': 'processed.webp',
-        'color_space': 'sRGB',
-        'icc_profile': None
+        "width": 256,
+        "height": 256,
+        "format": "WEBP",
+        "mode": "RGB",
+        "has_alpha": False,
+        "filename": "processed.webp",
+        "color_space": "sRGB",
+        "icc_profile": None,
     }
     processed_path = tmp_path / "processed.webp"
     processed_path.touch()
     manager.register_processed_image(image_id, processed_path, processed_info)
 
     # アノテーションを保存（タグの updated_at が更新される）
-    manager.repository.save_annotations(image_id, {'tags': ['filter_tag'], 'model_id': None})
+    manager.repository.save_annotations(image_id, {"tags": ["filter_tag"], "model_id": None})
 
     # タグの updated_at を確認する
-    rows = manager.db_manager.fetch_all(
-        "SELECT created_at, updated_at FROM tags WHERE image_id = ?", [image_id]
-    )
+    rows = manager.db_manager.fetch_all("SELECT created_at, updated_at FROM tags WHERE image_id = ?", [image_id])
     for row in rows:
         print(f"Tag created_at: {row['created_at']}, updated_at: {row['updated_at']}")
 
@@ -558,30 +576,25 @@ def test_get_images_by_filter(image_database_manager, sample_image_info, tmp_pat
     current_datetime = datetime.now(timezone.utc)
 
     # 日付範囲を設定
-    start_date = (current_datetime - timedelta(seconds=10)).strftime('%Y-%m-%d %H:%M:%S')  # 10秒前
-    end_date = (current_datetime + timedelta(seconds=10)).strftime('%Y-%m-%d %H:%M:%S')    # 10秒後
+    start_date = (current_datetime - timedelta(seconds=10)).strftime("%Y-%m-%d %H:%M:%S")  # 10秒前
+    end_date = (current_datetime + timedelta(seconds=10)).strftime("%Y-%m-%d %H:%M:%S")  # 10秒後
 
-    filtered_images, count = manager.get_images_by_filter(
-        tags=['filter_tag'],
-        start_date=start_date,
-        end_date=end_date
-    )
+    filtered_images, count = manager.get_images_by_filter(tags=["filter_tag"], start_date=start_date, end_date=end_date)
 
     assert count == 1, f"Expected 1 image, but got {count}"
-    assert filtered_images[0]['image_id'] == image_id
+    assert filtered_images[0]["image_id"] == image_id
 
     # 時間範囲外の画像を検索（マッチしないはず）
-    past_start_date = (current_datetime - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')  # 1日前
-    past_end_date = (current_datetime - timedelta(hours=23)).strftime('%Y-%m-%d %H:%M:%S')   # 1日前+1時間
+    past_start_date = (current_datetime - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")  # 1日前
+    past_end_date = (current_datetime - timedelta(hours=23)).strftime("%Y-%m-%d %H:%M:%S")  # 1日前+1時間
 
     filtered_images, count = manager.get_images_by_filter(
-        tags=['filter_tag'],
-        start_date=past_start_date,
-        end_date=past_end_date
+        tags=["filter_tag"], start_date=past_start_date, end_date=past_end_date
     )
 
     assert count == 0, f"Expected 0 images, but got {count}"
     assert len(filtered_images) == 0
+
 
 def test_create_tables(image_database_manager):
     """テーブル作成のテストとカラムの存在確認"""
@@ -590,31 +603,41 @@ def test_create_tables(image_database_manager):
 
     # テーブルとそのカラムの定義
     table_definitions = {
-        'images': [
-            'id', 'uuid', 'phash', 'stored_image_path', 'width', 'height', 'format',
-            'mode', 'has_alpha', 'filename', 'extension', 'color_space',
-            'icc_profile', 'created_at', 'updated_at'
+        "images": [
+            "id",
+            "uuid",
+            "phash",
+            "stored_image_path",
+            "width",
+            "height",
+            "format",
+            "mode",
+            "has_alpha",
+            "filename",
+            "extension",
+            "color_space",
+            "icc_profile",
+            "created_at",
+            "updated_at",
         ],
-        'processed_images': [
-            'id', 'image_id', 'stored_image_path', 'width', 'height', 'mode',
-            'has_alpha', 'filename', 'color_space', 'icc_profile',
-            'created_at', 'updated_at'
+        "processed_images": [
+            "id",
+            "image_id",
+            "stored_image_path",
+            "width",
+            "height",
+            "mode",
+            "has_alpha",
+            "filename",
+            "color_space",
+            "icc_profile",
+            "created_at",
+            "updated_at",
         ],
-        'models': [
-            'id', 'name', 'type', 'provider', 'created_at', 'updated_at'
-        ],
-        'tags': [
-            'id', 'tag_id', 'image_id', 'model_id', 'tag', 'existing',
-            'created_at', 'updated_at'
-        ],
-        'captions': [
-            'id', 'image_id', 'model_id', 'caption', 'existing',
-            'created_at', 'updated_at'
-        ],
-        'scores': [
-            'id', 'image_id', 'model_id', 'score',
-            'created_at', 'updated_at'
-        ]
+        "models": ["id", "name", "type", "provider", "created_at", "updated_at"],
+        "tags": ["id", "tag_id", "image_id", "model_id", "tag", "existing", "created_at", "updated_at"],
+        "captions": ["id", "image_id", "model_id", "caption", "existing", "created_at", "updated_at"],
+        "scores": ["id", "image_id", "model_id", "score", "created_at", "updated_at"],
     }
 
     for table, expected_columns in table_definitions.items():
@@ -626,7 +649,7 @@ def test_create_tables(image_database_manager):
         # テーブルのカラムを取得
         query = f"PRAGMA table_info({table});"
         columns_info = manager.db_manager.fetch_all(query)
-        existing_columns = {col['name'] for col in columns_info}
+        existing_columns = {col["name"] for col in columns_info}
 
         # 期待されるカラムがすべて存在するか確認
         for column in expected_columns:

@@ -6,6 +6,7 @@ __pycache__/
 .Python
 venv/
 ENV/
+lrir/
 .env
 .coverage
 htmlcov/
@@ -28,7 +29,6 @@ output/
 docs/
 # src/lorairo.egg-info/ フォルダはビルド生成物のためコミットしない
 src/lorairo.egg-info
-
 
 # Temporary files
 .tmp*/
@@ -58,3 +58,4 @@ jsonl/
 TEST_backup/
 TEST/pytest_temp
 /cmyk_image.tiff
+lrir/Lib/site-packages/isympy.py

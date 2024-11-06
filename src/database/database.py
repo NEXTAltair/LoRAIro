@@ -1,24 +1,30 @@
+import inspect
 import sqlite3
 import threading
 import traceback
 import uuid
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
-from PIL import Image
-import inspect
-import imagehash
-
 from contextlib import contextmanager
-from typing import Any, Union, Optional
-from utils.log import get_logger
+from datetime import datetime, timedelta, timezone
+import importlib.resources
+from pathlib import Path
+from typing import Any, Optional, Union
+
+import genai_tag_db_tools
+import imagehash
+from PIL import Image
 
 from storage.file_system import FileSystemManager
-import genai_tag_db_tools
+from utils.log import get_logger
 
 
 def calculate_phash(image_path: Path) -> str:
     with Image.open(image_path) as img:
         return str(imagehash.phash(img))
+
+
+def get_tag_db_path():
+    with importlib.resources.path("genai_tag_db_tools.data", "tags_v3.db") as tag_db_path:
+        return tag_db_path
 
 
 class SQLiteManager:
@@ -719,7 +725,7 @@ class ImageRepository:
                 self.logger.info(f"重複画像が見つかりました: ID {duplicate['id']}, UUID {duplicate['uuid']}")
             return image_id
         except sqlite3.Error as e:
-            self.logger.error(f"重複画像の検索中にエラーが発生しました: {e}")
+            self.logger.error(f"重複画像の検索中にエラーが���生しました: {e}")
             return None
 
     def get_image_annotations(self, image_id: int) -> dict[str, Union[list[dict[str, Any]], float, int]]:
@@ -873,7 +879,7 @@ class ImageRepository:
 
     def get_images_by_caption(self, caption: str, start_date: int, end_date: int) -> list[int]:
         """
-        指定されたキャプションを含む画像のIDリストを取得する（部分一致、ワイルドカード、完全一致に対応）
+        指定されたキャプションを含む画像のIDリストを取得する（部分一致、ワイルドカー���、完全一致に対応）
 
         Args:
             caption (str): 検索するキャプション（ワイルドカード '*' やダブルクオートを含むことができます）
@@ -1150,7 +1156,7 @@ class ImageDatabaseManager:
             db_path.touch(exist_ok=True)
         img_db_path = db_dir / "image_database.db"
         # パッケージからデータベースファイルのパスを取得
-        tag_db_path = Path(genai_tag_db_tools.__file__).parent / "tags_v3.db"
+        tag_db_path = get_tag_db_path()
         self.db_manager = SQLiteManager(img_db_path, tag_db_path)
         self.repository = ImageRepository(self.db_manager)
         self.db_manager.create_tables()
@@ -1482,7 +1488,7 @@ class ImageDatabaseManager:
             ]  # 除外したいキーワードのリスト
             image_ids = self._filter_images_by_exclude_keywords(image_ids, exclude_keywords)
 
-        # 画像メタデータの取得
+        # 画像��タデータの取得
         metadata_list = []
         if resolution != 0:
             for image_id in image_ids:
@@ -1511,7 +1517,7 @@ class ImageDatabaseManager:
 
         引数:
             image_ids (set[int]): フィルタリング対象の画像IDのセット。
-            exclude_keywords (list[str]): 除外キーワードのリスト。これらのキーワードを含む画像は除外されます。
+            exclude_keywords (list[str]): 除外キーワードのリスト。これらのキーワードを含む画像は除外されま���。
 
         戻り値:
             set[int]: 除外キーワードが一致しない画像IDのセット。
@@ -1578,7 +1584,7 @@ class ImageDatabaseManager:
 
     def check_processed_image_exists(self, image_id: int, target_resolution: int) -> Optional[dict]:
         """
-        指定された画像IDと目標解像度に一致する処理済み画像が存在するか��ェックします。
+        指定された画像IDと目標解像度に一致する処理済み画像が存在するかチェックします。
 
         Args:
             image_id (int): 元画像のID
@@ -1672,3 +1678,12 @@ class ImageDatabaseManager:
             Optional[int]: タグID。見つからない場合はNone
         """
         return self.repository.find_tag_id(tag)
+
+
+if __name__ == "__main__":
+    # このクラスが初期化されるかだけを見る簡単なテスト
+    try:
+        db_manager = ImageDatabaseManager(Path("test"))
+        print("ImageDatabaseManager が正常に初期化されました。")
+    except Exception as e:
+        print(f"初期化に失敗しました: {e}")

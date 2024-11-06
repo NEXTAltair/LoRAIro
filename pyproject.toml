@@ -55,6 +55,7 @@ dev = [
     "pytest",
     "pytest-cov",
     "pytest-qt",
+    "matplotlib",
     "genai-tag-db-tools @ file:../genai-tag-db-tools", # devではローカルパスからインストール
 ]
 

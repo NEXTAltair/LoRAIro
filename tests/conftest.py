@@ -1,18 +1,17 @@
-# conftest.py
-from unittest.mock import Mock, MagicMock, patch
-from pathlib import Path
+import shutil
 import sys
 import uuid
-import shutil
+from pathlib import Path
+from unittest.mock import MagicMock, Mock
 
-try:
+import pytest
 
-    from module.file_sys import FileSystemManager
-except ImportError:
-    from src.module.file_sys import FileSystemManager
-from module.config import get_config
-from module.log import setup_logger, get_logger
-from ImageEditor import ImageProcessingManager
+from database.database import SQLiteManager
+from editor.image_processor import ImageProcessingManager
+from gui.widgets.directory_picker import DirectoryPickerWidget
+from storage.file_system import FileSystemManager
+from utils.config import get_config
+from utils.log import get_logger, setup_logger
 
 
 # QApplication のインスタンスを作成
@@ -180,8 +179,8 @@ def sample_image_info():
 
 
 # GUIのモック############################################################
-from PySide6.QtWidgets import QApplication, QWidget
 from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QApplication, QWidget
 
 
 @pytest.fixture(scope="session")
@@ -284,9 +283,6 @@ def mock_tag_filter_widget(mocker):
     mock_widget = MockTagFilterWidget()
     mocker.patch("src.TagFilterWidget.TagFilterWidget", return_value=mock_widget)
     return mock_widget
-
-
-from DirectoryPickerWidget import DirectoryPickerWidget
 
 
 @pytest.fixture

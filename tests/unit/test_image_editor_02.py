@@ -1,4 +1,4 @@
-from src.ImageEditor import ImageProcessingManager, FileSystemManager
+from editor.image_processor import ImageProcessingManager, FileSystemManager
 
 
 def test_image_processing_manager_init():
