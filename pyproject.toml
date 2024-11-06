@@ -31,6 +31,7 @@ dependencies = [
     "google-generativeai>=0.8.3", # Gemini API
     "anthropic>=0.36.2",          # Claude API
     "openai>=0.10.0",             # GPT API
+    "spandrel",                   #アップスケーラー用モデルローダー
 
     # データ処理系
     "toml>=0.10.2", # 設定ファイル処理
@@ -43,15 +44,26 @@ dependencies = [
     "pytorch-lightning==2.4.0", # PyTorch拡張
     "joblib==1.4.2",            # 並列処理
 
-    # 自作ライブラリ
-    "genai-tag-db-tools @ git+https://github.com/NEXTAltair/genai-tag-db-tools.git", # Git URL からインストール
+    # # 自作ライブラリ
+    # "genai-tag-db-tools @ git+https://github.com/NEXTAltair/genai-tag-db-tools.git", # Git URL からインストール
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pylint",
+    "pytest",
+    "pytest-cov",
+    "pytest-qt",
+    "genai-tag-db-tools @ file:../genai-tag-db-tools", # devではローカルパスからインストール
+]
+
+prod = [
+    "genai-tag-db-tools @ git+https://github.com/NEXTAltair/genai-tag-db-tools.git",  # 本番環境用
 ]
 
 [project.scripts]
 lorairo = "main:main"
-
-[project.optional-dependencies]
-dev = ["ruff", "pylint", "pytest", "pytest-cov", "pytest-qt"]
 
 [project.urls]
 "Homepage" = "https://github.com/NEXTAltair/lorairo"
@@ -90,6 +102,7 @@ disable = [
 max-line-length = 120
 
 [tool.pytest.ini_options]
+pythonpath = ["src"] # テストするコードのディレクトリ
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
