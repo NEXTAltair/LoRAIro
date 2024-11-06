@@ -90,7 +90,7 @@
 
         "commentTranslate.multiLineMerge": true,
         "commentTranslate.targetLanguage": "ja",
-        "commentTranslate.maxTranslationLength": 120, // 翻訳する最大文字数
+        "commentTranslate.maxTranslationLength": 250, // 翻訳する最大文字数
         "search-online.Google Translate Output Language": "Japanese/日语", // 右クリックで翻訳に送る拡張デフォルトは中国語なので👇️と同じく日本語に合わせる
         "search-online.Google Translate": "https://translate.google.co.jp/?sl=%INPUT_LANGUAGE%&tl=%OUTPUT_LANGUAGE%&text=%SELECTION%&op=translate",
 
@@ -107,7 +107,7 @@
         "JSON-zain.json.autorefresh": true,
         "workbench.settings.useSplitJSON": true,
         "vsicons.presets.jsonOfficial": true,
-        "commentTranslate.source": "Copilot",
+        "commentTranslate.source": "Google",
         "diffEditor.renderSideBySide": true,
         "cSpell.words": [
             "pytest"
