@@ -1,20 +1,45 @@
+# 仮想環境
 venv/
+lrir/
+
+# ビルドおよびキャッシュディレクトリ
 add/
+*/__pycache__/
+__pycache__/
+
+# プロジェクトディレクトリ
 ComicPanelSplitter/
 AnimeShakitto_v1.0.0.0/
+
+# テスト画像
 testimg/
 !testimg/1_img/
+
+# 一時ディレクトリ
 under-*/
 output/
-**/__pycache__/
-app.log
-
-src/score_module/
-TEST/pytest_temp/
-
 output/image_dataset/
-__pycache__/
 .tmp.driveupload/
-Image_database/image_database.db
+
+# ログファイル
+*.log
+
+# ソースおよびテストモジュール
+src/score_module/
+tests/pytest_temp/
+tests/resources/
+!tests/resources/img/1_img
+tests/tests_out/
+
+# データベースファイル
+Image_database/*.db
+
+# カバレッジおよび処理
 .coverage
 processing.toml
+
+# Egg-info
+*/lorairo.egg-info/
+
+# IDE設定
+.vscode/
