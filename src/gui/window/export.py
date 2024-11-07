@@ -43,12 +43,12 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
         self.dbSearchWidget.count_range_slider.set_date_range()
 
     def on_filter_applied(self, filter_conditions: dict):
+        include_untagged = filter_conditions["include_untagged"]
         filter_type = filter_conditions["filter_type"]
         filter_text = filter_conditions["filter_text"]
         resolution = filter_conditions["resolution"]
         use_and = filter_conditions["use_and"]
         start_date, end_date = filter_conditions.get("date_range", (None, None))
-        include_untagged = filter_conditions["include_untagged"]
         # 日付範囲の処理
         if start_date is not None and end_date is not None:
             # UTCタイムスタンプをQDateTimeに変換し、ローカルタイムゾーンに設定
@@ -122,9 +122,7 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
                         "captions": annotations.get("captions", []),
                     }
                     if self.checkBoxTxtCap.isChecked():
-                        self.fsm.export_dataset_to_txt(
-                            image_data, export_dir, mearge_caption=self.MergeCaptionWithTagscheckBox.isChecked()
-                        )
+                        self.fsm.export_dataset_to_txt(image_data, export_dir, mearge_caption=self.MergeCaptionWithTagscheckBox.isChecked())
                     if self.checkBoxJson.isChecked():
                         self.fsm.export_dataset_to_json(image_data, export_dir)
                 else:
