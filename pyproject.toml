@@ -1,6 +1,6 @@
 [project]
 name = "lorairo"
-version = "0.0.7"
+version = "0.0.8"
 description = "AIタグ付LoRA画像データセット準備ツール"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -12,7 +12,7 @@ classifiers = [
     "Environment :: GPU :: NVIDIA CUDA",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Multimedia :: Graphics",
     "Operating System :: Microsoft :: Windows",
@@ -55,11 +55,11 @@ dev = [
     "pytest-cov",
     "pytest-qt",
     "matplotlib",
-    "genai-tag-db-tools @ file:../genai-tag-db-tools", # devではローカルパスからインストール
+    "genai-tag-db-tools @ file:../genai-tag-db-tools",
 ]
 
 prod = [
-    "genai-tag-db-tools @ git+https://github.com/NEXTAltair/genai-tag-db-tools.git",  # 本番環境用
+    "genai-tag-db-tools @ git+https://github.com/NEXTAltair/genai-tag-db-tools.git",
 ]
 
 [project.scripts]

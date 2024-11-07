@@ -265,9 +265,7 @@ class OpenAI(BaseAPIClient):
         """
         self._wait_for_rate_limit()
         try:
-            response = requests.post(
-                "https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=60
-            )
+            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=60)
             self.last_request_time = time.time()
             APIError.check_response(response, self.__class__.__name__)
             return response.json()
@@ -314,9 +312,7 @@ class OpenAI(BaseAPIClient):
             dict[str, Any]: バッチリクエスト用のデータ
         """
         if model_name not in self.SUPPORTED_VISION_MODELS:
-            raise ValueError(
-                f"そのModelには非対応: {model_name}. Supported models: {', '.join(self.SUPPORTED_VISION_MODELS)}"
-            )
+            raise ValueError(f"そのModelには非対応: {model_name}. Supported models: {', '.join(self.SUPPORTED_VISION_MODELS)}")
 
         _, payload = self._generate_payload(image_path, model_name, prompt)
         bach_payload = {"custom_id": image_path.stem, "method": "POST", "url": "/v1/chat/completions", "body": payload}
@@ -585,25 +581,19 @@ class APIClientFactory:
         self.add_prompt = add_prompt
         if self.api_keys.get("openai_key"):
             if self._validate_openai_key(self.api_keys["openai_key"]):
-                self.api_clients["openai"] = OpenAI(
-                    api_key=self.api_keys["openai_key"], prompt=self.main_prompt, add_prompt=self.add_prompt
-                )
+                self.api_clients["openai"] = OpenAI(api_key=self.api_keys["openai_key"], prompt=self.main_prompt, add_prompt=self.add_prompt)
             else:
                 self.logger.error("Invalid OpenAI API key")
 
         if self.api_keys.get("google_key"):
             if self._validate_google_key(self.api_keys["google_key"]):
-                self.api_clients["google"] = Google(
-                    api_key=self.api_keys["google_key"], prompt=self.main_prompt, add_prompt=self.add_prompt
-                )
+                self.api_clients["google"] = Google(api_key=self.api_keys["google_key"], prompt=self.main_prompt, add_prompt=self.add_prompt)
             else:
                 self.logger.error("Invalid Google API key")
 
         if self.api_keys.get("claude_key"):
             if self._validate_claude_key(self.api_keys["claude_key"]):
-                self.api_clients["claude"] = Claude(
-                    api_key=self.api_keys["claude_key"], prompt=self.main_prompt, add_prompt=self.add_prompt
-                )
+                self.api_clients["claude"] = Claude(api_key=self.api_keys["claude_key"], prompt=self.main_prompt, add_prompt=self.add_prompt)
             else:
                 self.logger.error("Invalid Claude API key")
 
@@ -625,9 +615,7 @@ class APIClientFactory:
     def _validate_claude_key(self, api_key: str) -> bool:
         client = anthropic.Anthropic(api_key=api_key)
         try:
-            client.messages.create(
-                model="claude-3-sonnet-20240229", max_tokens=10, messages=[{"role": "user", "content": "Hello"}]
-            )
+            client.messages.create(model="claude-3-sonnet-20240229", max_tokens=10, messages=[{"role": "user", "content": "Hello"}])
             return True
         except anthropic.APIError:
             return False
