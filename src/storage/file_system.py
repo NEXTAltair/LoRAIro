@@ -302,18 +302,22 @@ class FileSystemManager:
                 f.writelines(lines[i * lines_per_file : (i + 1) * lines_per_file])
 
     @staticmethod
-    def export_dataset_to_txt(image_data: dict, save_dir: Path):
+    def export_dataset_to_txt(image_data: dict, save_dir: Path, mearge_caption: bool = False):
         """学習用データセットをテキスト形式で指定ディレクトリに出力する
 
         Args:
             image_data (dict]): 画像データ. 各辞書は 'path', 'tags', 'caption' をキーに持つ
             save_dir (Path): 保存先のディレクトリパス
+            mearge_caption (bool): キャプションをタグに追加する
         """
         image_path = image_data["path"]
         file_name = image_path.stem
 
         with open(save_dir / f"{file_name}.txt", "w", encoding="utf-8") as f:
             tags = ", ".join([tag_data["tag"] for tag_data in image_data["tags"]])
+            if mearge_caption:
+                captions = ", ".join([caption_data["caption"] for caption_data in image_data["captions"]])
+                tags = f"{tags}, {captions}"
             f.write(tags)
         with open(save_dir / f"{file_name}.caption", "w", encoding="utf-8") as f:
             captions = ", ".join([caption_data["caption"] for caption_data in image_data["captions"]])

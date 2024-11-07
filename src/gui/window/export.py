@@ -1,8 +1,9 @@
 import sys
 from pathlib import Path
+from typing import Optional
 
 from PySide6.QtWidgets import QWidget, QMessageBox
-from PySide6.QtCore import Qt, QDateTime, QTimeZone, QTime, Slot
+from PySide6.QtCore import Qt, QDateTime, Slot
 from ..designer.DatasetExportWidget_ui import Ui_DatasetExportWidget
 
 from storage.file_system import FileSystemManager
@@ -26,10 +27,15 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
         self.exportProgressBar.setVisible(False)
         self.dbSearchWidget.filterApplied.connect(self.on_filter_applied)
 
-    def initialize(self, cm, fsm: FileSystemManager, idm: ImageDatabaseManager):
-        self.cm = cm
-        self.fsm = fsm
-        self.idm = idm
+    def initialize(
+        self,
+        config_manage,
+        file_system_manager: Optional[FileSystemManager] = None,
+        image_database_manager: Optional[ImageDatabaseManager] = None,
+    ):
+        self.cm = config_manage
+        self.fsm = file_system_manager
+        self.idm = image_database_manager
         self.init_date_range()
         self.init_ui()
 
@@ -116,7 +122,9 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
                         "captions": annotations.get("captions", []),
                     }
                     if self.checkBoxTxtCap.isChecked():
-                        self.fsm.export_dataset_to_txt(image_data, export_dir)
+                        self.fsm.export_dataset_to_txt(
+                            image_data, export_dir, mearge_caption=self.MergeCaptionWithTagscheckBox.isChecked()
+                        )
                     if self.checkBoxJson.isChecked():
                         self.fsm.export_dataset_to_json(image_data, export_dir)
                 else:
