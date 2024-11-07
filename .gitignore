@@ -27,6 +27,7 @@ app.log
 *.log*
 output/
 docs/
+
 # src/lorairo.egg-info/ フォルダはビルド生成物のためコミットしない
 src/lorairo.egg-info
 
@@ -44,6 +45,7 @@ src/lorairo.egg-info
 *.h5
 
 # Teat files
+tests/tests_out/
 tests/pytest_temp/
 tests/resources/img/
 !tests/results/img/1_mag

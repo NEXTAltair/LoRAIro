@@ -23,7 +23,7 @@ def app():
 # テスト用パス############################################################
 @pytest.fixture(scope="session")
 def tmp_path_factory(request):
-    return request.config.rootpath / "TEST" / "pytest_temp"
+    return request.config.rootpath / "tests" / "pytest_temp"
 
 
 @pytest.fixture(scope="session")
