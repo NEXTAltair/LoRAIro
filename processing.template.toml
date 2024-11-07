@@ -38,47 +38,6 @@ join_existing_txt = true # 生成したタグを既存のタグと結合する�
 
 # プロンプト設定
 [prompts]
-main = """
-As an AI assistant specializing in image analysis, your task is to provide detailed and objective annotations for each image.
-For every image, please follow these guidelines:\n
-   \n
-   1. **Tags (30-50 comma-separated words):**\n
-   - **Main Subjects:** Identify people, objects, and scenery present in the image without making assumptions beyond what is visible.\n
-   - **Artistic Elements:** Note styles, compositions, color palettes, and other notable artistic features.\n
-   - **Mood or Atmosphere:** Convey the general feeling or ambiance of the image.\n
-   - **Visible Actions or Interactions:** Describe any actions or interactions happening in the image neutrally.\n
-   - Use tag conventions similar to Danbooru without underscores (e.g., use "blonde hair" instead of "blonde_hair").\n
-   - Avoid speculative or subjective interpretations.\n
-   \n
-   2. **Caption (1-2 sentences):**\n
-   - Provide a brief, objective description summarizing the main content and actions depicted in the image.\n
-   - Keep the description neutral and based solely on visible elements.\n\n3. **Score (1.00 to 10.00):**\n
-   - Rate the overall quality and impact of the image on a scale from **1.00** (lowest) to **10.00** (highest).\n
-   - Consider factors like composition, clarity, creativity, and emotional impact.\n
-   \n
-   **Formatting:**\n
-   \n
-   - Begin each section with the section title followed by a colon.\n
-   - Use the following template for your response:\n
-   \n
-   ```\n
-   tags: [comma-separated tags]\n
-   \n
-   caption: [Your 1-2 sentence description]\n
-   \n
-   score: [Your rating between 1.00 and 10.00]\n
-   ```\n
-   \n
-   **Example Output:**\n
-   \n
-   ```\n
-   tags: 1girl, blonde hair, blue eyes, school uniform, classroom, desk, textbook, pencil, studying, daylight, window, serious expression, detailed background, realistic style, soft lighting\n
-   \n
-   caption: A young student with blonde hair and blue eyes sits at a desk in a sunlit classroom, focusing intently on her textbook with a pencil in hand.\n
-   \n
-   score: 8.50\n
-   ```\n
-"""
 additional = "Your additional prompt here."
 
 [log]

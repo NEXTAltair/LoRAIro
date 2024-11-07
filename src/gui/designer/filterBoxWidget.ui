@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>TagFilterWidget</class>
+ <widget class="QWidget" name="TagFilterWidget">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>400</width>
+    <height>300</height>
+   </rect>
+  </property>
+  <property name="sizePolicy">
+   <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+    <horstretch>0</horstretch>
+    <verstretch>0</verstretch>
+   </sizepolicy>
+  </property>
+  <property name="windowTitle">
+   <string>Form</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <widget class="QGroupBox" name="filterGroupBox">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+     <property name="title">
+      <string>Filter Criteria</string>
+     </property>
+     <layout class="QVBoxLayout" name="filterLayout">
+      <item>
+       <layout class="QHBoxLayout" name="filterTypeLayout">
+        <item>
+         <widget class="QLabel" name="filterTypeLabel">
+          <property name="text">
+           <string>Filter Type:</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="filterTypeComboBox">
+          <item>
+           <property name="text">
+            <string>Tags</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Caption</string>
+           </property>
+          </item>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="andRadioButton">
+          <property name="text">
+           <string>AND検索</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QLineEdit" name="filterLineEdit">
+        <property name="placeholderText">
+         <string>Enter filter criteria</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="resolutionLayout">
+        <item>
+         <widget class="QLabel" name="resolutionLabel">
+          <property name="text">
+           <string>Resolution:</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="resolutionComboBox">
+          <item>
+           <property name="text">
+            <string>512x512</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>768x768</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>1024x1024</string>
+           </property>
+          </item>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QPushButton" name="applyFilterButton">
+        <property name="text">
+         <string>Apply Filters</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
