@@ -7,39 +7,69 @@ add/
 */__pycache__/
 __pycache__/
 
-# プロジェクトディレクトリ
-ComicPanelSplitter/
-AnimeShakitto_v1.0.0.0/
-
 # テスト画像
-testimg/
-!testimg/1_img/
+tests/resources/img/
+!tests/resources/img/1_img
 
 # 一時ディレクトリ
 under-*/
 output/
 output/image_dataset/
 .tmp.driveupload/
+.tmp*/
+.temp*/
+*.tmp
+*.bak
+*.swp
 
 # ログファイル
 *.log
+*.log*
 
 # ソースおよびテストモジュール
 src/score_module/
 tests/pytest_temp/
-tests/resources/
-!tests/resources/img/1_img
 tests/tests_out/
+tests/resources/
 
 # データベースファイル
 Image_database/*.db
+Image_database/
 
 # カバレッジおよび処理
 .coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
 processing.toml
+
+# IDE
+.vscode/
+.idea/
+.qtcreator/
+*.code-workspace
+
+# Project specific
+*.npy
+docs/
+app.log
 
 # Egg-info
 */lorairo.egg-info/
 
-# IDE設定
-.vscode/
+# Large binary files
+*.pth
+*.ckpt
+*.bin
+*.h5
+
+# Data files
+*.jsonl
+*.json
+tag.jsonl
+jsonl/
+
+# その他
+TEST_backup/
+TEST/pytest_temp
+/cmyk_image.tiff
