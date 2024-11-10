@@ -81,11 +81,9 @@ class APIError(Exception):
         error_message = str(e)
 
         # AnthropicのAPIErrorを擬似的なResponseオブジェクトに変換
-        pseudo_response = type(
-            "PseudoResponse",
-            (),
-            {"status_code": status_code, "json": lambda: {"error": {"message": error_message, "code": error_code}}},
-        )()
+        pseudo_response = requests.Response()
+        pseudo_response.status_code = status_code
+        pseudo_response._content = json.dumps({"error": {"message": error_message, "code": error_code}}).encode("utf-8")
 
         return cls.check_response(pseudo_response, api_provider)
 

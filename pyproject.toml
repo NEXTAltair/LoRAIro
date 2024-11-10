@@ -114,7 +114,13 @@ markers = [
 
 [tool.coverage.run]
 source = ["src"]
-omit = ["tests/*", "src/gui/designer/*"]
+omit = [
+    "*/shibokensupport/*",
+    "*/site-packages/*",
+    "*/tests/*",
+    "*/pyscript",
+    "*/signature_bootstrap.py"
+]
 
 [tool.coverage.report]
 exclude_lines = [
