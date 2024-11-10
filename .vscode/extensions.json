@@ -36,5 +36,6 @@
     "njqdev.vscode-python-typehint",
     "cweijan.vscode-typora",
     "ms-python.python",
+    "ms-toolsai.jupyter",
 ]
 }

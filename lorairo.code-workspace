@@ -15,11 +15,14 @@
     ],
     "settings": {
         "python.testing.pytestArgs": [
-            "lorairo/tests",     // プロジェクト1のテスト
-            "genai-tag-db-tools/tests",  // プロジェクト2のテスト
+            "--cov=.",
+            "--cov-report",
+            "html",
+            "--cov-config=.coveragerc",
         ],
-        "python.testing.pytestEnabled": true,
         "python.testing.unittestEnabled": false,
+        "python.testing.pytestEnabled": true,
+        "python.testing.promptToConfigure": true,
         "python.terminal.activateEnvironment": true,
         "terminal.integrated.environmentChangesRelaunch": true,
         "terminal.integrated.shellIntegration.enabled": true,
@@ -28,6 +31,8 @@
         "terminal.integrated.windowsEnableConpty": true, // WindowsターミナルでPTYを有効にする
         "python.analysis.autoImportCompletions": true,
         "python.analysis.typeCheckingMode": "basic",
+        "python.defaultInterpreterPath": "${workspaceFolder}/venv/Scripts/python.exe",
+
 
         "python.analysis.extraPaths": [
             "${workspaceFolder}/lorairo/src",
@@ -36,15 +41,12 @@
 
         "python.envFile": "${workspaceFolder}/.env",
 
+        "pylint.enabled": true,
         "pylint.args": [
             "--disable=W1203", // ロギングのとき `%s` 使えって怒られるので無効化
             "--extension-pkg-allow-list=cv2, PySide6", // OpenCV PySide6 のエラーを無視 不具合？ 知らん
             "--ignore-patterns=.*?_ui.py", // ファイル名が `_ui.py` で終わるファイルを無視
         ],
-
-        // "black-formatter.args": [
-        //     "--ignore-patterns=.*?_ui.py", // ファイル名が `_ui.py` で終わるファイルを無視
-        // ],
 
         "cSpell.userWords": [
             "LoRAIro",
@@ -54,10 +56,6 @@
             "QSS",
         ],
 
-        "python.defaultInterpreterPath": "${workspaceFolder}/venv/Scripts/python.exe",
-        "terminal.integrated.env.windows": { // Windowsターミナルでの環境変数を設定
-            "PYTHONPATH": "${workspaceFolder}"
-        },
         "[python]": {
             "editor.formatOnSave": true,
             "editor.formatOnPaste": false,
@@ -79,7 +77,7 @@
             "**/__pycache__": true,
             "**/.pytest_cache": true,
             "**/*.pyc": true,
-            "htmlcov": true,
+            "htmlcov": false,
         },
 
         "qtForPython.designer.options": [
@@ -110,9 +108,13 @@
         "commentTranslate.source": "Google",
         "diffEditor.renderSideBySide": true,
         "cSpell.words": [
-            "pytest"
+            "pytest",
+            "shibokensupport"
         ],
         "powershell.cwd": "LoRAIro",
+        "git.ignoreLimitWarning": true,
+        "search-online.search-engine": "perplexity",
+        "jupyter.allowUnauthorizedRemoteConnection": true,
     },
     "extensions": {
         "recommendations": [

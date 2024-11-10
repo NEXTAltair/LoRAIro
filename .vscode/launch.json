@@ -4,6 +4,9 @@
     "configurations": [
 
 
+
+
+
         {
             "name": "LoRAIro GUI",
             "type": "debugpy",
@@ -30,22 +33,6 @@
             "console": "integratedTerminal",
             "justMyCode": false,
         },
-        {
-            "name": "Python: Remote Attach",
-            "type": "debugpy",
-            "request": "attach",
-            "connect": {
-                "host": "localhost",
-                "port": 5678
-            },
-            "pathMappings": [
-                {
-                    "localRoot": "${workspaceFolder}",
-                    "remoteRoot": "."
-                }
-            ],
-            "justMyCode": false
-        }
     ],
     "compounds": [
         {

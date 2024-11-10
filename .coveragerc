@@ -1,0 +1,14 @@
+omit = [
+    "*/shibokensupport/*",
+    "*/site-packages/*",
+    "*/tests/*",
+    "*/pyscript",
+    "*/signature_bootstrap.py",
+]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "pass",
+]
