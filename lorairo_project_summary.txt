@@ -71,8 +71,6 @@
       - __pycache__/
     - lorairo.egg-info/
     - main.py
-    - module/
-      - __pycache__/
     - score_module/
     - storage/
       - file_system.py
@@ -87,24 +85,14 @@
     - __init__.py
     - __pycache__/
   - tests/
-    - conftest.py
     - integration/
-      - test_DatasetExportWidget.py
-      - test_db.py
-      - test_ImageEditWidget.py
-      - test_ImageTaggerWidget.py
       - __pycache__/
     - manual/
-      - test_autcrop_visual.py
       - __pycache__/
-    - pytest_temp/
     - resources/
-    - tests_out/
     - unit/
-      - test_autcrop.py
-      - test_caption_tags.py
-      - test_Image_Editor.py
-      - test_image_editor_02.py
+      - test_cleanup_txt.py
+      - test_import_lorairo.py
       - __pycache__/
     - __pycache__/
 
@@ -367,7 +355,7 @@ endlocal
 ```
 [project]
 name = "lorairo"
-version = "0.0.7"
+version = "0.0.8"
 description = "AIタグ付LoRA画像データセット準備ツール"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -379,7 +367,7 @@ classifiers = [
     "Environment :: GPU :: NVIDIA CUDA",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Multimedia :: Graphics",
     "Operating System :: Microsoft :: Windows",
@@ -422,11 +410,11 @@ dev = [
     "pytest-cov",
     "pytest-qt",
     "matplotlib",
-    "genai-tag-db-tools @ file:../genai-tag-db-tools", # devではローカルパスからインストール
+    "genai-tag-db-tools @ file:../genai-tag-db-tools",
 ]
 
 prod = [
-    "genai-tag-db-tools @ git+https://github.com/NEXTAltair/genai-tag-db-tools.git",  # 本番環境用
+    "genai-tag-db-tools @ git+https://github.com/NEXTAltair/genai-tag-db-tools.git",
 ]
 
 [project.scripts]
@@ -681,11 +669,9 @@ class APIError(Exception):
         error_message = str(e)
 
         # AnthropicのAPIErrorを擬似的なResponseオブジェクトに変換
-        pseudo_response = type(
-            "PseudoResponse",
-            (),
-            {"status_code": status_code, "json": lambda: {"error": {"message": error_message, "code": error_code}}},
-        )()
+        pseudo_response = requests.Response()
+        pseudo_response.status_code = status_code
+        pseudo_response._content = json.dumps({"error": {"message": error_message, "code": error_code}}).encode("utf-8")
 
         return cls.check_response(pseudo_response, api_provider)
 
@@ -865,9 +851,7 @@ class OpenAI(BaseAPIClient):
         """
         self._wait_for_rate_limit()
         try:
-            response = requests.post(
-                "https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=60
-            )
+            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=60)
             self.last_request_time = time.time()
             APIError.check_response(response, self.__class__.__name__)
             return response.json()
@@ -914,9 +898,7 @@ class OpenAI(BaseAPIClient):
             dict[str, Any]: バッチリクエスト用のデータ
         """
         if model_name not in self.SUPPORTED_VISION_MODELS:
-            raise ValueError(
-                f"そのModelには非対応: {model_name}. Supported models: {', '.join(self.SUPPORTED_VISION_MODELS)}"
-            )
+            raise ValueError(f"そのModelには非対応: {model_name}. Supported models: {', '.join(self.SUPPORTED_VISION_MODELS)}")
 
         _, payload = self._generate_payload(image_path, model_name, prompt)
         bach_payload = {"custom_id": image_path.stem, "method": "POST", "url": "/v1/chat/completions", "body": payload}
@@ -1185,25 +1167,19 @@ class APIClientFactory:
         self.add_prompt = add_prompt
         if self.api_keys.get("openai_key"):
             if self._validate_openai_key(self.api_keys["openai_key"]):
-                self.api_clients["openai"] = OpenAI(
-                    api_key=self.api_keys["openai_key"], prompt=self.main_prompt, add_prompt=self.add_prompt
-                )
+                self.api_clients["openai"] = OpenAI(api_key=self.api_keys["openai_key"], prompt=self.main_prompt, add_prompt=self.add_prompt)
             else:
                 self.logger.error("Invalid OpenAI API key")
 
         if self.api_keys.get("google_key"):
             if self._validate_google_key(self.api_keys["google_key"]):
-                self.api_clients["google"] = Google(
-                    api_key=self.api_keys["google_key"], prompt=self.main_prompt, add_prompt=self.add_prompt
-                )
+                self.api_clients["google"] = Google(api_key=self.api_keys["google_key"], prompt=self.main_prompt, add_prompt=self.add_prompt)
             else:
                 self.logger.error("Invalid Google API key")
 
         if self.api_keys.get("claude_key"):
             if self._validate_claude_key(self.api_keys["claude_key"]):
-                self.api_clients["claude"] = Claude(
-                    api_key=self.api_keys["claude_key"], prompt=self.main_prompt, add_prompt=self.add_prompt
-                )
+                self.api_clients["claude"] = Claude(api_key=self.api_keys["claude_key"], prompt=self.main_prompt, add_prompt=self.add_prompt)
             else:
                 self.logger.error("Invalid Claude API key")
 
@@ -1225,9 +1201,7 @@ class APIClientFactory:
     def _validate_claude_key(self, api_key: str) -> bool:
         client = anthropic.Anthropic(api_key=api_key)
         try:
-            client.messages.create(
-                model="claude-3-sonnet-20240229", max_tokens=10, messages=[{"role": "user", "content": "Hello"}]
-            )
+            client.messages.create(model="claude-3-sonnet-20240229", max_tokens=10, messages=[{"role": "user", "content": "Hello"}])
             return True
         except anthropic.APIError:
             return False
@@ -1578,6 +1552,8 @@ import re
 from pathlib import Path
 from typing import Set
 
+from genai_tag_db_tools.cleanup_str import TagCleaner, initialize_tag_searcher
+
 from utils.log import get_logger
 
 HAIR_PATTERNS = {
@@ -1597,9 +1573,7 @@ MULTI_PERSON_PATTERNS = [
     re.compile(r"[\w\-]+ eyes"),
     re.compile(r"([\w\-]+ sleeves|sleeveless)"),
     # 複数の髪型定義がある場合は削除する
-    re.compile(
-        r"(ponytail|braid|ahoge|twintails|[\w\-]+ bun|single hair bun|single side bun|two side up|two tails|[\w\-]+ braid|sidelocks)"
-    ),
+    re.compile(r"(ponytail|braid|ahoge|twintails|[\w\-]+ bun|single hair bun|single side bun|two side up|two tails|[\w\-]+ braid|sidelocks)"),
 ]
 
 CAPTION_REPLACEMENTS = [
@@ -1634,191 +1608,193 @@ CAPTION_REPLACEMENTS = [
 
 
 class TagCleaner:
-    def __init__(self, db_path: Path):
-        self.db_path = db_path
-        from genai_tag_db_tools import initialize_tag_searcher  # インポートをここに移動
+    def __init__(self):
+        tag_cleaner = initialize_tag_searcher()
+        self.tag_cleaner = tag_cleaner
 
-        self.tag_searcher = initialize_tag_searcher()
-        self.logger = get_logger(__name__)
+    def __getattr__(self, name):
+        # 存在しない属性へのアクセスを元のインスタンスに委譲
+        return getattr(self.tag_cleaner, name)
 
-    @staticmethod
-    def clean_format(text: str) -> str:
-        """
-        テキストから無駄な記号と改行を削除
-        ()をエスケープする
-        Args:
-            text (str): クリーニングするテキスト。
-        Returns:
-            str: クリーニング後のテキスト。
-        """
-        text = text.lower()  # 大文字を小文字に変換
-        text = TagCleaner._clean_underscore(text)  # アンダーバーをスペースに置き換える
-        text = re.sub(r"#", "", text)  # #を削除
-        text = re.sub(r"\"", '"', text)  # ダブルクォートをエスケープ
-        text = re.sub(r"\*\*", "", text)  # GPT4 visionがたまに付けるマークダウンの強調を削除
-        text = re.sub(r"\.\s*$", ", ", text)  # ピリオドをカンマに変換
-        text = re.sub(
-            r"\.\s*(?=\S)", ", ", text
-        )  # ピリオド後にスペースがあればカンマとスペースに置換し、新しい単語が続く場合はその前にスペースを追加
-        text = re.sub(r"\.\n", ", ", text)  # 改行直前のピリオドをカンマに変換
-        text = re.sub(r"\n", ", ", text)  # 改行をカンマに変換
-        text = re.sub(r"\u2014", "-", text)  # エムダッシュをハイフンに変換
-        text = re.sub(r"\(", r"\(", text)  # '(' を '\(' にエスケープ
-        text = re.sub(r"\)", r"\)", text)  # ')' を '\)' にエスケープ
-        return TagCleaner._clean_repetition(text)  # 重複した記号を削除
 
-    @staticmethod
-    def _clean_repetition(text: str) -> str:
-        """重複した記号を削除"""
-        text = re.sub(r"\\+", r"\\", text)  # 重複した\を消す
-        text = re.sub(r",+", r",", text)  # 重複した,を消す
-        text = re.sub(r"\s+", r" ", text)  # 重複したスペースを消す
-        return text
+# class TagCleaner:
+#     def __init__(self, db_path: Path):
+#         self.db_path = db_path
+#         self.tag_searcher = initialize_tag_searcher()
+#         self.logger = get_logger(__name__)
 
-    @staticmethod
-    def _clean_underscore(text: str) -> str:
-        """アンダーバーをスペースに置き換える"""
-        if not isinstance(text, str):
-            return text
-        # '^_^' をプレースホルダーに置き換える
-        text = text.replace("^_^", "^@@@^")
-        # アンダーバーを消す
-        text = text.replace("_", " ")
-        # プレースホルダーを元の '^_^' に戻す
-        return text.replace("^@@@^", "^_^")
+#     @staticmethod
+#     def clean_format(text: str) -> str:
+#         """
+#         テキストから無駄な記号と改行を削除
+#         ()をエスケープする
+#         Args:
+#             text (str): クリーニングするテキスト。
+#         Returns:
+#             str: クリーニング後のテキスト。
+#         """
+#         text = text.lower()  # 大文字を小文字に変換
+#         text = TagCleaner._clean_underscore(text)  # アンダーバーをスペースに置き換える
+#         text = re.sub(r"#", "", text)  # #を削除
+#         text = re.sub(r"\"", '"', text)  # ダブルクォートをエスケープ
+#         text = re.sub(r"\*\*", "", text)  # GPT4 visionがたまに付けるマークダウンの強調を削除
+#         text = re.sub(r"\.\s*$", ", ", text)  # ピリオドをカンマに変換
+#         text = re.sub(r"\.\s*(?=\S)", ", ", text)  # ピリオド後にスペースがあればカンマとスペースに置換し、新しい単語が続く場合はその前にスペースを追加
+#         text = re.sub(r"\.\n", ", ", text)  # 改行直前のピリオドをカンマに変換
+#         text = re.sub(r"\n", ", ", text)  # 改行をカンマに変換
+#         text = re.sub(r"\u2014", "-", text)  # エムダッシュをハイフンに変換
+#         text = re.sub(r"\(", r"\(", text)  # '(' を '\(' にエスケープ
+#         text = re.sub(r"\)", r"\)", text)  # ')' を '\)' にエスケープ
+#         return TagCleaner._clean_repetition(text)  # 重複した記号を削除
 
-    def clean_tags(self, tags: str, format_name: str = "unknown") -> str:
-        """タグをクリーニングする
-        Args:
-            tags (str): クリーニングするタグ
-            format_id (int): タグの形式ID デフォルトでunknown
-        Returns:
-            final_tags (str): クリーニング後のタグ
-        """
-        tags_dict = self._tags_to_dict(tags)  # タグを辞書に変換する
+#     @staticmethod
+#     def _clean_repetition(text: str) -> str:
+#         """重複した記号を削除"""
+#         text = re.sub(r"\\+", r"\\", text)  # 重複した\を消す
+#         text = re.sub(r",+", r",", text)  # 重複した,を消す
+#         text = re.sub(r"\s+", r" ", text)  # 重複したスペースを消す
+#         return text
 
-        # 複数の人物がいる場合は髪色等のタグを削除する
-        if "girls" in tags or "boys" in tags:
-            tags_dict = self._clean_individual_tags(tags_dict)
+#     @staticmethod
+#     def _clean_underscore(text: str) -> str:
+#         """アンダーバーをスペースに置き換える"""
+#         if not isinstance(text, str):
+#             return text
+#         # '^_^' をプレースホルダーに置き換える
+#         text = text.replace("^_^", "^@@@^")
+#         # アンダーバーを消す
+#         text = text.replace("_", " ")
+#         # プレースホルダーを元の '^_^' に戻す
+#         return text.replace("^@@@^", "^_^")
 
-        tags_dict = self._clean_color_object(tags_dict)  # red eyesとeyesみたいな重複タグを削除
-        tags_dict = self._clean_style(tags_dict)  # anime styleとanime artみたい重複タグをanimeに統一する
+#     def clean_tags(self, tags: str, format_name: str = "unknown") -> str:
+#         """タグをクリーニングする
+#         Args:
+#             tags (str): クリーニングするタグ
+#             format_id (int): タグの形式ID デフォルトでunknown
+#         Returns:
+#             final_tags (str): クリーニング後のタグ
+#         """
+#         tags_dict = self._tags_to_dict(tags)  # タグを辞書に変換する
 
-        normalized_tags = []
-        for tag in tags_dict.values():
-            normalized_tag = self.tag_searcher.convert_prompt(tag, format_name)
-            normalized_tags.append(normalized_tag)
-        return ", ".join(filter(None, normalized_tags))
+#         # 複数の人物がいる場合は髪色等のタグを削除する
+#         if "girls" in tags or "boys" in tags:
+#             tags_dict = self._clean_individual_tags(tags_dict)
 
-    @staticmethod
-    def _tags_to_dict(tags: str) -> dict[int, str]:
-        """タグを辞書に変換するして重複を避ける
-        Args:
-            tags (str): タグ
-        Returns:
-            tags_dict (dict): タグの辞書
-        """
-        # タグをカンマで分割し、不要な空白を取り除く
-        tag_list = [tag.strip() for tag in tags.split(",") if tag.strip()]
+#         tags_dict = self._clean_color_object(tags_dict)  # red eyesとeyesみたいな重複タグを削除
+#         tags_dict = self._clean_style(tags_dict)  # anime styleとanime artみたい重複タグをanimeに統一する
 
-        # 重複を避けるためのセット
-        seen_tags = set()
-        tags_dict = {}
-        for i, tag in enumerate(tag_list):
-            if tag not in seen_tags:
-                seen_tags.add(tag)
-                tags_dict[i] = tag
-        return tags_dict
+#         normalized_tags = []
+#         for tag in tags_dict.values():
+#             normalized_tag = self.tag_searcher.convert_prompt(tag, format_name)
+#             normalized_tags.append(normalized_tag)
+#         return ", ".join(filter(None, normalized_tags))
 
-    @staticmethod
-    def _clean_individual_tags(tags_dict: dict[int, str]) -> dict[int, str]:
-        """髪の長さを残して色の特徴とかいろいろを含むタグを削除する"""
-        # 置き換え用のプレースホルダー
-        placeholder = "@@@"
-        # 保存されたオリジナルの長さタグ
-        original_lengths = {}
+#     @staticmethod
+#     def _tags_to_dict(tags: str) -> dict[int, str]:
+#         """タグを辞書に変換するして重複を避ける
+#         Args:
+#             tags (str): タグ
+#         Returns:
+#             tags_dict (dict): タグの辞書
+#         """
+#         # タグをカンマで分割し、不要な空白を取り除く
+#         tag_list = [tag.strip() for tag in tags.split(",") if tag.strip()]
 
-        # 長さに関するタグを一時的に保護
-        for key, tag in tags_dict.items():
-            match = HAIR_PATTERNS["length"].search(tag)
-            if match:
-                original_lengths[key] = match.group()  # オリジナルのタグを保存
-                tags_dict[key] = tag.replace(match.group(), placeholder)
+#         # 重複を避けるためのセット
+#         seen_tags = set()
+#         tags_dict = {}
+#         for i, tag in enumerate(tag_list):
+#             if tag not in seen_tags:
+#                 seen_tags.add(tag)
+#                 tags_dict[i] = tag
+#         return tags_dict
 
-        # 不要なタグの削除
-        for key, tag in tags_dict.items():
-            modified_tag = tag  # 変更を加えるためのローカル変数
-            for pattern in MULTI_PERSON_PATTERNS:
-                modified_tag = pattern.sub("", modified_tag)
-                tags_dict[key] = modified_tag  # 最終的な変更を反映
+#     @staticmethod
+#     def _clean_individual_tags(tags_dict: dict[int, str]) -> dict[int, str]:
+#         """髪の長さを残して色の特徴とかいろいろを含むタグを削除する"""
+#         # 置き換え用のプレースホルダー
+#         placeholder = "@@@"
+#         # 保存されたオリジナルの長さタグ
+#         original_lengths = {}
 
-        # 髪の長さタグを復元
-        for key, tag in tags_dict.items():
-            if placeholder in tag:
-                # placeholderをオリジナルのタグに置き換え
-                tags_dict[key] = tag.replace(placeholder, original_lengths.get(key, ""))
+#         # 長さに関するタグを一時的に保護
+#         for key, tag in tags_dict.items():
+#             match = HAIR_PATTERNS["length"].search(tag)
+#             if match:
+#                 original_lengths[key] = match.group()  # オリジナルのタグを保存
+#                 tags_dict[key] = tag.replace(match.group(), placeholder)
 
-        return tags_dict
+#         # 不要なタグの削除
+#         for key, tag in tags_dict.items():
+#             modified_tag = tag  # 変更を加えるためのローカル変数
+#             for pattern in MULTI_PERSON_PATTERNS:
+#                 modified_tag = pattern.sub("", modified_tag)
+#                 tags_dict[key] = modified_tag  # 最終的な変更を反映
 
-    @staticmethod
-    def _clean_color_object(tags_dict: dict[int, str]) -> dict[int, str]:
-        """white shirtとshirtみたいな重複タグの削除"""
-        # 単語の出現を記録する辞書
-        word_tags: dict[str, Set[str]] = {}
+#         # 髪の長さタグを復元
+#         for key, tag in tags_dict.items():
+#             if placeholder in tag:
+#                 # placeholderをオリジナルのタグに置き換え
+#                 tags_dict[key] = tag.replace(placeholder, original_lengths.get(key, ""))
 
-        # タグから単語を抽出し、単語が含まれるタグを記録
-        for tag in tags_dict.values():
-            words = WORD_PATTERN.findall(tag)
-            for word in words:
-                if word in word_tags:
-                    word_tags[word].add(tag)
-                else:
-                    word_tags[word] = {tag}
+#         return tags_dict
 
-        # 単語が含まれるタグが他のタグに完全に含まれているかを確認し、そのようなタグを削除
-        return {
-            k: v
-            for k, v in tags_dict.items()
-            if not any(v != other_tag and v in other_tag for other_tag in word_tags.get(v, set()))
-        }
+#     @staticmethod
+#     def _clean_color_object(tags_dict: dict[int, str]) -> dict[int, str]:
+#         """white shirtとshirtみたいな重複タグの削除"""
+#         # 単語の出現を記録する辞書
+#         word_tags: dict[str, Set[str]] = {}
 
-    @staticmethod
-    def _clean_style(tags_dict: dict[int, str]) -> dict[int, str]:
-        """anime styleとanime artみたい重複タグをanimeに統一する"""
-        # 単語の出現を記録する辞書
-        word_tags = {}
+#         # タグから単語を抽出し、単語が含まれるタグを記録
+#         for tag in tags_dict.values():
+#             words = WORD_PATTERN.findall(tag)
+#             for word in words:
+#                 if word in word_tags:
+#                     word_tags[word].add(tag)
+#                 else:
+#                     word_tags[word] = {tag}
 
-        for key, tag in tags_dict.items():
-            unified_tag = tag
-            match = STYLE_PATTERN.search(tag)
-            if match:
-                unified_tag = match.group().lower()  # 統一するタグを小文字に変換
-            word_tags[key] = unified_tag
+#         # 単語が含まれるタグが他のタグに完全に含まれているかを確認し、そのようなタグを削除
+#         return {k: v for k, v in tags_dict.items() if not any(v != other_tag and v in other_tag for other_tag in word_tags.get(v, set()))}
 
-        # 重複タグの削除
-        seen_tags = set()
-        cleaned_tags_dict = {}
-        for key, tag in word_tags.items():
-            if tag not in seen_tags:
-                seen_tags.add(tag)
-                cleaned_tags_dict[key] = tag
+#     @staticmethod
+#     def _clean_style(tags_dict: dict[int, str]) -> dict[int, str]:
+#         """anime styleとanime artみたい重複タグをanimeに統一する"""
+#         # 単語の出現を記録する辞書
+#         word_tags = {}
 
-        return cleaned_tags_dict
+#         for key, tag in tags_dict.items():
+#             unified_tag = tag
+#             match = STYLE_PATTERN.search(tag)
+#             if match:
+#                 unified_tag = match.group().lower()  # 統一するタグを小文字に変換
+#             word_tags[key] = unified_tag
 
-    @staticmethod
-    def clean_caption(caption: str) -> str:
-        """キャプションをクリーニングする
-        Args:
-            caption (str): クリーニングするキャプション
-        """
-        for rf, rt in CAPTION_REPLACEMENTS:
-            replaced = True
-            while replaced:
-                bef = caption
-                caption = caption.replace(rf, rt)
-                replaced = bef != caption
-        caption = caption.strip(" ,")
-        return caption
+#         # 重複タグの削除
+#         seen_tags = set()
+#         cleaned_tags_dict = {}
+#         for key, tag in word_tags.items():
+#             if tag not in seen_tags:
+#                 seen_tags.add(tag)
+#                 cleaned_tags_dict[key] = tag
+
+#         return cleaned_tags_dict
+
+#     @staticmethod
+#     def clean_caption(caption: str) -> str:
+#         """キャプションをクリーニングする
+#         Args:
+#             caption (str): クリーニングするキャプション
+#         """
+#         for rf, rt in CAPTION_REPLACEMENTS:
+#             replaced = True
+#             while replaced:
+#                 bef = caption
+#                 caption = caption.replace(rf, rt)
+#                 replaced = bef != caption
+#         caption = caption.strip(" ,")
+#         return caption
 
 
 def initialize_tag_cleaner() -> TagCleaner:
@@ -7098,12 +7074,12 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
         self.dbSearchWidget.count_range_slider.set_date_range()
 
     def on_filter_applied(self, filter_conditions: dict):
+        include_untagged = filter_conditions["include_untagged"]
         filter_type = filter_conditions["filter_type"]
         filter_text = filter_conditions["filter_text"]
         resolution = filter_conditions["resolution"]
         use_and = filter_conditions["use_and"]
         start_date, end_date = filter_conditions.get("date_range", (None, None))
-        include_untagged = filter_conditions["include_untagged"]
         # 日付範囲の処理
         if start_date is not None and end_date is not None:
             # UTCタイムスタンプをQDateTimeに変換し、ローカルタイムゾーンに設定
@@ -7177,9 +7153,7 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
                         "captions": annotations.get("captions", []),
                     }
                     if self.checkBoxTxtCap.isChecked():
-                        self.fsm.export_dataset_to_txt(
-                            image_data, export_dir, mearge_caption=self.MergeCaptionWithTagscheckBox.isChecked()
-                        )
+                        self.fsm.export_dataset_to_txt(image_data, export_dir, mearge_caption=self.MergeCaptionWithTagscheckBox.isChecked())
                     if self.checkBoxJson.isChecked():
                         self.fsm.export_dataset_to_json(image_data, export_dir)
                 else:
@@ -8885,2352 +8859,98 @@ class ToolsStatic:
                 print(f"{caption_file} を {txt_file} に追加しました。")
 ```
 
-### tests\conftest.py
+### tests\unit\test_cleanup_txt.py
 
 ```
-import shutil
-import sys
-import uuid
-from pathlib import Path
-from unittest.mock import MagicMock, Mock
-
-import pytest
-
-from database.database import SQLiteManager
-from editor.image_processor import ImageProcessingManager
-from gui.widgets.directory_picker import DirectoryPickerWidget
-from storage.file_system import FileSystemManager
-from utils.config import get_config
-from utils.log import get_logger, setup_logger
-
-
-# QApplication のインスタンスを作成
-@pytest.fixture(scope="session")
-def app():
-    return QApplication([])
-
-
-# テスト用パス############################################################
-@pytest.fixture(scope="session")
-def tmp_path_factory(request):
-    return request.config.rootpath / "tests" / "pytest_temp"
-
-
-@pytest.fixture(scope="session")
-def tmp_path(tmp_path_factory):
-    return tmp_path_factory
-
-
-# テスト用データベース############################################################
-@pytest.fixture(scope="session")
-def test_db_paths(tmp_path):
-    img_db = tmp_path / "db" / "test_image_database.db"
-    tag_db = tmp_path / "db" / "test_tag_database.db"
-    img_db.parent.mkdir(parents=True, exist_ok=True)
-    tag_db.parent.mkdir(parents=True, exist_ok=True)
-    return img_db, tag_db
-
-
-@pytest.fixture(scope="module")
-def sqlite_manager(test_db_paths):
-    img_db, tag_db = test_db_paths
-    manager = SQLiteManager(img_db, tag_db)
-    manager.create_tables()
-    manager.insert_models()
-    yield manager
-    manager.close()
-    img_db.unlink(missing_ok=True)
-    tag_db.unlink(missing_ok=True)
-
-
-# 主要なクラスのモック############################################################
-@pytest.fixture
-def mock_image_database_manager(mocker):
-    mock_idm = mocker.Mock(spec=ImageDatabaseManager)
-    return mock_idm
-
-
-@pytest.fixture
-def mock_image_processing_manager(mocker):
-    mock_ipm = mocker.Mock(spec=ImageProcessingManager)
-    return mock_ipm
-
-
-@pytest.fixture
-def mock_file_system_manager(tmp_path):
-    """
-    FileSystemManager のモックを提供します。
-    テスト用の一時ディレクトリを使用します。
-    """
-    mock_fs = MagicMock(spec=FileSystemManager)
-    mock_fs.original_images_dir = tmp_path / "original_images"
-    mock_fs.resized_images_dir = tmp_path / "resized_images"
-    mock_fs.batch_request_dir = tmp_path / "batch_request_jsonl"
-    mock_fs.original_images_dir.mkdir(parents=True, exist_ok=True)
-    mock_fs.resized_images_dir.mkdir(parents=True, exist_ok=True)
-    mock_fs.batch_request_dir.mkdir(parents=True, exist_ok=True)
-    return mock_fs
-
-
-@pytest.fixture(scope="session")
-def preferred_resolutions():
-    config = get_config()
-    return config["preferred_resolutions"]
-
-
-# サンプル画像とデータ############################################################
-@pytest.fixture
-def sample_images(tmp_path):
-    """
-    テスト用のサンプル画像を作成し、そのパスを提供します。
-    """
-    from PIL import Image
-
-    # RGB512 画像
-    rgb512_image = Image.new("RGB", (512, 512), color="red")
-    rgb512_path = tmp_path / "rgb512_image.jpg"
-    rgb512_image.save(rgb512_path)
-
-    # RGB 画像
-    rgb_image = Image.new("RGB", (800, 600), color="red")
-    rgb_path = tmp_path / "rgb_image.jpg"
-    rgb_image.save(rgb_path)
-
-    # RGBA 画像
-    rgba_image = Image.new("RGBA", (800, 600), color=(0, 255, 0, 128))
-    rgba_path = tmp_path / "rgba_image.png"
-    rgba_image.save(rgba_path)
-
-    # CMYK 画像
-    cmyk_image = Image.new("CMYK", (800, 600), color="blue")
-    cmyk_path = tmp_path / "cmyk_image.tiff"
-    cmyk_image.save(cmyk_path)
-
-    # パレットモード画像
-    p_image = Image.new("P", (800, 600))
-    p_image.putpalette(
-        [0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255] * 64  # 黒  # 赤  # 緑  # 青
-    )  # パレットを256色分埋める
-    p_image.paste(1, (0, 0, p_image.width, p_image.height))  # 画像全体を赤で塗りつぶす
-    p_path = tmp_path / "p_image.png"
-    p_image.save(p_path)
-
-    return {"rgb": rgb_path, "rgb512": rgb512_path, "rgba": rgba_path, "cmyk": cmyk_path, "p": p_path}
-
-
-@pytest.fixture
-def sample_image_path_list(sample_images):
-    path_list = list(sample_images.values())
-    yield path_list
-
-
-@pytest.fixture(scope="session")
-def test_image_path(tmp_path):
-    source_image = Path("testimg/1_img/file01.webp")  # プロジェクトルートからの相対パス
-    temp_dir = tmp_path / "images"
-    temp_dir.mkdir(exist_ok=True)
-    dest_image = temp_dir / "test_image.webp"
-    shutil.copy(source_image, dest_image)
-    return dest_image
-
-
-@pytest.fixture
-def test_image_info(test_image_path):
-    return {
-        "uuid": str(uuid.uuid4()),
-        "stored_image_path": str(test_image_path),
-        "width": 512,
-        "height": 512,
-        "format": "WEBP",
-        "mode": "RGB",
-        "has_alpha": False,
-        "filename": test_image_path.name,
-        "extension": "webp",
-        "color_space": "sRGB",
-        "icc_profile": None,
-    }
-
-
-@pytest.fixture
-def sample_image_info():
-    return {
-        "uuid": str(uuid.uuid4()),
-        "stored_image_path": "testimg/1_img/file01.webp",
-        "width": 512,
-        "height": 512,
-        "format": "WEBP",
-        "mode": "RGB",
-        "has_alpha": False,
-        "filename": "file01.webp",
-        "extension": "webp",
-        "color_space": "sRGB",
-        "icc_profile": None,
-    }
-
-
-# GUIのモック############################################################
-from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QApplication, QWidget
-
-
-@pytest.fixture(scope="session")
-def app():
-    return QApplication.instance() or QApplication(sys.argv)
-
-
-# 一回だけ初期化しないとValueError: I/O operation on closed file
-@pytest.fixture(scope="session")
-def setup_logging_once():
-    setup_logger({"level": "DEBUG", "file": "test.log"})
-
-
-@pytest.fixture
-def mock_main_window(setup_logging_once, mocker):
-    class MockMainWindow:
-        def __init__(self):
-            self.logger = get_logger("MockMainWindow")  # 既にセットアップされたロガーを使用
-            self.progress_controller = mocker.Mock()
-            self.some_long_process = mocker.Mock()
-
-    return MockMainWindow()
-
-
-# ConfigManager のモックを作成
-@pytest.fixture
-def mock_config_manager():
-    class MockConfigManager:
-        def __init__(self):
-            self.config = {
-                "image_processing": {"target_resolution": 512, "upscaler": "Lanczos"},
-                "preferred_resolutions": [512, 768, 1024],
-                "directories": {"edited_output": "edited_output_directory"},
-            }
-            self.dataset_image_paths = []
-            self.vision_models = {
-                1: {"name": "gpt-4o", "provider": "OpenAI"},
-                2: {"name": "gpt-4-turbo", "provider": "OpenAI"},
-                5: {"name": "gpt-4o-mini", "provider": "OpenAI"},
-                6: {"name": "gemini-1.5-pro-exp-0801", "provider": "Google"},
-                7: {"name": "gemini-1.5-pro-preview-0409", "provider": "Google"},
-            }
-            self.score_models = {3: {"name": "laion", "provider": ""}, 4: {"name": "cafe", "provider": ""}}
-            self.upscaler_models = {13: {"name": "RealESRGAN_x4plus", "provider": "xinntao"}}
-
-    return MockConfigManager()
-
-
-class MockThumbnailSelectorWidget(QWidget):
-    imageSelected = Signal(Path)
-    multipleImagesSelected = Signal(list)
-    deselected = Signal()
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.image_paths = []
-        self.thumbnail_items = []
-        self.load_images = Mock()
-        self.get_selected_images = Mock(return_value=[])
-        self.select_first_image = Mock()
-        self.update_thumbnail_layout = Mock()
-
-    def setMinimumSize(self, width, height):
-        pass  # サイズ設定をモック化
-
-
-@pytest.fixture
-def mock_thumbnail_selector_widget(mocker):
-    return mocker.patch("src.ThumbnailSelectorWidget.ThumbnailSelectorWidget", MockThumbnailSelectorWidget)
-
-
-class MockTagFilterWidget(QWidget):
-    filterApplied = Signal(dict)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.filterTypeComboBox = Mock()
-        self.filterLineEdit = Mock()
-        self.resolutionComboBox = Mock()
-        self.andRadioButton = Mock()
-        self.count_range_slider = Mock()
-        self.applyFilterButton = Mock()
-
-    def setup_slider(self):
-        pass
-
-    def on_applyFilterButton_clicked(self):
-        filter_conditions = {
-            "filter_type": self.filterTypeComboBox.currentText().lower(),
-            "filter_text": self.filterLineEdit.text(),
-            "resolution": int(1024),  # デフォルト値
-            "use_and": self.andRadioButton.isChecked(),
-            "count_range": (0, 100000),  # デフォルト値
-        }
-        self.filterApplied.emit(filter_conditions)
-
-
-@pytest.fixture
-def mock_tag_filter_widget(mocker):
-    mock_widget = MockTagFilterWidget()
-    mocker.patch("src.TagFilterWidget.TagFilterWidget", return_value=mock_widget)
-    return mock_widget
-
-
-@pytest.fixture
-def mock_directory_picker_widget(mocker):
-    mock_widget = mocker.Mock(spec=DirectoryPickerWidget)
-    mock_widget.get_selected_path.return_value = "/path/to/export"
-    return mock_widget
-
-```
-
-### tests\integration\test_DatasetExportWidget.py
-
-```
-from pathlib import Path
-from unittest.mock import patch
-
-import pytest
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMessageBox
-
-from gui.window.export import DatasetExportWidget
-
-
-def test_init_ui(qtbot, mock_config_manager, mock_file_system_manager, mock_image_database_manager):
-    widget = DatasetExportWidget()
-    widget.initialize(mock_config_manager, mock_file_system_manager, mock_image_database_manager)
-    qtbot.addWidget(widget)
-
-    widget.init_ui()
-    widget.exportDirectoryPicker.set_label_text("Export Directory:")
-    assert widget.exportDirectoryPicker.DirectoryPicker.labelPicker.text() == "Export Directory:"
-
-
-def test_on_filter_applied(qtbot, mock_config_manager, mock_file_system_manager, mock_image_database_manager, mocker):
-    # テストケースを定義
-    test_cases = [
-        {
-            "description": "検索結果がある場合",
-            "filter_conditions": {
-                "filter_type": "tags",
-                "filter_text": "tag1, tag2",
-                "resolution": 1024,
-                "use_and": True,
-                "include_untagged": False,
-            },
-            "expected_tags": ["tag1", "tag2"],
-            "expected_caption": "",
-            "expected_resolution": 1024,
-            "expected_use_and": True,
-            "expected_include_untagged": False,
-            "filtered_image_metadata": [
-                {
-                    "id": 1,
-                    "image_id": 1,
-                    "stored_image_path": "/path/to/image1.jpg",
-                    "width": 1024,
-                    "height": 1024,
-                    "mode": "RGB",
-                    "has_alpha": 0,
-                    "filename": "image1.jpg",
-                    "color_space": "RGB",
-                    "icc_profile": "Not present",
-                    "created_at": "2024-09-26T20:21:08.451199",
-                    "updated_at": "2024-09-26T20:21:08.451199",
-                },
-                {
-                    "id": 2,
-                    "image_id": 2,
-                    "stored_image_path": "/path/to/image2.jpg",
-                    "width": 1024,
-                    "height": 1024,
-                    "mode": "RGB",
-                    "has_alpha": 0,
-                    "filename": "image2.jpg",
-                    "color_space": "RGB",
-                    "icc_profile": "Not present",
-                    "created_at": "2024-09-26T20:21:08.451199",
-                    "updated_at": "2024-09-26T20:21:08.451199",
-                },
-            ],
-            "list_count": 2,
-            "expect_no_results": False,
-        },
-        {
-            "description": "検索結果がない場合",
-            "filter_conditions": {
-                "filter_type": "tags",
-                "filter_text": "nonexistent_tag",
-                "resolution": 1024,
-                "use_and": True,
-                "include_untagged": False,
-            },
-            "expected_tags": ["nonexistent_tag"],
-            "expected_caption": "",
-            "expected_resolution": 1024,
-            "expected_use_and": True,
-            "filtered_image_metadata": [],
-            "list_count": 0,
-            "expect_no_results": True,
-            "expected_include_untagged": False,
-        },
-    ]
-
-    for case in test_cases:
-        # テストケースの説明を表示
-        print(f"Testing case: {case['description']}")
-
-        # ウィジェットのインスタンス化と初期化
-        widget = DatasetExportWidget()
-        widget.initialize(mock_config_manager, mock_file_system_manager, mock_image_database_manager)
-        qtbot.addWidget(widget)
-
-        # get_images_by_filter の返り値を設定
-        mock_image_database_manager.get_images_by_filter.return_value = (
-            case["filtered_image_metadata"],
-            case["list_count"],
-        )
-
-        # update_thumbnail_selector をモック
-        mock_update_thumbnail_selector = mocker.patch.object(widget, "update_thumbnail_selector")
-
-        # QMessageBox.critical をモック
-        mock_critical = mocker.patch.object(QMessageBox, "critical")
-
-        # on_filter_applied を呼び出し
-        widget.on_filter_applied(case["filter_conditions"])
-
-        # get_images_by_filter が正しい引数で呼ばれたか確認
-        mock_image_database_manager.get_images_by_filter.assert_called_with(
-            tags=case["expected_tags"],
-            caption=case["expected_caption"],
-            resolution=case["expected_resolution"],
-            use_and=case["expected_use_and"],
-            start_date=None,
-            end_date=None,
-            include_untagged=case["expected_include_untagged"],
-        )
-
-        if case["expect_no_results"]:
-            # 結果がない場合の検証
-            assert widget.image_path_id_map == {}
-            mock_update_thumbnail_selector.assert_not_called()
-            mock_critical.assert_called_once_with(
-                widget,
-                "info",
-                f"{case['filter_conditions']['filter_type']} に {case['filter_conditions']['filter_text']} を含む検索結果がありません",
-            )
-        else:
-            # 結果がある場合の検証
-            expected_image_path_id_map = {
-                Path(item["stored_image_path"]): item["id"] for item in case["filtered_image_metadata"]
-            }
-            assert widget.image_path_id_map == expected_image_path_id_map
-
-            # update_thumbnail_selector が正しく呼ばれたか確認
-            mock_update_thumbnail_selector.assert_called_once_with(
-                list(expected_image_path_id_map.keys()), case["list_count"]
-            )
-            mock_critical.assert_not_called()
-
-        # モックをリセット
-        mock_image_database_manager.get_images_by_filter.reset_mock()
-        mock_update_thumbnail_selector.reset_mock()
-        mock_critical.reset_mock()
-
-
-def test_on_exportButton_clicked_no_export_directory(
-    qtbot, mock_config_manager, mock_file_system_manager, mock_image_database_manager, mocker
-):
-    widget = DatasetExportWidget()
-    widget.initialize(mock_config_manager, mock_file_system_manager, mock_image_database_manager)
-    qtbot.addWidget(widget)
-
-    # 出力ディレクトリを空に設定
-    widget.exportDirectoryPicker.set_path("")
-
-    with patch.object(QMessageBox, "warning") as mock_warning:
-        qtbot.mouseClick(widget.exportButton, Qt.LeftButton)
-        mock_warning.assert_called_once()
-
-
-def test_on_exportButton_clicked_no_export_formats(
-    qtbot, mock_config_manager, mock_file_system_manager, mock_image_database_manager, mocker
-):
-    widget = DatasetExportWidget()
-    widget.initialize(mock_config_manager, mock_file_system_manager, mock_image_database_manager)
-    qtbot.addWidget(widget)
-
-    # 出力ディレクトリを設定
-    widget.exportDirectoryPicker.set_path("/path/to/export")
-    # 出力形式のチェックボックスをオフにする
-    widget.checkBoxTxtCap.setChecked(False)
-    widget.checkBoxJson.setChecked(False)
-
-    with patch.object(QMessageBox, "warning") as mock_warning:
-        qtbot.mouseClick(widget.exportButton, Qt.LeftButton)
-        mock_warning.assert_called_once()
-
-
-@pytest.mark.parametrize(
-    "selected_images, image_path_id_map, annotations_list, expect_warning, expect_critical, expect_information, expect_logger_warning",
-    [
-        # テストケース1: 正常なエクスポート
-        (
-            [Path("/path/to/image1.jpg"), Path("/path/to/image2.jpg")],
-            {Path("/path/to/image1.jpg"): 1, Path("/path/to/image2.jpg"): 2},
-            [
-                {"tags": ["tag1", "tag2"], "captions": ["caption1"]},
-                {"tags": ["tag3", "tag4"], "captions": ["caption2"]},
-            ],
-            False,  # expect_warning
-            False,  # expect_critical
-            True,  # expect_information
-            False,  # expect_logger_warning
-        ),
-        # テストケース2: image_path_id_map に存在しない画像パスがある
-        (
-            [Path("/path/to/image1.jpg"), Path("/path/to/image2.jpg")],
-            {
-                Path("/path/to/image1.jpg"): 1
-                # image2.jpg のエントリーがない
-            },
-            [
-                {"tags": ["tag1", "tag2"], "captions": ["caption1"]}
-                # annotations_list も1つだけ
-            ],
-            False,
-            False,
-            True,
-            True,  # image2.jpg のIDが見つからないので警告ログが出る
-        ),
-        # テストケース3: 選択された画像がない
-        (
-            [],
-            {},
-            [],
-            True,  # expect_warning: 警告ダイアログが表示される
-            False,
-            False,
-            False,
-        ),
-        # テストケース4: エクスポート中に例外が発生
-        (
-            [Path("/path/to/image1.jpg")],
-            {Path("/path/to/image1.jpg"): 1},
-            Exception("Database error"),  # get_image_annotations が例外を投げる
-            False,
-            True,  # expect_critical: エラーダイアログが表示される
-            False,
-            False,
-        ),
-    ],
-)
-def test_export_dataset(
-    qtbot,
-    mock_config_manager,
-    mock_file_system_manager,
-    mock_image_database_manager,
-    mocker,
-    selected_images,
-    image_path_id_map,
-    annotations_list,
-    expect_warning,
-    expect_critical,
-    expect_information,
-    expect_logger_warning,
-):
-    # ウィジェットのインスタンス化と初期化
-    widget = DatasetExportWidget()
-    widget.initialize(mock_config_manager, mock_file_system_manager, mock_image_database_manager)
-    qtbot.addWidget(widget)
-
-    # GUI コンポーネントのモック設定
-    widget.exportButton = mocker.Mock()
-    widget.statusLabel = mocker.Mock()
-    widget.exportProgressBar = mocker.Mock()
-    widget.thumbnailSelector = mocker.Mock()
-
-    # 選択された画像パスを設定
-    widget.thumbnailSelector.get_selected_images.return_value = selected_images
-
-    # image_path_id_map を設定
-    widget.image_path_id_map = image_path_id_map
-
-    # get_image_annotations の返り値を設定
-    if isinstance(annotations_list, Exception):
-        # 例外を発生させる
-        mock_image_database_manager.get_image_annotations.side_effect = annotations_list
-    else:
-        mock_image_database_manager.get_image_annotations.side_effect = annotations_list
-
-    # FileSystemManager のメソッドをモック
-    mock_file_system_manager.export_dataset_to_txt = mocker.Mock()
-    mock_file_system_manager.export_dataset_to_json = mocker.Mock()
-
-    # QMessageBox のモック
-    mock_warning = mocker.patch.object(QMessageBox, "warning")
-    mock_critical = mocker.patch.object(QMessageBox, "critical")
-    mock_information = mocker.patch.object(QMessageBox, "information")
-
-    # ロガーの警告をモック
-    mock_logger_warning = mocker.patch.object(widget.logger, "warning")
-
-    # エクスポートディレクトリとフォーマットを設定
-    export_dir = Path("/path/to/export")
-    formats = ["txt_cap", "json"]
-
-    # メソッドを実行
-    widget.export_dataset(export_dir, formats)
-
-    # 警告ダイアログの確認
-    if expect_warning:
-        mock_warning.assert_called_once_with(widget, "Warning", "出力する画像を選択してください")
-    else:
-        mock_warning.assert_not_called()
-
-    # エラーダイアログの確認
-    if expect_critical:
-        mock_critical.assert_called_once()
-    else:
-        mock_critical.assert_not_called()
-
-    # 情報ダイアログの確認
-    if expect_information:
-        mock_information.assert_called_once_with(widget, "Success", "Dataset export completed successfully.")
-    else:
-        mock_information.assert_not_called()
-
-    # ロガーの警告の確認
-    if expect_logger_warning:
-        mock_logger_warning.assert_called()
-    else:
-        mock_logger_warning.assert_not_called()
-
-    # エクスポートメソッドの呼び出し回数を確認
-    if not expect_warning and not expect_critical:
-        expected_call_count = len(image_path_id_map)
-        assert mock_file_system_manager.export_dataset_to_txt.call_count == expected_call_count * (
-            1 if "txt_cap" in formats else 0
-        )
-        assert mock_file_system_manager.export_dataset_to_json.call_count == expected_call_count * (
-            1 if "json" in formats else 0
-        )
-    else:
-        mock_file_system_manager.export_dataset_to_txt.assert_not_called()
-        mock_file_system_manager.export_dataset_to_json.assert_not_called()
-
-
-def test_on_exportButton_clicked_no_export_directory(
-    qtbot, mock_config_manager, mock_file_system_manager, mock_image_database_manager, mocker
-):
-    # ウィジェットのインスタンス化
-    widget = DatasetExportWidget()
-    widget.initialize(mock_config_manager, mock_file_system_manager, mock_image_database_manager)
-
-    # GUI コンポーネントのモック設定
-    widget.exportDirectoryPicker = mocker.Mock()
-    widget.exportDirectoryPicker.get_selected_path.return_value = ""
-
-    # QMessageBox の警告をモック（コンテキストマネージャーを使用しない）
-    mock_warning = mocker.patch.object(QMessageBox, "warning")
-
-    # エクスポートボタンのクリックをシミュレート
-    widget.on_exportButton_clicked()
-
-    # 警告ダイアログが表示されたか確認
-    mock_warning.assert_called_once_with(widget, "Warning", "出力先ディレクトリを選択してください")
-
-
-def test_update_thumbnail_selector(
-    qtbot, mock_config_manager, mock_file_system_manager, mock_image_database_manager, mocker
-):
-    # DatasetExportWidget のインスタンスを作成し、必要なマネージャーを初期化
-    widget = DatasetExportWidget()
-    widget.initialize(mock_config_manager, mock_file_system_manager, mock_image_database_manager)
-    qtbot.addWidget(widget)
-
-    # サムネイルセレクターとラベルをモック化
-    widget.thumbnailSelector = mocker.Mock()
-    widget.thumbnailSelector.load_images = mocker.Mock()
-    widget.thumbnailSelector.get_selected_images.return_value = [
-        Path("/path/to/image1.jpg"),
-        Path("/path/to/image2.jpg"),
-    ]
-    widget.imageCountLabel = mocker.Mock()
-
-    # get_total_image_count の戻り値を設定
-    mock_image_database_manager.get_total_image_count.return_value = 100
-
-    # テスト用の画像パスとリスト数を設定
-    image_paths = [Path("/path/to/image1.jpg"), Path("/path/to/image2.jpg")]
-    list_count = 2
-
-    # update_thumbnail_selector メソッドを実行
-    widget.update_thumbnail_selector(image_paths, list_count)
-
-    # load_images メソッドが正しく呼び出されたか確認
-    widget.thumbnailSelector.load_images.assert_called_once_with(image_paths)
-
-    # サムネイルセレクターから選択された画像を取得し、正しい数か確認
-    selected_images = widget.thumbnailSelector.get_selected_images()
-    assert len(selected_images) == 2
-
-    # 画像数のラベルが正しく更新されたか確認
-    widget.imageCountLabel.setText.assert_called_once_with(f"Selected Images: {list_count} / Total Images: 100")
-
-
-def test_update_image_count_label(qtbot, mock_config_manager, mock_file_system_manager, mock_image_database_manager):
-    widget = DatasetExportWidget()
-    widget.initialize(mock_config_manager, mock_file_system_manager, mock_image_database_manager)
-    qtbot.addWidget(widget)
-
-    count = 10
-    total = 100
-
-    mock_image_database_manager.get_total_image_count.return_value = total
-
-    widget.update_image_count_label(count)
-
-    assert widget.imageCountLabel.text() == f"Selected Images: {count} / Total Images: {total}"
-
-```
-
-### tests\integration\test_db.py
-
-```
-import time
-import uuid
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from database.database import ImageDatabaseManager, ImageRepository, SQLiteManager
-from utils.log import get_logger
+from annotations.cleanup_txt import TagCleaner
 
 
 @pytest.fixture
-def test_db_paths(tmp_path):
-    img_db = tmp_path / f"test_image_database_{uuid.uuid4()}.db"
-    tag_db = Path("src/module/genai-tag-db-tools/tags_v3.db")  # テストによる変更がないので実際のパスを使用
-    return img_db, tag_db
+def tag_cleaner():
+    with patch("annotations.cleanup_txt.initialize_tag_searcher") as mock_init:
+        mock_searcher = MagicMock()
+        mock_searcher.convert_prompt.side_effect = lambda tag, format_name: tag.lower()
+        mock_init.return_value = mock_searcher
+        return TagCleaner()
 
 
-@pytest.fixture
-def sqlite_manager(test_db_paths):
-    img_db, tag_db = test_db_paths
-    sqlite_manager = SQLiteManager(img_db, tag_db)
-    sqlite_manager.create_tables()
-    sqlite_manager.insert_models()
-    yield sqlite_manager
-    sqlite_manager.close()
-    img_db.unlink(missing_ok=True)
+def test_clean_format_remove_symbols(tag_cleaner):
+    input_text = "This is a **bold** statement.\nNew line here."
+    expected = "This is a bold statement, New line here, "
+    assert tag_cleaner.clean_format(input_text) == expected
 
 
-@pytest.fixture
-def image_database_manager(sqlite_manager):
-    # ハードコーディングされたパスをテスト用データベースに変更するためパッチ
-    with patch.object(ImageDatabaseManager, "__init__", return_value=None):
-        idm = ImageDatabaseManager()
-        idm.logger = get_logger("ImageDatabaseManager")
-        idm.db_manager = sqlite_manager
-        idm.repository = ImageRepository(sqlite_manager)
-        idm.logger.debug("初期化（テスト用パス使用）")
-        yield idm
+def test_clean_format_escape_parentheses(tag_cleaner):
+    input_text = "Example (text) with (parentheses)."
+    expected = "Example \\(text\\) with \\(parentheses\\),"
+    assert tag_cleaner.clean_format(input_text) == expected
 
 
-def test_sqlite_connect(sqlite_manager):
-    """データベース接続とテーブル作成の確認"""
-    conn = sqlite_manager.connect()
-    assert conn is not None
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-    tables = {table["name"] for table in cursor.fetchall()}
-    expected_tables = {"images", "processed_images", "models", "tags", "captions", "scores"}
-    assert expected_tables.issubset(tables)
+def test_clean_format_clean_repetition(tag_cleaner):
+    input_text = "This is,,, a test\\\\\\ string."
+    expected = "This is, a test\\ string,"
+    assert tag_cleaner.clean_format(input_text) == expected
 
 
-def test_sqlite_fetch_one(sqlite_manager):
-    """単一行のデータ取得の確認"""
-    query = "SELECT * FROM models WHERE name = ?"
-    params = ("gpt-4o",)
-    result = sqlite_manager.fetch_one(query, params)
-    # 確認するパラメーターはsrc.module.db.SQLiteManager.insert_modelsで追加されたもの
-    assert result is not None
-    assert result["name"] == "gpt-4o"
-    assert result["type"] == "vision"
-    assert result["provider"] == "OpenAI"
+def test_clean_tags_single_person(tag_cleaner):
+    tags = "long hair, red eyes, anime style"
+    format_name = "default"
+    expected = "long hair, red eyes, anime"
+    assert tag_cleaner.clean_tags(tags, format_name) == expected
 
 
-def test_add_original_image(image_database_manager, sample_image_info):
-    """オリジナル画像の追加とメタデータの取得"""
-    image_id = image_database_manager.repository.add_original_image(sample_image_info)
-    assert isinstance(image_id, int)
+def test_clean_tags_multiple_person(tag_cleaner):
+    tags = "girls, long hair, short hair, blue eyes"
+    format_name = "default"
+    expected = "long hair, blue eyes"
+    assert tag_cleaner.clean_tags(tags, format_name) == expected
 
-    metadata = image_database_manager.repository.get_image_metadata(image_id)
-    assert metadata is not None
-    for key, value in sample_image_info.items():
-        assert metadata[key] == value
 
+def test_clean_tags_duplicate_tags(tag_cleaner):
+    tags = "anime style, anime art, anime"
+    format_name = "default"
+    expected = "anime"
+    assert tag_cleaner.clean_tags(tags, format_name) == expected
 
-def test_duplicate_image(image_database_manager, sample_image_info):
-    """重複画像の検出と同一IDの返却確認"""
-    image_id1 = image_database_manager.repository.add_original_image(sample_image_info)
-    image_id2 = image_database_manager.repository.add_original_image(sample_image_info)  # 重複画像を追加
-    assert image_id1 == image_id2  # 同じIDが返される
 
+def test_clean_caption_replacements():
+    caption = "anime anime girl with red eyes and a long hair."
+    expected = "anime girl with red eyes and a long hair"
+    assert TagCleaner.clean_caption(caption) == expected
 
-@patch("module.db.calculate_phash", return_value="mocked_phash")
-def test_register_original_image(mock_calculate_phash, image_database_manager, mock_file_system_manager, tmp_path):
-    """オリジナル画像の登録処理"""
-    manager = image_database_manager
 
-    mock_file_system_manager.get_image_info.return_value = {
-        "width": 800,
-        "height": 600,
-        "format": "JPEG",
-        "mode": "RGB",
-        "has_alpha": False,
-        "filename": "image.jpg",
-        "extension": "jpg",
-        "color_space": "sRGB",
-        "icc_profile": None,
-    }
-    mock_file_system_manager.save_original_image.return_value = tmp_path / "image.jpg"
-
-    result = manager.register_original_image(Path("/fake/path/image.jpg"), mock_file_system_manager)
-    assert result is not None
-    image_id, metadata = result
-    assert isinstance(image_id, int)
-    assert metadata["width"] == 800
-    assert metadata["height"] == 600
-
-
-def test_register_processed_image(image_database_manager, sample_image_info, tmp_path):
-    """処理済み画像の登録とメタデータの確認"""
-    manager = image_database_manager
-
-    image_id = manager.repository.add_original_image(sample_image_info)
-
-    # processed_info に extension と phash は不要なため削除
-    processed_info = {
-        "width": 256,
-        "height": 256,
-        "format": "WEBP",
-        "mode": "RGB",
-        "has_alpha": False,
-        "filename": "processed.webp",
-        "color_space": "sRGB",
-        "icc_profile": None,
-    }
-    processed_path = tmp_path / "processed.webp"
-    processed_path.touch()
-
-    result = manager.register_processed_image(image_id, processed_path, processed_info)
-    assert result is not None
-    processed_image_id = result
-
-    metadata = manager.repository.get_processed_image(image_id)
-    assert metadata is not None
-    assert len(metadata) > 0
-    processed_metadata = metadata[0]
-    assert processed_metadata["image_id"] == image_id
-    assert processed_metadata["width"] == 256
-    assert processed_metadata["height"] == 256
-
-
-def assert_annotations(retrieved, expected, model_id, case_index, repository):
-    if "tags" in expected:
-        assert len(retrieved["tags"]) >= len(expected["tags"]), f"Case {case_index}: タグの数が一致しません"
-        for tag in expected["tags"]:
-            matching_tags = [t for t in retrieved["tags"] if t["tag"] == tag]
-            assert matching_tags, f"Case {case_index}: タグ '{tag}' が見つかりません"
-            matching_tag = next((t for t in matching_tags if t["model_id"] == model_id), None)
-            assert matching_tag is not None, f"Case {case_index}: タグ '{tag}' に期待される model_id が見つかりません"
-            assert matching_tag["model_id"] == model_id, f"Case {case_index}: タグ '{tag}' のmodel_idが一致しません"
-            expected_tag_id = repository.find_tag_id(tag)
-            assert (
-                matching_tags[0]["tag_id"] == expected_tag_id
-            ), f"Case {case_index}: タグ '{tag}' のtag_idが一致しません"
-            if tag == "spiked collar":
-                assert expected_tag_id == 1, f"Case {case_index}: 'spiked collar' のtag_idが1ではありません"
-
-            # 新しい検証: updated_at が現在時刻に近いことを確認
-            assert (
-                datetime.now(timezone.utc)
-                - datetime.fromisoformat(matching_tags[0]["updated_at"]).replace(tzinfo=timezone.utc)
-            ) < timedelta(seconds=100), f"Case {case_index}: タグ '{tag}' のupdated_atが最新ではありません"
-
-    if "captions" in expected:
-        assert len(retrieved["captions"]) >= len(
-            expected["captions"]
-        ), f"Case {case_index}: キャプションの数が一致しません"
-        for caption in expected["captions"]:
-            matching_captions = [c for c in retrieved["captions"] if c["caption"] == caption]
-            assert matching_captions, f"Case {case_index}: キャプション '{caption}' が見つかりません"
-            assert (
-                matching_captions[0]["model_id"] == model_id
-            ), f"Case {case_index}: キャプション '{caption}' のmodel_idが一致しません"
-
-    if "score" in expected:
-        matching_scores = [s for s in retrieved["scores"] if s["score"] == expected["score"]]
-        assert matching_scores, f"Case {case_index}: スコア {expected['score']} が見つかりません"
-        assert (
-            matching_scores[0]["model_id"] == model_id
-        ), f"Case {case_index}: スコア {expected['score']} のmodel_idが一致しません"
-
-
-def test_save_annotations(image_database_manager, sample_image_info):
-    """アノテーションの保存、取得、更新の確認、欠損値のテストを含む"""
-    manager = image_database_manager
-    image_id = manager.repository.add_original_image(sample_image_info)
-
-    test_cases = [
-        {"tags": ["spiked collar", "tag1", "tag2"], "captions": ["caption1", "caption2"], "score": 0.95, "model_id": 1},
-        {"tags": ["tag4", "tag5"], "captions": ["caption3"], "model_id": 2},
-        {"captions": ["caption4"], "score": 0.85, "model_id": 3},
-        {
-            "tags": ["tag6"],
-            "score": 0.75,
-            # 'model_id' がない場合
-        },
-        {
-            "tags": ["spiked collar"],  # tags_v3に存在するidを登録
-        },
-    ]
-
-    for index, case in enumerate(test_cases, start=1):
-        manager.repository.save_annotations(image_id, case)
-
-        retrieved = manager.repository.get_image_annotations(image_id)
-
-        current_model_id = case.get("model_id")
-
-        assert_annotations(retrieved, case, current_model_id, index, manager.repository)
-
-    # タグの再登録のテスト
-    time.sleep(1)  # updated_at の変更を確実に検出するため
-    reregister_case = {"tags": ["spiked collar", "tag1"], "model_id": 4}
-    manager.repository.save_annotations(image_id, reregister_case)
-    retrieved = manager.repository.get_image_annotations(image_id)
-
-    # 再登録されたタグの検証
-    for tag in reregister_case["tags"]:
-        matching_tags = [t for t in retrieved["tags"] if t["tag"] == tag]
-        assert len(matching_tags) > 1, f"再登録: タグ '{tag}' の追加が行われませんでした"
-
-        # 新しく追加されたタグの検証
-        new_matching_tag = next((t for t in matching_tags if t["model_id"] == 4), None)
-        assert new_matching_tag is not None, f"再登録: タグ '{tag}' に新しい model_id が見つかりません"
-        assert (
-            datetime.now(timezone.utc)
-            - datetime.fromisoformat(new_matching_tag["updated_at"]).replace(tzinfo=timezone.utc)
-        ) < timedelta(seconds=100), f"再登録: タグ '{tag}' の updated_at が更新されていません"
-
-    # 他のタグが影響を受けていないことを確認
-    other_tags = [t for t in retrieved["tags"] if t["tag"] not in reregister_case["tags"]]
-    for tag in other_tags:
-        assert tag["model_id"] != 4, f"再登録: 他のタグ '{tag['tag']}' のmodel_idが誤って更新されています"
-
-
-def test_find_tag_id(image_database_manager, sample_image_info):
-    """
-    アタッチしたsrc.module.genai-tag-db-toolsのタグデータベースから登録されたタグIDを取得する
-    """
-    manager = image_database_manager
-    image_id = manager.repository.add_original_image(sample_image_info)
-    manager.repository.save_annotations(image_id, {"tags": ["spiked collar"], "model_id": None})
-
-    tag_id = manager.repository.find_tag_id("spiked collar")
-    assert tag_id == 1
-
-
-def test_update_image_metadata(image_database_manager, sample_image_info):
-    """画像メタデータの更新の確認"""
-    manager = image_database_manager
-    image_id = manager.repository.add_original_image(sample_image_info)
-
-    updated_info = {"width": 1024, "height": 768}
-    manager.repository.update_image_metadata(image_id, updated_info)
-
-    metadata = manager.repository.get_image_metadata(image_id)
-    assert metadata["width"] == 1024
-    assert metadata["height"] == 768
-    assert metadata["updated_at"] is not None
-
-
-def test_delete_image(image_database_manager, sample_image_info):
-    """画像の削除と関連データの確認"""
-    manager = image_database_manager
-    image_id = manager.repository.add_original_image(sample_image_info)
-    manager.repository.save_annotations(
-        image_id,
-        {
-            "tags": ["test_tag1", "test_tag2", "test_tag3"],
-            "captions": ["test_caption1", "test_caption2", "test_caption3"],
-            "score": 0.95,
-            "model_id": 1,
-        },
-    )
-
-    # 削除前にアノテーションが存在することを確認
-    annotations_before = manager.get_image_annotations(image_id)
-    assert len(annotations_before["tags"]) == 3
-    assert len(annotations_before["captions"]) == 3
-    assert len(annotations_before["scores"]) == 1
-
-    manager.repository.delete_image(image_id)
-
-    # 画像が削除されたことを確認
-    metadata = manager.get_image_metadata(image_id)
-    assert metadata is None
-
-    # 削除後はアノテーションが空になることを確認
-    annotations_after = manager.get_image_annotations(image_id)
-    assert len(annotations_after["tags"]) == 0
-    assert len(annotations_after["captions"]) == 0
-    assert len(annotations_after["scores"]) == 0
-
-
-def test_get_total_image_count(image_database_manager, sample_image_info):
-    """総画像数の取得の確認"""
-    manager = image_database_manager
-    initial_count = manager.repository.get_total_image_count()
-
-    manager.repository.add_original_image(sample_image_info)
-    new_count = manager.repository.get_total_image_count()
-    assert new_count == initial_count + 1
-
-
-def test_get_models(image_database_manager):
-    """モデル情報の取得の確認"""
-    manager = image_database_manager
-
-    vision_models, score_models, upscaler_models = manager.get_models()
-    assert isinstance(vision_models, dict)
-    assert isinstance(score_models, dict)
-    assert isinstance(upscaler_models, dict)
-    assert len(vision_models) > 0
-
-
-from datetime import datetime
-
-
-@pytest.fixture
-def setup_test_data(image_database_manager, sample_image_info, tmp_path):
-    manager = image_database_manager
-
-    # テスト用の画像データを作成
-    image_data = [
-        {"tags": ["cat", "cute"], "caption": "A cute cat playing"},
-        {"tags": ["dog", "playful"], "caption": "A playful dog in the park"},
-        {"tags": ["cat", "sleeping"], "caption": "A cat sleeping on a couch"},
-        {"tags": ["bird", "flying"], "caption": "A bird flying in the sky"},
-        {"tags": ["catfish", "swimming"], "caption": "A catfish swimming in a pond"},
-    ]
-
-    image_ids = []
-    for idx, data in enumerate(image_data):
-        # 直接SQLでオリジナル画像を追加（phashチェックを避けるため）
-        query = """
-        INSERT INTO images (uuid, stored_image_path, width, height, format, mode, has_alpha, filename,
-                            extension, color_space, icc_profile, phash, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """
-        created_at = datetime.now().isoformat()
-        params = (
-            str(uuid.uuid4()),  # uuid
-            f"image_path_{idx}.jpg",  # stored_image_path
-            256,  # width
-            256,  # height
-            "WEBP",  # format
-            "RGB",  # mode
-            False,  # has_alpha
-            f"image_{idx}.jpg",  # filename
-            "webp",  # extension
-            "sRGB",  # color_space
-            None,  # icc_profile
-            f"unique_phash_{idx}",  # phash
-            created_at,  # created_at
-            created_at,  # updated_at
-        )
-        cursor = manager.db_manager.execute(query, params)
-        image_id = cursor.lastrowid
-        image_ids.append(image_id)
-        # 処理済み画像を登録
-        processed_info = {
-            "width": 256,
-            "height": 256,
-            "format": "WEBP",
-            "mode": "RGB",
-            "has_alpha": False,
-            "filename": f"processed_{idx}.webp",
-            "color_space": "sRGB",
-            "icc_profile": None,
-        }
-        processed_path = tmp_path / f"processed_{idx}.webp"
-        processed_path.touch()
-        manager.register_processed_image(image_id, processed_path, processed_info)
-
-        # アノテーションを保存
-        manager.repository.save_annotations(
-            image_id, {"tags": data["tags"], "captions": [data["caption"]], "model_id": None}
-        )
-
-    return manager, image_ids
-
-
-test_cases = [
-    # テストケース1: 完全一致タグ検索
-    {
-        "description": "完全一致タグ検索",
-        "tags": ['"cat"'],
-        "caption": None,
-        "expected_count": 2,
-        "expected_ids": lambda ids: {ids[0], ids[2]},
-    },
-    # テストケース1.1: 部分一致タグ検索
-    {
-        "description": "部分一致タグ検索",
-        "tags": ["cat"],
-        "caption": None,
-        "expected_count": 3,
-        "expected_ids": lambda ids: {ids[0], ids[2], ids[4]},
-    },
-    # テストケース2: ワイルドカードタグ検索
-    {
-        "description": "ワイルドカードタグ検索",
-        "tags": ["cat*"],
-        "caption": None,
-        "expected_count": 3,
-        "expected_ids": lambda ids: {ids[0], ids[2], ids[4]},
-    },
-    # テストケース3: AND検索
-    {
-        "description": "AND検索",
-        "tags": ["cat", "cute"],
-        "caption": None,
-        "use_and": True,
-        "expected_count": 1,
-        "expected_ids": lambda ids: {ids[0]},
-    },
-    # テストケース4: OR検索
-    {
-        "description": "OR検索",
-        "tags": ["dog", "bird"],
-        "caption": None,
-        "use_and": False,
-        "expected_count": 2,
-        "expected_ids": lambda ids: {ids[1], ids[3]},
-    },
-    # テストケース5: 部分一致キャプション検索
-    {
-        "description": "部分一致キャプション検索",
-        "tags": None,
-        "caption": "sleeping",
-        "expected_count": 1,
-        "expected_ids": lambda ids: {ids[2]},
-    },
-    # テストケース6: ワイルドカードキャプション検索
-    {
-        "description": "ワイルドカードキャプション検索",
-        "tags": None,
-        "caption": "* in *",
-        "expected_count": 3,
-        "expected_ids": lambda ids: {ids[1], ids[3], ids[4]},
-    },
-    # テストケース7: タグとキャプションの組み合わせ検索
-    {
-        "description": "タグとキャプションの組み合わせ検索",
-        "tags": ["cat*"],
-        "caption": "*ing*",
-        "expected_count": 3,
-        "expected_ids": lambda ids: {ids[0], ids[2], ids[4]},
-    },
-    # テストケース8: 存在しないタグでの検索
-    {
-        "description": "存在しないタグでの検索",
-        "tags": ["nonexistent"],
-        "caption": None,
-        "expected_count": 0,
-        "expected_ids": lambda ids: set(),
-    },
-    # テストケース9: 空のタグリストでの検索
-    {
-        "description": "空のタグリストでの検索",
-        "tags": [],
-        "caption": None,
-        "expected_count": 0,
-        "expected_ids": lambda ids: None,
-    },
-    # テストケース10: 解像度フィルタ
-    {
-        "description": "解像度フィルタ",
-        "tags": ["cat"],
-        "caption": None,
-        "resolution": 256,
-        "expected_count": 3,
-        "expected_ids": lambda ids: {ids[0], ids[2], ids[4]},
-    },
-    # エッジケース1: タグが存在しない
-    {
-        "description": "エッジケース - 存在しないタグ",
-        "tags": ["nonexistent"],
-        "caption": None,
-        "expected_count": 0,
-        "expected_ids": lambda ids: set(),
-    },
-    # エッジケース2: タグと存在しないタグのAND検索
-    {
-        "description": "エッジケース - タグと存在しないタグのAND検索",
-        "tags": ["cat", "nonexistent"],
-        "caption": None,
-        "use_and": True,
-        "expected_count": 0,
-        "expected_ids": lambda ids: set(),
-    },
-    # エッジケース3: 存在しないキャプション
-    {
-        "description": "エッジケース - 存在しないキャプション",
-        "tags": None,
-        "caption": "nonexistent",
-        "expected_count": 0,
-        "expected_ids": lambda ids: set(),
-    },
-    # エッジケース4: ワイルドカードタグ検索で全ての画像を取得
-    {
-        "description": "エッジケース - ワイルドカードタグ検索で全ての画像を取得",
-        "tags": ["*"],
-        "caption": None,
-        "expected_count": 5,
-        "expected_ids": lambda ids: set(ids),
-    },
-    # エッジケース5: ワイルドカードキャプション検索で全ての画像を取得
-    {
-        "description": "エッジケース - ワイルドカードキャプション検索で全ての画像を取得",
-        "tags": None,
-        "caption": "*",
-        "expected_count": 5,
-        "expected_ids": lambda ids: set(ids),
-    },
-]
-
-
-@pytest.mark.parametrize("case", test_cases)
-def test_get_images_by_filter_cases(setup_test_data, case):
-    """フィルタリングのテストケース"""
-    manager, image_ids = setup_test_data
-    description = case.get("description")
-    tags = case.get("tags")
-    caption = case.get("caption")
-    resolution = case.get("resolution", 0)
-    use_and = case.get("use_and", True)
-    expected_count = case.get("expected_count")
-    expected_ids = case.get("expected_ids")(image_ids)
-
-    filtered_images, count = manager.get_images_by_filter(
-        tags=tags, caption=caption, resolution=resolution, use_and=use_and
-    )
-
-    assert count == expected_count, f"{description} - 期待される画像数と一致しません"
-    # None が返ってくる場合に備える
-    if filtered_images is None:
-        assert expected_ids is None, f"{description} - 期待される画像IDと一致しません"
-    else:
-        actual_ids = set(img["image_id"] for img in filtered_images)
-        assert actual_ids == expected_ids, f"{description} - 期待される画像IDと一致しません"
-
-
-def test_get_images_by_filter(image_database_manager, sample_image_info, tmp_path):
-    """フィルタによる画像検索の確認"""
-    manager = image_database_manager
-
-    # オリジナル画像を追加
-    image_id = manager.repository.add_original_image(sample_image_info)
-
-    # 処理済み画像を登録
-    processed_info = {
-        "width": 256,
-        "height": 256,
-        "format": "WEBP",
-        "mode": "RGB",
-        "has_alpha": False,
-        "filename": "processed.webp",
-        "color_space": "sRGB",
-        "icc_profile": None,
-    }
-    processed_path = tmp_path / "processed.webp"
-    processed_path.touch()
-    manager.register_processed_image(image_id, processed_path, processed_info)
-
-    # アノテーションを保存（タグの updated_at が更新される）
-    manager.repository.save_annotations(image_id, {"tags": ["filter_tag"], "model_id": None})
-
-    # タグの updated_at を確認する
-    rows = manager.db_manager.fetch_all("SELECT created_at, updated_at FROM tags WHERE image_id = ?", [image_id])
-    for row in rows:
-        print(f"Tag created_at: {row['created_at']}, updated_at: {row['updated_at']}")
-
-    # 現在の日時をUTCで取得
-    current_datetime = datetime.now(timezone.utc)
-
-    # 日付範囲を設定
-    start_date = (current_datetime - timedelta(seconds=10)).strftime("%Y-%m-%d %H:%M:%S")  # 10秒前
-    end_date = (current_datetime + timedelta(seconds=10)).strftime("%Y-%m-%d %H:%M:%S")  # 10秒後
-
-    filtered_images, count = manager.get_images_by_filter(tags=["filter_tag"], start_date=start_date, end_date=end_date)
-
-    assert count == 1, f"Expected 1 image, but got {count}"
-    assert filtered_images[0]["image_id"] == image_id
-
-    # 時間範囲外の画像を検索（マッチしないはず）
-    past_start_date = (current_datetime - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")  # 1日前
-    past_end_date = (current_datetime - timedelta(hours=23)).strftime("%Y-%m-%d %H:%M:%S")  # 1日前+1時間
-
-    filtered_images, count = manager.get_images_by_filter(
-        tags=["filter_tag"], start_date=past_start_date, end_date=past_end_date
-    )
-
-    assert count == 0, f"Expected 0 images, but got {count}"
-    assert len(filtered_images) == 0
-
-
-def test_create_tables(image_database_manager):
-    """テーブル作成のテストとカラムの存在確認"""
-    manager = image_database_manager
-    manager.db_manager.create_tables()
-
-    # テーブルとそのカラムの定義
-    table_definitions = {
-        "images": [
-            "id",
-            "uuid",
-            "phash",
-            "stored_image_path",
-            "width",
-            "height",
-            "format",
-            "mode",
-            "has_alpha",
-            "filename",
-            "extension",
-            "color_space",
-            "icc_profile",
-            "created_at",
-            "updated_at",
-        ],
-        "processed_images": [
-            "id",
-            "image_id",
-            "stored_image_path",
-            "width",
-            "height",
-            "mode",
-            "has_alpha",
-            "filename",
-            "color_space",
-            "icc_profile",
-            "created_at",
-            "updated_at",
-        ],
-        "models": ["id", "name", "type", "provider", "created_at", "updated_at"],
-        "tags": ["id", "tag_id", "image_id", "model_id", "tag", "existing", "created_at", "updated_at"],
-        "captions": ["id", "image_id", "model_id", "caption", "existing", "created_at", "updated_at"],
-        "scores": ["id", "image_id", "model_id", "score", "created_at", "updated_at"],
-    }
-
-    for table, expected_columns in table_definitions.items():
-        # テーブルの存在を確認
-        query = f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}';"
-        result = manager.db_manager.fetch_one(query)
-        assert result is not None, f"テーブル '{table}' が存在しません。"
-
-        # テーブルのカラムを取得
-        query = f"PRAGMA table_info({table});"
-        columns_info = manager.db_manager.fetch_all(query)
-        existing_columns = {col["name"] for col in columns_info}
-
-        # 期待されるカラムがすべて存在するか確認
-        for column in expected_columns:
-            assert column in existing_columns, f"テーブル '{table}' にカラム '{column}' が存在しません。"
-
-```
-
-### tests\integration\test_ImageEditWidget.py
-
-```
-import pytest
-from pytestqt.qtbot import QtBot
-from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import Qt
-from pathlib import Path
-
-from gui.window.edit import ImageEditWidget
-
-
-@pytest.fixture
-def widget(qtbot, mock_config_manager, mock_file_system_manager, mock_image_database_manager, mock_main_window):
-    widget = ImageEditWidget()
-    widget.initialize(mock_config_manager, mock_file_system_manager, mock_image_database_manager, mock_main_window)
-    qtbot.addWidget(widget)
-    return widget
-
-
-def test_initialization(
-    app, mock_config_manager, mock_file_system_manager, mock_image_database_manager, mock_main_window
-):
-    widget = ImageEditWidget()
-    widget.initialize(mock_config_manager, mock_file_system_manager, mock_image_database_manager, mock_main_window)
-
-    assert widget.cm == mock_config_manager
-    assert widget.idm == mock_image_database_manager
-    assert widget.fsm == mock_file_system_manager
-    assert widget.main_window == mock_main_window
-    assert widget.target_resolution == 512
-    assert widget.preferred_resolutions == [512, 768, 1024]
-    assert widget.comboBoxUpscaler.count() == 4
-    assert [widget.comboBoxUpscaler.itemText(i) for i in range(4)] == [
-        "None",
-        "RealESRGAN_x4plus",
-        "Lanczos",
-        "Bicubic",
-    ]
-
-
-def test_load_images(widget, mocker, sample_image_path_list):
-    mock_load_image = mocker.patch.object(widget.ImagePreview, "load_image")
-    mock_pixmap = mocker.patch("src.ImageEditWidget.QPixmap")
-    mock_stat = mocker.patch("pathlib.Path.stat")
-
-    mock_pixmap.return_value = mocker.Mock()
-    mock_stat.return_value.st_size = 1024
-
-    widget.load_images(sample_image_path_list)
-
-    assert widget.directory_images == sample_image_path_list
-    assert widget.tableWidgetImageList.rowCount() == len(sample_image_path_list)
-    mock_load_image.assert_called_with(sample_image_path_list[0])
-
-
-def test_process_all_images(widget, mocker):
-    test_image_paths = [Path("test_image1.png"), Path("test_image2.png")]
-    widget.directory_images = test_image_paths
-    widget.upscaler = "Lanczos"
-    widget.target_resolution = 512
-
-    mock_get_existing_annotations = mocker.patch(
-        "src.ImageEditWidget.ImageAnalyzer.get_existing_annotations", return_value={"tags": [], "captions": []}
-    )
-    widget.ipm = mocker.Mock()
-    mock_process_image = mocker.patch.object(widget.ipm, "process_image", return_value="processed_image_data")
-
-    # idm のモックを明示的に設定
-    widget.idm = mocker.Mock()
-    widget.idm.get_image_id_by_name.return_value = None  # 画像IDが存在しないと仮定
-    widget.idm.register_original_image.return_value = (1, {"has_alpha": False, "mode": "RGB"})
-
-    progress_callback = mocker.Mock()
-    status_callback = mocker.Mock()
-    is_canceled = mocker.Mock(return_value=False)
-
-    widget.process_all_images(
-        progress_callback=progress_callback, status_callback=status_callback, is_canceled=is_canceled
-    )
-
-    assert widget.idm.register_original_image.call_count == len(test_image_paths)
-
-
-def test_on_pushButtonStartProcess_clicked(widget, mocker):
-    mock_initialize_processing = mocker.patch.object(widget, "initialize_processing")
-    mock_process_all_images = mocker.patch.object(widget, "process_all_images")
-    mock_some_long_process = mocker.patch.object(
-        widget.main_window, "some_long_process", side_effect=lambda func: func()
-    )
-
-    widget.on_pushButtonStartProcess_clicked()
-
-    mock_initialize_processing.assert_called_once()
-    mock_process_all_images.assert_called_once()
-    mock_some_long_process.assert_called_once()
-
-
-def test_on_pushButtonStartProcess_clicked_error(widget, mocker):
-    mocker.patch.object(widget, "initialize_processing", side_effect=Exception("Test error"))
-    mock_error_dialog = mocker.patch("PySide6.QtWidgets.QMessageBox.critical")
-
-    widget.on_pushButtonStartProcess_clicked()
-
-    mock_error_dialog.assert_called_once()
-
-```
-
-### tests\integration\test_ImageTaggerWidget.py
-
-```
-import pytest
-from pathlib import Path
-from gui.window.tagger import ImageTaggerWidget
-
-
-def test_initialization(app, mock_config_manager, mock_image_database_manager, mocker):
-    # ウィジェットのインスタンスを作成
-    widget = ImageTaggerWidget()
-
-    # 外部依存関係をモック化
-    widget.DirectoryPickerSave = mocker.Mock()
-    widget.ThumbnailSelector = mocker.Mock()
-    widget.dbSearchWidget = mocker.Mock()
-
-    # ウィジェットを初期化
-    widget.initialize(mock_config_manager, mock_image_database_manager)
-
-    # 属性が正しく設定されていることを確認
-    assert widget.cm == mock_config_manager
-    assert widget.idm == mock_image_database_manager
-
-    # vision_providersが正しく設定されていることを確認
-    expected_vision_providers = list(set(model["provider"] for model in mock_config_manager.vision_models.values()))
-    assert widget.vision_providers == expected_vision_providers
-
-    # comboBoxAPIに正しいアイテムが追加されていることを確認
-    actual_api_items = [widget.comboBoxAPI.itemText(i) for i in range(widget.comboBoxAPI.count())]
-    assert actual_api_items == expected_vision_providers
-
-    # comboBoxTagFormatに正しいアイテムが追加されていることを確認
-    expected_formats = ["danbooru", "e621", "derpibooru"]
-    actual_formats = [widget.comboBoxTagFormat.itemText(i) for i in range(widget.comboBoxTagFormat.count())]
-    assert actual_formats == expected_formats
-
-    # プロンプトが正しく設定されていることを確認
-    assert widget.textEditMainPrompt.toPlainText() == mock_config_manager.config["prompts"]["main"]
-    assert widget.textEditAddPrompt.toPlainText() == mock_config_manager.config["prompts"]["additional"]
-
-
-def test_load_images(app, mock_config_manager, mock_image_database_manager, mocker, tmp_path):
-    # サンプルのwebp画像を作成
-    image1 = tmp_path / "image1.webp"
-    image1.touch()
-    image2 = tmp_path / "image2.webp"
-    image2.touch()
-    image_files = [image1, image2]
-
-    # ウィジェットのインスタンスを作成
-    widget = ImageTaggerWidget()
-
-    # 外部依存関係をモック化
-    widget.DirectoryPickerSave = mocker.Mock()
-    widget.ImagePreview = mocker.Mock()
-    widget.ThumbnailSelector = mocker.Mock()
-    widget.ThumbnailSelector.load_images = mocker.Mock()
-    widget.ThumbnailSelector.select_first_image = mocker.Mock()
-    widget.dbSearchWidget = mocker.Mock()
-
-    # ウィジェットを初期化
-    widget.initialize(mock_config_manager, mock_image_database_manager)
-
-    # 画像をロード
-    widget.load_images(image_files)
-
-    # all_webp_filesが正しく設定されていることを確認
-    assert widget.all_webp_files == image_files
-
-    # ThumbnailSelectorのload_imagesが正しく呼び出されていることを確認
-    widget.ThumbnailSelector.load_images.assert_called_with(image_files)
-
-    # サムネイルの最初の画像が選択されていることを確認
-    widget.ThumbnailSelector.select_first_image.assert_called_once()
-
-
-def test_on_pushButtonGenerate_clicked(app, mock_config_manager, mock_image_database_manager, mocker, tmp_path):
-    # サンプルのwebp画像を作成
-    image = tmp_path / "image.webp"
-    image.touch()
-    image_files = [image]
-
-    # ウィジェットのインスタンスを作成
-    widget = ImageTaggerWidget()
-
-    # 外部依存関係をモック化
-    widget.DirectoryPickerSave = mocker.Mock()
-    widget.ImagePreview = mocker.Mock()
-    widget.ThumbnailSelector = mocker.Mock()
-    widget.ThumbnailSelector.load_images = mocker.Mock()
-    widget.ThumbnailSelector.select_first_image = mocker.Mock()
-    widget.dbSearchWidget = mocker.Mock()
-
-    # ImageAnalyzerとAPIClientFactoryをモック化
-    mock_image_analyzer = mocker.patch("ImageTaggerWidget.ImageAnalyzer")
-    mock_api_client_factory = mocker.patch("ImageTaggerWidget.APIClientFactory")
-    mock_image_analyzer_instance = mock_image_analyzer.return_value
-    mock_image_analyzer_instance.analyze_image.return_value = {
-        "image_path": str(image),
-        "tags": [{"tag": "sample_tag"}],
-        "captions": [{"caption": "sample_caption"}],
-        "score": {"score": 0.85},
-    }
-
-    # ウィジェットを初期化
-    widget.initialize(mock_config_manager, mock_image_database_manager)
-
-    # 選択された画像を設定
-    widget.selected_webp = image_files
-
-    # ボタンクリックのメソッドを呼び出し
-    widget.on_pushButtonGenerate_clicked()
-
-    # タグとキャプションが正しく設定されていることを確認
-    assert widget.all_tags == ["sample_tag"]
-    assert widget.all_captions == ["sample_caption"]
-
-    # テキストエディットに正しく表示されていることを確認
-    assert widget.textEditTags.toPlainText() == "sample_tag"
-    assert widget.textEditCaption.toPlainText() == "sample_caption"
-
-
-def test_on_pushButtonSave_clicked(app, mock_config_manager, mock_image_database_manager, mocker, tmp_path):
-    # サンプルのwebp画像を作成
-    image = tmp_path / "image.webp"
-    image.touch()
-    image_files = [image]
-
-    # ウィジェットのインスタンスを作成
-    widget = ImageTaggerWidget()
-
-    # 外部依存関係をモック化
-    widget.DirectoryPickerSave = mocker.Mock()
-    widget.DirectoryPickerSave.get_selected_path.return_value = str(tmp_path)
-    widget.ImagePreview = mocker.Mock()
-    widget.ThumbnailSelector = mocker.Mock()
-    widget.ThumbnailSelector.load_images = mocker.Mock()
-    widget.ThumbnailSelector.select_first_image = mocker.Mock()
-    widget.dbSearchWidget = mocker.Mock()
-
-    # FileSystemManagerのメソッドをモック化
-    mock_fsm = mocker.patch("ImageTaggerWidget.FileSystemManager")
-    mock_fsm.export_dataset_to_txt = mocker.Mock()
-    mock_fsm.export_dataset_to_json = mocker.Mock()
-
-    # ウィジェットを初期化
-    widget.initialize(mock_config_manager, mock_image_database_manager)
-
-    # 選択された画像と生成されたタグ・キャプションを設定
-    widget.selected_webp = image_files
-    widget.all_tags = ["sample_tag"]
-    widget.all_captions = ["sample_caption"]
-    widget.all_results = [
-        {
-            "image_path": str(image),
-            "tags": [{"tag": "sample_tag"}],
-            "captions": [{"caption": "sample_caption"}],
-            "score": {"score": 0.85},
-        }
-    ]
-
-    # 保存オプションを設定
-    widget.checkBoxText.setChecked(True)
-    widget.checkBoxJson.setChecked(True)
-    widget.checkBoxDB.setChecked(True)
-
-    # ボタンクリックのメソッドを呼び出し
-    widget.on_pushButtonSave_clicked()
-
-    # FileSystemManagerのメソッドが正しく呼び出されたことを確認
-    mock_fsm.export_dataset_to_txt.assert_called()
-    mock_fsm.export_dataset_to_json.assert_called()
-
-    # データベースに保存するメソッドが呼び出されたことを確認
-    mock_image_database_manager.save_annotations.assert_called()
-    mock_image_database_manager.save_score.assert_called()
-
-
-def test_on_comboBoxAPI_currentIndexChanged(app, mock_config_manager, mock_image_database_manager, mocker):
-    widget = ImageTaggerWidget()
-
-    # 外部依存関係をモック化
-    widget.DirectoryPickerSave = mocker.Mock()
-    widget.ThumbnailSelector = mocker.Mock()
-    widget.dbSearchWidget = mocker.Mock()
-
-    # ウィジェットを初期化
-    widget.initialize(mock_config_manager, mock_image_database_manager)
-
-    # comboBoxAPIにアイテムを追加
-    widget.comboBoxAPI.addItems(["Provider A", "Provider B"])
-
-    # モデルリストを設定
-    mock_config_manager.vision_models = {
-        "model1": {"name": "Model One", "provider": "Provider A"},
-        "model2": {"name": "Model Two", "provider": "Provider B"},
-        "model3": {"name": "Model Three", "provider": "Provider A"},
-    }
-
-    # メソッドを呼び出し
-    widget.on_comboBoxAPI_currentIndexChanged(0)
-
-    # comboBoxModelに正しいモデルが追加されていることを確認
-    expected_models = ["Model One", "Model Three"]
-    actual_models = [widget.comboBoxModel.itemText(i) for i in range(widget.comboBoxModel.count())]
-    assert actual_models == expected_models
-
-```
-
-### tests\manual\test_autcrop_visual.py
-
-```
-import pytest
-import numpy as np
-from editor.image_processor import AutoCrop
-import matplotlib.pyplot as plt
-import cv2
-
-
-def display_images(original_img, cropped_img, title="Original and Cropped Images"):
-    """
-    元の画像とクロップ後の画像を並べて表示します。
-
-    Args:
-        original_img (PIL.Image.Image): 元の画像。
-        cropped_img (PIL.Image.Image): クロップ後の画像。
-        title (str): グラフ全体のタイトル。
-    """
-    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-
-    # 元の画像を表示
-    axes[0].imshow(original_img)
-    axes[0].set_title("Original Image")
-    axes[0].axis("off")
-
-    # クロップ後の画像を表示
-    axes[1].imshow(cropped_img)
-    axes[1].set_title("Cropped Image")
-    axes[1].axis("off")
-
-    # 全体のタイトルを設定
-    plt.suptitle(title)
-    plt.show()
-
-
-def test_image_cropping(crop_test_images):
-    """
-    テスト用画像のすべてのパターンをイテレートし、クロップ前後の画像を表示して比較する。
-    """
-    for pattern, original_img in crop_test_images.items():
-        # クロップ処理を行う
-        cropped_img = AutoCrop.auto_crop_image(original_img)
-
-        # クロップ前後の画像を表示して比較
-        display_images(original_img, cropped_img, title=f"{pattern.capitalize()} Cropping Test")
-
-
-import cv2
-
-
-def debug_get_crop_area(np_image: np.ndarray):
-    """
-    各ステップでの画像を収集し、後でまとめて表示する。
-    :param np_image: OpenCV形式の画像
-    :return: クロップ領域と各ステップの画像のリスト
-    """
-    images = {}
-    try:
-        # ステップ 1: 元画像
-        images["Original Image"] = np_image
-
-        # ステップ 2: グレースケール変換
-        gray_image = cv2.cvtColor(np_image, cv2.COLOR_BGR2GRAY)
-        images["Gray Image"] = gray_image
-
-        # ステップ 3: 補色背景の生成
-        complementary_color = [255 - np.mean(np_image[..., i]) for i in range(3)]
-        background = np.full(np_image.shape, complementary_color, dtype=np.uint8)
-        images["Complementary Background"] = background
-
-        # ステップ 4: 差分計算
-        diff = cv2.absdiff(np_image, background)
-        images["Difference Image"] = diff
-
-        # ステップ 5: 差分をグレースケール化
-        gray_diff = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
-        images["Gray Difference"] = gray_diff
-
-        # ステップ 6: ブラー処理 (カーネルサイズを調整)
-        blurred_diff = cv2.GaussianBlur(gray_diff, (5, 5), 0)
-        images["Blurred Difference"] = blurred_diff
-
-        # ステップ 7: 適応的しきい値処理
-        thresh = cv2.adaptiveThreshold(
-            blurred_diff,  # グレースケール化された差分画像を使う
-            255,  # 最大値（白）
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,  # 適応的しきい値の種類（ガウス法）
-            cv2.THRESH_BINARY,  # 2値化（白か黒）
-            11,  # ピクセル近傍のサイズ (奇数で指定)
-            2,  # 平均値または加重平均から減算する定数
-        )
-        images["Threshold Image"] = thresh  # 適応的しきい値画像を保存
-
-        # ステップ 8: エッジ検出
-        edges = cv2.Canny(thresh, threshold1=30, threshold2=100)
-        images["Edge Detection"] = edges
-
-        # ステップ 9: 輪郭検出
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        contour_image = np_image.copy()
-        cv2.drawContours(contour_image, contours, -1, (0, 255, 0), 2)
-        images["Detected Contours"] = contour_image
-
-        if contours:
-            # 輪郭が見つかった場合
-            x_min, y_min, x_max, y_max = np_image.shape[1], np_image.shape[0], 0, 0
-            for contour in contours:
-                x, y, w, h = cv2.boundingRect(contour)
-                x_min, y_min = min(x_min, x), min(y_min, y)
-                x_max, y_max = max(x_max, x + w), max(y_max, y + h)
-
-            # マスクを作成し、内側領域のみを残す
-            mask = np.zeros(np_image.shape[:2], dtype=np.uint8)
-            for contour in contours:
-                cv2.drawContours(mask, [contour], -1, 255, thickness=cv2.FILLED)
-
-            # 内側の領域を取り出す
-            masked_image = cv2.bitwise_and(np_image, np_image, mask=mask)
-            images["Masked Image"] = masked_image
-
-            # クロップ領域を計算
-            y_coords, x_coords = np.where(mask == 255)
-            if len(x_coords) > 0 and len(y_coords) > 0:
-                x, y = np.min(x_coords), np.min(y_coords)
-                w, h = np.max(x_coords) - x + 1, np.max(y_coords) - y + 1
-
-                extra_crop_margin = 5
-                # クロップ領域に余分なピクセルを削る
-                x_min = max(0, x + extra_crop_margin)
-                y_min = max(0, y + extra_crop_margin)
-                x_max = min(np_image.shape[1], x + w - extra_crop_margin)
-                y_max = min(np_image.shape[0], y + h - extra_crop_margin)
-
-                # クロップ領域を可視化
-                crop_visualization = np_image.copy()
-                cv2.rectangle(crop_visualization, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-                images["Crop Area"] = crop_visualization
-
-                # 領域でクロップ
-                cropped_image = np_image[y_min:y_max, x_min:x_max]
-                images["Cropped Image"] = cropped_image
-
-                return (x_min, y_min, x_max - x_min, y_max - y_min), images
-            else:
-                print("No valid crop region found.")
-        else:
-            print("No contours found")
-
-        # 輪郭が見つからない場合や適切な輪郭がない場合は元の画像を返す
-        images["Cropped Image"] = np_image
-        return None, images
-
-    except Exception as e:
-        print(f"Error during cropping: {e}")
-        return None, images
-
-
-# テスト関数
-def test_debug_get_crop_area(crop_test_images):
-    """
-    各画像に対してクロップ処理を実行し、結果を一つのウィンドウに表示する。
-    """
-    images_dict = crop_test_images
-    for image_name, image in images_dict.items():
-        np_image = np.array(image)
-        crop_area, images = debug_get_crop_area(np_image)
-
-        # 画像を一つのウィンドウに表示
-        num_steps = len(images)
-        cols = 5  # 列数
-        rows = (num_steps + cols - 1) // cols  # 行数計算
-        plt.figure(figsize=(15, 5 * rows))
-        for i, (title, img) in enumerate(images.items()):
-            plt.subplot(rows, cols, i + 1)
-            if len(img.shape) == 2:
-                plt.imshow(img, cmap="gray")
-            else:
-                img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                plt.imshow(img_rgb)
-            plt.title(title)
-            plt.axis("off")
-        plt.suptitle(f"Processing Steps for {image_name}", fontsize=16)
-        plt.tight_layout()
-        plt.show()
-
-        if crop_area:
-            print(f"{image_name}: Crop Area - {crop_area}")
-        else:
-            print(f"{image_name}: No crop area detected.")
-
-
-if __name__ == "__main__":
-    pytest.main(["-v", __file__])
-
-```
-
-### tests\unit\test_autcrop.py
-
-```
-import pytest
-import numpy as np
-from PIL import Image, ImageDraw, ImageOps
-from pathlib import Path
-
-from editor.image_processor import AutoCrop
-
-
-@pytest.fixture(scope="module")
-def crop_test_images():
-    """
-    テスト用の画像を作成するフィクスチャ。
-    各画像は仕様に基づいた枠パターンを持つ。
-    """
-    images = {}
-    size = (256, 256)  # 基本のサイズ
-
-    # 1. 枠のない画像
-    no_borders_img = Image.new("RGB", size, (255, 0, 0))  # 赤色の単色画像
-    images["no_borders"] = no_borders_img
-
-    # 2. レターボックス画像（上下に黒い帯）
-    letterbox_img = no_borders_img.copy()
-    draw = ImageDraw.Draw(letterbox_img)
-    border_thickness = 20
-    draw.rectangle([0, 0, size[0], border_thickness], fill=(0, 0, 0))  # 上部
-    draw.rectangle([0, size[1] - border_thickness, size[0], size[1]], fill=(0, 0, 0))  # 下部
-    images["letterbox"] = letterbox_img
-
-    # 3. ピラーボックス画像（左右に黒い帯）
-    pillarbox_img = no_borders_img.copy()
-    draw = ImageDraw.Draw(pillarbox_img)
-    draw.rectangle([0, 0, border_thickness, size[1]], fill=(0, 0, 0))  # 左側
-    draw.rectangle([size[0] - border_thickness, 0, size[0], size[1]], fill=(0, 0, 0))  # 右側
-    images["pillarbox"] = pillarbox_img
-
-    # 4. 両方の枠（四方に黒い帯）
-    four_sides_img = no_borders_img.copy()
-    draw = ImageDraw.Draw(four_sides_img)
-    draw.rectangle([0, 0, size[0], border_thickness], fill=(0, 0, 0))  # 上部
-    draw.rectangle([0, size[1] - border_thickness, size[0], size[1]], fill=(0, 0, 0))  # 下部
-    draw.rectangle([0, 0, border_thickness, size[1]], fill=(0, 0, 0))  # 左側
-    draw.rectangle([size[0] - border_thickness, 0, size[0], size[1]], fill=(0, 0, 0))  # 右側
-    images["four_sides"] = four_sides_img
-
-    # 5. グラデーションの枠付き画像
-    gradient_img = Image.new("RGB", size, (255, 255, 255))
-    draw = ImageDraw.Draw(gradient_img)
-    for i in range(border_thickness, size[1] - border_thickness):
-        gradient_color = int(255 * (i - border_thickness) / (size[1] - 2 * border_thickness))
-        draw.line(
-            [(border_thickness, i), (size[0] - border_thickness, i)],
-            fill=(gradient_color, gradient_color, gradient_color),
-        )
-    draw.rectangle([0, 0, size[0], border_thickness], fill=(0, 0, 0))  # 上部
-    draw.rectangle([0, size[1] - border_thickness, size[0], size[1]], fill=(0, 0, 0))  # 下部
-    draw.rectangle([0, 0, border_thickness, size[1]], fill=(0, 0, 0))  # 左側
-    draw.rectangle([size[0] - border_thickness, 0, size[0], size[1]], fill=(0, 0, 0))  # 右側
-    images["gradient_with_borders"] = gradient_img
-
-    # 6. グラデーションのみの画像
-    pure_gradient_img = Image.new("RGB", size, (0, 0, 0))
-    draw = ImageDraw.Draw(pure_gradient_img)
-    for i in range(size[1]):
-        gradient_color = int(255 * i / size[1])
-        draw.line([(0, i), (size[0], i)], fill=(gradient_color, gradient_color, gradient_color))
-    images["gradient_only"] = pure_gradient_img
-
-    # 7. アルファチャンネル付きの画像（透明な枠付き）
-    rgba_img = Image.new("RGBA", size, (255, 0, 0, 255))  # 赤色の画像
-    draw = ImageDraw.Draw(rgba_img)
-    draw.rectangle([0, 0, size[0], border_thickness], fill=(0, 0, 0, 0))  # 上部の透明な枠
-    draw.rectangle([0, size[1] - border_thickness, size[0], size[1]], fill=(0, 0, 0, 0))  # 下部の透明な枠
-    images["alpha_with_borders"] = rgba_img
-
-    # 8. グレースケール画像
-    grayscale_img = Image.new("L", size, 255)  # 白色のグレースケール画像
-    draw = ImageDraw.Draw(grayscale_img)
-    draw.rectangle([0, 0, size[0], border_thickness], fill=0)  # 上部の黒い枠
-    draw.rectangle([0, size[1] - border_thickness, size[0], size[1]], fill=0)  # 下部の黒い枠
-    images["grayscale_with_borders"] = grayscale_img
-
-    # 9. 非標準のアスペクト比画像
-    non_standard_aspect_img = Image.new("RGB", (128, 256), (255, 255, 0))  # 黄色の画像
-    draw = ImageDraw.Draw(non_standard_aspect_img)
-    draw.rectangle([0, 0, 128, border_thickness], fill=(0, 0, 0))  # 上部
-    draw.rectangle([0, 256 - border_thickness, 128, 256], fill=(0, 0, 0))  # 下部
-    images["non_standard_aspect"] = non_standard_aspect_img
-
-    # 10. 小さい画像
-    small_img = Image.new("RGB", (32, 32), (255, 0, 0))  # 小さい赤色の画像
-    images["small"] = small_img
-
-    ##11. testimg内部の画像にレターボックスを追加
-    IMAGE_DIR = Path(r"testimg\1_img")
-    for img_path in IMAGE_DIR.glob("*.*"):
-        if img_path.suffix.lower() not in [".jpg", ".jpeg", ".png", ".webp"]:
-            continue
-        img = Image.open(img_path).convert("RGB")
-        # 画像の高さに基づいて20%のレターボックスを計算
-        width, height = img.size
-        border_height = int(height * 0.2)  # 上下に20%ずつ
-        # 上下に黒い帯を追加（レターボックス）
-        bordered_img = ImageOps.expand(img, (0, border_height), fill=(0, 0, 0))
-        # 画像のファイル名をキーとして辞書に追加
-        images[img_path.stem + "_letterbox"] = bordered_img
-
-    # 12. testimg内部の画像
-    IMAGE_DIR01 = Path(r"tests\resources\img\1_img\file10.webp")
-    for img_path in IMAGE_DIR01.glob("*.*"):
-        if img_path.suffix.lower() not in [".jpg", ".jpeg", ".png", ".webp"]:
-            continue
-        img = Image.open(img_path).convert("RGB")
-        images[img_path.stem] = img
-
-    return images
-
-
-@pytest.fixture(scope="module")
-def autocrop_instance():
-    """
-    AutoCropクラスのインスタンスを返すフィクスチャ。
-    """
-    return AutoCrop()
-
-
-def test_detect_border_shape(crop_test_images):
-    """
-    _detect_border_shapeメソッドのテスト。枠が検出されるか確認する。
-    """
-    # レターボックスのある画像
-    letterbox_img = crop_test_images["letterbox"]
-    letterbox_np = np.array(letterbox_img)
-    # 検出結果を取得
-    detected_borders = AutoCrop._detect_border_shape(letterbox_np)
-    # クラスメソッドから直接呼び出し
-    assert set(detected_borders) == {"TOP", "BOTTOM"}, "レターボックスが検出されませんでした。"
-
-    # 枠のない画像
-    no_borders_img = crop_test_images["no_borders"]
-    no_borders_np = np.array(no_borders_img)
-    detected_borders = AutoCrop._detect_border_shape(no_borders_np)
-    # クラスメソッドから直接呼び出し
-    assert detected_borders == [], "枠がないのに検出されました。"
-
-
-def test_get_crop_area(crop_test_images):
-    """
-    _get_crop_areaメソッドのテスト。クロップ領域が正しく計算されるか確認する。
-    """
-    # インスタンスの生成
-    autocrop_instance = AutoCrop()
-
-    # レターボックスのある画像
-    letterbox_img = crop_test_images["letterbox"]
-    letterbox_np = np.array(letterbox_img)
-
-    # インスタンスメソッドから呼び出し
-    crop_area = autocrop_instance._get_crop_area(letterbox_np)
-    assert crop_area is not None, "クロップ領域が取得できませんでした。"
-    x, y, w, h = crop_area
-    # 上下の枠をクロップするので、高さが変わっているはず
-    assert h < letterbox_np.shape[0], "高さが変更されていません。"
-
-
-def test_auto_crop_image(crop_test_images):
-    """
-    _auto_crop_imageメソッドのテスト。画像が正しくクロップされるか確認する。
-    """
-    # インスタンスメソッドなのでインスタンス生成が必要
-    autocrop_instance = AutoCrop()
-
-    # レターボックスのある画像
-    letterbox_img = crop_test_images["letterbox"]
-
-    # 自動クロップを実行
-    cropped_img = autocrop_instance._auto_crop_image(letterbox_img)
-
-    # クロップ後のサイズが変わっているか確認
-    assert cropped_img.size[1] < letterbox_img.size[1], "画像の高さが変更されていません。"
-
-```
-
-### tests\unit\test_caption_tags.py
-
-```
-from pathlib import Path
-from unittest.mock import MagicMock
-
-import pytest
-
-from annotations.api_utils import APIClientFactory, APIError
-from annotations.caption_tags import ImageAnalyzer
-
-
-@pytest.fixture
-def mock_api_client():
-    """
-    モックされたAPIクライアントを提供するフィクスチャ。
-    """
-    mock_client = MagicMock()
-    # generate_caption メソッドが呼ばれたときに、モックのレスポンスを返す
-    mock_client.generate_caption.return_value = "tags: tag1, tag2, tag3\ncaption: A sample caption\nscore: 0.85"
-    return mock_client
-
-
-@pytest.fixture
-def mock_api_client_factory(mock_api_client):
-    """
-    モックされたAPIClientFactoryを提供するフィクスチャ。
-    """
-    factory = MagicMock(spec=APIClientFactory)
-    # get_api_client メソッドが呼ばれたときに、モックのAPIクライアントを返す
-    factory.get_api_client.return_value = (mock_api_client, None)
-    return factory
-
-
-@pytest.fixture
-def mock_models_config(mock_config_manager):
-    """
-    モックされたモデル設定を提供するフィクスチャ。
-    """
-    cm = mock_config_manager
-    return cm.vision_models, cm.score_models
-
-
-def test_analyze_image(sample_images, mock_api_client_factory, mock_models_config):
-    """
-    ImageAnalyzer.analyze_image の正常系のテスト。
-    """
-    image_path = sample_images["rgb"]
-
-    # ImageAnalyzer のインスタンスを作成し、初期化
-    analyzer = ImageAnalyzer()
-    analyzer.initialize(mock_api_client_factory, mock_models_config)
-
-    # analyze_image メソッドを呼び出し
-    result = analyzer.analyze_image(image_path, model_id=1)
-
-    # 期待される結果 sample_images
-    expected_tags = [{"tag": "tag1", "model_id": 1}, {"tag": "tag2", "model_id": 1}, {"tag": "tag3", "model_id": 1}]
-    expected_captions = [{"caption": "a sample caption", "model_id": 1}]
-    expected_score = {"score": 0.85, "model_id": 1}
-
-    # 結果の検証
-    assert result["tags"] == expected_tags
-    assert result["captions"] == expected_captions
-    assert result["score"] == expected_score
-    assert result["image_path"] == str(image_path)
-
-    # モックされたAPIクライアントのメソッドが正しく呼び出されたか確認
-    mock_api_client = mock_api_client_factory.get_api_client.return_value[0]
-    mock_api_client.set_image_data.assert_called_with(image_path)
-    mock_api_client.generate_caption.assert_called_with(image_path, "gpt-4o")
-
-
-def test_analyze_image_with_exception(sample_images, mock_api_client_factory, mock_models_config):
-    """
-    APIクライアントが例外を投げた場合の ImageAnalyzer.analyze_image のテスト。
-    """
-    image_path = sample_images["rgb"]
-
-    # generate_caption が APIError を投げるように設定
-    mock_api_client = mock_api_client_factory.get_api_client.return_value[0]
-    mock_api_client.generate_caption.side_effect = APIError("API error occurred")
-
-    analyzer = ImageAnalyzer()
-    analyzer.initialize(mock_api_client_factory, mock_models_config)
-
-    result = analyzer.analyze_image(image_path, model_id=1)
-
-    # エラーメッセージの検証
-    assert "error" in result
-    assert result["error"] == "API Error: API error occurred"
-    assert result["image_path"] == str(image_path)
-
-
-def test_get_existing_annotations(tmp_path):
-    """
-    ImageAnalyzer.get_existing_annotations のテスト。
-    """
-    # テスト用の画像ファイルを作成
-    image_path = tmp_path / "test_image.jpg"
-    image_path.touch()  # 空のファイルを作成
-
-    # タグとキャプションのファイルを作成
-    tag_file = image_path.with_suffix(".txt")
-    caption_file = image_path.with_suffix(".caption")
-
-    with open(tag_file, "w", encoding="utf-8") as f:
-        f.write("tag1, tag2, tag3")
-
-    with open(caption_file, "w", encoding="utf-8") as f:
-        f.write("A sample caption, another_caption")
-
-    # アノテーションを取得
-    annotations = ImageAnalyzer.get_existing_annotations(image_path)
-
-    # 期待されるアノテーション
-    expected_annotations = {
-        "tags": [
-            {"tag": "tag1", "model_id": None},
-            {"tag": " tag2", "model_id": None},
-            {"tag": " tag3", "model_id": None},
-        ],
-        "captions": [
-            {"caption": "a sample caption", "model_id": None},
-            {"caption": " another caption", "model_id": None},
-        ],
-        "score": {"score": 0, "model_id": None},
-        "model_id": None,
-        "image_path": str(image_path),
-    }
-
-    # アノテーションの検証
-    assert annotations == expected_annotations
-    # test_imageのtextファイルを削除
-    tag_file.unlink()
-    caption_file.unlink()
-
-
-def test_get_existing_annotations_no_files(tmp_path):
-    """
-    タグとキャプションファイルが存在しない場合の ImageAnalyzer.get_existing_annotations のテスト。
-    """
-    image_path = tmp_path / "test_image.jpg"
-    image_path.touch()
-
-    annotations = ImageAnalyzer.get_existing_annotations(image_path)
-
-    # アノテーションが存在しないことを確認
-    assert annotations is None
-
-```
-
-### tests\unit\test_Image_Editor.py
-
-```
-# TEST/test_Image_Editor.py
-
-import pytest
-from pathlib import Path
-from PIL import Image, ImageDraw
-from editor.image_processor import ImageProcessingManager, ImageProcessor, AutoCrop, Upscaler
-from unittest.mock import MagicMock
+def test_clean_caption_strip_commas():
+    caption = "young anime girl,,"
+    expected = "anime girl"
+    assert TagCleaner.clean_caption(caption) == expected
 
 
 @pytest.mark.parametrize(
-    "image_type, has_alpha, mode",
-    [("rgb", False, "RGB"), ("rgba", True, "RGBA"), ("cmyk", False, "CMYK"), ("p", False, "P")],
+    "caption,expected",
+    [
+        ("a cartoon image of a girl", "a image of a girl"),
+        ("an anime cartoon drawing", "an drawing"),
+        ("girl girl", "girl"),
+    ],
 )
-def test_normalize_color_profile(
-    mock_file_system_manager, sample_images, preferred_resolutions, image_type, has_alpha, mode
-):
-    processor = ImageProcessor(
-        mock_file_system_manager, target_resolution=1024, preferred_resolutions=preferred_resolutions
-    )
-    image = Image.open(sample_images[image_type])
-    normalized = processor.normalize_color_profile(image, has_alpha=has_alpha, mode=mode)
-    assert normalized.mode == "RGB" if mode != "RGBA" else "RGBA"
-
-
-def test_resize_image_with_matching_resolution(mock_file_system_manager, sample_images, preferred_resolutions):
-    processor = ImageProcessor(
-        mock_file_system_manager, target_resolution=512, preferred_resolutions=preferred_resolutions
-    )
-    img = Image.open(sample_images["rgb512"])
-    resized = processor.resize_image(img)
-    assert resized.size == (512, 512)
-
-
-def test_resize_image_without_matching_resolution(mock_file_system_manager, sample_images, preferred_resolutions):
-    processor = ImageProcessor(
-        mock_file_system_manager, target_resolution=512, preferred_resolutions=preferred_resolutions
-    )
-    img = Image.open(sample_images["rgb"])
-    resized = processor.resize_image(img)
-    # 目標解像度に基づきアスペクト比を維持してリサイズ
-    expected_size = (512, 384)  # 800x600 のアスペクト比を維持しつつ、500に近いサイズに調整（32の倍数）
-    assert resized.size == expected_size
-
-
-def test_auto_crop_image_with_letterbox(sample_images, preferred_resolutions):
-    # レターボックスがある画像を作成
-    # TODO: このテストは通らない
-    img = Image.new("RGB", (800, 600), color="black")
-    draw = ImageDraw.Draw(img)  # ImageDraw を使用
-    draw.rectangle([100, 100, 700, 500], fill="white")
-    cropped = AutoCrop.auto_crop_image(img)
-    assert cropped.size == (600, 400)
-
-
-def test_auto_crop_image_without_letterbox(sample_images, preferred_resolutions):
-    # レターボックスがない画像
-    img = Image.new("RGB", (800, 600), color="white")
-    cropped = AutoCrop.auto_crop_image(img)
-    assert cropped.size == (800, 600)
-
-
-def test_process_image_rgb_no_alpha(mock_file_system_manager, sample_images, preferred_resolutions):
-    manager = ImageProcessingManager(
-        file_system_manager=mock_file_system_manager, target_resolution=512, preferred_resolutions=preferred_resolutions
-    )
-    # モックファイルシステムに画像を配置
-    original_path = sample_images["rgb"]
-    resized_path = mock_file_system_manager.resized_images_dir / "rgb_resized.jpg"
-
-    # モックの挙動を定義
-    mock_file_system_manager.original_images_dir = Path(original_path).parent
-    mock_file_system_manager.resized_images_dir = Path(resized_path).parent
-
-    resized_image = manager.process_image(
-        db_stored_original_path=original_path, original_has_alpha=False, original_mode="RGB", upscaler=None
-    )
-
-    assert resized_image is not None
-    assert resized_image.size == (512, 384)
-
-
-def test_process_image_rgba_with_alpha(mock_file_system_manager, sample_images, preferred_resolutions):
-    manager = ImageProcessingManager(
-        file_system_manager=mock_file_system_manager, target_resolution=512, preferred_resolutions=preferred_resolutions
-    )
-    original_path = sample_images["rgba"]
-
-    resized_image = manager.process_image(
-        db_stored_original_path=original_path, original_has_alpha=True, original_mode="RGBA", upscaler=None
-    )
-
-    assert resized_image is not None
-    assert resized_image.mode == "RGBA"
-    # サイズはレターボックスの有無により異なる場合があります
-
-
-def test_upscale_image_with_model(sample_images):
-    # TODO: RealESRGAN_x4plus のみ対応から対応モデルを増やす
-    img = Image.open(sample_images["rgb512"])
-    upscaled = Upscaler.upscale_image(img, "RealESRGAN_x4plus")
-    assert upscaled.size == (2048, 2048)
+def test_clean_caption_various_replacements(caption, expected):
+    assert TagCleaner.clean_caption(caption) == expected
 
 ```
 
-### tests\unit\test_image_editor_02.py
+### tests\unit\test_import_lorairo.py
 
 ```
-from editor.image_processor import ImageProcessingManager, FileSystemManager
+import sys
+import os
 
-
-def test_image_processing_manager_init():
-    fsm = FileSystemManager()
-    target_resolution = 512
-    preferred_resolutions = [(512, 512), (768, 512)]
-
-    ipm = ImageProcessingManager(fsm, target_resolution, preferred_resolutions)
-    assert ipm.target_resolution == target_resolution
+print(sys.path)
+print(os.getcwd())
 
 ```
 

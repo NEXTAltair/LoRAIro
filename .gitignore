@@ -73,3 +73,5 @@ jsonl/
 TEST_backup/
 TEST/pytest_temp
 /cmyk_image.tiff
+coverage.xml
+*_project_summary.txt
