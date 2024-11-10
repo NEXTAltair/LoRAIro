@@ -5,3 +5,18 @@ __pycache__/
 .Python
 .ipynb_checkpoints/
 .DS_Store
+*/pytest_temp/*
+.coverage
+
+*_ui.py
+*.html
+*.rst
+
+# venv
+venv/
+lorairo/lrir/
+genai-tag-db-tools/gtdt
+
+# data sources
+genai-tag-db-tools/tags_csv/
+genai-tag-db-tools/hf_repo/
