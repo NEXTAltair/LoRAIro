@@ -6,7 +6,7 @@
         },
         {
             "path": "lorairo", // プロジェクトのルートディレクトリ
-            "name": "project_lorairo" // name はワークスペース名なのでルートフォルダと別の名前にしたいときだけ設定
+            "name": "project_lorairo" // プロジェクト名
         },
         {
             "path": "genai-tag-db-tools", // もう一つのプロジェクトのルートディレクトリ
@@ -14,112 +14,128 @@
         }
     ],
     "settings": {
-        "python.testing.pytestArgs": [
-            "--cov=.",
-            "--cov-report",
-            "html",
-            "--cov-config=.coveragerc",
-        ],
-        "python.testing.unittestEnabled": false,
-        "python.testing.pytestEnabled": true,
-        "python.testing.promptToConfigure": true,
-        "python.terminal.activateEnvironment": true,
+        // ターミナル設定
         "terminal.integrated.environmentChangesRelaunch": true,
         "terminal.integrated.shellIntegration.enabled": true,
-        "terminal.integrated.cwd": "${workspaceFolder}", // ターミナルのカレントディレクトリをワークスペースのルートに設定
-        "terminal.integrated.splitCwd": "inherited", // ターミナルの分割時にカレントディレクトリを引き継ぐ
-        "terminal.integrated.windowsEnableConpty": true, // WindowsターミナルでPTYを有効にする
-        "python.analysis.autoImportCompletions": true,
-        "python.analysis.typeCheckingMode": "basic",
-        "python.defaultInterpreterPath": "${workspaceFolder}/venv/Scripts/python.exe",
-
-
-        "python.analysis.extraPaths": [
-            "${workspaceFolder}/lorairo/src",
-            "${workspaceFolder}/genai-tag-db-tools/genai_tag_db_tools",
-        ],
-
-        "python.envFile": "${workspaceFolder}/.env",
-
-        "pylint.enabled": true,
-        "pylint.args": [
-            "--disable=W1203", // ロギングのとき `%s` 使えって怒られるので無効化
-            "--extension-pkg-allow-list=cv2, PySide6", // OpenCV PySide6 のエラーを無視 不具合？ 知らん
-            "--ignore-patterns=.*?_ui.py", // ファイル名が `_ui.py` で終わるファイルを無視
-        ],
-
-        "cSpell.userWords": [
-            "LoRAIro",
-            "PyQt6",
-            "PySide6",
-            "QML",
-            "QSS",
-        ],
-
-        "[python]": {
-            "editor.formatOnSave": true,
-            "editor.formatOnPaste": false,
-            "editor.defaultFormatter": "charliermarsh.ruff"
-        },
-        "editor.renderWhitespace": "boundary",
-        "editor.bracketPairColorization.enabled": true,
-        "editor.insertSpaces": true,
-        "editor.tabSize": 4,
-        "editor.wordWrap": "on",
-
-        "files.encoding": "utf8",
-        "files.trimTrailingWhitespace": true,
-        "files.insertFinalNewline": true,
-        "search.useIgnoreFiles": false,
-        "editor.detectIndentation": false,
-
-        "files.exclude": {
-            "**/__pycache__": true,
-            "**/.pytest_cache": true,
-            "**/*.pyc": true,
-            "htmlcov": false,
-        },
-
-        "qtForPython.designer.options": [
-            "${workspaceFolder}/venv/Scripts/pyside6-designer.exe"
-        ],
-
-        "autoDocstring.includeExtendedSummary": true,
-
-        "commentTranslate.multiLineMerge": true,
-        "commentTranslate.targetLanguage": "ja",
-        "commentTranslate.maxTranslationLength": 250, // 翻訳する最大文字数
-        "search-online.Google Translate Output Language": "Japanese/日语", // 右クリックで翻訳に送る拡張デフォルトは中国語なので👇️と同じく日本語に合わせる
-        "search-online.Google Translate": "https://translate.google.co.jp/?sl=%INPUT_LANGUAGE%&tl=%OUTPUT_LANGUAGE%&text=%SELECTION%&op=translate",
-
-        "git.autofetch": true, // リモートリポジトリを自動でフェッチ
-        "git.confirmSync": false, // プッシュ時に確認ダイアログを表示しない
-
-        "terminal.integrated.defaultProfile.windows": "PowerShell", // ターミナルのデフォルトシェルを PowerShell
+        "terminal.integrated.cwd": "${workspaceFolder}",
+        "terminal.integrated.splitCwd": "inherited",
+        "terminal.integrated.windowsEnableConpty": true,
+        "terminal.integrated.defaultProfile.windows": "PowerShell",
         "terminal.integrated.profiles.windows": {
             "PowerShell": {
                 "source": "PowerShell",
                 "icon": "terminal-powershell"
             }
         },
-        "JSON-zain.json.autorefresh": true,
-        "workbench.settings.useSplitJSON": true,
-        "vsicons.presets.jsonOfficial": true,
-        "commentTranslate.source": "Google",
-        "diffEditor.renderSideBySide": true,
-        "cSpell.words": [
+        "powershell.cwd": "LoRAIro",
+
+        // Python テスト設定
+        "python.testing.pytestArgs": [
+            "-s",
+            "-ra",
+            "-vv",
+            "-l",
+            "--cov=.",
+            "--cov-report",
+            "html",
+            "--cov-config=.coveragerc"
+        ],
+        "python.testing.unittestEnabled": false,
+        "python.testing.pytestEnabled": true,
+        "python.testing.promptToConfigure": true,
+        "python.terminal.activateEnvironment": true,
+
+        // Python 分析設定
+        "python.analysis.autoImportCompletions": true,
+        "python.analysis.typeCheckingMode": "basic",
+        "python.analysis.extraPaths": [
+            "${workspaceFolder}/lorairo/src",
+            "${workspaceFolder}/lorairo/lrir/gtdt/Lib/site-packages",
+            "${workspaceFolder}/genai-tag-db-tools/genai_tag_db_tools",
+            "${workspaceFolder}/genai-tag-db-tools/gtdt/Lib/site-packages"
+        ],
+        "python.defaultInterpreterPath": "${workspaceFolder}/venv/Scripts/python.exe",
+        "python.envFile": "${workspaceFolder}/.env",
+
+        // Pylint 設定
+        "pylint.enabled": true,
+        "pylint.args": [
+            "--disable=W1203", // ロギングの `%s` 警告を無効化
+            "--extension-pkg-allow-list=cv2, PySide6", // OpenCV、PySide6 のエラーを無視
+            "--ignore-patterns=.*?_ui.py" // `_ui.py` で終わるファイルを無視
+        ],
+
+        // スペルチェック設定
+        "cSpell.userWords": [
+            "LoRAIro",
+            "PyQt6",
+            "PySide6",
+            "QML",
+            "QSS",
+            "danbooru",
             "pytest",
             "shibokensupport"
         ],
-        "powershell.cwd": "LoRAIro",
-        "git.ignoreLimitWarning": true,
+
+        // Python エディター設定
+        "[python]": {
+            "editor.formatOnSave": true,
+            "editor.formatOnPaste": false,
+            "editor.defaultFormatter": "charliermarsh.ruff"
+        },
+
+        // Qt for Python 設定
+        "qtForPython.designer.options": [
+            "${workspaceFolder}/venv/Scripts/pyside6-designer.exe"
+        ],
+
+        // エディターの一般設定
+        "editor.renderWhitespace": "boundary",
+        "editor.bracketPairColorization.enabled": true,
+        "editor.insertSpaces": true,
+        "editor.tabSize": 4,
+        "editor.wordWrap": "on",
+        "editor.detectIndentation": false,
+
+        // ファイル設定
+        "files.encoding": "utf8",
+        "files.trimTrailingWhitespace": true,
+        "files.insertFinalNewline": true,
+        "files.exclude": {
+            "**/__pycache__": true,
+            "**/.pytest_cache": true,
+            "**/*.pyc": true,
+            "htmlcov": false
+        },
+
+        // 検索設定
+        "search.useIgnoreFiles": false,
+
+        // コメント翻訳設定
+        "commentTranslate.multiLineMerge": true,
+        "commentTranslate.targetLanguage": "ja",
+        "commentTranslate.maxTranslationLength": 250,
+        "commentTranslate.source": "Google",
+
+        // オンライン検索設定
+        "search-online.Google Translate Output Language": "Japanese/日语",
+        "search-online.Google Translate": "https://translate.google.co.jp/?sl=%INPUT_LANGUAGE%&tl=%OUTPUT_LANGUAGE%&text=%SELECTION%&op=translate",
         "search-online.search-engine": "perplexity",
+
+        // Git 設定
+        "git.autofetch": true,
+        "git.confirmSync": false,
+        "git.ignoreLimitWarning": true,
+
+        // その他の設定
+        "workbench.settings.useSplitJSON": true,
+        "vsicons.presets.jsonOfficial": true,
+        "diffEditor.renderSideBySide": true,
         "jupyter.allowUnauthorizedRemoteConnection": true,
+
     },
     "extensions": {
         "recommendations": [
-            // "ms-python.black-formatter", // black 拡張機能を無効化
-            // "ms-python.flake8", // flake8 拡張機能を無効化
             "ms-python.python",
             "ms-python.vscode-pylance",
             "njpwerner.autodocstring",
@@ -138,5 +154,5 @@
             "theqtcompany.qt-core",
             "theqtcompany.qt-qml"
         ]
-    },
+    }
 }
