@@ -4,11 +4,12 @@ omit = [
     "*/tests/*",
     "*/pyscript",
     "*/signature_bootstrap.py",
+    "*/__init__.py",
 ]
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
-    "if __name__ == .__main__.:",
+    "if __name__ == *__main__*:",
     "raise NotImplementedError",
     "pass",
 ]
