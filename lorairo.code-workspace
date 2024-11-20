@@ -35,6 +35,7 @@
             "-ra",
             "-vv",
             "-l",
+            "--log-cli-level=DEBUG",
             "--cov=.",
             "--cov-report",
             "html",
