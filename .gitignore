@@ -1,22 +1,86 @@
-venv/
+# Python 関連
 __pycache__/
 *.py[cod]
-*.egg-info/
+*$py.class
+*.so
 .Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 .ipynb_checkpoints/
-.DS_Store
-*/pytest_temp/*
-.coverage
+.python-version
 
-*_ui.py
+# 仮想環境
+venv/
+.venv/
+env/
+ENV/
+
+# 環境変数
+.env
+.env.*
+!.env.example
+
+# 依存関係管理
+uv.lock
+
+# テスト関連
+.pytest_cache/
+.coverage
+htmlcov/
+pytest_temp/
+.pytest_reports/
+
+# IDE・エディタ関連
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.vs/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Ruff キャッシュ
+.ruff_cache/
+
+# ドキュメント生成
+_build/
 *.html
 *.rst
 
-# venv
-venv/
-lorairo/lrir/
-genai-tag-db-tools/gtdt
+# Qt Designer/UI関連
+*_ui.py
+*.ui
+!resources/ui/*.ui  # UIデザインファイルは保持
 
-# data sources
-genai-tag-db-tools/tags_csv/
-genai-tag-db-tools/hf_repo/
+# プロジェクト固有
+# テスト用画像 (一部を除外)
+tests/resources/img/
+!tests/resources/img/1_img/
+
+# 画像データベース
+Image_database/
+output/
+
+# データソース
+local_packages/genai-tag-db-tools/tags_csv/
+local_packages/genai-tag-db-tools/hf_repo/
+genai-tag-db-tools/tags_csv/  # 古いパス (移行中は両方残す)
+genai-tag-db-tools/hf_repo/   # 古いパス (移行中は両方残す)
+
+# ログファイル
+*.log
+logs/
