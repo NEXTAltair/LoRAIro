@@ -1,0 +1,163 @@
+[project]
+name = "lorairo"
+version = "0.0.8"
+description = "AIタグ付LoRA画像データセット準備ツール"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "NEXTAltair" }]
+keywords = ["lora", "dataset", "ai", "image-processing"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: GPU :: NVIDIA CUDA",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Multimedia :: Graphics",
+    "Operating System :: Microsoft :: Windows",
+]
+
+# 依存パッケージ（バージョン固定）
+dependencies = [
+    # 画像処理系
+    "Pillow",        # 基本的な画像処理
+    "opencv-python", # オートクロップの枠検出
+    "numpy",         # 画像処理の数値計算
+    "ImageHash",     # DB重複チェック用
+
+    # AI系
+    "google-generativeai>=0.8.3", # Gemini API
+    "anthropic>=0.36.2",          # Claude API
+    "openai>=0.10.0",             # GPT API
+    "spandrel",                   #アップスケーラー用モデルローダー
+
+    # データ処理系
+    "toml>=0.10.2", # 設定ファイル処理
+
+    # PyQt系
+    "PySide6>=6.8.0.2", # GUIフレームワーク
+    "superqt>=0.6.7",   # 拡張Qt部品
+
+    # AI Model系
+    "pytorch-lightning==2.4.0", # PyTorch拡張
+    "joblib==1.4.2",            # 並列処理
+
+    # 自作ライブラリ (Git LFS 問題のためコメントアウト)
+    # "genai-tag-db-tools @ git+https://github.com/NEXTAltair/genai-tag-db-tools.git",
+    "image-annotator-lib @ git+https://github.com/NEXTAltair/image-annotator-lib.git", # 画像タグ付けライブラリ
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pylint",
+    "pytest",
+    "pytest-cov",
+    "pytest-qt",
+    "matplotlib",
+    # ローカルパス指定はビルドエラー回避のため削除 (個別インストールで対応)
+    # "genai-tag-db-tools @ file:local_packages/genai-tag-db-tools",
+    # "image-annotator-lib @ file:local_packages/image-annotator-lib",
+]
+
+prod = [
+    # 自作ライブラリ (Git LFS 問題のためコメントアウト)
+    # "genai-tag-db-tools @ git+https://github.com/NEXTAltair/genai-tag-db-tools.git",
+    "image-annotator-lib @ git+https://github.com/NEXTAltair/image-annotator-lib.git",
+]
+
+[project.scripts]
+lorairo = "lorairo.main:main"
+
+[project.urls]
+"Homepage" = "https://github.com/NEXTAltair/lorairo"
+"Bug Tracker" = "https://github.com/NEXTAltair/lorairo/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Ruffのフォーマット・リント設定を拡充
+[tool.ruff]
+exclude = [
+    "src/gui/designer/*",  # Qtデザイナが生成するコード
+    "*/__pycache__",
+    "*/tests/*",           # テストコードは別途設定
+    "*/site-packages/*",
+    "*.ipynb",             # Jupyter Notebookは除外
+]
+fix = true
+line-length = 250
+target-version = "py312"
+# 使用するルールセット
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "C",   # flake8-comprehensions
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "RUF", # Ruff-specific rules
+]
+ignore = [
+    "E501",   # Line too long (line-lengthで制御)
+    "F541",   # f-string in logging (同等のpylint警告W1203 - Ruffでは直接の対応がない)
+]
+
+# Ruff formatter設定
+[tool.ruff.format]
+quote-style = "double"    # 二重引用符使用
+indent-style = "space"    # スペースでインデント
+line-ending = "auto"      # 自動改行コード
+
+# hatchling ビルド設定
+[tool.hatch.build.targets.wheel]
+packages = ["src/lorairo"]      # パッケージディレクトリ指定
+include-package-data = true     # package_dataを含める
+
+# hatchling SDISTビルド設定
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",            # ソースコード
+    "/tests",          # テストコード
+    "pyproject.toml",  # 設定ファイル
+    "README.md",       # ドキュメント
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"] # テストするコードのディレクトリ
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = ["-v", "-s", "-ra", "--tb=short", "--showlocals"]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "gui: GUI tests",
+    "slow: Tests that take more time",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/shibokensupport/*",
+    "*/site-packages/*",
+    "*/tests/*",
+    "*/pyscript",
+    "*/signature_bootstrap.py"
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == '__main__':",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
