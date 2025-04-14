@@ -1,6 +1,3 @@
-[submodule "libs/genai-tag-db-tools"]
-	path = libs/genai-tag-db-tools
-	url = https://github.com/NEXTAltair/genai-tag-db-tools.git
 [submodule "local_packages/genai-tag-db-tools"]
 	path = local_packages/genai-tag-db-tools
 	url = https://github.com/NEXTAltair/genai-tag-db-tools.git
