@@ -1,12 +1,12 @@
 ---
 description: 
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
 ---
 description:
 globs: "*.py", "*.feature", "*.md", "*.mdc", "*.toml"
-version: "3.0.0"
+version: "3.1.0"
 ---
 
 # プロジェクト・ドキュメンテーションルール (AI 向け指示)
@@ -19,8 +19,8 @@ version: "3.0.0"
 
 - **目的:** 画像評価、タグ付け、関連処理を行う統合ライブラリとして機能させること。
 - **管理:** `pyproject.toml` で管理し、`uv pip install -e .[dev]` でインストール可能とすること。
-- **参照:** コーディング時は `docs` ディレクトリのドキュメントを参照すること。
-- **更新:** 処理システムの変更時は関連ドキュメントを更新し､`docs` と `memory-bank` にその詳細を残すこと
+- **参照:** コーディング時は  `docs` `memory-bank` ディレクトリ `.roo*` ファイルのドキュメントを参照すること。
+- **更新:** 処理システムの変更時は関連ドキュメントを更新し､ `docs` `memory-bank` ディレクトリ `.roo*` ファイル にその詳細を残すこと
 
 ## ドキュメンテーション
 
