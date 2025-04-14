@@ -1,0 +1,20 @@
+# Active Context
+
+This file tracks the project's current status, including recent changes, current goals, and open questions.
+2025-04-14 02:59:43 - Log of updates made.
+
+* [2025-04-14 03:20:13] - CLIからmainは呼び出せるがApplicationが動かない（プロジェクトファイル構成変更の影響）
+* [2025-04-14 03:20:13] - テストコードが存在しない（再設計に伴い古いテストは削除済み）
+
+## Current Focus
+
+* [2025-04-14 12:05:10] - AIアノテーション機能の `image-annotator-lib` への委譲に伴うリファクタリング計画とインターフェース仕様策定
+
+## Recent Changes
+
+* [2025-04-14 12:05:10] - AIアノテーション機能を `image-annotator-lib` へ委譲することを決定 (decisionLog.md 参照)
+* [2025-04-14 03:24:20] - Memory Bank コアファイルの作成、productContext.md, activeContext.md, progress.md, decisionLog.md, systemPatterns.md への初期情報入力完了
+
+## Open Questions/Issues
+
+*
