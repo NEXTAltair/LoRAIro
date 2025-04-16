@@ -3,6 +3,7 @@ import shutil
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -13,10 +14,7 @@ from sqlalchemy.orm import sessionmaker
 
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.db_repository import ImageRepository
-from lorairo.database.schema import Base, Model
-
-# 古い実装をインポートしないようにコメントアウトまたは削除
-# from lorairo.database.database import ImageDatabaseManager as OldImageDatabaseManager, SQLiteManager
+from lorairo.database.schema import AnnotationsDict, Base, ImageDict, Model, ModelType, ProcessedImageDict
 from lorairo.storage.file_system import FileSystemManager
 
 # --- General Test Setup Fixtures ---
@@ -83,30 +81,92 @@ def test_engine_with_schema(test_db_url: str):
         Base.metadata.create_all(engine)
         print(f"[test_engine_with_schema] Tables created.")
 
-        # --- 初期 Model データの挿入 ---
-        print(f"[test_engine_with_schema] Inserting initial model data...")
-        # テストに必要なモデルデータを定義
-        initial_models = [
-            {"name": "wd-vit-large-tagger-v3", "type": "tagger", "provider": "SmilingWolf"},
-            {"name": "GPT-4o", "type": "multimodal", "provider": "OpenAI"},  # tests/step_defsで使用
-            {"name": "cafe_aesthetic", "type": "score", "provider": "cafe"},  # tests/step_defsで使用
-            {
-                "name": "classification_ViT-L-14_openai",
-                "type": "rating",
-                "provider": "openai",
-            },  # tests/step_defsで使用
-            # 必要に応じて他のデフォルトモデルを追加
-        ]
-        # セッションを作成してデータを挿入
+        # --- 初期 ModelType および Model データの挿入 ---
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
         with SessionLocal() as session:
-            for model_data in initial_models:
-                # 既に存在するか確認 (In-memory DBでは不要だが念のため)
+            # --- ModelType の初期データ挿入 ---
+            print(f"[test_engine_with_schema] Inserting initial model types...")
+            # schema.py やマイグレーションスクリプトで定義されているタイプ名を列挙
+            initial_model_types = [
+                "tagger",
+                "multimodal",
+                "score",
+                "rating",
+                "captioner",
+                "upscaler",
+                "llm",
+            ]
+            type_map: dict[str, ModelType] = {}
+            for type_name in initial_model_types:
+                exists = session.query(ModelType).filter_by(name=type_name).first()
+                if not exists:
+                    model_type = ModelType(name=type_name)
+                    session.add(model_type)
+                    print(f"  Added model type: {type_name}")
+                    type_map[type_name] = model_type  # Map the name to the object
+                else:
+                    type_map[type_name] = exists  # If already exists (e.g., due to previous run), map it
+            session.commit()  # Commit types first
+            print("[test_engine_with_schema] Initial model types inserted/verified.")
+
+            # --- 初期 Model データの挿入 ---
+            print(f"[test_engine_with_schema] Inserting initial model data...")
+            # 関連付けるタイプ名をリストで持つように変更
+            initial_models_data: list[dict[str, Any]] = [
+                {"name": "wd-vit-large-tagger-v3", "provider": "SmilingWolf", "type_names": ["tagger"]},
+                # 修正: 'multimodal' は llm も兼ねるケースが多いので llm も追加、または要件に応じて調整
+                {
+                    "name": "GPT-4o",
+                    "provider": "OpenAI",
+                    "type_names": ["multimodal", "llm", "captioner"],
+                },  # 複数のタイプを持つ例
+                {"name": "cafe_aesthetic", "provider": "cafe", "type_names": ["score"]},
+                {"name": "classification_ViT-L-14_openai", "provider": "openai", "type_names": ["rating"]},
+                # 他のテストで必要になる可能性のあるモデルタイプも追加
+                {"name": "RealESRGAN_x4plus", "provider": "esrgan", "type_names": ["upscaler"]},
+                {"name": "wd-swinv2-tagger-v3", "provider": "SmilingWolf", "type_names": ["tagger"]},
+                # 必要に応じて他のデフォルトモデルを追加
+            ]
+
+            for model_data in initial_models_data:
+                # 既に存在するか確認
                 exists = session.query(Model).filter_by(name=model_data["name"]).first()
                 if not exists:
-                    model = Model(**model_data)
+                    # type_namesリストを除いた辞書を作成してModelオブジェクトを初期化
+                    model_kwargs = {k: v for k, v in model_data.items() if k != "type_names"}
+                    # discontinued_at が指定されていなければ None を設定 (Nullableなので)
+                    if "discontinued_at" not in model_kwargs:
+                        model_kwargs["discontinued_at"] = None
+                    model = Model(**model_kwargs)
+
+                    # ModelTypeオブジェクトを取得してリレーションに追加
+                    type_names_to_link = model_data.get("type_names", [])
+                    linked_types_str = []  # For logging
+                    for type_name in type_names_to_link:
+                        model_type_obj = type_map.get(type_name)
+                        if model_type_obj:
+                            # type_map から取得したオブジェクトを使用
+                            model.model_types.append(model_type_obj)
+                            # --- flush() を追加 ---
+                            try:
+                                session.flush()  # 中間テーブルへの変更をDBに送信
+                                print(f"    Flushed association for {model.name} <-> {model_type_obj.name}")
+                            except Exception as flush_err:
+                                print(
+                                    f"    Error flushing association for {model.name} <-> {model_type_obj.name}: {flush_err}"
+                                )
+                            # --------------------
+                            linked_types_str.append(type_name)
+                        else:
+                            # ログ出力など(通常は type_map に存在するはず)
+                            print(
+                                f"Warning: ModelType '{type_name}' not found in type_map for model '{model.name}' during test setup."
+                            )
+
                     session.add(model)
-                    print(f"  Added model: {model_data['name']}")
+                    print(f"  Added model: {model_data['name']} with types: {linked_types_str}")
+                else:
+                    print(f"  Model already exists: {model_data['name']}")  # 既存の場合のログ
             session.commit()
             print(f"[test_engine_with_schema] Initial model data inserted.")
 
@@ -121,7 +181,7 @@ def test_engine_with_schema(test_db_url: str):
             with SessionLocal() as session:
                 model_count = session.query(Model).count()
                 print(f"[test_engine_with_schema] Found {model_count} models in DB.")
-                assert model_count >= len(initial_models), "Initial model data not inserted correctly!"
+                assert model_count >= len(initial_models_data), "Initial model data not inserted correctly!"
         print("[test_engine_with_schema] Schema created and initial data verified successfully.")
 
     except Exception as e:
@@ -182,6 +242,8 @@ def test_image_dir():
 def test_image_path(test_image_dir):
     """テスト用画像のパスを返すフィクスチャ"""
     image_path = test_image_dir / "file01.webp"
+    # NOTE: テスト実行環境によっては絶対パスでないと画像が見つからない場合があるため resolve() を追加検討
+    # image_path = (test_image_dir / "file01.webp").resolve()
     if not image_path.exists():
         pytest.skip(f"Test image not found: {image_path}")
     return image_path
@@ -221,6 +283,9 @@ def test_image_arrays(test_images):
     arrays = []
     for img in test_images:
         try:
+            # RGBAをRGBに変換する必要があるか確認 (例: test_image が RGBA の場合)
+            if img.mode == "RGBA":
+                img = img.convert("RGB")
             arrays.append(np.array(img))
         except Exception as e:
             pytest.fail(f"Failed to convert image to NumPy array: {e}")
@@ -228,82 +293,99 @@ def test_image_arrays(test_images):
 
 
 @pytest.fixture
-def sample_image_data(test_image_path):
-    """テスト用の画像メタデータを作成 (Requires adjustment based on actual needs)"""
-    # This data might be less relevant if register_original_image handles extraction
+def sample_image_data(test_image_path) -> ImageDict:
+    """テスト用の画像メタデータを作成 (キー名を schema.ImageDict に合わせる)"""
+    # schema.py の ImageDict 型に合わせてキー名を修正
+    # UUID, stored_image_path, phash は登録時に生成される想定
+    # width, height, format, mode, has_alpha なども登録時に抽出される想定
     return {
-        "uuid": "test-uuid-1234",  # UUID should be generated by the function
+        "uuid": "will-be-generated",  # 登録時に生成
         "original_image_path": str(test_image_path.resolve()),
-        "stored_image_path": "/path/to/stored/image.webp",  # This will be determined by fs_manager
-        "width": 100,  # Should be extracted from image
-        "height": 100,  # Should be extracted from image
-        "format": "WEBP",  # Should be extracted from image
-        "mode": "RGB",  # Should be extracted from image
-        "has_alpha": False,  # Should be extracted from image
+        "stored_image_path": "will-be-generated",  # 登録時に生成
+        "width": 100,  # 登録時に抽出
+        "height": 100,  # 登録時に抽出
+        "format": "WEBP",  # 登録時に抽出
+        "mode": "RGB",  # 登録時に抽出
+        "has_alpha": False,  # 登録時に抽出
         "filename": test_image_path.name,
         "extension": test_image_path.suffix,
-        "color_space": "sRGB",  # Should be extracted if possible
-        "icc_profile": None,  # Should be extracted if possible
-        "phash": "d8e0c4c4c4c4e0f0",  # Example pHash, should be calculated
-        "manual_rating": None,  # New field
+        "color_space": "sRGB",  # 登録時に抽出
+        "icc_profile": None,  # 登録時に抽出
+        "phash": "will-be-calculated",  # 登録時に計算
+        "manual_rating": None,  # 新しいカラム、デフォルトはNone
+        # created_at, updated_at はDB側で自動設定
     }
 
 
 @pytest.fixture
-def sample_processed_image_data():
-    """テスト用の処理済み画像メタデータを作成"""
+def sample_processed_image_data() -> ProcessedImageDict:
+    """テスト用の処理済み画像メタデータを作成 (キー名を schema.ProcessedImageDict に合わせる)"""
+    # schema.py の ProcessedImageDict 型に合わせてキー名を修正
     return {
-        # image_id will be set dynamically in tests
-        "stored_image_path": "/path/to/processed/image.webp",  # Determined by fs_manager/logic
-        "width": 50,
-        "height": 50,
-        "mode": "RGB",
-        "has_alpha": False,
-        "filename": "file01_processed.webp",  # Example filename
-        "color_space": "sRGB",
-        "icc_profile": None,
+        # image_id は動的に設定される
+        "stored_image_path": "will-be-generated",  # 保存時に生成
+        "width": 50,  # 保存時に抽出
+        "height": 50,  # 保存時に抽出
+        "mode": "RGB",  # 保存時に抽出
+        "has_alpha": False,  # 保存時に抽出
+        "filename": "will-be-generated",  # 保存時に生成
+        "color_space": "sRGB",  # 保存時に抽出
+        "icc_profile": None,  # 保存時に抽出
+        # created_at, updated_at はDB側で自動設定
     }
 
 
 @pytest.fixture
-def sample_annotations():
-    """テスト用のアノテーションデータを作成 (Needs update for new schema)"""
+def sample_annotations() -> AnnotationsDict:
+    """テスト用のアノテーションデータを作成 (新しいスキーマに合わせる)"""
+    # schema.py の各 AnnotationData TypedDict に合わせて修正
+    # model_id は test_engine_with_schema で投入されるモデルのIDを想定
+    # (例: tagger=1, multimodal/llm=2, score=3, rating=4)
+    # 実際のテストでは、`test_session` を使ってモデルIDを動的に取得する方が堅牢
     return {
         "tags": [
             {
                 "tag": "person",
-                "model_id": 1,  # Note: Assumes model with ID 1 exists (inserted by fixture)
-                "confidence_score": 0.9,
+                "model_id": 1,  # wd-vit-large-tagger-v3 (想定)
+                "confidence_score": 0.9,  # 新しいカラム
                 "existing": False,
-                "is_edited_manually": False,
-                "tag_id": 101,  # Example tag_id (may not be realistic if tag_db is not used)
+                "is_edited_manually": None,  # Nullable boolean
+                "tag_id": 101,  # 外部キーではない
+                # created_at, updated_at は自動
             },
             {
                 "tag": "outdoor",
                 "model_id": 1,
                 "confidence_score": 0.8,
                 "existing": False,
-                "is_edited_manually": False,
+                "is_edited_manually": None,
                 "tag_id": 102,
             },
         ],
         "captions": [
             {
                 "caption": "a person outside",
-                "model_id": 2,
+                "model_id": 2,  # GPT-4o (想定)
                 "existing": False,
-                "is_edited_manually": False,
-            }  # Assumes model ID 2 (GPT-4o)
+                "is_edited_manually": None,  # Nullable boolean
+                # created_at, updated_at は自動
+            }
         ],
         "scores": [
-            {"score": 0.95, "model_id": 3, "is_edited_manually": False}
-        ],  # Assumes model ID 3 (cafe_aesthetic)
+            {
+                "score": 0.95,
+                "model_id": 3,  # cafe_aesthetic (想定)
+                "is_edited_manually": False,  # NOT NULL boolean
+                # created_at, updated_at は自動
+            }
+        ],
         "ratings": [
             {
                 "raw_rating_value": "R",
                 "normalized_rating": "R",
-                "confidence_score": 0.98,
-                "model_id": 4,  # Assumes model ID 4 (classification_ViT-L-14_openai)
+                "confidence_score": 0.98,  # Nullable float
+                "model_id": 4,  # classification_ViT-L-14_openai (想定)
+                # created_at, updated_at は自動
             }
         ],
     }
@@ -317,7 +399,7 @@ def current_timestamp():
 
 @pytest.fixture
 def past_timestamp():
-    """過去のタイムスタンプを取得（1日前）"""
+    """過去のタイムスタンプを取得(1日前)"""
     return (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
 
 

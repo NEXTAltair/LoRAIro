@@ -3,15 +3,18 @@
 from __future__ import annotations  # 関係のフォワードリファレンス
 
 import datetime
+from typing import NotRequired, TypedDict
 
 from sqlalchemy import (
     TIMESTAMP,
     Boolean,
+    Column,  # Table で使用
     Float,
     ForeignKey,
     Index,
     Integer,
     String,
+    Table,  # 中間テーブル定義で使用
     UniqueConstraint,
     func,
 )
@@ -32,6 +35,34 @@ class Base(DeclarativeBase):
 # --- Models ---
 
 
+# 中間テーブル (モデルと機能タイプの多対多関連)
+model_function_associations = Table(
+    "model_function_associations",
+    Base.metadata,
+    Column("model_id", Integer, ForeignKey("models.id"), primary_key=True),
+    Column("type_id", Integer, ForeignKey("model_types.id"), primary_key=True),
+)
+
+
+class ModelType(Base):
+    """モデルの機能タイプ ('vision', 'score', 'upscaler' など)"""
+
+    __tablename__ = "model_types"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+
+    # Relationship (Modelへの逆参照、必要であれば)
+    # models: Mapped[list["Model"]] = relationship(
+    #     "Model",
+    #     secondary=model_function_associations,
+    #     back_populates="model_types"
+    # )
+
+    def __repr__(self) -> str:
+        return f"<ModelType(id={self.id}, name='{self.name}')>"
+
+
 class Model(Base):
     """AI モデル情報を格納するテーブル"""
 
@@ -39,8 +70,8 @@ class Model(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
-    type: Mapped[str] = mapped_column(String, nullable=False)  # 例: "vision", "score", "upscaler"
     provider: Mapped[str | None] = mapped_column(String)
+    discontinued_at: Mapped[datetime.datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime.datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
     )
@@ -49,13 +80,22 @@ class Model(Base):
     )
 
     # Relationships
+    # 多対多: Model <-> ModelType
+    model_types: Mapped[list[ModelType]] = relationship(
+        "ModelType",
+        secondary=model_function_associations,
+        # back_populates="models"  # ModelType側に models リレーションを定義する場合
+        lazy="selectin",  # N+1問題を避けるために Eager Loading を推奨
+    )
+
+    # 一対多: Model -> Annotations
     tags: Mapped[list["Tag"]] = relationship("Tag", back_populates="model")
     captions: Mapped[list["Caption"]] = relationship("Caption", back_populates="model")
     scores: Mapped[list["Score"]] = relationship("Score", back_populates="model")
     ratings: Mapped[list["Rating"]] = relationship("Rating", back_populates="model")
 
     def __repr__(self) -> str:
-        return f"<Model(id={self.id}, name='{self.name}', type='{self.type}')>"
+        return f"<Model(id={self.id}, name='{self.name}')>"
 
 
 class Image(Base):
@@ -261,4 +301,95 @@ class Rating(Base):
     __table_args__ = (Index("ix_ratings_image_id", "image_id"),)
 
     def __repr__(self) -> str:
-        return f"<Rating(id={self.id}, image_id={self.image_id}, model_id={self.model_id}, rating='{self.normalized_rating}')>"
+        return f"<Rating(id={self.id}, image_id={self.image_id}, rating='{self.normalized_rating}')>"
+
+
+# --- TypedDicts for data transfer ---
+
+
+class ImageDict(TypedDict):
+    id: NotRequired[int]  # DBから取得時にのみ存在
+    uuid: str
+    phash: str | None  # Nullable in schema, but likely not null after calculation? Check repo.
+    original_image_path: str
+    stored_image_path: str
+    width: int
+    height: int
+    format: str
+    mode: str | None
+    has_alpha: bool | None
+    filename: str | None
+    extension: str
+    color_space: str | None
+    icc_profile: str | None
+    manual_rating: str | None
+    created_at: NotRequired[datetime.datetime]  # DBから取得時にのみ存在
+    updated_at: NotRequired[datetime.datetime]  # DBから取得時にのみ存在
+
+
+class ProcessedImageDict(TypedDict):
+    id: NotRequired[int]
+    image_id: int  # Must be provided when adding
+    stored_image_path: str
+    width: int
+    height: int
+    mode: str | None
+    has_alpha: bool
+    filename: str | None
+    color_space: str | None
+    icc_profile: str | None
+    created_at: NotRequired[datetime.datetime]
+    updated_at: NotRequired[datetime.datetime]
+
+
+class TagAnnotationData(TypedDict):
+    id: NotRequired[int]
+    tag_id: int | None
+    image_id: NotRequired[int | None]  # Set by save_annotations
+    model_id: int | None
+    tag: str
+    existing: bool
+    is_edited_manually: bool | None
+    confidence_score: float | None
+    created_at: NotRequired[datetime.datetime]
+    updated_at: NotRequired[datetime.datetime]
+
+
+class CaptionAnnotationData(TypedDict):
+    id: NotRequired[int]
+    image_id: NotRequired[int | None]  # Set by save_annotations
+    model_id: int | None
+    caption: str
+    existing: bool
+    is_edited_manually: bool | None
+    created_at: NotRequired[datetime.datetime]
+    updated_at: NotRequired[datetime.datetime]
+
+
+class ScoreAnnotationData(TypedDict):
+    id: NotRequired[int]
+    image_id: NotRequired[int | None]  # Set by save_annotations
+    model_id: int | None
+    score: float
+    # is_edited_manually: bool # Default False, NOT NULL in schema (check migration)
+    is_edited_manually: bool | None  # nullable=True に合わせた
+    created_at: NotRequired[datetime.datetime]
+    updated_at: NotRequired[datetime.datetime]
+
+
+class RatingAnnotationData(TypedDict):
+    id: NotRequired[int]
+    image_id: NotRequired[int]  # Set by save_annotations
+    model_id: int  # Must be provided
+    raw_rating_value: str
+    normalized_rating: str
+    confidence_score: float | None
+    created_at: NotRequired[datetime.datetime]
+    updated_at: NotRequired[datetime.datetime]
+
+
+class AnnotationsDict(TypedDict):
+    tags: NotRequired[list[TagAnnotationData]]
+    captions: NotRequired[list[CaptionAnnotationData]]
+    scores: NotRequired[list[ScoreAnnotationData]]
+    ratings: NotRequired[list[RatingAnnotationData]]
