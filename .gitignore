@@ -42,6 +42,7 @@ uv.lock
 htmlcov/
 pytest_temp/
 .pytest_reports/
+coverage.xml
 
 # IDE・エディタ関連
 .idea/
@@ -84,3 +85,6 @@ genai-tag-db-tools/hf_repo/   # 古いパス (移行中は両方残す)
 # ログファイル
 *.log
 logs/
+
+# データベース
+*.db
