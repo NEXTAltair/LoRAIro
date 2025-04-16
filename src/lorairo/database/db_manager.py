@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..storage.file_system import FileSystemManager
-from ..utils.log import get_logger
+from ..utils.log import logger
 from ..utils.tools import calculate_phash
 from .db_repository import (
     AnnotationsDict,
@@ -36,9 +36,8 @@ class ImageDatabaseManager:
             repository (ImageRepository | None): 使用するImageRepositoryインスタンス。
                                                     Noneの場合、デフォルトのインスタンスを作成します。
         """
-        self.logger = get_logger(__name__)
         self.repository = repository or ImageRepository()
-        self.logger.info("ImageDatabaseManager initialized.")
+        logger.info("ImageDatabaseManager initialized.")
 
     # __enter__ と __exit__ はリポジトリがセッション管理するため、ここでは不要になることが多い
     # 必要であれば、リポジトリのセッションファクトリを使う処理を追加できる
@@ -64,21 +63,21 @@ class ImageDatabaseManager:
             # 1. 画像情報を取得
             original_metadata = fsm.get_image_info(image_path)
             if not original_metadata:
-                self.logger.error(f"画像情報の取得に失敗: {image_path}")
+                logger.error(f"画像情報の取得に失敗: {image_path}")
                 return None
 
             # 2. pHash を計算
             try:
                 phash = calculate_phash(image_path)
             except Exception as e:
-                self.logger.error(f"pHash の計算中にエラーが発生しました: {image_path}, Error: {e}")
+                logger.error(f"pHash の計算中にエラーが発生しました: {image_path}, Error: {e}")
                 # pHash が計算できない場合は登録を中止する(あるいは phash=None で登録するかは要件次第)
                 return None
 
             # 3. 重複チェック (pHash)
             existing_id = self.repository.find_duplicate_image_by_phash(phash)
             if existing_id is not None:
-                self.logger.warning(f"重複画像を検出 (pHash): 既存ID={existing_id}, Path={image_path}")
+                logger.warning(f"重複画像を検出 (pHash): 既存ID={existing_id}, Path={image_path}")
                 # TODO: 重複した場合、既存のメタデータを返すか?
                 # existing_metadata = self.repository.get_image_metadata(existing_id)
                 # return existing_id, existing_metadata or {}
@@ -87,7 +86,7 @@ class ImageDatabaseManager:
             # 4. 画像をストレージに保存
             db_stored_original_path = fsm.save_original_image(image_path)
             if not db_stored_original_path:
-                self.logger.error(f"オリジナル画像のストレージ保存に失敗: {image_path}")
+                logger.error(f"オリジナル画像のストレージ保存に失敗: {image_path}")
                 return None
 
             # 5. メタデータに情報を追加
@@ -103,11 +102,11 @@ class ImageDatabaseManager:
 
             # 6. データベースに挿入
             image_id = self.repository.add_original_image(original_metadata)
-            self.logger.info(f"オリジナル画像を登録しました: ID={image_id}, Path={image_path}")
+            logger.info(f"オリジナル画像を登録しました: ID={image_id}, Path={image_path}")
             return image_id, original_metadata
 
         except Exception as e:
-            self.logger.error(
+            logger.error(
                 f"オリジナル画像の登録処理全体でエラーが発生しました: {image_path}, Error: {e}",
                 exc_info=True,
             )
@@ -135,7 +134,7 @@ class ImageDatabaseManager:
             required_keys = ["width", "height", "has_alpha"]  # Repositoryでチェックされるが念のため
             if not all(key in info for key in required_keys):
                 missing = [k for k in required_keys if k not in info]
-                self.logger.error(f"処理済み画像の必須メタデータが不足: {missing}")
+                logger.error(f"処理済み画像の必須メタデータが不足: {missing}")
                 return None
 
             info.update(
@@ -148,14 +147,14 @@ class ImageDatabaseManager:
             # データベースに挿入 (Repository が重複チェックを行う)
             processed_image_id = self.repository.add_processed_image(info)
             if processed_image_id is not None:
-                self.logger.info(
+                logger.info(
                     f"処理済み画像を登録/確認しました: ID={processed_image_id}, 元画像ID={image_id}"
                 )
             # None が返るケースは Repository のエラーログで記録されるはず
             return processed_image_id
 
         except Exception as e:
-            self.logger.error(
+            logger.error(
                 f"処理済み画像の登録中にエラーが発生しました: 元画像ID={image_id}, Error: {e}",
                 exc_info=True,
             )
@@ -171,9 +170,9 @@ class ImageDatabaseManager:
                 "ratings": [],
             }
             self.repository.save_annotations(image_id, annotations_to_save)
-            self.logger.info(f"画像 ID {image_id} のタグ {len(tags_data)} 件を保存しました。")
+            logger.info(f"画像 ID {image_id} のタグ {len(tags_data)} 件を保存しました。")
         except Exception as e:
-            self.logger.error(f"画像 ID {image_id} のタグ保存中にエラー: {e}", exc_info=True)
+            logger.error(f"画像 ID {image_id} のタグ保存中にエラー: {e}", exc_info=True)
             raise
 
     def save_captions(self, image_id: int, captions_data: list[CaptionAnnotationData]) -> None:
@@ -186,9 +185,9 @@ class ImageDatabaseManager:
                 "ratings": [],
             }
             self.repository.save_annotations(image_id, annotations_to_save)
-            self.logger.info(f"画像 ID {image_id} のキャプション {len(captions_data)} 件を保存しました。")
+            logger.info(f"画像 ID {image_id} のキャプション {len(captions_data)} 件を保存しました。")
         except Exception as e:
-            self.logger.error(f"画像 ID {image_id} のキャプション保存中にエラー: {e}", exc_info=True)
+            logger.error(f"画像 ID {image_id} のキャプション保存中にエラー: {e}", exc_info=True)
             raise
 
     def save_scores(self, image_id: int, scores_data: list[ScoreAnnotationData]) -> None:
@@ -201,9 +200,9 @@ class ImageDatabaseManager:
                 "ratings": [],
             }
             self.repository.save_annotations(image_id, annotations_to_save)
-            self.logger.info(f"画像 ID {image_id} のスコア {len(scores_data)} 件を保存しました。")
+            logger.info(f"画像 ID {image_id} のスコア {len(scores_data)} 件を保存しました。")
         except Exception as e:
-            self.logger.error(f"画像 ID {image_id} のスコア保存中にエラー: {e}", exc_info=True)
+            logger.error(f"画像 ID {image_id} のスコア保存中にエラー: {e}", exc_info=True)
             raise
 
     def save_ratings(self, image_id: int, ratings_data: list[RatingAnnotationData]) -> None:
@@ -216,9 +215,9 @@ class ImageDatabaseManager:
                 "ratings": ratings_data,
             }
             self.repository.save_annotations(image_id, annotations_to_save)
-            self.logger.info(f"画像 ID {image_id} のレーティング {len(ratings_data)} 件を保存しました。")
+            logger.info(f"画像 ID {image_id} のレーティング {len(ratings_data)} 件を保存しました。")
         except Exception as e:
-            self.logger.error(f"画像 ID {image_id} のレーティング保存中にエラー: {e}", exc_info=True)
+            logger.error(f"画像 ID {image_id} のレーティング保存中にエラー: {e}", exc_info=True)
             raise
 
     def register_prompt_tags(self, image_id: int, tags: list[str]) -> None:
@@ -238,10 +237,10 @@ class ImageDatabaseManager:
         ]
         try:
             self.save_tags(image_id, tags_data)
-            self.logger.info(f"画像 ID {image_id} のプロンプトタグ {len(tags)} 件を登録しました。")
+            logger.info(f"画像 ID {image_id} のプロンプトタグ {len(tags)} 件を登録しました。")
         except Exception as e:
             # save_tags 内でログが出るのでここでは再ログしないか、レベルを変える
-            self.logger.warning(f"画像 ID {image_id} のプロンプトタグ登録に失敗: {e}")
+            logger.warning(f"画像 ID {image_id} のプロンプトタグ登録に失敗: {e}")
             # raise はしない(上位処理を止めない場合)
 
     # 旧 save_score を save_scores を使うように変更
@@ -250,7 +249,7 @@ class ImageDatabaseManager:
         score_float = score_dict.get("score")
         model_id = score_dict.get("model_id")
         if score_float is None or model_id is None:
-            self.logger.error(f"スコア情報が不正です: {score_dict}")
+            logger.error(f"スコア情報が不正です: {score_dict}")
             return
 
         score_data: ScoreAnnotationData = {
@@ -262,7 +261,7 @@ class ImageDatabaseManager:
             self.save_scores(image_id, [score_data])
             # logger info は save_scores 内で出力される
         except Exception as e:
-            self.logger.warning(f"画像 ID {image_id} のスコア保存に失敗: {e}")
+            logger.warning(f"画像 ID {image_id} のスコア保存に失敗: {e}")
 
     def get_low_res_image_path(self, image_id: int) -> str | None:
         """
@@ -280,17 +279,17 @@ class ImageDatabaseManager:
             if isinstance(metadata, dict):  # None でなく dict であることを確認
                 path = metadata.get("stored_image_path")
                 if path:
-                    self.logger.debug(f"画像ID {image_id} の低解像度画像パスを取得しました。")
+                    logger.debug(f"画像ID {image_id} の低解像度画像パスを取得しました。")
                     return path
                 else:
-                    self.logger.warning(
+                    logger.warning(
                         f"画像ID {image_id} の低解像度画像のパスが見つかりません。 Metadata: {metadata}"
                     )
             else:
-                self.logger.warning(f"画像ID {image_id} の低解像度画像メタデータが見つかりません。")
+                logger.warning(f"画像ID {image_id} の低解像度画像メタデータが見つかりません。")
             return None
         except Exception as e:
-            self.logger.error(f"低解像度画像のパス取得中にエラーが発生しました: {e}", exc_info=True)
+            logger.error(f"低解像度画像のパス取得中にエラーが発生しました: {e}", exc_info=True)
             return None
 
     def get_image_metadata(self, image_id: int) -> dict[str, Any] | None:
@@ -306,10 +305,10 @@ class ImageDatabaseManager:
         try:
             metadata = self.repository.get_image_metadata(image_id)
             if metadata is None:
-                self.logger.info(f"ID {image_id} の画像メタデータが見つかりません。")
+                logger.info(f"ID {image_id} の画像メタデータが見つかりません。")
             return metadata
         except Exception as e:
-            self.logger.error(f"画像メタデータ取得中にエラーが発生しました: {e}", exc_info=True)
+            logger.error(f"画像メタデータ取得中にエラーが発生しました: {e}", exc_info=True)
             raise  # Repositoryでエラーが発生したら上に伝える
 
     def get_processed_metadata(self, image_id: int) -> list[dict[str, Any]] | None:
@@ -327,16 +326,16 @@ class ImageDatabaseManager:
             metadata_list = self.repository.get_processed_image(image_id, all_data=True)
             if isinstance(metadata_list, list):
                 if not metadata_list:
-                    self.logger.info(f"ID {image_id} の元画像に関連する処理済み画像が見つかりません。")
+                    logger.info(f"ID {image_id} の元画像に関連する処理済み画像が見つかりません。")
                 return metadata_list
             else:
                 # Repository が予期せず None や dict を返した場合 (通常はないはず)
-                self.logger.error(
+                logger.error(
                     f"get_processed_image(all_data=True) がリストを返しませんでした: {type(metadata_list)}"
                 )
                 return []
         except Exception as e:
-            self.logger.error(f"処理済み画像メタデータ取得中にエラーが発生しました: {e}", exc_info=True)
+            logger.error(f"処理済み画像メタデータ取得中にエラーが発生しました: {e}", exc_info=True)
             raise
 
     def get_image_annotations(self, image_id: int) -> dict[str, list[dict[str, Any]]]:
@@ -344,7 +343,7 @@ class ImageDatabaseManager:
         try:
             return self.repository.get_image_annotations(image_id)
         except Exception as e:
-            self.logger.error(f"画像ID {image_id} のアノテーション取得中にエラー: {e}", exc_info=True)
+            logger.error(f"画像ID {image_id} のアノテーション取得中にエラー: {e}", exc_info=True)
             return {"tags": [], "captions": [], "scores": [], "ratings": []}
 
     def get_models(self) -> list[dict[str, Any]]:
@@ -352,7 +351,7 @@ class ImageDatabaseManager:
         try:
             return self.repository.get_models()
         except Exception as e:
-            self.logger.error(f"全モデル情報の取得中にエラー: {e}", exc_info=True)
+            logger.error(f"全モデル情報の取得中にエラー: {e}", exc_info=True)
             return []
 
     def get_tagger_models(self) -> list[dict[str, Any]]:
@@ -360,7 +359,7 @@ class ImageDatabaseManager:
         try:
             return self.repository.get_models_by_type("tagger")
         except Exception as e:
-            self.logger.error(f"Taggerモデル情報の取得中にエラー: {e}", exc_info=True)
+            logger.error(f"Taggerモデル情報の取得中にエラー: {e}", exc_info=True)
             return []
 
     def get_score_models(self) -> list[dict[str, Any]]:
@@ -368,7 +367,7 @@ class ImageDatabaseManager:
         try:
             return self.repository.get_models_by_type("score")
         except Exception as e:
-            self.logger.error(f"Scoreモデル情報の取得中にエラー: {e}", exc_info=True)
+            logger.error(f"Scoreモデル情報の取得中にエラー: {e}", exc_info=True)
             return []
 
     def get_captioner_models(self) -> list[dict[str, Any]]:
@@ -376,7 +375,7 @@ class ImageDatabaseManager:
         try:
             return self.repository.get_models_by_type("captioner")
         except Exception as e:
-            self.logger.error(f"Captionerモデル情報の取得中にエラー: {e}", exc_info=True)
+            logger.error(f"Captionerモデル情報の取得中にエラー: {e}", exc_info=True)
             return []
 
     def get_upscaler_models(self) -> list[dict[str, Any]]:
@@ -384,7 +383,7 @@ class ImageDatabaseManager:
         try:
             return self.repository.get_models_by_type("upscaler")
         except Exception as e:
-            self.logger.error(f"Upscalerモデル情報の取得中にエラー: {e}", exc_info=True)
+            logger.error(f"Upscalerモデル情報の取得中にエラー: {e}", exc_info=True)
             return []
 
     def get_llm_models(self) -> list[dict[str, Any]]:
@@ -392,7 +391,7 @@ class ImageDatabaseManager:
         try:
             return self.repository.get_models_by_type("llm")
         except Exception as e:
-            self.logger.error(f"LLMモデル情報の取得中にエラー: {e}", exc_info=True)
+            logger.error(f"LLMモデル情報の取得中にエラー: {e}", exc_info=True)
             return []
 
     def get_images_by_filter(
@@ -424,7 +423,7 @@ class ImageDatabaseManager:
                 manual_edit_filter=manual_edit_filter,
             )
         except Exception as e:
-            self.logger.error(f"画像フィルタリング検索中にエラーが発生しました: {e}", exc_info=True)
+            logger.error(f"画像フィルタリング検索中にエラーが発生しました: {e}", exc_info=True)
             raise
 
     def detect_duplicate_image(self, image_path: Path) -> int | None:
@@ -444,25 +443,25 @@ class ImageDatabaseManager:
             # 1. ファイル名で検索
             image_id = self.repository.get_image_id_by_name(image_name)
             if image_id is not None:
-                self.logger.info(f"重複検出: ファイル名一致 ID={image_id}, Name={image_name}")
+                logger.info(f"重複検出: ファイル名一致 ID={image_id}, Name={image_name}")
                 return image_id
 
             # 2. ファイル名で見つからなければ pHash で検索
             try:
                 phash = calculate_phash(image_path)
             except Exception as e:
-                self.logger.error(f"重複検出のための pHash 計算中にエラー: {image_path}, Error: {e}")
+                logger.error(f"重複検出のための pHash 計算中にエラー: {image_path}, Error: {e}")
                 return None  # pHash 計算失敗時は重複なしとして扱う
 
             image_id = self.repository.find_duplicate_image_by_phash(phash)
             if image_id is not None:
-                self.logger.info(f"重複検出: pHash 一致 ID={image_id}, Name={image_name}, pHash={phash}")
+                logger.info(f"重複検出: pHash 一致 ID={image_id}, Name={image_name}, pHash={phash}")
             else:
-                self.logger.debug(f"重複なし: Name={image_name}, pHash={phash}")
+                logger.debug(f"重複なし: Name={image_name}, pHash={phash}")
             return image_id
 
         except Exception as e:
-            self.logger.error(
+            logger.error(
                 f"重複画像検出プロセス中にエラーが発生しました: {image_path}, Error: {e}", exc_info=True
             )
             return None
@@ -473,7 +472,7 @@ class ImageDatabaseManager:
             count = self.repository.get_total_image_count()
             return count
         except Exception as e:
-            self.logger.error(f"総画像数の取得中にエラーが発生しました: {e}", exc_info=True)
+            logger.error(f"総画像数の取得中にエラーが発生しました: {e}", exc_info=True)
             return 0  # エラー時は0を返す
 
     def check_processed_image_exists(self, image_id: int, target_resolution: int) -> dict[str, Any] | None:
@@ -494,17 +493,17 @@ class ImageDatabaseManager:
             )
 
             if isinstance(processed_image_metadata, dict):
-                self.logger.info(
+                logger.info(
                     f"解像度 {target_resolution} の処理済み画像が既に存在します: 元画像ID={image_id}, 処理済ID={processed_image_metadata.get('id')}"
                 )
                 return processed_image_metadata
             else:
-                self.logger.info(
+                logger.info(
                     f"解像度 {target_resolution} に一致する処理済み画像は見つかりませんでした: 元画像ID={image_id}"
                 )
                 return None
         except Exception as e:
-            self.logger.error(
+            logger.error(
                 f"処理済み画像の存在チェック中にエラーが発生しました: 元画像ID={image_id}, 解像度={target_resolution}, Error: {e}",
                 exc_info=True,
             )
@@ -549,10 +548,10 @@ class ImageDatabaseManager:
                             )  # ISO形式をパース
                             all_updates.append(dt)
                         except ValueError:
-                            self.logger.warning(f"不正な updated_at 文字列: {update_time}")
+                            logger.warning(f"不正な updated_at 文字列: {update_time}")
 
         if not all_updates:
-            self.logger.info(
+            logger.info(
                 "アノテーションに有効な更新日時が見つかりませんでした。フィルタリングをスキップします。"
             )
             return filtered_annotations  # または元の annotations を返すか
@@ -563,10 +562,10 @@ class ImageDatabaseManager:
             # naive datetime の場合、UTC とみなすかローカルタイムとみなすか要検討
             # ここでは UTC と仮定 (DB保存時に timezone=True を想定)
             latest_update_dt = latest_update_dt.replace(tzinfo=timezone.utc)
-            self.logger.warning("naive な updated_at を UTC として扱います。")
+            logger.warning("naive な updated_at を UTC として扱います。")
 
         time_threshold = latest_update_dt - timedelta(minutes=minutes_threshold)
-        self.logger.debug(f"最新更新日時: {latest_update_dt}, 閾値: {time_threshold}")
+        logger.debug(f"最新更新日時: {latest_update_dt}, 閾値: {time_threshold}")
 
         # 2. 閾値でフィルタリング
         for key in annotations:
@@ -590,9 +589,7 @@ class ImageDatabaseManager:
                         if item_dt >= time_threshold:
                             filtered_annotations[key].append(item)
 
-        self.logger.info(
-            f"最近更新されたアノテーションをフィルタリングしました (閾値: {minutes_threshold}分)。"
-        )
+        logger.info(f"最近更新されたアノテーションをフィルタリングしました (閾値: {minutes_threshold}分)。")
         return filtered_annotations
 
 

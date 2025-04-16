@@ -1,8 +1,6 @@
 import re
 from pathlib import Path
 
-from ..utils.log import get_logger
-
 HAIR_PATTERNS = {
     "length": re.compile(r"(long|short|medium) hair"),
     "cut": re.compile(r"(bob|hime) cut"),
@@ -62,7 +60,6 @@ class TagCleaner:
         from genai_tag_db_tools import initialize_tag_searcher  # インポートをここに移動
 
         self.tag_searcher = initialize_tag_searcher()
-        self.logger = get_logger(__name__)
 
     @staticmethod
     def clean_format(text: str) -> str:

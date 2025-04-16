@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QMessageBox, QWidget
 
 from ...database.db_manager import ImageDatabaseManager
 from ...storage.file_system import FileSystemManager
-from ...utils.log import get_logger
+from ...utils.log import logger
 from ..designer.DatasetExportWidget_ui import Ui_DatasetExportWidget
 
 
@@ -15,7 +15,6 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setupUi(self)
-        self.logger = get_logger("DatasetExportWidget")
         self.fsm = None
         self.idm = None
         self.filtered_image_metadata = {}
@@ -77,7 +76,7 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
             include_untagged=include_untagged,
         )
         if not filtered_image_metadata:
-            self.logger.info(f"{filter_type} に {filter_text} を含む検索結果がありません")
+            logger.info(f"{filter_type} に {filter_text} を含む検索結果がありません")
             QMessageBox.critical(self, "info", f"{filter_type} に {filter_text} を含む検索結果がありません")
             return
 
@@ -132,7 +131,7 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
                     if self.checkBoxJson.isChecked():
                         self.fsm.export_dataset_to_json(image_data, export_dir)
                 else:
-                    self.logger.error(f"Image ID not found for {image_path}")
+                    logger.error(f"Image ID not found for {image_path}")
                     continue  # 次の画像へ
 
                 progress = int((i + 1) / total_images * 100)
@@ -140,7 +139,7 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
                 self.statusLabel.setText(f"Status: Exporting... {progress}%")
 
             except Exception as e:
-                self.logger.error(f"エクスポート中にエラーが発生しました: {str(e)}")
+                logger.error(f"エクスポート中にエラーが発生しました: {str(e)}")
                 QMessageBox.critical(self, "Error", f"エクスポート中にエラーが発生しました: {str(e)}")
                 export_successful = False
                 break

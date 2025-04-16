@@ -1,20 +1,19 @@
 from pathlib import Path
 
+from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QColor, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QWidget,
-    QGraphicsObject,
-    QGraphicsScene,
-    QGraphicsView,
-    QGraphicsPixmapItem,
-    QVBoxLayout,
     QApplication,
     QGraphicsItem,
+    QGraphicsObject,
+    QGraphicsPixmapItem,
+    QGraphicsScene,
+    QGraphicsView,
+    QVBoxLayout,
+    QWidget,
 )
-from PySide6.QtGui import QPixmap, QColor, QPen
-from PySide6.QtCore import Qt, QSize, Signal, Slot, QRectF, QTimer
 
-from ...utils.log import get_logger
-
+from ...utils.log import logger
 from ..designer.ThumbnailSelectorWidget_ui import Ui_ThumbnailSelectorWidget
 
 
@@ -86,7 +85,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         Args:
             parent (QWidget, optional): 親ウィジェット. Defaults to None.
         """
-        self.logger = get_logger("ThumbnailSelectorWidget")
         super().__init__(parent)
         self.setupUi(self)
         self.thumbnail_size = QSize(128, 128)
@@ -176,18 +174,18 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         """
         if modifiers & Qt.KeyboardModifier.ControlModifier:
             item.setSelected(not item.isSelected())
-            self.logger.debug(
+            logger.debug(
                 f"画像がCtrl+クリックで{'選択' if item.isSelected() else '選択解除'}: \n item.image_path: {item.image_path}"
             )
         elif modifiers & Qt.KeyboardModifier.ShiftModifier and self.last_selected_item:
             self.select_range(self.last_selected_item, item)
-            self.logger.debug(f"画像がShift+クリックで範囲選択")
+            logger.debug(f"画像がShift+クリックで範囲選択")
         else:
             for other_item in self.thumbnail_items:
                 if other_item != item:
                     other_item.setSelected(False)
             item.setSelected(True)
-            self.logger.debug(f"画像が選択: \n item.image_path: {item.image_path}")
+            logger.debug(f"画像が選択: \n item.image_path: {item.image_path}")
         self.last_selected_item = item
         self.update_selection()
 
@@ -226,7 +224,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             list[Path]: 選択された画像のパスのリスト
         """
         selected_images = [item.image_path for item in self.thumbnail_items if item.isSelected()]
-        self.logger.debug(f"選択された画像のリスト: \n selected_images: {selected_images}")
+        logger.debug(f"選択された画像のリスト: \n selected_images: {selected_images}")
         return selected_images
 
     def select_first_image(self):
@@ -244,6 +242,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
 if __name__ == "__main__":
     import sys
+
     from module.log import setup_logger
     from PySide6.QtWidgets import QApplication
 

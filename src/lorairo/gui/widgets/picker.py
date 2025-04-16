@@ -4,12 +4,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFileDialog, QWidget
 
 from ...gui.designer.PickerWidget_ui import Ui_PickerWidget
-from ...utils.log import get_logger
+from ...utils.log import logger
 
 
 class PickerWidget(QWidget, Ui_PickerWidget):
     def __init__(self, parent=None):
-        self.logger = get_logger("PickerWidget")
         super().__init__(parent)
         self.setupUi(self)
         self.history = []  # 履歴を保存するリスト
@@ -60,12 +59,13 @@ class PickerWidget(QWidget, Ui_PickerWidget):
         """履歴項目が選択されたときの処理"""
         selected_path = self.comboBoxHistory.itemData(index, Qt.ToolTipRole)  # フルパスを取得
         self.lineEditPicker.setText(selected_path)
-        self.logger.debug(f"on_history_item_selected \n 履歴からファイルを選択: {selected_path}")
+        logger.debug(f"on_history_item_selected \n 履歴からファイルを選択: {selected_path}")
 
 
 if __name__ == "__main__":
-    from PySide6.QtWidgets import QApplication
     import sys
+
+    from PySide6.QtWidgets import QApplication
 
     app = QApplication(sys.argv)
     widget = PickerWidget()

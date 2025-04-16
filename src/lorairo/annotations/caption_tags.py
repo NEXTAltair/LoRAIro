@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any
 
 from ..annotations.cleanup_txt import TagCleaner, initialize_tag_cleaner
-from ..utils.log import get_logger
+from ..utils.log import logger
 
 
 class ImageAnalyzer:
@@ -12,11 +12,8 @@ class ImageAnalyzer:
     画像分析タスクを実行
     """
 
-    logger = get_logger("ImageAnalyzer")
-
     def __init__(self):
         self.tag_cleaner = initialize_tag_cleaner()
-        self.logger = ImageAnalyzer.logger
         self.format_name = "unknown"
 
     def initialize(self, models_config: tuple[dict, dict]):
@@ -71,11 +68,11 @@ class ImageAnalyzer:
                 ]
 
             if not existing_annotations["tags"] and not existing_annotations["captions"]:
-                ImageAnalyzer.logger.info(f"既存アノテーション無し: {image_path}")
+                logger.info(f"既存アノテーション無し: {image_path}")
                 return None
 
         except Exception as e:
-            ImageAnalyzer.logger.info(f"アノテーションファイルの読み込み中にエラーが発生しました: {str(e)}")
+            logger.info(f"アノテーションファイルの読み込み中にエラーが発生しました: {str(e)}")
             return None
 
         return existing_annotations
@@ -127,13 +124,11 @@ class ImageAnalyzer:
 
             # TODO: アノテーターライブラリを使うように変更｡ その時モデル名とモデルIDの対応付けについて考える
             analysis_result = self._process_response(image_path, tags_str, model_id)
-            self.logger.debug(f"img: {image_path} model: {model_name} format: {format_name}")
+            logger.debug(f"img: {image_path} model: {model_name} format: {format_name}")
             return analysis_result
 
         except Exception as e:
-            self.logger.error(
-                f"アノテーション生成中に予期せぬエラーが発生しました(画像: {image_path}): {e}"
-            )
+            logger.error(f"アノテーション生成中に予期せぬエラーが発生しました(画像: {image_path}): {e}")
             return {"error": str(e), "image_path": str(image_path)}
 
     def _process_response(self, image_path: Path, tags_str: str, model_id: int) -> dict[str, Any]:
@@ -160,7 +155,7 @@ class ImageAnalyzer:
                 "image_path": str(image_path),
             }
         except Exception as e:
-            self.logger.error(f"レスポンス処理中にエラーが発生しました(画像: {image_path}): {str(e)}")
+            logger.error(f"レスポンス処理中にエラーが発生しました(画像: {image_path}): {str(e)}")
             raise
 
     # TODO: アノテーターライブラリはバッチAPIには非対応なので対応方法を考える
@@ -202,10 +197,8 @@ class ImageAnalyzer:
         score_index = content.lower().find("score:")
 
         if tags_index == -1 and caption_index == -1:
-            self.logger.error(
-                f"画像 {image_key} の処理に失敗しました。タグまたはキャプションが見つかりません。"
-            )
-            self.logger.error(f" APIからの応答: {content} ")
+            logger.error(f"画像 {image_key} の処理に失敗しました。タグまたはキャプションが見つかりません。")
+            logger.error(f" APIからの応答: {content} ")
             return "", ""
 
         tags_text = content[tags_index + len("tags:") : caption_index].strip() if tags_index != -1 else ""
@@ -242,9 +235,9 @@ class ImageAnalyzer:
 
 # 画像処理のテスト
 if __name__ == "__main__":
-    from module.api_utils import APIClientFactory
-    from module.db import ImageDatabaseManager
-    from module.config import get_config
+    from ...database.db_manager import ImageDatabaseManager
+    from ...utils.api_utils import APIClientFactory
+    from ...utils.config import get_config
 
     config = get_config()
     image_path = Path(r"testimg\1_img\file02.png")

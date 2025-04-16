@@ -54,7 +54,7 @@ class SettingsWidget(QWidget, Ui_SettingsWidget):
         self.comboBoxLogLevel.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
         self.comboBoxLogLevel.setCurrentText(self.cm.config["log"]["level"])
         self.filePickerLogFile.set_label_text("Log File")
-        self.filePickerLogFile.set_path(self.cm.config["log"]["file"])
+        self.filePickerLogFile.set_path(self.cm.config["log"]["file_path"])
 
     def _save_config(self, filename: str) -> bool:
         try:
