@@ -15,8 +15,8 @@ from PIL import Image
 from scipy import ndimage
 from spandrel import ImageModelDescriptor, ModelLoader
 
-from storage.file_system import FileSystemManager
-from utils.log import get_logger
+from ..storage.file_system import FileSystemManager
+from ..utils.log import get_logger
 
 
 class ImageProcessingManager:
@@ -41,7 +41,9 @@ class ImageProcessingManager:
 
         try:
             # ImageProcessorの初期化
-            self.image_processor = ImageProcessor(self.file_system_manager, target_resolution, preferred_resolutions)
+            self.image_processor = ImageProcessor(
+                self.file_system_manager, target_resolution, preferred_resolutions
+            )
             self.logger.info("ImageProcessingManagerが正常に初期化。")
 
         except Exception as e:
@@ -50,8 +52,12 @@ class ImageProcessingManager:
             raise ValueError(message) from e
 
     def process_image(
-        self, db_stored_original_path: Path, original_has_alpha: bool, original_mode: str, upscaler: str = None
-    ) -> Optional[Image.Image]:
+        self,
+        db_stored_original_path: Path,
+        original_has_alpha: bool,
+        original_mode: str,
+        upscaler: str = None,
+    ) -> Image.Image | None:
         """
         画像を処理し、処理後の画像オブジェクトを返す
 
@@ -74,16 +80,20 @@ class ImageProcessingManager:
                 )
 
                 if max(cropped_img.width, cropped_img.height) < self.target_resolution:
-                    if upscaler:  # TODO: アップスケールした画像はそれを示すデータも保存すべきか？
+                    if upscaler:  # TODO: アップスケールした画像はそれを示すデータも保存すべきか?
                         if converted_img.mode == "RGBA":
-                            self.logger.info(f"RGBA 画像のためアップスケールをスキップ: {db_stored_original_path}")
+                            self.logger.info(
+                                f"RGBA 画像のためアップスケールをスキップ: {db_stored_original_path}"
+                            )
                         else:
                             self.logger.debug(
                                 f"長編が指定解像度未満のため{db_stored_original_path}をアップスケールします: {upscaler}"
                             )
                             converted_img = Upscaler.upscale_image(converted_img, upscaler)
                             if max(converted_img.width, converted_img.height) < self.target_resolution:
-                                self.logger.info(f"画像サイズが小さすぎるため処理をスキップ: {db_stored_original_path}")
+                                self.logger.info(
+                                    f"画像サイズが小さすぎるため処理をスキップ: {db_stored_original_path}"
+                                )
                                 return None
                 resized_img = self.image_processor.resize_image(converted_img)
 
@@ -114,7 +124,7 @@ class ImageProcessor:
 
         Args:
             img (Image.Image): 処理する画像
-            has_alpha (bool): 透過情報（アルファチャンネル）の有無
+            has_alpha (bool): 透過情報(アルファチャンネル)の有無
             mode (str): 画像のモード (例: 'RGB', 'CMYK', 'P')
 
         Returns:
@@ -140,7 +150,9 @@ class ImageProcessor:
             ImageProcessor.logger.error(f"ImageProcessor.normalize_color_profile :{e}")
             raise
 
-    def _find_matching_resolution(self, original_width: int, original_height: int) -> Optional[tuple[int, int]]:
+    def _find_matching_resolution(
+        self, original_width: int, original_height: int
+    ) -> tuple[int, int] | None:
         """SDでよく使う解像度と同じアスペクト比の解像度を探す
 
         Args:
@@ -228,7 +240,7 @@ class AutoCrop:
 
     @staticmethod
     def _get_slices(height: int, width: int) -> list[tuple[slice, slice]]:
-        """画像の特定の領域（上下左右および中央）をスライスで定義する"""
+        """画像の特定の領域(上下左右および中央)をスライスで定義する"""
         return [
             (slice(0, height // 20), slice(None)),  # top
             (slice(-height // 20, None), slice(None)),  # bottom
@@ -286,13 +298,21 @@ class AutoCrop:
         means, stds, edge_strengths = AutoCrop._calculate_region_statistics(gray_image, edges, slices)
 
         detected_borders = []
-        if AutoCrop._evaluate_edge(means, stds, edge_strengths, 0, 4, color_threshold, std_threshold, edge_threshold):
+        if AutoCrop._evaluate_edge(
+            means, stds, edge_strengths, 0, 4, color_threshold, std_threshold, edge_threshold
+        ):
             detected_borders.append("TOP")
-        if AutoCrop._evaluate_edge(means, stds, edge_strengths, 1, 4, color_threshold, std_threshold, edge_threshold):
+        if AutoCrop._evaluate_edge(
+            means, stds, edge_strengths, 1, 4, color_threshold, std_threshold, edge_threshold
+        ):
             detected_borders.append("BOTTOM")
-        if AutoCrop._evaluate_edge(means, stds, edge_strengths, 2, 4, color_threshold, std_threshold, edge_threshold):
+        if AutoCrop._evaluate_edge(
+            means, stds, edge_strengths, 2, 4, color_threshold, std_threshold, edge_threshold
+        ):
             detected_borders.append("LEFT")
-        if AutoCrop._evaluate_edge(means, stds, edge_strengths, 3, 4, color_threshold, std_threshold, edge_threshold):
+        if AutoCrop._evaluate_edge(
+            means, stds, edge_strengths, 3, 4, color_threshold, std_threshold, edge_threshold
+        ):
             detected_borders.append("RIGHT")
 
         if AutoCrop._detect_gradient(means, gradient_threshold):
@@ -300,7 +320,7 @@ class AutoCrop:
 
         return detected_borders
 
-    def _get_crop_area(self, np_image: np.ndarray) -> Optional[tuple[int, int, int, int]]:
+    def _get_crop_area(self, np_image: np.ndarray) -> tuple[int, int, int, int] | None:
         """
         クロップ領域を検出するためのメソッド。OpenCV を使ったエリア検出。
         """
@@ -319,9 +339,9 @@ class AutoCrop:
             # しきい値処理
             thresh = cv2.adaptiveThreshold(
                 blurred_diff,  # グレースケール化された差分画像を使う
-                255,  # 最大値（白）
-                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,  # 適応的しきい値の種類（ガウス法）
-                cv2.THRESH_BINARY,  # 2値化（白か黒）
+                255,  # 最大値(白)
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,  # 適応的しきい値の種類(ガウス法)
+                cv2.THRESH_BINARY,  # 2値化(白か黒)
                 11,  # ピクセル近傍のサイズ (奇数で指定)
                 2,  # 平均値または加重平均から減算する定数
             )
@@ -370,7 +390,7 @@ class AutoCrop:
             pil_image (Image.Image): 処理する PIL.Image オブジェクト
 
         Returns:
-            Image.Image: クロップされた（または元の）PIL.Image オブジェクト
+            Image.Image: クロップされた(または元の)PIL.Image オブジェクト
         """
         try:
             np_image = np.array(pil_image)
@@ -397,7 +417,10 @@ class AutoCrop:
 class Upscaler:
     # TODO: 暫定的なモデルパスとスケール値､もっと追加がしやすいようにする
     MODEL_PATHS: dict[str, tuple[Path, float]] = {
-        "RealESRGAN_x4plus": (Path(r"H:\StabilityMatrix-win-x64\Data\Models\RealESRGAN\RealESRGAN_x4plus.pth"), 4.0),
+        "RealESRGAN_x4plus": (
+            Path(r"H:\StabilityMatrix-win-x64\Data\Models\RealESRGAN\RealESRGAN_x4plus.pth"),
+            4.0,
+        ),
     }
 
     def __init__(self, model_name: str):
@@ -445,7 +468,9 @@ class Upscaler:
         img_tensor = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0).cuda()
         return img_tensor
 
-    def _convert_tensor_to_image(self, tensor: torch.Tensor, scale: float, original_size: tuple) -> Image.Image:
+    def _convert_tensor_to_image(
+        self, tensor: torch.Tensor, scale: float, original_size: tuple
+    ) -> Image.Image:
         output_np = tensor.squeeze().cpu().numpy().transpose(1, 2, 0)
         output_np = (output_np * 255).clip(0, 255).astype(np.uint8)
         output_image = Image.fromarray(output_np)

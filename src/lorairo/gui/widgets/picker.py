@@ -1,11 +1,10 @@
 from pathlib import Path
 
-from PySide6.QtWidgets import QWidget, QFileDialog
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QFileDialog, QWidget
 
-from ..designer.PickerWidget_ui import Ui_PickerWidget
-
-from utils.log import get_logger
+from ...gui.designer.PickerWidget_ui import Ui_PickerWidget
+from ...utils.log import get_logger
 
 
 class PickerWidget(QWidget, Ui_PickerWidget):
@@ -27,7 +26,9 @@ class PickerWidget(QWidget, Ui_PickerWidget):
         self.pushButtonPicker.setText(text)
 
     def select_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select File", "", "All Files (*);;Text Files (*.txt)")
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select File", "", "All Files (*);;Text Files (*.txt)"
+        )
         if file_path:
             self.lineEditPicker.setText(file_path)
             self.history.append(file_path)

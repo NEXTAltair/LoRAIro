@@ -1,20 +1,24 @@
 import sys
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication, QMainWindow, QStatusBar, QMessageBox
+from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QStatusBar
 
-from gui.designer.MainWindow_ui import Ui_MainWindow
-from gui.window.progress import ProgressWidget, Controller
-from utils.log import setup_logger, get_logger
-from utils.config import get_config
-from database.database import ImageDatabaseManager
-from storage.file_system import FileSystemManager
+from ...database.db_core import DefaultSessionLocal
+from ...database.db_manager import ImageDatabaseManager
+from ...database.db_repository import ImageRepository
+from ...gui.designer.MainWindow_ui import Ui_MainWindow
+from ...storage.file_system import FileSystemManager
+from ...utils.config import get_config
+from ...utils.log import get_logger, setup_logger
+from .progress import Controller, ProgressWidget
 
 
 class ConfigManager:
     _instance = None
     config = None
-    dataset_image_paths = None  # REVIEW: ここで保持するのは適切か？なぜこうしたかw擦れた理由をコメントで書く
+    dataset_image_paths = (
+        None  # REVIEW: ここで保持するのは適切か？なぜこうしたかw擦れた理由をコメントで書く
+    )
 
     def __new__(cls):
         if cls._instance is None:
@@ -48,8 +52,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.init_statusbar()
 
     def init_managers(self):
-        self.database_path = Path(self.cm.config["directories"]["database"])
-        self.idm = ImageDatabaseManager(self.database_path)
+        # DB_COREのデフォルトセッションファクトリを使用してImagerePositoryを作成します
+        image_repo = ImageRepository(session_factory=DefaultSessionLocal)
+        # ImageRepositoryインスタンスでImagedatabaseManagerを初期化します
+        self.idm = ImageDatabaseManager(image_repo)
 
         self.fsm = FileSystemManager()
         self.progress_widget = ProgressWidget()

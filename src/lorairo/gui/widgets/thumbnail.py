@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QPixmap, QColor, QPen
 from PySide6.QtCore import Qt, QSize, Signal, Slot, QRectF, QTimer
 
-from utils.log import get_logger
+from ...utils.log import get_logger
 
 from ..designer.ThumbnailSelectorWidget_ui import Ui_ThumbnailSelectorWidget
 
@@ -154,7 +154,9 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         """
 
         pixmap = QPixmap(str(image_path)).scaled(
-            self.thumbnail_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            self.thumbnail_size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
         )
         item = ThumbnailItem(pixmap, image_path, self)
         self.scene.addItem(item)

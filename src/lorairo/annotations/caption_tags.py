@@ -1,10 +1,9 @@
 import re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from utils.log import get_logger
-from annotations.api_utils import APIClientFactory, APIError
-from annotations.cleanup_txt import initialize_tag_cleaner
+from ..annotations.cleanup_txt import TagCleaner, initialize_tag_cleaner
+from ..utils.log import get_logger
 
 
 class ImageAnalyzer:
@@ -20,7 +19,7 @@ class ImageAnalyzer:
         self.logger = ImageAnalyzer.logger
         self.format_name = "unknown"
 
-    def initialize(self, api_client_factory: APIClientFactory, models_config: tuple[dict, dict]):
+    def initialize(self, models_config: tuple[dict, dict]):
         """
         ImageAnalyzerクラスのコンストラクタ。
 
@@ -28,11 +27,10 @@ class ImageAnalyzer:
             api_client_factory (APIClientFactory): API名とAPIクライアントの対応辞書
             models_config (tuple[dict, dict]): (vision_models, score_models) のタプル
         """
-        self.api_client_factory = api_client_factory
         self.vision_models, self.score_models = models_config
 
     @staticmethod
-    def get_existing_annotations(image_path: Path) -> Optional[dict[str, Any]]:
+    def get_existing_annotations(image_path: Path) -> dict[str, Any] | None:
         """
         画像の参照元ディレクトリから既存のタグとキャプションを取得。
         scoreとmodel_idはダミー値を設定。
@@ -68,7 +66,9 @@ class ImageAnalyzer:
                 existing_annotations["tags"] = [{"tag": tag, "model_id": None} for tag in tags]
             if caption_path.exists():
                 captions = ImageAnalyzer._read_annotations(caption_path)
-                existing_annotations["captions"] = [{"caption": caption, "model_id": None} for caption in captions]
+                existing_annotations["captions"] = [
+                    {"caption": caption, "model_id": None} for caption in captions
+                ]
 
             if not existing_annotations["tags"] and not existing_annotations["captions"]:
                 ImageAnalyzer.logger.info(f"既存アノテーション無し: {image_path}")
@@ -92,8 +92,6 @@ class ImageAnalyzer:
         Returns:
             list[str]: アノテーションのリスト
         """
-        from module.cleanup_txt import TagCleaner
-
         with open(file_path, "r", encoding="utf-8") as f:
             clean_data = TagCleaner.clean_format(f.read())
             items = clean_data.strip().split(",")
@@ -109,7 +107,7 @@ class ImageAnalyzer:
             tag_format (str): タグのフォーマット (オプション)
 
         Returns:
-            dict[str, Any]: 分析結果を含む辞書（タグ、キャプション)
+            dict[str, Any]: 分析結果を含む辞書(タグ、キャプション)
 
         Note:
             {
@@ -127,21 +125,15 @@ class ImageAnalyzer:
         try:
             model_name = self.vision_models.get(model_id, {}).get("name")
 
-            api_client, _ = self.api_client_factory.get_api_client(model_name)
-            if not api_client:
-                raise ValueError(f"'{model_name}' に対応するAPIクライアントが見つかりません。")
-
-            # APIクライアントの generate_caption メソッドを呼び出す
-            api_client.set_image_data(image_path)
-            tags_str = api_client.generate_caption(image_path, model_name)
+            # TODO: アノテーターライブラリを使うように変更｡ その時モデル名とモデルIDの対応付けについて考える
             analysis_result = self._process_response(image_path, tags_str, model_id)
             self.logger.debug(f"img: {image_path} model: {model_name} format: {format_name}")
             return analysis_result
-        except APIError as e:
-            self.logger.error(f"API処理中にエラーが発生しました（画像: {image_path}）: {e}")
-            return {"error": str(e), "image_path": str(image_path)}
+
         except Exception as e:
-            self.logger.error(f"アノテーション生成中に予期せぬエラーが発生しました（画像: {image_path}）: {e}")
+            self.logger.error(
+                f"アノテーション生成中に予期せぬエラーが発生しました(画像: {image_path}): {e}"
+            )
             return {"error": str(e), "image_path": str(image_path)}
 
     def _process_response(self, image_path: Path, tags_str: str, model_id: int) -> dict[str, Any]:
@@ -168,26 +160,27 @@ class ImageAnalyzer:
                 "image_path": str(image_path),
             }
         except Exception as e:
-            self.logger.error(f"レスポンス処理中にエラーが発生しました（画像: {image_path}）: {str(e)}")
+            self.logger.error(f"レスポンス処理中にエラーが発生しました(画像: {image_path}): {str(e)}")
             raise
 
-    def create_batch_request(self, image_path: Path, model_name: str) -> dict[str, Any]:
-        """単一の画像に対するバッチリクエストデータを生成します。
+    # TODO: アノテーターライブラリはバッチAPIには非対応なので対応方法を考える
+    # def create_batch_request(self, image_path: Path, model_name: str) -> dict[str, Any]:
+    #     """単一の画像に対するバッチリクエストデータを生成します。
 
-        Args:
-            image_path (Path): 処理済み画像のパス
-            model_name (str): 使用するモデル名
+    #     Args:
+    #         image_path (Path): 処理済み画像のパス
+    #         model_name (str): 使用するモデル名
 
-        Returns:
-            dict[str, Any]: バッチリクエスト用のデータ
-        """
-        api_client, api_provider = self.api_client_factory.get_api_client(model_name)
-        if not api_client:
-            raise ValueError(f"APIクライアント '{api_provider}' が見つかりません。")
+    #     Returns:
+    #         dict[str, Any]: バッチリクエスト用のデータ
+    #     """
+    #     api_client, api_provider = self.api_client_factory.get_api_client(model_name)
+    #     if not api_client:
+    #         raise ValueError(f"APIクライアント '{api_provider}' が見つかりません。")
 
-        api_client.set_image_data(image_path)
-        api_client.generate_payload(image_path, model_name)
-        return api_client.create_batch_request(image_path)
+    #     api_client.set_image_data(image_path)
+    #     api_client.generate_payload(image_path, model_name)
+    #     return api_client.create_batch_request(image_path)
 
     def _extract_tags_and_caption(self, content: str, image_key: str) -> tuple[str, str, float]:
         """
@@ -195,26 +188,30 @@ class ImageAnalyzer:
 
         Args:
             content (str): APIレスポンスの内容
-            image_key (str): 画像のキー（ファイルパス）
+            image_key (str): 画像のキー(ファイルパス)
 
         Returns:
             tuple[list[str], str]: 抽出されたタグのリストとキャプション
         """
         # content から : と , スペース以外の記号を削除
         content = re.sub(r"[^:,\da-zA-Z ]", "", content)
-        # content から 末尾の ， を削除
+        # content から 末尾の , を削除
         content = content.rstrip(" ,")
         tags_index = content.lower().find("tags:")
         caption_index = content.lower().find("caption:")
         score_index = content.lower().find("score:")
 
         if tags_index == -1 and caption_index == -1:
-            self.logger.error(f"画像 {image_key} の処理に失敗しました。タグまたはキャプションが見つかりません。")
+            self.logger.error(
+                f"画像 {image_key} の処理に失敗しました。タグまたはキャプションが見つかりません。"
+            )
             self.logger.error(f" APIからの応答: {content} ")
             return "", ""
 
         tags_text = content[tags_index + len("tags:") : caption_index].strip() if tags_index != -1 else ""
-        caption_text = content[caption_index + len("caption:") : score_index].strip() if caption_index != -1 else ""
+        caption_text = (
+            content[caption_index + len("caption:") : score_index].strip() if caption_index != -1 else ""
+        )
         score_text = content[score_index + len("score:") :].strip() if score_index != -1 else ""
         converted = score_text.replace(" ", "")
         converted = converted.replace(",", ".")
@@ -234,7 +231,7 @@ class ImageAnalyzer:
             processed_path (Path): 処理後の画像のパス
 
         Returns:
-            dict: 画像の分析結果（タグとキャプション）
+            dict: 画像の分析結果(タグとキャプション)
         """
         # processed_pathから custom_id を取得
         custom_id = processed_path.stem

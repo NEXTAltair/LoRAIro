@@ -1,16 +1,18 @@
+import json
+import math
 import os
+import shutil
+from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 from typing import Any
+
+import toml
 from PIL import Image, ImageCms
 
+from ..utils.log import get_logger
+
 Image.MAX_IMAGE_PIXELS = 1000000000  # クソデカファイルに対応､ローカルアプリななので攻撃の心配はない
-from io import BytesIO
-import math
-import json
-import toml
-import shutil
-from utils.log import get_logger
-from datetime import datetime
 
 
 class FileSystemManager:
@@ -88,7 +90,9 @@ class FileSystemManager:
             path.mkdir(parents=True, exist_ok=True)
             self.logger.debug("ディレクトリを作成: %s", path)
         except Exception as e:
-            self.logger.error("ディレクトリの作成に失敗: %s. FileSystemManager._create_directory: %s", path, str(e))
+            self.logger.error(
+                "ディレクトリの作成に失敗: %s. FileSystemManager._create_directory: %s", path, str(e)
+            )
             raise
 
     @staticmethod
@@ -169,7 +173,9 @@ class FileSystemManager:
             return len(files)
         except Exception as e:
             self.logger.error(
-                "シーケンス番号の取得に失敗: %s. FileSystemManager._get_next_sequence_number: %s", save_dir, str(e)
+                "シーケンス番号の取得に失敗: %s. FileSystemManager._get_next_sequence_number: %s",
+                save_dir,
+                str(e),
             )
             raise
 
@@ -198,7 +204,9 @@ class FileSystemManager:
             return output_path
         except Exception as e:
             self.logger.error(
-                "処理済み画像の保存に失敗: %s. FileSystemManager.save_original_image: %s", new_filename, str(e)
+                "処理済み画像の保存に失敗: %s. FileSystemManager.save_original_image: %s",
+                new_filename,
+                str(e),
             )
             raise
 
@@ -255,7 +263,9 @@ class FileSystemManager:
             self.logger.info("元画像を保存: %s", output_path)
             return output_path
         except Exception as e:
-            self.logger.error("元画像の保存に失敗: %s. FileSystemManager.save_original_image: %s", image_file, str(e))
+            self.logger.error(
+                "元画像の保存に失敗: %s. FileSystemManager.save_original_image: %s", image_file, str(e)
+            )
             raise
 
     def create_batch_request_file(self) -> Path:
