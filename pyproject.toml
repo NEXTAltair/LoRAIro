@@ -87,7 +87,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 exclude = [
-    "src/gui/designer/*",  # Qtデザイナが生成するコード
+    "*/gui/designer/*",  # Qtデザイナが生成するコード
     "*/__pycache__",
     "*/site-packages/*",
     "*.ipynb",             # Jupyter Notebookは除外

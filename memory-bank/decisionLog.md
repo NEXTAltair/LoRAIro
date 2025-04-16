@@ -29,3 +29,17 @@ This file records architectural and implementation decisions using a list format
 * [2025-04-14 12:05:10] - `lorairo` 内の `ImageAnalyzer`, `APIClientFactory` 等の関連コードを削除し、`image-annotator-lib` のインターフェースを呼び出すように変更
 * [2025-04-14 12:20:38] - `src/lorairo/database/database.py` を SQLAlchemy ベースのスキーマ定義とリポジトリクラスに置き換える
 * [2025-04-16 13:08:01] - SQLAlchemy 移行完了に伴い、関連するデータベースアクセスコードを更新。Alembicによるマイグレーションスクリプト (`src/lorairo/database/migrations/`) を作成・適用済み。
+
+* [2025-04-16 15:11:00] - ConfigManager のリファクタリング方針を決定 (docs/Plan/refactoring_plan.md 参照)
+
+## Decision
+
+* [2025-04-16 15:11:00] - `ConfigManager` の責務を動的なGUI設定状態の保持に限定し、クラス名を `AppSettings` 等に変更。`dataset_image_paths` を分離。インスタンス管理はシングルトン維持(案D)またはDI導入(案E)を検討。
+
+## Rationale
+
+* [2025-04-16 15:11:00] - `ConfigManager` の責務が曖昧で、設定値以外の状態 (`dataset_image_paths`) を保持しているため、責務分離の原則に反する。シングルトンパターンのテスト容易性の問題を解消するためDI導入も検討。
+
+## Implementation Details
+
+* [2025-04-16 15:11:00] - `ConfigManager` を改名し、`dataset_image_paths` 関連ロジックを削除。`dataset_image_paths` は `MainWindow` (案B) または `DatasetSelector` (案A) で管理。インスタンス管理方法 (案D or E) を選択し実装。設定保存メソッドを追加。詳細は `docs/Plan/refactoring_plan.md` のチェックリスト参照。

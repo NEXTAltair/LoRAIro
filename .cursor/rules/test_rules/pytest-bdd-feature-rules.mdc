@@ -1,13 +1,10 @@
 ---
-description: 
-globs: tests/**/*.feature
+description: featureファイルの書き方
+globs: "*.feature"
 alwaysApply: false
 ---
----
-description: BDD の原則に基づくテスト実装および実行ルール / Guidelines for BDD-based test implementation and execution
-globs: "*.feature"
-version: 2.7.1
----
+version: 2.9.1
+
 
 # BDD Feature ファイル ルールガイドライン
 

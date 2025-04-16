@@ -3,11 +3,9 @@ description:
 globs: 
 alwaysApply: true
 ---
----
-description: "Coding rules and development environment setup for Python projects"
-globs: "*.py", "*.feature", "*.md", "*.mdc", "*.toml"
-version: "3.1.0"
----
+
+version: "3.2.1"
+
 # コーディングルール (AI向け指示)
 
 AI はコードを生成・編集する際、以下のルールに**厳守**すること。
@@ -58,7 +56,7 @@ AI はコードを生成・編集する際、以下のルールに**厳守**す�
 
 - **単一責任の原則 (SRP):** 各クラス、関数、モジュールは、単一の明確な責任を持つように設計すること。
 - **責任分離:** 状態管理や特定の複雑な処理は、専用のクラスや関数に委譲することを検討すること。
-- **カプセル化:** クラスの内部実装への依存を避け、公開インターフェースを通じてのみ対話すること。（詳細は `.cursor/rules/encapsulation-rules.mdc` を参照）
+- **カプセル化:** クラスの内部実装への依存を避け、公開インターフェースを通じてのみ対話すること。（詳細は [encapsulation-rules.mdc](mdc:.cursor/rules/encapsulation-rules.mdc) を参照）
 
 ## 原則違反の通知
 
