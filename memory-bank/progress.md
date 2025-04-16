@@ -4,7 +4,6 @@ This file tracks the project's progress using a task list format.
 2025-04-14 02:59:54 - Log of updates made.
 
 * [2025-04-14 03:24:20] - decisionLog.md, systemPatterns.md への初期情報入力
-* [2025-04-14 03:24:20] - データベース構造の見直し
 * [2025-04-14 03:24:20] - 各モジュールのわかりやすい配置の再考
 
 ## Completed Tasks
@@ -16,6 +15,7 @@ This file tracks the project's progress using a task list format.
 * [2025-04-14 03:24:20] - Memory Bank コアファイルの作成
 * [2025-04-14 03:24:20] - productContext.md への初期情報入力
 * [2025-04-14 03:24:20] - activeContext.md への初期情報入力
+* [2025-04-16 12:57:44] - データベース層の SQLAlchemy 移行とスキーマ変更 (リファクタリング計画 Step 1)
 
 ## Current Tasks
 
@@ -24,3 +24,7 @@ This file tracks the project's progress using a task list format.
 ## Next Steps
 
 * [2025-04-14 11:06:48] - 今後の予定の詳細は `docs/Plan` ディレクトリを参照。
+* [2025-04-16 12:59:36] - AIアノテーション連携のリファクタリング (リファクタリング計画 Step 2)
+* [2025-04-16 12:59:36] - GUIとビジネスロジックの分離 (リファクタリング計画 Step 3)
+* [2025-04-16 12:59:36] - 状態管理の見直し (リファクタリング計画 Step 4)
+* [2025-04-16 12:59:36] - テスト戦略の策定と実装 (リファクタリング計画 Step 5)
