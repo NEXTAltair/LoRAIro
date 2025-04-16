@@ -340,34 +340,60 @@ class ImageDatabaseManager:
             raise
 
     def get_image_annotations(self, image_id: int) -> dict[str, list[dict[str, Any]]]:
-        """
-        指定された画像IDのアノテーション(タグ、キャプション、スコア、レーティング)を取得します。
-
-        Args:
-            image_id (int): アノテーションを取得する画像のID。
-
-        Returns:
-            dict[str, list[dict[str, Any]]]: アノテーションデータを含む辞書。
-                                            見つからない場合は空のリストを持つ辞書。
-        """
+        """指定された画像のアノテーション(タグ、キャプション、スコア、レーティング)を取得します。"""
         try:
-            annotations = self.repository.get_image_annotations(image_id)
-            if not any(annotations.values()):  # いずれのリストも空かチェック
-                self.logger.info(f"ID {image_id} の画像にアノテーションが見つかりません。")
-            return annotations
+            return self.repository.get_image_annotations(image_id)
         except Exception as e:
-            self.logger.error(f"画像アノテーション取得中にエラーが発生しました: {e}", exc_info=True)
-            # エラー時は空を返すか、例外を再raiseするか
-            # return {"tags": [], "captions": [], "scores": [], "ratings": []}
-            raise
+            self.logger.error(f"画像ID {image_id} のアノテーション取得中にエラー: {e}", exc_info=True)
+            return {"tags": [], "captions": [], "scores": [], "ratings": []}
 
-    def get_models(self, model_type: str | None = None) -> list[dict[str, Any]]:
-        """モデル情報を取得します。"""
+    def get_models(self) -> list[dict[str, Any]]:
+        """データベースに登録されている全てのモデル情報を取得します。"""
         try:
-            return self.repository.get_models(model_type)
+            return self.repository.get_models()
         except Exception as e:
-            self.logger.error(f"モデル情報の取得中にエラーが発生しました: {e}", exc_info=True)
-            raise
+            self.logger.error(f"全モデル情報の取得中にエラー: {e}", exc_info=True)
+            return []
+
+    def get_tagger_models(self) -> list[dict[str, Any]]:
+        """Taggerタイプのモデル情報を取得します。"""
+        try:
+            return self.repository.get_models_by_type("tagger")
+        except Exception as e:
+            self.logger.error(f"Taggerモデル情報の取得中にエラー: {e}", exc_info=True)
+            return []
+
+    def get_score_models(self) -> list[dict[str, Any]]:
+        """Scoreタイプのモデル情報を取得します。"""
+        try:
+            return self.repository.get_models_by_type("score")
+        except Exception as e:
+            self.logger.error(f"Scoreモデル情報の取得中にエラー: {e}", exc_info=True)
+            return []
+
+    def get_captioner_models(self) -> list[dict[str, Any]]:
+        """Captionerタイプのモデル情報を取得します。"""
+        try:
+            return self.repository.get_models_by_type("captioner")
+        except Exception as e:
+            self.logger.error(f"Captionerモデル情報の取得中にエラー: {e}", exc_info=True)
+            return []
+
+    def get_upscaler_models(self) -> list[dict[str, Any]]:
+        """Upscalerタイプのモデル情報を取得します。"""
+        try:
+            return self.repository.get_models_by_type("upscaler")
+        except Exception as e:
+            self.logger.error(f"Upscalerモデル情報の取得中にエラー: {e}", exc_info=True)
+            return []
+
+    def get_llm_models(self) -> list[dict[str, Any]]:
+        """LLMタイプのモデル情報を取得します。"""
+        try:
+            return self.repository.get_models_by_type("llm")
+        except Exception as e:
+            self.logger.error(f"LLMモデル情報の取得中にエラー: {e}", exc_info=True)
+            return []
 
     def get_images_by_filter(
         self,

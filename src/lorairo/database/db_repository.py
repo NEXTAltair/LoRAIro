@@ -1,16 +1,15 @@
 """DBリポジトリ"""
 
 import datetime
-from collections.abc import Callable, Generator
 from typing import Any, TypedDict, cast
 
 from sqlalchemy import Select, and_, exists, func, not_, or_, select, text, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, selectinload, sessionmaker
 
 from ..utils.log import get_logger
-from .db_core import DefaultSessionLocal, get_db_session, get_tag_db_path
-from .schema import Caption, Image, Model, ProcessedImage, Rating, Score, Tag
+from .db_core import DefaultSessionLocal, get_tag_db_path
+from .schema import Caption, Image, Model, ModelType, ProcessedImage, Rating, Score, Tag
 
 
 # --- データ構造の型定義 (例) ---
@@ -1191,27 +1190,75 @@ class ImageRepository:
 
     # --- Model Information Retrieval ---
 
-    def get_models(self, model_type: str | None = None) -> list[dict[str, Any]]:
+    def get_models(self) -> list[dict[str, Any]]:
         """
-        データベースに登録されているモデルの情報を取得します。
-        オプションでモデルタイプによるフィルタリングが可能です。
-
-        Args:
-            model_type (Optional[str]): フィルタリングするモデルのタイプ ('vision', 'score', 'upscaler' など)。
-                                        Noneの場合は全てのモデルを取得。
+        データベースに登録されている全てのモデルの情報を取得します。
+        各モデルに関連付けられたタイプ名も含まれます。
 
         Returns:
             list[dict[str, Any]]: モデル情報の辞書のリスト。
-                                    各辞書には 'id', 'name', 'type', 'provider' が含まれます。
+                各辞書には 'id', 'name', 'provider', 'discontinued_at',
+                'created_at', 'updated_at', 'model_types' (タイプ名のリスト) が含まれます。
 
         Raises:
             SQLAlchemyError: データベース操作中にエラーが発生した場合。
         """
         with self.session_factory() as session:
             try:
-                stmt = select(Model)
-                if model_type:
-                    stmt = stmt.where(Model.type == model_type)
+                stmt = (
+                    select(Model)
+                    .options(selectinload(Model.model_types))  # Eager load types
+                    .order_by(Model.name)  # 名前順でソート
+                )
+
+                models_result: list[Model] = list(session.execute(stmt).scalars().unique().all())
+
+                model_list = [
+                    {
+                        "id": model.id,
+                        "name": model.name,
+                        "provider": model.provider,
+                        "discontinued_at": model.discontinued_at,
+                        "created_at": model.created_at,
+                        "updated_at": model.updated_at,
+                        "model_types": sorted([mt.name for mt in model.model_types]),  # タイプ名のリスト
+                    }
+                    for model in models_result
+                ]
+
+                self.logger.info(f"全モデル情報を取得しました。 件数: {len(model_list)}")
+                return model_list
+
+            except SQLAlchemyError as e:
+                self.logger.error(f"全モデル情報の取得中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    def get_models_by_type(self, model_type_name: str) -> list[dict[str, Any]]:
+        """
+        指定されたタイプ名を持つモデルの情報を取得します。
+
+        Args:
+            model_type_name (str): フィルタリングするモデルのタイプ名 (例: 'tagger')。
+
+        Returns:
+            list[dict[str, Any]]: 条件に一致したモデル情報の辞書のリスト。
+                形式は get_models と同じです。
+
+        Raises:
+            SQLAlchemyError: データベース操作中にエラーが発生した場合。
+        """
+        from sqlalchemy.orm import selectinload
+
+        with self.session_factory() as session:
+            try:
+                stmt = (
+                    select(Model)
+                    .join(Model.model_types)
+                    .where(ModelType.name == model_type_name)
+                    .options(selectinload(Model.model_types))  # タイプ情報もロード
+                    .order_by(Model.name)
+                    .distinct()  # JOINによる重複を除去
+                )
 
                 models_result: list[Model] = list(session.execute(stmt).scalars().all())
 
@@ -1219,20 +1266,25 @@ class ImageRepository:
                     {
                         "id": model.id,
                         "name": model.name,
-                        "type": model.type,
                         "provider": model.provider,
-                        # created_at や updated_at も必要であれば追加
+                        "discontinued_at": model.discontinued_at,
+                        "created_at": model.created_at,
+                        "updated_at": model.updated_at,
+                        "model_types": sorted([mt.name for mt in model.model_types]),
                     }
                     for model in models_result
                 ]
 
                 self.logger.info(
-                    f"モデル情報を取得しました。タイプ: {model_type or 'All'}, 件数: {len(model_list)}"
+                    f"タイプ '{model_type_name}' のモデル情報を取得しました。 件数: {len(model_list)}"
                 )
                 return model_list
 
             except SQLAlchemyError as e:
-                self.logger.error(f"モデル情報の取得中にエラーが発生しました: {e}", exc_info=True)
+                self.logger.error(
+                    f"タイプ '{model_type_name}' のモデル情報取得中にエラーが発生しました: {e}",
+                    exc_info=True,
+                )
                 raise
 
     def get_image_id_by_name(self, image_name: str) -> int | None:

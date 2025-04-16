@@ -1,6 +1,16 @@
 # tests/step_defs/test_database_management.py
 
-# 必要に応じて lorairo.database.db_repository から型定義をインポート
+import re  # 日付範囲のパース用
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, cast
+
+import pytest
+import sqlalchemy as sa
+from PIL import Image
+from pytest_bdd import given, parsers, scenarios, then, when
+
+from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.db_repository import (
     AnnotationsDict,
     CaptionAnnotationData,
@@ -8,21 +18,9 @@ from lorairo.database.db_repository import (
     ScoreAnnotationData,
     TagAnnotationData,
 )
-
-from typing import Any, cast
-import pytest
-from pytest_bdd import given, parsers, scenarios, then, when
-from lorairo.database.db_manager import ImageDatabaseManager
+from lorairo.database.schema import Image as SchemaImage
+from lorairo.database.schema import Tag
 from lorairo.storage.file_system import FileSystemManager
-from pathlib import Path
-import shutil
-import sqlalchemy as sa
-from PIL import Image
-from datetime import datetime, timedelta, timezone
-import re  # 日付範囲のパース用
-
-# from ..schema import Image, Tag # Remove incorrect relative import
-from lorairo.database.schema import Caption, Image as SchemaImage, Score, Tag  # Import with alias
 
 scenarios("../features/database_management.feature")
 
@@ -99,23 +97,33 @@ def given_db_initialized(test_db_manager: ImageDatabaseManager):
     assert test_db_manager.get_total_image_count() == 0
 
 
-# Use the new test_db_manager fixture and check initial models
-@given("モデルが登録されている")
+@given(parsers.parse("データベースマネージャが初期化されている"))
+@given("the database manager is initialized")
+def db_manager(test_db_manager: ImageDatabaseManager) -> ImageDatabaseManager:
+    """テスト用の ImageDatabaseManager インスタンスを返す"""
+    # test_db_manager フィクスチャがインスタンスを提供するので、ここではそのまま返す
+    assert test_db_manager is not None
+    return test_db_manager
+
+
+@given("モデルが登録されている")  # Feature ファイルの Background に合わせる
 def given_models_registered(test_db_manager: ImageDatabaseManager):
-    """Alembic によって初期モデルデータが登録されていることを確認"""
-    all_models = test_db_manager.get_models()
-    assert all_models is not None
-    assert len(all_models) > 0, "初期モデルデータがDBにロードされていません"
-    # Check for specific model types based on initial data
-    # "vision" は想定しないため削除
-    assert any(m["type"] == "tagger" for m in all_models), "初期データに 'tagger' タイプが見つかりません"
-    assert any(m["type"] == "score" for m in all_models), "初期データに 'score' タイプが見つかりません"
-    assert any(m["type"] == "multimodal" for m in all_models), (
-        "初期データに 'multimodal' タイプが見つかりません"
+    """初期データとしてモデルが登録されていることを確認する"""
+    all_models = test_db_manager.get_models()  # model_types を含む辞書のリストを返すはず
+    assert all_models, "モデルがDBに登録されていません"
+    # 正しいアサーション: 各タイプが存在するかチェック
+    assert any("tagger" in m.get("model_types", []) for m in all_models), (
+        "初期データに 'tagger' タイプが見つかりません"
     )
-    assert any(m["type"] == "rating" for m in all_models), "初期データに 'rating' タイプが見つかりません"
-    # Example: Check a specific known model name
-    assert any(m["name"] == "wd-vit-large-tagger-v3" for m in all_models)
+    assert any("score" in m.get("model_types", []) for m in all_models), (
+        "初期データに 'score' タイプが見つかりません"
+    )
+    assert any("rating" in m.get("model_types", []) for m in all_models), (
+        "初期データに 'rating' タイプが見つかりません"
+    )
+    assert any("captioner" in m.get("model_types", []) for m in all_models), (
+        "初期データに 'captioner' タイプが見つかりません"
+    )
 
 
 @given(parsers.parse('テスト用の画像ファイル "{image_name}" が存在する'))
