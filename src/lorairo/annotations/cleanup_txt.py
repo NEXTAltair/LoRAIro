@@ -1,8 +1,7 @@
 import re
 from pathlib import Path
-from typing import Set
 
-from utils.log import get_logger
+from ..utils.log import get_logger
 
 HAIR_PATTERNS = {
     "length": re.compile(r"(long|short|medium) hair"),
@@ -188,7 +187,7 @@ class TagCleaner:
     def _clean_color_object(tags_dict: dict[int, str]) -> dict[int, str]:
         """white shirtとshirtみたいな重複タグの削除"""
         # 単語の出現を記録する辞書
-        word_tags: dict[str, Set[str]] = {}
+        word_tags: dict[str, set[str]] = {}
 
         # タグから単語を抽出し、単語が含まれるタグを記録
         for tag in tags_dict.values():

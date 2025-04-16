@@ -2,7 +2,7 @@ from PySide6.QtWidgets import QWidget, QFileDialog
 from PySide6.QtCore import Qt
 
 from ..designer.FilePickerWidget_ui import Ui_FilePickerWidget
-from utils.log import get_logger
+from ...utils.log import get_logger
 
 
 class FilePickerWidget(QWidget, Ui_FilePickerWidget):

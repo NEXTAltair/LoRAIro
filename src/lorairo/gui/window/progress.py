@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt, Signal, Slot, QThread, QObject
 
 from ..designer.ProgressWidget_ui import Ui_ProgressWidget
 
-from utils.log import get_logger
+from ...utils.log import get_logger
 
 
 class ProgressWidget(QDialog, Ui_ProgressWidget):

@@ -6,7 +6,7 @@ from superqt import QDoubleRangeSlider
 
 from ..designer.TagFilterWidget_ui import Ui_TagFilterWidget
 
-from utils.log import get_logger
+from ...utils.log import get_logger
 
 
 class CustomRangeSlider(QWidget):
@@ -170,12 +170,16 @@ class TagFilterWidget(QWidget, Ui_TagFilterWidget):
             split_resolution = 0
         filter_conditions = {
             "filter_type": (
-                self.filterTypeComboBox.currentText().lower() if self.filterTypeComboBox.isVisible() else None
+                self.filterTypeComboBox.currentText().lower()
+                if self.filterTypeComboBox.isVisible()
+                else None
             ),
             "filter_text": self.filterLineEdit.text(),
             "resolution": int(split_resolution[0]) if split_resolution else 0,
             "use_and": self.andRadioButton.isChecked() if self.andRadioButton.isVisible() else False,
-            "count_range": self.count_range_slider.get_range() if self.count_range_slider.isVisible() else None,
+            "count_range": self.count_range_slider.get_range()
+            if self.count_range_slider.isVisible()
+            else None,
             "include_untagged": self.noTagscheckBox.isChecked(),  # タグ情報がない画像を含めるかどうか
             "include_nsfw": self.NSFWcheckBox.isChecked(),  # NSFWコンテンツを含めるかどうか（デフォルトは除外）
         }

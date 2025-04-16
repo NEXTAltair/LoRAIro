@@ -3,7 +3,7 @@ from PySide6.QtCore import Slot
 
 from ..designer.SettingsWidget_ui import Ui_SettingsWidget
 
-from storage.file_system import FileSystemManager
+from ...storage.file_system import FileSystemManager
 
 
 class SettingsWidget(QWidget, Ui_SettingsWidget):
@@ -104,12 +104,18 @@ class SettingsWidget(QWidget, Ui_SettingsWidget):
 
     @Slot()
     def connect_custom_widgets(self):
-        self.dirPickerOutput.DirectoryPicker.lineEditPicker.textChanged.connect(self.on_dirPickerOutput_changed)
-        self.dirPickerResponse.DirectoryPicker.lineEditPicker.textChanged.connect(self.on_dirPickerResponse_changed)
+        self.dirPickerOutput.DirectoryPicker.lineEditPicker.textChanged.connect(
+            self.on_dirPickerOutput_changed
+        )
+        self.dirPickerResponse.DirectoryPicker.lineEditPicker.textChanged.connect(
+            self.on_dirPickerResponse_changed
+        )
         self.dirPickerEditedOutput.DirectoryPicker.lineEditPicker.textChanged.connect(
             self.on_dirPickerEditedOutput_changed
         )
-        self.filePickerLogFile.FilePicker.lineEditPicker.textChanged.connect(self.on_filePickerLogFile_changed)
+        self.filePickerLogFile.FilePicker.lineEditPicker.textChanged.connect(
+            self.on_filePickerLogFile_changed
+        )
 
     @Slot()
     def on_dirPickerOutput_changed(self, new_path):
