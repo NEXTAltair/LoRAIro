@@ -5,6 +5,7 @@ This file records architectural and implementation decisions using a list format
 
 * [2025-04-14 03:26:14] - `uv pip install` コマンド等で依存関係を管理
 * [2025-04-14 03:27:12] - ソースコードを `src` ディレクトリに配置
+* [2025-04-16 13:08:01] - データベース層の SQLAlchemy 移行とスキーマ変更が完了。今後の作業を進める際は、必ず `docs/specs` と `docs/Plan` ディレクトリに保存された仕様書および計画書を参照すること。
 
 ## Decision
 
@@ -27,3 +28,4 @@ This file records architectural and implementation decisions using a list format
 * [2025-04-14 11:15:03] - AIはファイル作成が必要な場合、ユーザーに依頼するメッセージを生成する
 * [2025-04-14 12:05:10] - `lorairo` 内の `ImageAnalyzer`, `APIClientFactory` 等の関連コードを削除し、`image-annotator-lib` のインターフェースを呼び出すように変更
 * [2025-04-14 12:20:38] - `src/lorairo/database/database.py` を SQLAlchemy ベースのスキーマ定義とリポジトリクラスに置き換える
+* [2025-04-16 13:08:01] - SQLAlchemy 移行完了に伴い、関連するデータベースアクセスコードを更新。Alembicによるマイグレーションスクリプト (`src/lorairo/database/migrations/`) を作成・適用済み。
