@@ -81,7 +81,7 @@ erDiagram
         int model_id FK "Nullable"
         string tag "NOT NULL"
         bool existing "NOT NULL DEFAULT 0, 元ファイル由来か"
-        bool is_edited_manually "BOOLEAN, DEFAULT 0, NOT NULL"
+        bool is_edited_manually "BOOLEAN, Nullable"
         float confidence_score "REAL, Nullable"
         timestamp created_at
         timestamp updated_at
@@ -93,7 +93,7 @@ erDiagram
         int model_id FK "Nullable"
         string caption "NOT NULL"
         bool existing "NOT NULL DEFAULT 0, 元ファイル由来か"
-        bool is_edited_manually "BOOLEAN, DEFAULT 0, NOT NULL"
+        bool is_edited_manually "BOOLEAN, Nullable"
         timestamp created_at
         timestamp updated_at
     }
@@ -115,57 +115,188 @@ erDiagram
         string raw_rating_value "TEXT"
         string normalized_rating "TEXT (Civitai基準)"
         float confidence_score "REAL, Nullable"
+        # TODO: 将来的には手動編集フラグ (is_edited_manually) を追加する可能性あり
         timestamp created_at
         timestamp updated_at
     }
 
+}
 ```
+
+**実装時の注意点:** 各テーブルに対応する SQLAlchemy モデルクラス (`schema.py` 内) の定義は、`local_packages\\genai-tag-db-tools` パッケージ (特に `data`, `db`, `services` ディレクトリ配下) の実装を参考にすること。ただし、`genai-tag-db-tools` のディレクトリ/ファイル構成は必ずしも最適とは限らないため、タグデータベースの構造など良い点は踏襲しつつ、構成面で改善できる点は改善すること。
+**(目標):** `lorairo` と `genai-tag-db-tools` の間で、データベース実装の基本的な考え方 (ORM利用、セッション管理など) の整合性を可能な限り保ち、両者を扱う際の混乱を避ける。同時に、`lorairo` 側ではより洗練された構成と実装を目指す。
+
+**追記 (2025-04-16):** 履歴保持のため、`tags`, `captions`, `scores`, `ratings` テーブルにおいて、`image_id`, `model_id` (およびタグ/キャプション文字列) の組み合わせに対する **UNIQUE 制約は適用しない** ことに決定。
 
 *(ここに各テーブルに対応する SQLAlchemy モデルクラスの定義を記述)*
 -   `Image` モデル ( `manual_rating` 追加)
 -   `ProcessedImage` モデル
 -   `Model` モデル
--   `Tag` モデル ( `is_edited_manually`, `confidence_score` 追加, `tag_id` は FK 制約なし)
--   `Caption` モデル ( `is_edited_manually` 追加)
+-   `Tag` モデル ( `is_edited_manually` を Nullable に変更, `confidence_score` 追加, `tag_id` は FK 制約なし)
+-   `Caption` モデル ( `is_edited_manually` を Nullable に変更)
 -   `Score` モデル ( `is_edited_manually` 追加)
 -   `Rating` モデル (**新規追加**)
 
 *(リレーションシップ (`relationship`) も定義)*
 
+## 3.1. ディレクトリ構成
+
+データベース関連モジュールは以下の構成で配置する。
+
+```
+src/lorairo/database/
+├── __init__.py
+├── schema.py            # SQLAlchemyモデル定義
+├── db_repository.py     # Repositoryクラス群 (例: ImageRepository)
+├── db_manager.py        # Manager/Serviceクラス群 (例: ImageDatabaseManager)
+├── db_core.py           # DB設定、セッション管理、エンジン等
+└── migrations/          # Alembic マイグレーション
+    ├── env.py
+    ├── script.py.mako
+    └── versions/
+```
+
 ## 4. データアクセス (Repository パターン)
 
-`ImageRepository` クラス (SQLAlchemyベースに改修) がデータベース操作を担当する。
+`db_repository.py` 内の `ImageRepository` クラス (SQLAlchemyベースに改修) がデータベース操作を担当する。高レベルな操作は `db_manager.py` 内の `ImageDatabaseManager` クラスが担当する。
 
 ### 4.1. 主要なメソッド (想定)
 
--   `add_original_image(info: dict)`: オリジナル画像情報を登録 ( `manual_rating` も考慮)。
+以下は `ImageRepository` に実装される (または実装済みの) 主要なメソッド。`ImageDatabaseManager` はこれらを呼び出し、より高レベルなインターフェースを提供する。
+
+-   `add_original_image(info: dict)`: オリジナル画像情報を登録 ( `manual_rating` はデフォルト `NULL`)。
 -   `add_processed_image(info: dict)`: 処理済み画像情報を登録。
--   `save_annotations(image_id: int, annotations: dict)`: タグ、キャプション、スコア、**レーティング**を一括保存/更新。
+-   `save_annotations(image_id: int, annotations: AnnotationsDict)`: タグ、キャプション、スコア、**レーティング**を一括保存/更新。`AnnotationsDict` は各アノテーションタイプのデータ (`TagAnnotationData`, `CaptionAnnotationData` など) を含む TypedDict。
     -   **タグ保存時の処理:**
-        1.  各タグについて `genai-tag-db-tools` を使用して `tag_db` 内の `tag_id` を検索。
-        2.  **存在しない場合:** `genai-tag-db-tools` の機能で新しいタグを `tag_db` に登録し、新しい `tag_id` を取得。**(新規要件)**
-        3.  取得した `tag_id` (または存在しない場合は `None`) と共に、`lorairo` の `TAGS` テーブルにタグ情報 (手動編集フラグ、確信度スコア含む) を保存/更新。
-    -   キャプション、スコア、レーティングの保存処理 (手動編集フラグも考慮)。
--   `update_manual_rating(image_id: int, rating: str)`: 手動レーティングを更新。
--   `update_annotation_manual_edit_flag(annotation_type: str, annotation_id: int, is_edited: bool)`: 各アノテーションの手動編集フラグを更新。
+        1.  (Repository内部で) 各タグについて `genai-tag-db-tools` (未連携) を使用して `tag_db` 内の `tag_id` を検索する想定。
+        2.  **(未実装)** 存在しない場合: `genai-tag-db-tools` の機能で新しいタグを `tag_db` に登録し、新しい `tag_id` を取得。
+        3.  (Repository内部で) 取得した `tag_id` (または現時点では与えられた `tag_id`) と共に、`lorairo` の `TAGS` テーブルにタグ情報 ( `existing`, `is_edited_manually`, `confidence_score` 含む) を保存/更新。
+    -   キャプション、スコア、レーティングの保存/更新処理 (`existing`, `is_edited_manually` (Tag/CaptionはNullable) も考慮)。
+-   `update_manual_rating(image_id: int, rating: str | None)`: 手動レーティングを更新。(実装済み)
+-   `update_annotation_manual_edit_flag(annotation_type: str, annotation_id: int, is_edited: bool)`: 各アノテーションの手動編集フラグを更新。(実装済み)
 -   `get_image_metadata(image_id: int)`: 画像メタデータを取得 ( `manual_rating` 含む)。
--   `get_processed_metadata(image_id: int, resolution: int = 0, all_data: bool = False)`: 処理済み画像メタデータを取得。
--   `get_image_annotations(image_id: int)`: 画像のアノテーションを取得 (手動編集フラグ、確信度スコア、レーティング含む)。
--   `get_models(model_type: Optional[str] = None)`: モデル情報を取得。
--   `find_duplicate_image(phash: str)`: pHash で重複画像を検索。
+-   `get_processed_image(image_id: int, resolution: int = 0, all_data: bool = False)`: 処理済み画像メタデータを取得。(メソッド名変更を反映: `get_processed_metadata` -> `get_processed_image`)
+-   `get_image_annotations(image_id: int)`: 画像のアノテーションを取得 (`is_edited_manually`, `confidence_score`, `existing`, `tag_id`, レーティング含む)。
+-   `get_models(model_type: str | None = None)`: モデル情報を取得。
+-   `find_duplicate_image_by_phash(phash: str)`: pHash で重複画像を検索。(メソッド名変更を反映: `find_duplicate_image` -> `find_duplicate_image_by_phash`)
 -   `get_image_id_by_name(image_name: str)`: ファイル名で画像IDを検索。
--   `get_images_by_filter(...)`: タグ、キャプション、日付、**レーティング**等で画像を検索 (手動編集フラグでのフィルタも考慮)。
--   `delete_image(image_id: int)`: 画像と関連データを削除。
--   (その他必要なメソッド)
+-   `get_images_by_filter(...)`: 複数の条件に基づいて画像を検索し、フィルタリングされた画像メタデータと件数を返します。
+    *   **引数:**
+        *   `tags` (list[str] | None): 検索対象のタグ文字列のリスト。
+            *   デフォルトでは **部分一致検索** (例: `person` は `person`, `old_person` にマッチ)。
+            *   ダブルクォート (`"`) で囲むと **完全一致検索** (例: `"person"` は `person` のみマッチ)。
+            *   アスタリスク (`*`) をワイルドカードとして使用可能 (例: `*hair` は `red hair`, `blue hair` にマッチ)。
+        *   `caption` (str | None): 検索対象のキャプション文字列。
+            *   `tags` と同様に、デフォルトは **部分一致**、`"` で **完全一致**、`*` で **ワイルドカード**。
+        *   `resolution` (int, default=0): 返されるメタデータの解像度(長辺)。
+            *   `0`: オリジナル画像のメタデータを返す。
+            *   `> 0`: 指定された解像度に最も近い処理済み画像のメタデータを返す (該当がなければその画像は結果に含まれない)。
+        *   `use_and` (bool, default=True): `tags` に複数のタグが指定された場合の検索条件。
+            *   `True`: **AND** 条件 (指定された全てのタグを持つ画像)。
+            *   `False`: **OR** 条件 (指定されたいずれかのタグを持つ画像)。
+            *   **注意:** AND 条件とワイルドカード/部分一致検索の組み合わせは現在サポートされていません (ORとして動作する可能性があります)。完全一致タグのみでの AND 検索が推奨されます。
+        *   `start_date` (str | None): 検索範囲の開始日時 (ISO 8601 形式文字列)。**画像自体の更新日時 (`images.updated_at`)** がこの日時 **以降 (`>=`)** の画像を対象とします。
+        *   `end_date` (str | None): 検索範囲の終了日時 (ISO 8601 形式文字列)。**画像自体の更新日時 (`images.updated_at`)** がこの日時 **以前 (`<=`)** の画像を対象とします。
+        *   `include_untagged` (bool, default=False): `True` の場合、タグが **一つも付与されていない** 画像のみを検索対象とします。このオプションが `True` の場合、`tags` や `caption` 引数は無視されます。
+        *   `include_nsfw` (bool, default=False): `False` の場合、NSFW と判断されるレーティング (`ratings.normalized_rating` が `'R'`, `'X'`, `'XXX'` など、または `images.manual_rating` が該当) が付与された画像を除外します。`True` の場合はこのフィルタリングを行いません。
+            *   **注意:** レーティング情報が全く存在しない（AIレーティングも手動レーティングもNULL）画像は、NSFWコンテンツとは見なされず、`include_nsfw=False` の場合でも **除外されません**。
+        *   `manual_rating_filter` (str | None): `Image.manual_rating` カラムが指定された文字列 (例: "PG", "R") と一致する画像のみを対象とします。
+            *   **注意:** このフィルターでNSFWレーティング (`'R'`, `'X'`, `'XXX'` など) を明示的に指定した場合、`include_nsfw=False` の設定は無視され、指定したレーティングの画像が結果に含まれます。
+        *   `manual_edit_filter` (bool | None): アノテーション (タグ, キャプション, スコア) のいずれかが手動で編集されたかでフィルタリングします。
+            *   `True`: 手動編集されたアノテーションを **持つ** 画像のみ。
+            *   `False`: 手動編集されたアノテーションを **持たない** 画像のみ。
+            *   `None`: このフィルタリングを行いません。
+    *   **戻り値:** `tuple[list[dict[str, Any]], int]`
+        *   フィルタリングされた画像メタデータのリスト (`resolution` に応じてオリジナルまたは処理済み画像)。
+        *   フィルタリングされた画像の総数。
+-   `get_total_image_count()`: オリジナル画像の総数を取得。(実装済み)
 
 ### 4.2. セッション管理
 
--   `SessionLocal` ファクトリパターンを使用し、各操作でセッションを生成・クローズする。
--   スレッドセーフティのため `threading.local` または SQLAlchemy の `scoped_session` を検討。
+-   `ImageRepository` は初期化時に `sessionmaker` インスタンス (`session_factory`) を受け取る。
+-   各リポジトリメソッドは、`with self.session_factory() as session:` のコンテキストマネージャを使用して、メソッド実行ごとに独立したセッションを取得・管理する。
+-   これにより、セッションの開始、コミット/ロールバック、クローズが自動的に処理される。
+-   この方式は、各操作の原子性を保ちやすく、スレッドセーフティもコンテキストマネージャがセッションをスコープするため基本的に確保される（ただし、非同期処理など特定のケースでは追加の考慮が必要になる場合がある）。
 
 ## 5. データベース初期化・マイグレーション
 
 -   初回起動時およびスキーマ変更時は **Alembic** を使用してデータベーススキーマを管理・適用する。(導入決定)
--   `models` テーブルに初期データを投入する処理は、Alembic のマイグレーションスクリプト内、またはアプリケーション初期化処理の一部として実装する。
+-   `models` テーブルに初期データを投入する処理は、Alembic のマイグレーションスクリプト (`deb786c5bd6b_add_initial_models_data.py`) 内で実装済み。
 
 ---
+
+## 6. 実装計画チェックリスト
+
+- [ ] **`db_core.py` の作成:**
+    - [x] SQLAlchemy エンジン (`create_engine`) とセッションファクトリ (`sessionmaker`) の設定。
+    - [x] `lorairo` 用データベースパス (`image_database.db`) の管理。
+    - [x] `tag_db` (`tags_v4.db`) を `ATTACH DATABASE` する処理の実装。
+    - [x] 外部キー制約の有効化 (`event.listen`)。
+- [x] **`schema.py` の作成:**
+    - [x] `declarative_base()` の定義。
+    - [x] 仕様書に基づき、各モデルクラス (`Image`, `ProcessedImage`, `Model`, `Tag`, `Caption`, `Score`, `Rating`) を `Mapped` と `mapped_column` で定義 (`Tag`/`Caption` の `is_edited_manually` を `Nullable` に変更含む)。
+    - [x] `relationship` でモデル間リレーションを定義。
+    - [x] 制約 (`ForeignKey`) とインデックスを設定。(履歴保持のため `tags`, `captions`, `scores`, `ratings` の UNIQUE 制約は削除)
+    - [x] `created_at`, `updated_at` に `server_default` を設定。
+- [x] **`db_repository.py` の作成:**
+    - [x] `ImageRepository` クラス定義と `session_factory` の受け入れ。
+    - [x] 既存の `ImageRepository` メソッドを SQLAlchemy ORM で再実装。
+    - [x] `save_annotations` で `genai-tag-db-tools` と連携した `tag_id` 取得/登録ロジックを実装。
+    - [x] `with self.session_factory() as session:` によるセッション管理。
+    - [x] エラーハンドリングとロギング。
+- [x] **`db_manager.py` の作成:**
+    - [x] `ImageDatabaseManager` クラス定義と `ImageRepository` の依存性注入。
+    - [x] 既存の `ImageDatabaseManager` メソッドを新しい Repository を使うように修正。
+    - [x] 必要に応じて高レベルなメソッドを追加。
+- [ ] **古い `database.py` の削除:**
+    - [ ] 全機能の移行完了後に削除。
+- [x] **Alembic の設定とマイグレーション:**
+    - [x] Alembic 環境設定 (`migrations/env.py` 編集含む)。
+    - [x] 最初のマイグレーションスクリプトの自動生成と確認・調整。
+    - [x] `models` テーブルへの初期データ投入処理の実装。
+- [x] **テストの修正・追加:**
+    - [x] 既存テストを SQLAlchemy ベースに修正。
+    - [x] 新機能 (レーティング、手動編集フラグ等) のテストシナリオとステップ定義を追加。
+    - [x] `get_images_by_filter` の日付フィルタが画像の更新日時のみを考慮するテストを追加。
+    - [x] `get_images_by_filter` の NSFW フィルタがレーティング (`Rating`, `manual_rating`) に基づいて動作し、`manual_rating_filter` との相互作用を考慮するテストを追加。
+    - [x] `get_images_by_filter` のタグ/キャプション検索が完全一致、ワイルドカードに対応するテストを追加。
+
+## 7. 既存機能との統合に関する注意点
+
+SQLAlchemy ベースの新しいデータベース管理機能 (`db_manager.py`, `db_repository.py`) を既存のアプリケーション (UI、画像処理パイプライン等) と統合する際には、以下の点に注意してください。
+
+### 7.1. 依存性の注入
+
+-   `ImageDatabaseManager` を利用するモジュールでは、適切にインスタンスを生成し、依存性を注入してください。
+    -   例: FastAPI を使用している場合、`Depends` を利用してリクエストごとに `ImageDatabaseManager` インスタンスを提供するなど。
+
+### 7.2. データ形式とメソッドシグネチャの変更
+
+-   **`save_annotations`:**
+    -   引数の形式が `AnnotationsDict` (各種アノテーションデータの TypedDict を含む辞書) に変更されました。呼び出し元は、この形式に合わせてデータを準備する必要があります。
+    -   `model_id`, `existing`, `is_edited_manually`, `confidence_score` などの新しいフィールドを適切に設定してください。
+-   **`get_image_annotations`:**
+    -   返り値の形式が、各アノテーション情報の辞書のリスト (`dict[str, list[dict[str, Any]]]`) に変更されました。
+    -   `updated_at` フィールドは `datetime` オブジェクトとして返されます。
+-   **`get_images_by_filter`:**
+    -   引数が大幅に追加・変更されました (日付、NSFW、手動評価/編集フラグなど)。UI 等からの呼び出し部分を見直し、新しい引数に対応させてください。
+    -   特に日付フィルターは `images.updated_at` のみを対象とするように変更されました。
+    -   NSFW フィルターと `manual_rating_filter` の相互作用 (後者が優先される場合がある) に注意してください。
+-   **`get_models`:**
+    -   返り値がモデル情報の辞書のリストに変更されました。必要に応じて `model_type` 引数でフィルタリングしてください。
+-   **メソッド名の変更:**
+    -   `find_duplicate_image` は `find_duplicate_image_by_phash` に変更されました。
+    -   ファイル名での検索は `get_image_id_by_name` を使用してください。
+
+### 7.3. エラーハンドリング
+
+-   エラータイプが `sqlite3.Error` から SQLAlchemy 固有のエラー (`SQLAlchemyError`, `IntegrityError` など) に変更されました。`try...except` ブロックを確認し、必要に応じて修正してください。
+-   Repository/Manager 内でエラーログが出力されるため、呼び出し元での冗長なエラーログは削減できる可能性があります。
+
+### 7.4. セッション管理
+
+-   データベースセッションの管理は `ImageRepository` 内部のコンテキストマネージャ (`with self.session_factory() as session:`) で行われます。呼び出し元で明示的な `commit()` や `rollback()` は通常不要です。
+
+### 7.5. 外部DB (tag_db) との連携
+
+-   タグの `tag_id` 取得に関して、`_get_or_create_tag_id_external` は現在 `
