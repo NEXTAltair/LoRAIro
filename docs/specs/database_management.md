@@ -156,9 +156,32 @@ src/lorairo/database/
     └── versions/
 ```
 
+## 3.2. 設定ファイル (`config.toml`) との連携
+
+- データベースディレクトリ (`directories.database`)
+- 画像データベースファイル名 (`database.image_db_filename`)
+- タグデータベースのパッケージ名 (`database.tag_db_package`)
+- タグデータベースのファイル名 (`database.tag_db_filename`)
+
+これらの設定は `src/lorairo/utils/config.py` を通じて読み込まれ、 `src/lorairo/database/db_core.py` でデータベース接続URLの構築やタグDBのアタッチに使用されます。デフォルト値は `config.py` で定義されています。
+
 ## 4. データアクセス (Repository パターン)
 
 `db_repository.py` 内の `ImageRepository` クラス (SQLAlchemyベースに改修) がデータベース操作を担当する。高レベルな操作は `db_manager.py` 内の `ImageDatabaseManager` クラスが担当する。
+
+**`ImageDatabaseManager` の初期化:**
+`ImageDatabaseManager` は、以前のようにデータベースパスを直接受け取るのではなく、`ImageRepository` のインスタンスを受け取って初期化されるように変更されました。
+`ImageRepository` は `db_core.py` で定義された `sessionmaker` (`DefaultSessionLocal`) を使用してインスタンス化されます。
+
+```python
+# 例: main_window.py での初期化
+from ...database.db_core import DefaultSessionLocal
+from ...database.repository.image_repository import ImageRepository
+from ...database.db_manager import ImageDatabaseManager
+
+image_repo = ImageRepository(session_factory=DefaultSessionLocal)
+self.idm = ImageDatabaseManager(image_repo)
+```
 
 ### 4.1. 主要なメソッド (想定)
 
@@ -230,6 +253,7 @@ src/lorairo/database/
 - [ ] **`db_core.py` の作成:**
     - [x] SQLAlchemy エンジン (`create_engine`) とセッションファクトリ (`sessionmaker`) の設定。
     - [x] `lorairo` 用データベースパス (`image_database.db`) の管理。
+    - [x] 設定ファイル (`config.toml`) からデータベースパスやタグDB情報を読み込むように修正。
     - [x] `tag_db` (`tags_v4.db`) を `ATTACH DATABASE` する処理の実装。
     - [x] 外部キー制約の有効化 (`event.listen`)。
 - [x] **`schema.py` の作成:**
@@ -244,8 +268,9 @@ src/lorairo/database/
     - [x] `save_annotations` で `genai-tag-db-tools` と連携した `tag_id` 取得/登録ロジックを実装。
     - [x] `with self.session_factory() as session:` によるセッション管理。
     - [x] エラーハンドリングとロギング。
-- [x] **`db_manager.py` の作成:**
+- [ ] **`db_manager.py` の作成:**
     - [x] `ImageDatabaseManager` クラス定義と `ImageRepository` の依存性注入。
+    - [x] `ImageDatabaseManager` の初期化方法を `ImageRepository` を受け取るように変更。
     - [x] 既存の `ImageDatabaseManager` メソッドを新しい Repository を使うように修正。
     - [x] 必要に応じて高レベルなメソッドを追加。
 - [ ] **古い `database.py` の削除:**
