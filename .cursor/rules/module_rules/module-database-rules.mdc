@@ -1,0 +1,118 @@
+---
+description: lorairo データベース層 設計指針（SQLAlchemyパターン）@src\lorairo\database
+globs: "**/database/*"
+alwaysApply: false
+---
+version: "1.0.0"
+# lorairo データベース層 設計指針（SQLAlchemyパターン）
+
+仕様 [database_management.md](mdc:docs/specs/database_management.md)
+計画 [database_schema_plan.md](mdc:docs/Plan/database_schema_plan.md)
+
+## 1. 設計思想・全体方針
+- 疎結合・単一責任・テスト容易性を最優先。
+- SQLAlchemy ORMを標準とし、直接SQL文の埋め込みは原則禁止（外部DB参照等の例外は明記）。
+- 依存性注入（DI）やモック化を前提とした設計。
+
+## 2. レイヤー構成と責務
+- **ドメイン層** [schema.py](mdc:src/lorairo/database/schema.py) : データ構造・リレーションのみ定義。ビジネスロジックは持たない。
+- **Repository層** [db_repository.py](mdc:src/lorairo/database/db_repository.py) : DBアクセス・永続化・検索ロジックのみ担当。セッション管理はwith構文で。
+- **Manager層** [db_manager.py](mdc:src/lorairo/database/db_manager.py) : ユースケース単位の集約ロジック。Repositoryのメソッドを組み合わせて提供。
+- **外部DB連携**: 外部DB（tag_db等）はATTACHで参照のみ。書き込みは専用サービス経由で行う。
+
+## 3. コーディング規約・パターン
+- セッション管理は必ず`with self.session_factory() as session:`で行う。
+- 例外処理はcatchしてロギング後、必要に応じて再送出。呼び出し元での冗長なcatchは避ける。
+- DTO/TypedDictでデータ受け渡しを明確化し、dictのまま渡すのは避ける。
+- 外部DB参照はRepository内部でラップし、呼び出し元は意識しない。
+
+## 4. 拡張・変更時のルール
+- 新しいアノテーション種別追加時は、schema/Repository/Manager/テストをセットで追加。
+- DBスキーマ変更は必ずAlembicマイグレーションで管理し、手動でのALTERは禁止。
+- 依存性注入を徹底し、テスト時はモック/スタブを利用可能にする。
+
+## 5. テスト・品質保証
+- Repository層はユニットテスト必須。DB操作はテスト用DBで検証。
+- 主要ユースケース（画像登録、アノテーション保存、検索等）は結合テストを用意。
+- テストカバレッジはプロジェクト方針で数値目標を決定。
+
+## 6. 参考資料・アンチパターン
+- genai-tag-db-toolsの設計を参考にするが、密結合・コピペ実装は避ける。
+- Fat Manager/Repository（肥大化したクラス）はNG。責務が増えたら分割を検討。
+
+---
+
+## 典型的な設計パターン例
+
+### セッション管理（Repository内）
+
+```python
+class ImageRepository:
+    def __init__(self, session_factory):
+        self.session_factory = session_factory
+
+    def add_original_image(self, info: dict) -> int:
+        with self.session_factory() as session:
+            # DB操作
+            session.add(...)
+            session.commit()
+```
+
+### DTO/TypedDictによるデータ受け渡し
+
+```python
+class TagAnnotationData(TypedDict):
+    tag: str
+    model_id: int | None
+    confidence_score: float | None
+    existing: bool
+    is_edited_manually: bool | None
+    tag_id: int | None
+```
+
+### 外部DB参照のラップ
+
+```python
+def _get_or_create_tag_id_external(self, session, tag_string: str) -> int | None:
+    stmt = text("SELECT tag_id FROM tag_db.TAGS WHERE tag = :tag_name")
+    return session.execute(stmt, {"tag_name": tag_string}).scalar_one_or_none()
+```
+
+---
+
+## Mermaid図（レイヤー構成イメージ）
+
+```mermaid
+flowchart TD
+    GUI[GUI層]
+    Service[アプリケーション/サービス層<br>（ImageDatabaseManager等）]
+    Repo[Repository層<br>（ImageRepository等）]
+    Schema[ドメイン層<br>（SQLAlchemyモデル）]
+    DB[(DB/外部DB)]
+
+    GUI --> Service
+    Service --> Repo
+    Repo --> Schema
+    Schema --> DB
+    Repo -.->|ATTACH/参照| DB
+```
+
+---
+
+## アンチパターン例
+
+- Fat Manager/Repository（肥大化したクラス）
+- 直接SQL文を多用する（ORMの利点を損なう）
+- セッションをグローバルに使い回す
+- 例外を握りつぶしてロギングしない
+- テスト不能な密結合設計
+
+---
+
+## 運用・拡張時の注意
+
+- AlembicマイグレーションでDBスキーマを一元管理
+- 新機能追加時は必ずテスト・ドキュメントもセットで
+- 既存コードの責務が増えたら分割・リファクタリングを検討
+
+```

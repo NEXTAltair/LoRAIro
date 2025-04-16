@@ -1,13 +1,9 @@
 ---
-description: 
+description: 基本的なテストのルール
 globs: tests/**/*
 alwaysApply: false
 ---
----
-description: 
-globs: test_*.py,*.feature,conftest.py
-alwaysApply: false
----
+
 # テスト方針
 
 ## 基本方針
@@ -38,4 +34,4 @@ alwaysApply: false
 
 - `uv pytest` コマンドで実行する
 - コマンドオプションは必要に応じて使い分ける
-- カバレッジの測定結果は `XML` として出力する
+- カバレッジの測定結果は @coverage.xml として出力する

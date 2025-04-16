@@ -58,6 +58,45 @@
     -   あるいは、明確なデータフロー（例: `MainWindow` が保持し、各ページに渡す）を定義する。
     -   `ImageTaggerWidget` の `all_results` のような大きな状態保持について、メモリ効率を考慮した代替案（例: 処理結果を都度DBに書き込む、必要なデータのみ保持するなど）を検討。
 
+### 3.4.1. ConfigManager の役割明確化とリファクタリング (2024-05-24 修正)
+
+-   **役割:** `ConfigManager` は、`utils.config.get_config()` で読み込まれた初期設定をベースとし、GUI操作によって動的に変更されるアプリケーション設定の状態を保持・管理する役割を担う。これにより、アプリケーション全体で最新の設定値を共有する。
+-   **課題:**
+    -   `ConfigManager` がシングルトンパターンで実装されているが、これが最適か、依存性注入 (DI) の方がテスト容易性などの観点から望ましいか検討の余地がある。
+    -   `dataset_image_paths` という、設定値とは性質の異なる状態を `ConfigManager` が保持している。これは責務分離の原則に反する可能性がある。
+    -   クラス名 `ConfigManager` が、ファイルからの読み込み処理（`load_config_from_file`）も含むため、実態（動的な状態保持）との間に若干の齟齬がある。
+-   **リファクタリング案:**
+    1.  **`ConfigManager` の責務明確化:**
+        -   クラス名を `AppSettings` や `GuiConfigState` など、動的な状態保持の役割をより明確に示す名前に変更することを検討。
+        -   初期化時に `get_config()` から設定を読み込み、内部状態 (`self.config` など) として保持する。
+        -   GUI (`SettingsWidget` など) からの設定変更を受け付け、内部状態を更新するメソッド (`update_setting(key, value)` など) を提供する。
+        -   `load_config_from_file` 静的メソッドは削除または `__init__` 内での呼び出しに限定する。
+    2.  **`dataset_image_paths` の分離:**
+        -   `ConfigManager` (または改名後のクラス) から `dataset_image_paths` 関連の属性とロジックを削除する。
+        -   `dataset_image_paths` の管理責任を、より適切なコンポーネントに移譲する。
+            -   **案A:** データセット選択UI (`DatasetSelector`) がパスの変更を検知し、その状態 (選択されたパスと対応する画像ファイルリスト) を保持する。`MainWindow` が `DatasetSelector` から情報を取得し、必要に応じて各ページウィジェットに渡すか、シグナルで通知する。
+            -   **案B:** `MainWindow` が `current_dataset_path` と `current_dataset_image_paths` を属性として保持し、`dataset_dir_changed` シグナルで更新する。各ページウィジェットは `MainWindow` インスタンス経由でこれらの情報にアクセスする。 (こちらの方が MainWindow の責務として自然かもしれない)
+            -   **案C (将来検討):** アプリケーション全体の状態管理クラス (`AppState` など) を導入し、そこで一元管理する。
+    3.  **インスタンス管理方法の見直し:**
+        -   **案D (シングルトン維持):** 現在の実装を維持するが、インスタンスへのアクセス方法を明確にする (例: `AppSettings.get_instance()` のようなクラスメソッド経由)。
+        -   **案E (DI導入):** シングルトンを廃止する。`MainWindow` が `AppSettings` (改名後のクラス) のインスタンスを生成・保持し、`initialize` メソッドなどを通じて必要なウィジェットに注入 (DI) する。これにより、各コンポーネントの依存関係が明確になり、ユニットテストが容易になる。
+-   **チェックリスト:**
+    -   [ ] `ConfigManager` のクラス名を役割に合わせて変更する (例: `AppSettings`)。
+    -   [ ] クラスの docstring を更新し、責務 (動的な設定状態管理) を明確化する。
+    -   [ ] `ConfigManager` (改名後) から `dataset_image_paths` 関連のコードを削除する。
+    -   [ ] `dataset_image_paths` の管理・更新ロジックを選択した案 (A or B) に基づいて実装し、`MainWindow` や関連ウィジェットを修正する。
+    -   [ ] `ConfigManager` (改名後) のインスタンス管理方法を選択する (案D or E)。
+    -   [ ] (案Eの場合) `MainWindow` でインスタンスを生成し、DI を行うように `initialize` メソッド等を修正する。
+    -   [ ] (案Eの場合) 各ページウィジェットが DI されたインスタンスを使用するように修正する。
+    -   [ ] `ConfigManager` (改名後) の初期化処理を修正し、`get_config()` の結果を内部状態として保持するようにする (`load_config_from_file` は不要になる可能性)。
+    -   [ ] `SettingsWidget` などで設定変更時に `ConfigManager` (改名後) の状態を更新する処理を実装する。
+    -   [ ] 他のウィジェットが必要な設定値を `ConfigManager` (改名後) から取得するように修正する。
+    -   [ ] データセットディレクトリ変更時に、関連するページウィジェットの表示が正しく更新されることを確認する (分離後の実装)。
+    -   [ ] `ConfigManager` (改名後) に設定をファイルに保存するメソッド (例: `save_settings()`) を追加する。内部で `utils.config.write_config_file` と `DEFAULT_CONFIG_PATH` を使用する。
+    -   [ ] `SettingsWidget` の保存ボタンクリック時の処理 (`on_buttonSave_clicked`) を修正し、`FileSystemManager` の代わりに `ConfigManager` (改名後) の `save_settings()` メソッドを呼び出すように変更する。ハードコードされたファイル名を削除する。
+    -   [ ] (もしあれば) 関連するテストコードを修正する。
+    -   [ ] 関連ドキュメント (`gui_interface.md`, `configuration_management.md` など) を更新する。
+
 ### 3.5. テスト戦略の策定と実装
 
 -   **目的:** リファクタリング後のコード品質を保証し、今後の開発を容易にするためのテストを導入する。

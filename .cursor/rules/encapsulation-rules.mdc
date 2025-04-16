@@ -3,11 +3,7 @@ description:
 globs: 
 alwaysApply: true
 ---
----
-description: "カプセル化と適切なプロパティアクセスに関するルール"
-globs: "*.py"
-version: "1.1.0"
----
+version: "1.2.0"
 
 # カプセル化ルール (AI向け指示)
 

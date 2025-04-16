@@ -20,6 +20,7 @@ This file tracks the project's progress using a task list format.
 ## Current Tasks
 
 * [2025-04-14 03:24:20] - ドキュメント系ファイルの整備 (progress.md への初期情報入力含む)
+* [2025-04-16 15:12:30] - 設定管理 (`ConfigManager`) のリファクタリング計画策定 (docs/Plan/refactoring_plan.md 参照)
 
 ## Next Steps
 

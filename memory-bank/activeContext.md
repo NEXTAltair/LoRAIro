@@ -9,6 +9,7 @@ This file tracks the project's current status, including recent changes, current
 ## Current Focus
 
 * [2025-04-14 12:05:10] - AIアノテーション機能の `image-annotator-lib` への委譲に伴うリファクタリング計画とインターフェース仕様策定
+* [2025-04-16 15:12:00] - 設定管理 (`ConfigManager`) のリファクタリング計画策定 (docs/Plan/refactoring_plan.md 参照)
 
 ## Recent Changes
 

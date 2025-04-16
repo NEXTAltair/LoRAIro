@@ -3,11 +3,7 @@ description:
 globs: 
 alwaysApply: true
 ---
----
-description:
-globs: "*.py", "*.feature", "*.md", "*.mdc", "*.toml"
-version: "3.1.0"
----
+version: "3.1.1"
 
 # プロジェクト・ドキュメンテーションルール (AI 向け指示)
 
