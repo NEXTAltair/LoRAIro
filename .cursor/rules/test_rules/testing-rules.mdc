@@ -1,4 +1,9 @@
 ---
+description: 
+globs: tests/**/*
+alwaysApply: false
+---
+---
 description: 基本的なテストのルール
 globs: tests/**/*
 alwaysApply: false

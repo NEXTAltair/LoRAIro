@@ -117,7 +117,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         # タイマーをリセットし、250ミリ秒後にupdate_thumbnail_layoutを呼び出す
         self.resize_timer.start(250)
 
-    @Slot(list)
+    @Slot(list)  # TODO: 画像が多すぎる場合の対処を考える
     def load_images(self, image_paths: list[Path]):
         """
         画像のリストをウィジェットにロードし、サムネイルとして表示します。
@@ -243,8 +243,9 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 if __name__ == "__main__":
     import sys
 
-    from module.log import setup_logger
     from PySide6.QtWidgets import QApplication
+
+    from ...utils.log import setup_logger
 
     logconf = {"level": "DEBUG", "file": "ThumbnailSelectorWidget.log"}
     setup_logger(logconf)

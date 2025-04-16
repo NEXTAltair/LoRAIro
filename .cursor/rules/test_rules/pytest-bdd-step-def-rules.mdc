@@ -1,5 +1,10 @@
 ---
 description: sstep_defの書き方
+globs: 
+alwaysApply: false
+---
+---
+description: sstep_defの書き方
 globs: "**/step_def/**/test_*.py"
 alwaysApply: false
 ---

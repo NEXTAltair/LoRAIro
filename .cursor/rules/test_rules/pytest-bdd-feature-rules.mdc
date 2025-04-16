@@ -1,9 +1,14 @@
 ---
 description: featureファイルの書き方
+globs: 
+alwaysApply: false
+---
+---
+description: featureファイルの書き方
 globs: "*.feature"
 alwaysApply: false
 ---
-version: 2.9.1
+version: 3.0.0
 
 
 # BDD Feature ファイル ルールガイドライン
