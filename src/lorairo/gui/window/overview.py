@@ -86,12 +86,15 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
             return
 
         # idとpathの対応だけを取り出す
-        self.image_path_id_map = {
-            item["image_id"]: Path(item["stored_image_path"]) for item in filtered_image_metadata
+        self.image_metadata_map = {
+            item["id"]: {"path": Path(item["stored_image_path"]), "metadata": item}
+            for item in filtered_image_metadata
         }
 
         # サムネイルセレクターを更新
-        self.update_thumbnail_selector(list(self.image_path_id_map.values()))
+        self.update_thumbnail_selector(
+            [Path(item["stored_image_path"]) for item in filtered_image_metadata]
+        )
 
     @Slot(Path)
     def update_preview(self, image_path: Path):

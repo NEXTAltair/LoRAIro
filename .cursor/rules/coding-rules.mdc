@@ -3,7 +3,6 @@ description:
 globs: 
 alwaysApply: true
 ---
-
 version: "3.2.1"
 
 # コーディングルール (AI向け指示)
