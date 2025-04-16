@@ -8,7 +8,7 @@ from ...annotations.caption_tags import ImageAnalyzer
 from ...database.db_manager import ImageDatabaseManager
 from ...editor.image_processor import ImageProcessingManager
 from ...storage.file_system import FileSystemManager
-from ...utils.log import get_logger
+from ...utils.log import logger
 from ..designer.ImageEditWidget_ui import Ui_ImageEditWidget
 
 
@@ -17,7 +17,6 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.logger = get_logger("ImageEditWidget")
         self.setupUi(self)
         self.main_window = None
         self.cm = None
@@ -52,7 +51,7 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         self.preferred_resolutions = self.cm.config["preferred_resolutions"]
         self.upscaler = None
         self.comboBoxResizeOption.currentText()
-        upscalers = [upscaler["name"] for upscaler in self.cm.upscaler_models.values()]
+        upscalers = [upscaler["name"] for upscaler in self.cm.upscaler_models]
         self.comboBoxUpscaler.addItems(upscalers)
 
         header = self.tableWidgetImageList.horizontalHeader()
@@ -137,7 +136,7 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         resolution = int(selected_option.split("x")[0])
         self.target_resolution = resolution
         self.cm.config["image_processing"]["target_resolution"] = resolution
-        self.logger.debug(f"目標解像度の変更: {resolution}")
+        logger.debug(f"目標解像度の変更: {resolution}")
 
     @Slot()
     def on_comboBoxUpscaler_currentIndexChanged(self):
@@ -145,7 +144,7 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         selected_option = self.comboBoxUpscaler.currentText()
         self.upscaler = selected_option
         self.cm.config["image_processing"]["upscaler"] = selected_option
-        self.logger.debug(f"アップスケーラーの変更: {selected_option}")
+        logger.debug(f"アップスケーラーの変更: {selected_option}")
 
     @Slot()
     def on_pushButtonStartProcess_clicked(self):
@@ -156,15 +155,15 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
             else:
                 self.main_window.some_long_process(self.process_all_images)
         except Exception as e:
-            self.logger.error(f"画像処理中にエラーが発生しました: {str(e)}")
+            logger.error(f"画像処理中にエラーが発生しました: {str(e)}")
             QMessageBox.critical(self, "エラー", f"処理中にエラーが発生しました: {str(e)}")
 
     def process_all_images(self, progress_callback=None, status_callback=None, is_canceled=None):
         try:
-            self.logger.debug("画像処理開始")  # Add debug log
+            logger.debug("画像処理開始")  # Add debug log
             total_images = len(self.directory_images)
             for index, image_path in enumerate(self.directory_images):
-                self.logger.debug(f"画像処理: {index + 1}/{total_images}")  # Add debug log
+                logger.debug(f"画像処理: {index + 1}/{total_images}")  # Add debug log
                 if is_canceled and is_canceled():
                     break
                 self.process_image(image_path)
@@ -174,7 +173,7 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
                 if status_callback:
                     status_callback(f"画像 {index + 1}/{total_images} を処理中")
         except Exception as e:
-            self.logger.error(f"画像処理中にエラーが発生しました: {str(e)}")
+            logger.error(f"画像処理中にエラーが発生しました: {str(e)}")
             raise e
 
     def process_image(self, image_file: Path):
@@ -190,14 +189,14 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
                 tag = tag_dict["tag"].strip()
                 word_count = len(tag_dict["tag"].split())
                 if word_count > 5:
-                    self.logger.info(f"5単語を超えた {tag} は作品名でないか検索します。")
+                    logger.info(f"5単語を超えた {tag} は作品名でないか検索します。")
                     tag_id = self.idm.get_tag_id_in_tag_database(tag)
                     if not tag_id:
-                        self.logger.info("作品名が見つかりませんでした。キャプションとして処理します。")
+                        logger.info("作品名が見つかりませんでした。キャプションとして処理します。")
                         existing_annotations["tags"].remove(tag_dict)
                         existing_annotations["captions"].append({"caption": tag, "model_id": None})
                     else:
-                        self.logger.info(f"作品名が見つかりました: {tag}")
+                        logger.info(f"作品名が見つかりました: {tag}")
             self.idm.save_annotations(image_id, existing_annotations)
         else:
             self.idm.save_annotations(image_id, {"tags": [], "captions": []})
@@ -215,13 +214,13 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         if processed_image:
             self.handle_processing_result(processed_image, image_file, image_id)
         else:
-            self.logger.warning(f"画像処理スキップ: {image_file}")
+            logger.warning(f"画像処理スキップ: {image_file}")
 
     def handle_processing_result(self, processed_image, image_file, image_id):
         processed_path = self.fsm.save_processed_image(processed_image, image_file)
         processed_metadata = self.fsm.get_image_info(processed_path)
         self.idm.register_processed_image(image_id, processed_path, processed_metadata)
-        self.logger.info(f"画像処理完了: {image_file} -> {processed_path}")
+        logger.info(f"画像処理完了: {image_file} -> {processed_path}")
 
 
 if __name__ == "__main__":

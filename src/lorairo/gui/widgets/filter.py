@@ -6,7 +6,7 @@ from superqt import QDoubleRangeSlider
 
 from ..designer.TagFilterWidget_ui import Ui_TagFilterWidget
 
-from ...utils.log import get_logger
+from ...utils.log import logger
 
 
 class CustomRangeSlider(QWidget):
@@ -144,7 +144,6 @@ class TagFilterWidget(QWidget, Ui_TagFilterWidget):
     """
 
     def __init__(self, parent=None):
-        self.logger = get_logger(__class__.__name__)
         super().__init__(parent)
         self.setupUi(self)
         self.setup_slider()
@@ -183,15 +182,17 @@ class TagFilterWidget(QWidget, Ui_TagFilterWidget):
             "include_untagged": self.noTagscheckBox.isChecked(),  # タグ情報がない画像を含めるかどうか
             "include_nsfw": self.NSFWcheckBox.isChecked(),  # NSFWコンテンツを含めるかどうか（デフォルトは除外）
         }
-        self.logger.debug(f"Filter conditions: {filter_conditions}")
+        logger.debug(f"Filter conditions: {filter_conditions}")
         self.filterApplied.emit(filter_conditions)
 
 
 if __name__ == "__main__":
-    from PySide6.QtWidgets import QApplication
-    from module.config import get_config
-    from module.log import setup_logger
     import sys
+
+    from PySide6.QtWidgets import QApplication
+
+    from ...utils.config import get_config
+    from ...utils.log import setup_logger
 
     app = QApplication(sys.argv)
     config = get_config()

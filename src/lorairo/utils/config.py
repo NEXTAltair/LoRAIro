@@ -32,7 +32,7 @@ DEFAULT_CONFIG = {
         "tag_db_package": "genai_tag_db_tools.data",  # タグDBのインポート元パッケージ名
         "tag_db_filename": "tags_v4.db",  # タグDBのファイル名
     },
-    "log": {"level": "INFO", "file_path": DEFAULT_LOG_PATH},
+    "log": {"level": "INFO", "file_path": str(DEFAULT_LOG_PATH), "rotation": "25 MB", "levels": {}},
 }
 
 

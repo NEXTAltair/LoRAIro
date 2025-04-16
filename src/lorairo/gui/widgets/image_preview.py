@@ -4,13 +4,12 @@ from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtWidgets import QGraphicsScene, QSizePolicy, QWidget
 
-from ...utils.log import get_logger
+from ...utils.log import logger
 from ..designer.ImagePreviewWidget_ui import Ui_ImagePreviewWidget
 
 
 class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
     def __init__(self, parent=None):
-        self.logger = get_logger("ImagePreviewWidget")
         super().__init__(parent)
         self.setupUi(self)
 
@@ -40,7 +39,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
 
         # サイズ調整処理を遅延
         QTimer.singleShot(0, self._adjust_view_size)
-        self.logger.debug(f"{image_path.name} を プレビュー領域に表示")
+        logger.debug(f"{image_path.name} を プレビュー領域に表示")
 
     def _adjust_view_size(self):
         # graphicsView のサイズポリシーを一時的に Ignored に設定

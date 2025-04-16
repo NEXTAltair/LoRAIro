@@ -7,7 +7,7 @@ from sqlalchemy import Select, and_, exists, func, not_, or_, select, text, upda
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 
-from ..utils.log import get_logger
+from ..utils.log import logger
 from .db_core import DefaultSessionLocal, get_tag_db_path
 from .schema import Caption, Image, Model, ModelType, ProcessedImage, Rating, Score, Tag
 
@@ -65,9 +65,8 @@ class ImageRepository:
                                                     デフォルトはdb_core.SessionLocalを使用。
                                                     テスト時にモック化可能。
         """
-        self.logger = get_logger(__name__)
         self.session_factory = session_factory
-        self.logger.info("ImageRepository initialized.")
+        logger.info("ImageRepository initialized.")
         self.tag_db_path = get_tag_db_path()
 
     def _get_model_id(self, model_name: str) -> int | None:
@@ -85,10 +84,10 @@ class ImageRepository:
                 stmt = select(Model.id).where(Model.name == model_name)
                 result = session.execute(stmt).scalar_one_or_none()
                 if result is None:
-                    self.logger.warning(f"モデル名 '{model_name}' がデータベースに見つかりません。")
+                    logger.warning(f"モデル名 '{model_name}' がデータベースに見つかりません。")
                 return result
             except SQLAlchemyError as e:
-                self.logger.error(f"モデルIDの取得中にエラーが発生しました: {e}", exc_info=True)
+                logger.error(f"モデルIDの取得中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
     def _image_exists(self, image_id: int) -> bool:
@@ -108,7 +107,7 @@ class ImageRepository:
                 result = session.execute(stmt).scalar_one_or_none()
                 return result is not None
             except SQLAlchemyError as e:
-                self.logger.error(
+                logger.error(
                     f"画像存在チェック中にエラーが発生しました (ID: {image_id}): {e}", exc_info=True
                 )
                 raise
@@ -132,10 +131,10 @@ class ImageRepository:
                 stmt_id = select(Image.id).where(Image.phash == phash).limit(1)
                 image_id = session.execute(stmt_id).scalar_one_or_none()
                 if image_id:
-                    self.logger.info(f"pHashによる重複画像が見つかりました: ID {image_id}, pHash {phash}")
+                    logger.info(f"pHashによる重複画像が見つかりました: ID {image_id}, pHash {phash}")
                 return image_id
             except SQLAlchemyError as e:
-                self.logger.error(f"pHashによる重複画像の検索中にエラーが発生しました: {e}", exc_info=True)
+                logger.error(f"pHashによる重複画像の検索中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
     def add_original_image(self, info: dict[str, Any]) -> int:
@@ -177,7 +176,7 @@ class ImageRepository:
         # pHashで重複チェック
         existing_id = self.find_duplicate_image_by_phash(phash)
         if existing_id is not None:
-            self.logger.warning(f"pHashが一致する画像が既に存在します: ID {existing_id} (pHash: {phash})")
+            logger.warning(f"pHashが一致する画像が既に存在します: ID {existing_id} (pHash: {phash})")
             return existing_id
 
         # 新しい Image オブジェクトを作成
@@ -205,18 +204,18 @@ class ImageRepository:
                 session.flush()  # ID を取得するために flush
                 image_id = new_image.id
                 session.commit()  # コミットは flush 後でもOK
-                self.logger.info(f"オリジナル画像をDBに追加しました: ID={image_id}, UUID={new_image.uuid}")
+                logger.info(f"オリジナル画像をDBに追加しました: ID={image_id}, UUID={new_image.uuid}")
                 return image_id
             except IntegrityError as e:
                 # uuid の UNIQUE 制約違反など
                 session.rollback()
-                self.logger.error(f"オリジナル画像の追加中に整合性エラーが発生しました: {e}", exc_info=True)
+                logger.error(f"オリジナル画像の追加中に整合性エラーが発生しました: {e}", exc_info=True)
                 # uuid重複の場合、既存IDを探して返すか、あるいは単にエラーとするか?
                 # ここではエラーを再発生させる
                 raise
             except SQLAlchemyError as e:
                 session.rollback()
-                self.logger.error(
+                logger.error(
                     f"オリジナル画像の追加中にデータベースエラーが発生しました: {e}", exc_info=True
                 )
                 raise
@@ -251,7 +250,7 @@ class ImageRepository:
                 existing_id = session.execute(stmt).scalar_one_or_none()
                 return existing_id
             except SQLAlchemyError as e:
-                self.logger.error(f"既存の処理済み画像ID検索中にエラー: {e}", exc_info=True)
+                logger.error(f"既存の処理済み画像ID検索中にエラー: {e}", exc_info=True)
                 # この検索自体が失敗した場合は None を返すか、エラーを再発生させるか検討
                 return None  # ここでは None を返す
 
@@ -307,14 +306,12 @@ class ImageRepository:
                 session.flush()  # ID を取得するために flush
                 processed_image_id = new_processed_image.id
                 session.commit()
-                self.logger.info(
-                    f"処理済み画像をDBに追加しました: ID={processed_image_id}, 親画像ID={image_id}"
-                )
+                logger.info(f"処理済み画像をDBに追加しました: ID={processed_image_id}, 親画像ID={image_id}")
                 return processed_image_id
             except IntegrityError:
                 # UNIQUE 制約違反 (image_id, width, height, filename)
                 session.rollback()
-                self.logger.warning(
+                logger.warning(
                     f"処理済み画像の追加中に整合性エラーが発生しました。"
                     f" (おそらく重複: image_id={image_id}, width={width}, height={height}, filename={filename})."
                     f" 既存のIDを検索します。"
@@ -322,17 +319,17 @@ class ImageRepository:
                 # 既存のIDを検索して返す
                 existing_id = self._find_existing_processed_image_id(image_id, width, height, filename)
                 if existing_id:
-                    self.logger.info(f"既存の処理済み画像IDが見つかりました: {existing_id}")
+                    logger.info(f"既存の処理済み画像IDが見つかりました: {existing_id}")
                 else:
                     # 通常ここには来ないはずだが、もし検索でも見つからなければ警告
-                    self.logger.error(
+                    logger.error(
                         f"整合性エラー後、既存の処理済み画像が見つかりませんでした。"
                         f" 条件: image_id={image_id}, width={width}, height={height}, filename={filename}"
                     )
                 return existing_id  # None の可能性もある
             except SQLAlchemyError as e:
                 session.rollback()
-                self.logger.error(
+                logger.error(
                     f"処理済み画像の追加中に予期せぬデータベースエラーが発生しました: {e}", exc_info=True
                 )
                 raise  # IntegrityError 以外の DB エラーは再発生させる
@@ -370,11 +367,11 @@ class ImageRepository:
                     self._save_ratings(session, image_id, annotations["ratings"])
 
                 session.commit()
-                self.logger.info(f"画像ID {image_id} のアノテーションを保存・更新しました。")
+                logger.info(f"画像ID {image_id} のアノテーションを保存・更新しました。")
 
             except SQLAlchemyError as e:
                 session.rollback()
-                self.logger.error(
+                logger.error(
                     f"画像ID {image_id} のアノテーション保存中にエラーが発生しました: {e}", exc_info=True
                 )
                 raise
@@ -398,33 +395,31 @@ class ImageRepository:
             SQLAlchemyError: データベース検索中にエラーが発生した場合。
         """
 
-        self.logger.debug(f"Searching for tag_id in tag_db for tag: '{tag_string}'")
+        logger.debug(f"Searching for tag_id in tag_db for tag: '{tag_string}'")
         try:
             # tag_db.TAGS テーブルを検索
             stmt = text("SELECT tag_id FROM tag_db.TAGS WHERE tag = :tag_name")
             result = session.execute(stmt, {"tag_name": tag_string}).scalar_one_or_none()
 
             if result:
-                self.logger.debug(f"Found tag_id {result} for tag '{tag_string}' in tag_db.")
+                logger.debug(f"Found tag_id {result} for tag '{tag_string}' in tag_db.")
                 return result
             else:
                 # 見つからなかった場合 (新規作成はここでは行わない)
-                self.logger.info(
+                logger.info(
                     f"Tag '{tag_string}' not found in tag_db. Returning None. (Registration should be handled elsewhere)"
                 )
                 return None
 
         except SQLAlchemyError as e:
-            self.logger.error(
-                f"Error searching tag_id in tag_db for tag '{tag_string}': {e}", exc_info=True
-            )
+            logger.error(f"Error searching tag_id in tag_db for tag '{tag_string}': {e}", exc_info=True)
             # エラー発生時も None を返す (呼び出し元で処理を継続できるように)
             # 必要であれば raise するように変更も可能
             return None
 
     def _save_tags(self, session: Session, image_id: int, tags_data: list[TagAnnotationData]):
         """タグ情報を保存・更新 (Upsert)"""
-        self.logger.debug(f"Saving/Updating {len(tags_data)} tags for image_id {image_id}")
+        logger.debug(f"Saving/Updating {len(tags_data)} tags for image_id {image_id}")
 
         # 既存のタグを image_id と tag 文字列で取得 (効率化のため)
         existing_tags_stmt = select(Tag).where(Tag.image_id == image_id)
@@ -446,14 +441,14 @@ class ImageRepository:
 
             if existing_record:
                 # 更新
-                self.logger.debug(f"Updating existing tag: id={existing_record.id}, tag='{tag_string}'")
+                logger.debug(f"Updating existing tag: id={existing_record.id}, tag='{tag_string}'")
                 existing_record.tag_id = external_tag_id
                 existing_record.confidence_score = confidence
                 existing_record.existing = is_existing_tag
                 existing_record.is_edited_manually = cast(bool | None, tag_info.get("is_edited_manually"))
             else:
                 # 新規作成
-                self.logger.debug(f"Adding new tag: tag='{tag_string}'")
+                logger.debug(f"Adding new tag: tag='{tag_string}'")
                 new_tag = Tag(
                     image_id=image_id,
                     model_id=model_id,
@@ -470,7 +465,7 @@ class ImageRepository:
 
     def _save_captions(self, session: Session, image_id: int, captions_data: list[CaptionAnnotationData]):
         """キャプション情報を保存・更新 (Upsert)"""
-        self.logger.debug(f"Saving/Updating {len(captions_data)} captions for image_id {image_id}")
+        logger.debug(f"Saving/Updating {len(captions_data)} captions for image_id {image_id}")
 
         # 既存キャプションを image_id で取得
         existing_captions_stmt = select(Caption).where(Caption.image_id == image_id)
@@ -487,14 +482,14 @@ class ImageRepository:
 
             if existing_record:
                 # 更新
-                self.logger.debug(f"Updating existing caption: id={existing_record.id}")
+                logger.debug(f"Updating existing caption: id={existing_record.id}")
                 existing_record.existing = is_existing_caption
                 existing_record.is_edited_manually = cast(
                     bool | None, caption_info.get("is_edited_manually")
                 )  # 渡された値を使用 (Nullable)
             else:
                 # 新規作成
-                self.logger.debug(f"Adding new caption: caption='{caption_string[:20]}...'")
+                logger.debug(f"Adding new caption: caption='{caption_string[:20]}...'")
                 new_caption = Caption(
                     image_id=image_id,
                     model_id=model_id,
@@ -509,7 +504,7 @@ class ImageRepository:
 
     def _save_scores(self, session: Session, image_id: int, scores_data: list[ScoreAnnotationData]):
         """スコア情報を保存・更新 (Upsert)"""
-        self.logger.debug(f"Saving/Updating {len(scores_data)} scores for image_id {image_id}")
+        logger.debug(f"Saving/Updating {len(scores_data)} scores for image_id {image_id}")
 
         # 既存スコアを image_id で取得
         existing_scores_stmt = select(Score).where(Score.image_id == image_id)
@@ -528,12 +523,12 @@ class ImageRepository:
 
             if existing_record:
                 # 更新
-                self.logger.debug(f"Updating existing score: id={existing_record.id}")
+                logger.debug(f"Updating existing score: id={existing_record.id}")
                 existing_record.score = score_value
                 existing_record.is_edited_manually = is_edited  # 渡された値を使用
             else:
                 # 新規作成
-                self.logger.debug(f"Adding new score: model_id={model_id}, score={score_value}")
+                logger.debug(f"Adding new score: model_id={model_id}, score={score_value}")
                 new_score = Score(
                     image_id=image_id,
                     model_id=model_id,
@@ -545,7 +540,7 @@ class ImageRepository:
 
     def _save_ratings(self, session: Session, image_id: int, ratings_data: list[RatingAnnotationData]):
         """レーティング情報を保存・更新 (Upsert)"""
-        self.logger.debug(f"Saving/Updating {len(ratings_data)} ratings for image_id {image_id}")
+        logger.debug(f"Saving/Updating {len(ratings_data)} ratings for image_id {image_id}")
 
         # 既存レーティングを image_id で取得
         existing_ratings_stmt = select(Rating).where(Rating.image_id == image_id)
@@ -563,14 +558,14 @@ class ImageRepository:
 
             if existing_record:
                 # 更新
-                self.logger.debug(f"Updating existing rating: id={existing_record.id}")
+                logger.debug(f"Updating existing rating: id={existing_record.id}")
                 existing_record.raw_rating_value = raw_value
                 existing_record.normalized_rating = norm_value
                 existing_record.confidence_score = confidence
                 # Rating には is_edited_manually はない
             else:
                 # 新規作成
-                self.logger.debug(f"Adding new rating: model_id={model_id}, rating={norm_value}")
+                logger.debug(f"Adding new rating: model_id={model_id}, rating={norm_value}")
                 new_rating = Rating(
                     image_id=image_id,
                     model_id=model_id,
@@ -601,18 +596,18 @@ class ImageRepository:
                 # 主キー検索には session.get が効率的
                 image: Image | None = session.get(Image, image_id)
                 if image is None:
-                    self.logger.warning(f"画像メタデータが見つかりません: image_id={image_id}")
+                    logger.warning(f"画像メタデータが見つかりません: image_id={image_id}")
                     return None
 
                 # SQLAlchemy オブジェクトを辞書に変換して返す
                 # (必要に応じて __dict__ 以外の方法も検討)
                 # relationship でロードされたオブジェクトは除外するなど、調整が必要な場合がある
                 metadata = {c.name: getattr(image, c.name) for c in image.__table__.columns}
-                self.logger.debug(f"画像メタデータを取得しました: image_id={image_id}")
+                logger.debug(f"画像メタデータを取得しました: image_id={image_id}")
                 return metadata
 
             except SQLAlchemyError as e:
-                self.logger.error(
+                logger.error(
                     f"画像メタデータの取得中にエラーが発生しました (ID: {image_id}): {e}", exc_info=True
                 )
                 raise
@@ -646,7 +641,7 @@ class ImageRepository:
                 results: list[ProcessedImage] = list(session.execute(stmt).scalars().all())
 
                 if not results:
-                    self.logger.warning(f"処理済み画像が見つかりません: image_id={image_id}")
+                    logger.warning(f"処理済み画像が見つかりません: image_id={image_id}")
                     return [] if all_data else None
 
                 # モデルオブジェクトを辞書のリストに変換
@@ -655,7 +650,7 @@ class ImageRepository:
                 ]
 
                 if all_data:
-                    self.logger.debug(
+                    logger.debug(
                         f"全 {len(metadata_list)} 件の処理済み画像メタデータを取得しました: image_id={image_id}"
                     )
                     return metadata_list
@@ -665,7 +660,7 @@ class ImageRepository:
                 if resolution == 0:
                     # 最も解像度が低いもの (面積で比較)
                     selected_metadata = min(metadata_list, key=lambda x: x["width"] * x["height"])
-                    self.logger.debug(
+                    logger.debug(
                         f"最低解像度の処理済み画像を選択しました: image_id={image_id}, id={selected_metadata['id']}"
                     )
                 else:
@@ -675,17 +670,17 @@ class ImageRepository:
                 # all_data=False の場合、ここで選択されたメタデータ (またはNone) を返す
                 if not all_data:
                     if selected_metadata:
-                        self.logger.debug(
+                        logger.debug(
                             f"解像度 {resolution} に一致する処理済み画像を選択しました: image_id={image_id}, id={selected_metadata.get('id')}"
                         )
                     else:
-                        self.logger.warning(
+                        logger.warning(
                             f"解像度 {resolution} に一致する処理済み画像が見つかりませんでした: image_id={image_id}"
                         )
                     return selected_metadata
 
             except SQLAlchemyError as e:
-                self.logger.error(
+                logger.error(
                     f"処理済み画像の取得中にエラーが発生しました (ID: {image_id}): {e}", exc_info=True
                 )
                 raise
@@ -718,7 +713,7 @@ class ImageRepository:
             # 1. Check for exact match on the longer side
             long_side = max(width, height)
             if long_side == resolution:
-                self.logger.debug(f"Exact resolution match found: {metadata['id']}")
+                logger.debug(f"Exact resolution match found: {metadata['id']}")
                 return metadata  # Exact match found, return immediately
 
             # 2. Calculate area ratio difference if no exact match yet
@@ -738,11 +733,11 @@ class ImageRepository:
                 best_match = metadata
 
         if best_match:
-            self.logger.debug(
+            logger.debug(
                 f"Closest resolution match found (error: {min_error_ratio:.2f}): {best_match['id']}"
             )
         else:
-            self.logger.debug(f"No suitable processed image found for resolution {resolution}")
+            logger.debug(f"No suitable processed image found for resolution {resolution}")
 
         return best_match  # Return the best match found within tolerance, or None
 
@@ -765,7 +760,7 @@ class ImageRepository:
         """
         from sqlalchemy.orm import joinedload
 
-        self.logger.debug(f"Getting annotations for image_id: {image_id}")
+        logger.debug(f"Getting annotations for image_id: {image_id}")
         annotations: dict[str, list[dict[str, Any]]] = {
             "tags": [],
             "captions": [],
@@ -789,7 +784,7 @@ class ImageRepository:
                 image = session.execute(stmt).unique().scalar_one_or_none()
 
                 if image is None:
-                    self.logger.warning(f"画像が見つかりません: image_id={image_id}")
+                    logger.warning(f"画像が見つかりません: image_id={image_id}")
                     return annotations  # Return empty structure
 
                 # Extract and format annotations
@@ -847,13 +842,13 @@ class ImageRepository:
                         for rating in image.ratings
                     ]
 
-                self.logger.info(
+                logger.info(
                     f"取得したアノテーション数: tags={len(annotations['tags'])}, captions={len(annotations['captions'])}, scores={len(annotations['scores'])}, ratings={len(annotations['ratings'])} for image_id={image_id}"
                 )
                 return annotations
 
             except SQLAlchemyError as e:
-                self.logger.error(
+                logger.error(
                     f"画像ID {image_id} のアノテーション取得中にエラーが発生しました: {e}",
                     exc_info=True,
                 )
@@ -876,7 +871,7 @@ class ImageRepository:
             # ここでは naive datetime としてパース
             return datetime.datetime.fromisoformat(date_str)
         except ValueError:
-            self.logger.warning(f"無効な日付形式です: {date_str}。無視されます。")
+            logger.warning(f"無効な日付形式です: {date_str}。無視されます。")
             return None
 
     def _prepare_like_pattern(self, term: str) -> tuple[str, bool]:
@@ -901,7 +896,7 @@ class ImageRepository:
             # 前後に % を追加
             pattern = f"%{pattern.replace('%', '\\%').replace('_', '\\_')}%"
 
-        # self.logger.debug(f"Prepared pattern: '{pattern}', is_exact: {is_exact} for term: '{term}'")
+        # logger.debug(f"Prepared pattern: '{pattern}', is_exact: {is_exact} for term: '{term}'")
         return pattern, is_exact
 
     # --- Filtering Helper Methods ---
@@ -944,7 +939,7 @@ class ImageRepository:
         elif tags:
             # use_and (AND検索) の場合、タグごとにJOIN条件を追加する
             if use_and:
-                self.logger.debug(f"Applying AND tag filter (EXISTS) for tags: {tags}")
+                logger.debug(f"Applying AND tag filter (EXISTS) for tags: {tags}")
                 for i, tag_term in enumerate(tags):
                     pattern, is_exact = self._prepare_like_pattern(tag_term)
                     # is_exact フラグに基づいて条件を選択
@@ -963,7 +958,7 @@ class ImageRepository:
                     query = query.where(exists_subquery)
             else:
                 # use_and=False (OR検索) の場合、単一のJOINとOR条件
-                self.logger.debug(f"Applying OR tag filter for tags: {tags}")
+                logger.debug(f"Applying OR tag filter for tags: {tags}")
                 tag_criteria = []
                 for t in tags:
                     pattern, is_exact = self._prepare_like_pattern(t)
@@ -973,14 +968,14 @@ class ImageRepository:
                         tag_criteria.append(Tag.tag.like(pattern))
                 if tag_criteria:
                     query = query.join(Tag, Image.id == Tag.image_id).where(or_(*tag_criteria))
-                    # self.logger.debug(f"Query after OR tag join: {query}") # クエリ確認用
+                    # logger.debug(f"Query after OR tag join: {query}") # クエリ確認用
 
         return query
 
     def _apply_caption_filter(self, query: Select, caption: str | None) -> Select:
         """クエリにキャプションフィルタを適用します (EXISTSを使用)。"""
         if caption:
-            self.logger.debug(f"Applying caption filter (EXISTS) for caption: '{caption}'")
+            logger.debug(f"Applying caption filter (EXISTS) for caption: '{caption}'")
             pattern, is_exact = self._prepare_like_pattern(caption)
 
             caption_filter = (Caption.caption == pattern) if is_exact else (Caption.caption.like(pattern))
@@ -1138,7 +1133,7 @@ class ImageRepository:
                 query = self._apply_date_filter(query, start_dt, end_dt)  # 日付フィルタを最初に適用
 
                 if include_untagged and (tags or caption):
-                    self.logger.warning(
+                    logger.warning(
                         "検索語句と include_untagged が同時に指定されたため、検索語句は無視されます。"
                     )
 
@@ -1169,23 +1164,21 @@ class ImageRepository:
                 filtered_image_ids: list[int] = list(session.execute(query).scalars().all())
 
                 if not filtered_image_ids:
-                    self.logger.info("指定された条件に一致する画像が見つかりませんでした。")
+                    logger.info("指定された条件に一致する画像が見つかりませんでした。")
                     return [], 0
 
-                self.logger.info(
-                    f"フィルタリングで {len(filtered_image_ids)} 件の候補画像IDを取得しました。"
-                )
+                logger.info(f"フィルタリングで {len(filtered_image_ids)} 件の候補画像IDを取得しました。")
 
                 # --- 6. メタデータ取得 --- (ヘルパーメソッド呼び出し)
                 final_metadata_list = self._fetch_filtered_metadata(session, filtered_image_ids, resolution)
 
                 list_count = len(final_metadata_list)
-                self.logger.info(f"最終的な検索結果: {list_count} 件")
+                logger.info(f"最終的な検索結果: {list_count} 件")
 
                 return final_metadata_list, list_count
 
             except SQLAlchemyError as e:
-                self.logger.error(f"画像フィルタリング検索中にエラーが発生しました: {e}", exc_info=True)
+                logger.error(f"画像フィルタリング検索中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
     # --- Model Information Retrieval ---
@@ -1226,11 +1219,11 @@ class ImageRepository:
                     for model in models_result
                 ]
 
-                self.logger.info(f"全モデル情報を取得しました。 件数: {len(model_list)}")
+                logger.info(f"全モデル情報を取得しました。 件数: {len(model_list)}")
                 return model_list
 
             except SQLAlchemyError as e:
-                self.logger.error(f"全モデル情報の取得中にエラーが発生しました: {e}", exc_info=True)
+                logger.error(f"全モデル情報の取得中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
     def get_models_by_type(self, model_type_name: str) -> list[dict[str, Any]]:
@@ -1275,13 +1268,13 @@ class ImageRepository:
                     for model in models_result
                 ]
 
-                self.logger.info(
+                logger.info(
                     f"タイプ '{model_type_name}' のモデル情報を取得しました。 件数: {len(model_list)}"
                 )
                 return model_list
 
             except SQLAlchemyError as e:
-                self.logger.error(
+                logger.error(
                     f"タイプ '{model_type_name}' のモデル情報取得中にエラーが発生しました: {e}",
                     exc_info=True,
                 )
@@ -1308,12 +1301,12 @@ class ImageRepository:
                 stmt = select(Image.id).where(Image.filename == image_name).limit(1)
                 image_id = session.execute(stmt).scalar_one_or_none()
                 if image_id:
-                    self.logger.info(f"ファイル名 '{image_name}' で画像 ID {image_id} が見つかりました。")
+                    logger.info(f"ファイル名 '{image_name}' で画像 ID {image_id} が見つかりました。")
                 else:
-                    self.logger.info(f"ファイル名 '{image_name}' に一致する画像は見つかりませんでした。")
+                    logger.info(f"ファイル名 '{image_name}' に一致する画像は見つかりませんでした。")
                 return image_id
             except SQLAlchemyError as e:
-                self.logger.error(
+                logger.error(
                     f"ファイル名による画像IDの検索中にエラーが発生しました (ファイル名: {image_name}): {e}",
                     exc_info=True,
                 )
@@ -1329,7 +1322,7 @@ class ImageRepository:
                 count = session.execute(stmt).scalar_one()
                 return count
             except SQLAlchemyError as e:
-                self.logger.error(f"総画像数の取得中にエラーが発生しました: {e}", exc_info=True)
+                logger.error(f"総画像数の取得中にエラーが発生しました: {e}", exc_info=True)
                 raise  # または、目的のエラー処理に応じて0を返します
 
     # --- Update Methods (Manual Edits) ---
@@ -1353,16 +1346,14 @@ class ImageRepository:
                 stmt = update(Image).where(Image.id == image_id).values(manual_rating=rating)
                 result = session.execute(stmt)
                 if result.rowcount == 0:
-                    self.logger.warning(
-                        f"Manual rating の更新対象画像が見つかりません: image_id={image_id}"
-                    )
+                    logger.warning(f"Manual rating の更新対象画像が見つかりません: image_id={image_id}")
                     return False
                 session.commit()
-                self.logger.info(f"画像ID {image_id} の manual_rating を '{rating}' に更新しました。")
+                logger.info(f"画像ID {image_id} の manual_rating を '{rating}' に更新しました。")
                 return True
             except SQLAlchemyError as e:
                 session.rollback()
-                self.logger.error(
+                logger.error(
                     f"Manual rating の更新中にエラーが発生しました (ID: {image_id}): {e}", exc_info=True
                 )
                 raise
@@ -1400,19 +1391,19 @@ class ImageRepository:
                 )
                 result = session.execute(stmt)
                 if result.rowcount == 0:
-                    self.logger.warning(
+                    logger.warning(
                         f"手動編集フラグの更新対象アノテーションが見つかりません: "
                         f"type={annotation_type}, id={annotation_id}"
                     )
                     return False
                 session.commit()
-                self.logger.info(
+                logger.info(
                     f"{annotation_type} ID {annotation_id} の is_edited_manually を {is_edited} に更新しました。"
                 )
                 return True
             except SQLAlchemyError as e:
                 session.rollback()
-                self.logger.error(
+                logger.error(
                     f"手動編集フラグの更新中にエラーが発生しました (Type: {annotation_type}, ID: {annotation_id}): {e}",
                     exc_info=True,
                 )

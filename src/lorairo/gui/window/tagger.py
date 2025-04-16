@@ -6,13 +6,12 @@ from PySide6.QtWidgets import QFileDialog, QMessageBox, QWidget
 from ...annotations.caption_tags import ImageAnalyzer
 from ...database.db_manager import ImageDatabaseManager
 from ...storage.file_system import FileSystemManager
-from ...utils.log import get_logger
+from ...utils.log import logger
 from ..designer.ImageTaggerWidget_ui import Ui_ImageTaggerWidget
 
 
 class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
     def __init__(self, parent=None):
-        self.logger = get_logger("ImageTaggerWidget")
         super().__init__(parent)
         self.setupUi(self)
 
@@ -34,13 +33,17 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
     def initialize(self, cm: "ConfigManager", idm: ImageDatabaseManager):
         self.cm = cm
         self.idm = idm
-        self.vision_providers = list(set(model["provider"] for model in self.cm.vision_models.values()))
+        self.llm_providers = {model["provider"] for model in self.cm.llm_models}
+        self.tagger_providers = {
+            model["provider"] for model in self.cm.tagger_models
+        }  # TODO: 変数名は後で考える プロバイダーではないよな?
+        self.captioner_providers = {model["provider"] for model in self.cm.captioner_models}
         self.format_name = ["danbooru", "e621", "derpibooru"]  # TODO:そのうちDatabase参照に変更する
 
         self.init_ui()
 
     def init_ui(self):
-        self.comboBoxAPI.addItems(self.vision_providers)
+        self.comboBoxAPI.addItems(self.llm_providers)
         self.comboBoxTagFormat.addItems(self.format_name)
         self.main_prompt = self.cm.config["prompts"]["main"]
         self.add_prompt = self.cm.config["prompts"]["additional"]
@@ -64,14 +67,14 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         """
         api = self.comboBoxAPI.itemText(index)
         self.comboBoxModel.clear()
-        model_list = [model["name"] for model in self.cm.vision_models.values() if model["provider"] == api]
+        model_list = [model["name"] for model in self.cm.llm_models if model["provider"] == api]
         self.comboBoxModel.addItems(model_list)
         self.model_name = self.comboBoxModel.currentText()
 
     @Slot()
     def on_comboBoxModel_currentTextChanged(self):
         model_name = self.comboBoxModel.currentText()
-        for model_id, model_info in self.cm.vision_models.items():
+        for model_id, model_info in self.cm.llm_models.items():
             if model_info["name"] == model_name:
                 self.model_id = model_id
                 break
@@ -101,7 +104,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
 
     @Slot(dict)
     def on_dbSearchWidget_filterApplied(self, filter_conditions: dict):
-        self.logger.debug(f"on_dbSearchWidget_filterApplied: {filter_conditions}")
+        logger.debug(f"on_dbSearchWidget_filterApplied: {filter_conditions}")
         filter_text = filter_conditions["filter_text"]
         include_untagged = filter_conditions["include_untagged"]
         include_nsfw = filter_conditions["include_nsfw"]
@@ -114,7 +117,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         )
 
         if not filtered_images:
-            self.logger.info(f"Tag に {filter_text} を含む検索結果がありません")
+            logger.info(f"Tag に {filter_text} を含む検索結果がありません")
             QMessageBox.critical(self, "info", f"Tag に {filter_text} を含む検索結果がありません")
 
         # 重複を除いた画像のリストを作成
@@ -131,13 +134,13 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
 
     @Slot(Path)
     def single_image_selection(self, image_path: Path):
-        self.logger.debug(f"single_image_selection: {image_path}")
+        logger.debug(f"single_image_selection: {image_path}")
         self.selected_webp = [image_path]
         self.ImagePreview.load_image(image_path)
 
     @Slot(list)
     def multiple_image_selection(self, image_list: list[Path]):
-        self.logger.debug(f"multiple_image_selection: {image_list}")
+        logger.debug(f"multiple_image_selection: {image_list}")
         self.selected_webp = image_list
         self.ImagePreview.load_image(image_list[0])
 
@@ -158,15 +161,14 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
 
     @Slot()
     def on_pushButtonGenerate_clicked(self):
-        self.logger.info("タグとキャプションの生成を開始")
+        logger.info("タグとキャプションの生成を開始")
         self.ia = ImageAnalyzer()
-        self.acf = APIClientFactory(self.cm.config["api"])
         self.acf.initialize(self.cm.config["prompts"]["main"], self.cm.config["prompts"]["additional"])
-        self.ia.initialize(self.acf, (self.cm.vision_models, self.cm.score_models))
+        self.ia.initialize(self.acf, (self.cm.llm_models, self.cm.score_models))
 
         try:
             for i, image_path in enumerate(self.selected_webp):
-                self.logger.info(f"{image_path.stem}の処理中")
+                logger.info(f"{image_path.stem}の処理中")
 
                 api_image_path = image_path
                 if self.lowRescheckBox.isChecked():
@@ -176,7 +178,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
 
                 result = self.ia.analyze_image(api_image_path, self.model_id, self.format_name)
                 self.all_results[image_path] = result
-                self.logger.info(f"画像 {image_path.name} のタグとキャプションの生成が完了しました")
+                logger.info(f"画像 {image_path.name} のタグとキャプションの生成が完了しました")
                 i += 1
                 if i == len(self.selected_webp):
                     # HACK: kここから表示処理メソッド分ける？
@@ -201,7 +203,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
                     else:
                         self.textEditCaption.setPlainText("No caption available")
         except Exception as e:
-            self.logger.error(f"タグとキャプションの生成中にエラーが発生しました: {e}")
+            logger.error(f"タグとキャプションの生成中にエラーが発生しました: {e}")
             self.textEditTags.setPlainText("Error generating tags")
             self.textEditCaption.setPlainText("Error generating caption")
 
@@ -257,7 +259,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
             image_id = self.idm.detect_duplicate_image(image_path)
             if image_id is None:
                 image_id, original_metadata = self.idm.register_original_image(image_path, fsm)
-                self.logger.info(f"ImageTaggerWidget.save_to_db {image_path.name}")
+                logger.info(f"ImageTaggerWidget.save_to_db {image_path.name}")
 
             if self.imggen_prompt:
                 tag_list = [tag.strip() for tag in self.imggen_prompt.split(",") if tag.strip()]
@@ -269,8 +271,10 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
 
 if __name__ == "__main__":
     import sys
+
     from PySide6.QtWidgets import QApplication
-    from gui import ConfigManager, MainWindow
+
+    from ..window.main_window import ConfigManager, MainWindow
 
     app = QApplication(sys.argv)
     cm = ConfigManager()

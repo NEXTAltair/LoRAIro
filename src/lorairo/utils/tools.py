@@ -5,7 +5,7 @@ from pathlib import Path
 import imagehash
 from PIL import Image
 
-from .log import get_logger
+from .log import logger
 
 
 class ToolsStatic:
@@ -47,7 +47,6 @@ class ToolsStatic:
 
 def calculate_phash(image_path: Path) -> str:
     """指定された画像パスのpHashを計算します。"""
-    logger = get_logger(__name__)
     try:
         with Image.open(image_path) as img:
             # アルファチャネルがある場合、またはグレースケールの場合、画像をRGBに変換します

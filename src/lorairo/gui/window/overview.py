@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QMessageBox, QWidget
 from ...annotations.caption_tags import ImageAnalyzer
 from ...database.db_manager import ImageDatabaseManager
 from ...storage.file_system import FileSystemManager
-from ...utils.log import get_logger
+from ...utils.log import logger
 from ..designer.DatasetOverviewWidget_ui import Ui_DatasetOverviewWidget
 
 
@@ -15,7 +15,6 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.logger = get_logger("DatasetOverviewWidget")
         self.setupUi(self)
         self.image_files = []
 
@@ -80,7 +79,7 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
             include_untagged=include_untagged,
         )
         if not filtered_image_metadata:
-            self.logger.info(f"検索条件に一致する画像がありませんでした: {filter_type}  {filter_text}")
+            logger.info(f"検索条件に一致する画像がありませんでした: {filter_type}  {filter_text}")
             QMessageBox.critical(
                 self, "info", f"検索条件に一致する画像がありませんでした: {filter_type}  {filter_text}"
             )

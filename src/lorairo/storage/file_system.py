@@ -10,17 +10,15 @@ from typing import Any
 import toml
 from PIL import Image, ImageCms
 
-from ..utils.log import get_logger
+from ..utils.log import logger
 
 Image.MAX_IMAGE_PIXELS = 1000000000  # クソデカファイルに対応､ローカルアプリななので攻撃の心配はない
 
 
 class FileSystemManager:
-    logger = get_logger("FileSystemManager")
     image_extensions = [".jpg", ".png", ".bmp", ".gif", ".tif", ".tiff", ".jpeg", ".webp"]
 
     def __init__(self):
-        self.logger = FileSystemManager.logger
         self.initialized = False
         self.image_extensions = FileSystemManager.image_extensions
         self.image_dataset_dir = None
@@ -28,7 +26,7 @@ class FileSystemManager:
         self.original_images_dir = None
         self.resized_images_dir = None
         self.batch_request_dir = None
-        self.logger.debug("初期化")
+        logger.debug("初期化")
 
     def __enter__(self):
         if not self.initialized:
@@ -38,7 +36,7 @@ class FileSystemManager:
     def __exit__(self, exc_type, exc_val, _):
         if exc_type is not None:
             # 例外が発生した場合のログ記録
-            self.logger.error("FileSystemManager使用中にエラーが発生: %s", exc_val)
+            logger.error("FileSystemManager使用中にエラーが発生: %s", exc_val)
         return False  # 例外を伝播させる
 
     def initialize(self, output_dir: Path, target_resolution: int):
@@ -76,7 +74,7 @@ class FileSystemManager:
             self._create_directory(dir_path)
 
         self.initialized = True
-        self.logger.debug("FileSystemManagerが正常に初期化されました。")
+        logger.debug("FileSystemManagerが正常に初期化されました。")
 
     def _create_directory(self, path: str | Path):
         """
@@ -88,9 +86,9 @@ class FileSystemManager:
         path = Path(path)
         try:
             path.mkdir(parents=True, exist_ok=True)
-            self.logger.debug("ディレクトリを作成: %s", path)
+            logger.debug("ディレクトリを作成: %s", path)
         except Exception as e:
-            self.logger.error(
+            logger.error(
                 "ディレクトリの作成に失敗: %s. FileSystemManager._create_directory: %s", path, str(e)
             )
             raise
@@ -172,7 +170,7 @@ class FileSystemManager:
             files = list(Path(save_dir).glob(f"{Path(save_dir).name}_*.webp"))
             return len(files)
         except Exception as e:
-            self.logger.error(
+            logger.error(
                 "シーケンス番号の取得に失敗: %s. FileSystemManager._get_next_sequence_number: %s",
                 save_dir,
                 str(e),
@@ -200,10 +198,10 @@ class FileSystemManager:
             output_path = parent_dir / new_filename
 
             image.save(output_path)
-            self.logger.info("処理済み画像を保存: %s", output_path)
+            logger.info("処理済み画像を保存: %s", output_path)
             return output_path
         except Exception as e:
-            self.logger.error(
+            logger.error(
                 "処理済み画像の保存に失敗: %s. FileSystemManager.save_original_image: %s",
                 new_filename,
                 str(e),
@@ -260,10 +258,10 @@ class FileSystemManager:
             # 画像をコピー
             self.copy_file(image_file, output_path)
 
-            self.logger.info("元画像を保存: %s", output_path)
+            logger.info("元画像を保存: %s", output_path)
             return output_path
         except Exception as e:
-            self.logger.error(
+            logger.error(
                 "元画像の保存に失敗: %s. FileSystemManager.save_original_image: %s", image_file, str(e)
             )
             raise

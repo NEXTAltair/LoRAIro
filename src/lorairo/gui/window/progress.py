@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt, Signal, Slot, QThread, QObject
 
 from ..designer.ProgressWidget_ui import Ui_ProgressWidget
 
-from ...utils.log import get_logger
+from ...utils.log import logger
 
 
 class ProgressWidget(QDialog, Ui_ProgressWidget):
@@ -29,16 +29,15 @@ class ProgressWidget(QDialog, Ui_ProgressWidget):
     def __init__(self, parent=None):
         """ProgressWidgetの初期化"""
         super().__init__(parent, Qt.Dialog)  # 親ウィジェットとダイアログフラグを設定して初期化
-        self.logger = get_logger("ProgressWidget")
         self.setupUi(self)
         self.setModal(True)  # モーダルに設定して他の操作を受け付けないようにする
         self.progressBar.setRange(0, 0)  # インジターミネートモードに設定
-        self.logger.debug("ProgressWidget initialized")
+        logger.debug("ProgressWidget initialized")
 
     @Slot()
     def on_cancelButton_clicked(self):
         """キャンセルボタンがクリックされたときの処理"""
-        self.logger.debug("Cancel button clicked")
+        logger.debug("Cancel button clicked")
         self.canceled.emit()  # canceledシグナルを発行
 
     @Slot(str)
@@ -102,12 +101,12 @@ class Worker(QObject):
             **kwargs: 関数に渡すキーワード引数。
         """
         super().__init__()
-        self.logger = get_logger(f"Worker: {function.__name__}")
+        (f"Worker: {function.__name__}")
         self._is_canceled = False  # キャンセルリクエストを受けたかどうかを示すフラグ
         self.function = function  # 実行する処理の関数
         self.args = args  # 関数に渡す位置引数
         self.kwargs = kwargs  # 関数に渡すキーワード引数
-        self.logger.debug("Worker initialized")
+        logger.debug("Worker initialized")
 
     @Slot()
     def run(self):
@@ -115,10 +114,10 @@ class Worker(QObject):
         ワーカースレッドで実行する処理。
         外部から渡された関数を実行します。
         """
-        self.logger.info("Worker: 処理開始")
+        logger.info("Worker: 処理開始")
         try:
             if self._is_canceled:
-                self.logger.info("Worker: キャンセルされました")
+                logger.info("Worker: キャンセルされました")
                 return
 
             # 関数のシグネチャを取得
@@ -138,10 +137,10 @@ class Worker(QObject):
             self.function(*self.args, **kwargs)
 
         except Exception as e:
-            self.logger.error(f"Worker: エラーが発生しました: {e}")
+            logger.error(f"Worker: エラーが発生しました: {e}")
             self.error_occurred.emit(str(e))
         finally:
-            self.logger.info("Worker: 処理完了")
+            logger.info("Worker: 処理完了")
             self.finished.emit()  # 処理完了シグナルを発行
 
     @Slot()
@@ -150,7 +149,7 @@ class Worker(QObject):
         ワーカースレッドのキャンセル処理。
         _is_canceled フラグを True に設定して、処理を中断します。
         """
-        self.logger.debug("Worker: キャンセルリクエストを受け付けました")
+        logger.debug("Worker: キャンセルリクエストを受け付けました")
         self._is_canceled = True
 
 
@@ -179,11 +178,11 @@ class Controller(QObject):
             progress_widget (ProgressWidget, optional): 既存のProgressWidgetを使用する場合に指定。
         """
         super().__init__()
-        self.logger = get_logger("Controller")
+        ("Controller")
         self.progress_widget = progress_widget if progress_widget else ProgressWidget()
         self.worker = None
         self.thread = None
-        self.logger.debug("Controller initialized")
+        logger.debug("Controller initialized")
 
     def start_process(self, function, *args, **kwargs):
         """
@@ -215,7 +214,7 @@ class Controller(QObject):
 
         # スレッドを開始
         self.thread.start()
-        self.logger.debug("Controller: スレッドを開始しました")
+        logger.debug("Controller: スレッドを開始しました")
 
     @Slot()
     def on_worker_finished(self):
@@ -223,7 +222,7 @@ class Controller(QObject):
         Workerの処理が終了したときに呼び出されるスロット。
         ProgressWidgetを非表示にし、リソースを解放します。
         """
-        self.logger.debug("Controller: Workerが完了しました")
+        logger.debug("Controller: Workerが完了しました")
         self.progress_widget.hide()
         self.cleanup()
 
@@ -235,7 +234,7 @@ class Controller(QObject):
         Args:
             message (str): エラーメッセージ。
         """
-        self.logger.error(f"Controller: エラーが発生しました: {message}")
+        logger.error(f"Controller: エラーが発生しました: {message}")
         # ここでエラーをユーザーに通知するための処理を追加できます
         # 例えば、QMessageBoxを表示するなど
         self.progress_widget.hide()
@@ -246,7 +245,7 @@ class Controller(QObject):
         スレッドとワーカーのリソースを解放する。
         """
         if self.thread and self.thread.isRunning():
-            self.logger.debug("Controller: スレッドとワーカーをクリーンアップします")
+            logger.debug("Controller: スレッドとワーカーをクリーンアップします")
             self.worker.cancel()
             self.thread.quit()
             self.thread.wait()

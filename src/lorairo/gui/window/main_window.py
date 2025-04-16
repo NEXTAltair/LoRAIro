@@ -9,7 +9,7 @@ from ...database.db_repository import ImageRepository
 from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...storage.file_system import FileSystemManager
 from ...utils.config import get_config
-from ...utils.log import get_logger, setup_logger
+from ...utils.log import logger
 from .progress import Controller, ProgressWidget
 
 
@@ -35,9 +35,6 @@ class ConfigManager:
 class MainWindow(QMainWindow, Ui_MainWindow):
     def __init__(self):
         self.cm = ConfigManager()
-        log_conf = self.cm.config["log"]
-        setup_logger(log_conf)
-        self.logger = get_logger("MainWindow")
         super().__init__()
         self.setupUi(self)
 
@@ -60,10 +57,21 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.fsm = FileSystemManager()
         self.progress_widget = ProgressWidget()
         self.progress_controller = Controller(self.progress_widget)
-        vision_models, score_models, upscaler_models = self.idm.get_models()
-        self.cm.vision_models = vision_models
+        # タイプ別にモデルを取得するように変更
+        llm_models = self.idm.get_llm_models()
+        score_models = self.idm.get_score_models()
+        upscaler_models = self.idm.get_upscaler_models()
+        tagger_models = self.idm.get_tagger_models()
+        captioner_models = self.idm.get_captioner_models()
+        tagger_models = self.idm.get_tagger_models()
+        captioner_models = self.idm.get_captioner_models()
+
+        # ConfigManager に格納する際のキー名を新しいタイプ名に合わせる
+        self.cm.llm_models = llm_models
         self.cm.score_models = score_models
         self.cm.upscaler_models = upscaler_models
+        self.cm.tagger_models = tagger_models
+        self.cm.captioner_models = captioner_models
 
     def init_pages(self):
         self.pageImageEdit.initialize(self.cm, self.fsm, self.idm, self)
@@ -93,7 +101,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.statusbar.showMessage("準備完了")
 
     def dataset_dir_changed(self, new_path):
-        self.logger.info(f"データセットディレクトリが変更されました: {new_path}")
+        logger.info(f"データセットディレクトリが変更されました: {new_path}")
         self.cm.config["directories"]["dataset"] = new_path
         self.cm.dataset_image_paths = FileSystemManager.get_image_files(Path(new_path))
         # path がない場合は何もしない
@@ -109,7 +117,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         try:
             self.progress_controller.start_process(process_function, *args, **kwargs)
         except Exception as e:
-            self.logger.error(f"ProgressWidgetを使用した処理中にエラーが発生しました: {e}")
+            logger.error(f"ProgressWidgetを使用した処理中にエラーが発生しました: {e}")
 
     def closeEvent(self, event):
         if (

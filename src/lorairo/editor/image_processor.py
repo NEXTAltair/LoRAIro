@@ -16,7 +16,7 @@ from scipy import ndimage
 from spandrel import ImageModelDescriptor, ModelLoader
 
 from ..storage.file_system import FileSystemManager
-from ..utils.log import get_logger
+from ..utils.log import logger
 
 
 class ImageProcessingManager:
@@ -35,7 +35,6 @@ class ImageProcessingManager:
             target_resolution (int): 目標解像度
             preferred_resolutions (list[tuple[int, int]]): 優先解像度リスト #TODO: 解像度じゃなくてアスペクト比表記のほうがいいかも
         """
-        self.logger = get_logger(__name__)
         self.file_system_manager = file_system_manager
         self.target_resolution = target_resolution
 
@@ -44,11 +43,11 @@ class ImageProcessingManager:
             self.image_processor = ImageProcessor(
                 self.file_system_manager, target_resolution, preferred_resolutions
             )
-            self.logger.info("ImageProcessingManagerが正常に初期化。")
+            logger.info("ImageProcessingManagerが正常に初期化。")
 
         except Exception as e:
             message = f"ImageProcessingManagerの初期化中エラー: {e}"
-            self.logger.error(message)
+            logger.error(message)
             raise ValueError(message) from e
 
     def process_image(
@@ -82,16 +81,16 @@ class ImageProcessingManager:
                 if max(cropped_img.width, cropped_img.height) < self.target_resolution:
                     if upscaler:  # TODO: アップスケールした画像はそれを示すデータも保存すべきか?
                         if converted_img.mode == "RGBA":
-                            self.logger.info(
+                            logger.info(
                                 f"RGBA 画像のためアップスケールをスキップ: {db_stored_original_path}"
                             )
                         else:
-                            self.logger.debug(
+                            logger.debug(
                                 f"長編が指定解像度未満のため{db_stored_original_path}をアップスケールします: {upscaler}"
                             )
                             converted_img = Upscaler.upscale_image(converted_img, upscaler)
                             if max(converted_img.width, converted_img.height) < self.target_resolution:
-                                self.logger.info(
+                                logger.info(
                                     f"画像サイズが小さすぎるため処理をスキップ: {db_stored_original_path}"
                                 )
                                 return None
@@ -100,19 +99,16 @@ class ImageProcessingManager:
                 return resized_img
 
         except Exception as e:
-            self.logger.error("画像処理中にエラーが発生しました: %s", e)
+            logger.error("画像処理中にエラーが発生しました: %s", e)
 
 
 class ImageProcessor:
-    logger = get_logger("ImageProcessor")
-
     def __init__(
         self,
         file_system_manager: FileSystemManager,
         target_resolution: int,
         preferred_resolutions: list[tuple[int, int]],
     ) -> None:
-        self.logger = ImageProcessor.logger
         self.file_system_manager = file_system_manager
         self.target_resolution = target_resolution
         self.preferred_resolutions = preferred_resolutions
@@ -141,13 +137,13 @@ class ImageProcessor:
                 return ImageProcessor.normalize_color_profile(img.convert("RGB"), has_alpha, "RGB")
             else:
                 # サポートされていないモード
-                ImageProcessor.logger.warning(
+                logger.warning(
                     "ImageProcessor.normalize_color_profile サポートされていないモード: %s", mode
                 )
                 return img.convert("RGBA") if has_alpha else img.convert("RGB")
 
         except Exception as e:
-            ImageProcessor.logger.error(f"ImageProcessor.normalize_color_profile :{e}")
+            logger.error(f"ImageProcessor.normalize_color_profile :{e}")
             raise
 
     def _find_matching_resolution(
@@ -215,7 +211,7 @@ class AutoCrop:
         return cls._instance
 
     def _initialize(self):
-        self.logger = get_logger(__name__)
+        pass
 
     @classmethod
     def auto_crop_image(cls, pil_image: Image.Image) -> Image.Image:
@@ -379,7 +375,7 @@ class AutoCrop:
                     return x_min, y_min, x_max - x_min, y_max - y_min
             return None
         except Exception as e:
-            self.logger.error(f"AutoCrop._get_crop_area: クロップ領域の検出中にエラーが発生しました: {e}")
+            logger.error(f"AutoCrop._get_crop_area: クロップ領域の検出中にエラーが発生しました: {e}")
             return None
 
     def _auto_crop_image(self, pil_image: Image.Image) -> Image.Image:
@@ -397,20 +393,20 @@ class AutoCrop:
             crop_area = self._get_crop_area(np_image)
 
             # デバッグ情報の出力
-            self.logger.debug(f"Crop area: {crop_area}")
-            self.logger.debug(f"Original image size: {pil_image.size}")
+            logger.debug(f"Crop area: {crop_area}")
+            logger.debug(f"Original image size: {pil_image.size}")
 
             if crop_area:
                 x, y, w, h = crop_area
                 right, bottom = x + w, y + h
                 cropped_image = pil_image.crop((x, y, right, bottom))
-                self.logger.debug(f"Cropped image size: {cropped_image.size}")
+                logger.debug(f"Cropped image size: {cropped_image.size}")
                 return cropped_image
             else:
-                self.logger.debug("No crop area detected, returning original image")
+                logger.debug("No crop area detected, returning original image")
                 return pil_image
         except Exception as e:
-            self.logger.error(f"自動クロップ処理中にエラーが発生しました: {e}")
+            logger.error(f"自動クロップ処理中にエラーが発生しました: {e}")
             return pil_image
 
 
@@ -424,7 +420,7 @@ class Upscaler:
     }
 
     def __init__(self, model_name: str):
-        self.logger = get_logger(__name__)
+        (__name__)
         self.model_path, self.recommended_scale = self.MODEL_PATHS[model_name]
         self.model = self._load_model(self.model_path)
         self.model.cuda().eval()
@@ -442,7 +438,7 @@ class Upscaler:
     def _load_model(self, model_path: Path) -> ImageModelDescriptor:
         model = ModelLoader().load_from_file(model_path)
         if not isinstance(model, ImageModelDescriptor):
-            self.logger.error("読み込まれたモデルは ImageModelDescriptor のインスタンスではありません")
+            logger.error("読み込まれたモデルは ImageModelDescriptor のインスタンスではありません")
         return model
 
     def _upscale(self, img: Image.Image, scale: float) -> Image.Image:
@@ -460,7 +456,7 @@ class Upscaler:
                 output = self.model(img_tensor)
             return self._convert_tensor_to_image(output, scale, img.size)
         except Exception as e:
-            self.logger.error(f"アップスケーリング中のエラー: {e}")
+            logger.error(f"アップスケーリング中のエラー: {e}")
             return img
 
     def _convert_image_to_tensor(self, image: Image.Image) -> torch.Tensor:

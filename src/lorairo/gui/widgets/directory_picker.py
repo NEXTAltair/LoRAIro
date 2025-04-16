@@ -2,12 +2,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFileDialog, QWidget
 
 from ...gui.designer.DirectoryPickerWidget_ui import Ui_DirectoryPickerWidget
-from ...utils.log import get_logger
+from ...utils.log import logger
 
 
 class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
     def __init__(self, parent=None):
-        self.logger = get_logger("DirectoryPickerWidget")
         super().__init__(parent)
         self.setupUi(self)
         self.set_label_text("フォルダを選択")
@@ -20,7 +19,7 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
         if dir_path:
             self.DirectoryPicker.lineEditPicker.setText(dir_path)
             self.DirectoryPicker.update_history(dir_path)  # 呼び出すメソッド名を修正
-            self.logger.debug(f"フォルダが選択: {dir_path}")
+            logger.debug(f"フォルダが選択: {dir_path}")
 
     def on_history_item_selected(self, index):
         """履歴項目が選択されたときの処理"""
@@ -28,7 +27,7 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
             index, Qt.ToolTipRole
         )  # ツールチップデータ (フルパス) を取得
         self.DirectoryPicker.lineEditPicker.setText(selected_path)
-        self.logger.debug(f"履歴からフォルダが選択: {selected_path}")
+        logger.debug(f"履歴からフォルダが選択: {selected_path}")
 
     def set_label_text(self, text):
         self.DirectoryPicker.set_label_text(text)
@@ -45,10 +44,10 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
 
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
-    from module.log import setup_logger
+
+    from ...utils.log import logger
 
     logconf = {"level": "DEBUG", "file": "DirectoryPickerWidget.log"}
-    setup_logger(logconf)
     import sys
 
     app = QApplication(sys.argv)

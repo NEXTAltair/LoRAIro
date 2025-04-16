@@ -21,27 +21,26 @@ classifiers = [
 # 依存パッケージ（バージョン固定）
 dependencies = [
     # 画像処理系
-    "Pillow",        # 基本的な画像処理
+    "Pillow", # 基本的な画像処理
     "opencv-python", # オートクロップの枠検出
-    "numpy",         # 画像処理の数値計算
-    "ImageHash",     # DB重複チェック用
-
+    "numpy", # 画像処理の数値計算
+    "ImageHash", # DB重複チェック用
     # AI系
     "google-generativeai>=0.8.3", # Gemini API
-    "anthropic>=0.36.2",          # Claude API
-    "openai>=0.10.0",             # GPT API
-    "spandrel",                   #アップスケーラー用モデルローダー
-
+    "anthropic>=0.36.2", # Claude API
+    "openai>=0.10.0", # GPT API
+    "spandrel", #アップスケーラー用モデルローダー
     # データ処理系
     "toml>=0.10.2", # 設定ファイル処理
+    "loguru>=0.7.2", # ログライブラリ
+    "sqlalchemy>=2.0.40",
+
     # PyQt系
     "PySide6>=6.8.0.2", # GUIフレームワーク
-    "superqt>=0.6.7",   # 拡張Qt部品
-
+    "superqt>=0.6.7", # 拡張Qt部品
     # AI Model系
     "pytorch-lightning==2.4.0", # PyTorch拡張
-    "joblib==1.4.2",            # 並列処理
-
+    "joblib==1.4.2", # 並列処理
     # 自作ライブラリ (Git LFS 問題のためコメントアウト)
     # "genai-tag-db-tools @ git+https://github.com/NEXTAltair/genai-tag-db-tools.git",
     "image-annotator-lib @ git+https://github.com/NEXTAltair/image-annotator-lib.git", # 画像タグ付けライブラリ
@@ -167,6 +166,29 @@ exclude_lines = [
     "if __name__ == '__main__':",
     "raise NotImplementedError",
     "if TYPE_CHECKING:",
+]
+
+[tool.uv.sources]
+genai-tag-db-tools = { path = "local_packages/genai-tag-db-tools" }
+image-annotator-lib = { path = "local_packages/image-annotator-lib" }
+
+[dependency-groups]
+dev = [
+    "alembic>=1.15.2",
+    "genai-tag-db-tools",
+    "image-annotator-lib",
+    "matplotlib>=3.10.1",
+    "psutil>=7.0.0",
+    "pylint>=3.3.6",
+    "pytest>=8.3.5",
+    "pytest-bdd>=8.1.0",
+    "pytest-cov>=6.1.1",
+    "pytest-qt>=4.4.0",
+    "ruff>=0.11.5",
+    "sqlalchemy>=2.0.40",
+    "types-pillow>=10.2.0.20240822",
+    "types-requests>=2.32.0.20250328",
+    "types-toml>=0.10.8.20240310",
 ]
 
 [tool.hatch.metadata]
