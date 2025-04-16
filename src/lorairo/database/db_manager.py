@@ -33,7 +33,7 @@ class ImageDatabaseManager:
         ImageDatabaseManagerのコンストラクタ。
 
         Args:
-            repository (Optional[ImageRepository]): 使用するImageRepositoryインスタンス。
+            repository (ImageRepository | None): 使用するImageRepositoryインスタンス。
                                                     Noneの場合、デフォルトのインスタンスを作成します。
         """
         self.logger = get_logger(__name__)
@@ -55,7 +55,7 @@ class ImageDatabaseManager:
             fsm (FileSystemManager): ファイルシステム操作用マネージャー。
 
         Returns:
-            Optional[tuple[int, dict[str, Any]]]: 登録成功時は (image_id, original_metadata)、
+            tuple[int, dict[str, Any]] | None: 登録成功時は (image_id, original_metadata)、
                                                  重複時も (existing_image_id, existing_metadata?)、
                                                  失敗時は None。
                                                  TODO: 重複時の戻り値を明確化
@@ -125,7 +125,7 @@ class ImageDatabaseManager:
             info (dict[str, Any]): 処理済み画像のメタデータ (width, height などを含む)。
 
         Returns:
-            Optional[int]: 保存された処理済み画像のID。重複時も既存IDを返す。失敗時は None。
+            int | None: 保存された処理済み画像のID。重複時も既存IDを返す。失敗時は None。
         """
         try:
             # ファイルシステムの保存は呼び出し元で行う想定(パスを渡すため)
@@ -272,7 +272,7 @@ class ImageDatabaseManager:
             image_id (int): 取得する元画像のID。
 
         Returns:
-            Optional[str]: 最も解像度が低い処理済み画像のパス。見つからない場合はNone。
+            str | None: 最も解像度が低い処理済み画像のパス。見つからない場合はNone。
         """
         try:
             # resolution=0 で最低解像度を取得
@@ -301,7 +301,7 @@ class ImageDatabaseManager:
             image_id (int): 取得する画像のID。
 
         Returns:
-            Optional[dict[str, Any]]: 画像メタデータを含む辞書。画像が見つからない場合はNone。
+            dict[str, Any] | None: 画像メタデータを含む辞書。画像が見つからない場合はNone。
         """
         try:
             metadata = self.repository.get_image_metadata(image_id)
@@ -320,7 +320,7 @@ class ImageDatabaseManager:
             image_id (int): 元画像のID。
 
         Returns:
-            Optional[list[dict[str, Any]]]: 処理済み画像のメタデータのリスト。見つからない場合は空リスト。
+            list[dict[str, Any]] | None: 処理済み画像のメタデータのリスト。見つからない場合は空リスト。
         """
         try:
             # all_data=True でリストが返る
@@ -459,7 +459,7 @@ class ImageDatabaseManager:
             target_resolution (int): 目標解像度
 
         Returns:
-            Optional[dict[str, Any]]: 処理済み画像が存在する場合はそのメタデータ、存在しない場合はNone
+            dict[str, Any] | None: 処理済み画像が存在する場合はそのメタデータ、存在しない場合はNone
         """
         try:
             # get_processed_image は resolution=0 以外の場合、dict | None を返す

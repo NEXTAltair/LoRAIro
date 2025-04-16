@@ -1,4 +1,9 @@
-"""DBコア設定、エンジン、セッション管理"""
+"""DBコア設定、エンジン、セッション管理
+
+このモジュールは、SQLAlchemy を使用したデータベース接続の初期化とセッション管理を行います。
+設定値（データベースパス、タグDB情報など）は `src/lorairo/utils/config.py` を介して
+`config/lorairo.toml` から読み込まれます。
+"""
 
 import importlib.resources
 import logging
@@ -6,51 +11,32 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
-import toml
-
 # SQLAlchemy imports
 from sqlalchemy import StaticPool, create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
+
+from ..utils.config import get_config
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 # --- Configuration --- #
 
-CONFIG_FILE_PATH = Path("config.toml")  # プロジェクトルートを想定
-
-# Default values
-DEFAULT_DB_DIR = Path("./Image_database")
-DEFAULT_IMG_DB_FILENAME = "image_database.db"
-DEFAULT_TAG_DB_PACKAGE = "genai_tag_db_tools.data"
-DEFAULT_TAG_DB_FILENAME = "tags_v4.db"
-
-
-def load_config() -> dict:
-    """Load configuration from TOML file."""
-    if CONFIG_FILE_PATH.exists():
-        # テキストモードで開く
-        with open(CONFIG_FILE_PATH, "rt", encoding="utf-8") as f:
-            try:
-                # ファイルオブジェクトをそのまま渡す
-                return toml.load(f)
-            # 正しい例外クラス名に修正
-            except toml.TomlDecodeError as e:
-                print(f"Error decoding config file {CONFIG_FILE_PATH}: {e}")
-                # エラー時はデフォルト値を使うために空の辞書を返すか、例外を発生させるか選択
-                return {}
-    return {}
-
-
-config = load_config()
+# Load configuration using the central config utility
+config = get_config()
 db_config = config.get("database", {})
+dir_config = config.get("directories", {})
 
-# Use config values or defaults
-DB_DIR = Path(db_config.get("directory", DEFAULT_DB_DIR))
-IMG_DB_FILENAME = db_config.get("image_db_filename", DEFAULT_IMG_DB_FILENAME)
-TAG_DB_PACKAGE = db_config.get("tag_db_package", DEFAULT_TAG_DB_PACKAGE)
-TAG_DB_FILENAME = db_config.get("tag_db_filename", DEFAULT_TAG_DB_FILENAME)
+# Get database related paths and settings from config
+DB_DIR = Path(dir_config.get("database"))  # Get database directory from directories section
+IMG_DB_FILENAME = db_config.get(
+    "image_db_filename", "image_database.db"
+)  # Keep default if not in db_config
+TAG_DB_PACKAGE = db_config.get(
+    "tag_db_package", "genai_tag_db_tools.data"
+)  # Keep default if not in db_config
+TAG_DB_FILENAME = db_config.get("tag_db_filename", "tags_v4.db")  # Keep default if not in db_config
 
 # Ensure DB_DIR exists
 DB_DIR.mkdir(parents=True, exist_ok=True)
@@ -63,7 +49,10 @@ IMG_DB_PATH = DB_DIR / IMG_DB_FILENAME
 def get_tag_db_path() -> Path:
     """インストールされたパッケージからタグデータベースファイルへのフルパスを取得します。"""
     try:
-        tag_db_resource = importlib.resources.files(TAG_DB_PACKAGE).joinpath(TAG_DB_FILENAME)
+        # Use configuration values for package and filename
+        package_name = TAG_DB_PACKAGE
+        filename = TAG_DB_FILENAME
+        tag_db_resource = importlib.resources.files(package_name).joinpath(filename)
         # リソースが存在し、ファイルであることを確認してからパスを返す
         if tag_db_resource.is_file():
             return Path(str(tag_db_resource))
@@ -74,7 +63,7 @@ def get_tag_db_path() -> Path:
     except (FileNotFoundError, TypeError) as e:
         # .files() が特定のエッジケースで発生させる可能性があるため、TypeError も捕捉
         logger.exception(
-            f"importlib.resources.files を使用したタグDBパス ({TAG_DB_PACKAGE}/{TAG_DB_FILENAME}) の取得に失敗しました。エラー: {e}",
+            f"importlib.resources.files を使用したタグDBパス ({package_name}/{filename}) の取得に失敗しました。エラー: {e}",
             exc_info=True,
         )
         raise
@@ -85,12 +74,12 @@ def get_tag_db_path() -> Path:
 TAG_DB_PATH = get_tag_db_path()
 TAG_DATABASE_ALIAS = "tag_db"
 
-# デフォルトの画像DBパス
-DEFAULT_IMG_DB_PATH = DB_DIR / IMG_DB_FILENAME
-DEFAULT_DATABASE_URL = f"sqlite:///{DEFAULT_IMG_DB_PATH.resolve()}?check_same_thread=False"
+# Construct the database URL from config
+IMG_DB_PATH = DB_DIR / IMG_DB_FILENAME
+DATABASE_URL = f"sqlite:///{IMG_DB_PATH.resolve()}?check_same_thread=False"
 
 
-def create_db_engine(database_url: str) -> Engine:
+def create_db_engine(database_url: str = DATABASE_URL) -> Engine:
     """指定された URL で SQLAlchemy エンジンを作成し、イベントリスナーを設定します。"""
     logger.info(f"Creating SQLAlchemy engine for: {database_url}")
     engine = create_engine(
@@ -145,9 +134,9 @@ def create_session_factory(engine: Engine) -> sessionmaker[Session]:
 
 # --- デフォルトの Engine と Session Factory --- #
 # 通常のアプリケーション実行時に使用される
-default_engine = create_db_engine(DEFAULT_DATABASE_URL)
+default_engine = create_db_engine(DATABASE_URL)
 DefaultSessionLocal = create_session_factory(default_engine)
-logger.info(f"Default database core initialized. Image DB: {DEFAULT_IMG_DB_PATH}, Tag DB: {TAG_DB_PATH}")
+logger.info(f"Default database core initialized. Image DB: {IMG_DB_PATH}, Tag DB: {TAG_DB_PATH}")
 
 
 # --- セッションコンテキストマネージャ (ファクトリを受け取るように変更) --- #
