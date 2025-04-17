@@ -5,7 +5,7 @@ import shutil
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import toml
 from PIL import Image, ImageCms
@@ -16,7 +16,16 @@ Image.MAX_IMAGE_PIXELS = 1000000000  # クソデカファイルに対応､ロ�
 
 
 class FileSystemManager:
-    image_extensions = [".jpg", ".png", ".bmp", ".gif", ".tif", ".tiff", ".jpeg", ".webp"]
+    image_extensions: ClassVar[list[str]] = [
+        ".jpg",
+        ".png",
+        ".bmp",
+        ".gif",
+        ".tif",
+        ".tiff",
+        ".jpeg",
+        ".webp",
+    ]
 
     def __init__(self):
         self.initialized = False
@@ -105,7 +114,7 @@ class FileSystemManager:
         for ext in FileSystemManager.image_extensions:
             for image_file in input_dir.rglob(f"*{ext}"):
                 image_files.append(image_file)
-        FileSystemManager.logger.debug(f"get_image_files \n image_file list:{image_files}")
+        logger.debug(f"get_image_files \n image_file len:{len(image_files)}")
         return image_files
 
     @staticmethod
@@ -121,7 +130,7 @@ class FileSystemManager:
             image_path (Path): 画像ファイルのパス
 
         Returns:
-            dict[str, Any]: 画像の基本情報（幅、高さ、フォーマット、モード、アルファチャンネル情報、ファイル名、ファイルの拡張子）
+            dict[str, Any]: 画像の基本情報(幅、高さ、フォーマット、モード、アルファチャンネル情報、ファイル名、ファイルの拡張子)
         """
         try:
             with Image.open(image_path) as img:
@@ -150,8 +159,8 @@ class FileSystemManager:
                 "icc_profile": "Present" if icc_profile else "Not present",
             }
         except Exception as e:
-            message = f"画像情報の取得失敗: {image_path}. FileSystemManager.get_image_info: {str(e)}"
-            FileSystemManager.logger.error(message)
+            message = f"画像情報の取得失敗: {image_path}. FileSystemManager.get_image_info: {e!s}"
+            logger.error(message)
             raise
 
     def _get_next_sequence_number(self, save_dir: str | Path) -> int:
@@ -217,7 +226,7 @@ class FileSystemManager:
         Args:
             src (Path): コピー元のファイルパス
             dst (Path): コピー先のファイルパス
-            buffer_size (int): バッファサイズ（バイト）。デフォルトは64MB。
+            buffer_size (int): バッファサイズ(バイト)。デフォルトは64MB。
         """
         with open(src, "rb") as fsrc:
             with open(dst, "wb") as fdst:
@@ -246,7 +255,7 @@ class FileSystemManager:
             parent_name = image_file.parent.name
             save_dir = self.original_images_dir / parent_name  # type: ignore
             self._create_directory(save_dir)
-            # 新しいファイル名を生成（元のファイル名を保持）
+            # 新しいファイル名を生成(元のファイル名を保持)
             new_filename = image_file.name
             output_path = save_dir / new_filename
             # ファイル名の重複をチェックし、必要に応じて連番を付加
@@ -298,7 +307,7 @@ class FileSystemManager:
         """
         # jsonl_sizeに基づいてファイルを分割
         split_size = math.ceil(jsonl_size / json_maxsize)
-        with open(jsonl_path, "r", encoding="utf-8") as f:
+        with open(jsonl_path, encoding="utf-8") as f:
             lines = f.readlines()
         lines_per_file = math.ceil(len(lines) / split_size)  # 各ファイルに必要な行数
         split_dir = jsonl_path / "split"
@@ -359,5 +368,5 @@ class FileSystemManager:
             with open(filename, "w") as f:
                 toml.dump(config, f)
         except Exception as e:
-            FileSystemManager.logger.error("保存エラー", str(e))
-            raise IOError(f"設定の保存中にエラーが発生しました: {str(e)}")
+            logger.error(f"保存エラー: {e!s}")
+            raise OSError(f"設定の保存中にエラーが発生しました: {e!s}") from e

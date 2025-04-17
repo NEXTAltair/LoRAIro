@@ -1,12 +1,10 @@
 import numpy as np
-
-from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QLabel
-from PySide6.QtCore import Qt, Signal, Slot, QDateTime, QTimeZone, QDate, QTime
+from PySide6.QtCore import QDate, QDateTime, Qt, QTime, QTimeZone, Signal, Slot
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from superqt import QDoubleRangeSlider
 
-from ..designer.TagFilterWidget_ui import Ui_TagFilterWidget
-
 from ...utils.log import logger
+from ..designer.TagFilterWidget_ui import Ui_TagFilterWidget
 
 
 class CustomRangeSlider(QWidget):
@@ -20,7 +18,7 @@ class CustomRangeSlider(QWidget):
             このシグナルは、選択された範囲の最小値と最大値を表す2つの整数値を発行します。
 
             日付範囲の場合、これらの整数値はローカルタイムゾーンでのUnixタイムスタンプ
-            （エポックからの秒数）を表します。数値範囲の場合、実際に選択された値を表します。
+            (エポックからの秒数)を表します。数値範囲の場合、実際に選択された値を表します。
 
             引数:
                 min_value (int): 選択された範囲の最小値。
@@ -43,7 +41,7 @@ class CustomRangeSlider(QWidget):
         このメソッドは、スライダーとラベルを初期化し、必要なシグナルを接続します。
 
         スライダーは0から100の範囲で設定され、後にユーザーが設定した実際の範囲
-        （日付または数値）にマッピングされます。
+        (日付または数値)にマッピングされます。
 
         現在の範囲の最小値と最大値を表示するために2つのラベルが作成されます。
         これらのラベルは、スライダーの値が変更されるたびに更新されます。
@@ -109,17 +107,17 @@ class CustomRangeSlider(QWidget):
         self.update_labels()
 
     def set_date_range(self):
-        # 開始日を2023年1月1日の0時に設定（UTC）
+        # 開始日を2023年1月1日の0時に設定(UTC)
         start_date = QDateTime(QDate(2023, 1, 1), QTime(0, 0), QTimeZone.UTC)
 
-        # 終了日を現在の日付の23:59:59に設定（UTC）
+        # 終了日を現在の日付の23:59:59に設定(UTC)
         end_date = QDateTime.currentDateTimeUtc()
         end_date.setTime(QTime(23, 59, 59))
 
         # 日付モードをオンにする
         self.is_date_mode = True
 
-        # UTCタイムスタンプを取得（秒単位の整数）
+        # UTCタイムスタンプを取得(秒単位の整数)
         start_timestamp = int(start_date.toSecsSinceEpoch())
         end_timestamp = int(end_date.toSecsSinceEpoch())
 
@@ -152,7 +150,7 @@ class TagFilterWidget(QWidget, Ui_TagFilterWidget):
         # CustomLRangeSliderをcountRangeSlideウィジェットとして追加
         self.count_range_slider = CustomRangeSlider(self, min_value=0, max_value=100000)
         layout = self.countRangeWidget.layout()
-        # 既存のcountRangeSlideウィジェットを削除（存在する場合）
+        # 既存のcountRangeSlideウィジェットを削除(存在する場合)
         if self.countRangeSlide is not None:
             layout.removeWidget(self.countRangeSlide)
             self.countRangeSlide.deleteLater()
@@ -180,7 +178,7 @@ class TagFilterWidget(QWidget, Ui_TagFilterWidget):
             if self.count_range_slider.isVisible()
             else None,
             "include_untagged": self.noTagscheckBox.isChecked(),  # タグ情報がない画像を含めるかどうか
-            "include_nsfw": self.NSFWcheckBox.isChecked(),  # NSFWコンテンツを含めるかどうか（デフォルトは除外）
+            "include_nsfw": self.NSFWcheckBox.isChecked(),  # NSFWコンテンツを含めるかどうか(デフォルトは除外)
         }
         logger.debug(f"Filter conditions: {filter_conditions}")
         self.filterApplied.emit(filter_conditions)
@@ -192,12 +190,11 @@ if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
 
     from ...utils.config import get_config
-    from ...utils.log import setup_logger
+    from ...utils.log import logger
 
     app = QApplication(sys.argv)
     config = get_config()
     logconf = {"level": "DEBUG", "file": "TagFilterWidget.log"}
-    setup_logger(logconf)
 
     widget = TagFilterWidget()
     widget.show()

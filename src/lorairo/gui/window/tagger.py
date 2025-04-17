@@ -3,6 +3,8 @@ from pathlib import Path
 from PySide6.QtCore import Slot
 from PySide6.QtWidgets import QFileDialog, QMessageBox, QWidget
 
+from lorairo.services.configuration_service import ConfigurationService
+
 from ...annotations.caption_tags import ImageAnalyzer
 from ...database.db_manager import ImageDatabaseManager
 from ...storage.file_system import FileSystemManager
@@ -30,14 +32,19 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         # タグとキャプションの生成結果を保持するリスト {path: risult_dict}
         self.all_results = {}
 
-    def initialize(self, cm: "ConfigManager", idm: ImageDatabaseManager):
-        self.cm = cm
+    def initialize(self, config_service: ConfigurationService, idm: ImageDatabaseManager, main_window=None):
+        self.config_service = config_service
         self.idm = idm
-        self.llm_providers = {model["provider"] for model in self.cm.llm_models}
+        self.main_window = main_window
+        self.llm_providers = {
+            model["provider"] for model in self.config_service._config.get("llm_models", [])
+        }
         self.tagger_providers = {
-            model["provider"] for model in self.cm.tagger_models
+            model["provider"] for model in self.config_service._config.get("tagger_models", [])
         }  # TODO: 変数名は後で考える プロバイダーではないよな?
-        self.captioner_providers = {model["provider"] for model in self.cm.captioner_models}
+        self.captioner_providers = {
+            model["provider"] for model in self.config_service._config.get("captioner_models", [])
+        }
         self.format_name = ["danbooru", "e621", "derpibooru"]  # TODO:そのうちDatabase参照に変更する
 
         self.init_ui()
@@ -45,12 +52,14 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
     def init_ui(self):
         self.comboBoxAPI.addItems(self.llm_providers)
         self.comboBoxTagFormat.addItems(self.format_name)
-        self.main_prompt = self.cm.config["prompts"]["main"]
-        self.add_prompt = self.cm.config["prompts"]["additional"]
+        self.main_prompt = self.config_service._config.get("prompts", {}).get("main", "")
+        self.add_prompt = self.config_service._config.get("prompts", {}).get("additional", "")
         self.textEditMainPrompt.setPlainText(self.main_prompt)
         self.textEditAddPrompt.setPlainText(self.add_prompt)
         self.DirectoryPickerSave.set_label_text("保存先:")
-        self.DirectoryPickerSave.set_path(self.cm.config["directories"]["edited_output"])
+        self.DirectoryPickerSave.set_path(
+            self.config_service._config.get("directories", {}).get("edited_output", "")
+        )
 
         self.dbSearchWidget.filterGroupBox.setTitle("Search Tag")
         self.dbSearchWidget.filterTypeWidget.hide()
@@ -67,16 +76,20 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
         """
         api = self.comboBoxAPI.itemText(index)
         self.comboBoxModel.clear()
-        model_list = [model["name"] for model in self.cm.llm_models if model["provider"] == api]
+        model_list = [
+            model["name"]
+            for model in self.config_service._config.get("llm_models", [])
+            if model["provider"] == api
+        ]
         self.comboBoxModel.addItems(model_list)
         self.model_name = self.comboBoxModel.currentText()
 
     @Slot()
     def on_comboBoxModel_currentTextChanged(self):
         model_name = self.comboBoxModel.currentText()
-        for model_id, model_info in self.cm.llm_models.items():
-            if model_info["name"] == model_name:
-                self.model_id = model_id
+        for model_info in self.config_service._config.get("llm_models", []):
+            if model_info.get("name") == model_name:
+                self.model_id = model_info.get("id")
                 break
 
     @Slot()
@@ -86,8 +99,8 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
     def showEvent(self, event):
         """ウィジェットが表示される際に呼び出されるイベントハンドラ"""
         super().showEvent(event)
-        if self.cm.dataset_image_paths:
-            self.load_images(self.cm.dataset_image_paths)
+        if self.main_window and self.main_window.dataset_image_paths:
+            self.load_images(self.main_window.dataset_image_paths)
 
     def load_images(self, image_files: list):
         """
@@ -147,24 +160,23 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
     @Slot()
     def on_textEditMainPrompt_textChanged(self):
         self.main_prompt = self.textEditMainPrompt.toPlainText()
-        self.cm.config["prompts"]["main_prompt"] = self.main_prompt
+        self.config_service._config.setdefault("prompts", {})["main_prompt"] = self.main_prompt
 
     @Slot()
     def on_textEditAddPrompt_textChanged(self):
         self.add_prompt = self.textEditAddPrompt.toPlainText()
-        self.cm.config["prompts"]["additional"] = self.add_prompt
+        self.config_service._config.setdefault("prompts", {})["additional"] = self.add_prompt
 
     @Slot()
     def on_textEditGenaiPrompt_textChanged(self):
-        self.imggen_prompt = self.textEditAddPrompt.toPlainText()
-        self.cm.config["prompts"]["imggen_prompt"] = self.imggen_prompt.strip()
+        self.imggen_prompt = self.textEditGenaiPrompt.toPlainText()
+        self.config_service._config.setdefault("prompts", {})["imggen_prompt"] = self.imggen_prompt.strip()
 
     @Slot()
     def on_pushButtonGenerate_clicked(self):
         logger.info("タグとキャプションの生成を開始")
         self.ia = ImageAnalyzer()
-        self.acf.initialize(self.cm.config["prompts"]["main"], self.cm.config["prompts"]["additional"])
-        self.ia.initialize(self.acf, (self.cm.llm_models, self.cm.score_models))
+        logger.warning("ImageAnalyzer と APIClientFactory の初期化ロジックの見直しが必要です。")
 
         try:
             for i, image_path in enumerate(self.selected_webp):
@@ -252,8 +264,8 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
     def save_to_db(self):
         fsm = FileSystemManager()  # TODO: 暫定後で設計から見直す
         fsm.initialize(
-            Path(self.cm.config["directories"]["output"]),
-            self.cm.config["image_processing"]["target_resolution"],
+            Path(self.config_service._config.get("directories", {}).get("output", "")),
+            self.config_service._config.get("image_processing", {}).get("target_resolution", ""),
         )
         for image_path, result in self.all_results.items():
             image_id = self.idm.detect_duplicate_image(image_path)
@@ -271,19 +283,36 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
 
 if __name__ == "__main__":
     import sys
+    from pathlib import Path
 
     from PySide6.QtWidgets import QApplication
 
-    from ..window.main_window import ConfigManager, MainWindow
+    from lorairo.database.db_manager import ImageDatabaseManager
+    from lorairo.services.configuration_service import ConfigurationService
+    from lorairo.storage.file_system import FileSystemManager
+    from lorairo.utils.config import get_config
+    from lorairo.utils.log import initialize_logging
 
     app = QApplication(sys.argv)
-    cm = ConfigManager()
-    m_window = MainWindow()
+    config_data = get_config()
+    log_config = config_data.get("log", {})
+    initialize_logging(log_config)
+
+    config_service = ConfigurationService()
+    db_path = Path(config_data.get("database", {}).get("path", "Image_database.db"))
+    from lorairo.database.db_core import DefaultSessionLocal
+    from lorairo.database.db_repository import ImageRepository
+
+    image_repo = ImageRepository(session_factory=DefaultSessionLocal)
+    idm = ImageDatabaseManager(image_repo)
     fsm = FileSystemManager()
-    idm = ImageDatabaseManager(cm.config["directories"]["database"])
-    image_dir = fsm.get_image_files(Path(r"TEST\testimg\1_img"))  # 画像ファイルのディレクトリを指定
+
+    test_image_dir = Path(r"TEST/testimg/1_img")
+    image_paths = fsm.get_image_files(test_image_dir) if test_image_dir.exists() else []
+
     widget = ImageTaggerWidget()
-    widget.initialize(cm, idm)
-    widget.load_images(image_dir)
+    widget.initialize(config_service, idm, main_window=None)
+    if image_paths:
+        widget.load_images(image_paths)
     widget.show()
     sys.exit(app.exec())
