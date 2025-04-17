@@ -39,3 +39,4 @@ LoRAIro is a Python tool developed to address the developer's challenges in crea
 2025-04-14 03:12:05 - Initial population based on user input and pyproject.toml.
 2025-04-16 13:11:44 - Added note emphasizing the importance of referring to docs/specs and docs/Plan. Updated Key Technologies and Architecture based on recent decisions (SQLAlchemy, Alembic, .env, library delegation).
 2025-04-16 13:12:20 - Unified content language to English. Updated Project Overview and Key Features to reflect recent changes (SQLAlchemy migration, library delegation).
+2025-04-17 17:26:09 - Updated documentation structure in `docs/` to align with the 3-tier architecture (interfaces, application, core). See `decisionLog.md` for details.

@@ -15,6 +15,7 @@ This file tracks the project's current status, including recent changes, current
 
 * [2025-04-14 12:05:10] - AIアノテーション機能を `image-annotator-lib` へ委譲することを決定 (decisionLog.md 参照)
 * [2025-04-14 03:24:20] - Memory Bank コアファイルの作成、productContext.md, activeContext.md, progress.md, decisionLog.md, systemPatterns.md への初期情報入力完了
+* [2025-04-17 17:23:08] - ドキュメントディレクトリ構成を3層アーキテクチャ (interfaces, application, core) に合わせて変更 (decisionLog.md 参照)
 
 ## Open Questions/Issues
 

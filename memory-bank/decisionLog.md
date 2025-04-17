@@ -94,4 +94,22 @@ This file records architectural and implementation decisions using a list format
 - **残課題:**
     - `ImageProcessingService` 内のエラーハンドリングの詳細化 (UIへのフィードバックなど)。
     - `ImageTextFileReader` へのファイルベース (.txt/.json) アノテーション読み込みロジックの統合 (計画書に TODO 記載済み)。
-    - `ImageEditWidget` のユニットテスト作成/更新。
+    97 |     - `ImageEditWidget` のユニットテスト作成/更新。
+    98 |
+    99 | ## 2025-04-17: ドキュメントディレクトリ構成変更 (3層アーキテクチャ準拠)
+    100|
+    101| - **決定事項:**
+    102|     - `docs/Plan` および `docs/specs` ディレクトリ内のドキュメントを、3層アーキテクチャ（interfaces, application, core）に基づいて再構成した。
+    103|     - 各層に対応するサブディレクトリを作成し、関連するドキュメントファイルを移動した。
+    104|     - ドキュメント参照ルール (`.cursor/rules/doc-lookup-rules.mdc`) を更新し、新しい構造と参照優先順位を定義した。
+    105| - **理由:**
+    106|     - コードベースの3層アーキテクチャとドキュメント構造を一致させ、責任分離を明確にするため。
+    107|     - 関連ドキュメントへのアクセス性を向上させ、開発効率を高めるため。
+    108|     - AIアシスタントを含む開発者全員が、参照すべきドキュメントを容易に特定できるようにするため。
+    109| - **影響範囲:**
+    110|     - `docs/Plan/` 配下の全ファイル
+    111|     - `docs/specs/` 配下の全ファイル
+    112|     - `.cursor/rules/doc-lookup-rules.mdc` (更新)
+    113|     - Memory Bank ファイル (`productContext.md`, `activeContext.md`, `decisionLog.md`, `systemPatterns.md`) (更新)
+    114| - **残課題:**
+    115|     - 特になし。

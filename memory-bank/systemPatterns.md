@@ -46,6 +46,7 @@ It is optional, but recommended to be updated as the project evolves.
 ## Architectural Patterns
 
 *   [2025-04-14 10:54:55] - src layout を採用 (decisionLog.md より)
+*   [2025-04-17 17:26:19] - **ドキュメント構造:** `docs/` ディレクトリを3層アーキテクチャ (interfaces, application, core) に合わせて構成。各層に対応する仕様書 (`specs`) と計画書/チェックリスト (`Plan`) を配置。詳細は `decisionLog.md` および `.cursor/rules/doc-lookup-rules.mdc` を参照。
 
 ## Testing Patterns
 
