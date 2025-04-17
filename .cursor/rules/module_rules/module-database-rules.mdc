@@ -1,9 +1,9 @@
 ---
 description: lorairo データベース層 設計指針（SQLAlchemyパターン）@src\lorairo\database
-globs: "**/database/*"
+globs: src/lorairo/database/**/*
 alwaysApply: false
 ---
-version: "1.0.0"
+version: "1.0.1"
 # lorairo データベース層 設計指針（SQLAlchemyパターン）
 
 仕様 [database_management.md](mdc:docs/specs/database_management.md)

@@ -1,9 +1,9 @@
 ---
 description: 
-globs: 
-alwaysApply: true
+globs: **/*.py,*.py,**/*
+alwaysApply: false
 ---
-version: "3.2.1"
+version: "3.2.2"
 
 # コーディングルール (AI向け指示)
 
@@ -36,7 +36,7 @@ AI はコードを生成・編集する際、以下のルールに**厳守**す�
 
 - **型ヒント:**
     - すべての関数、メソッドの引数と戻り値には、可能な限り具体的な型ヒントを付与すること。
-    - **モダンな型:** `typing.List` や `typing.Dict` ではなく、Python 3.9 以降の組み込み型 (`list`, `dict`) や `collections.abc` の型を使用すること。Optional型も使用しないこと
+    - **モダンな型:** `typing.List` や `typing.Dict` ではなく、Python 3.9 以降の組み込み型 (`list`, `dict`) や `collections.abc` の型を使用すること。`Optional` 型も使用しないこと
     - **複雑な型:** 複雑な辞書構造には `TypedDict` を活用すること。
     - **メソッドチェーン:** メソッドチェーンを考慮する場合は `Self` 型を使用すること。
     - **`Any` の回避:** `Any` 型の使用は最小限に留め、具体的な型を指定するよう努めること。やむを得ず使用する場合は理由をコメントに残すこと。

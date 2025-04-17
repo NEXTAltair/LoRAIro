@@ -1,11 +1,6 @@
 ---
-description: sstep_defの書き方
-globs: 
-alwaysApply: false
----
----
-description: sstep_defの書き方
-globs: "**/step_def/**/test_*.py"
+description: 
+globs: tests/step_defs/**/*
 alwaysApply: false
 ---
 version: 3.0.2
