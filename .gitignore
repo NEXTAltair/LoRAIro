@@ -61,8 +61,6 @@ coverage.xml
 _build/
 *.html
 *.rst
-!docs/Plan/
-!docs/specs/
 
 # Qt Designer/UI関連
 *_ui.py
