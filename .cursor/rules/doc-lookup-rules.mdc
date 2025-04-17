@@ -3,7 +3,7 @@ description:
 globs: **/*.py,*.py
 alwaysApply: false
 ---
-version: "2.0.0"
+version: "2.0.1"
 
 # ドキュメント参照ルール (AI向け指示)
 
@@ -21,7 +21,7 @@ version: "2.0.0"
   2.2 アプリケーション (`docs/Plan/application`)
   2.3 コア  (`docs/Plan/core`)
   4. memory-bank (`memory-bank`)
-  5. README [README](mdc:src/lorairo/database/migrations/README)
+  5. README [README.md](mdc:README.md)
 
 ## ドキュメント構造
 
@@ -43,7 +43,7 @@ version: "2.0.0"
   - [configuration_window.md](mdc:docs/specs/interfaces/configuration_window.md)
   - [image_edit_widget.md](mdc:docs/specs/interfaces/image_edit_widget.md)
 
-#### 1.2 アプリケーション (`docs/specs/aplication`)
+#### 1.2 アプリケーション (`docs/specs/application`)
 - **目的:** 処理系モジュールの詳細仕様、要件定義、設計方針を管理
 - **参照タイミング:**
   - (`src/lorairo/service/**/*.py`) 参照時
@@ -56,7 +56,7 @@ version: "2.0.0"
 - **参照タイミング:**
   - 処理系ロジックの参照時
 - **ファイル:**
-  - **database:** [database_management.md](mdc:docs/specs/database_management.md)
+  - **database:** [database_management.md](mdc:docs/specs/core/database_management.md)
   - **image processing:** [image_processing.md](mdc:docs/specs/image_processing.md)
   - **log:** [logging_specification.md](mdc:docs/specs/logging_specification.md)
   - **annotation:** [ai_annotation_interface.md](mdc:docs/specs/ai_annotation_interface.md)
@@ -89,7 +89,7 @@ version: "2.0.0"
 - **ファイル:**
   - **gui:** [refactoring_checklist.md](mdc:docs/Plan/application/refactoring_checklist.md)
 
-#### 2.2 コア (`docs/Plan/application`)
+#### 2.3 コア (`docs/Plan/application`)
 - **目的:** 処理系モジュールの今後の計画、ロードマップ、マイルストーンを管理
 - **参照タイミング:**
   - 処理系ロジックの変更を計画時
