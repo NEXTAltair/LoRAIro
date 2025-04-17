@@ -1,9 +1,12 @@
 import sys
 from pathlib import Path
-from typing import Optional
 
 from PySide6.QtCore import QDateTime, Qt, Slot
 from PySide6.QtWidgets import QMessageBox, QWidget
+
+from lorairo.database.db_core import DefaultSessionLocal
+from lorairo.database.db_repository import ImageRepository
+from lorairo.services.configuration_service import ConfigurationService
 
 from ...database.db_manager import ImageDatabaseManager
 from ...storage.file_system import FileSystemManager
@@ -22,19 +25,22 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
 
     def init_ui(self):
         self.exportDirectoryPicker.set_label_text("Export Directory:")
-        self.exportDirectoryPicker.set_path(self.cm.config["directories"]["edited_output"])
+        edited_output_path = self.config_service._config.get("directories", {}).get("edited_output", "")
+        self.exportDirectoryPicker.set_path(edited_output_path)
         self.exportProgressBar.setVisible(False)
         self.dbSearchWidget.filterApplied.connect(self.on_filter_applied)
 
     def initialize(
         self,
-        config_manage,
-        file_system_manager: Optional[FileSystemManager] = None,
-        image_database_manager: Optional[ImageDatabaseManager] = None,
+        config_service: ConfigurationService,
+        file_system_manager: FileSystemManager | None = None,
+        image_database_manager: ImageDatabaseManager | None = None,
+        main_window=None,
     ):
-        self.cm = config_manage
+        self.config_service = config_service
         self.fsm = file_system_manager
         self.idm = image_database_manager
+        self.main_window = main_window
         self.init_date_range()
         self.init_ui()
 
@@ -54,9 +60,9 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
             start_date_qt = QDateTime.fromSecsSinceEpoch(start_date).toLocalTime()
             end_date_qt = QDateTime.fromSecsSinceEpoch(end_date).toLocalTime()
 
-            # ローカルタイムゾーンを使用してISO 8601形式の文字列に変換
-            start_date = start_date_qt.toString(Qt.ISODate)
-            end_date = end_date_qt.toString(Qt.ISODate)
+            # ローカルタイムゾーンを使用してISO 8601形式の文字列に変換 (Qt.ISODate -> Qt.DateFormat.ISODate)
+            start_date = start_date_qt.toString(Qt.DateFormat.ISODate)
+            end_date = end_date_qt.toString(Qt.DateFormat.ISODate)
 
         tags = []
         caption = ""
@@ -139,8 +145,8 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
                 self.statusLabel.setText(f"Status: Exporting... {progress}%")
 
             except Exception as e:
-                logger.error(f"エクスポート中にエラーが発生しました: {str(e)}")
-                QMessageBox.critical(self, "Error", f"エクスポート中にエラーが発生しました: {str(e)}")
+                logger.error(f"エクスポート中にエラーが発生しました: {e!s}")
+                QMessageBox.critical(self, "Error", f"エクスポート中にエラーが発生しました: {e!s}")
                 export_successful = False
                 break
 
@@ -181,22 +187,28 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
 
 
 if __name__ == "__main__":
-    from PySide6.QtWidgets import QApplication
-    from gui import ConfigManager
-    from module.config import get_config
-    from module.log import setup_logger
     import sys
 
-    app = QApplication(sys.argv)
-    config = get_config()
-    logconf = {"level": "DEBUG", "file": "DatasetExportWidget.log"}
-    setup_logger(logconf)
+    from PySide6.QtWidgets import QApplication
 
-    cm = ConfigManager()
+    from lorairo.database.db_manager import ImageDatabaseManager
+    from lorairo.services.configuration_service import ConfigurationService
+    from lorairo.storage.file_system import FileSystemManager
+    from lorairo.utils.config import get_config
+    from lorairo.utils.log import initialize_logging
+
+    app = QApplication(sys.argv)
+    config_data = get_config()
+    log_config = config_data.get("log", {})
+    initialize_logging(log_config)
+
+    config_service = ConfigurationService()
     fsm = FileSystemManager()
-    idm = ImageDatabaseManager()
+    db_path = Path(config_data.get("database", {}).get("path", "Image_database.db"))
+    image_repo = ImageRepository(session_factory=DefaultSessionLocal)
+    idm = ImageDatabaseManager(image_repo)
 
     widget = DatasetExportWidget()
-    widget.initialize(cm, fsm, idm)
+    widget.initialize(config_service, fsm, idm)
     widget.show()
     sys.exit(app.exec())

@@ -4,9 +4,10 @@ from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QHeaderView, QMessageBox, QTableWidgetItem, QWidget
 
-from ...annotations.caption_tags import ImageAnalyzer
+from ...annotations.image_text_reader import ImageTextFileReader
 from ...database.db_manager import ImageDatabaseManager
-from ...editor.image_processor import ImageProcessingManager
+from ...services.configuration_service import ConfigurationService
+from ...services.image_processing_service import ImageProcessingService
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
 from ..designer.ImageEditWidget_ui import Ui_ImageEditWidget
@@ -19,55 +20,60 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         super().__init__(parent)
         self.setupUi(self)
         self.main_window = None
-        self.cm = None
+        self.config_service = None
         self.idm = None
         self.fsm = None
-        self.ipm = None
+        self.image_processing_service: ImageProcessingService | None = None
+        self.image_text_reader: ImageTextFileReader | None = None
         self.target_resolution = 0
         self.preferred_resolutions = []
         self.upscaler = None
-        self.directory_images = None
+        self.directory_images = []
 
     def initialize(
         self,
-        config_manager: "ConfigManager",
+        config_service: ConfigurationService,
         file_system_manager: FileSystemManager,
         image_database_manager: ImageDatabaseManager,
+        image_processing_service: ImageProcessingService,
+        image_text_reader: ImageTextFileReader,
         main_window=None,
     ):
         """ウィジェットの初期化を行う
 
         Args:
-            config_manager (ConfigManager): 設定管理クラス
+            config_service (ConfigurationService): 設定管理クラス
             file_system_manager (FileSystemManager): ファイルシステム管理クラス
             image_database_manager (ImageDatabaseManager): 画像データベース管理クラス
+            image_processing_service (ImageProcessingService): 画像処理サービス
+            image_text_reader (ImageTextFileReader): 画像テキストリーダー
             main_window (Optional): メインウィンドウインスタンス
         """
-        self.cm = config_manager
+        self.config_service = config_service
         self.fsm = file_system_manager
         self.idm = image_database_manager
+        self.image_processing_service = image_processing_service
+        self.image_text_reader = image_text_reader
         self.main_window = main_window
-        self.target_resolution = self.cm.config["image_processing"]["target_resolution"]
-        self.preferred_resolutions = self.cm.config["preferred_resolutions"]
+        image_processing_config = self.config_service.get_image_processing_config()
+        self.target_resolution = image_processing_config.get("target_resolution", 512)
+        self.preferred_resolutions = self.config_service.get_preferred_resolutions()
         self.upscaler = None
-        self.comboBoxResizeOption.currentText()
-        upscalers = [upscaler["name"] for upscaler in self.cm.upscaler_models]
+        upscalers = [model["name"] for model in self.config_service.get_upscaler_models()]
+        self.comboBoxUpscaler.blockSignals(True)
+        self.comboBoxUpscaler.clear()
         self.comboBoxUpscaler.addItems(upscalers)
+        self.comboBoxUpscaler.blockSignals(False)
 
         header = self.tableWidgetImageList.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         header.setStretchLastSection(False)
 
-    def initialize_processing(self):
-        """画像処理に必要なクラスの初期化"""
-        self.fsm.initialize(Path(self.cm.config["directories"]["output"]), self.target_resolution)
-        self.ipm = ImageProcessingManager(self.fsm, self.target_resolution, self.preferred_resolutions)
-
     def showEvent(self, event):
         """ウィジェットが表示される際にメインウィンドウで選択された画像を表示する"""
         super().showEvent(event)
-        if self.cm.dataset_image_paths:
-            self.load_images(self.cm.dataset_image_paths)
+        if self.main_window and self.main_window.dataset_image_paths:
+            self.load_images(self.main_window.dataset_image_paths)
 
     def load_images(self, directory_images: list):
         self.directory_images = directory_images
@@ -107,18 +113,25 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         file_size = file_path.stat().st_size
         self.tableWidgetImageList.setItem(row_position, 4, QTableWidgetItem(f"{file_size / 1024:.2f} KB"))
 
-        # 既存アノテーション
-        existing_annotations = ImageAnalyzer.get_existing_annotations(file_path)
-        if existing_annotations:
+        # 既存アノテーション表示を ImageTextFileReader 経由に変更
+        annotations = None
+        if self.image_text_reader:
+            annotations = self.image_text_reader.get_annotations_for_display(file_path)
+        else:
+            logger.warning("ImageTextFileReader is not initialized. Cannot fetch annotations.")
+
+        if annotations:
             # タグをカンマ区切りの文字列に結合
-            tags_str = ", ".join([tag_info["tag"] for tag_info in existing_annotations["tags"]])
+            tags_str = ", ".join(annotations.get("tags", []))
             self.tableWidgetImageList.setItem(row_position, 5, QTableWidgetItem(tags_str))
 
-            # キャプションをカンマ区切りの文字列に結合
-            captions_str = ", ".join(
-                [caption_info["caption"] for caption_info in existing_annotations["captions"]]
-            )
+            # キャプションをカンマ区切りの文字列に結合 (表示方法は要検討)
+            captions_str = " | ".join(annotations.get("captions", []))
             self.tableWidgetImageList.setItem(row_position, 6, QTableWidgetItem(captions_str))
+        else:
+            # アノテーションが見つからない場合は空欄にする
+            self.tableWidgetImageList.setItem(row_position, 5, QTableWidgetItem(""))
+            self.tableWidgetImageList.setItem(row_position, 6, QTableWidgetItem(""))
 
     @Slot()
     def on_tableWidgetImageList_itemSelectionChanged(self):
@@ -135,110 +148,87 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         selected_option = self.comboBoxResizeOption.currentText()
         resolution = int(selected_option.split("x")[0])
         self.target_resolution = resolution
-        self.cm.config["image_processing"]["target_resolution"] = resolution
+        self.config_service.update_image_processing_setting("target_resolution", resolution)
         logger.debug(f"目標解像度の変更: {resolution}")
 
     @Slot()
     def on_comboBoxUpscaler_currentIndexChanged(self):
-        """選択したアップスケーラに応じて_configのupscalerに設定する"""
+        """選択したアップスケーラに応じて設定を更新する"""
+        # config_service が初期化される前に呼び出される可能性があるのでチェック
+        if self.config_service is None:
+            # logger.warning("on_comboBoxUpscaler_currentIndexChanged called before config_service is initialized.")
+            return
+
         selected_option = self.comboBoxUpscaler.currentText()
+        # アイテムが空の場合も何もしない
+        if not selected_option:
+            return
+
         self.upscaler = selected_option
-        self.cm.config["image_processing"]["upscaler"] = selected_option
+        # 設定更新を ConfigurationService のメソッド経由に変更
+        self.config_service.update_image_processing_setting("upscaler", selected_option)
         logger.debug(f"アップスケーラーの変更: {selected_option}")
 
     @Slot()
     def on_pushButtonStartProcess_clicked(self):
         try:
-            self.initialize_processing()
-            if __name__ == "__main__":  # NOTE: この条件分岐はテスト用､スレッディング処理なしで実行するため
-                self.process_all_images()
-            else:
-                self.main_window.some_long_process(self.process_all_images)
+            if not self.directory_images:
+                QMessageBox.warning(self, "警告", "処理対象の画像がありません。")
+                return
+            if not self.image_processing_service:
+                QMessageBox.critical(self, "エラー", "画像処理サービスが初期化されていません。")
+                return
+            if not self.main_window:
+                QMessageBox.critical(self, "エラー", "メインウィンドウが見つかりません。")
+                return
+
+            selected_upscaler = (
+                self.comboBoxUpscaler.currentText() if self.comboBoxUpscaler.currentIndex() >= 0 else None
+            )
+
+            self.main_window.some_long_process(
+                self.image_processing_service.process_images_in_list,
+                self.directory_images,
+                upscaler_override=selected_upscaler,
+            )
+
+        except RuntimeError as e:
+            logger.error(f"画像処理サービスの実行準備中にエラー: {e}", exc_info=True)
+            QMessageBox.critical(self, "エラー", f"画像処理の開始に失敗しました: {e}")
         except Exception as e:
-            logger.error(f"画像処理中にエラーが発生しました: {str(e)}")
-            QMessageBox.critical(self, "エラー", f"処理中にエラーが発生しました: {str(e)}")
-
-    def process_all_images(self, progress_callback=None, status_callback=None, is_canceled=None):
-        try:
-            logger.debug("画像処理開始")  # Add debug log
-            total_images = len(self.directory_images)
-            for index, image_path in enumerate(self.directory_images):
-                logger.debug(f"画像処理: {index + 1}/{total_images}")  # Add debug log
-                if is_canceled and is_canceled():
-                    break
-                self.process_image(image_path)
-                if progress_callback:
-                    progress = int((index + 1) / total_images * 100)
-                    progress_callback(progress)
-                if status_callback:
-                    status_callback(f"画像 {index + 1}/{total_images} を処理中")
-        except Exception as e:
-            logger.error(f"画像処理中にエラーが発生しました: {str(e)}")
-            raise e
-
-    def process_image(self, image_file: Path):
-        image_id = self.idm.detect_duplicate_image(image_file)
-        if not image_id:
-            image_id, original_image_metadata = self.idm.register_original_image(image_file, self.fsm)
-        else:
-            original_image_metadata = self.idm.get_image_metadata(image_id)
-
-        existing_annotations = ImageAnalyzer.get_existing_annotations(image_file)
-        if existing_annotations:
-            for tag_dict in existing_annotations["tags"]:
-                tag = tag_dict["tag"].strip()
-                word_count = len(tag_dict["tag"].split())
-                if word_count > 5:
-                    logger.info(f"5単語を超えた {tag} は作品名でないか検索します。")
-                    tag_id = self.idm.get_tag_id_in_tag_database(tag)
-                    if not tag_id:
-                        logger.info("作品名が見つかりませんでした。キャプションとして処理します。")
-                        existing_annotations["tags"].remove(tag_dict)
-                        existing_annotations["captions"].append({"caption": tag, "model_id": None})
-                    else:
-                        logger.info(f"作品名が見つかりました: {tag}")
-            self.idm.save_annotations(image_id, existing_annotations)
-        else:
-            self.idm.save_annotations(image_id, {"tags": [], "captions": []})
-
-        existing_processed_image = self.idm.check_processed_image_exists(image_id, self.target_resolution)
-        if existing_processed_image:
-            return
-
-        processed_image = self.ipm.process_image(
-            image_file,
-            original_image_metadata["has_alpha"],
-            original_image_metadata["mode"],
-            upscaler=self.upscaler,
-        )
-        if processed_image:
-            self.handle_processing_result(processed_image, image_file, image_id)
-        else:
-            logger.warning(f"画像処理スキップ: {image_file}")
-
-    def handle_processing_result(self, processed_image, image_file, image_id):
-        processed_path = self.fsm.save_processed_image(processed_image, image_file)
-        processed_metadata = self.fsm.get_image_info(processed_path)
-        self.idm.register_processed_image(image_id, processed_path, processed_metadata)
-        logger.info(f"画像処理完了: {image_file} -> {processed_path}")
+            logger.error(f"画像処理開始ボタンのクリック処理中に予期せぬエラー: {e}", exc_info=True)
+            QMessageBox.critical(self, "エラー", f"予期せぬエラーが発生しました: {e}")
 
 
 if __name__ == "__main__":
-    from PySide6.QtWidgets import QApplication, QWidget
-    from gui import MainWindow, ConfigManager
-    from module.config import get_config
     import sys
 
+    from PySide6.QtWidgets import QApplication, QWidget
+
+    from lorairo.annotations.image_text_reader import ImageTextFileReader
+    from lorairo.database.db_core import DefaultSessionLocal
+    from lorairo.database.db_repository import ImageRepository
+    from lorairo.services.configuration_service import ConfigurationService
+    from lorairo.services.image_processing_service import ImageProcessingService
+    from lorairo.storage.file_system import FileSystemManager
+    from lorairo.utils.config import get_config
+
     app = QApplication(sys.argv)
-    config = get_config()
+    config_data = get_config()
     fsm = FileSystemManager()
-    idm = ImageDatabaseManager(Path("Image_database"))
-    m_window = MainWindow()
-    m_window.init_managers()
-    cm = ConfigManager()
-    image_paths = fsm.get_image_files(Path(r"TEST\testimg\1_img"))  # 画像ファイルのディレクトリを指定
+    db_path = Path(config_data.get("database", {}).get("path", "Image_database.db"))
+    image_repo = ImageRepository(session_factory=DefaultSessionLocal)
+    idm = ImageDatabaseManager(image_repo)
+    config_service = ConfigurationService()
+    image_processing_service = ImageProcessingService(config_service, fsm, idm)
+    image_text_reader = ImageTextFileReader(idm)
+    test_image_dir = Path(r"TEST/testimg/1_img")
+    image_paths = fsm.get_image_files(test_image_dir) if test_image_dir.exists() else []
     widget = ImageEditWidget()
-    widget.initialize(cm, fsm, idm)
-    widget.load_images(image_paths)
+    widget.initialize(
+        config_service, fsm, idm, image_processing_service, image_text_reader, main_window=None
+    )
+    if image_paths:
+        widget.load_images(image_paths)
     widget.show()
     sys.exit(app.exec())

@@ -3,6 +3,8 @@ from pathlib import Path
 from PySide6.QtCore import QDateTime, Qt, Signal, Slot
 from PySide6.QtWidgets import QMessageBox, QWidget
 
+from lorairo.services.configuration_service import ConfigurationService
+
 from ...annotations.caption_tags import ImageAnalyzer
 from ...database.db_manager import ImageDatabaseManager
 from ...storage.file_system import FileSystemManager
@@ -26,14 +28,15 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
         self.thumbnailSelector.imageSelected.connect(self.update_preview)
         self.dbSearchWidget.filterApplied.connect(self.on_filter_applied)
 
-    def initialize(self, cm: "ConfigManager", idm: "ImageDatabaseManager"):
-        self.cm = cm
+    def initialize(self, config_service: ConfigurationService, idm: ImageDatabaseManager, main_window=None):
+        self.config_service = config_service
         self.idm = idm
+        self.main_window = main_window
 
     def showEvent(self, event):
         """ウィジェットが表示される際に呼び出されるイベントハンドラ"""
-        if self.cm.dataset_image_paths:
-            self.load_images(self.cm.dataset_image_paths)
+        if self.main_window and self.main_window.dataset_image_paths:
+            self.load_images(self.main_window.dataset_image_paths)
 
     def load_images(self, image_files: list):
         self.image_files = image_files
@@ -57,9 +60,9 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
             start_date_qt = QDateTime.fromSecsSinceEpoch(start_date).toLocalTime()
             end_date_qt = QDateTime.fromSecsSinceEpoch(end_date).toLocalTime()
 
-            # ローカルタイムゾーンを使用してISO 8601形式の文字列に変換
-            start_date = start_date_qt.toString(Qt.ISODate)
-            end_date = end_date_qt.toString(Qt.ISODate)
+            # ローカルタイムゾーンを使用してISO 8601形式の文字列に変換 (Qt.ISODate -> Qt.DateFormat.ISODate)
+            start_date = start_date_qt.toString(Qt.DateFormat.ISODate)
+            end_date = end_date_qt.toString(Qt.DateFormat.ISODate)
 
         tags = []
         caption = ""
@@ -156,13 +159,19 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
         elif annotations is None:
             # DBkからアノテーション情報を検索
             image_id = self.idm.detect_duplicate_image(image_path)
-            image_data = self.idm.get_image_annotations(image_id)
-            tags_text = ", ".join([tag_data.get("tag", "") for tag_data in image_data["tags"]])
-            self.tagsTextEdit.setPlainText(tags_text)
-            captions_text = ", ".join(
-                [caption_data.get("caption", "") for caption_data in image_data["captions"]]
-            )
-            self.captionTextEdit.setPlainText(captions_text)
+            # image_id が None でないことを確認
+            if image_id is not None:
+                image_data = self.idm.get_image_annotations(image_id)
+                tags_text = ", ".join([tag_data.get("tag", "") for tag_data in image_data.get("tags", [])])
+                self.tagsTextEdit.setPlainText(tags_text)
+                captions_text = ", ".join(
+                    [caption_data.get("caption", "") for caption_data in image_data.get("captions", [])]
+                )
+                self.captionTextEdit.setPlainText(captions_text)
+            else:
+                # image_id が見つからない場合はクリア
+                self.tagsTextEdit.clear()
+                self.captionTextEdit.clear()
         else:
             self.tagsTextEdit.clear()
             self.captionTextEdit.clear()
@@ -180,21 +189,32 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
 
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
-    from gui import ConfigManager
-    from module.file_sys import FileSystemManager
+    from lorairo.services.configuration_service import ConfigurationService
+    from lorairo.storage.file_system import FileSystemManager
+    from lorairo.database.db_manager import ImageDatabaseManager
+    from lorairo.database.db_core import DefaultSessionLocal
+    from lorairo.database.db_repository import ImageRepository
+    from lorairo.utils.config import get_config
+    from lorairo.utils.log import initialize_logging
     import sys
-    from module.log import setup_logger
+    from pathlib import Path
 
-    logconf = {"level": "DEBUG", "file": "DatasetOverviewWidget.log"}
-    setup_logger(logconf)
-    cm = ConfigManager()
-    fsm = FileSystemManager()
-    idm = ImageDatabaseManager(cm.config["directories"]["database"])
-    directory = Path(r"testimg\10_shira")
-    image_files: list[Path] = fsm.get_image_files(directory)
     app = QApplication(sys.argv)
+    config_data = get_config()
+    log_config = config_data.get("log", {})
+    initialize_logging(log_config)
+
+    config_service = ConfigurationService()
+    image_repo = ImageRepository(session_factory=DefaultSessionLocal)
+    idm = ImageDatabaseManager(image_repo)
+    fsm = FileSystemManager()
+
+    directory = Path(r"testimg/10_shira")
+    image_files: list[Path] = fsm.get_image_files(directory) if directory.exists() else []
+
     widget = DatasetOverviewWidget()
-    widget.initialize(cm, idm)
-    widget.load_images(image_files)
+    widget.initialize(config_service, idm, main_window=None)
+    if image_files:
+        widget.load_images(image_files)
     widget.show()
     sys.exit(app.exec())
