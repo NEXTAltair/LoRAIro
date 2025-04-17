@@ -1,9 +1,9 @@
 ---
 description: 
-globs: 
-alwaysApply: true
+globs: **/*.py,*.py
+alwaysApply: false
 ---
-version: "1.2.0"
+version: "1.3.0"
 
 # ドキュメント参照ルール (AI向け指示)
 
@@ -11,10 +11,11 @@ version: "1.2.0"
 
 - **ドキュメント参照の義務化:** コードの実装・変更時は、必ず関連するドキュメントを参照すること。
 - **ドキュメント更新の義務化:** コード変更時は、関連するドキュメントも適切に更新すること。
-- **参照順序:** ドキュメントは以下の優先順位で参照すること：
+- **参照順序:** ドキュメントは以下の優先順位で参照すること:
   1. 仕様書 (`@docs/specs`)
   2. 計画書 (`@docs/Plan`)
-  3. README
+  3. memory-bank (`@memory-bank`)
+  5. README [README](mdc:src/lorairo/database/migrations/README)
 
 ## ドキュメント構造
 
@@ -25,12 +26,25 @@ version: "1.2.0"
   - 既存機能の改修前
   - プロジェクトの方向性確認時
 
+#### 2.1 モジュールごとのチェックリスト
+- **gui:** [gui_logic_separation_checklist.md](mdc:docs/Plan/checklists/gui_logic_separation_checklist.md)
+- **database:** [database_schema_plan.md](mdc:docs/Plan/database_schema_plan.md)
+- **log:** [logging_refactor_checklist.md](mdc:docs/Plan/logging_refactor_checklist.md)
+
+
 ### 2. 仕様書 (`@docs/specs`)
 - **目的:** 機能の詳細仕様、要件定義、設計方針を管理
 - **参照タイミング:**
   - 機能実装時
   - バグ修正時
   - 設計変更時
+
+#### 2.1 モジュールごとのドキュメント
+- **gui:** [gui_interface.md](mdc:docs/specs/gui_interface.md)
+- **database:** [database_management.md](mdc:docs/specs/database_management.md)
+- **image processing:** [image_processing.md](mdc:docs/specs/image_processing.md)
+- **log:** [logging_specification.md](mdc:docs/specs/logging_specification.md)
+- **annotation:** [ai_annotation_interface.md](mdc:docs/specs/ai_annotation_interface.md)
 
 ### 3. README (`@README.md`)
 - **目的:** プロジェクトの概要、セットアップ手順、基本的な使用方法を管理
@@ -53,11 +67,11 @@ version: "1.2.0"
 
 ## ドキュメント参照チェックリスト
 
-- [ ] 実装前に仕様書を確認したか？
-- [ ] 計画書と実装内容が整合しているか？
-- [ ] READMEの内容が最新か？
-- [ ] 関連するドキュメントを更新したか？
-- [ ] ドキュメント間の整合性を確認したか？
+- [ ] 実装前に仕様書を確認したか?
+- [ ] 計画書と実装内容が整合しているか?
+- [ ] READMEの内容が最新か?
+- [ ] 関連するドキュメントを更新したか?
+- [ ] ドキュメント間の整合性を確認したか?
 
 ## 違反時の対応
 

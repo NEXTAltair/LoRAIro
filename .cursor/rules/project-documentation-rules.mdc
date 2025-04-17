@@ -1,9 +1,9 @@
 ---
 description: 
-globs: 
-alwaysApply: true
+globs: **/*.py,*.py,*.md,*.toml
+alwaysApply: false
 ---
-version: "3.1.1"
+version: "3.1.2"
 
 # プロジェクト・ドキュメンテーションルール (AI 向け指示)
 
@@ -14,9 +14,9 @@ version: "3.1.1"
 ## ライブラリ情報: image-annotator-lib
 
 - **目的:** 画像評価、タグ付け、関連処理を行う統合ライブラリとして機能させること。
-- **管理:** `pyproject.toml` で管理し、`uv pip install -e .[dev]` でインストール可能とすること。
+- **管理:** `pyproject.toml` で管理し、`uv sync` でインストール可能とすること。
 - **参照:** コーディング時は  `docs` `memory-bank` ディレクトリ `.roo*` ファイルのドキュメントを参照すること。
-- **更新:** 処理システムの変更時は関連ドキュメントを更新し､ `docs` `memory-bank` ディレクトリ `.roo*` ファイル にその詳細を残すこと
+- **更新:** 処理システムの変更時は関連ドキュメントを更新すること [doc-lookup-rules.mdc](mdc:.cursor/rules/doc-lookup-rules.mdc) 参照
 
 ## ドキュメンテーション
 
