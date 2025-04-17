@@ -3,7 +3,7 @@
 This file records architectural and implementation decisions using a list format.
 2025-04-14 03:00:00 - Log of updates made.
 
-* [2025-04-14 03:26:14] - `uv pip install` コマンド等で依存関係を管理
+* [2025-04-14 03:26:14] - `uv sync` コマンド等で依存関係を管理
 * [2025-04-14 03:27:12] - ソースコードを `src` ディレクトリに配置
 * [2025-04-16 13:08:01] - データベース層の SQLAlchemy 移行とスキーマ変更が完了。今後の作業を進める際は、必ず `docs/specs` と `docs/Plan` ディレクトリに保存された仕様書および計画書を参照すること。
 

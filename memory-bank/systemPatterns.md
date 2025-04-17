@@ -19,7 +19,8 @@ It is optional, but recommended to be updated as the project evolves.
 *   [2025-04-14 10:54:55] - **リスト内包表記:** `if`/`for` は各1つまでに制限する。
 *   [2025-04-14 10:54:55] - **型ヒント:**
     *   引数/戻り値に具体的型ヒントを付与する。
-    *   モダンな型 (`list`, `dict`, `collections.abc`) を使用する (`typing.List/Dict`, `Optional` は非推奨)。
+    *   モダンな型 (`list`, `dict`, `collections.abc`) を使用する (`typing.List/Dict`は非推奨)。
+    *   Optional型は使わず現在推奨される ( `int | None`, `str | None` ) を使用する
     *   複雑な辞書には `TypedDict` を活用する。
     *   メソッドチェーンには `Self` を使用する。
     *   `Any` の使用は最小限にする。
@@ -69,4 +70,4 @@ It is optional, but recommended to be updated as the project evolves.
     *   **テスト方針:**
         *   十分なカバレッジ確保。
         *   異常系テストも考慮。
-        *   `uv pytest` で実行、カバレッジは XML 出力。
+        *   `uv run pytest` で実行、カバレッジは XML 出力。

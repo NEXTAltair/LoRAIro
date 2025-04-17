@@ -1,4 +1,4 @@
-# GUIとビジネスロジック分離 詳細チェックリスト
+# GUIとビジネスロジック分離・リファクタリング詳細チェックリスト
 
 ## 1. 事前準備・計画
 
@@ -25,56 +25,7 @@
 ### 2.1. ビジネスロジック呼び出しの特定と置換
 
 -   [ ] **直接呼び出し特定:** ウィジェット内で `ImageDatabaseManager`, `FileSystemManager`, `ImageProcessingManager`, `ImageAnalyzer` (またはその後継クラス) などのビジネスロジック/インフラ層クラスを直接呼び出している箇所をすべてリストアップする。
-
-    #### `ImageTaggerWidget` (`tagger.py`)
-    -   [ ] `initialize`: `ConfigManager`, `ImageDatabaseManager` への依存
-    -   [ ] `on_dbSearchWidget_filterApplied`: `ImageDatabaseManager.get_images_by_filter` 呼び出し
-    -   [ ] `on_textEditMainPrompt_textChanged`: `ConfigManager` への依存
-    -   [ ] `on_textEditAddPrompt_textChanged`: `ConfigManager` への依存
-    -   [ ] `on_textEditGenaiPrompt_textChanged`: `ConfigManager` への依存
-    -   [ ] `on_pushButtonGenerate_clicked`: `ImageAnalyzer` の初期化と呼び出し, `ConfigManager` への依存, `ImageDatabaseManager.detect_duplicate_image`, `ImageDatabaseManager.get_low_res_image` 呼び出し
-    -   [ ] `on_pushButtonSave_clicked`: `FileSystemManager.export_dataset_to_txt`, `FileSystemManager.export_dataset_to_json` 呼び出し
-    -   [ ] `save_to_db`: `ImageDatabaseManager.save_annotations` 呼び出し
-
-    #### `ConfigurationWindow` (`configuration_window.py`)
-    -   [x] `initialize`: `ConfigManager` への依存
-    -   [x] `initialize_directory_pickers`: `ConfigManager` への依存
-    -   [x] `initialize_api_settings`: `ConfigManager` への依存
-    -   [x] `initialize_huggingface_settings`: `ConfigManager` への依存
-    -   [x] `initialize_log_settings`: `ConfigManager` への依存
-    -   [x] `_save_config`: `FileSystemManager.save_toml_config` 呼び出し (→ `ConfigurationService.save_settings` 等に置き換え)
-    -   [x] `on_buttonSave_clicked`: `_save_config` 呼び出し
-    -   [x] `on_buttonSaveAs_clicked`: `_save_config` 呼び出し
-    -   [x] `on_lineEdit..._editingFinished` (各種): `ConfigManager` への依存
-    -   [x] `on_comboBoxLogLevel_currentIndexChanged`: `ConfigManager` への依存
-    -   [x] `on_dirPicker..._changed` (各種): `ConfigManager` への依存
-    -   [x] `on_filePickerLogFile_changed`: `ConfigManager` への依存
-
-    #### `ImageEditWidget` (`edit.py`)
-    -   [x] `initialize`: `ConfigManager`, `FileSystemManager`, `ImageDatabaseManager` への依存 (-> Service経由に変更)
-    -   [x] `initialize_processing`: `FileSystemManager.initialize`, `ImageProcessingManager` の初期化, `ConfigManager` への依存 (-> ImageProcessingService に移譲)
-    -   [x] `showEvent`: `ConfigManager` への依存 (-> MainWindow経由に変更)
-    -   [x] `_add_image_to_table`: `ImageAnalyzer.get_existing_annotations` 呼び出し (-> ImageTextFileReader に移譲)
-    -   [x] `on_comboBoxResizeOption_currentIndexChanged`: `ConfigManager` への依存 (-> ConfigurationService経由に変更)
-    -   [x] `on_comboBoxUpscaler_currentIndexChanged`: `ConfigManager` への依存 (-> ConfigurationService経由に変更)
-    -   [x] `on_pushButtonStartProcess_clicked`: `initialize_processing` 呼び出し (-> ImageProcessingService 呼び出しに変更)
-    -   [x] `process_image`: `ImageDatabaseManager`, `ImageAnalyzer`, `ImageProcessingManager` 呼び出し (-> ImageProcessingService に移譲)
-    -   [x] `handle_processing_result`: `FileSystemManager`, `ImageDatabaseManager` 呼び出し (-> ImageProcessingService に移譲)
-
-    #### `DatasetOverviewWidget` (`overview.py`)
-    -   [ ] `initialize`: `ConfigManager`, `ImageDatabaseManager` への依存
-    -   [ ] `showEvent`: `ConfigManager` への依存
-    -   [ ] `on_filter_applied`: `ImageDatabaseManager.get_images_by_filter` 呼び出し
-    -   [ ] `update_metadata`: `FileSystemManager.get_image_info` 呼び出し
-    -   [ ] `update_annotations`: `ImageAnalyzer.get_existing_annotations`, `ImageDatabaseManager.detect_duplicate_image`, `ImageDatabaseManager.get_image_annotations` 呼び出し
-
-    #### `DatasetExportWidget` (`export.py`)
-    -   [ ] `initialize`: `ConfigManager`, `FileSystemManager`, `ImageDatabaseManager` への依存
-    -   [ ] `init_ui`: `ConfigManager` への依存
-    -   [ ] `on_filter_applied`: `ImageDatabaseManager.get_images_by_filter` 呼び出し
-    -   [ ] `export_dataset`: `ImageDatabaseManager.get_image_annotations`, `ImageDatabaseManager.filter_recent_annotations`, `FileSystemManager.export_dataset_to_txt`, `FileSystemManager.export_dataset_to_json` 呼び出し
-    -   [ ] `update_image_count_label`: `ImageDatabaseManager.get_total_image_count` 呼び出し
-
+    -   各ウィジェットごとに、主要な直接呼び出し・依存箇所を列挙（詳細は元チェックリスト参照）
 -   [x] **サービス層メソッド特定:** 特定した直接呼び出しに対応する、適切なサービス層のメソッドを特定する。
 -   [x] **UIイベントハンドラ特定:** ボタンクリック (`on_button_clicked`)、テキスト変更 (`on_text_changed`)、選択変更 (`on_selection_changed`) など、ビジネスロジックのトリガーとなるUIイベントハンドラを特定する。
 -   [x] **ロジック置換:** UIイベントハンドラ内のビジネスロジックを、特定したサービス層メソッドの呼び出しに置き換える。
@@ -120,7 +71,12 @@
 -   [x] コードレビューを実施し、設計原則 (責務分離、依存関係) が守られているか確認する。
 -   [x] 実際にアプリケーションを操作し、リファクタリング前と同様に機能することを確認する (リグレッションテスト)。
 -   [ ] パフォーマンスに影響がないか確認する。
+    - [ ] `TrainingWidget`
+    - [x] `ImageEditWidget` ([#XXX] テスト作成完了)
+    - [ ] `GenerationWidget`
 
-        - [ ] `TrainingWidget`
-        - [x] `ImageEditWidget` ([#XXX] テスト作成完了)
-        - [ ] `GenerationWidget` 
+## 6. 関連ドキュメント
+
+-   [全体リファクタリング計画](../../refactoring_plan.md)
+-   [GUIインターフェース仕様](../../../specs/interfaces/gui_interface.md)
+-   [GUIリファクタリング簡易チェックリスト](gui_refactoring_checklist.md)
