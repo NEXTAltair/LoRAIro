@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "lorairo"
 version = "0.0.8"
@@ -7,6 +11,7 @@ requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "NEXTAltair" }]
 keywords = ["lora", "dataset", "ai", "image-processing"]
+
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: GPU :: NVIDIA CUDA",
@@ -18,7 +23,6 @@ classifiers = [
     "Operating System :: Microsoft :: Windows",
 ]
 
-# 依存パッケージ（バージョン固定）
 dependencies = [
     # 画像処理系
     "Pillow", # 基本的な画像処理
@@ -34,7 +38,6 @@ dependencies = [
     "toml>=0.10.2", # 設定ファイル処理
     "loguru>=0.7.2", # ログライブラリ
     "sqlalchemy>=2.0.40",
-
     # PyQt系
     "PySide6>=6.8.0.2", # GUIフレームワーク
     "superqt>=0.6.7", # 拡張Qt部品
@@ -42,30 +45,11 @@ dependencies = [
     "pytorch-lightning==2.4.0", # PyTorch拡張
     "joblib==1.4.2", # 並列処理
     # 自作ライブラリ (Git LFS 問題のためコメントアウト)
-    # "genai-tag-db-tools @ git+https://github.com/NEXTAltair/genai-tag-db-tools.git",
+    "genai-tag-db-tools @ git+https://github.com/NEXTAltair/genai-tag-db-tools.git",
     "image-annotator-lib @ git+https://github.com/NEXTAltair/image-annotator-lib.git", # 画像タグ付けライブラリ
 ]
 
 [project.optional-dependencies]
-dev = [
-    "ruff",
-    "pylint",
-    "pytest",
-    "pytest-cov",
-    "pytest-qt",
-    "types-requests>=2.32.0",
-    "types-Pillow",
-    "types-toml",
-
-    # Database related for tests (if not already in main deps)
-    "sqlalchemy>=2.0.40",
-    "alembic>=1.15.2",
-    # Utilities
-    "psutil",
-    "matplotlib"
-]
-
-
 
 [project.scripts]
 lorairo = "lorairo.main:main"
@@ -74,24 +58,12 @@ lorairo = "lorairo.main:main"
 "Homepage" = "https://github.com/NEXTAltair/lorairo"
 "Bug Tracker" = "https://github.com/NEXTAltair/lorairo/issues"
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-# Ruffのフォーマット・リント設定を拡充
 [tool.ruff]
 fix = true
 line-length = 108
 target-version = "py312"
 
 [tool.ruff.lint]
-exclude = [
-    "*/gui/designer/*",  # Qtデザイナが生成するコード
-    "*/__pycache__",
-    "*/site-packages/*",
-    "*.ipynb",             # Jupyter Notebookは除外
-]
-# 使用するルールセット
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
@@ -102,38 +74,29 @@ select = [
     "UP",  # pyupgrade
     "RUF" # Ruff-specific rules
 ]
+
+exclude = [
+    "*/gui/designer/*",  # Qtデザイナが生成するコード
+    "*/__pycache__"
+]
+
 ignore = [
     "RUF002", # カタカナの `ノ` でのメッセージを無視
     "E501",   # Line too long (line-lengthで制御)
     "F541"   # f-string in logging (同等のpylint警告W1203 - Ruffでは直接の対応がない)
 ]
-
 fixable = ["ALL"]
 
-# Ruff formatter設定
 [tool.ruff.format]
-quote-style = "double"    # 二重引用符使用
-indent-style = "space"    # スペースでインデント
-line-ending = "auto"      # 自動改行コード
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
 
-# pytestの型チェックを無視
-[[tool.mypy.overrides]]
-module = ["pytest", "pytest.*"]
+[tool.mypy]
+python_version = "3.12"
 ignore_missing_imports = true
 
-# hatchling ビルド設定
-[tool.hatch.build.targets.wheel]
-packages = ["src/lorairo"]      # パッケージディレクトリ指定
-include-package-data = true     # package_dataを含める
-
-# hatchling SDISTビルド設定
-[tool.hatch.build.targets.sdist]
-include = [
-    "/src",            # ソースコード
-    "/tests",          # テストコード
-    "pyproject.toml",  # 設定ファイル
-    "README.md",       # ドキュメント
-]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"] # テストするコードのディレクトリ
@@ -154,42 +117,55 @@ source = ["src"]
 omit = [
     "*/shibokensupport/*",
     "*/site-packages/*",
-    "*/tests/*",
     "*/pyscript",
     "*/signature_bootstrap.py"
 ]
 
 [tool.coverage.report]
+fail_under = 75 # カバレッジが75%未満なら失敗
+show_missing = true
 exclude_lines = [
     "pragma: no cover",
-    "def __repr__",
-    "if __name__ == '__main__':",
     "raise NotImplementedError",
     "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "@(abc\\.)?abstractmethod",
+    "\\.\\.\\.",                  # ... (Ellipsis)
+]
+
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lorairo"]      # パッケージディレクトリ指定
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",            # ソースコード
+    "/tests",          # テストコード
+    "pyproject.toml",  # 設定ファイル
+    "README.md",       # ドキュメント
 ]
 
 [tool.uv.sources]
-genai-tag-db-tools = { path = "local_packages/genai-tag-db-tools" }
-image-annotator-lib = { path = "local_packages/image-annotator-lib" }
+genai-tag-db-tools = { path = "local_packages/genai-tag-db-tools", editable = true }
+image-annotator-lib = { path = "local_packages/image-annotator-lib", editable = true }
 
 [dependency-groups]
 dev = [
+    "ruff",
+    "pylint",
+    "pytest",
+    "pytest-cov",
+    "pytest-qt",
+    "types-requests>=2.32.0",
+    "types-Pillow",
+    "types-toml",
+    "sqlalchemy>=2.0.40",
     "alembic>=1.15.2",
+    "psutil",
+    "matplotlib",
     "genai-tag-db-tools",
     "image-annotator-lib",
-    "matplotlib>=3.10.1",
-    "psutil>=7.0.0",
-    "pylint>=3.3.6",
-    "pytest>=8.3.5",
     "pytest-bdd>=8.1.0",
-    "pytest-cov>=6.1.1",
-    "pytest-mock>=3.14.0",
-    "pytest-qt>=4.4.0",
-    "ruff>=0.11.5",
-    "sqlalchemy>=2.0.40",
-    "types-pillow>=10.2.0.20240822",
-    "types-requests>=2.32.0.20250328",
-    "types-toml>=0.10.8.20240310",
 ]
 
 [tool.hatch.metadata]
