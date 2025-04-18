@@ -1,0 +1,20 @@
+---
+description: 
+globs: **/*annota*/*,**/local_packages\image-annotator-lib/**/*,*annota*
+alwaysApply: false
+---
+version: "1.0.1"
+# lorairo image-annotator-lib 統合計画
+
+# ドキュメント
+## コア
+仕様 [ai_annotation_core_spec.md](mdc:docs/specs/core/ai_annotation_core_spec.md)
+計画 [ai_annotation_core_plan.md](mdc:docs/Plan/core/ai_annotation_core_plan.md)
+
+## Application
+仕様 [ai_annotation_application_spec.md](mdc:docs/specs/application/ai_annotation_application_spec.md)
+計画 [ai_annotation_application_plan.md](mdc:docs/Plan/application/ai_annotation_application_plan.md)
+
+## interface
+仕様 [ai_annotation_interface_specs.md](mdc:docs/specs/interfaces/ai_annotation_interface_specs.md)
+計画 [ai_annotation_interface_plan.md](mdc:docs/Plan/interfaces/ai_annotation_interface_plan.md)

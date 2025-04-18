@@ -1,9 +1,9 @@
 ---
 description: 
-globs: **/*.py,*.py
+globs: **/*.py,*.py,*.md
 alwaysApply: false
 ---
-version: "2.0.1"
+version: "2.0.2"
 
 # ドキュメント参照ルール (AI向け指示)
 
@@ -50,6 +50,7 @@ version: "2.0.1"
 - **ファイル:**
   - **config:** [configuration_service.md](mdc:docs/specs/application/configuration_service.md)
   - **image processing:** [image_processing_service.md](mdc:docs/specs/application/image_processing_service.md)
+  - **annotate:**
 
 #### 1.3 コア (`docs/specs/core`)
 - **目的:** 処理系モジュールの詳細仕様、要件定義、設計方針を管理
@@ -59,7 +60,7 @@ version: "2.0.1"
   - **database:** [database_management.md](mdc:docs/specs/core/database_management.md)
   - **image processing:** [image_processing.md](mdc:docs/specs/image_processing.md)
   - **log:** [logging_specification.md](mdc:docs/specs/logging_specification.md)
-  - **annotation:** [ai_annotation_interface.md](mdc:docs/specs/ai_annotation_interface.md)
+  - **annotation:** [ai_annotation_core_spec.md](mdc:docs/specs/core/ai_annotation_core_spec.md)
   - **config** [configuration_management.md](mdc:docs/specs/core/configuration_management.md)
   - **faolesystem** [filesystem_management.md](mdc:docs/specs/core/filesystem_management.md)
 

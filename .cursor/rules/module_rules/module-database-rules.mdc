@@ -6,8 +6,8 @@ alwaysApply: false
 version: "1.0.1"
 # lorairo データベース層 設計指針（SQLAlchemyパターン）
 
-仕様 [database_management.md](mdc:docs/specs/database_management.md)
-計画 [database_schema_plan.md](mdc:docs/Plan/database_schema_plan.md)
+仕様 [database_management.md](mdc:docs/specs/core/database_management.md)
+計画 [database_schema_plan.md](mdc:docs/Plan/core/database_schema_plan.md)
 
 ## 1. 設計思想・全体方針
 - 疎結合・単一責任・テスト容易性を最優先。
