@@ -1,1 +1,3 @@
+# LLM File Reference: Development Rules
+# This file provides a relative path reference for LLM tools to access development rules
 ../../.cursor/rules/rules.mdc
