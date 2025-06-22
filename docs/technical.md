@@ -61,11 +61,29 @@
 - Competitive pricing
 
 **Local ML Models** (via image-annotator-lib)
-- **CLIP**: Aesthetic scoring and similarity
-- **DeepDanbooru**: Anime/artwork tagging
-- **ONNX Runtime**: Cross-platform inference
-- **TensorFlow**: ML model execution
+- **CLIP**: Aesthetic scoring and similarity assessment
+- **DeepDanbooru**: Anime/artwork tagging models
+- **ONNX Runtime**: Cross-platform model inference
+- **TensorFlow**: ML model execution framework
 - **Transformers**: Hugging Face model integration
+
+#### AI Integration Architecture
+
+**Integration Flow**
+```
+AnnotationService → AnnotationWorker → ai_annotator.py → image-annotator-lib
+```
+
+**Key Components**
+- **AnnotationService**: Business logic coordination
+- **AnnotationWorker**: Threaded processing for UI responsiveness
+- **ai_annotator.py**: Library integration wrapper with error handling
+- **image-annotator-lib**: External library providing unified AI provider access
+
+**Data Flow**
+- Input: PIL Image objects + pHash list + model selection
+- Output: PHashAnnotationResults with tags, captions, scores, ratings
+- Storage: Results stored via ImageDatabaseManager → ImageRepository
 
 ### Development Tools
 
@@ -94,11 +112,13 @@
   - Widget interaction testing
 
 #### Logging
-- **Loguru**: Structured logging
-  - Simple configuration
-  - Colored output
+- **Loguru**: Modern structured logging (migrated from standard logging)
+  - Simple, intuitive API
+  - Colored output for development
   - File rotation and retention
-  - Context management
+  - Context management and filtering
+  - Better performance than standard logging
+  - Configured via `src/lorairo/utils/log.py`
 
 ## Development Environment
 
@@ -156,6 +176,30 @@ pre-commit = "^3.5.0"
 genai-tag-db-tools = { path = "local_packages/genai-tag-db-tools", editable = true }
 image-annotator-lib = { path = "local_packages/image-annotator-lib", editable = true }
 ```
+
+### Configuration Management
+
+#### Configuration Files
+- **`config/lorairo.toml`**: Main application configuration
+  - Database settings
+  - Image processing parameters
+  - Logging configuration
+  - UI preferences
+- **`config/annotator_config.toml`**: AI annotator configuration
+  - Model definitions and parameters
+  - Provider-specific settings
+- **`config/available_api_models.toml`**: API model definitions
+  - Supported AI provider models
+  - Model capabilities and limits
+
+#### Configuration Service
+- **`src/lorairo/services/configuration_service.py`**: Configuration management
+  - TOML file parsing and validation
+  - Runtime configuration access
+  - Settings persistence
+- **`src/lorairo/utils/config.py`**: Configuration utilities
+  - Configuration loading helpers
+  - Default value management
 
 ### Configuration Management
 
