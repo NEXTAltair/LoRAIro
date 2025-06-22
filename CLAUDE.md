@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Important Instructions
+Do what has been asked; nothing more, nothing less.
+NEVER create files unless they're absolutely necessary for achieving your goal.
+ALWAYS prefer editing an existing file to creating a new one.
+NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
+
 ## Development Commands
 
 ### Environment Setup
@@ -14,6 +20,7 @@ uv add package-name
 
 # Add development dependencies
 uv add --dev package-name
+
 ```
 
 ### Running the Application
@@ -33,7 +40,10 @@ pytest
 # Run specific test categories
 pytest -m unit        # Unit tests only
 pytest -m integration # Integration tests only
-pytest -m gui         # GUI tests only
+pytest -m gui         # GUI tests only (headless in dev container)
+
+# For GUI tests in dev container (headless environment)
+# Note: Xvfb is automatically started in dev container for headless GUI testing
 
 # Run linting and formatting
 ruff check
@@ -123,6 +133,9 @@ The local packages are installed in editable mode and automatically linked durin
 - pytest-based with coverage reporting (minimum 75%)
 - Test resources in `tests/resources/`
 - Separate unit, integration, and GUI test categories
+- GUI tests run headless in dev container using Xvfb and QT_QPA_PLATFORM=offscreen
+- Container includes EGL libraries (libegl1-mesa) for Qt offscreen rendering
+- Environment variables automatically set: DISPLAY=:99, QT_QPA_PLATFORM=offscreen
 
 **Database:**
 - Uses Alembic for migrations
@@ -163,7 +176,7 @@ Claude Code should reference these files for development guidance:
 - `.cursor/rules/test_rules/pytest-bdd-step-def-rules.mdc` - BDD step definition patterns
 
 **Module-Specific Rules:**
-- `.cursor/rules/module_rules/module-annotater.mdc` - AI annotation module guidelines
+- `.cursor/rules/module_rules/module-annotator.mdc` - AI annotation module guidelines
 - `.cursor/rules/module_rules/module-database-rules.mdc` - Database operation patterns
 - `.cursor/rules/encapsulation-rules.mdc` - Encapsulation and design patterns
 
@@ -218,3 +231,75 @@ The .roo directory contains aliases that reference .cursor rules and additional 
 - Follow established patterns and conventions
 - Use the memory bank system for context retention
 - Always check for existing solutions in error documentation
+
+## Troubleshooting
+
+### GUI Test Issues in Dev Container
+
+If you encounter `libEGL.so.1: cannot open shared object file` errors:
+
+1. **Container Rebuild Required**: The Dockerfile has been updated to include EGL libraries
+   
+   **If VS Code shows "Container is not linked to any devcontainer.json file":**
+   ```bash
+   # Step 1: Close VS Code completely
+   # Step 2: Reopen the project folder (not workspace file)
+   # Step 3: Try: Ctrl+Shift+P -> "Dev Containers: Reopen in Container"
+   
+   # Alternative: Manual container recreation
+   # From local machine terminal:
+   docker ps -a  # Find container name
+   docker stop <container-name>
+   docker rm <container-name>
+   # Then reopen in VS Code and select "Reopen in Container"
+   ```
+   
+   **If devcontainer is recognized:**
+   ```bash
+   # Ctrl+Shift+P -> "Dev Containers: Rebuild Container"
+   ```
+
+2. **Manual EGL Library Check**:
+   ```bash
+   # Check if EGL libraries are available
+   ldconfig -p | grep -i egl
+   find /usr -name "*egl*" -type f 2>/dev/null
+   ```
+
+3. **Environment Variables Verification**:
+   ```bash
+   # These should be set automatically in the container
+   echo "DISPLAY=$DISPLAY"  # Should be :99
+   echo "QT_QPA_PLATFORM=$QT_QPA_PLATFORM"  # Should be offscreen
+   ```
+
+4. **Xvfb Service Check**:
+   ```bash
+   # Verify Xvfb is running
+   ps aux | grep -i xvfb
+   # Restart if needed
+   /workspaces/LoRAIro/.devcontainer/xvfb_init.sh
+   ```
+
+### Test Discovery Issues
+
+If VS Code cannot discover tests in local packages:
+- Ensure no conflicting `.venv` directories exist in local packages
+- Check Python interpreter is set to `/workspaces/LoRAIro/.venv/bin/python`
+- Verify `uv sync --dev` has been run successfully
+
+### Current Limitations
+
+**Container Rebuild Required for Full GUI Testing:**
+- Current container lacks EGL libraries needed for Qt offscreen rendering
+- Updated Dockerfile includes necessary libraries but requires rebuild
+- Non-GUI tests can be run with: `uv run python -m pytest -m "not gui"`
+
+**Temporary Workaround for Development:**
+```bash
+# Run only non-GUI tests
+uv run python -m pytest -m "not gui"
+
+# Test basic imports
+QT_QPA_PLATFORM=minimal uv run python -c "from PySide6.QtCore import QCoreApplication; print('Basic Qt import works')"
+```
