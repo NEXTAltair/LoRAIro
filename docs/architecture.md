@@ -162,7 +162,7 @@ The system supports multiple AI providers through a unified interface.
 graph TD
     A[AnnotationService] --> B[Provider Factory]
     B --> C[OpenAI Provider]
-    B --> D[Anthropic Provider] 
+    B --> D[Anthropic Provider]
     B --> E[Google Provider]
     F[Local Models] --> G[image-annotator-lib]
     A --> F
@@ -237,7 +237,7 @@ graph TD
 - **Location**: `local_packages/genai-tag-db-tools/`
 - **Features**: Tag taxonomy management, database operations
 
-#### image-annotator-lib  
+#### image-annotator-lib
 - **Purpose**: Core image annotation functionality
 - **Integration**: Python library import
 - **Location**: `local_packages/image-annotator-lib/`
@@ -258,7 +258,7 @@ graph TD
 ```mermaid
 graph TD
     A[Configuration System] --> B[System Defaults]
-    A --> C[User Configuration]  
+    A --> C[User Configuration]
     A --> D[Environment Variables]
     B --> E[config/lorairo.toml]
     C --> F[User Overrides]
@@ -417,5 +417,214 @@ graph TD
 - Python version compatibility
 - Dependency update strategy
 - Migration planning
+
+## Sequence Diagrams
+
+The following sequence diagrams illustrate the detailed interactions between components during key application workflows.
+
+### Application Startup Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Main as main.py
+    participant Config as ConfigurationService
+    participant Log as Logger
+    participant App as QApplication
+    participant MW as MainWindow
+    participant UI as Ui_MainWindow
+
+    User->>+Main: アプリケーション起動
+    Main->>+Config: get_config()
+    Config-->>-Main: 設定情報
+    Main->>+Log: initialize_logging(config)
+    Log-->>-Main: ログ初期化完了
+    Main->>+App: QApplication([])
+    App-->>-Main: アプリインスタンス
+    Main->>+MW: MainWindow()
+    MW->>+UI: setupUi(self)
+    UI-->>-MW: UI初期化完了
+    MW-->>-Main: ウィンドウインスタンス
+    Main->>MW: show()
+    Main->>App: exec()
+    App-->>-User: アプリケーション表示
+```
+
+### MainWindow Initialization Flow
+
+```mermaid
+sequenceDiagram
+    participant MW as MainWindow
+    participant CS as ConfigurationService
+    participant IR as ImageRepository
+    participant IDM as ImageDatabaseManager
+    participant FSM as FileSystemManager
+    participant ITR as ImageTextFileReader
+    participant IPS as ImageProcessingService
+    participant PW as ProgressWidget
+    participant PC as ProgressController
+
+    MW->>+CS: ConfigurationService()
+    CS-->>-MW: 設定サービス
+    MW->>MW: setupUi(self)
+
+    Note over MW: init_managers()
+    MW->>+IR: ImageRepository(DefaultSessionLocal)
+    IR-->>-MW: リポジトリインスタンス
+    MW->>+IDM: ImageDatabaseManager(image_repo)
+    IDM-->>-MW: DBマネージャー
+    MW->>+FSM: FileSystemManager()
+    FSM-->>-MW: ファイルシステムマネージャー
+    MW->>+ITR: ImageTextFileReader(idm)
+    ITR-->>-MW: テキストリーダー
+    MW->>+IPS: ImageProcessingService(config, fsm, idm)
+    IPS-->>-MW: 画像処理サービス
+    MW->>+PW: ProgressWidget()
+    PW-->>-MW: プログレスウィジェット
+    MW->>+PC: Controller(progress_widget)
+    PC-->>-MW: プログレスコントローラー
+
+    Note over MW: init_pages()
+    MW->>MW: 各ページ初期化
+    MW->>MW: connect_signals()
+    MW->>MW: init_dataset_selector()
+    MW->>MW: init_statusbar()
+```
+
+### Image Processing Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant MW as MainWindow
+    participant PC as ProgressController
+    participant IPS as ImageProcessingService
+    participant IPM as ImageProcessingManager
+    participant IDM as ImageDatabaseManager
+    participant FSM as FileSystemManager
+
+    User->>+MW: 画像処理開始
+    MW->>+PC: start_process(process_function, args)
+    PC->>+IPS: process_images_in_list(image_paths, callbacks)
+
+    loop 各画像に対して
+        IPS->>+IDM: detect_duplicate_image(image_file)
+        IDM-->>-IPS: image_id or None
+
+        alt 画像が未登録の場合
+            IPS->>+IDM: register_original_image(image_file, fsm)
+            IDM->>+FSM: get_image_info(image_file)
+            FSM-->>-IDM: メタデータ
+            IDM-->>-IPS: (image_id, metadata)
+        else 画像が登録済みの場合
+            IPS->>+IDM: get_image_metadata(image_id)
+            IDM-->>-IPS: メタデータ
+        end
+
+        IPS->>+IDM: check_processed_image_exists(image_id, resolution)
+        IDM-->>-IPS: 処理済み画像の存在確認
+
+        alt 処理済み画像が存在しない場合
+            IPS->>+IPM: process_image(file, has_alpha, mode, upscaler)
+            IPM-->>-IPS: 処理済み画像
+            IPS->>+FSM: save_processed_image(image, file)
+            FSM-->>-IPS: 保存パス
+            IPS->>+IDM: register_processed_image(id, path, metadata)
+            IDM-->>-IPS: 登録完了
+        end
+
+        IPS->>MW: progress_callback(progress)
+        IPS->>MW: status_callback(status)
+    end
+
+    IPS-->>-PC: 処理完了
+    PC-->>-MW: 完了通知
+    MW-->>-User: 処理完了表示
+```
+
+### AI Annotation Processing Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant IT as ImageTaggerWidget
+    participant AS as AnnotationService
+    participant AW as AnnotationWorker
+    participant Thread as QThread
+    participant AI as AI Annotator
+
+    User->>+IT: アノテーション開始
+    IT->>+AS: start_annotation(images, phash_list, models)
+    AS->>AS: 入力検証
+    AS->>+Thread: QThread()
+    Thread-->>-AS: スレッドインスタンス
+    AS->>+AW: AnnotationWorker(images, phash, models)
+    AW-->>-AS: ワーカーインスタンス
+    AS->>AW: moveToThread(thread)
+    AS->>Thread: シグナル接続
+    AS->>Thread: start()
+
+    Thread->>+AW: run()
+    AW->>+AW: run_task()
+    AW->>+AI: call_annotate_library(images, models, phash)
+
+    loop 各画像・各モデルに対して
+        AI->>AI: AIモデル呼び出し
+        AI->>AI: アノテーション生成
+    end
+
+    AI-->>-AW: アノテーション結果
+    AW-->>-AW: run_task完了
+    AW->>AS: finished(results)
+    AW-->>-Thread: 処理完了
+
+    AS->>+IT: annotationFinished(results)
+    IT->>IT: 結果処理・UI更新
+    IT-->>-User: アノテーション結果表示
+
+    Thread->>Thread: quit()
+    Thread->>AW: deleteLater()
+    Thread->>Thread: deleteLater()
+```
+
+### Database Operation Flow
+
+```mermaid
+sequenceDiagram
+    participant Service as Service Layer
+    participant IDM as ImageDatabaseManager
+    participant IR as ImageRepository
+    participant Session as DB Session
+    participant Schema as Database
+
+    Service->>+IDM: データ操作要求
+    IDM->>+IR: リポジトリメソッド呼び出し
+    IR->>+Session: session_factory()
+    Session-->>-IR: セッションインスタンス
+    IR->>+Schema: SQLクエリ実行
+    Schema-->>-IR: クエリ結果
+    IR->>Session: commit() or rollback()
+    IR-->>-IDM: 処理結果
+    IDM-->>-Service: 結果返却
+```
+
+### Configuration Management Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant ConfigWidget as 設定画面
+    participant CS as ConfigurationService
+    participant File as config/lorairo.toml
+
+    User->>+ConfigWidget: 設定変更
+    ConfigWidget->>+CS: update_setting(section, key, value)
+    CS->>CS: 設定値検証
+    CS->>+File: TOML書き込み
+    File-->>-CS: 保存完了
+    CS-->>-ConfigWidget: 更新完了
+    ConfigWidget->>ConfigWidget: UI更新
+    ConfigWidget-->>-User: 設定変更完了表示
+```
 
 This architecture provides a solid foundation for the LoRAIro application while maintaining flexibility for future enhancements and scaling requirements.
