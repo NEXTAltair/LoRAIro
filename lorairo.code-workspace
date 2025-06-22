@@ -1,0 +1,118 @@
+{
+  "folders": [
+    {
+      "path": ".",
+      "name": "LoRAIro", // プロジェクトルート全体
+      "settings": {
+        "python.defaultInterpreterPath": "./.venv/bin/python"
+      }
+    },
+    {
+      "path": "./local_packages/image-annotator-lib",
+      "name": "image-annotator-lib",
+      "settings": {
+        "python.defaultInterpreterPath": "../../.venv/bin/python"
+      }
+    },
+    {
+      "path": "./local_packages/genai-tag-db-tools",
+      "name": "genai-tag-db-tools",
+      "settings": {
+        "python.defaultInterpreterPath": "../../.venv/bin/python"
+      }
+    }
+  ],
+  "settings": {
+    // ターミナル設定
+    "terminal.integrated.defaultProfile.windows": "PowerShell",
+
+    // Python テスト設定
+    // pytestの引数は pyproject.toml の [tool.pytest.ini_options] で設定
+    "python.testing.pytestArgs": [],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true,
+    "python.testing.promptToConfigure": false,
+    "python.terminal.activateEnvironment": true,
+
+    // Python 分析設定
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.extraPaths": [
+      "./src",
+      "./local_packages/genai-tag-db-tools/src",
+      "./local_packages/image-annotator-lib/src"
+    ],
+    // "python.defaultInterpreterPath": "./.venv/bin/python", // Removed as it's now folder-specific
+    "python.envFile": "${workspaceFolder}/.env",
+
+    // スペルチェック設定
+    "cSpell.userWords": [
+      "LoRAIro",
+      "PySide6",
+      "danbooru",
+      "genai",
+      "Loguru",
+      "mypy",
+      "pathlib",
+      "pytest",
+      "shibokensupport"
+    ],
+
+    // Python エディター設定
+    "[python]": {
+      "editor.formatOnSave": true,
+      "editor.formatOnPaste": true,
+      "editor.codeActionsOnSave": {
+        "source.fixAll": "explicit",
+        "source.organizeImports": "explicit"
+      },
+      "editor.defaultFormatter": "charliermarsh.ruff"
+    },
+
+    // エディターの一般設定
+    "editor.insertSpaces": true,
+    "editor.tabSize": 4,
+    "editor.detectIndentation": false,
+
+    // ファイル設定
+    "files.encoding": "utf8",
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
+    "files.exclude": {
+      "**/__pycache__": true,
+      "**/.pytest_cache": true,
+      "**/*.pyc": true,
+      "htmlcov": true // カバレッジレポートは除外推奨
+    },
+
+    // 検索設定
+    "search.useIgnoreFiles": false,
+
+
+    // Git 設定
+    "git.autofetch": true,
+    "cursorpyright.analysis.autoImportCompletions": true,
+    "cursorpyright.analysis.extraPaths": [
+        "./src",
+        "./local_packages/genai-tag-db-tools/src",
+        "./local_packages/image-annotator-lib/src"
+    ],
+    "cursorpyright.analysis.typeCheckingMode": "basic"
+  },
+  "extensions": {
+    "recommendations": [
+      "ms-python.python",
+      "ms-python.vscode-pylance",
+      "charliermarsh.ruff",
+      "njpwerner.autodocstring",
+      "eamodio.gitlens",
+      "streetsidesoftware.code-spell-checker",
+      "tamasfe.even-better-toml",
+      "qwtel.sqlite-viewer",
+      "seanwu.vscode-qt-for-python",
+      "vscode-icons-team.vscode-icons",
+      "shardulm94.trailing-spaces",
+      "gruntfuggly.todo-tree"
+    ]
+  }
+}

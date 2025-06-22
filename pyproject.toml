@@ -21,35 +21,36 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Multimedia :: Graphics",
     "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
 ]
 
 dependencies = [
     # 画像処理系
-    "Pillow", # 基本的な画像処理
-    "opencv-python", # オートクロップの枠検出
-    "numpy", # 画像処理の数値計算
-    "ImageHash", # DB重複チェック用
+    "Pillow",
+    "opencv-python",
+    "numpy",
+    "ImageHash",
     # AI系
-    "google-generativeai>=0.8.3", # Gemini API
-    "anthropic>=0.36.2", # Claude API
-    "openai>=0.10.0", # GPT API
-    "spandrel", #アップスケーラー用モデルローダー
+    "google-generativeai>=0.8.3",
+    "anthropic>=0.36.2",
+    "openai>=0.10.0",
+    "spandrel",
     # データ処理系
-    "toml>=0.10.2", # 設定ファイル処理
-    "loguru>=0.7.2", # ログライブラリ
+    "toml>=0.10.2",
+    "loguru>=0.7.2",
     "sqlalchemy>=2.0.40",
-    # PyQt系
-    "PySide6>=6.8.0.2", # GUIフレームワーク
-    "superqt>=0.6.7", # 拡張Qt部品
+    "alembic>=1.15.2",
+    # GUI系
+    "PySide6>=6.8.0.2",
+    "superqt>=0.6.7",
     # AI Model系
-    "pytorch-lightning==2.4.0", # PyTorch拡張
-    "joblib==1.4.2", # 並列処理
-    # 自作ライブラリ (Git LFS 問題のためコメントアウト)
-    "genai-tag-db-tools @ git+https://github.com/NEXTAltair/genai-tag-db-tools.git",
-    "image-annotator-lib @ git+https://github.com/NEXTAltair/image-annotator-lib.git", # 画像タグ付けライブラリ
+    "pytorch-lightning==2.4.0",
+    "joblib==1.4.2",
+    # Local packages (managed by uv.sources)
+    "genai-tag-db-tools",
+    "image-annotator-lib",
 ]
 
-[project.optional-dependencies]
 
 [project.scripts]
 lorairo = "lorairo.main:main"
@@ -83,7 +84,7 @@ exclude = [
 ignore = [
     "RUF002", # カタカナの `ノ` でのメッセージを無視
     "E501",   # Line too long (line-lengthで制御)
-    "F541"   # f-string in logging (同等のpylint警告W1203 - Ruffでは直接の対応がない)
+    "F401",   # Unused imports (IDEでの管理が困難なため)
 ]
 fixable = ["ALL"]
 
@@ -96,7 +97,6 @@ line-ending = "auto"
 [tool.mypy]
 python_version = "3.12"
 ignore_missing_imports = true
-
 
 [tool.pytest.ini_options]
 pythonpath = ["src"] # テストするコードのディレクトリ
@@ -117,8 +117,9 @@ source = ["src"]
 omit = [
     "*/shibokensupport/*",
     "*/site-packages/*",
-    "*/pyscript",
-    "*/signature_bootstrap.py"
+    "*/gui/designer/*",
+    "*/tests/*",
+    "*/__pycache__/*"
 ]
 
 [tool.coverage.report]
@@ -137,13 +138,6 @@ exclude_lines = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/lorairo"]      # パッケージディレクトリ指定
 
-[tool.hatch.build.targets.sdist]
-include = [
-    "/src",            # ソースコード
-    "/tests",          # テストコード
-    "pyproject.toml",  # 設定ファイル
-    "README.md",       # ドキュメント
-]
 
 [tool.uv.sources]
 genai-tag-db-tools = { path = "local_packages/genai-tag-db-tools", editable = true }
@@ -152,20 +146,16 @@ image-annotator-lib = { path = "local_packages/image-annotator-lib", editable = 
 [dependency-groups]
 dev = [
     "ruff",
-    "pylint",
+    "mypy",
     "pytest",
     "pytest-cov",
     "pytest-qt",
+    "pytest-bdd>=8.1.0",
     "types-requests>=2.32.0",
     "types-Pillow",
     "types-toml",
-    "sqlalchemy>=2.0.40",
-    "alembic>=1.15.2",
     "psutil",
     "matplotlib",
-    "genai-tag-db-tools",
-    "image-annotator-lib",
-    "pytest-bdd>=8.1.0",
 ]
 
 [tool.hatch.metadata]

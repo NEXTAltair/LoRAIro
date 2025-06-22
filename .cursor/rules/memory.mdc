@@ -1,0 +1,455 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# LoRAIro Memory Bank
+
+This file serves as the central memory bank for the LoRAIro project, maintaining context across development sessions.
+
+## Project Overview
+# LoRAIro プロジェクトメモリファイル
+
+## プロジェクト概要
+
+LoRAIro is an AI-powered image annotation and management application designed for machine learning dataset preparation. It automates image annotation using multiple AI providers and provides quality assessment for training datasets.
+
+## メモリファイル構成
+
+これは、ファイルシステムを用いてドキュメント化・メモリ維持を行うための基本原則、必要ファイル、ワークフロー構成、および重要手順をまとめたものです。
+メモリファイルは、必須のコアファイルとオプションのコンテキストファイルで構成されます。ファイルは明確な階層構造で積み上げられます。
+
+```mermaid
+flowchart TD
+    PB[ [product_requirement_docs.md](mdc:docs/product_requirement_docs.md) ] --> PC[ [technical.md](mdc:docs/technical.md) ]
+    PB --> SP[ [architecture.md](mdc:docs/architecture.md) ]
+
+    SP --> TC[ [tasks_plan.md](mdc:tasks/tasks_plan.md) ]
+    PC --> TC
+    PB --> TC
+
+    TC --> AC[ [active_context.md](mdc:tasks/active_context.md) ]
+
+    AC --> ER[ [error-documentation.mdc](mdc:.cursor/rules/error-documentation.mdc)]
+    AC --> LL[ [lessons-learned.mdc](mdc:.cursor/rules/lessons-learned.mdc) ]
+
+    subgraph LIT[ @docs/literature ]
+        L1[...]
+        L2[...]
+    end
+
+    subgraph RFC[ @tasks/rfc/ ]
+        R1[...]
+        R2[...]
+    end
+
+    PC --o LIT
+    TC --o RFC
+```
+
+## コアファイル(必須)
+7ファイル:
+1. [product_requirement_docs.md](mdc:docs/product_requirement_docs.md) (docs/product_requirement_docs.md): プロジェクトのPRD(製品要求仕様書)またはSOP。
+   - プロジェクトの存在理由
+   - 解決する問題
+   - コア要件と目標を定義
+   - 他ファイルを形成する基礎文書
+   - プロジェクトスコープの唯一の正典
+   - 存在しない場合、プロジェクト開始時に作成
+
+2. [architecture.md](mdc:docs/architecture.md) (docs/architecture.md): システムアーキテクチャ
+   - どのように動作すべきか
+   - コンポーネント間の関係
+   - 依存関係
+   - ソリューションのワークフロー
+   - Mermaidによるソリューション概要図:各コンポーネントとコードフロー
+
+3. [technical.md](mdc:docs/technical.md) (docs/technical.md): 開発環境とスタック
+   - 使用技術
+   - 開発セットアップ
+   - 主要技術決定
+   - 使用中のデザインパターン
+   - 技術的制約
+
+4. [tasks_plan.md](mdc:tasks/tasks_plan.md) (tasks/tasks_plan.md): 詳細タスクバックログ
+   - 詳細なタスクリストと進行状況
+   - 完了していること
+   - 残っている構築作業
+   - 現在の状況
+   - 既知の問題点
+
+5. [active_context.md](mdc:tasks/active_context.md) (tasks/active_context.md): 開発の現在状態
+   - 現在の作業焦点
+   - 進行中の決定・検討事項
+   - 最近の変更
+   - 次のステップ
+
+6. [error-documentation.mdc](mdc:.cursor/rules/error-documentation.mdc) (.cursor/rules/error-documentation.mdc):
+   - プロジェクト中に発見した修正や再利用できる修正は @error-documentation.mdc に記録し、同じミスを繰り返さないようにする。
+   - 既知の問題:状態、背景、解決策
+
+7. [lessons-learned.mdc](mdc:.cursor/rules/lessons-learned.mdc) (.cursor/rules/lessons-learned.mdc): 各プロジェクトの学習記録
+   - 重要なパターン、好み、プロジェクト知識を収集
+   - @lessons-learned.mdc に詳細記載
+
+## コンテキストファイル(オプション)
+詳細ドキュメント。必要時に参照する。
+
+1. docs/literature/ :
+   - 文献調査や研究記録用
+   - 各文献トピックは LaTeX ファイル (docs/literature/*.tex)
+
+2. tasks/rfc/ :
+   - @tasks_plan.md にある各タスクのRFCを格納
+   - RFCはLaTeXファイル形式 (tasks/*.tex)
+
+## 追加コンテキスト
+必要に応じて docs/ または tasks/ に追加ファイル・フォルダ作成可能。
+- 統合仕様
+- テスト戦略
+- ベンチマーク環境
+- 拡張案
+- デプロイ手順
+
+# コアワークフロー
+
+これより、メモリファイルの読み書き手順を定義する。
+システムは明確なモードで動作する:(PLAN/ACT)、別名(Architect/Code)。モードはユーザー入力またはリクエスト内容で決定。入力に「MODE = PLAN MODE / Architect MODE」や「MODE = ACT MODE / Code MODE」が明示されていればそれに従う。不明確な場合はモードを質問する。
+
+## PLANまたはArchitect MODE
+```mermaid
+flowchart TD
+    Start[開始] --> ReadFiles[メモリファイルを読む ("docs/"と"tasks/"。必要なら"docs/literature"や"tasks/rfc"も)]
+    ReadFiles --> CheckFiles{ファイルは揃っているか?}
+
+    CheckFiles -->|いいえ| Plan[計画作成]
+    Plan --> DocumentChat[チャットで記録]
+
+    CheckFiles -->|はい| VerifyContext[コンテキスト検証]
+    VerifyContext --> Strategy[戦略策定]
+    Strategy --> Present[提案提示]
+
+    Present --> Verification{提案は確認されたか?}
+
+    Verification -->|いいえ| Clarify[明確化要求]
+    Clarify --> Strategy[戦略策定]
+
+    Verification -->|はい| DocumentMemory[メモリファイルに記録]
+```
+
+## ACTまたはCode MODE
+```mermaid
+flowchart TD
+    Start[開始] --> Context[メモリファイルチェック]
+    Context --> Update[ドキュメント更新]
+    Update --> Rules[[lessons-learned.mdc]と[error-documentation.mdc]を更新]
+    Rules --> Execute[タスク実行]
+    Execute --> Document[変更をメモリファイルに記録]
+```
+
+# ドキュメント更新
+
+メモリファイルの更新は以下の時に発生する。
+1. 新しいパターン発見時
+2. 重要な変更後
+3. ユーザーが**メモリファイル更新**を依頼した時(すべてのコアファイルをレビュー)
+4. コンテキストの明確化が必要な時
+5. 計画の主要部分が検証された時
+
+```mermaid
+flowchart TD
+    Start[更新プロセス開始]
+
+    subgraph Process
+        P1[コアファイルをレビュー]
+        P2[[active_context.md]と[tasks_plan.md]に現在の状態を記録]
+        P3[次のステップを明確化し[tasks_plan.md]に記録]
+        P4[[lessons-learned.mdc]と[error-documentation.mdc]を更新]
+        P5[[architecture.md]も更新]
+
+        P1 --> P2 --> P3 --> P4
+    end
+
+    Start --> Process
+```
+
+注: **メモリファイル更新**が発生した場合は、必ずすべてのコアファイルをレビュー。特に [active_context.md]、[tasks_plan.md]、[architecture.md] を重点的にチェック。
+
+# プロジェクト知識 ( [lessons-learned.mdc](mdc:.cursor/rules/lessons-learned.mdc) )
+
+[lessons-learned.mdc] は各プロジェクトの学習記録。
+コードからは見えない重要な知見を記録し、今後の作業効率化に役立てる。
+
+```mermaid
+flowchart TD
+    Start{新しいパターンを発見}
+
+    subgraph Learn [学習プロセス]
+        D1[パターン特定]
+        D2[ユーザーと確認]
+        D3[[lessons-learned.mdc]に記録]
+    end
+
+    subgraph Apply [適用プロセス]
+        A1[[lessons-learned.mdc]を読む]
+        A2[学んだパターンを適用]
+        A3[将来の作業を改善]
+    end
+
+    Start --> Learn
+    Learn --> Apply
+```
+
+## 記録すべき事項
+- 重要な実装パス
+- ユーザーの好みやワークフロー
+- プロジェクト特有のパターン
+- 既知の課題
+- プロジェクト決定の推移
+- ツール使用パターン
+
+フォーマットは柔軟。効果的にプロジェクトを進めるために役立つ知見を中心に記録する。[lessons-learned.mdc]は作業を重ねるごとに賢く成長する「生きたドキュメント」と考える。
+
+---
+
+# LoRAIro 技術仕様
+
+## Core Architecture
+
+### Application Layer
+- **Entry Point**: `src/lorairo/main.py` - Qt application initialization
+- **Main Window**: `src/lorairo/gui/window/main_window.py` - Primary GUI orchestrator
+- **Configuration**: `config/lorairo.toml` - Application settings
+
+### Service Layer
+- **ImageProcessingService**: Image manipulation, resizing, format conversion
+- **ConfigurationService**: Application configuration management
+- **AnnotationService**: AI-powered image annotation coordination
+
+### Data Layer
+- **Database**: SQLite with SQLAlchemy ORM
+- **Schema**: `src/lorairo/database/schema.py` - Database models
+- **Repository**: `src/lorairo/database/db_repository.py` - Data access
+- **Manager**: `src/lorairo/database/db_manager.py` - High-level operations
+
+### GUI Architecture
+- **Framework**: PySide6 (Qt for Python)
+- **Designer Files**: `src/lorairo/gui/designer/` - Auto-generated UI
+- **Widgets**: `src/lorairo/gui/widgets/` - Custom components
+- **Windows**: `src/lorairo/gui/window/` - Window controllers
+
+## Technology Stack
+
+### Core Technologies
+- **Python 3.11+**: Primary development language
+- **PySide6**: GUI framework (Qt for Python)
+- **SQLAlchemy**: ORM for database operations
+- **SQLite**: Local database storage
+- **Alembic**: Database migration management
+- **uv**: Package management and virtual environments
+
+### AI Integration
+- **OpenAI GPT-4**: Image captioning and tagging
+- **Anthropic Claude**: Advanced image analysis
+- **Google Gemini**: Multi-modal AI processing
+- **Local Models**: CLIP, DeepDanbooru for offline processing
+
+### Development Tools
+- **Ruff**: Linting and code formatting
+- **mypy**: Static type checking
+- **pytest**: Testing framework with coverage
+- **Loguru**: Structured logging
+
+## Key Design Patterns
+
+### Repository Pattern
+Database access is abstracted through repository layer for clean separation of concerns.
+
+### Service Layer Pattern
+Business logic is separated from GUI and data access through dedicated service classes.
+
+### Dependency Injection
+Services are injected into GUI components to maintain loose coupling.
+
+### Configuration-Driven Development
+All settings are externalized to TOML configuration files.
+
+## Project Structure
+
+```mermaid
+flowchart TD
+    Root[LoRAIro/] --> Config[config/]
+    Root --> Src[src/lorairo/]
+    Root --> Local[local_packages/]
+    Root --> Tests[tests/]
+    Root --> Docs[docs/]
+    Root --> Tasks[tasks/]
+    
+    Config --> ConfigFile[lorairo.toml]
+    
+    Src --> Gui[gui/]
+    Src --> Services[services/]
+    Src --> Database[database/]
+    Src --> Annotations[annotations/]
+    Src --> ScoreModule[score_module/]
+    Src --> Storage[storage/]
+    
+    Local --> GenaiTag[genai-tag-db-tools/]
+    Local --> ImageAnnotator[image-annotator-lib/]
+    
+    Gui --> GuiDesigner[designer/]
+    Gui --> GuiWidgets[widgets/]
+    Gui --> GuiWindow[window/]
+    
+    Services --> ImageProcessing[ImageProcessingService]
+    Services --> Configuration[ConfigurationService]
+    Services --> Annotation[AnnotationService]
+    
+    Database --> Schema[schema.py]
+    Database --> Repository[db_repository.py]
+    Database --> Manager[db_manager.py]
+    Database --> Migrations[migrations/]
+    
+    Annotations --> AIAnnotator[ai_annotator.py]
+    Annotations --> CaptionTags[caption_tags.py]
+    Annotations --> CleanupTxt[cleanup_txt.py]
+    Annotations --> ImageTextReader[image_text_reader.py]
+    
+    ScoreModule --> ClipAesthetic[clip_aesthetic_score.py]
+    ScoreModule --> MusiqModule[musiq_module.py]
+    ScoreModule --> RewardFunction[rewardfunction_score.py]
+    ScoreModule --> Scorer[scorer.py]
+    
+    Storage --> FileSystem[file_system.py]
+    
+    classDef configClass fill:#e1f5fe
+    classDef sourceClass fill:#f3e5f5
+    classDef localClass fill:#e8f5e8
+    classDef testClass fill:#fff3e0
+    classDef docClass fill:#fce4ec
+    
+    class Config,ConfigFile configClass
+    class Src,Gui,Services,Database,Annotations,ScoreModule,Storage,GuiDesigner,GuiWidgets,GuiWindow,ImageProcessing,Configuration,Annotation,Schema,Repository,Manager,Migrations,AIAnnotator,CaptionTags,CleanupTxt,ImageTextReader,ClipAesthetic,MusiqModule,RewardFunction,Scorer,FileSystem sourceClass
+    class Local,GenaiTag,ImageAnnotator localClass
+    class Tests testClass
+    class Docs,Tasks docClass
+```
+
+## Development Environment
+
+### Package Management
+- Uses `uv` for dependency management
+- Local packages linked via `uv.sources` in `pyproject.toml`
+- Editable installs for development packages
+
+### Code Quality
+- **Line Length**: 108 characters
+- **Type Hints**: Required for all functions
+- **Import Style**: Modern Python types (list/dict not typing.List/Dict)
+- **Path Operations**: Use pathlib, not os module
+
+### Testing Strategy
+- **Unit Tests**: Fast, isolated with mocking (`pytest -m unit`)
+- **Integration Tests**: Service interactions (`pytest -m integration`)
+- **GUI Tests**: PySide6 components (`pytest -m gui`)
+- **Coverage Target**: Minimum 75%
+
+## Local Dependencies
+
+### genai-tag-db-tools
+- **Purpose**: Tag database management utilities
+- **Entry Point**: `tag-db` command
+- **Location**: `local_packages/genai-tag-db-tools/`
+
+### image-annotator-lib
+- **Purpose**: Core image annotation functionality
+- **Features**: Multi-provider AI annotation, local ML models
+- **Location**: `local_packages/image-annotator-lib/`
+
+## Configuration Management
+
+### Main Configuration (`config/lorairo.toml`)
+- Application settings and parameters
+- AI provider configurations
+- Database connection settings
+- Logging configuration
+
+### Environment Variables
+- API keys for AI providers
+- Development/production flags
+- Debug settings
+
+## Database Schema
+
+### Core Tables
+- **Images**: Image metadata and file paths
+- **Annotations**: AI-generated captions and tags
+- **Processing Status**: Track annotation progress
+- **Quality Scores**: Aesthetic and technical assessments
+
+### Migration Management
+- Use Alembic for schema changes
+- Migrations stored in `src/lorairo/database/migrations/`
+- Auto-generate with: `alembic revision --autogenerate -m "description"`
+
+## AI Provider Integration
+
+### Supported Providers
+- **OpenAI**: GPT-4 Vision for image analysis
+- **Anthropic**: Claude for detailed descriptions
+- **Google**: Gemini for multi-modal processing
+- **Local Models**: CLIP, DeepDanbooru for offline work
+
+### Configuration Pattern
+```toml
+[ai_providers.openai]
+api_key_env = "OPENAI_API_KEY"
+model = "gpt-4-vision-preview"
+timeout = 30
+retry_attempts = 3
+```
+
+## File Type Conventions
+
+- **`.caption`**: AI-generated image captions
+- **`.txt`**: Tag annotations for training
+- **`.toml`**: Configuration files
+- **`.ui`**: Qt Designer interface definitions
+- **`.py`**: Python source code
+- **`.md`**: Documentation (Markdown)
+
+## Development Commands
+
+### Environment Setup
+```bash
+uv sync --dev                  # Install dependencies
+uv add package-name           # Add dependency
+uv add --dev package-name     # Add dev dependency
+```
+
+### Running Application
+```bash
+lorairo                       # Main command
+python -m lorairo.main       # Alternative execution
+```
+
+### Testing
+```bash
+pytest                        # All tests
+pytest -m unit               # Unit tests only
+pytest -m integration        # Integration tests
+pytest -m gui                # GUI tests
+pytest --cov=src --cov-report=html  # With coverage
+```
+
+### Code Quality
+```bash
+ruff check                    # Linting
+ruff format                   # Code formatting
+mypy src/                     # Type checking
+```
+
+### Database Operations
+```bash
+alembic upgrade head          # Apply migrations
+```

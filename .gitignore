@@ -64,13 +64,20 @@ _build/
 
 # Qt Designer/UI関連
 *_ui.py
-*.ui
+# Keep .ui files for manual editing
+# *.ui
 !resources/ui/*.ui  # UIデザインファイルは保持
+!src/lorairo/gui/designer/*.ui  # デザイナーファイルは保持
 
 # プロジェクト固有
 # テスト用画像 (一部を除外)
 tests/resources/img/
 !tests/resources/img/1_img/
+
+# アノテーション関連テスト結果
+tools/annotator_models.txt
+tools/annotator_results.json
+tools/annotator_results.txt
 
 # 画像データベース
 Image_database/
@@ -86,5 +93,43 @@ genai-tag-db-tools/hf_repo/   # 古いパス (移行中は両方残す)
 *.log
 logs/
 
-# データベース
+# データベース (本番用データベースは除外)
 *.db
+!src/lorairo/database/schema.db  # スキーマ定義用DB
+
+# 設定ファイル (機密情報は除外、テンプレートは保持)
+config/*.toml
+!config/*.toml.example
+!config/lorairo.toml.default
+
+# API キーやトークン
+*.key
+*.token
+api_keys.json
+secrets.json
+
+# ローカル開発用ファイル
+.local/
+local_dev/
+dev_config/
+
+# Cursor/AI IDE 関連
+.cursor/mcp.json
+.cursor/composer/
+.cursor/chat/
+
+# Roo関連設定 (機密情報は除外、テンプレートは保持)
+.roo/mcp.json
+!.roo/mcp.json.example
+
+# 一時ファイル
+temp/
+tmp/
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# システム固有
+*.pid
+*.lock
