@@ -3,21 +3,21 @@ description:
 globs: 
 alwaysApply: false
 ---
-# LoRAIro Memory Bank
+# LoRAIro Project Context
 
-This file serves as the central memory bank for the LoRAIro project, maintaining context across development sessions.
+This file, located at .cursor/rules/memory.mdc, serves as the central context repository for the LoRAIro project, maintaining context across development sessions.
 
 ## Project Overview
-# LoRAIro プロジェクトメモリファイル
+# LoRAIro Project Context File
 
 ## プロジェクト概要
 
 LoRAIro is an AI-powered image annotation and management application designed for machine learning dataset preparation. It automates image annotation using multiple AI providers and provides quality assessment for training datasets.
 
-## メモリファイル構成
+## Context File Structure
 
 これは、ファイルシステムを用いてドキュメント化・メモリ維持を行うための基本原則、必要ファイル、ワークフロー構成、および重要手順をまとめたものです。
-メモリファイルは、必須のコアファイルとオプションのコンテキストファイルで構成されます。ファイルは明確な階層構造で積み上げられます。
+コンテキストファイルは、必須のコアファイルとオプションのコンテキストファイルで構成されます。ファイルは明確な階層構造で積み上げられます。
 
 ```mermaid
 flowchart TD

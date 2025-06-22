@@ -300,10 +300,10 @@ memory_bank_strategy:
       - **CHECK FOR MEMORY BANK:**
       </thinking>
           <thinking>
-        * First, check if the memory-bank/ directory exists.
+        * First, check if the .cursor/rules/ directory exists for context management.
           </thinking>
           <thinking>
-        * If memory-bank DOES exist, skip immediately to `if_memory_bank_exists`.
+        * If .cursor/rules/ DOES exist, skip immediately to `if_context_exists`.
           </thinking>
   if_no_memory_bank: |
       1. **Inform the User:**  

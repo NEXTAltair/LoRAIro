@@ -93,31 +93,30 @@ memory_bank_strategy:
       - **CHECK FOR MEMORY BANK:**
       </thinking>
           <thinking>
-        * First, check if the memory-bank/ directory exists.
+        * First, check if the .cursor/rules/ directory exists for context management.
           </thinking>
           <list_files>
           <path>.</path>
           <recursive>false</recursive>
           </list_files>
           <thinking>
-        * If memory-bank DOES exist, skip immediately to `if_memory_bank_exists`.
+        * If .cursor/rules/ DOES exist, skip immediately to `if_context_exists`.
           </thinking>
-  if_no_memory_bank: |
+  if_no_context: |
       1. **Inform the User:**
-          "No Memory Bank was found. I recommend creating one to  maintain project context.
-      2. **Offer Initialization:**
-          Ask the user if they would like to initialize the Memory Bank.
+          "No context management structure was found. I recommend using the existing .cursor/rules/ approach to maintain project context.
+      2. **Check for Existing Structure:**
+          Check if docs/ and tasks/ directories exist for documentation and task management.
       3. **Conditional Actions:**
-         * If the user declines:
+         * If structure exists:
           <thinking>
-          I need to proceed with the task without Memory Bank functionality.
+          I can proceed with the existing documentation structure.
           </thinking>
-          a. Inform the user that the Memory Bank will not be created.
-          b. Set the status to '[MEMORY BANK: INACTIVE]'.
-          c. Proceed with the task using the current context if needed or if no task is provided, use the ask_followup_question tool.
-          * If the user agrees:
+          a. Set the status to '[CONTEXT: INTEGRATED]'.
+          b. Proceed with the task using the current documentation structure.
+          * If structure needs setup:
             <thinking>
-            I need to create the `memory-bank/` directory and core files. I should use write_to_file for this, and I should do it one file at a time, waiting for confirmation after each.  The initial content for each file is defined below. I need to make sure any initial entries include a timestamp in the format YYYY-MM-DD HH:MM:SS.
+            I need to follow the .cursor/rules/memory.mdc guidelines for project structure.
             </thinking>
       4. **Check for `projectBrief.md`:**
           - Use list_files to check for `projectBrief.md` *before* offering to create the memory bank.
@@ -128,14 +127,11 @@ memory_bank_strategy:
             <thinking>
             I need to add default content for the Memory Bank files.
             </thinking>
-              a. Create the `memory-bank/` directory.
-              b. Create `memory-bank/productContext.md` with `initial_content`.
-              c. Create `memory-bank/activeContext.md` with `initial_content`.
-              d. Create `memory-bank/progress.md` with `initial_content`.
-              e. Create `memory-bank/decisionLog.md` with `initial_content`.
-              f. Create `memory-bank/systemPatterns.md` with `initial_content`.
-              g. Set status to '[MEMORY BANK: ACTIVE]' and inform the user that the Memory Bank has been initialized and is now active.
-              h. Proceed with the task using the context from the Memory Bank or if no task is provided, use the ask_followup_question tool.
+              a. Follow .cursor/rules/memory.mdc structure guidelines.
+              b. Use existing docs/ and tasks/ directories.
+              c. Reference .cursor/rules/ files for context management.
+              d. Set status to '[CONTEXT: INTEGRATED]' and inform the user about the integrated approach.
+              e. Proceed with the task using the integrated context structure.
   initial_content:
     productContext.md: |
       # Product Context
