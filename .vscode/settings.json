@@ -1,0 +1,8 @@
+{
+  // Cursor specific settings (VS Code settings moved to pyproject.toml)
+  "cursorpyright.analysis.extraPaths": [
+    "./src",
+    "./local_packages/genai-tag-db-tools/src",
+    "./local_packages/image-annotator-lib/src"
+  ]
+}

@@ -1,0 +1,3 @@
+# LLM File Reference: Debug Guidelines
+# This file provides a relative path reference for LLM tools to access debugging documentation
+../../../.cursor/rules/debug.mdc

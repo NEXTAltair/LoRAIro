@@ -1,0 +1,3 @@
+# LLM File Reference: Context Management
+# This file provides a relative path reference for LLM tools to access context management documentation
+../../.cursor/rules/memory.mdc

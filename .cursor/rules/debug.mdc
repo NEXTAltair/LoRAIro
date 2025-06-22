@@ -1,0 +1,365 @@
+# LoRAIro Debugging Guidelines
+
+This file provides structured debugging guidelines for troubleshooting LoRAIro issues.
+
+## Debugging Workflow
+
+### 1. Problem Identification
+Start with clear problem identification:
+
+- **Reproduce the Issue**: Can you consistently reproduce the problem?
+- **Define Expected vs Actual**: What should happen vs what's happening?
+- **Gather Context**: When did it start? What changed recently?
+- **Collect Error Messages**: Full stack traces and error logs
+- **Identify Scope**: Is it local to one component or system-wide?
+
+### 2. Information Gathering
+Collect comprehensive debugging information:
+
+- **Log Analysis**: Check application logs for errors
+- **Environment Check**: Verify development environment setup
+- **Configuration Review**: Check TOML configuration files
+- **Database State**: Verify database schema and data integrity
+- **Dependency Status**: Ensure all packages are properly installed
+
+### 3. Systematic Investigation
+Use systematic approach to isolate the problem:
+
+- **Binary Search**: Divide problem space in half repeatedly
+- **Component Isolation**: Test individual components separately
+- **Data Flow Tracing**: Follow data through the system
+- **State Examination**: Check object states at different points
+- **Timeline Analysis**: When did the problem start occurring?
+
+### 4. Root Cause Analysis
+Identify the underlying cause:
+
+- **Surface vs Root**: Is this a symptom or the actual problem?
+- **Change Correlation**: What changed before the issue appeared?
+- **Pattern Recognition**: Have we seen this before?
+- **Dependency Chain**: What depends on the failing component?
+- **Environmental Factors**: Could environment be a factor?
+
+### 5. Solution Implementation
+Implement and validate fixes:
+
+- **Minimal Fix**: Apply smallest change that fixes the issue
+- **Test Thoroughly**: Verify fix works and doesn't break anything else
+- **Document Solution**: Record what was fixed and why
+- **Prevent Recurrence**: Add tests or monitoring to catch it again
+- **Share Knowledge**: Update documentation or team knowledge
+
+## LoRAIro-Specific Debugging
+
+### Common Issue Categories
+
+#### GUI Issues
+**Symptoms**: UI not responding, layout problems, events not firing
+**Investigation**:
+```bash
+# Check Qt Designer file compilation
+python -m PySide6.uic.pyuic -x file.ui -o file_ui.py
+
+# Test individual widgets
+python -c "
+from PySide6.QtWidgets import QApplication
+from lorairo.gui.widgets.image_preview import ImagePreviewWidget
+app = QApplication([])
+widget = ImagePreviewWidget()
+widget.show()
+app.exec()
+"
+```
+
+#### Database Issues
+**Symptoms**: Database errors, migration failures, data corruption
+**Investigation**:
+```bash
+# Check database connection
+python -c "
+from lorairo.database.db_manager import DatabaseManager
+from lorairo.utils.config import load_config
+config = load_config()
+db = DatabaseManager(config)
+print(db.test_connection())
+"
+
+# Verify schema
+alembic current
+alembic history
+
+# Check data integrity
+sqlite3 Image_database/image_database.db ".schema"
+```
+
+#### AI Provider Issues
+**Symptoms**: API failures, timeout errors, authentication problems
+**Investigation**:
+```bash
+# Test API connectivity
+python -c "
+import os
+from lorairo.annotations.ai_annotator import AIAnnotator
+api_key = os.getenv('OPENAI_API_KEY')
+print(f'API Key present: {bool(api_key)}')
+"
+
+# Check provider configuration
+python -c "
+from lorairo.utils.config import load_config
+config = load_config()
+print(config.ai_providers)
+"
+```
+
+#### Image Processing Issues
+**Symptoms**: Image loading failures, processing errors, memory issues
+**Investigation**:
+```python
+from PIL import Image
+from pathlib import Path
+
+# Test image loading
+image_path = Path("test_image.jpg")
+try:
+    img = Image.open(image_path)
+    print(f"Image format: {img.format}, Size: {img.size}, Mode: {img.mode}")
+except Exception as e:
+    print(f"Error loading image: {e}")
+
+# Check memory usage
+import psutil
+print(f"Memory usage: {psutil.virtual_memory().percent}%")
+```
+
+### Debugging Tools and Techniques
+
+#### Logging Analysis
+```python
+from loguru import logger
+import sys
+
+# Enable debug logging
+logger.remove()
+logger.add(sys.stderr, level="DEBUG")
+logger.add("debug.log", level="DEBUG", rotation="1 MB")
+
+# Add context to logs
+with logger.contextualize(component="image_processing"):
+    logger.debug("Processing image {}", image_path)
+```
+
+#### Database Debugging
+```python
+from lorairo.database.db_manager import DatabaseManager
+from sqlalchemy import text
+
+# Check database state
+db = DatabaseManager()
+with db.get_session() as session:
+    result = session.execute(text("SELECT count(*) FROM images"))
+    print(f"Total images: {result.scalar()}")
+    
+    # Check for orphaned records
+    result = session.execute(text("""
+        SELECT COUNT(*) FROM images 
+        WHERE id NOT IN (SELECT DISTINCT image_id FROM annotations)
+    """))
+    print(f"Images without annotations: {result.scalar()}")
+```
+
+#### Memory Debugging
+```python
+import tracemalloc
+import psutil
+from pathlib import Path
+
+# Monitor memory usage
+def debug_memory(func):
+    tracemalloc.start()
+    initial_memory = psutil.Process().memory_info().rss / 1024 / 1024
+    
+    result = func()
+    
+    current, peak = tracemalloc.get_traced_memory()
+    final_memory = psutil.Process().memory_info().rss / 1024 / 1024
+    tracemalloc.stop()
+    
+    print(f"Memory change: {final_memory - initial_memory:.1f} MB")
+    print(f"Peak traced memory: {peak / 1024 / 1024:.1f} MB")
+    
+    return result
+```
+
+#### GUI Debugging
+```python
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication
+
+# Debug Qt event loop
+def debug_qt_events():
+    app = QApplication.instance()
+    if app:
+        print(f"Pending events: {app.hasPendingEvents()}")
+        app.processEvents()
+
+# Set up periodic debugging
+timer = QTimer()
+timer.timeout.connect(debug_qt_events)
+timer.start(1000)  # Every second
+```
+
+### Common Error Patterns
+
+#### Import Errors
+```python
+# Debug import issues
+try:
+    from lorairo.module import SomeClass
+except ImportError as e:
+    print(f"Import failed: {e}")
+    import sys
+    print(f"Python path: {sys.path}")
+    import lorairo
+    print(f"LoRAIro location: {lorairo.__file__}")
+```
+
+#### Configuration Errors
+```python
+from lorairo.utils.config import load_config
+from pathlib import Path
+
+# Debug configuration loading
+config_path = Path("config/lorairo.toml")
+if not config_path.exists():
+    print(f"Config file not found: {config_path}")
+else:
+    try:
+        config = load_config(config_path)
+        print(f"Config loaded successfully")
+    except Exception as e:
+        print(f"Config loading failed: {e}")
+```
+
+#### Database Connection Issues
+```python
+from lorairo.database.db_manager import DatabaseManager
+from sqlalchemy.exc import OperationalError
+
+try:
+    db = DatabaseManager()
+    with db.get_session() as session:
+        session.execute(text("SELECT 1"))
+    print("Database connection successful")
+except OperationalError as e:
+    print(f"Database connection failed: {e}")
+```
+
+## Debugging Checklist
+
+### Initial Investigation
+- [ ] Can you reproduce the issue consistently?
+- [ ] What error messages or symptoms are present?
+- [ ] What was happening when the issue occurred?
+- [ ] Has anything changed recently in the system?
+- [ ] Does the issue occur in different environments?
+
+### Environment Check
+- [ ] Is the virtual environment activated?
+- [ ] Are all dependencies installed? (`uv sync --dev`)
+- [ ] Are local packages properly linked?
+- [ ] Are configuration files present and valid?
+- [ ] Are required API keys and credentials set?
+
+### Code Investigation
+- [ ] Add logging to trace execution flow
+- [ ] Use debugger to step through code
+- [ ] Check variable states at key points
+- [ ] Verify assumptions about data types and values
+- [ ] Test individual components in isolation
+
+### Data Investigation
+- [ ] Check database schema and migrations
+- [ ] Verify data integrity and relationships
+- [ ] Test with minimal/sample data
+- [ ] Check file permissions and access
+- [ ] Verify image files are valid and accessible
+
+### System Investigation
+- [ ] Check system memory and disk space
+- [ ] Monitor CPU and memory usage during operation
+- [ ] Check for conflicting processes or services
+- [ ] Verify network connectivity for API calls
+- [ ] Check log files for system-level errors
+
+### Solution Validation
+- [ ] Does the fix address the root cause?
+- [ ] Are there any side effects or regressions?
+- [ ] Do all tests still pass after the fix?
+- [ ] Is the solution properly documented?
+- [ ] Are preventive measures in place?
+
+## Debugging Tools
+
+### Built-in Python Debugging
+```python
+import pdb; pdb.set_trace()  # Set breakpoint
+import ipdb; ipdb.set_trace()  # Enhanced debugger
+```
+
+### LoRAIro-specific Debugging
+```python
+from lorairo.utils.debug import enable_debug_logging, debug_config
+
+# Enable comprehensive debugging
+enable_debug_logging()
+debug_config()
+```
+
+### Performance Profiling
+```python
+import cProfile
+import pstats
+
+# Profile performance
+profiler = cProfile.Profile()
+profiler.enable()
+# ... code to profile ...
+profiler.disable()
+
+stats = pstats.Stats(profiler)
+stats.sort_stats('cumtime')
+stats.print_stats(20)
+```
+
+### Memory Profiling
+```bash
+# Install memory profiler
+pip install memory-profiler
+
+# Profile memory usage
+python -m memory_profiler script.py
+```
+
+## Prevention Strategies
+
+### Code Quality
+- Write comprehensive tests
+- Use proper error handling
+- Add meaningful logging
+- Follow type hints strictly
+- Regular code reviews
+
+### Monitoring
+- Set up health checks
+- Monitor resource usage
+- Track error rates
+- Log system metrics
+- Regular data integrity checks
+
+### Documentation
+- Document known issues
+- Keep troubleshooting guides updated
+- Share debugging knowledge
+- Record fix procedures
+- Maintain change logs
