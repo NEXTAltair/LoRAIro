@@ -54,6 +54,7 @@ dependencies = [
 
 [project.scripts]
 lorairo = "lorairo.main:main"
+lorairo-docs = "sphinx.cmd.build:build_main"
 
 [project.urls]
 "Homepage" = "https://github.com/NEXTAltair/lorairo"

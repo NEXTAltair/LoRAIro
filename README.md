@@ -34,30 +34,24 @@
    ```bash
    git submodule update --init --recursive
    ```
-3. 仮想環境を作成し、依存パッケージをインストールします：
+3. 開発環境をセットアップします：
 
    ```bash
-   # 仮想環境の作成
-   uv venv
+   # 開発用依存関係のインストール（推奨）
+   # uvが自動的に仮想環境を作成・管理します
+   uv sync
 
-   # 依存パッケージのインストール（開発モード）
-   # uvは自動的に仮想環境を使用するため、アクティベーション不要
-   uv pip install -e .[dev]
-
-   # ローカルパッケージのインストール
-   uv pip install -e local_packages/genai-tag-db-tools
-   uv pip install -e local_packages/image-annotator-lib
+   # または本番用依存関係のみをインストール
+   uv sync --no-dev
    ```
 
-   注: 従来の pip を使用する場合は、以下のようにアクティベーションが必要です：
+   **注**: `uv sync`は`pyproject.toml`と`uv.lock`を使用して決定論的な環境を構築します。ローカルパッケージも自動的に処理されます。
 
+   従来の方法（非推奨）:
    ```bash
-   # Windows PowerShellの場合
-   .venv\Scripts\Activate.ps1
-   # または bash/zsh の場合
-   # source .venv/bin/activate
-
-   pip install -e .[dev]
+   # 手動で仮想環境を作成する場合
+   uv venv
+   uv pip install -e .[dev]
    ```
 
 ## 使用方法
@@ -109,6 +103,32 @@ lorairo/
 - 開発には VS Code の使用を推奨します。`.vscode/lorairo.code-workspace` を使用すると便利です。
 - リンターとフォーマッターには Ruff を使用しています。
 - テストは pytest で実行します：`pytest`
+
+### 開発コマンド
+
+プロジェクトではMakefileを使用して開発タスクを自動化しています：
+
+```bash
+# ヘルプの表示
+make help
+
+# 開発環境のセットアップ
+make install-dev  # uv sync を実行
+
+# コードの品質チェック
+make lint
+make format
+
+# テストの実行
+make test
+
+# ドキュメントのビルドと公開
+make docs
+make docs-publish
+
+# クリーンアップ
+make clean
+```
 
 ## ライセンス
 

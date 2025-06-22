@@ -1,4 +1,13 @@
 @echo off
+REM ==========================================
+REM DEPRECATED: Use 'make docs-publish' instead
+REM This file is kept for backwards compatibility
+REM ==========================================
+
+echo WARNING: This script is deprecated. Use 'make docs-publish' instead.
+echo Press Ctrl+C to cancel or any key to continue with the old method...
+pause
+
 setlocal enabledelayedexpansion
 
 REM エラーハンドリングを有効にする
