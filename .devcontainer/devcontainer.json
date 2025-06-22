@@ -7,28 +7,42 @@
     "customizations": {
         "vscode": {
             "extensions": [
+                // Python development
                 "ms-python.python",
                 "ms-python.vscode-pylance",
+                "ms-python.mypy-type-checker",
                 "charliermarsh.ruff",
-                "eamodio.gitlens",
-                "streetsidesoftware.code-spell-checker",
                 "njpwerner.autodocstring",
-                "tamasfe.even-better-toml",
-                "qwtel.sqlite-viewer",
+                "kawamataryo.copy-python-dotted-path",
+
+                // Qt/GUI development
                 "seanwu.vscode-qt-for-python",
+
+                // Data & Files
+                "qwtel.sqlite-viewer",
+                "tamasfe.even-better-toml",
+                "mechatroner.rainbow-csv",
+
+                // Git & Version Control
+                "eamodio.gitlens",
+                "donjayamanne.git-extension-pack",
+                "codezombiech.gitignore",
+
+                // Editing & Navigation
+                "streetsidesoftware.code-spell-checker",
                 "vscode-icons-team.vscode-icons",
                 "shardulm94.trailing-spaces",
+                "gruntfuggly.todo-tree",
+                "intellsmi.comment-translate",
                 "cweijan.vscode-typora",
+
+                // Testing & BDD
+                "alexkrechik.cucumberautocomplete",
+
+                // Utilities
                 "wscats.search",
                 "rooveterinaryinc.roo-cline",
-                "mechatroner.rainbow-csv",
                 "esbenp.prettier-vscode",
-                "ms-python.mypy-type-checker",
-                "codezombiech.gitignore",
-                "donjayamanne.git-extension-pack",
-                "alexkrechik.cucumberautocomplete",
-                "kawamataryo.copy-python-dotted-path",
-                "intellsmi.comment-translate",
                 "ms-azuretools.vscode-docker"
             ],
             "settings": {
@@ -41,7 +55,7 @@
             }
         }
     },
-    "postCreateCommand": "uv sync --dev",
+    "postCreateCommand": "uv sync --dev && .devcontainer/xvfb_init.sh",
     "remoteUser": "vscode",
     "features": {}
 }

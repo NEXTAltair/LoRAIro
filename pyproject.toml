@@ -99,18 +99,53 @@ python_version = "3.12"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-pythonpath = ["src"] # テストするコードのディレクトリ
-testpaths = ["tests"]
+pythonpath = [
+    "src",
+    "local_packages/image-annotator-lib/src",
+    "local_packages/genai-tag-db-tools/src"
+] # テストするコードのディレクトリ
+testpaths = [
+    "tests",
+    "local_packages/image-annotator-lib/tests",
+    "local_packages/genai-tag-db-tools/tests"
+]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = ["-v", "-s", "-ra", "--tb=short", "--showlocals", "--cov=src", "--cov-report=xml"]
+qt_api = "pyside6"
+env = [
+    "QT_QPA_PLATFORM=minimal",
+    "DISPLAY=:99"
+]
 markers = [
     "unit: Unit tests",
     "integration: Integration tests",
     "gui: GUI tests",
     "slow: Tests that take more time",
+    "webapi: Tests related to Web API based annotators",
+    "scorer: Tests specific to scorer models",
+    "tagger: Tests specific to tagger models",
+    "model_factory: Tests for the model factory (ModelLoad)"
 ]
+
+# VS Code settings - 優先度: pyproject.toml > workspace > .vscode/settings.json
+[tool.vscode-settings]
+# Python settings
+"python.testing.pytestEnabled" = true
+"python.testing.unittestEnabled" = false 
+"python.testing.pytestArgs" = []
+"python.testing.pytestPaths" = [
+    "tests",
+    "local_packages/image-annotator-lib/tests",
+    "local_packages/genai-tag-db-tools/tests"
+]
+"python.analysis.extraPaths" = [
+    "./src", 
+    "./local_packages/genai-tag-db-tools/src",
+    "./local_packages/image-annotator-lib/src"
+]
+
 
 [tool.coverage.run]
 source = ["src"]
