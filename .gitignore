@@ -1,77 +1,136 @@
+# Python 関連
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.ipynb_checkpoints/
+.python-version
+.mypy_cache/
+
 # 仮想環境
 venv/
-lrir/
+.venv/
+env/
+ENV/
 
-# ビルドおよびキャッシュディレクトリ
-add/
-*/__pycache__/
-__pycache__/
+# 環境変数
+.env
+.env.*
+!.env.example
 
-# テスト画像
-tests/resources/img/
-!tests/resources/img/1_img
+# 依存関係管理
+uv.lock
 
-# 一時ディレクトリ
-under-*/
-output/
-output/image_dataset/
-.tmp.driveupload/
-.tmp*/
-.temp*/
-*.tmp
-*.bak
+# テスト関連
+.pytest_cache/
+.coverage
+htmlcov/
+pytest_temp/
+.pytest_reports/
+coverage.xml
+
+# IDE・エディタ関連
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.vs/
 *.swp
+*.swo
+*~
+.DS_Store
+
+# Ruff キャッシュ
+.ruff_cache/
+
+# ドキュメント生成
+_build/
+*.html
+*.rst
+
+# Qt Designer/UI関連
+*_ui.py
+# Keep .ui files for manual editing
+# *.ui
+!resources/ui/*.ui  # UIデザインファイルは保持
+!src/lorairo/gui/designer/*.ui  # デザイナーファイルは保持
+
+# プロジェクト固有
+# テスト用画像 (一部を除外)
+tests/resources/img/
+!tests/resources/img/1_img/
+
+# アノテーション関連テスト結果
+tools/annotator_models.txt
+tools/annotator_results.json
+tools/annotator_results.txt
+
+# 画像データベース
+Image_database/
+output/
+
+# データソース
+local_packages/genai-tag-db-tools/tags_csv/
+local_packages/genai-tag-db-tools/hf_repo/
+genai-tag-db-tools/tags_csv/  # 古いパス (移行中は両方残す)
+genai-tag-db-tools/hf_repo/   # 古いパス (移行中は両方残す)
 
 # ログファイル
 *.log
-*.log*
+logs/
 
-# ソースおよびテストモジュール
-src/score_module/
-tests/pytest_temp/
-tests/tests_out/
-tests/resources/
+# データベース (本番用データベースは除外)
+*.db
+!src/lorairo/database/schema.db  # スキーマ定義用DB
 
-# データベースファイル
-Image_database/*.db
-Image_database/
+# 設定ファイル (機密情報は除外、テンプレートは保持)
+config/*.toml
+!config/*.toml.example
+!config/lorairo.toml.default
 
-# カバレッジおよび処理
-.coverage
-htmlcov/
-.pytest_cache/
-.mypy_cache/
-processing.toml
+# API キーやトークン
+*.key
+*.token
+api_keys.json
+secrets.json
 
-# IDE
-.vscode/
-.idea/
-.qtcreator/
-*.code-workspace
+# ローカル開発用ファイル
+.local/
+local_dev/
+dev_config/
 
-# Project specific
-*.npy
-docs/
-app.log
+# Cursor/AI IDE 関連
+.cursor/mcp.json
+.cursor/composer/
+.cursor/chat/
 
-# Egg-info
-*/lorairo.egg-info/
+# Roo関連設定 (機密情報は除外、テンプレートは保持)
+.roo/mcp.json
+!.roo/mcp.json.example
 
-# Large binary files
-*.pth
-*.ckpt
-*.bin
-*.h5
+# 一時ファイル
+temp/
+tmp/
+*.tmp
+*.temp
+*.bak
+*.backup
 
-# Data files
-*.jsonl
-*.json
-tag.jsonl
-jsonl/
-
-# その他
-TEST_backup/
-TEST/pytest_temp
-/cmyk_image.tiff
-coverage.xml
-*_project_summary.txt
+# システム固有
+*.pid
+*.lock

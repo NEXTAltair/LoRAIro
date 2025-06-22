@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "lorairo"
 version = "0.0.8"
@@ -7,6 +11,7 @@ requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "NEXTAltair" }]
 keywords = ["lora", "dataset", "ai", "image-processing"]
+
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: GPU :: NVIDIA CUDA",
@@ -16,117 +21,177 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Multimedia :: Graphics",
     "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
 ]
 
-# 依存パッケージ（バージョン固定）
 dependencies = [
     # 画像処理系
-    "Pillow",        # 基本的な画像処理
-    "opencv-python", # オートクロップの枠検出
-    "numpy",         # 画像処理の数値計算
-    "ImageHash",     # DB重複チェック用
-
+    "Pillow",
+    "opencv-python",
+    "numpy",
+    "ImageHash",
     # AI系
-    "google-generativeai>=0.8.3", # Gemini API
-    "anthropic>=0.36.2",          # Claude API
-    "openai>=0.10.0",             # GPT API
-    "spandrel",                   #アップスケーラー用モデルローダー
-
+    "google-generativeai>=0.8.3",
+    "anthropic>=0.36.2",
+    "openai>=0.10.0",
+    "spandrel",
     # データ処理系
-    "toml>=0.10.2", # 設定ファイル処理
-
-    # PyQt系
-    "PySide6>=6.8.0.2", # GUIフレームワーク
-    "superqt>=0.6.7",   # 拡張Qt部品
-
+    "toml>=0.10.2",
+    "loguru>=0.7.2",
+    "sqlalchemy>=2.0.40",
+    "alembic>=1.15.2",
+    # GUI系
+    "PySide6>=6.8.0.2",
+    "superqt>=0.6.7",
     # AI Model系
-    "pytorch-lightning==2.4.0", # PyTorch拡張
-    "joblib==1.4.2",            # 並列処理
-
-    # # 自作ライブラリ
-    # "genai-tag-db-tools @ git+https://github.com/NEXTAltair/genai-tag-db-tools.git", # Git URL からインストール
+    "pytorch-lightning==2.4.0",
+    "joblib==1.4.2",
+    # Local packages (managed by uv.sources)
+    "genai-tag-db-tools",
+    "image-annotator-lib",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "ruff",
-    "pylint",
-    "pytest",
-    "pytest-cov",
-    "pytest-qt",
-    "matplotlib",
-    "genai-tag-db-tools @ file:../genai-tag-db-tools",
-]
-
-prod = [
-    "genai-tag-db-tools @ git+https://github.com/NEXTAltair/genai-tag-db-tools.git",
-]
 
 [project.scripts]
-lorairo = "main:main"
+lorairo = "lorairo.main:main"
 
 [project.urls]
 "Homepage" = "https://github.com/NEXTAltair/lorairo"
 "Bug Tracker" = "https://github.com/NEXTAltair/lorairo/issues"
 
-[build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools]
-package-dir = { "" = "src" }
-
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["lorairo*"]
-namespaces = false
-
 [tool.ruff]
-exclude = ["src/gui/designer/*"]
 fix = true
-line-length = 250
+line-length = 108
 target-version = "py312"
 
-[tool.pylint.messages_control]
-disable = [
-    "C0103", # invalid-name
-    "C0301", # line-too-long (handled by black)
-    "W0703", # broad-except
-    "R0903", # too-few-public-methods
-    "R0913", # too-many-arguments
-    "R0914", # too-many-locals
-    "W1203", # logging-fstring-interpolation
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "C",   # flake8-comprehensions
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "RUF" # Ruff-specific rules
 ]
 
+exclude = [
+    "*/gui/designer/*",  # Qtデザイナが生成するコード
+    "*/__pycache__"
+]
+
+ignore = [
+    "RUF002", # カタカナの `ノ` でのメッセージを無視
+    "E501",   # Line too long (line-lengthで制御)
+    "F401",   # Unused imports (IDEでの管理が困難なため)
+]
+fixable = ["ALL"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
-pythonpath = ["src"] # テストするコードのディレクトリ
-testpaths = ["tests"]
+pythonpath = [
+    "src",
+    "local_packages/image-annotator-lib/src",
+    "local_packages/genai-tag-db-tools/src"
+] # テストするコードのディレクトリ
+testpaths = [
+    "tests",
+    "local_packages/image-annotator-lib/tests",
+    "local_packages/genai-tag-db-tools/tests"
+]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = ["-v", "-s", "-ra", "--tb=short", "--showlocals"]
+addopts = ["-v", "-s", "-ra", "--tb=short", "--showlocals", "--cov=src", "--cov-report=xml"]
+qt_api = "pyside6"
+env = [
+    "QT_QPA_PLATFORM=minimal",
+    "DISPLAY=:99"
+]
 markers = [
     "unit: Unit tests",
     "integration: Integration tests",
     "gui: GUI tests",
     "slow: Tests that take more time",
+    "webapi: Tests related to Web API based annotators",
+    "scorer: Tests specific to scorer models",
+    "tagger: Tests specific to tagger models",
+    "model_factory: Tests for the model factory (ModelLoad)"
 ]
+
+# VS Code settings - 優先度: pyproject.toml > workspace > .vscode/settings.json
+[tool.vscode-settings]
+# Python settings
+"python.testing.pytestEnabled" = true
+"python.testing.unittestEnabled" = false 
+"python.testing.pytestArgs" = []
+"python.testing.pytestPaths" = [
+    "tests",
+    "local_packages/image-annotator-lib/tests",
+    "local_packages/genai-tag-db-tools/tests"
+]
+"python.analysis.extraPaths" = [
+    "./src", 
+    "./local_packages/genai-tag-db-tools/src",
+    "./local_packages/image-annotator-lib/src"
+]
+
 
 [tool.coverage.run]
 source = ["src"]
 omit = [
     "*/shibokensupport/*",
     "*/site-packages/*",
+    "*/gui/designer/*",
     "*/tests/*",
-    "*/pyscript",
-    "*/signature_bootstrap.py"
+    "*/__pycache__/*"
 ]
 
 [tool.coverage.report]
+fail_under = 75 # カバレッジが75%未満なら失敗
+show_missing = true
 exclude_lines = [
     "pragma: no cover",
-    "def __repr__",
-    "if __name__ == '__main__':",
     "raise NotImplementedError",
     "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "@(abc\\.)?abstractmethod",
+    "\\.\\.\\.",                  # ... (Ellipsis)
 ]
+
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lorairo"]      # パッケージディレクトリ指定
+
+
+[tool.uv.sources]
+genai-tag-db-tools = { path = "local_packages/genai-tag-db-tools", editable = true }
+image-annotator-lib = { path = "local_packages/image-annotator-lib", editable = true }
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "mypy",
+    "pytest",
+    "pytest-cov",
+    "pytest-qt",
+    "pytest-bdd>=8.1.0",
+    "types-requests>=2.32.0",
+    "types-Pillow",
+    "types-toml",
+    "psutil",
+    "matplotlib",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true

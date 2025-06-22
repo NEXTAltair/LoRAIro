@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="mainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>802</width>
+    <height>565</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>画像処理アプリケーション</string>
+  </property>
+  <widget class="QWidget" name="centralWidget">
+   <layout class="QVBoxLayout" name="verticalLayout">
+    <item>
+     <widget class="DirectoryPickerWidget" name="datasetSelector" native="true"/>
+    </item>
+    <item>
+     <widget class="QSplitter" name="mainWindowSplitter">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+        <horstretch>2</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
+      <property name="orientation">
+       <enum>Qt::Orientation::Horizontal</enum>
+      </property>
+      <widget class="QListWidget" name="sidebarList">
+       <property name="maximumSize">
+        <size>
+         <width>512</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <item>
+        <property name="text">
+         <string>画像編集</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>自動タグ付け</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>データセット概要</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>タグ/キャプション編集</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>エクスポート</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>バッチ処理</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>設定</string>
+        </property>
+       </item>
+      </widget>
+      <widget class="QStackedWidget" name="contentStackedWidget">
+       <property name="currentIndex">
+        <number>0</number>
+       </property>
+       <widget class="ImageEditWidget" name="pageImageEdit"/>
+       <widget class="ImageTaggerWidget" name="pageImageTagger"/>
+       <widget class="DatasetOverviewWidget" name="pageDatasetOverview"/>
+       <widget class="QWidget" name="pageTagCaptionEdit">
+        <layout class="QVBoxLayout" name="verticalLayoutTagCaptionEdit">
+         <item>
+          <widget class="QLabel" name="labelTagCaptionEditTitle">
+           <property name="text">
+            <string>タグ/キャプション編集</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="DatasetExportWidget" name="pageExport"/>
+       <widget class="QWidget" name="pageBatch">
+        <layout class="QVBoxLayout" name="verticalLayout_2">
+         <item>
+          <widget class="QLabel" name="labelBatch">
+           <property name="text">
+            <string>バッチ処理</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="ConfigurationWindow" name="pageSettings"/>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QMenuBar" name="menuBar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>802</width>
+     <height>33</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="menuFile">
+    <property name="title">
+     <string>ファイル</string>
+    </property>
+    <addaction name="actionOpen"/>
+    <addaction name="actionSave"/>
+    <addaction name="actionExit"/>
+   </widget>
+   <widget class="QMenu" name="menuHelp">
+    <property name="title">
+     <string>ヘルプ</string>
+    </property>
+    <addaction name="actionAbout"/>
+   </widget>
+   <addaction name="menuFile"/>
+   <addaction name="menuHelp"/>
+  </widget>
+  <widget class="QStatusBar" name="statusBar"/>
+  <action name="actionOpen">
+   <property name="text">
+    <string>開く</string>
+   </property>
+  </action>
+  <action name="actionSave">
+   <property name="text">
+    <string>保存</string>
+   </property>
+  </action>
+  <action name="actionExit">
+   <property name="text">
+    <string>終了</string>
+   </property>
+  </action>
+  <action name="actionAbout">
+   <property name="text">
+    <string>このアプリについて</string>
+   </property>
+  </action>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>DirectoryPickerWidget</class>
+   <extends>QWidget</extends>
+   <header>..widgets.directory_picker</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>DatasetOverviewWidget</class>
+   <extends>QWidget</extends>
+   <header>..window.overview</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ImageEditWidget</class>
+   <extends>QWidget</extends>
+   <header>..window.edit</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ImageTaggerWidget</class>
+   <extends>QWidget</extends>
+   <header>..window.tagger</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>DatasetExportWidget</class>
+   <extends>QWidget</extends>
+   <header>..window.export</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ConfigurationWindow</class>
+   <extends>QWidget</extends>
+   <header>..window.configuration_window</header>
+   <container>1</container>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+</ui>
