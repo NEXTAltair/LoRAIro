@@ -11,7 +11,7 @@
 -   **下位層との連携:** ビジネスロジックの実行に必要なデータ永続化 (`src/lorairo/database`) や、具体的な画像処理 (`src/lorairo/editor` 内のコンポーネント) など、下位のレイヤーと連携します。
 -   **関心の分離:** GUI 層が直接データベースや複雑な処理ロジックに依存することを防ぎ、各層の独立性を高めます。これにより、コードの再利用性、テスト容易性、保守性が向上します。
 
-例えば、`ImageEditWidget` でユーザーが処理開始ボタンを押すと、`ImageProcessingService` が呼び出され、このサービスが必要な設定を `ConfigurationService` から取得し、実際の画像処理を `ImageProcessor` に依頼し、結果を `ImageDatabaseManager` を介してデータベースに保存する、といった流れになります。
+例えば、`ImageEditWidget` でユーザーが処理開始ボタンを押すと、`ImageProcessingService` が呼び出され、このサービスが必要な設定を `ConfigurationService` から取得し、実際の画像処理を `ImageProcessingManager` に依頼し、結果を `ImageDatabaseManager` を介してデータベースに保存する、といった流れになります。
 
 以降のセクションでは、このサービス層が関与する主要な処理フローを具体的に説明します。
 
@@ -27,21 +27,21 @@
 ## 3. 画像処理 (主に `ImageEditWidget` から実行)
 
 1.  **処理実行:** ユーザーは GUI の画像編集ページで、リサイズ目標解像度やアップスケーラーを選択し、処理開始ボタンを押す。
-2.  **画像処理実行:** 選択された各画像に対して、以下の処理が順次実行される (`ImageProcessingManager.process_image`)。
+2.  **画像処理実行:** 選択された各画像に対して、以下の処理が順次実行される (`ImageProcessingService` → `ImageProcessingManager.process_image`)。
     *   **枠除去:** 画像周囲の不要な枠を自動検出・除去 (`AutoCrop`)。
     *   **色空間正規化:** 画像をRGB/RGBAに変換 (`ImageProcessor.normalize_color_profile`)。
     *   **アップスケール (条件付き):** 画像解像度が目標より低く、アップスケーラーが指定されていれば実行 (`Upscaler`)。
     *   **リサイズ:** 指定されたルールに基づき、目標解像度に合わせてリサイズ (`ImageProcessor.resize_image`)。
 3.  **処理結果の保存:**
     *   処理後の画像は、指定された保存用フォルダに WebP 形式で保存される (`FileSystemManager.save_processed_image`)。
-    *   処理後の画像のメタデータ（解像度、パス等）がデータベースの `processed_images` テーブルに登録される (`ImageRepository.add_processed_image`)。
+    *   処理後の画像のメタデータ（解像度、パス等）がデータベースの `processed_images` テーブルに登録される (`ImageDatabaseManager` → `ImageRepository.add_processed_image`)。
 
 ## 4. AI アノテーション (主に `ImageTaggerWidget` から実行)
 
 1.  **実行指示:** ユーザーは GUI の AI タグ付けページで、アノテーション対象の画像と使用する AI モデル（アノテーター）を選択し、生成実行ボタンを押す。
-2.  **ライブラリ呼び出し:** `lorairo` は `image-annotator-lib` の `annotate` 関数を呼び出す。この際、画像データ（PIL Imageオブジェクトのリスト）と選択されたモデル名のリストを渡す。必要に応じて事前に計算したpHashリストも渡すことができる。ライブラリ設定（APIキー等）は別途読み込まれる。
+2.  **ライブラリ呼び出し:** `AnnotationService` が `AnnotationWorker` を使用して、`ai_annotator.py` 経由で `image-annotator-lib` の `annotate` 関数を呼び出す。この際、画像データ（PIL Imageオブジェクトのリスト）、pHashリスト、選択されたモデル名のリストを渡す。
 3.  **アノテーション生成 (ライブラリ内部):** `image-annotator-lib` が選択されたモデル（APIまたはローカル）と通信し、タグ、キャプション、スコア、レーティングなどの情報を生成・整形する。
-4.  **結果の取得と処理:** `lorairo` はライブラリから pHash をキーとする結果辞書を受け取る。
+4.  **結果の取得と処理:** `AnnotationWorker` はライブラリから `PHashAnnotationResults` 型の結果を受け取り、pHash をキーとする辞書として処理する。
     *   結果からタグリストを取得する。
     *   `formatted_output` をパースしてキャプションとスコアを抽出する。
     *   (レーティング情報も同様に取得・処理する)

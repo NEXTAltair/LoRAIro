@@ -33,10 +33,15 @@ graph TD
     B --> C[ImageProcessingService]
     B --> D[AnnotationService]
     B --> E[ConfigurationService]
-    C --> F[FileSystemManager]
-    D --> G[AI Providers]
-    D --> H[DatabaseManager]
-    E --> I[Config Files]
+    C --> F[ImageProcessingManager]
+    C --> G[FileSystemManager]
+    C --> H[ImageDatabaseManager]
+    D --> I[AnnotationWorker]
+    D --> J[ai_annotator]
+    J --> K[image-annotator-lib]
+    E --> L[Config Files]
+    F --> G
+    H --> M[ImageRepository]
 ```
 
 #### Entry Point
@@ -48,6 +53,42 @@ graph TD
 
 #### Main Window Controller
 - **`src/lorairo/gui/window/main_window.py`**: Primary GUI orchestrator
+  - Coordinates between different GUI widgets
+  - Manages service dependencies
+  - Handles application lifecycle
+
+#### Service Layer
+- **`src/lorairo/services/image_processing_service.py`**: Image processing business logic
+  - Coordinates between GUI, ImageProcessingManager, and database
+  - Manages image processing workflows
+- **`src/lorairo/services/annotation_service.py`**: AI annotation business logic
+  - Manages AnnotationWorker threads
+  - Coordinates with image-annotator-lib integration
+- **`src/lorairo/services/configuration_service.py`**: Configuration management
+  - TOML configuration file handling
+  - Application settings management
+
+#### Core Processing Components
+- **`src/lorairo/editor/image_processor.py`**: ImageProcessingManager
+  - Low-level image processing operations
+  - Resize, upscale, crop functionality
+- **`src/lorairo/database/db_manager.py`**: ImageDatabaseManager
+  - High-level database operations
+  - Coordinates with ImageRepository
+- **`src/lorairo/database/db_repository.py`**: ImageRepository
+  - Direct database access layer
+  - SQLAlchemy-based data operations
+- **`src/lorairo/storage/file_system.py`**: FileSystemManager
+  - File system operations
+  - Image storage and metadata handling
+
+#### AI Integration
+- **`src/lorairo/annotations/ai_annotator.py`**: AI library integration
+  - Wrapper for image-annotator-lib
+  - Error handling and logging
+- **`local_packages/image-annotator-lib/`**: External AI annotation library
+  - Multi-provider AI annotation support
+  - Local and cloud-based models
   - Coordinates between widgets
   - Manages application state
   - Handles user interactions
