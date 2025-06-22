@@ -35,6 +35,7 @@ version: "2.0.2"
   - [overall_workflow.md](mdc:docs/specs/overall_workflow.md)
 
 #### 1.1 インターフェイス (`docs/specs/interfaces`)
+
 - **目的:** インターフェイスの詳細仕様、要件定義、設計方針を管理
 - **参照タイミング:**
   - (`src/lorairo/gui/**/*.py`) 参照時
