@@ -30,6 +30,11 @@ python -m lorairo.main
 # Run tests
 pytest
 
+# Run specific test categories
+pytest -m unit        # Unit tests only
+pytest -m integration # Integration tests only
+pytest -m gui         # GUI tests only
+
 # Run linting and formatting
 ruff check
 ruff format
@@ -42,6 +47,12 @@ alembic upgrade head
 
 # Generate new migration
 alembic revision --autogenerate -m "description"
+
+# Run single test file
+pytest tests/path/to/test_file.py
+
+# Check test coverage
+pytest --cov=src --cov-report=html
 ```
 
 ## Project Architecture
@@ -88,9 +99,11 @@ alembic revision --autogenerate -m "description"
 **Configuration-Driven:** Settings externalized to TOML configuration files
 
 ### Local Dependencies
-This project uses two local submodules:
-- `local_packages/genai-tag-db-tools` - Tag database management utilities
+This project uses two local submodules managed via uv.sources:
+- `local_packages/genai-tag-db-tools` - Tag database management utilities (entry: `tag-db`)
 - `local_packages/image-annotator-lib` - Core image annotation functionality
+
+The local packages are installed in editable mode and automatically linked during `uv sync`.
 
 ### Important File Types
 - `.caption` files - AI-generated image captions
@@ -120,3 +133,10 @@ This project uses two local submodules:
 - Loguru for structured logging
 - Configuration in `config/lorairo.toml` [log] section
 - Log level configurable (DEBUG, INFO, WARNING, ERROR)
+- Logs stored in `logs/` directory
+
+**AI Models:**
+- Supports GPT-4, Claude, Gemini for annotation
+- Model selection configurable via settings
+- Batch processing support for large datasets
+- Quality scoring with aesthetic and technical metrics

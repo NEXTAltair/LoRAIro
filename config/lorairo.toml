@@ -18,7 +18,7 @@ response_file = ""  # レスポンスファイルディレクトリのパス（�
 # 画像処理設定
 [image_processing]
 target_resolution = 1024 # 学習モデルの基準解像度 512, 768, 1024
-realesrganer_upscale = false # 長編が基準解像度より小さい場合、trueだとアップスケールする
+realesrgan_upscale = false # 長辺が基準解像度より小さい場合、trueでアップスケールする
 realesrgan_model = "RealESRGAN_x4plus_anime_6B.pth" # アップスケールモデルのパス
 
 # 生成設定
@@ -30,7 +30,7 @@ single_image = true # 画像ごとに処理する場合はtrue
 # オプション設定
 [options]
 generate_meta_clean = false # sd-scriptsのファインチューニング用のメタデータを生成する場合はtrue
-cleanup_existing_tags = false # タグを生成せずに既存のタグをクーんナップする場合はtrue
+cleanup_existing_tags = false # タグを生成せずに既存のタグをクリーンアップする場合はtrue
 join_existing_txt = true # 生成したタグを既存のタグと結合する場合はtrue
 
 # プロンプト設定

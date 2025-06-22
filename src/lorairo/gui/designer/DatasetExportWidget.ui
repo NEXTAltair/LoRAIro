@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>DatasetExportWidget</class>
+ <widget class="QWidget" name="DatasetExportWidget">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1200</width>
+    <height>800</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Dataset Export</string>
+  </property>
+  <layout class="QHBoxLayout" name="mainLayout">
+   <item>
+    <widget class="QSplitter" name="mainSplitter">
+     <property name="orientation">
+      <enum>Qt::Orientation::Horizontal</enum>
+     </property>
+     <widget class="QWidget" name="leftPanel">
+      <layout class="QVBoxLayout" name="leftPanelLayout">
+       <item>
+        <widget class="TagFilterWidget" name="dbSearchWidget" native="true">
+         <layout class="QVBoxLayout" name="filterLayout"/>
+        </widget>
+       </item>
+       <item>
+        <widget class="ThumbnailSelectorWidget" name="thumbnailSelector" native="true">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>1</verstretch>
+          </sizepolicy>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="imageCountLabel">
+         <property name="text">
+          <string/>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="rightPanel">
+      <layout class="QVBoxLayout" name="rightPanelLayout">
+       <item>
+        <widget class="ImagePreviewWidget" name="imagePreview" native="true">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>1</verstretch>
+          </sizepolicy>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="exportGroupBox">
+         <property name="title">
+          <string>Export Settings</string>
+         </property>
+         <layout class="QVBoxLayout" name="exportLayout">
+          <item>
+           <widget class="DirectoryPickerWidget" name="exportDirectoryPicker" native="true"/>
+          </item>
+          <item>
+           <widget class="QLabel" name="exportFormatLabel">
+            <property name="text">
+             <string>Export Format:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="exportFormatLayout">
+            <item>
+             <widget class="QCheckBox" name="checkBoxTxtCap">
+              <property name="text">
+               <string>txt/caption</string>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="checkBoxJson">
+              <property name="text">
+               <string>metadata.json</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="latestcheckBox">
+            <property name="text">
+             <string>最後に更新されたアノテーションだけを出力する</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="MergeCaptionWithTagscheckBox">
+            <property name="text">
+             <string>captionとして保存された文字列も &quot;.tag&quot; に保存する</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="exportButton">
+            <property name="text">
+             <string>Export Dataset</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QProgressBar" name="exportProgressBar">
+            <property name="value">
+             <number>0</number>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="statusLabel">
+            <property name="text">
+             <string>Status: Ready</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>ImagePreviewWidget</class>
+   <extends>QWidget</extends>
+   <header>..widgets.image_preview</header>
+   <container>1</container>
+   <slots>
+    <slot>load_image()</slot>
+    <slot>update_model_options()</slot>
+    <slot>send_vision_prompt()</slot>
+   </slots>
+  </customwidget>
+  <customwidget>
+   <class>ThumbnailSelectorWidget</class>
+   <extends>QWidget</extends>
+   <header>..widgets.thumbnail</header>
+   <container>1</container>
+   <slots>
+    <signal>on_thumbnail_clicked()</signal>
+    <signal>imageSelected()</signal>
+   </slots>
+  </customwidget>
+  <customwidget>
+   <class>DirectoryPickerWidget</class>
+   <extends>QWidget</extends>
+   <header>..widgets.directory_picker</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>TagFilterWidget</class>
+   <extends>QWidget</extends>
+   <header>..widgets.filter</header>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+</ui>

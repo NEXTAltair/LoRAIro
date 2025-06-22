@@ -19,7 +19,7 @@ DEFAULT_CONFIG = {
     },
     "image_processing": {
         "target_resolution": 1024,
-        "realesrganer_upscale": False,
+        "realesrgan_upscale": False,
         "realesrgan_model": "RealESRGAN_x4plus_anime_6B.pth",
     },
     "generation": {"batch_jsonl": False, "start_batch": False, "single_image": True},
@@ -94,4 +94,4 @@ if __name__ == "__main__":
         config = get_config()
         print(config)
     except (FileNotFoundError, ValueError, KeyError) as e:
-        print(f"設定エラー processing.tomlを確認: {e}")
+        print(f"設定エラー config/lorairo.tomlを確認: {e}")

@@ -6,7 +6,7 @@
       "name": "LoRAIro GUI",
       "type": "debugpy",
       "request": "launch",
-      "module": "src.lorairo.main",
+      "module": "lorairo.main",
       "console": "integratedTerminal",
       "justMyCode": false,
       "cwd": "${workspaceFolder}"
