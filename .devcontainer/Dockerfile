@@ -47,6 +47,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Install SQLite3
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    sqlite3 \
+    libsqlite3-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install uv using the official method from docs
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
