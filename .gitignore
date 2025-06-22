@@ -21,6 +21,7 @@ wheels/
 *.egg
 .ipynb_checkpoints/
 .python-version
+.mypy_cache/
 
 # 仮想環境
 venv/

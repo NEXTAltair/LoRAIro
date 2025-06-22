@@ -140,3 +140,81 @@ The local packages are installed in editable mode and automatically linked durin
 - Model selection configurable via settings
 - Batch processing support for large datasets
 - Quality scoring with aesthetic and technical metrics
+
+## Rule Files and Documentation References
+
+### .cursor Directory Structure
+Claude Code should reference these files for development guidance:
+
+**Core Development Rules:**
+- `.cursor/rules/rules.mdc` - Master development workflow and architectural rules
+- `.cursor/rules/coding-rules.mdc` - Coding standards, type hints, error handling, documentation requirements
+- `.cursor/rules/memory.mdc` - Memory management and file-based documentation system structure
+
+**Process-Specific Rules:**
+- `.cursor/rules/plan.mdc` - Planning guidelines and templates for feature development
+- `.cursor/rules/implement.mdc` - Implementation patterns and code quality standards
+- `.cursor/rules/debug.mdc` - Debugging workflows and troubleshooting procedures
+
+**Documentation and Testing:**
+- `.cursor/rules/doc-lookup-rules.mdc` - Documentation reference hierarchy and update requirements
+- `.cursor/rules/test_rules/testing-rules.mdc` - Test strategy and pytest configuration
+- `.cursor/rules/test_rules/pytest-bdd-feature-rules.mdc` - BDD feature file guidelines
+- `.cursor/rules/test_rules/pytest-bdd-step-def-rules.mdc` - BDD step definition patterns
+
+**Module-Specific Rules:**
+- `.cursor/rules/module_rules/module-annotater.mdc` - AI annotation module guidelines
+- `.cursor/rules/module_rules/module-database-rules.mdc` - Database operation patterns
+- `.cursor/rules/encapsulation-rules.mdc` - Encapsulation and design patterns
+
+### .roo Directory Structure
+The .roo directory contains aliases that reference .cursor rules and additional configuration:
+
+**Rule References:**
+- `.roo/rules/rules.mdc` → Reference `.cursor/rules/rules.mdc`
+- `.roo/rules/memory.mdc` → Reference `.cursor/rules/memory.mdc`
+- `.roo/rules-architect/plan.mdc` → Reference `.cursor/rules/plan.mdc`
+- `.roo/rules-code/implement.mdc` → Reference `.cursor/rules/implement.mdc`
+- `.roo/rules-debug/debug.mdc` → Reference `.cursor/rules/debug.mdc`
+
+**Configuration:**
+- `.roo/mcp.json` - MCP server configuration (not tracked in git)
+- `.roo/mcp.json.example` - Template for MCP configuration
+- `.roo/README.md` - Setup instructions for GitHub MCP server
+
+### Reference Guidelines for Claude Code
+
+**When Planning (PLAN/Architect Mode):**
+1. Read `.cursor/rules/memory.mdc` for memory bank structure
+2. Reference `.cursor/rules/plan.mdc` for planning guidelines
+3. Check `.cursor/rules/doc-lookup-rules.mdc` for documentation hierarchy
+4. Review existing documentation in `docs/` and `tasks/` directories
+
+**When Implementing (ACT/Code Mode):**
+1. Follow `.cursor/rules/coding-rules.mdc` for code quality standards
+2. Use `.cursor/rules/implement.mdc` for implementation patterns
+3. Reference module-specific rules for relevant components
+4. Update memory bank files per `.cursor/rules/memory.mdc`
+
+**When Debugging:**
+1. Follow procedures in `.cursor/rules/debug.mdc`
+2. Check for error patterns and solutions
+3. Document fixes for future reference
+
+**Documentation Updates:**
+1. Always reference `.cursor/rules/doc-lookup-rules.mdc` for documentation structure
+2. Update related documentation when making code changes
+3. Maintain consistency across documentation files
+4. Follow the hierarchical documentation reference system
+
+**Testing:**
+1. Use guidelines from `.cursor/rules/test_rules/testing-rules.mdc`
+2. Follow BDD patterns for feature tests
+3. Ensure coverage requirements are met
+
+**Key Principles:**
+- Reference rules before starting any development task
+- Update documentation alongside code changes
+- Follow established patterns and conventions
+- Use the memory bank system for context retention
+- Always check for existing solutions in error documentation
