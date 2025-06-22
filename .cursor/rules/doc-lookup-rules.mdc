@@ -20,7 +20,7 @@ version: "2.0.2"
   2.1 インターフェイス (`docs/Plan/interfaces`)
   2.2 アプリケーション (`docs/Plan/application`)
   2.3 コア  (`docs/Plan/core`)
-  4. memory-bank (`memory-bank`)
+  4. context files (`.cursor/rules/`)
   5. README [README.md](mdc:README.md)
 
 ## ドキュメント構造
@@ -102,14 +102,14 @@ version: "2.0.2"
   - **log:** [logging_refactor_checklist.md](mdc:docs/Plan/core/logging_refactor_checklist.md)
   - **annotation:** [annotation_lib_checklist.md](mdc:docs/Plan/core/annotation_lib_checklist.md)
 
-### 3. memory-bank (`memory-bank`)
+### 3. context management (`.cursor/rules/`)
 - **目的:** 進捗状態の記録管理
 - **参照タイミング:**
   - コード変更時
 - **ファイル:**
-  - **進捗:** [progress.md](mdc:memory-bank/progress.md)
-  - **変更log:** [decisionLog.md](mdc:memory-bank/decisionLog.md)
-  - **現在のタスク:** [activeContext.md](mdc:memory-bank/activeContext.md)
+  - **進捗:** [tasks_plan.md](mdc:tasks/tasks_plan.md)
+  - **開発状況:** [active_context.md](mdc:tasks/active_context.md)
+  - **コンテキスト管理:** [memory.mdc](mdc:.cursor/rules/memory.mdc)
 
 ### 4. README (`@README.md`)
 - **目的:** プロジェクトの概要、セットアップ手順、基本的な使用方法を管理
