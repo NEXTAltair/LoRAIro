@@ -1,12 +1,13 @@
 
-import torch
-import pytorch_lightning
 import os
+
 import clip
 import numpy as np
-
+import pytorch_lightning
+import torch
 from PIL import Image
-from torchvision.transforms import Compose, Resize, CenterCrop, ToTensor, Normalize
+from torchvision.transforms import CenterCrop, Compose, Normalize, Resize, ToTensor
+
 try:
     from torchvision.transforms import InterpolationMode
     BICUBIC = InterpolationMode.BICUBIC
@@ -66,7 +67,7 @@ class MLP(pytorch_lightning.LightningModule):
         self.hidden_size = max(self.input_size//2, 1024)
         self.xcol = xcol
         self.ycol = ycol
-        
+
         self.persona_0 = torch.nn.Sequential(
             torch.nn.Linear(self.base_size, self.hidden_size),
             torch.nn.ReLU(),
@@ -109,7 +110,7 @@ class MLP(pytorch_lightning.LightningModule):
         h2 = self.persona_2(x)
         return self.output(torch.concat([h0,h1,h2], dim=1))
 
-class Score_Manager():
+class Score_Manager:
     def __init__(self, model_path, device, score_max, args=None) -> None:
         score_args = {}
         if args is not None:
@@ -131,7 +132,7 @@ class Score_Manager():
             self.image_size = 1 + (self.scale_size * self.scale_size)
             #args.output = args.output + "_x9"
             self.npy_dot = "_x9.npy"
-        
+
         self.image_preprocess = None
         self.clip_model, self.clip_preprocess = clip.load("ViT-L/14", device="cpu")  #RN50x64
         self.preprocess_size = self.clip_model.visual.input_resolution
@@ -147,7 +148,7 @@ class Score_Manager():
         if os.path.splitext(model_path)[-1]!=".pth":
             model_path = f"{model_path}.pth"
         s = torch.load(model_path)
-        
+
         self.mlp.load_state_dict(s)
 
     def to_gpu(self):
@@ -159,7 +160,7 @@ class Score_Manager():
     def to_cpu(self):
         self.mlp.to("cpu")
         self.clip_model.to("cpu")
-    
+
     def get_score(self, raw_image, prompt):
         with torch.no_grad():
             #txt_id = self.tokenizer(prompt, truncate=True).to(self.device)
@@ -172,7 +173,7 @@ class Score_Manager():
                 for i in range(self.scale_size):
                     for j in range(self.scale_size):
                         image_features = torch.concat([image_features,self.clip_model.encode_image(image[:,:,i*self.preprocess_size:(i+1)*self.preprocess_size,j*self.preprocess_size:(j+1)*self.preprocess_size])], dim=1)
-                
+
             #txt_features = self.clip_model.encode_text(txt_id)
-        
+
         return self.mlp(image_features).data.cpu()[0][0]/self.score_max

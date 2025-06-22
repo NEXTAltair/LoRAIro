@@ -39,7 +39,7 @@ DEFAULT_CONFIG = {
 def load_config(config_file: Path = DEFAULT_CONFIG_PATH) -> dict:
     try:
         # TOMLファイルの読み込み
-        with open(config_file, "r", encoding="utf-8") as f:
+        with open(config_file, encoding="utf-8") as f:
             load_parameters = toml.load(f)
 
         # 必須セクションのチェック
@@ -50,7 +50,7 @@ def load_config(config_file: Path = DEFAULT_CONFIG_PATH) -> dict:
         # mainprompt.mdファイルの存在確認と読み込み
         prompt_file = Path("mainprompt.md")
         if prompt_file.exists():
-            with open(prompt_file, "r", encoding="utf-8") as f:
+            with open(prompt_file, encoding="utf-8") as f:
                 load_parameters.setdefault("prompts", {})
                 load_parameters["prompts"]["main"] = f.read()
         else:
@@ -61,7 +61,7 @@ def load_config(config_file: Path = DEFAULT_CONFIG_PATH) -> dict:
     except FileNotFoundError as exc:
         raise ValueError(f"設定ファイル '{config_file.name}' が見つかりません。") from exc
     except toml.TomlDecodeError as e:
-        raise ValueError(f"設定ファイルの解析エラー: {str(e)}") from e
+        raise ValueError(f"設定ファイルの解析エラー: {e!s}") from e
 
 
 def deep_update(d: dict[str, Any], u: dict[str, Any]) -> dict[str, Any]:

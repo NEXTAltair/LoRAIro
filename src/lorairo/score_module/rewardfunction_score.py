@@ -1,12 +1,13 @@
 
-import torch
-import pytorch_lightning
 import os
+
 import clip
 import numpy as np
-
+import pytorch_lightning
+import torch
 from PIL import Image
-from torchvision.transforms import Compose, Resize, CenterCrop, ToTensor, Normalize
+from torchvision.transforms import CenterCrop, Compose, Normalize, Resize, ToTensor
+
 try:
     from torchvision.transforms import InterpolationMode
     BICUBIC = InterpolationMode.BICUBIC
@@ -42,7 +43,7 @@ class MLP(pytorch_lightning.LightningModule):
     def forward(self, x):
         return self.layers(x)
 
-class Score_Manager():
+class Score_Manager:
     def __init__(self, model_path, device, score_max, args=None) -> None:
         score_args = {}
         if args is not None:
@@ -62,7 +63,7 @@ class Score_Manager():
         elif version == 3:
             self.image_size = 5
             self.max_tokens = 231
-        
+
         self.token_chunk = 77
         self.token_split_num = self.max_tokens // self.token_chunk
 
@@ -81,7 +82,7 @@ class Score_Manager():
         if os.path.splitext(model_path)[-1]!=".pth":
             model_path = f"{model_path}.pth"
         s = torch.load(model_path)
-        
+
         self.mlp.load_state_dict(s)
 
     def to_gpu(self):
@@ -93,7 +94,7 @@ class Score_Manager():
     def to_cpu(self):
         self.mlp.to("cpu")
         self.clip_model.to("cpu")
-    
+
     def _get_txt_id(self, prompt):
         txt_id = self.tokenizer(prompt, context_length=self.max_tokens, truncate=True).to(self.device)
         if txt_id.size(1) > self.max_tokens:
@@ -119,8 +120,8 @@ class Score_Manager():
                 for i in range(2):
                     for j in range(2):
                         image_features = torch.concat([image_features,self.clip_model.encode_image(image[:,:,i*self.preprocess_size:(i+1)*self.preprocess_size,j*self.preprocess_size:(j+1)*self.preprocess_size])], dim=1)
-                
+
             #txt_features = self.clip_model.encode_text(txt_id)
             input_emb = torch.concat([image_features, txt_features], dim=1)
-        
+
         return self.mlp(input_emb).data.cpu()[0][0]/self.score_max

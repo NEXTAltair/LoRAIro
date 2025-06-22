@@ -89,10 +89,10 @@ class Model(Base):
     )
 
     # 一対多: Model -> Annotations
-    tags: Mapped[list["Tag"]] = relationship("Tag", back_populates="model")
-    captions: Mapped[list["Caption"]] = relationship("Caption", back_populates="model")
-    scores: Mapped[list["Score"]] = relationship("Score", back_populates="model")
-    ratings: Mapped[list["Rating"]] = relationship("Rating", back_populates="model")
+    tags: Mapped[list[Tag]] = relationship("Tag", back_populates="model")
+    captions: Mapped[list[Caption]] = relationship("Caption", back_populates="model")
+    scores: Mapped[list[Score]] = relationship("Score", back_populates="model")
+    ratings: Mapped[list[Rating]] = relationship("Rating", back_populates="model")
 
     def __repr__(self) -> str:
         return f"<Model(id={self.id}, name='{self.name}')>"
@@ -126,17 +126,17 @@ class Image(Base):
     )
 
     # Relationships
-    processed_images: Mapped[list["ProcessedImage"]] = relationship(
+    processed_images: Mapped[list[ProcessedImage]] = relationship(
         "ProcessedImage", back_populates="image", cascade="all, delete-orphan"
     )
-    tags: Mapped[list["Tag"]] = relationship("Tag", back_populates="image", cascade="all, delete-orphan")
-    captions: Mapped[list["Caption"]] = relationship(
+    tags: Mapped[list[Tag]] = relationship("Tag", back_populates="image", cascade="all, delete-orphan")
+    captions: Mapped[list[Caption]] = relationship(
         "Caption", back_populates="image", cascade="all, delete-orphan"
     )
-    scores: Mapped[list["Score"]] = relationship(
+    scores: Mapped[list[Score]] = relationship(
         "Score", back_populates="image", cascade="all, delete-orphan"
     )
-    ratings: Mapped[list["Rating"]] = relationship(
+    ratings: Mapped[list[Rating]] = relationship(
         "Rating", back_populates="image", cascade="all, delete-orphan"
     )
 
@@ -173,7 +173,7 @@ class ProcessedImage(Base):
     )
 
     # Relationship
-    image: Mapped["Image"] = relationship("Image", back_populates="processed_images")
+    image: Mapped[Image] = relationship("Image", back_populates="processed_images")
 
     __table_args__ = (
         UniqueConstraint("image_id", "width", "height", "filename", name="uix_proc_img_dims_name"),
@@ -207,8 +207,8 @@ class Tag(Base):
     )
 
     # Relationships
-    image: Mapped["Image"] = relationship("Image", back_populates="tags")
-    model: Mapped["Model"] = relationship("Model", back_populates="tags")
+    image: Mapped[Image] = relationship("Image", back_populates="tags")
+    model: Mapped[Model] = relationship("Model", back_populates="tags")
 
     __table_args__ = (Index("ix_tags_image_id", "image_id"),)
 
@@ -236,8 +236,8 @@ class Caption(Base):
     )
 
     # Relationships
-    image: Mapped["Image"] = relationship("Image", back_populates="captions")
-    model: Mapped["Model"] = relationship("Model", back_populates="captions")
+    image: Mapped[Image] = relationship("Image", back_populates="captions")
+    model: Mapped[Model] = relationship("Model", back_populates="captions")
 
     __table_args__ = (Index("ix_captions_image_id", "image_id"),)
 
@@ -263,8 +263,8 @@ class Score(Base):
     )
 
     # Relationships
-    image: Mapped["Image"] = relationship("Image", back_populates="scores")
-    model: Mapped["Model"] = relationship("Model", back_populates="scores")
+    image: Mapped[Image] = relationship("Image", back_populates="scores")
+    model: Mapped[Model] = relationship("Model", back_populates="scores")
 
     __table_args__ = (Index("ix_scores_image_id", "image_id"),)
 
@@ -295,8 +295,8 @@ class Rating(Base):
     )
 
     # Relationships
-    image: Mapped["Image"] = relationship("Image", back_populates="ratings")
-    model: Mapped["Model"] = relationship("Model", back_populates="ratings")
+    image: Mapped[Image] = relationship("Image", back_populates="ratings")
+    model: Mapped[Model] = relationship("Model", back_populates="ratings")
 
     __table_args__ = (Index("ix_ratings_image_id", "image_id"),)
 

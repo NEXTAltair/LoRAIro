@@ -179,7 +179,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             )
         elif modifiers & Qt.KeyboardModifier.ShiftModifier and self.last_selected_item:
             self.select_range(self.last_selected_item, item)
-            logger.debug(f"画像がShift+クリックで範囲選択")
+            logger.debug("画像がShift+クリックで範囲選択")
         else:
             for other_item in self.thumbnail_items:
                 if other_item != item:

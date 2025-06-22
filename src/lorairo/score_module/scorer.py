@@ -1,13 +1,14 @@
 # score_module/scorer.py
-import torch
-import requests
-import numpy as np
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Dict, List
+
+import clip
+import numpy as np
+import requests
+import torch
 from PIL import Image
 from transformers import pipeline
-import clip
-from dataclasses import dataclass
-from typing import Dict, List
 
 # モデルのURL
 LAION_MODEL_URL = "https://github.com/grexzen/SD-Chad/blob/main/sac+logos+ava1-l14-linearMSE.pth?raw=true"

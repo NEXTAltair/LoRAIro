@@ -2,28 +2,29 @@
 # 参考コード
 # https://github.com/anse3832/MUSIQ
 
-import os
-import clip
-import numpy as np
-import math
 import glob
-import tqdm
+import hashlib
+import math
+import os
+import random
+
+import clip
 import cv2
 import joblib
-import random
-import hashlib
+import numpy as np
+import tqdm
+
 try:
     import h5py
 except:
     print("大規模データセットを取り扱うためのライブラリ(h5py)がインストールされていません")
+import pytorch_lightning
+import torch
 from einops import repeat
 from PIL import Image
-
-import torch
 from torch.utils.data import Dataset
-import pytorch_lightning
-
 from torchvision.transforms import Compose, Normalize, transforms
+
 try:
     from torchvision.transforms import InterpolationMode
     BICUBIC = InterpolationMode.BICUBIC
@@ -185,7 +186,7 @@ def resize_img_resos(image, max_resos, reso_steps) -> list[int, int]:
         round_ww = round_to_steps(resize_w, reso_steps)
         round_wh = round_to_steps(round_ww / image_aspec, reso_steps)
         w_aspec = round_ww / round_wh
-        
+
         round_hh = round_to_steps(resize_h, reso_steps)
         round_hw = round_to_steps(round_hh * image_aspec, reso_steps)
         h_aspec = round_hw / round_hh
@@ -386,7 +387,7 @@ class MUSIQ_Score_Dataset(Dataset):
             latents = None
         ppi = create_pos_idx(self.grid_size, s_cw, s_ch, scale_id).permute(0, 2, 3, 1).contiguous()
         return patches, ppi, s_cw, s_ch, latents
-    
+
     def _create_data_id_list(self, target_key=None, eval=False):
         if eval:
             self.eval_id_list[target_key] = [i for i in range(self.eval_data_count[target_key])]
@@ -410,7 +411,7 @@ class MUSIQ_Score_Dataset(Dataset):
                 count = self.key_data_count[key] // self.batch_size + (self.key_data_count[key]%self.batch_size > 0)
                 self.key_id_list += [i] * count
             random.shuffle(self.key_id_list)
-    
+
     def create_datalist(self, resnet=None):
         print("=" * CONST_STR_KUGIRILINE_LEN)
         print("create dataset")
@@ -421,7 +422,7 @@ class MUSIQ_Score_Dataset(Dataset):
         if self.hdf5:
             mode = "a" if self.hdf5_resume else "w"
             with h5py.File(self.hdf5_path, mode) as h5:
-                if not "train" in h5:
+                if "train" not in h5:
                     h5_train_data = h5.create_group("train")
                     self.hdf5_add_load = True
                 else:
@@ -429,7 +430,7 @@ class MUSIQ_Score_Dataset(Dataset):
                     for key in h5_train_data.keys():
                         data_list = h5_train_data[key]
                         self.key_data_count[key] = len(data_list)
-                if not "eval" in h5:
+                if "eval" not in h5:
                     h5_eval_data = h5.create_group("eval")
                     self.hdf5_add_load = True
                 else:
@@ -437,7 +438,7 @@ class MUSIQ_Score_Dataset(Dataset):
                     for key in h5_eval_data.keys():
                         data_list = h5_eval_data[key]
                         self.eval_data_count[key] = len(data_list)
-                if not "data_info" in h5:
+                if "data_info" not in h5:
                     h5_data_info = h5.create_group("data_info")
                     h5_data_info_data = h5_data_info.create_group("train")
                     h5_data_info_data = h5_data_info.create_group("eval")
@@ -478,14 +479,14 @@ class MUSIQ_Score_Dataset(Dataset):
                         res_str = f"{count_w}_{count_h}"
                         for sc in scale_count:
                             res_str = f"{res_str},{sc[0]}_{sc[1]}"
-                        
+
                         eval_flag = False
                         if target_score in self.eval_id_list:
                             if target_id in self.eval_id_list[target_score]:
                                 eval_flag = True
 
                         if eval_flag:
-                            if not res_str in h5_eval_data:
+                            if res_str not in h5_eval_data:
                                 self.eval_data_count[res_str] = 0
                                 h5_eval_list = h5_eval_data.create_group(res_str)
                                 eval_h5_data_list = h5_eval_list.create_group(str(self.eval_data_count[res_str]))
@@ -503,7 +504,7 @@ class MUSIQ_Score_Dataset(Dataset):
                             else:
                                 self.eval_score_count[str(score)] = 1
                         else:
-                            if not res_str in h5_train_data:
+                            if res_str not in h5_train_data:
                                 self.key_data_count[res_str] = 0
                                 data_list = h5_train_data.create_group(res_str)
                                 h5_data_list = data_list.create_group(str(self.key_data_count[res_str]))
@@ -587,10 +588,10 @@ class MUSIQ_Score_Dataset(Dataset):
                             self.score_count[str(score)] += 1
                         else:
                             self.score_count[str(score)] = 1
-        
+
         if resnet is not None:
             resnet.to("cpu")
-        
+
         # counting datalist
         self.keys = list(self.key_data_count.keys())
         self.keys.sort()
@@ -612,7 +613,7 @@ class MUSIQ_Score_Dataset(Dataset):
         # save datalist
         # if (not self.hdf5) and (self.save_name is not None):
         #    self.save_dataset(self.save_name)
-        
+
     def print_datacount(self):
         print("=" * CONST_STR_KUGIRILINE_LEN)
         print(":::データセット情報(サイズ毎のデータ数):::")
@@ -776,7 +777,7 @@ class ResNetBackbone(torch.nn.Module):
             elif isinstance(m, torch.nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
-        
+
 
     def _make_layer(self, block, planes, blocks, stride=1, output_relu=True):
         downsample = None
@@ -803,7 +804,7 @@ class ResNetBackbone(torch.nn.Module):
         x = self.bn1(x)
         x = self.relu(x)
         x = self.maxpool(x)
-        
+
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
@@ -815,7 +816,7 @@ def resnet50_backbone(score_model_dir=None):
     # Constructs a ResNet-50 model_hyper.
     torch_resnet50_url = "https://download.pytorch.org/models/resnet50-11ad3fa6.pth"
     model = ResNetBackbone(Bottleneck, [3, 4, 6, 3])
-    
+
     # load pre-trained weights
     import torch.utils.model_zoo as model_zoo
     save_model = model_zoo.load_url(torch_resnet50_url, model_dir=score_model_dir)
@@ -823,7 +824,7 @@ def resnet50_backbone(score_model_dir=None):
     state_dict = {k: v for k, v in save_model.items() if k in model_dict.keys()}
     model_dict.update(state_dict)
     model.load_state_dict(model_dict)
-    
+
     return model
 
 class MultiHeadAttention(torch.nn.Module):
@@ -865,7 +866,7 @@ class MultiHeadAttention(torch.nn.Module):
         output = self.dropout(output)
         # [bs, x*y+s1+s2+cls, h_dim]
         return output
-    
+
 class PoswiseFeedForwardNet(torch.nn.Module):
     def __init__(self, h_dim, d_ff, dropout) -> None:
         super().__init__()
@@ -889,7 +890,7 @@ def get_sinusoid_encoding_table(n_seq, d_hidn):
         return [cal_angle(position, i_hidn) for i_hidn in range(d_hidn)]
 
     sinusoid_table = np.array([get_posi_angle_vec(i_seq) for i_seq in range(n_seq)])
-    sinusoid_table[:, 0::2] = np.sin(sinusoid_table[:, 0::2])  # even index sin 
+    sinusoid_table[:, 0::2] = np.sin(sinusoid_table[:, 0::2])  # even index sin
     sinusoid_table[:, 1::2] = np.cos(sinusoid_table[:, 1::2])  # odd index cos
 
     return sinusoid_table
@@ -1031,7 +1032,7 @@ class MUSIQ(torch.nn.Module):
         h_org = self.in_conv(latents)
         h_s0 = self.in_conv_1(s0_latents)
         h_s1 = self.in_conv_2(s1_latents)
-        # 
+        #
         output = self.mhattn(h_org, h_s0, h_s1)
         # latents[bs, x*y + s1x*s1y + s2x*s2y, h_dim, x, y]
         return output
@@ -1042,7 +1043,7 @@ class MLP(pytorch_lightning.LightningModule):
         self.input_size = input_size
         self.h_size = h_size if h_size is not None else self.input_size//2
         self.hidden_size = max(self.h_size, 1024)
-        
+
         self.model = torch.nn.Sequential(
             torch.nn.Linear(self.input_size, self.hidden_size),
             torch.nn.ReLU(),
@@ -1077,7 +1078,7 @@ def Create_MUSIQ_SCORE_Model(n_layer, h_dim, n_head, d_head, d_ff, grid_size, dr
     return resnet50_backbone(score_model_dir), MUSIQ_SCORE_Model(n_layer, h_dim, n_head, d_head, d_ff, grid_size, dropout, layer_norm_epsilon, output_scale)
 
 
-class Score_Manager():
+class Score_Manager:
     def __init__(self, model_path, device, score_max, args=None) -> None:
         score_args = {}
         if args is not None:
@@ -1099,7 +1100,7 @@ class Score_Manager():
             self.image_size = 1 + (self.scale_size * self.scale_size)
             #args.output = args.output + "_x9"
             self.npy_dot = "_x9.npy"
-        
+
         self.image_preprocess = None
         self.clip_model, self.clip_preprocess = clip.load("ViT-L/14", device="cpu")  #RN50x64
         self.preprocess_size = self.clip_model.visual.input_resolution
@@ -1115,7 +1116,7 @@ class Score_Manager():
         if os.path.splitext(model_path)[-1]!=".pth":
             model_path = f"{model_path}.pth"
         s = torch.load(model_path)
-        
+
         self.mlp.load_state_dict(s)
 
     def to_gpu(self):
@@ -1127,7 +1128,7 @@ class Score_Manager():
     def to_cpu(self):
         self.mlp.to("cpu")
         self.clip_model.to("cpu")
-    
+
     def get_score(self, raw_image, prompt):
         with torch.no_grad():
             #txt_id = self.tokenizer(prompt, truncate=True).to(self.device)
@@ -1140,9 +1141,9 @@ class Score_Manager():
                 for i in range(self.scale_size):
                     for j in range(self.scale_size):
                         image_features = torch.concat([image_features,self.clip_model.encode_image(image[:,:,i*self.preprocess_size:(i+1)*self.preprocess_size,j*self.preprocess_size:(j+1)*self.preprocess_size])], dim=1)
-                
+
             #txt_features = self.clip_model.encode_text(txt_id)
-        
+
         return self.mlp(image_features).data.cpu()[0][0]/self.score_max
 
 if __name__ == '__main__':
@@ -1150,7 +1151,7 @@ if __name__ == '__main__':
     model_params, dataset_params, train_params = get_property("./test_dataset", batch_size=2, mode="musiq_clip", eval_per=0.1, hdf5_resume=False, hdf5_add_load=False)
     print_dict(model_params, "model params")
     print_dict(dataset_params, "dataset params")
-    
+
     test = MUSIQ_Score_Dataset(**dataset_params)
     #musiq_model = MUSIQ(2, 332, 5, 5, 5, 10, 0.1, 1e-9, score_module_dir)
     pre_encoder, musiq_model = Create_MUSIQ_SCORE_Model(**model_params)

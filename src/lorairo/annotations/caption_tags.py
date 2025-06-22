@@ -72,7 +72,7 @@ class ImageAnalyzer:
                 return None
 
         except Exception as e:
-            logger.info(f"アノテーションファイルの読み込み中にエラーが発生しました: {str(e)}")
+            logger.info(f"アノテーションファイルの読み込み中にエラーが発生しました: {e!s}")
             return None
 
         return existing_annotations
@@ -89,7 +89,7 @@ class ImageAnalyzer:
         Returns:
             list[str]: アノテーションのリスト
         """
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             clean_data = TagCleaner.clean_format(f.read())
             items = clean_data.strip().split(",")
             return items
@@ -123,7 +123,8 @@ class ImageAnalyzer:
             model_name = self.vision_models.get(model_id, {}).get("name")
 
             # TODO: アノテーターライブラリを使うように変更｡ その時モデル名とモデルIDの対応付けについて考える
-            analysis_result = self._process_response(image_path, tags_str, model_id)
+            # tags_str は以前のバージョンの変数。現在は image_annotator を使用
+            analysis_result = None  # アノテーターライブラリ実装時に更新
             logger.debug(f"img: {image_path} model: {model_name} format: {format_name}")
             return analysis_result
 
@@ -155,7 +156,7 @@ class ImageAnalyzer:
                 "image_path": str(image_path),
             }
         except Exception as e:
-            logger.error(f"レスポンス処理中にエラーが発生しました(画像: {image_path}): {str(e)}")
+            logger.error(f"レスポンス処理中にエラーが発生しました(画像: {image_path}): {e!s}")
             raise
 
     # TODO: アノテーターライブラリはバッチAPIには非対応なので対応方法を考える
