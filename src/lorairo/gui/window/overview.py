@@ -188,16 +188,18 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
 
 
 if __name__ == "__main__":
-    from PySide6.QtWidgets import QApplication
-    from lorairo.services.configuration_service import ConfigurationService
-    from lorairo.storage.file_system import FileSystemManager
-    from lorairo.database.db_manager import ImageDatabaseManager
-    from lorairo.database.db_core import DefaultSessionLocal
-    from lorairo.database.db_repository import ImageRepository
-    from lorairo.utils.config import get_config
-    from lorairo.utils.log import initialize_logging
     import sys
     from pathlib import Path
+
+    from PySide6.QtWidgets import QApplication
+
+    from lorairo.database.db_core import DefaultSessionLocal
+    from lorairo.database.db_manager import ImageDatabaseManager
+    from lorairo.database.db_repository import ImageRepository
+    from lorairo.services.configuration_service import ConfigurationService
+    from lorairo.storage.file_system import FileSystemManager
+    from lorairo.utils.config import get_config
+    from lorairo.utils.log import initialize_logging
 
     app = QApplication(sys.argv)
     config_data = get_config()

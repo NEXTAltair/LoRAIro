@@ -1,7 +1,7 @@
 """DBマネージャー (高レベルインターフェース)"""
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -561,7 +561,7 @@ class ImageDatabaseManager:
         if latest_update_dt.tzinfo is None:
             # naive datetime の場合、UTC とみなすかローカルタイムとみなすか要検討
             # ここでは UTC と仮定 (DB保存時に timezone=True を想定)
-            latest_update_dt = latest_update_dt.replace(tzinfo=timezone.utc)
+            latest_update_dt = latest_update_dt.replace(tzinfo=UTC)
             logger.warning("naive な updated_at を UTC として扱います。")
 
         time_threshold = latest_update_dt - timedelta(minutes=minutes_threshold)
@@ -584,7 +584,7 @@ class ImageDatabaseManager:
                     if item_dt:
                         # タイムゾーンを合わせる
                         if item_dt.tzinfo is None:
-                            item_dt = item_dt.replace(tzinfo=timezone.utc)  # UTC と仮定
+                            item_dt = item_dt.replace(tzinfo=UTC)  # UTC と仮定
 
                         if item_dt >= time_threshold:
                             filtered_annotations[key].append(item)

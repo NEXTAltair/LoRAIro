@@ -34,7 +34,7 @@ class ToolsStatic:
                 caption_file = dir_path / f"{basename}.caption"
 
                 # .captionファイルの内容を読み込む
-                with open(caption_file, "r", encoding="utf-8") as cf:
+                with open(caption_file, encoding="utf-8") as cf:
                     caption_content = cf.read()
 
                 # .txtファイルに内容を追加
