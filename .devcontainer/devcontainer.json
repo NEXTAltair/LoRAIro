@@ -46,7 +46,7 @@
                 "ms-azuretools.vscode-docker"
             ],
             "settings": {
-                "python.defaultInterpreterPath": "/workspaces/LoRAIro/.venv/bin/python",
+                "python.defaultInterpreterPath": "/workspaces/LoRAIro/.venv_linux/bin/python",
                 "python.testing.pytestEnabled": true,
                 "python.analysis.extraPaths": [
                     "/workspaces/LoRAIro/local_packages/image-annotator-lib/src",
@@ -54,6 +54,9 @@
                 ]
             }
         }
+    },
+    "containerEnv": {
+        "UV_PROJECT_ENVIRONMENT": ".venv_linux"
     },
     "postCreateCommand": "uv sync --dev",
     "remoteUser": "vscode",

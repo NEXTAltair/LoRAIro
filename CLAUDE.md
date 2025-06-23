@@ -11,8 +11,20 @@ NEVER proactively create documentation files (*.md) or README files. Only create
 ## Development Commands
 
 ### Environment Setup
+
+#### Cross-Platform Environment Management
+
+This project supports Windows/Linux environments with independent virtual environments to manage platform-specific dependencies properly.
+
 ```bash
-# Install all dependencies including dev group and local packages
+# Automatic OS detection setup (recommended)
+./scripts/setup.sh
+
+# Manual environment specification
+UV_PROJECT_ENVIRONMENT=.venv_linux uv sync --dev     # Linux
+$env:UV_PROJECT_ENVIRONMENT=".venv_windows"; uv sync --dev  # Windows
+
+# Traditional single environment
 uv sync --dev
 
 # Add new dependencies
@@ -20,16 +32,27 @@ uv add package-name
 
 # Add development dependencies
 uv add --dev package-name
-
 ```
 
 ### Running the Application
+
+#### Cross-Platform Execution
+
 ```bash
-# Main command
-lorairo
+# Windows Environment
+$env:UV_PROJECT_ENVIRONMENT = ".venv_windows"; uv run lorairo
+
+# Linux Environment  
+UV_PROJECT_ENVIRONMENT=.venv_linux uv run lorairo
+
+# Using Makefile (all platforms)
+make run-gui
+
+# Traditional single environment
+uv run lorairo
 
 # Alternative module execution
-python -m lorairo.main
+uv run python -m lorairo.main
 ```
 
 ### Development Tools
@@ -42,7 +65,7 @@ pytest -m unit        # Unit tests only
 pytest -m integration # Integration tests only
 pytest -m gui         # GUI tests only (headless in dev container)
 
-# For GUI tests in dev container (headless environment)
+# For GUI tests in cross-platform environments (headless in Linux/container)
 
 # Run linting and formatting
 ruff check
@@ -132,9 +155,9 @@ The local packages are installed in editable mode and automatically linked durin
 - pytest-based with coverage reporting (minimum 75%)
 - Test resources in `tests/resources/`
 - Separate unit, integration, and GUI test categories
-- GUI tests run headless in dev container using QT_QPA_PLATFORM=offscreen
-- Container includes EGL libraries (libegl1-mesa) for Qt offscreen rendering
-- Environment variables automatically set: DISPLAY=:99, QT_QPA_PLATFORM=offscreen
+- GUI tests run headless in Linux/container using QT_QPA_PLATFORM=offscreen
+- Windows environment supports native GUI windows
+- Linux environment includes EGL libraries for Qt offscreen rendering
 
 **Database:**
 - Uses Alembic for migrations
@@ -233,65 +256,38 @@ The .roo directory contains aliases that reference .cursor rules and additional 
 
 ## Troubleshooting
 
-### GUI Test Issues in Dev Container
-
-If you encounter `libEGL.so.1: cannot open shared object file` errors:
-
-1. **Container Rebuild Required**: The Dockerfile has been updated to include EGL libraries
-   
-   **If VS Code shows "Container is not linked to any devcontainer.json file":**
-   ```bash
-   # Step 1: Close VS Code completely
-   # Step 2: Reopen the project folder (not workspace file)
-   # Step 3: Try: Ctrl+Shift+P -> "Dev Containers: Reopen in Container"
-   
-   # Alternative: Manual container recreation
-   # From local machine terminal:
-   docker ps -a  # Find container name
-   docker stop <container-name>
-   docker rm <container-name>
-   # Then reopen in VS Code and select "Reopen in Container"
-   ```
-   
-   **If devcontainer is recognized:**
-   ```bash
-   # Ctrl+Shift+P -> "Dev Containers: Rebuild Container"
-   ```
-
-2. **Manual EGL Library Check**:
-   ```bash
-   # Check if EGL libraries are available
-   ldconfig -p | grep -i egl
-   find /usr -name "*egl*" -type f 2>/dev/null
-   ```
-
-3. **Environment Variables Verification**:
-   ```bash
-   # These should be set automatically in the container
-   echo "DISPLAY=$DISPLAY"
-   echo "QT_QPA_PLATFORM=$QT_QPA_PLATFORM"  # Should be offscreen
-   ```
 
 
 ### Test Discovery Issues
 
 If VS Code cannot discover tests in local packages:
 - Ensure no conflicting `.venv` directories exist in local packages
-- Check Python interpreter is set to `/workspaces/LoRAIro/.venv/bin/python`
+- Check Python interpreter is set to appropriate environment (`.venv_linux/bin/python` or `.venv_windows/Scripts/python.exe`)
 - Verify `uv sync --dev` has been run successfully
 
-### Current Limitations
+### Cross-Platform Development Environment
 
-**Container Rebuild Required for Full GUI Testing:**
-- Current container lacks EGL libraries needed for Qt offscreen rendering
-- Updated Dockerfile includes necessary libraries but requires rebuild
-- Non-GUI tests can be run with: `uv run python -m pytest -m "not gui"`
+**Environment Isolation:**
+- Windows environment: `.venv_windows` - Windows-specific dependencies and binaries
+- Linux environment: `.venv_linux` - Linux-specific dependencies and binaries  
+- Independent GUI operation support for both environments
 
-**Temporary Workaround for Development:**
+**Development Workflow:**
 ```bash
-# Run only non-GUI tests
-uv run python -m pytest -m "not gui"
+# Setup using unified script (automatic OS detection)
+./scripts/setup.sh
 
-# Test basic imports
-QT_QPA_PLATFORM=minimal uv run python -c "from PySide6.QtCore import QCoreApplication; print('Basic Qt import works')"
+# Linux/Container environment - development and testing
+UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest
+
+# Windows environment - execution and GUI verification
+$env:UV_PROJECT_ENVIRONMENT = ".venv_windows"; uv run lorairo
+
+# Unified execution using Makefile
+make run-gui  # Automatically selects appropriate environment
 ```
+
+**GUI Testing Notes:**
+- Linux environment: Headless execution (pytest-qt + QT_QPA_PLATFORM=offscreen)
+- Windows environment: Native GUI window display
+- Cross-platform test compatibility guaranteed
