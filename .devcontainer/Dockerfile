@@ -46,10 +46,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install SQLite3
+# Install SQLite3 and Git LFS
 RUN apt-get update && apt-get install -y --no-install-recommends \
     sqlite3 \
     libsqlite3-dev \
+    git-lfs \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -72,7 +73,8 @@ WORKDIR /workspaces
 # Configure npm to use user directory for global packages
 RUN mkdir -p ~/.npm-global && \
     npm config set prefix '~/.npm-global' && \
-    echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc
+    echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc && \
+    npm install -g @anthropic-ai/claude-code
 
 CMD ["sleep", "infinity"]
 
