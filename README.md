@@ -29,43 +29,23 @@
    git clone https://github.com/NEXTAltair/lorairo.git
    cd lorairo
    ```
+
 2. サブモジュールを初期化します：
 
    ```bash
    git submodule update --init --recursive
    ```
-3. 開発環境をセットアップします：
+
+3. 環境セットアップ：
 
    ```bash
-   # 開発用依存関係のインストール（推奨）
-   # uvが自動的に仮想環境を作成・管理します
    uv sync
-
-   # または本番用依存関係のみをインストール
-   uv sync --no-dev
-   ```
-
-   **注**: `uv sync`は`pyproject.toml`と`uv.lock`を使用して決定論的な環境を構築します。ローカルパッケージも自動的に処理されます。
-
-   従来の方法（非推奨）:
-   ```bash
-   # 手動で仮想環境を作成する場合
-   uv venv
-   uv pip install -e .[dev]
    ```
 
 ## 使用方法
 
-インストール後、以下のコマンドでアプリケーションを起動できます：
-
 ```bash
-lorairo
-```
-
-または、以下のようにモジュールとして実行することもできます：
-
-```bash
-python -m lorairo.main
+uv run lorairo
 ```
 
 ## プロジェクト構造

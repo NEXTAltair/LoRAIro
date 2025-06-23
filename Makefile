@@ -72,11 +72,11 @@ docs-publish: docs
 # Development targets
 install:
 	@echo "Installing project dependencies..."
-	uv sync --no-dev
+	UV_PROJECT_ENVIRONMENT=.venv_linux uv sync
 
 install-dev:
 	@echo "Installing development dependencies..."
-	uv sync
+	UV_PROJECT_ENVIRONMENT=.venv_linux uv sync --dev
 
 run-gui:
 	@echo "Running LoRAIro GUI..."
@@ -84,16 +84,16 @@ run-gui:
 
 test:
 	@echo "Running tests..."
-	pytest
+	UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest
 
 lint:
 	@echo "Running code linting..."
-	ruff check src/
+	UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff check src/
 
 format:
 	@echo "Formatting code..."
-	ruff format src/
-	ruff check src/ --fix
+	UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff format src/
+	UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff check src/ --fix
 
 clean:
 	@echo "Cleaning build artifacts..."
