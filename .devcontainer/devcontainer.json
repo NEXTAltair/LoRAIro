@@ -55,7 +55,7 @@
             }
         }
     },
-    "postCreateCommand": "uv sync --dev && .devcontainer/xvfb_init.sh",
+    "postCreateCommand": "uv sync --dev",
     "remoteUser": "vscode",
     "features": {}
 }

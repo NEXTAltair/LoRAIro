@@ -21,9 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install X11 and OpenGL libraries for headless GUI testing
+# Install OpenGL libraries for headless GUI testing
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    xvfb \
     libgl1-mesa-glx \
     libgl1-mesa-dri \
     libegl1-mesa \

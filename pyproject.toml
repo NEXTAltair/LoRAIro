@@ -115,9 +115,9 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = ["-v", "-s", "-ra", "--tb=short", "--showlocals", "--cov=src", "--cov-report=xml"]
 qt_api = "pyside6"
+# テスト用のQt環境設定（ヘッドレス）
 env = [
-    "QT_QPA_PLATFORM=minimal",
-    "DISPLAY=:99"
+    "QT_QPA_PLATFORM=minimal"
 ]
 markers = [
     "unit: Unit tests",

@@ -43,7 +43,6 @@ pytest -m integration # Integration tests only
 pytest -m gui         # GUI tests only (headless in dev container)
 
 # For GUI tests in dev container (headless environment)
-# Note: Xvfb is automatically started in dev container for headless GUI testing
 
 # Run linting and formatting
 ruff check
@@ -133,7 +132,7 @@ The local packages are installed in editable mode and automatically linked durin
 - pytest-based with coverage reporting (minimum 75%)
 - Test resources in `tests/resources/`
 - Separate unit, integration, and GUI test categories
-- GUI tests run headless in dev container using Xvfb and QT_QPA_PLATFORM=offscreen
+- GUI tests run headless in dev container using QT_QPA_PLATFORM=offscreen
 - Container includes EGL libraries (libegl1-mesa) for Qt offscreen rendering
 - Environment variables automatically set: DISPLAY=:99, QT_QPA_PLATFORM=offscreen
 
@@ -269,17 +268,10 @@ If you encounter `libEGL.so.1: cannot open shared object file` errors:
 3. **Environment Variables Verification**:
    ```bash
    # These should be set automatically in the container
-   echo "DISPLAY=$DISPLAY"  # Should be :99
+   echo "DISPLAY=$DISPLAY"
    echo "QT_QPA_PLATFORM=$QT_QPA_PLATFORM"  # Should be offscreen
    ```
 
-4. **Xvfb Service Check**:
-   ```bash
-   # Verify Xvfb is running
-   ps aux | grep -i xvfb
-   # Restart if needed
-   /workspaces/LoRAIro/.devcontainer/xvfb_init.sh
-   ```
 
 ### Test Discovery Issues
 

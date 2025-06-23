@@ -1,7 +1,7 @@
 # LoRAIro Project Makefile
 # Documentation and development task automation
 
-.PHONY: help docs docs-clean docs-publish docs-serve test lint format install install-dev clean
+.PHONY: help docs docs-clean docs-publish docs-serve test lint format install install-dev clean run-gui
 
 # Default target
 help:
@@ -16,6 +16,7 @@ help:
 	@echo "Development:"
 	@echo "  install      Install project dependencies"
 	@echo "  install-dev  Install development dependencies"
+	@echo "  run-gui      Run LoRAIro GUI application"
 	@echo "  test         Run tests"
 	@echo "  lint         Run code linting (ruff)"
 	@echo "  format       Format code (ruff format)"
@@ -76,6 +77,10 @@ install:
 install-dev:
 	@echo "Installing development dependencies..."
 	uv sync
+
+run-gui:
+	@echo "Running LoRAIro GUI..."
+	./scripts/run_gui.sh
 
 test:
 	@echo "Running tests..."
