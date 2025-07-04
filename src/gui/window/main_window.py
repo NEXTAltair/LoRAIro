@@ -1,20 +1,22 @@
 import sys
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication, QMainWindow, QStatusBar, QMessageBox
+from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QStatusBar
 
-from gui.designer.MainWindow_ui import Ui_MainWindow
-from gui.window.progress import ProgressWidget, Controller
-from utils.log import setup_logger, get_logger
-from utils.config import get_config
 from database.database import ImageDatabaseManager
+from gui.designer.MainWindow_ui import Ui_MainWindow
+from gui.window.progress import Controller, ProgressWidget
 from storage.file_system import FileSystemManager
+from utils.config import get_config
+from utils.log import get_logger, setup_logger
 
 
 class ConfigManager:
     _instance = None
     config = None
-    dataset_image_paths = None  # REVIEW: ここで保持するのは適切か？なぜこうしたかw擦れた理由をコメントで書く
+    dataset_image_paths = (
+        None  # REVIEW: ここで保持するのは適切か？なぜこうしたかw擦れた理由をコメントで書く
+    )
 
     def __new__(cls):
         if cls._instance is None:

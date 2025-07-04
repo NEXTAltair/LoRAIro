@@ -3,16 +3,12 @@
     {
       "path": ".",
       "name": "LoRAIro", // プロジェクトルート全体
-      "settings": {
-        "python.defaultInterpreterPath": "./.venv/bin/python"
-      }
     },
     {
       "path": "./local_packages/image-annotator-lib",
       "name": "image-annotator-lib",
       "settings": {
-        "python.defaultInterpreterPath": "../../.venv/bin/python",
-        "python.testing.pytestEnabled": false,
+        "python.testing.pytestEnabled": true,
         "python.testing.unittestEnabled": false,
         "python.testing.promptToConfigure": false
       }
@@ -21,8 +17,7 @@
       "path": "./local_packages/genai-tag-db-tools",
       "name": "genai-tag-db-tools",
       "settings": {
-        "python.defaultInterpreterPath": "../../.venv/bin/python",
-        "python.testing.pytestEnabled": false,
+        "python.testing.pytestEnabled": true,
         "python.testing.unittestEnabled": false,
         "python.testing.promptToConfigure": false
       }
@@ -35,6 +30,10 @@
     // Python 基本設定 (テスト設定はpyproject.tomlに移動)
     "python.terminal.activateEnvironment": true,
     "python.envFile": "${workspaceFolder}/.env",
+
+    // Python テスト設定
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false,
 
     // スペルチェック設定
     "cSpell.userWords": [
@@ -83,7 +82,7 @@
     "search.useIgnoreFiles": false,
 
     // Git 設定
-    "git.autofetch": true
+    "git.autofetch": true,
   },
   // Extensions managed by devcontainer.json
   "extensions": {

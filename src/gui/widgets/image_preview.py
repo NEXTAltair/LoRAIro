@@ -1,11 +1,12 @@
 from pathlib import Path
 
-from PySide6.QtWidgets import QWidget, QGraphicsScene, QSizePolicy
-from PySide6.QtGui import QPixmap, QPainter
 from PySide6.QtCore import Qt, QTimer, Slot
-from ..designer.ImagePreviewWidget_ui import Ui_ImagePreviewWidget
+from PySide6.QtGui import QPainter, QPixmap
+from PySide6.QtWidgets import QGraphicsScene, QSizePolicy, QWidget
 
 from utils.log import get_logger
+
+from ..designer.ImagePreviewWidget_ui import Ui_ImagePreviewWidget
 
 
 class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
@@ -51,7 +52,9 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         self.previewGraphicsView.resize(view_size)
 
         # fitInView を呼び出して画像をフィット
-        self.previewGraphicsView.fitInView(self.graphics_scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        self.previewGraphicsView.fitInView(
+            self.graphics_scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio
+        )
 
     # resizeEvent をオーバーライドしてウィンドウサイズ変更時にサイズ調整
     def resizeEvent(self, event):

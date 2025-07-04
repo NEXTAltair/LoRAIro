@@ -14,6 +14,7 @@ from transformers import pipeline
 LAION_MODEL_URL = "https://github.com/grexzen/SD-Chad/blob/main/sac+logos+ava1-l14-linearMSE.pth?raw=true"
 CAFE_MODEL_URL = "https://huggingface.co/cafeai/cafe_aesthetic/resolve/main/model.safetensors?download=true"
 
+
 def download_model(url: str, model_path: Path):
     """URLからモデルをダウンロードする
     スコアモデルが増えたとき用に関数化しておく
@@ -22,11 +23,12 @@ def download_model(url: str, model_path: Path):
         model_path (Path): 保存先のパス
     """
     response = requests.get(url, stream=True)
-    response.raise_for_status() # HTTPリクエストが失敗した場合、例外を発生させる
-    with open(model_path, 'wb') as f:
-        for chunk in response.iter_content(chunk_size=8192): # データをチャンクごとに読み込む
-            f.write(chunk) # ファイルに書き込む
+    response.raise_for_status()  # HTTPリクエストが失敗した場合、例外を発生させる
+    with open(model_path, "wb") as f:
+        for chunk in response.iter_content(chunk_size=8192):  # データをチャンクごとに読み込む
+            f.write(chunk)  # ファイルに書き込む
     print(f"保存完了 {model_path}")
+
 
 # モデルの読み込み部分をクラスの初期化時に移動
 @dataclass
@@ -50,14 +52,13 @@ class AestheticScorer:
         model = AestheticPredictor(768)  # 768はCLIPの出力次元数
         model.load_state_dict(torch.load(model_path, map_location=self.device))
         model.eval()
-        model.to(self.device) # モデルを適切なデバイスに移動
+        model.to(self.device)  # モデルを適切なデバイスに移動
         processor = clip.load("ViT-L/14", device=self.device)[1]
         return model, processor
 
     def _load_cafe_model(self):
         pipe_aesthetic = pipeline("image-classification", "cafeai/cafe_aesthetic", device=self.device)
         return pipe_aesthetic
-
 
     def score(self, image: Image.Image, model_type) -> float:
         if model_type == "laion":
@@ -75,16 +76,20 @@ class AestheticScorer:
         Returns:
             float: 美的スコア
         """
-        image_tensor = self.laion_processor(image).unsqueeze(0).to(self.device) # 画像をテンソルに変換し、デバイスに移動
+        image_tensor = (
+            self.laion_processor(image).unsqueeze(0).to(self.device)
+        )  # 画像をテンソルに変換し、デバイスに移動
 
-        with torch.no_grad(): # 勾配計算を行わない
-            image_features = self.clip_model.encode_image(image_tensor) # CLIPモデルで画像の特徴量を抽出
+        with torch.no_grad():  # 勾配計算を行わない
+            image_features = self.clip_model.encode_image(image_tensor)  # CLIPモデルで画像の特徴量を抽出
             # 特徴量を正規化し、型とデバイスを調整
-            image_features = torch.from_numpy(normalized(image_features.cpu().detach().numpy())).to(self.device).float()
+            image_features = (
+                torch.from_numpy(normalized(image_features.cpu().detach().numpy())).to(self.device).float()
+            )
 
-        prediction = self.laion_model(image_features) # LAIONモデルでスコアを予測
+        prediction = self.laion_model(image_features)  # LAIONモデルでスコアを予測
 
-        score = prediction.data.cpu().item() # スコアをCPUに移動し、Pythonの数値に変換
+        score = prediction.data.cpu().item()  # スコアをCPUに移動し、Pythonの数値に変換
         return score
 
     def _calculate_cafe_score(self, image: Image.Image):
@@ -94,9 +99,10 @@ class AestheticScorer:
         Returns:
             float: 美的スコア
         """
-        data = self.cafe_pipe(image, top_k=1) # CAFEモデルでスコアを予測
-        score = data[0]['score'] if data else 0.0 # スコアを取得
+        data = self.cafe_pipe(image, top_k=1)  # CAFEモデルでスコアを予測
+        score = data[0]["score"] if data else 0.0  # スコアを取得
         return score
+
 
 def normalized(a, axis=-1, order=2):
     """ベクトルを正規化する関数
@@ -107,9 +113,10 @@ def normalized(a, axis=-1, order=2):
     Returns:
         np.array: 正規化されたベクトル
     """
-    l2 = np.atleast_1d(np.linalg.norm(a, order, axis)) # ベクトルaのノルムを計算
-    l2[l2 == 0] = 1 # ノルムが0の場合は1にする
-    return a / np.expand_dims(l2, axis) # 正規化
+    l2 = np.atleast_1d(np.linalg.norm(a, order, axis))  # ベクトルaのノルムを計算
+    l2[l2 == 0] = 1  # ノルムが0の場合は1にする
+    return a / np.expand_dims(l2, axis)  # 正規化
+
 
 @dataclass
 class AestheticPredictor(torch.nn.Module):

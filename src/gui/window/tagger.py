@@ -1,15 +1,15 @@
 from pathlib import Path
 
-from PySide6.QtWidgets import QWidget, QFileDialog, QMessageBox
 from PySide6.QtCore import Slot
+from PySide6.QtWidgets import QFileDialog, QMessageBox, QWidget
+
+from annotations.api_utils import APIClientFactory
+from annotations.caption_tags import ImageAnalyzer
+from database.database import ImageDatabaseManager
+from storage.file_system import FileSystemManager
+from utils.log import get_logger
 
 from ..designer.ImageTaggerWidget_ui import Ui_ImageTaggerWidget
-
-from storage.file_system import FileSystemManager
-from annotations.caption_tags import ImageAnalyzer
-from annotations.api_utils import APIClientFactory
-from utils.log import get_logger
-from database.database import ImageDatabaseManager
 
 
 class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
@@ -195,7 +195,9 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
                     if caps_data:
                         for cap_dict in caps_data:
                             if "caption" in cap_dict:
-                                caption_list = [cap_dict["caption"] for cap_dict in caps_data if "caption" in cap_dict]
+                                caption_list = [
+                                    cap_dict["caption"] for cap_dict in caps_data if "caption" in cap_dict
+                                ]
                                 combined_captions = ", ".join(caption_list)
                                 self.textEditCaption.setPlainText(combined_captions)
                     else:
@@ -250,7 +252,8 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
     def save_to_db(self):
         fsm = FileSystemManager()  # TODO: 暫定後で設計から見直す
         fsm.initialize(
-            Path(self.cm.config["directories"]["output"]), self.cm.config["image_processing"]["target_resolution"]
+            Path(self.cm.config["directories"]["output"]),
+            self.cm.config["image_processing"]["target_resolution"],
         )
         for image_path, result in self.all_results.items():
             image_id = self.idm.detect_duplicate_image(image_path)
@@ -268,7 +271,9 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
 
 if __name__ == "__main__":
     import sys
+
     from PySide6.QtWidgets import QApplication
+
     from gui import ConfigManager, MainWindow
 
     app = QApplication(sys.argv)

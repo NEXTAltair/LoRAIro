@@ -1,16 +1,16 @@
 from pathlib import Path
 
-from PySide6.QtWidgets import QWidget, QTableWidgetItem, QHeaderView, QMessageBox
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import QHeaderView, QMessageBox, QTableWidgetItem, QWidget
+
+from annotations.caption_tags import ImageAnalyzer
+from database.database import ImageDatabaseManager
+from editor.image_processor import ImageProcessingManager
+from storage.file_system import FileSystemManager
+from utils.log import get_logger
 
 from ..designer.ImageEditWidget_ui import Ui_ImageEditWidget
-
-from utils.log import get_logger
-from storage.file_system import FileSystemManager
-from database.database import ImageDatabaseManager
-from annotations.caption_tags import ImageAnalyzer
-from editor.image_processor import ImageProcessingManager
 
 
 class ImageEditWidget(QWidget, Ui_ImageEditWidget):
@@ -101,7 +101,9 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         pixmap = QPixmap(str_file_path)
         file_height = pixmap.height()
         file_width = pixmap.width()
-        self.tableWidgetImageList.setItem(row_position, 3, QTableWidgetItem(f"{file_height} x {file_width}"))
+        self.tableWidgetImageList.setItem(
+            row_position, 3, QTableWidgetItem(f"{file_height} x {file_width}")
+        )
 
         # サイズ
         file_size = file_path.stat().st_size
@@ -115,7 +117,9 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
             self.tableWidgetImageList.setItem(row_position, 5, QTableWidgetItem(tags_str))
 
             # キャプションをカンマ区切りの文字列に結合
-            captions_str = ", ".join([caption_info["caption"] for caption_info in existing_annotations["captions"]])
+            captions_str = ", ".join(
+                [caption_info["caption"] for caption_info in existing_annotations["captions"]]
+            )
             self.tableWidgetImageList.setItem(row_position, 6, QTableWidgetItem(captions_str))
 
     @Slot()
@@ -153,8 +157,8 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
             else:
                 self.main_window.some_long_process(self.process_all_images)
         except Exception as e:
-            self.logger.error(f"画像処理中にエラーが発生しました: {str(e)}")
-            QMessageBox.critical(self, "エラー", f"処理中にエラーが発生しました: {str(e)}")
+            self.logger.error(f"画像処理中にエラーが発生しました: {e!s}")
+            QMessageBox.critical(self, "エラー", f"処理中にエラーが発生しました: {e!s}")
 
     def process_all_images(self, progress_callback=None, status_callback=None, is_canceled=None):
         try:
@@ -171,7 +175,7 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
                 if status_callback:
                     status_callback(f"画像 {index + 1}/{total_images} を処理中")
         except Exception as e:
-            self.logger.error(f"画像処理中にエラーが発生しました: {str(e)}")
+            self.logger.error(f"画像処理中にエラーが発生しました: {e!s}")
             raise e
 
     def process_image(self, image_file: Path):
@@ -204,7 +208,10 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
             return
 
         processed_image = self.ipm.process_image(
-            image_file, original_image_metadata["has_alpha"], original_image_metadata["mode"], upscaler=self.upscaler
+            image_file,
+            original_image_metadata["has_alpha"],
+            original_image_metadata["mode"],
+            upscaler=self.upscaler,
         )
         if processed_image:
             self.handle_processing_result(processed_image, image_file, image_id)
@@ -219,10 +226,12 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
 
 
 if __name__ == "__main__":
-    from PySide6.QtWidgets import QApplication, QWidget
-    from gui import MainWindow, ConfigManager
-    from module.config import get_config
     import sys
+
+    from module.config import get_config
+    from PySide6.QtWidgets import QApplication, QWidget
+
+    from gui import ConfigManager, MainWindow
 
     app = QApplication(sys.argv)
     config = get_config()

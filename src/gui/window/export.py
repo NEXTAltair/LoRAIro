@@ -2,13 +2,14 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtWidgets import QWidget, QMessageBox
-from PySide6.QtCore import Qt, QDateTime, Slot
-from ..designer.DatasetExportWidget_ui import Ui_DatasetExportWidget
+from PySide6.QtCore import QDateTime, Qt, Slot
+from PySide6.QtWidgets import QMessageBox, QWidget
 
-from storage.file_system import FileSystemManager
 from database.database import ImageDatabaseManager
+from storage.file_system import FileSystemManager
 from utils.log import get_logger
+
+from ..designer.DatasetExportWidget_ui import Ui_DatasetExportWidget
 
 
 class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
@@ -30,8 +31,8 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
     def initialize(
         self,
         config_manage,
-        file_system_manager: Optional[FileSystemManager] = None,
-        image_database_manager: Optional[ImageDatabaseManager] = None,
+        file_system_manager: FileSystemManager | None = None,
+        image_database_manager: ImageDatabaseManager | None = None,
     ):
         self.cm = config_manage
         self.fsm = file_system_manager
@@ -82,7 +83,9 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
             return
 
         # idとpathの対応だけを取り出す
-        self.image_path_id_map = {Path(item["stored_image_path"]): item["image_id"] for item in filtered_image_metadata}
+        self.image_path_id_map = {
+            Path(item["stored_image_path"]): item["image_id"] for item in filtered_image_metadata
+        }
 
         # サムネイルセレクターを更新
         self.update_thumbnail_selector(list(self.image_path_id_map.keys()), list_count)
@@ -122,7 +125,11 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
                         "captions": annotations.get("captions", []),
                     }
                     if self.checkBoxTxtCap.isChecked():
-                        self.fsm.export_dataset_to_txt(image_data, export_dir, mearge_caption=self.MergeCaptionWithTagscheckBox.isChecked())
+                        self.fsm.export_dataset_to_txt(
+                            image_data,
+                            export_dir,
+                            mearge_caption=self.MergeCaptionWithTagscheckBox.isChecked(),
+                        )
                     if self.checkBoxJson.isChecked():
                         self.fsm.export_dataset_to_json(image_data, export_dir)
                 else:
@@ -134,8 +141,8 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
                 self.statusLabel.setText(f"Status: Exporting... {progress}%")
 
             except Exception as e:
-                self.logger.error(f"エクスポート中にエラーが発生しました: {str(e)}")
-                QMessageBox.critical(self, "Error", f"エクスポート中にエラーが発生しました: {str(e)}")
+                self.logger.error(f"エクスポート中にエラーが発生しました: {e!s}")
+                QMessageBox.critical(self, "Error", f"エクスポート中にエラーが発生しました: {e!s}")
                 export_successful = False
                 break
 
@@ -176,11 +183,13 @@ class DatasetExportWidget(QWidget, Ui_DatasetExportWidget):
 
 
 if __name__ == "__main__":
-    from PySide6.QtWidgets import QApplication
-    from gui import ConfigManager
+    import sys
+
     from module.config import get_config
     from module.log import setup_logger
-    import sys
+    from PySide6.QtWidgets import QApplication
+
+    from gui import ConfigManager
 
     app = QApplication(sys.argv)
     config = get_config()

@@ -1,7 +1,9 @@
-from PySide6.QtWidgets import QWidget, QFileDialog
 from PySide6.QtCore import Qt
-from ..designer.DirectoryPickerWidget_ui import Ui_DirectoryPickerWidget
+from PySide6.QtWidgets import QFileDialog, QWidget
+
 from utils.log import get_logger
+
+from ..designer.DirectoryPickerWidget_ui import Ui_DirectoryPickerWidget
 
 
 class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
@@ -43,8 +45,8 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
 
 
 if __name__ == "__main__":
-    from PySide6.QtWidgets import QApplication
     from module.log import setup_logger
+    from PySide6.QtWidgets import QApplication
 
     logconf = {"level": "DEBUG", "file": "DirectoryPickerWidget.log"}
     setup_logger(logconf)

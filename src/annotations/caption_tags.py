@@ -2,9 +2,9 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
-from utils.log import get_logger
 from annotations.api_utils import APIClientFactory, APIError
 from annotations.cleanup_txt import initialize_tag_cleaner
+from utils.log import get_logger
 
 
 class ImageAnalyzer:
@@ -32,7 +32,7 @@ class ImageAnalyzer:
         self.vision_models, self.score_models = models_config
 
     @staticmethod
-    def get_existing_annotations(image_path: Path) -> Optional[dict[str, Any]]:
+    def get_existing_annotations(image_path: Path) -> dict[str, Any] | None:
         """
         画像の参照元ディレクトリから既存のタグとキャプションを取得。
         scoreとmodel_idはダミー値を設定。
@@ -68,14 +68,16 @@ class ImageAnalyzer:
                 existing_annotations["tags"] = [{"tag": tag, "model_id": None} for tag in tags]
             if caption_path.exists():
                 captions = ImageAnalyzer._read_annotations(caption_path)
-                existing_annotations["captions"] = [{"caption": caption, "model_id": None} for caption in captions]
+                existing_annotations["captions"] = [
+                    {"caption": caption, "model_id": None} for caption in captions
+                ]
 
             if not existing_annotations["tags"] and not existing_annotations["captions"]:
                 ImageAnalyzer.logger.info(f"既存アノテーション無し: {image_path}")
                 return None
 
         except Exception as e:
-            ImageAnalyzer.logger.info(f"アノテーションファイルの読み込み中にエラーが発生しました: {str(e)}")
+            ImageAnalyzer.logger.info(f"アノテーションファイルの読み込み中にエラーが発生しました: {e!s}")
             return None
 
         return existing_annotations
@@ -94,7 +96,7 @@ class ImageAnalyzer:
         """
         from module.cleanup_txt import TagCleaner
 
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             clean_data = TagCleaner.clean_format(f.read())
             items = clean_data.strip().split(",")
             return items
@@ -141,7 +143,9 @@ class ImageAnalyzer:
             self.logger.error(f"API処理中にエラーが発生しました（画像: {image_path}）: {e}")
             return {"error": str(e), "image_path": str(image_path)}
         except Exception as e:
-            self.logger.error(f"アノテーション生成中に予期せぬエラーが発生しました（画像: {image_path}）: {e}")
+            self.logger.error(
+                f"アノテーション生成中に予期せぬエラーが発生しました（画像: {image_path}）: {e}"
+            )
             return {"error": str(e), "image_path": str(image_path)}
 
     def _process_response(self, image_path: Path, tags_str: str, model_id: int) -> dict[str, Any]:
@@ -168,7 +172,7 @@ class ImageAnalyzer:
                 "image_path": str(image_path),
             }
         except Exception as e:
-            self.logger.error(f"レスポンス処理中にエラーが発生しました（画像: {image_path}）: {str(e)}")
+            self.logger.error(f"レスポンス処理中にエラーが発生しました（画像: {image_path}）: {e!s}")
             raise
 
     def create_batch_request(self, image_path: Path, model_name: str) -> dict[str, Any]:
@@ -209,12 +213,16 @@ class ImageAnalyzer:
         score_index = content.lower().find("score:")
 
         if tags_index == -1 and caption_index == -1:
-            self.logger.error(f"画像 {image_key} の処理に失敗しました。タグまたはキャプションが見つかりません。")
+            self.logger.error(
+                f"画像 {image_key} の処理に失敗しました。タグまたはキャプションが見つかりません。"
+            )
             self.logger.error(f" APIからの応答: {content} ")
             return "", ""
 
         tags_text = content[tags_index + len("tags:") : caption_index].strip() if tags_index != -1 else ""
-        caption_text = content[caption_index + len("caption:") : score_index].strip() if caption_index != -1 else ""
+        caption_text = (
+            content[caption_index + len("caption:") : score_index].strip() if caption_index != -1 else ""
+        )
         score_text = content[score_index + len("score:") :].strip() if score_index != -1 else ""
         converted = score_text.replace(" ", "")
         converted = converted.replace(",", ".")
@@ -246,8 +254,8 @@ class ImageAnalyzer:
 # 画像処理のテスト
 if __name__ == "__main__":
     from module.api_utils import APIClientFactory
-    from module.db import ImageDatabaseManager
     from module.config import get_config
+    from module.db import ImageDatabaseManager
 
     config = get_config()
     image_path = Path(r"testimg\1_img\file02.png")

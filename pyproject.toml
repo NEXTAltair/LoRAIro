@@ -7,7 +7,7 @@ name = "lorairo"
 version = "0.0.8"
 description = "AIタグ付LoRA画像データセット準備ツール"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
 authors = [{ name = "NEXTAltair" }]
 keywords = ["lora", "dataset", "ai", "image-processing"]
@@ -131,22 +131,7 @@ markers = [
     "model_factory: Tests for the model factory (ModelLoad)"
 ]
 
-# VS Code settings - 優先度: pyproject.toml > workspace > .vscode/settings.json
-[tool.vscode-settings]
-# Python settings
-"python.testing.pytestEnabled" = true
-"python.testing.unittestEnabled" = false 
-"python.testing.pytestArgs" = []
-"python.testing.pytestPaths" = [
-    "tests",
-    "local_packages/image-annotator-lib/tests",
-    "local_packages/genai-tag-db-tools/tests"
-]
-"python.analysis.extraPaths" = [
-    "./src", 
-    "./local_packages/genai-tag-db-tools/src",
-    "./local_packages/image-annotator-lib/src"
-]
+# VS Code settings moved to lorairo.code-workspace
 
 
 [tool.coverage.run]
@@ -187,6 +172,8 @@ dev = [
     "pytest",
     "pytest-cov",
     "pytest-qt",
+    "pytest-bdd",
+    "types-requests",
     "pytest-bdd>=8.1.0",
     "types-requests>=2.32.0",
     "types-Pillow",
