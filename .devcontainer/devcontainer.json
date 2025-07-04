@@ -7,43 +7,32 @@
     "customizations": {
         "vscode": {
             "extensions": [
-                // Python development
                 "ms-python.python",
                 "ms-python.vscode-pylance",
                 "ms-python.mypy-type-checker",
                 "charliermarsh.ruff",
                 "njpwerner.autodocstring",
                 "kawamataryo.copy-python-dotted-path",
-
-                // Qt/GUI development
                 "seanwu.vscode-qt-for-python",
-
-                // Data & Files
                 "qwtel.sqlite-viewer",
                 "tamasfe.even-better-toml",
                 "mechatroner.rainbow-csv",
-
-                // Git & Version Control
                 "eamodio.gitlens",
                 "donjayamanne.git-extension-pack",
                 "codezombiech.gitignore",
-
-                // Editing & Navigation
                 "streetsidesoftware.code-spell-checker",
                 "vscode-icons-team.vscode-icons",
                 "shardulm94.trailing-spaces",
                 "gruntfuggly.todo-tree",
                 "intellsmi.comment-translate",
                 "cweijan.vscode-typora",
-
-                // Testing & BDD
                 "alexkrechik.cucumberautocomplete",
-
-                // Utilities
                 "wscats.search",
                 "rooveterinaryinc.roo-cline",
+                "google.geminicodeassist",
                 "esbenp.prettier-vscode",
-                "ms-azuretools.vscode-docker"
+                "ms-azuretools.vscode-docker",
+                "masakit.zenkaku-hankaku"
             ],
             "settings": {
                 "python.defaultInterpreterPath": "/workspaces/LoRAIro/.venv_linux/bin/python",
@@ -55,10 +44,7 @@
             }
         }
     },
-    "containerEnv": {
-        "UV_PROJECT_ENVIRONMENT": ".venv_linux"
-    },
-    "postCreateCommand": "uv sync --dev",
+    "postCreateCommand": "make install-dev",
     "remoteUser": "vscode",
     "features": {}
 }

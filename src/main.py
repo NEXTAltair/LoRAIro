@@ -1,4 +1,5 @@
 import sys
+
 from PySide6.QtWidgets import QApplication
 
 from gui.window.main_window import MainWindow

@@ -1,17 +1,17 @@
 from pathlib import Path
 
+from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QColor, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QWidget,
-    QGraphicsObject,
-    QGraphicsScene,
-    QGraphicsView,
-    QGraphicsPixmapItem,
-    QVBoxLayout,
     QApplication,
     QGraphicsItem,
+    QGraphicsObject,
+    QGraphicsPixmapItem,
+    QGraphicsScene,
+    QGraphicsView,
+    QVBoxLayout,
+    QWidget,
 )
-from PySide6.QtGui import QPixmap, QColor, QPen
-from PySide6.QtCore import Qt, QSize, Signal, Slot, QRectF, QTimer
 
 from utils.log import get_logger
 
@@ -154,7 +154,9 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         """
 
         pixmap = QPixmap(str(image_path)).scaled(
-            self.thumbnail_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            self.thumbnail_size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
         )
         item = ThumbnailItem(pixmap, image_path, self)
         self.scene.addItem(item)
@@ -179,7 +181,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             )
         elif modifiers & Qt.KeyboardModifier.ShiftModifier and self.last_selected_item:
             self.select_range(self.last_selected_item, item)
-            self.logger.debug(f"画像がShift+クリックで範囲選択")
+            self.logger.debug("画像がShift+クリックで範囲選択")
         else:
             for other_item in self.thumbnail_items:
                 if other_item != item:
@@ -242,6 +244,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
 if __name__ == "__main__":
     import sys
+
     from module.log import setup_logger
     from PySide6.QtWidgets import QApplication
 

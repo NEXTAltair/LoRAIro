@@ -1,8 +1,9 @@
-from PySide6.QtWidgets import QWidget, QFileDialog
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QFileDialog, QWidget
+
+from utils.log import get_logger
 
 from ..designer.FilePickerWidget_ui import Ui_FilePickerWidget
-from utils.log import get_logger
 
 
 class FilePickerWidget(QWidget, Ui_FilePickerWidget):
@@ -44,8 +45,9 @@ class FilePickerWidget(QWidget, Ui_FilePickerWidget):
 
 
 if __name__ == "__main__":
-    from PySide6.QtWidgets import QApplication
     import sys
+
+    from PySide6.QtWidgets import QApplication
 
     app = QApplication(sys.argv)
     widget = FilePickerWidget()

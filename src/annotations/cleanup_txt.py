@@ -2,7 +2,7 @@ import re
 from pathlib import Path
 from typing import Set
 
-from genai_tag_db_tools. import initialize_tag_searcher
+from genai_tag_db_tools.tag_cleaner import initialize_tag_searcher
 
 from utils.log import get_logger
 
@@ -23,7 +23,9 @@ MULTI_PERSON_PATTERNS = [
     re.compile(r"[\w\-]+ eyes"),
     re.compile(r"([\w\-]+ sleeves|sleeveless)"),
     # 複数の髪型定義がある場合は削除する
-    re.compile(r"(ponytail|braid|ahoge|twintails|[\w\-]+ bun|single hair bun|single side bun|two side up|two tails|[\w\-]+ braid|sidelocks)"),
+    re.compile(
+        r"(ponytail|braid|ahoge|twintails|[\w\-]+ bun|single hair bun|single side bun|two side up|two tails|[\w\-]+ braid|sidelocks)"
+    ),
 ]
 
 CAPTION_REPLACEMENTS = [
@@ -79,7 +81,9 @@ class TagCleaner:
         text = re.sub(r"\"", '"', text)  # ダブルクォートをエスケープ
         text = re.sub(r"\*\*", "", text)  # GPT4 visionがたまに付けるマークダウンの強調を削除
         text = re.sub(r"\.\s*$", ", ", text)  # ピリオドをカンマに変換
-        text = re.sub(r"\.\s*(?=\S)", ", ", text)  # ピリオド後にスペースがあればカンマとスペースに置換し、新しい単語が続く場合はその前にスペースを追加
+        text = re.sub(
+            r"\.\s*(?=\S)", ", ", text
+        )  # ピリオド後にスペースがあればカンマとスペースに置換し、新しい単語が続く場合はその前にスペースを追加
         text = re.sub(r"\.\n", ", ", text)  # 改行直前のピリオドをカンマに変換
         text = re.sub(r"\n", ", ", text)  # 改行をカンマに変換
         text = re.sub(r"\u2014", "-", text)  # エムダッシュをハイフンに変換
@@ -184,7 +188,7 @@ class TagCleaner:
     def _clean_color_object(tags_dict: dict[int, str]) -> dict[int, str]:
         """white shirtとshirtみたいな重複タグの削除"""
         # 単語の出現を記録する辞書
-        word_tags: dict[str, Set[str]] = {}
+        word_tags: dict[str, set[str]] = {}
 
         # タグから単語を抽出し、単語が含まれるタグを記録
         for tag in tags_dict.values():
@@ -196,7 +200,11 @@ class TagCleaner:
                     word_tags[word] = {tag}
 
         # 単語が含まれるタグが他のタグに完全に含まれているかを確認し、そのようなタグを削除
-        return {k: v for k, v in tags_dict.items() if not any(v != other_tag and v in other_tag for other_tag in word_tags.get(v, set()))}
+        return {
+            k: v
+            for k, v in tags_dict.items()
+            if not any(v != other_tag and v in other_tag for other_tag in word_tags.get(v, set()))
+        }
 
     @staticmethod
     def _clean_style(tags_dict: dict[int, str]) -> dict[int, str]:

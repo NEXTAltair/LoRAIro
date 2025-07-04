@@ -1,16 +1,19 @@
 import os
 from pathlib import Path
 from typing import Any
+
 from PIL import Image, ImageCms
 
 Image.MAX_IMAGE_PIXELS = 1000000000  # クソデカファイルに対応､ローカルアプリななので攻撃の心配はない
-from io import BytesIO
-import math
 import json
-import toml
+import math
 import shutil
-from utils.log import get_logger
 from datetime import datetime
+from io import BytesIO
+
+import toml
+
+from utils.log import get_logger
 
 
 class FileSystemManager:
@@ -88,7 +91,9 @@ class FileSystemManager:
             path.mkdir(parents=True, exist_ok=True)
             self.logger.debug("ディレクトリを作成: %s", path)
         except Exception as e:
-            self.logger.error("ディレクトリの作成に失敗: %s. FileSystemManager._create_directory: %s", path, str(e))
+            self.logger.error(
+                "ディレクトリの作成に失敗: %s. FileSystemManager._create_directory: %s", path, str(e)
+            )
             raise
 
     @staticmethod
@@ -148,7 +153,7 @@ class FileSystemManager:
                 "icc_profile": "Present" if icc_profile else "Not present",
             }
         except Exception as e:
-            message = f"画像情報の取得失敗: {image_path}. FileSystemManager.get_image_info: {str(e)}"
+            message = f"画像情報の取得失敗: {image_path}. FileSystemManager.get_image_info: {e!s}"
             FileSystemManager.logger.error(message)
             raise
 
@@ -169,7 +174,9 @@ class FileSystemManager:
             return len(files)
         except Exception as e:
             self.logger.error(
-                "シーケンス番号の取得に失敗: %s. FileSystemManager._get_next_sequence_number: %s", save_dir, str(e)
+                "シーケンス番号の取得に失敗: %s. FileSystemManager._get_next_sequence_number: %s",
+                save_dir,
+                str(e),
             )
             raise
 
@@ -198,7 +205,9 @@ class FileSystemManager:
             return output_path
         except Exception as e:
             self.logger.error(
-                "処理済み画像の保存に失敗: %s. FileSystemManager.save_original_image: %s", new_filename, str(e)
+                "処理済み画像の保存に失敗: %s. FileSystemManager.save_original_image: %s",
+                new_filename,
+                str(e),
             )
             raise
 
@@ -255,7 +264,9 @@ class FileSystemManager:
             self.logger.info("元画像を保存: %s", output_path)
             return output_path
         except Exception as e:
-            self.logger.error("元画像の保存に失敗: %s. FileSystemManager.save_original_image: %s", image_file, str(e))
+            self.logger.error(
+                "元画像の保存に失敗: %s. FileSystemManager.save_original_image: %s", image_file, str(e)
+            )
             raise
 
     def create_batch_request_file(self) -> Path:
@@ -290,7 +301,7 @@ class FileSystemManager:
         """
         # jsonl_sizeに基づいてファイルを分割
         split_size = math.ceil(jsonl_size / json_maxsize)
-        with open(jsonl_path, "r", encoding="utf-8") as f:
+        with open(jsonl_path, encoding="utf-8") as f:
             lines = f.readlines()
         lines_per_file = math.ceil(len(lines) / split_size)  # 各ファイルに必要な行数
         split_dir = jsonl_path / "split"
@@ -352,4 +363,4 @@ class FileSystemManager:
                 toml.dump(config, f)
         except Exception as e:
             FileSystemManager.logger.error("保存エラー", str(e))
-            raise IOError(f"設定の保存中にエラーが発生しました: {str(e)}")
+            raise OSError(f"設定の保存中にエラーが発生しました: {e!s}")

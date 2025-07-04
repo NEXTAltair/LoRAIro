@@ -57,6 +57,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install uv using the official method from docs
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
+# Install xdg-utils for opening URLs in the default browser
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    xdg-utils \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create a non-root user
 RUN useradd -m -s /bin/bash vscode
 
@@ -74,7 +80,8 @@ WORKDIR /workspaces
 RUN mkdir -p ~/.npm-global && \
     npm config set prefix '~/.npm-global' && \
     echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc && \
-    npm install -g @anthropic-ai/claude-code
+    npm install -g @anthropic-ai/claude-code && \
+    npm install -g @google/gemini-cli
 
 CMD ["sleep", "infinity"]
 

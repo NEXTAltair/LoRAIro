@@ -1,14 +1,15 @@
-import traceback
-from pathlib import Path
+import base64
 import json
 import logging
-from typing import Any, Optional
-from abc import ABC, abstractmethod
-import google.generativeai as genai
-import anthropic
-import requests
-import base64
 import time
+import traceback
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import Any, Optional
+
+import anthropic
+import google.generativeai as genai
+import requests
 
 from utils.log import get_logger
 
@@ -20,7 +21,7 @@ class APIError(Exception):
         api_provider: str = "",
         error_code: str = "",
         status_code: int = 0,
-        response: Optional[requests.Response] = None,
+        response: requests.Response | None = None,
     ):
         super().__init__(message)
         self.api_provider = api_provider
@@ -83,11 +84,13 @@ class APIError(Exception):
         # AnthropicのAPIErrorを擬似的なResponseオブジェクトに変換
         pseudo_response = requests.Response()
         pseudo_response.status_code = status_code
-        pseudo_response._content = json.dumps({"error": {"message": error_message, "code": error_code}}).encode("utf-8")
+        pseudo_response._content = json.dumps(
+            {"error": {"message": error_message, "code": error_code}}
+        ).encode("utf-8")
 
         return cls.check_response(pseudo_response, api_provider)
 
-    def retry_after(self) -> Optional[int]:
+    def retry_after(self) -> int | None:
         if self.status_code == 429 and self.response is not None:
             return int(self.response.headers.get("Retry-After", 0))
         return None
@@ -115,7 +118,7 @@ class APIInterface(ABC):
         pass
 
     @abstractmethod
-    def start_batch_processing(self, image_paths: list[Path], options: Optional[dict[str, Any]] = None) -> str:
+    def start_batch_processing(self, image_paths: list[Path], options: dict[str, Any] | None = None) -> str:
         """バッチ処理を開始
 
         Args:
@@ -170,7 +173,9 @@ class BaseAPIClient(APIInterface):
         if elapsed_time < self.min_request_interval:
             time.sleep(self.min_request_interval - elapsed_time)
 
-    def _request(self, method: str, url: str, headers: dict[str, str], data: Optional[dict[str, Any]] = None) -> str:
+    def _request(
+        self, method: str, url: str, headers: dict[str, str], data: dict[str, Any] | None = None
+    ) -> str:
         self._wait_for_rate_limit()
         try:
             response = requests.request(method, url, headers=headers, json=data, timeout=60)
@@ -178,7 +183,7 @@ class BaseAPIClient(APIInterface):
             APIError.check_response(response, self.__class__.__name__)
             return response.text
         except requests.exceptions.RequestException as e:
-            raise APIError(f"リクエスト中にエラーが発生しました: {str(e)}", self.__class__.__name__)
+            raise APIError(f"リクエスト中にエラーが発生しました: {e!s}", self.__class__.__name__)
 
     def set_image_data(self, image_path: Path) -> None:
         """
@@ -198,7 +203,7 @@ class BaseAPIClient(APIInterface):
         except FileNotFoundError:
             self.logger.error(f"画像ファイルが見つかりません: {image_path}")
             raise
-        except IOError as e:
+        except OSError as e:
             self.logger.error(f"画像ファイルの読み込み中にエラーが発生しました: {e}")
             raise
         except Exception as e:
@@ -241,7 +246,10 @@ class OpenAI(BaseAPIClient):
                         {"type": "text", "text": prompt},
                         {
                             "type": "image_url",
-                            "image_url": {"url": f"data:image/webp;base64,{base64_image}", "detail": "high"},
+                            "image_url": {
+                                "url": f"data:image/webp;base64,{base64_image}",
+                                "detail": "high",
+                            },
                         },
                     ],
                 }
@@ -263,7 +271,9 @@ class OpenAI(BaseAPIClient):
         """
         self._wait_for_rate_limit()
         try:
-            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=60)
+            response = requests.post(
+                "https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=60
+            )
             self.last_request_time = time.time()
             APIError.check_response(response, self.__class__.__name__)
             return response.json()
@@ -272,9 +282,11 @@ class OpenAI(BaseAPIClient):
         except requests.exceptions.ConnectionError:
             raise APIError("ネットワーク接続エラーが発生しました。インターネット接続を確認してください。")
         except requests.exceptions.RequestException as e:
-            raise APIError(f"リクエスト中にエラーが発生しました: {str(e)}")
+            raise APIError(f"リクエスト中にエラーが発生しました: {e!s}")
         except json.JSONDecodeError:
-            raise APIError("APIレスポンスの解析に失敗しました。レスポンスが不正な形式である可能性があります。")
+            raise APIError(
+                "APIレスポンスの解析に失敗しました。レスポンスが不正な形式である可能性があります。"
+            )
 
     def generate_caption(self, image_path: Path, model_name: str) -> str:
         """
@@ -296,7 +308,9 @@ class OpenAI(BaseAPIClient):
         content = response["choices"][0]["message"]["content"]
         return content
 
-    def create_batch_request(self, image_path: Path, model_name: str = "gpt-4o", prompt: str = "") -> dict[str, Any]:
+    def create_batch_request(
+        self, image_path: Path, model_name: str = "gpt-4o", prompt: str = ""
+    ) -> dict[str, Any]:
         """
         OpenAI APIに送信するバッチ処理用のペイロードを生成する。
         OpenAI API のバッチ処理で使用する JSONL ファイルの各行に記述する JSON データを生成
@@ -310,10 +324,17 @@ class OpenAI(BaseAPIClient):
             dict[str, Any]: バッチリクエスト用のデータ
         """
         if model_name not in self.SUPPORTED_VISION_MODELS:
-            raise ValueError(f"そのModelには非対応: {model_name}. Supported models: {', '.join(self.SUPPORTED_VISION_MODELS)}")
+            raise ValueError(
+                f"そのModelには非対応: {model_name}. Supported models: {', '.join(self.SUPPORTED_VISION_MODELS)}"
+            )
 
         _, payload = self._generate_payload(image_path, model_name, prompt)
-        bach_payload = {"custom_id": image_path.stem, "method": "POST", "url": "/v1/chat/completions", "body": payload}
+        bach_payload = {
+            "custom_id": image_path.stem,
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "body": payload,
+        }
         return bach_payload
 
     def start_batch_processing(self, jsonl_path: Path) -> str:
@@ -338,8 +359,15 @@ class OpenAI(BaseAPIClient):
             if file_id:
                 # バッチ処理を開始
                 url = "https://api.openai.com/v1/batches"
-                headers = {"Authorization": f"Bearer {self.openai_api_key}", "Content-Type": "application/json"}
-                data = {"input_file_id": file_id, "endpoint": "/v1/chat/completions", "completion_window": "24h"}
+                headers = {
+                    "Authorization": f"Bearer {self.openai_api_key}",
+                    "Content-Type": "application/json",
+                }
+                data = {
+                    "input_file_id": file_id,
+                    "endpoint": "/v1/chat/completions",
+                    "completion_window": "24h",
+                }
                 response = requests.post(url, headers=headers, json=data, timeout=30)
                 start_response = response.json()
                 self.logger.info(f"バッチ処理が開始されました。 ID: {start_response['id']}")
@@ -349,9 +377,11 @@ class OpenAI(BaseAPIClient):
         except requests.exceptions.ConnectionError:
             raise APIError("ネットワーク接続エラーが発生しました。インターネット接続を確認してください。")
         except requests.exceptions.RequestException as e:
-            raise APIError(f"リクエスト中にエラーが発生しました: {str(e)}")
+            raise APIError(f"リクエスト中にエラーが発生しました: {e!s}")
         except json.JSONDecodeError:
-            raise APIError("APIレスポンスの解析に失敗しました。レスポンスが不正な形式である可能性があります。")
+            raise APIError(
+                "APIレスポンスの解析に失敗しました。レスポンスが不正な形式である可能性があります。"
+            )
         return ""
 
     def get_batch_results(self, batch_result_dir: Path) -> dict[str, str]:
@@ -366,7 +396,7 @@ class OpenAI(BaseAPIClient):
         """
         results = {}
         for jsonl_file in batch_result_dir.glob("*.jsonl"):
-            with open(jsonl_file, "r", encoding="utf-8") as f:
+            with open(jsonl_file, encoding="utf-8") as f:
                 for line in f:
                     data = json.loads(line)
                     if "custom_id" in data and "response" in data and "body" in data["response"]:
@@ -377,7 +407,11 @@ class OpenAI(BaseAPIClient):
 
 
 class Google(BaseAPIClient):
-    SUPPORTED_VISION_MODELS = ["gemini-1.5-pro-exp-0801", "gemini-1.5-pro-preview-0409", "gemini-1.0-pro-vision"]
+    SUPPORTED_VISION_MODELS = [
+        "gemini-1.5-pro-exp-0801",
+        "gemini-1.5-pro-preview-0409",
+        "gemini-1.0-pro-vision",
+    ]
 
     def __init__(self, api_key: str, prompt: str, add_prompt: str):
         """
@@ -466,7 +500,7 @@ class Google(BaseAPIClient):
 
         return prompt_parts
 
-    def start_batch_processing(self, image_paths: list[Path], options: Optional[dict[str, Any]] = None) -> str:
+    def start_batch_processing(self, image_paths: list[Path], options: dict[str, Any] | None = None) -> str:
         #
         #  TODO: 後で実装
         text = "Not implemented yet"
@@ -497,7 +531,9 @@ class Claude(BaseAPIClient):
         self.model_name = None
         self.client = anthropic.Anthropic(api_key=api_key)
 
-    def generate_caption(self, image_path: Path, model_name: str = "claude-3-5-sonnet-20240620", **kwargs) -> str:
+    def generate_caption(
+        self, image_path: Path, model_name: str = "claude-3-5-sonnet-20240620", **kwargs
+    ) -> str:
         """
         Claude API を使用して画像のキャプションを生成します。
         Args:
@@ -554,10 +590,10 @@ class Claude(BaseAPIClient):
             # Anthropic APIエラーを APIError クラスに変換
             raise APIError.from_anthropic_error(e, "Claude")
         except Exception as e:
-            self.logger.error(f"予期せぬエラーが発生しました: {str(e)}")
+            self.logger.error(f"予期せぬエラーが発生しました: {e!s}")
             raise APIError(str(e), "Claude")
 
-    def start_batch_processing(self, image_paths: list[Path], options: Optional[dict[str, Any]] = None) -> str:
+    def start_batch_processing(self, image_paths: list[Path], options: dict[str, Any] | None = None) -> str:
         """Claude API はバッチ処理をサポートしていません。"""
         raise NotImplementedError("Claude API はバッチ処理をサポートしていません。")
 
@@ -579,19 +615,25 @@ class APIClientFactory:
         self.add_prompt = add_prompt
         if self.api_keys.get("openai_key"):
             if self._validate_openai_key(self.api_keys["openai_key"]):
-                self.api_clients["openai"] = OpenAI(api_key=self.api_keys["openai_key"], prompt=self.main_prompt, add_prompt=self.add_prompt)
+                self.api_clients["openai"] = OpenAI(
+                    api_key=self.api_keys["openai_key"], prompt=self.main_prompt, add_prompt=self.add_prompt
+                )
             else:
                 self.logger.error("Invalid OpenAI API key")
 
         if self.api_keys.get("google_key"):
             if self._validate_google_key(self.api_keys["google_key"]):
-                self.api_clients["google"] = Google(api_key=self.api_keys["google_key"], prompt=self.main_prompt, add_prompt=self.add_prompt)
+                self.api_clients["google"] = Google(
+                    api_key=self.api_keys["google_key"], prompt=self.main_prompt, add_prompt=self.add_prompt
+                )
             else:
                 self.logger.error("Invalid Google API key")
 
         if self.api_keys.get("claude_key"):
             if self._validate_claude_key(self.api_keys["claude_key"]):
-                self.api_clients["claude"] = Claude(api_key=self.api_keys["claude_key"], prompt=self.main_prompt, add_prompt=self.add_prompt)
+                self.api_clients["claude"] = Claude(
+                    api_key=self.api_keys["claude_key"], prompt=self.main_prompt, add_prompt=self.add_prompt
+                )
             else:
                 self.logger.error("Invalid Claude API key")
 
@@ -607,13 +649,17 @@ class APIClientFactory:
             response = model.generate_content("Test")
             return True
         except Exception as e:
-            self.logger.error(f"Google API key validation failed: {str(e)}")
+            self.logger.error(f"Google API key validation failed: {e!s}")
             return False
 
     def _validate_claude_key(self, api_key: str) -> bool:
         client = anthropic.Anthropic(api_key=api_key)
         try:
-            client.messages.create(model="claude-3-sonnet-20240229", max_tokens=10, messages=[{"role": "user", "content": "Hello"}])
+            client.messages.create(
+                model="claude-3-sonnet-20240229",
+                max_tokens=10,
+                messages=[{"role": "user", "content": "Hello"}],
+            )
             return True
         except anthropic.APIError:
             return False
@@ -674,10 +720,10 @@ if __name__ == "__main__":
                 else:
                     logger.warning(f"Failed to initialize client for {provider}")
             except ValueError as e:
-                logger.error(f"Error getting API client: {str(e)}")
+                logger.error(f"Error getting API client: {e!s}")
 
     except Exception as e:
-        logger.error(f"An unexpected error occurred: {str(e)}")
+        logger.error(f"An unexpected error occurred: {e!s}")
         logger.debug(traceback.format_exc())
 
     logger.info("API client initialization test completed.")

@@ -1,14 +1,14 @@
 from pathlib import Path
 
-from PySide6.QtWidgets import QWidget, QMessageBox
-from PySide6.QtCore import Qt, Signal, Slot, QDateTime
+from PySide6.QtCore import QDateTime, Qt, Signal, Slot
+from PySide6.QtWidgets import QMessageBox, QWidget
+
+from annotations.caption_tags import ImageAnalyzer
+from database.database import ImageDatabaseManager
+from storage.file_system import FileSystemManager
+from utils.log import get_logger
 
 from ..designer.DatasetOverviewWidget_ui import Ui_DatasetOverviewWidget
-
-from storage.file_system import FileSystemManager
-from database.database import ImageDatabaseManager
-from utils.log import get_logger
-from annotations.caption_tags import ImageAnalyzer
 
 
 class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
@@ -88,7 +88,9 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
             return
 
         # idとpathの対応だけを取り出す
-        self.image_path_id_map = {item["image_id"]: Path(item["stored_image_path"]) for item in filtered_image_metadata}
+        self.image_path_id_map = {
+            item["image_id"]: Path(item["stored_image_path"]) for item in filtered_image_metadata
+        }
 
         # サムネイルセレクターを更新
         self.update_thumbnail_selector(list(self.image_path_id_map.values()))
@@ -115,7 +117,9 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
         self.modeValueLabel.setText(metadata["mode"])
         self.alphaChannelValueLabel.setText("あり" if metadata["has_alpha"] else "なし")
         self.resolutionValueLabel.setText(f"{metadata['width']} x {metadata['height']}")
-        self.aspectRatioValueLabel.setText(self.calculate_aspect_ratio(metadata["width"], metadata["height"]))
+        self.aspectRatioValueLabel.setText(
+            self.calculate_aspect_ratio(metadata["width"], metadata["height"])
+        )
         self.extensionValueLabel.setText(metadata["extension"])
 
     def clear_metadata(self):
@@ -154,7 +158,9 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
             image_data = self.idm.get_image_annotations(image_id)
             tags_text = ", ".join([tag_data.get("tag", "") for tag_data in image_data["tags"]])
             self.tagsTextEdit.setPlainText(tags_text)
-            captions_text = ", ".join([caption_data.get("caption", "") for caption_data in image_data["captions"]])
+            captions_text = ", ".join(
+                [caption_data.get("caption", "") for caption_data in image_data["captions"]]
+            )
             self.captionTextEdit.setPlainText(captions_text)
         else:
             self.tagsTextEdit.clear()
@@ -172,11 +178,13 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
 
 
 if __name__ == "__main__":
-    from PySide6.QtWidgets import QApplication
-    from gui import ConfigManager
-    from module.file_sys import FileSystemManager
     import sys
+
+    from module.file_sys import FileSystemManager
     from module.log import setup_logger
+    from PySide6.QtWidgets import QApplication
+
+    from gui import ConfigManager
 
     logconf = {"level": "DEBUG", "file": "DatasetOverviewWidget.log"}
     setup_logger(logconf)

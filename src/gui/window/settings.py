@@ -1,9 +1,9 @@
-from PySide6.QtWidgets import QWidget, QFileDialog, QMessageBox
 from PySide6.QtCore import Slot
-
-from ..designer.SettingsWidget_ui import Ui_SettingsWidget
+from PySide6.QtWidgets import QFileDialog, QMessageBox, QWidget
 
 from storage.file_system import FileSystemManager
+
+from ..designer.SettingsWidget_ui import Ui_SettingsWidget
 
 
 class SettingsWidget(QWidget, Ui_SettingsWidget):
@@ -60,7 +60,7 @@ class SettingsWidget(QWidget, Ui_SettingsWidget):
         try:
             FileSystemManager.save_toml_config(self.cm.config, filename)
             return True
-        except IOError as e:
+        except OSError as e:
             QMessageBox.critical(self, "保存エラー", str(e))
             return False
 
@@ -104,12 +104,18 @@ class SettingsWidget(QWidget, Ui_SettingsWidget):
 
     @Slot()
     def connect_custom_widgets(self):
-        self.dirPickerOutput.DirectoryPicker.lineEditPicker.textChanged.connect(self.on_dirPickerOutput_changed)
-        self.dirPickerResponse.DirectoryPicker.lineEditPicker.textChanged.connect(self.on_dirPickerResponse_changed)
+        self.dirPickerOutput.DirectoryPicker.lineEditPicker.textChanged.connect(
+            self.on_dirPickerOutput_changed
+        )
+        self.dirPickerResponse.DirectoryPicker.lineEditPicker.textChanged.connect(
+            self.on_dirPickerResponse_changed
+        )
         self.dirPickerEditedOutput.DirectoryPicker.lineEditPicker.textChanged.connect(
             self.on_dirPickerEditedOutput_changed
         )
-        self.filePickerLogFile.FilePicker.lineEditPicker.textChanged.connect(self.on_filePickerLogFile_changed)
+        self.filePickerLogFile.FilePicker.lineEditPicker.textChanged.connect(
+            self.on_filePickerLogFile_changed
+        )
 
     @Slot()
     def on_dirPickerOutput_changed(self, new_path):
@@ -130,7 +136,9 @@ class SettingsWidget(QWidget, Ui_SettingsWidget):
 
 if __name__ == "__main__":
     import sys
+
     from PySide6.QtWidgets import QApplication
+
     from gui import ConfigManager
 
     app = QApplication(sys.argv)
