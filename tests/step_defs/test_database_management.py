@@ -1,7 +1,7 @@
 # tests/step_defs/test_database_management.py
 
 import re  # 日付範囲のパース用
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, cast
 
@@ -354,10 +354,10 @@ def given_images_with_annotations_registered(
                 # わずかなオフセットを追加して境界値問題を回避
                 # offset 0日は現在時刻、1日は24時間+1秒前、2日は48時間+1秒前とする
                 if offset_days == 0:
-                    target_time = datetime.now(timezone.utc)
+                    target_time = datetime.now(UTC)
                 else:
                     # timedelta に秒単位のずれを追加
-                    target_time = datetime.now(timezone.utc) - timedelta(days=offset_days, seconds=1)
+                    target_time = datetime.now(UTC) - timedelta(days=offset_days, seconds=1)
 
                 # created_at と updated_at を直接更新 (テスト目的)
                 with test_db_manager.repository.session_factory() as session:
@@ -685,7 +685,7 @@ def when_search_by_tag_and_caption(
 def when_search_by_relative_date(
     test_db_manager: ImageDatabaseManager, search_context: SearchContext, hours: int
 ):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start_time = now - timedelta(hours=hours)
     start_date_str = start_time.isoformat()
     results, count = test_db_manager.get_images_by_filter(start_date=start_date_str)
@@ -711,7 +711,7 @@ def _parse_date_offset(offset_str: str) -> datetime:
     elif "minute" in unit:
         delta_args["minutes"] = value
 
-    return datetime.now(timezone.utc) + timedelta(**delta_args)
+    return datetime.now(UTC) + timedelta(**delta_args)
 
 
 @when(parsers.cfparse('特定の日付範囲 ("{start_offset}", "{end_offset}") で検索する'))

@@ -83,8 +83,19 @@ run-gui:
 	./scripts/run_gui.sh
 
 test:
-	@echo "Running tests..."
-	UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest
+	@echo "Syncing src/ and tests/ to /tmp/lorairo_test_src (excluding .git, __pycache__, .mypy_cache, .ruff_cache, test images except 1_img)..."
+	@rm -rf /tmp/lorairo_test_src
+	@mkdir -p /tmp/lorairo_test_src
+	@rsync -a --exclude='.git' --exclude='__pycache__' --exclude='.mypy_cache' --exclude='.ruff_cache' src/ /tmp/lorairo_test_src/src/
+	@if [ -d tests ]; then \
+		rsync -a --exclude='.git' --exclude='__pycache__' --exclude='.mypy_cache' --exclude='.ruff_cache' --exclude='resources/img' tests/ /tmp/lorairo_test_src/tests/; \
+		if [ -d tests/resources/img/1_img ]; then \
+			mkdir -p /tmp/lorairo_test_src/tests/resources/img/; \
+			rsync -a tests/resources/img/1_img/ /tmp/lorairo_test_src/tests/resources/img/1_img/; \
+		fi; \
+	fi
+	@echo "Running tests in /tmp/lorairo_test_src/tests ..."
+	UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest /tmp/lorairo_test_src/tests
 
 lint:
 	@echo "Running code linting..."

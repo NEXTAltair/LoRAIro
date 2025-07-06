@@ -308,6 +308,7 @@ flowchart TD
     Database --> Schema[schema.py]
     Database --> Repository[db_repository.py]
     Database --> Manager[db_manager.py]
+    Database --> Core[db_core.py]
     Database --> Migrations[migrations/]
     
     Annotations --> AIAnnotator[ai_annotator.py]
@@ -417,6 +418,25 @@ retry_attempts = 3
 - **`.ui`**: Qt Designer interface definitions
 - **`.py`**: Python source code
 - **`.md`**: Documentation (Markdown)
+
+## Current Implementation Status
+
+### ✅ Completed Components
+- **Local Package Integration**: Both `image-annotator-lib` and `genai-tag-db-tools` fully integrated
+- **Database Layer**: Complete repository pattern with SQLAlchemy + Alembic
+- **Service Layer**: Configuration, Image Processing, and Annotation services implemented
+- **AI Integration**: Unified interface via `ai_annotator.py` for multi-provider support
+- **Tag Processing**: Integrated tag cleaning and normalization via `genai-tag-db-tools`
+
+### 🔄 In Progress
+- **Legacy Code Cleanup**: Removing old `src/` implementations
+- **GUI Integration**: Connecting new services to existing UI components
+- **Documentation**: Updating all documentation to reflect current architecture
+
+### ⚠️ Pending Items
+- **Legacy File Removal**: Clean up redundant code in old `src/` structure
+- **Test Suite Updates**: Update tests for new architecture
+- **Migration Guide**: Document transition from old to new structure
 
 ## Development Commands
 

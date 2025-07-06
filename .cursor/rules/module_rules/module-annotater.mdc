@@ -1,20 +1,95 @@
 ---
-description: 
-globs: **/*annota*/*,**/local_packages\image-annotator-lib/**/*,*annota*
+description: AI annotation module development guidelines for LoRAIro
+globs: **/*annota*/*,**/local_packages/image-annotator-lib/**/*,**/src/lorairo/annotations/**/*,**/src/lorairo/services/annotation_service.py
 alwaysApply: false
 ---
-version: "1.0.1"
-# lorairo image-annotator-lib 統合計画
+version: "2.0.0"
+# LoRAIro AI Annotation Module Guidelines
 
-# ドキュメント
-## コア
-仕様 [ai_annotation_core_spec.md](mdc:docs/specs/core/ai_annotation_core_spec.md)
-計画 [ai_annotation_core_plan.md](mdc:docs/Plan/core/ai_annotation_core_plan.md)
+## ドキュメント参照
+### 計画・仕様ドキュメント
+- 仕様 [ai_annotation_core_spec.md](mdc:docs/specs/core/ai_annotation_core_spec.md)
+- 計画 [ai_annotation_core_plan.md](mdc:docs/Plan/core/ai_annotation_core_plan.md)
+- アプリケーション仕様 [ai_annotation_application_spec.md](mdc:docs/specs/application/ai_annotation_application_spec.md)
+- アプリケーション計画 [ai_annotation_application_plan.md](mdc:docs/Plan/application/ai_annotation_application_plan.md)
+- インターフェース仕様 [ai_annotation_interface_specs.md](mdc:docs/specs/interfaces/ai_annotation_interface_specs.md)
+- インターフェース計画 [ai_annotation_interface_plan.md](mdc:docs/Plan/interfaces/ai_annotation_interface_plan.md)
 
-## Application
-仕様 [ai_annotation_application_spec.md](mdc:docs/specs/application/ai_annotation_application_spec.md)
-計画 [ai_annotation_application_plan.md](mdc:docs/Plan/application/ai_annotation_application_plan.md)
+### 現在のドキュメント
+- アーキテクチャ [architecture.md](mdc:docs/architecture.md)
+- 技術仕様 [technical.md](mdc:docs/technical.md)
+- 製品要件 [product_requirement_docs.md](mdc:docs/product_requirement_docs.md)
 
-## interface
-仕様 [ai_annotation_interface_specs.md](mdc:docs/specs/interfaces/ai_annotation_interface_specs.md)
-計画 [ai_annotation_interface_plan.md](mdc:docs/Plan/interfaces/ai_annotation_interface_plan.md)
+## 現在の実装状況
+
+### ✅ 完了済み: Local Package Integration
+- **image-annotator-lib**: 外部AIアノテーションライブラリの統合完了
+- **統合ポイント**: [ai_annotator.py](mdc:src/lorairo/annotations/ai_annotator.py)
+- **主要機能**:
+  - `get_available_annotator_models()`: 利用可能なAIモデル取得
+  - `call_annotate_library()`: アノテーション実行
+  - `AiAnnotatorError`: カスタム例外ハンドリング
+
+### 🔄 進行中: Service Layer Integration
+- **AnnotationService**: [annotation_service.py](mdc:src/lorairo/services/annotation_service.py)
+- **AnnotationWorker**: バックグラウンド処理用ワーカー
+- **データフロー**: GUI → Service → Worker → ai_annotator → image-annotator-lib
+
+### 📁 現在のファイル構造
+```
+src/lorairo/annotations/
+├── ai_annotator.py          # ✅ image-annotator-lib統合
+├── caption_tags.py          # 🔄 キャプション・タグ処理
+├── cleanup_txt.py           # ✅ genai-tag-db-tools統合
+└── image_text_reader.py     # 📖 テキストファイル読み込み
+
+src/lorairo/services/
+└── annotation_service.py    # 🔄 アノテーションサービス
+
+local_packages/
+├── image-annotator-lib/     # ✅ 外部AIアノテーション
+└── genai-tag-db-tools/      # ✅ タグデータベース管理
+```
+
+## 開発ガイドライン
+
+### AI Provider Integration
+- **統合方法**: `image-annotator-lib`経由で統一インターフェース使用
+- **サポートプロバイダー**: OpenAI, Anthropic, Google, Local models
+- **データ形式**: `PHashAnnotationResults`で構造化されたレスポンス
+- **エラーハンドリング**: `AiAnnotatorError`で統一的な例外処理
+
+### Tag Processing Integration
+- **統合方法**: `genai-tag-db-tools`のタグクリーニング機能使用
+- **主要機能**: `initialize_tag_searcher()`によるタグ正規化
+- **データベース**: `tags_v3.db`のタグ分類データ使用
+- **パス解決**: [db_core.py](mdc:src/lorairo/database/db_core.py)経由
+
+### Code Quality Standards
+```python
+# 良い例: 統合ライブラリ使用
+from image_annotator_lib import annotate, list_available_annotators
+from genai_tag_db_tools import initialize_tag_searcher
+
+# エラーハンドリング
+try:
+    results = call_annotate_library(images, models, phashes)
+except AiAnnotatorError as e:
+    logger.error(f"Annotation failed: {e}")
+```
+
+### Testing Requirements
+- **単体テスト**: モック使用でライブラリ依存を分離
+- **統合テスト**: ローカルパッケージとの実際の統合をテスト
+- **GUIテスト**: アノテーション結果のUI表示をテスト
+
+## 禁止事項
+- ❌ 直接的なAI Provider API呼び出し（image-annotator-lib経由を使用）
+- ❌ 独自のタグクリーニングロジック実装（genai-tag-db-tools使用）
+- ❌ legacy `src/annotations/`ディレクトリの参照や使用
+
+## 推奨パターン
+- ✅ 統一されたエラーハンドリング
+- ✅ 構造化ログ出力
+- ✅ 型ヒント完備
+- ✅ 非同期処理でUI応答性維持

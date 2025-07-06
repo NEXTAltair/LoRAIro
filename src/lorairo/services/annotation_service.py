@@ -1,14 +1,10 @@
 # src/lorairo/services/annotation_service.py 作成
 
 
+from image_annotator_lib import PHashAnnotationResults, annotate, list_available_annotators
 from PIL.Image import Image
 from PySide6.QtCore import QObject, QThread, Signal
 
-from lorairo.annotations.ai_annotator import (
-    AiAnnotatorError,
-    call_annotate_library,
-    get_available_annotator_models,
-)
 from lorairo.services.base_worker import BaseWorker
 from lorairo.utils.log import logger
 
@@ -27,7 +23,7 @@ class AnnotationWorker(BaseWorker):
 
     # finished and progress signals are inherited from BaseWorker
 
-    def __init__(self, images: list["Image"], phash_list: list[str], models: list[str]) -> None:
+    def __init__(self, images: list[Image], phash_list: list[str], models: list[str]) -> None:
         # No parent needed here, will be handled by moveToThread
         super().__init__()
         self._images = images
@@ -51,9 +47,9 @@ class AnnotationWorker(BaseWorker):
         # Cancellation check before starting is handled by BaseWorker.run()
         # Error handling (try...except) is primarily handled by BaseWorker.run()
 
-        # Call the infrastructure layer function
-        # This might raise AiAnnotatorError, ValueError, etc.
-        results = call_annotate_library(self._images, self._models, self._phash_list)
+        # Call the image-annotator-lib directly
+        # This might raise exceptions like ValueError, etc.
+        results = annotate(self._images, self._models, self._phash_list)
 
         # No need to emit finished signal here, BaseWorker.run() handles it.
         # No need for final cancellation check, BaseWorker.run() handles it.
@@ -83,7 +79,7 @@ class AnnotationService(QObject):
         self._worker: AnnotationWorker | None = None
 
     # --- Public Methods ---
-    def start_annotation(self, images: list["Image"], phash_list: list[str], models: list[str]) -> None:
+    def start_annotation(self, images: list[Image], phash_list: list[str], models: list[str]) -> None:
         """
         アノテーション処理を非同期で開始する。
 
@@ -146,17 +142,11 @@ class AnnotationService(QObject):
         # NOTE: Consider making this asynchronous using a worker if it ever becomes slow.
         logger.info("AnnotationService: 利用可能なアノテーターモデル名リストを取得します。")
         try:
-            # Update function call
-            models = get_available_annotator_models()
+            # Call image-annotator-lib directly
+            models = list_available_annotators()
             self.availableAnnotatorsFetched.emit(models)
-        except AiAnnotatorError as e:
+        except Exception as e:
             logger.error(f"利用可能なアノテーターモデル名リストの取得に失敗しました: {e}")
-            self.availableAnnotatorsFetched.emit([])
-            # Consider emitting a specific error signal
-        except Exception:
-            logger.exception(
-                "利用可能なアノテーターモデル名リストの取得中に予期しないエラーが発生しました。"
-            )
             self.availableAnnotatorsFetched.emit([])
             # Consider emitting a specific error signal
 
