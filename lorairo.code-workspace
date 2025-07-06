@@ -83,6 +83,7 @@
 
     // Git 設定
     "git.autofetch": true,
+    "makefile.configureOnOpen": false,
   },
   // Extensions managed by devcontainer.json
   "extensions": {

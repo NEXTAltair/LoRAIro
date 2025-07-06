@@ -101,16 +101,22 @@ pytest --cov=src --cov-report=html
 - Schema: `src/lorairo/database/schema.py` - Database models
 - Repository: `src/lorairo/database/db_repository.py` - Data access layer
 - Manager: `src/lorairo/database/db_manager.py` - High-level database operations
+- Core: `src/lorairo/database/db_core.py` - Database initialization and core utilities
 
 **Service Layer:**
-- `ImageProcessingService` - Handles image resizing, format conversion, cropping
-- `ConfigurationService` - Manages application configuration
-- `AnnotationService` - Coordinates AI-powered image annotation
+- `ImageProcessingService` (`src/lorairo/services/image_processing_service.py`) - Image processing workflows
+- `ConfigurationService` (`src/lorairo/services/configuration_service.py`) - Application configuration
+- `AnnotationService` (`src/lorairo/services/annotation_service.py`) - AI annotation coordination
 
-**AI Integration:**
-- Supports multiple AI providers: GPT-4, Claude, Gemini via respective APIs
-- Annotation modules in `src/lorairo/annotations/` handle caption and tag generation
-- Scoring modules in `src/lorairo/score_module/` provide image quality assessment
+**AI Integration (Local Packages):**
+- **image-annotator-lib**: Multi-provider AI annotation (OpenAI, Anthropic, Google, Local models)
+  - Integration: `src/lorairo/annotations/ai_annotator.py`
+  - Functions: `get_available_annotator_models()`, `call_annotate_library()`
+  - Returns: `PHashAnnotationResults` with structured data
+- **genai-tag-db-tools**: Tag database management and cleaning utilities
+  - Integration: `src/lorairo/annotations/cleanup_txt.py`
+  - Database: Tag taxonomy (tags_v3.db)
+  - Function: `initialize_tag_searcher()` for tag normalization
 
 **GUI Architecture:**
 - Built with PySide6 (Qt for Python)
@@ -119,9 +125,13 @@ pytest --cov=src --cov-report=html
 - Window controllers in `src/lorairo/gui/window/`
 
 **Storage:**
-- `FileSystemManager` - Handles file operations and directory management
-- Images stored with associated .txt files for captions/tags
+- `FileSystemManager` (`src/lorairo/storage/file_system.py`) - File operations and directory management
+- Images stored with associated .txt/.caption files for annotations
 - Database tracks image metadata, annotations, and processing status
+
+**Quality Assessment:**
+- Scoring modules in `src/lorairo/score_module/` provide image quality assessment
+- CLIP aesthetic scoring, MUSIQ quality metrics, reward function scoring
 
 ### Key Design Patterns
 
@@ -132,10 +142,24 @@ pytest --cov=src --cov-report=html
 
 ### Local Dependencies
 This project uses two local submodules managed via uv.sources:
-- `local_packages/genai-tag-db-tools` - Tag database management utilities (entry: `tag-db`)
-- `local_packages/image-annotator-lib` - Core image annotation functionality
+- `local_packages/genai-tag-db-tools` - Tag database management utilities
+  - **Integration**: Direct Python import in `src/lorairo/annotations/cleanup_txt.py`
+  - **Function**: `initialize_tag_searcher()` for tag cleaning and normalization
+  - **Database**: Contains tags_v3.db with tag taxonomy
+  - **Usage**: Database path resolved via `src/lorairo/database/db_core.py`
+- `local_packages/image-annotator-lib` - Core AI annotation functionality
+  - **Integration**: Direct Python import in `src/lorairo/annotations/ai_annotator.py`
+  - **Functions**: `annotate()`, `list_available_annotators()`
+  - **Data Types**: `PHashAnnotationResults` for structured results
+  - **Providers**: OpenAI, Anthropic, Google, Local ML models
 
 The local packages are installed in editable mode and automatically linked during `uv sync`.
+
+**Current Implementation Status:**
+- ✅ **Active**: Modern implementation in `src/lorairo/` directory
+- ⚠️ **Legacy**: Old implementation in `src/` (pending cleanup)
+- ✅ **Integrated**: Both local packages fully operational
+- 🔄 **Migration**: Transitioning from legacy to modern architecture
 
 ### Important File Types
 - `.caption` files - AI-generated image captions
@@ -253,6 +277,47 @@ The .roo directory contains aliases that reference .cursor rules and additional 
 - Follow established patterns and conventions
 - Use the memory bank system for context retention
 - Always check for existing solutions in error documentation
+
+## Problem-Solving Methodology
+
+**Multiple Solution Analysis:**
+Before implementing any solution, always:
+
+1. **Enumerate All Possible Approaches** - List every conceivable solution method
+2. **Evaluate Each Option** - Assess pros/cons, complexity, maintainability, and trade-offs
+3. **Select Optimal Solution** - Choose the approach that best balances effectiveness, simplicity, and long-term sustainability
+4. **Document Decision Rationale** - Record why the chosen solution was selected over alternatives
+
+**Example Solution Categories:**
+- **Direct Implementation** - Modify target code directly
+- **Abstraction Layer** - Add intermediate interfaces/wrappers
+- **Configuration Changes** - Adjust settings/parameters
+- **Test Modifications** - Update test expectations/setup
+- **Library/Tool Substitution** - Replace problematic dependencies
+- **Architecture Refactoring** - Restructure component relationships
+- **Mock/Stub Strategies** - Isolate external dependencies in tests
+
+**Decision Criteria:**
+- Maintenance burden and complexity
+- Performance and resource impact
+- Code readability and debugging ease
+- Compatibility with existing architecture
+- Risk of introducing new issues
+- Time investment vs. benefit ratio
+
+### Documentation References for Code Changes
+
+**Before making changes, always reference:**
+- `docs/architecture.md` - System architecture and component relationships
+- `docs/product_requirement_docs.md` - Product requirements and user stories
+- `docs/technical.md` - Technical specifications and implementation details
+- `tasks/` directory - Active development tasks and plans
+
+**When updating code, ensure documentation alignment:**
+- Update architecture diagrams if component relationships change
+- Modify technical specifications if implementation patterns change
+- Update product requirements if functionality scope changes
+- Keep task documentation current with development progress
 
 ## Troubleshooting
 

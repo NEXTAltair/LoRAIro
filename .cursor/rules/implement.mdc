@@ -51,15 +51,16 @@ Validate implementation thoroughly:
 ## LoRAIro Implementation Patterns
 
 ### Service Layer Implementation
-Follow established service patterns:
+Follow established service patterns in `src/lorairo/services/`:
 
 ```python
 from typing import Protocol
-from lorairo.services.base import BaseService
+from pathlib import Path
+from lorairo.services.base_worker import BaseWorker
 from lorairo.database.db_manager import DatabaseManager
-from lorairo.utils.config import ConfigurationService
+from lorairo.services.configuration_service import ConfigurationService
 
-class ImageProcessingService(BaseService):
+class ImageProcessingService:
     def __init__(
         self, 
         config: ConfigurationService, 
@@ -67,7 +68,7 @@ class ImageProcessingService(BaseService):
     ) -> None:
         self.config = config
         self.db_manager = db_manager
-        self._logger = self._get_logger()
+        self._logger = get_logger(__name__)
     
     def process_images(self, image_paths: list[Path]) -> list[ProcessingResult]:
         """Process multiple images with proper error handling."""
@@ -83,13 +84,13 @@ class ImageProcessingService(BaseService):
 ```
 
 ### Database Operations
-Use repository pattern for database access:
+Use repository pattern for database access in `src/lorairo/database/`:
 
 ```python
-from lorairo.database.db_repository import DatabaseRepository
+from lorairo.database.db_repository import ImageRepository
 from lorairo.database.schema import ImageRecord
 
-class ImageRepository(DatabaseRepository):
+class ImageRepository:
     def create_image_record(self, image_path: Path) -> ImageRecord:
         """Create new image record with proper validation."""
         if not image_path.exists():
@@ -97,6 +98,48 @@ class ImageRepository(DatabaseRepository):
         
         record = ImageRecord(
             file_path=str(image_path),
+            # ... other fields
+        )
+        return self._save_record(record)
+```
+
+### AI Integration Implementation
+Use local packages for AI functionality:
+
+```python
+# AI Annotation Integration (src/lorairo/annotations/ai_annotator.py)
+from image_annotator_lib import annotate, list_available_annotators, PHashAnnotationResults
+from PIL import Image
+
+def call_annotate_library(
+    images_list: list[Image.Image],
+    model_name_list: list[str], 
+    phash_list: list[str]
+) -> PHashAnnotationResults:
+    """Use image-annotator-lib for AI annotation."""
+    try:
+        results = annotate(
+            images_list=images_list,
+            model_name_list=model_name_list,
+            phash_list=phash_list
+        )
+        return results
+    except Exception as e:
+        raise AiAnnotatorError(f"Annotation failed: {e}") from e
+
+# Tag Processing Integration (src/lorairo/annotations/cleanup_txt.py)
+from genai_tag_db_tools import initialize_tag_searcher
+
+def clean_tags(tags: list[str]) -> list[str]:
+    """Use genai-tag-db-tools for tag cleaning."""
+    searcher = initialize_tag_searcher()
+    cleaned_tags = []
+    for tag in tags:
+        # Use searcher for tag normalization
+        cleaned_tag = searcher.normalize_tag(tag)
+        if cleaned_tag:
+            cleaned_tags.append(cleaned_tag)
+    return cleaned_tags
             file_size=image_path.stat().st_size,
             created_at=datetime.now()
         )

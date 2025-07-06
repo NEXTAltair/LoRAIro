@@ -1,7 +1,7 @@
 # tests/conftest.py
 import shutil
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -77,15 +77,15 @@ def test_engine_with_schema(test_db_url: str):
     engine = create_engine(test_db_url, echo=False)  # echo=True にするとSQLが見える
 
     try:
-        print(f"[test_engine_with_schema] Creating tables using Base.metadata.create_all...")
+        print("[test_engine_with_schema] Creating tables using Base.metadata.create_all...")
         Base.metadata.create_all(engine)
-        print(f"[test_engine_with_schema] Tables created.")
+        print("[test_engine_with_schema] Tables created.")
 
         # --- 初期 ModelType および Model データの挿入 ---
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
         with SessionLocal() as session:
             # --- ModelType の初期データ挿入 ---
-            print(f"[test_engine_with_schema] Inserting initial model types...")
+            print("[test_engine_with_schema] Inserting initial model types...")
             # schema.py やマイグレーションスクリプトで定義されているタイプ名を列挙
             initial_model_types = [
                 "tagger",
@@ -110,7 +110,7 @@ def test_engine_with_schema(test_db_url: str):
             print("[test_engine_with_schema] Initial model types inserted/verified.")
 
             # --- 初期 Model データの挿入 ---
-            print(f"[test_engine_with_schema] Inserting initial model data...")
+            print("[test_engine_with_schema] Inserting initial model data...")
             # 関連付けるタイプ名をリストで持つように変更
             initial_models_data: list[dict[str, Any]] = [
                 {"name": "wd-vit-large-tagger-v3", "provider": "SmilingWolf", "type_names": ["tagger"]},
@@ -168,7 +168,7 @@ def test_engine_with_schema(test_db_url: str):
                 else:
                     print(f"  Model already exists: {model_data['name']}")  # 既存の場合のログ
             session.commit()
-            print(f"[test_engine_with_schema] Initial model data inserted.")
+            print("[test_engine_with_schema] Initial model data inserted.")
 
         # --- テーブルとデータの確認 ---
         with engine.connect() as connection:
@@ -394,13 +394,13 @@ def sample_annotations() -> AnnotationsDict:
 @pytest.fixture
 def current_timestamp():
     """現在のタイムスタンプを取得"""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
 @pytest.fixture
 def past_timestamp():
     """過去のタイムスタンプを取得(1日前)"""
-    return (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+    return (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
 
 
 # --- Helper to override session dependency if using FastAPI style --- #

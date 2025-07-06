@@ -29,12 +29,12 @@ dependencies = [
     "Pillow",
     "opencv-python",
     "numpy",
+    "scipy",
+    "torch",
     "ImageHash",
-    # AI系
-    "google-generativeai>=0.8.3",
-    "anthropic>=0.36.2",
-    "openai>=0.10.0",
     "spandrel",
+    # AI系  
+    "openai>=0.10.0",
     # データ処理系
     "toml>=0.10.2",
     "loguru>=0.7.2",
@@ -43,13 +43,9 @@ dependencies = [
     # GUI系
     "PySide6>=6.8.0.2",
     "superqt>=0.6.7",
-    # AI Model系
-    "pytorch-lightning==2.4.0",
-    "joblib==1.4.2",
     # Local packages (managed by uv.sources)
     "genai-tag-db-tools",
     "image-annotator-lib",
-    "xlsxwriter==3.2.4",
 ]
 
 
@@ -84,7 +80,7 @@ exclude = [
 ]
 
 ignore = [
-    "RUF002", # カタカナの `ノ` でのメッセージを無視
+    "RUF003","RUF002", # カタカナの `ノ` でのメッセージを無視
     "E501",   # Line too long (line-lengthで制御)
     "F401",   # Unused imports (IDEでの管理が困難なため)
 ]
@@ -116,13 +112,10 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = ["-v", "-s", "-ra", "--tb=short", "--showlocals", "--cov=src", "--cov-report=xml"]
 qt_api = "pyside6"
-# テスト用のQt環境設定（ヘッドレス）
-env = [
-    "QT_QPA_PLATFORM=minimal"
-]
 markers = [
     "unit: Unit tests",
     "integration: Integration tests",
+    "fast_integration: Fast integration tests",
     "gui: GUI tests",
     "slow: Tests that take more time",
     "webapi: Tests related to Web API based annotators",

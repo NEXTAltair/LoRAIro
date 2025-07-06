@@ -194,7 +194,7 @@ def when_function_raises_and_logs_exception(exception_type: str, message: str):
         try:
             local_var = "some_value"  # For potential diagnose capture
             raise exception_class(message)
-        except exception_class as e:
+        except exception_class:
             logger.exception(message)  # Log directly using Loguru's logger
             raise
 
@@ -229,7 +229,7 @@ def then_collected_logs_contain_message(
     found_record = find_log_record(log_records_list, message)
     should_find = should_or_not == "should"
 
-    print(f"\n--- Checking Collected Records ---")
+    print("\n--- Checking Collected Records ---")
     print(f"Should find message '{message}': {should_find}")
     print(f"Collected Records ({len(log_records_list)}):")
     for i, r in enumerate(log_records_list):
@@ -240,7 +240,7 @@ def then_collected_logs_contain_message(
             # f"  {i}: Level={r.get('level', {}).get('name')}, Name={r.get('name')}, Msg={r.get('message')}" # Incorrect
             f"  {i}: Level={level_name_for_print}, Name={r.get('name')}, Msg={r.get('message')}"
         )
-    print(f"--- End Checking ---")
+    print("--- End Checking ---")
 
     if should_find:
         assert found_record is not None, f"ログリストにメッセージ '{message}' が見つかりませんでした。"
@@ -279,14 +279,15 @@ def then_collected_logs_contain_level_message(
     """収集されたログレコードに特定のレベルとメッセージが含まれるか検証します。"""
     found_record = find_log_record(log_records_list, message, level)
 
-    print(f"\n--- Checking Collected Records (Level Specific) ---")
+    print("\n--- Checking Collected Records (Level Specific) ---")
     print(f"Should find message '{message}' with level '{level}': True")
     print(f"Collected Records ({len(log_records_list)}):")
     for i, r in enumerate(log_records_list):
+        level_obj = r.get("level")
         print(
-            f"  {i}: Level={r.get('level', {}).get('name')}, Name={r.get('name')}, Msg={r.get('message')}"
+            f"  {i}: Level={level_obj.name if level_obj else 'N/A'}, Name={r.get('name')}, Msg={r.get('message')}"
         )
-    print(f"--- End Checking ---")
+    print("--- End Checking ---")
 
     assert found_record is not None, (
         f"ログリストにレベル '{level}' のメッセージ '{message}' が見つかりませんでした。"
@@ -300,14 +301,15 @@ def then_collected_logs_does_not_contain_level_message(
     """収集されたログレコードに特定のレベルとメッセージが含まれないか検証します。"""
     found_record = find_log_record(log_records_list, message, level)
 
-    print(f"\n--- Checking Collected Records (Level Specific) ---")
+    print("\n--- Checking Collected Records (Level Specific) ---")
     print(f"Should find message '{message}' with level '{level}': False")
     print(f"Collected Records ({len(log_records_list)}):")
     for i, r in enumerate(log_records_list):
+        level_obj = r.get("level")
         print(
-            f"  {i}: Level={r.get('level', {}).get('name')}, Name={r.get('name')}, Msg={r.get('message')}"
+            f"  {i}: Level={level_obj.name if level_obj else 'N/A'}, Name={r.get('name')}, Msg={r.get('message')}"
         )
-    print(f"--- End Checking ---")
+    print("--- End Checking ---")
 
     assert found_record is None, (
         f"ログリストにレベル '{level}' のメッセージ '{message}' が含まれていましたが、含まれないはずでした。"

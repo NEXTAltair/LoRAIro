@@ -75,15 +75,25 @@ AnnotationService → AnnotationWorker → ai_annotator.py → image-annotator-l
 ```
 
 **Key Components**
-- **AnnotationService**: Business logic coordination
+- **AnnotationService** (`src/lorairo/services/annotation_service.py`): Business logic coordination
 - **AnnotationWorker**: Threaded processing for UI responsiveness
-- **ai_annotator.py**: Library integration wrapper with error handling
+- **ai_annotator.py** (`src/lorairo/annotations/ai_annotator.py`): Library integration wrapper
+  - `get_available_annotator_models()`: Retrieve available AI models
+  - `call_annotate_library()`: Execute annotation with comprehensive error handling
+  - `AiAnnotatorError`: Custom exception for library-specific errors
 - **image-annotator-lib**: External library providing unified AI provider access
 
 **Data Flow**
-- Input: PIL Image objects + pHash list + model selection
-- Output: PHashAnnotationResults with tags, captions, scores, ratings
-- Storage: Results stored via ImageDatabaseManager → ImageRepository
+- Input: `list[PIL.Image]` + `list[str]` (model names) + `list[str]` (pHash values)
+- Processing: Multi-provider AI annotation via unified `annotate()` function
+- Output: `PHashAnnotationResults` with structured annotation data
+- Storage: Results processed by AnnotationService and stored via DatabaseManager
+
+**Current Implementation Status**
+- ✅ **Fully Integrated**: image-annotator-lib for AI annotation
+- ✅ **Fully Integrated**: genai-tag-db-tools for tag cleaning and database operations
+- ✅ **Active**: Clean separation between legacy and current implementation
+- 🔄 **In Progress**: Legacy code cleanup and documentation alignment
 
 ### Development Tools
 

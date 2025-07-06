@@ -1,13 +1,16 @@
 ---
-description: lorairo データベース層 設計指針（SQLAlchemyパターン）@src\lorairo\database
+description: LoRAIro データベース層 設計指針（SQLAlchemyパターン）@src/lorairo/database
 globs: src/lorairo/database/**/*
 alwaysApply: false
 ---
-version: "1.0.1"
-# lorairo データベース層 設計指針（SQLAlchemyパターン）
+version: "2.0.0"
+# LoRAIro データベース層 設計指針（SQLAlchemyパターン）
 
-仕様 [database_management.md](mdc:docs/specs/core/database_management.md)
-計画 [database_schema_plan.md](mdc:docs/Plan/core/database_schema_plan.md)
+## ドキュメント参照
+- 仕様 [database_management.md](mdc:docs/specs/core/database_management.md)
+- 計画 [database_schema_plan.md](mdc:docs/Plan/core/database_schema_plan.md)
+- 現在のアーキテクチャ [architecture.md](mdc:docs/architecture.md)
+- 技術仕様 [technical.md](mdc:docs/technical.md)
 
 ## 1. 設計思想・全体方針
 - 疎結合・単一責任・テスト容易性を最優先。
@@ -18,7 +21,8 @@ version: "1.0.1"
 - **ドメイン層** [schema.py](mdc:src/lorairo/database/schema.py) : データ構造・リレーションのみ定義。ビジネスロジックは持たない。
 - **Repository層** [db_repository.py](mdc:src/lorairo/database/db_repository.py) : DBアクセス・永続化・検索ロジックのみ担当。セッション管理はwith構文で。
 - **Manager層** [db_manager.py](mdc:src/lorairo/database/db_manager.py) : ユースケース単位の集約ロジック。Repositoryのメソッドを組み合わせて提供。
-- **外部DB連携**: 外部DB（tag_db等）はATTACHで参照のみ。書き込みは専用サービス経由で行う。
+- **Core層** [db_core.py](mdc:src/lorairo/database/db_core.py) : データベース初期化・基盤ユーティリティ。外部DB（genai-tag-db-tools）のパス解決も担当。
+- **外部DB連携**: genai-tag-db-toolsのtag_dbをATTACHで参照。書き込みは専用サービス経由で行う。
 
 ## 3. コーディング規約・パターン
 - セッション管理は必ず`with self.session_factory() as session:`で行う。

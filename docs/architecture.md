@@ -84,15 +84,15 @@ graph TD
 
 #### AI Integration
 - **`src/lorairo/annotations/ai_annotator.py`**: AI library integration
-  - Wrapper for image-annotator-lib
-  - Error handling and logging
+  - Clean wrapper for image-annotator-lib
+  - Functions: `get_available_annotator_models()`, `call_annotate_library()`
+  - Comprehensive error handling with `AiAnnotatorError`
+  - Structured logging for debugging
 - **`local_packages/image-annotator-lib/`**: External AI annotation library
-  - Multi-provider AI annotation support
-  - Local and cloud-based models
-  - Coordinates between widgets
-  - Manages application state
-  - Handles user interactions
-  - Displays notifications and progress
+  - Multi-provider AI annotation support (OpenAI, Anthropic, Google, Local models)
+  - Unified interface via `annotate()` function
+  - Returns `PHashAnnotationResults` with structured data
+  - Local and cloud-based model execution
 
 ### Service Layer Architecture
 
@@ -273,16 +273,24 @@ graph TD
 ```
 
 #### genai-tag-db-tools
-- **Purpose**: Tag database management utilities
-- **Integration**: CLI tool (`tag-db` command)
+- **Purpose**: Tag database management and cleaning utilities
+- **Integration**: Direct Python import via `from genai_tag_db_tools import initialize_tag_searcher`
 - **Location**: `local_packages/genai-tag-db-tools/`
-- **Features**: Tag taxonomy management, database operations
+- **Features**: 
+  - Tag taxonomy database (tags_v3.db)
+  - Tag cleaning and normalization (`initialize_tag_searcher`)
+  - Used in `src/lorairo/annotations/cleanup_txt.py`
+  - Database path resolution via `src/lorairo/database/db_core.py`
 
 #### image-annotator-lib
-- **Purpose**: Core image annotation functionality
-- **Integration**: Python library import
+- **Purpose**: Core AI-powered image annotation functionality
+- **Integration**: Direct Python import via `from image_annotator_lib import annotate, list_available_annotators`
 - **Location**: `local_packages/image-annotator-lib/`
-- **Features**: Multi-provider AI annotation, local model support
+- **Features**: 
+  - Multi-provider AI annotation (OpenAI, Anthropic, Google)
+  - Local ML model support (CLIP, DeepDanbooru)
+  - Unified annotation interface with structured results
+  - Integration via `src/lorairo/annotations/ai_annotator.py`
 
 ### Dependency Management
 

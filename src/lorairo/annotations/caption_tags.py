@@ -2,7 +2,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from ..annotations.cleanup_txt import TagCleaner, initialize_tag_cleaner
+from genai_tag_db_tools.utils.cleanup_str import TagCleaner
+
 from ..utils.log import logger
 
 
@@ -13,7 +14,7 @@ class ImageAnalyzer:
     """
 
     def __init__(self):
-        self.tag_cleaner = initialize_tag_cleaner()
+        self.tag_cleaner = TagCleaner()
         self.format_name = "unknown"
 
     def initialize(self, models_config: tuple[dict, dict]):
@@ -26,138 +27,17 @@ class ImageAnalyzer:
         """
         self.vision_models, self.score_models = models_config
 
-    @staticmethod
-    def get_existing_annotations(image_path: Path) -> dict[str, Any] | None:
-        """
-        画像の参照元ディレクトリから既存のタグとキャプションを取得。
-        scoreとmodel_idはダミー値を設定。
+    # NOTE: get_existing_annotations メソッドは削除されました
+    # ExistingFileReader クラスを使用してください
 
-        Args:
-            image_path (Path): 画像ファイルのパス
+    # NOTE: _read_annotations メソッドは削除されました
+    # ExistingFileReader クラスを使用してください
 
-        Returns:
-            Optional[dict[str, Any]]: 'tags', 'captions', 'score', 'model_id', 'image_path' をキーとする辞書。
-            None : 既存のアノテーションが見つからない場合
-        例:
-        {
-            'tags': [{'tag': 'tag1', 'model_id': None}, {'tag': 'tag2', 'model_id': None}],
-            'captions': [{'caption': 'caption1', 'model_id': None}],
-            'score': {'score': 0, 'model_id': None},
-            'model_id': None,
-            'image_path': str(image_path)
-        }
-        """
-        existing_annotations = {
-            "tags": [],
-            "captions": [],
-            "score": {"score": 0, "model_id": None},
-            "model_id": None,
-            "image_path": str(image_path),
-        }
-        tag_path = image_path.with_suffix(".txt")
-        caption_path = image_path.with_suffix(".caption")
+    # NOTE: analyze_image メソッドは削除されました
+    # image-annotator-lib を直接使用してください
 
-        try:
-            if tag_path.exists():
-                tags = ImageAnalyzer._read_annotations(tag_path)
-                existing_annotations["tags"] = [{"tag": tag, "model_id": None} for tag in tags]
-            if caption_path.exists():
-                captions = ImageAnalyzer._read_annotations(caption_path)
-                existing_annotations["captions"] = [
-                    {"caption": caption, "model_id": None} for caption in captions
-                ]
-
-            if not existing_annotations["tags"] and not existing_annotations["captions"]:
-                logger.info(f"既存アノテーション無し: {image_path}")
-                return None
-
-        except Exception as e:
-            logger.info(f"アノテーションファイルの読み込み中にエラーが発生しました: {e!s}")
-            return None
-
-        return existing_annotations
-
-    @staticmethod
-    def _read_annotations(file_path: Path) -> list[str]:
-        """
-        指定されたファイルからアノテーションを読み込みカンマで分割してリストとして返す。
-
-        Args:
-            file_path (Path): 読み込むファイルのパス
-            key (str): 辞書のキー ('tag' または 'caption')
-
-        Returns:
-            list[str]: アノテーションのリスト
-        """
-        with open(file_path, encoding="utf-8") as f:
-            clean_data = TagCleaner.clean_format(f.read())
-            items = clean_data.strip().split(",")
-            return items
-
-    def analyze_image(self, image_path: Path, model_id: int, format_name: str = "e621") -> dict[str, Any]:
-        """
-        指定された画像を分析し、結果を返す。
-
-        Args:
-            image_path (Path): 分析する画像のファイルパス
-            model_id (int): Vision typeのモデルid
-            tag_format (str): タグのフォーマット (オプション)
-
-        Returns:
-            dict[str, Any]: 分析結果を含む辞書(タグ、キャプション)
-
-        Note:
-            {
-            'tags': [{'tag': 'str', 'model_id': int},{'tag': ..., 'model_id': ...}],
-            'captions':  [{'caption': 'str', 'model_id': int},{'caption': ..., 'model_id': ...}],
-            'score': {'score': float(value), 'model_id': int
-            'image_path': 'str(image_path)'
-            }
-
-        Todo:
-            一つのトークンに対してモデルIDが追加されるのは複数のモデルで一括取得に対応するため
-            スコアモデルもそうすべきだろうが､それはその仕組を追加できたときに変更する
-        """
-        self.format_name = format_name
-        try:
-            model_name = self.vision_models.get(model_id, {}).get("name")
-
-            # TODO: アノテーターライブラリを使うように変更｡ その時モデル名とモデルIDの対応付けについて考える
-            # tags_str は以前のバージョンの変数。現在は image_annotator を使用
-            analysis_result = None  # アノテーターライブラリ実装時に更新
-            logger.debug(f"img: {image_path} model: {model_name} format: {format_name}")
-            return analysis_result
-
-        except Exception as e:
-            logger.error(f"アノテーション生成中に予期せぬエラーが発生しました(画像: {image_path}): {e}")
-            return {"error": str(e), "image_path": str(image_path)}
-
-    def _process_response(self, image_path: Path, tags_str: str, model_id: int) -> dict[str, Any]:
-        """APIレスポンスを処理し、タグ、キャプション、抽出。
-
-        Args:
-            image_path (Path): 画像のパス
-            tags_str (str): APIからのレスポンス
-
-        Returns:
-            dict[str, Any]: タグ、キャプション、画像パスを含む辞書
-        """
-        try:
-            content = self.tag_cleaner.clean_format(tags_str)
-            tags_str, caption_str, score = self._extract_tags_and_caption(content, str(image_path))
-
-            # タグを分割し、各タグをトリムして空のタグを除外
-            tags = [tag.strip() for tag in tags_str.split(",") if tag.strip()]
-            captions = [caption.strip() for caption in caption_str.split(",") if caption.strip()]
-            return {
-                "tags": [{"tag": tag, "model_id": model_id} for tag in tags],
-                "captions": [{"caption": caption, "model_id": model_id} for caption in captions],
-                "score": {"score": score, "model_id": model_id},
-                "image_path": str(image_path),
-            }
-        except Exception as e:
-            logger.error(f"レスポンス処理中にエラーが発生しました(画像: {image_path}): {e!s}")
-            raise
+    # NOTE: _process_response メソッドは削除されました
+    # image-annotator-lib が構造化データを直接返すため不要
 
     # TODO: アノテーターライブラリはバッチAPIには非対応なので対応方法を考える
     # def create_batch_request(self, image_path: Path, model_name: str) -> dict[str, Any]:
@@ -178,43 +58,8 @@ class ImageAnalyzer:
     #     api_client.generate_payload(image_path, model_name)
     #     return api_client.create_batch_request(image_path)
 
-    def _extract_tags_and_caption(self, content: str, image_key: str) -> tuple[str, str, float]:
-        """
-        APIレスポンスからタグとキャプションを抽出します。
-
-        Args:
-            content (str): APIレスポンスの内容
-            image_key (str): 画像のキー(ファイルパス)
-
-        Returns:
-            tuple[list[str], str]: 抽出されたタグのリストとキャプション
-        """
-        # content から : と , スペース以外の記号を削除
-        content = re.sub(r"[^:,\da-zA-Z ]", "", content)
-        # content から 末尾の , を削除
-        content = content.rstrip(" ,")
-        tags_index = content.lower().find("tags:")
-        caption_index = content.lower().find("caption:")
-        score_index = content.lower().find("score:")
-
-        if tags_index == -1 and caption_index == -1:
-            logger.error(f"画像 {image_key} の処理に失敗しました。タグまたはキャプションが見つかりません。")
-            logger.error(f" APIからの応答: {content} ")
-            return "", ""
-
-        tags_text = content[tags_index + len("tags:") : caption_index].strip() if tags_index != -1 else ""
-        caption_text = (
-            content[caption_index + len("caption:") : score_index].strip() if caption_index != -1 else ""
-        )
-        score_text = content[score_index + len("score:") :].strip() if score_index != -1 else ""
-        converted = score_text.replace(" ", "")
-        converted = converted.replace(",", ".")
-
-        return (
-            self.tag_cleaner.clean_tags(tags_text, self.format_name),
-            self.tag_cleaner.clean_caption(caption_text),
-            float(converted),
-        )
+    # NOTE: _extract_tags_and_caption メソッドは削除されました
+    # image-annotator-lib が構造化データを直接返すため不要
 
     def get_batch_analysis(self, batch_results: dict[str, str], processed_path: Path):
         """
@@ -231,28 +76,7 @@ class ImageAnalyzer:
         custom_id = processed_path.stem
         content = batch_results.get(custom_id)
         if content:
-            return self._process_response(processed_path, content)
-
-
-# 画像処理のテスト
-if __name__ == "__main__":
-    from ...database.db_manager import ImageDatabaseManager
-    from ...utils.api_utils import APIClientFactory
-    from ...utils.config import get_config
-
-    config = get_config()
-    image_path = Path(r"testimg\1_img\file02.png")
-    prompt = config["prompts"]["main"]
-    add_prompt = config["prompts"]["additional"]
-    api_keys = config["api"]
-    idm = ImageDatabaseManager()
-    vision, score, upscaler = idm.get_models()
-    # API クライアントファクトリーを作成
-    acf = APIClientFactory(api_keys)
-    acf.initialize(prompt, add_prompt)
-    Ia = ImageAnalyzer()
-    Ia.initialize(acf, vision)
-    result = Ia.analyze_image(image_path, 5)
-    print(f"キャプション: {result['captions']}")
-    print(f"タグ: {result['tags']}")
-    print(f"スコア: {result['score']}")
+            # NOTE: _process_response メソッドが削除されたため、
+            # この機能は image-annotator-lib を直接使用するように変更が必要
+            logger.warning("get_batch_analysis は削除されたメソッドを使用しているため動作しません")
+            return None
