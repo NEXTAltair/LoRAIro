@@ -662,6 +662,67 @@ class DatabaseManager:
 
 ### Asynchronous Processing
 
+#### Hybrid Controlled Batch Processing (clarified 2025/07/06)
+```python
+class HybridBatchProcessor:
+    def __init__(self, batch_size: int = 100):
+        self.batch_size = batch_size
+        self.performance_target = 300  # 5 minutes for 1000 images = 300 seconds
+        
+    async def process_images_batch(
+        self,
+        image_paths: List[Path],
+        progress_callback: Callable[[int], None] | None = None
+    ) -> List[ProcessingResult]:
+        """Process images in 100-image batches for optimal memory control."""
+        total_images = len(image_paths)
+        processed_count = 0
+        
+        for batch_start in range(0, total_images, self.batch_size):
+            batch_end = min(batch_start + self.batch_size, total_images)
+            batch = image_paths[batch_start:batch_end]
+            
+            # Batch registration and processing
+            batch_results = await self._process_single_batch(batch)
+            processed_count += len(batch_results)
+            
+            if progress_callback:
+                progress = int(processed_count / total_images * 100)
+                progress_callback(progress)
+                
+        return results
+
+#### Policy Violation Tracking (clarified 2025/07/06)
+```python
+# Database schema addition for policy violation tracking
+class AnnotationFailure(Base):
+    __tablename__ = 'annotation_failures'
+    
+    id = Column(Integer, primary_key=True)
+    image_id = Column(Integer, ForeignKey('images.id'))
+    model_name = Column(String, nullable=False)
+    provider = Column(String, nullable=False)
+    failure_reason = Column(String, nullable=False)
+    error_message = Column(Text)
+    failed_at = Column(DateTime, default=datetime.utcnow)
+    is_policy_violation = Column(Boolean, default=False)
+
+# Retry policy with violation awareness
+def check_policy_violations(image_ids: List[int], model_name: str) -> List[int]:
+    """Check for previous policy violations and warn user."""
+    violations = session.query(AnnotationFailure).filter(
+        AnnotationFailure.image_id.in_(image_ids),
+        AnnotationFailure.model_name == model_name,
+        AnnotationFailure.is_policy_violation == True
+    ).all()
+    
+    if violations:
+        # Show warning dialog to user
+        show_policy_violation_warning(violations)
+    
+    return [v.image_id for v in violations]
+```
+
 #### Background Task Management
 ```python
 import asyncio
@@ -716,11 +777,12 @@ class TaskManager:
 
 ### API Key Management
 
-#### Secure Configuration
+#### Secure Configuration (enhanced 2025/07/06)
 ```python
 import os
 from pathlib import Path
 from cryptography.fernet import Fernet
+import re
 
 class SecureConfig:
     def __init__(self, config_path: Path):
@@ -754,6 +816,37 @@ class SecureConfig:
             return self._cipher.decrypt(encrypted_data).decode()
         
         raise ValueError(f"API key not found for provider: {provider}")
+    
+    def migrate_from_env(self, provider: str) -> None:
+        """Migrate API key from .env to encrypted storage."""
+        env_var = f"{provider.upper()}_API_KEY"
+        if env_var in os.environ:
+            api_key = os.environ[env_var]
+            self.store_api_key(provider, api_key)
+            logger.info(f"Migrated {provider} API key to encrypted storage")
+    
+    def store_api_key(self, provider: str, api_key: str) -> None:
+        """Store API key in encrypted format."""
+        encrypted_data = self._cipher.encrypt(api_key.encode())
+        encrypted_file = self.config_path.parent / f".{provider}_key.enc"
+        encrypted_file.write_bytes(encrypted_data)
+        encrypted_file.chmod(0o600)
+
+# API Key masking for logging (clarified 2025/07/06)
+def mask_api_key(text: str) -> str:
+    """Mask API keys in log output."""
+    # Pattern for common API key formats
+    api_key_patterns = [
+        r'(sk-[a-zA-Z0-9]{20,})',  # OpenAI keys
+        r'(sk-ant-[a-zA-Z0-9]{20,})',  # Anthropic keys
+        r'(AIza[a-zA-Z0-9]{35})',  # Google API keys
+    ]
+    
+    masked_text = text
+    for pattern in api_key_patterns:
+        masked_text = re.sub(pattern, lambda m: m.group(1)[:8] + '***' + m.group(1)[-4:], masked_text)
+    
+    return masked_text
 ```
 
 ### Input Validation
