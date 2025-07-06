@@ -356,3 +356,62 @@ make run-gui  # Automatically selects appropriate environment
 - Linux environment: Headless execution (pytest-qt + QT_QPA_PLATFORM=offscreen)
 - Windows environment: Native GUI window display
 - Cross-platform test compatibility guaranteed
+
+## Quick Reference Links
+
+### 📋 Current Project Status & Requirements (Updated 2025/07/06)
+
+**Essential Documents for Understanding Current State:**
+- 📊 **[Current Tasks & Progress](tasks/tasks_plan.md)** - Active tasks, priorities, and completion status
+- 🎯 **[Active Development Context](tasks/active_context.md)** - Current focus, recent changes, and next steps  
+- 📋 **[Product Requirements](docs/product_requirement_docs.md)** - Clarified requirements with 2025/07/06 updates
+- 🏗️ **[Architecture Specification](docs/architecture.md)** - System design with hybrid batch processing architecture
+- ⚙️ **[Technical Implementation](docs/technical.md)** - Implementation patterns and code examples
+
+### 🎯 2025/07/06 Requirements Clarification Summary
+
+**Key Decisions Made:**
+- **Performance**: DB registration (1000 images/5 minutes), 100-image batch processing
+- **AI Integration**: Model name direct specification, skip error handling, no cost controls  
+- **Security**: Encrypted config files, API key masking, policy violation tracking
+- **Architecture**: Hybrid controlled batch processing design
+- **Retry Policy**: Failed images only retry with policy violation warnings
+
+### 🔄 Current Development Phase
+
+**Status: Ready for Implementation Phase (ACT MODE)**
+- ✅ All major ambiguous requirements clarified
+- ✅ Architecture decisions documented  
+- ✅ Performance targets specified
+- ✅ Security policies defined
+- 🚀 Ready to begin implementation of clarified requirements
+
+### 📚 Development Rules & Guidelines
+
+**Before Starting Any Work:**
+1. 📖 Read **[Memory Bank System](.cursor/rules/memory.mdc)** for context structure
+2. 📋 Check **[Active Context](tasks/active_context.md)** for current priorities
+3. 📊 Review **[Task Plan](tasks/tasks_plan.md)** for implementation roadmap
+
+**For Implementation Work:**
+- 🔧 Follow **[Implementation Guidelines](.cursor/rules/implement.mdc)**
+- 📏 Use **[Coding Standards](.cursor/rules/coding-rules.mdc)**  
+- 🧪 Apply **[Testing Strategy](.cursor/rules/test_rules/testing-rules.mdc)**
+
+**For Planning Work:**
+- 📋 Use **[Planning Guidelines](.cursor/rules/plan.mdc)**
+- 🏗️ Reference **[Architecture Decisions](docs/architecture.md)**
+- 📋 Update **[Product Requirements](docs/product_requirement_docs.md)** if needed
+
+### 🔗 Quick Navigation
+
+| Purpose | File | Description |
+|---------|------|-------------|
+| **Current Status** | [tasks/active_context.md](tasks/active_context.md) | What's happening now |
+| **Next Tasks** | [tasks/tasks_plan.md](tasks/tasks_plan.md) | What to work on next |
+| **Requirements** | [docs/product_requirement_docs.md](docs/product_requirement_docs.md) | What to build |
+| **Architecture** | [docs/architecture.md](docs/architecture.md) | How to build it |
+| **Implementation** | [docs/technical.md](docs/technical.md) | Code patterns & examples |
+| **Development Rules** | [.cursor/rules/](/.cursor/rules/) | How to develop |
+
+**💡 Tip:** Always check the Active Context and Task Plan before starting any development work to ensure alignment with current priorities and recent decisions.
