@@ -115,11 +115,15 @@ LoRAIro bridges the gap between raw image collections and training-ready dataset
   - Extract relevant tags and keywords
   - Support different annotation styles (descriptive, technical, artistic)
   - Handle various image formats (JPEG, PNG, WebP, BMP, TIFF)
+- **Provider Selection**: User specifies model name directly (e.g., gpt-4-vision-preview, claude-3-sonnet-20240229) - provider automatically determined from model name (clarified 2025/07/06)
+- **Error Handling**: Skip failed images and allow manual retry - no automatic fallback between providers (clarified 2025/07/06)
+- **Cost Management**: No cost control features in current implementation - user responsibility for API usage management (clarified 2025/07/06)
 - **Acceptance Criteria**:
   - Successfully annotate images using any configured provider
-  - Handle API errors gracefully with fallback options
+  - Handle API errors gracefully by skipping failed images
   - Support batch processing of multiple images
   - Provide progress tracking for long-running operations
+  - Log detailed error information for failed annotations
 
 #### FR2: Local ML Model Integration
 - **Description**: Integrate local machine learning models for offline processing
@@ -170,11 +174,13 @@ LoRAIro bridges the gap between raw image collections and training-ready dataset
   - Technical quality assessment (resolution, clarity, artifacts)
   - Annotation quality metrics (completeness, accuracy, consistency)
   - Comparative analysis across different providers
+- **Implementation**: Quality assessment delegated to image-annotator-lib - each model returns model-specific values without standardization (clarified 2025/07/06)
+- **Scope**: LoRAIro provides display, storage, and filtering of quality scores - evaluation logic implemented in annotation library (clarified 2025/07/06)
 - **Acceptance Criteria**:
-  - Generate meaningful quality scores for all images
-  - Provide explanations for quality assessments
+  - Display quality scores returned by annotation models
+  - Store quality assessment results in database
   - Allow filtering and sorting by quality metrics
-  - Support quality threshold configuration
+  - Support quality threshold configuration for filtering
 
 #### FR6: Export and Integration
 - **Description**: Export annotations and data in various formats
@@ -198,13 +204,15 @@ LoRAIro bridges the gap between raw image collections and training-ready dataset
   - Image processing: < 5 seconds per image
   - Batch operations: Progress indication with < 10% overhead
 - **Throughput**:
-  - Process 1000+ images efficiently
+  - Database registration: 1000 images in 5 minutes (clarified 2025/07/06)
+  - Batch processing: 100-image batches for optimal memory control (clarified 2025/07/06)
   - Support concurrent AI provider requests
   - Handle large image files (up to 50MB) smoothly
 - **Resource Usage**:
   - Memory: < 2GB base usage, scale with dataset size
   - CPU: Efficient use of available cores
   - Storage: Minimal footprint beyond image and database storage
+- **Processing Architecture**: Hybrid controlled batch processing - sequential 100-image batches for registration and processing (clarified 2025/07/06)
 
 #### NFR2: Reliability
 - **Availability**: 99%+ uptime for desktop application
@@ -227,8 +235,9 @@ LoRAIro bridges the gap between raw image collections and training-ready dataset
 - **Database Performance**: Maintain responsiveness with large datasets
 
 #### NFR5: Security
-- **API Key Protection**: Secure storage and handling of API credentials
-- **Data Privacy**: Local processing option for sensitive images
+- **API Key Protection**: Encrypted configuration file storage for API credentials - migration from .env to secure encrypted storage (clarified 2025/07/06)
+- **Logging Security**: API keys masked with *** in log output for security while maintaining debugging capability (clarified 2025/07/06)  
+- **Data Privacy**: Local processing automatically determined by model selection - no explicit "local processing option" required (clarified 2025/07/06)
 - **File System**: Safe file operations with proper validation
 - **Network**: Secure communication with AI provider APIs
 
@@ -261,10 +270,14 @@ LoRAIro bridges the gap between raw image collections and training-ready dataset
 
 **Acceptance Criteria:**
 - Select multiple images for batch processing
-- Choose AI provider and annotation style
-- Monitor progress with estimated completion time
+- Choose AI model by name (e.g., gpt-4-vision-preview)
+- Monitor progress with estimated completion time (approximate display sufficient - "about 30 minutes", "1 hour or more" level of granularity acceptable) (clarified 2025/07/06)
 - Review and edit generated annotations
-- Handle failed annotations with retry options
+- Handle failed annotations with retry options:
+  - Failed images only retry (not entire batch) (clarified 2025/07/06)
+  - Policy violation tracking in database with model, date, and reason (clarified 2025/07/06)
+  - Warning dialog when retrying images with previous policy violations (clarified 2025/07/06)
+  - Automatic exclusion of policy-violating images from API retry attempts (clarified 2025/07/06)
 
 #### US1.3: Quality Assessment
 **As a** data scientist  

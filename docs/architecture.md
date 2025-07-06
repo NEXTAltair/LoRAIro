@@ -374,6 +374,14 @@ graph TD
 - Index management
 - Batch operations
 
+### Batch Processing Architecture
+
+**Hybrid Controlled Batch Processing**
+- **Design**: 100-image batches for registration and processing
+- **Performance Target**: 5 minutes for 1000 image database registration
+- **Benefits**: Memory control, error isolation, responsive progress updates
+- **Implementation**: Sequential batch processing with cancellation support
+
 ### Scalability Considerations
 
 **Batch Processing**
