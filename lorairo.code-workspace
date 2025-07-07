@@ -30,6 +30,11 @@
     // Python 基本設定 (テスト設定はpyproject.tomlに移動)
     "python.terminal.activateEnvironment": true,
     "python.envFile": "${workspaceFolder}/.env",
+    "python.analysis.extraPaths": [
+      "src",
+      "local_packages/image-annotator-lib/src",
+      "local_packages/genai-tag-db-tools/src"
+    ],
 
     // Python テスト設定
     "python.testing.pytestEnabled": true,

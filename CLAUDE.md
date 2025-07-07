@@ -376,7 +376,7 @@ make run-gui  # Automatically selects appropriate environment
 - **Security**: Plain-text API key storage, log masking, policy violation tracking (separate table)
 - **Architecture**: Hybrid controlled batch processing design
 - **Retry Policy**: Failed images only retry with policy violation warnings
-- **Configuration**: ConfigurationService requirements defined (2025/07/07)
+- **Configuration**: ConfigurationService optimized with DI + shared config pattern (2025/07/07)
 
 ### 🔄 Current Development Phase
 

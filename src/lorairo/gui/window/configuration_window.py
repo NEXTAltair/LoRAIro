@@ -31,12 +31,18 @@ class ConfigurationWindow(QWidget, Ui_ConfigurationWindow):
         if not self.config_service:
             return
         directories = {
-            "output": self.dirPickerOutput,
-            "response_file": self.dirPickerResponse,
-            "edited_output": self.dirPickerEditedOutput,
+            "export_dir": self.dirPickerExportDir,
+            "batch_results_dir": self.dirPickerBatchResults,
+            "database_dir": self.dirPickerDatabaseDir,
+        }
+        directory_labels = {
+            "export_dir": "学習用データセット出力",
+            "batch_results_dir": "バッチ処理結果",
+            "database_dir": "データベース",
         }
         for key, picker in directories.items():
-            picker.set_label_text(f"{key.capitalize()} Directory")
+            label = directory_labels.get(key, key.replace("_", " ").title())
+            picker.set_label_text(f"{label} Directory")
             picker.set_path(self.config_service.get_setting("directories", key, ""))
 
     def initialize_api_settings(self) -> None:
@@ -131,36 +137,36 @@ class ConfigurationWindow(QWidget, Ui_ConfigurationWindow):
 
     @Slot()
     def connect_custom_widgets(self) -> None:
-        self.dirPickerOutput.DirectoryPicker.lineEditPicker.textChanged.connect(
-            self.on_dirPickerOutput_changed
+        self.dirPickerExportDir.DirectoryPicker.lineEditPicker.textChanged.connect(
+            self.on_dirPickerExportDir_changed
         )
-        self.dirPickerResponse.DirectoryPicker.lineEditPicker.textChanged.connect(
-            self.on_dirPickerResponse_changed
+        self.dirPickerBatchResults.DirectoryPicker.lineEditPicker.textChanged.connect(
+            self.on_dirPickerBatchResults_changed
         )
-        self.dirPickerEditedOutput.DirectoryPicker.lineEditPicker.textChanged.connect(
-            self.on_dirPickerEditedOutput_changed
+        self.dirPickerDatabaseDir.DirectoryPicker.lineEditPicker.textChanged.connect(
+            self.on_dirPickerDatabaseDir_changed
         )
         self.filePickerLogFile.FilePicker.lineEditPicker.textChanged.connect(
             self.on_filePickerLogFile_changed
         )
 
     @Slot()
-    def on_dirPickerOutput_changed(self, new_path: str) -> None:
+    def on_dirPickerExportDir_changed(self, new_path: str) -> None:
         if not self.config_service:
             return
-        self.config_service.update_setting("directories", "output", new_path)
+        self.config_service.update_setting("directories", "export_dir", new_path)
 
     @Slot()
-    def on_dirPickerResponse_changed(self, new_path: str) -> None:
+    def on_dirPickerBatchResults_changed(self, new_path: str) -> None:
         if not self.config_service:
             return
-        self.config_service.update_setting("directories", "response_file", new_path)
+        self.config_service.update_setting("directories", "batch_results_dir", new_path)
 
     @Slot()
-    def on_dirPickerEditedOutput_changed(self, new_path: str) -> None:
+    def on_dirPickerDatabaseDir_changed(self, new_path: str) -> None:
         if not self.config_service:
             return
-        self.config_service.update_setting("directories", "edited_output", new_path)
+        self.config_service.update_setting("directories", "database_dir", new_path)
 
     @Slot()
     def on_filePickerLogFile_changed(self, new_path: str) -> None:

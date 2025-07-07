@@ -826,8 +826,37 @@ database_dir/
 - `edited_output` → removed (not used)
 - `dataset` → managed under `database_dir` structure
 
+**Architecture Design (implemented 2025/07/07)**
+
+**Shared Configuration with Dependency Injection Pattern**
+- Multiple ConfigurationService instances share the same configuration object (reference passing)
+- Configuration changes are immediately reflected across all instances
+- High testability through dependency injection of mock configurations
+- Automatic default configuration file creation when missing
+
+**Usage Pattern**
+```python
+# Master configuration service (loads file)
+master_config = ConfigurationService()
+shared_config = master_config.get_shared_config()
+
+# Child services (share configuration object)
+window_config = ConfigurationService(shared_config=shared_config)
+processor_config = ConfigurationService(shared_config=shared_config)
+
+# Changes propagate immediately to all instances
+window_config.update_setting("api", "openai_key", "new_key")
+# → processor_config also sees the change instantly
+```
+
 **Implementation Requirements**
 ```python
+def __init__(self, config_path: Path | None = None, shared_config: dict[str, Any] | None = None):
+    """Initialize with optional shared configuration object for DI pattern"""
+    
+def _create_default_config_file(self) -> dict[str, Any]:
+    """Create default configuration file when missing"""
+    
 def mask_api_key(key: str) -> str:
     """APIキーを***でマスキング"""
     if not key or len(key) < 8:
