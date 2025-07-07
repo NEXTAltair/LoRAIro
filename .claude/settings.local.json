@@ -1,7 +1,4 @@
 {
-  "env": {
-    "BASH_MAX_TIMEOUT_MS": "5000000"
-  },
   "permissions": {
     "allow": [
       "Bash(ls:*)",
@@ -9,8 +6,17 @@
       "Bash(grep:*)",
       "Bash(rg:*)",
       "Bash(diff:*)",
-      "Bash(pytest:*)"
+      "Bash(pytest:*)",
+      "edit:**/*.md",
+      "edit:**/*.mdc"
     ],
-    "deny": []
+    "deny": [
+      "read:.env",
+      "execute:rm",
+      "execute:git push"
+    ]
+  },
+  "env": {
+    "BASH_DEFAULT_TIMEOUT_MS": "5000000"
   }
 }

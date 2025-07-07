@@ -1,19 +1,21 @@
-# API設定
+# API設定 - 平文保存、ログ出力時マスキング
 [api]
-# APIキーを設定は .env ファイルに記載
+openai_key = ""    # OpenAI APIキー
+claude_key = ""    # Anthropic Claude APIキー  
+google_key = ""    # Google Vision APIキー
 
 # Hugging Face設定
 [huggingface]
+hf_username = ""   # Hugging Face ユーザー名
 repo_name = "test00" # リポジトリ名
-# ユーザー名とトークンは .env ファイルに記載
+token = ""         # Hugging Face トークン
 
 # ディレクトリ設定
 [directories]
-database = ""  # 画像databaseのパス (空の場合はカレントディレクトリの'Image_database.image_database.db'を使用)
-dataset = ""  # 画像ディレクトリのパス
-output = ""   # 出力ディレクトリのパス（空の場合はカレントディレクトリの'output'を使用）
-edited_output = ""  # 編集済みデータセットのパス（空の場合はカレントディレクトリの'edited_output'を使用）
-response_file = ""  # レスポンスファイルディレクトリのパス（空の場合はカレントディレクトリの'response_file'を使用）
+database_dir = ""               # 空文字列 = 自動生成 (日付+連番プロジェクト)
+database_base_dir = "lorairo_data"  # 自動生成時のベースディレクトリ名
+export_dir = ""                 # 学習用データセットの出力先（.txt/.captionファイル等）
+batch_results_dir = ""          # OpenAI Batch API結果JSONLファイルの保存先
 
 # 画像処理設定
 [image_processing]

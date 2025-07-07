@@ -36,13 +36,13 @@
          </property>
          <layout class="QVBoxLayout" name="layoutFolders">
           <item>
-           <widget class="DirectoryPickerWidget" name="dirPickerOutput" native="true"/>
+           <widget class="DirectoryPickerWidget" name="dirPickerExportDir" native="true"/>
           </item>
           <item>
-           <widget class="DirectoryPickerWidget" name="dirPickerResponse" native="true"/>
+           <widget class="DirectoryPickerWidget" name="dirPickerBatchResults" native="true"/>
           </item>
           <item>
-           <widget class="DirectoryPickerWidget" name="dirPickerEditedOutput" native="true"/>
+           <widget class="DirectoryPickerWidget" name="dirPickerDatabaseDir" native="true"/>
           </item>
          </layout>
         </widget>

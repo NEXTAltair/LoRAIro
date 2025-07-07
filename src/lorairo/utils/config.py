@@ -10,12 +10,21 @@ DEFAULT_LOG_PATH = PROJECT_ROOT / "logs" / "lorairo.log"
 
 # デフォルト設定
 DEFAULT_CONFIG = {
+    "api": {
+        "openai_key": "",
+        "claude_key": "",
+        "google_key": "",
+    },
     "directories": {
-        "database": "Image_database",  # lorairoの画像データベースファイルを保存するディレクトリ
-        "dataset": "",
-        "output": "output",
-        "edited_output": "edited_output",
-        "response_file": "response_file",
+        "database_dir": "",  # 空文字列 = 自動生成 (日付+連番プロジェクト)
+        "database_base_dir": "lorairo_data",  # 自動生成時のベースディレクトリ名
+        "export_dir": "export",  # 学習用データセットの出力先（.txt/.captionファイル等）
+        "batch_results_dir": "batch_results",  # OpenAI Batch API結果JSONLファイルの保存先
+    },
+    "huggingface": {
+        "hf_username": "",
+        "repo_name": "",
+        "token": "",
     },
     "image_processing": {
         "target_resolution": 1024,
@@ -58,8 +67,9 @@ def load_config(config_file: Path = DEFAULT_CONFIG_PATH) -> dict:
             load_parameters["prompts"]["main"] = ""  # デフォルト値として空文字列を設定
 
         return load_parameters
-    except FileNotFoundError as exc:
-        raise ValueError(f"設定ファイル '{config_file.name}' が見つかりません。") from exc
+    except FileNotFoundError:
+        # 上位関数で処理されるのでそのまま再発生
+        raise
     except toml.TomlDecodeError as e:
         raise ValueError(f"設定ファイルの解析エラー: {e!s}") from e
 
@@ -75,8 +85,12 @@ def deep_update(d: dict[str, Any], u: dict[str, Any]) -> dict[str, Any]:
 
 def get_config(config_file: Path = DEFAULT_CONFIG_PATH) -> dict:
     final_config = deepcopy(DEFAULT_CONFIG)
-    loaded_config = load_config(config_file)
-    final_config = deep_update(final_config, loaded_config)
+    try:
+        loaded_config = load_config(config_file)
+        final_config = deep_update(final_config, loaded_config)
+    except FileNotFoundError:
+        # ファイルがない場合はデフォルト設定のみ返す（自動作成される）
+        pass
     return final_config
 
 

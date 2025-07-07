@@ -12,8 +12,9 @@
 1. **Requirements Clarification Session (2025/07/06)**: Systematically resolved 6 major ambiguous requirements through structured user dialogue
 2. **Performance Requirements Finalized**: DB registration (1000 images/5 minutes), batch processing (100-image units)
 3. **AI Integration Strategy Defined**: Model name direct specification, error skip handling, no cost controls
-4. **Security Architecture Specified**: Encrypted config files, API key masking, policy violation tracking
+4. **Security Architecture Specified**: Plain-text config files, API key masking, policy violation tracking
 5. **Architecture Decision Documented**: Hybrid controlled batch processing with clear performance targets
+6. **Configuration Optimization (2025/07/07)**: Implemented DI + shared config pattern for immediate cross-instance updates
 
 ## Recent Major Changes
 
