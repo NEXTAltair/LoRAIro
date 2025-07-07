@@ -368,14 +368,15 @@ make run-gui  # Automatically selects appropriate environment
 - 🏗️ **[Architecture Specification](docs/architecture.md)** - System design with hybrid batch processing architecture
 - ⚙️ **[Technical Implementation](docs/technical.md)** - Implementation patterns and code examples
 
-### 🎯 2025/07/06 Requirements Clarification Summary
+### 🎯 2025/07/06-07 Requirements Clarification Summary
 
 **Key Decisions Made:**
 - **Performance**: DB registration (1000 images/5 minutes), 100-image batch processing
 - **AI Integration**: Model name direct specification, skip error handling, no cost controls  
-- **Security**: Encrypted config files, API key masking, policy violation tracking
+- **Security**: Plain-text API key storage, log masking, policy violation tracking (separate table)
 - **Architecture**: Hybrid controlled batch processing design
 - **Retry Policy**: Failed images only retry with policy violation warnings
+- **Configuration**: ConfigurationService requirements defined (2025/07/07)
 
 ### 🔄 Current Development Phase
 
@@ -413,5 +414,29 @@ make run-gui  # Automatically selects appropriate environment
 | **Architecture** | [docs/architecture.md](docs/architecture.md) | How to build it |
 | **Implementation** | [docs/technical.md](docs/technical.md) | Code patterns & examples |
 | **Development Rules** | [.cursor/rules/](/.cursor/rules/) | How to develop |
+
+### ⚙️ Configuration Quick Reference (2025/07/07)
+
+**ConfigurationService Settings:**
+```toml
+[api]                    # Plain-text storage, log masking
+openai_key = ""         # Auto-exclude models if missing
+claude_key = ""
+google_key = ""
+
+[directories]           # Project separation design
+database_dir = ""       # project_name/database.db + images/
+export_dir = ""         # Annotation results (.txt/.caption)
+batch_results_dir = ""  # OpenAI Batch API results (JSONL)
+
+[huggingface]           # Plain-text storage
+hf_username = ""
+repo_name = ""
+token = ""
+
+[log]                   # Logging configuration
+level = "INFO"
+file_path = ""
+```
 
 **💡 Tip:** Always check the Active Context and Task Plan before starting any development work to ensure alignment with current priorities and recent decisions.

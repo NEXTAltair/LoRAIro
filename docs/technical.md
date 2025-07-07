@@ -777,76 +777,73 @@ class TaskManager:
 
 ### API Key Management
 
-#### Secure Configuration (enhanced 2025/07/06)
+#### ConfigurationService Requirements (updated 2025/07/07)
+
+**Configuration Item Structure**
+```toml
+[api]
+openai_key = ""          # OpenAI APIキー (平文保存)
+claude_key = ""          # Anthropic Claude APIキー (平文保存)
+google_key = ""          # Google Vision APIキー (平文保存)
+
+[directories]
+database_dir = ""        # プロジェクト群の親ディレクトリ（project_name/database.db + images/）
+export_dir = ""          # アノテーション結果の出力先（.txt/.captionファイル等）
+batch_results_dir = ""   # OpenAI Batch API結果JSONLファイルの保存先
+
+[huggingface]
+hf_username = ""         # Hugging Face ユーザー名 (平文保存)
+repo_name = ""           # リポジトリ名
+token = ""               # Hugging Face トークン (平文保存)
+
+[log]
+level = "INFO"           # ログレベル (DEBUG/INFO/WARNING/ERROR/CRITICAL)
+file_path = ""           # ログファイルパス
+```
+
+**Directory Structure Design**
+```
+database_dir/
+├── project_a/
+│   ├── database.db      # SQLite database for project_a
+│   └── images/          # Processed images for project_a
+└── project_b/
+    ├── database.db      # SQLite database for project_b  
+    └── images/          # Processed images for project_b
+```
+
+**Functional Requirements (2025/07/06 clarifications)**
+- **API Key Management**: Plain-text storage in config.toml (personal OSS development)
+- **Logging Security**: API keys masked with `***` in log output
+- **UI Integration**: Auto-exclude models from providers with missing API keys
+- **Configuration Changes**: Immediate reflection and file persistence
+- **Validation**: Path format validation, log level validation, required field checks
+
+**Configuration Item Changes**
+- `database` → `database_dir` (multi-DB file support)
+- `response_file` → `batch_results_dir` (OpenAI Batch API results)
+- `output` → `export_dir` (annotation results export)
+- `edited_output` → removed (not used)
+- `dataset` → managed under `database_dir` structure
+
+**Implementation Requirements**
 ```python
-import os
-from pathlib import Path
-from cryptography.fernet import Fernet
-import re
+def mask_api_key(key: str) -> str:
+    """APIキーを***でマスキング"""
+    if not key or len(key) < 8:
+        return "***"
+    return f"{key[:4]}***{key[-4:]}"
 
-class SecureConfig:
-    def __init__(self, config_path: Path):
-        self.config_path = config_path
-        self._encryption_key = self._get_or_create_key()
-        self._cipher = Fernet(self._encryption_key)
-    
-    def _get_or_create_key(self) -> bytes:
-        key_file = self.config_path.parent / ".key"
-        
-        if key_file.exists():
-            return key_file.read_bytes()
-        else:
-            key = Fernet.generate_key()
-            key_file.write_bytes(key)
-            key_file.chmod(0o600)  # Read only for owner
-            return key
-    
-    def get_api_key(self, provider: str) -> str:
-        """Get API key from environment or encrypted storage."""
-        env_var = f"{provider.upper()}_API_KEY"
-        
-        # Try environment variable first
-        if env_var in os.environ:
-            return os.environ[env_var]
-        
-        # Fall back to encrypted storage
-        encrypted_file = self.config_path.parent / f".{provider}_key.enc"
-        if encrypted_file.exists():
-            encrypted_data = encrypted_file.read_bytes()
-            return self._cipher.decrypt(encrypted_data).decode()
-        
-        raise ValueError(f"API key not found for provider: {provider}")
-    
-    def migrate_from_env(self, provider: str) -> None:
-        """Migrate API key from .env to encrypted storage."""
-        env_var = f"{provider.upper()}_API_KEY"
-        if env_var in os.environ:
-            api_key = os.environ[env_var]
-            self.store_api_key(provider, api_key)
-            logger.info(f"Migrated {provider} API key to encrypted storage")
-    
-    def store_api_key(self, provider: str, api_key: str) -> None:
-        """Store API key in encrypted format."""
-        encrypted_data = self._cipher.encrypt(api_key.encode())
-        encrypted_file = self.config_path.parent / f".{provider}_key.enc"
-        encrypted_file.write_bytes(encrypted_data)
-        encrypted_file.chmod(0o600)
-
-# API Key masking for logging (clarified 2025/07/06)
-def mask_api_key(text: str) -> str:
-    """Mask API keys in log output."""
-    # Pattern for common API key formats
-    api_key_patterns = [
-        r'(sk-[a-zA-Z0-9]{20,})',  # OpenAI keys
-        r'(sk-ant-[a-zA-Z0-9]{20,})',  # Anthropic keys
-        r'(AIza[a-zA-Z0-9]{35})',  # Google API keys
-    ]
-    
-    masked_text = text
-    for pattern in api_key_patterns:
-        masked_text = re.sub(pattern, lambda m: m.group(1)[:8] + '***' + m.group(1)[-4:], masked_text)
-    
-    return masked_text
+def get_available_providers(self) -> list[str]:
+    """APIキーが設定されているプロバイダーを返す"""
+    providers = []
+    if self.get_setting("api", "openai_key"):
+        providers.append("openai")
+    if self.get_setting("api", "claude_key"):
+        providers.append("anthropic")
+    if self.get_setting("api", "google_key"):
+        providers.append("google")
+    return providers
 ```
 
 ### Input Validation
