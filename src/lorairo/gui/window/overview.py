@@ -88,16 +88,20 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
             )
             return
 
-        # idとpathの対応だけを取り出す
+        # データベースディレクトリを取得
+        database_dir = Path(self.config_service.get_database_directory())
+
+        # idとpathの対応だけを取り出す（相対パスを絶対パスに変換）
         self.image_metadata_map = {
-            item["id"]: {"path": Path(item["stored_image_path"]), "metadata": item}
+            item["id"]: {"path": database_dir / Path(item["stored_image_path"]), "metadata": item}
             for item in filtered_image_metadata
         }
 
-        # サムネイルセレクターを更新
-        self.update_thumbnail_selector(
-            [Path(item["stored_image_path"]) for item in filtered_image_metadata]
-        )
+        # サムネイルセレクターを更新（相対パスを絶対パスに変換）
+        absolute_image_paths = [
+            database_dir / Path(item["stored_image_path"]) for item in filtered_image_metadata
+        ]
+        self.update_thumbnail_selector(absolute_image_paths)
 
     @Slot(Path)
     def update_preview(self, image_path: Path):

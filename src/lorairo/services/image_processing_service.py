@@ -46,7 +46,7 @@ class ImageProcessingService:
             preferred_resolutions_int = self.config_service.get_preferred_resolutions()
             # list[int] を list[tuple[int, int]] に変換
             preferred_resolutions = [(res, res) for res in preferred_resolutions_int]
-            output_dir = self.config_service.get_output_directory()
+            output_dir = self.config_service.get_export_directory()
 
             # FileSystemManager の初期化もここで行うか確認 (現状は外部で初期化想定)
             # self.fsm.initialize(output_dir, target_resolution) # 必要なら実行
