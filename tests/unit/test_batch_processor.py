@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from lorairo.services.batch_processor import process_directory_batch
+from lorairo.services.batch_processor import process_directory_batch, _process_associated_files
 
 
 class TestProcessDirectoryBatch:
@@ -321,3 +321,79 @@ class TestProcessDirectoryBatch:
         
         # Assert - 例外が発生せず正常に処理される
         assert result == {"processed": 1, "errors": 0, "skipped": 0, "total": 1}
+
+
+class TestProcessAssociatedFiles:
+    """_process_associated_files 関数のテスト"""
+
+    def test_process_tags_file(self, tmp_path):
+        """タグファイル処理のテスト"""
+        # Arrange
+        image_file = tmp_path / "test_image.jpg"
+        image_file.touch()
+        
+        # タグファイル作成
+        txt_file = tmp_path / "test_image.txt"
+        txt_file.write_text("tag1, tag2, tag3", encoding="utf-8")
+        
+        mock_idm = Mock()
+        image_id = 123
+        
+        # Act
+        _process_associated_files(image_file, image_id, mock_idm)
+        
+        # Assert
+        mock_idm.save_tags.assert_called_once()
+        call_args = mock_idm.save_tags.call_args
+        assert call_args[0][0] == image_id  # image_id
+        tags_data = call_args[0][1]  # tags_data
+        assert len(tags_data) == 3
+        assert tags_data[0]["tag"] == "tag1"
+        assert tags_data[1]["tag"] == "tag2"
+        assert tags_data[2]["tag"] == "tag3"
+        for tag_data in tags_data:
+            assert tag_data["tag_id"] is None
+            assert tag_data["model_id"] is None
+
+    def test_process_caption_file(self, tmp_path):
+        """キャプションファイル処理のテスト"""
+        # Arrange
+        image_file = tmp_path / "test_image.jpg"
+        image_file.touch()
+        
+        # キャプションファイル作成
+        caption_file = tmp_path / "test_image.caption"
+        caption_content = "This is a test caption for the image."
+        caption_file.write_text(caption_content, encoding="utf-8")
+        
+        mock_idm = Mock()
+        image_id = 456
+        
+        # Act
+        _process_associated_files(image_file, image_id, mock_idm)
+        
+        # Assert
+        mock_idm.save_captions.assert_called_once()
+        call_args = mock_idm.save_captions.call_args
+        assert call_args[0][0] == image_id  # image_id
+        captions_data = call_args[0][1]  # captions_data
+        assert len(captions_data) == 1
+        assert captions_data[0]["caption"] == caption_content
+        assert captions_data[0]["model_id"] is None
+        assert captions_data[0]["existing"] is False
+
+    def test_no_associated_files(self, tmp_path):
+        """関連ファイルがない場合のテスト"""
+        # Arrange
+        image_file = tmp_path / "test_image.jpg"
+        image_file.touch()
+        
+        mock_idm = Mock()
+        image_id = 999
+        
+        # Act
+        _process_associated_files(image_file, image_id, mock_idm)
+        
+        # Assert
+        mock_idm.save_tags.assert_not_called()
+        mock_idm.save_captions.assert_not_called()

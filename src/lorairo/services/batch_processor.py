@@ -5,9 +5,67 @@ from pathlib import Path
 from typing import Any
 
 from ..database.db_manager import ImageDatabaseManager
+from ..database.schema import CaptionAnnotationData, TagAnnotationData
 from ..services.configuration_service import ConfigurationService
 from ..storage.file_system import FileSystemManager
 from ..utils.log import logger
+
+
+def _process_associated_files(image_file: Path, image_id: int, idm: ImageDatabaseManager) -> None:
+    """
+    画像ファイルに関連する.txtと.captionファイルを処理し、データベースに登録する
+
+    Args:
+        image_file: 画像ファイルのパス
+        image_id: データベースの画像ID
+        idm: 画像データベースマネージャー
+    """
+    base_path = image_file.with_suffix("")  # 拡張子を除いたパス
+
+    # .txtファイル（タグ）の処理
+    txt_file = base_path.with_suffix(".txt")
+    if txt_file.exists():
+        try:
+            tags_content = txt_file.read_text(encoding="utf-8").strip()
+            if tags_content:
+                # カンマ区切りのタグを分割
+                tag_strings = [tag.strip() for tag in tags_content.split(",") if tag.strip()]
+                if tag_strings:
+                    # TagAnnotationDataのリストを作成
+                    tags_data: list[TagAnnotationData] = []
+                    for tag_string in tag_strings:
+                        tag_data: TagAnnotationData = {
+                            "tag_id": None,  # 新規タグとして追加
+                            "model_id": None,  # ファイルからの読み込みなのでモデルなし
+                            "tag": tag_string,
+                        }
+                        tags_data.append(tag_data)
+
+                    idm.save_tags(image_id, tags_data)
+                    logger.info(f"タグを追加: {image_file.name} - {len(tag_strings)}個のタグ")
+                else:
+                    logger.debug(f"タグファイルが空: {txt_file.name}")
+        except Exception as e:
+            logger.error(f"タグファイル読み込みエラー: {txt_file.name} - {e}")
+
+    # .captionファイル（キャプション）の処理
+    caption_file = base_path.with_suffix(".caption")
+    if caption_file.exists():
+        try:
+            caption_content = caption_file.read_text(encoding="utf-8").strip()
+            if caption_content:
+                # CaptionAnnotationDataを作成
+                caption_data: CaptionAnnotationData = {
+                    "model_id": None,  # ファイルからの読み込みなのでモデルなし
+                    "caption": caption_content,
+                    "existing": False,  # 新規キャプション
+                }
+                idm.save_captions(image_id, [caption_data])
+                logger.info(f"キャプションを追加: {image_file.name}")
+            else:
+                logger.debug(f"キャプションファイルが空: {caption_file.name}")
+        except Exception as e:
+            logger.error(f"キャプションファイル読み込みエラー: {caption_file.name} - {e}")
 
 
 def process_directory_batch(
@@ -113,6 +171,10 @@ def process_directory_batch(
             if registration_result is not None:
                 image_id, metadata = registration_result
                 logger.info(f"画像登録成功: {filename} (ID: {image_id})")
+
+                # 6. 関連するタグとキャプションファイルの処理
+                _process_associated_files(image_file, image_id, idm)
+
                 results["processed"] += 1
             else:
                 logger.error(f"画像登録失敗: {filename}")
