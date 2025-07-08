@@ -18,6 +18,14 @@
 
 ## Recent Major Changes
 
+### Batch Processing Design Decision (2025-07-08)
+- **Decision**: Adopted simple implementation approach for batch processing optimization
+- **Approach**: Minimal changes to existing Worker + new dedicated batch function
+- **Impact**: 1 new file (`simple_batch_processor.py`), 3 file modifications (progress.py, main_window.py)
+- **Benefits**: Half-day implementation, maintains existing stability, meets 1000 images/5min performance target
+- **Alternative Considered**: Complex worker hierarchy, hybrid approaches - rejected for complexity
+- **Implementation**: Enhanced progress reporting (current/total/filename), improved cancellation, batch statistics
+
 ### Requirements Clarification and Documentation Update (2025-07-06)
 - **Updated**: product_requirement_docs.md with clarified NFR1, FR1, FR5, NFR5, US1.2 requirements
 - **Enhanced**: architecture.md with hybrid controlled batch processing architecture 
@@ -117,10 +125,10 @@ alembic revision --autogenerate -m "description"
 ## Next Steps
 
 ### Immediate Actions (Current Session)
-1. **Begin Implementation Phase**: Start implementing hybrid controlled batch processing architecture
-2. **Security Implementation**: Implement encrypted configuration file storage for API credentials 
-3. **Database Schema Updates**: Add policy violation tracking tables and failure history
-4. **Performance Optimization**: Implement 100-image batch processing with progress tracking
+1. **Implement Simple Batch Processing**: Create `simple_batch_processor.py` and modify Worker components
+2. **Enhanced Progress Reporting**: Add batch-specific progress signals (current/total/filename)
+3. **Main Window Integration**: Update `dataset_dir_changed()` to use new batch processing
+4. **Testing and Validation**: Verify 1000 images/5min performance target
 
 ### Short-term Goals (Next Few Sessions)
 1. **Enhanced Testing**: Expand test coverage and add integration tests for local packages
