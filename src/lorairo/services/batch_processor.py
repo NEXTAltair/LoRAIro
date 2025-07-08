@@ -163,6 +163,10 @@ def process_directory_batch(
             existing_id = idm.detect_duplicate_image(image_file)
             if existing_id:
                 logger.debug(f"重複画像をスキップ: {filename} (既存ID: {existing_id})")
+
+                # 重複画像でも関連ファイル（タグ・キャプション）は処理する
+                _process_associated_files(image_file, existing_id, idm)
+
                 results["skipped"] += 1
                 continue
 
