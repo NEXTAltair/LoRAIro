@@ -91,6 +91,9 @@ class Worker(QObject):
     finished = Signal()
     error_occurred = Signal(str)
 
+    # バッチ処理用の詳細進捗シグナル
+    batch_progress = Signal(int, int, str)  # current, total, filename
+
     def __init__(self, function, *args, **kwargs):
         """Workerの初期化
 
@@ -131,6 +134,8 @@ class Worker(QObject):
                 kwargs["status_callback"] = self.status_updated.emit
             if "is_canceled" in params:
                 kwargs["is_canceled"] = lambda: self._is_canceled
+            if "batch_progress_callback" in params:
+                kwargs["batch_progress_callback"] = self.batch_progress.emit
 
             # 関数を実行
             self.function(*self.args, **kwargs)

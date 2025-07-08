@@ -81,13 +81,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def dataset_dir_changed(self, new_path):
         logger.info(f"データセットディレクトリが変更されました: {new_path}")
         self.config_service.update_setting("directories", "dataset", new_path)
-        self.dataset_image_paths = FileSystemManager.get_image_files(Path(new_path))
 
-        if not self.dataset_image_paths:
-            return
-        current_page = self.contentStackedWidget.currentWidget()
-        if hasattr(current_page, "load_images"):
-            self.some_long_process(current_page.load_images, self.dataset_image_paths)
+        # バッチ処理を開始
+        self.start_batch_processing(Path(new_path))
 
     def some_long_process(self, process_function, *args, **kwargs):
         self.progress_widget.show()
@@ -95,6 +91,37 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.progress_controller.start_process(process_function, *args, **kwargs)
         except Exception as e:
             logger.error(f"ProgressWidgetを使用した処理中にエラーが発生しました: {e}")
+
+    def start_batch_processing(self, directory_path: Path):
+        """バッチ処理を開始する"""
+        from ..services.batch_processor import process_directory_batch
+
+        # プログレスウィジェットを表示
+        self.progress_widget.show()
+
+        # バッチ進捗シグナルの接続
+        if hasattr(self.progress_controller, "worker") and self.progress_controller.worker:
+            # 既存ワーカーがあれば接続
+            self.progress_controller.worker.batch_progress.connect(self.on_batch_progress)
+
+        # バッチ処理関数を実行
+        self.some_long_process(
+            process_directory_batch, directory_path, self.config_service, self.fsm, self.idm
+        )
+
+        # バッチ進捗シグナルの接続（ワーカー作成後）
+        if hasattr(self.progress_controller, "worker") and self.progress_controller.worker:
+            self.progress_controller.worker.batch_progress.connect(self.on_batch_progress)
+
+    def on_batch_progress(self, current: int, total: int, filename: str):
+        """バッチ進捗の詳細表示"""
+        # ステータスバーに詳細進捗を表示
+        self.statusbar.showMessage(f"処理中: {filename} ({current}/{total})")
+
+        # プログレスバーのタイトル更新（可能であれば）
+        if hasattr(self.progress_widget, "setWindowTitle"):
+            percentage = int((current / total) * 100) if total > 0 else 0
+            self.progress_widget.setWindowTitle(f"バッチ処理 - {percentage}% 完了")
 
     def closeEvent(self, event):
         if (
