@@ -155,15 +155,18 @@ class TestMainWindowBatch:
             mock_logger.error.assert_called_once()
             assert "ProgressWidgetを使用した処理中にエラーが発生しました" in str(mock_logger.error.call_args)
 
-    def test_start_batch_processing(self):
-        """start_batch_processing メソッドのテスト"""
+    def test_start_batch_processing_with_fsm_initialization(self):
+        """start_batch_processing での FileSystemManager 初期化テスト"""
         # Mock MainWindow.__init__ to avoid UI dependencies
         with patch.object(MainWindow, '__init__', return_value=None):
             window = MainWindow()
             
             # Mock required attributes
-            window.config_service = Mock()
-            window.fsm = Mock()
+            mock_config_service = Mock()
+            mock_config_service.get_database_directory.return_value = Path("/test/database")
+            mock_fsm = Mock()
+            window.config_service = mock_config_service
+            window.fsm = mock_fsm
             window.idm = Mock()
             window.progress_widget = Mock()
             window.progress_controller = Mock()
@@ -181,7 +184,50 @@ class TestMainWindowBatch:
                 window.start_batch_processing(test_path)
                 
                 # Assert
+                # FileSystemManagerが初期化されることを確認
+                mock_fsm.initialize.assert_called_once_with(Path("/test/database"), 1024)
                 window.progress_widget.show.assert_called_once()
                 mock_long_process.assert_called_once()
                 # バッチ進捗シグナルが接続されることを確認
                 mock_worker.batch_progress.connect.assert_called()
+
+    def test_start_batch_processing_auto_project_creation(self):
+        """データベースディレクトリ未設定時の自動プロジェクト作成テスト"""
+        # Mock MainWindow.__init__ to avoid UI dependencies
+        with patch.object(MainWindow, '__init__', return_value=None):
+            window = MainWindow()
+            
+            # Mock required attributes - データベースディレクトリが未設定
+            mock_config_service = Mock()
+            mock_config_service.get_database_directory.return_value = Path("database")  # デフォルト値
+            mock_config_service.get_setting.return_value = "lorairo_data"
+            mock_fsm = Mock()
+            window.config_service = mock_config_service
+            window.fsm = mock_fsm
+            window.idm = Mock()
+            window.progress_widget = Mock()
+            window.progress_controller = Mock()
+            
+            # Mock worker
+            mock_worker = Mock()
+            mock_worker.batch_progress = Mock()
+            window.progress_controller.worker = mock_worker
+            
+            with patch.object(window, 'some_long_process') as mock_long_process, \
+                 patch('datetime.datetime') as mock_datetime:
+                
+                # 固定の日時を設定
+                mock_datetime.now.return_value.strftime.return_value = "20250708_123000"
+                
+                test_path = Path("/test/batch/path")
+                
+                # Act
+                window.start_batch_processing(test_path)
+                
+                # Assert
+                # プロジェクトディレクトリが自動生成されることを確認
+                expected_project_dir = Path("lorairo_data") / "batch_project_20250708_123000"
+                mock_config_service.update_setting.assert_called_with(
+                    "directories", "database_dir", str(expected_project_dir)
+                )
+                mock_fsm.initialize.assert_called_once_with(expected_project_dir, 1024)
