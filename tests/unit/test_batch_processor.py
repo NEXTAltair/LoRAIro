@@ -397,3 +397,33 @@ class TestProcessAssociatedFiles:
         # Assert
         mock_idm.save_tags.assert_not_called()
         mock_idm.save_captions.assert_not_called()
+
+    def test_duplicate_image_processes_associated_files(self):
+        """重複画像でも関連ファイルを処理するテスト"""
+        # Arrange
+        directory_path = Path("/test/images")
+        mock_config = Mock()
+        mock_fsm = Mock()
+        mock_idm = Mock()
+        
+        image_files = [Path("/test/images/existing_image.jpg")]
+        mock_fsm.get_image_files.return_value = image_files
+        
+        # 重複検出で既存IDを返す
+        existing_id = 999
+        mock_idm.detect_duplicate_image.return_value = existing_id
+        
+        # _process_associated_filesをモック
+        with patch('lorairo.services.batch_processor._process_associated_files') as mock_process_files:
+            # Act
+            result = process_directory_batch(
+                directory_path, mock_config, mock_fsm, mock_idm
+            )
+            
+            # Assert
+            assert result == {"processed": 0, "errors": 0, "skipped": 1, "total": 1}
+            # 重複画像でも関連ファイル処理が呼ばれることを確認
+            mock_process_files.assert_called_once_with(image_files[0], existing_id, mock_idm)
+            
+            # 新規登録は呼ばれない
+            mock_idm.register_original_image.assert_not_called()
