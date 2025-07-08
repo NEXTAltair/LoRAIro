@@ -96,6 +96,25 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """バッチ処理を開始する"""
         from ...services.batch_processor import process_directory_batch
 
+        # FileSystemManagerを初期化
+        # データベースディレクトリから出力ディレクトリを決定
+        database_dir = self.config_service.get_database_directory()
+        if not database_dir or database_dir == Path("database"):
+            # デフォルトまたは設定がない場合、database_base_dirを使用
+            base_dir = Path(
+                self.config_service.get_setting("directories", "database_base_dir", "lorairo_data")
+            )
+            # プロジェクトディレクトリを自動生成
+            from datetime import datetime
+
+            project_name = f"batch_project_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            database_dir = base_dir / project_name
+            # 設定を更新
+            self.config_service.update_setting("directories", "database_dir", str(database_dir))
+
+        # FileSystemManagerの初期化 - 1024をデフォルト解像度として使用
+        self.fsm.initialize(database_dir, 1024)
+
         # プログレスウィジェットを表示
         self.progress_widget.show()
 

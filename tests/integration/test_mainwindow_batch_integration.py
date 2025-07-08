@@ -47,7 +47,12 @@ class TestMainWindowBatchIntegration:
             
             # 必要な属性を設定
             window.config_service = Mock()
+            window.config_service.get_database_directory.return_value = tmp_path / "test_database"
+            window.config_service.get_setting.return_value = "lorairo_data"
+            
             window.fsm = Mock()
+            window.fsm.initialize = Mock()  # FileSystemManager初期化用モック
+            
             window.idm = Mock()
             window.progress_widget = Mock()
             window.progress_controller = Mock()
@@ -79,8 +84,12 @@ class TestMainWindowBatchIntegration:
         # Arrange
         window = configured_main_window
         
+        # ConfigurationServiceのモック設定（FileSystemManager初期化用）
+        window.config_service.get_database_directory.return_value = Path("/test/database")
+        
         # FileSystemManagerのモック設定
         window.fsm.get_image_files.return_value = list(test_images_directory.glob("*.jpg"))
+        window.fsm.initialize = Mock()  # 初期化メソッドをモック
         
         # ImageDatabaseManagerのモック設定
         window.idm.detect_duplicate_image.return_value = None
@@ -102,6 +111,8 @@ class TestMainWindowBatchIntegration:
             window.start_batch_processing(test_images_directory)
             
             # Assert
+            # FileSystemManagerの初期化が呼ばれることを確認
+            window.fsm.initialize.assert_called_once_with(Path("/test/database"), 1024)
             window.progress_widget.show.assert_called_once()
             
             # バッチ進捗シグナルが接続されたことを確認
