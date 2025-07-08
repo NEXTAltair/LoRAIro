@@ -94,7 +94,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def start_batch_processing(self, directory_path: Path):
         """バッチ処理を開始する"""
-        from ..services.batch_processor import process_directory_batch
+        from ...services.batch_processor import process_directory_batch
 
         # プログレスウィジェットを表示
         self.progress_widget.show()
