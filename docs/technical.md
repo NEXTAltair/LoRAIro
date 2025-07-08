@@ -849,8 +849,43 @@ window_config.update_setting("api", "openai_key", "new_key")
 # → processor_config also sees the change instantly
 ```
 
+**Project Structure Design (updated 2025/07/07)**
+
+**Multi-Project Database Architecture**
+- Each project maintains independent SQLite database for data isolation
+- Unified main database for cross-project search and analysis
+- Support for project extraction workflows (subset creation)
+
+**Directory Structure Pattern**
+```
+lorairo_data/
+├── {project_name}_{YYYYMMDD}_{NNN}/
+│   ├── image_database.db
+│   └── image_dataset/
+│       ├── original_images/{YYYY}/{MM}/{DD}/{source_dir}/
+│       ├── {resolution}/{YYYY}/{MM}/{DD}/{source_dir}/
+│       └── batch_request_jsonl/
+```
+
+**Project Name Support**
+- Unicode project names supported (Japanese, mixed languages)
+- Safe filename sanitization for filesystem compatibility
+- Date-based versioning with 3-digit incremental numbering
+
+**Use Cases**
+- Main dataset management with comprehensive search
+- Focused project extraction (quality filters, content type, tags)
+- HuggingFace dataset preparation and publishing
+- Research dataset curation with provenance tracking
+
 **Implementation Requirements**
 ```python
+def get_project_dir(base_dir_name: str, project_name: str = "project") -> Path:
+    """Generate project directory with Unicode name support"""
+
+def normalize_legacy_paths(db_path: Path) -> None:
+    """Convert legacy absolute paths to relative project paths"""
+
 def __init__(self, config_path: Path | None = None, shared_config: dict[str, Any] | None = None):
     """Initialize with optional shared configuration object for DI pattern"""
     

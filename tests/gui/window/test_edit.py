@@ -48,7 +48,7 @@ def mock_services(mocker):
         {"name": "upscaler1"},
         {"name": "upscaler2"},
     ]
-    mocks["config_service"].get_output_directory.return_value = Path("/fake/output")
+    mocks["config_service"].get_export_directory.return_value = Path("/fake/output")
     mocks["image_text_reader"].get_annotations_for_display.return_value = {
         "tags": ["tag1", "tag2"],
         "captions": ["caption1"],

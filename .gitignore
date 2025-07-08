@@ -81,8 +81,7 @@ tools/annotator_results.json
 tools/annotator_results.txt
 
 # 画像データベース
-Image_database/
-output/
+lorairo_data/
 
 # データソース
 local_packages/genai-tag-db-tools/tags_csv/
@@ -96,12 +95,9 @@ logs/
 
 # データベース (本番用データベースは除外)
 *.db
-!src/lorairo/database/schema.db  # スキーマ定義用DB
 
-# 設定ファイル (機密情報は除外、テンプレートは保持)
-config/*.toml
-!config/*.toml.example
-!config/lorairo.toml.default
+# 設定ファイル
+config/
 
 # API キーやトークン
 *.key

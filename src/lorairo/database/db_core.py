@@ -29,30 +29,55 @@ db_config = config.get("database", {})
 dir_config = config.get("directories", {})
 
 
-def get_default_project_dir(base_dir_name: str) -> Path:
-    """設定で指定されたベースディレクトリ内に日付+連番プロジェクトディレクトリを生成"""
+def get_project_dir(base_dir_name: str, project_name: str) -> Path:
+    """プロジェクトディレクトリを生成（任意名前_日付_連番形式）
+
+    Args:
+        base_dir_name: ベースディレクトリ名 (例: "lorairo_data")
+        project_name: プロジェクト名 (例: "main_dataset", "猫画像")
+
+    Returns:
+        Path: 生成されたプロジェクトディレクトリパス
+    """
+    import re
     from datetime import datetime
 
     base_dir = Path(base_dir_name)
     base_dir.mkdir(exist_ok=True)
 
     today = datetime.now().strftime("%Y%m%d")
-    pattern = f"project_{today}_"
 
-    # 今日の既存プロジェクト番号を取得
+    # ファイルシステム安全な文字に正規化
+    safe_name = sanitize_project_name(project_name)
+    pattern = f"{safe_name}_{today}_"
+
+    # 既存プロジェクトから連番を決定
     existing = [d.name for d in base_dir.iterdir() if d.is_dir() and d.name.startswith(pattern)]
 
     if not existing:
         next_num = 1
     else:
-        # 今日の最大番号を取得して+1
-        numbers = [int(name.split("_")[2]) for name in existing]
-        next_num = max(numbers) + 1
+        # 連番部分を抽出（最後のアンダースコア以降）
+        numbers = []
+        for name in existing:
+            parts = name.split("_")
+            if len(parts) >= 3 and parts[-1].isdigit():
+                numbers.append(int(parts[-1]))
+        next_num = max(numbers, default=0) + 1
 
-    project_dir = base_dir / f"project_{today}_{next_num:03d}"
+    project_dir = base_dir / f"{safe_name}_{today}_{next_num:03d}"
     project_dir.mkdir(exist_ok=True)
     logger.info(f"新しいプロジェクトディレクトリを作成しました: {project_dir}")
     return project_dir
+
+
+def sanitize_project_name(name: str) -> str:
+    """プロジェクト名をファイルシステム安全な形式に変換"""
+    import re
+
+    # Windows/Linux共通で問題となる文字のみ置換
+    invalid_chars = r'[<>:"/\\|?*]'
+    return re.sub(invalid_chars, "_", name)
 
 
 # Get database directory from config, or create new project directory
@@ -61,7 +86,8 @@ if database_dir:
     DB_DIR = Path(database_dir)
 else:
     base_dir_name = dir_config.get("database_base_dir", "lorairo_data")
-    DB_DIR = get_default_project_dir(base_dir_name)
+    project_name = dir_config.get("database_project_name", "main_dataset")
+    DB_DIR = get_project_dir(base_dir_name, project_name)
 IMG_DB_FILENAME = db_config.get(
     "image_db_filename", "image_database.db"
 )  # Keep default if not in db_config

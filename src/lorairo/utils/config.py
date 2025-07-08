@@ -18,6 +18,7 @@ DEFAULT_CONFIG = {
     "directories": {
         "database_dir": "",  # 空文字列 = 自動生成 (日付+連番プロジェクト)
         "database_base_dir": "lorairo_data",  # 自動生成時のベースディレクトリ名
+        "database_project_name": "main_dataset",  # 自動生成時のデフォルトプロジェクト名
         "export_dir": "export",  # 学習用データセットの出力先（.txt/.captionファイル等）
         "batch_results_dir": "batch_results",  # OpenAI Batch API結果JSONLファイルの保存先
     },

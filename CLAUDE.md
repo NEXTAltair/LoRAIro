@@ -126,8 +126,11 @@ pytest --cov=src --cov-report=html
 
 **Storage:**
 - `FileSystemManager` (`src/lorairo/storage/file_system.py`) - File operations and directory management
-- Images stored with associated .txt/.caption files for annotations
-- Database tracks image metadata, annotations, and processing status
+- **Project Structure**: `lorairo_data/project_name_YYYYMMDD_NNN/` format with support for Unicode project names
+- **Database Design**: One SQLite database per project for data isolation and extraction workflows
+- **Directory Layout**: Each project contains `image_database.db` and `image_dataset/` with date-based subdirectories
+- Images stored with associated .txt/.caption files for annotations in `image_dataset/original_images/`
+- Processed images stored in resolution-specific directories (`image_dataset/1024/`, etc.)
 
 **Quality Assessment:**
 - Scoring modules in `src/lorairo/score_module/` provide image quality assessment
@@ -199,6 +202,31 @@ The local packages are installed in editable mode and automatically linked durin
 - Model selection configurable via settings
 - Batch processing support for large datasets
 - Quality scoring with aesthetic and technical metrics
+
+**Project Directory Structure:**
+```
+lorairo_data/
+├── main_dataset_20250707_001/          # Main project (English name)
+│   ├── image_database.db               # SQLite database with all metadata
+│   └── image_dataset/
+│       ├── original_images/
+│       │   └── 2024/10/08/source_dir/  # Date-based organization
+│       ├── 1024/                       # Target resolution directories
+│       │   └── 2024/10/08/source_dir/
+│       └── batch_request_jsonl/        # OpenAI Batch API files
+├── 猫画像_20250707_002/                # Japanese project name
+│   ├── image_database.db
+│   └── image_dataset/
+└── extracted_nsfw_20250708_001/        # Extracted subset project
+    ├── image_database.db               # Contains only extracted data
+    └── image_dataset/
+```
+
+**Use Cases:**
+- **Unified Management**: All images in one main database for search and analysis
+- **Project Extraction**: Create focused datasets (e.g., "NSFW only", "High quality only")
+- **HuggingFace Publishing**: Export curated projects to HuggingFace datasets
+- **Multi-language Support**: Unicode project names (Japanese, English, mixed)
 
 ## Rule Files and Documentation References
 
@@ -424,9 +452,10 @@ openai_key = ""         # Auto-exclude models if missing
 claude_key = ""
 google_key = ""
 
-[directories]           # Project separation design
-database_dir = ""       # project_name/database.db + images/
-export_dir = ""         # Annotation results (.txt/.caption)
+[directories]           # Project structure design
+database_dir = ""       # Empty = auto-generate project_name_YYYYMMDD_NNN
+database_base_dir = "lorairo_data"  # Base directory for project creation
+export_dir = ""         # Annotation results export (.txt/.caption)
 batch_results_dir = ""  # OpenAI Batch API results (JSONL)
 
 [huggingface]           # Plain-text storage
