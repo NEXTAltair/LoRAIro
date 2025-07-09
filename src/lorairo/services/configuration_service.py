@@ -50,7 +50,6 @@ class ConfigurationService:
         Returns:
             Any: 設定値。見つからない場合は default。
         """
-        # TODO: ネストしたキーに対応 (例: "api.openai_key")
         return self._config.get(section, {}).get(key, default)
 
     def get_all_settings(self) -> dict[str, Any]:
@@ -72,7 +71,6 @@ class ConfigurationService:
             key (str): 設定のキー名。
             value (Any): 新しい設定値。
         """
-        # TODO: ネストしたキーに対応
         if section not in self._config:
             self._config[section] = {}
         self._config[section][key] = value
