@@ -354,6 +354,9 @@ class TestProcessAssociatedFiles:
         for tag_data in tags_data:
             assert tag_data["tag_id"] is None
             assert tag_data["model_id"] is None
+            assert tag_data["existing"] is True
+            assert tag_data["is_edited_manually"] is False
+            assert tag_data["confidence_score"] is None
 
     def test_process_caption_file(self, tmp_path):
         """キャプションファイル処理のテスト"""
@@ -380,7 +383,8 @@ class TestProcessAssociatedFiles:
         assert len(captions_data) == 1
         assert captions_data[0]["caption"] == caption_content
         assert captions_data[0]["model_id"] is None
-        assert captions_data[0]["existing"] is False
+        assert captions_data[0]["existing"] is True
+        assert captions_data[0]["is_edited_manually"] is False
 
     def test_no_associated_files(self, tmp_path):
         """関連ファイルがない場合のテスト"""
