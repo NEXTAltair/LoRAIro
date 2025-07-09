@@ -1,7 +1,7 @@
 # LoRAIro Project Makefile
 # Documentation and development task automation
 
-.PHONY: help docs docs-clean docs-publish docs-serve test lint format install install-dev clean run-gui
+.PHONY: help docs docs-clean docs-publish docs-serve test lint format install install-dev clean run-gui clean-log
 
 # Default target
 help:
@@ -21,6 +21,7 @@ help:
 	@echo "  lint         Run code linting (ruff)"
 	@echo "  format       Format code (ruff format)"
 	@echo "  clean        Clean build artifacts"
+	@echo "  clean-log     Clean LoRAIro log files"
 
 # Documentation targets
 docs:
@@ -114,6 +115,11 @@ clean:
 	@find . -type d -name ".ruff_cache" -exec rm -rf {} + 2>/dev/null || true
 	@rm -rf build/ dist/ docs/build/
 	@echo "Build artifacts cleaned."
+
+clean-log:
+	@echo "Cleaning log files"
+	@rm -rf logs/*
+	@echo "cleaned"
 
 # Windows compatibility (optional .bat targets)
 docs-publish-win:
