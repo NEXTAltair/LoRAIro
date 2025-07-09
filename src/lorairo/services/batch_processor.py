@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from ..database.db_manager import ImageDatabaseManager
-from ..database.schema import CaptionAnnotationData, TagAnnotationData
+from ..database.db_repository import CaptionAnnotationData, TagAnnotationData
 from ..services.configuration_service import ConfigurationService
 from ..storage.file_system import FileSystemManager
 from ..utils.log import logger
@@ -38,6 +38,9 @@ def _process_associated_files(image_file: Path, image_id: int, idm: ImageDatabas
                             "tag_id": None,  # 新規タグとして追加
                             "model_id": None,  # ファイルからの読み込みなのでモデルなし
                             "tag": tag_string,
+                            "existing": True,  # ファイル由来なのでexisting=True
+                            "is_edited_manually": False,  # 自動処理
+                            "confidence_score": None,  # ファイル由来なのでスコアなし
                         }
                         tags_data.append(tag_data)
 
@@ -58,7 +61,8 @@ def _process_associated_files(image_file: Path, image_id: int, idm: ImageDatabas
                 caption_data: CaptionAnnotationData = {
                     "model_id": None,  # ファイルからの読み込みなのでモデルなし
                     "caption": caption_content,
-                    "existing": False,  # 新規キャプション
+                    "existing": True,  # ファイル由来なのでexisting=True
+                    "is_edited_manually": False,  # 自動処理
                 }
                 idm.save_captions(image_id, [caption_data])
                 logger.info(f"キャプションを追加: {image_file.name}")
