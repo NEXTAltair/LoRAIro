@@ -88,19 +88,14 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
             )
             return
 
-        # データベースディレクトリを取得
-        database_dir = Path(self.config_service.get_database_directory())
-
-        # idとpathの対応だけを取り出す（相対パスを絶対パスに変換）
+        # idとpathの対応だけを取り出す（stored_image_pathは既に絶対パス）
         self.image_metadata_map = {
-            item["id"]: {"path": database_dir / Path(item["stored_image_path"]), "metadata": item}
+            item["id"]: {"path": Path(item["stored_image_path"]), "metadata": item}
             for item in filtered_image_metadata
         }
 
-        # サムネイルセレクターを更新（相対パスを絶対パスに変換）
-        absolute_image_paths = [
-            database_dir / Path(item["stored_image_path"]) for item in filtered_image_metadata
-        ]
+        # サムネイルセレクターを更新（stored_image_pathは既に絶対パス）
+        absolute_image_paths = [Path(item["stored_image_path"]) for item in filtered_image_metadata]
         self.update_thumbnail_selector(absolute_image_paths)
 
     @Slot(Path)
@@ -147,36 +142,33 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
         self.captionTextEdit.clear()
 
     def update_annotations(self, image_path: Path):
-        # この部分は実際のデータ取得方法に応じて実装する必要があります
-        annotations = ImageAnalyzer.get_existing_annotations(image_path)
-        if annotations:
-            # タグを抽出して結合
-            tags = [tag_info["tag"] for tag_info in annotations.get("tags", [])]
-            tags_text = ", ".join(tags)
+        # フィルター結果表示時は image_metadata_map から効率的にIDを取得
+        image_id = None
+        if hasattr(self, "image_metadata_map"):
+            for id_key, data in self.image_metadata_map.items():
+                if data["path"] == image_path:
+                    image_id = id_key
+                    break
+
+        # image_metadata_map にない場合は従来の検索方法
+        if image_id is None:
+            image_id = self.idm.detect_duplicate_image(image_path)
+
+        if image_id is not None:
+            # データベースからアノテーション情報を取得
+            image_data = self.idm.get_image_annotations(image_id)
+
+            # タグを表示
+            tags_text = ", ".join([tag_data.get("tag", "") for tag_data in image_data.get("tags", [])])
             self.tagsTextEdit.setPlainText(tags_text)
 
-            # キャプションを抽出して結合
-            captions = [caption_info["caption"] for caption_info in annotations.get("captions", [])]
-            captions_text = " | ".join(captions)  # キャプションをパイプで区切って結合
+            # キャプションを表示
+            captions_text = " | ".join(
+                [caption_data.get("caption", "") for caption_data in image_data.get("captions", [])]
+            )
             self.captionTextEdit.setPlainText(captions_text)
-
-        elif annotations is None:
-            # DBkからアノテーション情報を検索
-            image_id = self.idm.detect_duplicate_image(image_path)
-            # image_id が None でないことを確認
-            if image_id is not None:
-                image_data = self.idm.get_image_annotations(image_id)
-                tags_text = ", ".join([tag_data.get("tag", "") for tag_data in image_data.get("tags", [])])
-                self.tagsTextEdit.setPlainText(tags_text)
-                captions_text = ", ".join(
-                    [caption_data.get("caption", "") for caption_data in image_data.get("captions", [])]
-                )
-                self.captionTextEdit.setPlainText(captions_text)
-            else:
-                # image_id が見つからない場合はクリア
-                self.tagsTextEdit.clear()
-                self.captionTextEdit.clear()
         else:
+            # image_id が見つからない場合はクリア
             self.tagsTextEdit.clear()
             self.captionTextEdit.clear()
 
