@@ -28,16 +28,23 @@ class ImageDatabaseManager:
     保存、取得、更新などの操作を行います。
     """
 
-    def __init__(self, repository: ImageRepository, config_service: "ConfigurationService"):
+    def __init__(
+        self,
+        repository: ImageRepository,
+        config_service: "ConfigurationService",
+        fsm: "FileSystemManager" = None,
+    ):
         """
         ImageDatabaseManagerのコンストラクタ。
 
         Args:
             repository (ImageRepository): 使用するImageRepositoryインスタンス。
             config_service (ConfigurationService): 設定サービスインスタンス。
+            fsm (FileSystemManager): ファイルシステムマネージャー（オプション）。
         """
         self.repository = repository
         self.config_service = config_service
+        self.fsm = fsm
         logger.info("ImageDatabaseManager initialized.")
 
     @classmethod
@@ -585,6 +592,42 @@ class ImageDatabaseManager:
         except Exception as e:
             logger.error(f"総画像数の取得中にエラーが発生しました: {e}", exc_info=True)
             return 0  # エラー時は0を返す
+
+    def get_image_ids_from_directory(self, directory_path: Path) -> list[int]:
+        """
+        指定されたディレクトリに含まれる画像のIDリストを取得します。
+
+        Args:
+            directory_path (Path): 検索対象のディレクトリパス
+
+        Returns:
+            list[int]: 該当する画像のIDリスト
+        """
+        try:
+            # ディレクトリ内の画像ファイルを取得
+            if not self.fsm:
+                from ..storage.file_system import FileSystemManager
+
+                temp_fsm = FileSystemManager()
+                image_files = temp_fsm.get_image_files(directory_path)
+            else:
+                image_files = self.fsm.get_image_files(directory_path)
+            image_ids = []
+
+            for image_file in image_files:
+                # pHashで重複検出（既存画像のID取得）
+                image_id = self.detect_duplicate_image(image_file)
+                if image_id:
+                    image_ids.append(image_id)
+
+            logger.info(f"ディレクトリ {directory_path} から {len(image_ids)} 件の画像IDを取得しました")
+            return image_ids
+
+        except Exception as e:
+            logger.error(
+                f"ディレクトリからの画像ID取得中にエラー: {directory_path}, Error: {e}", exc_info=True
+            )
+            return []
 
     def check_processed_image_exists(self, image_id: int, target_resolution: int) -> dict[str, Any] | None:
         """
