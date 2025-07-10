@@ -165,6 +165,7 @@ class ProcessedImage(Base):
     filename: Mapped[str | None] = mapped_column(String)
     color_space: Mapped[str | None] = mapped_column(String)
     icc_profile: Mapped[str | None] = mapped_column(String)
+    upscaler_used: Mapped[str | None] = mapped_column(String)  # 使用されたアップスケーラー名
     created_at: Mapped[datetime.datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
     )
@@ -338,6 +339,7 @@ class ProcessedImageDict(TypedDict):
     filename: str | None
     color_space: str | None
     icc_profile: str | None
+    upscaler_used: NotRequired[str | None]  # 使用されたアップスケーラー名
     created_at: NotRequired[datetime.datetime]
     updated_at: NotRequired[datetime.datetime]
 

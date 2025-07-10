@@ -56,7 +56,7 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         self.image_text_reader = image_text_reader
         self.main_window = main_window
         image_processing_config = self.config_service.get_image_processing_config()
-        self.target_resolution = image_processing_config.get("target_resolution", 512)
+        self.target_resolution = image_processing_config.get("target_resolution")
         self.preferred_resolutions = self.config_service.get_preferred_resolutions()
         self.upscaler = None
         upscalers = [model["name"] for model in self.config_service.get_upscaler_models()]
@@ -75,12 +75,26 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         if self.main_window and self.main_window.dataset_image_paths:
             self.load_images(self.main_window.dataset_image_paths)
 
-    def load_images(self, directory_images: list):
-        self.directory_images = directory_images
+    def load_images(self, image_ids: list[int]):
+        """画像IDリストから画像をロード（512px優先表示）"""
+        if not image_ids:
+            return
+
+        self.image_ids = image_ids
+        self.directory_images = []  # パス情報も保持（既存コードとの互換性）
         self.tableWidgetImageList.setRowCount(0)
-        self.ImagePreview.load_image(Path(directory_images[0]))
-        for image_path in directory_images:
-            self._add_image_to_table(image_path)
+
+        # 最初の画像をプレビューに表示（512px優先）
+        if image_ids:
+            first_image_metadata = self.idm.get_image_metadata(image_ids[0])
+            if first_image_metadata:
+                original_path = Path(first_image_metadata["stored_image_path"])
+                thumbnail_path = self._get_or_create_512px_by_id(image_ids[0], original_path)
+                self.ImagePreview.load_image(thumbnail_path)
+
+        # テーブルに画像を追加
+        for image_id in image_ids:
+            self._add_image_to_table_with_id(image_id)
 
     def _add_image_to_table(self, file_path: Path):
         str_filename = str(file_path.name)
@@ -132,6 +146,102 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
             # アノテーションが見つからない場合は空欄にする
             self.tableWidgetImageList.setItem(row_position, 5, QTableWidgetItem(""))
             self.tableWidgetImageList.setItem(row_position, 6, QTableWidgetItem(""))
+
+    def _add_image_to_table_with_id(self, image_id: int):
+        """画像IDを使用してテーブルに画像情報を追加（512px優先表示）"""
+        try:
+            # データベースから画像メタデータを取得
+            metadata = self.idm.get_image_metadata(image_id)
+            if not metadata:
+                logger.warning(f"画像ID {image_id} のメタデータが見つかりません")
+                return
+
+            original_path = Path(metadata["stored_image_path"])
+            str_filename = metadata["filename"]
+            str_file_path = str(original_path)
+
+            row_position = self.tableWidgetImageList.rowCount()
+            self.tableWidgetImageList.insertRow(row_position)
+
+            # サムネイル（512px優先）
+            thumbnail_path = self._get_or_create_512px_by_id(image_id, original_path)
+            thumbnail = QPixmap(str(thumbnail_path)).scaled(
+                self.THUMBNAIL_SIZE, self.THUMBNAIL_SIZE, Qt.AspectRatioMode.KeepAspectRatio
+            )
+            thumbnail_item = QTableWidgetItem()
+            thumbnail_item.setData(Qt.ItemDataRole.DecorationRole, thumbnail)
+            self.tableWidgetImageList.setItem(row_position, 0, thumbnail_item)
+
+            # ファイル名
+            self.tableWidgetImageList.setItem(row_position, 1, QTableWidgetItem(str_filename))
+            # パス
+            self.tableWidgetImageList.setItem(row_position, 2, QTableWidgetItem(str_file_path))
+
+            # 高さと幅
+            file_height = metadata.get("height", 0)
+            file_width = metadata.get("width", 0)
+            self.tableWidgetImageList.setItem(
+                row_position, 3, QTableWidgetItem(f"{file_height} x {file_width}")
+            )
+
+            # サイズ
+            file_size = original_path.stat().st_size if original_path.exists() else 0
+            self.tableWidgetImageList.setItem(
+                row_position, 4, QTableWidgetItem(f"{file_size / 1024:.2f} KB")
+            )
+
+            # データベースからアノテーション取得
+            annotations = self.idm.get_image_annotations(image_id)
+
+            if annotations and annotations.get("tags"):
+                # タグをカンマ区切りの文字列に結合
+                tags_str = ", ".join([tag["tag"] for tag in annotations["tags"]])
+                self.tableWidgetImageList.setItem(row_position, 5, QTableWidgetItem(tags_str))
+            else:
+                self.tableWidgetImageList.setItem(row_position, 5, QTableWidgetItem(""))
+
+            if annotations and annotations.get("captions"):
+                # キャプションをカンマ区切りの文字列に結合
+                captions_str = " | ".join([caption["caption"] for caption in annotations["captions"]])
+                self.tableWidgetImageList.setItem(row_position, 6, QTableWidgetItem(captions_str))
+            else:
+                self.tableWidgetImageList.setItem(row_position, 6, QTableWidgetItem(""))
+
+            # directory_images にパスを追加（既存コードとの互換性）
+            self.directory_images.append(original_path)
+
+        except Exception as e:
+            logger.error(f"画像ID {image_id} のテーブル追加中にエラー: {e}", exc_info=True)
+
+    def _get_or_create_512px_by_id(self, image_id: int, original_path: Path) -> Path:
+        """
+        画像IDから512px画像パスを取得し、存在しなければ作成します。
+
+        Args:
+            image_id (int): データベース内の画像ID
+            original_path (Path): 元画像のパス
+
+        Returns:
+            Path: 512px画像のパス（作成失敗時は元画像パス）
+        """
+        try:
+            # 画像処理サービスを取得
+            if not self.image_processing_service:
+                logger.debug(f"画像処理サービスが見つからないため元画像を使用: image_id={image_id}")
+                return original_path
+
+            # 512px画像を取得または作成
+            thumbnail_path = self.image_processing_service.ensure_512px_image(image_id, original_path)
+            if thumbnail_path:
+                logger.debug(f"512px画像を使用: image_id={image_id} -> {thumbnail_path}")
+                return thumbnail_path
+            else:
+                logger.warning(f"512px画像の取得/作成に失敗、元画像を使用: image_id={image_id}")
+
+        except Exception as e:
+            logger.warning(f"512px画像取得中にエラー、元画像を使用: image_id={image_id}, Error: {e}")
+
+        return original_path
 
     @Slot()
     def on_tableWidgetImageList_itemSelectionChanged(self):
@@ -186,9 +296,13 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
                 self.comboBoxUpscaler.currentText() if self.comboBoxUpscaler.currentIndex() >= 0 else None
             )
 
+            # 現在の GUI 解像度を取得
+            current_resolution = self.target_resolution
+
             self.main_window.some_long_process(
                 self.image_processing_service.process_images_in_list,
                 self.directory_images,
+                current_resolution,
                 upscaler_override=selected_upscaler,
             )
 

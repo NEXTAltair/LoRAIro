@@ -33,33 +33,38 @@ class ImageProcessingService:
         self.config_service = config_service
         self.fsm = fsm
         self.idm = idm
-        # ImageProcessingManager はここで初期化するか、処理実行時に初期化するか検討
-        self.ipm: ImageProcessingManager | None = None
-        self._initialize_internal_processor()  # 内部で初期化を試みる
+        # ImageProcessingManager は処理時に一時的に作成（永続インスタンスは削除）
 
-    def _initialize_internal_processor(self) -> None:
-        """内部で使用する ImageProcessingManager を初期化します。"""
+    def create_processing_manager(self, target_resolution: int) -> ImageProcessingManager:
+        """処理時に一時的な ImageProcessingManager インスタンスを作成します。
+
+        Args:
+            target_resolution (int): 処理で使用する目標解像度（GUI で指定された現在の値）
+
+        Returns:
+            ImageProcessingManager: 処理用の一時的インスタンス
+
+        Raises:
+            ValueError: ImageProcessingManager の初期化に失敗した場合
+        """
         try:
-            # 設定値を取得して ImageProcessingManager を初期化
-            image_processing_config = self.config_service.get_image_processing_config()
-            target_resolution = image_processing_config.get("target_resolution", 512)
             preferred_resolutions_int = self.config_service.get_preferred_resolutions()
             # list[int] を list[tuple[int, int]] に変換
             preferred_resolutions = [(res, res) for res in preferred_resolutions_int]
-            output_dir = self.config_service.get_export_directory()
 
-            # FileSystemManager の初期化もここで行うか確認 (現状は外部で初期化想定)
-            # self.fsm.initialize(output_dir, target_resolution) # 必要なら実行
-
-            self.ipm = ImageProcessingManager(self.fsm, target_resolution, preferred_resolutions)
-            logger.info("ImageProcessingManager を初期化しました。")
+            ipm = ImageProcessingManager(self.fsm, target_resolution, preferred_resolutions)
+            logger.info(
+                f"一時的な ImageProcessingManager を作成しました。target_resolution={target_resolution}"
+            )
+            return ipm
         except Exception as e:
-            logger.error(f"ImageProcessingManager の初期化に失敗しました: {e}", exc_info=True)
-            self.ipm = None  # 初期化失敗時は None のまま
+            logger.error(f"ImageProcessingManager の作成に失敗しました: {e}", exc_info=True)
+            raise ValueError(f"ImageProcessingManager の作成に失敗しました: {e}") from e
 
     def process_images_in_list(
         self,
         image_paths: list[Path],
+        target_resolution: int,
         progress_callback: Callable[[int], None] | None = None,
         status_callback: Callable[[str], None] | None = None,
         is_canceled: Callable[[], bool] | None = None,
@@ -69,15 +74,18 @@ class ImageProcessingService:
 
         Args:
             image_paths: 処理対象の画像ファイルパスのリスト。
+            target_resolution: 処理で使用する目標解像度（GUI で指定された現在の値）。
             progress_callback: 進捗を通知するコールバック関数 (0-100のintを受け取る)。
             status_callback: ステータスメッセージを通知するコールバック関数 (strを受け取る)。
             is_canceled: キャンセルされたかどうかを返すコールバック関数。
             upscaler_override: GUI で選択されたアップスケーラ名 (設定より優先)。
         """
-        if not self.ipm:
-            logger.error("ImageProcessingManager が初期化されていないため、処理を実行できません。")
-            # TODO: エラーを呼び出し元に通知する仕組みが必要
-            raise RuntimeError("ImageProcessingManager is not initialized.")
+        # 処理時に一時的な ImageProcessingManager を作成
+        ipm = self.create_processing_manager(target_resolution)
+
+        logger.info(
+            f"一時的な ImageProcessingManager を使用して処理を開始します。target_resolution={target_resolution}"
+        )
 
         total_images = len(image_paths)
         logger.info(f"{total_images} 件の画像処理を開始します。")
@@ -95,7 +103,7 @@ class ImageProcessingService:
 
             try:
                 # 個別画像の処理を実行
-                self._process_single_image(image_path, upscaler_override)
+                self._process_single_image(image_path, upscaler_override, ipm)
             except Exception as e:
                 logger.error(f"{image_path.name} の処理中にエラーが発生しました: {e}", exc_info=True)
                 # TODO: エラーが発生しても処理を継続するか、中断するか?
@@ -111,17 +119,20 @@ class ImageProcessingService:
         if status_callback:
             status_callback("画像処理が完了しました。")
 
-    def _process_single_image(self, image_file: Path, upscaler: str | None = None) -> None:
+    def _process_single_image(
+        self, image_file: Path, upscaler: str | None = None, ipm: ImageProcessingManager | None = None
+    ) -> None:
         """単一の画像ファイルに対して処理を実行します。
            (元 ImageEditWidget.process_image + handle_processing_result)
 
         Args:
             image_file: 処理対象の画像ファイルパス。
             upscaler: 使用するアップスケーラ名 (Noneの場合は設定を使用)。
+            ipm: 使用する ImageProcessingManager インスタンス。
         """
-        if not self.ipm:
-            # このケースは process_images_in_list でチェック済みのはずだが念のため
-            raise RuntimeError("ImageProcessingManager is not initialized.")
+        if not ipm:
+            logger.error("ImageProcessingManager が提供されていないため、処理を実行できません。")
+            raise RuntimeError("ImageProcessingManager is not provided.")
 
         # --- 1. DBチェックとオリジナル画像登録 (元 process_image の前半) ---
         image_id = self.idm.detect_duplicate_image(image_file)
@@ -161,7 +172,9 @@ class ImageProcessingService:
         # logger.warning("_process_single_image 内のアノテーション処理は未実装です。")
 
         # --- 3. 処理済み画像の存在チェック (元 process_image の後半) ---
-        target_resolution = self.ipm.target_resolution  # ipm から取得
+        # 設定から最新の解像度を取得 (edit.pyで変更された可能性があるため)
+        image_processing_config = self.config_service.get_image_processing_config()
+        target_resolution = image_processing_config.get("target_resolution", 512)
         existing_processed_image = self.idm.check_processed_image_exists(image_id, target_resolution)
         if existing_processed_image:
             logger.info(
@@ -194,7 +207,7 @@ class ImageProcessingService:
             return
 
         logger.debug(f"{image_file.name}: 画像処理を実行します。Upscaler: {final_upscaler}")
-        processed_image = self.ipm.process_image(
+        processed_image, processing_metadata = ipm.process_image(
             image_file,
             original_image_metadata.get("has_alpha", False),  # .get でキー存在確認
             original_image_metadata.get("mode", "RGB"),
@@ -203,10 +216,160 @@ class ImageProcessingService:
 
         # --- 5. 処理結果の保存とDB登録 (元 handle_processing_result) ---
         if processed_image:
+            # アップスケールが実行された場合はタグを追加
+            if processing_metadata.get("was_upscaled", False):
+                logger.info(f"{image_file.name}: アップスケールが実行されたため、upscaledタグを追加します")
+                self._add_upscaled_tag(image_id, processing_metadata.get("upscaler_used"))
+
+        if processed_image:
             logger.debug(f"{image_file.name}: 処理結果を保存・登録します。")
-            processed_path = self.fsm.save_processed_image(processed_image, image_file)
+            processed_path = self.fsm.save_processed_image(processed_image, image_file, target_resolution)
             processed_metadata = self.fsm.get_image_info(processed_path)
+
+            # アップスケール情報をメタデータに追加
+            if processing_metadata.get("was_upscaled", False):
+                processed_metadata["upscaler_used"] = processing_metadata.get("upscaler_used")
+                logger.debug(
+                    f"{image_file.name}: アップスケーラー情報をメタデータに追加: {processed_metadata['upscaler_used']}"
+                )
+
             self.idm.register_processed_image(image_id, processed_path, processed_metadata)
             logger.info(f"画像処理完了: {image_file.name} -> {processed_path.name}")
         else:
             logger.warning(f"画像処理スキップ (ipm.process_image が None を返しました): {image_file.name}")
+
+    def ensure_512px_image(self, image_id: int, original_path: Path) -> Path | None:
+        """
+        512px画像が存在することを保証し、なければ既存パイプラインで作成します。
+        サムネイル表示や学習データセット用の512px画像を提供します。
+
+        Args:
+            image_id (int): データベース内の画像ID
+            original_path (Path): 元画像のパス
+
+        Returns:
+            Path | None: 512px画像のパス、作成に失敗した場合はNone
+        """
+        try:
+            # 1. 既存の512px画像をチェック
+            existing_512px = self.idm.check_processed_image_exists(image_id, 512)
+            if existing_512px and "stored_image_path" in existing_512px:
+                path = Path(existing_512px["stored_image_path"])
+                if path.exists():
+                    logger.debug(f"既存の512px画像を使用: image_id={image_id}, path={path}")
+                    return path
+                else:
+                    logger.warning(f"512px画像がファイルシステムに存在しません: {path}")
+
+            # 2. 512px画像が存在しない場合は作成
+            logger.info(f"512px画像を作成します: image_id={image_id}, original_path={original_path}")
+            self._process_single_image_for_resolution(original_path, image_id, 512)
+
+            # 3. 作成後に再取得
+            new_512px = self.idm.check_processed_image_exists(image_id, 512)
+            if new_512px and "stored_image_path" in new_512px:
+                path = Path(new_512px["stored_image_path"])
+                logger.info(f"512px画像の作成完了: image_id={image_id}, path={path}")
+                return path
+            else:
+                logger.error(f"512px画像の作成後にDBから取得できませんでした: image_id={image_id}")
+
+        except Exception as e:
+            logger.warning(
+                f"512px画像作成中にエラー: image_id={image_id}, original_path={original_path}, Error: {e}"
+            )
+
+        return None
+
+    def _add_upscaled_tag(self, image_id: int, upscaler_used: str | None) -> None:
+        """
+        アップスケールされた画像にupscaledタグを追加します。
+
+        Args:
+            image_id (int): 対象画像のID
+            upscaler_used (str | None): 使用されたアップスケーラー名
+        """
+        try:
+            from ..database.db_repository import TagAnnotationData
+
+            # upscaledタグを追加
+            upscaled_tag: TagAnnotationData = {
+                "tag": "upscaled",
+                "tag_id": 33138,  # データベースにある既存のupscaledタグID
+                "model_id": None,  # アップスケーラーはAIモデルではないためNone
+                "existing": False,  # 処理によって追加されたタグ
+                "is_edited_manually": False,
+                "confidence_score": None,
+            }
+
+            self.idm.save_tags(image_id, [upscaled_tag])
+            logger.info(f"upscaledタグを追加しました: image_id={image_id}, upscaler={upscaler_used}")
+
+        except Exception as e:
+            logger.warning(f"upscaledタグの追加に失敗しました: image_id={image_id}, Error: {e}")
+
+    def _process_single_image_for_resolution(
+        self, image_file: Path, image_id: int, target_resolution: int
+    ) -> None:
+        """
+        指定解像度で単一画像を処理します（既存パイプライン活用）。
+
+        Args:
+            image_file (Path): 処理対象の画像ファイルパス
+            image_id (int): データベース内の画像ID
+            target_resolution (int): 目標解像度
+        """
+        # 既存の処理済み画像をチェック
+        existing_processed_image = self.idm.check_processed_image_exists(image_id, target_resolution)
+        if existing_processed_image:
+            logger.debug(
+                f"解像度 {target_resolution} の処理済み画像が既に存在するためスキップ: {image_file}"
+            )
+            return
+
+        # 元画像のメタデータを取得
+        original_metadata = self.idm.get_image_metadata(image_id)
+        if not original_metadata:
+            logger.error(f"画像ID {image_id} のメタデータが取得できません")
+            raise RuntimeError(f"Failed to get metadata for image ID: {image_id}")
+
+        # 処理用の一時的なImageProcessingManagerを作成
+        ipm = self.create_processing_manager(target_resolution)
+
+        # アップスケーラー設定を取得（設定ファイルから）
+        image_processing_config = self.config_service.get_image_processing_config()
+        upscaler = image_processing_config.get("upscaler")
+
+        # 元画像のパスを取得（DBに保存されているパス）
+        stored_original_path = Path(original_metadata["stored_image_path"])
+
+        logger.debug(f"画像処理を実行: {image_file} -> 解像度 {target_resolution}")
+        processed_image, processing_metadata = ipm.process_image(
+            stored_original_path,
+            original_metadata.get("has_alpha", False),
+            original_metadata.get("mode", "RGB"),
+            upscaler=upscaler,
+        )
+
+        # アップスケールが実行された場合はタグを追加
+        if processing_metadata.get("was_upscaled", False):
+            logger.info(f"{image_file}: アップスケールが実行されたため、upscaledタグを追加します")
+            self._add_upscaled_tag(image_id, processing_metadata.get("upscaler_used"))
+
+        if processed_image:
+            logger.debug(f"処理結果を保存・登録: {image_file}")
+            processed_path = self.fsm.save_processed_image(processed_image, image_file, target_resolution)
+            processed_metadata = self.fsm.get_image_info(processed_path)
+
+            # アップスケール情報をメタデータに追加
+            if processing_metadata.get("was_upscaled", False):
+                processed_metadata["upscaler_used"] = processing_metadata.get("upscaler_used")
+                logger.debug(
+                    f"{image_file}: アップスケーラー情報をメタデータに追加: {processed_metadata['upscaler_used']}"
+                )
+
+            self.idm.register_processed_image(image_id, processed_path, processed_metadata)
+            logger.info(f"解像度 {target_resolution} 画像処理完了: {image_file} -> {processed_path.name}")
+        else:
+            logger.warning(f"画像処理結果がNone: {image_file}")
+            raise RuntimeError(f"Image processing returned None for {image_file}")
