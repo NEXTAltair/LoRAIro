@@ -6,7 +6,7 @@
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import ClassVar, Optional
 
 import cv2
 import numpy as np
@@ -43,7 +43,7 @@ class ImageProcessingManager:
             self.image_processor = ImageProcessor(
                 self.file_system_manager, target_resolution, preferred_resolutions
             )
-            logger.info("ImageProcessingManagerが正常に初期化。")
+            logger.info(f"ImageProcessingManagerが正常に初期化。target_resolution={target_resolution}")
 
         except Exception as e:
             message = f"ImageProcessingManagerの初期化中エラー: {e}"
@@ -55,7 +55,7 @@ class ImageProcessingManager:
         db_stored_original_path: Path,
         original_has_alpha: bool,
         original_mode: str,
-        upscaler: str = None,
+        upscaler: str | None = None,
     ) -> Image.Image | None:
         """
         画像を処理し、処理後の画像オブジェクトを返す
@@ -100,6 +100,7 @@ class ImageProcessingManager:
 
         except Exception as e:
             logger.error("画像処理中にエラーが発生しました: %s", e)
+            return None
 
 
 class ImageProcessor:
@@ -177,13 +178,35 @@ class ImageProcessor:
         return None
 
     def resize_image(self, img: Image.Image) -> Image.Image:
+        """
+        画像をリサイズします。
+
+        Args:
+            img (Image.Image): リサイズする画像
+
+        Returns:
+            Image.Image: リサイズされた画像
+
+        Raises:
+            ValueError: 無効な画像サイズまたは計算結果の場合
+        """
+        if img is None:
+            raise ValueError("入力画像がNoneです")
+
         original_width, original_height = img.size
+
+        if original_width <= 0 or original_height <= 0:
+            raise ValueError(f"無効な画像サイズです: {original_width}x{original_height}")
+
         matching_resolution = self._find_matching_resolution(original_width, original_height)
 
         if matching_resolution:
             new_width, new_height = matching_resolution
         else:
             aspect_ratio = original_width / original_height
+
+            if aspect_ratio <= 0:
+                raise ValueError(f"無効なアスペクト比です: {aspect_ratio}")
 
             # max_dimensionに基づいて長辺を計算
             if original_width > original_height:
@@ -196,6 +219,13 @@ class ImageProcessor:
             # 両辺を32の倍数に調整
             new_width = round(new_width / 32) * 32
             new_height = round(new_height / 32) * 32
+
+        # サイズの妥当性チェック
+        if new_width <= 0 or new_height <= 0:
+            raise ValueError(f"計算されたサイズが無効です: {new_width}x{new_height}")
+
+        if new_width > 8192 or new_height > 8192:
+            raise ValueError(f"計算されたサイズが大きすぎます: {new_width}x{new_height}")
 
         # アスペクト比を保ちつつ、新しいサイズでリサイズ
         return img.resize((new_width, new_height), Image.Resampling.LANCZOS)
@@ -412,7 +442,7 @@ class AutoCrop:
 
 class Upscaler:
     # TODO: 暫定的なモデルパスとスケール値､もっと追加がしやすいようにする
-    MODEL_PATHS: dict[str, tuple[Path, float]] = {
+    MODEL_PATHS: ClassVar[dict[str, tuple[Path, float]]] = {
         "RealESRGAN_x4plus": (
             Path(r"H:\StabilityMatrix-win-x64\Data\Models\RealESRGAN\RealESRGAN_x4plus.pth"),
             4.0,
@@ -420,7 +450,6 @@ class Upscaler:
     }
 
     def __init__(self, model_name: str):
-        (__name__)
         self.model_path, self.recommended_scale = self.MODEL_PATHS[model_name]
         self.model = self._load_model(self.model_path)
         self.model.cuda().eval()
@@ -430,7 +459,7 @@ class Upscaler:
         return list(cls.MODEL_PATHS.keys())
 
     @classmethod
-    def upscale_image(cls, img: Image.Image, model_name: str, scale: float = None) -> Image.Image:
+    def upscale_image(cls, img: Image.Image, model_name: str, scale: float | None = None) -> Image.Image:
         upscaler = cls(model_name)
         scale = scale or upscaler.recommended_scale
         return upscaler._upscale(img, scale)
