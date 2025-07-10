@@ -1280,38 +1280,6 @@ class ImageRepository:
                 )
                 raise
 
-    def get_image_id_by_name(self, image_name: str) -> int | None:
-        """
-        指定されたファイル名に一致するオリジナル画像のIDを取得します。
-
-        Args:
-            image_name (str): 検索するファイル名。
-
-        Returns:
-            int | None: 見つかった画像のID。見つからない場合はNone。
-
-        Raises:
-            SQLAlchemyError: データベース検索中にエラーが発生した場合。
-        """
-        if not image_name:
-            return None
-
-        with self.session_factory() as session:
-            try:
-                stmt = select(Image.id).where(Image.filename == image_name).limit(1)
-                image_id = session.execute(stmt).scalar_one_or_none()
-                if image_id:
-                    logger.info(f"ファイル名 '{image_name}' で画像 ID {image_id} が見つかりました。")
-                else:
-                    logger.info(f"ファイル名 '{image_name}' に一致する画像は見つかりませんでした。")
-                return image_id
-            except SQLAlchemyError as e:
-                logger.error(
-                    f"ファイル名による画像IDの検索中にエラーが発生しました (ファイル名: {image_name}): {e}",
-                    exc_info=True,
-                )
-                raise
-
     # --- Count Methods ---
 
     def get_total_image_count(self) -> int:

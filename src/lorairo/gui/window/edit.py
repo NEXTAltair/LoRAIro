@@ -56,7 +56,7 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         self.image_text_reader = image_text_reader
         self.main_window = main_window
         image_processing_config = self.config_service.get_image_processing_config()
-        self.target_resolution = image_processing_config.get("target_resolution", 512)
+        self.target_resolution = image_processing_config.get("target_resolution")
         self.preferred_resolutions = self.config_service.get_preferred_resolutions()
         self.upscaler = None
         upscalers = [model["name"] for model in self.config_service.get_upscaler_models()]
@@ -186,9 +186,13 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
                 self.comboBoxUpscaler.currentText() if self.comboBoxUpscaler.currentIndex() >= 0 else None
             )
 
+            # 現在の GUI 解像度を取得
+            current_resolution = self.target_resolution
+
             self.main_window.some_long_process(
                 self.image_processing_service.process_images_in_list,
                 self.directory_images,
+                current_resolution,
                 upscaler_override=selected_upscaler,
             )
 
