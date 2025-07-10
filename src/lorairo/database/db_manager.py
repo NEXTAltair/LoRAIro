@@ -28,16 +28,26 @@ class ImageDatabaseManager:
     保存、取得、更新などの操作を行います。
     """
 
-    def __init__(self, repository: ImageRepository | None = None):
+    def __init__(self, repository: ImageRepository, config_service: "ConfigurationService"):
         """
         ImageDatabaseManagerのコンストラクタ。
 
         Args:
-            repository (ImageRepository | None): 使用するImageRepositoryインスタンス。
-                                                    Noneの場合、デフォルトのインスタンスを作成します。
+            repository (ImageRepository): 使用するImageRepositoryインスタンス。
+            config_service (ConfigurationService): 設定サービスインスタンス。
         """
-        self.repository = repository or ImageRepository()
+        self.repository = repository
+        self.config_service = config_service
         logger.info("ImageDatabaseManager initialized.")
+
+    @classmethod
+    def create_default(cls) -> "ImageDatabaseManager":
+        """デフォルト設定でインスタンスを作成するファクトリメソッド"""
+        from ..services.configuration_service import ConfigurationService
+
+        repository = ImageRepository()
+        config_service = ConfigurationService()
+        return cls(repository, config_service)
 
     # __enter__ と __exit__ はリポジトリがセッション管理するため、ここでは不要になることが多い
     # 必要であれば、リポジトリのセッションファクトリを使う処理を追加できる
@@ -172,9 +182,9 @@ class ImageDatabaseManager:
             # 一時的なImageProcessingManagerを作成
             ipm = ImageProcessingManager(fsm, target_resolution, preferred_resolutions)
 
-            # アップスケーラー設定を取得（設定ファイルから）
-            # TODO: 設定サービスが利用できない場合のデフォルト値
-            upscaler = "RealESRGAN_x4plus"  # 暫定的にデフォルト値を設定
+            # アップスケーラー設定を取得（設定サービスから）
+            image_processing_config = self.config_service.get_image_processing_config()
+            upscaler = image_processing_config.get("upscaler", "RealESRGAN_x4plus")
 
             # 画像処理を実行（アップスケール情報付き）
             has_alpha = original_metadata.get("has_alpha", False)

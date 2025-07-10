@@ -206,7 +206,7 @@ if __name__ == "__main__":
     fsm = FileSystemManager()
     db_path = Path(config_data.get("database", {}).get("path", "Image_database.db"))
     image_repo = ImageRepository(session_factory=DefaultSessionLocal)
-    idm = ImageDatabaseManager(image_repo)
+    idm = ImageDatabaseManager(image_repo, config_service)
 
     widget = DatasetExportWidget()
     widget.initialize(config_service, fsm, idm)

@@ -51,7 +51,9 @@ def image_repository(test_database):
 @pytest.fixture
 def image_db_manager(image_repository):
     """ImageDatabaseManagerのインスタンス"""
-    return ImageDatabaseManager(image_repository)
+    from lorairo.services.configuration_service import ConfigurationService
+    config_service = ConfigurationService()
+    return ImageDatabaseManager(image_repository, config_service)
 
 
 @pytest.fixture
