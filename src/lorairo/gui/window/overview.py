@@ -204,7 +204,7 @@ if __name__ == "__main__":
 
     config_service = ConfigurationService()
     image_repo = ImageRepository(session_factory=DefaultSessionLocal)
-    idm = ImageDatabaseManager(image_repo)
+    idm = ImageDatabaseManager(image_repo, config_service)
     fsm = FileSystemManager()
 
     directory = Path(r"testimg/10_shira")

@@ -18,6 +18,41 @@
 
 ## Recent Major Changes
 
+### Upscaler Information Recording Implementation (2025-07-10)
+- **Feature**: Implemented comprehensive upscaler information recording system
+- **Database Extension**: Added `upscaler_used` column to ProcessedImage table with Alembic migration
+- **Metadata Tracking**: Enhanced ImageProcessingManager to return processing metadata tuples
+- **Service Integration**: Updated ImageProcessingService to record upscaler information and add upscaled tags
+- **Dependency Injection**: Refactored ImageDatabaseManager to use explicit dependency injection
+- **Configuration Fix**: Resolved hardcoded upscaler issue in automatic 512px generation
+- **Testing**: Added comprehensive unit and integration tests (11 test cases)
+- **Benefits**: 
+  - Transparent upscaler tracking for all processed images
+  - Consistent configuration usage across manual and automatic processing
+  - Better separation of concerns with explicit dependencies
+  - Complete audit trail of image processing operations
+
+### ImageProcessingManager Architecture Fix (2025-07-09)
+- **Problem**: ImageProcessingManager was cached with stale resolution, causing GUI resolution changes not to affect processing
+- **Solution**: Removed persistent instance caching, implemented temporary instance creation with current GUI resolution
+- **Changes Made**:
+  - Modified `ImageProcessingService.create_processing_manager()` to create temporary instances
+  - Updated `edit.py` to pass current resolution to processing service
+  - Removed filename-based duplicate detection in favor of pHash-only approach
+  - Implemented lazy directory creation in FileSystemManager
+- **Impact**: GUI resolution changes now properly reflect in image processing pipeline
+- **Performance**: pHash-only duplicate detection improves processing speed and accuracy
+
+### Thumbnail Generation Strategy (2025-07-09)
+- **Decision**: Use existing 512px directory for thumbnail purposes instead of creating new thumbnails directory
+- **Approach**: Automatically generate 512px images during DB registration (`register_original_image`)
+- **Benefits**: 
+  - UI display acceleration using pre-generated 512px images
+  - No additional directory structure needed
+  - Consistent with existing resolution management
+  - Cache effect for 512px resolution selection
+- **Implementation Plan**: Add 512px image generation to `ImageDatabaseManager.register_original_image()`
+
 ### Batch Processing Design Decision (2025-07-08)
 - **Decision**: Adopted simple implementation approach for batch processing optimization
 - **Approach**: Minimal changes to existing Worker + new dedicated batch function

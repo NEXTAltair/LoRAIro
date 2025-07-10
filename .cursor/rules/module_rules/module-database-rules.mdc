@@ -46,6 +46,39 @@ version: "2.0.0"
 
 ---
 
+## 7. アップスケーラー情報記録仕様 (2025/07/10追加)
+
+### 設計概要
+画像処理時に使用されたアップスケーラー情報をProcessedImageテーブルに記録する機能。学習用タグとシステム処理情報を分離するアプローチを採用。
+
+### データベース設計
+- **テーブル**: ProcessedImage
+- **新規カラム**: `upscaler_used: Mapped[str | None] = mapped_column(String)`
+- **データ形式**: 生のアップスケーラーキー名（例: "RealESRGAN_x4plus"）
+- **既存レコード**: 移行後はNULL値を維持（後方互換性）
+
+### 実装アプローチ
+1. **スキーマ拡張**: ProcessedImageテーブルとProcessedImageDictに`upscaler_used`フィールド追加
+2. **メタデータ追跡**: ImageProcessingManagerの戻り値をタプル形式に変更（Image, metadata dict）
+3. **情報記録**: 
+   - `was_upscaled=True`の場合のみ`upscaler_used`をメタデータに追加
+   - アップスケール実行時は自動的に"upscaled"タグも追加
+4. **設定統合**: ImageDatabaseManagerに依存性注入でConfigurationServiceを追加
+
+### データフロー
+```
+設定ファイル → ConfigurationService → ImageDatabaseManager → 
+ImageProcessingManager → 処理メタデータ → ProcessedImageテーブル
+```
+
+### 技術決定の根拠
+- **単一カラム**: boolean + name カラムではなく、upscaler名のみ（NULLは未実行を意味）
+- **生キー名保存**: MODEL_PATHSのキー名をそのまま記録（変換処理なし）
+- **TAG分離**: 学習用のTAGテーブルと処理情報のProcessedImageテーブルを分離
+- **後方互換性**: 既存レコードはNULLのまま保持
+
+---
+
 ## 典型的な設計パターン例
 
 ### セッション管理（Repository内）

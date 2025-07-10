@@ -263,10 +263,7 @@ class ImageTaggerWidget(QWidget, Ui_ImageTaggerWidget):
 
     def save_to_db(self):
         fsm = FileSystemManager()  # TODO: 暫定後で設計から見直す
-        fsm.initialize(
-            Path(self.config_service._config.get("directories", {}).get("output", "")),
-            self.config_service._config.get("image_processing", {}).get("target_resolution", ""),
-        )
+        fsm.initialize(Path(self.config_service._config.get("directories", {}).get("output", "")))
         for image_path, result in self.all_results.items():
             image_id = self.idm.detect_duplicate_image(image_path)
             if image_id is None:
@@ -302,9 +299,11 @@ if __name__ == "__main__":
     db_path = Path(config_data.get("database", {}).get("path", "Image_database.db"))
     from lorairo.database.db_core import DefaultSessionLocal
     from lorairo.database.db_repository import ImageRepository
+    from lorairo.services.configuration_service import ConfigurationService
 
     image_repo = ImageRepository(session_factory=DefaultSessionLocal)
-    idm = ImageDatabaseManager(image_repo)
+    config_service = ConfigurationService()
+    idm = ImageDatabaseManager(image_repo, config_service)
     fsm = FileSystemManager()
 
     test_image_dir = Path(r"TEST/testimg/1_img")

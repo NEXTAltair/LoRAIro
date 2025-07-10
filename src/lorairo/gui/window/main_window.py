@@ -38,7 +38,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def init_managers(self):
         image_repo = ImageRepository(session_factory=DefaultSessionLocal)
-        self.idm = ImageDatabaseManager(image_repo)
+        self.idm = ImageDatabaseManager(image_repo, self.config_service)
         self.fsm = FileSystemManager()
         self.image_text_reader = ImageTextFileReader(self.idm)
         self.image_processing_service = ImageProcessingService(self.config_service, self.fsm, self.idm)
@@ -112,8 +112,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # 設定を更新
             self.config_service.update_setting("directories", "database_dir", str(database_dir))
 
-        # FileSystemManagerの初期化 - 1024をデフォルト解像度として使用
-        self.fsm.initialize(database_dir, 1024)
+        # FileSystemManagerの初期化 - 基本的なディレクトリ構造のみ作成
+        self.fsm.initialize(database_dir)
 
         # プログレスウィジェットを表示
         self.progress_widget.show()
