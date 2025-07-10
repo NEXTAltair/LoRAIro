@@ -28,16 +28,33 @@ class ImageDatabaseManager:
     保存、取得、更新などの操作を行います。
     """
 
-    def __init__(self, repository: ImageRepository | None = None):
+    def __init__(
+        self,
+        repository: ImageRepository,
+        config_service: "ConfigurationService",
+        fsm: "FileSystemManager" = None,
+    ):
         """
         ImageDatabaseManagerのコンストラクタ。
 
         Args:
-            repository (ImageRepository | None): 使用するImageRepositoryインスタンス。
-                                                    Noneの場合、デフォルトのインスタンスを作成します。
+            repository (ImageRepository): 使用するImageRepositoryインスタンス。
+            config_service (ConfigurationService): 設定サービスインスタンス。
+            fsm (FileSystemManager): ファイルシステムマネージャー（オプション）。
         """
-        self.repository = repository or ImageRepository()
+        self.repository = repository
+        self.config_service = config_service
+        self.fsm = fsm
         logger.info("ImageDatabaseManager initialized.")
+
+    @classmethod
+    def create_default(cls) -> "ImageDatabaseManager":
+        """デフォルト設定でインスタンスを作成するファクトリメソッド"""
+        from ..services.configuration_service import ConfigurationService
+
+        repository = ImageRepository()
+        config_service = ConfigurationService()
+        return cls(repository, config_service)
 
     # __enter__ と __exit__ はリポジトリがセッション管理するため、ここでは不要になることが多い
     # 必要であれば、リポジトリのセッションファクトリを使う処理を追加できる
@@ -78,6 +95,25 @@ class ImageDatabaseManager:
             existing_id = self.repository.find_duplicate_image_by_phash(phash)
             if existing_id is not None:
                 logger.warning(f"重複画像を検出 (pHash): 既存ID={existing_id}, Path={image_path}")
+                # 重複画像の場合、既存の512px画像があるかチェックし、なければ生成
+                try:
+                    existing_512px = self.check_processed_image_exists(existing_id, 512)
+                    if not existing_512px:
+                        logger.info(
+                            f"重複画像に512px画像が存在しないため、生成を試行します: ID={existing_id}"
+                        )
+                        # 既存のメタデータを取得
+                        existing_metadata = self.repository.get_image_metadata(existing_id)
+                        if existing_metadata:
+                            stored_path = Path(existing_metadata["stored_image_path"])
+                            self._generate_thumbnail_512px(existing_id, stored_path, existing_metadata, fsm)
+                    else:
+                        logger.debug(f"重複画像に512px画像が既に存在します: ID={existing_id}")
+                except Exception as e:
+                    logger.warning(
+                        f"重複画像の512px生成チェック中にエラー (処理続行): ID={existing_id}, Error: {e}"
+                    )
+
                 # TODO: 重複した場合、既存のメタデータを返すか?
                 # existing_metadata = self.repository.get_image_metadata(existing_id)
                 # return existing_id, existing_metadata or {}
@@ -103,6 +139,16 @@ class ImageDatabaseManager:
             # 6. データベースに挿入
             image_id = self.repository.add_original_image(original_metadata)
             logger.info(f"オリジナル画像を登録しました: ID={image_id}, Path={image_path}")
+
+            # 7. 512px サムネイル画像の自動生成
+            try:
+                self._generate_thumbnail_512px(image_id, db_stored_original_path, original_metadata, fsm)
+            except Exception as e:
+                logger.warning(
+                    f"512px サムネイル生成に失敗しましたが、処理を続行します: {image_path}, Error: {e}"
+                )
+                # サムネイル生成の失敗はオリジナル画像登録の成功を妨げない
+
             return image_id, original_metadata
 
         except Exception as e:
@@ -111,6 +157,84 @@ class ImageDatabaseManager:
                 exc_info=True,
             )
             return None
+
+    def _generate_thumbnail_512px(
+        self, image_id: int, original_path: Path, original_metadata: dict[str, Any], fsm: FileSystemManager
+    ) -> None:
+        """
+        512px サムネイル画像を生成し、データベースに登録します。
+
+        Args:
+            image_id (int): 元画像のID
+            original_path (Path): 保存されたオリジナル画像のパス
+            original_metadata (dict[str, Any]): 元画像のメタデータ
+            fsm (FileSystemManager): ファイルシステムマネージャー
+        """
+        from PIL import Image
+
+        from ..editor.image_processor import ImageProcessor
+
+        # 元画像サイズを確認（アップスケール対応のため512px以下もスキップしない）
+        original_width = original_metadata.get("width", 0)
+        original_height = original_metadata.get("height", 0)
+        logger.debug(f"512px画像生成開始: ID={image_id}, 元サイズ={original_width}x{original_height}")
+
+        try:
+            # ImageProcessingManager を使用して512px解像度で処理（アップスケール対応）
+            from ..editor.image_processor import ImageProcessingManager
+
+            target_resolution = 512
+            preferred_resolutions = [(512, 512)]  # 基本的な512x512解像度
+
+            # 一時的なImageProcessingManagerを作成
+            ipm = ImageProcessingManager(fsm, target_resolution, preferred_resolutions)
+
+            # アップスケーラー設定を取得（設定サービスから）
+            image_processing_config = self.config_service.get_image_processing_config()
+            upscaler = image_processing_config.get("upscaler", "RealESRGAN_x4plus")
+
+            # 画像処理を実行（アップスケール情報付き）
+            has_alpha = original_metadata.get("has_alpha", False)
+            mode = original_metadata.get("mode", "RGB")
+            processed_image, processing_metadata = ipm.process_image(
+                original_path, has_alpha, mode, upscaler=upscaler
+            )
+
+            if processed_image:
+                # 512px画像を保存
+                processed_path = fsm.save_processed_image(processed_image, original_path, target_resolution)
+
+                # 処理済み画像のメタデータを取得
+                processed_metadata = fsm.get_image_info(processed_path)
+
+                # アップスケール情報をメタデータに追加
+                if processing_metadata.get("was_upscaled", False):
+                    processed_metadata["upscaler_used"] = processing_metadata.get("upscaler_used")
+                    logger.info(
+                        f"512px生成時にアップスケールを実行: {processing_metadata.get('upscaler_used')}"
+                    )
+
+                # データベースに512px画像を登録
+                processed_id = self.register_processed_image(image_id, processed_path, processed_metadata)
+
+                if processed_id:
+                    logger.info(
+                        f"512px サムネイル画像を生成・登録しました: 元画像ID={image_id}, 処理済みID={processed_id}, Path={processed_path.name}"
+                    )
+                else:
+                    logger.warning(
+                        f"512px サムネイル画像の生成は成功しましたが、DB登録に失敗しました: 元画像ID={image_id}"
+                    )
+            else:
+                logger.warning(f"512px画像の処理が失敗しました: 元画像ID={image_id}")
+                raise RuntimeError(f"ImageProcessingManager returned None for image ID: {image_id}")
+
+        except Exception as e:
+            logger.error(
+                f"512px サムネイル生成中にエラーが発生しました: 元画像ID={image_id}, Error: {e}",
+                exc_info=True,
+            )
+            raise
 
     def register_processed_image(
         self, image_id: int, processed_path: Path, info: dict[str, Any]
@@ -429,7 +553,7 @@ class ImageDatabaseManager:
     def detect_duplicate_image(self, image_path: Path) -> int | None:
         """
         画像の重複を検出し、重複する場合はその画像のIDを返す。
-        ファイル名での検索とpHashでの検索を組み合わせます。
+        pHashベースの視覚的重複検出を使用します。
 
         Args:
             image_path (Path): 検査する画像ファイルのパス
@@ -440,13 +564,7 @@ class ImageDatabaseManager:
         image_name = image_path.name
 
         try:
-            # 1. ファイル名で検索
-            image_id = self.repository.get_image_id_by_name(image_name)
-            if image_id is not None:
-                logger.info(f"重複検出: ファイル名一致 ID={image_id}, Name={image_name}")
-                return image_id
-
-            # 2. ファイル名で見つからなければ pHash で検索
+            # pHash で視覚的重複検出
             try:
                 phash = calculate_phash(image_path)
             except Exception as e:
@@ -474,6 +592,42 @@ class ImageDatabaseManager:
         except Exception as e:
             logger.error(f"総画像数の取得中にエラーが発生しました: {e}", exc_info=True)
             return 0  # エラー時は0を返す
+
+    def get_image_ids_from_directory(self, directory_path: Path) -> list[int]:
+        """
+        指定されたディレクトリに含まれる画像のIDリストを取得します。
+
+        Args:
+            directory_path (Path): 検索対象のディレクトリパス
+
+        Returns:
+            list[int]: 該当する画像のIDリスト
+        """
+        try:
+            # ディレクトリ内の画像ファイルを取得
+            if not self.fsm:
+                from ..storage.file_system import FileSystemManager
+
+                temp_fsm = FileSystemManager()
+                image_files = temp_fsm.get_image_files(directory_path)
+            else:
+                image_files = self.fsm.get_image_files(directory_path)
+            image_ids = []
+
+            for image_file in image_files:
+                # pHashで重複検出（既存画像のID取得）
+                image_id = self.detect_duplicate_image(image_file)
+                if image_id:
+                    image_ids.append(image_id)
+
+            logger.info(f"ディレクトリ {directory_path} から {len(image_ids)} 件の画像IDを取得しました")
+            return image_ids
+
+        except Exception as e:
+            logger.error(
+                f"ディレクトリからの画像ID取得中にエラー: {directory_path}, Error: {e}", exc_info=True
+            )
+            return []
 
     def check_processed_image_exists(self, image_id: int, target_resolution: int) -> dict[str, Any] | None:
         """

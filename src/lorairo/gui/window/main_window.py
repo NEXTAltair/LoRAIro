@@ -38,8 +38,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def init_managers(self):
         image_repo = ImageRepository(session_factory=DefaultSessionLocal)
-        self.idm = ImageDatabaseManager(image_repo)
         self.fsm = FileSystemManager()
+        self.idm = ImageDatabaseManager(image_repo, self.config_service, self.fsm)
         self.image_text_reader = ImageTextFileReader(self.idm)
         self.image_processing_service = ImageProcessingService(self.config_service, self.fsm, self.idm)
         self.progress_widget = ProgressWidget()
@@ -99,6 +99,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # FileSystemManagerを初期化
         # データベースディレクトリから出力ディレクトリを決定
         database_dir = self.config_service.get_database_directory()
+        logger.info(f"設定から取得したデータベースディレクトリ: {database_dir}")
+
         if not database_dir or database_dir == Path("database"):
             # デフォルトまたは設定がない場合、database_base_dirを使用
             base_dir = Path(
@@ -109,11 +111,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             project_name = f"batch_project_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             database_dir = base_dir / project_name
+            logger.info(f"新しいプロジェクトディレクトリを作成: {database_dir}")
             # 設定を更新
             self.config_service.update_setting("directories", "database_dir", str(database_dir))
+        else:
+            logger.info(f"既存のプロジェクトディレクトリを使用: {database_dir}")
 
-        # FileSystemManagerの初期化 - 1024をデフォルト解像度として使用
-        self.fsm.initialize(database_dir, 1024)
+        # FileSystemManagerの初期化 - 基本的なディレクトリ構造のみ作成
+        self.fsm.initialize(database_dir)
 
         # プログレスウィジェットを表示
         self.progress_widget.show()
@@ -131,6 +136,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # バッチ進捗シグナルの接続（ワーカー作成後）
         if hasattr(self.progress_controller, "worker") and self.progress_controller.worker:
             self.progress_controller.worker.batch_progress.connect(self.on_batch_progress)
+            # バッチ処理完了シグナルの接続
+            self.progress_controller.worker.finished.connect(
+                lambda: self.on_batch_completed(directory_path)
+            )
 
     def on_batch_progress(self, current: int, total: int, filename: str):
         """バッチ進捗の詳細表示"""
@@ -141,6 +150,27 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if hasattr(self.progress_widget, "setWindowTitle"):
             percentage = int((current / total) * 100) if total > 0 else 0
             self.progress_widget.setWindowTitle(f"バッチ処理 - {percentage}% 完了")
+
+    def on_batch_completed(self, directory_path: Path):
+        """バッチ処理完了後のコールバック"""
+        try:
+            # データベースから処理済み画像IDを取得
+            image_ids = self.idm.get_image_ids_from_directory(directory_path)
+
+            # TODO: dataset_image_paths を dataset_image_ids に名前変更予定
+            self.dataset_image_paths = image_ids
+
+            logger.info(f"バッチ処理完了: {len(image_ids)} 件の画像IDを取得しました")
+            self.statusbar.showMessage(f"バッチ処理完了: {len(image_ids)} 件の画像を処理しました")
+
+            # 編集ウィンドウが現在表示されている場合、自動的に更新
+            if self.contentStackedWidget.currentIndex() == 0:  # Edit window is index 0
+                self.pageImageEdit.load_images(image_ids)
+                logger.info("編集ウィンドウを自動更新しました")
+
+        except Exception as e:
+            logger.error(f"バッチ処理完了後の画像ID取得中にエラー: {e}", exc_info=True)
+            self.statusbar.showMessage("バッチ処理完了（画像ID取得エラー）")
 
     def closeEvent(self, event):
         if (

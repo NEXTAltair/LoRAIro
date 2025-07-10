@@ -9,7 +9,7 @@ The LoRAIro project is in an active development phase focusing on standardizing 
 ### High Priority (In Progress)
 
 #### T1: Implementation Phase - Clarified Requirements (NEW - 2025/07/06)
-- **Status**: Ready to Start
+- **Status**: Partially Complete
 - **Description**: Implement the clarified requirements from 2025/07/06 requirements analysis session
 - **Requirements Clarified**:
   - ✅ Performance: DB registration 1000 images/5 minutes, 100-image batches
@@ -22,6 +22,43 @@ The LoRAIro project is in an active development phase focusing on standardizing 
   - [ ] Implement 100-image batch processing architecture
   - [ ] Add API key masking in logging system
   - [ ] Create retry policy with policy violation warnings
+
+#### T1.1: ImageProcessingManager Architecture Fix (COMPLETED - 2025/07/09)
+- **Status**: ✅ Completed
+- **Description**: Fixed ImageProcessingManager resolution caching issue
+- **Completed Tasks**:
+  - ✅ Removed persistent ImageProcessingManager instance caching
+  - ✅ Implemented temporary instance creation with current GUI resolution
+  - ✅ Updated `ImageProcessingService.create_processing_manager()` method
+  - ✅ Modified `edit.py` to pass current resolution to processing service
+  - ✅ Removed filename-based duplicate detection in favor of pHash-only approach
+  - ✅ Implemented lazy directory creation in FileSystemManager
+- **Impact**: GUI resolution changes now properly reflect in image processing pipeline
+
+#### T1.2: Upscaler Information Recording (COMPLETED - 2025/07/10)
+- **Status**: ✅ Completed
+- **Description**: Implement comprehensive upscaler information recording system
+- **Completed Tasks**:
+  - ✅ Added `upscaler_used` column to ProcessedImage schema with Alembic migration
+  - ✅ Enhanced ImageProcessingManager to return processing metadata tuples
+  - ✅ Updated ImageProcessingService to record upscaler information
+  - ✅ Implemented automatic upscaled tag addition for processed images
+  - ✅ Refactored ImageDatabaseManager with explicit dependency injection
+  - ✅ Fixed hardcoded upscaler issue in automatic 512px generation
+  - ✅ Added comprehensive unit and integration tests (11 test cases)
+  - ✅ Updated all ImageDatabaseManager instantiation sites across the codebase
+- **Impact**: Complete audit trail of upscaler usage and consistent configuration across processing pipelines
+
+#### T1.3: Thumbnail Generation Strategy (PLANNED - 2025/07/09)
+- **Status**: Planning Complete
+- **Description**: Implement automatic 512px thumbnail generation during DB registration
+- **Strategy**: Use existing 512px directory for thumbnail purposes
+- **Implementation Tasks**:
+  - [x] Add 512px image generation to `ImageDatabaseManager.register_original_image()` (completed via upscaler work)
+  - [ ] Implement aspect ratio preservation in thumbnail generation
+  - [ ] Add WebP format support for thumbnails
+  - [ ] Update UI components to use 512px images for display
+  - [ ] Add thumbnail generation to batch processing workflow
 
 #### T2: Context Structure Migration
 - **Status**: 95% Complete  

@@ -6,7 +6,7 @@
 """
 
 from pathlib import Path
-from typing import ClassVar, Optional
+from typing import Any, ClassVar, Optional
 
 import cv2
 import numpy as np
@@ -28,12 +28,12 @@ class ImageProcessingManager:
     ):
         """
         ImageProcessingManagerを初期化
-        デフォルト値はmodule/config.pyに定義
+        一時的なインスタンスとして使用し、処理完了後は破棄される
 
         Args:
             file_system_manager (FileSystemManager): ファイルシステムマネージャ
-            target_resolution (int): 目標解像度
-            preferred_resolutions (list[tuple[int, int]]): 優先解像度リスト #TODO: 解像度じゃなくてアスペクト比表記のほうがいいかも
+            target_resolution (int): 目標解像度（GUI で指定された現在の値）
+            preferred_resolutions (list[tuple[int, int]]): 優先解像度リスト
         """
         self.file_system_manager = file_system_manager
         self.target_resolution = target_resolution
@@ -56,9 +56,9 @@ class ImageProcessingManager:
         original_has_alpha: bool,
         original_mode: str,
         upscaler: str | None = None,
-    ) -> Image.Image | None:
+    ) -> tuple[Image.Image | None, dict[str, Any]]:
         """
-        画像を処理し、処理後の画像オブジェクトを返す
+        画像を処理し、処理後の画像オブジェクトと処理メタデータを返す
 
         Args:
             db_stored_original_path (Path): 処理する画像ファイルのパス
@@ -67,9 +67,15 @@ class ImageProcessingManager:
             upscaler (str): アップスケーラーの名前
 
         Returns:
-            Optional[Image.Image]: 処理済み画像オブジェクト。処理不要の場合はNone
+            tuple[Image.Image | None, dict[str, Any]]: (処理済み画像オブジェクト, 処理メタデータ)
+                処理メタデータには以下が含まれる:
+                - was_upscaled (bool): アップスケールが実行されたかどうか
+                - upscaler_used (str | None): 使用されたアップスケーラー名
 
         """
+        # 処理メタデータを初期化
+        processing_metadata = {"was_upscaled": False, "upscaler_used": None}
+
         try:
             with Image.open(db_stored_original_path) as img:
                 cropped_img = AutoCrop.auto_crop_image(img)
@@ -79,7 +85,7 @@ class ImageProcessingManager:
                 )
 
                 if max(cropped_img.width, cropped_img.height) < self.target_resolution:
-                    if upscaler:  # TODO: アップスケールした画像はそれを示すデータも保存すべきか?
+                    if upscaler:
                         if converted_img.mode == "RGBA":
                             logger.info(
                                 f"RGBA 画像のためアップスケールをスキップ: {db_stored_original_path}"
@@ -89,18 +95,23 @@ class ImageProcessingManager:
                                 f"長編が指定解像度未満のため{db_stored_original_path}をアップスケールします: {upscaler}"
                             )
                             converted_img = Upscaler.upscale_image(converted_img, upscaler)
+
+                            # アップスケール実行をメタデータに記録
+                            processing_metadata["was_upscaled"] = True
+                            processing_metadata["upscaler_used"] = upscaler
+
                             if max(converted_img.width, converted_img.height) < self.target_resolution:
                                 logger.info(
                                     f"画像サイズが小さすぎるため処理をスキップ: {db_stored_original_path}"
                                 )
-                                return None
+                                return None, processing_metadata
                 resized_img = self.image_processor.resize_image(converted_img)
 
-                return resized_img
+                return resized_img, processing_metadata
 
         except Exception as e:
             logger.error("画像処理中にエラーが発生しました: %s", e)
-            return None
+            return None, processing_metadata
 
 
 class ImageProcessor:

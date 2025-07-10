@@ -46,6 +46,39 @@ version: "2.0.0"
 
 ---
 
+## 7. アップスケーラー情報記録仕様 (2025/07/10追加)
+
+### 設計概要
+画像処理時に使用されたアップスケーラー情報をProcessedImageテーブルに記録する機能。学習用タグとシステム処理情報を分離するアプローチを採用。
+
+### データベース設計
+- **テーブル**: ProcessedImage
+- **新規カラム**: `upscaler_used: Mapped[str | None] = mapped_column(String)`
+- **データ形式**: 生のアップスケーラーキー名（例: "RealESRGAN_x4plus"）
+- **既存レコード**: 移行後はNULL値を維持（後方互換性）
+
+### 実装アプローチ
+1. **スキーマ拡張**: ProcessedImageテーブルとProcessedImageDictに`upscaler_used`フィールド追加
+2. **メタデータ追跡**: ImageProcessingManagerの戻り値をタプル形式に変更（Image, metadata dict）
+3. **情報記録**: 
+   - `was_upscaled=True`の場合のみ`upscaler_used`をメタデータに追加
+   - アップスケール実行時は自動的に"upscaled"タグも追加
+4. **設定統合**: ImageDatabaseManagerに依存性注入でConfigurationServiceを追加
+
+### データフロー
+```
+設定ファイル → ConfigurationService → ImageDatabaseManager → 
+ImageProcessingManager → 処理メタデータ → ProcessedImageテーブル
+```
+
+### 技術決定の根拠
+- **単一カラム**: boolean + name カラムではなく、upscaler名のみ（NULLは未実行を意味）
+- **生キー名保存**: MODEL_PATHSのキー名をそのまま記録（変換処理なし）
+- **TAG分離**: 学習用のTAGテーブルと処理情報のProcessedImageテーブルを分離
+- **後方互換性**: 既存レコードはNULLのまま保持
+
+---
+
 ## 典型的な設計パターン例
 
 ### セッション管理（Repository内）
@@ -118,5 +151,71 @@ flowchart TD
 - AlembicマイグレーションでDBスキーマを一元管理
 - 新機能追加時は必ずテスト・ドキュメントもセットで
 - 既存コードの責務が増えたら分割・リファクタリングを検討
+
+---
+
+## アップスケーラー情報記録機能設計決定 (2025-07-10)
+
+### 概要
+ProcessedImageテーブルにアップスケーラー情報を記録し、どの画像がどのアップスケーラーで処理されたかを追跡可能にする機能の設計仕様。
+
+### 設計方針
+- 学習用TAGテーブルとシステム処理情報の分離
+- 既存コードへの影響を最小限に抑制
+- わかりやすくシンプルな実装
+
+### スキーマ変更
+```sql
+-- ProcessedImageテーブルに追加するカラム（1つのみ）
+upscaler_used: Mapped[str | None] = mapped_column(String)
+```
+
+### データ仕様
+- **アップスケール実行時**: `"RealESRGAN_x4plus"` (MODEL_PATHSのキー名)
+- **アップスケール未実行**: `NULL`
+- **既存レコード**: マイグレーション後も `NULL` を維持
+- **判定ロジック**: `upscaler_used IS NOT NULL` でアップスケール済み判定
+
+### TypedDict更新
+```python
+class ProcessedImageDict(TypedDict):
+    # 既存フィールド...
+    upscaler_used: NotRequired[str | None]  # オプショナルフィールド
+```
+
+### 実装方針
+1. **データ登録**: 既存の`info`辞書にメタデータを含める方式
+2. **512px統一**: `_generate_thumbnail_512px()`で`ImageProcessingManager`使用
+3. **一意性制約**: 現在の制約を維持（最新で上書き）
+
+### 実装場所
+```python
+# ImageProcessingService._process_single_image() 内
+processed_image, processing_metadata = ipm.process_image(...)
+if processed_image:
+    processed_path = self.fsm.save_processed_image(...)
+    processed_metadata = self.fsm.get_image_info(processed_path)
+    
+    # アップスケール情報を追加
+    processed_metadata["upscaler_used"] = processing_metadata.get("upscaler_used")
+    
+    self.idm.register_processed_image(image_id, processed_path, processed_metadata)
+```
+
+### 変更対象ファイル
+- `src/lorairo/database/schema.py` - スキーマ拡張
+- `src/lorairo/services/image_processing_service.py` - メタデータ渡し
+- `src/lorairo/database/db_manager.py` - 512px生成統一
+- 新規: Alembicマイグレーションファイル
+
+### 実装順序
+1. スキーマ更新とマイグレーション
+2. ImageProcessingService更新
+3. ImageDatabaseManager更新
+4. 表示機能実装（後回し可）
+
+**決定日**: 2025-07-10  
+**ステータス**: 確定  
+**承認者**: プロジェクト要件に基づく設計決定
 
 ```

@@ -150,8 +150,10 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             index (int): アイテムのインデックス #TODO: 何に対してのインデックスか俺もわかってない
             column_count (int): グリッドの列数
         """
+        # 512px画像があればそれを使用、なければ元画像を使用
+        thumbnail_path = self._get_thumbnail_path(image_path)
 
-        pixmap = QPixmap(str(image_path)).scaled(
+        pixmap = QPixmap(str(thumbnail_path)).scaled(
             self.thumbnail_size,
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
@@ -164,6 +166,107 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         x = col * self.thumbnail_size.width()
         y = row * self.thumbnail_size.height()
         item.setPos(x, y)
+
+    def load_images_with_ids(self, image_data: list[tuple[Path, int]]):
+        """
+        画像パスとIDのペアでサムネイルをロードします。
+        512px画像が利用可能な場合はそれを使用し、なければ作成してパフォーマンスを向上させます。
+
+        Args:
+            image_data (list[tuple[Path, int]]): (画像パス, 画像ID) のタプルのリスト
+        """
+        self.image_paths = [path for path, _ in image_data]
+        self.image_data = image_data  # IDも保持
+        self.update_thumbnail_layout_with_ids()
+
+    def update_thumbnail_layout_with_ids(self):
+        """
+        画像IDを使用してシーン内のサムネイルをグリッドレイアウトで配置します。
+        """
+        self.scene.clear()
+        self.thumbnail_items.clear()
+        button_width = self.thumbnail_size.width()
+        grid_width = self.scrollAreaThumbnails.viewport().width()
+        column_count = max(grid_width // button_width, 1)
+
+        for i, (image_path, image_id) in enumerate(self.image_data):
+            self.add_thumbnail_item_with_id(image_path, image_id, i, column_count)
+
+        row_count = (len(self.image_data) + column_count - 1) // column_count
+        scene_height = row_count * self.thumbnail_size.height()
+        self.scene.setSceneRect(0, 0, grid_width, scene_height)
+
+    def add_thumbnail_item_with_id(self, image_path: Path, image_id: int, index: int, column_count: int):
+        """
+        画像IDを使用して指定されたグリッド位置にサムネイルアイテムをシーンに追加します。
+
+        Args:
+            image_path (Path): 元画像のファイルパス
+            image_id (int): データベース内の画像ID
+            index (int): アイテムのインデックス
+            column_count (int): グリッドの列数
+        """
+        # 512px画像を取得または作成
+        thumbnail_path = self._get_or_create_512px_by_id(image_id, image_path)
+
+        pixmap = QPixmap(str(thumbnail_path)).scaled(
+            self.thumbnail_size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        item = ThumbnailItem(pixmap, image_path, self)
+        self.scene.addItem(item)
+        self.thumbnail_items.append(item)
+        row = index // column_count
+        col = index % column_count
+        x = col * self.thumbnail_size.width()
+        y = row * self.thumbnail_size.height()
+        item.setPos(x, y)
+
+    def _get_or_create_512px_by_id(self, image_id: int, original_path: Path) -> Path:
+        """
+        画像IDから512px画像パスを取得し、存在しなければ作成します。
+
+        Args:
+            image_id (int): データベース内の画像ID
+            original_path (Path): 元画像のパス
+
+        Returns:
+            Path: 512px画像のパス（作成失敗時は元画像パス）
+        """
+        try:
+            # 画像処理サービスを取得
+            image_processing_service = self._get_image_processing_service()
+            if not image_processing_service:
+                logger.debug(f"画像処理サービスが見つからないため元画像を使用: image_id={image_id}")
+                return original_path
+
+            # 512px画像を取得または作成
+            thumbnail_path = image_processing_service.ensure_512px_image(image_id, original_path)
+            if thumbnail_path:
+                logger.debug(f"512px画像を使用: image_id={image_id} -> {thumbnail_path}")
+                return thumbnail_path
+            else:
+                logger.warning(f"512px画像の取得/作成に失敗、元画像を使用: image_id={image_id}")
+
+        except Exception as e:
+            logger.warning(f"512px画像取得中にエラー、元画像を使用: image_id={image_id}, Error: {e}")
+
+        return original_path
+
+    def _get_image_processing_service(self):
+        """
+        親ウィジェットの階層から画像処理サービスを取得します。
+
+        Returns:
+            ImageProcessingService | None: 画像処理サービスまたはNone
+        """
+        widget = self.parent()
+        while widget:
+            if hasattr(widget, "image_processing_service") and widget.image_processing_service:
+                return widget.image_processing_service
+            widget = widget.parent()
+        return None
 
     def handle_item_selection(self, item: ThumbnailItem, modifiers: Qt.KeyboardModifier):
         """

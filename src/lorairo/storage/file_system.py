@@ -48,35 +48,30 @@ class FileSystemManager:
             logger.error("FileSystemManager使用中にエラーが発生: %s", exc_val)
         return False  # 例外を伝播させる
 
-    def initialize(self, output_dir: Path, target_resolution: int):
+    def initialize(self, output_dir: Path):
         """
-        FileSystemManagerを初期化｡ 2つの引数はGUI操作で変更可能
+        FileSystemManagerを初期化｡ 基本的なディレクトリ構造のみ作成
 
         Args:
             output_dir (Path): 出力ディレクトリのパス
-            target_resolution (int): 学習元モデルのベース解像度
         """
         # 画像出力ディレクトリをセットアップ
         self.image_dataset_dir = output_dir / "image_dataset"
         original_dir = self.image_dataset_dir / "original_images"
-        self.resolution_dir = self.image_dataset_dir / str(target_resolution)
 
         # 日付ベースのサブディレクトリ
         current_date = datetime.now().strftime("%Y/%m/%d")
         self.original_images_dir = original_dir / current_date
-        self.resized_images_dir = self.resolution_dir / current_date
 
         # batch Request jsonl ファイルの保存先
         self.batch_request_dir = output_dir / "batch_request_jsonl"
 
-        # 必要なすべてのディレクトリを作成
+        # 基本的なディレクトリのみ作成（解像度ディレクトリは遅延作成）
         directories_to_create = [
             output_dir,
             self.image_dataset_dir,
             original_dir,
-            self.resolution_dir,
             self.original_images_dir,
-            self.resized_images_dir,
             self.batch_request_dir,
         ]
         for dir_path in directories_to_create:
@@ -84,6 +79,29 @@ class FileSystemManager:
 
         self.initialized = True
         logger.debug("FileSystemManagerが正常に初期化されました。")
+
+    def get_resolution_dir(self, target_resolution: int) -> Path:
+        """
+        解像度ディレクトリを取得し、存在しなければ作成する
+
+        Args:
+            target_resolution (int): 学習元モデルのベース解像度
+
+        Returns:
+            Path: 解像度ディレクトリのパス
+        """
+        if not self.initialized:
+            raise RuntimeError("FileSystemManagerが初期化されていません。")
+
+        resolution_dir = self.image_dataset_dir / str(target_resolution)
+        current_date = datetime.now().strftime("%Y/%m/%d")
+        resized_images_dir = resolution_dir / current_date
+
+        # 解像度ディレクトリを必要時に作成
+        self._create_directory(resolution_dir)
+        self._create_directory(resized_images_dir)
+
+        return resized_images_dir
 
     def _create_directory(self, path: str | Path):
         """
@@ -186,20 +204,24 @@ class FileSystemManager:
             )
             raise
 
-    def save_processed_image(self, image: Image.Image, original_path: Path) -> Path:
+    def save_processed_image(self, image: Image.Image, original_path: Path, target_resolution: int) -> Path:
         """
         処理済みの画像を保存｡
 
         Args:
             image (Image.Image): 保存する画像オブジェクト
-            original_filename (Path): 元のファイルpath
+            original_path (Path): 元のファイルpath
+            target_resolution (int): 学習元モデルのベース解像度
 
         Returns:
             Path: 保存された画像のパス
         """
         try:
+            # 解像度ディレクトリを動的に取得
+            resized_images_dir = self.get_resolution_dir(target_resolution)
+
             parent_name = original_path.parent.name
-            parent_dir = self.resized_images_dir / parent_name  # type: ignore
+            parent_dir = resized_images_dir / parent_name
             self._create_directory(parent_dir)
 
             sequence = self._get_next_sequence_number(parent_dir)
