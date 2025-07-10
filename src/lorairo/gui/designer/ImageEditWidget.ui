@@ -162,11 +162,6 @@
          <widget class="QComboBox" name="comboBoxResizeOption">
           <item>
            <property name="text">
-            <string>512x512</string>
-           </property>
-          </item>
-          <item>
-           <property name="text">
             <string>768x768</string>
            </property>
           </item>
