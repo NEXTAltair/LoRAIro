@@ -39,21 +39,19 @@ class TestRunAnnotationTask:
         models = ["test_model"]
         mock_result = {"test_hash": {"test_model": {"tags": ["tag1"], "error": None}}}
         mock_annotate.return_value = mock_result
-        
+
         progress_callback = Mock()
         status_callback = Mock()
 
         # Act
         result = run_annotation_task(
-            images, phash_list, models,
-            progress_callback=progress_callback,
-            status_callback=status_callback
+            images, phash_list, models, progress_callback=progress_callback, status_callback=status_callback
         )
 
         # Assert
         mock_annotate.assert_called_once_with(images, models, phash_list)
         assert result == mock_result
-        
+
         # コールバックが呼ばれることを確認
         progress_callback.assert_any_call(10)  # 開始時
         progress_callback.assert_any_call(100)  # 完了時
@@ -67,16 +65,13 @@ class TestRunAnnotationTask:
         images = [Mock(spec=Image.Image)]
         phash_list = ["test_hash"]
         models = ["test_model"]
-        
+
         is_canceled = Mock(return_value=True)
 
         # Act & Assert
         with pytest.raises(RuntimeError, match="アノテーション処理がキャンセルされました"):
-            run_annotation_task(
-                images, phash_list, models,
-                is_canceled=is_canceled
-            )
-        
+            run_annotation_task(images, phash_list, models, is_canceled=is_canceled)
+
         # annotate が呼ばれないことを確認
         mock_annotate.assert_not_called()
 
@@ -88,16 +83,13 @@ class TestRunAnnotationTask:
         phash_list = ["test_hash"]
         models = ["test_model"]
         mock_annotate.side_effect = ValueError("Test error")
-        
+
         status_callback = Mock()
 
         # Act & Assert
         with pytest.raises(ValueError, match="Test error"):
-            run_annotation_task(
-                images, phash_list, models,
-                status_callback=status_callback
-            )
-        
+            run_annotation_task(images, phash_list, models, status_callback=status_callback)
+
         # エラーメッセージがコールバックに送られることを確認
         status_callback.assert_any_call("エラー: Test error")
 
@@ -235,10 +227,12 @@ class TestAnnotationService:
         test_result = {"test": "result"}
         service._annotation_result = test_result
 
-        with patch.object(service, "annotationFinished") as mock_signal, \
-             patch.object(service, "_reset_controller") as mock_reset:
+        with (
+            patch.object(service, "annotationFinished") as mock_signal,
+            patch.object(service, "_reset_controller") as mock_reset,
+        ):
             service._handle_annotation_finished()
-            
+
             mock_signal.emit.assert_called_once_with(test_result)
             mock_reset.assert_called_once()
 
@@ -247,10 +241,12 @@ class TestAnnotationService:
         service = AnnotationService()
         error_message = "Test error"
 
-        with patch.object(service, "annotationError") as mock_signal, \
-             patch.object(service, "_reset_controller") as mock_reset:
+        with (
+            patch.object(service, "annotationError") as mock_signal,
+            patch.object(service, "_reset_controller") as mock_reset,
+        ):
             service._handle_annotation_error(error_message)
-            
+
             mock_signal.emit.assert_called_once_with(error_message)
             mock_reset.assert_called_once()
 

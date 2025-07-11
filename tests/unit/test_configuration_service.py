@@ -30,7 +30,9 @@ class TestConfigurationService:
             # Then: デフォルト設定が読み込まれる（ファイルは作成されない）
             assert not config_path.exists()  # ファイルは作成されない
             assert config_service.get_setting("api", "openai_key", None) == ""
-            assert config_service.get_setting("directories", "database_dir", None) == ""  # 新しいデフォルト値
+            assert (
+                config_service.get_setting("directories", "database_dir", None) == ""
+            )  # 新しいデフォルト値
 
     def test_shared_config_initialization(self):
         """共有設定オブジェクトでの初期化テスト"""

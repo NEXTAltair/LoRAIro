@@ -30,7 +30,7 @@ def temp_db_path():
 def test_database(temp_db_path):
     """テスト用データベースの初期化"""
     from lorairo.database.schema import Base
-    
+
     database_url = f"sqlite:///{temp_db_path.resolve()}?check_same_thread=False"
     engine = create_db_engine(database_url)
     Base.metadata.create_all(engine)
@@ -41,7 +41,7 @@ def test_database(temp_db_path):
 def image_repository(test_database):
     """ImageRepositoryのインスタンス"""
     from lorairo.database.db_core import create_session_factory
-    
+
     database_url = f"sqlite:///{test_database.resolve()}?check_same_thread=False"
     engine = create_db_engine(database_url)
     session_factory = create_session_factory(engine)
@@ -52,6 +52,7 @@ def image_repository(test_database):
 def image_db_manager(image_repository):
     """ImageDatabaseManagerのインスタンス"""
     from lorairo.services.configuration_service import ConfigurationService
+
     config_service = ConfigurationService()
     return ImageDatabaseManager(image_repository, config_service)
 
@@ -61,8 +62,8 @@ def test_image():
     """テスト用の小さな画像を作成"""
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
         # 256x256の小さな画像を作成（アップスケール対象）
-        img = Image.new('RGB', (256, 256), color='red')
-        img.save(tmp.name, 'JPEG')
+        img = Image.new("RGB", (256, 256), color="red")
+        img.save(tmp.name, "JPEG")
         yield Path(tmp.name)
     # クリーンアップ
     Path(tmp.name).unlink(missing_ok=True)
@@ -74,12 +75,12 @@ class TestUpscalerDatabaseIntegration:
     def test_processed_image_schema_has_upscaler_used_column(self, test_database):
         """ProcessedImageテーブルにupscaler_usedカラムが存在することをテスト"""
         import sqlite3
-        
+
         conn = sqlite3.connect(test_database)
         cursor = conn.execute("PRAGMA table_info(processed_images)")
         columns = [row[1] for row in cursor.fetchall()]
         conn.close()
-        
+
         assert "upscaler_used" in columns
 
     def test_processed_image_with_upscaler_info_insertion(self, image_db_manager):
@@ -96,12 +97,12 @@ class TestUpscalerDatabaseIntegration:
             "mode": "RGB",
             "has_alpha": False,
             "filename": "test.jpg",
-            "extension": ".jpg"
+            "extension": ".jpg",
         }
-        
+
         image_id = image_db_manager.repository.add_original_image(original_metadata)
         assert image_id is not None
-        
+
         # アップスケーラー情報付きでProcessedImageを登録
         processed_metadata = {
             "image_id": image_id,
@@ -111,19 +112,19 @@ class TestUpscalerDatabaseIntegration:
             "mode": "RGB",
             "has_alpha": False,
             "filename": "processed_1024.webp",
-            "upscaler_used": "RealESRGAN_x4plus"
+            "upscaler_used": "RealESRGAN_x4plus",
         }
-        
+
         processed_id = image_db_manager.register_processed_image(
             image_id, Path(processed_metadata["stored_image_path"]), processed_metadata
         )
         assert processed_id is not None
-        
+
         # データベースから取得して確認
         result = image_db_manager.repository.get_processed_image(image_id, all_data=True)
         assert isinstance(result, list)
         assert len(result) == 1
-        
+
         processed_image = result[0]
         assert processed_image["upscaler_used"] == "RealESRGAN_x4plus"
 
@@ -141,12 +142,12 @@ class TestUpscalerDatabaseIntegration:
             "mode": "RGB",
             "has_alpha": False,
             "filename": "test2.jpg",
-            "extension": ".jpg"
+            "extension": ".jpg",
         }
-        
+
         image_id = image_db_manager.repository.add_original_image(original_metadata)
         assert image_id is not None
-        
+
         # アップスケーラー情報なしでProcessedImageを登録
         processed_metadata = {
             "image_id": image_id,
@@ -155,20 +156,20 @@ class TestUpscalerDatabaseIntegration:
             "height": 512,
             "mode": "RGB",
             "has_alpha": False,
-            "filename": "processed_512.webp"
+            "filename": "processed_512.webp",
             # upscaler_used は意図的に含めない
         }
-        
+
         processed_id = image_db_manager.register_processed_image(
             image_id, Path(processed_metadata["stored_image_path"]), processed_metadata
         )
         assert processed_id is not None
-        
+
         # データベースから取得して確認
         result = image_db_manager.repository.get_processed_image(image_id, all_data=True)
         assert isinstance(result, list)
         assert len(result) == 1
-        
+
         processed_image = result[0]
         assert processed_image["upscaler_used"] is None
 
@@ -186,39 +187,39 @@ class TestUpscalerDatabaseIntegration:
             "mode": "RGB",
             "has_alpha": False,
             "filename": "test3.jpg",
-            "extension": ".jpg"
+            "extension": ".jpg",
         }
-        
+
         image_id = image_db_manager.repository.add_original_image(original_metadata)
         assert image_id is not None
-        
+
         # ConfigurationServiceとFileSystemManagerをモック
         mock_config_service = MagicMock(spec=ConfigurationService)
         mock_fsm = MagicMock(spec=FileSystemManager)
-        
+
         # ImageProcessingServiceを作成
         service = ImageProcessingService(mock_config_service, mock_fsm, image_db_manager)
-        
+
         # upscaledタグを追加
         service._add_upscaled_tag(image_id, "RealESRGAN_x4plus")
-        
+
         # データベースからタグを取得して確認
         annotations = image_db_manager.get_image_annotations(image_id)
-        
+
         assert "tags" in annotations
         tags = annotations["tags"]
         assert len(tags) > 0
-        
+
         # upscaledタグが存在することを確認
         upscaled_tags = [tag for tag in tags if tag["tag"] == "upscaled"]
         assert len(upscaled_tags) == 1
-        
+
         upscaled_tag = upscaled_tags[0]
         assert upscaled_tag["tag_id"] == 33138
         assert upscaled_tag["existing"] is False
         assert upscaled_tag["is_edited_manually"] is False
 
-    @patch('lorairo.editor.image_processor.ImageProcessingManager')
+    @patch("lorairo.editor.image_processor.ImageProcessingManager")
     def test_512px_generation_with_upscaler_info(self, mock_ipm_class, image_db_manager):
         """512px生成時のアップスケーラー情報記録の統合テスト"""
         # オリジナル画像を登録
@@ -233,23 +234,20 @@ class TestUpscalerDatabaseIntegration:
             "mode": "RGB",
             "has_alpha": False,
             "filename": "small.jpg",
-            "extension": ".jpg"
+            "extension": ".jpg",
         }
-        
+
         image_id = image_db_manager.repository.add_original_image(original_metadata)
         assert image_id is not None
-        
+
         # ImageProcessingManagerのモック設定
         mock_ipm = MagicMock()
         mock_ipm_class.return_value = mock_ipm
-        
+
         mock_processed_image = MagicMock()
-        processing_metadata = {
-            "was_upscaled": True,
-            "upscaler_used": "RealESRGAN_x4plus"
-        }
+        processing_metadata = {"was_upscaled": True, "upscaler_used": "RealESRGAN_x4plus"}
         mock_ipm.process_image.return_value = (mock_processed_image, processing_metadata)
-        
+
         # FileSystemManagerのモック
         mock_fsm = MagicMock(spec=FileSystemManager)
         mock_fsm.save_processed_image.return_value = Path("/test/512px.webp")
@@ -258,18 +256,18 @@ class TestUpscalerDatabaseIntegration:
             "height": 512,
             "mode": "RGB",
             "has_alpha": False,
-            "filename": "512px.webp"
+            "filename": "512px.webp",
         }
-        
+
         # 512px生成を実行
         original_path = Path("/test/stored_small.jpg")
         image_db_manager._generate_thumbnail_512px(image_id, original_path, original_metadata, mock_fsm)
-        
+
         # データベースから結果を確認
         processed_images = image_db_manager.repository.get_processed_image(image_id, all_data=True)
         assert isinstance(processed_images, list)
         assert len(processed_images) == 1
-        
+
         processed_image = processed_images[0]
         assert processed_image["width"] == 512
         assert processed_image["height"] == 512
@@ -289,11 +287,11 @@ class TestUpscalerDatabaseIntegration:
             "mode": "RGB",
             "has_alpha": False,
             "filename": "query.jpg",
-            "extension": ".jpg"
+            "extension": ".jpg",
         }
-        
+
         image_id = image_db_manager.repository.add_original_image(original_metadata)
-        
+
         # RealESRGAN_x4plusで処理された画像
         processed_metadata_1 = {
             "image_id": image_id,
@@ -303,9 +301,9 @@ class TestUpscalerDatabaseIntegration:
             "mode": "RGB",
             "has_alpha": False,
             "filename": "proc1.webp",
-            "upscaler_used": "RealESRGAN_x4plus"
+            "upscaler_used": "RealESRGAN_x4plus",
         }
-        
+
         # アップスケールなしの画像
         processed_metadata_2 = {
             "image_id": image_id,
@@ -314,35 +312,33 @@ class TestUpscalerDatabaseIntegration:
             "height": 768,
             "mode": "RGB",
             "has_alpha": False,
-            "filename": "proc2.webp"
+            "filename": "proc2.webp",
             # upscaler_used なし
         }
-        
+
         image_db_manager.register_processed_image(
             image_id, Path(processed_metadata_1["stored_image_path"]), processed_metadata_1
         )
         image_db_manager.register_processed_image(
             image_id, Path(processed_metadata_2["stored_image_path"]), processed_metadata_2
         )
-        
+
         # SQLクエリでアップスケーラー別に検索
         import sqlite3
+
         conn = sqlite3.connect(image_db_manager.repository.engine.url.database)
-        
+
         # RealESRGAN_x4plusで処理された画像を検索
         cursor = conn.execute(
-            "SELECT COUNT(*) FROM processed_images WHERE upscaler_used = ?",
-            ("RealESRGAN_x4plus",)
+            "SELECT COUNT(*) FROM processed_images WHERE upscaler_used = ?", ("RealESRGAN_x4plus",)
         )
         count_with_upscaler = cursor.fetchone()[0]
-        
+
         # アップスケーラー情報がない画像を検索
-        cursor = conn.execute(
-            "SELECT COUNT(*) FROM processed_images WHERE upscaler_used IS NULL"
-        )
+        cursor = conn.execute("SELECT COUNT(*) FROM processed_images WHERE upscaler_used IS NULL")
         count_without_upscaler = cursor.fetchone()[0]
-        
+
         conn.close()
-        
+
         assert count_with_upscaler >= 1  # 少なくとも1つはRealESRGAN_x4plusで処理
         assert count_without_upscaler >= 1  # 少なくとも1つはアップスケーラーなし
