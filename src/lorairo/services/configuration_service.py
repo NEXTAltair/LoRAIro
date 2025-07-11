@@ -114,9 +114,8 @@ class ConfigurationService:
         """image_processing セクションの設定を取得します。"""
         return self._config.get("image_processing", {})
 
-    def get_preferred_resolutions(self) -> list[int]:
+    def get_preferred_resolutions(self) -> list[tuple[int, int]]:
         """preferred_resolutions の設定を取得します。"""
-        # 型安全のため、リスト内の要素が int であることを期待する (バリデーションは別途検討)
         return self._config.get("preferred_resolutions", [])
 
     def get_upscaler_models(self) -> list[dict[str, Any]]:
