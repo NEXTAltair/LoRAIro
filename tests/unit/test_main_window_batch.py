@@ -171,7 +171,7 @@ class TestMainWindowBatch:
 
                 # Assert
                 # FileSystemManagerが初期化されることを確認
-                mock_fsm.initialize.assert_called_once_with(Path("/test/database"), 1024)
+                mock_fsm.initialize.assert_called_once_with(Path("/test/database"))
                 window.progress_widget.show.assert_called_once()
                 mock_long_process.assert_called_once()
                 # バッチ進捗シグナルが接続されることを確認
@@ -217,4 +217,4 @@ class TestMainWindowBatch:
                 mock_config_service.update_setting.assert_called_with(
                     "directories", "database_dir", str(expected_project_dir)
                 )
-                mock_fsm.initialize.assert_called_once_with(expected_project_dir, 1024)
+                mock_fsm.initialize.assert_called_once_with(expected_project_dir)
