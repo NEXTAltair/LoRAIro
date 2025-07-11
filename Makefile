@@ -88,24 +88,7 @@ test:
 	@rm -rf /tmp/lorairo_test_src
 	@mkdir -p /tmp/lorairo_test_src
 	@rsync -a --exclude='.git' --exclude='__pycache__' --exclude='.mypy_cache' --exclude='.ruff_cache' src/ /tmp/lorairo_test_src/src/
-	@if [ -d tests ]; then \
-		rsync -a --exclude='.git' --exclude='__pycache__' --exclude='.mypy_cache' --exclude='.ruff_cache' --exclude='resources/img' tests/ /tmp/lorairo_test_src/tests/; \
-		if [ -d tests/resources/img/1_img ]; then \
-			mkdir -p /tmp/lorairo_test_src/tests/resources/img/; \
-			rsync -a tests/resources/img/1_img/ /tmp/lorairo_test_src/tests/resources/img/1_img/; \
-		fi; \
-	fi
-	@echo "Running tests in /tmp/lorairo_test_src/tests ..."
-	UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest /tmp/lorairo_test_src/tests
-
-lint:
-	@echo "Running code linting..."
-	UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff check src/
-
-format:
-	@echo "Formatting code..."
-	UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff format src/
-	UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff check src/ --fix
+	@if [ -d tests ]; then \ix
 
 clean:
 	@echo "Cleaning build artifacts..."
@@ -123,4 +106,21 @@ clean-log:
 
 # Windows compatibility (optional .bat targets)
 docs-publish-win:
-	@echo "Use 'make docs-publish' or run publish_docs.bat for Windows-specific script"
+	@echo "Use 'make docs-publish' or run publish_docs.bat for W
+		rsync -a --exclude='.git' --exclude='__pycache__' --exclude='.mypy_cache' --exclude='.ruff_cache' --exclude='resources/img' tests/ /tmp/lorairo_test_src/tests/; \
+		if [ -d tests/resources/img/1_img ]; then \
+			mkdir -p /tmp/lorairo_test_src/tests/resources/img/; \
+			rsync -a tests/resources/img/1_img/ /tmp/lorairo_test_src/tests/resources/img/1_img/; \
+		fi; \
+	fi
+	@echo "Running tests in /tmp/lorairo_test_src/tests ..."
+	UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest /tmp/lorairo_test_src/tests
+
+lint:
+	@echo "Running code linting..."
+	UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff check src/
+
+format:
+	@echo "Formatting code..."
+	UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff format src/ tests/
+	UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff check src/ tests/ --fix
