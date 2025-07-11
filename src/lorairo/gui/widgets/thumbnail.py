@@ -242,7 +242,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
                 return original_path
 
             # 512px画像を取得または作成
-            thumbnail_path = image_processing_service.ensure_512px_image(image_id, original_path)
+            thumbnail_path = image_processing_service.ensure_512px_image(image_id)
             if thumbnail_path:
                 logger.debug(f"512px画像を使用: image_id={image_id} -> {thumbnail_path}")
                 return thumbnail_path
