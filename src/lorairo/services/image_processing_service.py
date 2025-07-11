@@ -48,9 +48,7 @@ class ImageProcessingService:
             ValueError: ImageProcessingManager の初期化に失敗した場合
         """
         try:
-            preferred_resolutions_int = self.config_service.get_preferred_resolutions()
-            # list[int] を list[tuple[int, int]] に変換
-            preferred_resolutions = [(res, res) for res in preferred_resolutions_int]
+            preferred_resolutions = self.config_service.get_preferred_resolutions()
 
             ipm = ImageProcessingManager(self.fsm, target_resolution, preferred_resolutions)
             logger.info(
