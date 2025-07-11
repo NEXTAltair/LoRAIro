@@ -84,14 +84,6 @@ class ImageEditWidget(QWidget, Ui_ImageEditWidget):
         self.directory_images = []  # パス情報も保持（既存コードとの互換性）
         self.tableWidgetImageList.setRowCount(0)
 
-        # 最初の画像をプレビューに表示（512px優先）
-        if image_ids:
-            first_image_metadata = self.idm.get_image_metadata(image_ids[0])
-            if first_image_metadata:
-                original_path = Path(first_image_metadata["stored_image_path"])
-                thumbnail_path = self._get_or_create_512px_by_id(image_ids[0], original_path)
-                self.ImagePreview.load_image(thumbnail_path)
-
         # テーブルに画像を追加
         for image_id in image_ids:
             self._add_image_to_table_with_id(image_id)
