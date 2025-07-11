@@ -10,10 +10,8 @@ from typing import Any, ClassVar, Optional
 
 import cv2
 import numpy as np
-import torch
 from PIL import Image
 from scipy import ndimage
-from spandrel import ImageModelDescriptor, ModelLoader
 
 from ..storage.file_system import FileSystemManager
 from ..utils.log import logger
@@ -475,7 +473,10 @@ class Upscaler:
         scale = scale or upscaler.recommended_scale
         return upscaler._upscale(img, scale)
 
-    def _load_model(self, model_path: Path) -> ImageModelDescriptor:
+    def _load_model(self, model_path: Path):
+        # Lazy import to avoid slow startup
+        from spandrel import ImageModelDescriptor, ModelLoader
+
         model = ModelLoader().load_from_file(model_path)
         if not isinstance(model, ImageModelDescriptor):
             logger.error("読み込まれたモデルは ImageModelDescriptor のインスタンスではありません")
@@ -490,6 +491,9 @@ class Upscaler:
         Returns:
             Image.Image: アップスケールされた画像
         """
+        # Lazy import to avoid slow startup
+        import torch
+
         try:
             img_tensor = self._convert_image_to_tensor(img)
             with torch.no_grad():
@@ -499,14 +503,18 @@ class Upscaler:
             logger.error(f"アップスケーリング中のエラー: {e}")
             return img
 
-    def _convert_image_to_tensor(self, image: Image.Image) -> torch.Tensor:
+    def _convert_image_to_tensor(self, image: Image.Image):
+        # Lazy import to avoid slow startup
+        import torch
+
         img_np = np.array(image).astype(np.float32) / 255.0
         img_tensor = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0).cuda()
         return img_tensor
 
-    def _convert_tensor_to_image(
-        self, tensor: torch.Tensor, scale: float, original_size: tuple
-    ) -> Image.Image:
+    def _convert_tensor_to_image(self, tensor, scale: float, original_size: tuple) -> Image.Image:
+        # Lazy import to avoid slow startup
+        import torch
+
         output_np = tensor.squeeze().cpu().numpy().transpose(1, 2, 0)
         output_np = (output_np * 255).clip(0, 255).astype(np.uint8)
         output_image = Image.fromarray(output_np)
