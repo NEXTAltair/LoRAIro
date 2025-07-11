@@ -238,14 +238,13 @@ class ImageProcessingService:
         else:
             logger.warning(f"画像処理スキップ (ipm.process_image が None を返しました): {image_file.name}")
 
-    def ensure_512px_image(self, image_id: int, original_path: Path) -> Path | None:
+    def ensure_512px_image(self, image_id: int) -> Path | None:
         """
         512px画像が存在することを保証し、なければ既存パイプラインで作成します。
         サムネイル表示や学習データセット用の512px画像を提供します。
 
         Args:
             image_id (int): データベース内の画像ID
-            original_path (Path): 元画像のパス
 
         Returns:
             Path | None: 512px画像のパス、作成に失敗した場合はNone
@@ -261,7 +260,15 @@ class ImageProcessingService:
                 else:
                     logger.warning(f"512px画像がファイルシステムに存在しません: {path}")
 
-            # 2. 512px画像が存在しない場合は作成
+            # 2. 元画像のメタデータを取得
+            original_metadata = self.idm.get_image_metadata(image_id)
+            if not original_metadata:
+                logger.error(f"画像ID {image_id} のメタデータが取得できません")
+                return None
+
+            original_path = Path(original_metadata["stored_image_path"])
+
+            # 3. 512px画像が存在しない場合は作成
             logger.info(f"512px画像を作成します: image_id={image_id}, original_path={original_path}")
             self._process_single_image_for_resolution(original_path, image_id, 512)
 
