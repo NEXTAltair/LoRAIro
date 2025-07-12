@@ -147,11 +147,23 @@ LoRAIro bridges the gap between raw image collections and training-ready dataset
   - Resize and optimize images for processing
   - Generate and manage metadata (file size, dimensions, format)
   - Create thumbnail previews for large collections
+- **Enhanced Directory Selection (2025/07/12)**:
+  - **Smart Validation**: Prevent selection of invalid or inappropriate directories
+  - **Performance Protection**: Limit directory depth (max 3 levels) and file count (max 10,000) to prevent system directory processing
+  - **User Safety**: Block system directories, development folders, and non-dataset directories
+  - **Real-time Feedback**: Validate directory suitability before processing begins
+  - **Dataset Detection**: Require presence of image files to qualify as valid dataset directory
 - **Acceptance Criteria**:
   - Successfully import images from various sources
   - Validate image format and integrity
   - Process images efficiently without memory issues
   - Maintain image quality during processing operations
+  - **Directory Selection Requirements**:
+    - Only allow directories containing at least 1 image file
+    - Reject directories exceeding 3-level depth hierarchy
+    - Prevent processing of system/development directories
+    - Validate directory accessibility before batch processing
+    - Provide clear error messages for invalid directory selections
 
 #### FR4: Database Management
 - **Description**: Persistent storage for images, annotations, and metadata
