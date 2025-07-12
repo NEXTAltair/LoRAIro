@@ -94,9 +94,9 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
             for item in filtered_image_metadata
         }
 
-        # サムネイルセレクターを更新（stored_image_pathは既に絶対パス）
-        absolute_image_paths = [Path(item["stored_image_path"]) for item in filtered_image_metadata]
-        self.update_thumbnail_selector(absolute_image_paths)
+        # サムネイルセレクターを更新（IDとパスのペアで渡す）
+        image_data = [(Path(item["stored_image_path"]), item["id"]) for item in filtered_image_metadata]
+        self.thumbnailSelector.load_images_with_ids(image_data)
 
     @Slot(Path)
     def update_preview(self, image_path: Path):
@@ -109,9 +109,9 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
             self.set_metadata_labels(metadata, image_path)
             self.update_annotations(image_path)
 
-    def update_thumbnail_selector(self, image_paths: list[Path]):
-        # サムネイルセレクターに新しい画像リストをロード
-        self.thumbnailSelector.load_images(image_paths)
+    def update_thumbnail_selector(self, image_data: list[tuple[Path, int]]):
+        # サムネイルセレクターに新しい画像リストをロード（IDベース）
+        self.thumbnailSelector.load_images_with_ids(image_data)
 
     def set_metadata_labels(self, metadata, image_path):
         self.fileNameValueLabel.setText(metadata["filename"])
