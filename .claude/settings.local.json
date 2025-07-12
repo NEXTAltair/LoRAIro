@@ -20,5 +20,9 @@
       "execute:rm",
       "execute:git push"
     ]
+  },
+  "hooks": {
+    "Stop": ".claude/hooks/hook_stop_words.sh",
+    "PreToolUse": ".claude/hooks/hook_pre_commands.sh"
   }
 }
