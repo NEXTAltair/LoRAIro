@@ -12,7 +12,8 @@
       "Bash(pytest:*)",
       "edit:**/*.md",
       "edit:**/*.mdc",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "WebFetch(domain:github.com)"
     ],
     "deny": [
       "read:.env",

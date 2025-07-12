@@ -1,8 +1,17 @@
 {
-    "name": "LoRAIro",
+    "name": "LoRAIro Development Environment",
     "build": {
-        "dockerfile": "Dockerfile"},
-    "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/LoRAIro,type=bind,consistency=cached",
+        "dockerfile": "Dockerfile",
+        "args": {
+            "TZ": "${localEnv:TZ:UTC}"
+        }
+    },
+    "runArgs": [
+        "--cap-add=SYS_PTRACE",
+        "--security-opt",
+        "seccomp=unconfined"
+    ],
+    "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/LoRAIro,type=bind,consistency=delegated",
     "workspaceFolder": "/workspaces/LoRAIro",
     "customizations": {
         "vscode": {
@@ -37,14 +46,60 @@
             "settings": {
                 "python.defaultInterpreterPath": "/workspaces/LoRAIro/.venv_linux/bin/python",
                 "python.testing.pytestEnabled": true,
+                "python.testing.pytestArgs": [
+                    "--tb=short",
+                    "--strict-markers",
+                    "--disable-warnings"
+                ],
                 "python.analysis.extraPaths": [
                     "/workspaces/LoRAIro/local_packages/image-annotator-lib/src",
                     "/workspaces/LoRAIro/local_packages/genai-tag-db-tools/src"
-                ]
+                ],
+                "python.analysis.autoImportCompletions": true,
+                "python.analysis.typeCheckingMode": "strict",
+                "python.linting.enabled": true,
+                "python.linting.pylintEnabled": false,
+                "python.linting.mypyEnabled": true,
+                "python.formatting.provider": "black",
+                "python.sortImports.args": ["--profile", "black"],
+                "editor.formatOnSave": true,
+                "editor.codeActionsOnSave": {
+                    "source.organizeImports": "explicit",
+                    "source.fixAll.ruff": "explicit"
+                },
+                "files.exclude": {
+                    "**/__pycache__": true,
+                    "**/*.pyc": true,
+                    "**/.pytest_cache": true,
+                    "**/.mypy_cache": true,
+                    "**/.ruff_cache": true
+                },
+                "terminal.integrated.defaultProfile.linux": "bash",
+                "terminal.integrated.profiles.linux": {
+                    "bash": {
+                        "path": "bash",
+                        "icon": "terminal-bash"
+                    }
+                }
             }
         }
     },
-    "postCreateCommand": "make install-dev",
+    "postCreateCommand": "bash -c 'cd /workspaces/LoRAIro && make install-dev'",
+     "mounts": [
+        "source=lorairo-bashhistory-${devcontainerId},target=/home/vscode/.bash_history,type=volume",
+        "source=lorairo-vscode-extensions-${devcontainerId},target=/home/vscode/.vscode-server/extensions,type=volume"
+    ],
     "remoteUser": "vscode",
-    "features": {}
+    "remoteEnv": {
+        "UV_PROJECT_ENVIRONMENT": ".venv_linux",
+        "PYTHONPATH": "/workspaces/LoRAIro/src:/workspaces/LoRAIro/local_packages/image-annotator-lib/src:/workspaces/LoRAIro/local_packages/genai-tag-db-tools/src",
+        "QT_QPA_PLATFORM": "offscreen",
+        "DISPLAY": ":99"
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/git:1": {
+            "ppa": true,
+            "version": "latest"
+        }
+    }
 }

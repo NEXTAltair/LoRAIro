@@ -154,9 +154,7 @@ class TestMainWindow512pxIntegration:
         assert metadata is not None, f"画像メタデータが見つかりません: image_id={image_id}"
 
         # 512px画像生成を実行
-        result_path = main_window.image_processing_service.ensure_512px_image(
-            image_id, Path(metadata.file_path)
-        )
+        result_path = main_window.image_processing_service.ensure_512px_image(image_id)
 
         # 結果を検証
         assert result_path is not None, f"512px画像の生成に失敗しました: image_id={image_id}"
@@ -201,9 +199,7 @@ class TestMainWindow512pxIntegration:
                 metadata = main_window.idm.get_image_metadata(image_id)
 
                 # 512px画像を生成
-                result_path = main_window.image_processing_service.ensure_512px_image(
-                    image_id, Path(metadata.file_path)
-                )
+                result_path = main_window.image_processing_service.ensure_512px_image(image_id)
 
                 if result_path:
                     # データベースに512px画像が登録されているかチェック
@@ -236,9 +232,7 @@ class TestMainWindow512pxIntegration:
                 # 存在しないファイルパスで512px画像生成を試行
                 non_existent_path = Path("/non/existent/path.webp")
 
-                result_path = main_window.image_processing_service.ensure_512px_image(
-                    image_id, non_existent_path
-                )
+                result_path = main_window.image_processing_service.ensure_512px_image(image_id)
 
                 # エラー時はNoneが返されることを確認
                 assert result_path is None, "存在しないファイルに対してパスが返されました"
@@ -270,13 +264,19 @@ class TestMainWindow512pxIntegration:
                     temp_service = main_window.image_processing_service
 
                     # カスタム解像度での処理をテスト
-                    processed_img = temp_service._process_single_image_for_resolution(
-                        Path(metadata.file_path), metadata.has_alpha, metadata.mode, target_resolution
+                    # メタデータではなく実際のimage_idを使用
+                    temp_service._process_single_image_for_resolution(
+                        Path(metadata["stored_image_path"]), image_id, target_resolution
                     )
+                    
+                    # 処理後の画像をデータベースから取得
+                    processed_info = main_window.idm.check_processed_image_exists(image_id, target_resolution)
+                    if processed_info:
+                        processed_path = Path(processed_info["stored_image_path"])
+                        if processed_path.exists():
+                            with Image.open(processed_path) as processed_img:
+                                assert max(processed_img.width, processed_img.height) <= target_resolution
 
-                    if processed_img:
-                        # 解像度が期待値以下であることを確認
-                        assert max(processed_img.width, processed_img.height) <= target_resolution
 
         finally:
             main_window.close()
@@ -323,9 +323,7 @@ class TestMainWindow512pxIntegration:
                     original_width, original_height = original_img.size
 
                 # 512px画像を生成
-                result_path = main_window.image_processing_service.ensure_512px_image(
-                    image_id, original_path
-                )
+                result_path = main_window.image_processing_service.ensure_512px_image(image_id)
 
                 if result_path and result_path.exists():
                     with Image.open(result_path) as processed_img:

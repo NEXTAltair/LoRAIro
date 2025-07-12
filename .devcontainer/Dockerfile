@@ -1,20 +1,32 @@
 # Use an official Python runtime as a parent image
-FROM python:3.12
+FROM python:3.12-slim
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV DISPLAY=:99
 ENV QT_QPA_PLATFORM=offscreen
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
 
-# Install system dependencies and Node.js
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     git \
     curl \
+    wget \
     bash \
+    zsh \
     ca-certificates \
     gnupg \
-    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+    procps \
+    lsb-release \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js
+RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
     && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
     && apt-get update \
     && apt-get install -y nodejs \
@@ -93,6 +105,11 @@ SHELL ["/bin/bash", "-c"]
 USER vscode
 WORKDIR /workspaces
 
+# Create VS Code Server directories with proper permissions
+RUN mkdir -p /home/vscode/.vscode-server/bin \
+    && mkdir -p /home/vscode/.vscode-server/data \
+    && mkdir -p /home/vscode/.vscode-server/extensions
+
 # Configure npm to use user directory for global packages
 RUN mkdir -p ~/.npm-global && \
     npm config set prefix '~/.npm-global' && \
@@ -100,5 +117,15 @@ RUN mkdir -p ~/.npm-global && \
     npm install -g @anthropic-ai/claude-code && \
     npm install -g @google/gemini-cli
 
-CMD ["sleep", "infinity"]
+# Setup zsh with oh-my-zsh for better development experience
+RUN sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \
+    && echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.zshrc \
+    && echo 'export UV_PROJECT_ENVIRONMENT=.venv_linux' >> ~/.zshrc \
+    && echo 'export PYTHONPATH=/workspaces/LoRAIro/src:/workspaces/LoRAIro/local_packages/image-annotator-lib/src:/workspaces/LoRAIro/local_packages/genai-tag-db-tools/src' >> ~/.zshrc
 
+# Set bash history persistence
+RUN echo 'export HISTFILE=/home/vscode/.bash_history' >> ~/.bashrc \
+    && echo 'export HISTSIZE=10000' >> ~/.bashrc \
+    && echo 'export HISTFILESIZE=10000' >> ~/.bashrc
+
+CMD ["sleep", "infinity"]
