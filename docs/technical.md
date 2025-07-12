@@ -1054,4 +1054,394 @@ export LORAIRO_MAX_WORKERS="4"
 export LORAIRO_BATCH_SIZE="10"
 ```
 
+## Image Processing Module Architecture
+
+### Module Separation Design (2025/07/12)
+
+#### Overview
+The image processing system is being refactored from a monolithic `image_processor.py` (542 lines) into modular components for better maintainability and single responsibility adherence.
+
+#### Current Architecture Analysis
+
+**Existing Implementation (`src/lorairo/editor/image_processor.py`)**
+- **ImageProcessingManager**: High-level processing coordination (lines 1-200)
+- **ImageProcessor**: Core image processing logic (lines 201-350)
+- **AutoCrop**: Automatic cropping functionality (lines 351-450)
+- **Upscaler**: Image upscaling with Spandrel integration (lines 451-542)
+
+#### Target Module Structure
+
+**1. Processing Manager Module (`processing_manager.py`)**
+```python
+class ImageProcessingManager:
+    """高レベル画像処理の調整とワークフロー管理"""
+    
+    def __init__(self, fsm: FileSystemManager, target_resolution: int, preferred_resolutions: list[tuple[int, int]]):
+        self.auto_crop = AutoCrop()
+        self.upscaler = Upscaler()
+        
+    def process_image(self, image_path: Path, has_alpha: bool, mode: str, upscaler: str | None = None) -> tuple[Image.Image | None, dict[str, Any]]:
+        """統合処理パイプライン: AutoCrop → Upscale → 出力"""
+```
+
+**2. Auto Crop Module (`auto_crop.py`)**
+```python
+class AutoCrop:
+    """自動クロップ機能の専用実装"""
+    
+    def crop_image(self, image: Image.Image, crop_status: str | None = None) -> tuple[Image.Image, dict[str, Any]]:
+        """画像の自動クロップ処理とメタデータ生成"""
+        
+    def should_skip_cropping(self, crop_status: str | None) -> bool:
+        """クロップ状態に基づく処理スキップ判定"""
+```
+
+**3. Upscaler Module (`upscaler.py`)**
+```python
+class Upscaler:
+    """Spandrelベースの画像アップスケール機能"""
+    
+    def upscale_image(self, image: Image.Image, target_resolution: int, model_name: str) -> tuple[Image.Image | None, dict[str, Any]]:
+        """指定解像度への画像アップスケール処理"""
+        
+    def get_available_models(self) -> list[str]:
+        """利用可能なアップスケールモデルの一覧取得"""
+```
+
+#### Database Schema Enhancements
+
+**ProcessedImage Table Extension**
+```python
+class ProcessedImage(Base):
+    # 既存フィールド
+    upscaler_used: Mapped[str | None] = mapped_column(String)  # 使用されたアップスケーラー名
+    
+    # 新規追加フィールド (2025/07/12)
+    crop_status: Mapped[str | None] = mapped_column(String)    # クロップ状態: None/"auto"/"approved"/"manual"
+```
+
+**Crop Status Management**
+- **None**: 未処理 (新規画像、クロップ処理実行)
+- **"auto"**: 自動クロップ済み (再処理対象)
+- **"approved"**: 承認済みクロップ (再処理対象外)
+- **"manual"**: 手動調整済みクロップ (再処理対象外)
+
+#### Implementation Specifications
+
+**1. Image ID Management**
+- **基本原則**: 全ての処理済み画像は元画像のimage_idを基準とする
+- **一意性保証**: `(image_id, width, height, filename)` による複合ユニーク制約
+- **関係性維持**: 元画像削除時のカスケード削除 (`ondelete="CASCADE"`)
+
+**2. Crop Processing Pipeline**
+```python
+def process_with_crop_awareness(self, image_id: int, image_path: Path) -> ProcessingResult:
+    """クロップ状態を考慮した処理パイプライン"""
+    
+    # 1. 既存処理済み画像のクロップ状態確認
+    existing_metadata = self.db_manager.get_processed_metadata(image_id)
+    crop_status = existing_metadata.get('crop_status') if existing_metadata else None
+    
+    # 2. 承認済み画像は再処理スキップ
+    if crop_status in ["approved", "manual"]:
+        logger.info(f"スキップ: 承認済みクロップ (status={crop_status})")
+        return existing_metadata
+        
+    # 3. 自動クロップ実行 (None, "auto"の場合)
+    processed_image, processing_metadata = self.auto_crop.crop_image(image, crop_status)
+    processing_metadata['crop_status'] = 'auto'  # 処理後のステータス設定
+```
+
+**3. Upscaler Model Management**
+
+**Fixed Directory Approach (Simple)**
+```python
+class Upscaler:
+    MODEL_DIRECTORY = Path("models/upscalers")
+    
+    def get_available_models(self) -> list[str]:
+        """models/upscalers内の全モデルをリストアップ"""
+        if not self.MODEL_DIRECTORY.exists():
+            return []
+            
+        model_files = []
+        for file_path in self.MODEL_DIRECTORY.iterdir():
+            if file_path.is_file() and file_path.suffix.lower() in ['.pth', '.safetensors', '.pt', '.ckpt']:
+                model_files.append(file_path.stem)
+        
+        return sorted(model_files)
+```
+
+**Spandrel Integration Specification**
+```python
+from spandrel import ModelLoader, UnsupportedModelError
+
+class SpandrelUpscaler:
+    def __init__(self):
+        self.model_loader = ModelLoader(device="cuda" if torch.cuda.is_available() else "cpu")
+        
+    def load_model(self, model_path: Path) -> bool:
+        """Spandrelによるモデル読み込みと互換性チェック"""
+        try:
+            model_descriptor = self.model_loader.load_from_file(model_path)
+            logger.info(f"モデル読み込み成功: {model_path.name}")
+            return True
+        except UnsupportedModelError:
+            logger.warning(f"Spandrel非対応モデル: {model_path.name}")
+            return False
+        except Exception as e:
+            logger.error(f"モデル読み込みエラー: {model_path.name}, Error: {e}")
+            return False
+```
+
+**Model Directory Structure**
+```
+models/
+└── upscalers/
+    ├── RealESRGAN_x4plus.pth
+    ├── waifu2x_art_noise3_scale2.safetensors
+    ├── ESRGAN_x4.pth
+    └── model_symlink.pth -> /path/to/actual/model.pth
+```
+
+#### Performance and Resource Management
+
+**Memory Optimization**
+```python
+class ResourceAwareProcessor:
+    def __init__(self, max_memory_mb: int = 2048):
+        self.max_memory_mb = max_memory_mb
+        
+    def process_with_memory_limit(self, image: Image.Image) -> Image.Image:
+        """メモリ使用量を監視しながら処理実行"""
+        initial_memory = psutil.Process().memory_info().rss / 1024 / 1024
+        
+        try:
+            result = self._execute_processing(image)
+            return result
+        finally:
+            current_memory = psutil.Process().memory_info().rss / 1024 / 1024
+            if current_memory - initial_memory > self.max_memory_mb * 0.8:
+                gc.collect()
+                logger.warning(f"高メモリ使用量検出: {current_memory - initial_memory:.1f}MB")
+```
+
+**Batch Processing Integration**
+```python
+def process_batch_with_crop_status(self, image_ids: list[int]) -> list[ProcessingResult]:
+    """バッチ処理でのクロップ状態考慮"""
+    results = []
+    
+    for image_id in image_ids:
+        # 承認済み画像のフィルタリング
+        if self._is_approved_crop(image_id):
+            logger.debug(f"スキップ: 承認済みクロップ (ID={image_id})")
+            continue
+            
+        # 未処理・自動処理済み画像の処理実行
+        result = self.process_with_crop_awareness(image_id)
+        results.append(result)
+        
+    return results
+```
+
+#### Migration and Implementation Strategy
+
+**Phase 1: Module Extraction**
+1. `auto_crop.py` - AutoCropクラスの分離
+2. `upscaler.py` - Upscalerクラスの分離
+3. `processing_manager.py` - ImageProcessingManagerの更新
+
+**Phase 2: Database Schema Migration**
+```python
+"""Add crop_status to processed_images table
+
+Revision ID: add_crop_status
+Revises: previous_revision
+Create Date: 2025-07-12
+"""
+
+def upgrade():
+    op.add_column('processed_images', 
+                  sa.Column('crop_status', sa.String(), nullable=True))
+
+def downgrade():
+    op.drop_column('processed_images', 'crop_status')
+```
+
+**Phase 3: Integration Testing**
+- モジュール間インターフェース検証
+- クロップ状態管理ロジック検証  
+- Spandrelモデル互換性テスト
+- パフォーマンスベンチマーク
+
+#### Benefits and Design Rationale
+
+**Maintainability Improvements**
+- **Single Responsibility**: 各モジュールが明確な責務を持つ
+- **Testability**: 独立したユニットテストが可能
+- **Reusability**: 他の処理パイプラインでの再利用性向上
+
+**Performance Optimizations**
+- **Memory Management**: モジュール単位での最適化
+- **Resource Isolation**: クロップとアップスケールの独立実行
+- **Batch Efficiency**: 承認済み画像のスキップによる処理時間短縮
+
+**Extensibility**
+- **Model Support**: 新しいアップスケールモデルの簡単な追加
+- **Processing Options**: クロップアルゴリズムの差し替え可能
+- **Workflow Customization**: 処理パイプラインの柔軟な調整
+
+## Upscaler Resource Management Implementation Plan (2025/07/12)
+
+### Overview
+Spandrelベースのアップスケーラーインスタンス管理の実装計画。バッチ処理効率化とVRAMリソース競合回避を目的とする。
+
+### Resource Management Strategy
+
+#### Instance Lifecycle (Confirmed Specification)
+```
+1. 初回アップスケール実行 → グローバルインスタンス生成 + モデル読み込み
+2. バッチ処理完了 → インスタンス維持（同モデル保持）
+3. 同モデルでの別バッチ → 既存インスタンス再利用（読み込み不要）
+4. 異なるモデル指定 → インスタンス破棄 → 新インスタンス生成 + 新モデル読み込み
+5. アノテーション処理開始 → 強制インスタンス破棄 + VRAM解放
+6. アノテーション後のアップスケール → 新インスタンス生成（前回と同モデルでも）
+```
+
+#### Design Principles
+- **Single Instance Pattern**: グローバルに1つのUpscalerインスタンスのみ保持
+- **Model Change Detection**: モデル名変更時のみ新規読み込み実行
+- **Forced Cleanup**: アノテーション処理前の強制リソース解放
+- **No Caching**: メインメモリキャッシュは実装しない（コストベネフィット不適合）
+
+### Implementation Specification
+
+#### Core Class Structure
+```python
+class Upscaler:
+    """Spandrelベースの画像アップスケーラー（シングルトンパターン）"""
+    
+    # クラス変数（グローバル状態）
+    _global_instance: "Upscaler | None" = None
+    _current_model_name: str | None = None
+    
+    @classmethod
+    def get_for_model(cls, model_name: str) -> "Upscaler":
+        """指定モデル用のUpscalerインスタンス取得"""
+        if cls._current_model_name != model_name:
+            logger.info(f"モデル切り替え: {cls._current_model_name} → {model_name}")
+            cls._cleanup_current()
+            cls._global_instance = cls(model_name)
+            cls._current_model_name = model_name
+        return cls._global_instance
+    
+    @classmethod
+    def force_cleanup(cls):
+        """アノテーション処理前の強制解放"""
+        if cls._global_instance:
+            logger.info(f"VRAM解放のためUpscaler強制破棄: {cls._current_model_name}")
+            cls._cleanup_current()
+    
+    @classmethod
+    def _cleanup_current(cls):
+        """現在のインスタンス解放"""
+        if cls._global_instance:
+            cls._global_instance._cleanup()
+            cls._global_instance = None
+            cls._current_model_name = None
+            torch.cuda.empty_cache()  # GPU VRAM解放
+```
+
+#### Resource Management Features
+- **Model Detection**: `models/upscalers/` ディレクトリ自動検出
+- **VRAM Management**: `torch.cuda.empty_cache()` による明示的GPU メモリ解放
+- **Error Handling**: モデル読み込み失敗時の適切なフォールバック
+- **Logging**: モデル切り替えとリソース解放の詳細ログ
+
+### Integration Points
+
+#### Batch Processing Integration
+```python
+# batch_processor.py での使用例
+def process_directory_batch(..., upscaler_name: str | None = None):
+    """効率的なバッチ処理（共有Upscalerインスタンス使用）"""
+    
+    shared_upscaler = None
+    if upscaler_name:
+        shared_upscaler = Upscaler.get_for_model(upscaler_name)
+        # ↑ バッチ全体で同一インスタンス使用
+    
+    for image_file in image_files:
+        if shared_upscaler:
+            # 既に読み込まれたモデルで高速処理
+            result = shared_upscaler.upscale_image(image)
+```
+
+#### Annotation Service Integration
+```python
+# annotation_service.py での使用例
+class AnnotationService:
+    def start_annotation_batch(self, ...):
+        """アノテーション処理開始（VRAM競合回避）"""
+        
+        # アノテーション処理前にUpscalerリソース強制解放
+        Upscaler.force_cleanup()
+        logger.info("アノテーション処理のためVRAM解放完了")
+        
+        # アノテーション実行（VRAMフル活用可能）
+        results = self._execute_annotations(...)
+```
+
+### Performance Characteristics
+
+#### Memory Usage
+- **GPU VRAM**: 1モデル分のみ保持（4-6GB）
+- **System RAM**: モデルファイルサイズ（64MB程度）
+- **Peak Usage**: アップスケール実行時のみ
+
+#### Processing Efficiency
+- **Model Reuse**: 同一モデル連続使用時は瞬時実行（0.1秒/画像）
+- **Model Switch**: モデル切り替え時のみ遅延（8-10秒）
+- **Batch Optimization**: 1000枚処理で99.9%の読み込み時間削減
+
+#### VRAM Conflict Resolution
+- **Problem**: アップスケーラー（6GB）+ アノテーション（4GB）= 10GB → OOM
+- **Solution**: アノテーション前強制解放 → VRAM競合回避
+- **Trade-off**: アノテーション後初回アップスケールで再読み込み遅延
+
+### Implementation Timeline
+
+#### Phase 1: Core Module Implementation
+1. `upscaler.py` - Upscalerクラス単体実装
+2. `auto_crop.py` - AutoCropクラス分離
+3. `processing_manager.py` - 統合処理マネージャー
+
+#### Phase 2: Resource Management Integration  
+1. グローバルインスタンス管理実装
+2. 強制クリーンアップ機能実装
+3. モデル切り替え検知機能実装
+
+#### Phase 3: Service Integration
+1. batch_processor.py との統合
+2. annotation_service.py との統合
+3. VRAM競合回避機能の実装
+
+### Decision Rationale
+
+#### Rejected Alternative: Memory Caching
+**検討案**: メインメモリでstate_dictキャッシュ
+**却下理由**:
+- 実装複雑性増加（2-3日の工数）
+- 効果限定的（8秒→6秒、25%改善のみ）
+- メンテナンス負債（キャッシュ管理、エラーハンドリング）
+- ROI不適合（小さなモデルサイズに対して過剰な最適化）
+
+#### Selected Solution: Simple Force Cleanup
+**選択理由**:
+- 実装シンプル（数行のコード）
+- 高い信頼性（問題が起きにくい）
+- 保守性優秀（理解しやすいロジック）
+- 十分な効果（VRAM競合完全回避）
+
 This technical specification provides comprehensive guidance for developing, maintaining, and deploying the LoRAIro application with focus on performance, security, and maintainability.
