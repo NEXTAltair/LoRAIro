@@ -31,6 +31,7 @@ from lorairo.gui.window.edit import ImageEditWidget
 def mock_services(monkeypatch):
     """依存するサービスとマネージャのモックを作成"""
     from unittest.mock import MagicMock
+
     mocks = {
         "config_service": MagicMock(name="ConfigurationService"),
         "fsm": MagicMock(name="FileSystemManager"),
@@ -113,42 +114,42 @@ def test_load_images_with_ids(widget, mock_services, mocker):
     """画像IDリストの読み込みとテーブル表示をテスト（修正版）"""
     # モック画像IDリスト
     mock_image_ids = [1, 2, 3]
-    
+
     # データベースからのメタデータ取得をモック
     mock_metadata = {
         "stored_image_path": "/fake/img1.png",
         "filename": "img1.png",
         "height": 100,
-        "width": 150
+        "width": 150,
     }
     mock_services["idm"].get_image_metadata.return_value = mock_metadata
-    
+
     # アノテーション取得をモック
     mock_services["idm"].get_image_annotations.return_value = {
         "tags": [{"tag": "tag1"}, {"tag": "tag2"}],
-        "captions": [{"caption": "caption1"}]
+        "captions": [{"caption": "caption1"}],
     }
-    
+
     # 512px画像取得をモック
     mock_services["image_processing_service"].ensure_512px_image.return_value = Path("/fake/img1_512.png")
-    
+
     # _add_image_to_table_with_id のスパイ
     mock_add_table_with_id = mocker.spy(widget, "_add_image_to_table_with_id")
-    
+
     # load_images を実行（画像IDで）
     widget.load_images(mock_image_ids)
-    
+
     # テーブルがクリアされ、行数が設定されているか
     assert widget.tableWidgetImageList.rowCount() == len(mock_image_ids)
-    
+
     # _add_image_to_table_with_id が各画像IDで呼び出されたか
     assert mock_add_table_with_id.call_count == len(mock_image_ids)
     expected_calls = [call(image_id) for image_id in mock_image_ids]
     mock_add_table_with_id.assert_has_calls(expected_calls)
-    
+
     # image_ids が正しく設定されているか
     assert widget.image_ids == mock_image_ids
-    
+
     # directory_images が初期化されているか
     assert widget.directory_images == []
 
@@ -164,9 +165,11 @@ def test_add_image_to_table_legacy(widget, mock_services, monkeypatch):
     # setItem の呼び出しを追跡
     original_set_item = widget.tableWidgetImageList.setItem
     set_item_calls = []
+
     def spy_set_item(*args, **kwargs):
         set_item_calls.append(args)
         return original_set_item(*args, **kwargs)
+
     monkeypatch.setattr(widget.tableWidgetImageList, "setItem", spy_set_item)
 
     mock_services["image_text_reader"].get_annotations_for_display.return_value = {
@@ -190,7 +193,7 @@ def test_add_image_to_table_legacy(widget, mock_services, monkeypatch):
     # キャプション (Column 6)
     # setItem の呼び出し回数を確認
     assert len(set_item_calls) == 7
-    
+
     # 各呼び出しの行と列を確認
     for i, call_args in enumerate(set_item_calls):
         assert call_args[0] == row_position  # 行番号
@@ -218,52 +221,54 @@ def test_add_image_to_table_with_id(widget, mock_services, mocker):
     """テーブルへの画像情報追加をテスト (_add_image_to_table_with_id)"""
     mock_image_id = 123
     mock_original_path = Path("/fake/original.jpg")
-    
+
     # メタデータのモック設定
     mock_metadata = {
         "stored_image_path": str(mock_original_path),
-        "filename": "original.jpg", 
+        "filename": "original.jpg",
         "height": 600,
-        "width": 800
+        "width": 800,
     }
     mock_services["idm"].get_image_metadata.return_value = mock_metadata
-    
+
     # アノテーションのモック設定
     mock_annotations = {
         "tags": [{"tag": "landscape"}, {"tag": "nature"}],
-        "captions": [{"caption": "Beautiful landscape"}]
+        "captions": [{"caption": "Beautiful landscape"}],
     }
     mock_services["idm"].get_image_annotations.return_value = mock_annotations
-    
+
     # 512px画像パスのモック設定
     mock_512px_path = Path("/fake/original_512.jpg")
     mock_services["image_processing_service"].ensure_512px_image.return_value = mock_512px_path
-    
+
     # Path.stat と QPixmap のモック設定
     monkeypatch.setattr("pathlib.Path.stat", lambda self: MagicMock(st_size=204800))  # 200KB
     monkeypatch.setattr("pathlib.Path.exists", lambda self: True)
-    
+
     row_position = widget.tableWidgetImageList.rowCount()
-    
+
     # setItem の呼び出しを追跡
     original_set_item = widget.tableWidgetImageList.setItem
     set_item_calls = []
+
     def spy_set_item(*args, **kwargs):
         set_item_calls.append(args)
         return original_set_item(*args, **kwargs)
+
     monkeypatch.setattr(widget.tableWidgetImageList, "setItem", spy_set_item)
-    
+
     # _add_image_to_table_with_id を実行
     widget._add_image_to_table_with_id(mock_image_id)
-    
+
     # 行が追加されたか
     assert widget.tableWidgetImageList.rowCount() == row_position + 1
-    
+
     # 必要なサービスが呼び出されたか確認
     mock_services["idm"].get_image_metadata.assert_called_once_with(mock_image_id)
     mock_services["idm"].get_image_annotations.assert_called_once_with(mock_image_id)
     mock_services["image_processing_service"].ensure_512px_image.assert_called_once_with(mock_image_id)
-    
+
     # 各セルに正しい値が設定されたか確認
     expected_calls = [
         call(row_position, 0, mocker.ANY),  # Thumbnail (512px)
@@ -275,26 +280,26 @@ def test_add_image_to_table_with_id(widget, mock_services, mocker):
         call(row_position, 6, mocker.ANY),  # Caption
     ]
     spy_set_item.assert_has_calls(expected_calls, any_order=False)
-    
+
     # setItem の呼び出し回数も確認
     assert spy_set_item.call_count == 7
-    
+
     # 特定の列の値を確認
     item_filename = spy_set_item.call_args_list[1].args[2]
     assert item_filename.text() == "original.jpg"
-    
+
     item_resolution = spy_set_item.call_args_list[3].args[2]
     assert item_resolution.text() == "600 x 800"
-    
+
     item_size = spy_set_item.call_args_list[4].args[2]
     assert item_size.text() == "200.00 KB"
-    
+
     item_tags = spy_set_item.call_args_list[5].args[2]
     assert item_tags.text() == "landscape, nature"
-    
+
     item_caption = spy_set_item.call_args_list[6].args[2]
     assert item_caption.text() == "Beautiful landscape"
-    
+
     # directory_images にパスが追加されたか確認
     assert mock_original_path in widget.directory_images
 
@@ -305,22 +310,24 @@ def test_item_selection_changed_with_ids(widget, qtbot, monkeypatch, mock_servic
     mock_image_ids = [1, 2]
     mock_path1 = Path("/fake/select1.png")
     mock_path2 = Path("/fake/select2.png")
-    
+
     # メタデータのモック設定を順番に応答するように変更
     mock_metadata_list = [
         {"stored_image_path": str(mock_path1), "filename": "select1.png", "height": 100, "width": 150},
-        {"stored_image_path": str(mock_path2), "filename": "select2.png", "height": 200, "width": 250}
+        {"stored_image_path": str(mock_path2), "filename": "select2.png", "height": 200, "width": 250},
     ]
     mock_services["idm"].get_image_metadata.side_effect = mock_metadata_list
     mock_services["idm"].get_image_annotations.return_value = None
     mock_services["image_processing_service"].ensure_512px_image.return_value = Path("/fake/512px.png")
-    
+
     widget.load_images(mock_image_ids)  # load_images を使うと _add_image_to_table_with_id が走る
 
     # load_image のモック
     load_image_calls = []
+
     def mock_load_image(path):
         load_image_calls.append(path)
+
     monkeypatch.setattr(widget.ImagePreview, "load_image", mock_load_image)
 
     # 2行目を選択
@@ -395,8 +402,10 @@ def test_start_processing_clicked_no_images(widget, qtbot, mock_services, monkey
     widget.directory_images = []  # 画像リストを空にする
     # QMessageBox.warning のモック
     warning_calls = []
+
     def mock_warning(*args, **kwargs):
         warning_calls.append((args, kwargs))
+
     monkeypatch.setattr("PySide6.QtWidgets.QMessageBox.warning", mock_warning)
 
     qtbot.mouseClick(widget.pushButtonStartProcess, Qt.LeftButton)

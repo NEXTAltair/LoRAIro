@@ -72,9 +72,11 @@ class ImageDatabaseManager:
 
         Returns:
             tuple[int, dict[str, Any]] | None: 登録成功時は (image_id, original_metadata)、
-                                                 重複時も (existing_image_id, existing_metadata?)、
+                                                 重複時は (existing_image_id, existing_metadata)、
                                                  失敗時は None。
-                                                 TODO: 重複時の戻り値を明確化
+
+                                                 新規登録・重複時共に一貫したフォーマットで
+                                                 (id, metadata) のタプルを返します。
         """
         try:
             # 1. 画像情報を取得
@@ -114,10 +116,14 @@ class ImageDatabaseManager:
                         f"重複画像の512px生成チェック中にエラー (処理続行): ID={existing_id}, Error: {e}"
                     )
 
-                # TODO: 重複した場合、既存のメタデータを返すか?
-                # existing_metadata = self.repository.get_image_metadata(existing_id)
-                # return existing_id, existing_metadata or {}
-                return existing_id, {}  # 仮に空辞書を返す
+                # 重複した場合、既存のメタデータを取得して返す
+                existing_metadata = self.repository.get_image_metadata(existing_id)
+                if existing_metadata is None:
+                    logger.warning(f"既存画像のメタデータが取得できませんでした: ID={existing_id}")
+                    existing_metadata = {}
+
+                logger.debug(f"重複画像のメタデータを返します: ID={existing_id}")
+                return existing_id, existing_metadata
 
             # 4. 画像をストレージに保存
             db_stored_original_path = fsm.save_original_image(image_path)

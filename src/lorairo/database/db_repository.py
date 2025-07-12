@@ -855,21 +855,40 @@ class ImageRepository:
                 raise
 
     def _parse_datetime_str(self, date_str: str | None) -> datetime.datetime | None:
-        """日付文字列を datetime オブジェクトに変換。無効な場合は None を返す"""
+        """
+        日付文字列を UTC timezone-aware datetime オブジェクトに変換。
+
+        アプリケーション全体でUTC統一方針に従い、入力文字列をUTCとして解釈します。
+        データベースは TIMESTAMP(timezone=True) でUTC保存されているため、
+        フィルタリング時の比較もUTC基準で行います。
+
+        Args:
+            date_str: ISO 8601形式の日付文字列 (YYYY-MM-DDTHH:MM:SS or YYYY-MM-DD HH:MM:SS)
+
+        Returns:
+            datetime.datetime | None: UTC timezone-aware datetime オブジェクト、無効な場合は None
+        """
         if not date_str:
             return None
         try:
             # ISO 8601形式 (YYYY-MM-DDTHH:MM:SS or YYYY-MM-DD HH:MM:SS) を想定
-            # タイムゾーン情報は無視するか、適切に処理する
             # スペース区切りも考慮
             date_str = date_str.replace(" ", "T")
             # マイクロ秒以下を削除 (存在する場合)
             if "." in date_str:
                 date_str = date_str.split(".")[0]
 
-            # TODO: タイムゾーンの扱いを明確にする (UTC前提か、ローカルか)
-            # ここでは naive datetime としてパース
-            return datetime.datetime.fromisoformat(date_str)
+            # naive datetime としてパースしてからUTCタイムゾーンを設定
+            # 入力文字列はUTC時刻として解釈する（アプリケーション統一方針）
+            parsed_dt = datetime.datetime.fromisoformat(date_str)
+
+            # タイムゾーン情報がない場合はUTCとして扱う
+            if parsed_dt.tzinfo is None:
+                from datetime import UTC
+
+                parsed_dt = parsed_dt.replace(tzinfo=UTC)
+
+            return parsed_dt
         except ValueError:
             logger.warning(f"無効な日付形式です: {date_str}。無視されます。")
             return None

@@ -343,6 +343,35 @@ CREATE INDEX idx_annotations_provider ON annotations(provider);
 CREATE INDEX idx_quality_scores_image_id ON quality_scores(image_id);
 ```
 
+#### Timezone Handling (2025/07/12 Standardization)
+
+**UTC Standardization Policy**
+- **Database Storage**: All `TIMESTAMP(timezone=True)` fields store timezone-aware UTC datetime objects
+- **Application Processing**: All datetime parsing and comparison operations use UTC timezone consistency
+- **Date String Processing**: The `_parse_datetime_str()` method in `ImageRepository` ensures:
+  - Naive datetime strings are interpreted as UTC and converted to timezone-aware objects
+  - Existing timezone-aware datetime objects preserve their timezone information
+  - UTC timezone-aware objects are returned for database comparison compatibility
+  - Invalid date formats return `None` with appropriate warning logging
+
+**Implementation Details**
+```python
+# Database schema uses timezone-aware TIMESTAMP fields
+created_at = Column(TIMESTAMP(timezone=True), default=lambda: datetime.now(UTC))
+updated_at = Column(TIMESTAMP(timezone=True), default=lambda: datetime.now(UTC))
+
+# Application datetime parsing ensures UTC consistency
+def _parse_datetime_str(self, date_str: str | None) -> datetime | None:
+    # Parses date strings and returns timezone-aware UTC datetime objects
+    # Ensures compatibility with TIMESTAMP(timezone=True) database fields
+```
+
+**Benefits**
+- Consistent timezone handling across all database operations
+- Proper comparison operations between parsed dates and database timestamps
+- Protection against timezone-related bugs in filtering and search operations
+- Standardized UTC storage for international deployment compatibility
+
 ### Migration Management
 
 #### Alembic Configuration
