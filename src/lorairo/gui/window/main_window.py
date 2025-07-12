@@ -61,7 +61,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def connect_signals(self):
         self.sidebarList.currentRowChanged.connect(self.contentStackedWidget.setCurrentIndex)
-        self.datasetSelector.DirectoryPicker.lineEditPicker.textChanged.connect(self.dataset_dir_changed)
+        self.datasetSelector.validDirectorySelected.connect(self.dataset_dir_changed)
         self.actionExit.triggered.connect(self.close)
 
     def init_dataset_selector(self):
