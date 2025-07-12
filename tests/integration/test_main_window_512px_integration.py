@@ -268,15 +268,16 @@ class TestMainWindow512pxIntegration:
                     temp_service._process_single_image_for_resolution(
                         Path(metadata["stored_image_path"]), image_id, target_resolution
                     )
-                    
+
                     # 処理後の画像をデータベースから取得
-                    processed_info = main_window.idm.check_processed_image_exists(image_id, target_resolution)
+                    processed_info = main_window.idm.check_processed_image_exists(
+                        image_id, target_resolution
+                    )
                     if processed_info:
                         processed_path = Path(processed_info["stored_image_path"])
                         if processed_path.exists():
                             with Image.open(processed_path) as processed_img:
                                 assert max(processed_img.width, processed_img.height) <= target_resolution
-
 
         finally:
             main_window.close()
