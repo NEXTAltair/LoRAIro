@@ -1,0 +1,76 @@
+{
+  "documentation_first_commands": [
+    {
+      "pattern": "^(find|grep|rg|ls).*\\.(py|toml|md)$", 
+      "reason": "Before searching files, check @docs/architecture.md and @docs/technical.md for project structure",
+      "suggestion": "First read @docs/architecture.md and @docs/technical.md to understand component locations, then search if needed"
+    },
+    {
+      "pattern": "^(find|grep|rg).*src/",
+      "reason": "Check docs/architecture.md for component locations before searching src/",
+      "suggestion": "Review architecture.md first: Entry point (src/lorairo/main.py), Services (src/lorairo/services/), GUI (src/lorairo/gui/), Database (src/lorairo/database/), AI Integration (src/lorairo/annotations/)"
+    },
+    {
+      "pattern": "^(find|grep|rg).*config/",
+      "reason": "Configuration structure is documented in docs/technical.md",
+      "suggestion": "Check docs/technical.md first: config/lorairo.toml (main config), config/annotator_config.toml (AI settings)"
+    }
+  ],
+  "library_investigation_suggestions": [
+    {
+      "pattern": "(ImportError|ModuleNotFoundError|No module named)",
+      "reason": "Library import error detected",
+      "suggestion": "Use @lib-research to investigate library installation, documentation, and usage patterns"
+    },
+    {
+      "pattern": "(AttributeError.*module|TypeError.*library|API.*error)",
+      "reason": "Library API usage error detected", 
+      "suggestion": "Use @lib-research to check library specifications, API changes, and implementation examples"
+    },
+    {
+      "pattern": "(site-packages|lib/python|dist-info)",
+      "reason": "Direct library investigation detected",
+      "suggestion": "Consider using @lib-research for comprehensive library analysis instead of manual exploration"
+    }
+  ],
+  "blocked_commands": [
+    {
+      "pattern": "^pip ",
+      "reason": "Use 'uv' instead of pip in this project",
+      "suggestion": "UV_PROJECT_ENVIRONMENT=.venv_linux uv add <package>"
+    },
+    {
+      "pattern": "^npm ",
+      "reason": "This is a Python project, npm should not be used", 
+      "suggestion": "Use uv for Python package management"
+    },
+    {
+      "pattern": "^curl.*api\\.openai\\.com",
+      "reason": "Direct API calls should go through the image-annotator-lib",
+      "suggestion": "Use src/lorairo/annotations/ai_annotator.py for AI integration"
+    },
+    {
+      "pattern": "^git push.*origin.*main",
+      "reason": "Direct push to main branch is restricted",
+      "suggestion": "Create feature branch and use pull request"
+    },
+    {
+      "pattern": "^rm -rf (?!logs/|__pycache__|.pytest_cache|.ruff_cache)",
+      "reason": "Destructive operations require explicit approval",
+      "suggestion": "Use make clean or specify exact paths. Safe to remove: logs/, __pycache__, .pytest_cache, .ruff_cache"
+    }
+  ],
+  "auto_format_commands": [
+    {
+      "pattern": "^git add.*\\.(py)$",
+      "pre_hook": "UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff check --fix $FILES && UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff format $FILES",
+      "description": "Auto-format and fix Python files before staging"
+    },
+    {
+      "pattern": "^git commit",
+      "pre_hook": "UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff format src/ tests/ && UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff check src/ tests/ --fix",
+      "description": "Auto-format all code before git commit"
+    }
+  ],
+  "description": "LoRAIroプロジェクト用コマンド制御 - ドキュメント優先検索・自動フォーマット・危険コマンドブロック"
+}
