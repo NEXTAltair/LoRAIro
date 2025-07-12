@@ -17,6 +17,24 @@
   - Signal/slot event system
   - Designer-based UI development
 
+**DirectoryPicker Widget Validation (2025/07/12 Enhancement)**
+- **Purpose**: Prevent invalid directory selection that causes unintended batch processing
+- **Validation Strategy**: Hierarchical depth limitation + file count control
+- **Implementation**: Custom `validDirectorySelected` signal with pre-validation
+- **Performance Constraints**:
+  - Maximum directory depth: 3 levels
+  - Maximum file scan limit: 10,000 files
+  - Early termination on system directory detection
+- **Validation Criteria**:
+  - Directory must exist and be readable
+  - Must contain at least 1 image file (.jpg, .png, .webp, .bmp)
+  - File count must not exceed upper limit (prevents system directory selection)
+  - Directory hierarchy must not exceed depth limit (prevents deep recursive scanning)
+- **Signal Behavior**:
+  - `textChanged`: Disabled for manual input validation
+  - `validDirectorySelected`: Only emitted after successful validation
+  - Trigger events: Enter key, focus loss, dialog selection, history selection
+
 #### Database
 - **SQLite**: Embedded database
   - Zero-configuration local storage
