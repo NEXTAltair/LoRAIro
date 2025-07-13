@@ -119,6 +119,8 @@ dev_config/
 .roo/mcp.json
 !.roo/mcp.json.example
 
+.claude/logs/
+
 # 一時ファイル
 temp/
 tmp/

@@ -55,7 +55,7 @@
       "suggestion": "Create feature branch and use pull request"
     },
     {
-      "pattern": "^rm -rf (?!logs/|__pycache__|.pytest_cache|.ruff_cache)",
+      "pattern": "^rm -rf [^l_.]",
       "reason": "Destructive operations require explicit approval",
       "suggestion": "Use make clean or specify exact paths. Safe to remove: logs/, __pycache__, .pytest_cache, .ruff_cache"
     }
@@ -70,6 +70,33 @@
       "pattern": "^git commit",
       "pre_hook": "UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff format src/ tests/ && UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff check src/ tests/ --fix",
       "description": "Auto-format all code before git commit"
+    }
+  ],
+  "lorairo_environment_transforms": [
+    {
+      "pattern": "^pytest",
+      "transform": "s/^pytest/UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest/",
+      "description": "Transform pytest commands to use LoRAIro Linux environment"
+    },
+    {
+      "pattern": "^ruff\\s+(check|format)",
+      "transform": "s/^ruff/UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff/",
+      "description": "Transform ruff commands to use LoRAIro Linux environment"
+    },
+    {
+      "pattern": "^mypy",
+      "transform": "s/^mypy/UV_PROJECT_ENVIRONMENT=.venv_linux uv run mypy/",
+      "description": "Transform mypy commands to use LoRAIro Linux environment"
+    },
+    {
+      "pattern": "^python\\s+",
+      "transform": "s/^python/UV_PROJECT_ENVIRONMENT=.venv_linux uv run python/",
+      "description": "Transform python commands to use LoRAIro Linux environment"
+    },
+    {
+      "pattern": "^uv\\s+(add|remove|sync|run)\\s+",
+      "transform": "s/^uv/UV_PROJECT_ENVIRONMENT=.venv_linux uv/",
+      "description": "Transform uv commands to use LoRAIro Linux environment"
     }
   ],
   "description": "LoRAIroプロジェクト用コマンド制御 - ドキュメント優先検索・自動フォーマット・危険コマンドブロック"
