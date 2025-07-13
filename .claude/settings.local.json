@@ -9,7 +9,6 @@
       "Bash(grep:*)",
       "Bash(rg:*)",
       "Bash(diff:*)",
-      "Bash(pytest:*)",
       "edit:**/*.md",
       "edit:**/*.mdc",
       "Bash(tree:*)",
@@ -18,11 +17,32 @@
     "deny": [
       "read:.env",
       "execute:rm",
-      "execute:git push"
+      "execute:git push",
+      "Bash(pytest:*)"
     ]
   },
   "hooks": {
-    "Stop": ".claude/hooks/hook_stop_words.sh",
-    "PreToolUse": ".claude/hooks/hook_pre_commands.sh"
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_pre_commands.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_stop_words.sh"
+          }
+        ]
+      }
+    ]
   }
 }
