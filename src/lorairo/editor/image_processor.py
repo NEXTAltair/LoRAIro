@@ -23,6 +23,7 @@ class ImageProcessingManager:
         file_system_manager: FileSystemManager,
         target_resolution: int,
         preferred_resolutions: list[tuple[int, int]],
+        config_service: "ConfigurationService",
     ):
         """
         ImageProcessingManagerを初期化
@@ -32,21 +33,39 @@ class ImageProcessingManager:
             file_system_manager (FileSystemManager): ファイルシステムマネージャ
             target_resolution (int): 目標解像度（GUI で指定された現在の値）
             preferred_resolutions (list[tuple[int, int]]): 優先解像度リスト
+            config_service (ConfigurationService): 設定サービス
         """
         self.file_system_manager = file_system_manager
         self.target_resolution = target_resolution
+        self.config_service = config_service
 
         try:
             # ImageProcessorの初期化
             self.image_processor = ImageProcessor(
                 self.file_system_manager, target_resolution, preferred_resolutions
             )
+            
+            # Upscaler インスタンス作成（設定駆動型）
+            self.upscaler = Upscaler(config_service)
+            
             logger.info(f"ImageProcessingManagerが正常に初期化。target_resolution={target_resolution}")
 
         except Exception as e:
             message = f"ImageProcessingManagerの初期化中エラー: {e}"
             logger.error(message)
             raise ValueError(message) from e
+
+    @classmethod
+    def create_default(
+        cls,
+        file_system_manager: FileSystemManager,
+        target_resolution: int,
+        preferred_resolutions: list[tuple[int, int]],
+    ) -> "ImageProcessingManager":
+        """デフォルト設定でインスタンスを作成するファクトリメソッド（後方互換性用）"""
+        from ..services.configuration_service import ConfigurationService
+        config_service = ConfigurationService()
+        return cls(file_system_manager, target_resolution, preferred_resolutions, config_service)
 
     def process_image(
         self,
@@ -92,7 +111,7 @@ class ImageProcessingManager:
                             logger.debug(
                                 f"長編が指定解像度未満のため{db_stored_original_path}をアップスケールします: {upscaler}"
                             )
-                            converted_img = Upscaler.upscale_image(converted_img, upscaler)
+                            converted_img = self.upscaler.upscale_image(converted_img, upscaler)
 
                             # アップスケール実行をメタデータに記録
                             processing_metadata["was_upscaled"] = True
@@ -375,17 +394,34 @@ class AutoCrop:
             # ブラー処理を適用してノイズ除去
             blurred_diff = cv2.GaussianBlur(gray_diff, (5, 5), 0)
 
-            # しきい値処理
+            # 動的パラメータ計算
+            height, width = np_image.shape[:2]
+            
+            # 画像サイズに応じた blockSize 調整（奇数にする）
+            block_size = max(11, min(width, height) // 50)
+            if block_size % 2 == 0:
+                block_size += 1
+                
+            # 画像の明度に応じた C 値調整
+            mean_brightness = np.mean(gray_diff)
+            adaptive_c = max(2, int(mean_brightness / 32))
+
+            # しきい値処理（最適化されたパラメータ）
             thresh = cv2.adaptiveThreshold(
                 blurred_diff,  # グレースケール化された差分画像を使う
                 255,  # 最大値(白)
                 cv2.ADAPTIVE_THRESH_GAUSSIAN_C,  # 適応的しきい値の種類(ガウス法)
                 cv2.THRESH_BINARY,  # 2値化(白か黒)
-                11,  # ピクセル近傍のサイズ (奇数で指定)
-                2,  # 平均値または加重平均から減算する定数
+                block_size,  # 動的に調整されたピクセル近傍のサイズ
+                adaptive_c,  # 動的に調整された減算定数
             )
-            # エッジ検出
-            edges = cv2.Canny(thresh, threshold1=30, threshold2=100)
+            # Otsu法による自動閾値でCanny エッジ検出を最適化
+            otsu_threshold, _ = cv2.threshold(blurred_diff, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            high_threshold = otsu_threshold
+            low_threshold = high_threshold * 0.3
+            
+            # エッジ検出（動的閾値使用）
+            edges = cv2.Canny(thresh, threshold1=int(low_threshold), threshold2=int(high_threshold))
             # 輪郭検出
             contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -454,44 +490,113 @@ class AutoCrop:
 
 
 class Upscaler:
-    # TODO: 暫定的なモデルパスとスケール値､もっと追加がしやすいようにする
-    MODEL_PATHS: ClassVar[dict[str, tuple[Path, float]]] = {
-        "RealESRGAN_x4plus": (
-            Path(r"H:\StabilityMatrix-win-x64\Data\Models\RealESRGAN\RealESRGAN_x4plus.pth"),
-            4.0,
-        ),
-    }
+    """設定駆動型アップスケーラークラス（依存注入対応）"""
 
-    def __init__(self, model_name: str):
-        self.model_path, self.recommended_scale = self.MODEL_PATHS[model_name]
-        self.model = self._load_model(self.model_path)
-        self.model.cuda().eval()
+    def __init__(self, config_service: "ConfigurationService"):
+        """
+        Upscaler を初期化します。
+
+        Args:
+            config_service (ConfigurationService): 設定サービス
+        """
+        self.config_service = config_service
+        self._loaded_models: dict[str, Any] = {}
+        
+        # 設定の妥当性チェック
+        if not self.config_service.validate_upscaler_config():
+            logger.warning("アップスケーラー設定に問題があります。デフォルト設定を使用します。")
 
     @classmethod
-    def get_available_models(cls) -> list[str]:
-        return list(cls.MODEL_PATHS.keys())
+    def create_default(cls) -> "Upscaler":
+        """デフォルト設定でインスタンスを作成するファクトリメソッド（後方互換性用）"""
+        from ..services.configuration_service import ConfigurationService
+        config_service = ConfigurationService()
+        return cls(config_service)
 
-    @classmethod
-    def upscale_image(cls, img: Image.Image, model_name: str, scale: float | None = None) -> Image.Image:
-        upscaler = cls(model_name)
-        scale = scale or upscaler.recommended_scale
-        return upscaler._upscale(img, scale)
+    def get_available_models(self) -> list[str]:
+        """利用可能なモデル名のリストを取得します。"""
+        return self.config_service.get_available_upscaler_names()
 
-    def _load_model(self, model_path: Path):
+    def upscale_image(self, img: Image.Image, model_name: str, scale: float | None = None) -> Image.Image:
+        """
+        画像をアップスケールします。
+
+        Args:
+            img (Image.Image): アップスケールする画像
+            model_name (str): 使用するモデル名
+            scale (float, optional): スケール倍率。Noneの場合は設定から取得
+
+        Returns:
+            Image.Image: アップスケールされた画像
+        """
+        try:
+            # モデル設定取得
+            model_config = self.config_service.get_upscaler_model_by_name(model_name)
+            if not model_config:
+                logger.error(f"アップスケーラーモデル '{model_name}' が見つかりません")
+                return img
+
+            # スケール決定
+            scale = scale or model_config.get("scale", 4.0)
+            
+            # モデル読み込み（キャッシュ使用）
+            model = self._get_or_load_model(model_name, model_config)
+            if model is None:
+                logger.error(f"モデル '{model_name}' の読み込みに失敗しました")
+                return img
+
+            return self._upscale(img, model, scale)
+
+        except Exception as e:
+            logger.error(f"アップスケーリング中のエラー: {e}")
+            return img
+
+    def _get_or_load_model(self, model_name: str, model_config: dict[str, Any]) -> Any:
+        """モデルを取得または読み込みします（キャッシュ機能付き）"""
+        if model_name in self._loaded_models:
+            return self._loaded_models[model_name]
+
+        model_path = Path(model_config["path"])
+        if not model_path.is_absolute():
+            # 相対パスの場合はプロジェクトルートからの相対パスとして解決
+            from pathlib import Path
+            project_root = Path.cwd()
+            model_path = project_root / model_path
+
+        if not model_path.exists():
+            logger.error(f"モデルファイルが見つかりません: {model_path}")
+            return None
+
+        try:
+            model = self._load_model(model_path)
+            self._loaded_models[model_name] = model
+            return model
+        except Exception as e:
+            logger.error(f"モデル読み込み中のエラー: {e}")
+            return None
+
+    def _load_model(self, model_path: Path) -> Any:
+        """モデルファイルを読み込みます。"""
         # Lazy import to avoid slow startup
         from spandrel import ImageModelDescriptor, ModelLoader
 
         model = ModelLoader().load_from_file(model_path)
         if not isinstance(model, ImageModelDescriptor):
             logger.error("読み込まれたモデルは ImageModelDescriptor のインスタンスではありません")
+            
+        # CPU固定で評価モード設定
+        model.cpu().eval()
         return model
 
-    def _upscale(self, img: Image.Image, scale: float) -> Image.Image:
+    def _upscale(self, img: Image.Image, model: Any, scale: float) -> Image.Image:
         """
-        画像をアップスケールする
+        画像をアップスケールします。
+
         Args:
             img (Image.Image): アップスケールする画像
+            model: 読み込み済みモデル
             scale (float): スケール倍率
+
         Returns:
             Image.Image: アップスケールされた画像
         """
@@ -501,31 +606,35 @@ class Upscaler:
         try:
             img_tensor = self._convert_image_to_tensor(img)
             with torch.no_grad():
-                output = self.model(img_tensor)
+                output = model(img_tensor)
             return self._convert_tensor_to_image(output, scale, img.size)
         except Exception as e:
             logger.error(f"アップスケーリング中のエラー: {e}")
             return img
 
     def _convert_image_to_tensor(self, image: Image.Image):
+        """PIL画像をPyTorchテンソルに変換します（CPU使用）"""
         # Lazy import to avoid slow startup
         import torch
 
         img_np = np.array(image).astype(np.float32) / 255.0
-        img_tensor = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0).cuda()
+        img_tensor = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0)
+        # CPU固定（.cuda() 削除）
         return img_tensor
 
     def _convert_tensor_to_image(self, tensor, scale: float, original_size: tuple) -> Image.Image:
+        """PyTorchテンソルをPIL画像に変換します。"""
         # Lazy import to avoid slow startup
         import torch
 
-        output_np = tensor.squeeze().cpu().numpy().transpose(1, 2, 0)
+        output_np = tensor.squeeze().numpy().transpose(1, 2, 0)
         output_np = (output_np * 255).clip(0, 255).astype(np.uint8)
         output_image = Image.fromarray(output_np)
         expected_size = (int(original_size[0] * scale), int(original_size[1] * scale))
         if output_image.size != expected_size:
             output_image = output_image.resize(expected_size, Image.LANCZOS)
         return output_image
+
 
 
 if __name__ == "__main__":

@@ -50,7 +50,7 @@ class ImageProcessingService:
         try:
             preferred_resolutions = self.config_service.get_preferred_resolutions()
 
-            ipm = ImageProcessingManager(self.fsm, target_resolution, preferred_resolutions)
+            ipm = ImageProcessingManager(self.fsm, target_resolution, preferred_resolutions, self.config_service)
             logger.info(
                 f"一時的な ImageProcessingManager を作成しました。target_resolution={target_resolution}"
             )

@@ -31,12 +31,62 @@ DEFAULT_CONFIG = {
         "target_resolution": 1024,
         "realesrgan_upscale": False,
         "realesrgan_model": "RealESRGAN_x4plus_anime_6B.pth",
+        "upscaler": "RealESRGAN_x4plus",  # デフォルトアップスケーラー名
     },
+    "upscaler_models": [
+        {
+            "name": "RealESRGAN_x4plus",
+            "path": "models/RealESRGAN/RealESRGAN_x4plus.pth",
+            "scale": 4.0,
+        },
+        {
+            "name": "RealESRGAN_x4plus_anime_6B",
+            "path": "models/RealESRGAN/RealESRGAN_x4plus_anime_6B.pth",
+            "scale": 4.0,
+        },
+    ],
     "generation": {"batch_jsonl": False, "start_batch": False, "single_image": True},
     "options": {"generate_meta_clean": False, "cleanup_existing_tags": False, "join_existing_txt": True},
     "prompts": {"main": "", "additional": ""},
     "text_extensions": [".txt", ".caption"],
-    "preferred_resolutions": [(512, 512), (768, 512), (512, 768), (1024, 1024), (1216, 832), (832, 1216)],
+    "preferred_resolutions": [
+        # 512 Base
+        (336, 784),  # 9:21
+        (384, 680),  # 9:16
+        (416, 624),  # 2:3
+        (440, 592),  # 3:4
+        (456, 576),  # 4:5
+        (512, 512),  # 1:1
+        (576, 456),  # 5:4
+        (592, 440),  # 4:3
+        (624, 416),  # 3:2
+        (680, 384),  # 16:9
+        (784, 336),  # 21:9
+        # 768 Base
+        (504, 1176),  # 9:21
+        (576, 1024),  # 9:16
+        (624, 944),  # 2:3
+        (664, 888),  # 3:4
+        (688, 856),  # 4:5
+        (768, 768),  # 1:1
+        (856, 688),  # 5:4
+        (888, 664),  # 4:3
+        (944, 624),  # 3:2
+        (1024, 576),  # 16:9
+        (1176, 504),  # 21:9
+        # 1024 Base
+        (672, 1568),  # 9:21
+        (768, 1368),  # 9:16
+        (840, 1256),  # 2:3
+        (888, 1184),  # 3:4
+        (912, 1144),  # 4:5
+        (1024, 1024),  # 1:1
+        (1144, 912),  # 5:4
+        (1184, 888),  # 4:3
+        (1256, 840),  # 3:2
+        (1368, 768),  # 16:9
+        (1568, 672),  # 21:9
+    ],
     "database": {
         "image_db_filename": "image_database.db",  # 画像データベースのファイル名
         "tag_db_package": "genai_tag_db_tools.data",  # タグDBのインポート元パッケージ名

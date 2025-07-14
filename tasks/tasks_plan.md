@@ -49,6 +49,41 @@ The LoRAIro project is in an active development phase focusing on standardizing 
   - ✅ Updated all ImageDatabaseManager instantiation sites across the codebase
 - **Impact**: Complete audit trail of upscaler usage and consistent configuration across processing pipelines
 
+#### T1.3: Image Processor Comprehensive Refactoring (COMPLETED - 2025/07/12)
+- **Status**: ✅ Completed  
+- **Description**: Complete refactoring of `src/lorairo/editor/image_processor.py` based on 2025-07-10 session requirements
+- **Completed Tasks**:
+  - ✅ **Phase 1**: Added upscaler_models configuration section to config files
+  - ✅ **Phase 2**: Extended ConfigurationService with upscaler management methods
+  - ✅ **Phase 3**: Completely refactored Upscaler class for dependency injection and CPU-fixed processing
+  - ✅ **Phase 4**: Updated ImageProcessingManager to accept ConfigurationService
+  - ✅ **Phase 5**: Added backward compatibility factory methods
+  - ✅ **Phase 6**: Optimized AutoCrop with dynamic parameter calculation (adaptive thresholding, Otsu method)
+  - ✅ **Phase 7**: Updated existing code to use new interfaces
+- **Impact**: Eliminated hardcoded Windows paths, implemented CPU-fixed processing, improved AutoCrop precision
+
+#### T1.4: Claude Code Hooks Enhancement (COMPLETED - 2025/07/12)  
+- **Status**: ✅ Completed
+- **Description**: Implement automatic LoRAIro environment command transformation for Claude Code
+- **Completed Tasks**:
+  - ✅ Enhanced `.claude/hooks/hook_pre_commands.sh` with `transform_lorairo_command()` function
+  - ✅ Added transformation rules for pytest, ruff, mypy, python, uv commands
+  - ✅ Updated `.claude/hooks/rules/hook_pre_commands_rules.json` with LoRAIro transformation rules
+  - ✅ Added jq package to `.devcontainer/Dockerfile` for hooks functionality
+- **Impact**: Automatic command transformation from `pytest` to `UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest`
+
+#### T1.5: Comprehensive Testing (IN PROGRESS - 2025/07/12)
+- **Status**: 🔄 Pending DevContainer Rebuild
+- **Description**: Complete testing of refactored image processor and new hooks functionality
+- **Remaining Tasks**:
+  - [ ] Rebuild DevContainer (jq package addition)
+  - [ ] Test Configuration Service upscaler management methods
+  - [ ] Test Upscaler dependency injection and CPU-fixed processing
+  - [ ] Test ImageProcessingManager with ConfigurationService
+  - [ ] Test AutoCrop optimization effectiveness
+  - [ ] Verify Claude Code hooks command transformation
+- **Blockers**: DevContainer rebuild required for jq availability
+
 #### T1.3: Thumbnail Generation Strategy (PLANNED - 2025/07/09)
 - **Status**: Planning Complete
 - **Description**: Implement automatic 512px thumbnail generation during DB registration
