@@ -7,21 +7,19 @@ The implementation supports model caching and configuration-driven operation.
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 from PIL import Image
 
-if TYPE_CHECKING:
-    from ..services.configuration_service import ConfigurationService
-
+from ..services.configuration_service import ConfigurationService
 from ..utils.log import logger
 
 
 class Upscaler:
     """設定駆動型アップスケーラークラス（依存注入対応）"""
 
-    def __init__(self, config_service: "ConfigurationService"):
+    def __init__(self, config_service: ConfigurationService):
         """
         Upscaler を初期化します。
 
