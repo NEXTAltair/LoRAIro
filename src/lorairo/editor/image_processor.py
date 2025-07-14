@@ -6,15 +6,17 @@
 """
 
 from pathlib import Path
-from typing import Any, ClassVar, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, Optional
 
-import cv2
 import numpy as np
 from PIL import Image
-from scipy import ndimage
+
+if TYPE_CHECKING:
+    from ..services.configuration_service import ConfigurationService
 
 from ..storage.file_system import FileSystemManager
 from ..utils.log import logger
+from .autocrop import AutoCrop
 
 
 class ImageProcessingManager:
@@ -44,10 +46,10 @@ class ImageProcessingManager:
             self.image_processor = ImageProcessor(
                 self.file_system_manager, target_resolution, preferred_resolutions
             )
-            
+
             # Upscaler インスタンス作成（設定駆動型）
             self.upscaler = Upscaler(config_service)
-            
+
             logger.info(f"ImageProcessingManagerが正常に初期化。target_resolution={target_resolution}")
 
         except Exception as e:
@@ -64,6 +66,7 @@ class ImageProcessingManager:
     ) -> "ImageProcessingManager":
         """デフォルト設定でインスタンスを作成するファクトリメソッド（後方互換性用）"""
         from ..services.configuration_service import ConfigurationService
+
         config_service = ConfigurationService()
         return cls(file_system_manager, target_resolution, preferred_resolutions, config_service)
 
@@ -91,7 +94,7 @@ class ImageProcessingManager:
 
         """
         # 処理メタデータを初期化
-        processing_metadata = {"was_upscaled": False, "upscaler_used": None}
+        processing_metadata: dict[str, Any] = {"was_upscaled": False, "upscaler_used": None}
 
         try:
             with Image.open(db_stored_original_path) as img:
@@ -263,232 +266,6 @@ class ImageProcessor:
         return img.resize((new_width, new_height), Image.Resampling.LANCZOS)
 
 
-class AutoCrop:
-    _instance = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialize()
-        return cls._instance
-
-    def _initialize(self):
-        pass
-
-    @classmethod
-    def auto_crop_image(cls, pil_image: Image.Image) -> Image.Image:
-        instance = cls()
-        return instance._auto_crop_image(pil_image)
-
-    @staticmethod
-    def _convert_to_gray(image: np.ndarray) -> np.ndarray:
-        """RGBまたはRGBA画像をグレースケールに変換する"""
-        if image.ndim == 2:
-            return image
-        if image.shape[2] == 3:
-            return cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        if image.shape[2] == 4:
-            return cv2.cvtColor(cv2.cvtColor(image, cv2.COLOR_RGBA2RGB), cv2.COLOR_RGB2GRAY)
-        raise ValueError(f"サポートされていない画像形式です。形状: {image.shape}")
-
-    @staticmethod
-    def _calculate_edge_strength(gray_image: np.ndarray) -> np.ndarray:
-        """グレースケール画像でエッジの強さを計算する"""
-        return ndimage.sobel(gray_image)
-
-    @staticmethod
-    def _get_slices(height: int, width: int) -> list[tuple[slice, slice]]:
-        """画像の特定の領域(上下左右および中央)をスライスで定義する"""
-        return [
-            (slice(0, height // 20), slice(None)),  # top
-            (slice(-height // 20, None), slice(None)),  # bottom
-            (slice(None), slice(0, width // 20)),  # left
-            (slice(None), slice(-width // 20, None)),  # right
-            (slice(height // 5, 4 * height // 5), slice(width // 5, 4 * width // 5)),  # center
-        ]
-
-    @staticmethod
-    def _calculate_region_statistics(
-        gray_image: np.ndarray, edges: np.ndarray, slices: list[tuple[slice, slice]]
-    ) -> tuple[list[float], list[float], list[float]]:
-        """各領域の平均値、標準偏差、およびエッジ強度を計算する"""
-        means = [np.mean(gray_image[s]) for s in slices]
-        stds = [np.std(gray_image[s]) for s in slices]
-        edge_strengths = [np.mean(edges[s]) for s in slices]
-        return means, stds, edge_strengths
-
-    @staticmethod
-    def _evaluate_edge(
-        means: list[float],
-        stds: list[float],
-        edge_strengths: list[float],
-        edge_index: int,
-        center_index: int,
-        color_threshold: float,
-        std_threshold: float,
-        edge_threshold: float,
-    ) -> bool:
-        """各辺の評価を行う"""
-        color_diff = abs(means[edge_index] - means[center_index]) / 255
-        is_uniform = stds[edge_index] < std_threshold * 255
-        has_strong_edge = edge_strengths[edge_index] > edge_threshold * 255
-        return color_diff > color_threshold and (is_uniform or has_strong_edge)
-
-    @staticmethod
-    def _detect_gradient(means: list[float], gradient_threshold: float) -> bool:
-        """グラデーションを検出する"""
-        vertical_gradient = abs(means[0] - means[1]) / 255
-        horizontal_gradient = abs(means[2] - means[3]) / 255
-        return vertical_gradient > gradient_threshold or horizontal_gradient > gradient_threshold
-
-    @staticmethod
-    def _detect_border_shape(
-        image: np.ndarray,
-        color_threshold: float = 0.15,
-        std_threshold: float = 0.05,
-        edge_threshold: float = 0.1,
-        gradient_threshold: float = 0.5,
-    ) -> list[str]:
-        height, width = image.shape[:2]
-        gray_image = AutoCrop._convert_to_gray(image)
-        edges = AutoCrop._calculate_edge_strength(gray_image)
-        slices = AutoCrop._get_slices(height, width)
-        means, stds, edge_strengths = AutoCrop._calculate_region_statistics(gray_image, edges, slices)
-
-        detected_borders = []
-        if AutoCrop._evaluate_edge(
-            means, stds, edge_strengths, 0, 4, color_threshold, std_threshold, edge_threshold
-        ):
-            detected_borders.append("TOP")
-        if AutoCrop._evaluate_edge(
-            means, stds, edge_strengths, 1, 4, color_threshold, std_threshold, edge_threshold
-        ):
-            detected_borders.append("BOTTOM")
-        if AutoCrop._evaluate_edge(
-            means, stds, edge_strengths, 2, 4, color_threshold, std_threshold, edge_threshold
-        ):
-            detected_borders.append("LEFT")
-        if AutoCrop._evaluate_edge(
-            means, stds, edge_strengths, 3, 4, color_threshold, std_threshold, edge_threshold
-        ):
-            detected_borders.append("RIGHT")
-
-        if AutoCrop._detect_gradient(means, gradient_threshold):
-            return []  # グラデーションが検出された場合は境界なしとする
-
-        return detected_borders
-
-    def _get_crop_area(self, np_image: np.ndarray) -> tuple[int, int, int, int] | None:
-        """
-        クロップ領域を検出するためのメソッド。OpenCV を使ったエリア検出。
-        """
-        try:
-            # 差分によるクロップ領域検出を追加
-            complementary_color = [255 - np.mean(np_image[..., i]) for i in range(3)]
-            background = np.full(np_image.shape, complementary_color, dtype=np.uint8)
-            diff = cv2.absdiff(np_image, background)
-
-            # 差分をグレースケール変換
-            gray_diff = self._convert_to_gray(diff)
-
-            # ブラー処理を適用してノイズ除去
-            blurred_diff = cv2.GaussianBlur(gray_diff, (5, 5), 0)
-
-            # 動的パラメータ計算
-            height, width = np_image.shape[:2]
-            
-            # 画像サイズに応じた blockSize 調整（奇数にする）
-            block_size = max(11, min(width, height) // 50)
-            if block_size % 2 == 0:
-                block_size += 1
-                
-            # 画像の明度に応じた C 値調整
-            mean_brightness = np.mean(gray_diff)
-            adaptive_c = max(2, int(mean_brightness / 32))
-
-            # しきい値処理（最適化されたパラメータ）
-            thresh = cv2.adaptiveThreshold(
-                blurred_diff,  # グレースケール化された差分画像を使う
-                255,  # 最大値(白)
-                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,  # 適応的しきい値の種類(ガウス法)
-                cv2.THRESH_BINARY,  # 2値化(白か黒)
-                block_size,  # 動的に調整されたピクセル近傍のサイズ
-                adaptive_c,  # 動的に調整された減算定数
-            )
-            # Otsu法による自動閾値でCanny エッジ検出を最適化
-            otsu_threshold, _ = cv2.threshold(blurred_diff, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            high_threshold = otsu_threshold
-            low_threshold = high_threshold * 0.3
-            
-            # エッジ検出（動的閾値使用）
-            edges = cv2.Canny(thresh, threshold1=int(low_threshold), threshold2=int(high_threshold))
-            # 輪郭検出
-            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-            if contours:
-                x_min, y_min, x_max, y_max = np_image.shape[1], np_image.shape[0], 0, 0
-                for contour in contours:
-                    x, y, w, h = cv2.boundingRect(contour)
-                    x_min, y_min = min(x_min, x), min(y_min, y)
-                    x_max, y_max = max(x_max, x + w), max(y_max, y + h)
-
-                # マスク処理によってクロップ領域を決定する
-                mask = np.zeros(np_image.shape[:2], dtype=np.uint8)
-                for contour in contours:
-                    cv2.drawContours(mask, [contour], -1, 255, thickness=cv2.FILLED)
-
-                # マスクの白い領域の座標を取得
-                y_coords, x_coords = np.where(mask == 255)
-                if len(x_coords) > 0 and len(y_coords) > 0:
-                    x_min, y_min = np.min(x_coords), np.min(y_coords)
-                    x_max, y_max = np.max(x_coords), np.max(y_coords)
-
-                    # エリアを検証する必要がなくなり、ここで余分な領域を削るロジックを追加する
-                    # TODO: このロジックは適切かどうかを検討する
-                    margin = 5  # 余分に削るピクセル数
-                    x_min = max(0, x_min + margin)
-                    y_min = max(0, y_min + margin)
-                    x_max = min(np_image.shape[1], x_max - margin)
-                    y_max = min(np_image.shape[0], y_max - margin)
-
-                    return x_min, y_min, x_max - x_min, y_max - y_min
-            return None
-        except Exception as e:
-            logger.error(f"AutoCrop._get_crop_area: クロップ領域の検出中にエラーが発生しました: {e}")
-            return None
-
-    def _auto_crop_image(self, pil_image: Image.Image) -> Image.Image:
-        """
-        PIL.Image オブジェクトを受け取り、必要に応じて自動クロップを行います。
-
-        Args:
-            pil_image (Image.Image): 処理する PIL.Image オブジェクト
-
-        Returns:
-            Image.Image: クロップされた(または元の)PIL.Image オブジェクト
-        """
-        try:
-            np_image = np.array(pil_image)
-            crop_area = self._get_crop_area(np_image)
-
-            # デバッグ情報の出力
-            logger.debug(f"Crop area: {crop_area}")
-            logger.debug(f"Original image size: {pil_image.size}")
-
-            if crop_area:
-                x, y, w, h = crop_area
-                right, bottom = x + w, y + h
-                cropped_image = pil_image.crop((x, y, right, bottom))
-                logger.debug(f"Cropped image size: {cropped_image.size}")
-                return cropped_image
-            else:
-                logger.debug("No crop area detected, returning original image")
-                return pil_image
-        except Exception as e:
-            logger.error(f"自動クロップ処理中にエラーが発生しました: {e}")
-            return pil_image
-
-
 class Upscaler:
     """設定駆動型アップスケーラークラス（依存注入対応）"""
 
@@ -501,7 +278,7 @@ class Upscaler:
         """
         self.config_service = config_service
         self._loaded_models: dict[str, Any] = {}
-        
+
         # 設定の妥当性チェック
         if not self.config_service.validate_upscaler_config():
             logger.warning("アップスケーラー設定に問題があります。デフォルト設定を使用します。")
@@ -510,6 +287,7 @@ class Upscaler:
     def create_default(cls) -> "Upscaler":
         """デフォルト設定でインスタンスを作成するファクトリメソッド（後方互換性用）"""
         from ..services.configuration_service import ConfigurationService
+
         config_service = ConfigurationService()
         return cls(config_service)
 
@@ -538,7 +316,7 @@ class Upscaler:
 
             # スケール決定
             scale = scale or model_config.get("scale", 4.0)
-            
+
             # モデル読み込み（キャッシュ使用）
             model = self._get_or_load_model(model_name, model_config)
             if model is None:
@@ -559,7 +337,6 @@ class Upscaler:
         model_path = Path(model_config["path"])
         if not model_path.is_absolute():
             # 相対パスの場合はプロジェクトルートからの相対パスとして解決
-            from pathlib import Path
             project_root = Path.cwd()
             model_path = project_root / model_path
 
@@ -583,7 +360,7 @@ class Upscaler:
         model = ModelLoader().load_from_file(model_path)
         if not isinstance(model, ImageModelDescriptor):
             logger.error("読み込まれたモデルは ImageModelDescriptor のインスタンスではありません")
-            
+
         # CPU固定で評価モード設定
         model.cpu().eval()
         return model
@@ -634,18 +411,3 @@ class Upscaler:
         if output_image.size != expected_size:
             output_image = output_image.resize(expected_size, Image.LANCZOS)
         return output_image
-
-
-
-if __name__ == "__main__":
-    ##自動クロップのテスト
-    import matplotlib.pyplot as plt
-    from PIL import Image
-
-    img_path = Path(r"testimg\bordercrop\image_0001.png")
-    img = Image.open(img_path)
-
-    cropped_img = AutoCrop.auto_crop_image(img)
-    plt.imshow(cropped_img)
-    plt.show()
-    print(cropped_img.size)
