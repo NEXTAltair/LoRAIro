@@ -150,9 +150,13 @@ class TestImageProcessingManager:
         self.mock_file_system = Mock(spec=FileSystemManager)
         self.target_resolution = 512
         self.preferred_resolutions = [(512, 512), (768, 512), (1024, 1024)]
+        
+        # Mock ConfigurationService for ImageProcessingManager
+        self.mock_config_service = Mock()
+        self.mock_config_service.validate_upscaler_config.return_value = True
 
         self.manager = ImageProcessingManager(
-            self.mock_file_system, self.target_resolution, self.preferred_resolutions
+            self.mock_file_system, self.target_resolution, self.preferred_resolutions, self.mock_config_service
         )
 
     def test_process_image_success(self):
@@ -165,7 +169,7 @@ class TestImageProcessingManager:
 
         try:
             # Mock AutoCrop to return the image unchanged
-            with patch("lorairo.editor.image_processor.AutoCrop") as mock_autocrop:
+            with patch("lorairo.editor.autocrop.AutoCrop") as mock_autocrop:
                 mock_autocrop.auto_crop_image.return_value = test_img
 
                 result = self.manager.process_image(
@@ -195,7 +199,7 @@ class TestImageProcessingManager:
 
         try:
             # Mock AutoCrop to return the image unchanged
-            with patch("lorairo.editor.image_processor.AutoCrop") as mock_autocrop:
+            with patch("lorairo.editor.autocrop.AutoCrop") as mock_autocrop:
                 mock_autocrop.auto_crop_image.return_value = test_img
 
                 # Mock resize_image to raise an exception
@@ -274,7 +278,7 @@ class TestImageProcessingManager:
 
             with pytest.raises(ValueError, match="ImageProcessingManagerの初期化中エラー"):
                 ImageProcessingManager(
-                    self.mock_file_system, target_resolution=512, preferred_resolutions=[(512, 512)]
+                    self.mock_file_system, target_resolution=512, preferred_resolutions=[(512, 512)], config_service=self.mock_config_service
                 )
 
 
