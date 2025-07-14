@@ -33,7 +33,7 @@ dependencies = [
     "torch",
     "ImageHash",
     "spandrel",
-    # AI系  
+    # AI系
     "openai>=0.10.0",
     # データ処理系
     "toml>=0.10.2",
@@ -46,6 +46,7 @@ dependencies = [
     # Local packages (managed by uv.sources)
     "genai-tag-db-tools",
     "image-annotator-lib",
+    "rembg>=2.0.67",
 ]
 
 

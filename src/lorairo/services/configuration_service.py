@@ -123,6 +123,46 @@ class ConfigurationService:
         # 型安全のため、リスト内の要素が dict であることを期待する
         return self._config.get("upscaler_models", [])
 
+    def get_upscaler_model_by_name(self, name: str) -> dict[str, Any] | None:
+        """指定された名前のアップスケーラーモデル設定を取得します。"""
+        models = self.get_upscaler_models()
+        for model in models:
+            if model.get("name") == name:
+                return model
+        return None
+
+    def get_available_upscaler_names(self) -> list[str]:
+        """利用可能なアップスケーラーモデル名のリストを取得します。"""
+        return [model.get("name", "") for model in self.get_upscaler_models()]
+
+    def get_default_upscaler_name(self) -> str:
+        """デフォルトのアップスケーラー名を取得します。"""
+        # image_processing.upscaler または最初のモデル名を返す
+        default_name = self.get_setting("image_processing", "upscaler", "")
+        if default_name:
+            return default_name
+        
+        # フォールバック: 最初のモデル名
+        models = self.get_upscaler_models()
+        if models:
+            return models[0].get("name", "")
+        
+        return "RealESRGAN_x4plus"  # 最終フォールバック
+
+    def validate_upscaler_config(self) -> bool:
+        """アップスケーラー設定の妥当性をチェックします。"""
+        models = self.get_upscaler_models()
+        if not models:
+            logger.warning("upscaler_models が設定されていません")
+            return False
+            
+        for model in models:
+            if not all(key in model for key in ["name", "path", "scale"]):
+                logger.warning(f"不正なアップスケーラーモデル設定: {model}")
+                return False
+                
+        return True
+
     def get_export_directory(self) -> Path:
         """directories.export_dir の設定値を取得します。"""
         dir_str = self.get_setting("directories", "export_dir", "export")  # デフォルトを"export"に

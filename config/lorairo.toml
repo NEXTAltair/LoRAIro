@@ -22,7 +22,19 @@ batch_results_dir = ""                  # OpenAI Batch API結果JSONLファイ�
 [image_processing]
 target_resolution = 1024 # 学習モデルの基準解像度 512, 768, 1024
 realesrgan_upscale = false # 長辺が基準解像度より小さい場合、trueでアップスケールする
-realesrgan_model = "RealESRGAN_x4plus_anime_6B.pth" # アップスケールモデルのパス
+realesrgan_model = "RealESRGAN_x4plus_anime_6B.pth" # アップスケールモデルのパス（非推奨：upscaler使用推奨）
+upscaler = "RealESRGAN_x4plus" # 使用するアップスケーラーモデル名
+
+# アップスケーラーモデル設定
+[[upscaler_models]]
+name = "RealESRGAN_x4plus"
+path = "models/RealESRGAN/RealESRGAN_x4plus.pth"
+scale = 4.0
+
+[[upscaler_models]]
+name = "RealESRGAN_x4plus_anime_6B"
+path = "models/RealESRGAN/RealESRGAN_x4plus_anime_6B.pth"
+scale = 4.0
 
 # 生成設定
 [generation]
