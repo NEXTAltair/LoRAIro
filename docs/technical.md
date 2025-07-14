@@ -1056,52 +1056,70 @@ export LORAIRO_BATCH_SIZE="10"
 
 ## Image Processing Module Architecture
 
-### Module Separation Design (2025/07/12)
+### Module Separation Design (2025/07/14 - Completed)
 
 #### Overview
-The image processing system is being refactored from a monolithic `image_processor.py` (542 lines) into modular components for better maintainability and single responsibility adherence.
+The image processing system has been successfully refactored from a monolithic approach into modular components following clean architecture principles and dependency injection patterns.
 
-#### Current Architecture Analysis
+#### Completed Module Structure
 
-**Existing Implementation (`src/lorairo/editor/image_processor.py`)**
-- **ImageProcessingManager**: High-level processing coordination (lines 1-200)
-- **ImageProcessor**: Core image processing logic (lines 201-350)
-- **AutoCrop**: Automatic cropping functionality (lines 351-450)
-- **Upscaler**: Image upscaling with Spandrel integration (lines 451-542)
+**Current Implementation (`src/lorairo/editor/`)**
+- **`image_processor.py`**: ImageProcessingManager and ImageProcessor classes
+  - High-level processing coordination and workflow management
+  - Image resizing and color profile normalization
+  - Integration point for AutoCrop and Upscaler modules
+- **`autocrop.py`**: AutoCrop module (Completed 2025/07/12)
+  - Singleton pattern with classmethod interface
+  - Complementary color difference algorithm
+  - Letterbox detection and removal
+- **`upscaler.py`**: Upscaler module (Completed 2025/07/14)
+  - Configuration-driven dependency injection
+  - Multi-model support (RealESRGAN variants)
+  - Model caching and lazy loading
 
-#### Target Module Structure
+#### Implementation Details
 
-**1. Processing Manager Module (`processing_manager.py`)**
+**1. ImageProcessingManager Integration**
 ```python
 class ImageProcessingManager:
-    """高レベル画像処理の調整とワークフロー管理"""
-    
-    def __init__(self, fsm: FileSystemManager, target_resolution: int, preferred_resolutions: list[tuple[int, int]]):
-        self.auto_crop = AutoCrop()
-        self.upscaler = Upscaler()
+    def __init__(self, file_system_manager: FileSystemManager, target_resolution: int, 
+                 preferred_resolutions: list[tuple[int, int]], config_service: ConfigurationService):
+        self.upscaler = Upscaler(config_service)  # Dependency injection
         
-    def process_image(self, image_path: Path, has_alpha: bool, mode: str, upscaler: str | None = None) -> tuple[Image.Image | None, dict[str, Any]]:
-        """統合処理パイプライン: AutoCrop → Upscale → 出力"""
+    def process_image(self, db_stored_original_path: Path, original_has_alpha: bool, 
+                     original_mode: str, upscaler: str | None = None) -> tuple[Image.Image | None, dict[str, Any]]:
+        cropped_img = AutoCrop.auto_crop_image(img)  # Static method call
+        upscaled_img = self.upscaler.upscale_image(converted_img, upscaler)  # Instance method
 ```
 
-**2. Auto Crop Module (`auto_crop.py`)**
+**2. AutoCrop Module (Singleton Pattern)**
 ```python
 class AutoCrop:
-    """自動クロップ機能の専用実装"""
+    """Singleton pattern with complementary color difference algorithm"""
     
-    def crop_image(self, image: Image.Image, crop_status: str | None = None) -> tuple[Image.Image, dict[str, Any]]:
-        """画像の自動クロップ処理とメタデータ生成"""
+    @classmethod
+    def auto_crop_image(cls, pil_image: Image.Image) -> Image.Image:
+        """Main public interface for automatic image cropping"""
         
-    def should_skip_cropping(self, crop_status: str | None) -> bool:
-        """クロップ状態に基づく処理スキップ判定"""
+    def _get_crop_area(self, np_image: np.ndarray) -> tuple[int, int, int, int] | None:
+        """Core complementary color analysis algorithm"""
 ```
 
-**3. Upscaler Module (`upscaler.py`)**
+**3. Upscaler Module (Dependency Injection Pattern)**
 ```python
 class Upscaler:
-    """Spandrelベースの画像アップスケール機能"""
+    """Configuration-driven upscaler with dependency injection"""
     
-    def upscale_image(self, image: Image.Image, target_resolution: int, model_name: str) -> tuple[Image.Image | None, dict[str, Any]]:
+    def __init__(self, config_service: ConfigurationService):
+        self.config_service = config_service
+        self._loaded_models: dict[str, Any] = {}  # Model caching
+        
+    @classmethod
+    def create_default(cls) -> "Upscaler":
+        """Factory method for backward compatibility"""
+        
+    def upscale_image(self, img: Image.Image, model_name: str, scale: float | None = None) -> Image.Image:
+        """Main upscaling interface with model management"""
         """指定解像度への画像アップスケール処理"""
         
     def get_available_models(self) -> list[str]:
