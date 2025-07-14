@@ -70,8 +70,15 @@ graph TD
 
 #### Core Processing Components
 - **`src/lorairo/editor/image_processor.py`**: ImageProcessingManager
-  - Low-level image processing operations
-  - Resize, upscale, crop functionality
+  - Coordinates image processing workflows
+  - Integrates with AutoCrop and Upscaler modules
+- **`src/lorairo/editor/autocrop.py`**: AutoCrop
+  - Automatic letterbox detection and removal
+  - Complementary color difference algorithm
+- **`src/lorairo/editor/upscaler.py`**: Upscaler
+  - AI-powered image upscaling functionality
+  - Configuration-driven model selection
+  - Supports RealESRGAN and other models
 - **`src/lorairo/database/db_manager.py`**: ImageDatabaseManager
   - High-level database operations
   - Coordinates with ImageRepository
