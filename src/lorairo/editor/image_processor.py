@@ -58,18 +58,6 @@ class ImageProcessingManager:
             logger.error(message)
             raise ValueError(message) from e
 
-    @classmethod
-    def create_default(
-        cls,
-        file_system_manager: FileSystemManager,
-        target_resolution: int,
-        preferred_resolutions: list[tuple[int, int]],
-    ) -> "ImageProcessingManager":
-        """デフォルト設定でインスタンスを作成するファクトリメソッド（後方互換性用）"""
-        from ..services.configuration_service import ConfigurationService
-
-        config_service = ConfigurationService()
-        return cls(file_system_manager, target_resolution, preferred_resolutions, config_service)
 
     def process_image(
         self,

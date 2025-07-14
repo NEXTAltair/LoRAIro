@@ -193,7 +193,7 @@ class ImageDatabaseManager:
             preferred_resolutions = [(512, 512)]  # 基本的な512x512解像度
 
             # 一時的なImageProcessingManagerを作成（ConfigurationService注入対応）
-            ipm = ImageProcessingManager.create_default(fsm, target_resolution, preferred_resolutions)
+            ipm = ImageProcessingManager(fsm, target_resolution, preferred_resolutions, self.config_service)
 
             # アップスケーラー設定を取得（設定サービスから）
             image_processing_config = self.config_service.get_image_processing_config()

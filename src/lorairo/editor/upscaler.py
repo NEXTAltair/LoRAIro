@@ -35,13 +35,6 @@ class Upscaler:
         if not self.config_service.validate_upscaler_config():
             logger.warning("アップスケーラー設定に問題があります。デフォルト設定を使用します。")
 
-    @classmethod
-    def create_default(cls) -> "Upscaler":
-        """デフォルト設定でインスタンスを作成するファクトリメソッド（後方互換性用）"""
-        from ..services.configuration_service import ConfigurationService
-
-        config_service = ConfigurationService()
-        return cls(config_service)
 
     def get_available_models(self) -> list[str]:
         """利用可能なモデル名のリストを取得します。"""
