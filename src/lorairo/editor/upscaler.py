@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import torch
 from PIL import Image
 
 from ..services.configuration_service import ConfigurationService
@@ -120,9 +121,6 @@ class Upscaler:
         Returns:
             Image.Image: アップスケールされた画像
         """
-        # Lazy import to avoid slow startup
-        import torch
-
         try:
             img_tensor = self._convert_image_to_tensor(img)
             with torch.no_grad():
@@ -134,9 +132,6 @@ class Upscaler:
 
     def _convert_image_to_tensor(self, image: Image.Image):
         """PIL画像をPyTorchテンソルに変換します（CPU使用）"""
-        # Lazy import to avoid slow startup
-        import torch
-
         img_np = np.array(image).astype(np.float32) / 255.0
         img_tensor = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0)
         # CPU固定（.cuda() 削除）
@@ -144,9 +139,6 @@ class Upscaler:
 
     def _convert_tensor_to_image(self, tensor, scale: float, original_size: tuple) -> Image.Image:
         """PyTorchテンソルをPIL画像に変換します。"""
-        # Lazy import to avoid slow startup
-        import torch
-
         output_np = tensor.squeeze().numpy().transpose(1, 2, 0)
         output_np = (output_np * 255).clip(0, 255).astype(np.uint8)
         output_image = Image.fromarray(output_np)
