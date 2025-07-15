@@ -98,7 +98,8 @@ class Upscaler:
 
     def _load_model(self, model_path: Path) -> Any:
         """モデルファイルを読み込みます。"""
-        # Lazy import to avoid slow startup
+        # Lazy import: spandrelの読み込みは重い処理のため、実際のモデル使用時まで遅延
+        # アプリ起動時間短縮とモデル選択UI高速化のため
         from spandrel import ImageModelDescriptor, ModelLoader
 
         model = ModelLoader().load_from_file(model_path)
