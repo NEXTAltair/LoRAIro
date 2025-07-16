@@ -34,7 +34,6 @@ class Upscaler:
         if not self.config_service.validate_upscaler_config():
             logger.warning("アップスケーラー設定に問題があります。デフォルト設定を使用します。")
 
-
     def get_available_models(self) -> list[str]:
         """利用可能なモデル名のリストを取得します。"""
         return self.config_service.get_available_upscaler_names()

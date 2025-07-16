@@ -206,8 +206,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             index (int): アイテムのインデックス
             column_count (int): グリッドの列数
         """
-        # 512px画像を取得または作成
-        thumbnail_path = self._get_or_create_512px_by_id(image_id, image_path)
+        # 512px画像を取得または元画像を使用
+        thumbnail_path = self._get_512px_or_original_by_id(image_id, image_path)
 
         pixmap = QPixmap(str(thumbnail_path)).scaled(
             self.thumbnail_size,
@@ -223,36 +223,85 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         y = row * self.thumbnail_size.height()
         item.setPos(x, y)
 
-    def _get_or_create_512px_by_id(self, image_id: int, original_path: Path) -> Path:
+    def _get_thumbnail_path(self, image_path: Path) -> Path:
         """
-        画像IDから512px画像パスを取得し、存在しなければ作成します。
+        画像パスを動的に解決してサムネイル用のパスを取得します。
 
+        Args:
+            image_path (Path): 元画像のパス
+
+        Returns:
+            Path: 解決された画像パス
+        """
+        try:
+            # パスを動的に解決
+            from ...database.db_core import resolve_stored_path
+
+            resolved_path = resolve_stored_path(str(image_path))
+
+            # ファイルが存在する場合はそのパスを返す
+            if resolved_path.exists():
+                return resolved_path
+            else:
+                logger.warning(f"画像ファイルが見つかりません: {resolved_path}")
+                return image_path  # フォールバック
+        except Exception as e:
+            logger.error(f"サムネイルパス解決中にエラー: {image_path}, エラー: {e}")
+            return image_path  # フォールバック
+
+    def _get_512px_or_original_by_id(self, image_id: int, original_path: Path) -> Path:
+        """
+        画像IDから512px画像パスを取得します。存在しない場合は元画像を使用します。
+        
         Args:
             image_id (int): データベース内の画像ID
             original_path (Path): 元画像のパス
 
         Returns:
-            Path: 512px画像のパス（作成失敗時は元画像パス）
+            Path: 512px画像のパス（存在しない場合は元画像パス）
         """
         try:
-            # 画像処理サービスを取得
-            image_processing_service = self._get_image_processing_service()
-            if not image_processing_service:
-                logger.debug(f"画像処理サービスが見つからないため元画像を使用: image_id={image_id}")
-                return original_path
+            # データベースマネージャーを取得して512px画像の存在をチェック
+            db_manager = self._get_database_manager()
+            if not db_manager:
+                logger.debug(f"データベースマネージャーが見つからないため元画像を使用: image_id={image_id}")
+                # 元画像パスを動的に解決
+                from ...database.db_core import resolve_stored_path
+                return resolve_stored_path(str(original_path))
 
-            # 512px画像を取得または作成
-            thumbnail_path = image_processing_service.ensure_512px_image(image_id)
-            if thumbnail_path:
-                logger.debug(f"512px画像を使用: image_id={image_id} -> {thumbnail_path}")
-                return thumbnail_path
+            # 既存の512px画像をチェック（作成はしない）
+            existing_512px = db_manager.check_processed_image_exists(image_id, 512)
+            if existing_512px and "stored_image_path" in existing_512px:
+                from ...database.db_core import resolve_stored_path
+                path = resolve_stored_path(existing_512px["stored_image_path"])
+                if path.exists():
+                    logger.debug(f"既存の512px画像を使用: image_id={image_id} -> {path}")
+                    return path
+                else:
+                    logger.debug(f"512px画像が見つからないため元画像を使用: image_id={image_id}")
             else:
-                logger.warning(f"512px画像の取得/作成に失敗、元画像を使用: image_id={image_id}")
+                logger.debug(f"512px画像が存在しないため元画像を使用: image_id={image_id}")
 
         except Exception as e:
-            logger.warning(f"512px画像取得中にエラー、元画像を使用: image_id={image_id}, Error: {e}")
+            logger.warning(f"512px画像チェック中にエラー、元画像を使用: image_id={image_id}, Error: {e}")
 
-        return original_path
+        # 元画像パスを動的に解決
+        from ...database.db_core import resolve_stored_path
+        return resolve_stored_path(str(original_path))
+
+    def _get_database_manager(self):
+        """
+        親ウィジェットの階層からデータベースマネージャーを取得します。
+
+        Returns:
+            ImageDatabaseManager | None: データベースマネージャーまたはNone
+        """
+        widget = self.parent()
+        while widget:
+            if hasattr(widget, "idm") and widget.idm:
+                return widget.idm
+            widget = widget.parent()
+        return None
 
     def _get_image_processing_service(self):
         """

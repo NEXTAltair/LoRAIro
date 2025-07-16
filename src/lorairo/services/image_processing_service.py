@@ -50,7 +50,9 @@ class ImageProcessingService:
         try:
             preferred_resolutions = self.config_service.get_preferred_resolutions()
 
-            ipm = ImageProcessingManager(self.fsm, target_resolution, preferred_resolutions, self.config_service)
+            ipm = ImageProcessingManager(
+                self.fsm, target_resolution, preferred_resolutions, self.config_service
+            )
             logger.info(
                 f"一時的な ImageProcessingManager を作成しました。target_resolution={target_resolution}"
             )
@@ -205,8 +207,12 @@ class ImageProcessingService:
             return
 
         logger.debug(f"{image_file.name}: 画像処理を実行します。Upscaler: {final_upscaler}")
+        # DBに保存されたパスを動的に解決
+        from ..database.db_core import resolve_stored_path
+
+        resolved_original_path = resolve_stored_path(original_image_metadata["stored_image_path"])
         processed_image, processing_metadata = ipm.process_image(
-            image_file,
+            resolved_original_path,
             original_image_metadata.get("has_alpha", False),  # .get でキー存在確認
             original_image_metadata.get("mode", "RGB"),
             upscaler=final_upscaler,  # 修正後のアップスケーラ名を渡す
@@ -251,7 +257,9 @@ class ImageProcessingService:
             # 1. 既存の512px画像をチェック
             existing_512px = self.idm.check_processed_image_exists(image_id, 512)
             if existing_512px and "stored_image_path" in existing_512px:
-                path = Path(existing_512px["stored_image_path"])
+                from ..database.db_core import resolve_stored_path
+
+                path = resolve_stored_path(existing_512px["stored_image_path"])
                 if path.exists():
                     logger.debug(f"既存の512px画像を使用: image_id={image_id}, path={path}")
                     return path
@@ -264,7 +272,9 @@ class ImageProcessingService:
                 logger.error(f"画像ID {image_id} のメタデータが取得できません")
                 return None
 
-            original_path = Path(original_metadata["stored_image_path"])
+            from ..database.db_core import resolve_stored_path
+
+            original_path = resolve_stored_path(original_metadata["stored_image_path"])
 
             # 3. 512px画像が存在しない場合は作成
             logger.info(f"512px画像を作成します: image_id={image_id}, original_path={original_path}")
@@ -273,7 +283,7 @@ class ImageProcessingService:
             # 3. 作成後に再取得
             new_512px = self.idm.check_processed_image_exists(image_id, 512)
             if new_512px and "stored_image_path" in new_512px:
-                path = Path(new_512px["stored_image_path"])
+                path = resolve_stored_path(new_512px["stored_image_path"])
                 logger.info(f"512px画像の作成完了: image_id={image_id}, path={path}")
                 return path
             else:
@@ -346,7 +356,9 @@ class ImageProcessingService:
         upscaler = image_processing_config.get("upscaler")
 
         # 元画像のパスを取得（DBに保存されているパス）
-        stored_original_path = Path(original_metadata["stored_image_path"])
+        from ..database.db_core import resolve_stored_path
+
+        stored_original_path = resolve_stored_path(original_metadata["stored_image_path"])
 
         logger.debug(f"画像処理を実行: {image_file} -> 解像度 {target_resolution}")
         processed_image, processing_metadata = ipm.process_image(

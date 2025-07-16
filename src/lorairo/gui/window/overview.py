@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from PIL import Image
 from PySide6.QtCore import QDateTime, Qt, Signal, Slot
 from PySide6.QtWidgets import QMessageBox, QWidget
 
@@ -100,14 +101,36 @@ class DatasetOverviewWidget(QWidget, Ui_DatasetOverviewWidget):
 
     @Slot(Path)
     def update_preview(self, image_path: Path):
-        self.ImagePreview.load_image(image_path)
-        self.update_metadata(image_path)
+        # PILイメージを直接取得してプレビューに表示
+        try:
+            from ...database.db_core import resolve_stored_path
+
+            resolved_path = resolve_stored_path(str(image_path))
+
+            # PILイメージとして読み込み
+            with Image.open(resolved_path) as pil_image:
+                # プレビューにPILイメージを直接渡す
+                self.ImagePreview.load_image_from_pil(pil_image.copy(), image_path.name)
+
+            # メタデータも更新
+            self.update_metadata(image_path)
+        except Exception as e:
+            logger.error(f"プレビュー更新に失敗しました: {image_path}, エラー: {e}")
+            self.clear_metadata()
 
     def update_metadata(self, image_path: Path):
         if image_path:
-            metadata = FileSystemManager.get_image_info(image_path)
-            self.set_metadata_labels(metadata, image_path)
-            self.update_annotations(image_path)
+            try:
+                # パスを動的に解決
+                from ...database.db_core import resolve_stored_path
+
+                resolved_path = resolve_stored_path(str(image_path))
+                metadata = FileSystemManager.get_image_info(resolved_path)
+                self.set_metadata_labels(metadata, image_path)
+                self.update_annotations(image_path)
+            except Exception as e:
+                logger.error(f"メタデータの取得に失敗しました: {image_path}, エラー: {e}")
+                self.clear_metadata()
 
     def update_thumbnail_selector(self, image_data: list[tuple[Path, int]]):
         # サムネイルセレクターに新しい画像リストをロード（IDベース）
