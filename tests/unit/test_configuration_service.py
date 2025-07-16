@@ -151,7 +151,10 @@ class TestConfigurationService:
 
         # When/Then: 各ディレクトリが正しく取得される
         assert config_service.get_export_directory() == Path("custom_export")
-        assert config_service.get_database_directory() == Path("custom_db")
+        # database_dir は絶対パスに変換される
+        db_dir = config_service.get_database_directory()
+        assert db_dir.is_absolute()
+        assert db_dir.name == "custom_db"
         assert config_service.get_batch_results_directory() == Path("custom_batch")
 
     def test_directory_getters_with_defaults(self):
@@ -161,7 +164,10 @@ class TestConfigurationService:
 
         # When/Then: デフォルト値が返される
         assert config_service.get_export_directory() == Path("export")
-        assert config_service.get_database_directory() == Path("database")  # メソッド内でデフォルト値指定
+        # database_dir はデフォルト値が絶対パスに変換される
+        db_dir = config_service.get_database_directory()
+        assert db_dir.is_absolute()
+        assert db_dir.name == "database"
         assert config_service.get_batch_results_directory() == Path("batch_results")
 
     def test_save_settings_success(self):
@@ -231,3 +237,77 @@ class TestConfigurationService:
         mock_logger.debug.assert_called_with(
             "設定値を更新しました: [%s] %s = %s", "huggingface", "token", "hf_1***cdef"
         )
+
+    def test_get_database_directory_relative_path(self):
+        """相対パスが絶対パスに変換されることを確認"""
+        # Given: 相対パス設定
+        config = {"directories": {"database_dir": "test_data"}}
+        config_service = ConfigurationService(shared_config=config)
+
+        # When: データベースディレクトリを取得
+        result = config_service.get_database_directory()
+
+        # Then: 絶対パスに変換されている
+        assert result.is_absolute()
+        assert result.name == "test_data"
+
+    def test_get_database_directory_absolute_path(self):
+        """絶対パスがそのまま返されることを確認"""
+        # Given: 絶対パス設定
+        abs_path = Path("/tmp/test_data").resolve()
+        config = {"directories": {"database_dir": str(abs_path)}}
+        config_service = ConfigurationService(shared_config=config)
+
+        # When: データベースディレクトリを取得
+        result = config_service.get_database_directory()
+
+        # Then: 絶対パスがそのまま返される
+        assert result == abs_path
+
+    def test_get_database_directory_empty_path(self):
+        """空文字列の場合の相対パス解決確認"""
+        # Given: 空文字列設定（デフォルト値"database"が使用される）
+        config = {"directories": {"database_dir": ""}}
+        config_service = ConfigurationService(shared_config=config)
+
+        # When: データベースディレクトリを取得
+        result = config_service.get_database_directory()
+
+        # Then: デフォルト値が絶対パスに変換されている
+        assert result.is_absolute()
+        assert result.name == "database"
+
+    @patch("lorairo.services.configuration_service.logger")
+    def test_get_database_directory_resolution_logging(self, mock_logger):
+        """相対パス解決時のログ出力確認"""
+        # Given: 相対パス設定
+        config = {"directories": {"database_dir": "relative_path"}}
+        config_service = ConfigurationService(shared_config=config)
+
+        # When: データベースディレクトリを取得
+        result = config_service.get_database_directory()
+
+        # Then: 解決ログが出力される
+        debug_calls = mock_logger.debug.call_args_list
+        resolution_calls = [call for call in debug_calls if "Resolved relative database_dir" in call[0][0]]
+        assert len(resolution_calls) == 1
+        assert "relative_path" in resolution_calls[0][0][0]
+
+    @patch("lorairo.services.configuration_service.logger")
+    def test_get_database_directory_error_handling(self, mock_logger):
+        """エラー時のフォールバック処理確認"""
+        # Given: get_setting でエラーが発生する状況
+        config_service = ConfigurationService(shared_config={})
+
+        # get_setting メソッドを失敗させる
+        with patch.object(config_service, "get_setting", side_effect=Exception("Test error")):
+            # When: データベースディレクトリを取得
+            result = config_service.get_database_directory()
+
+            # Then: エラーログとフォールバックログが出力される
+            mock_logger.error.assert_called_once()
+            mock_logger.warning.assert_called_once()
+
+            # フォールバックパスが返される
+            expected_fallback = Path.cwd() / "database"
+            assert result == expected_fallback

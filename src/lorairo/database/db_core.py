@@ -101,6 +101,49 @@ DB_DIR.mkdir(parents=True, exist_ok=True)
 
 IMG_DB_PATH = DB_DIR / IMG_DB_FILENAME
 
+# --- Dynamic Project Root Resolution --- #
+
+
+def get_current_project_root() -> Path:
+    """現在接続中のDBパスからプロジェクトルートを動的に取得
+
+    Returns:
+        Path: 現在のプロジェクトルートディレクトリ
+
+    Example:
+        DB: /workspaces/LoRAIro/lorairo_data/main_dataset_20250707_001/image_database.db
+        Root: /workspaces/LoRAIro/lorairo_data/main_dataset_20250707_001/
+    """
+    return IMG_DB_PATH.parent
+
+
+def resolve_stored_path(stored_path: str) -> Path:
+    """DBに保存された相対パスを現在のプロジェクトベースで絶対パスに解決
+
+    Args:
+        stored_path: DBから取得した画像パス (相対パスまたは絶対パス)
+
+    Returns:
+        Path: 解決された絶対パス
+
+    Example:
+        stored_path: "image_dataset/original_images/2024/10/15/file.jpg"
+        resolved: "/workspaces/LoRAIro/lorairo_data/main_dataset_20250707_001/image_dataset/original_images/2024/10/15/file.jpg"
+    """
+    path = Path(stored_path)
+
+    # 既に絶対パスの場合はそのまま返す
+    if path.is_absolute():
+        return path
+
+    # 相対パスの場合、現在のプロジェクトルートと結合
+    project_root = get_current_project_root()
+    resolved = project_root / stored_path
+
+    logger.debug(f"パス解決: {stored_path} -> {resolved}")
+    return resolved
+
+
 # --- Tag DB Path --- #
 
 

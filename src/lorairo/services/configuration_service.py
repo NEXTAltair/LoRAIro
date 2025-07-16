@@ -141,12 +141,12 @@ class ConfigurationService:
         default_name = self.get_setting("image_processing", "upscaler", "")
         if default_name:
             return default_name
-        
+
         # フォールバック: 最初のモデル名
         models = self.get_upscaler_models()
         if models:
             return models[0].get("name", "")
-        
+
         return "RealESRGAN_x4plus"  # 最終フォールバック
 
     def validate_upscaler_config(self) -> bool:
@@ -155,12 +155,12 @@ class ConfigurationService:
         if not models:
             logger.warning("upscaler_models が設定されていません")
             return False
-            
+
         for model in models:
             if not all(key in model for key in ["name", "path", "scale"]):
                 logger.warning(f"不正なアップスケーラーモデル設定: {model}")
                 return False
-                
+
         return True
 
     def get_export_directory(self) -> Path:
@@ -170,8 +170,11 @@ class ConfigurationService:
 
     def get_database_directory(self) -> Path:
         """directories.database_dir の設定値を取得します。"""
-        dir_str = self.get_setting("directories", "database_dir", "database")  # デフォルトを"database"に
-        return Path(dir_str)
+        dir_str = self.get_setting("directories", "database_dir", "database")
+        # 空文字列の場合もデフォルト値を使用
+        if not dir_str:
+            dir_str = "database"
+        return Path(dir_str).resolve()
 
     def get_batch_results_directory(self) -> Path:
         """directories.batch_results_dir の設定値を取得します。"""

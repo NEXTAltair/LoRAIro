@@ -58,7 +58,6 @@ class ImageProcessingManager:
             logger.error(message)
             raise ValueError(message) from e
 
-
     def process_image(
         self,
         db_stored_original_path: Path,
@@ -253,5 +252,3 @@ class ImageProcessor:
 
         # アスペクト比を保ちつつ、新しいサイズでリサイズ
         return img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-
-
