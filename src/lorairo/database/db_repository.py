@@ -699,6 +699,17 @@ class ImageRepository:
         Returns:
             dict[str, Any] | None: フィルタリングされたメタデータの辞書。見つからない場合はNone。
         """
+        # 型安全性チェック: resolution が文字列の場合は int に変換
+        if isinstance(resolution, str):
+            try:
+                resolution = int(resolution)
+                logger.warning(
+                    f"解像度パラメータが文字列として渡されました: '{resolution}' -> {resolution}"
+                )
+            except ValueError:
+                logger.error(f"解像度パラメータの変換に失敗しました: '{resolution}'")
+                return None
+
         best_match: dict[str, Any] | None = None
         min_error_ratio = float("inf")
 
@@ -1140,6 +1151,17 @@ class ImageRepository:
             tuple[list[dict[str, Any]], int]:
                 条件にマッチした画像メタデータのリストとその総数。
         """
+        # 型安全性チェック: resolution が文字列の場合は int に変換
+        if isinstance(resolution, str):
+            try:
+                resolution = int(resolution)
+                logger.warning(
+                    f"解像度パラメータが文字列として渡されました: '{resolution}' -> {resolution}"
+                )
+            except ValueError:
+                logger.error(f"解像度パラメータの変換に失敗しました: '{resolution}'")
+                return [], 0
+
         with self.session_factory() as session:
             try:
                 # --- 1. 基本クエリと日付フィルタ ---

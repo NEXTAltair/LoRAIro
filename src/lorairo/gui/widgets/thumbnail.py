@@ -252,7 +252,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     def _get_512px_or_original_by_id(self, image_id: int, original_path: Path) -> Path:
         """
         画像IDから512px画像パスを取得します。存在しない場合は元画像を使用します。
-        
+
         Args:
             image_id (int): データベース内の画像ID
             original_path (Path): 元画像のパス
@@ -267,12 +267,14 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
                 logger.debug(f"データベースマネージャーが見つからないため元画像を使用: image_id={image_id}")
                 # 元画像パスを動的に解決
                 from ...database.db_core import resolve_stored_path
+
                 return resolve_stored_path(str(original_path))
 
             # 既存の512px画像をチェック（作成はしない）
             existing_512px = db_manager.check_processed_image_exists(image_id, 512)
             if existing_512px and "stored_image_path" in existing_512px:
                 from ...database.db_core import resolve_stored_path
+
                 path = resolve_stored_path(existing_512px["stored_image_path"])
                 if path.exists():
                     logger.debug(f"既存の512px画像を使用: image_id={image_id} -> {path}")
@@ -287,6 +289,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         # 元画像パスを動的に解決
         from ...database.db_core import resolve_stored_path
+
         return resolve_stored_path(str(original_path))
 
     def _get_database_manager(self):
