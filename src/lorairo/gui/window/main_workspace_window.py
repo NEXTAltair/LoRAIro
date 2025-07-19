@@ -1,9 +1,8 @@
 # src/lorairo/gui/window/main_workspace_window.py
 
 from pathlib import Path
-from typing import Optional
 
-from PySide6.QtCore import QSize, Qt, Signal, Slot
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QProgressDialog
 
 from ...database.db_core import DefaultSessionLocal
@@ -55,6 +54,9 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
 
         # UI設定
         self.setupUi(self)
+        # 注意: setupUi()内でconnectSlotsByName()が呼ばれるため、
+        # on_<objectname>_<signal>パターンのスロットが見つからない場合に警告が出る
+        # これらの警告は正常動作に影響しない（手動でシグナル接続を行うため）
         self.setup_custom_widgets()
         self.setup_connections()
 
@@ -86,58 +88,26 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
         self.update_db_status()
 
     def setup_connections(self) -> None:
-        """シグナル・スロット接続を設定"""
-        # データセット選択
-        self.pushButtonSelectDataset.clicked.connect(self.select_dataset)
-        self.actionOpenDataset.triggered.connect(self.select_dataset)
+        """シグナル・スロット接続を設定（カスタムシグナルのみ手動接続）"""
+        # UI オブジェクトのシグナルは Qt の自動接続を使用（on_<objectname>_<signal> パターン）
+        # ここではカスタムシグナルのみ手動接続
 
-        # 設定
-        self.pushButtonSettings.clicked.connect(self.show_settings)
-        self.actionSettings.triggered.connect(self.show_settings)
+        # データセット状態管理（カスタムシグナル）
+        self.dataset_state.dataset_loaded.connect(self.handle_dataset_loaded)
+        self.dataset_state.images_filtered.connect(self.handle_images_filtered)
+        self.dataset_state.selection_changed.connect(self.handle_selection_changed)
 
-        # アクション
-        self.pushButtonAnnotate.clicked.connect(self.start_annotation)
-        self.actionAnnotation.triggered.connect(self.start_annotation)
+        # ワーカーサービス（カスタムシグナル）
+        self.worker_service.batch_registration_finished.connect(self.handle_batch_registration_finished)
+        self.worker_service.worker_progress_updated.connect(self.handle_worker_progress_updated)
+        self.worker_service.search_finished.connect(self.handle_search_finished)
+        self.worker_service.search_error.connect(self.handle_search_error)
+        self.worker_service.thumbnail_finished.connect(self.handle_thumbnail_finished)
+        self.worker_service.thumbnail_error.connect(self.handle_thumbnail_error)
 
-        self.pushButtonExport.clicked.connect(self.start_export)
-        self.actionExport.triggered.connect(self.start_export)
-
-        # パネル表示切り替え
-        self.actionToggleFilterPanel.toggled.connect(self.toggle_filter_panel)
-        self.actionTogglePreviewPanel.toggled.connect(self.toggle_preview_panel)
-
-        # 選択アクション
-        self.actionSelectAll.triggered.connect(self.select_all_images)
-        self.actionDeselectAll.triggered.connect(self.deselect_all_images)
-
-        # サムネイルサイズスライダー
-        self.sliderThumbnailSize.valueChanged.connect(self.on_thumbnail_size_changed)
-
-        # レイアウトモードボタン
-        self.pushButtonLayoutMode.toggled.connect(self.on_layout_mode_toggled)
-
-        # 終了
-        self.actionExit.triggered.connect(self.close)
-
-        # DB登録ボタン
-        self.pushButtonRegisterImages.clicked.connect(self.start_image_registration)
-
-        # データセット状態管理
-        self.dataset_state.dataset_loaded.connect(self.on_dataset_loaded)
-        self.dataset_state.images_filtered.connect(self.on_images_filtered)
-        self.dataset_state.selection_changed.connect(self.on_selection_changed)
-
-        # ワーカーサービス
-        self.worker_service.batch_registration_finished.connect(self.on_batch_registration_finished)
-        self.worker_service.worker_progress_updated.connect(self.on_worker_progress_updated)
-        self.worker_service.search_finished.connect(self.on_search_finished)
-        self.worker_service.search_error.connect(self.on_search_error)
-        self.worker_service.thumbnail_finished.connect(self.on_thumbnail_finished)
-        self.worker_service.thumbnail_error.connect(self.on_thumbnail_error)
-
-        # フィルター・検索パネル
-        self.filter_search_panel.search_requested.connect(self.on_search_requested)
-        self.filter_search_panel.filter_cleared.connect(self.on_filter_cleared)
+        # フィルター・検索パネル（カスタムシグナル）
+        self.filter_search_panel.search_requested.connect(self.handle_search_requested)
+        self.filter_search_panel.filter_cleared.connect(self.handle_filter_cleared)
 
     def initialize_state(self) -> None:
         """初期状態を設定"""
@@ -154,11 +124,11 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
             # データセット未選択時のヘルプ表示
             self.labelStatus.setText("画像ディレクトリを選択して、データベースに登録してください")
 
-    # === Dataset Management ===
+    # === Qt Auto-Connected Slots (on_<objectname>_<signal> pattern) ===
 
     @Slot()
-    def select_dataset(self) -> None:
-        """データセット選択ダイアログを表示"""
+    def on_pushButtonSelectDataset_clicked(self) -> None:
+        """データセット選択ボタンクリック（Qt自動接続）"""
         current_path = self.lineEditDatasetPath.text()
         initial_dir = current_path if current_path and Path(current_path).exists() else str(Path.home())
 
@@ -172,26 +142,96 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
         if dataset_path:
             self.load_dataset(Path(dataset_path))
 
-    def load_dataset(self, dataset_path: Path) -> None:
-        """データセットディレクトリを設定（DB登録は別途実行）"""
-        logger.info(f"データセットディレクトリ設定: {dataset_path}")
-
-        # UI更新
-        self.lineEditDatasetPath.setText(str(dataset_path))
-        self.labelStatus.setText("データセットディレクトリを設定しました")
-
-        # 状態更新
-        self.dataset_state.set_dataset_path(dataset_path)
-
-        # 設定保存
-        self.config_service.update_setting("directories", "dataset", str(dataset_path))
-
-        # DB登録状況を更新
-        self.update_db_status()
+    @Slot()
+    def on_actionOpenDataset_triggered(self) -> None:
+        """データセット選択アクション（Qt自動接続）"""
+        # ボタンと同じ処理
+        self.on_pushButtonSelectDataset_clicked()
 
     @Slot()
-    def start_image_registration(self) -> None:
-        """画像のDB登録を開始"""
+    def on_pushButtonSettings_clicked(self) -> None:
+        """設定ボタンクリック（Qt自動接続）"""
+        # TODO: 設定ダイアログの実装
+        QMessageBox.information(self, "情報", "設定画面は実装中です。")
+
+    @Slot()
+    def on_actionSettings_triggered(self) -> None:
+        """設定アクション（Qt自動接続）"""
+        # ボタンと同じ処理
+        self.on_pushButtonSettings_clicked()
+
+    @Slot()
+    def on_pushButtonAnnotate_clicked(self) -> None:
+        """アノテーションボタンクリック（Qt自動接続）"""
+        if not self.dataset_state.selected_image_ids:
+            QMessageBox.information(self, "情報", "アノテーション対象の画像を選択してください。")
+            return
+
+        # TODO: アノテーション処理の実装
+        QMessageBox.information(self, "情報", "アノテーション機能は実装中です。")
+
+    @Slot()
+    def on_actionAnnotation_triggered(self) -> None:
+        """アノテーションアクション（Qt自動接続）"""
+        # ボタンと同じ処理
+        self.on_pushButtonAnnotate_clicked()
+
+    @Slot()
+    def on_pushButtonExport_clicked(self) -> None:
+        """エクスポートボタンクリック（Qt自動接続）"""
+        if not self.dataset_state.has_images():
+            QMessageBox.information(self, "情報", "エクスポート対象の画像がありません。")
+            return
+
+        # TODO: エクスポート処理の実装
+        QMessageBox.information(self, "情報", "エクスポート機能は実装中です。")
+
+    @Slot()
+    def on_actionExport_triggered(self) -> None:
+        """エクスポートアクション（Qt自動接続）"""
+        # ボタンと同じ処理
+        self.on_pushButtonExport_clicked()
+
+    @Slot(bool)
+    def on_actionToggleFilterPanel_toggled(self, visible: bool) -> None:
+        """フィルターパネル表示切り替え（Qt自動接続）"""
+        self.frameFilterSearchPanel.setVisible(visible)
+
+    @Slot(bool)
+    def on_actionTogglePreviewPanel_toggled(self, visible: bool) -> None:
+        """プレビューパネル表示切り替え（Qt自動接続）"""
+        self.framePreviewDetailPanel.setVisible(visible)
+
+    @Slot()
+    def on_actionSelectAll_triggered(self) -> None:
+        """全選択アクション（Qt自動接続）"""
+        if self.dataset_state.has_filtered_images():
+            all_ids = [img.get("id") for img in self.dataset_state.filtered_images if "id" in img]
+            self.dataset_state.set_selected_images(all_ids)
+
+    @Slot()
+    def on_actionDeselectAll_triggered(self) -> None:
+        """全選択解除アクション（Qt自動接続）"""
+        self.dataset_state.clear_selection()
+
+    @Slot(int)
+    def on_sliderThumbnailSize_valueChanged(self, size: int) -> None:
+        """サムネイルサイズスライダー変更（Qt自動接続）"""
+        self.handle_thumbnail_size_changed(size)
+
+    @Slot(bool)
+    def on_pushButtonLayoutMode_toggled(self, grid_mode: bool) -> None:
+        """レイアウトモードボタン切り替え（Qt自動接続）"""
+        self.handle_layout_mode_toggled(grid_mode)
+
+    @Slot()
+    def on_actionExit_triggered(self) -> None:
+        """終了アクション（Qt自動接続）"""
+        self.close()
+
+    @Slot()
+    def on_pushButtonRegisterImages_clicked(self) -> None:
+        """DB登録ボタンクリック（Qt自動接続）"""
         dataset_path = self.dataset_state.dataset_path
         if not dataset_path or not dataset_path.exists():
             QMessageBox.warning(self, "警告", "有効なデータセットディレクトリを選択してください。")
@@ -213,8 +253,29 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
             self.progressBarRegistration.setVisible(False)
             self.pushButtonRegisterImages.setEnabled(True)
 
+    # === Dataset Management ===
+
+
+    def load_dataset(self, dataset_path: Path) -> None:
+        """データセットディレクトリを設定（DB登録は別途実行）"""
+        logger.info(f"データセットディレクトリ設定: {dataset_path}")
+
+        # UI更新
+        self.lineEditDatasetPath.setText(str(dataset_path))
+        self.labelStatus.setText("データセットディレクトリを設定しました")
+
+        # 状態更新
+        self.dataset_state.set_dataset_path(dataset_path)
+
+        # 設定保存
+        self.config_service.update_setting("directories", "dataset", str(dataset_path))
+
+        # DB登録状況を更新
+        self.update_db_status()
+
+
     @Slot(object)
-    def on_batch_registration_finished(self, result) -> None:
+    def handle_batch_registration_finished(self, result) -> None:
         """バッチ登録完了処理"""
         logger.info(f"バッチ登録完了: 登録={result.registered_count}, スキップ={result.skipped_count}")
 
@@ -293,18 +354,18 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
     # === State Management Event Handlers ===
 
     @Slot(int)
-    def on_dataset_loaded(self, image_count: int) -> None:
+    def handle_dataset_loaded(self, image_count: int) -> None:
         """データセット読み込み完了処理"""
         self.labelThumbnailCount.setText(f"画像: {image_count}件")
         self.dataset_loaded.emit(str(self.dataset_state.dataset_path))
 
     @Slot(list)
-    def on_images_filtered(self, filtered_images: list) -> None:
+    def handle_images_filtered(self, filtered_images: list) -> None:
         """画像フィルター処理"""
         self.labelThumbnailCount.setText(f"画像: {len(filtered_images)}件")
 
     @Slot(list)
-    def on_selection_changed(self, selected_image_ids: list) -> None:
+    def handle_selection_changed(self, selected_image_ids: list) -> None:
         """選択変更処理"""
         selection_count = len(selected_image_ids)
         if selection_count > 0:
@@ -313,7 +374,7 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
             self.labelStatus.setText("準備完了")
 
     @Slot(str, object)
-    def on_worker_progress_updated(self, worker_id: str, progress) -> None:
+    def handle_worker_progress_updated(self, worker_id: str, progress) -> None:
         """ワーカー進捗更新処理"""
         if worker_id.startswith("batch_reg"):
             # バッチ登録進捗をプログレスバーに反映
@@ -330,71 +391,23 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
     # === UI Control Actions ===
 
     @Slot(int)
-    def on_thumbnail_size_changed(self, size: int) -> None:
+    def handle_thumbnail_size_changed(self, size: int) -> None:
         """サムネイルサイズ変更処理"""
         self.dataset_state.set_thumbnail_size(size)
 
     @Slot(bool)
-    def on_layout_mode_toggled(self, grid_mode: bool) -> None:
+    def handle_layout_mode_toggled(self, grid_mode: bool) -> None:
         """レイアウトモード切り替え処理"""
         mode = "grid" if grid_mode else "list"
         self.dataset_state.set_layout_mode(mode)
         self.pushButtonLayoutMode.setText("Grid" if grid_mode else "List")
 
-    @Slot(bool)
-    def toggle_filter_panel(self, visible: bool) -> None:
-        """フィルターパネル表示切り替え"""
-        self.frameFilterSearchPanel.setVisible(visible)
 
-    @Slot(bool)
-    def toggle_preview_panel(self, visible: bool) -> None:
-        """プレビューパネル表示切り替え"""
-        self.framePreviewDetailPanel.setVisible(visible)
-
-    @Slot()
-    def select_all_images(self) -> None:
-        """全画像選択"""
-        if self.dataset_state.has_filtered_images():
-            all_ids = [img.get("id") for img in self.dataset_state.filtered_images if "id" in img]
-            self.dataset_state.set_selected_images(all_ids)
-
-    @Slot()
-    def deselect_all_images(self) -> None:
-        """全選択解除"""
-        self.dataset_state.clear_selection()
-
-    # === Action Handlers ===
-
-    @Slot()
-    def start_annotation(self) -> None:
-        """アノテーション開始"""
-        if not self.dataset_state.selected_image_ids:
-            QMessageBox.information(self, "情報", "アノテーション対象の画像を選択してください。")
-            return
-
-        # TODO: アノテーション処理の実装
-        QMessageBox.information(self, "情報", "アノテーション機能は実装中です。")
-
-    @Slot()
-    def start_export(self) -> None:
-        """エクスポート開始"""
-        if not self.dataset_state.has_images():
-            QMessageBox.information(self, "情報", "エクスポート対象の画像がありません。")
-            return
-
-        # TODO: エクスポート処理の実装
-        QMessageBox.information(self, "情報", "エクスポート機能は実装中です。")
-
-    @Slot()
-    def show_settings(self) -> None:
-        """設定画面表示"""
-        # TODO: 設定ダイアログの実装
-        QMessageBox.information(self, "情報", "設定画面は実装中です。")
 
     # === Search and Filter Handlers ===
 
     @Slot(dict)
-    def on_search_requested(self, conditions: dict) -> None:
+    def handle_search_requested(self, conditions: dict) -> None:
         """検索要求を処理（非同期対応）"""
         try:
             logger.info(f"検索条件受信: {conditions}")
@@ -429,7 +442,7 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
             QMessageBox.warning(self, "検索エラー", f"検索開始中にエラーが発生しました:\n{e!s}")
 
     @Slot()
-    def on_filter_cleared(self) -> None:
+    def handle_filter_cleared(self) -> None:
         """フィルタークリア要求を処理"""
         try:
             logger.info("フィルタークリア要求受信")
@@ -451,7 +464,7 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
             self.labelStatus.setText("フィルタークリアエラーが発生しました")
 
     @Slot(object)
-    def on_search_finished(self, search_result) -> None:
+    def handle_search_finished(self, search_result) -> None:
         """検索完了処理"""
         try:
             logger.info(f"検索完了: {len(search_result.image_metadata)}件")
@@ -510,7 +523,7 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
             self._close_search_progress_dialog()
 
     @Slot(str)
-    def on_search_error(self, error_message: str) -> None:
+    def handle_search_error(self, error_message: str) -> None:
         """検索エラー処理"""
         logger.error(f"検索エラー: {error_message}")
 
@@ -626,7 +639,7 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
             self._close_thumbnail_progress_dialog()
 
     @Slot(object)
-    def on_thumbnail_finished(self, thumbnail_result) -> None:
+    def handle_thumbnail_finished(self, thumbnail_result) -> None:
         """サムネイル読み込み完了処理"""
         try:
             logger.info(f"サムネイル読み込み完了: {len(thumbnail_result.loaded_thumbnails)}件")
@@ -642,7 +655,7 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
             self._close_thumbnail_progress_dialog()
 
     @Slot(str)
-    def on_thumbnail_error(self, error_message: str) -> None:
+    def handle_thumbnail_error(self, error_message: str) -> None:
         """サムネイル読み込みエラー処理"""
         logger.error(f"サムネイル読み込みエラー: {error_message}")
 
