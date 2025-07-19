@@ -329,3 +329,7 @@ class WorkflowNavigatorWidget(QWidget):
             "completed_steps": [],
             "overall_progress": 0,
         }
+
+
+# エイリアス for backward compatibility
+WorkflowNavigator = WorkflowNavigatorWidget

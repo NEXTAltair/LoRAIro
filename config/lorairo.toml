@@ -1,7 +1,7 @@
 # API設定 - 平文保存、ログ出力時マスキング
 [api]
 openai_key = ""    # OpenAI APIキー
-claude_key = ""    # Anthropic Claude APIキー  
+claude_key = ""    # Anthropic Claude APIキー
 google_key = ""    # Google Vision APIキー
 
 # Hugging Face設定
@@ -53,4 +53,4 @@ join_existing_txt = true # 生成したタグを既存のタグと結合する�
 additional = "Your additional prompt here."
 
 [log]
-level = "DEBUG"
+level = "INFO"

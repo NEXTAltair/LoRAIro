@@ -406,3 +406,15 @@ class PreviewDetailPanel(QScrollArea):
             unit_index += 1
 
         return f"{size:.1f} {size_units[unit_index]}"
+
+    def _update_preview_image(self, image_id: int) -> None:
+        """プレビュー画像を更新"""
+        self.current_image_id = image_id
+        if image_id is not None:
+            self._load_image_details(image_id)
+        else:
+            self._clear_display()
+
+    def _update_metadata_display(self, metadata: dict[str, Any]) -> None:
+        """メタデータ表示を更新"""
+        self._display_metadata(metadata)

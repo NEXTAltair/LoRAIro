@@ -6,7 +6,8 @@ from PySide6.QtCore import QObject, QThread, Signal
 
 from lorairo.utils.log import logger
 
-from ..gui.window.progress import Controller, Worker
+# 注意: 旧進捗システムから新ワーカーシステムへの移行が必要
+# from ..gui.window.progress import Controller, Worker
 
 
 # --- Annotation Function (Compatible with progress.Worker) ---

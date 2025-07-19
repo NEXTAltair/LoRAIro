@@ -292,6 +292,22 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             is_selected = self.dataset_state.is_image_selected(image_id)
             item.setSelected(is_selected)
 
+    def clear_thumbnails(self) -> None:
+        """全てのサムネイルをクリア"""
+        self.scene.clear()
+        self.thumbnail_items.clear()
+        self.image_data.clear()
+        logger.debug("サムネイル表示をクリアしました")
+
+    def _update_display_mode(self, mode: str) -> None:
+        """表示モードを更新（grid/list）"""
+        self.display_mode = mode
+        logger.debug(f"表示モードを変更: {mode}")
+
+        # レイアウトを再計算して更新
+        if self.image_data:
+            self.update_thumbnail_layout()
+
     def _setup_placeholder_layout(self) -> None:
         """大量データ用のプレースホルダーレイアウトを設定"""
         self.scene.clear()
