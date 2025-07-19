@@ -9,7 +9,7 @@ from ...database.db_core import DefaultSessionLocal
 from ...database.db_manager import ImageDatabaseManager
 from ...database.db_repository import ImageRepository
 from ...services.configuration_service import ConfigurationService
-from ...services.worker_service import WorkerService
+from ..services.worker_service import WorkerService
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
 from ..designer.MainWorkspaceWindow_ui import Ui_MainWorkspaceWindow

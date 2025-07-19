@@ -29,19 +29,28 @@ Components communicate through Qt signals/slots for loose coupling and responsiv
 
 ```mermaid
 graph TD
-    A[main.py] --> B[MainWindow]
+    A[main.py] --> B[MainWorkspaceWindow]
     B --> C[ImageProcessingService]
-    B --> D[AnnotationService]
+    B --> D[WorkerService]
     B --> E[ConfigurationService]
-    C --> F[ImageProcessingManager]
-    C --> G[FileSystemManager]
-    C --> H[ImageDatabaseManager]
-    D --> I[AnnotationWorker]
-    D --> J[ai_annotator]
-    J --> K[image-annotator-lib]
-    E --> L[Config Files]
-    F --> G
-    H --> M[ImageRepository]
+    B --> F[DatasetStateManager]
+    C --> G[ImageProcessingManager]
+    C --> H[FileSystemManager]
+    C --> I[ImageDatabaseManager]
+    D --> J[WorkerManager]
+    D --> K[AnnotationWorker]
+    D --> L[DatabaseWorker]
+    D --> M[SearchWorker]
+    D --> N[ThumbnailWorker]
+    K --> O[ai_annotator]
+    O --> P[image-annotator-lib]
+    E --> Q[Config Files]
+    G --> H
+    I --> R[ImageRepository]
+    J --> K
+    J --> L
+    J --> M
+    J --> N
 ```
 
 #### Entry Point
@@ -52,21 +61,28 @@ graph TD
   - Launches main window
 
 #### Main Window Controller
-- **`src/lorairo/gui/window/main_window.py`**: Primary GUI orchestrator
-  - Coordinates between different GUI widgets
-  - Manages service dependencies
+- **`src/lorairo/gui/window/main_workspace_window.py`**: Primary GUI orchestrator (MainWorkspaceWindow)
+  - Workflow-centered 3-panel layout design
+  - Coordinates between filter/search, thumbnail, and preview panels
+  - Manages service dependencies and worker coordination
   - Handles application lifecycle
 
 #### Service Layer
 - **`src/lorairo/services/image_processing_service.py`**: Image processing business logic
   - Coordinates between GUI, ImageProcessingManager, and database
   - Manages image processing workflows
-- **`src/lorairo/services/annotation_service.py`**: AI annotation business logic
-  - Manages AnnotationWorker threads
+- **`src/lorairo/services/annotation_service.py`**: AI annotation business logic (deprecated)
+  - Legacy service - functionality migrated to WorkerService
   - Coordinates with image-annotator-lib integration
 - **`src/lorairo/services/configuration_service.py`**: Configuration management
   - TOML configuration file handling
   - Application settings management
+
+#### GUI Services
+- **`src/lorairo/gui/services/worker_service.py`**: Qt-based worker coordination
+  - High-level API for GUI layer
+  - Manages WorkerManager and asynchronous operations
+  - Provides unified interface for database registration, search, annotation, and thumbnail loading
 
 #### Core Processing Components
 - **`src/lorairo/editor/image_processor.py`**: ImageProcessingManager
@@ -201,6 +217,77 @@ graph TD
 - Multi-widget coordination
 - Application state management
 - User workflow control
+
+### Worker Architecture
+
+The worker system provides asynchronous task execution using Qt's QRunnable and QThreadPool.
+
+```mermaid
+graph TD
+    A[WorkerService] --> B[WorkerManager]
+    B --> C[QThreadPool]
+    C --> D[AnnotationWorker]
+    C --> E[DatabaseRegistrationWorker]
+    C --> F[SearchWorker]
+    C --> G[ThumbnailWorker]
+    D --> H[QRunnable]
+    E --> H
+    F --> H
+    G --> H
+    I[ProgressReporter] --> J[Qt Signals]
+    D --> I
+    E --> I
+    F --> I
+    G --> I
+```
+
+#### Worker Components
+
+**WorkerService** (`src/lorairo/gui/services/worker_service.py`)
+- High-level API for GUI layer
+- Unified interface for all worker operations
+- Signal management and routing
+- Worker lifecycle coordination
+
+**WorkerManager** (`src/lorairo/gui/workers/manager.py`)
+- Low-level worker execution management
+- QThreadPool integration
+- Resource management and cleanup
+- Worker progress tracking
+
+**Base Worker System** (`src/lorairo/gui/workers/base.py`)
+- `LoRAIroWorkerBase`: Abstract base class for all workers
+- `WorkerProgress`: Progress reporting data structure
+- `ProgressReporter`: Qt signal-based progress reporting
+- `CancellationController`: Cooperative cancellation support
+
+**Specialized Workers** (`src/lorairo/gui/workers/`)
+- **DatabaseRegistrationWorker**: Batch image registration to database
+- **AnnotationWorker**: AI-powered image annotation
+- **SearchWorker**: Database search and filtering
+- **ThumbnailWorker**: Asynchronous thumbnail loading
+
+#### Worker Features
+
+**Asynchronous Execution**
+- Non-blocking GUI operations
+- QRunnable-based task execution
+- QThreadPool for efficient resource management
+
+**Progress Reporting**
+- Real-time progress updates via Qt signals
+- Percentage-based and message-based reporting
+- Integration with QProgressDialog
+
+**Cancellation Support**
+- Cooperative cancellation mechanism
+- Resource cleanup on cancellation
+- Graceful worker termination
+
+**Error Handling**
+- Structured error reporting
+- Exception capture and forwarding
+- Worker state recovery
 
 ### AI Integration Architecture
 

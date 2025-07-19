@@ -89,12 +89,13 @@
 
 **Integration Flow**
 ```
-AnnotationService → AnnotationWorker → ai_annotator.py → image-annotator-lib
+WorkerService → AnnotationWorker → ai_annotator.py → image-annotator-lib
 ```
 
 **Key Components**
-- **AnnotationService** (`src/lorairo/services/annotation_service.py`): Business logic coordination
-- **AnnotationWorker**: Threaded processing for UI responsiveness
+- **WorkerService** (`src/lorairo/gui/services/worker_service.py`): Qt-based worker coordination
+- **AnnotationWorker** (`src/lorairo/gui/workers/annotation_worker.py`): QRunnable-based asynchronous processing
+- **AnnotationService** (`src/lorairo/services/annotation_service.py`): Legacy business logic (deprecated)
 - **ai_annotator.py** (`src/lorairo/annotations/ai_annotator.py`): Library integration wrapper
   - `get_available_annotator_models()`: Retrieve available AI models
   - `call_annotate_library()`: Execute annotation with comprehensive error handling
