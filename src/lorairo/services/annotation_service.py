@@ -6,8 +6,7 @@ from PySide6.QtCore import QObject, QThread, Signal
 
 from lorairo.utils.log import logger
 
-# 注意: 旧進捗システムから新ワーカーシステムへの移行が必要
-# from ..gui.window.progress import Controller, Worker
+# 新ワーカーシステムを使用
 
 
 # --- Annotation Function (Compatible with progress.Worker) ---
@@ -94,24 +93,19 @@ class AnnotationService(QObject):
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
-        self._controller: Controller | None = None
         self._annotation_result: object = None
 
     # --- Public Methods ---
     def start_annotation(self, images: list[Image], phash_list: list[str], models: list[str]) -> None:
         """
         アノテーション処理を非同期で開始する。
+        注意: このメソッドは非推奨です。代わりにWorkerServiceを直接使用してください。
 
         Args:
             images: アノテーション対象の PIL Image オブジェクトのリスト。
             phash_list: 画像の pHash 値のリスト。
             models: 使用する AI モデル名のリスト。
         """
-        if self._controller is not None:
-            logger.warning("アノテーション処理が既に実行中です。")
-            self.annotationError.emit("アノテーション処理が既に実行中です。")
-            return
-
         # Input validation
         if not images:
             logger.warning("AnnotationService: 画像リストが空のため、アノテーションを開始しません。")
@@ -132,30 +126,9 @@ class AnnotationService(QObject):
             f"AnnotationService: アノテーション処理を開始します。Images: {len(images)}, Models: {models}"
         )
 
-        # Create controller with progress widget
-        self._controller = Controller()
-
-        # Connect signals
-        self._controller.worker = None  # Will be created in start_process
-
-        # Use a wrapper function to capture the result
-        def annotation_wrapper():
-            try:
-                result = run_annotation_task(images, phash_list, models)
-                self._annotation_result = result
-                return result
-            except Exception as e:
-                logger.error(f"アノテーション処理エラー: {e}")
-                self._annotation_result = None
-                raise
-
-        # Start the process using progress.Worker system
-        self._controller.start_process(annotation_wrapper)
-
-        # Connect completion signal after worker is created
-        if self._controller.worker:
-            self._controller.worker.finished.connect(self._handle_annotation_finished)
-            self._controller.worker.error_occurred.connect(self._handle_annotation_error)
+        # 非推奨メソッドの警告
+        logger.warning("AnnotationService.start_annotation() は非推奨です。WorkerServiceを直接使用してください。")
+        self.annotationError.emit("アノテーション機能は現在WorkerServiceに移行されています。")
 
     def fetch_available_annotators(self) -> None:
         """利用可能なアノテーターのモデル名リストを取得する (同期処理)"""
@@ -172,35 +145,4 @@ class AnnotationService(QObject):
 
     def cancel_annotation(self) -> None:
         """現在実行中のアノテーション処理のキャンセルを試みる"""
-        if self._controller is not None and self._controller.worker is not None:
-            logger.info("AnnotationService: アノテーション処理のキャンセルを要求します。")
-            # Call progress.Worker's cancel method
-            self._controller.worker.cancel()
-        else:
-            logger.info("AnnotationService: キャンセル対象のアノテーション処理はありません。")
-
-    # --- Private Slots ---
-    def _handle_annotation_finished(self) -> None:
-        """ワーカー処理完了時の処理"""
-        logger.info("AnnotationService: アノテーション処理が完了しました。")
-
-        # 結果を送信
-        if self._annotation_result is not None:
-            self.annotationFinished.emit(self._annotation_result)
-
-        # リソースをクリーンアップ
-        self._reset_controller()
-
-    def _handle_annotation_error(self, error_message: str) -> None:
-        """ワーカーエラー時の処理"""
-        logger.error(f"AnnotationService: アノテーション処理エラー - {error_message}")
-        self.annotationError.emit(error_message)
-
-        # リソースをクリーンアップ
-        self._reset_controller()
-
-    def _reset_controller(self) -> None:
-        """コントローラーの参照をリセット"""
-        logger.debug("AnnotationService: コントローラーの参照をリセットします。")
-        self._controller = None
-        self._annotation_result = None
+        logger.info("AnnotationService: アノテーション機能はWorkerServiceに移行されました。")

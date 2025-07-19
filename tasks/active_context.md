@@ -1,12 +1,18 @@
 # LoRAIro Active Development Context
 
-## Current Focus (Updated: 2025/07/12)
+## Current Focus (Updated: 2025/07/19)
 
 ### Primary Development Activities
-- **Image Processor Refactoring Complete (2025/07/12)**: Successfully completed comprehensive refactoring of `src/lorairo/editor/image_processor.py` with dependency injection, CPU-fixed processing, and AutoCrop optimization
-- **Claude Code Hooks Enhancement Complete (2025/07/12)**: Implemented automatic LoRAIro environment command transformation for pytest, ruff, mypy, python, and uv commands
-- **DevContainer Update Required**: jq package added to Dockerfile for hooks functionality - container rebuild required
-- **Testing Phase Ready**: Ready to resume comprehensive testing after DevContainer rebuild
+- **GUI Redesign & Worker System Complete (2025/07/19)**: Successfully completed comprehensive GUI redesign with MainWorkspaceWindow and Qt worker system
+- **Legacy Code Cleanup Complete (2025/07/19)**: Removed deprecated GUI components, moved worker system to gui directory, updated all documentation
+- **Architecture Modernization Complete**: Qt QRunnable/QThreadPool-based asynchronous processing system implemented
+- **Documentation Synchronization Complete**: All architecture docs updated to reflect new design patterns
+
+### Recently Completed Major Tasks
+- **MainWorkspaceWindow Implementation**: Workflow-centered 3-panel design with Qt auto-connection optimization
+- **Worker System Relocation**: Moved worker system from services to gui directory for proper Qt dependency management
+- **Legacy Component Removal**: Deleted 7 deprecated window files and cleaned up import dependencies
+- **Documentation Update**: Comprehensive update of architecture.md, CLAUDE.md, technical.md, and specification files
 
 ### Recently Completed Tasks  
 1. **Requirements Clarification Session (2025/07/06)**: Systematically resolved 6 major ambiguous requirements through structured user dialogue

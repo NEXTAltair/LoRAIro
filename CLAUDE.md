@@ -106,7 +106,12 @@ pytest --cov=src --cov-report=html
 **Service Layer:**
 - `ImageProcessingService` (`src/lorairo/services/image_processing_service.py`) - Image processing workflows
 - `ConfigurationService` (`src/lorairo/services/configuration_service.py`) - Application configuration
-- `AnnotationService` (`src/lorairo/services/annotation_service.py`) - AI annotation coordination
+- `AnnotationService` (`src/lorairo/services/annotation_service.py`) - AI annotation coordination (deprecated)
+
+**GUI Services & Workers:**
+- `WorkerService` (`src/lorairo/gui/services/worker_service.py`) - Qt-based asynchronous task coordination
+- `WorkerManager` (`src/lorairo/gui/workers/manager.py`) - QThreadPool-based worker execution
+- Specialized workers in `src/lorairo/gui/workers/`: DatabaseRegistration, Annotation, Search, Thumbnail
 
 **AI Integration (Local Packages):**
 - **image-annotator-lib**: Multi-provider AI annotation (OpenAI, Anthropic, Google, Local models)
@@ -120,9 +125,11 @@ pytest --cov=src --cov-report=html
 
 **GUI Architecture:**
 - Built with PySide6 (Qt for Python)
+- **Main Window**: `src/lorairo/gui/window/main_workspace_window.py` - Workflow-centered 3-panel design
 - Designer files in `src/lorairo/gui/designer/` (auto-generated UI code)
 - Widget implementations in `src/lorairo/gui/widgets/`
-- Window controllers in `src/lorairo/gui/window/`
+- State management in `src/lorairo/gui/state/` (DatasetStateManager)
+- Asynchronous workers in `src/lorairo/gui/workers/` (Qt QRunnable/QThreadPool)
 
 **Storage:**
 - `FileSystemManager` (`src/lorairo/storage/file_system.py`) - File operations and directory management
@@ -140,6 +147,8 @@ pytest --cov=src --cov-report=html
 
 **Repository Pattern:** Database access abstracted through repository layer
 **Service Layer:** Business logic separated from GUI and data access
+**Worker Pattern:** Asynchronous operations using Qt QRunnable/QThreadPool
+**State Management:** Centralized state with DatasetStateManager
 **Dependency Injection:** Services injected into GUI components
 **Configuration-Driven:** Settings externalized to TOML configuration files
 

@@ -7,9 +7,9 @@ from typing import Any, Dict, List, Optional
 from PIL.Image import Image
 from PySide6.QtCore import QObject, QSize, Signal
 
-from ..database.db_manager import ImageDatabaseManager
-from ..storage.file_system import FileSystemManager
-from ..utils.log import logger
+from ...database.db_manager import ImageDatabaseManager
+from ...storage.file_system import FileSystemManager
+from ...utils.log import logger
 from ..workers.annotation_worker import AnnotationWorker
 from ..workers.database_worker import DatabaseRegistrationWorker, SearchWorker, ThumbnailWorker
 from ..workers.manager import WorkerManager

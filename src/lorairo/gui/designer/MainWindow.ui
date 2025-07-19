@@ -76,9 +76,9 @@
        <property name="currentIndex">
         <number>0</number>
        </property>
-       <widget class="ImageEditWidget" name="pageImageEdit"/>
-       <widget class="ImageTaggerWidget" name="pageImageTagger"/>
-       <widget class="DatasetOverviewWidget" name="pageDatasetOverview"/>
+       <widget class="QWidget" name="pageImageEdit"/>
+       <widget class="QWidget" name="pageImageTagger"/>
+       <widget class="QWidget" name="pageDatasetOverview"/>
        <widget class="QWidget" name="pageTagCaptionEdit">
         <layout class="QVBoxLayout" name="verticalLayoutTagCaptionEdit">
          <item>
@@ -90,7 +90,7 @@
          </item>
         </layout>
        </widget>
-       <widget class="DatasetExportWidget" name="pageExport"/>
+       <widget class="QWidget" name="pageExport"/>
        <widget class="QWidget" name="pageBatch">
         <layout class="QVBoxLayout" name="verticalLayout_2">
          <item>
@@ -102,7 +102,7 @@
          </item>
         </layout>
        </widget>
-       <widget class="ConfigurationWindow" name="pageSettings"/>
+       <widget class="QWidget" name="pageSettings"/>
       </widget>
      </widget>
     </item>
@@ -161,36 +161,6 @@
    <class>DirectoryPickerWidget</class>
    <extends>QWidget</extends>
    <header>..widgets.directory_picker</header>
-   <container>1</container>
-  </customwidget>
-  <customwidget>
-   <class>DatasetOverviewWidget</class>
-   <extends>QWidget</extends>
-   <header>..window.overview</header>
-   <container>1</container>
-  </customwidget>
-  <customwidget>
-   <class>ImageEditWidget</class>
-   <extends>QWidget</extends>
-   <header>..window.edit</header>
-   <container>1</container>
-  </customwidget>
-  <customwidget>
-   <class>ImageTaggerWidget</class>
-   <extends>QWidget</extends>
-   <header>..window.tagger</header>
-   <container>1</container>
-  </customwidget>
-  <customwidget>
-   <class>DatasetExportWidget</class>
-   <extends>QWidget</extends>
-   <header>..window.export</header>
-   <container>1</container>
-  </customwidget>
-  <customwidget>
-   <class>ConfigurationWindow</class>
-   <extends>QWidget</extends>
-   <header>..window.configuration_window</header>
    <container>1</container>
   </customwidget>
  </customwidgets>

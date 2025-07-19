@@ -4,7 +4,7 @@ from typing import List
 
 from PIL.Image import Image
 
-from ..utils.log import logger
+from ...utils.log import logger
 from .base import LoRAIroWorkerBase
 
 

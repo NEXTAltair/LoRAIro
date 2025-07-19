@@ -7,7 +7,7 @@ from typing import List
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QPixmap
 
-from ..utils.log import logger
+from ...utils.log import logger
 from .base import LoRAIroWorkerBase
 
 

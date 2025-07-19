@@ -1,23 +1,38 @@
-# アプリケーション層ワーカー 仕様書
+# GUI ワーカーサービス 仕様書
 
-version: "1.0.0"
+version: "2.0.0" (Updated: 2025/07/19)
 
 ## 1. 目的
 
-本仕様書は、`lorairo` アプリケーションのサービス層 (`src/lorairo/services`) における非同期処理を担当するワーカークラス群の設計と実装に関する仕様を定義します。
+本仕様書は、`lorairo` アプリケーションのGUI層 (`src/lorairo/gui`) におけるQt QRunnable/QThreadPoolベースの非同期処理システムの設計と実装に関する仕様を定義します。
 
 主な目的は以下の通りです。
 
-- UIスレッドをブロックすることなく、時間のかかるタスク（ファイルI/O、ネットワーク通信、重い計算処理など）を実行する。
-- 各非同期タスクの責務を明確にし、コードのモジュール性と保守性を向上させる。
-- 非同期処理の共通パターンを提供し、開発効率を高める。
+- UIスレッドをブロックすることなく、時間のかかるタスク（DB登録、AI処理、検索、サムネイル読み込み）を実行する。
+- Qt標準のQRunnable/QThreadPoolを活用した効率的なリソース管理を提供する。
+- 統一的な進捗報告、エラーハンドリング、キャンセレーション機能を実現する。
 
-## 2. 基本設計
+## 2. アーキテクチャ設計
 
-- **基底クラス:** 全てのアプリケーション層ワーカーは、`src.lorairo.services.base_worker.BaseWorker` クラスを継承します。
-- **`BaseWorker` の役割:**
-    - `QObject` を継承し、PySide6 のシグナル/スロット機構およびスレッド親和性を提供します。
-    - 共通のシグナル (`finished(result: object)`, `progress(percentage: int)`) を定義します。
+### 2.1 配置構造
+```
+src/lorairo/gui/
+├── services/
+│   └── worker_service.py      # GUI向け高レベルAPI
+└── workers/
+    ├── base.py               # 基底クラスとQt統合
+    ├── manager.py            # QThreadPool管理
+    ├── database_worker.py    # DB操作ワーカー
+    ├── annotation_worker.py  # AI処理ワーカー
+    └── ...
+```
+
+### 2.2 基底クラス設計
+- **基底クラス:** 全てのワーカーは、`src.lorairo.gui.workers.base.LoRAIroWorkerBase` クラスを継承します。
+- **`LoRAIroWorkerBase` の役割:**
+    - `QObject` + `Generic[T]` を継承し、型安全な結果を提供します。
+    - 標準シグナル (`finished(result: T)`, `error(message: str)`) を定義します。
+    - 進捗報告とキャンセレーション機能を統合します。
     - 基本的なキャンセル処理 (`cancel()` メソッド、`_is_cancelled` フラグ) の枠組みを提供します。
     - スレッドプールまたは個別の `QThread` 上で実行されるエントリーポイント (`run()` メソッド) を提供します。`run()` はキャンセルチェック、抽象メソッド `run_task()` の呼び出し、例外処理、`finished` シグナルの発行を行います。
 - **サブクラスの役割:**

@@ -1,10 +1,10 @@
 # src/lorairo/workers/manager.py
 
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from PySide6.QtCore import QObject, QThread, Signal
 
-from ..utils.log import logger
+from ...utils.log import logger
 from .base import LoRAIroWorkerBase
 
 
