@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from src.lorairo.workers.database_worker import DatabaseRegistrationWorker, SearchWorker
+from lorairo.gui.workers.database_worker import DatabaseRegistrationWorker, SearchWorker
 
 
 class TestDatabaseRegistrationWorker:
