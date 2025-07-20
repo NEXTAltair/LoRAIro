@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.lorairo.gui.state.dataset_state import DatasetStateManager
+from lorairo.gui.state.dataset_state import DatasetStateManager
 
 
 class TestDatasetStateManager:
@@ -124,9 +124,10 @@ class TestDatasetStateManager:
         filter_applied_mock = Mock()
         state_manager.filter_applied.connect(filter_applied_mock)
 
-        # フィルター適用
+        # フィルター適用（apply_filter_results メソッドを使用）
         filter_conditions = {"tags": ["test"], "caption": "sample"}
-        state_manager.apply_filter(filter_conditions)
+        filtered_images = sample_image_metadata[:2]  # フィルター済み画像をシミュレート
+        state_manager.apply_filter_results(filtered_images, filter_conditions)
 
         assert state_manager.filter_conditions == filter_conditions
         filter_applied_mock.assert_called_once_with(filter_conditions)

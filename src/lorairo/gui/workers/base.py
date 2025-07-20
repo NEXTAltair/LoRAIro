@@ -161,3 +161,7 @@ class LoRAIroWorkerBase(QObject, Generic[T]):
     def _report_batch_progress(self, current: int, total: int, filename: str) -> None:
         """バッチ進捗報告ヘルパー"""
         self.progress.report_batch(current, total, filename)
+
+
+# Alias for backward compatibility with import statements
+SimpleWorkerBase = LoRAIroWorkerBase

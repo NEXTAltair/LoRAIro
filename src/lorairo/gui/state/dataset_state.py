@@ -119,6 +119,7 @@ class DatasetStateManager(QObject):
         self._filter_conditions = {}
 
         self.clear_selection()
+        self._current_image_id = None
         self.filter_cleared.emit()
         logger.info("データセット状態をクリアしました")
 
