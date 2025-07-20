@@ -39,7 +39,7 @@ class SearchWorker(SimpleWorkerBase[SearchResult]):
         start_time = time.time()
 
         # 検索開始
-        self.report_progress(10, "データベース検索を開始...")
+        self._report_progress(10, "データベース検索を開始...")
 
         # フィルター条件の解析
         tags = self.filter_conditions.get("tags", [])
@@ -50,15 +50,15 @@ class SearchWorker(SimpleWorkerBase[SearchResult]):
         include_untagged = self.filter_conditions.get("include_untagged", False)
 
         # 進捗報告
-        self.report_progress(30, "フィルター条件を解析中...")
+        self._report_progress(30, "フィルター条件を解析中...")
 
         # キャンセルチェック
-        if self.is_canceled():
+        if self.cancellation.is_canceled():
             logger.info("検索がキャンセルされました")
             return SearchResult([], 0, 0.0, self.filter_conditions)
 
         # 検索実行
-        self.report_progress(60, "データベース検索を実行中...")
+        self._report_progress(60, "データベース検索を実行中...")
 
         try:
             image_metadata, total_count = self.db_manager.get_images_by_filter(
@@ -74,7 +74,7 @@ class SearchWorker(SimpleWorkerBase[SearchResult]):
             search_time = time.time() - start_time
 
             # 完了
-            self.report_progress(
+            self._report_progress(
                 100,
                 f"検索完了: {total_count}件の画像が見つかりました",
                 processed_count=total_count,

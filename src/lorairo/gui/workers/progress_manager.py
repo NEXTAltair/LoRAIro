@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from PySide6.QtCore import Qt, QThreadPool
+from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import QProgressDialog, QWidget
 
 from ...utils.log import logger
@@ -20,6 +20,7 @@ class ProgressManager:
         self.parent = parent
         self.progress_dialog: QProgressDialog | None = None
         self.current_worker: SimpleWorkerBase | None = None
+        self.current_thread: QThread | None = None
         logger.debug("ProgressManager initialized")
 
     def start_worker_with_progress(
@@ -37,14 +38,23 @@ class ProgressManager:
 
         # プログレスダイアログ作成
         self.progress_dialog = QProgressDialog(title, "キャンセル", 0, max_value, self.parent)
-        self.progress_dialog.setWindowModality(Qt.WindowModal)
+        self.progress_dialog.setWindowModality(Qt.ApplicationModal)
         self.progress_dialog.setAutoClose(True)
         self.progress_dialog.setAutoReset(True)
 
+        # スレッド作成・設定
+        self.current_thread = QThread()
+        worker.moveToThread(self.current_thread)
+
         # ワーカーシグナル接続
-        worker.signals.progress.connect(self._update_progress)
-        worker.signals.finished.connect(self._on_finished)
-        worker.signals.error.connect(self._on_error)
+        worker.progress_updated.connect(self._update_progress)
+        worker.finished.connect(self._on_finished)
+        worker.error_occurred.connect(self._on_error)
+
+        # スレッド管理シグナル接続
+        self.current_thread.started.connect(worker.run)
+        worker.finished.connect(self.current_thread.quit)
+        self.current_thread.finished.connect(self.current_thread.deleteLater)
 
         # キャンセル処理
         self.progress_dialog.canceled.connect(worker.cancel)
@@ -52,17 +62,17 @@ class ProgressManager:
         # 実行開始
         self.current_worker = worker
         self.progress_dialog.show()
-        QThreadPool.globalInstance().start(worker)
+        self.current_thread.start()
 
     def _update_progress(self, progress: WorkerProgress) -> None:
         """進捗更新"""
         if self.progress_dialog:
             self.progress_dialog.setValue(progress.percentage)
-            self.progress_dialog.setLabelText(progress.message)
+            self.progress_dialog.setLabelText(progress.status_message)
 
             # 詳細情報の表示
             if progress.current_item:
-                detail = f"{progress.message}\n現在: {progress.current_item}"
+                detail = f"{progress.status_message}\n現在: {progress.current_item}"
                 if progress.total_count > 0:
                     detail += f"\n進捗: {progress.processed_count}/{progress.total_count}"
                 self.progress_dialog.setLabelText(detail)
@@ -73,7 +83,7 @@ class ProgressManager:
             self.progress_dialog.close()
             self.progress_dialog = None
 
-        self.current_worker = None
+        self._cleanup_thread()
         logger.info("ワーカー進捗管理完了")
 
     def _on_error(self, error_message: str) -> None:
@@ -82,8 +92,17 @@ class ProgressManager:
             self.progress_dialog.close()
             self.progress_dialog = None
 
-        self.current_worker = None
+        self._cleanup_thread()
         logger.error(f"ワーカーエラー: {error_message}")
+
+    def _cleanup_thread(self) -> None:
+        """スレッドクリーンアップ"""
+        self.current_worker = None
+        if self.current_thread:
+            if self.current_thread.isRunning():
+                self.current_thread.quit()
+                self.current_thread.wait()
+            self.current_thread = None
 
     def is_active(self) -> bool:
         """進捗管理中か確認"""
