@@ -5,14 +5,10 @@ from unittest.mock import Mock, patch
 
 import pytest
 from PySide6.QtCore import QThread
-from PySide6.QtWidgets import QApplication, QProgressDialog, QWidget
+from PySide6.QtWidgets import QProgressDialog, QWidget
 
 from lorairo.gui.workers.base import SimpleWorkerBase, WorkerProgress
 from lorairo.gui.workers.progress_manager import ProgressManager
-
-# Ensure QApplication exists for Qt tests
-if not QApplication.instance():
-    app = QApplication([])
 
 
 class MockWorker(SimpleWorkerBase[str]):
@@ -27,16 +23,16 @@ class MockWorker(SimpleWorkerBase[str]):
     def execute(self) -> str:
         """テスト用実行メソッド"""
         self.execute_called = True
-        
+
         # 短い進捗報告
         for i in range(3):
             if self.cancellation.is_canceled():
                 return "canceled"
-            
+
             progress = int((i + 1) * 33.33)
             self._report_progress(progress, f"ステップ {i + 1}")
             time.sleep(self.duration / 3)
-        
+
         return self.result
 
 
@@ -75,17 +71,16 @@ class TestProgressManager:
         assert manager.current_worker is None
         assert manager.current_thread is None
 
-    @patch('lorairo.gui.workers.progress_manager.QProgressDialog')
-    @patch('lorairo.gui.workers.progress_manager.QThread')
-    def test_start_worker_setup(self, mock_thread_class, mock_dialog_class, 
-                               progress_manager, mock_worker):
+    @patch("lorairo.gui.workers.progress_manager.QProgressDialog")
+    @patch("lorairo.gui.workers.progress_manager.QThread")
+    def test_start_worker_setup(self, mock_thread_class, mock_dialog_class, progress_manager, mock_worker):
         """ワーカー開始セットアップテスト"""
         # モックインスタンス設定
         mock_dialog = Mock()
         mock_thread = Mock()
         mock_dialog_class.return_value = mock_dialog
         mock_thread_class.return_value = mock_thread
-        
+
         # moveToThread メソッドをモック化
         mock_worker.moveToThread = Mock()
 
@@ -106,9 +101,9 @@ class TestProgressManager:
 
         # シグナル接続確認（接続されているかどうかをテスト）
         # Note: Mock objects don't track signal connections, so we check if methods are callable
-        assert hasattr(mock_worker, 'progress_updated')
-        assert hasattr(mock_worker, 'finished')
-        assert hasattr(mock_worker, 'error_occurred')
+        assert hasattr(mock_worker, "progress_updated")
+        assert hasattr(mock_worker, "finished")
+        assert hasattr(mock_worker, "error_occurred")
 
         # スレッド開始確認
         mock_thread.start.assert_called_once()
@@ -157,11 +152,11 @@ class TestProgressManager:
 
         # ダイアログ更新確認
         mock_dialog.setValue.assert_called_once_with(75)
-        
+
         # 詳細メッセージの確認
         call_args = mock_dialog.setLabelText.call_args_list
         assert len(call_args) == 2  # 基本メッセージと詳細メッセージ
-        
+
         # 最後の呼び出しで詳細情報が含まれているか確認
         final_message = call_args[-1][0][0]
         assert "ファイル処理中" in final_message
@@ -185,7 +180,7 @@ class TestProgressManager:
         mock_dialog = Mock()
         mock_thread = Mock()
         mock_worker = Mock()
-        
+
         progress_manager.progress_dialog = mock_dialog
         progress_manager.current_thread = mock_thread
         progress_manager.current_worker = mock_worker
@@ -207,7 +202,7 @@ class TestProgressManager:
         mock_dialog = Mock()
         mock_thread = Mock()
         mock_worker = Mock()
-        
+
         progress_manager.progress_dialog = mock_dialog
         progress_manager.current_thread = mock_thread
         progress_manager.current_worker = mock_worker
@@ -229,7 +224,7 @@ class TestProgressManager:
         mock_thread = Mock()
         mock_thread.isRunning.return_value = True
         mock_worker = Mock()
-        
+
         progress_manager.current_thread = mock_thread
         progress_manager.current_worker = mock_worker
 
@@ -239,7 +234,7 @@ class TestProgressManager:
         # スレッド終了処理確認
         mock_thread.quit.assert_called_once()
         mock_thread.wait.assert_called_once()
-        
+
         # 状態クリア確認
         assert progress_manager.current_worker is None
         assert progress_manager.current_thread is None
@@ -250,7 +245,7 @@ class TestProgressManager:
         mock_thread = Mock()
         mock_thread.isRunning.return_value = False
         mock_worker = Mock()
-        
+
         progress_manager.current_thread = mock_thread
         progress_manager.current_worker = mock_worker
 
@@ -260,7 +255,7 @@ class TestProgressManager:
         # quit/waitが呼ばれないことを確認
         mock_thread.quit.assert_not_called()
         mock_thread.wait.assert_not_called()
-        
+
         # 状態クリア確認
         assert progress_manager.current_worker is None
         assert progress_manager.current_thread is None
@@ -274,7 +269,7 @@ class TestProgressManager:
 
         # クリーンアップ実行（例外が発生しないことを確認）
         progress_manager._cleanup_thread()
-        
+
         # ワーカーのみクリア確認
         assert progress_manager.current_worker is None
         assert progress_manager.current_thread is None

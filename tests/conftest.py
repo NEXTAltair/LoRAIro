@@ -1,5 +1,7 @@
 # tests/conftest.py
+import os
 import shutil
+import sys
 import tempfile
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
@@ -16,6 +18,66 @@ from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.db_repository import ImageRepository
 from lorairo.database.schema import AnnotationsDict, Base, ImageDict, Model, ModelType, ProcessedImageDict
 from lorairo.storage.file_system import FileSystemManager
+
+# --- pytest-qt Configuration ---
+
+
+@pytest.fixture(scope="session")
+def qapp_args():
+    """
+    pytest-qt用のQApplicationパラメータ設定
+    ヘッドレス環境（Linuxコンテナ）向けの設定を含む
+    """
+    # ヘッドレス環境の設定
+    args = ["LoRAIro", "--platform", "offscreen"]
+
+    # 環境変数による追加設定
+    if os.getenv("QT_QPA_PLATFORM") == "offscreen":
+        args.extend(["--platform", "offscreen"])
+
+    return args
+
+
+@pytest.fixture(scope="session", autouse=True)
+def configure_qt_for_tests():
+    """
+    Qt環境をテスト用に自動設定する（全テストで自動実行）
+    """
+    # Linuxコンテナ環境でのヘッドレス設定
+    if sys.platform.startswith("linux") and os.getenv("DISPLAY") is None:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+    # その他のQt関連環境変数設定
+    os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.xcb.warning=false")
+
+    return True
+
+
+@pytest.fixture(scope="function")
+def qt_main_window_mock_config():
+    """
+    Qt MainWorkspaceWindow テスト用の基本モック設定
+    """
+    from unittest.mock import Mock, patch
+
+    mock_config = {
+        "config_service": Mock(),
+        "fsm": Mock(),
+        "db_manager": Mock(),
+        "worker_service": Mock(),
+        "dataset_state": Mock(),
+        "image_repo": Mock(),
+    }
+
+    # デフォルトのモック動作設定
+    mock_config["config_service"].get_setting.return_value = None
+    mock_config["db_manager"].get_all_images.return_value = []
+    mock_config["fsm"].get_image_files.return_value = []
+    mock_config["worker_service"].get_active_worker_count.return_value = 0
+    mock_config["worker_service"].cancel_all_workers.return_value = True
+
+    return mock_config
+
 
 # --- General Test Setup Fixtures ---
 
@@ -222,10 +284,27 @@ def test_repository(db_session_factory) -> ImageRepository:
 
 
 @pytest.fixture(scope="function")
-def test_db_manager(test_repository) -> ImageDatabaseManager:
+def mock_config_service():
+    """Provides a mock ConfigurationService for tests."""
+    from unittest.mock import Mock
+
+    mock = Mock()
+    mock.get_database_dir.return_value = Path("/test/db")
+    mock.get_database_base_dir.return_value = Path("/test/base")
+    # アップスケーラーテスト用の設定を追加
+    mock.get_image_processing_config.return_value = {
+        "upscaler": "RealESRGAN_x4plus",
+        "target_resolution": 512,
+        "preferred_resolutions": [(512, 512)],
+    }
+    return mock
+
+
+@pytest.fixture(scope="function")
+def test_db_manager(test_repository, mock_config_service) -> ImageDatabaseManager:
     """Provides an instance of ImageDatabaseManager using the test repository."""
-    # Inject the test repository into the manager
-    return ImageDatabaseManager(repository=test_repository)
+    # Inject the test repository and config service into the manager
+    return ImageDatabaseManager(repository=test_repository, config_service=mock_config_service)
 
 
 # --- Existing Image/Data Fixtures (mostly reusable) ---

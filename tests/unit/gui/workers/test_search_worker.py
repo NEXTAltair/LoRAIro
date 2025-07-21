@@ -4,13 +4,8 @@ import time
 from unittest.mock import Mock, patch
 
 import pytest
-from PySide6.QtWidgets import QApplication
 
 from lorairo.gui.workers.search import SearchResult, SearchWorker
-
-# Ensure QApplication exists for Qt tests
-if not QApplication.instance():
-    app = QApplication([])
 
 
 class TestSearchResult:
@@ -91,15 +86,17 @@ class TestSearchWorker:
         """正常検索テスト"""
         # 進捗シグナル受信用モック
         progress_signals = []
-        
+
         def capture_progress(progress):
-            progress_signals.append({
-                'percentage': progress.percentage,
-                'message': progress.status_message,
-                'processed': progress.processed_count,
-                'total': progress.total_count
-            })
-        
+            progress_signals.append(
+                {
+                    "percentage": progress.percentage,
+                    "message": progress.status_message,
+                    "processed": progress.processed_count,
+                    "total": progress.total_count,
+                }
+            )
+
         search_worker.progress_updated.connect(capture_progress)
 
         # 実行
@@ -130,20 +127,20 @@ class TestSearchWorker:
 
         # 進捗シグナル確認
         assert len(progress_signals) >= 3  # 開始、解析、実行、完了
-        
+
         # 進捗の順序確認
-        percentages = [sig['percentage'] for sig in progress_signals]
+        percentages = [sig["percentage"] for sig in progress_signals]
         assert 10 in percentages  # 開始
         assert 30 in percentages  # 解析中
         assert 60 in percentages  # 実行中
         assert 100 in percentages  # 完了
 
         # 最終進捗の詳細確認
-        final_progress = next(sig for sig in progress_signals if sig['percentage'] == 100)
-        assert "検索完了" in final_progress['message']
-        assert "3件" in final_progress['message']
-        assert final_progress['processed'] == 3
-        assert final_progress['total'] == 3
+        final_progress = next(sig for sig in progress_signals if sig["percentage"] == 100)
+        assert "検索完了" in final_progress["message"]
+        assert "3件" in final_progress["message"]
+        assert final_progress["processed"] == 3
+        assert final_progress["total"] == 3
 
     def test_search_with_date_range(self, mock_db_manager):
         """日付範囲付き検索テスト"""
@@ -290,6 +287,7 @@ class TestSearchWorker:
 
     def test_search_timing(self, mock_db_manager, basic_filter_conditions):
         """検索時間測定テスト"""
+
         # DB呼び出しに遅延を追加
         def slow_search(*args, **kwargs):
             time.sleep(0.1)  # 100ms の遅延
@@ -310,7 +308,7 @@ class TestSearchWorker:
 
         # シグナル発行回数をカウント
         signal_count = 0
-        
+
         def count_signals(progress):
             nonlocal signal_count
             signal_count += 1

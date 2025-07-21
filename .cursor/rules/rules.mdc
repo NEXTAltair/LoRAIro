@@ -76,6 +76,10 @@ config = load_config("config/lorairo.toml")
 - **データベーススキーマ**: `src/lorairo/database/schema.py`
 - **メインアプリケーション**: `src/lorairo/main.py`
 - **GUIコンポーネント**: `src/lorairo/gui/`
+  - **メインウィンドウ**: `src/lorairo/gui/window/main_workspace_window.py`
+  - **ワーカー**: `src/lorairo/gui/workers/` (PySide6 QRunnable)
+  - **サービス**: `src/lorairo/gui/services/worker_service.py` (Qt調整)
+  - **状態管理**: `src/lorairo/gui/state/dataset_state.py`
 - **サービス**: `src/lorairo/services/`
 - **ローカルパッケージ**: `local_packages/` (uv.sourcesで管理)
 
@@ -93,13 +97,20 @@ config = load_config("config/lorairo.toml")
 - マイグレーション適用: `alembic upgrade head`
 - `src/lorairo/database/schema.py`の確立されたスキーマに従う
 
-## テストガイドライン
+## テストガイドライン (Updated: 2025-07-20)
 
-- **単体テスト**: モッキングを使用した高速で独立したテスト
-- **統合テスト**: サービス間の相互作用とデータベース操作をテスト
-- **GUIテスト**: PySide6コンポーネントとユーザーインタラクションをテスト
+- **単体テスト**: モッキングを使用した高速で独立したテスト (`pytest -m unit`)
+- **統合テスト**: サービス間の相互作用とデータベース操作をテスト (`pytest -m integration`)
+- **GUIテスト**: PySide6コンポーネントとユーザーインタラクションをテスト (`pytest -m gui`)
+- **ワーカーテスト**: QRunnable-based非同期ワーカーのテスト (`tests/unit/gui/workers/`)
 - テストリソースは`tests/resources/`に配置
 - 共通セットアップにはpytestフィクスチャを使用
+- **現在のステータス**: 352テスト通過、41失敗、25エラー (84%成功率)
+- **知られている問題**: 
+  - ワーカーシステム調整 (threading/async)
+  - データベース統合 (schema/migration)
+  - GUI初期化エラー
+  - 日本語テキスト処理 (BDD)
 
 ## エラーハンドリング
 

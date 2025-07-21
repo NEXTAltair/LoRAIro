@@ -232,11 +232,18 @@ flowchart TD
 - **Repository**: `src/lorairo/database/db_repository.py` - Data access
 - **Manager**: `src/lorairo/database/db_manager.py` - High-level operations
 
-### GUI Architecture
-- **Framework**: PySide6 (Qt for Python)
-- **Designer Files**: `src/lorairo/gui/designer/` - Auto-generated UI
-- **Widgets**: `src/lorairo/gui/widgets/` - Custom components
-- **Windows**: `src/lorairo/gui/window/` - Window controllers
+### GUI Architecture (PySide6 Worker System)
+- **Framework**: PySide6 (Qt for Python) with QThreadPool-based worker architecture
+- **Main Window**: `src/lorairo/gui/window/main_workspace_window.py` - Workflow-centered 3-panel design
+- **Designer Files**: `src/lorairo/gui/designer/` - Auto-generated UI code from Qt Designer
+- **Widgets**: `src/lorairo/gui/widgets/` - Custom components and panels
+- **Windows**: `src/lorairo/gui/window/` - Window controllers and dialogs
+- **State Management**: `src/lorairo/gui/state/` - DatasetStateManager for centralized state
+- **Worker System**: `src/lorairo/gui/workers/` - QRunnable-based asynchronous task execution
+  - **Base Classes**: `BaseWorker`, `ProgressManager` for standardized worker patterns
+  - **Database Workers**: Registration, search, and data management operations
+  - **AI Workers**: Annotation and thumbnail generation tasks
+- **Services**: `src/lorairo/gui/services/` - WorkerService for Qt-based task coordination
 
 ## Technology Stack
 
@@ -419,7 +426,7 @@ retry_attempts = 3
 - **`.py`**: Python source code
 - **`.md`**: Documentation (Markdown)
 
-## Current Implementation Status
+## Current Implementation Status (Updated: 2025-07-20)
 
 ### ✅ Completed Components
 - **Local Package Integration**: Both `image-annotator-lib` and `genai-tag-db-tools` fully integrated
@@ -427,16 +434,30 @@ retry_attempts = 3
 - **Service Layer**: Configuration, Image Processing, and Annotation services implemented
 - **AI Integration**: Unified interface via `ai_annotator.py` for multi-provider support
 - **Tag Processing**: Integrated tag cleaning and normalization via `genai-tag-db-tools`
+- **PySide6 Worker System**: New Qt-based worker architecture implemented in `src/lorairo/gui/workers/`
+  - **WorkerManager**: QThreadPool-based task execution (`src/lorairo/gui/workers/manager.py`)
+  - **WorkerService**: Qt service coordination (`src/lorairo/gui/services/worker_service.py`)
+  - **Specialized Workers**: DatabaseRegistration, Annotation, Search, Thumbnail workers
+- **Test Infrastructure Cleanup**: Fixed Qt GUI test fixtures, removed legacy test files
 
-### 🔄 In Progress
-- **Legacy Code Cleanup**: Removing old `src/` implementations
-- **GUI Integration**: Connecting new services to existing UI components
-- **Documentation**: Updating all documentation to reflect current architecture
+### 🔄 In Progress  
+- **Test Suite Stabilization**: 352 tests passing, 41 failing, 25 errors (significant improvement)
+- **Worker System Integration**: Resolving coordination issues between workers and GUI components
+- **Database Integration**: Fixing schema and migration-related test failures
+- **GUI Component Initialization**: Addressing initialization errors in new architecture
 
-### ⚠️ Pending Items
-- **Legacy File Removal**: Clean up redundant code in old `src/` structure
-- **Test Suite Updates**: Update tests for new architecture
-- **Migration Guide**: Document transition from old to new structure
+### ⚠️ Known Issues (Current Test Failures)
+- **Worker System Coordination**: Threading and async coordination issues in integration tests
+- **Database Integration Tests**: Schema/migration problems affecting 15+ tests  
+- **GUI Component Tests**: Initialization failures in MainWorkspaceWindow integration
+- **BDD Step Definitions**: Japanese text handling in database management tests
+
+### 📊 Test Status Summary
+- **Total Tests**: ~418 tests
+- **Passing**: 352 tests (84% success rate)
+- **Failing**: 41 tests (primarily worker/DB integration)
+- **Errors**: 25 errors (GUI initialization and configuration issues)
+- **Performance**: ~6.7 minutes runtime (acceptable for CI/CD)
 
 ## Development Commands
 

@@ -9,10 +9,19 @@ LoRAIro is an AI-powered image annotation and dataset management application bui
 ### Clean Architecture
 The application follows clean architecture principles with clear separation of concerns:
 
-- **Presentation Layer**: PySide6-based GUI components
+- **Presentation Layer**: PySide6-based GUI components with QThreadPool worker system
 - **Application Layer**: Business logic services and use cases
 - **Domain Layer**: Core business entities and rules
 - **Infrastructure Layer**: Database, file system, and external APIs
+
+### PySide6 Worker Architecture (Updated: 2025-07-21)
+The system uses Qt's QThreadPool and QRunnable for asynchronous operations:
+
+- **WorkerManager**: QThreadPool-based task execution coordination (`src/lorairo/gui/workers/manager.py`)
+- **BaseWorker**: Standardized QRunnable implementation with progress reporting (`src/lorairo/gui/workers/base_worker.py`)
+- **Specialized Workers**: Database, annotation, search, and thumbnail workers in `src/lorairo/gui/workers/`
+- **WorkerService**: Qt service layer for worker coordination and GUI integration (`src/lorairo/gui/services/worker_service.py`)
+- **DatasetStateManager**: Centralized state management with Qt signals (`src/lorairo/gui/state/dataset_state.py`)
 
 ### Dependency Injection
 Services are injected into components to maintain loose coupling and enable testability.
@@ -21,7 +30,12 @@ Services are injected into components to maintain loose coupling and enable test
 All system behavior is configurable through TOML files, enabling easy customization without code changes.
 
 ### Event-Driven Architecture
-Components communicate through Qt signals/slots for loose coupling and responsive UI.
+Components communicate through Qt signals/slots for loose coupling and responsive UI:
+
+- **Qt Auto-connection**: Standardized signal naming (e.g., `on_buttonName_clicked`)
+- **Custom Signals**: Inter-component communication via DatasetStateManager
+- **Worker Signals**: Progress updates and result delivery from background threads
+- **State Synchronization**: Centralized state updates via signal/slot patterns
 
 ## System Components
 
@@ -185,42 +199,54 @@ graph TD
 - Validation rules
 - Database constraints
 
-### GUI Architecture
+### GUI Architecture (Updated: 2025-07-21)
 
-The GUI follows the Model-View-Controller pattern with PySide6 components.
+The GUI follows a workflow-centered 3-panel design with PySide6 Worker System architecture.
 
 ```mermaid
 graph TD
-    A[MainWindow] --> B[Widget Controllers]
-    B --> C[Designer UI Files]
-    B --> D[Custom Widgets]
-    C --> E[Qt Layouts]
-    D --> F[Business Logic]
-    F --> G[Services]
+    A[MainWorkspaceWindow] --> B[FilterSearchPanel]
+    A --> C[ThumbnailSelectorWidget]
+    A --> D[PreviewDetailPanel]
+    A --> E[WorkerService]
+    E --> F[WorkerManager]
+    F --> G[QThreadPool]
+    G --> H[DatabaseRegistrationWorker]
+    G --> I[AnnotationWorker]
+    G --> J[SearchWorker]
+    G --> K[ThumbnailWorker]
+    A --> L[DatasetStateManager]
+    L --> M[State Signals]
 ```
 
-#### GUI Components
+#### GUI Components (Modernized Architecture)
 
-**Designer Integration**
-- **`src/lorairo/gui/designer/`**: Auto-generated UI classes
+**Main Window**
+- **`src/lorairo/gui/window/main_workspace_window.py`**: MainWorkspaceWindow
+- Workflow-centered 3-panel design replacing legacy page-based architecture
+- Qt auto-connection pattern with standardized signal naming
+- Dependency injection for services (ConfigurationService, WorkerService, DatasetStateManager)
+
+**Panel Components**
+- **`src/lorairo/gui/widgets/filter_search_panel.py`**: Advanced search and filtering
+- **`src/lorairo/gui/widgets/thumbnail_selector_widget.py`**: Efficient image display and selection
+- **`src/lorairo/gui/widgets/preview_detail_panel.py`**: Rich preview and metadata display
+- Virtual scrolling and progressive loading for performance
+
+**State Management**
+- **`src/lorairo/gui/state/dataset_state.py`**: DatasetStateManager
+- Centralized state coordination with Qt signals
+- Image selection tracking, filter state persistence
+- Worker status coordination
+
+**Designer Integration (Legacy)**
+- **`src/lorairo/gui/designer/`**: Auto-generated UI classes (being phased out)
 - **`.ui` files**: Qt Designer interface definitions
 - **`*_ui.py` files**: Compiled Python UI classes
 
-**Widget Controllers**
-- **`src/lorairo/gui/widgets/`**: Custom widget implementations
-- Business logic integration
-- Signal/slot connections
-- Data binding and validation
+### Worker Architecture (PySide6 QThreadPool System)
 
-**Window Controllers**
-- **`src/lorairo/gui/window/`**: Window-level orchestration
-- Multi-widget coordination
-- Application state management
-- User workflow control
-
-### Worker Architecture
-
-The worker system provides asynchronous task execution using Qt's QRunnable and QThreadPool.
+The worker system provides asynchronous task execution using Qt's QRunnable and QThreadPool with standardized patterns.
 
 ```mermaid
 graph TD
@@ -230,42 +256,53 @@ graph TD
     C --> E[DatabaseRegistrationWorker]
     C --> F[SearchWorker]
     C --> G[ThumbnailWorker]
-    D --> H[QRunnable]
+    D --> H[BaseWorker/QRunnable]
     E --> H
     F --> H
     G --> H
-    I[ProgressReporter] --> J[Qt Signals]
-    D --> I
+    H --> I[ProgressManager]
+    I --> J[Qt Signals/Slots]
+    J --> K[GUI Updates]
+    L[DatasetStateManager] --> A
+    L --> M[State Synchronization]
+```
+
+#### Worker Components
+
+**Core Worker Infrastructure**
+- **`src/lorairo/gui/workers/base_worker.py`**: LoRAIroWorkerBase
+- Standardized QRunnable implementation with progress reporting
+- Built-in cancellation support and error handling
+- Qt signal integration for GUI communication
+
+**Worker Management**
+- **`src/lorairo/gui/workers/manager.py`**: WorkerManager
+- QThreadPool coordination and lifecycle management
+- Worker registration and status tracking
+- Resource management and cleanup
+
+**Service Integration**
+- **`src/lorairo/gui/services/worker_service.py`**: WorkerService
+- High-level API for async operations
+- Unified signal patterns across all workers
+- State management integration
+
+**Specialized Workers**
+- **DatabaseRegistrationWorker**: Batch image registration to database
+- **AnnotationWorker**: AI annotation processing with progress reporting
+- **SearchWorker**: Asynchronous database search operations
+- **ThumbnailWorker**: Progressive thumbnail loading and caching
     E --> I
     F --> I
     G --> I
 ```
 
-#### Worker Components
+#### Worker Implementation Details
 
-**WorkerService** (`src/lorairo/gui/services/worker_service.py`)
-- High-level API for GUI layer
-- Unified interface for all worker operations
-- Signal management and routing
-- Worker lifecycle coordination
-
-**WorkerManager** (`src/lorairo/gui/workers/manager.py`)
-- Low-level worker execution management
-- QThreadPool integration
-- Resource management and cleanup
-- Worker progress tracking
-
-**Base Worker System** (`src/lorairo/gui/workers/base.py`)
-- `LoRAIroWorkerBase`: Abstract base class for all workers
+**Worker Data Structures** (`src/lorairo/gui/workers/base_worker.py`)
 - `WorkerProgress`: Progress reporting data structure
 - `ProgressReporter`: Qt signal-based progress reporting
 - `CancellationController`: Cooperative cancellation support
-
-**Specialized Workers** (`src/lorairo/gui/workers/`)
-- **DatabaseRegistrationWorker**: Batch image registration to database
-- **AnnotationWorker**: AI-powered image annotation
-- **SearchWorker**: Database search and filtering
-- **ThumbnailWorker**: Asynchronous thumbnail loading
 
 #### Worker Features
 
@@ -521,11 +558,18 @@ graph TD
 - Service coordination
 - End-to-end workflows
 
-**GUI Tests** (`pytest -m gui`)
-- Widget functionality
-- User interaction simulation
-- Visual component testing
-- Accessibility validation
+**GUI Tests** (`pytest -m gui`) - pytest-qt Framework
+- **pytest-qt Integration**: Standard patterns using qtbot fixtures
+- **Widget Testing**: QWidget lifecycle management with automatic cleanup
+- **Cross-platform Support**: Linux headless (QT_QPA_PLATFORM=offscreen) vs Windows native GUI
+- **Signal Testing**: Qt signal/slot validation and async worker coordination
+- **Mock Strategies**: Dependency injection patterns for service isolation
+
+**Custom Test Markers**
+- **`fast`**: Fast unit tests (no external dependencies, <30s)
+- **`standard`**: Standard unit tests (light mocking, <3min)
+- **`real_api`**: Real API tests (for validation)
+- **Additional markers**: `webapi`, `scorer`, `tagger`, `model_factory` from local packages
 
 ## Deployment Architecture
 
