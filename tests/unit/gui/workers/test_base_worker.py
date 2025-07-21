@@ -5,7 +5,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 from PySide6.QtCore import QObject, QThread
-from PySide6.QtWidgets import QApplication
 
 from lorairo.gui.workers.base import (
     CancellationController,
@@ -15,10 +14,6 @@ from lorairo.gui.workers.base import (
     WorkerProgress,
     WorkerStatus,
 )
-
-# Ensure QApplication exists for Qt tests
-if not QApplication.instance():
-    app = QApplication([])
 
 
 class TestWorkerProgress:

@@ -297,6 +297,7 @@ class ImageRepository:
             filename=filename,
             color_space=info.get("color_space"),
             icc_profile=info.get("icc_profile"),
+            upscaler_used=info.get("upscaler_used"),  # アップスケーラー情報を追加
             # created_at, updated_at は server_default で設定される
         )
 

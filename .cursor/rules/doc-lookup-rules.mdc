@@ -1,5 +1,5 @@
 ---
-description: 
+description:
 globs: **/*.py,*.py,*.md
 alwaysApply: false
 ---
@@ -33,6 +33,7 @@ version: "2.0.2"
   - 設計変更時
 - **ファイル:**
   - [overall_workflow.md](mdc:docs/specs/overall_workflow.md)
+
 
 #### 1.1 インターフェイス (`docs/specs/interfaces`)
 

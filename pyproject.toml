@@ -122,7 +122,10 @@ markers = [
     "webapi: Tests related to Web API based annotators",
     "scorer: Tests specific to scorer models",
     "tagger: Tests specific to tagger models",
-    "model_factory: Tests for the model factory (ModelLoad)"
+    "model_factory: Tests for the model factory (ModelLoad)",
+    "fast: Fast unit tests (no external dependencies, <30s)",
+    "standard: Standard unit tests (light mocking, <3min)",
+    "real_api: Real API tests (for validation)"
 ]
 
 # VS Code settings moved to lorairo.code-workspace
