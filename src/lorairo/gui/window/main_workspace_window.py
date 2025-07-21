@@ -9,10 +9,10 @@ from ...database.db_core import DefaultSessionLocal
 from ...database.db_manager import ImageDatabaseManager
 from ...database.db_repository import ImageRepository
 from ...services.configuration_service import ConfigurationService
-from ..services.worker_service import WorkerService
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
 from ..designer.MainWorkspaceWindow_ui import Ui_MainWorkspaceWindow
+from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.preview_detail_panel import PreviewDetailPanel
@@ -255,7 +255,6 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
 
     # === Dataset Management ===
 
-
     def load_dataset(self, dataset_path: Path) -> None:
         """データセットディレクトリを設定（DB登録は別途実行）"""
         logger.info(f"データセットディレクトリ設定: {dataset_path}")
@@ -272,7 +271,6 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
 
         # DB登録状況を更新
         self.update_db_status()
-
 
     @Slot(object)
     def handle_batch_registration_finished(self, result) -> None:
@@ -401,8 +399,6 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
         mode = "grid" if grid_mode else "list"
         self.dataset_state.set_layout_mode(mode)
         self.pushButtonLayoutMode.setText("Grid" if grid_mode else "List")
-
-
 
     # === Search and Filter Handlers ===
 

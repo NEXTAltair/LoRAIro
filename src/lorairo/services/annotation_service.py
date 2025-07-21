@@ -127,7 +127,9 @@ class AnnotationService(QObject):
         )
 
         # 非推奨メソッドの警告
-        logger.warning("AnnotationService.start_annotation() は非推奨です。WorkerServiceを直接使用してください。")
+        logger.warning(
+            "AnnotationService.start_annotation() は非推奨です。WorkerServiceを直接使用してください。"
+        )
         self.annotationError.emit("アノテーション機能は現在WorkerServiceに移行されています。")
 
     def fetch_available_annotators(self) -> None:
