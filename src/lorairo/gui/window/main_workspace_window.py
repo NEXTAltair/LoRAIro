@@ -52,6 +52,9 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
         # サムネイル読み込み用プログレスダイアログ
         self.thumbnail_progress_dialog = None
 
+        # DB登録用プログレスダイアログ
+        self.registration_progress_dialog = None
+
         # UI設定
         self.setupUi(self)
         # 注意: setupUi()内でconnectSlotsByName()が呼ばれるため、
@@ -84,13 +87,29 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
         # スプリッターの初期サイズ設定
         self.splitterMainWorkArea.setSizes([300, 700, 400])  # フィルター:サムネイル:プレビュー
 
+        # DB登録ボタンの初期化（確実に表示されるように設定）
+        if hasattr(self, 'pushButtonRegisterImages'):
+            self.pushButtonRegisterImages.setVisible(True)
+            logger.info("DB登録ボタンを明示的に表示設定しました")
+        
         # DB登録状況の初期表示
         self.update_db_status()
+        
+        # デバッグ: ボタン状態確認
+        if hasattr(self, 'pushButtonRegisterImages'):
+            logger.info(f"DB登録ボタン状態: enabled={self.pushButtonRegisterImages.isEnabled()}, visible={self.pushButtonRegisterImages.isVisible()}")
+        else:
+            logger.error("pushButtonRegisterImages が見つかりません！")
 
     def setup_connections(self) -> None:
         """シグナル・スロット接続を設定（カスタムシグナルのみ手動接続）"""
         # UI オブジェクトのシグナルは Qt の自動接続を使用（on_<objectname>_<signal> パターン）
         # ここではカスタムシグナルのみ手動接続
+        
+        # デバッグ: 手動でボタン接続も追加（Qt自動接続のフォールバック）
+        if hasattr(self, 'pushButtonRegisterImages'):
+            self.pushButtonRegisterImages.clicked.connect(self.on_pushButtonRegisterImages_clicked)
+            logger.info("DB登録ボタンのシグナル接続を手動で設定しました")
 
         # データセット状態管理（カスタムシグナル）
         self.dataset_state.dataset_loaded.connect(self.handle_dataset_loaded)
@@ -232,6 +251,7 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
     @Slot()
     def on_pushButtonRegisterImages_clicked(self) -> None:
         """DB登録ボタンクリック（Qt自動接続）"""
+        logger.info("=== DB登録ボタンがクリックされました ===")
         dataset_path = self.dataset_state.dataset_path
         if not dataset_path or not dataset_path.exists():
             QMessageBox.warning(self, "警告", "有効なデータセットディレクトリを選択してください。")
@@ -243,20 +263,25 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
         self.progressBarRegistration.setValue(0)
         self.pushButtonRegisterImages.setEnabled(False)
 
+        # 【重要修正】FileSystemManagerを初期化
+        self._initialize_filesystem_for_registration()
+
         # バッチ登録開始
         try:
+            self._show_registration_progress_dialog()
             worker_id = self.worker_service.start_batch_registration(dataset_path)
             logger.info(f"バッチ登録ワーカー開始: {worker_id}")
         except Exception as e:
             logger.error(f"バッチ登録開始エラー: {e}")
             QMessageBox.critical(self, "エラー", f"データベース登録エラー:\n{e}")
+            self._close_registration_progress_dialog()
             self.progressBarRegistration.setVisible(False)
             self.pushButtonRegisterImages.setEnabled(True)
 
     # === Dataset Management ===
 
     def load_dataset(self, dataset_path: Path) -> None:
-        """データセットディレクトリを設定（DB登録は別途実行）"""
+        """データセットディレクトリを設定（自動DB登録機能復活）"""
         logger.info(f"データセットディレクトリ設定: {dataset_path}")
 
         # UI更新
@@ -272,33 +297,70 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
         # DB登録状況を更新
         self.update_db_status()
 
+        # 【復活機能】自動DB登録を開始（旧MainWindowと同じ動作）
+        self.start_auto_batch_registration(dataset_path)
+
+    def start_auto_batch_registration(self, dataset_path: Path) -> None:
+        """自動バッチ登録開始（旧MainWindowの機能復活）"""
+        logger.info(f"自動DB登録を開始: {dataset_path}")
+        
+        # UI更新（自動処理であることを表示）
+        self.labelStatus.setText("新しい画像を自動検出してデータベースに登録中...")
+        self.progressBarRegistration.setVisible(True)
+        self.progressBarRegistration.setValue(0)
+        self.pushButtonRegisterImages.setEnabled(False)
+
+        # 【重要修正】FileSystemManagerを初期化
+        self._initialize_filesystem_for_registration()
+
+        # バッチ登録開始（手動登録と同じワーカーを使用）
+        try:
+            self._show_registration_progress_dialog()
+            worker_id = self.worker_service.start_batch_registration(dataset_path)
+            logger.info(f"自動バッチ登録ワーカー開始: {worker_id}")
+        except Exception as e:
+            logger.error(f"自動バッチ登録開始エラー: {e}")
+            # エラー時は手動登録モードに戻す
+            self._close_registration_progress_dialog()
+            self.progressBarRegistration.setVisible(False)
+            self.pushButtonRegisterImages.setEnabled(True)
+            self.labelStatus.setText(f"自動登録エラー: {e} - 手動で「画像をDB登録」ボタンを押してください")
+
     @Slot(object)
     def handle_batch_registration_finished(self, result) -> None:
         """バッチ登録完了処理"""
         logger.info(f"バッチ登録完了: 登録={result.registered_count}, スキップ={result.skipped_count}")
 
         # UI更新
+        self._close_registration_progress_dialog()
         self.progressBarRegistration.setVisible(False)
         self.pushButtonRegisterImages.setEnabled(True)
 
         # データセット画像情報を取得
         try:
-            # 登録された画像のメタデータを取得
-            image_metadata = []
-            for image_path in result.processed_paths:
-                image_id = self.db_manager.detect_duplicate_image(image_path)
-                if image_id:
-                    metadata = self.db_manager.get_image_by_id(image_id)
-                    if metadata:
-                        image_metadata.append(metadata)
+            # 【修正】現在のディレクトリに含まれる全画像をDBから取得
+            # 新規登録＋重複スキップされた画像の両方を表示する
+            if self.dataset_state.dataset_path:
+                logger.info(f"登録完了後の画像取得開始: {self.dataset_state.dataset_path}")
+                # 現在のパスに関連する全画像を取得
+                image_metadata = self._get_images_from_current_directory()
+                logger.info(f"取得した画像メタデータ: {len(image_metadata)}件")
+                
+                # データセット状態更新
+                self.dataset_state.set_dataset_images(image_metadata)
+            else:
+                logger.warning("データセットパスが設定されていません")
+                self.dataset_state.set_dataset_images([])
 
-            # データセット状態更新
-            self.dataset_state.set_dataset_images(image_metadata)
-
-            # ステータス更新
-            self.labelStatus.setText(
-                f"DB登録完了: {result.registered_count}件登録, {result.skipped_count}件スキップ"
-            )
+            # ステータス更新（自動/手動を区別）
+            if result.registered_count > 0:
+                self.labelStatus.setText(
+                    f"DB登録完了: {result.registered_count}件登録, {result.skipped_count}件スキップ"
+                )
+            else:
+                self.labelStatus.setText(
+                    f"DB登録完了: 新しい画像なし ({result.skipped_count}件は既に登録済み)"
+                )
 
             # DB状況更新
             self.update_db_status()
@@ -321,7 +383,8 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
                 # デバッグ情報をログに出力
                 logger.info(f"DB状況更新 - パス: {self.dataset_state.dataset_path}, 画像数: {total_images}")
 
-                # 登録ボタンの状態制御
+                # 登録ボタンの状態制御（表示と有効化）
+                self.pushButtonRegisterImages.setVisible(True)
                 self.pushButtonRegisterImages.setEnabled(bool(self.dataset_state.dataset_path))
 
                 # 画像数が0の場合、DBから再取得を試行
@@ -329,23 +392,34 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
                     self._refresh_dataset_from_db()
             else:
                 self.labelDbInfo.setText("データベース: データセット未選択")
+                self.pushButtonRegisterImages.setVisible(True)
                 self.pushButtonRegisterImages.setEnabled(False)
         except Exception as e:
             logger.warning(f"DB状況更新エラー: {e}")
             self.labelDbInfo.setText("データベース: 状況不明")
+            self.pushButtonRegisterImages.setVisible(True)
+            self.pushButtonRegisterImages.setEnabled(False)
 
     def _refresh_dataset_from_db(self) -> None:
-        """データベースから画像データを再取得"""
+        """データベースから画像データを再取得（現在のデータセットパスのみ）"""
         try:
-            # DBから全画像を取得（空のフィルターで全件取得）
-            all_image_dicts, total_count = self.db_manager.get_images_by_filter()
-            if all_image_dicts:
-                logger.info(f"データベースから{len(all_image_dicts)}件の画像を取得")
-                self.dataset_state.set_dataset_images(all_image_dicts)
-            else:
-                logger.info("データベースに画像が登録されていません")
+            # 現在のデータセットパスが設定されていない場合は何もしない
+            if not self.dataset_state.dataset_path:
+                logger.info("データセットパスが未設定のため、DB検索をスキップします")
+                self.dataset_state.set_dataset_images([])
+                return
+                
+            current_path_str = str(self.dataset_state.dataset_path)
+            logger.info(f"新しいデータセットパス選択: {current_path_str}")
+            
+            # 【修正】新しいパス選択時は一旦クリアし、DB登録後に再取得される
+            # ただし、既にDB登録済みの画像があるかもしれないのでチェック
+            logger.info("新しいパス選択のため、画像リストをクリアします（DB登録後に更新されます）")
+            self.dataset_state.set_dataset_images([])
+            
         except Exception as e:
             logger.error(f"データベースからの画像取得エラー: {e}")
+            self.dataset_state.set_dataset_images([])
 
     # === Database Management ===
 
@@ -379,6 +453,12 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
             self.progressBarRegistration.setValue(progress.percentage)
             if hasattr(progress, "status_message") and progress.status_message:
                 self.labelStatus.setText(progress.status_message)
+            
+            # プログレスダイアログも更新
+            if self.registration_progress_dialog:
+                self.registration_progress_dialog.setValue(progress.percentage)
+                if hasattr(progress, "status_message") and progress.status_message:
+                    self.registration_progress_dialog.setLabelText(progress.status_message)
         elif worker_id.startswith("thumbnail"):
             # サムネイル読み込み進捗を反映
             if self.thumbnail_progress_dialog:
@@ -704,6 +784,113 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
 
         self.labelStatus.setText("サムネイル読み込みがキャンセルされました")
 
+    def _show_registration_progress_dialog(self) -> None:
+        """DB登録用プログレスダイアログを表示"""
+        if self.registration_progress_dialog:
+            self.registration_progress_dialog.close()
+
+        self.registration_progress_dialog = QProgressDialog(
+            "画像をデータベースに登録中...", "キャンセル", 0, 100, self
+        )
+        self.registration_progress_dialog.setWindowTitle("データベース登録")
+        self.registration_progress_dialog.setModal(False)
+        self.registration_progress_dialog.setMinimumDuration(0)
+        self.registration_progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        self.registration_progress_dialog.canceled.connect(self._cancel_registration)
+        self.registration_progress_dialog.show()
+
+        # ダイアログを前面に表示
+        self.registration_progress_dialog.raise_()
+        self.registration_progress_dialog.activateWindow()
+
+    def _close_registration_progress_dialog(self) -> None:
+        """DB登録用プログレスダイアログを閉じる"""
+        if self.registration_progress_dialog:
+            try:
+                self.registration_progress_dialog.canceled.disconnect()
+                self.registration_progress_dialog.close()
+                self.registration_progress_dialog.deleteLater()
+                self.registration_progress_dialog = None
+                logger.debug("DB登録プログレスダイアログを閉じました")
+            except Exception as dialog_error:
+                logger.warning(f"DB登録プログレスダイアログ終了エラー: {dialog_error}")
+                self.registration_progress_dialog = None
+
+    def _cancel_registration(self) -> None:
+        """DB登録キャンセル"""
+        logger.info("ユーザーによるDB登録キャンセル要求")
+        # TODO: ワーカーキャンセル機能を実装
+        self._close_registration_progress_dialog()
+
+    def _initialize_filesystem_for_registration(self) -> None:
+        """DB登録用にFileSystemManagerを初期化"""
+        try:
+            # データベースディレクトリを取得または生成
+            database_dir = self.config_service.get_database_directory()
+            logger.info(f"設定から取得したデータベースディレクトリ: {database_dir}")
+
+            if not database_dir or database_dir == Path("database"):
+                # デフォルトまたは設定がない場合、database_base_dirを使用
+                base_dir = Path(
+                    self.config_service.get_setting("directories", "database_base_dir", "lorairo_data")
+                )
+                # プロジェクトディレクトリを自動生成
+                from datetime import datetime
+                project_name = f"batch_project_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                database_dir = base_dir / project_name
+                logger.info(f"新しいプロジェクトディレクトリを作成: {database_dir}")
+                # 設定を更新
+                self.config_service.update_setting("directories", "database_dir", str(database_dir))
+            else:
+                logger.info(f"既存のプロジェクトディレクトリを使用: {database_dir}")
+
+            # FileSystemManagerの初期化 - 基本的なディレクトリ構造のみ作成
+            self.fsm.initialize(database_dir)
+            logger.info(f"FileSystemManager初期化完了: {database_dir}")
+
+        except Exception as e:
+            logger.error(f"FileSystemManager初期化エラー: {e}")
+            raise
+
+    def _get_images_from_current_directory(self) -> list[dict]:
+        """現在のディレクトリに含まれる画像をDBから取得"""
+        try:
+            if not self.dataset_state.dataset_path:
+                return []
+                
+            current_path = self.dataset_state.dataset_path
+            logger.info(f"ディレクトリ内画像を検索: {current_path}")
+            
+            # ディレクトリ内の画像ファイル一覧を取得
+            image_files = list(self.fsm.get_image_files(current_path))
+            if not image_files:
+                logger.info("ディレクトリに画像ファイルが見つかりません")
+                return []
+                
+            logger.info(f"ディレクトリ内画像ファイル: {len(image_files)}件")
+            
+            # 各画像ファイルに対してDBから重複チェック→メタデータ取得
+            image_metadata = []
+            for image_path in image_files:
+                try:
+                    # pHashベースの重複チェックでimage_idを取得
+                    duplicate_result = self.db_manager.detect_duplicate_image(image_path)
+                    if duplicate_result:
+                        # 既存画像が見つかった場合、メタデータを取得
+                        metadata = self.db_manager.get_image_metadata(duplicate_result)
+                        if metadata:
+                            image_metadata.append(metadata)
+                            logger.debug(f"DB画像取得: {image_path.name} -> ID {duplicate_result}")
+                except Exception as e:
+                    logger.warning(f"画像メタデータ取得エラー: {image_path.name} - {e}")
+                    
+            logger.info(f"DB内の画像メタデータ取得完了: {len(image_metadata)}件")
+            return image_metadata
+            
+        except Exception as e:
+            logger.error(f"ディレクトリ内画像取得エラー: {e}")
+            return []
+
     # === Window Management ===
 
     def closeEvent(self, event) -> None:
@@ -711,6 +898,7 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
         # プログレスダイアログを閉じる
         self._close_search_progress_dialog()
         self._close_thumbnail_progress_dialog()
+        self._close_registration_progress_dialog()
 
         # アクティブワーカーのチェック
         if self.worker_service.get_active_worker_count() > 0:

@@ -212,6 +212,43 @@ flowchart TD
 
 ---
 
+# LoRAIro 現在の開発状況 (Updated: 2025/07/23)
+
+## 主要マイルストーン完了状況
+
+### ✅ GUI アーキテクチャ移行完了 (2025/07/19-23)
+- **MainWorkspaceWindow**: 3パネル統合ワークフロー設計に完全移行
+- **PySide6 Worker System**: QThreadPool/QRunnable ベース非同期処理アーキテクチャ
+- **状態管理**: DatasetStateManager による中央集約化
+- **Windows 検証**: 実際のGUI環境でのデータセット追加・画像登録・検索機能確認完了
+
+### ✅ テスト品質改善完了 (2025/07/23)
+- **問題**: "テストは通るが実際の使用で問題が起きる" 状況の解決
+- **原因**: 過度なMockingにより実際のバグを見逃していた
+- **解決**: 外部依存のみMock、内部モジュールは実際のオブジェクト使用
+- **成果**: API名エラー、インポートパスエラー、統合問題を検出可能なテストスイート
+
+### ✅ 主要バグ修正完了 (2025/07/22-23)
+- **DB登録機能**: ボタン表示・自動登録ワークフロー復旧
+- **検索機能**: include_untagged ロジック修正により検索クエリ正常動作
+- **サムネイル機能**: インポートエラー修正・表示閾値改善
+- **ファイル処理**: .txt/.caption ファイル自動登録機能復旧
+
+## 技術的成果
+
+### アーキテクチャの安定性
+- **責任分離**: UI・ビジネスロジック・データアクセス層の明確な分離
+- **非同期処理**: レスポンシブなUI体験とバックグラウンド処理
+- **エラーハンドリング**: 包括的なエラー処理とユーザーフィードバック
+
+### 開発品質の向上
+- **テスト信頼性**: 実際のバグを検出できるテストスイート
+- **コード品質**: Ruff による一貫したコードスタイル
+- **型安全性**: mypy による静的型チェック
+- **ドキュメント**: 包括的な仕様書と進捗記録
+
+---
+
 # LoRAIro 技術仕様
 
 ## Core Architecture
@@ -232,7 +269,7 @@ flowchart TD
 - **Repository**: `src/lorairo/database/db_repository.py` - Data access
 - **Manager**: `src/lorairo/database/db_manager.py` - High-level operations
 
-### GUI Architecture (PySide6 Worker System)
+### GUI Architecture (PySide6 Worker System) - Updated 2025/07/23
 - **Framework**: PySide6 (Qt for Python) with QThreadPool-based worker architecture
 - **Main Window**: `src/lorairo/gui/window/main_workspace_window.py` - Workflow-centered 3-panel design
 - **Designer Files**: `src/lorairo/gui/designer/` - Auto-generated UI code from Qt Designer
@@ -244,6 +281,10 @@ flowchart TD
   - **Database Workers**: Registration, search, and data management operations
   - **AI Workers**: Annotation and thumbnail generation tasks
 - **Services**: `src/lorairo/gui/services/` - WorkerService for Qt-based task coordination
+- **Testing Framework**: pytest-qt with improved methodology
+  - **API Verification Tests**: Check correct method names and import paths
+  - **Real Object Integration**: Use actual internal objects, mock only external dependencies
+  - **Bug Detection**: Tests now catch real integration issues instead of just passing
 
 ## Technology Stack
 
