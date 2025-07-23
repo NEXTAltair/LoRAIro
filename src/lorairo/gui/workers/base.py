@@ -1,9 +1,9 @@
 # src/lorairo/workers/base.py
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar
 
 from PySide6.QtCore import QObject, Signal
 

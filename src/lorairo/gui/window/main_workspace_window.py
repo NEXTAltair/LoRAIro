@@ -88,16 +88,18 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
         self.splitterMainWorkArea.setSizes([300, 700, 400])  # フィルター:サムネイル:プレビュー
 
         # DB登録ボタンの初期化（確実に表示されるように設定）
-        if hasattr(self, 'pushButtonRegisterImages'):
+        if hasattr(self, "pushButtonRegisterImages"):
             self.pushButtonRegisterImages.setVisible(True)
             logger.info("DB登録ボタンを明示的に表示設定しました")
-        
+
         # DB登録状況の初期表示
         self.update_db_status()
-        
+
         # デバッグ: ボタン状態確認
-        if hasattr(self, 'pushButtonRegisterImages'):
-            logger.info(f"DB登録ボタン状態: enabled={self.pushButtonRegisterImages.isEnabled()}, visible={self.pushButtonRegisterImages.isVisible()}")
+        if hasattr(self, "pushButtonRegisterImages"):
+            logger.info(
+                f"DB登録ボタン状態: enabled={self.pushButtonRegisterImages.isEnabled()}, visible={self.pushButtonRegisterImages.isVisible()}"
+            )
         else:
             logger.error("pushButtonRegisterImages が見つかりません！")
 
@@ -105,9 +107,9 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
         """シグナル・スロット接続を設定（カスタムシグナルのみ手動接続）"""
         # UI オブジェクトのシグナルは Qt の自動接続を使用（on_<objectname>_<signal> パターン）
         # ここではカスタムシグナルのみ手動接続
-        
+
         # デバッグ: 手動でボタン接続も追加（Qt自動接続のフォールバック）
-        if hasattr(self, 'pushButtonRegisterImages'):
+        if hasattr(self, "pushButtonRegisterImages"):
             self.pushButtonRegisterImages.clicked.connect(self.on_pushButtonRegisterImages_clicked)
             logger.info("DB登録ボタンのシグナル接続を手動で設定しました")
 
@@ -303,7 +305,7 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
     def start_auto_batch_registration(self, dataset_path: Path) -> None:
         """自動バッチ登録開始（旧MainWindowの機能復活）"""
         logger.info(f"自動DB登録を開始: {dataset_path}")
-        
+
         # UI更新（自動処理であることを表示）
         self.labelStatus.setText("新しい画像を自動検出してデータベースに登録中...")
         self.progressBarRegistration.setVisible(True)
@@ -345,7 +347,7 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
                 # 現在のパスに関連する全画像を取得
                 image_metadata = self._get_images_from_current_directory()
                 logger.info(f"取得した画像メタデータ: {len(image_metadata)}件")
-                
+
                 # データセット状態更新
                 self.dataset_state.set_dataset_images(image_metadata)
             else:
@@ -408,15 +410,15 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
                 logger.info("データセットパスが未設定のため、DB検索をスキップします")
                 self.dataset_state.set_dataset_images([])
                 return
-                
+
             current_path_str = str(self.dataset_state.dataset_path)
             logger.info(f"新しいデータセットパス選択: {current_path_str}")
-            
+
             # 【修正】新しいパス選択時は一旦クリアし、DB登録後に再取得される
             # ただし、既にDB登録済みの画像があるかもしれないのでチェック
             logger.info("新しいパス選択のため、画像リストをクリアします（DB登録後に更新されます）")
             self.dataset_state.set_dataset_images([])
-            
+
         except Exception as e:
             logger.error(f"データベースからの画像取得エラー: {e}")
             self.dataset_state.set_dataset_images([])
@@ -453,7 +455,7 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
             self.progressBarRegistration.setValue(progress.percentage)
             if hasattr(progress, "status_message") and progress.status_message:
                 self.labelStatus.setText(progress.status_message)
-            
+
             # プログレスダイアログも更新
             if self.registration_progress_dialog:
                 self.registration_progress_dialog.setValue(progress.percentage)
@@ -836,6 +838,7 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
                 )
                 # プロジェクトディレクトリを自動生成
                 from datetime import datetime
+
                 project_name = f"batch_project_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                 database_dir = base_dir / project_name
                 logger.info(f"新しいプロジェクトディレクトリを作成: {database_dir}")
@@ -857,18 +860,18 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
         try:
             if not self.dataset_state.dataset_path:
                 return []
-                
+
             current_path = self.dataset_state.dataset_path
             logger.info(f"ディレクトリ内画像を検索: {current_path}")
-            
+
             # ディレクトリ内の画像ファイル一覧を取得
             image_files = list(self.fsm.get_image_files(current_path))
             if not image_files:
                 logger.info("ディレクトリに画像ファイルが見つかりません")
                 return []
-                
+
             logger.info(f"ディレクトリ内画像ファイル: {len(image_files)}件")
-            
+
             # 各画像ファイルに対してDBから重複チェック→メタデータ取得
             image_metadata = []
             for image_path in image_files:
@@ -883,10 +886,10 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
                             logger.debug(f"DB画像取得: {image_path.name} -> ID {duplicate_result}")
                 except Exception as e:
                     logger.warning(f"画像メタデータ取得エラー: {image_path.name} - {e}")
-                    
+
             logger.info(f"DB内の画像メタデータ取得完了: {len(image_metadata)}件")
             return image_metadata
-            
+
         except Exception as e:
             logger.error(f"ディレクトリ内画像取得エラー: {e}")
             return []

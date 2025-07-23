@@ -14,7 +14,8 @@
       "Bash(tree:*)",
       "WebFetch(domain:github.com)",
       "Bash(git merge-base:*)",
-      "Bash(git for-each-ref:*)"
+      "Bash(git for-each-ref:*)",
+      "Bash(ruff format:*)"
     ],
     "deny": [
       "read:.env",

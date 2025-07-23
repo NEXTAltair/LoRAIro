@@ -6,14 +6,15 @@ DatabaseWorkerの改善されたユニットテスト
 - API名やインポートパスの問題を検出可能
 """
 
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
 import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
+
 import pytest
 
-from lorairo.gui.workers.database_worker import DatabaseRegistrationWorker, DatabaseRegistrationResult
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.db_repository import ImageRepository
+from lorairo.gui.workers.database_worker import DatabaseRegistrationResult, DatabaseRegistrationWorker
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.storage.file_system import FileSystemManager
 
@@ -48,7 +49,7 @@ class TestDatabaseRegistrationWorkerImproved:
         """実際のImageRepository（Mockしない）"""
         return ImageRepository()
 
-    @pytest.fixture  
+    @pytest.fixture
     def real_db_manager(self, real_repository, real_config_service):
         """実際のImageDatabaseManager（Mockしない）"""
         return ImageDatabaseManager(real_repository, real_config_service)
@@ -66,12 +67,12 @@ class TestDatabaseRegistrationWorkerImproved:
         - このテストは実際のget_image_by_id → get_image_metadataエラーを検出できる
         """
         worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
-        
+
         # 実際のDatabaseManagerのメソッドが存在することを確認
-        assert hasattr(real_db_manager, 'detect_duplicate_image')
-        assert hasattr(real_db_manager, 'register_original_image')  # register_imageではない！
-        assert hasattr(real_db_manager, 'get_image_metadata')      # get_image_by_idではない！
-        
+        assert hasattr(real_db_manager, "detect_duplicate_image")
+        assert hasattr(real_db_manager, "register_original_image")  # register_imageではない！
+        assert hasattr(real_db_manager, "get_image_metadata")  # get_image_by_idではない！
+
         # メソッドが呼び出し可能であることを確認
         assert callable(real_db_manager.detect_duplicate_image)
         assert callable(real_db_manager.register_original_image)
@@ -83,12 +84,11 @@ class TestDatabaseRegistrationWorkerImproved:
         - このテストは実際のresove_stored_pathインポートエラーを検出できる
         """
         # DatabaseWorkerがインポート可能であることを確認
-        from lorairo.gui.workers.database_worker import DatabaseRegistrationWorker
-        
         # 依存するモジュールがインポート可能であることを確認
         from lorairo.database.db_core import resolve_stored_path  # インポートエラーを検出
-        from lorairo.database.db_repository import TagAnnotationData, CaptionAnnotationData
-        
+        from lorairo.database.db_repository import CaptionAnnotationData, TagAnnotationData
+        from lorairo.gui.workers.database_worker import DatabaseRegistrationWorker
+
         # クラスが正しく定義されていることを確認
         assert DatabaseRegistrationWorker is not None
         assert resolve_stored_path is not None
@@ -99,21 +99,22 @@ class TestDatabaseRegistrationWorkerImproved:
         - Mock以外の実際の連携をテスト
         """
         # 重複検出とDB登録をMock化（データベース書き込みを避けるため）
-        with patch.object(real_db_manager, 'detect_duplicate_image') as mock_detect, \
-             patch.object(real_db_manager, 'register_original_image') as mock_register:
-            
+        with (
+            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
+            patch.object(real_db_manager, "register_original_image") as mock_register,
+        ):
             mock_detect.return_value = None  # 重複なし
             mock_register.return_value = (1, {"id": 1, "path": "test"})  # 成功
-            
+
             worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
             result = worker.execute()
-            
+
             # 結果の検証
             assert isinstance(result, DatabaseRegistrationResult)
             assert result.registered_count == 3  # 3つのファイル
             assert result.skipped_count == 0
             assert result.error_count == 0
-            
+
             # 実際のAPIが呼ばれたことを確認
             assert mock_detect.call_count == 3
             assert mock_register.call_count == 3
@@ -125,31 +126,32 @@ class TestDatabaseRegistrationWorkerImproved:
         """
         # テスト用ファイル作成
         image_file = temp_dir / "test.jpg"
-        tag_file = temp_dir / "test.txt" 
+        tag_file = temp_dir / "test.txt"
         caption_file = temp_dir / "test.caption"
-        
+
         image_file.write_bytes(b"fake_image")
         tag_file.write_text("tag1, tag2, tag3", encoding="utf-8")
         caption_file.write_text("test caption", encoding="utf-8")
-        
+
         mock_fsm.get_image_files.return_value = [image_file]
-        
+
         # DB操作をMock化
-        with patch.object(real_db_manager, 'detect_duplicate_image') as mock_detect, \
-             patch.object(real_db_manager, 'register_original_image') as mock_register, \
-             patch.object(real_db_manager, 'save_tags') as mock_save_tags, \
-             patch.object(real_db_manager, 'save_captions') as mock_save_captions:
-            
+        with (
+            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
+            patch.object(real_db_manager, "register_original_image") as mock_register,
+            patch.object(real_db_manager, "save_tags") as mock_save_tags,
+            patch.object(real_db_manager, "save_captions") as mock_save_captions,
+        ):
             mock_detect.return_value = None
             mock_register.return_value = (1, {"id": 1})
-            
+
             worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
             result = worker.execute()
-            
+
             # 関連ファイル処理が呼ばれたことを確認
             mock_save_tags.assert_called_once()
             mock_save_captions.assert_called_once()
-            
+
             # タグデータの構造確認
             tag_call_args = mock_save_tags.call_args
             assert tag_call_args[0][0] == 1  # image_id

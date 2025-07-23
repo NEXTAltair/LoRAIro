@@ -29,20 +29,22 @@ def _delete_image_record(image_id: int, idm: ImageDatabaseManager) -> None:
     with DefaultSessionLocal() as session:
         try:
             from sqlalchemy import text
-            
+
             # 関連するレコードを削除（外部キー制約を考慮）
             session.execute(text("DELETE FROM tags WHERE image_id = :image_id"), {"image_id": image_id})
             session.execute(text("DELETE FROM captions WHERE image_id = :image_id"), {"image_id": image_id})
             session.execute(text("DELETE FROM scores WHERE image_id = :image_id"), {"image_id": image_id})
             session.execute(text("DELETE FROM ratings WHERE image_id = :image_id"), {"image_id": image_id})
-            session.execute(text("DELETE FROM processed_images WHERE image_id = :image_id"), {"image_id": image_id})
-            
+            session.execute(
+                text("DELETE FROM processed_images WHERE image_id = :image_id"), {"image_id": image_id}
+            )
+
             # 最後にメイン画像レコードを削除
             session.execute(text("DELETE FROM images WHERE id = :image_id"), {"image_id": image_id})
-            
+
             session.commit()
             logger.info(f"画像レコードと関連データを削除: 画像ID={image_id}")
-            
+
         except Exception as e:
             session.rollback()
             logger.error(f"画像レコード削除中にエラー: 画像ID={image_id}, Error: {e}")
@@ -90,7 +92,9 @@ def _process_single_image(
             else:
                 return False, f"512px画像生成失敗: 画像ID={image_id} - ensure_512px_image returned None"
         except Exception as detailed_error:
-            logger.error(f"512px画像生成中に詳細エラー: 画像ID={image_id}, Error: {detailed_error}", exc_info=True)
+            logger.error(
+                f"512px画像生成中に詳細エラー: 画像ID={image_id}, Error: {detailed_error}", exc_info=True
+            )
             return False, f"512px画像生成失敗: 画像ID={image_id} - {detailed_error}"
 
     except Exception as e:
@@ -104,25 +108,25 @@ def generate_missing_512px_images():
     """
     # サービスを初期化
     config_service = ConfigurationService()
-    
+
     # データベースディレクトリの確認
     database_dir = config_service.get_database_directory()
     if not database_dir.exists():
         logger.error(f"データベースディレクトリが存在しません: {database_dir}")
         print(f"エラー: データベースディレクトリが存在しません: {database_dir}")
         return False
-    
+
     # データベースファイルの存在確認
     db_file = database_dir / "image_database.db"
     if not db_file.exists():
         logger.error(f"データベースファイルが存在しません: {db_file}")
         print(f"エラー: データベースファイルが存在しません: {db_file}")
         return False
-    
+
     # FileSystemManagerを初期化（既存のデータベースディレクトリを使用）
     fsm = FileSystemManager()
     fsm.initialize(database_dir)
-    
+
     image_repo = ImageRepository(session_factory=DefaultSessionLocal)
     idm = ImageDatabaseManager(image_repo, config_service, fsm)
     image_processing_service = ImageProcessingService(config_service, fsm, idm)
@@ -134,7 +138,7 @@ def generate_missing_512px_images():
     try:
         # エラーが発生した特定の画像IDのみを処理
         error_image_ids = [1975, 2244]  # 前回エラーが発生した画像ID
-        
+
         logger.info(f"処理対象: {len(error_image_ids)} 件のエラー画像（ID: {error_image_ids}）")
 
         processed_count = 0
@@ -185,7 +189,7 @@ def generate_missing_512px_images():
         print(f"エラー: {error_count} 件")
         print(f"合計: {len(error_image_ids)} 件")
         print("===================================\n")
-        
+
         # エラー詳細を表示
         if error_details:
             print("=== エラー詳細 ===")

@@ -1,7 +1,5 @@
 # src/lorairo/gui/workers/progress_manager.py
 
-from typing import Optional
-
 from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import QProgressDialog, QWidget
 
