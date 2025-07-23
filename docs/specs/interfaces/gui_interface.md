@@ -224,17 +224,76 @@ def setup_connections(self) -> None:
 - 実際の UI 操作による検証可能
 - 開発時の visual debugging サポート
 
-### 4.3. モック戦略
+### 4.3. テスト品質改善 (2025/07/23)
+
+**改善前の問題:**
+- 過度なMockingにより実際のバグを見逃すテスト
+- API名エラー（`register_image` → `register_original_image`）を検出できない
+- インポートパスエラー（`..database.db_core` → `...database.db_core`）を検出できない
+- 内部モジュール統合問題を見逃す
+
+**改善されたテスト戦略:**
+```python
+@pytest.fixture
+def real_db_manager(self, real_repository, real_config_service):
+    """実際のImageDatabaseManager（Mockしない）"""
+    return ImageDatabaseManager(real_repository, real_config_service)
+
+@pytest.fixture
+def mock_fsm(self, mock_image_files):
+    """ファイルシステムのみMock化（外部依存）"""
+    mock = Mock(spec=FileSystemManager)
+    mock.get_image_files.return_value = mock_image_files
+    return mock
+```
+
+**API名検証テスト:**
+```python
+def test_api_method_names_are_correct(self, real_db_manager):
+    """APIメソッド名が正しいことをテスト - 実際のバグを検出可能"""
+    assert hasattr(real_db_manager, 'register_original_image')  # register_imageではない！
+    assert hasattr(real_db_manager, 'get_image_metadata')      # get_image_by_idではない！
+    assert callable(real_db_manager.detect_duplicate_image)
+```
+
+**インポートパス検証テスト:**
+```python
+def test_import_paths_are_correct(self):
+    """インポートパスが正しいことをテスト - インポートエラーを検出"""
+    from lorairo.database.db_core import resolve_stored_path  # インポートエラーを検出
+    assert resolve_stored_path is not None
+```
+
+**実際の統合テスト:**
+```python
+def test_worker_execution_with_real_objects(self, real_db_manager, mock_fsm):
+    """実際のオブジェクト連携をテスト - Mock以外の統合をテスト"""
+    with patch.object(real_db_manager, 'detect_duplicate_image') as mock_detect:
+        mock_detect.return_value = None
+        worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
+        result = worker.execute()
+        # 実際のAPIが呼ばれたことを確認
+        assert mock_detect.call_count == expected_count
+```
+
+### 4.4. モック戦略
+
+**改善されたモック原則:**
+- **外部依存のみMock:** ファイルシステム、ネットワーク、UI components
+- **内部モジュールは実際のオブジェクト:** LoRAIro内部の全てのサービス・マネージャー
+- **統合問題を検出:** 実際のAPI呼び出しとデータフロー
 
 **依存性注入パターン:**
 ```python
 @pytest.fixture
-def main_window(self, qtbot):
-    with patch('...ConfigurationService') as mock_config, \
-         patch('...WorkerService') as mock_worker:
-        
+def minimal_main_window(self, real_config_service, real_db_manager, mock_fsm):
+    with patch("...FilterSearchPanel") as mock_filter, \
+         patch.object(MainWorkspaceWindow, "setupUi"):
         window = MainWorkspaceWindow()
-        qtbot.addWidget(window)
+        # 実際のサービスオブジェクトを注入
+        window.config_service = real_config_service
+        window.db_manager = real_db_manager
+        window.fsm = mock_fsm
         return window
 ```
 
@@ -437,6 +496,38 @@ def test_dataset_selection_signal(self, main_window, qtbot):
 - **ThumbnailWorker:** `/src/lorairo/gui/workers/database_worker.py`
 
 ### 8.4. テスト実装
-- **MainWorkspaceWindow Tests:** `/tests/gui/test_main_workspace_window_qt.py`
-- **Worker Tests:** `/tests/gui/test_worker_*.py`
-- **Widget Tests:** `/tests/gui/test_*_widget.py`
+
+**単体テスト (Unit Tests):**
+- **MainWorkspaceWindow Tests:** `/tests/unit/gui/window/test_main_workspace_window_improved.py`
+- **DatabaseWorker Tests:** `/tests/unit/workers/test_database_worker.py`
+- **Legacy Tests (参考用):** `/tests/unit/gui/window/test_main_workspace_window.py`
+
+**統合テスト (Integration Tests):**
+- **GUI Integration Tests:** `/tests/integration/gui/test_worker_coordination.py`
+- **Database Integration Tests:** `/tests/integration/test_upscaler_database_integration.py`
+
+**GUI テスト (pytest-qt):**
+- **MainWorkspaceWindow GUI Tests:** `/tests/gui/test_main_workspace_window_qt.py`
+
+**テスト品質改善の実装例:**
+```python
+# tests/unit/workers/test_database_worker.py
+class TestDatabaseRegistrationWorker:
+    def test_api_method_names_are_correct(self, real_db_manager):
+        """実際のAPIメソッド名検証 - バグ検出可能"""
+        assert hasattr(real_db_manager, 'register_original_image')
+        assert hasattr(real_db_manager, 'get_image_metadata')
+        
+    def test_import_paths_are_correct(self):
+        """インポートパス検証 - インポートエラー検出"""
+        from lorairo.database.db_core import resolve_stored_path
+        assert resolve_stored_path is not None
+        
+    def test_worker_execution_with_real_objects(self, real_db_manager, mock_fsm):
+        """実際のオブジェクト統合テスト"""
+        # データベース操作のみMock化、内部オブジェクトは実際のもの
+        with patch.object(real_db_manager, 'detect_duplicate_image'):
+            worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
+            result = worker.execute()
+            # 実際のAPI呼び出しを検証
+```

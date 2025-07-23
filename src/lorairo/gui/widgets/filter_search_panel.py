@@ -449,11 +449,11 @@ class FilterSearchPanel(QScrollArea):
             # タグ条件をクリア（未タグ検索時は矛盾するため）
             db_conditions.pop("tags", None)
             db_conditions.pop("use_and", None)
-        elif db_conditions.get("tags"):
-            # タグ検索時は未タグ画像を含めない
+        elif db_conditions.get("tags") or db_conditions.get("caption"):
+            # タグまたはキャプション検索時は未タグ画像を含めない（検索対象を明確化）
             db_conditions["include_untagged"] = False
         else:
-            # 通常検索時は未タグ画像も含める
+            # 条件なし検索時のみ未タグ画像も含める
             db_conditions["include_untagged"] = True
 
         # 未キャプション画像のみ検索オプション（データベース処理）

@@ -71,15 +71,25 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
                 self._report_batch_progress(i + 1, total_count, image_path.name)
 
                 # 重複チェック
-                if self.db_manager.detect_duplicate_image(image_path):
+                duplicate_image_id = self.db_manager.detect_duplicate_image(image_path)
+                if duplicate_image_id:
+                    # 重複画像でも関連ファイル（.txt/.caption）を処理
+                    self._process_associated_files(image_path, duplicate_image_id)
                     skipped += 1
-                    logger.debug(f"スキップ (重複): {image_path}")
+                    logger.debug(f"スキップ (重複): {image_path} - 関連ファイルは処理")
                 else:
                     # データベース登録
-                    self.db_manager.register_image(image_path)
-                    registered += 1
-                    processed_paths.append(image_path)
-                    logger.debug(f"登録完了: {image_path}")
+                    result = self.db_manager.register_original_image(image_path, self.fsm)
+                    if result:
+                        image_id, _ = result
+                        # 関連ファイル（.txt/.caption）の処理
+                        self._process_associated_files(image_path, image_id)
+                        registered += 1
+                        processed_paths.append(image_path)
+                        logger.debug(f"登録完了: {image_path}")
+                    else:
+                        errors += 1
+                        logger.error(f"画像登録失敗: {image_path}")
 
                 # 進捗報告
                 percentage = 10 + int((i + 1) / total_count * 85)  # 10-95%
@@ -113,6 +123,67 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         )
 
         return result
+
+    def _process_associated_files(self, image_path: Path, image_id: int) -> None:
+        """
+        画像ファイルに関連する.txtと.captionファイルを処理し、データベースに登録する
+
+        Args:
+            image_path: 画像ファイルのパス
+            image_id: データベースの画像ID
+        """
+        base_path = image_path.with_suffix("")  # 拡張子を除いたパス
+
+        # .txtファイル（タグ）の処理
+        txt_file = base_path.with_suffix(".txt")
+        if txt_file.exists():
+            try:
+                tags_content = txt_file.read_text(encoding="utf-8").strip()
+                if tags_content:
+                    # カンマ区切りのタグを分割
+                    tag_strings = [tag.strip() for tag in tags_content.split(",") if tag.strip()]
+                    if tag_strings:
+                        # TagAnnotationDataのリストを作成
+                        from ...database.db_repository import TagAnnotationData
+                        tags_data: list[TagAnnotationData] = []
+                        for tag_string in tag_strings:
+                            tag_data: TagAnnotationData = {
+                                "tag_id": None,  # 新規タグとして追加
+                                "model_id": None,  # ファイルからの読み込みなのでモデルなし
+                                "tag": tag_string,
+                                "confidence_score": None,
+                                "existing": True,  # ファイルから読み込んだ既存タグ
+                                "is_edited_manually": False,
+                            }
+                            tags_data.append(tag_data)
+
+                        self.db_manager.save_tags(image_id, tags_data)
+                        logger.info(f"タグを追加: {image_path.name} - {len(tag_strings)}個のタグ")
+                    else:
+                        logger.debug(f"タグファイルが空: {txt_file.name}")
+            except Exception as e:
+                logger.error(f"タグファイル読み込みエラー: {txt_file.name} - {e}")
+
+        # .captionファイル（キャプション）の処理
+        caption_file = base_path.with_suffix(".caption")
+        if caption_file.exists():
+            try:
+                caption_content = caption_file.read_text(encoding="utf-8").strip()
+                if caption_content:
+                    # CaptionAnnotationDataを作成
+                    from ...database.db_repository import CaptionAnnotationData
+                    caption_data: CaptionAnnotationData = {
+                        "model_id": None,  # ファイルからの読み込みなのでモデルなし
+                        "caption": caption_content,
+                        "existing": False,  # 新規キャプション
+                        "is_edited_manually": False,
+                    }
+                    self.db_manager.save_captions(image_id, [caption_data])
+                    logger.info(f"キャプションを追加: {image_path.name}")
+                else:
+                    logger.debug(f"キャプションファイルが空: {caption_file.name}")
+            except Exception as e:
+                logger.error(f"キャプションファイル読み込みエラー: {caption_file.name} - {e}")
 
 
 @dataclass
@@ -181,6 +252,67 @@ class SearchWorker(LoRAIroWorkerBase[SearchResult]):
         logger.info(f"検索完了: {total_count}件, 処理時間={search_time:.3f}秒")
 
         return result
+
+    def _process_associated_files(self, image_path: Path, image_id: int) -> None:
+        """
+        画像ファイルに関連する.txtと.captionファイルを処理し、データベースに登録する
+
+        Args:
+            image_path: 画像ファイルのパス
+            image_id: データベースの画像ID
+        """
+        base_path = image_path.with_suffix("")  # 拡張子を除いたパス
+
+        # .txtファイル（タグ）の処理
+        txt_file = base_path.with_suffix(".txt")
+        if txt_file.exists():
+            try:
+                tags_content = txt_file.read_text(encoding="utf-8").strip()
+                if tags_content:
+                    # カンマ区切りのタグを分割
+                    tag_strings = [tag.strip() for tag in tags_content.split(",") if tag.strip()]
+                    if tag_strings:
+                        # TagAnnotationDataのリストを作成
+                        from ...database.db_repository import TagAnnotationData
+                        tags_data: list[TagAnnotationData] = []
+                        for tag_string in tag_strings:
+                            tag_data: TagAnnotationData = {
+                                "tag_id": None,  # 新規タグとして追加
+                                "model_id": None,  # ファイルからの読み込みなのでモデルなし
+                                "tag": tag_string,
+                                "confidence_score": None,
+                                "existing": True,  # ファイルから読み込んだ既存タグ
+                                "is_edited_manually": False,
+                            }
+                            tags_data.append(tag_data)
+
+                        self.db_manager.save_tags(image_id, tags_data)
+                        logger.info(f"タグを追加: {image_path.name} - {len(tag_strings)}個のタグ")
+                    else:
+                        logger.debug(f"タグファイルが空: {txt_file.name}")
+            except Exception as e:
+                logger.error(f"タグファイル読み込みエラー: {txt_file.name} - {e}")
+
+        # .captionファイル（キャプション）の処理
+        caption_file = base_path.with_suffix(".caption")
+        if caption_file.exists():
+            try:
+                caption_content = caption_file.read_text(encoding="utf-8").strip()
+                if caption_content:
+                    # CaptionAnnotationDataを作成
+                    from ...database.db_repository import CaptionAnnotationData
+                    caption_data: CaptionAnnotationData = {
+                        "model_id": None,  # ファイルからの読み込みなのでモデルなし
+                        "caption": caption_content,
+                        "existing": False,  # 新規キャプション
+                        "is_edited_manually": False,
+                    }
+                    self.db_manager.save_captions(image_id, [caption_data])
+                    logger.info(f"キャプションを追加: {image_path.name}")
+                else:
+                    logger.debug(f"キャプションファイルが空: {caption_file.name}")
+            except Exception as e:
+                logger.error(f"キャプションファイル読み込みエラー: {caption_file.name} - {e}")
 
 
 @dataclass
@@ -299,7 +431,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
             # 512px画像が利用可能な場合はそれを使用
             existing_512px = self.db_manager.check_processed_image_exists(image_id, 512)
             if existing_512px and "stored_image_path" in existing_512px:
-                from ..database.db_core import resolve_stored_path
+                from ...database.db_core import resolve_stored_path
 
                 path = resolve_stored_path(existing_512px["stored_image_path"])
                 if path.exists():
@@ -308,7 +440,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
             # フォールバック: 元画像を使用
             stored_path = image_data.get("stored_image_path")
             if stored_path:
-                from ..database.db_core import resolve_stored_path
+                from ...database.db_core import resolve_stored_path
 
                 return resolve_stored_path(stored_path)
 

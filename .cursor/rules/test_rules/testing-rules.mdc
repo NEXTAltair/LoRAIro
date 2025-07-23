@@ -1,5 +1,5 @@
 ---
-description: 
+description:
 globs: tests/**/*
 alwaysApply: false
 ---
@@ -50,7 +50,6 @@ version: 3.0.0
 
 ## テストの執行
 
-- `uv run pytest` コマンドで実行する
 - コマンドオプションは必要に応じて使い分ける
 - 基本的なテスト設定は [pyproject.toml](mdc:pyproject.toml) で設定する
 - カバレッジの測定結果は @coverage.xml として出力する

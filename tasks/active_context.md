@@ -1,14 +1,24 @@
 # LoRAIro Active Development Context
 
-## Current Focus (Updated: 2025/07/20)
+## Current Focus (Updated: 2025/07/23)
 
 ### Primary Development Activities
+- **Test Quality Improvement Complete (2025/07/23)**: Successfully implemented improved unit testing methodology, eliminated excessive mocking, added real bug detection capabilities
+- **GUI Bug Fix Phase Complete (2025/07/22-23)**: Fixed all major GUI functionality issues including DB registration, search, thumbnail display, and file processing
 - **Test Infrastructure Stabilization (2025/07/20)**: Fixed Qt GUI test fixtures, resolved generator object issues, improved test suite stability
 - **PySide6 Worker System Complete (2025/07/19)**: Successfully completed comprehensive GUI redesign with MainWorkspaceWindow and Qt worker system
-- **Legacy Code Cleanup Complete (2025/07/19-20)**: Removed deprecated GUI components, deleted legacy test files, updated test suite
-- **Test Suite Optimization Complete (2025/07/20)**: Achieved 352 passing tests (84% success rate) with significant reduction in failures
 
-### Recently Completed Major Tasks (2025/07/20)
+### Recently Completed Major Tasks (2025/07/23)
+- **Test Quality Overhaul**: Rewritten unit tests following improved methodology - now catch real bugs instead of just passing
+- **API Method Name Bug Fixes**: Fixed `register_image` → `register_original_image`, `get_image_by_id` → `get_image_metadata`
+- **Import Path Bug Fixes**: Fixed `..database.db_core` → `...database.db_core` import errors
+- **Search Functionality Restoration**: Fixed `include_untagged` logic that was causing search queries to be ignored
+- **Auto-Registration Feature Restoration**: Restored missing auto-registration feature from old MainWindow
+- **Thumbnail Loading Improvements**: Fixed import errors, increased loading threshold, improved display reliability
+- **Tag/Caption File Processing**: Restored automatic .txt/.caption file registration functionality
+- **Windows GUI Verification**: Confirmed dataset addition, image registration, and search functionality working correctly
+
+### Previously Completed Major Tasks (2025/07/20-22)
 - **Test Infrastructure Fix**: Fixed Qt GUI test fixtures (generator object issue in main_workspace_window_qt.py)
 - **Legacy Test Cleanup**: Deleted 6 obsolete test files referencing removed MainWindow/Progress modules
 - **Import Path Corrections**: Fixed 2 test files with incorrect import paths for relocated modules
@@ -30,6 +40,33 @@
 6. **Configuration Optimization (2025/07/07)**: Implemented DI + shared config pattern for immediate cross-instance updates
 
 ## Recent Major Changes
+
+### Test Quality Methodology Improvement (2025-07-23)
+- **Problem Identified**: User pointed out "テストは通るが実際の使用で問題が起きる" - tests were passing despite real bugs existing
+- **Root Cause**: Excessive mocking of internal LoRAIro modules prevented tests from catching integration issues
+- **Solution Implemented**: 
+  - **Reduced Excessive Mocking**: Only mock external dependencies (filesystem, network, UI); use real objects for internal modules
+  - **API Name Verification Tests**: Added tests that verify correct method names (`register_original_image` vs `register_image`)
+  - **Import Path Verification Tests**: Added tests that catch import path errors (`...database.db_core` vs `..database.db_core`)
+  - **Real Object Integration Tests**: Test actual module interactions instead of mocked behaviors
+- **Files Created/Updated**:
+  - `tests/unit/workers/test_database_worker.py`: Complete rewrite with improved methodology
+  - `tests/unit/gui/window/test_main_workspace_window_improved.py`: New improved test suite
+- **Impact**: Tests now catch real bugs that previously went undetected, significantly improving code reliability
+- **Validation**: All improved tests pass and would have detected the actual bugs encountered during development
+
+### GUI Functionality Bug Fix Phase (2025-07-22 to 2025-07-23)
+- **Major Bugs Fixed**:
+  - **DB Registration Not Working**: Fixed button visibility and auto-registration workflow
+  - **API Method Name Errors**: Corrected `register_image` → `register_original_image`, `get_image_by_id` → `get_image_metadata`
+  - **Import Path Errors**: Fixed `..database.db_core` → `...database.db_core` in database_worker.py
+  - **Search Functionality Broken**: Fixed `include_untagged=True` logic that was ignoring search queries
+  - **Missing Auto-Registration**: Restored auto-registration feature from old MainWindow using git history analysis
+  - **Thumbnail Display Issues**: Fixed import errors and loading thresholds
+  - **Tag/Caption Processing Missing**: Restored automatic .txt/.caption file registration
+- **Resolution Process**: Systematic debugging with user feedback and log analysis
+- **Windows Validation**: Confirmed all functionality working correctly in Windows GUI environment
+- **Files Modified**: `main_workspace_window.py`, `database_worker.py`, `filter_search_panel.py`, `thumbnail_enhanced.py`
 
 ### Upscaler Information Recording Implementation (2025-07-10)
 - **Feature**: Implemented comprehensive upscaler information recording system

@@ -173,9 +173,13 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             if "stored_image_path" in item and "id" in item
         ]
 
-        # プレースホルダーを表示
-        self._setup_placeholder_layout()
-        logger.info(f"フィルタリング結果受信: {len(self.image_data)}件 - プレースホルダー表示中")
+        # 大量の場合はプレースホルダー、少量の場合はサムネイル読み込み
+        if len(self.image_data) > 200:
+            logger.info(f"フィルタリング結果受信: {len(self.image_data)}件 - プレースホルダー表示中")
+            self._setup_placeholder_layout()
+        else:
+            logger.info(f"フィルタリング結果受信: {len(self.image_data)}件 - サムネイル読み込み開始")
+            self.update_thumbnail_layout()
 
     @Slot(list)
     def load_images_from_metadata(self, image_metadata: list[dict]) -> None:
@@ -190,7 +194,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             if "stored_image_path" in item and "id" in item
         ]
         # 大量の場合は画像データのみ準備してサムネイル読み込みはスキップ
-        if len(self.image_data) > 50:
+        if len(self.image_data) > 200:
             logger.info(f"大量データ({len(self.image_data)}件) - サムネイル読み込みをスキップ")
             # プレースホルダーのみ表示
             self._setup_placeholder_layout()
