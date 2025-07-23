@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QPixmap
@@ -145,6 +144,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
                     if tag_strings:
                         # TagAnnotationDataのリストを作成
                         from ...database.db_repository import TagAnnotationData
+
                         tags_data: list[TagAnnotationData] = []
                         for tag_string in tag_strings:
                             tag_data: TagAnnotationData = {
@@ -172,6 +172,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
                 if caption_content:
                     # CaptionAnnotationDataを作成
                     from ...database.db_repository import CaptionAnnotationData
+
                     caption_data: CaptionAnnotationData = {
                         "model_id": None,  # ファイルからの読み込みなのでモデルなし
                         "caption": caption_content,
@@ -274,6 +275,7 @@ class SearchWorker(LoRAIroWorkerBase[SearchResult]):
                     if tag_strings:
                         # TagAnnotationDataのリストを作成
                         from ...database.db_repository import TagAnnotationData
+
                         tags_data: list[TagAnnotationData] = []
                         for tag_string in tag_strings:
                             tag_data: TagAnnotationData = {
@@ -301,6 +303,7 @@ class SearchWorker(LoRAIroWorkerBase[SearchResult]):
                 if caption_content:
                     # CaptionAnnotationDataを作成
                     from ...database.db_repository import CaptionAnnotationData
+
                     caption_data: CaptionAnnotationData = {
                         "model_id": None,  # ファイルからの読み込みなのでモデルなし
                         "caption": caption_content,
