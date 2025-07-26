@@ -4,7 +4,7 @@ investigateフェーズの結果を基に、LoRAIro プロジェクトの実装�
 
 ## 使用方法
 ```bash
-@plan 実装対象の説明
+/plan 実装対象の説明
 ```
 
 ## 重要原則

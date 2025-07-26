@@ -4,7 +4,7 @@
 
 ## 使用方法
 ```
-@check-existing $ARGUMENTS
+/check-existing $ARGUMENTS
 ```
 
 **$ARGUMENTS**: 実装予定の機能・要件を記述（曖昧でも可）
