@@ -72,6 +72,12 @@ class Model(Base):
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     provider: Mapped[str | None] = mapped_column(String)
     discontinued_at: Mapped[datetime.datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+    # Model metadata fields for annotation processing integration
+    api_model_id: Mapped[str | None] = mapped_column(String)
+    estimated_size_gb: Mapped[float | None] = mapped_column(Float)
+    requires_api_key: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     created_at: Mapped[datetime.datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
     )
