@@ -12,6 +12,7 @@ from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
 from ..workers.annotation_worker import AnnotationWorker
 from ..workers.database_worker import DatabaseRegistrationWorker, SearchWorker, ThumbnailWorker
+from ..workers.enhanced_annotation_worker import EnhancedAnnotationWorker, ModelSyncWorker
 from ..workers.manager import WorkerManager
 
 
@@ -29,6 +30,14 @@ class WorkerService(QObject):
     annotation_started = Signal(str)  # worker_id
     annotation_finished = Signal(object)  # PHashAnnotationResults
     annotation_error = Signal(str)  # error_message
+
+    enhanced_annotation_started = Signal(str)  # worker_id
+    enhanced_annotation_finished = Signal(object)  # Enhanced annotation results
+    enhanced_annotation_error = Signal(str)  # error_message
+
+    model_sync_started = Signal(str)  # worker_id
+    model_sync_finished = Signal(object)  # ModelSyncResult
+    model_sync_error = Signal(str)  # error_message
 
     search_started = Signal(str)  # worker_id
     search_finished = Signal(object)  # SearchResult
@@ -139,6 +148,94 @@ class WorkerService(QObject):
         """アノテーションキャンセル"""
         return self.worker_manager.cancel_worker(worker_id)
 
+    # === Enhanced Annotation (Phase 2) ===
+
+    def start_enhanced_single_annotation(
+        self, images: list[Image], phash_list: list[str], models: list[str]
+    ) -> str:
+        """Enhanced単発アノテーション開始
+
+        Args:
+            images: アノテーション対象画像リスト
+            phash_list: pHashリスト
+            models: 使用モデル名リスト
+
+        Returns:
+            str: ワーカーID
+        """
+        worker = EnhancedAnnotationWorker(
+            images=images, phash_list=phash_list, models=models, operation_mode="single"
+        )
+        worker_id = f"enhanced_annotation_{int(time.time())}"
+
+        # 進捗シグナル接続
+        worker.progress_updated.connect(
+            lambda progress: self.worker_progress_updated.emit(worker_id, progress)
+        )
+
+        if self.worker_manager.start_worker(worker_id, worker):
+            logger.info(
+                f"Enhanced単発アノテーション開始: {len(images)}画像, {len(models)}モデル (ID: {worker_id})"
+            )
+            return worker_id
+        else:
+            raise RuntimeError(f"Enhanced Annotationワーカー開始失敗: {worker_id}")
+
+    def start_enhanced_batch_annotation(
+        self, image_paths: list[str], models: list[str], batch_size: int = 100
+    ) -> str:
+        """Enhancedバッチアノテーション開始
+
+        Args:
+            image_paths: 画像パスリスト
+            models: 使用モデル名リスト
+            batch_size: バッチサイズ
+
+        Returns:
+            str: ワーカーID
+        """
+        worker = EnhancedAnnotationWorker(
+            image_paths=image_paths, models=models, batch_size=batch_size, operation_mode="batch"
+        )
+        worker_id = f"enhanced_batch_{int(time.time())}"
+
+        # 進捗シグナル接続
+        worker.progress_updated.connect(
+            lambda progress: self.worker_progress_updated.emit(worker_id, progress)
+        )
+
+        if self.worker_manager.start_worker(worker_id, worker):
+            logger.info(
+                f"Enhancedバッチアノテーション開始: {len(image_paths)}画像, {len(models)}モデル (ID: {worker_id})"
+            )
+            return worker_id
+        else:
+            raise RuntimeError(f"Enhanced Batch Annotationワーカー開始失敗: {worker_id}")
+
+    def start_model_sync(self) -> str:
+        """モデル同期開始
+
+        Returns:
+            str: ワーカーID
+        """
+        worker = ModelSyncWorker()
+        worker_id = f"model_sync_{int(time.time())}"
+
+        # 進捗シグナル接続
+        worker.progress_updated.connect(
+            lambda progress: self.worker_progress_updated.emit(worker_id, progress)
+        )
+
+        if self.worker_manager.start_worker(worker_id, worker):
+            logger.info(f"モデル同期開始 (ID: {worker_id})")
+            return worker_id
+        else:
+            raise RuntimeError(f"Model Syncワーカー開始失敗: {worker_id}")
+
+    def cancel_enhanced_annotation(self, worker_id: str) -> bool:
+        """Enhanced Annotationキャンセル"""
+        return self.worker_manager.cancel_worker(worker_id)
+
     # === Search ===
 
     def start_search(self, filter_conditions: dict[str, Any]) -> str:
@@ -244,6 +341,10 @@ class WorkerService(QObject):
             self.batch_registration_started.emit(worker_id)
         elif worker_id.startswith("annotation"):
             self.annotation_started.emit(worker_id)
+        elif worker_id.startswith("enhanced_annotation") or worker_id.startswith("enhanced_batch"):
+            self.enhanced_annotation_started.emit(worker_id)
+        elif worker_id.startswith("model_sync"):
+            self.model_sync_started.emit(worker_id)
         elif worker_id.startswith("search"):
             self.search_started.emit(worker_id)
         elif worker_id.startswith("thumbnail"):
@@ -257,6 +358,10 @@ class WorkerService(QObject):
         elif worker_id.startswith("annotation"):
             self.current_annotation_worker_id = None
             self.annotation_finished.emit(result)
+        elif worker_id.startswith("enhanced_annotation") or worker_id.startswith("enhanced_batch"):
+            self.enhanced_annotation_finished.emit(result)
+        elif worker_id.startswith("model_sync"):
+            self.model_sync_finished.emit(result)
         elif worker_id.startswith("search"):
             self.current_search_worker_id = None
             self.search_finished.emit(result)
@@ -272,6 +377,10 @@ class WorkerService(QObject):
         elif worker_id.startswith("annotation"):
             self.current_annotation_worker_id = None
             self.annotation_error.emit(error)
+        elif worker_id.startswith("enhanced_annotation") or worker_id.startswith("enhanced_batch"):
+            self.enhanced_annotation_error.emit(error)
+        elif worker_id.startswith("model_sync"):
+            self.model_sync_error.emit(error)
         elif worker_id.startswith("search"):
             self.current_search_worker_id = None
             self.search_error.emit(error)
