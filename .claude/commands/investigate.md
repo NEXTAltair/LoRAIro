@@ -4,7 +4,7 @@ AI画像アノテーションアプリケーション LoRAIro の問題調査と
 
 ## 使用方法
 ```bash
-@investigate 調査対象の説明
+/investigate 調査対象の説明
 ```
 
 ## 重要原則

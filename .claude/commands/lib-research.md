@@ -4,7 +4,7 @@
 
 ## 使用方法
 ```
-@lib-research $ARGUMENTS
+/lib-research $ARGUMENTS
 ```
 
 **$ARGUMENTS**: ライブラリ名、調査テーマ、エラーメッセージなどを指定

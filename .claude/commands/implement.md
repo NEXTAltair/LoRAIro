@@ -4,7 +4,7 @@ planフェーズで策定された実装計画に基づき、LoRAIro プロジ�
 
 ## 使用方法
 ```bash
-@implement 実装対象の説明
+/implement 実装対象の説明
 ```
 
 ## 重要原則
