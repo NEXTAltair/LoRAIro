@@ -25,6 +25,7 @@
 - **実装パターン**: コードサンプル、使用例の抽出
 
 ### 3. 公式情報検索
+- **Context7 ドキュメント検索**: ライブラリの最新ドキュメント取得 (`mcp__context7__resolve-library-id` → `mcp__context7__get-library-docs`)
 - **公式リポジトリ**: GitHub/GitLab リポジトリ検索・README確認
 - **公式ドキュメント**: 公式サイト、API reference、チュートリアル
 - **リリースノート**: 最新バージョンの変更点、Breaking Changes
