@@ -84,7 +84,7 @@
             }
         }
     },
-    "postCreateCommand": "bash -c 'cd /workspaces/LoRAIro && make install-dev'",
+    "postCreateCommand": "bash -c 'cd /workspaces/LoRAIro && make install-dev && claude mcp add context7 -- npx -y @upstash/context7-mcp'",
      "mounts": [
         "source=lorairo-bashhistory-${devcontainerId},target=/home/vscode/.bash_history,type=volume",
         "source=lorairo-vscode-extensions-${devcontainerId},target=/home/vscode/.vscode-server/extensions,type=volume"

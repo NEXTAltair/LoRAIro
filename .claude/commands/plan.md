@@ -89,6 +89,7 @@ investigateフェーズで特定された要件と課題を基に、上記実装
 
 ### 要件明確化フェーズ
 - investigateフェーズ結果の詳細分析
+- **Context7 設計パターン取得**: 関連ライブラリの設計ガイド・ベストプラクティス取得 (`mcp__context7__resolve-library-id` → `mcp__context7__get-library-docs`)
 - 問題定義と成功基準の明確化
 - 制約・依存関係の特定
 
