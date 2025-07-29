@@ -130,10 +130,9 @@ RUN mkdir -p ~/.npm-global && \
 RUN sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \
     && echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.zshrc \
     && echo 'export UV_PROJECT_ENVIRONMENT=.venv_linux' >> ~/.zshrc \
-    && echo 'export PYTHONPATH=/workspaces/LoRAIro/src:/workspaces/LoRAIro/local_packages/image-annotator-lib/src:/workspaces/LoRAIro/local_packages/genai-tag-db-tools/src' >> ~/.zshrc
 
-# Set bash history persistence
-RUN echo 'export HISTFILE=/home/vscode/.bash_history' >> ~/.bashrc \
+    # Set bash history persistence
+    RUN echo 'export HISTFILE=/home/vscode/.bash_history' >> ~/.bashrc \
     && echo 'export HISTSIZE=10000' >> ~/.bashrc \
     && echo 'export HISTFILESIZE=10000' >> ~/.bashrc
 

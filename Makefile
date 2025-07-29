@@ -1,7 +1,7 @@
 # LoRAIro Project Makefile
 # Documentation and development task automation
 
-.PHONY: help docs docs-clean docs-publish docs-serve test lint format install install-dev clean run-gui clean-log
+.PHONY: help docs docs-clean docs-publish docs-serve test mypy format install install-dev clean run-gui
 
 # Default target
 help:
@@ -18,7 +18,7 @@ help:
 	@echo "  install-dev  Install development dependencies"
 	@echo "  run-gui      Run LoRAIro GUI application"
 	@echo "  test         Run tests"
-	@echo "  lint         Run code linting (ruff)"
+	@echo "  mypy         Run code check (mypy)"
 	@echo "  format       Format code (ruff format)"
 	@echo "  clean        Clean build artifacts"
 	@echo "  clean-log     Clean LoRAIro log files"
@@ -84,11 +84,8 @@ run-gui:
 	./scripts/run_gui.sh
 
 test:
-	@echo "Syncing src/ and tests/ to /tmp/lorairo_test_src (excluding .git, __pycache__, .mypy_cache, .ruff_cache, test images except 1_img)..."
-	@rm -rf /tmp/lorairo_test_src
-	@mkdir -p /tmp/lorairo_test_src
-	@rsync -a --exclude='.git' --exclude='__pycache__' --exclude='.mypy_cache' --exclude='.ruff_cache' src/ /tmp/lorairo_test_src/src/
-	@if [ -d tests ]; then \ix
+	@echo "src/ and tests/..."
+	PROJECT_ENVIRONMENT=.venv_linux uv run pytest
 
 clean:
 	@echo "Cleaning build artifacts..."
@@ -96,13 +93,10 @@ clean:
 	@find . -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null || true
 	@find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null || true
 	@find . -type d -name ".ruff_cache" -exec rm -rf {} + 2>/dev/null || true
+	@find . -type d -name ".mypy_cache" -exec rm -rf {} + 2>/dev/null || true
 	@rm -rf build/ dist/ docs/build/
-	@echo "Build artifacts cleaned."
-
-clean-log:
-	@echo "Cleaning log files"
 	@rm -rf logs/*
-	@echo "cleaned"
+	@echo "Build artifacts cleaned."
 
 # Windows compatibility (optional .bat targets)
 docs-publish-win:
@@ -116,9 +110,9 @@ docs-publish-win:
 	@echo "Running tests in /tmp/lorairo_test_src/tests ..."
 	UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest /tmp/lorairo_test_src/tests
 
-lint:
-	@echo "Running code linting..."
-	UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff check src/
+mypy:
+	@echo "Running mypy..."
+	UV_PROJECT_ENVIRONMENT=.venv_linux uv run mypy -p lorairo
 
 format:
 	@echo "Formatting code..."
