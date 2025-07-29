@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>AnnotationResultsWidget</class>
+ <widget class="QWidget" name="AnnotationResultsWidget">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>400</width>
+    <height>400</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Annotation Results</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayoutMain">
+   <property name="spacing">
+    <number>6</number>
+   </property>
+   <property name="leftMargin">
+    <number>9</number>
+   </property>
+   <property name="topMargin">
+    <number>9</number>
+   </property>
+   <property name="rightMargin">
+    <number>9</number>
+   </property>
+   <property name="bottomMargin">
+    <number>9</number>
+   </property>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayoutHeader">
+     <item>
+      <widget class="QLabel" name="labelResultsTitle">
+       <property name="text">
+        <string>アノテーション結果</string>
+       </property>
+       <property name="font">
+        <font>
+         <weight>75</weight>
+         <bold>true</bold>
+        </font>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacerHeader">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QComboBox" name="comboBoxViewMode">
+       <property name="toolTip">
+        <string>表示モードを選択</string>
+       </property>
+       <item>
+        <property name="text">
+         <string>タブ表示</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>比較表示</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QTabWidget" name="tabWidgetResults">
+     <property name="currentIndex">
+      <number>0</number>
+     </property>
+     <widget class="QWidget" name="tabPlaceholder">
+      <attribute name="title">
+       <string>結果なし</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayoutPlaceholder">
+       <item>
+        <widget class="QLabel" name="labelNoResults">
+         <property name="text">
+          <string>アノテーション結果がありません</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignmentFlag::AlignCenter</set>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+   <item>
+    <widget class="QFrame" name="frameComparisonView">
+     <property name="frameShape">
+      <enum>QFrame::Shape::StyledPanel</enum>
+     </property>
+     <property name="frameShadow">
+      <enum>QFrame::Shadow::Raised</enum>
+     </property>
+     <property name="visible">
+      <bool>false</bool>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayoutComparison">
+      <item>
+       <widget class="QLabel" name="labelComparisonTitle">
+        <property name="text">
+         <string>結果比較</string>
+        </property>
+        <property name="font">
+         <font>
+          <weight>75</weight>
+          <bold>true</bold>
+         </font>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QScrollArea" name="scrollAreaComparison">
+        <property name="widgetResizable">
+         <bool>true</bool>
+        </property>
+        <widget class="QWidget" name="scrollAreaWidgetContentsComparison">
+         <property name="geometry">
+          <rect>
+           <x>0</x>
+           <y>0</y>
+           <width>376</width>
+           <height>69</height>
+          </rect>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayoutComparisonContent">
+          <item>
+           <widget class="QLabel" name="labelComparisonPlaceholder">
+            <property name="text">
+             <string>複数のモデル結果を選択してください</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignmentFlag::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayoutActions">
+     <item>
+      <widget class="QPushButton" name="pushButtonClearAll">
+       <property name="text">
+        <string>全てクリア</string>
+       </property>
+       <property name="toolTip">
+        <string>全ての結果をクリア</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButtonCompareSelected">
+       <property name="text">
+        <string>比較</string>
+       </property>
+       <property name="toolTip">
+        <string>選択した結果を比較表示</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacerActions">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButtonExportSelected">
+       <property name="text">
+        <string>選択結果をエクスポート</string>
+       </property>
+       <property name="toolTip">
+        <string>選択した結果をファイルにエクスポート</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButtonSaveToDb">
+       <property name="text">
+        <string>DBに保存</string>
+       </property>
+       <property name="toolTip">
+        <string>結果をデータベースに保存</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

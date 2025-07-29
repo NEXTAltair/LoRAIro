@@ -233,41 +233,80 @@ export_requested = Signal(str)         # export_format
 
 ### Phase 1: 個別ウィジェット作成 (3-4 時間)
 
+**実装順序**: Qt Designer での .ui ファイル作成を最優先し、その後 .py ウィジェット実装
+
 #### ステップ 1.1: `AnnotationDataDisplayWidget` (45 分) **← 共通コンポーネント優先**
 
-- [ ] Qt Designer で共通表示コンポーネント作成
-- [ ] タグ・キャプション・スコア表示 UI 設計
-- [ ] 表示モード切替機能実装
+**Stage 1.1-A: Qt Designer UI 作成 (25 分)**
+
+- [ ] Qt Designer で `AnnotationDataDisplayWidget.ui` 作成
+- [ ] タグ・キャプション・スコア表示エリアのレイアウト設計
+- [ ] 表示モード切替 UI コンポーネント配置
+
+**Stage 1.1-B: Python ウィジェット実装 (20 分)**
+
 - [ ] 対応する .py ウィジェット実装
+- [ ] 表示モード切替機能実装
 
 #### ステップ 1.2: `AnnotationStatusFilterWidget` (30 分)
 
-- [ ] Qt Designer で新規 .ui ファイル作成
-- [ ] 状態フィルタ UI 設計
+**Stage 1.2-A: Qt Designer UI 作成 (20 分)**
+
+- [ ] Qt Designer で `AnnotationStatusFilterWidget.ui` 作成
+- [ ] 状態フィルタ UI 設計（チェックボックス・統計表示）
+
+**Stage 1.2-B: Python ウィジェット実装 (10 分)**
+
 - [ ] 対応する .py ウィジェット実装
 
 #### ステップ 1.3: `SelectedImageDetailsWidget` (45 分)
 
-- [ ] Qt Designer で詳細表示ウィジェット作成
-- [ ] 共通コンポーネント統合 (readonly mode)
+**Stage 1.3-A: Qt Designer UI 作成 (25 分)**
+
+- [ ] Qt Designer で `SelectedImageDetailsWidget.ui` 作成
+- [ ] 画像詳細情報表示レイアウト設計
+- [ ] 共通コンポーネント `AnnotationDataDisplayWidget` の配置
+
+**Stage 1.3-B: Python ウィジェット実装 (20 分)**
+
 - [ ] DB 情報表示機能実装
+- [ ] 共通コンポーネント統合 (readonly mode)
 
 #### ステップ 1.4: `AnnotationControlWidget` (1.5 時間)
 
-- [ ] 複数モデル選択 UI 設計
+**Stage 1.4-A: Qt Designer UI 作成 (1 時間)**
+
+- [ ] Qt Designer で `AnnotationControlWidget.ui` 作成
+- [ ] 複数モデル選択 UI 設計（プロバイダー・機能タイプ・モデル選択）
+- [ ] 実行制御ボタン配置
+
+**Stage 1.4-B: Python ウィジェット実装 (30 分)**
+
 - [ ] ModelInfoManager 統合
-- [ ] 実行制御ボタン実装
+- [ ] 実行制御ロジック実装
 
 #### ステップ 1.5: `AnnotationResultsWidget` (1 時間)
 
+**Stage 1.5-A: Qt Designer UI 作成 (40 分)**
+
+- [ ] Qt Designer で `AnnotationResultsWidget.ui` 作成
 - [ ] タブ式結果表示 UI 設計
-- [ ] 共通コンポーネント統合 (editable mode)
+- [ ] 共通コンポーネント `AnnotationDataDisplayWidget` の配置（editable mode）
+
+**Stage 1.5-B: Python ウィジェット実装 (20 分)**
+
+- [ ] 共通コンポーネント統合
 - [ ] エクスポート機能統合
 
 #### ステップ 1.6: `ThumbnailSelectorWidget` 拡張 (30 分)
 
-- [ ] グリッドサイズ可変スライダー追加
-- [ ] アノテーション状態オーバーレイ機能
+**Stage 1.6-A: Qt Designer UI 拡張 (20 分)**
+
+- [ ] 既存 `ThumbnailSelectorWidget.ui` にグリッドサイズ可変スライダー追加
+
+**Stage 1.6-B: Python 拡張実装 (10 分)**
+
+- [ ] アノテーション状態オーバーレイ機能実装
 
 ### Phase 2: MainWorkspaceWindow 統合 (1 時間)
 
