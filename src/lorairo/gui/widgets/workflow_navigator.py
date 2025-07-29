@@ -1,9 +1,5 @@
 # src/lorairo/gui/widgets/workflow_navigator.py
-
-from typing import Dict, Optional
-
-from PySide6.QtCore import QSize, Qt, Signal, Slot
-from PySide6.QtGui import QFont, QPalette
+from PySide6.QtCore import QSize, Signal, Slot
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,

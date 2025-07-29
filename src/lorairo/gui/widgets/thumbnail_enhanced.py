@@ -1,12 +1,10 @@
 # src/lorairo/gui/widgets/thumbnail_enhanced.py
 
 from pathlib import Path
-from typing import List, Optional
 
 from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QApplication,
     QGraphicsItem,
     QGraphicsObject,
     QGraphicsPixmapItem,
@@ -256,7 +254,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             return
 
         # 事前にサムネイルデータを準備
-        thumbnail_map = {image_id: pixmap for image_id, pixmap in thumbnail_result.loaded_thumbnails}
+        thumbnail_map = dict(thumbnail_result.loaded_thumbnails)
 
         # 元の画像データからレイアウトを作成
         button_width = self.thumbnail_size.width()

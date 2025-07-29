@@ -336,20 +336,122 @@ export_requested = Signal(str)         # export_format
 
 - [ ] アノテーション状態オーバーレイ機能実装（Phase 2で実装予定）
 
-### Phase 2: Python ウィジェット実装 **⏸️ 次回実装予定** (2-3 時間)
+### Phase 2: Python ウィジェット実装 ✅ **完了済み** (2-3 時間)
 
-#### ステップ 2.1: 共通コンポーネント実装
+#### ステップ 2.1: 共通コンポーネント実装 ✅ **完了**
 
-- [ ] `AnnotationDataDisplayWidget.py` 実装
-- [ ] DB連携とデータバインディング実装
+- [X] `AnnotationDataDisplayWidget.py` 実装
+- [X] DB連携とデータバインディング実装
 
-#### ステップ 2.2: 個別ウィジェット実装
+#### ステップ 2.2: 個別ウィジェット実装 ✅ **完了**
 
-- [ ] `AnnotationStatusFilterWidget.py` 実装
-- [ ] `SelectedImageDetailsWidget.py` 実装（インライン編集機能含む）
-- [ ] `AnnotationControlWidget.py` 実装（ModelInfoManager統合）
-- [ ] `AnnotationResultsWidget.py` 実装
-- [ ] `ThumbnailSelectorWidget` 拡張実装
+- [X] `AnnotationStatusFilterWidget.py` 実装
+- [X] `SelectedImageDetailsWidget.py` 実装（インライン編集機能含む）
+- [X] `AnnotationControlWidget.py` 実装（ModelInfoManager統合）
+- [X] `AnnotationResultsWidget.py` 実装
+- [X] `ThumbnailSelectorWidget` 拡張実装
+
+#### ステップ 2.3: コード品質改善 ✅ **完了**
+
+- [X] Ruff C901 複雑性エラー解決（3件）
+  - `filter_search_panel.py:399 _separate_conditions`関数リファクタリング
+  - `model_selection_widget.py:280 _infer_capabilities`関数簡素化
+  - `preview_detail_panel.py:290 _display_annotations`関数分割
+- [X] 責任分離とヘルパーメソッド抽出による可読性向上
+
+### Phase 2.5: アーキテクチャリファクタリング **🚧 進行中** (1-2 時間)
+
+#### 課題の識別
+
+**問題点**:
+- **既知の問題**: `model_selection_widget.py` と `filter_search_panel.py`
+- **新発見の問題**: `workflow_navigator.py` と `preview_detail_panel.py`
+- **共通問題**: UI表示とビジネスロジックの混在、プログラマティックUI構築
+- **合計4個のウィジェット**で責任分離ができていない
+
+**詳細分析**:
+
+1. **`model_selection_widget.py`** ⚠️
+   - モデル選択ロジック + UIレイアウト構築が混在
+   - データベースからのモデル取得とUI表示が結合
+   - Qt Designer未使用
+
+2. **`filter_search_panel.py`** ⚠️
+   - 複雑な検索条件分離処理 + UIレイアウト構築が混在
+   - 多数のQHBoxLayout/QVBoxLayout使用でプログラマティック構築
+   - Qt Designer未使用
+
+3. **`workflow_navigator.py`** ⚠️
+   - ワークフロー状態管理 + UIレイアウト構築が混在
+   - ステップボタン生成とレイアウト処理が結合
+   - Qt Designer未使用
+
+4. **`preview_detail_panel.py`** ⚠️
+   - 画像プレビュー/メタデータ/アノテーション表示ロジック + UIレイアウト構築が混在
+   - 複数の表示領域を手動レイアウト構築
+   - Qt Designer未使用
+
+#### 解決策: Model-View分離
+
+**ステップ 2.5.1: UI ファイル作成**
+
+- [ ] `ModelSelectionWidget.ui` 作成 - モデル選択UIレイアウト
+- [ ] `FilterSearchPanel.ui` 作成 - 検索フィルターUIレイアウト
+- [ ] `WorkflowNavigatorWidget.ui` 作成 - ワークフローナビゲーションUIレイアウト
+- [ ] `PreviewDetailPanel.ui` 作成 - プレビュー詳細パネルUIレイアウト
+- [ ] pyside6-uic での全4個のコード生成
+
+**ステップ 2.5.2: サービス層作成**
+
+- [ ] `src/lorairo/gui/services/model_selection_service.py` - モデル選択ロジック
+- [ ] `src/lorairo/gui/services/search_filter_service.py` - 検索フィルターロジック
+- [ ] `src/lorairo/gui/services/workflow_navigation_service.py` - ワークフロー状態管理ロジック
+- [ ] `src/lorairo/gui/services/preview_detail_service.py` - プレビュー詳細表示ロジック
+- [ ] データベース連携とビジネスロジック分離
+
+**ステップ 2.5.3: ウィジェット分離**
+
+- [ ] `model_selection_widget.py` リファクタリング
+  - UI部分: Qt Designer ベースの表示のみ
+  - ロジック部分: ModelSelectionService 使用
+- [ ] `filter_search_panel.py` リファクタリング
+  - UI部分: Qt Designer ベースの表示のみ
+  - ロジック部分: SearchFilterService 使用
+- [ ] `workflow_navigator.py` リファクタリング
+  - UI部分: Qt Designer ベースの表示のみ
+  - ロジック部分: WorkflowNavigationService 使用
+- [ ] `preview_detail_panel.py` リファクタリング
+  - UI部分: Qt Designer ベースの表示のみ
+  - ロジック部分: PreviewDetailService 使用
+
+**アーキテクチャ設計**:
+```
+src/lorairo/gui/
+├── designer/
+│   ├── ModelSelectionWidget.ui        # UI レイアウト（新規）
+│   ├── FilterSearchPanel.ui           # UI レイアウト（新規）
+│   ├── WorkflowNavigatorWidget.ui     # UI レイアウト（新規）
+│   ├── PreviewDetailPanel.ui          # UI レイアウト（新規）
+│   └── *_ui.py                        # 自動生成（4個）
+├── services/
+│   ├── model_selection_service.py     # モデル選択ロジック（新規）
+│   ├── search_filter_service.py       # 検索フィルターロジック（新規）
+│   ├── workflow_navigation_service.py # ワークフロー状態管理ロジック（新規）
+│   └── preview_detail_service.py      # プレビュー詳細表示ロジック（新規）
+└── widgets/
+    ├── model_selection_widget.py      # UI + サービス結合（リファクタリング）
+    ├── filter_search_panel.py         # UI + サービス結合（リファクタリング）
+    ├── workflow_navigator.py          # UI + サービス結合（リファクタリング）
+    └── preview_detail_panel.py        # UI + サービス結合（リファクタリング）
+```
+
+**期待効果**:
+- **責任の明確化**: UI は表示のみ、サービスはロジックのみ
+- **テスト容易性**: サービス層を独立してテストできる
+- **再利用性**: サービスを他のコンポーネントでも使用可能
+- **保守性**: UI とロジックを独立して変更可能
+- **一貫性**: 全ウィジェットでQt Designer + サービス分離パターンを統一
+- **拡張性**: 新規ウィジェット追加時の開発パターン標準化
 
 ### Phase 3: MainWorkspaceWindow 統合 **⏸️ 後続実装予定** (1 時間)
 
@@ -589,6 +691,21 @@ src/lorairo/gui/widgets/annotation_coordinator.py
 
 モジュールのプレフィックスに `hybrid_` は要らない気がするなんのハイブリッドかわからない
 
+### アーキテクチャ改善方針
+
+**識別された問題**:
+
+1. **UIとロジックの混在**: `model_selection_widget.py` はモデル選択ロジックを持ちながらUIも構築
+2. **プログラマティックUI構築**: Qt Designerを使わず手動でレイアウト作成
+3. **テスト困難**: ビジネスロジックとUIが結合しているため単体テストが困難
+4. **再利用性の低さ**: モデル選択ロジックを他のコンポーネントで再利用できない
+
+**解決策**: 
+
+- **Qt DesignerベースUI**: 標準的な.uiファイル作成パターンに準拠
+- **サービス層分離**: ビジネスロジックを独立したサービスクラスに移動
+- **依存性注入**: ウィジェットにサービスを注入して結合
+
 ### 設定管理連携方針
 
 **ConfigurationService 統合**:
@@ -614,12 +731,18 @@ class AnnotationCoordinator:
 **現在のステータス**:
 
 - ✅ **Phase 1 完了**: 全ての Qt Designer .ui ファイル作成完了
-- 🎯 **次回予定**: Phase 2 - Python ウィジェット実装開始
+- ✅ **Phase 2 完了**: Python ウィジェット実装完了、コード品質改善完了
+- 🚧 **Phase 2.5 進行中**: アーキテクチャリファクタリング（Model-View分離）
+  - **対象**: 4個のウィジェットで責任分離問題あり
+  - **方針**: Qt Designer .ui ファイル + サービス層分離アーキテクチャ
+- 🎯 **次回予定**: 4個の.uiファイル作成とサービス層分離実装
 - 📋 **実装で得られた知見**:
   - image-annotator-lib の実際の機能制約を考慮した設計変更
   - 200+モデル対応のためのUI設計パターン確立
   - インライン編集機能パターンの実装
   - 機能別タブ表示による効率的な結果比較UI
+  - ビジネスロジックとUI表示の混在問題を識別
+  - C901複雑性エラー解決で責任分離の重要性を学習
 
 **重要な設計変更記録**:
 
@@ -628,3 +751,5 @@ class AnnotationCoordinator:
 3. 進捗追跡機能削除（ライブラリ非対応）
 4. インライン編集機能追加（Rating/Score）
 5. ステータスフィルタ簡素化（4状態→2状態）
+6. **アーキテクチャ問題識別**: 4個のウィジェット(`model_selection_widget.py`, `filter_search_panel.py`, `workflow_navigator.py`, `preview_detail_panel.py`)でModel-View混在問題
+7. **責任分離策**: Qt Designer UIファイル + サービス層分離アーキテクチャへ統一移行

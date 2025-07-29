@@ -1,31 +1,24 @@
-"""アノテーション結果表示ウィジェット
+"""
+Annotation Results Widget
 
-ModelResultTab.uiを活用してアノテーション結果を表示するための統合ウィジェット。
-HybridAnnotationController から使用される。
+機能別アノテーション結果表示機能を提供
+キャプション・タグ・スコア結果のタブ形式表示とモデル比較
 """
 
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt, QTimer, Signal, Slot
-from PySide6.QtUiTools import QUiLoader
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
-    QFrame,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QProgressBar,
+    QHeaderView,
     QPushButton,
-    QScrollArea,
-    QStackedWidget,
-    QTabWidget,
-    QTextEdit,
-    QVBoxLayout,
+    QTableWidget,
+    QTableWidgetItem,
     QWidget,
 )
 
+from ...giu.designer.AnnotationResultsWidget_ui import Ui_AnnotationResultsWidget
 from ...utils.log import logger
 
 
@@ -34,11 +27,10 @@ class AnnotationResult:
     """単一モデルのアノテーション結果"""
 
     model_name: str
-    success: bool
-    processing_time: float  # 秒
-    tags: list[str] = None
-    caption: str = ""
-    score: float = None
+    function_type: str  # "caption", "tags", "scores"
+    content: str  # 結果内容（タグならカンマ区切り、キャプションなら文章、スコアなら数値）
+    processing_time: float  # 処理時間（秒）
+    success: bool = True
     error_message: str = ""
     timestamp: datetime = None
 
@@ -47,389 +39,420 @@ class AnnotationResult:
             self.timestamp = datetime.now()
 
 
-class ModelResultWidget(QWidget):
-    """単一モデル結果表示ウィジェット（ModelResultTab.ui使用）"""
+class AnnotationResultsWidget(QWidget, Ui_AnnotationResultsWidget):
+    """
+    アノテーション結果統合表示ウィジェット
 
-    def __init__(self, parent: QWidget = None):
-        super().__init__(parent)
-
-        # UI要素の参照
-        self.label_model_name: QLabel = None
-        self.label_processing_time: QLabel = None
-        self.label_status: QLabel = None
-        self.stacked_widget_content: QStackedWidget = None
-        self.text_edit_captions: QTextEdit = None
-        self.label_score_value: QLabel = None
-        self.progress_bar_score: QProgressBar = None
-        self.text_edit_error_message: QTextEdit = None
-        self.scroll_area_tags: QScrollArea = None
-
-        # ModelResultTab.ui をロード
-        self._load_model_result_ui()
-
-    def _load_model_result_ui(self) -> None:
-        """ModelResultTab.ui をロードして初期化"""
-        try:
-            # UIファイルパス
-            ui_file_path = Path(__file__).parent.parent / "designer" / "ModelResultTab.ui"
-
-            if not ui_file_path.exists():
-                logger.error(f"ModelResultTab.ui が見つかりません: {ui_file_path}")
-                self._create_fallback_ui()
-                return
-
-            # UIファイルロード
-            loader = QUiLoader()
-            ui_file = ui_file_path.open("r", encoding="utf-8")
-            ui_widget = loader.load(ui_file)
-            ui_file.close()
-
-            if not ui_widget:
-                logger.error("ModelResultTab.ui のロードに失敗しました")
-                self._create_fallback_ui()
-                return
-
-            # メインレイアウトに追加
-            main_layout = QVBoxLayout(self)
-            main_layout.setContentsMargins(0, 0, 0, 0)
-            main_layout.addWidget(ui_widget)
-
-            # UI要素の参照を取得
-            self._setup_ui_references(ui_widget)
-
-            logger.debug("ModelResultTab.ui ロード完了")
-
-        except Exception as e:
-            logger.error(f"ModelResultTab.ui ロードエラー: {e}", exc_info=True)
-            self._create_fallback_ui()
-
-    def _setup_ui_references(self, ui_widget: QWidget) -> None:
-        """UI要素の参照を設定"""
-        self.label_model_name = ui_widget.findChild(QLabel, "labelModelName")
-        self.label_processing_time = ui_widget.findChild(QLabel, "labelProcessingTime")
-        self.label_status = ui_widget.findChild(QLabel, "labelStatus")
-        self.stacked_widget_content = ui_widget.findChild(QStackedWidget, "stackedWidgetContent")
-        self.text_edit_captions = ui_widget.findChild(QTextEdit, "textEditCaptions")
-        self.label_score_value = ui_widget.findChild(QLabel, "labelScoreValue")
-        self.progress_bar_score = ui_widget.findChild(QProgressBar, "progressBarScore")
-        self.text_edit_error_message = ui_widget.findChild(QTextEdit, "textEditErrorMessage")
-        self.scroll_area_tags = ui_widget.findChild(QScrollArea, "scrollAreaTags")
-
-    def _create_fallback_ui(self) -> None:
-        """フォールバック用簡易UI作成"""
-        main_layout = QVBoxLayout(self)
-
-        # エラーメッセージ
-        error_label = QLabel("ModelResultTab.ui の読み込みに失敗しました。\n簡易表示モードで動作します。")
-        error_label.setStyleSheet("color: #d32f2f; font-weight: bold; padding: 10px;")
-        main_layout.addWidget(error_label)
-
-        # 簡易結果表示エリア
-        self.fallback_result_area = QTextEdit()
-        self.fallback_result_area.setReadOnly(True)
-        main_layout.addWidget(self.fallback_result_area)
-
-    def update_result(self, result: AnnotationResult) -> None:
-        """アノテーション結果で表示を更新"""
-        try:
-            if self.label_model_name:
-                self.label_model_name.setText(f"モデル名: {result.model_name}")
-
-            if self.label_processing_time:
-                self.label_processing_time.setText(f"処理時間: {result.processing_time:.2f}s")
-
-            if result.success:
-                self._update_success_display(result)
-            else:
-                self._update_error_display(result)
-
-        except Exception as e:
-            logger.error(f"結果表示更新エラー: {e}", exc_info=True)
-            self._update_fallback_display(result)
-
-    def _update_success_display(self, result: AnnotationResult) -> None:
-        """成功時の表示更新"""
-        # ステータス更新
-        if self.label_status:
-            self.label_status.setText("✓ 成功")
-            self.label_status.setStyleSheet("color: green; font-weight: bold;")
-
-        # 成功ページに切り替え
-        if self.stacked_widget_content:
-            self.stacked_widget_content.setCurrentIndex(0)
-
-        # キャプション表示
-        if self.text_edit_captions and result.caption:
-            self.text_edit_captions.setText(result.caption)
-
-        # スコア表示
-        if result.score is not None:
-            if self.label_score_value:
-                self.label_score_value.setText(f"{result.score:.3f}")
-            if self.progress_bar_score:
-                score_percentage = min(100, max(0, int(result.score * 100)))
-                self.progress_bar_score.setValue(score_percentage)
-
-        # タグ表示
-        if result.tags and self.scroll_area_tags:
-            self._update_tags_display(result.tags)
-
-    def _update_error_display(self, result: AnnotationResult) -> None:
-        """エラー時の表示更新"""
-        # ステータス更新
-        if self.label_status:
-            self.label_status.setText("✗ エラー")
-            self.label_status.setStyleSheet("color: red; font-weight: bold;")
-
-        # エラーページに切り替え
-        if self.stacked_widget_content:
-            self.stacked_widget_content.setCurrentIndex(1)
-
-        # エラーメッセージ表示
-        if self.text_edit_error_message:
-            self.text_edit_error_message.setText(result.error_message or "不明なエラーが発生しました")
-
-    def _update_tags_display(self, tags: list[str]) -> None:
-        """タグ表示を更新"""
-        if not self.scroll_area_tags:
-            return
-
-        try:
-            # タグ表示用ウィジェット作成
-            tags_widget = QWidget()
-            tags_layout = QVBoxLayout(tags_widget)
-            tags_layout.setContentsMargins(4, 4, 4, 4)
-            tags_layout.setSpacing(2)
-
-            if tags:
-                # タグをラベルとして表示（行折り返し対応）
-                tags_text = ", ".join(tags)
-                tags_label = QLabel(tags_text)
-                tags_label.setWordWrap(True)
-                tags_label.setStyleSheet("""
-                    QLabel {
-                        font-size: 10px;
-                        padding: 4px;
-                        background-color: #f0f8ff;
-                        border: 1px solid #ddd;
-                        border-radius: 2px;
-                    }
-                """)
-                tags_layout.addWidget(tags_label)
-            else:
-                # タグなしの場合
-                no_tags_label = QLabel("タグなし")
-                no_tags_label.setStyleSheet("color: #888; font-style: italic;")
-                tags_layout.addWidget(no_tags_label)
-
-            tags_layout.addStretch()
-            self.scroll_area_tags.setWidget(tags_widget)
-
-        except Exception as e:
-            logger.error(f"タグ表示更新エラー: {e}")
-
-    def _update_fallback_display(self, result: AnnotationResult) -> None:
-        """フォールバック表示更新"""
-        if hasattr(self, "fallback_result_area"):
-            display_text = f"""
-モデル名: {result.model_name}
-処理時間: {result.processing_time:.2f}秒
-ステータス: {"成功" if result.success else "エラー"}
-
-"""
-            if result.success:
-                if result.caption:
-                    display_text += f"キャプション:\n{result.caption}\n\n"
-                if result.tags:
-                    display_text += f"タグ:\n{', '.join(result.tags)}\n\n"
-                if result.score is not None:
-                    display_text += f"スコア: {result.score:.3f}\n"
-            else:
-                display_text += f"エラーメッセージ:\n{result.error_message}"
-
-            self.fallback_result_area.setText(display_text)
-
-
-class AnnotationResultsWidget(QWidget):
-    """アノテーション結果統合表示ウィジェット"""
+    機能:
+    - タブ式結果表示（機能別：キャプション/タグ/スコア）
+    - テーブル形式モデル別結果表示
+    - ソート機能付きテーブル
+    - 結果エクスポート機能
+    """
 
     # シグナル
-    result_clicked = Signal(str)  # model_name
-    export_requested = Signal(list)  # results
+    result_selected = Signal(str, str)  # モデル名, 機能タイプ
+    export_requested = Signal(list)  # 結果リスト
 
-    def __init__(self, parent: QWidget = None):
+    def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self.setupUi(self)
 
         # 結果データ
-        self.results: dict[str, AnnotationResult] = {}
+        self.caption_results: dict[str, AnnotationResult] = {}
+        self.tags_results: dict[str, AnnotationResult] = {}
+        self.scores_results: dict[str, AnnotationResult] = {}
 
-        # UI設定
-        self._setup_ui()
+        # UI初期化
+        self._setup_connections()
+        self._setup_widget_properties()
+        self._setup_tables()
 
-        logger.debug("AnnotationResultsWidget初期化完了")
+        logger.debug("AnnotationResultsWidget initialized")
 
-    def _setup_ui(self) -> None:
-        """UI初期化"""
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(4)
+    def _setup_connections(self) -> None:
+        """シグナル・スロット接続設定"""
+        # テーブル選択変更
+        self.tableWidgetCaption.itemSelectionChanged.connect(
+            lambda: self._on_table_selection_changed("caption")
+        )
+        self.tableWidgetTags.itemSelectionChanged.connect(lambda: self._on_table_selection_changed("tags"))
+        self.tableWidgetScores.itemSelectionChanged.connect(
+            lambda: self._on_table_selection_changed("scores")
+        )
 
-        # ヘッダー領域
-        self._setup_header(main_layout)
+        # タブ変更
+        self.tabWidgetResults.currentChanged.connect(self._on_tab_changed)
 
-        # 結果表示エリア
-        self._setup_results_display(main_layout)
+    def _setup_widget_properties(self) -> None:
+        """ウィジェットプロパティ設定"""
+        # タイトルラベルスタイル
+        self.labelResultsTitle.setStyleSheet("""
+            QLabel {
+                font-size: 12px;
+                font-weight: bold;
+                color: #333;
+                padding: 4px 0px;
+            }
+        """)
 
-    def _setup_header(self, parent_layout: QVBoxLayout) -> None:
-        """ヘッダー領域設定"""
-        header_frame = QFrame()
-        header_frame.setMaximumHeight(40)
-        header_layout = QHBoxLayout(header_frame)
-        header_layout.setContentsMargins(8, 4, 8, 4)
-
-        # タイトル
-        self.title_label = QLabel("アノテーション結果")
-        self.title_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #333;")
-        header_layout.addWidget(self.title_label)
-
-        header_layout.addStretch()
-
-        # エクスポートボタン
-        self.export_button = QPushButton("結果をエクスポート")
-        self.export_button.setMaximumSize(120, 30)
-        self.export_button.clicked.connect(self._export_results)
-        self.export_button.setEnabled(False)
-        header_layout.addWidget(self.export_button)
-
-        parent_layout.addWidget(header_frame)
-
-    def _setup_results_display(self, parent_layout: QVBoxLayout) -> None:
-        """結果表示エリア設定"""
-        # タブウィジェット（モデル別結果表示）
-        self.results_tab_widget = QTabWidget()
-        self.results_tab_widget.setTabPosition(QTabWidget.TabPosition.North)
-        self.results_tab_widget.setStyleSheet("""
+        # タブウィジェットスタイル
+        self.tabWidgetResults.setStyleSheet("""
             QTabWidget::pane {
                 border: 1px solid #ccc;
                 border-radius: 4px;
             }
             QTabBar::tab {
-                padding: 4px 8px;
+                padding: 6px 12px;
                 font-size: 10px;
                 margin-right: 2px;
+                border: 1px solid #ddd;
+                border-bottom: none;
+                border-radius: 4px 4px 0 0;
             }
             QTabBar::tab:selected {
                 background-color: #e3f2fd;
                 border-bottom: 2px solid #2196F3;
+                font-weight: bold;
+            }
+            QTabBar::tab:!selected {
+                background-color: #f5f5f5;
+            }
+            QTabBar::tab:hover {
+                background-color: #f0f8ff;
             }
         """)
 
-        # 初期プレースホルダー
-        self._add_placeholder_tab()
+    def _setup_tables(self) -> None:
+        """結果表示テーブルを設定"""
+        tables = [
+            ("caption", self.tableWidgetCaption, ["モデル名", "キャプション", "処理時間"]),
+            ("tags", self.tableWidgetTags, ["モデル名", "タグ", "処理時間"]),
+            ("scores", self.tableWidgetScores, ["モデル名", "スコア", "処理時間"]),
+        ]
 
-        parent_layout.addWidget(self.results_tab_widget)
+        for table_type, table_widget, headers in tables:
+            try:
+                # カラム設定
+                table_widget.setColumnCount(len(headers))
+                table_widget.setHorizontalHeaderLabels(headers)
 
-    def _add_placeholder_tab(self) -> None:
-        """プレースホルダータブ追加"""
-        placeholder_widget = QWidget()
-        placeholder_layout = QVBoxLayout(placeholder_widget)
+                # ヘッダー設定
+                header = table_widget.horizontalHeader()
+                header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # モデル名
+                header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # 内容
+                header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # 処理時間
 
-        placeholder_label = QLabel(
-            "🔄 アノテーション結果がここに表示されます\n\n"
-            "モデルを選択してアノテーションを実行すると、\n"
-            "各モデルの結果がタブ形式で表示されます。\n\n"
-            "📊 表示される情報:\n"
-            "• キャプション生成結果\n"
-            "• タグ生成結果\n"
-            "• 品質スコア\n"
-            "• 処理時間・エラー情報"
-        )
-        placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        placeholder_label.setStyleSheet("""
-            color: #666; 
-            font-style: italic; 
-            padding: 30px; 
-            font-size: 11px;
-            line-height: 1.4;
-            background-color: #f9f9f9;
-            border: 1px dashed #ccc;
-            border-radius: 4px;
-        """)
-        placeholder_label.setWordWrap(True)
+                # テーブルスタイル
+                table_widget.setStyleSheet("""
+                    QTableWidget {
+                        font-size: 9px;
+                        gridline-color: #e0e0e0;
+                        selection-background-color: #e3f2fd;
+                        alternate-background-color: #f9f9f9;
+                    }
+                    QTableWidget::item {
+                        padding: 6px;
+                        border-bottom: 1px solid #f0f0f0;
+                    }
+                    QHeaderView::section {
+                        font-size: 9px;
+                        font-weight: bold;
+                        background-color: #f5f5f5;
+                        border: 1px solid #ddd;
+                        padding: 6px;
+                    }
+                """)
 
-        placeholder_layout.addWidget(placeholder_label)
+                # 選択・ソート設定
+                table_widget.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+                table_widget.setAlternatingRowColors(True)
+                table_widget.setSortingEnabled(True)
 
-        self.results_tab_widget.addTab(placeholder_widget, "結果待ち")
+                logger.debug(f"Table setup completed for {table_type}")
+
+            except Exception as e:
+                logger.error(f"Error setting up {table_type} table: {e}")
+
+    @Slot()
+    def _on_table_selection_changed(self, function_type: str) -> None:
+        """テーブル選択変更時の処理"""
+        try:
+            # 現在のタブに対応するテーブル取得
+            table_widget = getattr(self, f"tableWidget{function_type.title()}")
+            current_row = table_widget.currentRow()
+
+            if current_row >= 0:
+                model_name_item = table_widget.item(current_row, 0)
+                if model_name_item:
+                    model_name = model_name_item.text()
+                    self.result_selected.emit(model_name, function_type)
+                    logger.debug(f"Result selected: {model_name} ({function_type})")
+
+        except Exception as e:
+            logger.error(f"Error handling table selection: {e}")
+
+    @Slot(int)
+    def _on_tab_changed(self, index: int) -> None:
+        """タブ変更時の処理"""
+        try:
+            tab_names = ["caption", "tags", "scores"]
+            if 0 <= index < len(tab_names):
+                current_function = tab_names[index]
+                logger.debug(f"Results tab changed to: {current_function}")
+
+        except Exception as e:
+            logger.error(f"Error handling tab change: {e}")
 
     def add_result(self, result: AnnotationResult) -> None:
         """アノテーション結果を追加"""
         try:
-            # プレースホルダータブを削除（初回のみ）
-            if self.results_tab_widget.count() == 1 and not self.results:
-                self.results_tab_widget.clear()
-
-            # 結果データ保存
-            self.results[result.model_name] = result
-
-            # モデル結果ウィジェット作成
-            model_result_widget = ModelResultWidget()
-            model_result_widget.update_result(result)
-
-            # タブ追加
-            tab_title = result.model_name
-            if not result.success:
-                tab_title += " ❌"
-            elif result.score is not None:
-                tab_title += f" ({result.score:.2f})"
-
-            self.results_tab_widget.addTab(model_result_widget, tab_title)
-
-            # エクスポートボタン有効化
-            self.export_button.setEnabled(True)
+            # 機能タイプに応じて結果を格納
+            if result.function_type == "caption":
+                self.caption_results[result.model_name] = result
+                self._update_caption_table()
+            elif result.function_type == "tags":
+                self.tags_results[result.model_name] = result
+                self._update_tags_table()
+            elif result.function_type == "scores":
+                self.scores_results[result.model_name] = result
+                self._update_scores_table()
 
             # タイトル更新
-            self.title_label.setText(f"アノテーション結果 ({len(self.results)})")
+            self._update_results_title()
 
-            logger.debug(f"アノテーション結果追加: {result.model_name}")
+            logger.debug(f"Added {result.function_type} result from {result.model_name}")
 
         except Exception as e:
-            logger.error(f"アノテーション結果追加エラー: {e}", exc_info=True)
+            logger.error(f"Error adding result: {e}", exc_info=True)
+
+    def _update_caption_table(self) -> None:
+        """キャプションテーブルを更新"""
+        try:
+            table = self.tableWidgetCaption
+            results = self.caption_results
+
+            # テーブルクリア
+            table.setRowCount(0)
+
+            # 結果を追加
+            for row, (model_name, result) in enumerate(results.items()):
+                table.insertRow(row)
+
+                # モデル名
+                model_item = QTableWidgetItem(model_name)
+                model_item.setFlags(model_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                table.setItem(row, 0, model_item)
+
+                # キャプション内容
+                if result.success:
+                    content_item = QTableWidgetItem(result.content)
+                    content_item.setToolTip(result.content)  # 長いテキスト用ツールチップ
+                else:
+                    content_item = QTableWidgetItem(f"[エラー] {result.error_message}")
+                    content_item.setForeground(Qt.GlobalColor.red)
+
+                content_item.setFlags(content_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                table.setItem(row, 1, content_item)
+
+                # 処理時間
+                time_item = QTableWidgetItem(f"{result.processing_time:.2f}s")
+                time_item.setFlags(time_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                table.setItem(row, 2, time_item)
+
+        except Exception as e:
+            logger.error(f"Error updating caption table: {e}")
+
+    def _update_tags_table(self) -> None:
+        """タグテーブルを更新"""
+        try:
+            table = self.tableWidgetTags
+            results = self.tags_results
+
+            # テーブルクリア
+            table.setRowCount(0)
+
+            # 結果を追加
+            for row, (model_name, result) in enumerate(results.items()):
+                table.insertRow(row)
+
+                # モデル名
+                model_item = QTableWidgetItem(model_name)
+                model_item.setFlags(model_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                table.setItem(row, 0, model_item)
+
+                # タグ内容
+                if result.success:
+                    # タグをカンマ区切りで表示、ツールチップにも設定
+                    tags_display = result.content
+                    content_item = QTableWidgetItem(tags_display)
+                    content_item.setToolTip(tags_display)
+                else:
+                    content_item = QTableWidgetItem(f"[エラー] {result.error_message}")
+                    content_item.setForeground(Qt.GlobalColor.red)
+
+                content_item.setFlags(content_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                table.setItem(row, 1, content_item)
+
+                # 処理時間
+                time_item = QTableWidgetItem(f"{result.processing_time:.2f}s")
+                time_item.setFlags(time_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                table.setItem(row, 2, time_item)
+
+        except Exception as e:
+            logger.error(f"Error updating tags table: {e}")
+
+    def _update_scores_table(self) -> None:
+        """スコアテーブルを更新"""
+        try:
+            table = self.tableWidgetScores
+            results = self.scores_results
+
+            # テーブルクリア
+            table.setRowCount(0)
+
+            # 結果を追加
+            for row, (model_name, result) in enumerate(results.items()):
+                table.insertRow(row)
+
+                # モデル名
+                model_item = QTableWidgetItem(model_name)
+                model_item.setFlags(model_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                table.setItem(row, 0, model_item)
+
+                # スコア内容
+                if result.success:
+                    try:
+                        score_value = float(result.content)
+                        content_item = QTableWidgetItem(f"{score_value:.3f}")
+                    except ValueError:
+                        content_item = QTableWidgetItem(result.content)
+                else:
+                    content_item = QTableWidgetItem(f"[エラー] {result.error_message}")
+                    content_item.setForeground(Qt.GlobalColor.red)
+
+                content_item.setFlags(content_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                table.setItem(row, 1, content_item)
+
+                # 処理時間
+                time_item = QTableWidgetItem(f"{result.processing_time:.2f}s")
+                time_item.setFlags(time_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                table.setItem(row, 2, time_item)
+
+        except Exception as e:
+            logger.error(f"Error updating scores table: {e}")
+
+    def _update_results_title(self) -> None:
+        """結果タイトルを更新"""
+        try:
+            total_results = len(self.caption_results) + len(self.tags_results) + len(self.scores_results)
+            self.labelResultsTitle.setText(f"アノテーション結果 ({total_results})")
+
+        except Exception as e:
+            logger.error(f"Error updating results title: {e}")
 
     def clear_results(self) -> None:
         """結果をクリア"""
-        self.results.clear()
-        self.results_tab_widget.clear()
-        self._add_placeholder_tab()
-        self.export_button.setEnabled(False)
-        self.title_label.setText("アノテーション結果")
-        logger.debug("アノテーション結果クリア完了")
+        try:
+            # データクリア
+            self.caption_results.clear()
+            self.tags_results.clear()
+            self.scores_results.clear()
+
+            # テーブルクリア
+            self.tableWidgetCaption.setRowCount(0)
+            self.tableWidgetTags.setRowCount(0)
+            self.tableWidgetScores.setRowCount(0)
+
+            # タイトル更新
+            self.labelResultsTitle.setText("アノテーション結果")
+
+            logger.debug("All annotation results cleared")
+
+        except Exception as e:
+            logger.error(f"Error clearing results: {e}")
+
+    def get_results_by_function(self, function_type: str) -> dict[str, AnnotationResult]:
+        """指定機能タイプの結果を取得"""
+        if function_type == "caption":
+            return self.caption_results.copy()
+        elif function_type == "tags":
+            return self.tags_results.copy()
+        elif function_type == "scores":
+            return self.scores_results.copy()
+        else:
+            return {}
+
+    def get_all_results(self) -> list[AnnotationResult]:
+        """すべての結果を取得"""
+        all_results = []
+        all_results.extend(self.caption_results.values())
+        all_results.extend(self.tags_results.values())
+        all_results.extend(self.scores_results.values())
+        return all_results
 
     def get_results_summary(self) -> dict[str, Any]:
         """結果サマリーを取得"""
-        if not self.results:
+        try:
+            all_results = self.get_all_results()
+            successful_results = [r for r in all_results if r.success]
+            failed_results = [r for r in all_results if not r.success]
+
+            total_time = sum(r.processing_time for r in all_results) if all_results else 0
+            avg_time = total_time / len(all_results) if all_results else 0
+
+            return {
+                "total_results": len(all_results),
+                "successful": len(successful_results),
+                "failed": len(failed_results),
+                "success_rate": len(successful_results) / len(all_results) if all_results else 0,
+                "total_processing_time": total_time,
+                "average_processing_time": avg_time,
+                "caption_count": len(self.caption_results),
+                "tags_count": len(self.tags_results),
+                "scores_count": len(self.scores_results),
+            }
+
+        except Exception as e:
+            logger.error(f"Error generating results summary: {e}")
             return {}
 
-        successful_results = [r for r in self.results.values() if r.success]
-        failed_results = [r for r in self.results.values() if not r.success]
+    def set_current_tab(self, function_type: str) -> None:
+        """指定機能タイプのタブを選択"""
+        try:
+            tab_mapping = {"caption": 0, "tags": 1, "scores": 2}
+            if function_type in tab_mapping:
+                self.tabWidgetResults.setCurrentIndex(tab_mapping[function_type])
+                logger.debug(f"Switched to {function_type} tab")
 
-        total_time = sum(r.processing_time for r in self.results.values())
-        avg_score = None
-        if successful_results and any(r.score is not None for r in successful_results):
-            scores = [r.score for r in successful_results if r.score is not None]
-            avg_score = sum(scores) / len(scores) if scores else None
+        except Exception as e:
+            logger.error(f"Error setting current tab: {e}")
 
-        return {
-            "total_models": len(self.results),
-            "successful": len(successful_results),
-            "failed": len(failed_results),
-            "total_processing_time": total_time,
-            "average_score": avg_score,
-            "success_rate": len(successful_results) / len(self.results) if self.results else 0,
-        }
+    def export_results(self, function_type: str | None = None) -> None:
+        """結果をエクスポート"""
+        try:
+            if function_type:
+                results = list(self.get_results_by_function(function_type).values())
+            else:
+                results = self.get_all_results()
 
-    @Slot()
-    def _export_results(self) -> None:
-        """結果エクスポート"""
-        if self.results:
-            self.export_requested.emit(list(self.results.values()))
-        logger.debug("結果エクスポート要求")
+            if results:
+                self.export_requested.emit(results)
+                logger.debug(f"Export requested for {len(results)} results")
+            else:
+                logger.warning("No results available for export")
+
+        except Exception as e:
+            logger.error(f"Error exporting results: {e}")
+
+    def set_enabled_state(self, enabled: bool) -> None:
+        """ウィジェット全体の有効/無効状態を設定"""
+        self.tabWidgetResults.setEnabled(enabled)
+        self.tableWidgetCaption.setEnabled(enabled)
+        self.tableWidgetTags.setEnabled(enabled)
+        self.tableWidgetScores.setEnabled(enabled)
+
+        if not enabled:
+            logger.debug("AnnotationResultsWidget disabled")
+        else:
+            logger.debug("AnnotationResultsWidget enabled")

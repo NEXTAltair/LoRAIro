@@ -89,7 +89,7 @@ run-gui:
 
 test:
 	@echo "src/ and tests/..."
-	PROJECT_ENVIRONMENT=.venv_linux uv run pytest
+	uv run pytest
 
 clean:
 	@echo "Cleaning build artifacts..."

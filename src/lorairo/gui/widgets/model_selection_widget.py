@@ -7,7 +7,6 @@ from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -191,9 +190,9 @@ class ModelSelectionWidget(QWidget):
                 "自動表示されます"
             )
             self.placeholder_label.setStyleSheet("""
-                color: #666; 
-                font-style: italic; 
-                padding: 12px; 
+                color: #666;
+                font-style: italic;
+                padding: 12px;
                 font-size: 10px;
                 line-height: 1.3;
                 background-color: #f0f8ff;
@@ -211,9 +210,9 @@ class ModelSelectionWidget(QWidget):
                 "📊 利用可能なモデル数はプロバイダーと機能によって変動します"
             )
             self.placeholder_label.setStyleSheet("""
-                color: #666; 
-                font-style: italic; 
-                padding: 15px; 
+                color: #666;
+                font-style: italic;
+                padding: 15px;
                 font-size: 10px;
                 line-height: 1.4;
                 background-color: #f9f9f9;
@@ -278,53 +277,18 @@ class ModelSelectionWidget(QWidget):
             logger.error(f"Failed to load models: {e}")
 
     def _infer_capabilities(self, model_data: dict[str, Any]) -> list[str]:
-        """モデル名・プロバイダー情報から実際の機能を推測"""
-        name = model_data.get("name", "").lower()
-        provider = model_data.get("provider", "").lower()
+        """モデルタイプから機能をマッピング"""
+        model_type = model_data.get("model_type", "")
 
-        capabilities = []
+        # DBのmodel_typeカラムから機能をマッピング
+        type_mapping = {
+            "multimodal": ["caption", "tag"],
+            "caption": ["caption"],
+            "tag": ["tag"],
+            "score": ["score"],
+        }
 
-        # マルチモーダルLLM（Caption + Tags生成）
-        if any(keyword in name for keyword in ["gpt-4", "claude", "gemini"]):
-            capabilities = ["caption", "tags"]
-
-        # Caption特化（GPT-4o等の高度なマルチモーダル）
-        elif any(keyword in name for keyword in ["gpt-4o", "dall-e", "midjourney"]):
-            capabilities = ["caption"]
-
-        # タグ生成特化モデル
-        elif any(
-            keyword in name for keyword in ["tagger", "danbooru", "wd-", "waifu", "deepdanbooru", "tag"]
-        ):
-            capabilities = ["tags"]
-
-        # 品質・美的評価モデル
-        elif any(keyword in name for keyword in ["aesthetic", "clip", "musiq", "quality", "score", "nima"]):
-            capabilities = ["scores"]
-
-        # CLIP系（複数機能対応）
-        elif "clip" in name and "aesthetic" not in name:
-            capabilities = ["caption", "scores"]
-
-        # プロバイダーベースの推測
-        elif provider in ["openai", "anthropic", "google"]:
-            # API系LLMは基本的にマルチモーダル
-            capabilities = ["caption", "tags"]
-
-        elif provider == "local" or not provider:
-            # ローカルモデルはモデル名から推測
-            if any(keyword in name for keyword in ["bert", "roberta", "transformer"]):
-                capabilities = ["tags"]
-            elif any(keyword in name for keyword in ["resnet", "efficientnet", "vit"]):
-                capabilities = ["scores"]
-            else:
-                capabilities = ["caption"]  # デフォルト
-
-        # 何も検出されない場合のフォールバック
-        if not capabilities:
-            capabilities = ["caption"]  # 最も一般的な機能をデフォルト
-
-        return capabilities
+        return type_mapping.get(model_type, ["caption"])
 
     def _is_recommended_model(self, model_name: str) -> bool:
         """推奨モデルかどうか判定"""
@@ -343,7 +307,7 @@ class ModelSelectionWidget(QWidget):
 
         return any(rec in name_lower for rec in all_recommended)
 
-    def apply_filters(self, provider: str | None = None, capabilities: list[str] = None) -> None:
+    def apply_filters(self, provider: str | None = None, capabilities: list[str] | None = None) -> None:
         """フィルタリング適用"""
         self.current_provider_filter = provider
         self.current_capability_filters = capabilities or []
