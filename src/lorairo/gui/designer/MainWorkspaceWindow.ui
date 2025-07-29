@@ -293,7 +293,7 @@
           </property>
           <layout class="QVBoxLayout" name="verticalLayout_filterSearchContent">
            <property name="spacing">
-            <number>0</number>
+            <number>5</number>
            </property>
            <property name="leftMargin">
             <number>0</number>
@@ -307,7 +307,102 @@
            <property name="bottomMargin">
             <number>0</number>
            </property>
-           <!-- FilterSearchPanel ウィジェットが動的に追加される -->
+           <item>
+            <widget class="QFrame" name="frameExistingFilterSearch">
+             <property name="styleSheet">
+              <string notr="true"/>
+             </property>
+             <property name="frameShape">
+              <enum>QFrame::StyledPanel</enum>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayout_existingFilter">
+              <item>
+               <widget class="QLabel" name="labelExistingFilterPlaceholder">
+                <property name="styleSheet">
+                 <string>color: #666; font-size: 10px; font-style: italic; padding: 8px;</string>
+                </property>
+                <property name="text">
+                 <string>📋 既存フィルター機能
+• ファイル名検索
+• 解像度フィルタ  
+• 日付範囲フィルタ
+• タグ検索
+
+※FilterSearchPanelが動的に配置</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="groupBoxSelectedImageDetails">
+          <property name="styleSheet">
+           <string notr="true"/>
+          </property>
+          <property name="title">
+           <string>選択画像詳細情報</string>
+          </property>
+          <layout class="QVBoxLayout" name="verticalLayout_selectedImageDetails">
+           <property name="spacing">
+            <number>4</number>
+           </property>
+           <property name="leftMargin">
+            <number>4</number>
+           </property>
+           <property name="topMargin">
+            <number>4</number>
+           </property>
+           <property name="rightMargin">
+            <number>4</number>
+           </property>
+           <property name="bottomMargin">
+            <number>4</number>
+           </property>
+           <item>
+            <widget class="QTableView" name="tableViewSelectedImageInfo">
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>200</height>
+              </size>
+             </property>
+             <property name="styleSheet">
+              <string notr="true"/>
+             </property>
+             <property name="alternatingRowColors">
+              <bool>true</bool>
+             </property>
+             <property name="selectionBehavior">
+              <enum>QAbstractItemView::SelectRows</enum>
+             </property>
+             <property name="showGrid">
+              <bool>false</bool>
+             </property>
+             <property name="sortingEnabled">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="labelImageSummary">
+             <property name="styleSheet">
+              <string>color: #666; font-size: 10px; font-style: italic; padding: 4px;</string>
+             </property>
+             <property name="text">
+              <string>選択: なし</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignmentFlag::AlignCenter</set>
+             </property>
+            </widget>
+           </item>
           </layout>
          </widget>
         </item>
@@ -454,7 +549,7 @@
           </property>
           <layout class="QVBoxLayout" name="verticalLayout_thumbnailContent">
            <property name="spacing">
-            <number>0</number>
+            <number>5</number>
            </property>
            <property name="leftMargin">
             <number>0</number>
@@ -468,7 +563,134 @@
            <property name="bottomMargin">
             <number>0</number>
            </property>
-           <!-- ThumbnailSelectorWidget が動的に追加される -->
+           <item>
+            <widget class="QFrame" name="frameExistingThumbnails">
+             <property name="enabled">
+              <bool>true</bool>
+             </property>
+             <property name="layoutDirection">
+              <enum>Qt::LayoutDirection::LeftToRight</enum>
+             </property>
+             <property name="styleSheet">
+              <string notr="true"/>
+             </property>
+             <property name="frameShape">
+              <enum>QFrame::StyledPanel</enum>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayout_existingThumbnails">
+              <item>
+               <widget class="QLabel" name="labelExistingThumbnailsPlaceholder">
+                <property name="styleSheet">
+                 <string>color: #666; font-size: 10px; font-style: italic; padding: 15px; text-align: center;</string>
+                </property>
+                <property name="text">
+                 <string>🖼️ 既存サムネイル表示機能
+
+※ThumbnailSelectorWidgetが動的に配置
+※各サムネイルに状態オーバーレイを追加:
+  ✓ 完了 (緑) | ⚠ 部分完了 (オレンジ) | ✗ エラー (赤) | ● 処理中 (青)</string>
+                </property>
+                <property name="alignment">
+                 <set>Qt::AlignmentFlag::AlignCenter</set>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QFrame" name="frameThumbnailStatusIndicator">
+             <property name="maximumSize">
+              <size>
+               <width>16777215</width>
+               <height>60</height>
+              </size>
+             </property>
+             <property name="styleSheet">
+              <string>QFrame { border: 1px solid #2196F3; border-radius: 4px; background-color: #e3f2fd; }</string>
+             </property>
+             <property name="frameShape">
+              <enum>QFrame::Box</enum>
+             </property>
+             <layout class="QHBoxLayout" name="horizontalLayout_thumbnailStatusIndicator">
+              <property name="spacing">
+               <number>8</number>
+              </property>
+              <property name="leftMargin">
+               <number>8</number>
+              </property>
+              <property name="rightMargin">
+               <number>8</number>
+              </property>
+              <item>
+               <widget class="QLabel" name="labelStatusIndicatorTitle">
+                <property name="styleSheet">
+                 <string>font-size: 10px; font-weight: bold; color: #1976D2;</string>
+                </property>
+                <property name="text">
+                 <string>アノテーション状態:</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="labelStatusCompleted">
+                <property name="styleSheet">
+                 <string>font-size: 9px; color: #4CAF50; font-weight: bold;</string>
+                </property>
+                <property name="text">
+                 <string>✓ 完了: 0</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="labelStatusPartial">
+                <property name="styleSheet">
+                 <string>font-size: 9px; color: #FF9800; font-weight: bold;</string>
+                </property>
+                <property name="text">
+                 <string>⚠ 部分: 0</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="labelStatusError">
+                <property name="styleSheet">
+                 <string>font-size: 9px; color: #f44336; font-weight: bold;</string>
+                </property>
+                <property name="text">
+                 <string>✗ エラー: 0</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="labelStatusProcessing">
+                <property name="styleSheet">
+                 <string>font-size: 9px; color: #2196F3; font-weight: bold;</string>
+                </property>
+                <property name="text">
+                 <string>● 処理中: 0</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <spacer name="horizontalSpacerStatusIndicator">
+                <property name="orientation">
+                 <enum>Qt::Orientation::Horizontal</enum>
+                </property>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>40</width>
+                  <height>20</height>
+                 </size>
+                </property>
+               </spacer>
+              </item>
+             </layout>
+            </widget>
+           </item>
           </layout>
          </widget>
         </item>
@@ -483,13 +705,13 @@
        </property>
        <property name="minimumSize">
         <size>
-         <width>300</width>
-         <height>0</height>
+         <width>512</width>
+         <height>512</height>
         </size>
        </property>
        <property name="maximumSize">
         <size>
-         <width>500</width>
+         <width>16777215</width>
          <height>16777215</height>
         </size>
        </property>
@@ -522,26 +744,96 @@
         <item>
          <!-- プレビュー・詳細ウィジェットがここに配置される -->
          <widget class="QFrame" name="framePreviewDetailContent">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>16777215</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="styleSheet">
+           <string notr="true"/>
+          </property>
           <property name="frameShape">
            <enum>QFrame::NoFrame</enum>
           </property>
           <layout class="QVBoxLayout" name="verticalLayout_previewDetailContent">
            <property name="spacing">
-            <number>0</number>
+            <number>8</number>
            </property>
            <property name="leftMargin">
-            <number>0</number>
+            <number>5</number>
            </property>
            <property name="topMargin">
-            <number>0</number>
+            <number>5</number>
            </property>
            <property name="rightMargin">
-            <number>0</number>
+            <number>5</number>
            </property>
            <property name="bottomMargin">
-            <number>0</number>
+            <number>5</number>
            </property>
-           <!-- PreviewDetailPanel ウィジェットが動的に追加される -->
+           <item>
+            <widget class="QFrame" name="frameImagePreview">
+             <property name="minimumSize">
+              <size>
+               <width>512</width>
+               <height>512</height>
+              </size>
+             </property>
+             <property name="maximumSize">
+              <size>
+               <width>16777215</width>
+               <height>16777215</height>
+              </size>
+             </property>
+             <property name="styleSheet">
+              <string notr="true"/>
+             </property>
+             <property name="frameShape">
+              <enum>QFrame::StyledPanel</enum>
+             </property>
+             <property name="frameShadow">
+              <enum>QFrame::Sunken</enum>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayout_imagePreview">
+              <item>
+               <widget class="QLabel" name="labelImagePreview">
+                <property name="styleSheet">
+                 <string notr="true">color: #666; font-style: italic; font-size: 10px; padding: 15px;</string>
+                </property>
+                <property name="text">
+                 <string>🖼️ PreviewDetailPanel統合領域
+
+ 画像プレビュー表示
+• メタデータ情報表示  
+• 既存アノテーション表示
+
+➕ 新機能追加:
+• アノテーション実行ボタン
+• モデル別結果表示タブ
+• エラー情報表示
+
+※PreviewDetailPanelが動的に配置され、
+　アノテーション機能が統合されます</string>
+                </property>
+                <property name="alignment">
+                 <set>Qt::AlignmentFlag::AlignCenter</set>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <!-- アノテーション機能をここに追加予定 -->
           </layout>
          </widget>
         </item>
