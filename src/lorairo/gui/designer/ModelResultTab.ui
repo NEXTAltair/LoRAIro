@@ -1,0 +1,382 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ModelResultTab</class>
+ <widget class="QWidget" name="ModelResultTab">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>500</width>
+    <height>400</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing">
+    <number>10</number>
+   </property>
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>10</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>10</number>
+   </property>
+   <item>
+    <!-- モデル情報ヘッダー -->
+    <widget class="QFrame" name="frameModelHeader">
+     <property name="frameShape">
+      <enum>QFrame::StyledPanel</enum>
+     </property>
+     <property name="maximumSize">
+      <size>
+       <width>16777215</width>
+       <height>60</height>
+      </size>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayoutHeader">
+      <item>
+       <widget class="QLabel" name="labelModelName">
+        <property name="text">
+         <string>モデル名: GPT-4o</string>
+        </property>
+        <property name="font">
+         <font>
+          <pointsize>11</pointsize>
+          <weight>75</weight>
+          <bold>true</bold>
+         </font>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacer">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QLabel" name="labelProcessingTime">
+        <property name="text">
+         <string>処理時間: 2.3s</string>
+        </property>
+        <property name="font">
+         <font>
+          <pointsize>8</pointsize>
+         </font>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="labelStatus">
+        <property name="text">
+         <string>✓ 成功</string>
+        </property>
+        <property name="font">
+         <font>
+          <pointsize>9</pointsize>
+          <weight>75</weight>
+          <bold>true</bold>
+         </font>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">color: green;</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <!-- 結果表示エリア（成功時とエラー時で切り替え） -->
+    <widget class="QStackedWidget" name="stackedWidgetContent">
+     <property name="currentIndex">
+      <number>0</number>
+     </property>
+     <!-- 成功時の結果表示 -->
+     <widget class="QWidget" name="pageSuccess">
+      <layout class="QVBoxLayout" name="verticalLayoutSuccess">
+       <item>
+        <!-- タグセクション -->
+        <widget class="QGroupBox" name="groupBoxTags">
+         <property name="title">
+          <string>タグ</string>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>120</height>
+          </size>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayoutTags">
+          <item>
+           <widget class="QScrollArea" name="scrollAreaTags">
+            <property name="widgetResizable">
+             <bool>true</bool>
+            </property>
+            <property name="horizontalScrollBarPolicy">
+             <enum>Qt::ScrollBarAlwaysOff</enum>
+            </property>
+            <widget class="QWidget" name="scrollAreaWidgetContentsTags">
+             <property name="geometry">
+              <rect>
+               <x>0</x>
+               <y>0</y>
+               <width>476</width>
+               <height>69</height>
+              </rect>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayoutTagsContent">
+              <!-- 動的にタグが追加される -->
+              <item>
+               <widget class="QLabel" name="labelTagsPlaceholder">
+                <property name="text">
+                 <string>タグなし</string>
+                </property>
+                <property name="styleSheet">
+                 <string notr="true">color: #888;</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <!-- キャプションセクション -->
+        <widget class="QGroupBox" name="groupBoxCaptions">
+         <property name="title">
+          <string>キャプション</string>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>120</height>
+          </size>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayoutCaptions">
+          <item>
+           <widget class="QTextEdit" name="textEditCaptions">
+            <property name="readOnly">
+             <bool>true</bool>
+            </property>
+            <property name="placeholderText">
+             <string>キャプションなし</string>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>16777215</width>
+              <height>90</height>
+             </size>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <!-- スコアセクション -->
+        <widget class="QGroupBox" name="groupBoxScores">
+         <property name="title">
+          <string>スコア</string>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>80</height>
+          </size>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayoutScores">
+          <item>
+           <widget class="QFrame" name="frameScoreContent">
+            <property name="frameShape">
+             <enum>QFrame::NoFrame</enum>
+            </property>
+            <layout class="QHBoxLayout" name="horizontalLayoutScore">
+             <item>
+              <widget class="QLabel" name="labelScoreValue">
+               <property name="text">
+                <string>0.85</string>
+               </property>
+               <property name="font">
+                <font>
+                 <pointsize>16</pointsize>
+                 <weight>75</weight>
+                 <bold>true</bold>
+                </font>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignCenter</set>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QProgressBar" name="progressBarScore">
+               <property name="minimum">
+                <number>0</number>
+               </property>
+               <property name="maximum">
+                <number>100</number>
+               </property>
+               <property name="value">
+                <number>85</number>
+               </property>
+               <property name="textVisible">
+                <bool>false</bool>
+               </property>
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <spacer name="verticalSpacer">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+     <!-- エラー時の表示 -->
+     <widget class="QWidget" name="pageError">
+      <layout class="QVBoxLayout" name="verticalLayoutError">
+       <item>
+        <widget class="QFrame" name="frameErrorHeader">
+         <property name="frameShape">
+          <enum>QFrame::StyledPanel</enum>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">QFrame {
+    background-color: #ffe6e6;
+    border: 2px solid #ff6b6b;
+    border-radius: 8px;
+}</string>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>50</height>
+          </size>
+         </property>
+         <layout class="QHBoxLayout" name="horizontalLayoutErrorHeader">
+          <item>
+           <widget class="QLabel" name="labelErrorIcon">
+            <property name="text">
+             <string>⚠️</string>
+            </property>
+            <property name="font">
+             <font>
+              <pointsize>16</pointsize>
+             </font>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="labelErrorTitle">
+            <property name="text">
+             <string>アノテーション処理エラー</string>
+            </property>
+            <property name="font">
+             <font>
+              <pointsize>12</pointsize>
+              <weight>75</weight>
+              <bold>true</bold>
+             </font>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color: #d32f2f;</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="horizontalSpacerError">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupBoxErrorDetails">
+         <property name="title">
+          <string>エラー詳細</string>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayoutErrorDetails">
+          <item>
+           <widget class="QTextEdit" name="textEditErrorMessage">
+            <property name="readOnly">
+             <bool>true</bool>
+            </property>
+            <property name="placeholderText">
+             <string>エラー情報が読み込まれます...</string>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">QTextEdit {
+    background-color: #fff5f5;
+    border: 1px solid #ffcccb;
+    color: #d32f2f;
+    font-family: monospace;
+}</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <spacer name="verticalSpacerError">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
