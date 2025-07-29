@@ -73,11 +73,15 @@ docs-publish: docs
 # Development targets
 install:
 	@echo "Installing project dependencies..."
-	UV_PROJECT_ENVIRONMENT=.venv_linux uv sync
+	uv sync
 
 install-dev:
-	@echo "Installing development dependencies..."
-	UV_PROJECT_ENVIRONMENT=.venv_linux uv sync --dev
+	@echo ">>> Installing development dependencies and setting up editable install..."
+	# 依存関係をインストール
+	uv sync --dev
+	# 編集可能モードでプロジェクトをインストール
+	uv pip install -e . --no-deps
+	@echo ">>> Setup complete!"
 
 run-gui:
 	@echo "Running LoRAIro GUI..."
@@ -108,13 +112,13 @@ docs-publish-win:
 		fi; \
 	fi
 	@echo "Running tests in /tmp/lorairo_test_src/tests ..."
-	UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest /tmp/lorairo_test_src/tests
+	uv run pytest /tmp/lorairo_test_src/tests
 
 mypy:
 	@echo "Running mypy..."
-	UV_PROJECT_ENVIRONMENT=.venv_linux uv run mypy -p lorairo
+	uv run mypy -p lorairo
 
 format:
 	@echo "Formatting code..."
-	UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff format src/ tests/
-	UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff check src/ tests/ --fix
+	uv run ruff format src/ tests/
+	uv run ruff check src/ tests/ --fix

@@ -21,7 +21,7 @@ This project supports Windows/Linux environments with independent virtual enviro
 ./scripts/setup.sh
 
 # Manual environment specification
-UV_PROJECT_ENVIRONMENT=.venv_linux uv sync --dev     # Linux
+uv sync --dev     # Linux
 $env:UV_PROJECT_ENVIRONMENT=".venv_windows"; uv sync --dev  # Windows
 
 # Traditional single environment
@@ -43,7 +43,7 @@ uv add --dev package-name
 $env:UV_PROJECT_ENVIRONMENT = ".venv_windows"; uv run lorairo
 
 # Linux Environment  
-UV_PROJECT_ENVIRONMENT=.venv_linux uv run lorairo
+uv run lorairo
 
 # Using Makefile (all platforms)
 make run-gui
@@ -380,7 +380,7 @@ If VS Code cannot discover tests in local packages:
 ./scripts/setup.sh
 
 # Linux/Container environment - development and testing
-UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest
+uv run pytest
 
 # Windows environment - execution and GUI verification
 $env:UV_PROJECT_ENVIRONMENT = ".venv_windows"; uv run lorairo
