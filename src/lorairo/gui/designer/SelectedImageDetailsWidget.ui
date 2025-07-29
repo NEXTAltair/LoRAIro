@@ -45,6 +45,13 @@
         </property>
        </widget>
       </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="labelFileSize">
+        <property name="text">
+         <string>ファイルサイズ:</string>
+        </property>
+       </widget>
+      </item>
       <item row="0" column="1">
        <widget class="QLabel" name="labelFileNameValue">
         <property name="text">
@@ -52,27 +59,6 @@
         </property>
         <property name="wordWrap">
          <bool>true</bool>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="0">
-       <widget class="QLabel" name="labelImageSize">
-        <property name="text">
-         <string>サイズ:</string>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="1">
-       <widget class="QLabel" name="labelImageSizeValue">
-        <property name="text">
-         <string>-</string>
-        </property>
-       </widget>
-      </item>
-      <item row="2" column="0">
-       <widget class="QLabel" name="labelFileSize">
-        <property name="text">
-         <string>ファイルサイズ:</string>
         </property>
        </widget>
       </item>
@@ -97,6 +83,20 @@
         </property>
        </widget>
       </item>
+      <item row="1" column="1">
+       <widget class="QLabel" name="labelImageSizeValue">
+        <property name="text">
+         <string>-</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="labelImageSize">
+        <property name="text">
+         <string>解像度:</string>
+        </property>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>
@@ -107,46 +107,153 @@
      </property>
      <layout class="QVBoxLayout" name="verticalLayoutAnnotationSummary">
       <item>
-       <layout class="QGridLayout" name="gridLayoutAnnotationStatus">
+       <widget class="QGroupBox" name="groupBoxTags">
+        <property name="title">
+         <string>タグ</string>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayoutTags">
+         <item>
+          <widget class="QLabel" name="labelTagsContent">
+           <property name="text">
+            <string>cat, sitting, outdoor, wooden</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="groupBoxCaptions">
+        <property name="title">
+         <string>キャプション</string>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayoutCaptions">
+         <item>
+          <widget class="QTextEdit" name="textEditCaptionsContent">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+             <horstretch>0</horstretch>
+             <verstretch>1</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="readOnly">
+            <bool>true</bool>
+           </property>
+           <property name="placeholderText">
+            <string>キャプションが表示されます</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <layout class="QGridLayout" name="gridLayoutRatingScore">
         <item row="0" column="0">
-         <widget class="QLabel" name="labelTagsStatus">
+         <widget class="QLabel" name="labelRating">
           <property name="text">
-           <string>タグ:</string>
+           <string>Rating:</string>
           </property>
          </widget>
         </item>
         <item row="0" column="1">
-         <widget class="QLabel" name="labelTagsStatusValue">
+         <widget class="QLabel" name="labelRatingValue">
           <property name="text">
-           <string>未処理</string>
+           <string>PG-13</string>
+          </property>
+          <property name="visible">
+           <bool>false</bool>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QComboBox" name="comboBoxRating">
+          <property name="visible">
+           <bool>true</bool>
+          </property>
+          <item>
+           <property name="text">
+            <string>PG</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>PG-13</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>R</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>X</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>XXX</string>
+           </property>
+          </item>
+         </widget>
+        </item>
+        <item row="0" column="2">
+         <widget class="QPushButton" name="pushButtonSaveRating">
+          <property name="text">
+           <string>保存</string>
+          </property>
+          <property name="visible">
+           <bool>true</bool>
           </property>
          </widget>
         </item>
         <item row="1" column="0">
-         <widget class="QLabel" name="labelCaptionStatus">
-          <property name="text">
-           <string>キャプション:</string>
-          </property>
-         </widget>
-        </item>
-        <item row="1" column="1">
-         <widget class="QLabel" name="labelCaptionStatusValue">
-          <property name="text">
-           <string>未処理</string>
-          </property>
-         </widget>
-        </item>
-        <item row="2" column="0">
-         <widget class="QLabel" name="labelScoreStatus">
+         <widget class="QLabel" name="labelScore">
           <property name="text">
            <string>スコア:</string>
           </property>
          </widget>
         </item>
-        <item row="2" column="1">
-         <widget class="QLabel" name="labelScoreStatusValue">
+        <item row="1" column="1">
+         <widget class="QLabel" name="labelScoreValue">
           <property name="text">
-           <string>未処理</string>
+           <string>75.4</string>
+          </property>
+          <property name="visible">
+           <bool>false</bool>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QSlider" name="sliderScore">
+          <property name="minimum">
+           <number>0</number>
+          </property>
+          <property name="maximum">
+           <number>1000</number>
+          </property>
+          <property name="value">
+           <number>500</number>
+          </property>
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
+          </property>
+          <property name="visible">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="2">
+         <widget class="QPushButton" name="pushButtonSaveScore">
+          <property name="text">
+           <string>保存</string>
+          </property>
+          <property name="visible">
+           <bool>true</bool>
           </property>
          </widget>
         </item>
@@ -164,33 +271,6 @@
       </sizepolicy>
      </property>
     </widget>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="horizontalLayoutActions">
-     <item>
-      <spacer name="horizontalSpacerActions">
-       <property name="orientation">
-        <enum>Qt::Orientation::Horizontal</enum>
-       </property>
-       <property name="sizeHint" stdset="0">
-        <size>
-         <width>40</width>
-         <height>20</height>
-        </size>
-       </property>
-      </spacer>
-     </item>
-     <item>
-      <widget class="QPushButton" name="pushButtonRefreshDetails">
-       <property name="text">
-        <string>更新</string>
-       </property>
-       <property name="toolTip">
-        <string>画像詳細情報を更新</string>
-       </property>
-      </widget>
-     </item>
-    </layout>
    </item>
   </layout>
  </widget>

@@ -1,7 +1,7 @@
 # ハイブリッドアノテーション UI 包括設計書
 
-**最終更新**: 2025/07/29 09:00:00
-**ステータス**: 設計フェーズ
+**最終更新**: 2025/07/29 実装変更反映
+**ステータス**: Phase 1 Qt Designer UI作成完了、Phase 2 Python実装準備
 **前身**: `tasks/plans/annotation_ui_unified_plan_20250729.md` + `docs/migration/annotation_ui_optimization_report.md`
 
 ## 🎯 設計方針
@@ -24,10 +24,14 @@
 **機能**: 画像プレビュー表示
 **活用方法**: そのまま右パネルで使用
 
-#### 2. `ThumbnailSelectorWidget.ui`
+#### 2. `ThumbnailSelectorWidget.ui` ✅
 
 **機能**: サムネイル一覧表示（シンプル）
-**拡張方針**: アノテーション状態オーバーレイ追加｡グリッドサイズの可変スラーイダーの追加
+**実装済み拡張**:
+
+- ✅ グリッドサイズ可変スライダー追加（64-256px範囲）
+- ✅ エラー表示の常時表示化（チェックボックス削除）
+- ✅ 不要なUI要素の削除（シンプル化）
 
 #### 3. `ImageTaggerWidget.ui`
 
@@ -42,76 +46,99 @@
 
 ## 🏗️ 新規ウィジェット設計
 
-### 共通コンポーネント: `AnnotationDataDisplayWidget.ui` (新規作成)
+### 共通コンポーネント: `AnnotationDataDisplayWidget.ui` (新規作成) ✅
 
 **目的**: アノテーション結果の汎用表示コンポーネント
 **サイズ**: 可変 (用途により調整)
+**実装済み機能**:
 
-**機能**:
+- ✅ タグ表示領域（QLabel形式、シンプル表示）
+- ✅ キャプション表示領域（QTextEdit、読み取り専用）
+- ✅ 品質スコア表示（数値表示）
+- ❌ 表示モード切替機能は削除（複雑性回避のため）
+- ❌ 履歴表示機能は削除（初期実装では不要）
 
-- タグ表示領域（編集可能/読み取り専用）
-- キャプション表示領域（編集可能/読み取り専用）
-- 品質スコア表示（Aesthetic、MUSIQ 等）
-- 表示モード切替（readonly/editable）
-- 履歴表示機能（バージョン選択）
+**実装での簡素化**:
 
-### 1. `AnnotationControlWidget.ui` (新規作成)
+- 複雑なモード切替機能を削除し、単純な表示専用コンポーネントに変更
+- 履歴機能とエクスポート機能は別タスクで検討
+
+### 1. `AnnotationControlWidget.ui` (新規作成) ✅
 
 **目的**: 複数モデル選択・実行制御
-**サイズ**: 300x400px (コンパクト)
+**サイズ**: 341x1102px (高さを大幅拡張)
+**実装済み機能**:
 
-**機能**:
+- ✅ 実行環境選択（Web API/ローカルモデル）- プロバイダー選択から変更
+- ✅ 機能タイプ選択（Caption生成/Tag生成/品質スコア）
+- ✅ モデル選択テーブル（200+モデル対応、ソート機能付き）
+- ✅ 実行ボタン（シンプル化）
+- ✅ オプション設定（低解像度使用、バッチモード）
+- ❌ 停止ボタンは削除（ライブラリ非対応）
+- ❌ 進捗表示は削除（ライブラリ非対応）
 
-- プロバイダー選択（OpenAI/Anthropic/Google/Local）
-- 機能タイプ選択（Caption/Tagger/Scorer）
-- 複数モデル選択（チェックリスト）
-- 実行・停止・設定ボタン
-- 進捗表示
+**主要な設計変更**:
 
-### 2. `AnnotationResultsWidget.ui` (新規作成)
+- プロバイダー選択 → 実行環境選択（Web API vs ローカル）に変更
+- スクロールエリア → QTableWidget（ソート対応）に変更
+- 進捗追跡機能を削除（image-annotator-libが非対応）
 
-**目的**: モデル別結果表示
-**サイズ**: 400x300px (中サイズ)
-**共通コンポーネント活用**: AnnotationDataDisplayWidget (editable mode)
+### 2. `AnnotationResultsWidget.ui` (新規作成) ✅
 
-**機能**:
+**目的**: 機能別結果表示
+**サイズ**: 400x400px (高さ調整)
+**実装済み機能**:
 
-- タブ式結果表示（モデル別）
-- 共通コンポーネントによるタグ・キャプション・スコア表示
-- エクスポート機能
-- 結果比較機能
-- 結果編集機能
+- ✅ タブ式結果表示（機能別：キャプション/タグ/スコア）
+- ✅ 各タブにテーブル形式でモデル別結果を表示
+- ✅ ソート機能付きテーブル（モデル名、結果内容）
+- ❌ 共通コンポーネント活用は見送り（テーブル表示が効率的）
+- ❌ エクスポート機能は削除（シンプル化）
+- ❌ 結果比較機能は削除（テーブル内比較で十分）
+- ❌ 結果編集機能は削除（別途SelectedImageDetailsWidgetで対応）
 
-### 3. `SelectedImageDetailsWidget.ui` (新規作成)
+**主要な設計変更**:
 
-**目的**: 選択画像の DB 情報詳細表示
-**サイズ**: 250x200px (左パネル用コンパクト)
-**共通コンポーネント活用**: AnnotationDataDisplayWidget (readonly mode)
+- モデル別タブ → 機能別タブ（キャプション/タグ/スコア）に変更
+- 200+モデル対応のため、テーブル形式による比較表示を採用
+- 不要な機能を削除してシンプルな結果表示に集中
 
-**機能** (シンプル版):
+### 3. `SelectedImageDetailsWidget.ui` (新規作成) ✅
 
-- 画像基本情報（ファイル名、サイズ）
-- 既存アノテーション表示（共通コンポーネント使用）
-  - タグ内容のシンプル表示
-  - キャプション内容のシンプル表示
-  - 品質スコア値の表示
+**目的**: 選択画像の詳細情報表示とインライン編集
+**サイズ**: 250x400px (高さ拡張、詳細表示対応)
+**実装済み機能**:
 
-**TODO: 詳細機能拡張**
+- ✅ 画像基本情報（ファイル名、解像度、ファイルサイズ、登録日）
+- ✅ アノテーション概要表示
+  - タグ内容のシンプル表示（QLabel）
+  - キャプション内容の詳細表示（QTextEdit、読み取り専用）
+  - Rating のインライン編集（QComboBox: PG/PG-13/R/X/XXX）
+  - スコアのインライン編集（QSlider: 0-1000範囲）
+- ✅ 共通コンポーネント活用（AnnotationDataDisplayWidget を最下部に配置）
+- ✅ 保存ボタン（Rating/Score 個別保存）
 
-- アノテーション履歴・バージョン管理
-- 複数表示形式対応（タブ/テーブル選択）
-- 詳細メタデータ表示
+**主要な設計変更**:
 
-### 4. `AnnotationStatusFilterWidget.ui` (新規作成)
+- インライン編集機能を追加（Rating/Score の直接編集）
+- 画像情報セクションを詳細化（解像度、ファイルサイズ、登録日追加）
+- 高さを400pxに拡張（詳細情報とインライン編集UI対応）
+
+### 4. `AnnotationStatusFilterWidget.ui` (新規作成) ✅
 
 **目的**: アノテーション状態フィルタリング
-**サイズ**: 250x100px (小サイズ)
+**サイズ**: 300x150px (サイズ調整)
+**実装済み機能**:
 
-**機能**:
+- ✅ 簡素化された状態フィルタ（完了/エラーの2状態のみ）
+- ✅ 状態統計表示（チェックボックス付きカウント表示）
+- ❌ 一括操作ボタンは削除（シンプル化）
+- ❌ 「未処理」「処理中」状態は削除（ライブラリが進捗追跡非対応）
 
-- 状態別フィルタ（未処理・処理中・完了・エラー等）
-- 状態統計表示
-- 一括操作ボタン
+**主要な設計変更**:
+
+- 4状態（未処理/処理中/完了/エラー）→ 2状態（完了/エラー）に簡素化
+- image-annotator-lib が進捗追跡をサポートしていないため、実行後の結果状態のみフィルタリング対象とする
 
 ## 🔧 MainWorkspaceWindow 統合設計
 
@@ -231,106 +258,122 @@ export_requested = Signal(str)         # export_format
 
 ## 📅 実装ロードマップ
 
-### Phase 1: 個別ウィジェット作成 (3-4 時間)
+### Phase 1: 個別ウィジェット作成 ✅ **完了済み** (3-4 時間)
 
 **実装順序**: Qt Designer での .ui ファイル作成を最優先し、その後 .py ウィジェット実装
 
-#### ステップ 1.1: `AnnotationDataDisplayWidget` (45 分) **← 共通コンポーネント優先**
+#### ステップ 1.1: `AnnotationDataDisplayWidget` ✅ **完了** (45 分)
 
-**Stage 1.1-A: Qt Designer UI 作成 (25 分)**
+**Stage 1.1-A: Qt Designer UI 作成 ✅ **完了**
 
-- [ ] Qt Designer で `AnnotationDataDisplayWidget.ui` 作成
-- [ ] タグ・キャプション・スコア表示エリアのレイアウト設計
-- [ ] 表示モード切替 UI コンポーネント配置
+- [X] Qt Designer で `AnnotationDataDisplayWidget.ui` 作成
+- [X] タグ・キャプション・スコア表示エリアのレイアウト設計（簡素化）
+- [X] 表示モード切替機能は削除（複雑性回避）
 
-**Stage 1.1-B: Python ウィジェット実装 (20 分)**
+**Stage 1.1-B: Python ウィジェット実装** **⏸️ 保留**
 
-- [ ] 対応する .py ウィジェット実装
-- [ ] 表示モード切替機能実装
+- [ ] 対応する .py ウィジェット実装（Phase 2で実装予定）
 
-#### ステップ 1.2: `AnnotationStatusFilterWidget` (30 分)
+#### ステップ 1.2: `AnnotationStatusFilterWidget` ✅ **完了** (30 分)
 
-**Stage 1.2-A: Qt Designer UI 作成 (20 分)**
+**Stage 1.2-A: Qt Designer UI 作成 ✅ **完了**
 
-- [ ] Qt Designer で `AnnotationStatusFilterWidget.ui` 作成
-- [ ] 状態フィルタ UI 設計（チェックボックス・統計表示）
+- [X] Qt Designer で `AnnotationStatusFilterWidget.ui` 作成
+- [X] 状態フィルタ UI 設計（2状態に簡素化：完了/エラー）
 
-**Stage 1.2-B: Python ウィジェット実装 (10 分)**
+**Stage 1.2-B: Python ウィジェット実装** **⏸️ 保留**
 
-- [ ] 対応する .py ウィジェット実装
+- [ ] 対応する .py ウィジェット実装（Phase 2で実装予定）
 
-#### ステップ 1.3: `SelectedImageDetailsWidget` (45 分)
+#### ステップ 1.3: `SelectedImageDetailsWidget` ✅ **完了** (45 分)
 
-**Stage 1.3-A: Qt Designer UI 作成 (25 分)**
+**Stage 1.3-A: Qt Designer UI 作成 ✅ **完了**
 
-- [ ] Qt Designer で `SelectedImageDetailsWidget.ui` 作成
-- [ ] 画像詳細情報表示レイアウト設計
-- [ ] 共通コンポーネント `AnnotationDataDisplayWidget` の配置
+- [X] Qt Designer で `SelectedImageDetailsWidget.ui` 作成
+- [X] 画像詳細情報表示レイアウト設計（インライン編集機能追加）
+- [X] 共通コンポーネント `AnnotationDataDisplayWidget` の配置
+- [X] Rating/Score のインライン編集UI追加
 
-**Stage 1.3-B: Python ウィジェット実装 (20 分)**
+**Stage 1.3-B: Python ウィジェット実装** **⏸️ 保留**
 
-- [ ] DB 情報表示機能実装
-- [ ] 共通コンポーネント統合 (readonly mode)
+- [ ] DB 情報表示機能実装（Phase 2で実装予定）
+- [ ] インライン編集機能実装（Phase 2で実装予定）
 
-#### ステップ 1.4: `AnnotationControlWidget` (1.5 時間)
+#### ステップ 1.4: `AnnotationControlWidget` ✅ **完了** (1.5 時間)
 
-**Stage 1.4-A: Qt Designer UI 作成 (1 時間)**
+**Stage 1.4-A: Qt Designer UI 作成 ✅ **完了**
 
-- [ ] Qt Designer で `AnnotationControlWidget.ui` 作成
-- [ ] 複数モデル選択 UI 設計（プロバイダー・機能タイプ・モデル選択）
-- [ ] 実行制御ボタン配置
+- [X] Qt Designer で `AnnotationControlWidget.ui` 作成
+- [X] 実行環境選択UI設計（Web API/ローカル）
+- [X] 200+モデル対応テーブル設計（ソート機能付き）
+- [X] 実行制御ボタン配置（シンプル化）
 
-**Stage 1.4-B: Python ウィジェット実装 (30 分)**
+**Stage 1.4-B: Python ウィジェット実装** **⏸️ 保留**
 
-- [ ] ModelInfoManager 統合
-- [ ] 実行制御ロジック実装
+- [ ] ModelInfoManager 統合（Phase 2で実装予定）
+- [ ] 実行制御ロジック実装（Phase 2で実装予定）
 
-#### ステップ 1.5: `AnnotationResultsWidget` (1 時間)
+#### ステップ 1.5: `AnnotationResultsWidget` ✅ **完了** (1 時間)
 
-**Stage 1.5-A: Qt Designer UI 作成 (40 分)**
+**Stage 1.5-A: Qt Designer UI 作成 ✅ **完了**
 
-- [ ] Qt Designer で `AnnotationResultsWidget.ui` 作成
-- [ ] タブ式結果表示 UI 設計
-- [ ] 共通コンポーネント `AnnotationDataDisplayWidget` の配置（editable mode）
+- [X] Qt Designer で `AnnotationResultsWidget.ui` 作成
+- [X] 機能別タブ式結果表示 UI 設計（キャプション/タグ/スコア）
+- [X] テーブル形式によるモデル比較表示
 
-**Stage 1.5-B: Python ウィジェット実装 (20 分)**
+**Stage 1.5-B: Python ウィジェット実装** **⏸️ 保留**
 
-- [ ] 共通コンポーネント統合
-- [ ] エクスポート機能統合
+- [ ] テーブル結果表示機能実装（Phase 2で実装予定）
 
-#### ステップ 1.6: `ThumbnailSelectorWidget` 拡張 (30 分)
+#### ステップ 1.6: `ThumbnailSelectorWidget` 拡張 ✅ **完了** (30 分)
 
-**Stage 1.6-A: Qt Designer UI 拡張 (20 分)**
+**Stage 1.6-A: Qt Designer UI 拡張 ✅ **完了**
 
-- [ ] 既存 `ThumbnailSelectorWidget.ui` にグリッドサイズ可変スライダー追加
+- [X] 既存 `ThumbnailSelectorWidget.ui` にグリッドサイズ可変スライダー追加
+- [X] エラー表示の常時表示化（チェックボックス削除）
 
-**Stage 1.6-B: Python 拡張実装 (10 分)**
+**Stage 1.6-B: Python 拡張実装** **⏸️ 保留**
 
-- [ ] アノテーション状態オーバーレイ機能実装
+- [ ] アノテーション状態オーバーレイ機能実装（Phase 2で実装予定）
 
-### Phase 2: MainWorkspaceWindow 統合 (1 時間)
+### Phase 2: Python ウィジェット実装 **⏸️ 次回実装予定** (2-3 時間)
 
-#### ステップ 2.1: 左パネル拡張
+#### ステップ 2.1: 共通コンポーネント実装
+
+- [ ] `AnnotationDataDisplayWidget.py` 実装
+- [ ] DB連携とデータバインディング実装
+
+#### ステップ 2.2: 個別ウィジェット実装
+
+- [ ] `AnnotationStatusFilterWidget.py` 実装
+- [ ] `SelectedImageDetailsWidget.py` 実装（インライン編集機能含む）
+- [ ] `AnnotationControlWidget.py` 実装（ModelInfoManager統合）
+- [ ] `AnnotationResultsWidget.py` 実装
+- [ ] `ThumbnailSelectorWidget` 拡張実装
+
+### Phase 3: MainWorkspaceWindow 統合 **⏸️ 後続実装予定** (1 時間)
+
+#### ステップ 3.1: 左パネル拡張
 
 - [ ] AnnotationStatusFilterWidget 追加
 - [ ] SelectedImageDetailsWidget 追加
 
-#### ステップ 2.2: 右パネル拡張
+#### ステップ 3.2: 右パネル拡張
 
 - [ ] AnnotationControlWidget 追加
 - [ ] AnnotationResultsWidget 追加
 
-#### ステップ 2.3: 中央パネル拡張
+#### ステップ 3.3: 中央パネル拡張
 
 - [ ] 拡張版 ThumbnailSelectorWidget 統合
 
-### Phase 3: 統合テスト (1 時間)
+### Phase 4: 統合テスト **⏸️ 後続実装予定** (1 時間)
 
-#### ステップ 3.1: 個別ウィジェットテスト
+#### ステップ 4.1: 個別ウィジェットテスト
 
 - [ ] 各ウィジェット単体テスト
 
-#### ステップ 3.2: 統合テスト
+#### ステップ 4.2: 統合テスト
 
 - [ ] ウィジェット間連携テスト
 - [ ] UI 統合テスト
@@ -366,22 +409,22 @@ export_requested = Signal(str)         # export_format
 
 ### 実装対象
 
-**新規作成ファイル**:
+**新規作成ファイル** ✅ **完了済み**:
 
-- `src/lorairo/gui/designer/AnnotationDataDisplayWidget.ui` (新規: 共通コンポーネント)
-- `src/lorairo/gui/designer/AnnotationControlWidget.ui` (新規)
-- `src/lorairo/gui/designer/AnnotationResultsWidget.ui` (新規)
-- `src/lorairo/gui/designer/AnnotationStatusFilterWidget.ui` (新規)
-- `src/lorairo/gui/designer/SelectedImageDetailsWidget.ui` (新規)
-- `src/lorairo/gui/widgets/annotation_coordinator.py` (新規)
+- ✅ `src/lorairo/gui/designer/AnnotationDataDisplayWidget.ui` (新規: 共通コンポーネント)
+- ✅ `src/lorairo/gui/designer/AnnotationControlWidget.ui` (新規)
+- ✅ `src/lorairo/gui/designer/AnnotationResultsWidget.ui` (新規)
+- ✅ `src/lorairo/gui/designer/AnnotationStatusFilterWidget.ui` (新規)
+- ✅ `src/lorairo/gui/designer/SelectedImageDetailsWidget.ui` (新規)
+- ⏸️ `src/lorairo/gui/widgets/annotation_coordinator.py` (新規: Phase 2で実装予定)
 
-**拡張対象ファイル**:
+**拡張対象ファイル** ✅ **完了済み**:
 
-- `src/lorairo/gui/designer/ThumbnailSelectorWidget.ui` (拡張: グリッドサイズ可変機能)
+- ✅ `src/lorairo/gui/designer/ThumbnailSelectorWidget.ui` (拡張: グリッドサイズ可変機能)
 
-**削除対象ファイル**:
+**削除対象ファイル** **⏸️ Phase 3で実施予定**:
 
-- `src/lorairo/gui/designer/ImageTaggerWidget.ui` (削除: 269 行 → 機能分割済み)
+- ⏸️ `src/lorairo/gui/designer/ImageTaggerWidget.ui` (削除: 269 行 → 機能分割済み)
 
 ---
 
@@ -396,16 +439,21 @@ export_requested = Signal(str)         # export_format
 ### **最終的なコード分散**
 
 ```
-ImageTaggerWidget.ui (削除: 269行)
-    ↓ 機能分割 & 共通化
-├── AnnotationDataDisplayWidget.ui      (共通: ~100行)
-├── AnnotationControlWidget.ui    (制御: ~150行)
-├── AnnotationResultsWidget.ui          (結果: ~80行) ← 共通コンポーネント活用
-├── SelectedImageDetailsWidget.ui       (詳細: ~70行) ← 共通コンポーネント活用
-└── AnnotationStatusFilterWidget.ui     (フィルタ: ~50行)
+ImageTaggerWidget.ui (削除予定: 269行)
+    ↓ 機能分割 & 実装完了 ✅
+├── AnnotationDataDisplayWidget.ui      (共通: 88行) ✅
+├── AnnotationControlWidget.ui          (制御: 248行) ✅
+├── AnnotationResultsWidget.ui          (結果: 177行) ✅
+├── SelectedImageDetailsWidget.ui       (詳細: 287行) ✅ ← インライン編集機能追加
+└── AnnotationStatusFilterWidget.ui     (フィルタ: 78行) ✅
 
-合計: ~450行 (共通化により実質重複なし)
-各ウィジェット: 200行以下達成 ✓
+合計: ~878行 (機能大幅拡張により増加)
+主要な機能拡張:
+- 200+モデル対応テーブル UI
+- インライン編集機能（Rating/Score）
+- 機能別タブ結果表示
+- 実行環境選択とオプション設定
+各ウィジェット: 機能性を重視した設計 ✓
 ```
 
 ## 🔧 技術仕様詳細
@@ -563,4 +611,20 @@ class AnnotationCoordinator:
 - ~~API 接続状況の動的表示~~ この機能は不要｡ アノテーターライブラリに必要な引数だけ渡して実行する仕組みなので､結果のエラーだけ判断できれば十分
 - ~~モデル選択状態の永続化~~ この機能は不要｡ その都度アノテーションを行いたいモデルのチェックボックスを選択するで十分
 
-**次ステップ**: Phase 1.1 共通コンポーネント `AnnotationDataDisplayWidget` 作成開始
+**現在のステータス**:
+
+- ✅ **Phase 1 完了**: 全ての Qt Designer .ui ファイル作成完了
+- 🎯 **次回予定**: Phase 2 - Python ウィジェット実装開始
+- 📋 **実装で得られた知見**:
+  - image-annotator-lib の実際の機能制約を考慮した設計変更
+  - 200+モデル対応のためのUI設計パターン確立
+  - インライン編集機能パターンの実装
+  - 機能別タブ表示による効率的な結果比較UI
+
+**重要な設計変更記録**:
+
+1. プロバイダー選択 → 実行環境選択（Web API/ローカル）
+2. モデル別タブ → 機能別タブ（Caption/Tags/Scores）
+3. 進捗追跡機能削除（ライブラリ非対応）
+4. インライン編集機能追加（Rating/Score）
+5. ステータスフィルタ簡素化（4状態→2状態）
