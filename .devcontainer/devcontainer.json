@@ -45,24 +45,25 @@
             ],
             "settings": {
                 "python.defaultInterpreterPath": "/workspaces/LoRAIro/.venv_linux/bin/python",
-                "python.testing.pytestEnabled": true,
-                "python.testing.pytestArgs": [
-                    "--tb=short",
-                    "--strict-markers",
-                    "--disable-warnings"
+                "python.analysis.extraPaths": [
+                "./src",
+                "./local_packages/genai-tag-db-tools/src",
+                "./local_packages/image-annotator-lib/src"
                 ],
+                "[python]": {
+                    "editor.defaultFormatter": "charliermarsh.ruff",
+                    "editor.formatOnSave": true,
+                    "editor.codeActionsOnSave": {
+                        "source.fixAll": "explicit",
+                        "source.organizeImports": "explicit"
+                    }
+                },
+                "python.testing.pytestEnabled": true,
                 "python.analysis.autoImportCompletions": true,
                 "python.analysis.typeCheckingMode": "strict",
                 "python.linting.enabled": true,
                 "python.linting.pylintEnabled": false,
                 "python.linting.mypyEnabled": true,
-                "python.formatting.provider": "black",
-                "python.sortImports.args": ["--profile", "black"],
-                "editor.formatOnSave": true,
-                "editor.codeActionsOnSave": {
-                    "source.organizeImports": "explicit",
-                    "source.fixAll.ruff": "explicit"
-                },
                 "files.exclude": {
                     "**/__pycache__": true,
                     "**/*.pyc": true,

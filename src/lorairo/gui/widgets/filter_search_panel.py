@@ -1,13 +1,12 @@
 # src/lorairo/gui/widgets/filter_search_panel.py
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from PySide6.QtCore import QDate, Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QDateEdit,
     QFrame,
     QGroupBox,
     QHBoxLayout,
@@ -402,69 +401,103 @@ class FilterSearchPanel(QScrollArea):
         db_conditions = {}
         frontend_conditions = {}
 
-        # 検索条件（データベース処理）
+        # 検索条件処理
+        self._process_search_conditions(db_conditions)
+
+        # 解像度フィルター処理
+        self._process_resolution_filter(db_conditions)
+
+        # 日付範囲フィルター処理
+        self._process_date_filter(frontend_conditions)
+
+        # オプション処理
+        self._process_option_filters(db_conditions)
+
+        # NSFWフラグ設定
+        db_conditions["include_nsfw"] = False
+
+        return db_conditions, frontend_conditions
+
+    def _process_search_conditions(self, db_conditions: dict[str, Any]) -> None:
+        """検索条件を処理"""
         search_text = self.line_edit_search.text().strip()
-        if search_text:
-            if self.radio_tags.isChecked():
-                # タグ検索: カンマ区切りでリスト化
-                db_conditions["tags"] = [tag.strip() for tag in search_text.split(",") if tag.strip()]
-                db_conditions["use_and"] = self.radio_and.isChecked()
-            else:
-                # キャプション検索
-                db_conditions["caption"] = search_text
+        if not search_text:
+            return
 
-        # 解像度フィルター（データベース処理 - 効率的なINDEX使用）
+        if self.radio_tags.isChecked():
+            # タグ検索
+            db_conditions["tags"] = [tag.strip() for tag in search_text.split(",") if tag.strip()]
+            db_conditions["use_and"] = self.radio_and.isChecked()
+        else:
+            # キャプション検索
+            db_conditions["caption"] = search_text
+
+    def _process_resolution_filter(self, db_conditions: dict[str, Any]) -> None:
+        """解像度フィルターを処理"""
         resolution_text = self.combo_resolution.currentText()
-        if resolution_text != "全て":
-            resolution_value = 0  # デフォルト
-            if resolution_text.startswith("512"):
-                resolution_value = 512
-            elif resolution_text.startswith("1024"):
-                resolution_value = 1024
-            elif resolution_text.startswith("2048"):
-                resolution_value = 2048
-            elif resolution_text == "カスタム...":
-                width = self.line_edit_width.text().strip()
-                height = self.line_edit_height.text().strip()
-                if width and height:
-                    try:
-                        # カスタム解像度は最大値を使用
-                        resolution_value = max(int(width), int(height))
-                    except ValueError:
-                        resolution_value = 0
+        if resolution_text == "全て":
+            return
 
-            if resolution_value > 0:
-                db_conditions["resolution"] = resolution_value
+        resolution_value = self._parse_resolution_value(resolution_text)
+        if resolution_value > 0:
+            db_conditions["resolution"] = resolution_value
 
-        # 日付範囲フィルター（フロントエンド処理 - リアルタイム性重視）
+    def _parse_resolution_value(self, resolution_text: str) -> int:
+        """解像度テキストを解析"""
+        if resolution_text.startswith("512"):
+            return 512
+        elif resolution_text.startswith("1024"):
+            return 1024
+        elif resolution_text.startswith("2048"):
+            return 2048
+        elif resolution_text == "カスタム...":
+            return self._get_custom_resolution()
+        return 0
+
+    def _get_custom_resolution(self) -> int:
+        """カスタム解像度を取得"""
+        width = self.line_edit_width.text().strip()
+        height = self.line_edit_height.text().strip()
+        if width and height:
+            try:
+                return max(int(width), int(height))
+            except ValueError:
+                pass
+        return 0
+
+    def _process_date_filter(self, frontend_conditions: dict[str, Any]) -> None:
+        """日付範囲フィルターを処理"""
         if self.checkbox_date_filter.isChecked():
             min_timestamp, max_timestamp = self.date_range_slider.get_range()
             frontend_conditions["date_range"] = (min_timestamp, max_timestamp)
 
-        # オプション処理
-        # 未タグ画像のみ検索オプション（データベース処理）
+    def _process_option_filters(self, db_conditions: dict[str, Any]) -> None:
+        """オプションフィルターを処理"""
+        # 未タグオプション
         if self.checkbox_only_untagged.isChecked():
-            # 未タグ画像のみを検索
-            db_conditions["include_untagged"] = True
-            # タグ条件をクリア（未タグ検索時は矛盾するため）
-            db_conditions.pop("tags", None)
-            db_conditions.pop("use_and", None)
-        elif db_conditions.get("tags") or db_conditions.get("caption"):
-            # タグまたはキャプション検索時は未タグ画像を含めない（検索対象を明確化）
-            db_conditions["include_untagged"] = False
+            self._apply_untagged_filter(db_conditions)
         else:
-            # 条件なし検索時のみ未タグ画像も含める
-            db_conditions["include_untagged"] = True
+            self._apply_tagged_filter_logic(db_conditions)
 
-        # 未キャプション画像のみ検索オプション（データベース処理）
+        # 未キャプションオプション
         if self.checkbox_only_uncaptioned.isChecked():
-            # キャプション条件をクリア（未キャプション検索時は矛盾するため）
             db_conditions.pop("caption", None)
 
-        # include_nsfw は UI にないので False
-        db_conditions["include_nsfw"] = False
+    def _apply_untagged_filter(self, db_conditions: dict[str, Any]) -> None:
+        """未タグフィルターを適用"""
+        db_conditions["include_untagged"] = True
+        # タグ条件をクリア（矛盾するため）
+        db_conditions.pop("tags", None)
+        db_conditions.pop("use_and", None)
 
-        return db_conditions, frontend_conditions
+    def _apply_tagged_filter_logic(self, db_conditions: dict[str, Any]) -> None:
+        """タグ付きフィルターロジックを適用"""
+        if db_conditions.get("tags") or db_conditions.get("caption"):
+            # 検索条件がある場合は未タグを除外
+            db_conditions["include_untagged"] = False
+        else:
+            # 条件なしの場合は未タグも含める
+            db_conditions["include_untagged"] = True
 
     def _update_ui_from_conditions(self, conditions: dict) -> None:
         """条件からUIを更新"""

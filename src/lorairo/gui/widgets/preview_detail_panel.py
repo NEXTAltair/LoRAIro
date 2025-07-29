@@ -1,14 +1,12 @@
 # src/lorairo/gui/widgets/preview_detail_panel.py
 
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from PySide6.QtCore import QSize, Qt, Slot
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGroupBox,
-    QHBoxLayout,
     QLabel,
     QScrollArea,
     QSizePolicy,
@@ -293,68 +291,106 @@ class PreviewDetailPanel(QScrollArea):
         """アノテーションデータを表示"""
         try:
             # タグ表示
-            tags = annotations.get("tags", [])
-            if tags:
-                tag_list = []
-                for tag in tags:
-                    tag_text = tag.get("tag", "N/A")
-                    confidence = tag.get("confidence_score")
-                    model_id = tag.get("model_id")
-
-                    if confidence is not None:
-                        tag_text += f" (信頼度: {confidence:.3f})"
-                    if model_id:
-                        tag_text += f" [モデル: {model_id}]"
-
-                    tag_list.append(tag_text)
-
-                self.tags_text.setPlainText("\n".join(tag_list))
-            else:
-                self.tags_text.setPlainText("タグなし")
+            self._display_tags(annotations.get("tags", []))
 
             # キャプション表示
-            captions = annotations.get("captions", [])
-            if captions:
-                caption_list = []
-                for caption in captions:
-                    caption_text = caption.get("caption", "N/A")
-                    model_id = caption.get("model_id")
-
-                    if model_id:
-                        caption_text += f"\n[モデル: {model_id}]"
-
-                    caption_list.append(caption_text)
-
-                self.captions_text.setPlainText("\n".join(caption_list))
-            else:
-                self.captions_text.setPlainText("キャプションなし")
+            self._display_captions(annotations.get("captions", []))
 
             # スコア・レーティング表示
-            scores = annotations.get("scores", [])
-            ratings = annotations.get("ratings", [])
-
-            score_list = []
-
-            for score in scores:
-                score_value = score.get("score", "N/A")
-                model_id = score.get("model_id", "N/A")
-                score_list.append(f"スコア: {score_value} [モデル: {model_id}]")
-
-            for rating in ratings:
-                rating_value = rating.get("rating", "N/A")
-                model_id = rating.get("model_id", "N/A")
-                score_list.append(f"レーティング: {rating_value} [モデル: {model_id}]")
-
-            if score_list:
-                self.scores_text.setPlainText("\n".join(score_list))
-            else:
-                self.scores_text.setPlainText("スコア・レーティングなし")
+            self._display_scores_and_ratings(annotations.get("scores", []), annotations.get("ratings", []))
 
         except Exception as e:
             logger.error(f"アノテーション表示エラー: {e}")
-            self.tags_text.setPlainText(f"アノテーション表示エラー: {e!s}")
-            self.captions_text.setPlainText("")
-            self.scores_text.setPlainText("")
+            self._display_error_state(e)
+
+    def _display_tags(self, tags: list[dict[str, Any]]) -> None:
+        """タグ情報を表示"""
+        if not tags:
+            self.tags_text.setPlainText("タグなし")
+            return
+
+        tag_list = []
+        for tag in tags:
+            tag_text = self._format_tag_text(tag)
+            tag_list.append(tag_text)
+
+        self.tags_text.setPlainText("\n".join(tag_list))
+
+    def _format_tag_text(self, tag: dict[str, Any]) -> str:
+        """タグテキストをフォーマット"""
+        tag_text = tag.get("tag", "N/A")
+        confidence = tag.get("confidence_score")
+        model_id = tag.get("model_id")
+
+        if confidence is not None:
+            tag_text += f" (信頼度: {confidence:.3f})"
+        if model_id:
+            tag_text += f" [モデル: {model_id}]"
+
+        return tag_text
+
+    def _display_captions(self, captions: list[dict[str, Any]]) -> None:
+        """キャプション情報を表示"""
+        if not captions:
+            self.captions_text.setPlainText("キャプションなし")
+            return
+
+        caption_list = []
+        for caption in captions:
+            caption_text = self._format_caption_text(caption)
+            caption_list.append(caption_text)
+
+        self.captions_text.setPlainText("\n".join(caption_list))
+
+    def _format_caption_text(self, caption: dict[str, Any]) -> str:
+        """キャプションテキストをフォーマット"""
+        caption_text = caption.get("caption", "N/A")
+        model_id = caption.get("model_id")
+
+        if model_id:
+            caption_text += f"\n[モデル: {model_id}]"
+
+        return caption_text
+
+    def _display_scores_and_ratings(
+        self, scores: list[dict[str, Any]], ratings: list[dict[str, Any]]
+    ) -> None:
+        """スコアとレーティング情報を表示"""
+        score_list = []
+
+        # スコア情報を追加
+        for score in scores:
+            score_text = self._format_score_text(score)
+            score_list.append(score_text)
+
+        # レーティング情報を追加
+        for rating in ratings:
+            rating_text = self._format_rating_text(rating)
+            score_list.append(rating_text)
+
+        if score_list:
+            self.scores_text.setPlainText("\n".join(score_list))
+        else:
+            self.scores_text.setPlainText("スコア・レーティングなし")
+
+    def _format_score_text(self, score: dict[str, Any]) -> str:
+        """スコアテキストをフォーマット"""
+        score_value = score.get("score", "N/A")
+        model_id = score.get("model_id", "N/A")
+        return f"スコア: {score_value} [モデル: {model_id}]"
+
+    def _format_rating_text(self, rating: dict[str, Any]) -> str:
+        """レーティングテキストをフォーマット"""
+        rating_value = rating.get("rating", "N/A")
+        model_id = rating.get("model_id", "N/A")
+        return f"レーティング: {rating_value} [モデル: {model_id}]"
+
+    def _display_error_state(self, error: Exception) -> None:
+        """エラー状態を表示"""
+        error_message = f"アノテーション表示エラー: {error!s}"
+        self.tags_text.setPlainText(error_message)
+        self.captions_text.setPlainText("")
+        self.scores_text.setPlainText("")
 
     def _update_image_display(self) -> None:
         """現在の画像を適切なサイズで表示"""
