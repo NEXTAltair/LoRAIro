@@ -22,6 +22,9 @@
      </item>
      <item>
       <widget class="QSlider" name="sliderGridSize">
+       <property name="toolTip">
+        <string>サムネイルのグリッドサイズを調整</string>
+       </property>
        <property name="minimum">
         <number>64</number>
        </property>
@@ -33,51 +36,6 @@
        </property>
        <property name="orientation">
         <enum>Qt::Orientation::Horizontal</enum>
-       </property>
-       <property name="toolTip">
-        <string>サムネイルのグリッドサイズを調整</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QLabel" name="labelGridSizeValue">
-       <property name="text">
-        <string>128px</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>40</width>
-         <height>0</height>
-        </size>
-       </property>
-       <property name="alignment">
-        <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignVCenter</set>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <spacer name="horizontalSpacerControls">
-       <property name="orientation">
-        <enum>Qt::Orientation::Horizontal</enum>
-       </property>
-       <property name="sizeHint" stdset="0">
-        <size>
-         <width>20</width>
-         <height>20</height>
-        </size>
-       </property>
-      </spacer>
-     </item>
-     <item>
-      <widget class="QCheckBox" name="checkBoxShowAnnotationStatus">
-       <property name="text">
-        <string>アノテーション状態表示</string>
-       </property>
-       <property name="checked">
-        <bool>true</bool>
-       </property>
-       <property name="toolTip">
-        <string>サムネイルにアノテーション状態オーバーレイを表示</string>
        </property>
       </widget>
      </item>
@@ -93,8 +51,8 @@
        <rect>
         <x>0</x>
         <y>0</y>
-        <width>376</width>
-        <height>276</height>
+        <width>380</width>
+        <height>254</height>
        </rect>
       </property>
       <property name="minimumSize">

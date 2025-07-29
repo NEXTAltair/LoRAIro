@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>300</width>
-    <height>500</height>
+    <width>341</width>
+    <height>1102</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -29,98 +29,6 @@
    <property name="bottomMargin">
     <number>9</number>
    </property>
-   <item>
-    <widget class="QGroupBox" name="groupBoxProviderSelection">
-     <property name="title">
-      <string>プロバイダー選択</string>
-     </property>
-     <layout class="QGridLayout" name="gridLayoutProviders">
-      <property name="spacing">
-       <number>3</number>
-      </property>
-      <item row="0" column="0">
-       <widget class="QCheckBox" name="checkBoxOpenAI">
-        <property name="text">
-         <string>OpenAI</string>
-        </property>
-       </widget>
-      </item>
-      <item row="0" column="1">
-       <widget class="QLabel" name="labelOpenAIStatus">
-        <property name="text">
-         <string>●</string>
-        </property>
-        <property name="styleSheet">
-         <string>color: gray;</string>
-        </property>
-        <property name="alignment">
-         <set>Qt::AlignmentFlag::AlignCenter</set>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="0">
-       <widget class="QCheckBox" name="checkBoxClaude">
-        <property name="text">
-         <string>Anthropic (Claude)</string>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="1">
-       <widget class="QLabel" name="labelClaudeStatus">
-        <property name="text">
-         <string>●</string>
-        </property>
-        <property name="styleSheet">
-         <string>color: gray;</string>
-        </property>
-        <property name="alignment">
-         <set>Qt::AlignmentFlag::AlignCenter</set>
-        </property>
-       </widget>
-      </item>
-      <item row="2" column="0">
-       <widget class="QCheckBox" name="checkBoxGoogle">
-        <property name="text">
-         <string>Google (Gemini)</string>
-        </property>
-       </widget>
-      </item>
-      <item row="2" column="1">
-       <widget class="QLabel" name="labelGoogleStatus">
-        <property name="text">
-         <string>●</string>
-        </property>
-        <property name="styleSheet">
-         <string>color: gray;</string>
-        </property>
-        <property name="alignment">
-         <set>Qt::AlignmentFlag::AlignCenter</set>
-        </property>
-       </widget>
-      </item>
-      <item row="3" column="0">
-       <widget class="QCheckBox" name="checkBoxLocal">
-        <property name="text">
-         <string>Local Models</string>
-        </property>
-       </widget>
-      </item>
-      <item row="3" column="1">
-       <widget class="QLabel" name="labelLocalStatus">
-        <property name="text">
-         <string>●</string>
-        </property>
-        <property name="styleSheet">
-         <string>color: gray;</string>
-        </property>
-        <property name="alignment">
-         <set>Qt::AlignmentFlag::AlignCenter</set>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
    <item>
     <widget class="QGroupBox" name="groupBoxFunctionType">
      <property name="title">
@@ -164,85 +72,133 @@
     </widget>
    </item>
    <item>
+    <widget class="QGroupBox" name="groupBoxProviderSelection">
+     <property name="title">
+      <string>実行環境選択</string>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayoutProviders">
+      <property name="spacing">
+       <number>6</number>
+      </property>
+      <item>
+       <widget class="QCheckBox" name="checkBoxWebAPI">
+        <property name="text">
+         <string>Web API</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBoxLocal">
+        <property name="text">
+         <string>ローカルモデル</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacerProviders">
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
     <widget class="QGroupBox" name="groupBoxModelSelection">
      <property name="title">
       <string>モデル選択</string>
      </property>
      <layout class="QVBoxLayout" name="verticalLayoutModels">
       <item>
-       <widget class="QScrollArea" name="scrollAreaModels">
-        <property name="widgetResizable">
+       <widget class="QTableWidget" name="tableWidgetModels">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+          <horstretch>0</horstretch>
+          <verstretch>1</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>16777203</width>
+          <height>16777215</height>
+         </size>
+        </property>
+        <property name="alternatingRowColors">
          <bool>true</bool>
         </property>
-        <widget class="QWidget" name="scrollAreaWidgetContents">
-         <property name="geometry">
-          <rect>
-           <x>0</x>
-           <y>0</y>
-           <width>268</width>
-           <height>69</height>
-          </rect>
+        <property name="selectionBehavior">
+         <enum>QAbstractItemView::SelectionBehavior::SelectRows</enum>
+        </property>
+        <property name="horizontalScrollMode">
+         <enum>QAbstractItemView::ScrollMode::ScrollPerItem</enum>
+        </property>
+        <property name="gridStyle">
+         <enum>Qt::PenStyle::SolidLine</enum>
+        </property>
+        <property name="sortingEnabled">
+         <bool>true</bool>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+        <property name="columnCount">
+         <number>3</number>
+        </property>
+        <attribute name="horizontalHeaderVisible">
+         <bool>true</bool>
+        </attribute>
+        <attribute name="horizontalHeaderCascadingSectionResizes">
+         <bool>false</bool>
+        </attribute>
+        <attribute name="horizontalHeaderHighlightSections">
+         <bool>false</bool>
+        </attribute>
+        <attribute name="horizontalHeaderShowSortIndicator" stdset="0">
+         <bool>true</bool>
+        </attribute>
+        <attribute name="horizontalHeaderStretchLastSection">
+         <bool>false</bool>
+        </attribute>
+        <attribute name="verticalHeaderVisible">
+         <bool>false</bool>
+        </attribute>
+        <attribute name="verticalHeaderCascadingSectionResizes">
+         <bool>false</bool>
+        </attribute>
+        <attribute name="verticalHeaderDefaultSectionSize">
+         <number>30</number>
+        </attribute>
+        <attribute name="verticalHeaderStretchLastSection">
+         <bool>false</bool>
+        </attribute>
+        <column>
+         <property name="text">
+          <string>選択</string>
          </property>
-         <layout class="QVBoxLayout" name="verticalLayoutModelList">
-          <item>
-           <widget class="QLabel" name="labelNoModelsAvailable">
-            <property name="text">
-             <string>利用可能なモデルがありません</string>
-            </property>
-            <property name="alignment">
-             <set>Qt::AlignmentFlag::AlignCenter</set>
-            </property>
-           </widget>
-          </item>
-         </layout>
-        </widget>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
-    <widget class="QGroupBox" name="groupBoxPrompts">
-     <property name="title">
-      <string>プロンプト設定</string>
-     </property>
-     <layout class="QVBoxLayout" name="verticalLayoutPrompts">
-      <item>
-       <widget class="QTextEdit" name="textEditMainPrompt">
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-          <horstretch>0</horstretch>
-          <verstretch>1</verstretch>
-         </sizepolicy>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>16777215</width>
-          <height>60</height>
-         </size>
-        </property>
-        <property name="placeholderText">
-         <string>メインプロンプト (例: 高画質, 具体的な描写など)</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QTextEdit" name="textEditAdditionalPrompt">
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-          <horstretch>0</horstretch>
-          <verstretch>1</verstretch>
-         </sizepolicy>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>16777215</width>
-          <height>40</height>
-         </size>
-        </property>
-        <property name="placeholderText">
-         <string>追加プロンプト</string>
-        </property>
+        </column>
+        <column>
+         <property name="text">
+          <string>モデル名</string>
+         </property>
+        </column>
+        <column>
+         <property name="text">
+          <string>サイズ</string>
+         </property>
+        </column>
        </widget>
       </item>
      </layout>
@@ -257,7 +213,7 @@
       <item>
        <widget class="QCheckBox" name="checkBoxLowResolution">
         <property name="text">
-         <string>API負荷軽減用低解像度画像を使用</string>
+         <string>API負荷軽減用512x512ベースの画像を使用</string>
         </property>
        </widget>
       </item>
@@ -272,76 +228,14 @@
     </widget>
    </item>
    <item>
-    <widget class="QGroupBox" name="groupBoxProgress">
-     <property name="title">
-      <string>進捗状況</string>
-     </property>
-     <layout class="QVBoxLayout" name="verticalLayoutProgress">
-      <item>
-       <widget class="QProgressBar" name="progressBarAnnotation">
-        <property name="value">
-         <number>0</number>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QLabel" name="labelProgressStatus">
-        <property name="text">
-         <string>待機中</string>
-        </property>
-        <property name="alignment">
-         <set>Qt::AlignmentFlag::AlignCenter</set>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
     <layout class="QHBoxLayout" name="horizontalLayoutControls">
      <item>
-      <widget class="QPushButton" name="pushButtonRefreshModels">
-       <property name="text">
-        <string>モデル更新</string>
-       </property>
-       <property name="toolTip">
-        <string>利用可能なモデル一覧を更新</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <spacer name="horizontalSpacerControls">
-       <property name="orientation">
-        <enum>Qt::Orientation::Horizontal</enum>
-       </property>
-       <property name="sizeHint" stdset="0">
-        <size>
-         <width>40</width>
-         <height>20</height>
-        </size>
-       </property>
-      </spacer>
-     </item>
-     <item>
-      <widget class="QPushButton" name="pushButtonStop">
-       <property name="text">
-        <string>停止</string>
-       </property>
-       <property name="enabled">
-        <bool>false</bool>
-       </property>
-       <property name="toolTip">
-        <string>アノテーション処理を停止</string>
-       </property>
-      </widget>
-     </item>
-     <item>
       <widget class="QPushButton" name="pushButtonStart">
-       <property name="text">
-        <string>実行</string>
-       </property>
        <property name="toolTip">
         <string>選択したモデルでアノテーション実行</string>
+       </property>
+       <property name="text">
+        <string>実行</string>
        </property>
       </widget>
      </item>
