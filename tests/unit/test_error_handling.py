@@ -93,9 +93,9 @@ class TestAnnotatorLibAdapterErrorHandling:
         test_images = [Image.new("RGB", (100, 100), "red")]
 
         # ProviderManagerがエラーを投げる場合のテスト
-        with patch.object(adapter.provider_manager, 'run_inference_with_model') as mock_inference:
+        with patch.object(adapter.provider_manager, "run_inference_with_model") as mock_inference:
             mock_inference.side_effect = RuntimeError("Annotation processing failed")
-            
+
             # エラーハンドリング動作確認
             results = adapter.call_annotate(images=test_images, models=["gpt-4o"])
             assert isinstance(results, dict)
