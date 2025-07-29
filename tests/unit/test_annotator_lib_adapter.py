@@ -212,7 +212,7 @@ class TestAnnotatorLibAdapter:
             assert "provider" in model
             assert "model_type" in model
             assert "requires_api_key" in model
-            
+
         # 特定のモデルが含まれることを確認
         model_names = [m["name"] for m in models]
         assert "gpt-4o" in model_names
@@ -246,11 +246,11 @@ class TestAnnotatorLibAdapter:
 
         assert isinstance(results, dict)
         assert len(results) > 0
-        
+
         # MockProviderManagerの実際のレスポンス構造確認
         first_phash = next(iter(results.keys()))
         assert "gpt-4o" in results[first_phash]
-        
+
         model_result = results[first_phash]["gpt-4o"]
         assert "tags" in model_result
         assert "formatted_output" in model_result
@@ -264,15 +264,15 @@ class TestAnnotatorLibAdapter:
         external_api_keys = {"openai": "external_key"}
 
         # MockProviderManagerでの処理確認
-        with patch.object(real_adapter.provider_manager, 'run_inference_with_model') as mock_inference:
+        with patch.object(real_adapter.provider_manager, "run_inference_with_model") as mock_inference:
             mock_inference.return_value = {
                 "mock_phash_0": {
                     "tags": ["test_tag"],
                     "formatted_output": {"captions": ["Test caption"]},
-                    "error": None
+                    "error": None,
                 }
             }
-            
+
             results = real_adapter.call_annotate(
                 images=test_images, models=test_models, api_keys=external_api_keys
             )
@@ -282,9 +282,9 @@ class TestAnnotatorLibAdapter:
                 model_name="gpt-4o",
                 images_list=test_images,
                 api_model_id="gpt-4o",
-                api_keys=external_api_keys
+                api_keys=external_api_keys,
             )
-            
+
             assert isinstance(results, dict)
             assert len(results) > 0
 
@@ -294,9 +294,9 @@ class TestAnnotatorLibAdapter:
         test_models = ["gpt-4o"]
 
         # ProviderManagerがエラーを投げる場合のテスト
-        with patch.object(real_adapter.provider_manager, 'run_inference_with_model') as mock_inference:
+        with patch.object(real_adapter.provider_manager, "run_inference_with_model") as mock_inference:
             mock_inference.side_effect = Exception("Provider error")
-            
+
             results = real_adapter.call_annotate(images=test_images, models=test_models)
 
             # エラーでも空の結果が返される（continue処理）
@@ -318,13 +318,13 @@ class TestAnnotatorLibAdapter:
                     "mock_phash_0": {
                         "tags": ["claude_tag"],
                         "formatted_output": {"captions": ["Claude caption"]},
-                        "error": None
+                        "error": None,
                     }
                 }
 
-        with patch.object(real_adapter.provider_manager, 'run_inference_with_model') as mock_inference:
+        with patch.object(real_adapter.provider_manager, "run_inference_with_model") as mock_inference:
             mock_inference.side_effect = mock_inference_side_effect
-            
+
             results = real_adapter.call_annotate(images=test_images, models=test_models)
 
             # 成功したモデルの結果のみが含まれる
@@ -392,15 +392,15 @@ class TestAnnotatorLibAdapterIntegration:
         # 実際のimage-annotator-libとの統合テスト
         # 現在のPhase 4実装では常にMockProviderManagerを使用
         # 実ライブラリ統合は将来の改修で実装予定
-        
+
         # プレースホルダーとして基本的な動作確認
         mock_config = Mock()
         adapter = AnnotatorLibAdapter(mock_config)
-        
+
         # MockProviderManagerが正しく設定されていることを確認
         assert adapter.provider_manager is not None
-        assert hasattr(adapter.provider_manager, 'run_inference_with_model')
-        
+        assert hasattr(adapter.provider_manager, "run_inference_with_model")
+
         # 基本的なメタデータ取得が動作することを確認
         models = adapter.get_available_models_with_metadata()
         assert isinstance(models, list)

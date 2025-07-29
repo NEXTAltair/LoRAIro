@@ -262,12 +262,13 @@ class TestEnhancedAnnotationServiceIntegration:
 
             # アノテーション結果モック - 新バリデーションスキーマ使用
             from image_annotator_lib.core.types import WebApiAnnotationResult
+
             mock_annotation_results = {
-                "phash_1": {"gpt-4o": WebApiAnnotationResult(
-                    captions=["Test caption"],
-                    model_name="gpt-4o",
-                    provider_name="openai"
-                )}
+                "phash_1": {
+                    "gpt-4o": WebApiAnnotationResult(
+                        captions=["Test caption"], model_name="gpt-4o", provider_name="openai"
+                    )
+                }
             }
             mock_adapter.call_annotate.return_value = mock_annotation_results
 
@@ -421,17 +422,18 @@ class TestBatchProcessorIntegration:
 
             # アノテーション結果モック - 新バリデーションスキーマ使用
             from image_annotator_lib.core.types import WebApiAnnotationResult
+
             mock_annotation_results = {
-                "phash_1": {"gpt-4o": WebApiAnnotationResult(
-                    captions=["Red image"],
-                    model_name="gpt-4o",
-                    provider_name="openai"
-                )},
-                "phash_2": {"gpt-4o": WebApiAnnotationResult(
-                    captions=["Blue image"],
-                    model_name="gpt-4o",
-                    provider_name="openai"
-                )},
+                "phash_1": {
+                    "gpt-4o": WebApiAnnotationResult(
+                        captions=["Red image"], model_name="gpt-4o", provider_name="openai"
+                    )
+                },
+                "phash_2": {
+                    "gpt-4o": WebApiAnnotationResult(
+                        captions=["Blue image"], model_name="gpt-4o", provider_name="openai"
+                    )
+                },
             }
             mock_adapter.call_annotate.return_value = mock_annotation_results
 
@@ -502,17 +504,18 @@ class TestBatchProcessorIntegration:
             batch_processor = container.batch_processor
 
             # バッチ結果作成
-            from lorairo.services.annotation_batch_processor import BatchAnnotationResult
-
             # バッチ結果作成 - 新バリデーションスキーマ使用
             from image_annotator_lib.core.types import WebApiAnnotationResult
+
+            from lorairo.services.annotation_batch_processor import BatchAnnotationResult
+
             test_results = {
                 "phash_1": {
                     "gpt-4o": WebApiAnnotationResult(
                         captions=["A red car"],
                         tags=["car", "red", "vehicle"],
                         model_name="gpt-4o",
-                        provider_name="openai"
+                        provider_name="openai",
                     )
                 }
             }
@@ -595,12 +598,13 @@ class TestEndToEndServiceIntegration:
 
             # アノテーション結果 - 新バリデーションスキーマ使用
             from image_annotator_lib.core.types import WebApiAnnotationResult
+
             mock_annotation_results = {
-                "phash_1": {"gpt-4o": WebApiAnnotationResult(
-                    captions=["E2E test"],
-                    model_name="gpt-4o",
-                    provider_name="openai"
-                )}
+                "phash_1": {
+                    "gpt-4o": WebApiAnnotationResult(
+                        captions=["E2E test"], model_name="gpt-4o", provider_name="openai"
+                    )
+                }
             }
             mock_adapter.call_annotate.return_value = mock_annotation_results
 

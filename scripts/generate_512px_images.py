@@ -9,19 +9,14 @@
 """
 
 import sys
-from pathlib import Path
 
-# プロジェクトルートをPythonパスに追加
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
-from src.lorairo.database.db_core import DefaultSessionLocal, resolve_stored_path
-from src.lorairo.database.db_manager import ImageDatabaseManager
-from src.lorairo.database.db_repository import ImageRepository
-from src.lorairo.services.configuration_service import ConfigurationService
-from src.lorairo.services.image_processing_service import ImageProcessingService
-from src.lorairo.storage.file_system import FileSystemManager
-from src.lorairo.utils.log import logger
+from lorairo.database.db_core import DefaultSessionLocal, resolve_stored_path
+from lorairo.database.db_manager import ImageDatabaseManager
+from lorairo.database.db_repository import ImageRepository
+from lorairo.services.configuration_service import ConfigurationService
+from lorairo.services.image_processing_service import ImageProcessingService
+from lorairo.storage.file_system import FileSystemManager
+from lorairo.utils.log import logger
 
 
 def _delete_image_record(image_id: int, idm: ImageDatabaseManager) -> None:

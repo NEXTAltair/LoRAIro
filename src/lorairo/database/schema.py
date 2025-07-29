@@ -45,7 +45,7 @@ model_function_associations = Table(
 
 
 class ModelType(Base):
-    """モデルの機能タイプ ('vision', 'score', 'upscaler' など)"""
+    """モデルの機能タイプ ('caption', 'tag', 'score', 'multimodal', 'upscaler' など)"""
 
     __tablename__ = "model_types"
 
