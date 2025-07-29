@@ -78,9 +78,9 @@ install:
 install-dev:
 	@echo ">>> Installing development dependencies and setting up editable install..."
 	# 依存関係をインストール
-	uv sync --dev
+	UV_PROJECT_ENVIRONMENT=.venv_linux uv sync --dev
 	# 編集可能モードでプロジェクトをインストール
-	uv pip install -e . --no-deps
+	UV_PROJECT_ENVIRONMENT=.venv_linux uv pip install -e . --no-deps
 	@echo ">>> Setup complete!"
 
 run-gui:
