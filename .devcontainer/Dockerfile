@@ -129,7 +129,6 @@ RUN mkdir -p ~/.npm-global && \
 # Setup zsh with oh-my-zsh for better development experience
 RUN sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \
     && echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.zshrc \
-    && echo 'export UV_PROJECT_ENVIRONMENT=.venv_linux' >> ~/.zshrc \
 
     # Set bash history persistence
     RUN echo 'export HISTFILE=/home/vscode/.bash_history' >> ~/.bashrc \

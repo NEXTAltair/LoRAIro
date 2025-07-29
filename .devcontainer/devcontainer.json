@@ -51,10 +51,6 @@
                     "--strict-markers",
                     "--disable-warnings"
                 ],
-                "python.analysis.extraPaths": [
-                    "/workspaces/LoRAIro/local_packages/image-annotator-lib/src",
-                    "/workspaces/LoRAIro/local_packages/genai-tag-db-tools/src"
-                ],
                 "python.analysis.autoImportCompletions": true,
                 "python.analysis.typeCheckingMode": "strict",
                 "python.linting.enabled": true,
@@ -92,7 +88,6 @@
     "remoteUser": "vscode",
     "remoteEnv": {
         "UV_PROJECT_ENVIRONMENT": ".venv_linux",
-        "PYTHONPATH": "/workspaces/LoRAIro/src:/workspaces/LoRAIro/local_packages/image-annotator-lib/src:/workspaces/LoRAIro/local_packages/genai-tag-db-tools/src",
         "QT_QPA_PLATFORM": "offscreen",
         "DISPLAY": ":99"
     },
