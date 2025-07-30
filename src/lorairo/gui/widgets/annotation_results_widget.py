@@ -18,8 +18,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...giu.designer.AnnotationResultsWidget_ui import Ui_AnnotationResultsWidget
 from ...utils.log import logger
+from ..designer.AnnotationResultsWidget_ui import Ui_AnnotationResultsWidget
 
 
 @dataclass

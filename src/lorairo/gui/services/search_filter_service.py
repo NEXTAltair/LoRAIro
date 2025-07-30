@@ -90,11 +90,19 @@ class SearchFilterService:
         custom_width_int = None
         custom_height_int = None
         if resolution_filter == "カスタム...":
+            # 幅の処理
             try:
                 custom_width_int = int(custom_width) if custom_width.strip() else None
+            except ValueError:
+                logger.warning(f"Invalid custom width: {custom_width}")
+                custom_width_int = None
+
+            # 高さの処理
+            try:
                 custom_height_int = int(custom_height) if custom_height.strip() else None
             except ValueError:
-                logger.warning(f"Invalid custom resolution: {custom_width}x{custom_height}")
+                logger.warning(f"Invalid custom height: {custom_height}")
+                custom_height_int = None
 
         conditions = SearchConditions(
             search_type=search_type,
