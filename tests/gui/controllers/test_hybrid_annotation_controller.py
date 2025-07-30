@@ -19,14 +19,14 @@ class TestHybridAnnotationController:
     """HybridAnnotationController統合テスト"""
 
     @pytest.fixture
-    def mock_db_repository(self):
+    def mock_db_repository(self) -> None:
         """モックDBリポジトリ"""
         mock = Mock(spec=ImageRepository)
         mock._get_model_id = Mock(return_value=None)
         return mock
 
     @pytest.fixture
-    def mock_config_service(self):
+    def mock_config_service(self) -> None:
         """モック設定サービス"""
         mock = Mock(spec=ConfigurationService)
         mock.get_config = Mock(
