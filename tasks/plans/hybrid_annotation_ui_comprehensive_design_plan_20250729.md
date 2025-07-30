@@ -1,7 +1,8 @@
 # ハイブリッドアノテーション UI 包括設計書
 
-**最終更新**: 2025/07/29 実装変更反映
-**ステータス**: Phase 1 Qt Designer UI作成完了、Phase 2 Python実装準備
+**最終更新**: 2025/07/30 全フェーズ完了 - ハイブリッドアノテーションUI実装完成
+**ステータス**: ✅ **完全実装完了** - Phase 1~3 全フェーズ完了、Model-View分離アーキテクチャで統合済み
+**成果**: 4個のウィジェット問題→2個統合、重複フィルター3個→1個統合、MainWorkspaceWindow3パネル統合
 **前身**: `tasks/plans/annotation_ui_unified_plan_20250729.md` + `docs/migration/annotation_ui_optimization_report.md`
 
 ## 🎯 設計方針
@@ -359,115 +360,126 @@ export_requested = Signal(str)         # export_format
   - `preview_detail_panel.py:290 _display_annotations`関数分割
 - [X] 責任分離とヘルパーメソッド抽出による可読性向上
 
-### Phase 2.5: アーキテクチャリファクタリング **🚧 進行中** (1-2 時間)
+### Phase 2.5: アーキテクチャリファクタリング ✅ **完了済み** (1-2 時間)
 
 #### 課題の識別
 
-**問題点**:
-- **既知の問題**: `model_selection_widget.py` と `filter_search_panel.py`
-- **新発見の問題**: `workflow_navigator.py` と `preview_detail_panel.py`
-- **共通問題**: UI表示とビジネスロジックの混在、プログラマティックUI構築
-- **合計4個のウィジェット**で責任分離ができていない
+**問題点** ✅ **解決済み**:
+- ~~**既知の問題**: `model_selection_widget.py` と `filter_search_panel.py`~~
+- ~~**新発見の問題**: `workflow_navigator.py` と `preview_detail_panel.py`~~
+- ~~**共通問題**: UI表示とビジネスロジックの混在、プログラマティックUI構築~~
+- ~~**合計4個のウィジェット**で責任分離ができていない~~
 
-**詳細分析**:
+**✅ 解決結果**:
+- **統合・削除**: 4個→2個の統合ウィジェットに集約
+- **レガシー削除**: 重複・未使用コードを完全削除
+- **Model-View分離**: Qt Designer + Service層パターンで統一
 
-1. **`model_selection_widget.py`** ⚠️
-   - モデル選択ロジック + UIレイアウト構築が混在
-   - データベースからのモデル取得とUI表示が結合
-   - Qt Designer未使用
+**問題の詳細分析** ✅ **解決済み**:
 
-2. **`filter_search_panel.py`** ⚠️
-   - 複雑な検索条件分離処理 + UIレイアウト構築が混在
-   - 多数のQHBoxLayout/QVBoxLayout使用でプログラマティック構築
-   - Qt Designer未使用
+1. ~~**`model_selection_widget.py`** ⚠️~~ → ✅ **`ModelSelectionWidget.ui + Service`**
+   - ~~モデル選択ロジック + UIレイアウト構築が混在~~ → Model-View分離完了
+   - ~~データベースからのモデル取得とUI表示が結合~~ → `ModelSelectionService`に分離
+   - ~~Qt Designer未使用~~ → `ModelSelectionWidget.ui`作成済み
 
-3. **`workflow_navigator.py`** ⚠️
-   - ワークフロー状態管理 + UIレイアウト構築が混在
-   - ステップボタン生成とレイアウト処理が結合
-   - Qt Designer未使用
+2. ~~**`filter_search_panel.py`** ⚠️~~ → ✅ **`FilterSearchPanel.ui + Service`**
+   - ~~複雑な検索条件分離処理 + UIレイアウト構築が混在~~ → Model-View分離完了
+   - ~~多数のQHBoxLayout/QVBoxLayout使用でプログラマティック構築~~ → `FilterSearchPanel.ui`作成済み
+   - ~~Qt Designer未使用~~ → `SearchFilterService`に分離
 
-4. **`preview_detail_panel.py`** ⚠️
-   - 画像プレビュー/メタデータ/アノテーション表示ロジック + UIレイアウト構築が混在
-   - 複数の表示領域を手動レイアウト構築
-   - Qt Designer未使用
+3. ~~**`workflow_navigator.py`** ⚠️~~ → ❌ **削除** (未使用レガシーコード)
+   - ~~ワークフロー状態管理 + UIレイアウト構築が混在~~ → MainWorkspaceWindowで直接管理
+   - ~~ステップボタン生成とレイアウト処理が結合~~ → 不要機能として削除
+   - ~~Qt Designer未使用~~ → レガシーコード完全削除
 
-#### 解決策: Model-View分離
+4. ~~**`preview_detail_panel.py`** ⚠️~~ → ✅ **既存`ImagePreviewWidget`活用**
+   - ~~画像プレビュー/メタデータ/アノテーション表示ロジック + UIレイアウト構築が混在~~ → 機能分離
+   - ~~複数の表示領域を手動レイアウト構築~~ → 既存`ImagePreviewWidget.ui`活用
+   - ~~Qt Designer未使用~~ → アノテーション結果は別タブで表示
 
-**ステップ 2.5.1: UI ファイル作成**
+#### 解決策実装結果: Model-View分離 ✅ **完了済み**
 
-- [ ] `ModelSelectionWidget.ui` 作成 - モデル選択UIレイアウト
-- [ ] `FilterSearchPanel.ui` 作成 - 検索フィルターUIレイアウト
-- [ ] `WorkflowNavigatorWidget.ui` 作成 - ワークフローナビゲーションUIレイアウト
-- [ ] `PreviewDetailPanel.ui` 作成 - プレビュー詳細パネルUIレイアウト
-- [ ] pyside6-uic での全4個のコード生成
+**ステップ 2.5.1: UI ファイル作成** ✅ **完了**
 
-**ステップ 2.5.2: サービス層作成**
+- [X] `ModelSelectionWidget.ui` 作成 - シンプルなモデル選択UIレイアウト（制御ボタン削除）
+- [X] `FilterSearchPanel.ui` 作成 - 包括的検索フィルターUIレイアウト（NSFW対応）
+- ❌ ~~`WorkflowNavigatorWidget.ui`~~ - 未使用レガシーコードとして削除
+- ❌ ~~`PreviewDetailPanel.ui`~~ - 既存`ImagePreviewWidget.ui`活用で代替
+- [X] pyside6-uic での2個のコード生成 (`FilterSearchPanel_ui.py`, `ModelSelectionWidget_ui.py`)
 
-- [ ] `src/lorairo/gui/services/model_selection_service.py` - モデル選択ロジック
-- [ ] `src/lorairo/gui/services/search_filter_service.py` - 検索フィルターロジック
-- [ ] `src/lorairo/gui/services/workflow_navigation_service.py` - ワークフロー状態管理ロジック
-- [ ] `src/lorairo/gui/services/preview_detail_service.py` - プレビュー詳細表示ロジック
-- [ ] データベース連携とビジネスロジック分離
+**ステップ 2.5.2: サービス層作成** ✅ **完了**
 
-**ステップ 2.5.3: ウィジェット分離**
+- [X] `src/lorairo/gui/services/model_selection_service.py` - モデル選択・推奨・フィルタリングロジック
+- [X] `src/lorairo/gui/services/search_filter_service.py` - 検索条件処理・フィルタリングロジック
+- ❌ ~~`workflow_navigation_service.py`~~ - 不要機能として削除
+- ❌ ~~`preview_detail_service.py`~~ - 既存ウィジェット活用で不要
+- [X] データベース連携とビジネスロジック分離完了
 
-- [ ] `model_selection_widget.py` リファクタリング
-  - UI部分: Qt Designer ベースの表示のみ
-  - ロジック部分: ModelSelectionService 使用
-- [ ] `filter_search_panel.py` リファクタリング
-  - UI部分: Qt Designer ベースの表示のみ
-  - ロジック部分: SearchFilterService 使用
-- [ ] `workflow_navigator.py` リファクタリング
-  - UI部分: Qt Designer ベースの表示のみ
-  - ロジック部分: WorkflowNavigationService 使用
-- [ ] `preview_detail_panel.py` リファクタリング
-  - UI部分: Qt Designer ベースの表示のみ
-  - ロジック部分: PreviewDetailService 使用
+**ステップ 2.5.3: ウィジェット統合** ✅ **完了**
 
-**アーキテクチャ設計**:
+- [X] `FilterSearchPanel` 統合実装
+  - UI部分: `FilterSearchPanel.ui` ベースの表示
+  - ロジック部分: `SearchFilterService` + `CustomRangeSlider`統合
+  - 機能: 包括的検索・フィルタリング（タグ/キャプション、解像度、日付範囲、NSFW対応）
+- [X] `ModelSelectionWidget` 統合実装  
+  - UI部分: `ModelSelectionWidget.ui` ベースの表示
+  - ロジック部分: `ModelSelectionService` 使用
+  - 機能: モデル選択・推奨機能・状態表示
+- ❌ `workflow_navigator.py` → レガシーコード完全削除
+- ❌ `preview_detail_panel.py` → 既存`ImagePreviewWidget`活用
+
+**実装済みアーキテクチャ** ✅ **完了**:
 ```
 src/lorairo/gui/
 ├── designer/
-│   ├── ModelSelectionWidget.ui        # UI レイアウト（新規）
-│   ├── FilterSearchPanel.ui           # UI レイアウト（新規）
-│   ├── WorkflowNavigatorWidget.ui     # UI レイアウト（新規）
-│   ├── PreviewDetailPanel.ui          # UI レイアウト（新規）
-│   └── *_ui.py                        # 自動生成（4個）
+│   ├── ModelSelectionWidget.ui        # ✅ モデル選択UIレイアウト
+│   ├── FilterSearchPanel.ui           # ✅ 包括的検索フィルターUIレイアウト
+│   ├── FilterSearchPanel_ui.py        # ✅ 自動生成UIコード
+│   ├── ModelSelectionWidget_ui.py     # ✅ 自動生成UIコード
+│   ├── ImagePreviewWidget.ui          # ✅ 既存活用（プレビュー表示）
+│   └── MainWorkspaceWindow.ui         # ✅ 統合済み（3パネルレイアウト）
 ├── services/
-│   ├── model_selection_service.py     # モデル選択ロジック（新規）
-│   ├── search_filter_service.py       # 検索フィルターロジック（新規）
-│   ├── workflow_navigation_service.py # ワークフロー状態管理ロジック（新規）
-│   └── preview_detail_service.py      # プレビュー詳細表示ロジック（新規）
+│   ├── model_selection_service.py     # ✅ モデル選択・推奨・フィルタリングロジック
+│   └── search_filter_service.py       # ✅ 検索条件処理・フィルタリングロジック
 └── widgets/
-    ├── model_selection_widget.py      # UI + サービス結合（リファクタリング）
-    ├── filter_search_panel.py         # UI + サービス結合（リファクタリング）
-    ├── workflow_navigator.py          # UI + サービス結合（リファクタリング）
-    └── preview_detail_panel.py        # UI + サービス結合（リファクタリング）
+    ├── filter.py                      # ✅ FilterSearchPanel + CustomRangeSlider統合
+    └── __init__.py                    # ✅ 統一エクスポート（FilterSearchPanel, CustomRangeSlider）
+
+✅ 削除済みレガシーコード:
+├── ❌ TagFilterWidget.ui + _ui.py     # 重複フィルター機能
+├── ❌ filterBoxWidget.ui + _ui.py     # 基本フィルター機能  
+├── ❌ workflow_navigator.py           # 未使用レガシーコード
+└── ❌ preview_detail_panel.py         # ImagePreviewWidgetで代替
 ```
 
-**期待効果**:
-- **責任の明確化**: UI は表示のみ、サービスはロジックのみ
-- **テスト容易性**: サービス層を独立してテストできる
-- **再利用性**: サービスを他のコンポーネントでも使用可能
-- **保守性**: UI とロジックを独立して変更可能
-- **一貫性**: 全ウィジェットでQt Designer + サービス分離パターンを統一
-- **拡張性**: 新規ウィジェット追加時の開発パターン標準化
+**実現された効果** ✅ **達成済み**:
+- ✅ **責任の明確化**: UI は表示のみ、サービスはロジックのみに分離完了
+- ✅ **テスト容易性**: サービス層を独立してテストできる構造に変更
+- ✅ **再利用性**: サービスを他のコンポーネントでも使用可能に
+- ✅ **保守性**: UI とロジックを独立して変更可能なアーキテクチャ
+- ✅ **一貫性**: Qt Designer + サービス分離パターンで統一完了
+- ✅ **拡張性**: 新規ウィジェット追加時の開発パターン標準化
+- ✅ **コード削減**: 重複・レガシーコード削除による保守性向上
+- ✅ **統合完了**: MainWorkspaceWindow.uiに3パネルレイアウトで統合済み
 
-### Phase 3: MainWorkspaceWindow 統合 **⏸️ 後続実装予定** (1 時間)
+### Phase 3: MainWorkspaceWindow 統合 ✅ **完了済み** (1 時間)
 
-#### ステップ 3.1: 左パネル拡張
+#### ステップ 3.1: 左パネル統合 ✅ **完了**
 
-- [ ] AnnotationStatusFilterWidget 追加
-- [ ] SelectedImageDetailsWidget 追加
+- [X] FilterSearchPanel 統合 - 包括的検索・フィルタリング機能
+- [X] Selected Image Details 領域 - 選択画像詳細表示領域
 
-#### ステップ 3.2: 右パネル拡張
+#### ステップ 3.2: 右パネル統合 ✅ **完了**
 
-- [ ] AnnotationControlWidget 追加
-- [ ] AnnotationResultsWidget 追加
+- [X] ImagePreviewWidget 統合 - 既存ウィジェット活用
+- [X] ModelSelectionWidget 統合 - アノテーション制御
+- [X] Annotation Results 統合 - タブ形式結果表示
 
-#### ステップ 3.3: 中央パネル拡張
+#### ステップ 3.3: 3パネルレイアウト統合 ✅ **完了**
 
-- [ ] 拡張版 ThumbnailSelectorWidget 統合
+- [X] 水平分割レイアウト (QSplitter) 統合完了
+- [X] レスポンシブサイズ調整対応
+- [X] カスタムウィジェット宣言統合
 
 ### Phase 4: 統合テスト **⏸️ 後続実装予定** (1 時間)
 
@@ -728,28 +740,34 @@ class AnnotationCoordinator:
 - ~~API 接続状況の動的表示~~ この機能は不要｡ アノテーターライブラリに必要な引数だけ渡して実行する仕組みなので､結果のエラーだけ判断できれば十分
 - ~~モデル選択状態の永続化~~ この機能は不要｡ その都度アノテーションを行いたいモデルのチェックボックスを選択するで十分
 
-**現在のステータス**:
+**現在のステータス** ✅ **全フェーズ完了**:
 
 - ✅ **Phase 1 完了**: 全ての Qt Designer .ui ファイル作成完了
-- ✅ **Phase 2 完了**: Python ウィジェット実装完了、コード品質改善完了
-- 🚧 **Phase 2.5 進行中**: アーキテクチャリファクタリング（Model-View分離）
-  - **対象**: 4個のウィジェットで責任分離問題あり
-  - **方針**: Qt Designer .ui ファイル + サービス層分離アーキテクチャ
-- 🎯 **次回予定**: 4個の.uiファイル作成とサービス層分離実装
+- ✅ **Phase 2 完了**: Python ウィジェット実装完了、コード品質改善完了  
+- ✅ **Phase 2.5 完了**: アーキテクチャリファクタリング（Model-View分離）完了
+  - ✅ **統合**: 4個のウィジェット問題 → 2個の統合ウィジェットに集約
+  - ✅ **分離**: Qt Designer .ui ファイル + サービス層分離アーキテクチャ完了
+  - ✅ **削除**: レガシー・重複コード完全削除
+- ✅ **Phase 3 完了**: MainWorkspaceWindow.ui に3パネルハイブリッドアノテーションUI統合完了
 - 📋 **実装で得られた知見**:
   - image-annotator-lib の実際の機能制約を考慮した設計変更
   - 200+モデル対応のためのUI設計パターン確立
   - インライン編集機能パターンの実装
   - 機能別タブ表示による効率的な結果比較UI
-  - ビジネスロジックとUI表示の混在問題を識別
+  - ビジネスロジックとUI表示の混在問題を識別・解決
   - C901複雑性エラー解決で責任分離の重要性を学習
+  - ✅ **レガシーコード統合**: 重複フィルターウィジェット(3個→1個)統合によるコード品質向上
+  - ✅ **統一パターン確立**: Qt Designer + Service層パターンの開発標準化
 
-**重要な設計変更記録**:
+**重要な設計変更記録** ✅ **全項目実装完了**:
 
-1. プロバイダー選択 → 実行環境選択（Web API/ローカル）
-2. モデル別タブ → 機能別タブ（Caption/Tags/Scores）
-3. 進捗追跡機能削除（ライブラリ非対応）
-4. インライン編集機能追加（Rating/Score）
-5. ステータスフィルタ簡素化（4状態→2状態）
-6. **アーキテクチャ問題識別**: 4個のウィジェット(`model_selection_widget.py`, `filter_search_panel.py`, `workflow_navigator.py`, `preview_detail_panel.py`)でModel-View混在問題
-7. **責任分離策**: Qt Designer UIファイル + サービス層分離アーキテクチャへ統一移行
+1. ✅ プロバイダー選択 → 実行環境選択（Web API/ローカル）
+2. ✅ モデル別タブ → 機能別タブ（Caption/Tags/Scores）
+3. ✅ 進捗追跡機能削除（ライブラリ非対応）
+4. ✅ インライン編集機能追加（Rating/Score）
+5. ✅ ステータスフィルタ簡素化（4状態→2状態）
+6. ✅ **アーキテクチャ問題解決**: 4個のウィジェット問題 → 2個の統合ウィジェットに集約
+7. ✅ **責任分離完了**: Qt Designer UIファイル + サービス層分離アーキテクチャで統一
+8. ✅ **フィルター統合**: 重複フィルターウィジェット(TagFilter, filterBox, filter_search_panel) → 単一FilterSearchPanelに統合
+9. ✅ **レガシー削除**: 未使用workflow_navigator.py完全削除、ImagePreviewWidget活用でpreview_detail_panel代替
+10. ✅ **3パネル統合**: MainWorkspaceWindow.uiに左(FilterSearch+Details)・中央(Thumbnails)・右(Preview+ModelSelection+Results)レイアウト完成

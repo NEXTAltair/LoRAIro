@@ -3,7 +3,6 @@ from PySide6.QtCore import QDate, QDateTime, Qt, QTime, QTimeZone, Signal, Slot
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from superqt import QDoubleRangeSlider
 
-from ...utils.log import logger
 from ..designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
 
 
@@ -226,7 +225,6 @@ class FilterSearchPanel(QWidget, Ui_FilterSearchPanel):
             "exclude_duplicates": self.checkboxExcludeDuplicates.isChecked(),
             "include_nsfw": self.checkboxIncludeNSFW.isChecked(),
         }
-
 
 
 if __name__ == "__main__":
