@@ -1,7 +1,6 @@
 # src/lorairo/gui/state/workflow_state.py
 
 from enum import Enum
-from typing import Dict, List, Optional
 
 from PySide6.QtCore import QObject, Signal
 

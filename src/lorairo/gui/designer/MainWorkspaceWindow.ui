@@ -308,34 +308,13 @@
             <number>0</number>
            </property>
            <item>
-            <widget class="QFrame" name="frameExistingFilterSearch">
-             <property name="styleSheet">
-              <string notr="true"/>
+            <widget class="FilterSearchPanel" name="filterSearchPanel" native="true">
+             <property name="minimumSize">
+              <size>
+               <width>250</width>
+               <height>300</height>
+              </size>
              </property>
-             <property name="frameShape">
-              <enum>QFrame::StyledPanel</enum>
-             </property>
-             <layout class="QVBoxLayout" name="verticalLayout_existingFilter">
-              <item>
-               <widget class="QLabel" name="labelExistingFilterPlaceholder">
-                <property name="styleSheet">
-                 <string>color: #666; font-size: 10px; font-style: italic; padding: 8px;</string>
-                </property>
-                <property name="text">
-                 <string>📋 既存フィルター機能
-• ファイル名検索
-• 解像度フィルタ  
-• 日付範囲フィルタ
-• タグ検索
-
-※FilterSearchPanelが動的に配置</string>
-                </property>
-                <property name="wordWrap">
-                 <bool>true</bool>
-                </property>
-               </widget>
-              </item>
-             </layout>
             </widget>
            </item>
           </layout>
@@ -779,61 +758,107 @@
             <number>5</number>
            </property>
            <item>
-            <widget class="QFrame" name="frameImagePreview">
+            <widget class="ImagePreviewWidget" name="imagePreviewWidget" native="true">
              <property name="minimumSize">
               <size>
-               <width>512</width>
-               <height>512</height>
+               <width>400</width>
+               <height>400</height>
+              </size>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="groupBoxAnnotationControl">
+             <property name="title">
+              <string>アノテーション制御</string>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>120</height>
               </size>
              </property>
              <property name="maximumSize">
               <size>
                <width>16777215</width>
-               <height>16777215</height>
+               <height>150</height>
               </size>
              </property>
-             <property name="styleSheet">
-              <string notr="true"/>
-             </property>
-             <property name="frameShape">
-              <enum>QFrame::StyledPanel</enum>
-             </property>
-             <property name="frameShadow">
-              <enum>QFrame::Sunken</enum>
-             </property>
-             <layout class="QVBoxLayout" name="verticalLayout_imagePreview">
+             <layout class="QVBoxLayout" name="verticalLayout_annotationControl">
               <item>
-               <widget class="QLabel" name="labelImagePreview">
-                <property name="styleSheet">
-                 <string notr="true">color: #666; font-style: italic; font-size: 10px; padding: 15px;</string>
-                </property>
-                <property name="text">
-                 <string>🖼️ PreviewDetailPanel統合領域
-
- 画像プレビュー表示
-• メタデータ情報表示  
-• 既存アノテーション表示
-
-➕ 新機能追加:
-• アノテーション実行ボタン
-• モデル別結果表示タブ
-• エラー情報表示
-
-※PreviewDetailPanelが動的に配置され、
-　アノテーション機能が統合されます</string>
-                </property>
-                <property name="alignment">
-                 <set>Qt::AlignmentFlag::AlignCenter</set>
-                </property>
-                <property name="wordWrap">
-                 <bool>true</bool>
+               <widget class="ModelSelectionWidget" name="modelSelectionWidget" native="true">
+                <property name="minimumSize">
+                 <size>
+                  <width>0</width>
+                  <height>80</height>
+                 </size>
                 </property>
                </widget>
               </item>
              </layout>
             </widget>
            </item>
-           <!-- アノテーション機能をここに追加予定 -->
+           <item>
+            <widget class="QGroupBox" name="groupBoxAnnotationResults">
+             <property name="title">
+              <string>アノテーション結果</string>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayout_annotationResults">
+              <item>
+               <widget class="QTabWidget" name="tabWidgetAnnotationResults">
+                <property name="currentIndex">
+                 <number>0</number>
+                </property>
+                <widget class="QWidget" name="tabCaption">
+                 <attribute name="title">
+                  <string>キャプション</string>
+                 </attribute>
+                 <layout class="QVBoxLayout" name="verticalLayout_tabCaption">
+                  <item>
+                   <widget class="QTextEdit" name="textEditCaption">
+                    <property name="placeholderText">
+                     <string>キャプションがここに表示されます</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+                <widget class="QWidget" name="tabTags">
+                 <attribute name="title">
+                  <string>タグ</string>
+                 </attribute>
+                 <layout class="QVBoxLayout" name="verticalLayout_tabTags">
+                  <item>
+                   <widget class="QTextEdit" name="textEditTags">
+                    <property name="placeholderText">
+                     <string>タグがここに表示されます</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+                <widget class="QWidget" name="tabMetadata">
+                 <attribute name="title">
+                  <string>メタデータ</string>
+                 </attribute>
+                 <layout class="QVBoxLayout" name="verticalLayout_tabMetadata">
+                  <item>
+                   <widget class="QTextEdit" name="textEditMetadata">
+                    <property name="placeholderText">
+                     <string>メタデータがここに表示されます</string>
+                    </property>
+                    <property name="readOnly">
+                     <bool>true</bool>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
           </layout>
          </widget>
         </item>
@@ -1063,6 +1088,26 @@
    </property>
   </action>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>FilterSearchPanel</class>
+   <extends>QWidget</extends>
+   <header>..widgets.filter_search_panel</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ImagePreviewWidget</class>
+   <extends>QWidget</extends>
+   <header>..widgets.image_preview_widget</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ModelSelectionWidget</class>
+   <extends>QWidget</extends>
+   <header>..widgets.model_selection_widget</header>
+   <container>1</container>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections/>
 </ui>

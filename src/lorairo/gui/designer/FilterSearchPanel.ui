@@ -1,0 +1,507 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>FilterSearchPanel</class>
+ <widget class="QScrollArea" name="FilterSearchPanel">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>300</width>
+    <height>600</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Filter Search Panel</string>
+  </property>
+  <property name="verticalScrollBarPolicy">
+   <enum>Qt::ScrollBarPolicy::ScrollBarAsNeeded</enum>
+  </property>
+  <property name="horizontalScrollBarPolicy">
+   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
+  </property>
+  <property name="widgetResizable">
+   <bool>true</bool>
+  </property>
+  <widget class="QWidget" name="scrollAreaWidgetContents">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>298</width>
+     <height>598</height>
+    </rect>
+   </property>
+   <layout class="QVBoxLayout" name="mainLayout">
+    <property name="spacing">
+     <number>10</number>
+    </property>
+    <property name="leftMargin">
+     <number>5</number>
+    </property>
+    <property name="topMargin">
+     <number>5</number>
+    </property>
+    <property name="rightMargin">
+     <number>5</number>
+    </property>
+    <property name="bottomMargin">
+     <number>5</number>
+    </property>
+    <item>
+     <widget class="QGroupBox" name="searchGroup">
+      <property name="title">
+       <string>検索</string>
+      </property>
+      <layout class="QVBoxLayout" name="searchLayout">
+       <item>
+        <layout class="QHBoxLayout" name="searchTypeLayout">
+         <item>
+          <widget class="QLabel" name="searchTypeLabel">
+           <property name="text">
+            <string>検索対象:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QRadioButton" name="radioTags">
+           <property name="text">
+            <string>タグ</string>
+           </property>
+           <property name="checked">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QRadioButton" name="radioCaption">
+           <property name="text">
+            <string>キャプション</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="searchTypeSpacer">
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QLineEdit" name="lineEditSearch">
+         <property name="placeholderText">
+          <string>検索キーワードを入力（複数タグの場合はカンマ区切り）...</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="tagOptionsLayout">
+         <item>
+          <widget class="QLabel" name="tagOptionsLabel">
+           <property name="text">
+            <string>複数タグ:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QRadioButton" name="radioAnd">
+           <property name="text">
+            <string>すべて含む</string>
+           </property>
+           <property name="checked">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QRadioButton" name="radioOr">
+           <property name="text">
+            <string>いずれか含む</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="tagOptionsSpacer">
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QTextEdit" name="textEditPreview">
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>60</height>
+          </size>
+         </property>
+         <property name="readOnly">
+          <bool>true</bool>
+         </property>
+         <property name="placeholderText">
+          <string>検索結果のプレビューがここに表示されます</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <widget class="QGroupBox" name="filterGroup">
+      <property name="title">
+       <string>フィルター</string>
+      </property>
+      <layout class="QVBoxLayout" name="filterLayout">
+       <item>
+        <layout class="QHBoxLayout" name="resolutionLayout">
+         <item>
+          <widget class="QLabel" name="resolutionLabel">
+           <property name="text">
+            <string>解像度:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="comboResolution">
+           <item>
+            <property name="text">
+             <string>全て</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>512x512</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>1024x1024</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>1024x768</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>768x1024</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>1920x1080</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>1080x1920</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>2048x2048</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>カスタム...</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <spacer name="resolutionSpacer">
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QFrame" name="frameCustomResolution">
+         <property name="visible">
+          <bool>false</bool>
+         </property>
+         <property name="frameShape">
+          <enum>QFrame::Shape::NoFrame</enum>
+         </property>
+         <layout class="QHBoxLayout" name="customResolutionLayout">
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="customLabel">
+            <property name="text">
+             <string>カスタム:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="lineEditWidth">
+            <property name="maximumSize">
+             <size>
+              <width>60</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <property name="placeholderText">
+             <string>幅</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="xLabel">
+            <property name="text">
+             <string>x</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="lineEditHeight">
+            <property name="maximumSize">
+             <size>
+              <width>60</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <property name="placeholderText">
+             <string>高さ</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="customResolutionSpacer">
+            <property name="orientation">
+             <enum>Qt::Orientation::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="aspectRatioLayout">
+         <item>
+          <widget class="QLabel" name="aspectRatioLabel">
+           <property name="text">
+            <string>アスペクト比:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="comboAspectRatio">
+           <item>
+            <property name="text">
+             <string>全て</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>正方形 (1:1)</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>風景 (16:9)</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>縦長 (9:16)</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>風景 (4:3)</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>縦長 (3:4)</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <spacer name="aspectRatioSpacer">
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <widget class="QGroupBox" name="dateGroup">
+      <property name="title">
+       <string>日付範囲</string>
+      </property>
+      <layout class="QVBoxLayout" name="dateLayout">
+       <item>
+        <widget class="QCheckBox" name="checkboxDateFilter">
+         <property name="text">
+          <string>日付範囲でフィルター</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QFrame" name="frameDateRange">
+         <property name="visible">
+          <bool>false</bool>
+         </property>
+         <property name="frameShape">
+          <enum>QFrame::Shape::NoFrame</enum>
+         </property>
+         <layout class="QVBoxLayout" name="dateRangeLayout">
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="dateRangeSliderPlaceholder">
+            <property name="styleSheet">
+             <string>background-color: #f0f0f0; border: 1px dashed #ccc; padding: 10px;</string>
+            </property>
+            <property name="text">
+             <string>日付範囲スライダー (CustomRangeSlider)</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignmentFlag::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <widget class="QGroupBox" name="optionsGroup">
+      <property name="title">
+       <string>オプション</string>
+      </property>
+      <layout class="QVBoxLayout" name="optionsLayout">
+       <item>
+        <widget class="QCheckBox" name="checkboxOnlyUntagged">
+         <property name="text">
+          <string>未タグ画像のみ検索</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="checkboxOnlyUncaptioned">
+         <property name="text">
+          <string>未キャプション画像のみ検索</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="checkboxExcludeDuplicates">
+         <property name="text">
+          <string>重複画像を除外</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="checkboxIncludeNSFW">
+         <property name="text">
+          <string>NSFWコンテンツを含む</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="actionLayout">
+      <item>
+       <widget class="QPushButton" name="buttonApply">
+        <property name="text">
+         <string>検索実行</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="buttonClear">
+        <property name="text">
+         <string>クリア</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <spacer name="verticalSpacer">
+      <property name="orientation">
+       <enum>Qt::Orientation::Vertical</enum>
+      </property>
+      <property name="sizeHint" stdset="0">
+       <size>
+        <width>20</width>
+        <height>40</height>
+       </size>
+      </property>
+     </spacer>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

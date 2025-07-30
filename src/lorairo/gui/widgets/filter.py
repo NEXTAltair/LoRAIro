@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from superqt import QDoubleRangeSlider
 
 from ...utils.log import logger
-from ..designer.TagFilterWidget_ui import Ui_TagFilterWidget
+from ..designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
 
 
 class CustomRangeSlider(QWidget):
@@ -128,60 +128,105 @@ class CustomRangeSlider(QWidget):
         self.update_labels()
 
 
-class TagFilterWidget(QWidget, Ui_TagFilterWidget):
-    filterApplied = Signal(dict)
-    """{
-        filter_type: str,
-        filter_text: str,
-        resolution: int,
-        use_and: bool,
-        count_range: tuple,
-        include_untagged: bool,
-        include_nsfw
-    }
+class FilterSearchPanel(QWidget, Ui_FilterSearchPanel):
+    """統合されたフィルター・検索パネルウィジェット。
+
+    このウィジェットは以下の機能を統合しています:
+    - タグ/キャプション検索（AND/OR検索対応）
+    - 解像度フィルター（カスタム解像度対応）
+    - アスペクト比フィルター
+    - 日付範囲フィルター
+    - オプション（未タグ、未キャプション、重複除外、NSFW）
+
+    旧来のTagFilterWidget、filterBoxWidgetの機能を統合した包括的なフィルターパネルです。
     """
+
+    filterApplied = Signal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setupUi(self)
-        self.setup_slider()
+        self.setup_date_range_slider()
+        self.setup_connections()
 
-    def setup_slider(self):
-        # CustomLRangeSliderをcountRangeSlideウィジェットとして追加
-        self.count_range_slider = CustomRangeSlider(self, min_value=0, max_value=100000)
-        layout = self.countRangeWidget.layout()
-        # 既存のcountRangeSlideウィジェットを削除(存在する場合)
-        if self.countRangeSlide is not None:
-            layout.removeWidget(self.countRangeSlide)
-            self.countRangeSlide.deleteLater()
-        # 新しいCustomLRangeSliderを追加
-        layout.addWidget(self.count_range_slider)
+    def setup_date_range_slider(self):
+        """日付範囲スライダーをセットアップします。"""
+        # プレースホルダーラベルを実際のCustomRangeSliderに置き換え
+        self.date_range_slider = CustomRangeSlider(self, min_value=0, max_value=100000)
+        self.date_range_slider.set_date_range()
 
-    @Slot()
-    def on_applyFilterButton_clicked(self):
-        """フィルター条件を取得して、filterAppliedシグナルを発行"""
-        resolution = self.resolutionComboBox.currentText()
-        if resolution != "None":  # currentText
-            split_resolution = resolution.split("x")
+        layout = self.frameDateRange.layout()
+        if self.dateRangeSliderPlaceholder:
+            layout.removeWidget(self.dateRangeSliderPlaceholder)
+            self.dateRangeSliderPlaceholder.deleteLater()
+        layout.addWidget(self.date_range_slider)
+
+    def setup_connections(self):
+        """シグナル・スロット接続をセットアップします。"""
+        # カスタム解像度表示の切り替え
+        self.comboResolution.currentTextChanged.connect(self.toggle_custom_resolution)
+        # 日付フィルター表示の切り替え
+        self.checkboxDateFilter.toggled.connect(self.frameDateRange.setVisible)
+        # ボタン接続
+        self.buttonApply.clicked.connect(self.on_apply_filter)
+        self.buttonClear.clicked.connect(self.on_clear_filter)
+
+    def toggle_custom_resolution(self, text):
+        """カスタム解像度フレームの表示を切り替えます。"""
+        self.frameCustomResolution.setVisible(text == "カスタム...")
+
+    def on_apply_filter(self):
+        """フィルター条件を取得してシグナルを発行します。"""
+        conditions = self.get_filter_conditions()
+        self.filterApplied.emit(conditions)
+
+    def on_clear_filter(self):
+        """すべてのフィルター条件をクリアします。"""
+        self.lineEditSearch.clear()
+        self.radioTags.setChecked(True)
+        self.radioAnd.setChecked(True)
+        self.comboResolution.setCurrentIndex(0)
+        self.comboAspectRatio.setCurrentIndex(0)
+        self.checkboxDateFilter.setChecked(False)
+        self.checkboxOnlyUntagged.setChecked(False)
+        self.checkboxOnlyUncaptioned.setChecked(False)
+        self.checkboxExcludeDuplicates.setChecked(False)
+        self.checkboxIncludeNSFW.setChecked(False)
+        self.textEditPreview.clear()
+
+    def get_filter_conditions(self):
+        """現在のフィルター条件を辞書として返します。"""
+        # 解像度処理
+        resolution_text = self.comboResolution.currentText()
+        if resolution_text == "カスタム...":
+            width = self.lineEditWidth.text()
+            height = self.lineEditHeight.text()
+            resolution = f"{width}x{height}" if width and height else None
+        elif resolution_text != "全て":
+            resolution = resolution_text
         else:
-            split_resolution = 0
-        filter_conditions = {
-            "filter_type": (
-                self.filterTypeComboBox.currentText().lower()
-                if self.filterTypeComboBox.isVisible()
-                else None
-            ),
-            "filter_text": self.filterLineEdit.text(),
-            "resolution": int(split_resolution[0]) if split_resolution else 0,
-            "use_and": self.andRadioButton.isChecked() if self.andRadioButton.isVisible() else False,
-            "count_range": self.count_range_slider.get_range()
-            if self.count_range_slider.isVisible()
+            resolution = None
+
+        # 日付範囲処理
+        date_range = None
+        if self.checkboxDateFilter.isChecked():
+            date_range = self.date_range_slider.get_range()
+
+        return {
+            "search_text": self.lineEditSearch.text(),
+            "search_type": "tags" if self.radioTags.isChecked() else "caption",
+            "search_mode": "and" if self.radioAnd.isChecked() else "or",
+            "resolution": resolution,
+            "aspect_ratio": self.comboAspectRatio.currentText()
+            if self.comboAspectRatio.currentIndex() > 0
             else None,
-            "include_untagged": self.noTagscheckBox.isChecked(),  # タグ情報がない画像を含めるかどうか
-            "include_nsfw": self.NSFWcheckBox.isChecked(),  # NSFWコンテンツを含めるかどうか(デフォルトは除外)
+            "date_range": date_range,
+            "only_untagged": self.checkboxOnlyUntagged.isChecked(),
+            "only_uncaptioned": self.checkboxOnlyUncaptioned.isChecked(),
+            "exclude_duplicates": self.checkboxExcludeDuplicates.isChecked(),
+            "include_nsfw": self.checkboxIncludeNSFW.isChecked(),
         }
-        logger.debug(f"Filter conditions: {filter_conditions}")
-        self.filterApplied.emit(filter_conditions)
+
 
 
 if __name__ == "__main__":
@@ -189,13 +234,11 @@ if __name__ == "__main__":
 
     from PySide6.QtWidgets import QApplication
 
-    from ...utils.config import get_config
-    from ...utils.log import logger
-
     app = QApplication(sys.argv)
-    config = get_config()
-    logconf = {"level": "DEBUG", "file": "TagFilterWidget.log"}
 
-    widget = TagFilterWidget()
+    # 統合フィルター・検索パネルをテスト
+    widget = FilterSearchPanel()
+    widget.setWindowTitle("統合フィルター・検索パネル")
     widget.show()
+
     sys.exit(app.exec())

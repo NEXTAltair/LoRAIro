@@ -67,7 +67,6 @@ _build/
 *_ui.py
 # Keep .ui files for manual editing
 # *.ui
-!resources/ui/*.ui  # UIデザインファイルは保持
 !src/lorairo/gui/designer/*.ui  # デザイナーファイルは保持
 
 # プロジェクト固有
