@@ -11,7 +11,7 @@ from lorairo.utils.log import logger
 class ExistingFileReader:
     """画像に関連する既存のテキストファイル (.txt, .caption) からアノテーションを読み込む。"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """ExistingFileReader を初期化します。"""
         self.tag_cleaner = TagCleaner()
 
