@@ -1,6 +1,6 @@
-from .filter import FilterSearchPanel, CustomRangeSlider
+from .filter import CustomRangeSlider, FilterSearchPanel
 
 __all__ = [
-    "FilterSearchPanel",
     "CustomRangeSlider",
+    "FilterSearchPanel",
 ]
