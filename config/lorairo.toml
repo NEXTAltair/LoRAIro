@@ -54,3 +54,12 @@ additional = "Your additional prompt here."
 
 [log]
 level = "INFO"
+
+# Qt/GUI設定
+[qt]
+platform = ""         # QT_QPA_PLATFORM override (windows, xcb, wayland, offscreen, etc.)
+font_dir = ""          # QT_QPA_FONTDIR override (システムフォントディレクトリ)
+default_font = ""      # デフォルトフォント名（空の場合：自動選択）
+font_size = 10         # デフォルトフォントサイズ
+suppress_warnings = true # フォント警告の抑制
+enable_debug = false   # Qt詳細デバッグ情報の表示
