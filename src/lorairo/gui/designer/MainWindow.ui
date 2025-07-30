@@ -77,7 +77,214 @@
         <number>0</number>
        </property>
        <widget class="QWidget" name="pageImageEdit"/>
-       <widget class="QWidget" name="pageImageTagger"/>
+       <widget class="QWidget" name="pageImageTagger">
+        <layout class="QHBoxLayout" name="horizontalLayoutImageTagger">
+         <property name="spacing">
+          <number>8</number>
+         </property>
+         <property name="leftMargin">
+          <number>8</number>
+         </property>
+         <property name="topMargin">
+          <number>8</number>
+         </property>
+         <property name="rightMargin">
+          <number>8</number>
+         </property>
+         <property name="bottomMargin">
+          <number>8</number>
+         </property>
+         <item>
+          <widget class="QSplitter" name="mainSplitter">
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+           <widget class="QWidget" name="leftPanel">
+            <layout class="QVBoxLayout" name="leftPanelLayout">
+             <property name="spacing">
+              <number>6</number>
+             </property>
+             <property name="leftMargin">
+              <number>0</number>
+             </property>
+             <property name="topMargin">
+              <number>0</number>
+             </property>
+             <property name="rightMargin">
+              <number>0</number>
+             </property>
+             <property name="bottomMargin">
+              <number>0</number>
+             </property>
+             <item>
+              <widget class="FilterSearchPanel" name="filterSearchPanel" native="true">
+               <property name="minimumSize">
+                <size>
+                 <width>300</width>
+                 <height>200</height>
+                </size>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QGroupBox" name="selectedImageDetailsGroup">
+               <property name="title">
+                <string>選択された画像の詳細</string>
+               </property>
+               <layout class="QVBoxLayout" name="selectedImageDetailsLayout">
+                <item>
+                 <widget class="QScrollArea" name="imageDetailsScrollArea">
+                  <property name="widgetResizable">
+                   <bool>true</bool>
+                  </property>
+                  <widget class="QWidget" name="imageDetailsContent">
+                   <property name="geometry">
+                    <rect>
+                     <x>0</x>
+                     <y>0</y>
+                     <width>69</width>
+                     <height>69</height>
+                    </rect>
+                   </property>
+                   <layout class="QVBoxLayout" name="imageDetailsContentLayout">
+                    <item>
+                     <widget class="QLabel" name="imageDetailsPlaceholder">
+                      <property name="text">
+                       <string>画像を選択してください</string>
+                      </property>
+                      <property name="alignment">
+                       <set>Qt::AlignmentFlag::AlignCenter</set>
+                      </property>
+                     </widget>
+                    </item>
+                   </layout>
+                  </widget>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="rightPanel">
+            <layout class="QVBoxLayout" name="rightPanelLayout">
+             <property name="spacing">
+              <number>6</number>
+             </property>
+             <property name="leftMargin">
+              <number>0</number>
+             </property>
+             <property name="topMargin">
+              <number>0</number>
+             </property>
+             <property name="rightMargin">
+              <number>0</number>
+             </property>
+             <property name="bottomMargin">
+              <number>0</number>
+             </property>
+             <item>
+              <widget class="ImagePreviewWidget" name="imagePreviewWidget" native="true">
+               <property name="minimumSize">
+                <size>
+                 <width>400</width>
+                 <height>300</height>
+                </size>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QGroupBox" name="annotationControlGroup">
+               <property name="title">
+                <string>アノテーション制御</string>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>16777215</width>
+                 <height>120</height>
+                </size>
+               </property>
+               <layout class="QVBoxLayout" name="annotationControlLayout">
+                <item>
+                 <widget class="ModelSelectionWidget" name="modelSelectionWidget" native="true">
+                  <property name="minimumSize">
+                   <size>
+                    <width>0</width>
+                    <height>80</height>
+                   </size>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </item>
+             <item>
+              <widget class="QGroupBox" name="annotationResultsGroup">
+               <property name="title">
+                <string>アノテーション結果</string>
+               </property>
+               <layout class="QVBoxLayout" name="annotationResultsLayout">
+                <item>
+                 <widget class="QTabWidget" name="annotationResultsTabWidget">
+                  <property name="currentIndex">
+                   <number>0</number>
+                  </property>
+                  <widget class="QWidget" name="captionTab">
+                   <attribute name="title">
+                    <string>キャプション</string>
+                   </attribute>
+                   <layout class="QVBoxLayout" name="captionTabLayout">
+                    <item>
+                     <widget class="QTextEdit" name="captionTextEdit">
+                      <property name="placeholderText">
+                       <string>キャプションがここに表示されます</string>
+                      </property>
+                     </widget>
+                    </item>
+                   </layout>
+                  </widget>
+                  <widget class="QWidget" name="tagsTab">
+                   <attribute name="title">
+                    <string>タグ</string>
+                   </attribute>
+                   <layout class="QVBoxLayout" name="tagsTabLayout">
+                    <item>
+                     <widget class="QTextEdit" name="tagsTextEdit">
+                      <property name="placeholderText">
+                       <string>タグがここに表示されます</string>
+                      </property>
+                     </widget>
+                    </item>
+                   </layout>
+                  </widget>
+                  <widget class="QWidget" name="metadataTab">
+                   <attribute name="title">
+                    <string>メタデータ</string>
+                   </attribute>
+                   <layout class="QVBoxLayout" name="metadataTabLayout">
+                    <item>
+                     <widget class="QTextEdit" name="metadataTextEdit">
+                      <property name="placeholderText">
+                       <string>メタデータがここに表示されます</string>
+                      </property>
+                      <property name="readOnly">
+                       <bool>true</bool>
+                      </property>
+                     </widget>
+                    </item>
+                   </layout>
+                  </widget>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </widget>
+         </item>
+        </layout>
+       </widget>
        <widget class="QWidget" name="pageDatasetOverview"/>
        <widget class="QWidget" name="pageTagCaptionEdit">
         <layout class="QVBoxLayout" name="verticalLayoutTagCaptionEdit">
@@ -161,6 +368,24 @@
    <class>DirectoryPickerWidget</class>
    <extends>QWidget</extends>
    <header>..widgets.directory_picker</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>FilterSearchPanel</class>
+   <extends>QWidget</extends>
+   <header>..widgets.filter_search_panel</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ImagePreviewWidget</class>
+   <extends>QWidget</extends>
+   <header>..widgets.image_preview_widget</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ModelSelectionWidget</class>
+   <extends>QWidget</extends>
+   <header>..widgets.model_selection_widget</header>
    <container>1</container>
   </customwidget>
  </customwidgets>
