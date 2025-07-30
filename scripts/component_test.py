@@ -116,8 +116,8 @@ def test_basic_initialization():
 
     try:
         from lorairo.database.db_core import DefaultSessionLocal
-        from lorairo.database.db_repository import ImageRepository
         from lorairo.database.db_manager import ImageDatabaseManager
+        from lorairo.database.db_repository import ImageRepository
 
         image_repo = ImageRepository(session_factory=DefaultSessionLocal)
         db_manager = ImageDatabaseManager(image_repo, config_service, fsm)

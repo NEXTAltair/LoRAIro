@@ -54,7 +54,7 @@ try:
         if found_types == EXPECTED_MODEL_TYPES:
             print(f"OK: 'model_types' テーブルに期待されるタイプ {EXPECTED_MODEL_TYPES} が含まれています。")
         else:
-            print(f"エラー: 'model_types' の内容が期待値と異なります。")
+            print("エラー: 'model_types' の内容が期待値と異なります。")
             print(f"  期待値: {EXPECTED_MODEL_TYPES}")
             print(f"  実際値: {found_types}")
             schema_ok = False

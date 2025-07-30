@@ -15,8 +15,8 @@ sys.path.insert(0, str(project_root / "src"))
 from PySide6.QtWidgets import QApplication
 
 from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
-from lorairo.utils.log import logger, initialize_logging
 from lorairo.utils.config import get_config
+from lorairo.utils.log import initialize_logging, logger
 
 
 def main():
