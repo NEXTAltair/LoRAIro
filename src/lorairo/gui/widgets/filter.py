@@ -1,3 +1,5 @@
+from typing import Any
+
 import numpy as np
 from PySide6.QtCore import QDate, QDateTime, Qt, QTime, QTimeZone, Signal, Slot
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
@@ -51,7 +53,7 @@ class CustomRangeSlider(QWidget):
         """
         layout = QVBoxLayout(self)
 
-        self.slider = QDoubleRangeSlider(Qt.Orientation.Horizontal) # type: ignore
+        self.slider = QDoubleRangeSlider(Qt.Orientation.Horizontal)  # type: ignore
         self.slider.setRange(0, 100)
         self.slider.setValue((0, 100))
 
@@ -107,7 +109,7 @@ class CustomRangeSlider(QWidget):
 
     def set_date_range(self) -> None:
         # 開始日を2023年1月1日の0時に設定(UTC)
-        start_date = QDateTime(QDate(2023, 1, 1), QTime(0, 0), QTimeZone.OffsetFromUtc)
+        start_date = QDateTime(QDate(2023, 1, 1), QTime(0, 0), QTimeZone.utc())
 
         # 終了日を現在の日付の23:59:59に設定(UTC)
         end_date = QDateTime.currentDateTimeUtc()
@@ -144,15 +146,15 @@ class FilterSearchPanel(QWidget, Ui_FilterSearchPanel):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setupUi(self) # type: ignore
-        self.setup_date_range_slider() # type: ignore
-        self.setup_connections() # type: ignore
+        self.setupUi(self)  # type: ignore
+        self.setup_date_range_slider()  # type: ignore
+        self.setup_connections()  # type: ignore
 
     def setup_date_range_slider(self) -> None:
         """日付範囲スライダーをセットアップします。"""
         # プレースホルダーラベルを実際のCustomRangeSliderに置き換え
         self.date_range_slider = CustomRangeSlider(self, min_value=0, max_value=100000)
-        self.date_range_slider.set_date_range() # type: ignore
+        self.date_range_slider.set_date_range()  # type: ignore
 
         layout = self.frameDateRange.layout()
         if layout is not None and self.dateRangeSliderPlaceholder:
@@ -236,7 +238,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
 
     # 統合フィルター・検索パネルをテスト
-    widget = FilterSearchPanel() # type: ignore
+    widget = FilterSearchPanel()  # type: ignore
     widget.setWindowTitle("統合フィルター・検索パネル")
     widget.show()
 
