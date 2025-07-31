@@ -137,7 +137,9 @@ class Upscaler:
         # CPU固定（.cuda() 削除）
         return img_tensor
 
-    def _convert_tensor_to_image(self, tensor: torch.Tensor, scale: float, original_size: tuple[int, int]) -> Image.Image:
+    def _convert_tensor_to_image(
+        self, tensor: torch.Tensor, scale: float, original_size: tuple[int, int]
+    ) -> Image.Image:
         """PyTorchテンソルをPIL画像に変換します。"""
         output_np = tensor.squeeze().numpy().transpose(1, 2, 0)
         output_np = (output_np * 255).clip(0, 255).astype(np.uint8)

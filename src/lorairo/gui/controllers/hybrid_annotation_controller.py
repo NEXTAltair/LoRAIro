@@ -61,7 +61,10 @@ class HybridAnnotationController(QObject):
     ui_state_changed = Signal(object)  # AnnotationUIState
 
     def __init__(
-        self, db_repository: ImageRepository, config_service: ConfigurationService, parent: QObject | None = None
+        self,
+        db_repository: ImageRepository,
+        config_service: ConfigurationService,
+        parent: QObject | None = None,
     ):
         """HybridAnnotationController初期化
 
@@ -159,10 +162,19 @@ class HybridAnnotationController(QObject):
 
         # 制御ボタン
         self.model_selection_controls = {
-            "select_all": cast(QPushButton, self.hybrid_annotation_widget.findChild(QPushButton, "pushButtonSelectAll")),
-            "deselect_all": cast(QPushButton, self.hybrid_annotation_widget.findChild(QPushButton, "pushButtonDeselectAll")),
-            "recommended": cast(QPushButton, self.hybrid_annotation_widget.findChild(QPushButton, "pushButtonRecommended")),
-            "execute": cast(QPushButton, self.hybrid_annotation_widget.findChild(QPushButton, "pushButtonExecuteAnnotation")),
+            "select_all": cast(
+                QPushButton, self.hybrid_annotation_widget.findChild(QPushButton, "pushButtonSelectAll")
+            ),
+            "deselect_all": cast(
+                QPushButton, self.hybrid_annotation_widget.findChild(QPushButton, "pushButtonDeselectAll")
+            ),
+            "recommended": cast(
+                QPushButton, self.hybrid_annotation_widget.findChild(QPushButton, "pushButtonRecommended")
+            ),
+            "execute": cast(
+                QPushButton,
+                self.hybrid_annotation_widget.findChild(QPushButton, "pushButtonExecuteAnnotation"),
+            ),
         }
 
         logger.debug("UI要素参照設定完了")
@@ -647,7 +659,7 @@ class HybridAnnotationController(QObject):
                 model_name=model_name,
                 success=True,
                 processing_time=random.uniform(1.0, 5.0),
-                content="Simulated content for " + model_name, # Add content field
+                content="Simulated content for " + model_name,  # Add content field
                 timestamp=datetime.now(),
             )
         else:
@@ -656,8 +668,8 @@ class HybridAnnotationController(QObject):
                 success=False,
                 processing_time=random.uniform(0.5, 2.0),
                 error_message=f"API connection failed for {model_name}",
-                function_type="unknown", # Add function_type
-                content="", # Add content
+                function_type="unknown",  # Add function_type
+                content="",  # Add content
                 timestamp=datetime.now(),
             )
 
