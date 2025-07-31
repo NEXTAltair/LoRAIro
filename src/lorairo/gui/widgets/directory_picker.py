@@ -14,8 +14,8 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setupUi(self) # type: ignore
-        self.set_label_text("フォルダを選択") # type: ignore
+        self.setupUi(self)  # type: ignore
+        self.set_label_text("フォルダを選択")  # type: ignore
 
         self.DirectoryPicker.pushButtonPicker.clicked.connect(self.select_folder)
         self.DirectoryPicker.comboBoxHistory.currentIndexChanged.connect(self.on_history_item_selected)
@@ -143,7 +143,7 @@ if __name__ == "__main__":
     import sys
 
     app = QApplication(sys.argv)
-    widget = DirectoryPickerWidget() # type: ignore
-    widget.set_label_text("Select Folder") # type: ignore
+    widget = DirectoryPickerWidget()  # type: ignore
+    widget.set_label_text("Select Folder")  # type: ignore
     widget.show()
     sys.exit(app.exec())

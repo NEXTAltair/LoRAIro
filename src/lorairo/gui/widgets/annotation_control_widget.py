@@ -49,7 +49,7 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
         annotator_adapter: AnnotatorLibAdapter | None = None,
     ):
         super().__init__(parent)
-        self.setupUi(self) # type: ignore
+        self.setupUi(self)  # type: ignore
 
         # 依存関係
         self.annotator_adapter = annotator_adapter
@@ -412,9 +412,7 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
 
                 # チェックボックス列（選択）
                 checkbox_item = QTableWidgetItem()
-                checkbox_item.setFlags(
-                    checkbox_item.flags() | Qt.ItemFlag.ItemIsUserCheckable
-                )
+                checkbox_item.setFlags(checkbox_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 checkbox_item.setCheckState(Qt.CheckState.Unchecked)  # デフォルト未選択
                 self.tableWidgetModels.setItem(row, 0, checkbox_item)
 
@@ -432,9 +430,7 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
                 # 機能列
                 capabilities_text = ", ".join(model.get("capabilities", []))
                 capability_item = QTableWidgetItem(capabilities_text)
-                capability_item.setFlags(
-                    capability_item.flags() & ~Qt.ItemFlag.ItemIsEditable
-                )
+                capability_item.setFlags(capability_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.tableWidgetModels.setItem(row, 3, capability_item)
 
             logger.debug(f"Model table updated with {len(self.filtered_models)} models")
