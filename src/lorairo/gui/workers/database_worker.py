@@ -3,11 +3,17 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from typing import TYPE_CHECKING
+
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QPixmap
 
 from ...utils.log import logger
 from .base import LoRAIroWorkerBase
+
+if TYPE_CHECKING:
+    from ...database.db_manager import ImageDatabaseManager
+    from ...storage.file_system import FileSystemManager
 
 
 @dataclass
@@ -25,11 +31,8 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
     """データベース登録専用ワーカー"""
 
     def __init__(
-        self,
-        directory: Path,
-        db_manager: "ImageDatabaseManager",
-        fsm: "FileSystemManager",
-    ):
+        self, directory: Path, db_manager: "ImageDatabaseManager", fsm: "FileSystemManager"
+    ) -> None:
         super().__init__()
         self.directory = directory
         self.db_manager = db_manager
@@ -191,16 +194,16 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
 class SearchResult:
     """検索結果"""
 
-    image_metadata: list[dict]
+    image_metadata: list[dict[str, Any]]
     total_count: int
     search_time: float
-    filter_conditions: dict
+    filter_conditions: dict[str, Any]
 
 
 class SearchWorker(LoRAIroWorkerBase[SearchResult]):
     """データベース検索専用ワーカー"""
 
-    def __init__(self, db_manager: "ImageDatabaseManager", filter_conditions: dict):
+    def __init__(self, db_manager: "ImageDatabaseManager", filter_conditions: dict[str, Any]):
         super().__init__()
         self.db_manager = db_manager
         self.filter_conditions = filter_conditions
@@ -333,7 +336,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
 
     def __init__(
         self,
-        image_metadata: list[dict],
+        image_metadata: list[dict[str, Any]],
         thumbnail_size: QSize,
         db_manager: "ImageDatabaseManager",
     ):
@@ -428,7 +431,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
 
         return result
 
-    def _get_thumbnail_path(self, image_data: dict, image_id: int) -> Path | None:
+    def _get_thumbnail_path(self, image_data: dict[str, Any], image_id: int) -> Path | None:
         """サムネイル用の最適な画像パスを取得"""
         try:
             # 512px画像が利用可能な場合はそれを使用

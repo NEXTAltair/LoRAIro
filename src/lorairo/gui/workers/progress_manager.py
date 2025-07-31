@@ -1,10 +1,14 @@
 # src/lorairo/gui/workers/progress_manager.py
 
+from typing import Any, TypeAlias
+
 from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import QProgressDialog, QWidget
 
 from ...utils.log import logger
 from .base import SimpleWorkerBase, WorkerProgress
+
+SimpleWorkerBase: TypeAlias = SimpleWorkerBase[Any]
 
 
 class ProgressManager:
@@ -36,7 +40,7 @@ class ProgressManager:
 
         # プログレスダイアログ作成
         self.progress_dialog = QProgressDialog(title, "キャンセル", 0, max_value, self.parent)
-        self.progress_dialog.setWindowModality(Qt.ApplicationModal)
+        self.progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.progress_dialog.setAutoClose(True)
         self.progress_dialog.setAutoReset(True)
 
@@ -75,7 +79,7 @@ class ProgressManager:
                     detail += f"\n進捗: {progress.processed_count}/{progress.total_count}"
                 self.progress_dialog.setLabelText(detail)
 
-    def _on_finished(self, result) -> None:
+    def _on_finished(self, result: Any) -> None:
         """完了処理"""
         if self.progress_dialog:
             self.progress_dialog.close()

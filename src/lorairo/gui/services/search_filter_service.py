@@ -127,8 +127,8 @@ class SearchFilterService:
         self, conditions: SearchConditions
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """検索条件をデータベース検索用とフィルター用に分離"""
-        search_conditions = {}
-        filter_conditions = {}
+        search_conditions: dict[str, Any] = {}
+        filter_conditions: dict[str, Any] = {}
 
         # 検索条件（データベースクエリ用）
         if conditions.keywords:

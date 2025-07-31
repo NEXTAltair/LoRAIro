@@ -20,7 +20,7 @@ from ..utils.log import logger
 class Upscaler:
     """設定駆動型アップスケーラークラス（依存注入対応）"""
 
-    def __init__(self, config_service: ConfigurationService):
+    def __init__(self, config_service: ConfigurationService) -> None:
         """
         Upscaler を初期化します。
 
@@ -130,14 +130,14 @@ class Upscaler:
             logger.error(f"アップスケーリング中のエラー: {e}")
             return img
 
-    def _convert_image_to_tensor(self, image: Image.Image):
+    def _convert_image_to_tensor(self, image: Image.Image) -> torch.Tensor:
         """PIL画像をPyTorchテンソルに変換します（CPU使用）"""
         img_np = np.array(image).astype(np.float32) / 255.0
         img_tensor = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0)
         # CPU固定（.cuda() 削除）
         return img_tensor
 
-    def _convert_tensor_to_image(self, tensor, scale: float, original_size: tuple) -> Image.Image:
+    def _convert_tensor_to_image(self, tensor: torch.Tensor, scale: float, original_size: tuple[int, int]) -> Image.Image:
         """PyTorchテンソルをPIL画像に変換します。"""
         output_np = tensor.squeeze().numpy().transpose(1, 2, 0)
         output_np = (output_np * 255).clip(0, 255).astype(np.uint8)

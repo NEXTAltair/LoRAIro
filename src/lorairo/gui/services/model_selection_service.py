@@ -92,7 +92,7 @@ class ModelSelectionService:
 
     def group_models_by_provider(self, models: list[ModelInfo]) -> dict[str, list[ModelInfo]]:
         """プロバイダー別にモデルをグループ化"""
-        groups = {}
+        groups: dict[str, list[ModelInfo]] = {}
         for model in models:
             provider = model.provider or "local"
             if provider not in groups:

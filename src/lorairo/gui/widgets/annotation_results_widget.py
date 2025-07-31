@@ -32,9 +32,9 @@ class AnnotationResult:
     processing_time: float  # 処理時間（秒）
     success: bool = True
     error_message: str = ""
-    timestamp: datetime = None
+    timestamp: datetime | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.timestamp is None:
             self.timestamp = datetime.now()
 
@@ -54,7 +54,7 @@ class AnnotationResultsWidget(QWidget, Ui_AnnotationResultsWidget):
     result_selected = Signal(str, str)  # モデル名, 機能タイプ
     export_requested = Signal(list)  # 結果リスト
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setupUi(self)
 
@@ -394,7 +394,7 @@ class AnnotationResultsWidget(QWidget, Ui_AnnotationResultsWidget):
     def get_results_summary(self) -> dict[str, Any]:
         """結果サマリーを取得"""
         try:
-            all_results = self.get_all_results()
+            all_results: list[AnnotationResult] = self.get_all_results()
             successful_results = [r for r in all_results if r.success]
             failed_results = [r for r in all_results if not r.success]
 

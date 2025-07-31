@@ -3,7 +3,7 @@
 from abc import abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from PySide6.QtCore import QObject, Signal
 
@@ -36,7 +36,7 @@ class WorkerProgress:
 class CancellationController:
     """キャンセル制御クラス"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._is_canceled = False
 
     def cancel(self) -> None:
@@ -80,7 +80,7 @@ class LoRAIroWorkerBase[T](QObject):
     finished = Signal(object)  # result: T
     error_occurred = Signal(str)
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.cancellation = CancellationController()
         self.progress = ProgressReporter()

@@ -7,7 +7,7 @@
 
 import importlib.resources
 import logging
-from collections.abc import Generator
+from typing import Any, Generator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -68,7 +68,7 @@ def get_project_dir(base_dir_name: str, project_name: str) -> Path:
     project_dir = base_dir / f"{safe_name}_{today}_{next_num:03d}"
     project_dir.mkdir(exist_ok=True)
     logger.info(f"新しいプロジェクトディレクトリを作成しました: {project_dir}")
-    return project_dir
+    return project_dir # type: ignore
 
 
 def sanitize_project_name(name: str) -> str:
@@ -118,18 +118,6 @@ def get_current_project_root() -> Path:
 
 
 def resolve_stored_path(stored_path: str) -> Path:
-    """DBに保存された相対パスを現在のプロジェクトベースで絶対パスに解決
-
-    Args:
-        stored_path: DBから取得した画像パス (相対パスまたは絶対パス)
-
-    Returns:
-        Path: 解決された絶対パス
-
-    Example:
-        stored_path: "image_dataset/original_images/2024/10/15/file.jpg"
-        resolved: "/workspaces/LoRAIro/lorairo_data/main_dataset_20250707_001/image_dataset/original_images/2024/10/15/file.jpg"
-    """
     path = Path(stored_path)
 
     # 既に絶対パスの場合はそのまま返す
@@ -156,7 +144,7 @@ def get_tag_db_path() -> Path:
         tag_db_resource = importlib.resources.files(package_name).joinpath(filename)
         # リソースが存在し、ファイルであることを確認してからパスを返す
         if tag_db_resource.is_file():
-            return Path(str(tag_db_resource))
+            return Path(str(tag_db_resource)) # type: ignore
         else:
             logger.error(f"タグDBリソースが見つからないか、ファイルではありません: {tag_db_resource}")
             raise FileNotFoundError(f"タグDBが見つかりません: {tag_db_resource}")
@@ -194,7 +182,7 @@ def create_db_engine(database_url: str = DATABASE_URL) -> Engine:
     # リスナー関数をエンジン作成時に動的に定義・登録する
 
     @event.listens_for(engine, "connect")
-    def enable_foreign_keys_listener(dbapi_connection, connection_record):
+    def enable_foreign_keys_listener(dbapi_connection: Any, connection_record: Any) -> None:
         """SQLite の外部キー制約を有効にします。"""
         cursor = dbapi_connection.cursor()
         try:
@@ -206,7 +194,7 @@ def create_db_engine(database_url: str = DATABASE_URL) -> Engine:
             cursor.close()
 
     @event.listens_for(engine, "connect")
-    def attach_tag_db_listener(dbapi_connection, connection_record):
+    def attach_tag_db_listener(dbapi_connection: Any, connection_record: Any) -> None:
         """メインDB接続時にタグデータベースをアタッチします (インメモリDBを除く)。"""
         # インメモリDBの場合はアタッチしない
         if database_url == "sqlite:///:memory:":

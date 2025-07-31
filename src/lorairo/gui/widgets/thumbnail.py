@@ -23,7 +23,7 @@ class ThumbnailItem(QGraphicsObject):
     選択されたときに枠を表示します。
     """
 
-    def __init__(self, pixmap: QPixmap, image_path: Path, parent: "ThumbnailSelectorWidget"):
+    def __init__(self, pixmap: QPixmap, image_path: Path, parent: "ThumbnailSelectorWidget") -> None:
         super().__init__()
         self.pixmap = pixmap
         self.image_path = image_path
@@ -43,7 +43,7 @@ class ThumbnailItem(QGraphicsObject):
     def boundingRect(self) -> QRectF:
         return QRectF(self.pixmap.rect())
 
-    def paint(self, painter, option, widget):
+    def paint(self, painter: Any, option: Any, widget: Any) -> None:
         painter.drawPixmap(self.boundingRect().toRect(), self.pixmap)
         if self.isSelected():
             pen = QPen(QColor(0, 120, 215), 3)
@@ -58,7 +58,7 @@ class CustomGraphicsView(QGraphicsView):
 
     itemClicked = Signal(QGraphicsPixmapItem, Qt.KeyboardModifier)
 
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, event: QMouseEvent) -> None:
         """
         アイテムがクリックされたときに信号を発行します。
         Args:
@@ -79,7 +79,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     multipleImagesSelected = Signal(list)
     deselected = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: QWidget | None = None) -> None:
         """
         コンストラクタ
         Args:
@@ -107,7 +107,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.resize_timer.setSingleShot(True)
         self.resize_timer.timeout.connect(self.update_thumbnail_layout)
 
-    def resizeEvent(self, event):
+    def resizeEvent(self, event: QResizeEvent) -> None:
         """
         ウィジェットがリサイズされたときにタイマーをリセットします。
         Args:
@@ -292,7 +292,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         return resolve_stored_path(str(original_path))
 
-    def _get_database_manager(self):
+    def _get_database_manager(self) -> Any:
         """
         親ウィジェットの階層からデータベースマネージャーを取得します。
 
@@ -320,7 +320,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             widget = widget.parent()
         return None
 
-    def handle_item_selection(self, item: ThumbnailItem, modifiers: Qt.KeyboardModifier):
+    def handle_item_selection(self, item: ThumbnailItem, modifiers: Qt.KeyboardModifier) -> None:
         """
         アイテムの選択を処理し、単一選択、コントロール選択、シフト選択をサポートします。
         Args:
@@ -344,7 +344,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.last_selected_item = item
         self.update_selection()
 
-    def select_range(self, start_item, end_item):
+    def select_range(self, start_item: ThumbnailItem, end_item: ThumbnailItem) -> None:
         """
         開始アイテムと終了アイテムの間の範囲を選択します。
         Args:
@@ -360,7 +360,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             item.setSelected(start_index <= i <= end_index)
         self.update_selection()
 
-    def update_selection(self):
+    def update_selection(self) -> None:
         """
         現在選択されている画像のリストを取得し、対応するシグナルを発行します。
         """
@@ -382,7 +382,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         logger.debug(f"選択された画像のリスト: \n selected_images: {selected_images}")
         return selected_images
 
-    def select_first_image(self):
+    def select_first_image(self) -> None:
         """
         リスト内の最初の画像を選択します（存在する場合）。
         ディレクトリ選択時最初の画像をプレビューに表示するため｡
@@ -400,10 +400,10 @@ if __name__ == "__main__":
 
     from PySide6.QtWidgets import QApplication
 
-    from ...utils.log import setup_logger
+    from ...utils.log import initialize_logging
 
     logconf = {"level": "DEBUG", "file": "ThumbnailSelectorWidget.log"}
-    setup_logger(logconf)
+    initialize_logging(logconf)
     app = QApplication(sys.argv)
     widget = ThumbnailSelectorWidget()
     image_paths = [

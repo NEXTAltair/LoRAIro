@@ -14,11 +14,11 @@ class ToolsStatic:
     """
 
     @staticmethod
-    def join_txt_and_caption_files(dir_path: Path):
+    def join_txt_and_caption_files(dir_path: Path) -> None:
         """指定したディレクトリ内の.captionファイルを.txtファイルに追加する
         # TODO: 使用箇所なし src.ImageEditor.py src.DatasetExportWidget.py で使えるように実装
         """
-        file_dict = {}
+        file_dict: dict[str, list[str]] = {}
         for file in dir_path.iterdir():
             if file.is_file():
                 basename = file.stem

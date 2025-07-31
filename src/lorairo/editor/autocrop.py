@@ -83,7 +83,7 @@ class AutoCrop:
         return instance._auto_crop_image(pil_image)
 
     @staticmethod
-    def _convert_to_gray(image: np.ndarray) -> np.ndarray:
+    def _convert_to_gray(image: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
         """
         Convert RGB or RGBA image to grayscale.
 
@@ -105,7 +105,7 @@ class AutoCrop:
         raise ValueError(f"サポートされていない画像形式です。形状: {image.shape}")
 
     @staticmethod
-    def _calculate_edge_strength(gray_image: np.ndarray) -> np.ndarray:
+    def _calculate_edge_strength(gray_image: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
         """
         Calculate edge strength using Sobel filter.
 
@@ -116,7 +116,7 @@ class AutoCrop:
             Edge strength array with same shape as input
         """
         if HAS_SCIPY:
-            return ndimage.sobel(gray_image)
+            return cast(np.ndarray[Any, Any], ndimage.sobel(gray_image))
         else:
             # Fallback to OpenCV Sobel if scipy not available
             return cv2.Sobel(gray_image, cv2.CV_64F, 1, 1, ksize=3)
@@ -146,7 +146,7 @@ class AutoCrop:
 
     @staticmethod
     def _calculate_region_statistics(
-        gray_image: np.ndarray, edges: np.ndarray, slices: list[tuple[slice, slice]]
+        gray_image: np.ndarray[Any, Any], edges: np.ndarray[Any, Any], slices: list[tuple[slice, slice]]
     ) -> tuple[list[float], list[float], list[float]]:
         """
         Calculate statistical measures for image regions.
@@ -214,7 +214,7 @@ class AutoCrop:
 
     @staticmethod
     def _detect_border_shape(
-        image: np.ndarray,
+        image: np.ndarray[Any, Any],
         color_threshold: float = 0.15,
         std_threshold: float = 0.05,
         edge_threshold: float = 0.1,
@@ -266,7 +266,7 @@ class AutoCrop:
 
         return detected_borders
 
-    def _get_crop_area(self, np_image: np.ndarray) -> tuple[int, int, int, int] | None:
+    def _get_crop_area(self, np_image: np.ndarray[Any, Any]) -> tuple[int, int, int, int] | None:
         """
         Detect crop area using complementary color difference algorithm.
 

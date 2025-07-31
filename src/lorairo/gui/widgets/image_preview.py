@@ -10,7 +10,7 @@ from ..designer.ImagePreviewWidget_ui import Ui_ImagePreviewWidget
 
 
 class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
-    def __init__(self, parent=None):
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setupUi(self)
 
@@ -25,7 +25,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         self.pixmap_item = None
 
     @Slot(Path)
-    def load_image(self, image_path: Path):
+    def load_image(self, image_path: Path) -> None:
         """パスベースで画像を読み込む（動的パス解決対応）"""
         # 既存の表示をクリア
         self.graphics_scene.clear()
@@ -51,7 +51,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         except Exception as e:
             logger.error(f"画像の読み込みに失敗しました: {image_path}, エラー: {e}")
 
-    def load_image_from_pil(self, pil_image: Image.Image, image_name: str = "Unknown"):
+    def load_image_from_pil(self, pil_image: Image.Image, image_name: str = "Unknown") -> None:
         """PILイメージオブジェクトから直接画像を読み込む"""
         # 既存の表示をクリア
         self.graphics_scene.clear()
@@ -90,7 +90,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         pixmap.loadFromData(byte_array.getvalue())
         return pixmap
 
-    def _adjust_view_size(self):
+    def _adjust_view_size(self) -> None:
         # graphicsView のサイズポリシーを一時的に Ignored に設定
         self.previewGraphicsView.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
 
@@ -104,7 +104,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         )
 
     # resizeEvent をオーバーライドしてウィンドウサイズ変更時にサイズ調整
-    def resizeEvent(self, event):
+    def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
         self._adjust_view_size()
 

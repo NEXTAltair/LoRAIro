@@ -318,7 +318,11 @@ class WorkflowStateManager(QObject):
 
     # === Utility Methods ===
 
-    def get_workflow_summary(self) -> dict[str, any]:
+    from typing import Any
+
+# ... (rest of the imports)
+
+    def get_workflow_summary(self) -> dict[str, Any]:
         """ワークフロー状態サマリーを取得"""
         return {
             "current_step": self._current_step.value,

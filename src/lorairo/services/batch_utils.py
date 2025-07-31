@@ -161,7 +161,7 @@ def _extract_tags_from_content(content: str) -> list[str]:
     return tags
 
 
-def monitor_batch_progress(processor, batch_id: str, check_interval: int = 60) -> str:
+def monitor_batch_progress(processor: Any, batch_id: str, check_interval: int = 60) -> str:
     """
     バッチ処理の進行状況を監視する。
 
@@ -206,7 +206,7 @@ def monitor_batch_progress(processor, batch_id: str, check_interval: int = 60) -
 
 
 # 使用例
-def example_batch_workflow():
+def example_batch_workflow() -> dict[str, dict[str, Any]] | None:
     """
     OpenAIバッチ処理の使用例
     OpenAI SDKを使用したより信頼性の高い実装

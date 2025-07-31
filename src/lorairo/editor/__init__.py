@@ -12,6 +12,7 @@ Classes:
 """
 
 from .autocrop import AutoCrop
-from .image_processor import ImageProcessingManager, ImageProcessor, Upscaler
+from .image_processor import ImageProcessingManager, ImageProcessor
+from .upscaler import Upscaler
 
 __all__ = ["AutoCrop", "ImageProcessingManager", "ImageProcessor", "Upscaler"]

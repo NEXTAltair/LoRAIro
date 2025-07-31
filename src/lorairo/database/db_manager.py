@@ -3,7 +3,7 @@
 import uuid
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from ..storage.file_system import FileSystemManager
 from ..utils.log import logger
@@ -17,8 +17,8 @@ from .db_repository import (
     TagAnnotationData,
 )
 
-# SessionLocal を直接使う代わりに Repository を注入する
-# from .db_core import SessionLocal
+if TYPE_CHECKING:
+    from ..services.configuration_service import ConfigurationService
 
 
 class ImageDatabaseManager:
@@ -29,10 +29,7 @@ class ImageDatabaseManager:
     """
 
     def __init__(
-        self,
-        repository: ImageRepository,
-        config_service: "ConfigurationService",
-        fsm: "FileSystemManager" = None,
+        self, repository: ImageRepository, config_service: "ConfigurationService", fsm: FileSystemManager | None = None
     ):
         """
         ImageDatabaseManagerのコンストラクタ。
@@ -410,7 +407,7 @@ class ImageDatabaseManager:
                 path = metadata.get("stored_image_path")
                 if path:
                     logger.debug(f"画像ID {image_id} の低解像度画像パスを取得しました。")
-                    return path
+                    return path # type: ignore
                 else:
                     logger.warning(
                         f"画像ID {image_id} の低解像度画像のパスが見つかりません。 Metadata: {metadata}"
@@ -614,7 +611,7 @@ class ImageDatabaseManager:
             if not self.fsm:
                 from ..storage.file_system import FileSystemManager
 
-                temp_fsm = FileSystemManager()
+                temp_fsm = FileSystemManager() # type: ignore
                 image_files = temp_fsm.get_image_files(directory_path)
             else:
                 image_files = self.fsm.get_image_files(directory_path)

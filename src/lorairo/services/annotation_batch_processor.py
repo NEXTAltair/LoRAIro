@@ -7,6 +7,7 @@ OpenAI Batch API等の大規模処理専用コンポーネント
 import json
 import time
 from pathlib import Path
+from pathlib import Path
 from typing import Any
 
 from PIL import Image
@@ -92,9 +93,7 @@ class BatchProcessor:
                 "model_name": model_name,
                 "total_images": len(image_paths),
                 "image_paths": [str(path) for path in image_paths],
-                "created_at": logger._logger.info.__defaults__[0]
-                if hasattr(logger._logger.info, "__defaults__")
-                else "mock_timestamp",  # モック時刻
+                "created_at": datetime.now().isoformat(),
                 "status": "created",
             }
 

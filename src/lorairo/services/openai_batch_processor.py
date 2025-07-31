@@ -80,7 +80,7 @@ class OpenAIBatchProcessor:
     OpenAI SDKのライブラリ機能を最大限活用
     """
 
-    def __init__(self, api_key: str, client: OpenAI | None = None):
+    def __init__(self, api_key: str, client: OpenAI | None = None) -> None:
         """OpenAIBatchProcessorを初期化
 
         Args:

@@ -5,7 +5,7 @@ from ...utils.log import logger
 from .base import LoRAIroWorkerBase
 
 
-class AnnotationWorker(LoRAIroWorkerBase):
+class AnnotationWorker(LoRAIroWorkerBase[Any]):
     """AI アノテーション専用ワーカー"""
 
     def __init__(self, images: list[Image], phash_list: list[str], models: list[str]):
@@ -14,7 +14,7 @@ class AnnotationWorker(LoRAIroWorkerBase):
         self.phash_list = phash_list
         self.models = models
 
-    def execute(self):
+    def execute(self) -> Any:
         """アノテーション処理を実行"""
         logger.info(f"アノテーション開始: {len(self.images)}件, モデル: {self.models}")
 

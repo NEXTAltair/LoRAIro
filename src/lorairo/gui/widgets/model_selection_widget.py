@@ -49,10 +49,10 @@ class ModelSelectionWidget(QWidget):
 
     def __init__(
         self,
-        parent: QWidget = None,
-        annotator_adapter: AnnotatorLibAdapter = None,
+        parent: QWidget | None = None,
+        annotator_adapter: AnnotatorLibAdapter | None = None,
         mode: str = "simple",  # "simple" or "advanced"
-    ):
+    ) -> None:
         super().__init__(parent)
 
         self.annotator_adapter = annotator_adapter
@@ -360,7 +360,7 @@ class ModelSelectionWidget(QWidget):
 
     def _group_models_by_provider(self) -> dict[str, list[ModelInfo]]:
         """プロバイダー別にモデルをグループ化"""
-        groups = {}
+        groups: dict[str, list[ModelInfo]] = {}
         for model in self.filtered_models:
             provider = model.provider or "local"
             if provider not in groups:

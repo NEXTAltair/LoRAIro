@@ -49,7 +49,7 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
         annotator_adapter: AnnotatorLibAdapter | None = None,
     ):
         super().__init__(parent)
-        self.setupUi(self)
+        self.setupUi(self) # type: ignore
 
         # 依存関係
         self.annotator_adapter = annotator_adapter
@@ -133,7 +133,7 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
             checkbox.setStyleSheet(checkbox_style)
 
         # 実行ボタンスタイル
-        self.pushButtonExecute.setStyleSheet("""
+        self.pushButtonExecute.setStyleSheet(""" # type: ignore
             QPushButton {
                 font-size: 12px;
                 font-weight: bold;
@@ -413,14 +413,14 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
                 # チェックボックス列（選択）
                 checkbox_item = QTableWidgetItem()
                 checkbox_item.setFlags(
-                    checkbox_item.flags() | QTableWidgetItem.ItemFlag.ItemIsUserCheckable
+                    checkbox_item.flags() | Qt.ItemFlag.ItemIsUserCheckable
                 )
-                checkbox_item.setCheckState(False)  # デフォルト未選択
+                checkbox_item.setCheckState(Qt.CheckState.Unchecked)  # デフォルト未選択
                 self.tableWidgetModels.setItem(row, 0, checkbox_item)
 
                 # モデル名列
                 name_item = QTableWidgetItem(model["name"])
-                name_item.setFlags(name_item.flags() & ~QTableWidgetItem.ItemFlag.ItemIsEditable)
+                name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.tableWidgetModels.setItem(row, 1, name_item)
 
                 # プロバイダー列
@@ -433,7 +433,7 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
                 capabilities_text = ", ".join(model.get("capabilities", []))
                 capability_item = QTableWidgetItem(capabilities_text)
                 capability_item.setFlags(
-                    capability_item.flags() & ~QTableWidgetItem.ItemFlag.ItemIsEditable
+                    capability_item.flags() & ~Qt.ItemFlag.ItemIsEditable
                 )
                 self.tableWidgetModels.setItem(row, 3, capability_item)
 
@@ -449,7 +449,7 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
         try:
             for row in range(self.tableWidgetModels.rowCount()):
                 checkbox_item = self.tableWidgetModels.item(row, 0)
-                if checkbox_item and checkbox_item.checkState() == 2:  # Checked
+                if checkbox_item and checkbox_item.checkState() == Qt.CheckState.Checked:  # Checked
                     model_name_item = self.tableWidgetModels.item(row, 1)
                     if model_name_item:
                         selected_models.append(model_name_item.text())

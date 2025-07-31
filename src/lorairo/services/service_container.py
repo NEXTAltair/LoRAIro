@@ -103,7 +103,7 @@ class ServiceContainer:
         """画像処理サービス取得（遅延初期化）"""
         if self._image_processing_service is None:
             self._image_processing_service = ImageProcessingService(
-                self.config_service, self.file_system_manager
+                self.config_service, self.file_system_manager, self.db_manager
             )
             logger.debug("ImageProcessingService初期化完了")
         return self._image_processing_service
@@ -142,19 +142,19 @@ class ServiceContainer:
                     logger.warning(
                         f"実AnnotatorLibAdapterの初期化に失敗しました（{e}）。Mock実装を使用します。"
                     )
-                    self._annotator_lib_adapter = MockAnnotatorLibAdapter(self.config_service)
+                    self._annotator_lib_adapter = cast(AnnotatorLibAdapter, MockAnnotatorLibAdapter(self.config_service))
                     logger.info("MockAnnotatorLibAdapter初期化完了（フォールバック）")
             else:
                 # 明示的にMockモード指定の場合
                 self._annotator_lib_adapter = MockAnnotatorLibAdapter(self.config_service)
                 logger.debug("MockAnnotatorLibAdapter初期化完了（Mock強制モード）")
-        return self._annotator_lib_adapter
+        return cast(AnnotatorLibAdapter, self._annotator_lib_adapter)
 
     @property
     def batch_processor(self) -> BatchProcessor:
         """バッチプロセッサー取得（遅延初期化）"""
         if self._batch_processor is None:
-            self._batch_processor = BatchProcessor(self.annotator_lib_adapter, self.config_service)
+            self._batch_processor = BatchProcessor(cast(MockAnnotatorLibAdapter, self.annotator_lib_adapter), self.config_service)
             logger.debug("BatchProcessor初期化完了")
         return self._batch_processor
 
