@@ -462,7 +462,9 @@ class ImageRepository:
                 session.add(new_tag)
                 existing_tags_map[(tag_string, model_id)] = new_tag
 
-    def _save_captions(self, session: Session, image_id: int, captions_data: list[CaptionAnnotationData]) -> None:
+    def _save_captions(
+        self, session: Session, image_id: int, captions_data: list[CaptionAnnotationData]
+    ) -> None:
         """キャプション情報を保存・更新 (Upsert)"""
         logger.debug(f"Saving/Updating {len(captions_data)} captions for image_id {image_id}")
 
@@ -483,7 +485,9 @@ class ImageRepository:
                 # 更新
                 logger.debug(f"Updating existing caption: id={existing_record.id}")
                 existing_record.existing = is_existing_caption
-                existing_record.is_edited_manually = caption_info.get("is_edited_manually")  # 渡された値を使用 (Nullable)
+                existing_record.is_edited_manually = caption_info.get(
+                    "is_edited_manually"
+                )  # 渡された値を使用 (Nullable)
             else:
                 # 新規作成
                 logger.debug(f"Adding new caption: caption='{caption_string[:20]}...'")
@@ -531,7 +535,9 @@ class ImageRepository:
                 session.add(new_score)
                 existing_scores_map[model_id] = new_score
 
-    def _save_ratings(self, session: Session, image_id: int, ratings_data: list[RatingAnnotationData]) -> None:
+    def _save_ratings(
+        self, session: Session, image_id: int, ratings_data: list[RatingAnnotationData]
+    ) -> None:
         """レーティング情報を保存・更新 (Upsert)"""
         logger.debug(f"Saving/Updating {len(ratings_data)} ratings for image_id {image_id}")
 
@@ -1274,7 +1280,14 @@ class ImageRepository:
 
         with self.session_factory() as session:
             try:
-                stmt = select(Model).join(Model.model_types).where(ModelType.name == model_type_name).options(selectinload(Model.model_types)).order_by(Model.name).distinct()
+                stmt = (
+                    select(Model)
+                    .join(Model.model_types)
+                    .where(ModelType.name == model_type_name)
+                    .options(selectinload(Model.model_types))
+                    .order_by(Model.name)
+                    .distinct()
+                )
 
                 models_result: list[Model] = list(session.execute(stmt).scalars().all())
 
