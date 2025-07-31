@@ -106,7 +106,8 @@ class TestSearchWorker:
         assert isinstance(result, SearchResult)
         assert len(result.image_metadata) == 3
         assert result.total_count == 3
-        assert result.search_time > 0
+        # 時間測定は環境により変動するため、非負の値であることを確認
+        assert result.search_time >= 0
         assert result.filter_conditions == basic_filter_conditions
 
         # 画像メタデータ内容確認

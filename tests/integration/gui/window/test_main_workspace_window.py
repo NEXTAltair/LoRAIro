@@ -103,7 +103,9 @@ class TestMainWorkspaceWindowImproved:
                 window.lineEditDatasetPath = Mock()
                 window.lineEditDatasetPath.text.return_value = ""
                 window.pushButtonRegisterDatabase = Mock()
-                window.progressBarRegistration = Mock()
+                window.pushButtonRegisterImages = Mock()  # DB登録ボタン
+                window.progressBarRegistration = Mock()  # プログレスバー
+                window.labelStatus = Mock()  # ステータスラベル（重要！）
                 window.labelRegistrationStatus = Mock()
                 window.labelSearchStatus = Mock()
                 window.labelThumbnailCount = Mock()
@@ -174,7 +176,7 @@ class TestMainWorkspaceWindowImproved:
         - Mock以外の実際の連携をテスト
         """
         window = minimal_main_window
-        test_path = temp_dir / "test_dataset"
+        test_path = Path(temp_dir) / "test_dataset"
         test_path.mkdir()
 
         # データベース操作のみMock化
@@ -206,20 +208,27 @@ class TestMainWorkspaceWindowImproved:
         - 実際のイベントフローをテスト
         """
         window = minimal_main_window
-        test_path = str(temp_dir / "test_dataset")
+        test_path = Path(temp_dir) / "test_dataset"
+        test_path.mkdir(exist_ok=True)  # ディレクトリを実際に作成
 
-        # パス設定
-        window.lineEditDatasetPath.text.return_value = test_path
+        # データセットパスを設定
+        window.dataset_state.set_dataset_path(test_path)
 
-        # WorkerServiceの開始をMock化
-        with patch.object(window.worker_service, "start_batch_registration") as mock_start:
-            mock_start.return_value = "worker_123"
+        # QMessageBoxをMock化してダイアログ表示を回避
+        with patch("lorairo.gui.window.main_workspace_window.QMessageBox"):
+            # WorkerServiceとUI要素のMock化
+            with (
+                patch.object(window.worker_service, "start_batch_registration") as mock_start,
+                patch.object(window, "_initialize_filesystem_for_registration") as mock_init_fs,
+                patch.object(window, "_show_registration_progress_dialog") as mock_show_dialog,
+            ):
+                mock_start.return_value = "worker_123"
 
-            # ボタンクリック実行
-            window.on_pushButtonRegisterImages_clicked()
+                # ボタンクリック実行
+                window.on_pushButtonRegisterImages_clicked()
 
-            # 実際のWorkerServiceのAPIが呼ばれることを確認
-            mock_start.assert_called_once_with(Path(test_path))
+                # 実際のWorkerServiceのAPIが呼ばれることを確認
+                mock_start.assert_called_once_with(test_path)
 
     def test_signal_slot_connections(self, minimal_main_window):
         """
@@ -297,7 +306,8 @@ class TestMainWorkspaceWindowImproved:
 
         # フィルター結果の適用テスト
         filtered_images = [{"id": 1, "path": "test.jpg"}]
-        window.dataset_state.apply_filter_results(filtered_images)
+        filter_conditions = {"tags": ["test"], "resolution": 1024}
+        window.dataset_state.apply_filter_results(filtered_images, filter_conditions)
 
         # 状態が正しく管理されることを確認
         assert len(window.dataset_state.filtered_images) == 1
