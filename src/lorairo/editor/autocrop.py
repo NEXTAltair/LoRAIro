@@ -10,7 +10,7 @@ to be the most effective approach for letterbox detection compared to
 alternative methods like rembg and border shape detection.
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 import cv2
 import numpy as np

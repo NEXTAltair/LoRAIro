@@ -16,7 +16,8 @@ from functools import partial  # functools.partial をインポート
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger as _logger
-logger = _logger # Explicitly re-export for mypy
+
+logger = _logger  # Explicitly re-export for mypy
 
 # TYPE_CHECKING ブロックを追加して Record を条件付きでインポート
 if TYPE_CHECKING:

@@ -5,7 +5,7 @@ import shutil
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 import toml
 from PIL import Image, ImageCms
@@ -36,7 +36,7 @@ class FileSystemManager:
         self.batch_request_dir: Path | None = None
         logger.debug("初期化")
 
-    def __enter__(self) -> 'FileSystemManager':
+    def __enter__(self) -> "FileSystemManager":
         if not self.initialized:
             raise RuntimeError("FileSystemManagerが初期化されていません。")
         return self
@@ -162,7 +162,7 @@ class FileSystemManager:
             icc_profile = img.info.get("icc_profile")
             if icc_profile:
                 profile = ImageCms.ImageCmsProfile(BytesIO(icc_profile))
-                color_space = ImageCms.getProfileName(profile).strip() # type: ignore
+                color_space = ImageCms.getProfileName(profile).strip()  # type: ignore
 
             return {
                 "width": width,
@@ -344,7 +344,9 @@ class FileSystemManager:
                 f.writelines(lines[i * lines_per_file : (i + 1) * lines_per_file])
 
     @staticmethod
-    def export_dataset_to_txt(image_data: dict[str, Any], save_dir: Path, mearge_caption: bool = False) -> None:
+    def export_dataset_to_txt(
+        image_data: dict[str, Any], save_dir: Path, mearge_caption: bool = False
+    ) -> None:
         """学習用データセットをテキスト形式で指定ディレクトリに出力する
 
         Args:

@@ -71,8 +71,5 @@ class ImageTextFileReader:
             logger.error(f"Error getting annotations for {image_path.name}: {e}", exc_info=True)
             return None  # エラー発生時
 
-    # --- ファイルベースのアノテーション取得 (未実装) ---
-    # def _get_annotations_from_file(self, image_path: Path) -> dict[str, list[str]] | None:
-    #     """画像ファイルと同じディレクトリにある .txt または .json ファイルからアノテーションを読み込む (仮)"""
-    #     # ... (FileSystemManager を使って実装) ...
-    #     return None
+    # --- ファイルベースのアノテーション取得 ---
+    # src/lorairo/annotations/existing_file_reader.py に定義
