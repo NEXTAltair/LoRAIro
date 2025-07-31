@@ -20,9 +20,9 @@ class TestDatasetStateManager:
     def sample_image_metadata(self):
         """サンプル画像メタデータ"""
         return [
-            {"id": 1, "stored_image_path": "/test/image1.jpg", "width": 1024, "height": 768},
-            {"id": 2, "stored_image_path": "/test/image2.jpg", "width": 800, "height": 600},
-            {"id": 3, "stored_image_path": "/test/image3.jpg", "width": 1200, "height": 900},
+            {"id": 1, "stored_image_path": str(Path("/test/image1.jpg")), "width": 1024, "height": 768},
+            {"id": 2, "stored_image_path": str(Path("/test/image2.jpg")), "width": 800, "height": 600},
+            {"id": 3, "stored_image_path": str(Path("/test/image3.jpg")), "width": 1200, "height": 900},
         ]
 
     def test_initialization(self, state_manager):
@@ -164,7 +164,8 @@ class TestDatasetStateManager:
         # 画像検索
         image_data = state_manager.get_image_by_id(1)
         assert image_data["id"] == 1
-        assert image_data["stored_image_path"] == "/test/image1.jpg"
+        # Cross-platform path comparison using Path objects
+        assert Path(image_data["stored_image_path"]) == Path("/test/image1.jpg")
 
         # 存在チェック
         assert state_manager.has_images() is True
@@ -182,14 +183,16 @@ class TestDatasetStateManager:
 
     def test_state_summary(self, state_manager, sample_image_metadata):
         """状態サマリーテスト"""
-        state_manager.set_dataset_path(Path("/test/dataset"))
+        test_path = Path("/test/dataset")
+        state_manager.set_dataset_path(test_path)
         state_manager.set_dataset_images(sample_image_metadata)
         state_manager.set_selected_images([1, 2])
         state_manager.set_current_image(1)
 
         summary = state_manager.get_state_summary()
 
-        assert summary["dataset_path"] == "/test/dataset"
+        # Cross-platform path comparison - compare the expected path string with actual path string
+        assert summary["dataset_path"] == str(test_path)
         assert summary["total_images"] == 3
         assert summary["filtered_images"] == 3
         assert summary["selected_images"] == 2
