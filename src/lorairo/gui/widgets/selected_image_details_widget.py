@@ -12,8 +12,8 @@ from typing import Any
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QWidget
 
-from ...database.db_manager import DatabaseManager
-from ...database.schema import ImageRecord
+from ...database.db_manager import ImageDatabaseManager
+from ...database.schema import Image
 from ...utils.log import logger
 from ..designer.SelectedImageDetailsWidget_ui import Ui_SelectedImageDetailsWidget
 from .annotation_data_display_widget import AnnotationData, AnnotationDataDisplayWidget
@@ -58,7 +58,7 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
     def __init__(
         self,
         parent: QWidget | None = None,
-        db_manager: DatabaseManager | None = None,
+        db_manager: ImageDatabaseManager | None = None,
     ):
         super().__init__(parent)
         self.setupUi(self)
@@ -236,7 +236,7 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
         self.current_details.annotation_data = data
         logger.debug("Annotation data loaded in details widget")
 
-    def set_database_manager(self, db_manager: DatabaseManager) -> None:
+    def set_database_manager(self, db_manager: ImageDatabaseManager) -> None:
         """データベースマネージャー設定"""
         self.db_manager = db_manager
         logger.debug("Database manager set for SelectedImageDetailsWidget")
@@ -273,7 +273,7 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
 
             with session:
                 # 画像基本情報取得
-                image_query = session.query(ImageRecord).filter(ImageRecord.id == image_id).first()
+                image_query = session.query(Image).filter(Image.id == image_id).first()
 
                 if not image_query:
                     logger.warning(f"Image not found for ID: {image_id}")

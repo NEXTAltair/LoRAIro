@@ -15,7 +15,7 @@ from ..designer.MainWorkspaceWindow_ui import Ui_MainWorkspaceWindow
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
 from ..widgets.filter_search_panel import FilterSearchPanel
-from ..widgets.preview_detail_panel import PreviewDetailPanel
+from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.thumbnail_enhanced import ThumbnailSelectorWidget
 
 
@@ -78,11 +78,9 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
         self.thumbnail_selector = ThumbnailSelectorWidget(self.frameThumbnailContent, self.dataset_state)
         self.verticalLayout_thumbnailContent.addWidget(self.thumbnail_selector)
 
-        # プレビュー・詳細パネル
-        self.preview_detail_panel = PreviewDetailPanel(
-            self.framePreviewDetailContent, self.dataset_state, self.db_manager
-        )
-        self.verticalLayout_previewDetailContent.addWidget(self.preview_detail_panel)
+        # プレビューウィジェット（既存活用）
+        self.image_preview_widget = ImagePreviewWidget(self.framePreviewDetailContent)
+        self.verticalLayout_previewDetailContent.addWidget(self.image_preview_widget)
 
         # スプリッターの初期サイズ設定
         self.splitterMainWorkArea.setSizes([300, 700, 400])  # フィルター:サムネイル:プレビュー
@@ -283,7 +281,7 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
     # === Dataset Management ===
 
     def load_dataset(self, dataset_path: Path) -> None:
-        """データセットディレクトリを設定（自動DB登録機能復活）"""
+        """データセットディレクトリを設定（自動DB登録）"""
         logger.info(f"データセットディレクトリ設定: {dataset_path}")
 
         # UI更新

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from ...utils.log import logger
-from .base import SimpleWorkerBase
+from .base import LoRAIroWorkerBase
 
 if TYPE_CHECKING:
     from ...database.db_manager import ImageDatabaseManager
@@ -21,7 +21,7 @@ class SearchResult:
     filter_conditions: dict[str, Any]
 
 
-class SearchWorker(SimpleWorkerBase[SearchResult]):
+class SearchWorker(LoRAIroWorkerBase[SearchResult]):
     """
     データベース検索専用ワーカー（簡素化版）
 

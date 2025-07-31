@@ -11,7 +11,7 @@ from typing import Any
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QWidget
 
-from ...database.db_manager import DatabaseManager
+from ...database.db_manager import ImageDatabaseManager
 from ...utils.log import logger
 from ..designer.AnnotationStatusFilterWidget_ui import Ui_AnnotationStatusFilterWidget
 
@@ -50,7 +50,7 @@ class AnnotationStatusFilterWidget(QWidget, Ui_AnnotationStatusFilterWidget):
     def __init__(
         self,
         parent: QWidget | None = None,
-        db_manager: DatabaseManager | None = None,
+        db_manager: ImageDatabaseManager | None = None,
     ):
         super().__init__(parent)
         self.setupUi(self)
@@ -154,7 +154,7 @@ class AnnotationStatusFilterWidget(QWidget, Ui_AnnotationStatusFilterWidget):
         """フィルター変更シグナルを送信"""
         self.filter_changed.emit(self.active_filters.copy())
 
-    def set_database_manager(self, db_manager: DatabaseManager) -> None:
+    def set_database_manager(self, db_manager: ImageDatabaseManager) -> None:
         """データベースマネージャー設定"""
         self.db_manager = db_manager
         logger.debug("Database manager set for AnnotationStatusFilterWidget")

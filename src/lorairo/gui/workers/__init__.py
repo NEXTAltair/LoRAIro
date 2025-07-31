@@ -10,7 +10,6 @@ from .base import (
     CancellationController,
     LoRAIroWorkerBase,
     ProgressReporter,
-    SimpleWorkerBase,
     WorkerProgress,
     WorkerStatus,
 )
@@ -19,7 +18,6 @@ __all__ = [
     "CancellationController",
     "LoRAIroWorkerBase",
     "ProgressReporter",
-    "SimpleWorkerBase",
     "WorkerProgress",
     "WorkerStatus",
 ]
