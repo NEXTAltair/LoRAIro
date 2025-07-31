@@ -49,7 +49,9 @@ class PickerWidget(QWidget, Ui_PickerWidget):
             )  # シグナルを無効にしないとon_history_item_selectedが呼び出されてバグる
             self.comboBoxHistory.addItem(dir_name)
             # マウスオーバーでフルパスを表示
-            self.comboBoxHistory.setItemData(self.comboBoxHistory.count() - 1, path, Qt.ItemDataRole.ToolTipRole)
+            self.comboBoxHistory.setItemData(
+                self.comboBoxHistory.count() - 1, path, Qt.ItemDataRole.ToolTipRole
+            )
             self.comboBoxHistory.blockSignals(False)  # シグナルを有効に戻す
             if len(self.history) > 10:
                 self.history.pop(0)
