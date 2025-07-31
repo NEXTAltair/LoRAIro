@@ -1,0 +1,369 @@
+# src/lorairo/gui/widgets/annotation_coordinator.py
+
+"""
+Annotation Coordinator
+
+ハイブリッドアノテーションUIの全体調整役
+各ウィジェット間の連携と状態管理を担当
+"""
+
+from dataclasses import dataclass
+from typing import Any
+
+from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtWidgets import QWidget
+
+from ...database.db_manager import ImageDatabaseManager
+from ...utils.log import logger
+from .annotation_control_widget import AnnotationControlWidget
+from .annotation_results_widget import AnnotationResultsWidget
+from .annotation_status_filter_widget import AnnotationStatusFilterWidget
+from .selected_image_details_widget import SelectedImageDetailsWidget
+from .thumbnail_enhanced import ThumbnailSelectorWidget
+
+
+@dataclass
+class AnnotationWorkflowState:
+    """アノテーションワークフローの状態"""
+
+    is_running: bool = False
+    selected_image_id: int | None = None
+    selected_models: list[str] = None
+    current_results: dict[str, Any] = None
+    active_filters: dict[str, bool] = None
+
+    def __post_init__(self):
+        if self.selected_models is None:
+            self.selected_models = []
+        if self.current_results is None:
+            self.current_results = {}
+        if self.active_filters is None:
+            self.active_filters = {}
+
+
+class AnnotationCoordinator(QObject):
+    """
+    ハイブリッドアノテーションUIの全体調整役
+
+    各ウィジェット間の連携を管理し、統一されたワークフローを提供:
+    - ウィジェット間シグナル・スロット接続
+    - 状態管理と同期
+    - エラーハンドリング
+    - パフォーマンス最適化
+    """
+
+    # 統合シグナル
+    workflow_state_changed = Signal(AnnotationWorkflowState)
+    annotation_batch_started = Signal(list)  # selected_models
+    annotation_batch_completed = Signal(dict)  # complete_results
+    annotation_batch_error = Signal(str)  # error_message
+
+    def __init__(
+        self,
+        parent: QWidget,
+        db_manager: ImageDatabaseManager,
+    ):
+        """
+        AnnotationCoordinator の初期化
+
+        Args:
+            parent: 親ウィジェット
+            db_manager: データベースマネージャー
+        """
+        super().__init__(parent)
+        self.parent_widget = parent
+        self.db_manager = db_manager
+
+        # ワークフロー状態
+        self.workflow_state = AnnotationWorkflowState()
+
+        # ウィジェット参照（初期化時に設定）
+        self.control_widget: AnnotationControlWidget | None = None
+        self.results_widget: AnnotationResultsWidget | None = None
+        self.status_filter_widget: AnnotationStatusFilterWidget | None = None
+        self.image_details_widget: SelectedImageDetailsWidget | None = None
+        self.thumbnail_selector_widget: ThumbnailSelectorWidget | None = None
+
+        logger.info("AnnotationCoordinator initialized")
+
+    def setup_widgets(
+        self,
+        control_widget: AnnotationControlWidget,
+        results_widget: AnnotationResultsWidget,
+        status_filter_widget: AnnotationStatusFilterWidget,
+        image_details_widget: SelectedImageDetailsWidget,
+        thumbnail_selector_widget: ThumbnailSelectorWidget,
+    ) -> None:
+        """
+        管理対象ウィジェットを設定し、連携を開始
+
+        Args:
+            control_widget: アノテーション制御ウィジェット
+            results_widget: 結果表示ウィジェット
+            status_filter_widget: 状態フィルターウィジェット
+            image_details_widget: 画像詳細ウィジェット
+            thumbnail_selector_widget: サムネイルセレクターウィジェット
+        """
+        # ウィジェット参照を保存
+        self.control_widget = control_widget
+        self.results_widget = results_widget
+        self.status_filter_widget = status_filter_widget
+        self.image_details_widget = image_details_widget
+        self.thumbnail_selector_widget = thumbnail_selector_widget
+
+        # データベースマネージャーを各ウィジェットに設定
+        self._setup_database_connections()
+
+        # シグナル・スロット接続を設定
+        self._setup_signal_connections()
+
+        # 初期状態を設定
+        self._initialize_widget_states()
+
+        logger.info("Widget setup completed for AnnotationCoordinator")
+
+    def _setup_database_connections(self) -> None:
+        """各ウィジェットにデータベースマネージャーを設定"""
+        if self.status_filter_widget:
+            self.status_filter_widget.set_database_manager(self.db_manager)
+
+        if self.image_details_widget:
+            self.image_details_widget.set_database_manager(self.db_manager)
+
+        logger.debug("Database connections setup completed")
+
+    def _setup_signal_connections(self) -> None:
+        """ウィジェット間のシグナル・スロット接続を設定"""
+
+        # 1. アノテーション制御 → 結果表示の連携
+        if self.control_widget and self.results_widget:
+            self.control_widget.annotation_started.connect(self._on_annotation_started)
+            self.control_widget.annotation_completed.connect(self._on_annotation_completed)
+            self.control_widget.annotation_error.connect(self._on_annotation_error)
+
+        # 2. 状態フィルター → サムネイル表示の連携
+        if self.status_filter_widget and self.thumbnail_selector_widget:
+            self.status_filter_widget.filter_changed.connect(
+                self.thumbnail_selector_widget.apply_annotation_filters
+            )
+
+        # 3. サムネイル選択 → 画像詳細表示の連携
+        if self.thumbnail_selector_widget and self.image_details_widget:
+            self.thumbnail_selector_widget.imageSelected.connect(self._on_image_selected)
+
+        # 4. サムネイル選択 → 既存アノテーション結果の連携
+        if self.thumbnail_selector_widget and self.results_widget:
+            self.thumbnail_selector_widget.imageSelected.connect(self._on_image_selected_for_results)
+
+        # 5. 画像詳細の評価変更 → サムネイル表示更新の連携
+        if self.image_details_widget and self.thumbnail_selector_widget:
+            self.image_details_widget.rating_updated.connect(
+                self.thumbnail_selector_widget.update_image_rating
+            )
+            self.image_details_widget.score_updated.connect(
+                self.thumbnail_selector_widget.update_image_score
+            )
+
+        logger.debug("Signal connections setup completed")
+
+    def _initialize_widget_states(self) -> None:
+        """ウィジェットの初期状態を設定"""
+        # アノテーション状態フィルターの初期更新
+        if self.status_filter_widget:
+            self.status_filter_widget.refresh_status_counts()
+
+        # 初期ワークフロー状態の通知
+        self.workflow_state_changed.emit(self.workflow_state)
+
+        logger.debug("Widget initial states setup completed")
+
+    @Slot(list)
+    def _on_annotation_started(self, selected_models: list[str]) -> None:
+        """アノテーション開始時の処理"""
+        self.workflow_state.is_running = True
+        self.workflow_state.selected_models = selected_models.copy()
+
+        # 結果表示をクリア
+        if self.results_widget:
+            self.results_widget.clear_all_results()
+
+        # UI状態を更新（実行中）
+        self._update_ui_for_running_state(True)
+
+        # 統合シグナル発行
+        self.annotation_batch_started.emit(selected_models)
+        self.workflow_state_changed.emit(self.workflow_state)
+
+        logger.info(f"Annotation batch started with {len(selected_models)} models")
+
+    @Slot(dict)
+    def _on_annotation_completed(self, results: dict[str, Any]) -> None:
+        """アノテーション完了時の処理"""
+        self.workflow_state.is_running = False
+        self.workflow_state.current_results = results.copy()
+
+        # 結果表示を更新
+        if self.results_widget:
+            self.results_widget.display_annotation_results(results)
+
+        # アノテーション状態統計を更新
+        if self.status_filter_widget:
+            self.status_filter_widget.refresh_status_counts()
+
+        # UI状態を更新（完了）
+        self._update_ui_for_running_state(False)
+
+        # 統合シグナル発行
+        self.annotation_batch_completed.emit(results)
+        self.workflow_state_changed.emit(self.workflow_state)
+
+        logger.info("Annotation batch completed successfully")
+
+    @Slot(str)
+    def _on_annotation_error(self, error_message: str) -> None:
+        """アノテーションエラー時の処理"""
+        self.workflow_state.is_running = False
+
+        # エラー状態をUI に反映
+        if self.results_widget:
+            self.results_widget.display_error_message(error_message)
+
+        # UI状態を更新（エラー完了）
+        self._update_ui_for_running_state(False)
+
+        # 統合シグナル発行
+        self.annotation_batch_error.emit(error_message)
+        self.workflow_state_changed.emit(self.workflow_state)
+
+        logger.error(f"Annotation batch error: {error_message}")
+
+    @Slot(dict)
+    def _on_image_selected(self, image_data: dict[str, Any]) -> None:
+        """画像選択時の画像詳細表示処理"""
+        image_id = image_data.get("id")
+        if image_id is not None:
+            self.workflow_state.selected_image_id = image_id
+
+            # 画像詳細表示を更新
+            if self.image_details_widget:
+                self.image_details_widget.update_image_details(image_data)
+
+            # ワークフロー状態変更を通知
+            self.workflow_state_changed.emit(self.workflow_state)
+
+            logger.debug(f"Image selected: ID={image_id}")
+
+    @Slot(dict)
+    def _on_image_selected_for_results(self, image_data: dict[str, Any]) -> None:
+        """画像選択時の既存アノテーション結果表示処理"""
+        image_id = image_data.get("id")
+        if image_id is not None and self.results_widget:
+            # 既存のアノテーション結果を取得・表示
+            try:
+                existing_results = self._load_existing_annotations(image_id)
+                if existing_results:
+                    self.results_widget.load_existing_annotations(existing_results)
+                else:
+                    self.results_widget.clear_all_results()
+            except Exception as e:
+                logger.warning(f"Failed to load existing annotations for image {image_id}: {e}")
+
+    def _update_ui_for_running_state(self, is_running: bool) -> None:
+        """実行状態に応じたUI更新"""
+        # アノテーション制御ウィジェットの状態更新
+        if self.control_widget:
+            self.control_widget.set_batch_running_state(is_running)
+
+        # その他のウィジェットの操作制限
+        widgets_to_disable = [
+            self.status_filter_widget,
+            self.image_details_widget,
+        ]
+
+        for widget in widgets_to_disable:
+            if widget:
+                widget.setEnabled(not is_running)
+
+    def _load_existing_annotations(self, image_id: int) -> dict[str, Any] | None:
+        """既存のアノテーション結果を読み込み"""
+        try:
+            # データベースから既存アノテーションを取得
+            annotations = self.db_manager.get_annotations_by_image_id(image_id)
+
+            if not annotations:
+                return None
+
+            # 結果表示用フォーマットに変換
+            formatted_results = {"captions": [], "tags": [], "scores": []}
+
+            # キャプション情報
+            if "captions" in annotations:
+                for caption in annotations["captions"]:
+                    formatted_results["captions"].append(
+                        {
+                            "model": caption.get("model_name", "Unknown"),
+                            "caption": caption.get("content", ""),
+                            "confidence": caption.get("confidence", 0.0),
+                        }
+                    )
+
+            # タグ情報
+            if "tags" in annotations:
+                for tag_group in annotations["tags"]:
+                    formatted_results["tags"].append(
+                        {
+                            "model": tag_group.get("model_name", "Unknown"),
+                            "tags": tag_group.get("content", "").split(", "),
+                            "confidence": [1.0] * len(tag_group.get("content", "").split(", ")),
+                        }
+                    )
+
+            # スコア情報
+            if "scores" in annotations:
+                for score in annotations["scores"]:
+                    formatted_results["scores"].append(
+                        {
+                            "model": score.get("model_name", "Unknown"),
+                            "score": score.get("value", 0.0),
+                            "type": score.get("score_type", "unknown"),
+                        }
+                    )
+
+            return formatted_results
+
+        except Exception as e:
+            logger.error(f"Error loading existing annotations for image {image_id}: {e}")
+            return None
+
+    def refresh_all_widgets(self) -> None:
+        """全ウィジェットの表示を更新"""
+        if self.status_filter_widget:
+            self.status_filter_widget.refresh_status_counts()
+
+        if self.thumbnail_selector_widget:
+            self.thumbnail_selector_widget.refresh_thumbnails()
+
+        logger.debug("All widgets refreshed")
+
+    def get_current_state(self) -> AnnotationWorkflowState:
+        """現在のワークフロー状態を取得"""
+        return self.workflow_state
+
+    def reset_workflow(self) -> None:
+        """ワークフローをリセット"""
+        self.workflow_state = AnnotationWorkflowState()
+
+        # 全ウィジェットをリセット
+        if self.results_widget:
+            self.results_widget.clear_all_results()
+
+        if self.image_details_widget:
+            self.image_details_widget.clear_display()
+
+        # UI状態を更新
+        self._update_ui_for_running_state(False)
+
+        # 状態変更を通知
+        self.workflow_state_changed.emit(self.workflow_state)
+
+        logger.info("Annotation workflow reset")
