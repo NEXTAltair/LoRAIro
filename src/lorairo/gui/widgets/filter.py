@@ -27,14 +27,14 @@ class CustomRangeSlider(QWidget):
 
     valueChanged = Signal(int, int)  # 最小値と最大値の変更を通知するシグナル
 
-    def __init__(self, parent=None, min_value=0, max_value=100000):
+    def __init__(self, parent: QWidget | None = None, min_value: int = 0, max_value: int = 100000) -> None:
         super().__init__(parent)
         self.min_value = min_value
         self.max_value = max_value
         self.is_date_mode = False
         self.setup_ui()
 
-    def setup_ui(self):
+    def setup_ui(self) -> None:
         """CustomRangeSliderのユーザーインターフェースをセットアップします。
 
         このメソッドは、スライダーとラベルを初期化し、必要なシグナルを接続します。
@@ -51,7 +51,7 @@ class CustomRangeSlider(QWidget):
         """
         layout = QVBoxLayout(self)
 
-        self.slider = QDoubleRangeSlider(Qt.Orientation.Horizontal)
+        self.slider = QDoubleRangeSlider(Qt.Orientation.Horizontal) # type: ignore
         self.slider.setRange(0, 100)
         self.slider.setValue((0, 100))
 
@@ -69,7 +69,7 @@ class CustomRangeSlider(QWidget):
         self.slider.valueChanged.connect(self.update_labels)
 
     @Slot()
-    def update_labels(self):
+    def update_labels(self) -> None:
         min_val, max_val = self.slider.value()
         min_count = self.scale_to_value(min_val)
         max_count = self.scale_to_value(max_val)
@@ -86,7 +86,7 @@ class CustomRangeSlider(QWidget):
 
         self.valueChanged.emit(min_count, max_count)
 
-    def scale_to_value(self, value):
+    def scale_to_value(self, value: int) -> int:
         if value == 0:
             return self.min_value
         if value == 100:
@@ -96,18 +96,18 @@ class CustomRangeSlider(QWidget):
         log_value = log_min + (log_max - log_min) * (value / 100)
         return int(np.expm1(log_value))
 
-    def get_range(self):
+    def get_range(self) -> tuple[int, int]:
         min_val, max_val = self.slider.value()
         return (self.scale_to_value(min_val), self.scale_to_value(max_val))
 
-    def set_range(self, min_value, max_value):
+    def set_range(self, min_value: int, max_value: int) -> None:
         self.min_value = min_value
         self.max_value = max_value
         self.update_labels()
 
-    def set_date_range(self):
+    def set_date_range(self) -> None:
         # 開始日を2023年1月1日の0時に設定(UTC)
-        start_date = QDateTime(QDate(2023, 1, 1), QTime(0, 0), QTimeZone.UTC)
+        start_date = QDateTime(QDate(2023, 1, 1), QTime(0, 0), QTimeZone.OffsetFromUtc)
 
         # 終了日を現在の日付の23:59:59に設定(UTC)
         end_date = QDateTime.currentDateTimeUtc()
@@ -142,25 +142,26 @@ class FilterSearchPanel(QWidget, Ui_FilterSearchPanel):
 
     filterApplied = Signal(dict)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setupUi(self)
-        self.setup_date_range_slider()
-        self.setup_connections()
+        self.setupUi(self) # type: ignore
+        self.setup_date_range_slider() # type: ignore
+        self.setup_connections() # type: ignore
 
-    def setup_date_range_slider(self):
+    def setup_date_range_slider(self) -> None:
         """日付範囲スライダーをセットアップします。"""
         # プレースホルダーラベルを実際のCustomRangeSliderに置き換え
         self.date_range_slider = CustomRangeSlider(self, min_value=0, max_value=100000)
-        self.date_range_slider.set_date_range()
+        self.date_range_slider.set_date_range() # type: ignore
 
         layout = self.frameDateRange.layout()
-        if self.dateRangeSliderPlaceholder:
+        if layout is not None and self.dateRangeSliderPlaceholder:
             layout.removeWidget(self.dateRangeSliderPlaceholder)
             self.dateRangeSliderPlaceholder.deleteLater()
-        layout.addWidget(self.date_range_slider)
+        if layout is not None:
+            layout.addWidget(self.date_range_slider)
 
-    def setup_connections(self):
+    def setup_connections(self) -> None:
         """シグナル・スロット接続をセットアップします。"""
         # カスタム解像度表示の切り替え
         self.comboResolution.currentTextChanged.connect(self.toggle_custom_resolution)
@@ -170,16 +171,16 @@ class FilterSearchPanel(QWidget, Ui_FilterSearchPanel):
         self.buttonApply.clicked.connect(self.on_apply_filter)
         self.buttonClear.clicked.connect(self.on_clear_filter)
 
-    def toggle_custom_resolution(self, text):
+    def toggle_custom_resolution(self, text: str) -> None:
         """カスタム解像度フレームの表示を切り替えます。"""
         self.frameCustomResolution.setVisible(text == "カスタム...")
 
-    def on_apply_filter(self):
+    def on_apply_filter(self) -> None:
         """フィルター条件を取得してシグナルを発行します。"""
         conditions = self.get_filter_conditions()
         self.filterApplied.emit(conditions)
 
-    def on_clear_filter(self):
+    def on_clear_filter(self) -> None:
         """すべてのフィルター条件をクリアします。"""
         self.lineEditSearch.clear()
         self.radioTags.setChecked(True)
@@ -193,7 +194,7 @@ class FilterSearchPanel(QWidget, Ui_FilterSearchPanel):
         self.checkboxIncludeNSFW.setChecked(False)
         self.textEditPreview.clear()
 
-    def get_filter_conditions(self):
+    def get_filter_conditions(self) -> dict[str, Any]:
         """現在のフィルター条件を辞書として返します。"""
         # 解像度処理
         resolution_text = self.comboResolution.currentText()
@@ -235,7 +236,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
 
     # 統合フィルター・検索パネルをテスト
-    widget = FilterSearchPanel()
+    widget = FilterSearchPanel() # type: ignore
     widget.setWindowTitle("統合フィルター・検索パネル")
     widget.show()
 

@@ -11,11 +11,11 @@ class ImageAnalyzer:
     画像分析タスクを実行
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.tag_cleaner = TagCleaner()
         self.format_name = "unknown"
 
-    def initialize(self, models_config: tuple[dict, dict]):
+    def initialize(self, models_config: tuple[dict, dict]) -> None:
         """
         ImageAnalyzerクラスのコンストラクタ。
 
@@ -25,7 +25,7 @@ class ImageAnalyzer:
         """
         self.vision_models, self.score_models = models_config
 
-    def get_batch_analysis(self, batch_results: dict[str, str], processed_path: Path):
+    def get_batch_analysis(self, batch_results: dict[str, str], processed_path: Path) -> dict | None:
         """
         バッチ処理結果から指定された画像の分析結果を取得します。
 

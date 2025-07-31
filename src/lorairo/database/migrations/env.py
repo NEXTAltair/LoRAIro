@@ -41,7 +41,7 @@ target_metadata = Base.metadata  # Set your Base's metadata here
 
 
 # --- Function to ignore tag_db schema objects ---
-def include_object(object, name, type_, reflected, compare_to):
+def include_object(object: Any, name: str, type_: str, reflected: bool, compare_to: Any) -> bool:
     """Exclude objects belonging to the 'tag_db' schema from comparison."""
     # Only check schema for tables
     if type_ == "table" and hasattr(object, "schema") and object.schema == "tag_db":

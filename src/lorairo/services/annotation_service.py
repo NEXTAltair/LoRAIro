@@ -14,9 +14,9 @@ def run_annotation_task(
     images: list[Image],
     phash_list: list[str],
     models: list[str],
-    progress_callback=None,
-    status_callback=None,
-    is_canceled=None,
+    progress_callback: Any = None,
+    status_callback: Any = None,
+    is_canceled: Any = None,
 ) -> PHashAnnotationResults:
     """
     AIアノテーションライブラリを呼び出す関数。

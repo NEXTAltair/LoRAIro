@@ -22,13 +22,12 @@ class ConfigurationService:
         self._config_path = config_path or DEFAULT_CONFIG_PATH
 
         if shared_config is not None:
-            # 共有設定オブジェクトを使用（参照渡し）
             self._config = shared_config
             logger.debug("共有設定オブジェクトを使用してConfigurationServiceを初期化しました")
         else:
-            # 新規設定読み込みまたはデフォルト設定ファイル作成
+            self._config = {} # Initialize _config here
             try:
-                self._config: dict[str, Any] = get_config(self._config_path)
+                self._config = get_config(self._config_path)
                 logger.info("設定ファイルを読み込みました: %s", self._config_path)
             except FileNotFoundError:
                 logger.warning(
@@ -112,16 +111,16 @@ class ConfigurationService:
 
     def get_image_processing_config(self) -> dict[str, Any]:
         """image_processing セクションの設定を取得します。"""
-        return self._config.get("image_processing", {})
+        return self._config.get("image_processing", {}) # type: ignore
 
     def get_preferred_resolutions(self) -> list[tuple[int, int]]:
         """preferred_resolutions の設定を取得します。"""
-        return self._config.get("preferred_resolutions", [])
+        return self._config.get("preferred_resolutions", []) # type: ignore
 
     def get_upscaler_models(self) -> list[dict[str, Any]]:
         """upscaler_models の設定を取得します。"""
         # 型安全のため、リスト内の要素が dict であることを期待する
-        return self._config.get("upscaler_models", [])
+        return self._config.get("upscaler_models", []) # type: ignore
 
     def get_upscaler_model_by_name(self, name: str) -> dict[str, Any] | None:
         """指定された名前のアップスケーラーモデル設定を取得します。"""
@@ -140,12 +139,12 @@ class ConfigurationService:
         # image_processing.upscaler または最初のモデル名を返す
         default_name = self.get_setting("image_processing", "upscaler", "")
         if default_name:
-            return default_name
+            return str(default_name) # type: ignore
 
         # フォールバック: 最初のモデル名
         models = self.get_upscaler_models()
         if models:
-            return models[0].get("name", "")
+            return str(models[0].get("name", "")) # type: ignore
 
         return "RealESRGAN_x4plus"  # 最終フォールバック
 

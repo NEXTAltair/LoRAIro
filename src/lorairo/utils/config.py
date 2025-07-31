@@ -96,7 +96,7 @@ DEFAULT_CONFIG = {
 }
 
 
-def load_config(config_file: Path = DEFAULT_CONFIG_PATH) -> dict:
+def load_config(config_file: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
     try:
         # TOMLファイルの読み込み
         with open(config_file, encoding="utf-8") as f:
@@ -134,7 +134,7 @@ def deep_update(d: dict[str, Any], u: dict[str, Any]) -> dict[str, Any]:
     return d
 
 
-def get_config(config_file: Path = DEFAULT_CONFIG_PATH) -> dict:
+def get_config(config_file: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
     final_config = deepcopy(DEFAULT_CONFIG)
     try:
         loaded_config = load_config(config_file)
@@ -145,7 +145,7 @@ def get_config(config_file: Path = DEFAULT_CONFIG_PATH) -> dict:
     return final_config
 
 
-def write_config_file(config_data: dict[str, Any], file_path: Path = DEFAULT_CONFIG_PATH):
+def write_config_file(config_data: dict[str, Any], file_path: Path = DEFAULT_CONFIG_PATH) -> None:
     """設定をファイルに保存します。"""
     try:
         with open(file_path, "w", encoding="utf-8") as f:

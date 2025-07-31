@@ -39,9 +39,9 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     data_loaded = Signal(AnnotationData)  # データロード完了
     data_cleared = Signal()  # データクリア完了
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setupUi(self)
+        self.setupUi(self) # type: ignore
 
         # 現在のデータ
         self.current_data: AnnotationData = AnnotationData()

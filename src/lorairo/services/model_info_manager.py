@@ -204,11 +204,11 @@ class ModelInfoManager:
             for model in models:
                 # プロバイダー別集計
                 provider = model["provider"] or "local"
-                stats["providers"][provider] = stats["providers"].get(provider, 0) + 1
+                stats["providers"][provider] = int(stats["providers"].get(provider, 0)) + 1
 
                 # モデルタイプ別集計
                 model_type = model["model_type"]
-                stats["model_types"][model_type] = stats["model_types"].get(model_type, 0) + 1
+                stats["model_types"][model_type] = int(stats["model_types"].get(model_type, 0)) + 1
 
                 # APIキー・ローカルモデル集計
                 if model["requires_api_key"]:
@@ -298,7 +298,7 @@ class ModelInfoManager:
                 return False
 
             # 設定サービスからAPIキー設定をチェック
-            config = self.config_service.get_config()
+            config = cast(dict[str, Any], self.config_service.get_all_settings())
             api_config = config.get("api", {})
 
             api_key_mapping = {

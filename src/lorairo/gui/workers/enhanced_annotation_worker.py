@@ -17,7 +17,7 @@ from ...utils.log import logger
 from .base import LoRAIroWorkerBase
 
 
-class EnhancedAnnotationWorker(LoRAIroWorkerBase):
+class EnhancedAnnotationWorker(LoRAIroWorkerBase[Any]):
     """拡張アノテーションワーカー
 
     Phase 2: EnhancedAnnotationService統合版

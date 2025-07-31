@@ -85,7 +85,7 @@ class ImageRepository:
                 result = session.execute(stmt).scalar_one_or_none()
                 if result is None:
                     logger.warning(f"モデル名 '{model_name}' がデータベースに見つかりません。")
-                return result
+                return cast(int | None, result)
             except SQLAlchemyError as e:
                 logger.error(f"モデルIDの取得中にエラーが発生しました: {e}", exc_info=True)
                 raise
@@ -418,7 +418,7 @@ class ImageRepository:
             # 必要であれば raise するように変更も可能
             return None
 
-    def _save_tags(self, session: Session, image_id: int, tags_data: list[TagAnnotationData]):
+    def _save_tags(self, session: Session, image_id: int, tags_data: list[TagAnnotationData]) -> None:
         """タグ情報を保存・更新 (Upsert)"""
         logger.debug(f"Saving/Updating {len(tags_data)} tags for image_id {image_id}")
 
@@ -446,7 +446,7 @@ class ImageRepository:
                 existing_record.tag_id = external_tag_id
                 existing_record.confidence_score = confidence
                 existing_record.existing = is_existing_tag
-                existing_record.is_edited_manually = cast(bool | None, tag_info.get("is_edited_manually"))
+                existing_record.is_edited_manually = tag_info.get("is_edited_manually")
             else:
                 # 新規作成
                 logger.debug(f"Adding new tag: tag='{tag_string}'")
@@ -457,14 +457,12 @@ class ImageRepository:
                     tag_id=external_tag_id,
                     confidence_score=confidence,
                     existing=is_existing_tag,
-                    is_edited_manually=cast(
-                        bool | None, tag_info.get("is_edited_manually")
-                    ),  # 渡された値を使用 (Nullable)
+                    is_edited_manually=tag_info.get("is_edited_manually"),
                 )
                 session.add(new_tag)
                 existing_tags_map[(tag_string, model_id)] = new_tag
 
-    def _save_captions(self, session: Session, image_id: int, captions_data: list[CaptionAnnotationData]):
+    def _save_captions(self, session: Session, image_id: int, captions_data: list[CaptionAnnotationData]) -> None:
         """キャプション情報を保存・更新 (Upsert)"""
         logger.debug(f"Saving/Updating {len(captions_data)} captions for image_id {image_id}")
 
@@ -485,9 +483,7 @@ class ImageRepository:
                 # 更新
                 logger.debug(f"Updating existing caption: id={existing_record.id}")
                 existing_record.existing = is_existing_caption
-                existing_record.is_edited_manually = cast(
-                    bool | None, caption_info.get("is_edited_manually")
-                )  # 渡された値を使用 (Nullable)
+                existing_record.is_edited_manually = caption_info.get("is_edited_manually")  # 渡された値を使用 (Nullable)
             else:
                 # 新規作成
                 logger.debug(f"Adding new caption: caption='{caption_string[:20]}...'")
@@ -496,14 +492,12 @@ class ImageRepository:
                     model_id=model_id,
                     caption=caption_string,
                     existing=is_existing_caption,
-                    is_edited_manually=cast(
-                        bool | None, caption_info.get("is_edited_manually")
-                    ),  # 渡された値を使用 (Nullable)
+                    is_edited_manually=caption_info.get("is_edited_manually"),
                 )
                 session.add(new_caption)
                 existing_captions_map[(caption_string, model_id)] = new_caption
 
-    def _save_scores(self, session: Session, image_id: int, scores_data: list[ScoreAnnotationData]):
+    def _save_scores(self, session: Session, image_id: int, scores_data: list[ScoreAnnotationData]) -> None:
         """スコア情報を保存・更新 (Upsert)"""
         logger.debug(f"Saving/Updating {len(scores_data)} scores for image_id {image_id}")
 
@@ -516,9 +510,7 @@ class ImageRepository:
         for score_info in scores_data:
             model_id = score_info["model_id"]
             score_value = score_info["score"]
-            is_edited = cast(
-                bool, score_info.get("is_edited_manually", False)
-            )  # TypedDictから値を取得(デフォルトFalse)
+            is_edited = score_info.get("is_edited_manually", False)
 
             existing_record = existing_scores_map.get(model_id)
 
@@ -539,7 +531,7 @@ class ImageRepository:
                 session.add(new_score)
                 existing_scores_map[model_id] = new_score
 
-    def _save_ratings(self, session: Session, image_id: int, ratings_data: list[RatingAnnotationData]):
+    def _save_ratings(self, session: Session, image_id: int, ratings_data: list[RatingAnnotationData]) -> None:
         """レーティング情報を保存・更新 (Upsert)"""
         logger.debug(f"Saving/Updating {len(ratings_data)} ratings for image_id {image_id}")
 
@@ -1240,11 +1232,7 @@ class ImageRepository:
         """
         with self.session_factory() as session:
             try:
-                stmt = (
-                    select(Model)
-                    .options(selectinload(Model.model_types))  # Eager load types
-                    .order_by(Model.name)  # 名前順でソート
-                )
+                stmt = select(Model).options(selectinload(Model.model_types)).order_by(Model.name)
 
                 models_result: list[Model] = list(session.execute(stmt).scalars().unique().all())
 
@@ -1286,14 +1274,7 @@ class ImageRepository:
 
         with self.session_factory() as session:
             try:
-                stmt = (
-                    select(Model)
-                    .join(Model.model_types)
-                    .where(ModelType.name == model_type_name)
-                    .options(selectinload(Model.model_types))  # タイプ情報もロード
-                    .order_by(Model.name)
-                    .distinct()  # JOINによる重複を除去
-                )
+                stmt = select(Model).join(Model.model_types).where(ModelType.name == model_type_name).options(selectinload(Model.model_types)).order_by(Model.name).distinct()
 
                 models_result: list[Model] = list(session.execute(stmt).scalars().all())
 

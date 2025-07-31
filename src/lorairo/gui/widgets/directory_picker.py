@@ -12,10 +12,10 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
     # 有効なディレクトリパスが確定した時のみ発信される検証済みシグナル
     validDirectorySelected = Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setupUi(self)
-        self.set_label_text("フォルダを選択")
+        self.setupUi(self) # type: ignore
+        self.set_label_text("フォルダを選択") # type: ignore
 
         self.DirectoryPicker.pushButtonPicker.clicked.connect(self.select_folder)
         self.DirectoryPicker.comboBoxHistory.currentIndexChanged.connect(self.on_history_item_selected)
@@ -24,19 +24,19 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
         self.DirectoryPicker.lineEditPicker.returnPressed.connect(self._validate_and_emit)
         self.DirectoryPicker.lineEditPicker.editingFinished.connect(self._validate_and_emit)
 
-    def select_folder(self):
+    def select_folder(self) -> None:
         dir_path = QFileDialog.getExistingDirectory(self, "フォルダを選択")
         if dir_path:
             self.DirectoryPicker.lineEditPicker.setText(dir_path)
-            self.DirectoryPicker.update_history(dir_path)  # 呼び出すメソッド名を修正
+            self.DirectoryPicker.update_history(dir_path)  # type: ignore
             logger.debug(f"フォルダが選択: {dir_path}")
             # ダイアログで選択されたパスは確実に有効なので即座に発信
             self.validDirectorySelected.emit(dir_path)
 
-    def on_history_item_selected(self, index):
+    def on_history_item_selected(self, index: int) -> None:
         """履歴項目が選択されたときの処理"""
         selected_path = self.DirectoryPicker.comboBoxHistory.itemData(
-            index, Qt.ToolTipRole
+            index, Qt.ItemDataRole.ToolTipRole
         )  # ツールチップデータ (フルパス) を取得
         if selected_path:  # None チェック追加
             self.DirectoryPicker.lineEditPicker.setText(selected_path)
@@ -45,7 +45,7 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
             if self._quick_validation_check(selected_path):
                 self.validDirectorySelected.emit(selected_path)
 
-    def _validate_and_emit(self):
+    def _validate_and_emit(self) -> None:
         """手動入力パスを検証し、有効な場合のみシグナルを発信"""
         current_path = self.DirectoryPicker.lineEditPicker.text().strip()
 
@@ -121,16 +121,16 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
             logger.error(f"ディレクトリ検証中にエラー: {directory_path} - {e}")
             return False
 
-    def set_label_text(self, text):
+    def set_label_text(self, text: str) -> None:
         self.DirectoryPicker.set_label_text(text)
 
-    def get_selected_path(self):
+    def get_selected_path(self) -> str:
         return self.DirectoryPicker.lineEditPicker.text()
 
-    def set_path(self, path):
+    def set_path(self, path: str) -> None:
         self.DirectoryPicker.lineEditPicker.setText(path)
 
-    def on_path_changed(self, new_path):
+    def on_path_changed(self, new_path: str) -> None:
         print(f"Selected directory changed: {new_path}")
 
 
@@ -143,7 +143,7 @@ if __name__ == "__main__":
     import sys
 
     app = QApplication(sys.argv)
-    widget = DirectoryPickerWidget()
-    widget.set_label_text("Select Folder")
+    widget = DirectoryPickerWidget() # type: ignore
+    widget.set_label_text("Select Folder") # type: ignore
     widget.show()
     sys.exit(app.exec())

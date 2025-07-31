@@ -27,28 +27,27 @@ class FileSystemManager:
         ".webp",
     ]
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.initialized = False
-        self.image_extensions = FileSystemManager.image_extensions
-        self.image_dataset_dir = None
-        self.resolution_dir = None
-        self.original_images_dir = None
-        self.resized_images_dir = None
-        self.batch_request_dir = None
+        self.image_dataset_dir: Path | None = None
+        self.resolution_dir: Path | None = None
+        self.original_images_dir: Path | None = None
+        self.resized_images_dir: Path | None = None
+        self.batch_request_dir: Path | None = None
         logger.debug("初期化")
 
-    def __enter__(self):
+    def __enter__(self) -> 'FileSystemManager':
         if not self.initialized:
             raise RuntimeError("FileSystemManagerが初期化されていません。")
         return self
 
-    def __exit__(self, exc_type, exc_val, _):
+    def __exit__(self, exc_type: Any, exc_val: Any, traceback: Any) -> Literal[False]:
         if exc_type is not None:
             # 例外が発生した場合のログ記録
             logger.error("FileSystemManager使用中にエラーが発生: %s", exc_val)
         return False  # 例外を伝播させる
 
-    def initialize(self, output_dir: Path):
+    def initialize(self, output_dir: Path) -> None:
         """
         FileSystemManagerを初期化｡ 基本的なディレクトリ構造のみ作成
 
@@ -103,7 +102,7 @@ class FileSystemManager:
 
         return resized_images_dir
 
-    def _create_directory(self, path: str | Path):
+    def _create_directory(self, path: str | Path) -> None:
         """
         指定されたパスにディレクトリがなければ作成｡
 
@@ -163,7 +162,7 @@ class FileSystemManager:
             icc_profile = img.info.get("icc_profile")
             if icc_profile:
                 profile = ImageCms.ImageCmsProfile(BytesIO(icc_profile))
-                color_space = ImageCms.getProfileName(profile).strip()
+                color_space = ImageCms.getProfileName(profile).strip() # type: ignore
 
             return {
                 "width": width,
@@ -240,7 +239,7 @@ class FileSystemManager:
             raise
 
     @staticmethod
-    def copy_file(src: Path, dst: Path, buffer_size: int = 64 * 1024 * 1024):  # デフォルト64MB
+    def copy_file(src: Path, dst: Path, buffer_size: int = 64 * 1024 * 1024) -> None:  # デフォルト64MB
         """
         ファイルをコピーする独自の関数。
         異なるドライブ間でのコピーにも対応。
@@ -275,7 +274,9 @@ class FileSystemManager:
         try:
             # 保存先のディレクトリパスを生成
             parent_name = image_file.parent.name
-            save_dir = self.original_images_dir / parent_name  # type: ignore
+            if self.original_images_dir is None:
+                raise RuntimeError("original_images_dir is not set. Call initialize() first.")
+            save_dir = self.original_images_dir / parent_name
             self._create_directory(save_dir)
             # 新しいファイル名を生成(元のファイル名を保持)
             new_filename = image_file.name
@@ -303,10 +304,12 @@ class FileSystemManager:
         Returns:
             Path: 作成されたJSONLファイルのパス
         """
-        batch_request = self.batch_request_dir / "batch_request.jsonl"  # type: ignore
+        if self.batch_request_dir is None:
+            raise RuntimeError("batch_request_dir is not set. Call initialize() first.")
+        batch_request = self.batch_request_dir / "batch_request.jsonl"
         return batch_request
 
-    def save_batch_request(self, file_path: Path, data: dict[str, Any]):
+    def save_batch_request(self, file_path: Path, data: dict[str, Any]) -> None:
         """バッチリクエストデータをJSONLファイルとして保存します。
 
         Args:
@@ -341,7 +344,7 @@ class FileSystemManager:
                 f.writelines(lines[i * lines_per_file : (i + 1) * lines_per_file])
 
     @staticmethod
-    def export_dataset_to_txt(image_data: dict, save_dir: Path, mearge_caption: bool = False):
+    def export_dataset_to_txt(image_data: dict[str, Any], save_dir: Path, mearge_caption: bool = False) -> None:
         """学習用データセットをテキスト形式で指定ディレクトリに出力する
 
         Args:
@@ -364,7 +367,7 @@ class FileSystemManager:
         FileSystemManager.copy_file(image_path, save_dir / image_path.name)
 
     @staticmethod
-    def export_dataset_to_json(image_data: dict, save_dir: Path):
+    def export_dataset_to_json(image_data: dict[str, Any], save_dir: Path) -> None:
         """学習用データセットをJSON形式で指定ディレクトリに出力する
 
         Args:

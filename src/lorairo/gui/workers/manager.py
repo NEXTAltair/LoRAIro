@@ -24,7 +24,7 @@ class WorkerManager(QObject):
 
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
-        self.active_workers: dict[str, dict] = {}
+        self.active_workers: dict[str, dict[str, Any]] = {}
         logger.debug("WorkerManager initialized")
 
     # === Worker Management ===
@@ -32,7 +32,7 @@ class WorkerManager(QObject):
     def start_worker(
         self,
         worker_id: str,
-        worker: LoRAIroWorkerBase,
+        worker: LoRAIroWorkerBase[Any],
         auto_cleanup: bool = True,
     ) -> bool:
         """
@@ -133,7 +133,7 @@ class WorkerManager(QObject):
         """アクティブワーカーIDリストを取得"""
         return list(self.active_workers.keys())
 
-    def get_worker(self, worker_id: str) -> LoRAIroWorkerBase | None:
+    def get_worker(self, worker_id: str) -> LoRAIroWorkerBase[Any] | None:
         """ワーカーインスタンスを取得"""
         worker_info = self.active_workers.get(worker_id)
         return worker_info["worker"] if worker_info else None
@@ -180,7 +180,7 @@ class WorkerManager(QObject):
 
     # === Private Event Handlers ===
 
-    def _on_worker_finished(self, worker_id: str, result) -> None:
+    def _on_worker_finished(self, worker_id: str, result: Any) -> None:
         """ワーカー完了イベントハンドラー"""
         if worker_id in self.active_workers:
             worker_info = self.active_workers.pop(worker_id)
@@ -244,7 +244,7 @@ class WorkerManager(QObject):
 
         return True
 
-    def get_worker_summary(self) -> dict[str, any]:
+    def get_worker_summary(self) -> dict[str, Any]:
         """ワーカー状態サマリーを取得"""
         return {
             "active_worker_count": len(self.active_workers),

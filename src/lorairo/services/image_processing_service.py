@@ -136,6 +136,7 @@ class ImageProcessingService:
 
         # --- 1. DBチェックとオリジナル画像登録 (元 process_image の前半) ---
         image_id = self.idm.detect_duplicate_image(image_file)
+        original_image_metadata: dict[str, Any]
         if not image_id:
             logger.debug(f"{image_file.name}: DBに未登録。新規登録します。")
             # register_original_image の戻り値をチェック
@@ -144,14 +145,15 @@ class ImageProcessingService:
                 logger.error(f"{image_file.name}: DBへの新規登録に失敗しました。")
                 # エラー処理: ここで処理を中断するかどうか
                 raise RuntimeError(f"Failed to register original image: {image_file.name}")
-            image_id, original_image_metadata_maybe = registration_result
+            original_image_metadata_maybe = registration_result[1]
+            image_id = registration_result[0]
             # 戻り値が None でないことを確認してから代入
             if image_id is None or original_image_metadata_maybe is None:
                 logger.error(
                     f"{image_file.name}: DBへの新規登録後、有効なIDまたはメタデータが取得できませんでした。"
                 )
                 raise RuntimeError(f"Failed to get valid data after registering: {image_file.name}")
-            original_image_metadata: dict[str, Any] = original_image_metadata_maybe
+            original_image_metadata = original_image_metadata_maybe
         else:
             logger.debug(f"{image_file.name}: DBに登録済み (ID: {image_id})。メタデータを取得します。")
             # get_image_metadata の戻り値が None の可能性を考慮
@@ -160,7 +162,7 @@ class ImageProcessingService:
                 logger.error(f"{image_file.name} (ID: {image_id}): DBからメタデータの取得に失敗しました。")
                 # エラー処理: ここで処理を中断するかどうか
                 raise RuntimeError(f"Failed to get metadata from DB for image ID: {image_id}")
-            original_image_metadata: dict[str, Any] = metadata_maybe
+            original_image_metadata = metadata_maybe
 
         # --- 2. 既存アノテーションの処理 (元 process_image の中盤) ---
         # アノテーション処理は ImageAnalyzer サービス等に分離するのが望ましいが、

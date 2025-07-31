@@ -61,7 +61,7 @@ class HybridAnnotationController(QObject):
     ui_state_changed = Signal(object)  # AnnotationUIState
 
     def __init__(
-        self, db_repository: ImageRepository, config_service: ConfigurationService, parent: QObject = None
+        self, db_repository: ImageRepository, config_service: ConfigurationService, parent: QObject | None = None
     ):
         """HybridAnnotationController初期化
 
@@ -112,9 +112,8 @@ class HybridAnnotationController(QObject):
         try:
             # UIファイルをロード
             loader = QUiLoader()
-            ui_file = ui_file_path.open("r", encoding="utf-8")
-            self.hybrid_annotation_widget = loader.load(ui_file)
-            ui_file.close()
+            ui_file_content = ui_file_path.read_text(encoding="utf-8")
+            self.hybrid_annotation_widget = loader.load(ui_file_content)
 
             if not self.hybrid_annotation_widget:
                 raise RuntimeError("UIファイルのロードに失敗しました")
@@ -160,10 +159,10 @@ class HybridAnnotationController(QObject):
 
         # 制御ボタン
         self.model_selection_controls = {
-            "select_all": self.hybrid_annotation_widget.findChild(QPushButton, "pushButtonSelectAll"),
-            "deselect_all": self.hybrid_annotation_widget.findChild(QPushButton, "pushButtonDeselectAll"),
-            "recommended": self.hybrid_annotation_widget.findChild(QPushButton, "pushButtonRecommended"),
-            "execute": self.hybrid_annotation_widget.findChild(QPushButton, "pushButtonExecuteAnnotation"),
+            "select_all": cast(QPushButton, self.hybrid_annotation_widget.findChild(QPushButton, "pushButtonSelectAll")),
+            "deselect_all": cast(QPushButton, self.hybrid_annotation_widget.findChild(QPushButton, "pushButtonDeselectAll")),
+            "recommended": cast(QPushButton, self.hybrid_annotation_widget.findChild(QPushButton, "pushButtonRecommended")),
+            "execute": cast(QPushButton, self.hybrid_annotation_widget.findChild(QPushButton, "pushButtonExecuteAnnotation")),
         }
 
         logger.debug("UI要素参照設定完了")
@@ -648,13 +647,7 @@ class HybridAnnotationController(QObject):
                 model_name=model_name,
                 success=True,
                 processing_time=random.uniform(1.0, 5.0),
-                tags=["anime", "1girl", "blue_hair", "school_uniform", "smile"]
-                if random.choice([True, False])
-                else [],
-                caption="A young anime girl with blue hair wearing a school uniform"
-                if random.choice([True, False])
-                else "",
-                score=random.uniform(0.6, 0.95) if random.choice([True, False]) else None,
+                content="Simulated content for " + model_name, # Add content field
                 timestamp=datetime.now(),
             )
         else:
@@ -663,6 +656,8 @@ class HybridAnnotationController(QObject):
                 success=False,
                 processing_time=random.uniform(0.5, 2.0),
                 error_message=f"API connection failed for {model_name}",
+                function_type="unknown", # Add function_type
+                content="", # Add content
                 timestamp=datetime.now(),
             )
 
