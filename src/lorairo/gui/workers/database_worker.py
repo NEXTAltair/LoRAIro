@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QPixmap
 
+from ...annotations.existing_file_reader import ExistingFileReader
 from ...utils.log import logger
 from .base import LoRAIroWorkerBase
 
@@ -36,6 +37,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         self.directory = directory
         self.db_manager = db_manager
         self.fsm = fsm
+        self.file_reader = ExistingFileReader()
 
     def execute(self) -> DatabaseRegistrationResult:
         """データベース登録処理を実行"""
@@ -133,60 +135,43 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             image_path: 画像ファイルのパス
             image_id: データベースの画像ID
         """
-        base_path = image_path.with_suffix("")  # 拡張子を除いたパス
+        annotations = self.file_reader.get_existing_annotations(image_path)
+        if not annotations:
+            return
 
-        # .txtファイル（タグ）の処理
-        txt_file = base_path.with_suffix(".txt")
-        if txt_file.exists():
-            try:
-                tags_content = txt_file.read_text(encoding="utf-8").strip()
-                if tags_content:
-                    # カンマ区切りのタグを分割
-                    tag_strings = [tag.strip() for tag in tags_content.split(",") if tag.strip()]
-                    if tag_strings:
-                        # TagAnnotationDataのリストを作成
-                        from ...database.db_repository import TagAnnotationData
+        tags = annotations.get("tags", [])
+        if tags:
+            from ...database.db_repository import TagAnnotationData
 
-                        tags_data: list[TagAnnotationData] = []
-                        for tag_string in tag_strings:
-                            tag_data: TagAnnotationData = {
-                                "tag_id": None,  # 新規タグとして追加
-                                "model_id": None,  # ファイルからの読み込みなのでモデルなし
-                                "tag": tag_string,
-                                "confidence_score": None,
-                                "existing": True,  # ファイルから読み込んだ既存タグ
-                                "is_edited_manually": False,
-                            }
-                            tags_data.append(tag_data)
+            tags_data: list[TagAnnotationData] = [
+                {
+                    "tag_id": None,
+                    "model_id": None,
+                    "tag": tag,
+                    "confidence_score": None,
+                    "existing": True,
+                    "is_edited_manually": False,
+                }
+                for tag in tags
+            ]
+            self.db_manager.save_tags(image_id, tags_data)
+            logger.info(f"タグを追加: {image_path.name} - {len(tags)}個のタグ")
 
-                        self.db_manager.save_tags(image_id, tags_data)
-                        logger.info(f"タグを追加: {image_path.name} - {len(tag_strings)}個のタグ")
-                    else:
-                        logger.debug(f"タグファイルが空: {txt_file.name}")
-            except Exception as e:
-                logger.error(f"タグファイル読み込みエラー: {txt_file.name} - {e}")
+        captions = annotations.get("captions", [])
+        if captions:
+            from ...database.db_repository import CaptionAnnotationData
 
-        # .captionファイル（キャプション）の処理
-        caption_file = base_path.with_suffix(".caption")
-        if caption_file.exists():
-            try:
-                caption_content = caption_file.read_text(encoding="utf-8").strip()
-                if caption_content:
-                    # CaptionAnnotationDataを作成
-                    from ...database.db_repository import CaptionAnnotationData
-
-                    caption_data: CaptionAnnotationData = {
-                        "model_id": None,  # ファイルからの読み込みなのでモデルなし
-                        "caption": caption_content,
-                        "existing": False,  # 新規キャプション
-                        "is_edited_manually": False,
-                    }
-                    self.db_manager.save_captions(image_id, [caption_data])
-                    logger.info(f"キャプションを追加: {image_path.name}")
-                else:
-                    logger.debug(f"キャプションファイルが空: {caption_file.name}")
-            except Exception as e:
-                logger.error(f"キャプションファイル読み込みエラー: {caption_file.name} - {e}")
+            captions_data: list[CaptionAnnotationData] = [
+                {
+                    "model_id": None,
+                    "caption": caption,
+                    "existing": False,
+                    "is_edited_manually": False,
+                }
+                for caption in captions
+            ]
+            self.db_manager.save_captions(image_id, captions_data)
+            logger.info(f"キャプションを追加: {image_path.name}")
 
 
 @dataclass
@@ -255,69 +240,6 @@ class SearchWorker(LoRAIroWorkerBase[SearchResult]):
         logger.info(f"検索完了: {total_count}件, 処理時間={search_time:.3f}秒")
 
         return result
-
-    def _process_associated_files(self, image_path: Path, image_id: int) -> None:
-        """
-        画像ファイルに関連する.txtと.captionファイルを処理し、データベースに登録する
-
-        Args:
-            image_path: 画像ファイルのパス
-            image_id: データベースの画像ID
-        """
-        base_path = image_path.with_suffix("")  # 拡張子を除いたパス
-
-        # .txtファイル（タグ）の処理
-        txt_file = base_path.with_suffix(".txt")
-        if txt_file.exists():
-            try:
-                tags_content = txt_file.read_text(encoding="utf-8").strip()
-                if tags_content:
-                    # カンマ区切りのタグを分割
-                    tag_strings = [tag.strip() for tag in tags_content.split(",") if tag.strip()]
-                    if tag_strings:
-                        # TagAnnotationDataのリストを作成
-                        from ...database.db_repository import TagAnnotationData
-
-                        tags_data: list[TagAnnotationData] = []
-                        for tag_string in tag_strings:
-                            tag_data: TagAnnotationData = {
-                                "tag_id": None,  # 新規タグとして追加
-                                "model_id": None,  # ファイルからの読み込みなのでモデルなし
-                                "tag": tag_string,
-                                "confidence_score": None,
-                                "existing": True,  # ファイルから読み込んだ既存タグ
-                                "is_edited_manually": False,
-                            }
-                            tags_data.append(tag_data)
-
-                        self.db_manager.save_tags(image_id, tags_data)
-                        logger.info(f"タグを追加: {image_path.name} - {len(tag_strings)}個のタグ")
-                    else:
-                        logger.debug(f"タグファイルが空: {txt_file.name}")
-            except Exception as e:
-                logger.error(f"タグファイル読み込みエラー: {txt_file.name} - {e}")
-
-        # .captionファイル（キャプション）の処理
-        caption_file = base_path.with_suffix(".caption")
-        if caption_file.exists():
-            try:
-                caption_content = caption_file.read_text(encoding="utf-8").strip()
-                if caption_content:
-                    # CaptionAnnotationDataを作成
-                    from ...database.db_repository import CaptionAnnotationData
-
-                    caption_data: CaptionAnnotationData = {
-                        "model_id": None,  # ファイルからの読み込みなのでモデルなし
-                        "caption": caption_content,
-                        "existing": False,  # 新規キャプション
-                        "is_edited_manually": False,
-                    }
-                    self.db_manager.save_captions(image_id, [caption_data])
-                    logger.info(f"キャプションを追加: {image_path.name}")
-                else:
-                    logger.debug(f"キャプションファイルが空: {caption_file.name}")
-            except Exception as e:
-                logger.error(f"キャプションファイル読み込みエラー: {caption_file.name} - {e}")
 
 
 @dataclass

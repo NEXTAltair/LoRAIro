@@ -416,7 +416,7 @@ class TestSelectedImageDetailsWidget:
             details_widget.tableAnnotationHistory.clearContents()
             details_widget.tableAnnotationHistory.setRowCount(len(history))
 
-            for i, entry in enumerate(history):
+            for _i, _entry in enumerate(history):
                 # 各行のデータ設定をシミュレート
                 pass
 
@@ -545,7 +545,6 @@ class TestSelectedImageDetailsWidget:
                 return False, "エクスポートするアノテーションがありません"
 
             # エクスポート処理のシミュレート
-            export_data = {"tags": tags, "caption": caption, "rating": rating, "score": score}
 
             return True, f"アノテーションを {file_path} にエクスポートしました"
 

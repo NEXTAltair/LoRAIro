@@ -940,8 +940,6 @@ class ImageRepository:
         if not start_dt and not end_dt:
             return query
 
-        date_conditions: list[Any] = []
-
         # 画像自体の作成/更新日時のみを考慮
         img_date_conds = []
         if start_dt:
@@ -969,7 +967,7 @@ class ImageRepository:
             # use_and (AND検索) の場合、タグごとにJOIN条件を追加する
             if use_and:
                 logger.debug(f"Applying AND tag filter (EXISTS) for tags: {tags}")
-                for i, tag_term in enumerate(tags):
+                for _i, tag_term in enumerate(tags):
                     pattern, is_exact = self._prepare_like_pattern(tag_term)
                     # is_exact フラグに基づいて条件を選択
                     subquery_condition = (Tag.tag == pattern) if is_exact else Tag.tag.like(pattern)
@@ -1059,13 +1057,9 @@ class ImageRepository:
 
         if manual_edit_filter is not None:
             has_manual_edit = or_(
-                exists().where(Tag.image_id == Image.id, Tag.is_edited_manually == True).correlate(Image),
-                exists()
-                .where(Caption.image_id == Image.id, Caption.is_edited_manually == True)
-                .correlate(Image),
-                exists()
-                .where(Score.image_id == Image.id, Score.is_edited_manually == True)
-                .correlate(Image),
+                exists().where(Tag.image_id == Image.id, Tag.is_edited_manually).correlate(Image),
+                exists().where(Caption.image_id == Image.id, Caption.is_edited_manually).correlate(Image),
+                exists().where(Score.image_id == Image.id, Score.is_edited_manually).correlate(Image),
             )
 
             if manual_edit_filter:

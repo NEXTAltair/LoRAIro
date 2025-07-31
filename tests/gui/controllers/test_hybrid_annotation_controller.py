@@ -125,7 +125,7 @@ class TestHybridAnnotationController:
 
     def test_ui_state_updates(self, controller):
         """UI状態更新テスト"""
-        initial_state = controller.get_ui_state()
+        controller.get_ui_state()
 
         # 状態変更
         controller.ui_state.selected_models = ["model1", "model2"]

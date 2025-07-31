@@ -136,7 +136,7 @@ class ModelInfoManager:
                 provider = model["provider"] or "local"
                 providers.add(provider)
 
-            return sorted(list(providers))
+            return sorted(providers)
 
         except Exception as e:
             logger.error(f"プロバイダー一覧取得エラー: {e}")
@@ -155,7 +155,7 @@ class ModelInfoManager:
             for model in models:
                 model_types.add(model["model_type"])
 
-            return sorted(list(model_types))
+            return sorted(model_types)
 
         except Exception as e:
             logger.error(f"モデルタイプ一覧取得エラー: {e}")

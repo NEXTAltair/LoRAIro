@@ -334,7 +334,7 @@ class TestWorkerService:
             worker_service.worker_manager.start_worker.return_value = True
 
             # 検索開始
-            worker_id = worker_service.start_search({"tags": ["test"]})
+            worker_service.start_search({"tags": ["test"]})
 
             # 進捗信号接続の確認（connectメソッドが呼ばれることを確認）
             mock_worker.progress_updated.connect.assert_called()

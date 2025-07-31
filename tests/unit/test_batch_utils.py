@@ -159,7 +159,7 @@ class TestParseBatchResults:
             "error_id": None,  # None は json.loads で例外を発生させる可能性
         }
 
-        with patch("lorairo.services.batch_utils.logger") as mock_logger:
+        with patch("lorairo.services.batch_utils.logger"):
             result = parse_batch_results(results_dict)
 
         # エラーログが出力されることを確認

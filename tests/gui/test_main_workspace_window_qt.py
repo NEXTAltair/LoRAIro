@@ -52,7 +52,7 @@ class TestMainWorkspaceWindowStandard:
         with (
             patch("lorairo.gui.window.main_workspace_window.ConfigurationService") as mock_config_service,
             patch("lorairo.gui.window.main_workspace_window.FileSystemManager") as mock_fsm,
-            patch("lorairo.gui.window.main_workspace_window.ImageRepository") as mock_image_repo,
+            patch("lorairo.gui.window.main_workspace_window.ImageRepository"),
             patch("lorairo.gui.window.main_workspace_window.ImageDatabaseManager") as mock_db_manager,
             patch("lorairo.gui.window.main_workspace_window.WorkerService") as mock_worker_service,
             patch("lorairo.gui.window.main_workspace_window.DatasetStateManager") as mock_dataset_state,
@@ -61,7 +61,7 @@ class TestMainWorkspaceWindowStandard:
                 "lorairo.gui.window.main_workspace_window.ThumbnailSelectorWidget"
             ) as mock_thumbnail_widget,
             patch("lorairo.gui.window.main_workspace_window.PreviewDetailPanel") as mock_preview_panel,
-            patch("lorairo.gui.window.main_workspace_window.DefaultSessionLocal") as mock_session,
+            patch("lorairo.gui.window.main_workspace_window.DefaultSessionLocal"),
         ):
             # モックインスタンス設定
             config_service_instance = qt_main_window_mock_config["config_service"]
@@ -375,7 +375,7 @@ class TestMainWorkspaceWindowStandard:
             pass
 
         # エラー状況をシミュレート（例：無効なパス設定）
-        with patch("lorairo.gui.window.main_workspace_window.QMessageBox") as mock_msgbox:
+        with patch("lorairo.gui.window.main_workspace_window.QMessageBox"):
             # 何らかのエラー処理をトリガー
             main_window.labelStatus.setText("エラーが発生しました")
 
@@ -468,7 +468,7 @@ class TestMainWorkspaceWindowAdvanced:
         with (
             patch("lorairo.gui.window.main_workspace_window.ConfigurationService") as mock_config,
             patch("lorairo.gui.window.main_workspace_window.FileSystemManager") as mock_fsm,
-            patch("lorairo.gui.window.main_workspace_window.ImageRepository") as mock_repo,
+            patch("lorairo.gui.window.main_workspace_window.ImageRepository"),
             patch("lorairo.gui.window.main_workspace_window.ImageDatabaseManager") as mock_db,
             patch("lorairo.gui.window.main_workspace_window.WorkerService") as mock_worker,
             patch("lorairo.gui.window.main_workspace_window.DatasetStateManager") as mock_state,

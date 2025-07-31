@@ -69,7 +69,7 @@ class TestDatabaseRegistrationWorker:
         APIメソッド名が正しいことをテスト
         - このテストは実際のregister_image → register_original_imageエラーを検出できる
         """
-        worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
+        DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
 
         # 実際のDatabaseManagerのメソッドが存在することを確認
         assert hasattr(real_db_manager, "detect_duplicate_image")
@@ -149,7 +149,7 @@ class TestDatabaseRegistrationWorker:
             mock_register.return_value = (1, {"id": 1})
 
             worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
-            result = worker.execute()
+            worker.execute()
 
             # 関連ファイル処理が呼ばれたことを確認
             mock_save_tags.assert_called_once()

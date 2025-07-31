@@ -175,7 +175,7 @@ class TestWidgetServiceIntegration:
             # UI更新シミュレート
             providers = list(grouped.keys())
             mock_widget.comboProvider.clear()
-            mock_widget.comboProvider.addItems(["すべて"] + providers)
+            mock_widget.comboProvider.addItems(["すべて", *providers])
 
             # テーブル更新
             mock_widget.tableModels.setRowCount(len(all_models))
