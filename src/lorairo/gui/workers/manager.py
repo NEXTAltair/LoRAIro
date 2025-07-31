@@ -1,5 +1,7 @@
 # src/lorairo/workers/manager.py
 
+from typing import Any
+
 from PySide6.QtCore import QObject, QThread, Signal
 
 from ...utils.log import logger

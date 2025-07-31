@@ -2,8 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QPixmap
