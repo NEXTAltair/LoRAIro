@@ -7,7 +7,6 @@ OpenAI Batch API等の大規模処理専用コンポーネント
 import json
 import time
 from pathlib import Path
-from pathlib import Path
 from typing import Any
 
 from PIL import Image
