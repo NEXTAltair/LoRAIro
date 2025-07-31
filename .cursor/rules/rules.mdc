@@ -1,6 +1,6 @@
 ---
-description: 
-globs: 
+description:
+globs:
 alwaysApply: false
 ---
 # LoRAIro Development Rules
@@ -34,10 +34,9 @@ LoRAIroは機械学習データセット準備のためのAI駆動画像アノ�
 - 命名規則とコードスタイルに従う
 
 ### 4. テスト・検証
-- 全テストカテゴリを実行: `pytest -m unit`, `pytest -m integration`, `pytest -m gui`
-- 適切なテストカバレッジを確保: `pytest --cov=src --cov-report=html`
-- リンティング実行: `ruff check` と `ruff format`
-- 型チェック実行: `mypy src/`
+- 全テストカテゴリを実行: `uv run pytest -m unit`, `uv run pytest -m integration`, `uv run pytest -m gui`
+- リンティング実行: `uv run ruff check` と `uv run ruff format`
+- 型チェック実行: `uv run mypy -p lorairo`
 
 ### 5. ドキュメント更新
 - 関連ドキュメントファイルを更新する
@@ -106,7 +105,7 @@ config = load_config("config/lorairo.toml")
 - テストリソースは`tests/resources/`に配置
 - 共通セットアップにはpytestフィクスチャを使用
 - **現在のステータス**: 352テスト通過、41失敗、25エラー (84%成功率)
-- **知られている問題**: 
+- **知られている問題**:
   - ワーカーシステム調整 (threading/async)
   - データベース統合 (schema/migration)
   - GUI初期化エラー
