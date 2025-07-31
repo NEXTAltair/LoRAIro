@@ -1,4 +1,6 @@
 # src/lorairo/workers/annotation_worker.py
+from typing import Any
+
 from PIL.Image import Image
 
 from ...utils.log import logger
