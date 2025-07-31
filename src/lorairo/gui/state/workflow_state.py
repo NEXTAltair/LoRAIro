@@ -320,7 +320,7 @@ class WorkflowStateManager(QObject):
 
     from typing import Any
 
-# ... (rest of the imports)
+    # ... (rest of the imports)
 
     def get_workflow_summary(self) -> dict[str, Any]:
         """ワークフロー状態サマリーを取得"""

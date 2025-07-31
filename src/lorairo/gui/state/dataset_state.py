@@ -1,7 +1,7 @@
 # src/lorairo/gui/state/dataset_state.py
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from PySide6.QtCore import QObject, Signal
 
@@ -128,7 +128,50 @@ class DatasetStateManager(QObject):
     def apply_filter_results(
         self, filtered_images: list[dict[str, Any]], filter_conditions: dict[str, Any]
     ) -> None:
-        """データベースからのフィルター結果を適用"""
+        """
+        データベースからのフィルター結果を適用し、状態を更新します。
+
+        このメソッドは検索・フィルター処理の結果を受け取り、DatasetStateManagerの
+        内部状態を更新します。フィルター適用後、関連するシグナルを発行して
+        UI コンポーネントに変更を通知します。
+
+        Args:
+            filtered_images (list[dict[str, Any]]): フィルター処理後の画像メタデータリスト。
+                各辞書は以下のキーを含む必要があります:
+                - "id": 画像ID (int)
+                - "stored_image_path": 画像ファイルパス (str)
+                - その他の画像メタデータ (width, height, etc.)
+
+            filter_conditions (dict[str, Any]): 適用されたフィルター条件。
+                以下のようなキーを含むことがあります:
+                - "tags": タグフィルター条件 (list[str])
+                - "caption": キャプション検索条件 (str)
+                - "resolution": 解像度フィルター条件 (int)
+                - "use_and": AND/OR検索ロジック (bool)
+                - "date_range": 日付範囲フィルター (tuple)
+                - "include_untagged": 未タグ画像を含むか (bool)
+
+        Returns:
+            None
+
+        Side Effects:
+            - 内部状態 (_filtered_images, _filter_conditions) を更新
+            - filter_applied シグナルを発行 (フィルター条件を通知)
+            - images_filtered シグナルを発行 (フィルター済み画像リストを通知)
+            - 現在選択中の画像がフィルター結果に含まれない場合、選択をクリア
+
+        Example:
+            >>> filtered_images = [
+            ...     {"id": 1, "stored_image_path": "/path/to/image1.jpg", "width": 1024, "height": 768},
+            ...     {"id": 2, "stored_image_path": "/path/to/image2.jpg", "width": 800, "height": 600}
+            ... ]
+            >>> filter_conditions = {
+            ...     "tags": ["landscape", "nature"],
+            ...     "resolution": 1024,
+            ...     "use_and": True
+            ... }
+            >>> state_manager.apply_filter_results(filtered_images, filter_conditions)
+        """
         self._filter_conditions = filter_conditions.copy()
         self._filtered_images = filtered_images.copy()
 
