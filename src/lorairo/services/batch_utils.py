@@ -231,7 +231,7 @@ def example_batch_workflow() -> dict[str, dict[str, Any]] | None:
         # 4. 結果取得
         if final_status == "completed":
             output_dir = Path("batch_results")
-            result_file = processor.download_batch_results(batch_id, output_dir)
+            processor.download_batch_results(batch_id, output_dir)
 
             # 5. 結果解析
             raw_results = processor.get_batch_results(output_dir)

@@ -285,7 +285,7 @@ class TestConfigurationService:
         config_service = ConfigurationService(shared_config=config)
 
         # When: データベースディレクトリを取得
-        result = config_service.get_database_directory()
+        config_service.get_database_directory()
 
         # Then: 解決ログが出力される
         debug_calls = mock_logger.debug.call_args_list

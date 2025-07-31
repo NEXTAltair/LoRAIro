@@ -116,7 +116,6 @@ class TestGUIComponentInteractions:
     def test_thumbnail_to_preview_interaction(self, mock_thumbnail_widget, mock_preview_panel):
         """サムネイル→プレビュー相互作用テスト"""
         # 画像選択シミュレーション
-        selected_image_id = 1
         selected_image_data = {
             "id": 1,
             "stored_image_path": "/test/image1.jpg",
@@ -280,7 +279,7 @@ class TestGUIComponentInteractions:
         window_sizes = [(800, 600), (1200, 900), (1920, 1080)]
         expected_thumbnail_sizes = [100, 150, 200]
 
-        for (width, height), expected_size in zip(window_sizes, expected_thumbnail_sizes, strict=False):
+        for (width, _height), expected_size in zip(window_sizes, expected_thumbnail_sizes, strict=False):
             # ウィンドウサイズに基づくサムネイルサイズ計算
             calculated_size = 100 if width < 1000 else (150 if width < 1600 else 200)
             dataset_state_manager.set_thumbnail_size(calculated_size)

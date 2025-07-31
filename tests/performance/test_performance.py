@@ -155,7 +155,7 @@ class TestPerformanceRequirements:
 
         # 大量画像準備
         large_image_set = []
-        for i in range(20):  # 20画像（性能テスト用）
+        for _i in range(20):  # 20画像（性能テスト用）
             large_image_set.append(Image.new("RGB", (100, 100), "blue"))
 
         # 複数モデルでの処理
@@ -220,7 +220,7 @@ class TestPerformanceRequirements:
 
         # 大量画像セット
         many_images = []
-        for i in range(100):
+        for _i in range(100):
             many_images.append(Image.new("RGB", (200, 200), "green"))
 
         # 処理実行
@@ -335,7 +335,7 @@ class TestResourceUtilizationPerformance:
 
         # 多数の小さな画像処理
         small_images = []
-        for i in range(50):
+        for _i in range(50):
             small_images.append(Image.new("RGB", (100, 100), "red"))
 
         start_time = time.time()

@@ -217,7 +217,6 @@ class TestModelSyncServiceErrorHandling:
             raise Exception("Database update failed")
 
         # モック設定をより具体的に
-        original_method = service.update_existing_models
 
         test_models = [
             {
@@ -524,7 +523,7 @@ class TestEdgeCasesAndBoundaryValues:
             assert isinstance(results, dict)
         except Exception as e:
             # Unicode処理エラーが適切にハンドリングされる
-            assert isinstance(e, (UnicodeError, ValueError, KeyError)) or "unicode" in str(e).lower()
+            assert isinstance(e, UnicodeError | ValueError | KeyError) or "unicode" in str(e).lower()
 
     def test_memory_intensive_operations(self):
         """メモリ集約的操作の処理"""
@@ -557,7 +556,7 @@ class TestEdgeCasesAndBoundaryValues:
         # 全モデルが処理される
         assert isinstance(results, dict)
         if results:
-            phash = list(results.keys())[0]
+            phash = next(iter(results.keys()))
             # Mock実装では全モデルが処理されるべき
             assert len(results[phash]) <= len(many_models)
 
@@ -586,7 +585,7 @@ class TestEdgeCasesAndBoundaryValues:
                 assert request["total_images"] == 1
             except Exception as e:
                 # ファイルシステム固有のエラーは許容
-                assert isinstance(e, (OSError, ValueError, TypeError))
+                assert isinstance(e, OSError | ValueError | TypeError)
 
 
 @pytest.mark.error
@@ -602,11 +601,10 @@ class TestComprehensiveErrorScenarios:
             container = ServiceContainer()
 
             # 設定サービス失敗
-            config_failed = False
             try:
                 _ = container.config_service
             except Exception:
-                config_failed = True
+                pass
 
             # 設定失敗でも他のサービスが影響を受けないことを確認
             summary = container.get_service_summary()

@@ -185,7 +185,7 @@ class WorkerManager(QObject):
     def _on_worker_finished(self, worker_id: str, result: Any) -> None:
         """ワーカー完了イベントハンドラー"""
         if worker_id in self.active_workers:
-            worker_info = self.active_workers.pop(worker_id)
+            self.active_workers.pop(worker_id)
             self.worker_finished.emit(worker_id, result)
             self.active_worker_count_changed.emit(len(self.active_workers))
 
@@ -211,7 +211,7 @@ class WorkerManager(QObject):
     def _on_worker_error(self, worker_id: str, error: str) -> None:
         """ワーカーエラーイベントハンドラー"""
         if worker_id in self.active_workers:
-            worker_info = self.active_workers.pop(worker_id)
+            self.active_workers.pop(worker_id)
             self.worker_error.emit(worker_id, error)
             self.active_worker_count_changed.emit(len(self.active_workers))
 

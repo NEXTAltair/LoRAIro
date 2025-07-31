@@ -61,7 +61,7 @@ class TestProjectDirectoryIntegration:
 
             # 複数のプロジェクトディレクトリを作成
             dirs = []
-            for i in range(3):
+            for _i in range(3):
                 project_dir = get_project_dir(str(base_dir), project_name)
                 dirs.append(project_dir)
 
@@ -96,7 +96,7 @@ class TestProjectDirectoryIntegration:
             ("data*set", "data_set"),
         ]
 
-        for input_name, expected_safe in test_cases:
+        for input_name, _expected_safe in test_cases:
             result = sanitize_project_name(input_name)
 
             # 無効文字が除去されていること
@@ -213,7 +213,7 @@ class TestProjectDirectoryIntegration:
             try:
                 get_project_dir(str(base_dir), very_long_name)
                 # 上記でエラーが発生しなかった場合は失敗
-                assert False, "非常に長い名前でエラーが発生しませんでした"
+                raise AssertionError("非常に長い名前でエラーが発生しませんでした")
             except OSError:
                 # ファイルシステム制限によるエラーは期待される動作
                 pass

@@ -473,13 +473,14 @@ def when_save_annotations_with_datatable(
                 continue
 
             # ヘルパー関数で値を取得 (列が存在しない場合は None)
-            get_value = (
-                lambda col_name: row_values[header_map[col_name]].strip()
-                if col_name in header_map
-                and header_map[col_name] < len(row_values)
-                and row_values[header_map[col_name]] is not None
-                else None
-            )
+            def get_value(col_name):
+                return (
+                    row_values[header_map[col_name]].strip()
+                    if col_name in header_map
+                    and header_map[col_name] < len(row_values)
+                    and row_values[header_map[col_name]] is not None
+                    else None
+                )
 
             # --- 各列の値をパース ---
             annotation_type = get_value("type")
@@ -998,7 +999,7 @@ def then_check_annotations_saved(
 
             # まだ比較されていないDBアイテムを探す
             found_match_in_list = False
-            for idx, db_item in enumerate(db_data_list):
+            for _idx, db_item in enumerate(db_data_list):
                 # 簡易的な識別子(例:全フィールドをタプル化)で比較済みかチェック
                 item_identifier = tuple(sorted(db_item.items()))
                 if (lookup_key, item_identifier) not in processed_lookup_keys:

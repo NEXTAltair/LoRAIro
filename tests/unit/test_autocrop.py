@@ -246,9 +246,9 @@ class TestAutoCropHelperMethods:
         assert len(means) == 2
         assert len(stds) == 2
         assert len(edge_strengths) == 2
-        assert all(isinstance(x, (float, np.floating)) for x in means)
-        assert all(isinstance(x, (float, np.floating)) for x in stds)
-        assert all(isinstance(x, (float, np.floating)) for x in edge_strengths)
+        assert all(isinstance(x, float | np.floating) for x in means)
+        assert all(isinstance(x, float | np.floating) for x in stds)
+        assert all(isinstance(x, float | np.floating) for x in edge_strengths)
 
     def test_evaluate_edge(self):
         """Test _evaluate_edge method"""

@@ -275,9 +275,9 @@ class HybridAnnotationController(QObject):
             "設定画面でAPIキーを設定後、画面を更新してください。"
         )
         message_label.setStyleSheet("""
-            color: #666; 
-            font-style: italic; 
-            padding: 20px; 
+            color: #666;
+            font-style: italic;
+            padding: 20px;
             font-size: 11px;
             line-height: 1.4;
             background-color: #fff8dc;
@@ -307,9 +307,9 @@ class HybridAnnotationController(QObject):
             "問題が続く場合は、サポートにお問い合わせください。"
         )
         error_label.setStyleSheet("""
-            color: #d32f2f; 
+            color: #d32f2f;
             font-weight: bold;
-            padding: 20px; 
+            padding: 20px;
             font-size: 11px;
             line-height: 1.4;
             background-color: #ffebee;
@@ -363,7 +363,7 @@ class HybridAnnotationController(QObject):
         group_box = QGroupBox(f"{icon} {provider.title()}")
         group_box.setStyleSheet("""
             QGroupBox {
-                font-weight: bold; 
+                font-weight: bold;
                 font-size: 11px;
                 border: 1px solid #ddd;
                 border-radius: 4px;

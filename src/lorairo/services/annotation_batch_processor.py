@@ -120,8 +120,8 @@ class BatchProcessor:
             successful_annotations = 0
             failed_annotations = 0
 
-            for phash, model_results in batch_results.items():
-                for model_name, result in model_results.items():
+            for _phash, model_results in batch_results.items():
+                for _model_name, result in model_results.items():
                     if result.get("error") is None:
                         successful_annotations += 1
                     else:

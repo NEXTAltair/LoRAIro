@@ -233,7 +233,7 @@ def test_engine_with_schema(test_db_url: str):
             print("[test_engine_with_schema] Initial model data inserted.")
 
         # --- テーブルとデータの確認 ---
-        with engine.connect() as connection:
+        with engine.connect():
             inspector = sql_inspect(engine)
             tables_after = inspector.get_table_names()
             print(f"[test_engine_with_schema] Tables after creation: {tables_after}")

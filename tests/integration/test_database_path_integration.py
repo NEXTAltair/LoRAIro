@@ -110,7 +110,7 @@ database_dir = "{project_dir}"
             for item in filtered_image_metadata
         }
 
-        for image_id, data in image_metadata_map.items():
+        for _image_id, data in image_metadata_map.items():
             assert data["path"].exists()
             assert data["path"].is_file()
 

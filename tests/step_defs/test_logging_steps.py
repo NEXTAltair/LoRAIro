@@ -192,7 +192,6 @@ def when_function_raises_and_logs_exception(exception_type: str, message: str):
 
     def faulty_function():
         try:
-            local_var = "some_value"  # For potential diagnose capture
             raise exception_class(message)
         except exception_class:
             logger.exception(message)  # Log directly using Loguru's logger

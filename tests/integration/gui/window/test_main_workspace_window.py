@@ -76,10 +76,10 @@ class TestMainWorkspaceWindowImproved:
             patch("lorairo.gui.window.main_workspace_window.FilterSearchPanel") as mock_filter,
             patch("lorairo.gui.window.main_workspace_window.ThumbnailSelectorWidget") as mock_thumb,
             patch("lorairo.gui.window.main_workspace_window.PreviewDetailPanel") as mock_preview,
-            patch.object(MainWorkspaceWindow, "setupUi") as mock_setup_ui,
-            patch.object(MainWorkspaceWindow, "setup_custom_widgets") as mock_setup_widgets,
-            patch.object(MainWorkspaceWindow, "setup_connections") as mock_setup_connections,
-            patch.object(MainWorkspaceWindow, "initialize_state") as mock_init_state,
+            patch.object(MainWorkspaceWindow, "setupUi"),
+            patch.object(MainWorkspaceWindow, "setup_custom_widgets"),
+            patch.object(MainWorkspaceWindow, "setup_connections"),
+            patch.object(MainWorkspaceWindow, "initialize_state"),
             patch("lorairo.gui.window.main_workspace_window.FileSystemManager", return_value=mock_fsm),
         ):
             # WorkerServiceは実際のオブジェクトを使用、データベース操作のみMock
@@ -219,8 +219,8 @@ class TestMainWorkspaceWindowImproved:
             # WorkerServiceとUI要素のMock化
             with (
                 patch.object(window.worker_service, "start_batch_registration") as mock_start,
-                patch.object(window, "_initialize_filesystem_for_registration") as mock_init_fs,
-                patch.object(window, "_show_registration_progress_dialog") as mock_show_dialog,
+                patch.object(window, "_initialize_filesystem_for_registration"),
+                patch.object(window, "_show_registration_progress_dialog"),
             ):
                 mock_start.return_value = "worker_123"
 
@@ -262,7 +262,7 @@ class TestMainWorkspaceWindowImproved:
             try:
                 conditions = {"tags": [], "caption": "", "include_untagged": True}
                 window.db_manager.get_images_by_filter(**conditions)
-                assert False, "Should have raised an exception"
+                raise AssertionError("Should have raised an exception")
             except Exception as e:
                 assert "Database connection failed" in str(e)
 

@@ -690,7 +690,6 @@ class ImageDatabaseManager:
             "scores": [],
             "ratings": [],
         }  # 型ヒントを追加
-        latest_update_str: str | None = None
 
         # 1. 全アノテーションから最新の更新日時を見つける
         all_updates = []

@@ -404,7 +404,6 @@ def downgrade() -> None:
         model_id_to_new_type = {}
         for assoc in associations:
             # Prioritize simpler types for reverse mapping if multiple exist
-            current_priority = 99
             if assoc.model_id not in model_id_to_new_type:
                 model_id_to_new_type[assoc.model_id] = assoc.type_name
             else:

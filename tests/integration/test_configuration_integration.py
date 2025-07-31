@@ -203,7 +203,7 @@ database_dir = "{windows_path}"
             ('project"name', "project_name"),
         ]
 
-        for input_name, expected in test_cases:
+        for input_name, _expected in test_cases:
             result = sanitize_project_name(input_name)
             # 基本的な無効文字が置換されること
             assert not any(char in result for char in '<>:"/\\|?*')

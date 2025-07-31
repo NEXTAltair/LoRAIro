@@ -278,7 +278,7 @@
   <customwidget>
    <class>AnnotationDataDisplayWidget</class>
    <extends>QWidget</extends>
-   <header>..widgets.annotation_data_display</header>
+   <header>..widgets.annotation_data_display_widget</header>
    <container>1</container>
   </customwidget>
  </customwidgets>
