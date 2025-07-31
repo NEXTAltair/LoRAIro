@@ -1,14 +1,12 @@
 # src/lorairo/gui/workers/progress_manager.py
 
-from typing import Any, TypeAlias
+from typing import Any
 
 from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import QProgressDialog, QWidget
 
 from ...utils.log import logger
-from .base import SimpleWorkerBase, WorkerProgress
-
-SimpleWorkerBase: TypeAlias = SimpleWorkerBase[Any]
+from .base import LoRAIroWorkerBase, WorkerProgress
 
 
 class ProgressManager:
@@ -21,12 +19,12 @@ class ProgressManager:
     def __init__(self, parent: QWidget | None = None) -> None:
         self.parent = parent
         self.progress_dialog: QProgressDialog | None = None
-        self.current_worker: SimpleWorkerBase | None = None
+        self.current_worker: LoRAIroWorkerBase | None = None
         self.current_thread: QThread | None = None
         logger.debug("ProgressManager initialized")
 
     def start_worker_with_progress(
-        self, worker: SimpleWorkerBase, title: str, max_value: int = 100
+        self, worker: LoRAIroWorkerBase, title: str, max_value: int = 100
     ) -> None:
         """
         ワーカーを進捗ダイアログ付きで実行
