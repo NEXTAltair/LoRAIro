@@ -10,7 +10,7 @@ implement フェーズで実装されたコードについて、包括的なテ�
 
 ## 重要原則
 
-- 関連するコードは全て読むこと
+- 関連するコードは全て読むこと [doc-lookup-rules.mdc](mdc:.cursor/rules/doc-lookup-rules.mdc)
 - 全ての処理において ultrathink でしっかりと考えて作業を行うこと
 - `.cursor/rules/test_rules/testing-rules.mdc`のテスト方針に完全準拠すること
 - 75%以上のテストカバレッジを維持すること

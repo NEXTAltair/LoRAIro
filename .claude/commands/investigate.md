@@ -8,7 +8,7 @@ AI画像アノテーションアプリケーション LoRAIro の問題調査と
 ```
 
 ## 重要原則
-- 関連するコードは全て読むこと
+- 関連するコードは全て読むこと [doc-lookup-rules.mdc](mdc:.cursor/rules/doc-lookup-rules.mdc)
 - 全ての処理においてultrathinkでしっかりと考えて作業を行うこと
 
 ## 説明

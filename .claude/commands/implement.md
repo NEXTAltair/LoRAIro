@@ -10,7 +10,7 @@ plan フェーズで策定された実装計画に基づき、LoRAIro プロジ�
 
 ## 重要原則
 
-- 関連するコードは全て読むこと
+- 関連するコードは全て読むこと [doc-lookup-rules.mdc](mdc:.cursor/rules/doc-lookup-rules.mdc)
 - 全ての処理において ultrathink でしっかりと考えて作業を行うこと
 - `.cursor/rules/implement.mdc`の実装ガイドラインに完全準拠すること
 - インクリメンタル開発（小さな単位での継続的実装）を徹底すること
