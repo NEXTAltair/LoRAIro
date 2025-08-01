@@ -20,7 +20,7 @@ with patch.dict(
         "image_annotator_lib": Mock(),
     },
 ):
-    from lorairo.services.enhanced_annotation_service import EnhancedAnnotationService
+    from lorairo.services.annotation_service import AnnotationService
     from lorairo.services.service_container import ServiceContainer, get_service_container
 
 
@@ -127,8 +127,8 @@ class TestServiceContainerIntegration:
             mock_mock_adapter.assert_called_once()
 
 
-class TestEnhancedAnnotationServiceIntegration:
-    """EnhancedAnnotationService サービス統合テスト"""
+class TestAnnotationServiceIntegration:
+    """AnnotationService サービス統合テスト"""
 
     def setup_method(self):
         """各テスト前の初期化"""
@@ -147,7 +147,7 @@ class TestEnhancedAnnotationServiceIntegration:
             ServiceContainer._instance.reset_container()
 
     def test_enhanced_annotation_service_with_real_container(self):
-        """EnhancedAnnotationService と実際のServiceContainer統合"""
+        """AnnotationService と実際のServiceContainer統合"""
         with (
             patch("lorairo.services.service_container.ConfigurationService") as mock_config_class,
             patch("lorairo.services.service_container.MockAnnotatorLibAdapter") as mock_adapter_class,
@@ -164,8 +164,8 @@ class TestEnhancedAnnotationServiceIntegration:
             ]
             mock_adapter.get_available_models_with_metadata.return_value = mock_models
 
-            # EnhancedAnnotationService作成
-            service = EnhancedAnnotationService()
+            # AnnotationService作成
+            service = AnnotationService()
 
             # ServiceContainer統合確認
             assert service.container is not None
@@ -177,7 +177,7 @@ class TestEnhancedAnnotationServiceIntegration:
             mock_adapter.get_available_models_with_metadata.assert_called_once()
 
     def test_enhanced_annotation_service_model_sync_integration(self):
-        """EnhancedAnnotationService モデル同期統合"""
+        """AnnotationService モデル同期統合"""
         with (
             patch("lorairo.services.service_container.ConfigurationService") as mock_config_class,
             patch("lorairo.services.service_container.MockAnnotatorLibAdapter") as mock_adapter_class,
@@ -196,7 +196,7 @@ class TestEnhancedAnnotationServiceIntegration:
             mock_sync_result.summary = "統合テスト同期完了"
             mock_sync.sync_available_models.return_value = mock_sync_result
 
-            service = EnhancedAnnotationService()
+            service = AnnotationService()
 
             # シグナルスパイ設定
             sync_spy = QSignalSpy(service.modelSyncCompleted)
@@ -210,7 +210,7 @@ class TestEnhancedAnnotationServiceIntegration:
             # Signal triggered - exact argument check omitted for integration test simplicity
 
     def test_enhanced_annotation_service_batch_processing_integration(self):
-        """EnhancedAnnotationService バッチ処理統合"""
+        """AnnotationService バッチ処理統合"""
         with (
             patch("lorairo.services.service_container.ConfigurationService") as mock_config_class,
             patch("lorairo.services.service_container.BatchProcessor") as mock_batch_class,
@@ -225,7 +225,7 @@ class TestEnhancedAnnotationServiceIntegration:
             mock_batch_result.summary = "統合テストバッチ完了"
             mock_batch.execute_batch_annotation.return_value = mock_batch_result
 
-            service = EnhancedAnnotationService()
+            service = AnnotationService()
 
             # シグナルスパイ設定
             started_spy = QSignalSpy(service.batchProcessingStarted)
@@ -250,7 +250,7 @@ class TestEnhancedAnnotationServiceIntegration:
             # Finished signal triggered with batch result
 
     def test_enhanced_annotation_service_single_annotation_integration(self):
-        """EnhancedAnnotationService 単発アノテーション統合"""
+        """AnnotationService 単発アノテーション統合"""
         with (
             patch("lorairo.services.service_container.ConfigurationService") as mock_config_class,
             patch("lorairo.services.service_container.MockAnnotatorLibAdapter") as mock_adapter_class,
@@ -272,7 +272,7 @@ class TestEnhancedAnnotationServiceIntegration:
             }
             mock_adapter.call_annotate.return_value = mock_annotation_results
 
-            service = EnhancedAnnotationService()
+            service = AnnotationService()
 
             # シグナルスパイ設定
             finished_spy = QSignalSpy(service.annotationFinished)
@@ -616,8 +616,8 @@ class TestEndToEndServiceIntegration:
             )
             mock_batch.execute_batch_annotation.return_value = mock_batch_result
 
-            # EnhancedAnnotationService作成
-            service = EnhancedAnnotationService()
+            # AnnotationService作成
+            service = AnnotationService()
 
             # シグナルスパイ設定
             sync_spy = QSignalSpy(service.modelSyncCompleted)
@@ -655,11 +655,11 @@ class TestEndToEndServiceIntegration:
             mock_config_class.return_value = mock_config
 
             # サービス作成とステータス確認
-            service = EnhancedAnnotationService()
+            service = AnnotationService()
             status = service.get_service_status()
 
             # 統合状況確認
-            assert status["service_name"] == "EnhancedAnnotationService"
+            assert status["service_name"] == "AnnotationService"
             assert "Phase 2" in status["phase"]
             assert "container_summary" in status
             assert "last_results" in status
@@ -679,7 +679,7 @@ class TestEndToEndServiceIntegration:
             # アダプターエラー設定
             mock_adapter.get_available_models_with_metadata.side_effect = Exception("統合テストエラー")
 
-            service = EnhancedAnnotationService()
+            service = AnnotationService()
 
             # エラーシグナルスパイ
             error_spy = QSignalSpy(service.annotationError)
@@ -717,9 +717,9 @@ class TestConcurrentServiceIntegration:
             mock_config = Mock()
             mock_config_class.return_value = mock_config
 
-            # 複数のEnhancedAnnotationService作成
-            service1 = EnhancedAnnotationService()
-            service2 = EnhancedAnnotationService()
+            # 複数のAnnotationService作成
+            service1 = AnnotationService()
+            service2 = AnnotationService()
 
             # 同じServiceContainerを共有することを確認
             assert service1.container is service2.container
