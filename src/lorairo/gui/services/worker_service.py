@@ -10,9 +10,8 @@ from PySide6.QtCore import QObject, QSize, Signal
 from ...database.db_manager import ImageDatabaseManager
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
-from ..workers.annotation_worker import AnnotationWorker
+from ..workers.annotation_worker import AnnotationWorker, ModelSyncWorker
 from ..workers.database_worker import DatabaseRegistrationWorker, SearchWorker, ThumbnailWorker
-from ..workers.enhanced_annotation_worker import EnhancedAnnotationWorker, ModelSyncWorker
 from ..workers.manager import WorkerManager
 
 
@@ -163,7 +162,7 @@ class WorkerService(QObject):
         Returns:
             str: ワーカーID
         """
-        worker = EnhancedAnnotationWorker(
+        worker = AnnotationWorker(
             images=images, phash_list=phash_list, models=models, operation_mode="single"
         )
         worker_id = f"enhanced_annotation_{int(time.time())}"
@@ -194,7 +193,7 @@ class WorkerService(QObject):
         Returns:
             str: ワーカーID
         """
-        worker = EnhancedAnnotationWorker(
+        worker = AnnotationWorker(
             image_paths=image_paths, models=models, batch_size=batch_size, operation_mode="batch"
         )
         worker_id = f"enhanced_batch_{int(time.time())}"

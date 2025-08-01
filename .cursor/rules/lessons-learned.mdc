@@ -8,3 +8,9 @@ description: Stores important patterns, preferences, and project intelligence, l
 globs:
 alwaysApply: true
 ---
+
+- **Dead Code Identification: `src/lorairo/gui/state/workflow_state.py`**
+  - **Issue**: The `WorkflowStateManager` module (`src/lorairo/gui/state/workflow_state.py`) was identified as dead code, with no references found across the codebase.
+  - **Reason for Deprecation (Inferred)**: While not explicitly documented, the architecture documentation indicates a shift towards `DatasetStateManager` for centralized state management within the GUI. It is highly probable that the functionality provided by `WorkflowStateManager` was either absorbed into `DatasetStateManager` or deemed unnecessary in the updated GUI architecture.
+  - **Impact**: The presence of this dead code adds unnecessary complexity and maintenance burden.
+  - **Resolution**: This module should be removed from the codebase. Its functionality has been superseded by the `DatasetStateManager` and the new PySide6 Worker System.
