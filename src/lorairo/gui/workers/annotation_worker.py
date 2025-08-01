@@ -1,4 +1,4 @@
-"""Enhanced Annotation Worker - Phase 2統合版
+"""Annotation Worker - Phase 2統合版
 
 EnhancedAnnotationServiceとWorkerManagerの統合
 - ServiceContainer経由のDI対応
@@ -17,7 +17,7 @@ from ...utils.log import logger
 from .base import LoRAIroWorkerBase
 
 
-class EnhancedAnnotationWorker(LoRAIroWorkerBase[Any]):
+class AnnotationWorker(LoRAIroWorkerBase[Any]):
     """拡張アノテーションワーカー
 
     Phase 2: EnhancedAnnotationService統合版
@@ -39,7 +39,7 @@ class EnhancedAnnotationWorker(LoRAIroWorkerBase[Any]):
         batch_size: int = 100,
         operation_mode: str = "single",  # "single" or "batch"
     ):
-        """EnhancedAnnotationWorker初期化
+        """AnnotationWorker初期化
 
         Args:
             images: アノテーション対象画像リスト（単発モード用）
@@ -69,7 +69,7 @@ class EnhancedAnnotationWorker(LoRAIroWorkerBase[Any]):
         self.annotation_service = EnhancedAnnotationService()
 
         logger.info(
-            f"EnhancedAnnotationWorker初期化 - Mode: {operation_mode}, "
+            f"AnnotationWorker初期化 - Mode: {operation_mode}, "
             f"Images: {len(self.images) if images else len(self.image_paths)}, "
             f"Models: {len(self.models)}"
         )
@@ -200,7 +200,7 @@ class EnhancedAnnotationWorker(LoRAIroWorkerBase[Any]):
             dict[str, Any]: ワーカー情報
         """
         return {
-            "worker_type": "EnhancedAnnotationWorker",
+            "worker_type": "AnnotationWorker",
             "operation_mode": self.operation_mode,
             "batch_size": self.batch_size,
             "image_count": len(self.images) if self.images else len(self.image_paths),
