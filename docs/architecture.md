@@ -85,9 +85,8 @@ graph TD
 - **`src/lorairo/services/image_processing_service.py`**: Image processing business logic
   - Coordinates between GUI, ImageProcessingManager, and database
   - Manages image processing workflows
-- **`src/lorairo/services/annotation_service.py`**: AI annotation business logic (deprecated)
-  - Legacy service - functionality migrated to WorkerService
-  - Coordinates with image-annotator-lib integration
+- **`src/lorairo/services/annotation_service.py`**: AI annotation business logic
+  - Now incorporates dynamic model synchronization, batch processing, and DI via ServiceContainer (replaces previous `EnhancedAnnotationService` functionality).
 - **`src/lorairo/services/configuration_service.py`**: Configuration management
   - TOML configuration file handling
   - Application settings management
@@ -159,6 +158,8 @@ graph LR
 - Quality scoring integration
 - Batch annotation processing
 - Result aggregation and storage
+- Dynamic model synchronization
+- ServiceContainer integration
 
 **ConfigurationService**
 - TOML configuration management
@@ -289,7 +290,7 @@ graph TD
 
 **Specialized Workers**
 - **DatabaseRegistrationWorker**: Batch image registration to database
-- **AnnotationWorker**: AI annotation processing with progress reporting
+- **AnnotationWorker**: AI annotation processing with progress reporting, including batch processing and ServiceContainer integration (replaces the previous AnnotationWorker)
 - **SearchWorker**: Asynchronous database search operations
 - **ThumbnailWorker**: Progressive thumbnail loading and caching
     E --> I
@@ -332,15 +333,15 @@ The system supports multiple AI providers through a unified interface.
 
 ```mermaid
 graph TD
-    A[AnnotationService] --> B[Provider Factory]
-    B --> C[OpenAI Provider]
-    B --> D[Anthropic Provider]
-    B --> E[Google Provider]
-    F[Local Models] --> G[image-annotator-lib]
-    A --> F
+    A[AnnotationWorker] --> B[AI Annotator Wrapper]
+    B --> C[image-annotator-lib]
+    C --> D[AI Providers]
+    C --> E[Local ML Models]
 ```
 
 #### AI Provider Integration
+
+The AI integration is primarily handled by the `AnnotationWorker` (formerly `EnhancedAnnotationWorker`) which leverages the `image-annotator-lib` for multi-provider AI annotation and local ML model support.
 
 **Multi-Provider Support**
 - OpenAI GPT-4 Vision
@@ -348,11 +349,9 @@ graph TD
 - Google Gemini
 - Local ML models via image-annotator-lib
 
-**Provider Abstraction**
-- Unified annotation interface
-- Provider-specific configuration
-- Error handling and retry logic
-- Rate limiting and quota management
+**Unified Interface**
+- The `image-annotator-lib` provides a unified interface for various AI providers and local models.
+- It handles provider-specific configuration, error handling, retry logic, and rate limiting.
 
 **Local Model Integration**
 - CLIP-based aesthetic scoring
@@ -743,37 +742,39 @@ sequenceDiagram
 sequenceDiagram
     participant User
     participant IT as ImageTaggerWidget
-    participant AS as AnnotationService
+    participant WS as WorkerService
     participant AW as AnnotationWorker
     participant Thread as QThread
-    participant AI as AI Annotator
+    participant EAS as EnhancedAnnotationService
+    participant AIL as image-annotator-lib
 
     User->>+IT: アノテーション開始
-    IT->>+AS: start_annotation(images, phash_list, models)
-    AS->>AS: 入力検証
-    AS->>+Thread: QThread()
-    Thread-->>-AS: スレッドインスタンス
-    AS->>+AW: AnnotationWorker(images, phash, models)
-    AW-->>-AS: ワーカーインスタンス
-    AS->>AW: moveToThread(thread)
-    AS->>Thread: シグナル接続
-    AS->>Thread: start()
+    IT->>+WS: start_annotation_worker(images, phash_list, models)
+    WS->>+Thread: QThread()
+    Thread-->>-WS: スレッドインスタンス
+    WS->>+AW: AnnotationWorker(images, phash_list, models)
+    AW-->>-WS: ワーカーインスタンス
+    WS->>AW: moveToThread(thread)
+    WS->>Thread: シグナル接続
+    WS->>Thread: start()
 
     Thread->>+AW: run()
-    AW->>+AW: run_task()
-    AW->>+AI: call_annotate_library(images, models, phash)
+    AW->>+AW: execute()
+    AW->>+EAS: call_annotate(images, models, phash_list)
+    EAS->>+AIL: annotate(images, models, phash_list)
 
     loop 各画像・各モデルに対して
-        AI->>AI: AIモデル呼び出し
-        AI->>AI: アノテーション生成
+        AIL->>AIL: AIモデル呼び出し
+        AIL->>AIL: アノテーション生成
     end
 
-    AI-->>-AW: アノテーション結果
-    AW-->>-AW: run_task完了
-    AW->>AS: finished(results)
+    AIL-->>-EAS: アノテーション結果
+    EAS-->>-AW: アノテーション結果
+    AW-->>-AW: execute完了
+    AW->>WS: finished(results)
     AW-->>-Thread: 処理完了
 
-    AS->>+IT: annotationFinished(results)
+    WS->>+IT: annotationFinished(results)
     IT->>IT: 結果処理・UI更新
     IT-->>-User: アノテーション結果表示
 
