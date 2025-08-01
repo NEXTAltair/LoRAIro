@@ -5,7 +5,6 @@ from typing import Any
 
 from PySide6.QtCore import QObject, Signal
 
-from ...database.db_manager import ImageDatabaseManager
 from ...utils.log import logger
 
 

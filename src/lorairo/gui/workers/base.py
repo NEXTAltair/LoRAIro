@@ -3,7 +3,7 @@
 from abc import abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, TypeVar
+from typing import TypeVar
 
 from PySide6.QtCore import QObject, Signal
 

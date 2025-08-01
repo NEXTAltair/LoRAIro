@@ -6,7 +6,6 @@ Annotation Status Filter Widget
 """
 
 from dataclasses import dataclass
-from typing import Any
 
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QWidget

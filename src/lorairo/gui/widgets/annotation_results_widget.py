@@ -12,7 +12,6 @@ from typing import Any
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QHeaderView,
-    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QWidget,

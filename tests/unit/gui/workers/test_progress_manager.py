@@ -7,11 +7,11 @@ import pytest
 from PySide6.QtCore import QThread
 from PySide6.QtWidgets import QProgressDialog, QWidget
 
-from lorairo.gui.workers.base import SimpleWorkerBase, WorkerProgress
+from lorairo.gui.workers.base import LoRAIroWorkerBase, WorkerProgress
 from lorairo.gui.workers.progress_manager import ProgressManager
 
 
-class MockWorker(SimpleWorkerBase[str]):
+class MockWorker(LoRAIroWorkerBase[str]):
     """テスト用モックワーカー"""
 
     def __init__(self, duration: float = 0.05, result: str = "test_result"):

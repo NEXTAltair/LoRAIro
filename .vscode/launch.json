@@ -27,6 +27,21 @@
       "purpose": ["debug-test"],
       "console": "integratedTerminal",
       "justMyCode": false
+    },
+    {
+      "name": "Windows Environment",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "lorairo.gui.widgets.thumbnail",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "cwd": "${workspaceFolder}/src",
+      "env": {
+        "UV_PROJECT_ENVIRONMENT": ".venv"
+      },
+      "windows": {
+        "python": "${workspaceFolder}/.venv/Scripts/python.exe"
+      }
     }
   ],
   "compounds": [

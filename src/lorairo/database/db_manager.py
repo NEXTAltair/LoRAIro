@@ -1,7 +1,7 @@
 """DBマネージャー (高レベルインターフェース)"""
 
 import uuid
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -176,9 +176,7 @@ class ImageDatabaseManager:
             original_metadata (dict[str, Any]): 元画像のメタデータ
             fsm (FileSystemManager): ファイルシステムマネージャー
         """
-        from PIL import Image
 
-        from ..editor.image_processor import ImageProcessor
 
         # 元画像サイズを確認（アップスケール対応のため512px以下もスキップしない）
         original_width = original_metadata.get("width", 0)
