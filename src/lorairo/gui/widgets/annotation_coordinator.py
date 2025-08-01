@@ -143,9 +143,7 @@ class AnnotationCoordinator(QObject):
 
         # 2. 状態フィルター → サムネイル表示の連携
         if self.status_filter_widget and self.thumbnail_selector_widget:
-            self.status_filter_widget.filter_changed.connect(
-                self.thumbnail_selector_widget.apply_annotation_filters
-            )
+            self.status_filter_widget.filter_changed.connect(self._on_annotation_display_filter_changed)
 
         # 3. サムネイル選択 → 画像詳細表示の連携
         if self.thumbnail_selector_widget and self.image_details_widget:
@@ -156,13 +154,15 @@ class AnnotationCoordinator(QObject):
             self.thumbnail_selector_widget.imageSelected.connect(self._on_image_selected_for_results)
 
         # 5. 画像詳細の評価変更 → サムネイル表示更新の連携
-        if self.image_details_widget and self.thumbnail_selector_widget:
-            self.image_details_widget.rating_updated.connect(
-                self.thumbnail_selector_widget.update_image_rating
-            )
-            self.image_details_widget.score_updated.connect(
-                self.thumbnail_selector_widget.update_image_score
-            )
+        # Note: update_image_rating and update_image_score methods do not exist in ThumbnailSelectorWidget
+        # These connections have been disabled to prevent AttributeError
+        # if self.image_details_widget and self.thumbnail_selector_widget:
+        #     self.image_details_widget.rating_updated.connect(
+        #         self.thumbnail_selector_widget.update_image_rating
+        #     )
+        #     self.image_details_widget.score_updated.connect(
+        #         self.thumbnail_selector_widget.update_image_score
+        #     )
 
         logger.debug("Signal connections setup completed")
 
@@ -170,7 +170,7 @@ class AnnotationCoordinator(QObject):
         """ウィジェットの初期状態を設定"""
         # アノテーション状態フィルターの初期更新
         if self.status_filter_widget:
-            self.status_filter_widget.refresh_status_counts()
+            self.status_filter_widget.update_status_counts()
 
         # 初期ワークフロー状態の通知
         self.workflow_state_changed.emit(self.workflow_state)
@@ -208,7 +208,7 @@ class AnnotationCoordinator(QObject):
 
         # アノテーション状態統計を更新
         if self.status_filter_widget:
-            self.status_filter_widget.refresh_status_counts()
+            self.status_filter_widget.update_status_counts()
 
         # UI状態を更新（完了）
         self._update_ui_for_running_state(False)
@@ -267,6 +267,73 @@ class AnnotationCoordinator(QObject):
                     self.results_widget.clear_all_results()
             except Exception as e:
                 logger.warning(f"Failed to load existing annotations for image {image_id}: {e}")
+
+    @Slot(dict)
+    def _on_annotation_display_filter_changed(self, filter_conditions: dict[str, bool]) -> None:
+        """
+        アノテーション状態フィルター変更時の表示レベルフィルタリング処理
+
+        Args:
+            filter_conditions: フィルター条件 {"completed": bool, "error": bool}
+        """
+        if not self.thumbnail_selector_widget:
+            return
+
+        try:
+            # 現在表示中の画像データを取得
+            current_images = self.thumbnail_selector_widget.get_current_image_data()
+
+            # アノテーション状態でフィルタリング
+            filtered_images = self._filter_by_annotation_status(current_images, filter_conditions)
+
+            # サムネイル表示を更新
+            self.thumbnail_selector_widget._on_images_filtered(filtered_images)
+
+            logger.debug(f"Display filter applied: {len(current_images)} → {len(filtered_images)} images")
+
+        except Exception as e:
+            logger.error(f"Failed to apply annotation display filter: {e}")
+
+    def _filter_by_annotation_status(self, images: list[dict[str, Any]], filters: dict[str, bool]) -> list[dict[str, Any]]:
+        """
+        アノテーション状態で画像リストをフィルタリング
+
+        Args:
+            images: 画像メタデータリスト
+            filters: フィルター条件 {"completed": bool, "error": bool}
+
+        Returns:
+            list[dict]: フィルタリング済み画像リスト
+        """
+        if not filters.get("completed", False) and not filters.get("error", False):
+            # フィルターが無効な場合は全て表示
+            return images
+
+        filtered = []
+        for image in images:
+            # アノテーション完了状態をチェック
+            has_annotations = (
+                image.get("has_tags", False)
+                or image.get("has_captions", False)
+                or image.get("annotation_completed", False)
+            )
+
+            # エラー状態をチェック
+            has_errors = image.get("has_annotation_errors", False) or image.get("annotation_error", False)
+
+            # フィルター条件に合致するかチェック
+            show_image = True
+
+            if filters.get("completed", False) and not has_annotations:
+                show_image = False
+
+            if filters.get("error", False) and not has_errors:
+                show_image = False
+
+            if show_image:
+                filtered.append(image)
+
+        return filtered
 
     def _update_ui_for_running_state(self, is_running: bool) -> None:
         """実行状態に応じたUI更新"""
@@ -338,10 +405,12 @@ class AnnotationCoordinator(QObject):
     def refresh_all_widgets(self) -> None:
         """全ウィジェットの表示を更新"""
         if self.status_filter_widget:
-            self.status_filter_widget.refresh_status_counts()
+            self.status_filter_widget.update_status_counts()
 
-        if self.thumbnail_selector_widget:
-            self.thumbnail_selector_widget.refresh_thumbnails()
+        # Note: refresh_thumbnails method does not exist in ThumbnailSelectorWidget
+        # This call has been disabled to prevent AttributeError
+        # if self.thumbnail_selector_widget:
+        #     self.thumbnail_selector_widget.refresh_thumbnails()
 
         logger.debug("All widgets refreshed")
 

@@ -1,6 +1,7 @@
 # src/lorairo/gui/widgets/thumbnail_enhanced.py
 
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QPen, QPixmap
@@ -113,6 +114,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         # 内部状態
         self.image_data: list[tuple[Path, int]] = []  # (image_path, image_id)
+        self.current_image_metadata: list[dict[str, Any]] = []  # フィルタリング用の画像メタデータ
         self.thumbnail_items: list[ThumbnailItem] = []  # ThumbnailItem のリスト
         self.last_selected_item: ThumbnailItem | None = None
 
@@ -158,12 +160,15 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     # === State Manager Integration ===
 
     @Slot(list)
-    def _on_images_filtered(self, image_metadata: list[dict]) -> None:
+    def _on_images_filtered(self, image_metadata: list[dict[str, Any]]) -> None:
         """
         データセット状態管理からの画像フィルタリング通知
         Args:
             image_metadata: 画像メタデータリスト
         """
+        # フィルタリング用にメタデータを保持
+        self.current_image_metadata = image_metadata.copy()
+
         # 画像データのみ準備（実際の読み込みは行わない）
         self.image_data = [
             (Path(item["stored_image_path"]), item["id"])
@@ -178,6 +183,15 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         else:
             logger.info(f"フィルタリング結果受信: {len(self.image_data)}件 - サムネイル読み込み開始")
             self.update_thumbnail_layout()
+
+    def get_current_image_data(self) -> list[dict[str, Any]]:
+        """
+        現在表示中の画像メタデータを返す（フィルタリング用）
+
+        Returns:
+            list[dict]: 現在表示中の画像メタデータリスト
+        """
+        return self.current_image_metadata.copy()
 
     @Slot(list)
     def load_images_from_metadata(self, image_metadata: list[dict]) -> None:
