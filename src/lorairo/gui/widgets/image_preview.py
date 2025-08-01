@@ -2,7 +2,7 @@ from pathlib import Path
 
 from PIL import Image
 from PySide6.QtCore import Qt, QTimer, Slot
-from PySide6.QtGui import QPainter, QPixmap
+from PySide6.QtGui import QPainter, QPixmap, QResizeEvent
 from PySide6.QtWidgets import QGraphicsScene, QSizePolicy, QWidget
 
 from ...utils.log import logger

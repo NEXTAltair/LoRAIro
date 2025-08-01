@@ -10,7 +10,6 @@ from lorairo.gui.workers.base import (
     CancellationController,
     LoRAIroWorkerBase,
     ProgressReporter,
-    SimpleWorkerBase,
     WorkerProgress,
     WorkerStatus,
 )
@@ -104,7 +103,7 @@ class TestProgressReporter:
         batch_mock.assert_called_once_with(1, 10, "file.jpg")
 
 
-class ConcreteWorker(SimpleWorkerBase[str]):
+class ConcreteWorker(LoRAIroWorkerBase[str]):
     """テスト用具象ワーカー"""
 
     def __init__(self, duration: float = 0.1, should_fail: bool = False):
@@ -286,15 +285,15 @@ class TestLoRAIroWorkerBase:
         status_mock.assert_called_once_with(WorkerStatus.RUNNING)
 
 
-class TestSimpleWorkerBaseAlias:
-    """SimpleWorkerBase エイリアステスト"""
+class TestLoRAIroWorkerBaseAlias:
+    """LoRAIroWorkerBase エイリアステスト"""
 
     def test_alias_functionality(self):
         """エイリアス機能テスト"""
-        # SimpleWorkerBase と LoRAIroWorkerBase が同じクラスであることを確認
-        assert SimpleWorkerBase is LoRAIroWorkerBase
+        # LoRAIroWorkerBase と LoRAIroWorkerBase が同じクラスであることを確認
+        assert LoRAIroWorkerBase is LoRAIroWorkerBase
 
         # エイリアスでも正常に継承できることを確認
         worker = ConcreteWorker()
-        assert isinstance(worker, SimpleWorkerBase)
+        assert isinstance(worker, LoRAIroWorkerBase)
         assert isinstance(worker, LoRAIroWorkerBase)

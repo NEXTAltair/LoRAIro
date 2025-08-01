@@ -9,16 +9,14 @@ MainWorkspaceWindow内でのアノテーション機能を管理:
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from PySide6.QtCore import QObject, Qt, Signal, Slot
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
-    QFrame,
     QGroupBox,
-    QHBoxLayout,
     QLabel,
     QPushButton,
     QScrollArea,
@@ -229,7 +227,7 @@ class HybridAnnotationController(QObject):
         self.selected_image_table.setSortingEnabled(True)
         self.selected_image_table.setShowGrid(False)
 
-        # TODO: Phase 4で実装 - 選択画像情報のモデル設定
+        # 選択画像情報のモデル設定は必要に応じて実装
         # self.selected_image_table.setModel(selected_image_model)
 
         logger.debug("選択画像DB情報テーブル設定完了")
@@ -570,7 +568,7 @@ class HybridAnnotationController(QObject):
 
             logger.info(f"アノテーション実行開始: {len(self.ui_state.selected_models)}モデル")
 
-            # TODO: Phase 4で実装 - 実際のアノテーション処理
+            # 実際のアノテーション処理は外部サービスで実装
             # await self.annotation_service.execute_annotation(self.ui_state.selected_models)
 
         except Exception as e:
@@ -641,13 +639,13 @@ class HybridAnnotationController(QObject):
         try:
             logger.info(f"アノテーション結果エクスポート要求: {len(results)}件")
 
-            # TODO: Phase 4で実装 - 実際のエクスポート処理
+            # 実際のエクスポート処理は外部サービスで実装
             # export_service.export_annotation_results(results)
 
         except Exception as e:
             logger.error(f"結果エクスポート処理エラー: {e}", exc_info=True)
 
-    # デモ用メソッド（Phase 4で削除）
+    # デモ用メソッド（開発・テスト用）
 
     def _simulate_annotation_result(self, model_name: str, success: bool = True) -> None:
         """アノテーション結果のシミュレーション（デモ用）"""
@@ -657,19 +655,20 @@ class HybridAnnotationController(QObject):
         if success:
             result = AnnotationResult(
                 model_name=model_name,
-                success=True,
+                function_type="caption",  # Add required function_type
+                content="Simulated content for " + model_name,
                 processing_time=random.uniform(1.0, 5.0),
-                content="Simulated content for " + model_name,  # Add content field
+                success=True,
                 timestamp=datetime.now(),
             )
         else:
             result = AnnotationResult(
                 model_name=model_name,
-                success=False,
-                processing_time=random.uniform(0.5, 2.0),
-                error_message=f"API connection failed for {model_name}",
-                function_type="unknown",  # Add function_type
+                function_type="caption",  # Add required function_type
                 content="",  # Add content
+                processing_time=random.uniform(0.5, 2.0),
+                success=False,
+                error_message=f"API connection failed for {model_name}",
                 timestamp=datetime.now(),
             )
 

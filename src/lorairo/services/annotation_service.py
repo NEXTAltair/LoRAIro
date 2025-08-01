@@ -1,8 +1,9 @@
 # src/lorairo/services/annotation_service.py
+from typing import Any
 
 from image_annotator_lib import PHashAnnotationResults, annotate, list_available_annotators
 from PIL.Image import Image
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QObject, Signal
 
 from lorairo.utils.log import logger
 

@@ -11,7 +11,6 @@ from typing import Any
 
 import requests
 from openai import OpenAI
-from openai.types import Batch
 
 from lorairo.utils.log import logger
 

@@ -19,7 +19,7 @@ from .annotation_control_widget import AnnotationControlWidget
 from .annotation_results_widget import AnnotationResultsWidget
 from .annotation_status_filter_widget import AnnotationStatusFilterWidget
 from .selected_image_details_widget import SelectedImageDetailsWidget
-from .thumbnail_enhanced import ThumbnailSelectorWidget
+from .thumbnail import ThumbnailSelectorWidget
 
 
 @dataclass
@@ -138,8 +138,8 @@ class AnnotationCoordinator(QObject):
         # 1. アノテーション制御 → 結果表示の連携
         if self.control_widget and self.results_widget:
             self.control_widget.annotation_started.connect(self._on_annotation_started)
-            self.control_widget.annotation_completed.connect(self._on_annotation_completed)
-            self.control_widget.annotation_error.connect(self._on_annotation_error)
+            # Note: annotation_completed and annotation_error signals are emitted by this coordinator
+            # after processing is complete, not by the control widget
 
         # 2. 状態フィルター → サムネイル表示の連携
         if self.status_filter_widget and self.thumbnail_selector_widget:

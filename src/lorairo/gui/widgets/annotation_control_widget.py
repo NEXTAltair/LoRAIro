@@ -92,7 +92,7 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
         self.checkBoxBatchMode.toggled.connect(self._on_option_changed)
 
         # 実行ボタン
-        self.pushButtonExecute.clicked.connect(self._on_execute_clicked)
+        self.pushButtonStart.clicked.connect(self._on_execute_clicked)
 
     def _setup_widget_properties(self) -> None:
         """ウィジェットプロパティ設定"""
@@ -133,7 +133,7 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
             checkbox.setStyleSheet(checkbox_style)
 
         # 実行ボタンスタイル
-        self.pushButtonExecute.setStyleSheet(""" # type: ignore
+        self.pushButtonStart.setStyleSheet(""" # type: ignore
             QPushButton {
                 font-size: 12px;
                 font-weight: bold;
@@ -477,7 +477,7 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
 
         # テーブルと実行ボタン
         self.tableWidgetModels.setEnabled(enabled)
-        self.pushButtonExecute.setEnabled(enabled)
+        self.pushButtonStart.setEnabled(enabled)
 
         if not enabled:
             logger.debug("AnnotationControlWidget disabled")

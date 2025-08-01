@@ -40,7 +40,6 @@ def get_project_dir(base_dir_name: str, project_name: str) -> Path:
     Returns:
         Path: 生成されたプロジェクトディレクトリパス
     """
-    import re
     from datetime import datetime
 
     base_dir = Path(base_dir_name)

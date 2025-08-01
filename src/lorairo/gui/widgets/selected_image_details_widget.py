@@ -100,10 +100,11 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
         self.comboBoxRating.currentTextChanged.connect(self._on_rating_changed)
 
         # Score スライダー変更
-        self.horizontalSliderScore.valueChanged.connect(self._on_score_changed)
+        self.sliderScore.valueChanged.connect(self._on_score_changed)
 
-        # 保存ボタン
-        self.pushButtonSave.clicked.connect(self._on_save_clicked)
+        # 保存ボタン（Rating用とScore用）
+        self.pushButtonSaveRating.clicked.connect(self._on_save_clicked)
+        self.pushButtonSaveScore.clicked.connect(self._on_save_clicked)
 
         # アノテーション表示コンポーネントのシグナル
         if self.annotation_display:
@@ -124,10 +125,10 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
         """)
 
         # Score スライダー設定 (0-1000 範囲)
-        self.horizontalSliderScore.setMinimum(0)
-        self.horizontalSliderScore.setMaximum(1000)
-        self.horizontalSliderScore.setValue(0)
-        self.horizontalSliderScore.setStyleSheet("""
+        self.sliderScore.setMinimum(0)
+        self.sliderScore.setMaximum(1000)
+        self.sliderScore.setValue(0)
+        self.sliderScore.setStyleSheet("""
             QSlider::groove:horizontal {
                 border: 1px solid #bbb;
                 background: white;
@@ -147,7 +148,7 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
         self.labelScoreValue.setStyleSheet("font-size: 10px; font-weight: bold; color: #333;")
 
         # 保存ボタン
-        self.pushButtonSave.setStyleSheet("""
+        button_style = """
             QPushButton {
                 font-size: 10px;
                 padding: 4px 8px;
@@ -168,7 +169,11 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
                 color: #aaa;
                 border-color: #ddd;
             }
-        """)
+        """
+
+        # 保存ボタンにスタイル適用
+        self.pushButtonSaveRating.setStyleSheet(button_style)
+        self.pushButtonSaveScore.setStyleSheet(button_style)
 
         # 情報ラベルスタイル
         info_label_style = "font-size: 9px; font-weight: bold; color: #333;"
@@ -366,7 +371,7 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
         try:
             # シグナルブロック
             self.comboBoxRating.blockSignals(True)
-            self.horizontalSliderScore.blockSignals(True)
+            self.sliderScore.blockSignals(True)
 
             # Rating コンボボックス設定
             if rating_value:
@@ -377,13 +382,13 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
                 self.comboBoxRating.setCurrentIndex(0)
 
             # Score スライダー設定
-            self.horizontalSliderScore.setValue(score_value)
+            self.sliderScore.setValue(score_value)
             self.labelScoreValue.setText(str(score_value))
 
         finally:
             # シグナルブロック解除
             self.comboBoxRating.blockSignals(False)
-            self.horizontalSliderScore.blockSignals(False)
+            self.sliderScore.blockSignals(False)
 
     def _clear_display(self) -> None:
         """表示をクリア"""
@@ -417,8 +422,9 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
     def set_enabled_state(self, enabled: bool) -> None:
         """ウィジェット全体の有効/無効状態を設定"""
         self.comboBoxRating.setEnabled(enabled)
-        self.horizontalSliderScore.setEnabled(enabled)
-        self.pushButtonSave.setEnabled(enabled)
+        self.sliderScore.setEnabled(enabled)
+        self.pushButtonSaveRating.setEnabled(enabled)
+        self.pushButtonSaveScore.setEnabled(enabled)
 
         if self.annotation_display:
             self.annotation_display.setEnabled(enabled)

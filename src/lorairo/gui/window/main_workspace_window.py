@@ -16,7 +16,7 @@ from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
-from ..widgets.thumbnail_enhanced import ThumbnailSelectorWidget
+from ..widgets.thumbnail import ThumbnailSelectorWidget
 
 
 class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
@@ -673,7 +673,6 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
         self, image_list: list[dict], min_timestamp: int, max_timestamp: int
     ) -> list[dict]:
         """日付範囲でフィルタリング（フロントエンド処理）"""
-        from datetime import datetime
 
         filtered_images = []
         for image_data in image_list:

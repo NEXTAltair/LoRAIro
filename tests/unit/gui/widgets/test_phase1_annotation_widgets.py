@@ -1,10 +1,8 @@
 # tests/unit/gui/widgets/test_phase1_annotation_widgets.py
 
-from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget
 
 # Import widgets with proper mocking to avoid dependency issues
