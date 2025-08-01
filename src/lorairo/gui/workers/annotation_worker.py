@@ -1,6 +1,6 @@
 """Annotation Worker - Phase 2統合版
 
-EnhancedAnnotationServiceとWorkerManagerの統合
+AnnotationServiceとWorkerManagerの統合
 - ServiceContainer経由のDI対応
 - 既存WorkerBaseとの完全互換性
 - バッチ処理対応
@@ -12,7 +12,7 @@ from typing import Any
 
 from PIL.Image import Image
 
-from ...services.enhanced_annotation_service import EnhancedAnnotationService
+from ...services.annotation_service import AnnotationService
 from ...utils.log import logger
 from .base import LoRAIroWorkerBase
 
@@ -20,7 +20,7 @@ from .base import LoRAIroWorkerBase
 class AnnotationWorker(LoRAIroWorkerBase[Any]):
     """拡張アノテーションワーカー
 
-    Phase 2: EnhancedAnnotationService統合版
+    Phase 2: AnnotationService統合版
     既存AnnotationWorkerの機能を包含し、新機能を追加
 
     主要機能:
@@ -65,8 +65,8 @@ class AnnotationWorker(LoRAIroWorkerBase[Any]):
         # 共通パラメータ
         self.models = models or []
 
-        # EnhancedAnnotationService初期化
-        self.annotation_service = EnhancedAnnotationService()
+        # AnnotationService初期化
+        self.annotation_service = AnnotationService()
 
         logger.info(
             f"AnnotationWorker初期化 - Mode: {operation_mode}, "
@@ -122,7 +122,7 @@ class AnnotationWorker(LoRAIroWorkerBase[Any]):
             total_count=len(self.images),
         )
 
-        # EnhancedAnnotationService経由でアノテーション実行
+        # AnnotationService経由でアノテーション実行
         results = self.annotation_service.annotator_lib_adapter.call_annotate(
             images=self.images, models=self.models, phash_list=self.phash_list
         )
@@ -177,7 +177,7 @@ class AnnotationWorker(LoRAIroWorkerBase[Any]):
             total_count=len(self.image_paths),
         )
 
-        # EnhancedAnnotationService経由でバッチアノテーション実行
+        # AnnotationService経由でバッチアノテーション実行
         batch_result = self.annotation_service.batch_processor.execute_batch_annotation(
             image_paths=path_objects, models=self.models, batch_size=self.batch_size
         )
@@ -221,8 +221,8 @@ class ModelSyncWorker(LoRAIroWorkerBase):
         """ModelSyncWorker初期化"""
         super().__init__()
 
-        # EnhancedAnnotationService経由でModelSyncService取得
-        self.annotation_service = EnhancedAnnotationService()
+        # AnnotationService経由でModelSyncService取得
+        self.annotation_service = AnnotationService()
 
         logger.info("ModelSyncWorker初期化完了")
 
