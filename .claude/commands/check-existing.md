@@ -1,3 +1,7 @@
+---
+allowed-tools: mcp__serena__search_for_pattern, mcp__serena__find_file, mcp__serena__list_dir, mcp__serena__read_memory, mcp__serena__write_memory, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, Read, Bash, TodoWrite, WebSearch, WebFetch, Task
+description: 実装予定機能に対する既存ライブラリ・ツールの徹底調査コマンド（要件明確化ヒアリング付き）
+---
 # Check Existing Solutions
 
 実装予定機能に対する既存ライブラリ・ツールの徹底調査コマンド（要件明確化ヒアリング付き）
@@ -78,13 +82,36 @@
 - **GitHub検索**: Topics、コード検索、Issue検索
 - **Python標準ライブラリ**: 標準機能での実現可能性
 
-#### 3.2 Web検索・情報収集（WebSearch/MCP活用）
+#### 3.2 専門エージェント活用による深度調査
+- **🔍 Investigation Agent**: 既存コードベース内の類似機能調査
+  ```
+  Use the investigation agent to search for similar functionality in the LoRAIro codebase:
+  - Symbol-level search for related classes/functions
+  - Dependency analysis of existing implementations
+  - Architecture pattern identification
+  ```
+- **📚 Library Research Agent**: ライブラリ・技術選定調査
+  ```
+  Use the library-research agent to investigate external solutions:
+  - Context7-powered library documentation research
+  - Real-time API specification retrieval
+  - Compatibility assessment with existing stack
+  ```
+- **🎯 Solutions Agent**: 複数アプローチの評価・比較
+  ```
+  Use the solutions agent to evaluate different approaches:
+  - Multiple solution strategy generation
+  - Trade-off analysis and risk assessment
+  - Implementation complexity evaluation
+  ```
+
+#### 3.3 Web検索・情報収集（WebSearch/MCP活用）
 - **技術ブログ**: 明確化された要件での実装例検索
 - **Stack Overflow**: 具体的な技術的課題での解決策
 - **GitHub Issues**: 類似要件での議論・解決策
 - **公式ドキュメント**: 関連ライブラリの機能確認
 
-#### 3.3 LoRAIro環境調査
+#### 3.4 LoRAIro環境調査
 - **現在の依存関係**: `uv list` での既存ライブラリ機能確認
 - **local_packages**: genai-tag-db-tools、image-annotator-lib での提供機能
 - **既存実装**: src/lorairo/ での類似機能実装状況

@@ -1,6 +1,9 @@
-# 実装・開発フェーズ
+---
+allowed-tools: mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__replace_symbol_body, mcp__serena__insert_after_symbol, mcp__serena__insert_before_symbol, mcp__serena__replace_regex, mcp__serena__get_symbols_overview, mcp__serena__think_about_task_adherence, mcp__serena__think_about_whether_you_are_done, mcp__serena__write_memory, Read, Edit, MultiEdit, Write, Bash, TodoWrite, Task
+description: plan フェーズで策定された実装計画に基づき、LoRAIro プロジェクトの実際のコード実装を行います。
+---
 
-plan フェーズで策定された実装計画に基づき、LoRAIro プロジェクトの実際のコード実装を行います。
+# 実装・開発フェーズ
 
 ## 使用方法
 
@@ -121,12 +124,27 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 ### 実装準備フェーズ
 
 - plan フェーズ結果の詳細分析
-- **Context7 実装ガイド取得**: 実装対象ライブラリの詳細ドキュメント・パターン取得 (`mcp__context7__resolve-library-id` → `mcp__context7__get-library-docs`)
+- **🔍 Investigation Agent活用**: 実装対象の既存コード詳細調査
+  ```
+  Use the investigation agent for detailed code analysis:
+  - Symbol-level implementation pattern analysis
+  - Reference tracking for integration points
+  - Architecture consistency verification
+  ```
+- **📚 Library Research Agent活用**: 実装時の技術情報取得
+- **Context7 実装ガイド取得**: 実装対象ライブラリの詳細ドキュメント・パターン取得
 - 既存コードパターンの理解
 - 実装環境の確認・準備
 
 ### コード実装フェーズ
 
+- **🔧 Code Formatter Agent活用**: コード品質管理
+  ```
+  Use the code-formatter agent for code quality maintenance:
+  - Automatic Ruff formatting and linting
+  - Symbol-level code replacement and optimization
+  - Code structure improvement
+  ```
 - インクリメンタル開発による段階的実装
 - テスト駆動開発（TDD）の実践
 - 継続的品質チェック
