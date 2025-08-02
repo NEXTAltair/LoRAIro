@@ -7,19 +7,17 @@ Phase 4: 統合テスト - UI統合テスト
 MainWorkspaceWindow の3パネルレイアウト統合テスト
 """
 
-from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import QMainWindow, QWidget
 
 from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
-
 
 # =============================================
 # ファイルレベル Fixtures
 # =============================================
+
 
 @pytest.fixture
 def mock_services():
@@ -38,7 +36,8 @@ def mock_services():
         mock_worker.return_value = mock_worker_instance
         yield
 
-@pytest.fixture  
+
+@pytest.fixture
 def main_window(qtbot, mock_services):
     """MainWorkspaceWindow のテストインスタンス"""
     with (
@@ -50,12 +49,14 @@ def main_window(qtbot, mock_services):
             window = MainWorkspaceWindow()
             qtbot.addWidget(window)
             return window
-        except Exception as e:
+        except Exception:
             # MainWorkspaceWindow の初期化でエラーが発生した場合のフォールバック
             from PySide6.QtWidgets import QMainWindow
+
             window = QMainWindow()
             qtbot.addWidget(window)
             return window
+
 
 # =============================================
 # テストクラス
@@ -70,7 +71,7 @@ class TestThreePanelLayout:
         # 基本的なウィンドウ構造を確認
         assert main_window is not None
         assert main_window.isVisible() or not main_window.isVisible()  # 存在することを確認
-        
+
         # メインスプリッターの存在確認（存在する場合のみ）
         if hasattr(main_window, "splitterMainWorkArea"):
             assert main_window.splitterMainWorkArea is not None
@@ -78,15 +79,15 @@ class TestThreePanelLayout:
         # 3つのフレームの存在確認（存在する場合のみ）
         panels = [
             "frameFilterSearchContent",  # 左パネル
-            "frameThumbnailContent",     # 中央パネル  
-            "framePreviewDetailContent"  # 右パネル
+            "frameThumbnailContent",  # 中央パネル
+            "framePreviewDetailContent",  # 右パネル
         ]
-        
+
         existing_panels = []
         for panel in panels:
             if hasattr(main_window, panel):
                 existing_panels.append(panel)
-        
+
         # 少なくとも1つのパネルが存在することを確認
         assert len(existing_panels) >= 0  # フォールバック: ウィンドウが存在すれば OK
 
@@ -96,13 +97,13 @@ class TestThreePanelLayout:
         test_window_size = QSize(1400, 800)
         try:
             main_window.resize(test_window_size)
-            
+
             # リサイズが適用されることを確認
             qtbot.wait(100)  # UI更新待ち
             current_size = main_window.size()
             assert current_size.width() > 0
             assert current_size.height() > 0
-            
+
             # スプリッターのサイズ配分確認（存在する場合のみ）
             if hasattr(main_window, "splitterMainWorkArea") and main_window.splitterMainWorkArea:
                 sizes = main_window.splitterMainWorkArea.sizes()
@@ -126,18 +127,18 @@ class TestThreePanelLayout:
         """カスタムウィジェット統合テスト"""
         # カスタムウィジェットの存在確認（存在する場合のみ）
         widget_names = [
-            "filter_search_panel",   # フィルター・検索パネル
-            "thumbnail_selector",     # サムネイルセレクター  
-            "image_preview_widget"    # 画像プレビュー
+            "filter_search_panel",  # フィルター・検索パネル
+            "thumbnail_selector",  # サムネイルセレクター
+            "image_preview_widget",  # 画像プレビュー
         ]
-        
+
         existing_widgets = []
         for widget_name in widget_names:
             if hasattr(main_window, widget_name):
                 widget = getattr(main_window, widget_name)
                 if widget is not None:
                     existing_widgets.append(widget_name)
-        
+
         # 少なくとも基本的なウィジェット構造が存在することを確認
         # 実装が不完全でも、ウィンドウ自体は正常に動作することを確認
         assert main_window is not None
