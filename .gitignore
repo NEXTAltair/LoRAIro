@@ -131,3 +131,4 @@ tmp/
 # システム固有
 *.pid
 *.lock
+.serena/cache/python/document_symbols_cache_v23-06-25.pkl

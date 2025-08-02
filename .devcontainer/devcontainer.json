@@ -81,7 +81,7 @@
             }
         }
     },
-    "postCreateCommand": "bash -c 'cd /workspaces/LoRAIro && make install-dev && claude mcp add context7 -- npx -y @upstash/context7-mcp'",
+    "postCreateCommand": "bash -c 'cd /workspaces/LoRAIro && make install-dev && claude mcp add context7 -s project -- npx -y @upstash/context7-mcp && claude mcp add serena -- uvx --from git+https://github.com/oraios/serena serena start-mcp-server --context ide-assistant --project $(pwd) && claude mcp add playwright -s project -- npx -y @playwright/mcp@latest'",
      "mounts": [
         "source=lorairo-bashhistory-${devcontainerId},target=/home/vscode/.bash_history,type=volume",
         "source=lorairo-vscode-extensions-${devcontainerId},target=/home/vscode/.vscode-server/extensions,type=volume"

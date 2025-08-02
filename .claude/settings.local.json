@@ -15,7 +15,10 @@
       "WebFetch(domain:github.com)",
       "Bash(git merge-base:*)",
       "Bash(git for-each-ref:*)",
-      "Bash(ruff format:*)"
+      "Bash(ruff format:*)",
+      "mcp__serena__find_file",
+      "mcp__serena__list_dir",
+      "mcp__serena__write_memory"
     ],
     "deny": [
       "read:.env",
@@ -24,6 +27,10 @@
       "Bash(pytest:*)"
     ]
   },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "context7"
+  ],
   "hooks": {
     "PreToolUse": [
       {
@@ -47,5 +54,19 @@
         ]
       }
     ]
+  },
+  "mcpServers": {
+    "serena": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/oraios/serena",
+        "serena-mcp-server",
+        "--context",
+        "ide-assistant",
+        "--project",
+        "/workspaces/LoRAIro"
+      ]
+    }
   }
 }
