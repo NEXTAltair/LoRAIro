@@ -589,8 +589,9 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
                 self.dataset_state.apply_filter_results(image_metadata, original_conditions)
 
                 # 同期的にサムネイル読み込み（少量なので問題なし）
-                # load_images_from_metadata は内部で閾値判定を行うため、直接呼び出す
-                self.thumbnail_selector.load_images_from_metadata(image_metadata)
+                # 最適なサムネイルパスとIDのペアを決定してからロード
+                optimal_data = self._resolve_optimal_thumbnail_data(image_metadata)
+                self.thumbnail_selector.load_images_with_ids(optimal_data)
 
         except Exception as e:
             logger.error(f"検索完了処理中にエラーが発生しました: {e}", exc_info=True)
@@ -691,6 +692,45 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
         return filtered_images
 
     # === Thumbnail Loading ===
+
+    def _resolve_optimal_thumbnail_data(self, image_metadata: list[dict]) -> list[tuple[Path, int]]:
+        """
+        画像メタデータから最適なサムネイル表示用パスとIDのペアを決定
+
+        Args:
+            image_metadata: 画像メタデータリスト
+
+        Returns:
+            list[tuple[Path, int]]: (最適化されたパス, 画像ID) のタプルリスト
+        """
+        from pathlib import Path
+
+        optimal_data = []
+
+        for metadata in image_metadata:
+            image_id = metadata.get("id")
+            original_path = Path(metadata.get("stored_image_path", ""))
+
+            try:
+                # 512px画像が利用可能な場合はそれを使用
+                if self.db_manager:
+                    existing_512px = self.db_manager.check_processed_image_exists(image_id, 512)
+                    if existing_512px and "stored_image_path" in existing_512px:
+                        from ...database.db_core import resolve_stored_path
+
+                        path = resolve_stored_path(existing_512px["stored_image_path"])
+                        if path.exists():
+                            optimal_data.append((path, image_id))
+                            continue
+
+                # フォールバック: 元画像を使用
+                optimal_data.append((original_path, image_id))
+
+            except Exception as e:
+                logger.warning(f"サムネイルパス解決エラー、元画像を使用: {e}")
+                optimal_data.append((original_path, image_id))
+
+        return optimal_data
 
     def _start_thumbnail_loading(self, image_metadata: list[dict]) -> None:
         """サムネイル読み込み開始（非同期処理）"""

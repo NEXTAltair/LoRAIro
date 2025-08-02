@@ -437,10 +437,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         """
         指定されたグリッド位置にサムネイルアイテムをシーンに追加
         """
-        # サムネイル画像パス取得
-        thumbnail_path = self._get_thumbnail_path(image_path, image_id)
-
-        pixmap = QPixmap(str(thumbnail_path)).scaled(
+        # 渡されたパスをそのまま使用（最適化は呼び出し側で実施済み）
+        pixmap = QPixmap(str(image_path)).scaled(
             self.thumbnail_size,
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
@@ -460,31 +458,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         if self.dataset_state:
             is_selected = self.dataset_state.is_image_selected(image_id)
             item.setSelected(is_selected)
-
-    def _get_thumbnail_path(self, image_path: Path, image_id: int) -> Path:
-        """
-        サムネイル用の最適な画像パスを取得
-        """
-        try:
-            # 512px画像が利用可能な場合はそれを使用
-            db_manager = self._get_database_manager()
-            if db_manager:
-                existing_512px = db_manager.check_processed_image_exists(image_id, 512)
-                if existing_512px and "stored_image_path" in existing_512px:
-                    from ...database.db_core import resolve_stored_path
-
-                    path = resolve_stored_path(existing_512px["stored_image_path"])
-                    if path.exists():
-                        return path
-
-            # フォールバック: 元画像を使用
-            from ...database.db_core import resolve_stored_path
-
-            return resolve_stored_path(str(image_path))
-
-        except Exception as e:
-            logger.warning(f"サムネイルパス取得エラー、元画像を使用: {e}")
-            return image_path
 
     # === Utility Methods ===
 
@@ -546,15 +519,15 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     widget = ThumbnailSelectorWidget()
     image_paths = [
-        Path(r"testimg/1_img/file01.png"),
-        Path(r"testimg/1_img/file02.png"),
-        Path(r"testimg/1_img/file03.png"),
-        Path(r"testimg/1_img/file04.png"),
-        Path(r"testimg/1_img/file05.png"),
-        Path(r"testimg/1_img/file06.png"),
-        Path(r"testimg/1_img/file07.png"),
-        Path(r"testimg/1_img/file08.png"),
-        Path(r"testimg/1_img/file09.png"),
+        Path("tests/resources/img/1_img/file01.webp"),
+        Path("tests/resources/img/1_img/file02.webp"),
+        Path("tests/resources/img/1_img/file03.webp"),
+        Path("tests/resources/img/1_img/file04.webp"),
+        Path("tests/resources/img/1_img/file05.webp"),
+        Path("tests/resources/img/1_img/file06.webp"),
+        Path("tests/resources/img/1_img/file07.webp"),
+        Path("tests/resources/img/1_img/file08.webp"),
+        Path("tests/resources/img/1_img/file09.webp"),
     ]
     widget.load_images(image_paths)
     widget.setMinimumSize(400, 300)  # ウィジェットの最小サイズを設定

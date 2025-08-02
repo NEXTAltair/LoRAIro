@@ -1,30 +1,32 @@
-# tests/unit/gui/window/test_main_workspace_window_improved.py
+# tests/integration/gui/window/test_main_workspace_window.py
 """
-MainWorkspaceWindow の改善されたユニットテスト
-- 過度なMockを避け、内部LoRAIroモジュールは実際のオブジェクトを使用
-- 外部依存（ファイルシステム、GUI）のみMock化
-- API名やインポートパスの問題を検出可能
-- 実際の統合問題をキャッチできるテスト
+MainWorkspaceWindow 統合テスト
+
+責任分離後のMainWorkspaceWindowとThumbnailSelectorWidgetの実際の統合をテスト
+- 実際のコンポーネントを使用した統合テスト
+- MainWorkspaceWindowの_resolve_optimal_thumbnail_data()の実際の動作
+- 責任分離の検証
+- 最小限のモックのみ使用（外部依存のみ）
 """
 
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from typing import Any
+from unittest.mock import Mock, patch
 
 import pytest
+from PySide6.QtCore import QSize
 from PySide6.QtWidgets import QApplication
 
-from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.db_repository import ImageRepository
-from lorairo.gui.services.worker_service import WorkerService
 from lorairo.gui.state.dataset_state import DatasetStateManager
+from lorairo.gui.widgets.thumbnail import ThumbnailSelectorWidget
 from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
-from lorairo.services.configuration_service import ConfigurationService
-from lorairo.storage.file_system import FileSystemManager
+from lorairo.utils.log import initialize_logging
 
 
 @pytest.fixture(scope="session")
-def qapp():
+def qapp() -> Generator[QApplication, None, None]:
     """Qt Application fixture for GUI tests"""
     app = QApplication.instance()
     if app is None:
@@ -32,300 +34,241 @@ def qapp():
     yield app
 
 
-class TestMainWorkspaceWindowImproved:
-    """MainWorkspaceWindow の改善されたユニットテスト"""
+class TestMainWorkspaceWindowThumbnailIntegration:
+    """MainWorkspaceWindow と ThumbnailSelectorWidget の実際の統合テスト"""
 
     @pytest.fixture
-    def temp_dir(self):
+    def temp_dir(self) -> Generator[Path, None, None]:
         """一時ディレクトリ"""
         with tempfile.TemporaryDirectory() as tmp_dir:
             yield Path(tmp_dir)
 
     @pytest.fixture
-    def real_config_service(self):
-        """実際のConfigurationService（Mockしない）"""
-        return ConfigurationService()
+    def real_main_window(self, qapp: QApplication) -> MainWorkspaceWindow:
+        """実際のMainWorkspaceWindow（外部依存のみモック）"""
+        # テスト用にログ初期化
+        initialize_logging({"level": "ERROR", "file": None})
+
+        # 実際のMainWorkspaceWindowを作成
+        window = MainWorkspaceWindow()
+
+        # 実際のコンポーネントを使用
+        window.dataset_state = DatasetStateManager()
+
+        # 外部依存のみモック化
+        window.db_manager = Mock()
+
+        return window
 
     @pytest.fixture
-    def real_repository(self):
-        """実際のImageRepository（Mockしない）"""
-        return ImageRepository()
+    def real_thumbnail_widget(self, qapp: QApplication) -> ThumbnailSelectorWidget:
+        """実際のThumbnailSelectorWidget"""
+        # 実際のDatasetStateManagerを使用
+        dataset_state = DatasetStateManager()
 
-    @pytest.fixture
-    def real_db_manager(self, real_repository, real_config_service):
-        """実際のImageDatabaseManager（Mockしない）"""
-        return ImageDatabaseManager(real_repository, real_config_service)
+        # 実際のThumbnailSelectorWidgetを作成
+        widget = ThumbnailSelectorWidget(dataset_state=dataset_state)
 
-    @pytest.fixture
-    def real_dataset_state(self):
-        """実際のDatasetStateManager（Mockしない）"""
-        return DatasetStateManager()
+        return widget
 
-    @pytest.fixture
-    def mock_fsm(self, temp_dir):
-        """ファイルシステムのみMock化（外部依存）"""
-        mock = Mock(spec=FileSystemManager)
-        mock.get_image_files.return_value = []
-        return mock
-
-    @pytest.fixture
-    def minimal_main_window(self, qapp, real_config_service, real_db_manager, real_dataset_state, mock_fsm):
-        """最小限のMockでMainWorkspaceWindow作成"""
-        # GUI widget作成のみMock化（UI表示を避ける）
-        with (
-            patch("lorairo.gui.window.main_workspace_window.FilterSearchPanel") as mock_filter,
-            patch("lorairo.gui.window.main_workspace_window.ThumbnailSelectorWidget") as mock_thumb,
-            patch("lorairo.gui.window.main_workspace_window.PreviewDetailPanel") as mock_preview,
-            patch.object(MainWorkspaceWindow, "setupUi"),
-            patch.object(MainWorkspaceWindow, "setup_custom_widgets"),
-            patch.object(MainWorkspaceWindow, "setup_connections"),
-            patch.object(MainWorkspaceWindow, "initialize_state"),
-            patch("lorairo.gui.window.main_workspace_window.FileSystemManager", return_value=mock_fsm),
-        ):
-            # WorkerServiceは実際のオブジェクトを使用、データベース操作のみMock
-            with patch(
-                "lorairo.gui.window.main_workspace_window.WorkerService"
-            ) as mock_worker_service_class:
-                mock_worker_service = Mock(spec=WorkerService)
-                mock_worker_service.get_active_worker_count.return_value = 0
-                mock_worker_service_class.return_value = mock_worker_service
-
-                window = MainWorkspaceWindow()
-
-                # 実際のサービスオブジェクトを注入
-                window.config_service = real_config_service
-                window.db_manager = real_db_manager
-                window.dataset_state = real_dataset_state
-                window.fsm = mock_fsm
-                window.worker_service = mock_worker_service
-
-                # 必要なUI要素をMock
-                window.lineEditDatasetPath = Mock()
-                window.lineEditDatasetPath.text.return_value = ""
-                window.pushButtonRegisterDatabase = Mock()
-                window.pushButtonRegisterImages = Mock()  # DB登録ボタン
-                window.progressBarRegistration = Mock()  # プログレスバー
-                window.labelStatus = Mock()  # ステータスラベル（重要！）
-                window.labelRegistrationStatus = Mock()
-                window.labelSearchStatus = Mock()
-                window.labelThumbnailCount = Mock()
-                window.labelCurrentDetails = Mock()
-
-                # Qt Designer UI要素をMock
-                window.frameFilterSearchContent = Mock()
-                window.framePreviewDetailContent = Mock()
-                window.frameThumbnailSelectorContent = Mock()
-
-                # Widget instances
-                window.filter_search_panel = mock_filter.return_value
-                window.thumbnail_selector = mock_thumb.return_value
-                window.preview_detail_panel = mock_preview.return_value
-
-                # Signal objects
-                from PySide6.QtCore import Signal
-
-                window.dataset_loaded = Signal(str)
-                window.database_registration_completed = Signal(int)
-
-                yield window
-
-    def test_api_method_names_are_correct(self, minimal_main_window):
+    def test_thumbnail_path_resolution_integration(self, real_main_window: MainWorkspaceWindow) -> None:
         """
-        APIメソッド名が正しいことをテスト
-        - 実際のget_image_metadata（get_image_by_idではない）が存在することを確認
+        MainWorkspaceWindowの実際のパス解決と統合テスト
         """
-        window = minimal_main_window
+        window = real_main_window
 
-        # 実際のDatabaseManagerのメソッドが存在することを確認
-        assert hasattr(window.db_manager, "get_images_by_filter")  # 実際に使用される検索メソッド
-        assert hasattr(window.db_manager, "get_image_metadata")  # get_image_by_idではない！
-        assert hasattr(window.db_manager, "detect_duplicate_image")
-        assert hasattr(window.db_manager, "register_original_image")  # register_imageではない！
-        assert hasattr(window.db_manager, "get_total_image_count")  # 実際に存在するメソッド
+        # テスト用画像メタデータ
+        image_metadata: list[dict[str, Any]] = [
+            {"id": 1, "stored_image_path": "/original/image1.jpg"},
+            {"id": 2, "stored_image_path": "/original/image2.jpg"},
+        ]
 
-        # メソッドが呼び出し可能であることを確認
-        assert callable(window.db_manager.get_images_by_filter)
-        assert callable(window.db_manager.get_image_metadata)
-        assert callable(window.db_manager.detect_duplicate_image)
-        assert callable(window.db_manager.register_original_image)
+        # 512px画像の存在をモック（外部依存）
+        def mock_check_processed(image_id: int, size: int) -> dict[str, str] | None:
+            if image_id == 1 and size == 512:
+                return {"stored_image_path": "/processed/512/image1.jpg"}
+            return None
 
-    def test_import_paths_are_correct(self):
+        window.db_manager.check_processed_image_exists.side_effect = mock_check_processed
+
+        # resolve_stored_pathのモック（外部依存）
+        with patch("lorairo.database.db_core.resolve_stored_path") as mock_resolve:
+            mock_resolve.side_effect = lambda path: Path(path)
+
+            # Path.exists()のモック（ファイルシステム依存）
+            with patch.object(Path, "exists", return_value=True):
+                # 実際のメソッドを呼び出し
+                result = window._resolve_optimal_thumbnail_data(image_metadata)
+
+        # 実際の統合結果を検証
+        assert len(result) == 2
+        assert result[0] == (Path("/processed/512/image1.jpg"), 1)  # 512px画像を使用
+        assert result[1] == (Path("/original/image2.jpg"), 2)  # 元画像を使用
+
+    def test_thumbnail_widget_integration(self, real_main_window, real_thumbnail_widget):
         """
-        インポートパスが正しいことをテスト
-        - 実際の依存関係のインポートエラーを検出
+        MainWorkspaceWindowとThumbnailSelectorWidgetの実際の統合
         """
-        # MainWorkspaceWindowがインポート可能であることを確認
-        from lorairo.database.db_manager import ImageDatabaseManager
-        from lorairo.gui.services.worker_service import WorkerService
-        from lorairo.gui.state.dataset_state import DatasetStateManager
-        from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
+        window = real_main_window
+        thumbnail_widget = real_thumbnail_widget
 
-        # 依存するモジュールがインポート可能であることを確認
-        from lorairo.services.configuration_service import ConfigurationService
+        # 実際の統合：MainWindowがThumbnailWidgetにデータを渡す
+        window.thumbnail_selector = thumbnail_widget
 
-        # クラスが正しく定義されていることを確認
-        assert MainWorkspaceWindow is not None
-        assert ConfigurationService is not None
-        assert ImageDatabaseManager is not None
-        assert WorkerService is not None
-        assert DatasetStateManager is not None
+        # テスト用の最適化されたパスデータ
+        optimal_paths = [(Path("/processed/image1.jpg"), 1), (Path("/processed/image2.jpg"), 2)]
 
-    def test_load_dataset_with_real_objects(self, minimal_main_window, temp_dir):
+        # 実際のメソッド呼び出し
+        thumbnail_widget.load_images_with_ids(optimal_paths)
+
+        # 実際の統合結果を検証
+        assert len(thumbnail_widget.image_data) == 2
+        assert thumbnail_widget.image_data[0] == (Path("/processed/image1.jpg"), 1)
+        assert thumbnail_widget.image_data[1] == (Path("/processed/image2.jpg"), 2)
+
+    def test_dataset_state_integration(self, real_main_window, temp_dir):
         """
-        実際のオブジェクトを使用したデータセット読み込みテスト
-        - Mock以外の実際の連携をテスト
+        実際のDatasetStateManagerとの統合テスト
         """
-        window = minimal_main_window
+        window = real_main_window
         test_path = Path(temp_dir) / "test_dataset"
         test_path.mkdir()
 
-        # データベース操作のみMock化
-        with patch.object(window.db_manager, "get_images_by_filter") as mock_get_images:
-            mock_get_images.return_value = (
-                [
-                    {"id": 1, "stored_image_path": "test1.jpg"},
-                    {"id": 2, "stored_image_path": "test2.jpg"},
-                ],
-                2,
-            )
-
-            # 実行 - load_datasetは実際には存在しないので、実際のメソッドをテスト
-            window.dataset_state.set_dataset_path(test_path)
-
-            # 実際のDatasetStateManagerが呼ばれることを確認
-            assert window.dataset_state.dataset_path == test_path
-
-            # 検索機能のテスト
-            conditions = {"tags": [], "caption": "", "include_untagged": True}
-            result = window.db_manager.get_images_by_filter(**conditions)
-
-            # 実際のAPIが機能することを確認
-            assert result is not None
-
-    def test_button_click_event_integration(self, minimal_main_window, temp_dir):
-        """
-        ボタンクリックイベントの統合テスト
-        - 実際のイベントフローをテスト
-        """
-        window = minimal_main_window
-        test_path = Path(temp_dir) / "test_dataset"
-        test_path.mkdir(exist_ok=True)  # ディレクトリを実際に作成
-
-        # データセットパスを設定
+        # 実際のDatasetStateManagerの動作をテスト
         window.dataset_state.set_dataset_path(test_path)
 
-        # QMessageBoxをMock化してダイアログ表示を回避
-        with patch("lorairo.gui.window.main_workspace_window.QMessageBox"):
-            # WorkerServiceとUI要素のMock化
-            with (
-                patch.object(window.worker_service, "start_batch_registration") as mock_start,
-                patch.object(window, "_initialize_filesystem_for_registration"),
-                patch.object(window, "_show_registration_progress_dialog"),
-            ):
-                mock_start.return_value = "worker_123"
-
-                # ボタンクリック実行
-                window.on_pushButtonRegisterImages_clicked()
-
-                # 実際のWorkerServiceのAPIが呼ばれることを確認
-                mock_start.assert_called_once_with(test_path)
-
-    def test_signal_slot_connections(self, minimal_main_window):
-        """
-        シグナル・スロット接続の統合テスト
-        - 実際のQt接続が機能することを確認
-        """
-        window = minimal_main_window
-
-        # 必要なシグナルが定義されていることを確認
-        assert hasattr(window, "dataset_loaded")
-        assert hasattr(window, "database_registration_completed")
-
-        # シグナルが適切な型であることを確認
-        from PySide6.QtCore import Signal
-
-        assert isinstance(window.dataset_loaded, Signal)
-        assert isinstance(window.database_registration_completed, Signal)
-
-    def test_error_handling_with_real_objects(self, minimal_main_window, temp_dir):
-        """
-        実際のオブジェクトを使用したエラーハンドリングテスト
-        - 実際のエラー処理フローをテスト
-        """
-        window = minimal_main_window
-
-        # データベースエラーを発生させる
-        with patch.object(window.db_manager, "get_images_by_filter") as mock_get_images:
-            mock_get_images.side_effect = Exception("Database connection failed")
-
-            # エラーが適切にハンドリングされることを確認
-            try:
-                conditions = {"tags": [], "caption": "", "include_untagged": True}
-                window.db_manager.get_images_by_filter(**conditions)
-                raise AssertionError("Should have raised an exception")
-            except Exception as e:
-                assert "Database connection failed" in str(e)
-
-    def test_worker_service_integration(self, minimal_main_window):
-        """
-        WorkerServiceとの統合テスト
-        - 実際のワーカー管理機能をテスト
-        """
-        window = minimal_main_window
-
-        # WorkerServiceのメソッドが正しく存在することを確認
-        assert hasattr(window.worker_service, "start_batch_registration")
-        assert hasattr(window.worker_service, "start_search")
-        assert hasattr(window.worker_service, "start_thumbnail_loading")
-        assert hasattr(window.worker_service, "get_active_worker_count")
-
-        # メソッドが呼び出し可能であることを確認
-        assert callable(window.worker_service.start_batch_registration)
-        assert callable(window.worker_service.start_search)
-        assert callable(window.worker_service.start_thumbnail_loading)
-        assert callable(window.worker_service.get_active_worker_count)
-
-    def test_state_management_integration(self, minimal_main_window, temp_dir):
-        """
-        状態管理の統合テスト
-        - DatasetStateManagerとの実際の連携をテスト
-        """
-        window = minimal_main_window
-        test_path = temp_dir / "test_state"
-        test_path.mkdir()
-
-        # 状態変更
-        window.dataset_state.set_dataset_path(test_path)
-
-        # 状態が正しく設定されることを確認
+        # 実際の状態管理が機能することを確認
         assert window.dataset_state.dataset_path == test_path
 
-        # 画像データの設定テスト
-        test_images = [{"id": 1, "path": "test.jpg"}]
+        # 画像データの設定
+        test_images = [
+            {"id": 1, "stored_image_path": "test1.jpg"},
+            {"id": 2, "stored_image_path": "test2.jpg"},
+        ]
         window.dataset_state.set_dataset_images(test_images)
 
-        # フィルター結果の適用テスト
-        filtered_images = [{"id": 1, "path": "test.jpg"}]
+        # フィルター結果の適用
+        filtered_images = [{"id": 1, "stored_image_path": "test1.jpg"}]
         filter_conditions = {"tags": ["test"], "resolution": 1024}
         window.dataset_state.apply_filter_results(filtered_images, filter_conditions)
 
-        # 状態が正しく管理されることを確認
+        # 実際の状態管理の結果を確認
         assert len(window.dataset_state.filtered_images) == 1
+        assert window.dataset_state.filtered_images[0]["id"] == 1
 
-    def test_filesystem_manager_api_usage(self, minimal_main_window):
+    def test_responsibility_separation_integration(self, real_main_window, real_thumbnail_widget):
         """
-        FileSystemManagerのAPI使用テスト
-        - 正しいAPIが呼ばれることを確認
+        責任分離が実際に機能していることを統合テスト
         """
-        window = minimal_main_window
+        window = real_main_window
+        thumbnail_widget = real_thumbnail_widget
 
-        # FileSystemManagerのメソッドが存在することを確認
-        assert hasattr(window.fsm, "get_image_files")
-        assert callable(window.fsm.get_image_files)
+        # MainWorkspaceWindowの責任：パス解決
+        assert hasattr(window, "_resolve_optimal_thumbnail_data")
+        assert callable(window._resolve_optimal_thumbnail_data)
 
-        # 実際の使用パターンをテスト
-        test_dir = Path("/test/directory")
-        window.fsm.get_image_files(test_dir)
+        # ThumbnailSelectorWidgetの責任：表示のみ
+        display_methods = [
+            "load_images_with_ids",
+            "load_images",
+            "clear_thumbnails",
+            "get_current_image_data",
+        ]
 
-        # 正しいパラメータで呼ばれることを確認
-        window.fsm.get_image_files.assert_called_with(test_dir)
+        for method in display_methods:
+            assert hasattr(thumbnail_widget, method)
+            assert callable(getattr(thumbnail_widget, method))
+
+        # 責任外メソッドが存在しないことを確認
+        forbidden_methods = ["_get_thumbnail_path", "check_processed_image_exists", "resolve_stored_path"]
+
+        for method in forbidden_methods:
+            assert not hasattr(thumbnail_widget, method)
+
+    def test_error_handling_integration(self, real_main_window):
+        """
+        実際のエラーハンドリング統合テスト
+        """
+        window = real_main_window
+
+        # パス解決でエラーが発生する場合
+        image_metadata = [{"id": 1, "stored_image_path": "/original/image1.jpg"}]
+
+        # データベースアクセスでエラーを発生させる
+        window.db_manager.check_processed_image_exists.side_effect = Exception("DB Error")
+
+        # 実際のエラーハンドリングをテスト
+        result = window._resolve_optimal_thumbnail_data(image_metadata)
+
+        # エラーが発生しても元画像にフォールバックすることを確認
+        assert len(result) == 1
+        assert result[0] == (Path("/original/image1.jpg"), 1)
+
+    def test_thumbnail_size_integration(self, real_thumbnail_widget):
+        """
+        サムネイルサイズ設定の実際の統合テスト
+        """
+        widget = real_thumbnail_widget
+
+        # デフォルトサイズの確認
+        assert widget.thumbnail_size == QSize(128, 128)
+
+        # サイズ変更の実際のテスト（dataset_state経由で変更）
+        new_size_value = 200
+        expected_size = QSize(new_size_value, new_size_value)
+
+        if widget.dataset_state:
+            widget.dataset_state.set_thumbnail_size(new_size_value)
+        else:
+            # dataset_stateがない場合は直接変更
+            widget.thumbnail_size = expected_size
+
+        # 実際に変更されることを確認
+        assert widget.thumbnail_size == expected_size
+
+    def test_complete_integration_workflow(self, real_main_window, real_thumbnail_widget):
+        """
+        完全な統合ワークフローテスト
+        """
+        window = real_main_window
+        thumbnail_widget = real_thumbnail_widget
+
+        # 統合：MainWindowとThumbnailWidgetを接続
+        window.thumbnail_selector = thumbnail_widget
+
+        # 1. パス解決（MainWindowの責任）
+        image_metadata = [
+            {"id": 1, "stored_image_path": "/original/image1.jpg"},
+            {"id": 2, "stored_image_path": "/original/image2.jpg"},
+        ]
+
+        # DB操作をモック（外部依存）
+        window.db_manager.check_processed_image_exists.return_value = None
+
+        # 実際のパス解決処理
+        optimal_paths = window._resolve_optimal_thumbnail_data(image_metadata)
+
+        # 2. サムネイル表示（ThumbnailWidgetの責任）
+        thumbnail_widget.load_images_with_ids(optimal_paths)
+
+        # 3. 統合結果の検証
+        assert len(thumbnail_widget.image_data) == 2
+        assert thumbnail_widget.image_data == optimal_paths
+
+        # 4. メタデータ取得（責任分離で追加されたメソッド）
+        # メタデータはload_images_with_idsでは設定されないため、
+        # 直接メタデータを設定してテスト
+        test_metadata = [
+            {"id": 1, "stored_image_path": "/original/image1.jpg"},
+            {"id": 2, "stored_image_path": "/original/image2.jpg"},
+        ]
+        thumbnail_widget.current_image_metadata = test_metadata
+
+        current_data = thumbnail_widget.get_current_image_data()
+        assert len(current_data) == 2
+        assert current_data[0]["id"] == 1
+        assert current_data[1]["id"] == 2
+
+
+if __name__ == "__main__":
+    pytest.main([__file__])
