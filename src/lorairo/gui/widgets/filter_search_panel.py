@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...utils.log import logger
-from ..state.dataset_state import DatasetStateManager
+from ..services.search_filter_service import SearchFilterService
 from .filter import CustomRangeSlider
 
 
@@ -38,18 +38,14 @@ class FilterSearchPanel(QScrollArea):
     filter_cleared = Signal()
     search_requested = Signal(dict)  # search_conditions
 
-    def __init__(self, parent=None, dataset_state: DatasetStateManager | None = None):
+    def __init__(self, parent=None):
         super().__init__(parent)
 
-        # 状態管理
-        self.dataset_state = dataset_state
+        # SearchFilterService（依存注入）
+        self.search_filter_service: SearchFilterService | None = None
 
         # UI設定
         self.setup_ui()
-
-        # 状態管理との連携
-        if self.dataset_state:
-            self._connect_dataset_state()
 
         logger.debug("FilterSearchPanel initialized")
 
@@ -272,29 +268,10 @@ class FilterSearchPanel(QScrollArea):
 
         self.main_layout.addLayout(action_layout)
 
-    def set_dataset_state(self, dataset_state: DatasetStateManager) -> None:
-        """データセット状態管理を設定"""
-        if self.dataset_state:
-            self._disconnect_dataset_state()
-
-        self.dataset_state = dataset_state
-        self._connect_dataset_state()
-
-    def _connect_dataset_state(self) -> None:
-        """データセット状態管理との連携を設定"""
-        if not self.dataset_state:
-            return
-
-        self.dataset_state.filter_applied.connect(self._on_state_filter_applied)
-        self.dataset_state.filter_cleared.connect(self._on_state_filter_cleared)
-
-    def _disconnect_dataset_state(self) -> None:
-        """データセット状態管理との連携を解除"""
-        if not self.dataset_state:
-            return
-
-        self.dataset_state.filter_applied.disconnect(self._on_state_filter_applied)
-        self.dataset_state.filter_cleared.disconnect(self._on_state_filter_cleared)
+    def set_search_filter_service(self, service: SearchFilterService) -> None:
+        """SearchFilterServiceを設定"""
+        self.search_filter_service = service
+        logger.debug("SearchFilterService set for FilterSearchPanel")
 
     # === Event Handlers ===
 
@@ -350,15 +327,47 @@ class FilterSearchPanel(QScrollArea):
         self.line_edit_search.setEnabled(not disabled)
 
     def _on_search_requested(self) -> None:
-        """検索要求処理"""
-        conditions = self._get_search_conditions()
+        """検索要求処理 - SearchFilterService経由"""
+        if not self.search_filter_service:
+            logger.warning("SearchFilterService not set, cannot execute search")
+            self.text_edit_preview.setPlainText("SearchFilterServiceが設定されていません")
+            return
 
         # 検索中表示
         self.text_edit_preview.setPlainText("検索中...")
 
-        # MainWorkspaceWindow に検索条件を送信
-        self.search_requested.emit(conditions)
-        logger.info(f"検索要求: {conditions}")
+        try:
+            # SearchFilterServiceを使用して検索条件を作成
+            conditions = self.search_filter_service.create_search_conditions(
+                search_text=self.line_edit_search.text(),
+                search_type="tags" if self.radio_tags.isChecked() else "caption",
+                tag_logic="and" if self.radio_and.isChecked() else "or",
+                resolution_filter=self.combo_resolution.currentText(),
+                custom_width=self.line_edit_width.text(),
+                custom_height=self.line_edit_height.text(),
+                aspect_ratio_filter=self.combo_aspect_ratio.currentText(),
+                date_filter_enabled=self.checkbox_date_filter.isChecked(),
+                date_range_start=None,  # TODO: 日付範囲から取得
+                date_range_end=None,  # TODO: 日付範囲から取得
+                only_untagged=self.checkbox_only_untagged.isChecked(),
+                only_uncaptioned=self.checkbox_only_uncaptioned.isChecked(),
+                exclude_duplicates=self.checkbox_exclude_duplicates.isChecked(),
+            )
+
+            # 検索実行
+            results, count = self.search_filter_service.execute_search_with_filters(conditions)
+
+            # プレビュー更新
+            self.update_search_preview(count)
+
+            # 結果をシグナルで送信
+            self.search_requested.emit({"results": results, "count": count, "conditions": conditions})
+            logger.info(f"検索完了: {count}件")
+
+        except Exception as e:
+            logger.error(f"検索実行エラー: {e}", exc_info=True)
+            self.text_edit_preview.setPlainText(f"検索エラー: {e}")
+            self.search_requested.emit({"results": [], "count": 0, "error": str(e)})
 
     def _on_clear_requested(self) -> None:
         """クリア要求処理"""
@@ -368,136 +377,7 @@ class FilterSearchPanel(QScrollArea):
         self.filter_cleared.emit()
         logger.info("フィルター・検索をクリア")
 
-    @Slot(dict)
-    def _on_state_filter_applied(self, filter_conditions: dict) -> None:
-        """状態管理からのフィルター適用通知"""
-        # UIに条件を反映（循環参照防止のため、シグナル発行は停止）
-        self._update_ui_from_conditions(filter_conditions)
-
-    @Slot()
-    def _on_state_filter_cleared(self) -> None:
-        """状態管理からのフィルタークリア通知"""
-        self._clear_all_inputs()
-
     # === Private Methods ===
-
-    def _get_search_conditions(self) -> dict[str, Any]:
-        """検索・フィルター条件を取得（2段階分離版）"""
-        # データベース条件とフロントエンド条件を分離
-        db_conditions, frontend_conditions = self._separate_conditions()
-
-        # 従来の互換性のため、統合した条件も返す
-        all_conditions = {**db_conditions, **frontend_conditions}
-
-        # 2段階処理用の情報を追加
-        all_conditions["_db_conditions"] = db_conditions
-        all_conditions["_frontend_conditions"] = frontend_conditions
-        all_conditions["_use_two_stage"] = bool(frontend_conditions)
-
-        return all_conditions
-
-    def _separate_conditions(self) -> tuple[dict[str, Any], dict[str, Any]]:
-        """条件をデータベース用とフロントエンド用に分離"""
-        db_conditions = {}
-        frontend_conditions = {}
-
-        # 検索条件処理
-        self._process_search_conditions(db_conditions)
-
-        # 解像度フィルター処理
-        self._process_resolution_filter(db_conditions)
-
-        # 日付範囲フィルター処理
-        self._process_date_filter(frontend_conditions)
-
-        # オプション処理
-        self._process_option_filters(db_conditions)
-
-        # NSFWフラグ設定
-        db_conditions["include_nsfw"] = False
-
-        return db_conditions, frontend_conditions
-
-    def _process_search_conditions(self, db_conditions: dict[str, Any]) -> None:
-        """検索条件を処理"""
-        search_text = self.line_edit_search.text().strip()
-        if not search_text:
-            return
-
-        if self.radio_tags.isChecked():
-            # タグ検索
-            db_conditions["tags"] = [tag.strip() for tag in search_text.split(",") if tag.strip()]
-            db_conditions["use_and"] = self.radio_and.isChecked()
-        else:
-            # キャプション検索
-            db_conditions["caption"] = search_text
-
-    def _process_resolution_filter(self, db_conditions: dict[str, Any]) -> None:
-        """解像度フィルターを処理"""
-        resolution_text = self.combo_resolution.currentText()
-        if resolution_text == "全て":
-            return
-
-        resolution_value = self._parse_resolution_value(resolution_text)
-        if resolution_value > 0:
-            db_conditions["resolution"] = resolution_value
-
-    def _parse_resolution_value(self, resolution_text: str) -> int:
-        """解像度テキストを解析"""
-        if resolution_text.startswith("512"):
-            return 512
-        elif resolution_text.startswith("1024"):
-            return 1024
-        elif resolution_text.startswith("2048"):
-            return 2048
-        elif resolution_text == "カスタム...":
-            return self._get_custom_resolution()
-        return 0
-
-    def _get_custom_resolution(self) -> int:
-        """カスタム解像度を取得"""
-        width = self.line_edit_width.text().strip()
-        height = self.line_edit_height.text().strip()
-        if width and height:
-            try:
-                return max(int(width), int(height))
-            except ValueError:
-                pass
-        return 0
-
-    def _process_date_filter(self, frontend_conditions: dict[str, Any]) -> None:
-        """日付範囲フィルターを処理"""
-        if self.checkbox_date_filter.isChecked():
-            min_timestamp, max_timestamp = self.date_range_slider.get_range()
-            frontend_conditions["date_range"] = (min_timestamp, max_timestamp)
-
-    def _process_option_filters(self, db_conditions: dict[str, Any]) -> None:
-        """オプションフィルターを処理"""
-        # 未タグオプション
-        if self.checkbox_only_untagged.isChecked():
-            self._apply_untagged_filter(db_conditions)
-        else:
-            self._apply_tagged_filter_logic(db_conditions)
-
-        # 未キャプションオプション
-        if self.checkbox_only_uncaptioned.isChecked():
-            db_conditions.pop("caption", None)
-
-    def _apply_untagged_filter(self, db_conditions: dict[str, Any]) -> None:
-        """未タグフィルターを適用"""
-        db_conditions["include_untagged"] = True
-        # タグ条件をクリア（矛盾するため）
-        db_conditions.pop("tags", None)
-        db_conditions.pop("use_and", None)
-
-    def _apply_tagged_filter_logic(self, db_conditions: dict[str, Any]) -> None:
-        """タグ付きフィルターロジックを適用"""
-        if db_conditions.get("tags") or db_conditions.get("caption"):
-            # 検索条件がある場合は未タグを除外
-            db_conditions["include_untagged"] = False
-        else:
-            # 条件なしの場合は未タグも含める
-            db_conditions["include_untagged"] = True
 
     def _update_ui_from_conditions(self, conditions: dict) -> None:
         """条件からUIを更新"""
@@ -571,7 +451,29 @@ class FilterSearchPanel(QScrollArea):
 
     def get_current_conditions(self) -> dict[str, Any]:
         """現在の条件を取得"""
-        return self._get_search_conditions()
+        if not self.search_filter_service:
+            return {}
+
+        # SearchFilterServiceから現在の条件を取得
+        current = self.search_filter_service.get_current_conditions()
+        if current:
+            # SearchConditionsオブジェクトを辞書に変換
+            return {
+                "search_type": current.search_type,
+                "keywords": current.keywords,
+                "tag_logic": current.tag_logic,
+                "resolution_filter": current.resolution_filter,
+                "custom_width": current.custom_width,
+                "custom_height": current.custom_height,
+                "aspect_ratio_filter": current.aspect_ratio_filter,
+                "date_filter_enabled": current.date_filter_enabled,
+                "date_range_start": current.date_range_start,
+                "date_range_end": current.date_range_end,
+                "only_untagged": current.only_untagged,
+                "only_uncaptioned": current.only_uncaptioned,
+                "exclude_duplicates": current.exclude_duplicates,
+            }
+        return {}
 
     def apply_conditions(self, conditions: dict[str, Any]) -> None:
         """条件を適用"""

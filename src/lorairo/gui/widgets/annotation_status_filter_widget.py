@@ -5,30 +5,12 @@ Annotation Status Filter Widget
 完了/エラー状態での画像フィルタリングとカウント表示
 """
 
-from dataclasses import dataclass
-
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QWidget
 
-from ...database.db_manager import ImageDatabaseManager
 from ...utils.log import logger
 from ..designer.AnnotationStatusFilterWidget_ui import Ui_AnnotationStatusFilterWidget
-
-
-@dataclass
-class AnnotationStatusCounts:
-    """アノテーション状態カウント情報"""
-
-    total: int = 0
-    completed: int = 0
-    error: int = 0
-
-    @property
-    def completion_rate(self) -> float:
-        """完了率を取得"""
-        if self.total == 0:
-            return 0.0
-        return (self.completed / self.total) * 100.0
+from ..services.search_filter_service import AnnotationStatusCounts, SearchFilterService
 
 
 class AnnotationStatusFilterWidget(QWidget, Ui_AnnotationStatusFilterWidget):
@@ -49,13 +31,12 @@ class AnnotationStatusFilterWidget(QWidget, Ui_AnnotationStatusFilterWidget):
     def __init__(
         self,
         parent: QWidget | None = None,
-        db_manager: ImageDatabaseManager | None = None,
     ):
         super().__init__(parent)
         self.setupUi(self)
 
-        # 依存関係
-        self.db_manager = db_manager
+        # SearchFilterService（依存注入）
+        self.search_filter_service: SearchFilterService | None = None
 
         # 状態情報
         self.current_counts: AnnotationStatusCounts = AnnotationStatusCounts()
@@ -145,7 +126,7 @@ class AnnotationStatusFilterWidget(QWidget, Ui_AnnotationStatusFilterWidget):
     def _on_refresh_clicked(self) -> None:
         """更新ボタンクリック時の処理"""
         self.refresh_requested.emit()
-        if self.db_manager:
+        if self.search_filter_service:
             self.update_status_counts()
         logger.debug("Refresh requested")
 
@@ -153,20 +134,20 @@ class AnnotationStatusFilterWidget(QWidget, Ui_AnnotationStatusFilterWidget):
         """フィルター変更シグナルを送信"""
         self.filter_changed.emit(self.active_filters.copy())
 
-    def set_database_manager(self, db_manager: ImageDatabaseManager) -> None:
-        """データベースマネージャー設定"""
-        self.db_manager = db_manager
-        logger.debug("Database manager set for AnnotationStatusFilterWidget")
+    def set_search_filter_service(self, service: SearchFilterService) -> None:
+        """SearchFilterServiceを設定"""
+        self.search_filter_service = service
+        logger.debug("SearchFilterService set for AnnotationStatusFilterWidget")
 
     def update_status_counts(self) -> None:
         """アノテーション状態カウントを更新"""
-        if not self.db_manager:
-            logger.warning("Database manager not available for status count update")
+        if not self.search_filter_service:
+            logger.warning("SearchFilterService not available for status count update")
             return
 
         try:
-            # データベースから統計取得
-            counts = self._fetch_annotation_counts()
+            # SearchFilterServiceから統計取得
+            counts = self.search_filter_service.get_annotation_status_counts()
 
             # UI更新
             self._update_count_display(counts)
@@ -179,39 +160,6 @@ class AnnotationStatusFilterWidget(QWidget, Ui_AnnotationStatusFilterWidget):
 
         except Exception as e:
             logger.error(f"Error updating status counts: {e}", exc_info=True)
-
-    def _fetch_annotation_counts(self) -> AnnotationStatusCounts:
-        """データベースからアノテーション状態カウントを取得"""
-        try:
-            # データベースクエリでアノテーション状態を集計
-            # TODO: 実際のデータベーススキーマに合わせて実装
-            # ここでは仮の実装
-            session = self.db_manager.get_session()
-
-            with session:
-                # 総画像数取得
-                total_images = session.execute("SELECT COUNT(*) FROM images").scalar() or 0
-
-                # 完了画像数取得 (タグまたはキャプションが存在)
-                completed_query = """
-                    SELECT COUNT(DISTINCT i.id) FROM images i
-                    LEFT JOIN tags t ON i.id = t.image_id
-                    LEFT JOIN captions c ON i.id = c.image_id
-                    WHERE t.id IS NOT NULL OR c.id IS NOT NULL
-                """
-                completed_images = session.execute(completed_query).scalar() or 0
-
-                # エラー画像数取得 (TODO: エラー記録テーブルが必要)
-                # 現在はプレースホルダー
-                error_images = 0
-
-                return AnnotationStatusCounts(
-                    total=total_images, completed=completed_images, error=error_images
-                )
-
-        except Exception as e:
-            logger.error(f"Error fetching annotation counts: {e}")
-            return AnnotationStatusCounts()
 
     def _update_count_display(self, counts: AnnotationStatusCounts) -> None:
         """カウント表示を更新"""
