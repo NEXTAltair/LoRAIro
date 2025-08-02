@@ -1,6 +1,9 @@
-# テスト・検証フェーズ
+---
+allowed-tools: mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, mcp__serena__search_for_pattern, mcp__serena__write_memory, Read, Edit, Write, Bash, TodoWrite, Task
+description: implement フェーズで実装されたコードについて、包括的なテスト・検証を実行します。
 
-implement フェーズで実装されたコードについて、包括的なテスト・検証を実行します。
+---
+# テスト・検証フェーズ
 
 ## 使用方法
 
@@ -125,12 +128,26 @@ implement フェーズで実装された上記機能について、ユニット�
 
 ### テスト準備フェーズ
 
+- **🔍 Investigation Agent活用**: テスト対象コードの詳細分析
+  ```
+  Use the investigation agent for test preparation:
+  - Symbol-level test target identification
+  - Reference tracking for integration test planning
+  - Code complexity assessment for test strategy
+  ```
 - 実装結果確認と基線設定
 - テスト環境・データ準備
 - テスト計画詳細化
 
 ### 包括的テスト実行フェーズ
 
+- **🔧 Code Formatter Agent活用**: テストコード品質管理
+  ```
+  Use the code-formatter agent for test code quality:
+  - Test code formatting and linting
+  - Test structure optimization
+  - Code quality verification
+  ```
 - 段階的テスト実行（Unit → Integration → GUI → BDD）
 - 異常系・パフォーマンステスト
 - 品質指標・カバレッジ確認
