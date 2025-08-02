@@ -294,7 +294,9 @@ class AnnotationCoordinator(QObject):
         except Exception as e:
             logger.error(f"Failed to apply annotation display filter: {e}")
 
-    def _filter_by_annotation_status(self, images: list[dict[str, Any]], filters: dict[str, bool]) -> list[dict[str, Any]]:
+    def _filter_by_annotation_status(
+        self, images: list[dict[str, Any]], filters: dict[str, bool]
+    ) -> list[dict[str, Any]]:
         """
         アノテーション状態で画像リストをフィルタリング
 
