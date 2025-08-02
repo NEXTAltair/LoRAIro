@@ -2,6 +2,7 @@
   // .vscode/launch.json
   "version": "0.2.0",
   "configurations": [
+
     {
       "name": "LoRAIro GUI",
       "type": "debugpy",
@@ -35,7 +36,7 @@
       "module": "lorairo.gui.widgets.thumbnail",
       "console": "integratedTerminal",
       "justMyCode": false,
-      "cwd": "${workspaceFolder}/src",
+      "cwd": "${workspaceFolder}",
       "env": {
         "UV_PROJECT_ENVIRONMENT": ".venv"
       },

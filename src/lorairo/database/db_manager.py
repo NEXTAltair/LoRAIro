@@ -177,7 +177,6 @@ class ImageDatabaseManager:
             fsm (FileSystemManager): ファイルシステムマネージャー
         """
 
-
         # 元画像サイズを確認（アップスケール対応のため512px以下もスキップしない）
         original_width = original_metadata.get("width", 0)
         original_height = original_metadata.get("height", 0)

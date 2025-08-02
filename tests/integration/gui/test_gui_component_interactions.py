@@ -14,7 +14,7 @@ from lorairo.gui.state.dataset_state import DatasetStateManager
 from lorairo.gui.widgets.filter_search_panel import FilterSearchPanel
 from lorairo.gui.widgets.image_preview import ImagePreviewWidget
 from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetailsWidget
-from lorairo.gui.widgets.thumbnail_enhanced import ThumbnailSelectorWidget
+from lorairo.gui.widgets.thumbnail import ThumbnailSelectorWidget
 
 
 class TestGUIComponentInteractions:
@@ -255,7 +255,6 @@ class TestGUIComponentInteractions:
         current_data = dataset_state_manager.get_current_image_data()
         assert current_data is None
 
-
     def test_responsive_layout_coordination(self, dataset_state_manager):
         """レスポンシブレイアウト協調テスト"""
         # ウィンドウサイズに応じたサムネイルサイズ調整をシミュレート
@@ -303,5 +302,3 @@ class TestGUIComponentInteractions:
         # メモリリークがないことを確認（基本チェック）
         assert len(dataset_state_manager.all_images) == 0
         assert len(dataset_state_manager.filtered_images) == 0
-
-
