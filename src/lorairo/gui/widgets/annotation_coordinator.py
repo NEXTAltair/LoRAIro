@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QWidget
 
 from ...database.db_manager import ImageDatabaseManager
 from ...utils.log import logger
+from ..services.search_filter_service import SearchFilterService
 from .annotation_control_widget import AnnotationControlWidget
 from .annotation_results_widget import AnnotationResultsWidget
 from .annotation_status_filter_widget import AnnotationStatusFilterWidget
@@ -74,6 +75,9 @@ class AnnotationCoordinator(QObject):
         self.parent_widget = parent
         self.db_manager = db_manager
 
+        # SearchFilterService初期化
+        self.search_filter_service = SearchFilterService(db_manager)
+
         # ワークフロー状態
         self.workflow_state = AnnotationWorkflowState()
 
@@ -123,9 +127,9 @@ class AnnotationCoordinator(QObject):
         logger.info("Widget setup completed for AnnotationCoordinator")
 
     def _setup_database_connections(self) -> None:
-        """各ウィジェットにデータベースマネージャーを設定"""
+        """各ウィジェットにサービス層を設定"""
         if self.status_filter_widget:
-            self.status_filter_widget.set_database_manager(self.db_manager)
+            self.status_filter_widget.set_search_filter_service(self.search_filter_service)
 
         if self.image_details_widget:
             self.image_details_widget.set_database_manager(self.db_manager)

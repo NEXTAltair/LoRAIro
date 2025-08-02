@@ -40,6 +40,22 @@ class FilterConditions:
     exclude_duplicates: bool = False
 
 
+@dataclass
+class AnnotationStatusCounts:
+    """アノテーション状態カウント情報"""
+
+    total: int = 0
+    completed: int = 0
+    error: int = 0
+
+    @property
+    def completion_rate(self) -> float:
+        """完了率を取得"""
+        if self.total == 0:
+            return 0.0
+        return (self.completed / self.total) * 100.0
+
+
 class SearchFilterService:
     """
     検索・フィルター処理に関するビジネスロジックを処理するサービス（拡張版）
@@ -574,3 +590,147 @@ class SearchFilterService:
                     continue
 
         return filtered
+
+    # === アノテーション状態機能（拡張） ===
+
+    def get_annotation_status_counts(self) -> AnnotationStatusCounts:
+        """
+        アノテーション状態カウントを取得
+
+        Returns:
+            AnnotationStatusCounts: アノテーション状態統計
+        """
+        try:
+            session = self.db_manager.get_session()
+
+            with session:
+                # 総画像数取得
+                total_images = session.execute("SELECT COUNT(*) FROM images").scalar() or 0
+
+                # 完了画像数取得 (タグまたはキャプションが存在)
+                completed_query = """
+                    SELECT COUNT(DISTINCT i.id) FROM images i
+                    LEFT JOIN tags t ON i.id = t.image_id
+                    LEFT JOIN captions c ON i.id = c.image_id
+                    WHERE t.id IS NOT NULL OR c.id IS NOT NULL
+                """
+                completed_images = session.execute(completed_query).scalar() or 0
+
+                # エラー画像数取得 (TODO: エラー記録テーブルが必要)
+                # 現在はプレースホルダー
+                error_images = 0
+
+                return AnnotationStatusCounts(
+                    total=total_images, completed=completed_images, error=error_images
+                )
+
+        except Exception as e:
+            logger.error(f"アノテーション状態カウント取得エラー: {e}")
+            return AnnotationStatusCounts()
+
+    def filter_by_annotation_status(
+        self, completed: bool = False, error: bool = False
+    ) -> list[dict[str, Any]]:
+        """
+        アノテーション状態でフィルタリング
+
+        Args:
+            completed: 完了画像のみ
+            error: エラー画像のみ
+
+        Returns:
+            list: フィルター後の画像リスト
+        """
+        try:
+            session = self.db_manager.get_session()
+
+            with session:
+                if completed:
+                    # 完了画像（タグまたはキャプション有り）
+                    query = """
+                        SELECT DISTINCT i.* FROM images i
+                        LEFT JOIN tags t ON i.id = t.image_id
+                        LEFT JOIN captions c ON i.id = c.image_id
+                        WHERE t.id IS NOT NULL OR c.id IS NOT NULL
+                    """
+                elif error:
+                    # エラー画像（TODO: エラー記録テーブル参照）
+                    query = "SELECT * FROM images WHERE 1=0"  # 現在は空結果
+                else:
+                    # 全ての画像
+                    query = "SELECT * FROM images"
+
+                result = session.execute(query).fetchall()
+                return [dict(row._mapping) for row in result]
+
+        except Exception as e:
+            logger.error(f"アノテーション状態フィルタリングエラー: {e}")
+            return []
+
+    def filter_images_by_annotation_status(
+        self, images: list[dict[str, Any]], completed: bool = False, error: bool = False
+    ) -> list[dict[str, Any]]:
+        """
+        メモリ上の画像リストをアノテーション状態でフィルタリング（フロントエンド処理）
+
+        Args:
+            images: フィルタリング対象の画像リスト
+            completed: 完了画像のみ
+            error: エラー画像のみ
+
+        Returns:
+            list: フィルター後の画像リスト
+        """
+        if not completed and not error:
+            return images  # フィルター条件なしの場合は全画像を返す
+
+        filtered = []
+        for img in images:
+            img_id = img.get("id")
+            if not img_id:
+                continue
+
+            try:
+                # アノテーション状態を確認
+                has_annotation = self._check_image_has_annotation(img_id)
+
+                if completed and has_annotation:
+                    filtered.append(img)
+                elif error and not has_annotation:
+                    # TODO: 実際のエラー状態確認ロジック追加
+                    # 現在は未アノテーション画像をエラーとして扱う
+                    filtered.append(img)
+
+            except Exception as e:
+                logger.debug(f"アノテーション状態確認エラー (image_id: {img_id}): {e}")
+                continue
+
+        return filtered
+
+    def _check_image_has_annotation(self, image_id: int) -> bool:
+        """
+        画像にアノテーション（タグまたはキャプション）があるかチェック
+
+        Args:
+            image_id: 画像ID
+
+        Returns:
+            bool: アノテーション有無
+        """
+        try:
+            session = self.db_manager.get_session()
+
+            with session:
+                query = """
+                    SELECT 1 FROM images i
+                    LEFT JOIN tags t ON i.id = t.image_id
+                    LEFT JOIN captions c ON i.id = c.image_id
+                    WHERE i.id = ? AND (t.id IS NOT NULL OR c.id IS NOT NULL)
+                    LIMIT 1
+                """
+                result = session.execute(query, (image_id,)).fetchone()
+                return result is not None
+
+        except Exception as e:
+            logger.debug(f"アノテーション状態確認エラー: {e}")
+            return False
