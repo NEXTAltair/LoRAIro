@@ -237,83 +237,60 @@ lorairo_data/
 - **HuggingFace Publishing**: Export curated projects to HuggingFace datasets
 - **Multi-language Support**: Unicode project names (Japanese, English, mixed)
 
-## Rule Files and Documentation References
+## Development Workflow Integration
 
-### .cursor Directory Structure
-Claude Code should reference these files for development guidance:
+### 🎯 **Command-Based Development Process**
 
-**Core Development Rules:**
-- `.cursor/rules/rules.mdc` - Master development workflow and architectural rules
-- `.cursor/rules/coding-rules.mdc` - Coding standards, type hints, error handling, documentation requirements
-- `.cursor/rules/memory.mdc` - Memory management and file-based documentation system structure
+**Modern development workflow using specialized commands and agents:**
 
-**Process-Specific Rules:**
-- `.cursor/rules/plan.mdc` - Planning guidelines and templates for feature development
-- `.cursor/rules/implement.mdc` - Implementation patterns and code quality standards
-- `.cursor/rules/debug.mdc` - Debugging workflows and troubleshooting procedures
+1. **Analysis Phase**: Use `/check-existing` for understanding current functionality
+2. **Planning Phase**: Use `/plan` for strategic design and architecture
+3. **Implementation Phase**: Use `/implement` for code development
+4. **Validation Phase**: Use `/test` for quality assurance and testing
 
-**Documentation and Testing:**
-- `.cursor/rules/doc-lookup-rules.mdc` - Documentation reference hierarchy and update requirements
-- `.cursor/rules/test_rules/testing-rules.mdc` - Test strategy and pytest configuration
-- `.cursor/rules/test_rules/pytest-bdd-feature-rules.mdc` - BDD feature file guidelines
-- `.cursor/rules/test_rules/pytest-bdd-step-def-rules.mdc` - BDD step definition patterns
+### 🧰 **Agent-Driven Task Execution**
 
-**Module-Specific Rules:**
-- `.cursor/rules/module_rules/module-annotator.mdc` - AI annotation module guidelines
-- `.cursor/rules/module_rules/module-database-rules.mdc` - Database operation patterns
-- `.cursor/rules/encapsulation-rules.mdc` - Encapsulation and design patterns
+**Specialized Agents Automatically Used by Commands:**
 
-### .roo Directory Structure
-The .roo directory contains aliases that reference .cursor rules and additional configuration:
+- **[`investigation`](.claude/agents/investigation.md)**: Codebase analysis and semantic search
+  - Symbol-level search and dependency analysis
+  - Architecture pattern identification
+  - Code relationship mapping
 
-**Rule References:**
-- `.roo/rules/rules.mdc` → Reference `.cursor/rules/rules.mdc`
-- `.roo/rules/memory.mdc` → Reference `.cursor/rules/memory.mdc`
-- `.roo/rules-architect/plan.mdc` → Reference `.cursor/rules/plan.mdc`
-- `.roo/rules-code/implement.mdc` → Reference `.cursor/rules/implement.mdc`
-- `.roo/rules-debug/debug.mdc` → Reference `.cursor/rules/debug.mdc`
+- **[`library-research`](.claude/agents/library-research.md)**: Technology research and evaluation
+  - Real-time documentation retrieval
+  - Compatibility assessment
+  - Implementation pattern research
 
-**Configuration:**
-- `.roo/mcp.json` - MCP server configuration (not tracked in git)
-- `.roo/mcp.json.example` - Template for MCP configuration
-- `.roo/README.md` - Setup instructions for GitHub MCP server
+- **[`solutions`](.claude/agents/solutions.md)**: Multi-approach problem solving
+  - Solution strategy generation
+  - Risk-benefit analysis
+  - Implementation trade-off evaluation
 
-### Reference Guidelines for Claude Code
+- **[`code-formatter`](.claude/agents/code-formatter.md)**: Code quality maintenance
+  - Ruff-based formatting and linting
+  - Code structure optimization
+  - Quality standard enforcement
 
-**When Planning (PLAN/Architect Mode):**
-1. Read `.cursor/rules/memory.mdc` for memory bank structure
-2. Reference `.cursor/rules/plan.mdc` for planning guidelines
-3. Check `.cursor/rules/doc-lookup-rules.mdc` for documentation hierarchy
-4. Review existing documentation in `docs/` and `tasks/` directories
+### 📋 **Development Guidelines**
 
-**When Implementing (ACT/Code Mode):**
-1. Follow `.cursor/rules/coding-rules.mdc` for code quality standards
-2. Use `.cursor/rules/implement.mdc` for implementation patterns
-3. Reference module-specific rules for relevant components
-4. Update memory bank files per `.cursor/rules/memory.mdc`
+**Command Usage Pattern:**
+- Use commands as primary development interface
+- Commands automatically delegate to appropriate specialized agents
+- Agents leverage MCP tools for efficient task execution
+- Context and quality maintained through integrated workflow
 
-**When Debugging:**
-1. Follow procedures in `.cursor/rules/debug.mdc`
-2. Check for error patterns and solutions
-3. Document fixes for future reference
+**Quality Standards:**
+- Follow `.cursor/rules/` guidelines for development standards
+- Use command-integrated quality checks and validation
+- Apply established coding conventions and patterns
+- Execute comprehensive testing through `/test` command
 
-**Documentation Updates:**
-1. Always reference `.cursor/rules/doc-lookup-rules.mdc` for documentation structure
-2. Update related documentation when making code changes
-3. Maintain consistency across documentation files
-4. Follow the hierarchical documentation reference system
-
-**Testing:**
-1. Use guidelines from `.cursor/rules/test_rules/testing-rules.mdc`
-2. Follow BDD patterns for feature tests
-3. Ensure coverage requirements are met
-
-**Key Principles:**
-- Reference rules before starting any development task
-- Update documentation alongside code changes
-- Follow established patterns and conventions
-- Use the memory bank system for context retention
-- Always check for existing solutions in error documentation
+**Modern Principles:**
+- Command-based workflow for structured development
+- Agent delegation for specialized task execution
+- MCP tool optimization for maximum efficiency
+- Integrated quality assurance and testing
 
 ## Problem-Solving Methodology
 
@@ -342,19 +319,20 @@ Before implementing any solution, always:
 - Risk of introducing new issues
 - Time investment vs. benefit ratio
 
-### Documentation References for Code Changes
+### Modern Context Management
 
 **Before making changes, always reference:**
-- `docs/architecture.md` - System architecture and component relationships
-- `docs/product_requirement_docs.md` - Product requirements and user stories
-- `docs/technical.md` - Technical specifications and implementation details
-- `tasks/` directory - Active development tasks and plans
+- Start with `/check-existing` to understand current functionality
+- Use `/plan` to analyze requirements and design approach
+- Reference `docs/product_requirement_docs.md` for requirements
+- Check `docs/architecture.md` for system design principles
+- Review `docs/technical.md` for implementation patterns
 
-**When updating code, ensure documentation alignment:**
-- Update architecture diagrams if component relationships change
-- Modify technical specifications if implementation patterns change
-- Update product requirements if functionality scope changes
-- Keep task documentation current with development progress
+**When updating code, ensure workflow adherence:**
+- Follow the `/check-existing` → `/plan` → `/implement` → `/test` workflow
+- Use agents automatically through commands for specialized tasks
+- Maintain code quality through integrated formatting and validation
+- Document significant changes and architectural decisions
 
 ## Troubleshooting
 
@@ -394,63 +372,65 @@ make run-gui  # Automatically selects appropriate environment
 - Windows environment: Native GUI window display
 - Cross-platform test compatibility guaranteed
 
-## Quick Reference Links
+## Command & Agent Development Workflow
 
-### 📋 Current Project Status & Requirements (Updated 2025/07/06)
+### 🚀 **Command-Based Development Structure**
 
-**Essential Documents for Understanding Current State:**
-- 📊 **[Current Tasks & Progress](tasks/tasks_plan.md)** - Active tasks, priorities, and completion status
-- 🎯 **[Active Development Context](tasks/active_context.md)** - Current focus, recent changes, and next steps  
-- 📋 **[Product Requirements](docs/product_requirement_docs.md)** - Clarified requirements with 2025/07/06 updates
-- 🏗️ **[Architecture Specification](docs/architecture.md)** - System design with hybrid batch processing architecture
-- ⚙️ **[Technical Implementation](docs/technical.md)** - Implementation patterns and code examples
+**Primary Development Commands:**
+- 🔍 **[/check-existing](.claude/commands/check-existing.md)**: Analyze existing functionality and codebase
+- 📋 **[/plan](.claude/commands/plan.md)**: Strategic planning and architecture design
+- ⚙️ **[/implement](.claude/commands/implement.md)**: Code implementation and development
+- 🧪 **[/test](.claude/commands/test.md)**: Testing and quality validation
 
-### 🎯 2025/07/06-07 Requirements Clarification Summary
+### 🤖 **Specialized Agent Integration**
 
-**Key Decisions Made:**
-- **Performance**: DB registration (1000 images/5 minutes), 100-image batch processing
-- **AI Integration**: Model name direct specification, skip error handling, no cost controls  
-- **Security**: Plain-text API key storage, log masking, policy violation tracking (separate table)
-- **Architecture**: Hybrid controlled batch processing design
-- **Retry Policy**: Failed images only retry with policy violation warnings
-- **Configuration**: ConfigurationService optimized with DI + shared config pattern (2025/07/07)
+**Agents Automatically Used by Commands:**
+- **[investigation](.claude/agents/investigation.md)**: Codebase analysis and semantic search
+- **[library-research](.claude/agents/library-research.md)**: Technology research and evaluation
+- **[solutions](.claude/agents/solutions.md)**: Multi-approach problem solving
+- **[code-formatter](.claude/agents/code-formatter.md)**: Code quality and formatting
 
-### 🔄 Current Development Phase
+**Workflow Integration:**
+- Commands leverage agents for specialized task execution
+- MCP tools provide enhanced functionality (Serena, Context7)
+- Automatic delegation ensures efficient development process
+- Quality standards maintained through integrated validation
 
-**Status: Ready for Implementation Phase (ACT MODE)**
-- ✅ All major ambiguous requirements clarified
-- ✅ Architecture decisions documented  
-- ✅ Performance targets specified
-- ✅ Security policies defined
-- 🚀 Ready to begin implementation of clarified requirements
+### 📚 **Development Guidelines**
 
-### 📚 Development Rules & Guidelines
+**Development Workflow Pattern:**
+1. **Analysis Phase**: Use `/check-existing` for existing functionality review
+2. **Planning Phase**: Use `/plan` for strategic design and architecture
+3. **Implementation Phase**: Use `/implement` for code development
+4. **Validation Phase**: Use `/test` for quality assurance
 
-**Before Starting Any Work:**
-1. 📖 Read **[Memory Bank System](.cursor/rules/memory.mdc)** for context structure
-2. 📋 Check **[Active Context](tasks/active_context.md)** for current priorities
-3. 📊 Review **[Task Plan](tasks/tasks_plan.md)** for implementation roadmap
+**Command Usage:**
+```bash
+# Primary development workflow
+/check-existing <functionality-to-analyze>
+/plan <feature-or-improvement-description>
+/implement <implementation-target>
+/test <testing-focus>
 
-**For Implementation Work:**
-- 🔧 Follow **[Implementation Guidelines](.cursor/rules/implement.mdc)**
-- 📏 Use **[Coding Standards](.cursor/rules/coding-rules.mdc)**  
-- 🧪 Apply **[Testing Strategy](.cursor/rules/test_rules/testing-rules.mdc)**
+# Agents are automatically invoked by commands
+# investigation: Codebase analysis and semantic search
+# library-research: Technology evaluation and documentation
+# solutions: Multi-approach problem solving
+# code-formatter: Code quality and formatting
+```
 
-**For Planning Work:**
-- 📋 Use **[Planning Guidelines](.cursor/rules/plan.mdc)**
-- 🏗️ Reference **[Architecture Decisions](docs/architecture.md)**
-- 📋 Update **[Product Requirements](docs/product_requirement_docs.md)** if needed
+### 🔗 **Quick Navigation**
 
-### 🔗 Quick Navigation
-
-| Purpose | File | Description |
-|---------|------|-------------|
-| **Current Status** | [tasks/active_context.md](tasks/active_context.md) | What's happening now |
-| **Next Tasks** | [tasks/tasks_plan.md](tasks/tasks_plan.md) | What to work on next |
+| Purpose | Tool/Location | Description |
+|---------|---------------|-------------|
+| **Analysis** | [/check-existing](.claude/commands/check-existing.md) | Existing functionality review |
+| **Planning** | [/plan](.claude/commands/plan.md) | Strategic design and implementation planning |
+| **Implementation** | [/implement](.claude/commands/implement.md) | Code development and quality assurance |
+| **Testing** | [/test](.claude/commands/test.md) | Validation and testing workflows |
+| **Specialized Agents** | [.claude/agents/](/.claude/agents/) | Task-specific automation tools |
 | **Requirements** | [docs/product_requirement_docs.md](docs/product_requirement_docs.md) | What to build |
 | **Architecture** | [docs/architecture.md](docs/architecture.md) | How to build it |
-| **Implementation** | [docs/technical.md](docs/technical.md) | Code patterns & examples |
-| **Development Rules** | [.cursor/rules/](/.cursor/rules/) | How to develop |
+| **Technical Details** | [docs/technical.md](docs/technical.md) | Implementation specifics |
 
 ### ⚙️ Configuration Quick Reference (2025/07/07)
 
@@ -477,4 +457,4 @@ level = "INFO"
 file_path = ""
 ```
 
-**💡 Tip:** Always check the Active Context and Task Plan before starting any development work to ensure alignment with current priorities and recent decisions.
+**💡 Development Workflow:** Use `/check-existing` → `/plan` → `/implement` → `/test` for structured development. Commands automatically use specialized agents for optimal task execution and quality assurance.
