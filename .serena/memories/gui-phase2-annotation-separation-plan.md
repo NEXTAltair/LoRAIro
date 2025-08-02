@@ -1,254 +1,252 @@
-# Phase 2: アノテーション系責任分離計画書
+# Phase 2: アノテーション系分離 + データベース操作統合計画
 
-## 🎯 **Phase概要**
-**目的**: アノテーション系ウィジェットのモノリシック構造を責任分離し、統一アーキテクチャを適用
+## 統合概要
 
-**優先度**: 高  
-**推定工数**: 8-12時間  
-**前提条件**: Phase 1のFilterSearchPanel統一化パターンが確立済み  
-**成果物**: 責任分離されたAnnotationControlWidget + 新規ModelManager + 簡素化ModelSelectionWidget
+GUI統一化のAnnotationControlWidget責任分離とデータベースアクセス分離（アノテーション系）を**連携実行**することで、**31%の効率化**を実現する統合実装計画。
 
-## 📋 **対象ウィジェット分析**
+## 対象範囲
 
-### **現状の問題**
-- **AnnotationControlWidget**: UI/ロジック/設定管理が混在するモノリシック構造
-- **ModelSelectionWidget**: 動的UI生成とビジネスロジックが結合
-- **AnnotationCoordinator**: 調整機能は良好だが、他ウィジェットとの連携に改善余地
+### AnnotationControlWidget責任分離（GUI統一化）
+- `src/lorairo/gui/widgets/annotation_control_widget.py`
+- UI/Logic/State/Data層の明確な分離
+- ModelManager service extraction
 
-### **責任分離戦略**
-- **UI層**: 表示・ユーザーインタラクション専用
-- **ロジック層**: モデル管理・設定管理専用（新規ModelManager）
-- **状態層**: DatasetStateManager統合による統一状態管理
+### データベース操作分離（DB分離）
+- アノテーション状態のDB集計処理 (100行)
+- DatabaseOperationService新規作成
+- データ操作専用サービス層の確立
 
-## 📋 **詳細タスク分割** (12タスク)
+## 統合実装戦略
 
-### 🔍 **Task 2.1: 現状ウィジェット責任分析** (1-2時間)
-**目的**: 現在の責任範囲と課題の詳細把握  
-**状態**: 未開始  
-**依存関係**: なし  
+### **連携アプローチ**
+AnnotationControlWidget責任分離の設計時にDatabaseOperationService連携を組み込み、アノテーション状態管理の責任分離を統合実施。
 
-**実行内容**:
-- AnnotationControlWidget の責任範囲分析
-- ModelSelectionWidget の機能分析
-- AnnotationCoordinator の連携パターン分析
-- 責任混在ポイントの特定と分離対象の明確化
+### **技術統合ポイント**
 
-**成果物**:
-- [ ] 責任分析レポート
-- [ ] 分離対象機能リスト
-- [ ] 現状アーキテクチャ図
+#### DatabaseOperationService新規実装
+```python
+# src/lorairo/services/database_operation_service.py
+class DatabaseOperationService:
+    """データベース操作専用サービス（アノテーション系統合）"""
+    
+    def __init__(self, db_manager: ImageDatabaseManager):
+        self.db_manager = db_manager
+        self.logger = logger
+    
+    # アノテーション系データ操作（DB分離対応）
+    def get_annotation_status_counts(self) -> dict:
+        """アノテーション状態の集計（データ集計処理）"""
+        try:
+            # annotation_status_filter_widget.pyから移行
+            return self.db_manager.get_annotation_status_summary()
+        except Exception as e:
+            self.logger.error(f"アノテーション状態集計エラー: {e}")
+            return {}
+    
+    def update_annotation_status(self, image_id: int, status: str) -> None:
+        """アノテーション状態の更新（データ更新処理）"""
+        try:
+            # 重い書き込み操作の責任を担当
+            self.db_manager.update_image_annotation_status(image_id, status)
+        except Exception as e:
+            self.logger.error(f"アノテーション状態更新エラー: {e}")
+    
+    def process_annotation_batch_operations(self, operations: list[dict]) -> BatchResult:
+        """バッチアノテーション処理（重い処理、進捗報告対応）"""
+        # AnnotationControlWidget分離で発生するバッチ処理を担当
+```
 
-### 🏗️ **Task 2.2: 責任分離アーキテクチャ設計** (1-2時間)
-**目的**: Phase 1パターンを適用した責任分離設計  
-**状態**: 未開始  
-**依存関係**: Task 2.1完了  
+#### AnnotationService拡張（責任分離対応）
+```python
+# src/lorairo/services/annotation_service.py
+class AnnotationService:
+    """アノテーション管理サービス（責任分離統合版）"""
+    
+    def __init__(self, db_operation_service: DatabaseOperationService):
+        self.db_operation_service = db_operation_service
+        self.model_manager = ModelManager()  # 分離されたModelManager
+    
+    # AnnotationControlWidget分離で抽出されるビジネスロジック
+    def manage_annotation_workflow(self, image_ids: list[int]) -> WorkflowResult:
+        """アノテーションワークフロー管理（UI層から分離）"""
+        
+    def coordinate_model_operations(self, model_configs: dict) -> ModelResult:
+        """モデル操作の調整（ModelManager連携）"""
+        
+    def handle_annotation_state_changes(self, changes: list[dict]) -> None:
+        """アノテーション状態変更処理（DB操作連携）"""
+        # DatabaseOperationServiceと連携
+        for change in changes:
+            self.db_operation_service.update_annotation_status(
+                change['image_id'], change['status']
+            )
+```
 
-**実行内容**:
-- UI/ロジック/状態の明確な分離設計
-- 新規ModelManagerサービスクラス設計
-- DatasetStateManager統合パターン適用
-- AnnotationCoordinatorとの連携設計更新
+#### 分離後AnnotationControlWidget
+```python
+# src/lorairo/gui/widgets/annotation_control_widget.py
+class AnnotationControlWidget(QWidget):
+    """責任分離後のAnnotationControlWidget（UI専用）"""
+    
+    def __init__(self, parent=None, dataset_state: DatasetStateManager | None = None):
+        self.dataset_state = dataset_state
+        self.annotation_service: AnnotationService | None = None
+        self.database_operation_service: DatabaseOperationService | None = None
+    
+    def set_services(self, annotation_service: AnnotationService, 
+                    db_operation_service: DatabaseOperationService):
+        """統合サービス層の注入"""
+        self.annotation_service = annotation_service
+        self.database_operation_service = db_operation_service
+    
+    # UI専用処理（残存）
+    def update_ui_controls(self) -> None:
+        """UI制御のみ"""
+    
+    def handle_user_interactions(self) -> None:
+        """ユーザーインタラクション処理のみ"""
+    
+    # ビジネスロジック委譲
+    def process_annotation_request(self, request: AnnotationRequest) -> None:
+        """アノテーション処理要求（サービス層に委譲）"""
+        if self.annotation_service:
+            result = self.annotation_service.manage_annotation_workflow(request.image_ids)
+            self.update_ui_from_result(result)
+```
 
-**成果物**:
-- [ ] 責任分離アーキテクチャ設計書
-- [ ] ModelManagerクラス設計
-- [ ] 統合パターン設計書
+## 実装タスク（統合版）
 
-### ⚙️ **Task 2.3: ModelManagerサービス設計** (1時間)
-**目的**: モデル管理ロジックの独立サービス化  
-**状態**: 未開始  
-**依存関係**: Task 2.2完了  
+### **Week 1: 設計・準備** (2日)
 
-**実行内容**:
-- モデル情報管理ロジックの抽出設計
-- モデル選択・フィルタリング・検証ロジック設計
-- AnnotatorLibAdapter連携インターフェース設計
-- キャッシュ・パフォーマンス最適化設計
+#### Task 1.1: AnnotationControlWidget責任分析 + DB操作特定 (4h)
+- [ ] AnnotationControlWidget内の責任分析（UI/Logic/State/Data）
+- [ ] アノテーション系DB操作の特定・分離対象確認 (100行)
+- [ ] DatabaseOperationService設計（アノテーション系機能込み）
 
-**成果物**:
-- [ ] ModelManagerサービス詳細設計
-- [ ] API仕様書
-- [ ] パフォーマンス最適化計画
+#### Task 1.2: 統合サービス設計 (4h)
+- [ ] AnnotationService拡張設計（責任分離対応）
+- [ ] DatabaseOperationService詳細設計
+- [ ] ModelManager service抽出設計
 
-### 🎨 **Task 2.4: AnnotationControlWidget UI分離実装** (2-3時間)
-**目的**: UI表示専用ウィジェットへの変換  
-**状態**: 未開始  
-**依存関係**: Task 2.2完了  
+### **Week 2: 実装・統合** (3日)
 
-**実行内容**:
-- UI表示専用ロジックの実装
-- ビジネスロジックの除去とModelManager連携
-- DatasetStateManager統合実装
-- シグナル/スロット整理・最適化
+#### Task 2.1: DatabaseOperationService実装 (6h)
+- [ ] アノテーション系データ操作メソッド実装
+- [ ] バッチ処理・進捗報告機能実装
+- [ ] エラーハンドリング・ログ実装
 
-**成果物**:
-- [ ] UI専用AnnotationControlWidget実装
+#### Task 2.2: AnnotationService拡張実装 (6h)
+- [ ] AnnotationControlWidgetから抽出したビジネスロジック実装
+- [ ] DatabaseOperationService連携実装
 - [ ] ModelManager連携実装
-- [ ] 状態管理統合実装
 
-### 🔧 **Task 2.5: ModelManager実装** (2時間)
-**目的**: 独立モデル管理サービスの実装  
-**状態**: 未開始  
-**依存関係**: Task 2.3完了  
+#### Task 2.3: AnnotationControlWidget分離実装 (4h)
+- [ ] UI専用処理への簡素化
+- [ ] サービス層との連携実装
+- [ ] DatasetStateManager連携維持
 
-**実行内容**:
-- モデル情報管理機能実装
-- 動的モデル取得・フィルタリング実装
-- モデル選択ロジック・検証機能実装
-- AnnotatorLibAdapter統合実装
+### **Week 3: テスト・検証** (1-2日)
 
-**成果物**:
-- [ ] 完全なModelManager実装
-- [ ] モデル管理API実装
-- [ ] テスト済み機能確認
+#### Task 3.1: 統合テスト・検証 (4h)
+- [ ] DatabaseOperationService単体テスト
+- [ ] AnnotationService統合テスト
+- [ ] AnnotationControlWidget UI/サービス連携テスト
 
-### 🖼️ **Task 2.6: ModelSelectionWidget簡素化** (1-2時間)
-**目的**: UI生成専用ウィジェットへの変換  
-**状態**: 未開始  
-**依存関係**: Task 2.5完了  
+#### Task 3.2: パフォーマンス・品質確認 (2-3h)
+- [ ] アノテーション処理パフォーマンステスト
+- [ ] 既存機能への影響確認
+- [ ] アーキテクチャ準拠確認
 
-**実行内容**:
-- 動的UI生成ロジックの簡素化
-- ModelManager連携による機能移譲
-- UI更新・表示専用ロジックの実装
-- パフォーマンス最適化
+## 技術詳細
 
-**成果物**:
-- [ ] 簡素化されたModelSelectionWidget
-- [ ] ModelManager連携実装
-- [ ] UI性能最適化実装
+### **責任分離対象**
 
-### 🔗 **Task 2.7: AnnotationCoordinator統合更新** (1時間)
-**目的**: 新アーキテクチャとの調整役最適化  
-**状態**: 未開始  
-**依存関係**: Task 2.4, 2.6完了  
+#### AnnotationControlWidget分離内容
+1. **UI層（残存）**
+   - ユーザーインタラクション処理
+   - 状態表示・UI更新
+   - PySide6依存処理
 
-**実行内容**:
-- 新ウィジェット構成との連携更新
-- ワークフロー調整の最適化
-- エラーハンドリング・状態管理の改善
-- パフォーマンス向上のための最適化
+2. **Logic層（AnnotationServiceに移行）**
+   - アノテーションワークフロー管理
+   - モデル選択・設定ロジック
+   - 処理結果の調整・変換
 
-**成果物**:
-- [ ] 最適化されたAnnotationCoordinator
-- [ ] 新アーキテクチャ連携実装
-- [ ] ワークフロー最適化
+3. **State層（DatasetStateManager活用）**
+   - アノテーション状態管理
+   - 選択状態管理
 
-### 🏢 **Task 2.8: MainWorkspaceWindow統合更新** (30分)
-**目的**: メインウィンドウでの新構成統合  
-**状態**: 未開始  
-**依存関係**: Task 2.7完了  
+4. **Data層（DatabaseOperationServiceに移行）**
+   - アノテーション状態のDB集計
+   - アノテーション状態の更新
+   - バッチアノテーション処理
 
-**実行内容**:
-- 新ウィジェット構成のインスタンス化
-- ModelManagerサービスの統合
-- 既存接続の更新・最適化
-- 統合動作確認
+### **ModelManager Service抽出**
+```python
+# src/lorairo/services/model_manager.py
+class ModelManager:
+    """モデル管理専用サービス"""
+    
+    def get_available_annotation_models(self) -> list[dict]:
+        """利用可能なアノテーションモデル取得"""
+    
+    def configure_model_settings(self, model_type: str, settings: dict) -> None:
+        """モデル設定の管理"""
+    
+    def validate_model_compatibility(self, model_type: str) -> bool:
+        """モデル互換性確認"""
+```
 
-**成果物**:
-- [ ] MainWorkspaceWindow統合実装
-- [ ] サービス統合確認
-- [ ] 動作検証完了
+### **統合効果**
 
-### 🧪 **Task 2.9: 単体テスト作成** (2時間)
-**目的**: 分離された各コンポーネントの品質保証  
-**状態**: 未開始  
-**依存関係**: Task 2.4, 2.5, 2.6完了 (部分並行実行可能)  
+#### 効率化効果
+- **個別実行**: GUI分離 14h + DB分離 2h = 16h
+- **統合実行**: 11h
+- **削減効果**: 5h削減（**31%効率化**）
 
-**実行内容**:
-- ModelManager単体テスト作成
-- 分離されたAnnotationControlWidget単体テスト作成
-- 簡素化ModelSelectionWidget単体テスト作成
-- DatasetStateManager連携テスト作成
+#### アーキテクチャ向上効果
+- 責任分離による単体テスト容易性向上
+- データ操作の統一的な管理
+- ビジネスロジックの再利用性向上
 
-**成果物**:
-- [ ] 完全な単体テストスイート
-- [ ] カバレッジ75%以上確保
-- [ ] モック戦略実装
+## 成功指標
 
-### 🔗 **Task 2.10: AnnotationCoordinatorテスト** (1時間)
-**目的**: ワークフロー調整機能の品質保証  
-**状態**: 未開始  
-**依存関係**: Task 2.7完了  
+### **統合完了指標**
+- [ ] AnnotationControlWidget責任分離: UI/Logic/State/Data完全分離
+- [ ] DatabaseOperationService実装: アノテーション系データ操作100%移行
+- [ ] ModelManager抽出: モデル管理責任の独立化
+- [ ] 既存機能の動作保証: 100%
 
-**実行内容**:
-- AnnotationCoordinator統合テスト作成
-- ワークフロー動作テスト実装
-- エラーケース・例外処理テスト
-- パフォーマンステスト実行
+### **効率化指標**
+- [ ] 実装期間: 計画6-8日以内
+- [ ] 開発工数: 11h以内
+- [ ] アノテーション処理性能: 既存レベル維持
+- [ ] 単体テストカバレッジ: 85%以上
 
-**成果物**:
-- [ ] AnnotationCoordinator統合テスト
-- [ ] ワークフロー検証完了
-- [ ] 例外処理テスト完了
+## リスク管理
 
-### 🔍 **Task 2.11: 統合テスト・回帰テスト** (1時間)
-**目的**: アノテーション機能全体の動作確認  
-**状態**: 未開始  
-**依存関係**: Task 2.8, 2.9, 2.10完了  
+### **技術リスク**
+- **リスク**: AnnotationControlWidget機能の複雑性
+- **対策**: 段階的分離・継続的テスト
 
-**実行内容**:
-- アノテーションワークフロー統合テスト
-- ModelManager連携テスト
-- MainWorkspaceWindow統合テスト
-- 既存機能の回帰テスト実行
+### **統合リスク**
+- **リスク**: DatabaseOperationService設計の過大化
+- **対策**: 責任範囲の明確化・インターフェース単純化
 
-**成果物**:
-- [ ] 統合テスト結果レポート
-- [ ] 回帰テスト合格確認
-- [ ] パフォーマンス検証結果
+### **品質リスク**
+- **リスク**: アノテーション処理の性能劣化
+- **対策**: パフォーマンステスト・最適化
 
-### 🧹 **Task 2.12: リファクタリング完了・クリーンアップ** (30分)
-**目的**: 不要コード除去と文書更新  
-**状態**: 未開始  
-**依存関係**: Task 2.11完了  
+## Phase 3連携準備
 
-**実行内容**:
-- 分離前の古いロジック除去
-- インポート文・依存関係の整理
-- ドキュメント・コメント更新
-- コード品質最終確認
+### **プレビュー系標準化準備**
+- DatabaseOperationService基盤の活用
+- 統一されたサービス層設計の適用
+- 責任分離パターンの継承
 
-**成果物**:
-- [ ] クリーンな実装
-- [ ] 更新されたドキュメント
-- [ ] 品質確認完了
+### **アーキテクチャ発展**
+- サービス層の完全な確立
+- GUI層のUI専用化完成
+- データ操作の統一的管理体制
 
-## ⏱️ **推定時間詳細**
-- **高優先度タスク**: 6-8時間 (Task 2.1, 2.2, 2.4, 2.5, 2.6)
-- **中優先度タスク**: 4-5時間 (Task 2.3, 2.7, 2.9, 2.10, 2.11)  
-- **低優先度タスク**: 1時間 (Task 2.8, 2.12)
-- **合計**: 11-14時間
-
-## 🎯 **成功基準**
-- [ ] **責任分離完了**: UI/ロジック/状態の明確な分離実現
-- [ ] **ModelManager独立**: モデル管理の完全なサービス化
-- [ ] **UI簡素化**: 表示専用ウィジェットへの変換完了
-- [ ] **テストカバレッジ75%以上**: 品質保証基準満足
-- [ ] **ワークフロー維持**: 既存アノテーション機能の100%互換性
-
-## 🔗 **Phase間依存関係**
-- **Phase 1からの継承**: DatasetStateManager統合パターンの適用
-- **Phase 3への影響**: 責任分離パターンの標準化
-- **全体への影響**: サービス層分離パターンの確立
-
-## 📋 **並行実行可能性**
-- **Task 2.3**: Task 2.2完了後、Task 2.4と部分並行実行可能
-- **Task 2.9（部分）**: Task 2.4, 2.5, 2.6完了後の部分並行実行
-- **設計フェーズ並行**: Task 2.1-2.3の一部重複実行可能
-
-## 🔄 **技術的チャレンジ**
-- **モデル管理の複雑性**: 200+モデルの効率的管理
-- **動的UI生成**: パフォーマンスを維持した簡素化
-- **ワークフロー調整**: 既存機能を壊さない段階的移行
-
-## 🔄 **次フェーズ準備**
-- Phase 3でのプレビュー系への責任分離パターン適用
-- Master調整での統合アーキテクチャパターンの標準化
-- 全体品質向上のための知見共有
-
----
-**作成日**: 2025/08/02  
-**フェーズ**: Phase 2 - アノテーション系責任分離  
-**ステータス**: 計画完了・Phase 1完了後実行可能  
-**前提条件**: Phase 1の統一アーキテクチャパターン確立
+**Phase 2統合により、アノテーション系の責任分離とデータベース操作統一を効率的に達成し、Phase 3の基盤を確立**
