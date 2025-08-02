@@ -1,203 +1,198 @@
-# Phase 1: FilterSearchPanel統一化計画書
+# Phase 1: FilterSearchPanel統一化 + データベース分離統合計画
 
-## 🎯 **Phase概要**
-**目的**: filter.py と filter_search_panel.py の重複実装を統一し、DatasetStateManager統合によるthumbnail.pyパターンを適用
+## 統合概要
 
-**優先度**: 最高  
-**推定工数**: 10.5-13.5時間  
-**前提条件**: thumbnail.pyの責任分離パターンが確立済み  
-**成果物**: 統一されたFilterSearchPanel + DatasetStateManager統合
+GUI統一化のFilterSearchPanel重複削除とデータベースアクセス分離を**同時実行**することで、**33%の効率化**を実現する統合実装計画。
 
-## 📋 **詳細タスク分割** (10タスク)
+## 対象範囲
 
-### 🔍 **Task 1.1: 差分分析** (1-2時間)
-**目的**: 2つの実装ファイルの詳細な違いを把握  
-**状態**: 未開始  
-**依存関係**: なし  
+### FilterSearchPanel重複実装（GUI統一化）
+- `src/lorairo/gui/widgets/filter_search_panel.py` (596行)
+- 重複実装の統一化・責任明確化
 
-**実行内容**:
-- `filter.py` のFilterSearchPanel機能分析
-- `filter_search_panel.py` の実装内容分析  
-- 機能差分マトリックス作成
-- 統合方針決定のための比較表作成
+### データベースアクセス分離（DB分離）
+- FilterSearchPanel内のDB処理 (596行 + 150行追加)
+- SearchFilterService拡張による責任分離
 
-**成果物**:
-- [ ] 機能差分分析レポート
-- [ ] 統合方針決定ドキュメント
-- [ ] 技術的課題の洗い出し
+## 統合実装戦略
 
-### 🏗️ **Task 1.2: 統一アーキテクチャ設計** (1時間)
-**目的**: thumbnail.pyパターンを適用した統一設計  
-**状態**: 未開始  
-**依存関係**: Task 1.1完了  
+### **統合アプローチ**
+重複実装統一化の過程でデータベース分離も同時実施し、統一後のFilterSearchPanelで拡張SearchFilterServiceを適用。
 
-**実行内容**:
-- DatasetStateManager統合パターン設計
-- UI/ロジック/状態の責任分離設計
-- インターフェース定義作成
-- 継承関係とシグナル/スロット設計
+### **技術統合ポイント**
 
-**成果物**:
-- [ ] アーキテクチャ設計書
-- [ ] クラス構造図
-- [ ] シグナル/スロット設計
+#### 既存SearchFilterService拡張
+```python
+# src/lorairo/gui/services/search_filter_service.py
+class SearchFilterService:
+    """統一化されたSearchFilterService（DB分離対応）"""
+    
+    def __init__(self, db_manager: ImageDatabaseManager):
+        self.db_manager = db_manager
+        self.current_conditions: SearchConditions | None = None
+    
+    # 既存メソッド（GUI統一化で活用）
+    def parse_search_input(self) -> SearchConditions
+    def create_search_conditions(self) -> dict
+    def separate_search_and_filter_conditions(self) -> tuple
+    
+    # DB分離対応の新規メソッド
+    def process_resolution_filter(self, conditions: dict) -> dict:
+        """解像度フィルターのDB変換処理"""
+    
+    def process_date_filter(self, conditions: dict) -> dict:
+        """日付フィルターのDB変換処理"""
+    
+    def apply_untagged_filter(self, conditions: dict) -> dict:
+        """未タグフィルターのDB処理"""
+    
+    def execute_search_with_filters(self, conditions: SearchConditions) -> tuple[list[dict], int]:
+        """統一検索実行（DB分離後）"""
+```
 
-### 🔧 **Task 1.3: CustomRangeSlider分離準備** (30分)
-**目的**: 独立コンポーネントとして再利用可能にする  
-**状態**: 未開始  
-**依存関係**: なし (並行実行可能)  
+#### 統一FilterSearchPanel設計
+```python
+# src/lorairo/gui/widgets/filter_search_panel.py
+class FilterSearchPanel(QScrollArea):
+    """統一化されたFilterSearchPanel（DB分離対応）"""
+    
+    def __init__(self, parent=None, dataset_state: DatasetStateManager | None = None):
+        self.dataset_state = dataset_state
+        self.search_filter_service: SearchFilterService | None = None
+    
+    def set_search_filter_service(self, service: SearchFilterService):
+        """拡張SearchFilterServiceを注入"""
+        self.search_filter_service = service
+    
+    # GUI統一化: 重複実装削除後の統一インターフェース
+    def process_search_conditions(self) -> dict:
+        """DB分離: サービス層に委譲"""
+        if self.search_filter_service:
+            return self.search_filter_service.execute_search_with_filters(
+                self.get_current_conditions()
+            )
+    
+    # UI専用処理（残存）
+    def update_ui_state(self) -> None:
+        """UI状態管理のみ"""
+    
+    def handle_user_interactions(self) -> None:
+        """ユーザーインタラクション処理のみ"""
+```
 
-**実行内容**:
-- CustomRangeSlider依存関係確認
-- 独立性検証と必要な修正特定
-- 共通ウィジェットとしての配置計画
+## 実装タスク（統合版）
 
-**成果物**:
-- [ ] 依存関係分析レポート
-- [ ] 独立化実装計画
+### **Week 1: 設計・準備** (2日)
 
-### ⚙️ **Task 1.4: SearchConditionBuilder設計** (1時間)
-**目的**: 検索条件構築ロジックの分離  
-**状態**: 未開始  
-**依存関係**: Task 1.2完了  
+#### Task 1.1: 重複実装分析 + DB処理特定 (4h)
+- [ ] FilterSearchPanel重複実装の詳細分析
+- [ ] DB処理の責任分離対象特定 (596行 + 150行)
+- [ ] 統合実装のアーキテクチャ設計
 
-**実行内容**:
-- 検索条件の型定義作成
-- 条件構築アルゴリズム設計
-- FilterSearchPanelとの連携インターフェース設計
-- DatasetStateManagerとの統合設計
+#### Task 1.2: SearchFilterService拡張設計 (4h)
+- [ ] 既存機能の活用範囲確定
+- [ ] DB分離対応の新規メソッド設計
+- [ ] 依存関係・インターフェース設計
 
-**成果物**:
-- [ ] SearchConditionBuilder設計書
-- [ ] 型定義・インターフェース仕様
-- [ ] アルゴリズム設計書
+### **Week 2: 実装・統合** (4日)
 
-### 🎨 **Task 1.5: 統一FilterSearchPanel実装** (2-3時間)
-**目的**: UIレイヤーの統一実装  
-**状態**: 未開始  
-**依存関係**: Task 1.2, 1.4完了  
+#### Task 2.1: SearchFilterService拡張実装 (6h)
+- [ ] DB処理メソッドの実装
+- [ ] 既存機能との統合テスト
+- [ ] エラーハンドリング・ログ実装
 
-**実行内容**:
-- 統一されたUI構造実装
-- DatasetStateManager統合実装
-- シグナル/スロット接続実装
-- CustomRangeSlider統合実装
-- レスポンシブレイアウト実装
+#### Task 2.2: FilterSearchPanel統一化実装 (8h)
+- [ ] 重複実装の削除・統一
+- [ ] 拡張SearchFilterServiceとの連携実装
+- [ ] UI専用処理の分離・明確化
 
-**成果物**:
-- [ ] 統一FilterSearchPanel実装
-- [ ] DatasetStateManager統合コード
-- [ ] UI/UXテスト済み実装
+#### Task 2.3: 統合テスト・検証 (6h)
+- [ ] 単体テスト（SearchFilterService拡張）
+- [ ] 統合テスト（FilterSearchPanel統一化）
+- [ ] パフォーマンステスト（DB分離効果）
 
-### 🔗 **Task 1.6: DatasetStateManager統合** (1時間)
-**目的**: 状態管理の中央化  
-**状態**: 未開始  
-**依存関係**: Task 1.5完了  
+### **Week 3: 最終調整** (2日)
 
-**実行内容**:
-- フィルター状態のDatasetStateManager統合
-- 状態変更通知の実装
-- フィルター条件の永続化実装
-- thumbnail.pyパターンとの整合性確保
+#### Task 3.1: 品質保証・最適化 (4h)
+- [ ] 既存機能への影響確認
+- [ ] コードレビュー・リファクタリング
+- [ ] ドキュメント更新
 
-**成果物**:
-- [ ] 状態管理統合実装
-- [ ] 永続化機能
-- [ ] パターン整合性確認
+#### Task 3.2: 統合完了・次フェーズ準備 (2h)
+- [ ] Phase 1統合完了確認
+- [ ] Phase 2統合準備（AnnotationControlWidget）
+- [ ] 進捗レポート作成
 
-### 🏢 **Task 1.7: MainWorkspaceWindow統合更新** (30分)
-**目的**: メインウィンドウでの統合  
-**状態**: 未開始  
-**依存関係**: Task 1.6完了  
+## 技術詳細
 
-**実行内容**:
-- 新FilterSearchPanelのインスタンス化
-- 既存接続の更新
-- シグナル/スロット接続の更新
-- 互換性確認
+### **データベース分離対象**
 
-**成果物**:
-- [ ] MainWorkspaceWindow統合実装
-- [ ] 接続確認・動作検証
+#### 移動対象処理 (746行)
+1. **検索条件変換処理**
+   - `_process_search_conditions()` → `SearchFilterService.separate_search_and_filter_conditions()`
+   - `_process_option_filters()` → `SearchFilterService.create_search_conditions()`
 
-### 🧪 **Task 1.8: 単体テスト作成/更新** (1-2時間)
-**目的**: 新実装の品質保証  
-**状態**: 未開始  
-**依存関係**: Task 1.5完了 (部分並行実行可能)  
+2. **フィルター処理**
+   - `_process_resolution_filter()` → `SearchFilterService.process_resolution_filter()`
+   - `_process_date_filter()` → `SearchFilterService.process_date_filter()`
+   - `_apply_untagged_filter()` → `SearchFilterService.apply_untagged_filter()`
+   - `_apply_tagged_filter_logic()` → `SearchFilterService.apply_tagged_filter_logic()`
 
-**実行内容**:
-- FilterSearchPanel単体テスト作成
-- SearchConditionBuilder単体テスト作成
-- DatasetStateManager連携テスト作成
-- CustomRangeSliderテスト更新
+3. **UI専用処理（残存）**
+   - ユーザーインタラクション処理
+   - 状態表示・更新処理
+   - PySide6依存の処理
 
-**成果物**:
-- [ ] 完全な単体テストスイート
-- [ ] カバレッジ75%以上
-- [ ] CI/CD統合確認
+### **統合効果**
 
-### 🔍 **Task 1.9: 統合テスト・回帰テスト** (1時間)
-**目的**: システム全体の動作確認  
-**状態**: 未開始  
-**依存関係**: Task 1.7, 1.8完了  
+#### 効率化効果
+- **個別実行**: GUI統一化 13.5h + DB分離 4.5h = 18h
+- **統合実行**: 12h
+- **削減効果**: 6h削減（**33%効率化**）
 
-**実行内容**:
-- フィルタリング機能の統合テスト
-- MainWorkspaceWindowとの連携テスト
-- パフォーマンステスト実行
-- 既存機能の回帰テスト実行
+#### 品質向上効果
+- 重複実装削除による保守性向上
+- 責任分離による単体テスト容易性向上
+- アーキテクチャ一貫性の確保
 
-**成果物**:
-- [ ] 統合テスト結果レポート
-- [ ] パフォーマンス検証結果
-- [ ] 回帰テスト合格確認
+## 成功指標
 
-### 🧹 **Task 1.10: クリーンアップ** (30分)
-**目的**: 重複ファイルの除去と整理  
-**状態**: 未開始  
-**依存関係**: Task 1.9完了  
+### **統合完了指標**
+- [ ] FilterSearchPanel重複実装削除: 100%
+- [ ] DB処理のSearchFilterService移行: 746行完了
+- [ ] 既存機能の動作保証: 100%
+- [ ] 単体テストカバレッジ: 90%以上
 
-**実行内容**:
-- 古いfilter.py削除（必要な部分のみ移行後）
-- インポート文の更新
-- 不要なコメント・コード削除
-- ドキュメント更新
+### **効率化指標**
+- [ ] 実装期間: 計画8日以内
+- [ ] 開発工数: 12h以内
+- [ ] 既存機能への影響: 0件
+- [ ] アーキテクチャ準拠: 100%
 
-**成果物**:
-- [ ] クリーンな実装
-- [ ] 更新されたドキュメント
-- [ ] 移行完了確認
+## リスク管理
 
-## ⏱️ **推定時間詳細**
-- **高優先度タスク**: 7-9時間 (Task 1.1, 1.2, 1.4, 1.5, 1.6)
-- **中優先度タスク**: 3-4時間 (Task 1.3, 1.7, 1.8, 1.9)  
-- **低優先度タスク**: 30分 (Task 1.10)
-- **合計**: 10.5-13.5時間
+### **技術リスク**
+- **リスク**: 既存機能への影響
+- **対策**: 段階的統合・継続的テスト
 
-## 🎯 **成功基準**
-- [ ] **重複実装の完全解消**: filter.py削除、filter_search_panel.pyへの統一
-- [ ] **DatasetStateManager統合完了**: thumbnail.pyパターンの一貫適用
-- [ ] **テストカバレッジ75%以上維持**: 品質保証基準満足
-- [ ] **既存機能の100%互換性**: 回帰なし、全機能維持
-- [ ] **パフォーマンス劣化なし**: レスポンス時間維持
+### **スケジュールリスク**
+- **リスク**: 統合複雑性による遅延
+- **対策**: 1日単位の進捗確認・調整
 
-## 🔗 **Phase間依存関係**
-- **Phase 2への影響**: 統一FilterSearchPanelパターンの他ウィジェットへの適用
-- **Phase 3への影響**: DatasetStateManager統合パターンの標準化
-- **全体への影響**: UI責任分離パターンの確立
+### **品質リスク**
+- **リスク**: 責任分離の不完全性
+- **対策**: アーキテクチャレビュー・コードレビュー
 
-## 📋 **並行実行可能性**
-- **Task 1.3**: 他タスクと独立実行可能
-- **Task 1.8（部分）**: Task 1.5完了後の部分並行実行
-- **設計フェーズ並行**: Task 1.1-1.4の一部重複実行可能
+## 次フェーズ連携
 
-## 🔄 **次フェーズ準備**
-- Phase 2でのAnnotationControlWidget分離への知見提供
-- Phase 3でのプレビュー系標準化への統一パターン適用
-- Master調整での技術的課題・解決策の共有
+### **Phase 2準備**
+- AnnotationControlWidget分離設計
+- DatabaseOperationService実装準備
+- 統合アプローチの適用検討
 
----
-**作成日**: 2025/08/02  
-**フェーズ**: Phase 1 - FilterSearchPanel統一化  
-**ステータス**: 計画完了・実行準備完了  
-**実行開始条件**: ユーザー承認後即実行可能
+### **アーキテクチャ発展**
+- クリーンアーキテクチャの継続適用
+- サービス層の一貫した設計
+- GUI層責任分離の完全化
+
+**Phase 1統合により、GUI統一化とDB分離の両方を効率的に達成し、後続フェーズの基盤を確立**

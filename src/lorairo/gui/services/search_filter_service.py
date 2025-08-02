@@ -3,12 +3,10 @@
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from ...database.db_manager import ImageDatabaseManager
 from ...utils.log import logger
-
-if TYPE_CHECKING:
-    from ...database.db_manager import ImageDatabaseManager
 
 
 @dataclass
@@ -55,14 +53,8 @@ class SearchFilterService:
     - データベース検索・フィルター処理（拡張機能）
     """
 
-    def __init__(self, db_manager: "ImageDatabaseManager | None" = None):
-        """
-        SearchFilterServiceのコンストラクタ
-
-        Args:
-            db_manager: データベースマネージャー（オプション）
-                      None の場合は既存の機能のみ利用可能
-        """
+    def __init__(self, db_manager: ImageDatabaseManager):
+        """SearchFilterServiceのコンストラクタ"""
         self.current_conditions: SearchConditions | None = None
         self.db_manager = db_manager
 
@@ -267,14 +259,7 @@ class SearchFilterService:
 
         Returns:
             tuple: (検索結果リスト, 総件数)
-
-        Raises:
-            ValueError: データベースマネージャーが設定されていない場合
         """
-        if self.db_manager is None:
-            raise ValueError(
-                "データベースマネージャーが設定されていません。SearchFilterService初期化時にdb_managerを指定してください。"
-            )
 
         try:
             # 検索条件とフィルター条件を分離
@@ -304,9 +289,6 @@ class SearchFilterService:
         Returns:
             list: ディレクトリ内の画像メタデータリスト
         """
-        if self.db_manager is None:
-            logger.warning("データベースマネージャーが設定されていません")
-            return []
 
         try:
             image_ids = self.db_manager.get_image_ids_from_directory(directory_path)
@@ -333,8 +315,6 @@ class SearchFilterService:
         Returns:
             dict: データセット状態情報
         """
-        if self.db_manager is None:
-            return {"total_images": 0, "status": "no_db"}
 
         try:
             total_count = self.db_manager.get_total_image_count()
@@ -583,7 +563,7 @@ class SearchFilterService:
                     if date_str.endswith("Z"):
                         date_str = date_str.replace("Z", "+00:00")
                     img_date = datetime.fromisoformat(date_str)
-                    
+
                     # タイムゾーンなしのstartDateとend_dateと比較するため、日付部分のみ比較
                     img_date_naive = img_date.replace(tzinfo=None)
                     if start_date <= img_date_naive <= end_date:
