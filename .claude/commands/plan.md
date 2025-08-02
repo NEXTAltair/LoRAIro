@@ -12,7 +12,6 @@ description: investigateフェーズの結果を基に、LoRAIro プロジェク
 - 関連するコードは全て読むこと
 - 全ての処理においてultrathinkでしっかりと考えて作業を行うこと
 - LoRAIroの確立されたアーキテクチャパターンに従うこと
-- `.cursor/rules/plan.mdc`のプランニングワークフローに準拠すること
 
 ## 説明
 実装対象: $ARGUMENTS
