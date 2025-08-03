@@ -5,8 +5,6 @@ from PySide6.QtCore import QDate, QDateTime, Qt, QTime, QTimeZone, Signal, Slot
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from superqt import QDoubleRangeSlider
 
-from ..designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
-
 
 class CustomRangeSlider(QWidget):
     """日付または数値の範囲を選択するためのカスタムレンジスライダーウィジェット。

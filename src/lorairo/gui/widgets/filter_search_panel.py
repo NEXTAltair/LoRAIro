@@ -3,26 +3,11 @@
 from datetime import datetime
 from typing import Any
 
-from PySide6.QtCore import QDate, Qt, Signal, Slot
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QFrame,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QRadioButton,
-    QScrollArea,
-    QSizePolicy,
-    QSpacerItem,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QScrollArea
 
 from ...utils.log import logger
+from ..designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
 from ..services.search_filter_service import SearchFilterService
 from .filter import CustomRangeSlider
 
@@ -45,228 +30,46 @@ class FilterSearchPanel(QScrollArea):
         self.search_filter_service: SearchFilterService | None = None
 
         # UI設定
-        self.setup_ui()
+        self.ui = Ui_FilterSearchPanel()
+        self.ui.setupUi(self)
+        self.setup_custom_widgets()
+        self.connect_signals()
 
         logger.debug("FilterSearchPanel initialized")
 
-    def setup_ui(self) -> None:
-        """UI初期化"""
-        self.setWidgetResizable(True)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    def setup_custom_widgets(self) -> None:
+        """Qt DesignerのUIにカスタムウィジェットを追加"""
+        # 日付範囲スライダーを作成してプレースホルダーと置き換え
+        self.date_range_slider = CustomRangeSlider()
+        self.date_range_slider.set_date_range()
 
-        # メインウィジェット
-        main_widget = QWidget()
-        self.setWidget(main_widget)
+        # プレースホルダーを実際のスライダーで置き換え
+        placeholder = self.ui.dateRangeSliderPlaceholder
+        layout = placeholder.parent().layout()
+        if layout:
+            # プレースホルダーの位置を取得して置き換え
+            index = layout.indexOf(placeholder)
+            layout.removeWidget(placeholder)
+            placeholder.deleteLater()
+            layout.insertWidget(index, self.date_range_slider)
 
-        # メインレイアウト
-        self.main_layout = QVBoxLayout(main_widget)
-        self.main_layout.setContentsMargins(5, 5, 5, 5)
-        self.main_layout.setSpacing(10)
-
-        # 各セクションを作成
-        self._create_search_section()
-        self._create_filter_section()
-        self._create_date_section()
-        self._create_options_section()
-        self._create_action_section()
-
-        # 下部スペーサー
-        spacer = QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
-        self.main_layout.addItem(spacer)
-
-    def _create_search_section(self) -> None:
-        """検索セクション作成"""
-        search_group = QGroupBox("検索")
-        search_layout = QVBoxLayout(search_group)
-
-        # 検索タイプ選択
-        type_layout = QHBoxLayout()
-        type_layout.addWidget(QLabel("検索対象:"))
-
-        self.radio_tags = QRadioButton("タグ")
-        self.radio_caption = QRadioButton("キャプション")
-        self.radio_tags.setChecked(True)
-
-        # ラジオボタン変更時の処理を追加
-        self.radio_tags.toggled.connect(self._on_search_type_changed)
-        self.radio_caption.toggled.connect(self._on_search_type_changed)
-
-        type_layout.addWidget(self.radio_tags)
-        type_layout.addWidget(self.radio_caption)
-        type_layout.addStretch()
-
-        search_layout.addLayout(type_layout)
-
-        # 検索テキスト入力
-        self.line_edit_search = QLineEdit()
-        self.line_edit_search.setPlaceholderText("検索キーワードを入力（複数タグの場合はカンマ区切り）...")
-        self.line_edit_search.returnPressed.connect(self._on_search_requested)
-        search_layout.addWidget(self.line_edit_search)
-
-        # タグ検索オプション
-        tag_options_layout = QHBoxLayout()
-        self.radio_and = QRadioButton("すべて含む")
-        self.radio_or = QRadioButton("いずれか含む")
-        self.radio_and.setChecked(True)
-
-        tag_options_layout.addWidget(QLabel("複数タグ:"))
-        tag_options_layout.addWidget(self.radio_and)
-        tag_options_layout.addWidget(self.radio_or)
-        tag_options_layout.addStretch()
-
-        search_layout.addLayout(tag_options_layout)
-
-        # 検索結果プレビュー
-        self.text_edit_preview = QTextEdit()
-        self.text_edit_preview.setMaximumHeight(60)
-        self.text_edit_preview.setReadOnly(True)
-        self.text_edit_preview.setPlaceholderText("検索結果のプレビューがここに表示されます")
-        search_layout.addWidget(self.text_edit_preview)
-
-        self.main_layout.addWidget(search_group)
-
-    def _create_filter_section(self) -> None:
-        """フィルターセクション作成"""
-        filter_group = QGroupBox("フィルター")
-        filter_layout = QVBoxLayout(filter_group)
+    def connect_signals(self) -> None:
+        """Qt DesignerのUIコンポーネントにシグナルを接続"""
+        # 検索関連
+        self.ui.lineEditSearch.returnPressed.connect(self._on_search_requested)
+        self.ui.radioTags.toggled.connect(self._on_search_type_changed)
+        self.ui.radioCaption.toggled.connect(self._on_search_type_changed)
 
         # 解像度フィルター
-        resolution_layout = QHBoxLayout()
-        resolution_layout.addWidget(QLabel("解像度:"))
+        self.ui.comboResolution.currentTextChanged.connect(self._on_resolution_changed)
 
-        self.combo_resolution = QComboBox()
-        self.combo_resolution.addItems(
-            [
-                "全て",
-                "512x512",
-                "1024x1024",
-                "1024x768",
-                "768x1024",
-                "1920x1080",
-                "1080x1920",
-                "2048x2048",
-                "カスタム...",
-            ]
-        )
-        self.combo_resolution.currentTextChanged.connect(self._on_resolution_changed)
-
-        resolution_layout.addWidget(self.combo_resolution)
-        resolution_layout.addStretch()
-
-        filter_layout.addLayout(resolution_layout)
-
-        # カスタム解像度入力
-        self.frame_custom_resolution = QFrame()
-        custom_layout = QHBoxLayout(self.frame_custom_resolution)
-        custom_layout.setContentsMargins(0, 0, 0, 0)
-
-        self.line_edit_width = QLineEdit()
-        self.line_edit_width.setPlaceholderText("幅")
-        self.line_edit_width.setMaximumWidth(60)
-
-        self.line_edit_height = QLineEdit()
-        self.line_edit_height.setPlaceholderText("高さ")
-        self.line_edit_height.setMaximumWidth(60)
-
-        custom_layout.addWidget(QLabel("カスタム:"))
-        custom_layout.addWidget(self.line_edit_width)
-        custom_layout.addWidget(QLabel("x"))
-        custom_layout.addWidget(self.line_edit_height)
-        custom_layout.addStretch()
-
-        self.frame_custom_resolution.setVisible(False)
-        filter_layout.addWidget(self.frame_custom_resolution)
-
-        # アスペクト比フィルター
-        aspect_layout = QHBoxLayout()
-        aspect_layout.addWidget(QLabel("アスペクト比:"))
-
-        self.combo_aspect_ratio = QComboBox()
-        self.combo_aspect_ratio.addItems(
-            [
-                "全て",
-                "正方形 (1:1)",
-                "風景 (16:9)",
-                "縦長 (9:16)",
-                "風景 (4:3)",
-                "縦長 (3:4)",
-            ]
-        )
-
-        aspect_layout.addWidget(self.combo_aspect_ratio)
-        aspect_layout.addStretch()
-
-        filter_layout.addLayout(aspect_layout)
-
-        self.main_layout.addWidget(filter_group)
-
-    def _create_date_section(self) -> None:
-        """日付セクション作成"""
-        date_group = QGroupBox("日付範囲")
-        date_layout = QVBoxLayout(date_group)
-
-        # 日付範囲有効化チェックボックス
-        self.checkbox_date_filter = QCheckBox("日付範囲でフィルター")
-        self.checkbox_date_filter.toggled.connect(self._on_date_filter_toggled)
-        date_layout.addWidget(self.checkbox_date_filter)
-
-        # 日付範囲スライダー
-        self.frame_date_range = QFrame()
-        date_range_layout = QVBoxLayout(self.frame_date_range)
-        date_range_layout.setContentsMargins(0, 0, 0, 0)
-
-        # CustomRangeSlider を使用
-        self.date_range_slider = CustomRangeSlider()
-        self.date_range_slider.set_date_range()  # 日付モードに設定
+        # 日付フィルター
+        self.ui.checkboxDateFilter.toggled.connect(self._on_date_filter_toggled)
         self.date_range_slider.valueChanged.connect(self._on_date_range_changed)
 
-        date_range_layout.addWidget(self.date_range_slider)
-
-        self.frame_date_range.setVisible(False)
-        date_layout.addWidget(self.frame_date_range)
-
-        self.main_layout.addWidget(date_group)
-
-    def _create_options_section(self) -> None:
-        """オプションセクション作成"""
-        options_group = QGroupBox("オプション")
-        options_layout = QVBoxLayout(options_group)
-
-        # 検索モードオプション
-        self.checkbox_only_untagged = QCheckBox("未タグ画像のみ検索")
-        self.checkbox_only_untagged.setChecked(False)
-        self.checkbox_only_untagged.toggled.connect(self._on_only_untagged_toggled)
-        options_layout.addWidget(self.checkbox_only_untagged)
-
-        # 未キャプション画像のみ検索
-        self.checkbox_only_uncaptioned = QCheckBox("未キャプション画像のみ検索")
-        self.checkbox_only_uncaptioned.setChecked(False)
-        self.checkbox_only_uncaptioned.toggled.connect(self._on_only_uncaptioned_toggled)
-        options_layout.addWidget(self.checkbox_only_uncaptioned)
-
-        # 重複画像を除外
-        self.checkbox_exclude_duplicates = QCheckBox("重複画像を除外")
-        self.checkbox_exclude_duplicates.setChecked(False)
-        options_layout.addWidget(self.checkbox_exclude_duplicates)
-
-        self.main_layout.addWidget(options_group)
-
-    def _create_action_section(self) -> None:
-        """アクションセクション作成"""
-        action_layout = QHBoxLayout()
-
-        # 検索・フィルター適用ボタン（統合）
-        self.button_apply = QPushButton("検索実行")
-        self.button_apply.clicked.connect(self._on_search_requested)
-        action_layout.addWidget(self.button_apply)
-
-        # クリアボタン
-        self.button_clear = QPushButton("クリア")
-        self.button_clear.clicked.connect(self._on_clear_requested)
-        action_layout.addWidget(self.button_clear)
-
-        self.main_layout.addLayout(action_layout)
+        # アクションボタン
+        self.ui.buttonApply.clicked.connect(self._on_apply_clicked)
+        self.ui.buttonClear.clicked.connect(self._on_clear_clicked)
 
     def set_search_filter_service(self, service: SearchFilterService) -> None:
         """SearchFilterServiceを設定"""
@@ -278,11 +81,11 @@ class FilterSearchPanel(QScrollArea):
     def _on_resolution_changed(self, text: str) -> None:
         """解像度選択変更処理"""
         is_custom = text == "カスタム..."
-        self.frame_custom_resolution.setVisible(is_custom)
+        self.ui.frameCustomResolution.setVisible(is_custom)
 
     def _on_date_filter_toggled(self, checked: bool) -> None:
         """日付フィルター有効化切り替え処理"""
-        self.frame_date_range.setVisible(checked)
+        self.ui.frameDateRange.setVisible(checked)
 
     def _on_date_range_changed(self, min_timestamp: int, max_timestamp: int) -> None:
         """日付範囲変更処理"""
@@ -305,53 +108,55 @@ class FilterSearchPanel(QScrollArea):
         self._update_search_input_state()
 
         # プレースホルダーテキストを更新
-        if self.radio_tags.isChecked():
-            if self.checkbox_only_untagged.isChecked():
-                self.line_edit_search.setPlaceholderText("未タグ画像検索中（タグ入力無効）")
+        if self.ui.radioTags.isChecked():
+            if self.ui.checkboxOnlyUntagged.isChecked():
+                self.ui.lineEditSearch.setPlaceholderText("未タグ画像検索中（タグ入力無効）")
             else:
-                self.line_edit_search.setPlaceholderText(
+                self.ui.lineEditSearch.setPlaceholderText(
                     "検索キーワードを入力（複数タグの場合はカンマ区切り）..."
                 )
         else:  # caption
-            if self.checkbox_only_uncaptioned.isChecked():
-                self.line_edit_search.setPlaceholderText("未キャプション画像検索中（キャプション入力無効）")
+            if self.ui.checkboxOnlyUncaptioned.isChecked():
+                self.ui.lineEditSearch.setPlaceholderText(
+                    "未キャプション画像検索中（キャプション入力無効）"
+                )
             else:
-                self.line_edit_search.setPlaceholderText("キャプション検索キーワードを入力...")
+                self.ui.lineEditSearch.setPlaceholderText("キャプション検索キーワードを入力...")
 
     def _update_search_input_state(self) -> None:
         """検索入力フィールドの有効/無効状態を更新"""
         # タグ検索で未タグ検索が有効、またはキャプション検索で未キャプション検索が有効の場合は無効化
-        disabled = (self.radio_tags.isChecked() and self.checkbox_only_untagged.isChecked()) or (
-            self.radio_caption.isChecked() and self.checkbox_only_uncaptioned.isChecked()
+        disabled = (self.ui.radioTags.isChecked() and self.ui.checkboxOnlyUntagged.isChecked()) or (
+            self.ui.radioCaption.isChecked() and self.ui.checkboxOnlyUncaptioned.isChecked()
         )
-        self.line_edit_search.setEnabled(not disabled)
+        self.ui.lineEditSearch.setEnabled(not disabled)
 
     def _on_search_requested(self) -> None:
         """検索要求処理 - SearchFilterService経由"""
         if not self.search_filter_service:
             logger.warning("SearchFilterService not set, cannot execute search")
-            self.text_edit_preview.setPlainText("SearchFilterServiceが設定されていません")
+            self.ui.textEditPreview.setPlainText("SearchFilterServiceが設定されていません")
             return
 
         # 検索中表示
-        self.text_edit_preview.setPlainText("検索中...")
+        self.ui.textEditPreview.setPlainText("検索中...")
 
         try:
             # SearchFilterServiceを使用して検索条件を作成
             conditions = self.search_filter_service.create_search_conditions(
-                search_text=self.line_edit_search.text(),
-                search_type="tags" if self.radio_tags.isChecked() else "caption",
-                tag_logic="and" if self.radio_and.isChecked() else "or",
-                resolution_filter=self.combo_resolution.currentText(),
-                custom_width=self.line_edit_width.text(),
-                custom_height=self.line_edit_height.text(),
-                aspect_ratio_filter=self.combo_aspect_ratio.currentText(),
-                date_filter_enabled=self.checkbox_date_filter.isChecked(),
+                search_text=self.ui.lineEditSearch.text(),
+                search_type="tags" if self.ui.radioTags.isChecked() else "caption",
+                tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
+                resolution_filter=self.ui.comboResolution.currentText(),
+                custom_width=self.ui.lineEditWidth.text(),
+                custom_height=self.ui.lineEditHeight.text(),
+                aspect_ratio_filter=self.ui.comboAspectRatio.currentText(),
+                date_filter_enabled=self.ui.checkboxDateFilter.isChecked(),
                 date_range_start=None,  # TODO: 日付範囲から取得
                 date_range_end=None,  # TODO: 日付範囲から取得
-                only_untagged=self.checkbox_only_untagged.isChecked(),
-                only_uncaptioned=self.checkbox_only_uncaptioned.isChecked(),
-                exclude_duplicates=self.checkbox_exclude_duplicates.isChecked(),
+                only_untagged=self.ui.checkboxOnlyUntagged.isChecked(),
+                only_uncaptioned=self.ui.checkboxOnlyUncaptioned.isChecked(),
+                exclude_duplicates=self.ui.checkboxExcludeDuplicates.isChecked(),
             )
 
             # 検索実行
@@ -366,7 +171,7 @@ class FilterSearchPanel(QScrollArea):
 
         except Exception as e:
             logger.error(f"検索実行エラー: {e}", exc_info=True)
-            self.text_edit_preview.setPlainText(f"検索エラー: {e}")
+            self.ui.textEditPreview.setPlainText(f"検索エラー: {e}")
             self.search_requested.emit({"results": [], "count": 0, "error": str(e)})
 
     def _on_clear_requested(self) -> None:
@@ -383,71 +188,71 @@ class FilterSearchPanel(QScrollArea):
         """条件からUIを更新"""
         # 検索テキスト
         if conditions.get("tags"):
-            self.radio_tags.setChecked(True)
-            self.line_edit_search.setText(", ".join(conditions["tags"]))
-            self.radio_and.setChecked(conditions.get("use_and", True))
-            self.radio_or.setChecked(not conditions.get("use_and", True))
+            self.ui.radioTags.setChecked(True)
+            self.ui.lineEditSearch.setText(", ".join(conditions["tags"]))
+            self.ui.radioAnd.setChecked(conditions.get("use_and", True))
+            self.ui.radioOr.setChecked(not conditions.get("use_and", True))
         elif conditions.get("caption"):
-            self.radio_caption.setChecked(True)
-            self.line_edit_search.setText(conditions["caption"])
+            self.ui.radioCaption.setChecked(True)
+            self.ui.lineEditSearch.setText(conditions["caption"])
 
         # 解像度
         if "resolution" in conditions:
             resolution = conditions["resolution"]
             if resolution in [
-                self.combo_resolution.itemText(i) for i in range(self.combo_resolution.count())
+                self.ui.comboResolution.itemText(i) for i in range(self.ui.comboResolution.count())
             ]:
-                self.combo_resolution.setCurrentText(resolution)
+                self.ui.comboResolution.setCurrentText(resolution)
             else:
                 # カスタム解像度
-                self.combo_resolution.setCurrentText("カスタム...")
+                self.ui.comboResolution.setCurrentText("カスタム...")
                 if "x" in resolution:
                     width, height = resolution.split("x", 1)
-                    self.line_edit_width.setText(width)
-                    self.line_edit_height.setText(height)
+                    self.ui.lineEditWidth.setText(width)
+                    self.ui.lineEditHeight.setText(height)
 
         # 日付範囲
         if "date_range" in conditions:
-            start_timestamp, end_timestamp = conditions["date_range"]
-            start_date = datetime.fromtimestamp(start_timestamp).date()
-            end_date = datetime.fromtimestamp(end_timestamp).date()
+            # start_timestamp, end_timestamp = conditions["date_range"]
+            # start_date = datetime.fromtimestamp(start_timestamp).date()
+            # end_date = datetime.fromtimestamp(end_timestamp).date()
 
-            self.checkbox_date_filter.setChecked(True)
-            self.date_edit_start.setDate(QDate.fromString(start_date.isoformat(), Qt.DateFormat.ISODate))
-            self.date_edit_end.setDate(QDate.fromString(end_date.isoformat(), Qt.DateFormat.ISODate))
+            self.ui.checkboxDateFilter.setChecked(True)
+            # Note: Qt DesignerのUIには日付選択ウィジェットがないため、この部分は後で対応
+            # 日付範囲の設定はCustomRangeSliderで行う
 
     def _clear_all_inputs(self) -> None:
         """全入力をクリア"""
-        self.line_edit_search.clear()
-        self.radio_tags.setChecked(True)
-        self.radio_and.setChecked(True)
+        self.ui.lineEditSearch.clear()
+        self.ui.radioTags.setChecked(True)
+        self.ui.radioAnd.setChecked(True)
 
-        self.combo_resolution.setCurrentIndex(0)
-        self.combo_aspect_ratio.setCurrentIndex(0)
-        self.line_edit_width.clear()
-        self.line_edit_height.clear()
-        self.frame_custom_resolution.setVisible(False)
+        self.ui.comboResolution.setCurrentIndex(0)
+        self.ui.comboAspectRatio.setCurrentIndex(0)
+        self.ui.lineEditWidth.clear()
+        self.ui.lineEditHeight.clear()
+        self.ui.frameCustomResolution.setVisible(False)
 
-        self.checkbox_date_filter.setChecked(False)
-        self.frame_date_range.setVisible(False)
+        self.ui.checkboxDateFilter.setChecked(False)
+        self.ui.frameDateRange.setVisible(False)
         # スライダーを全範囲にリセット
         self.date_range_slider.slider.setValue((0, 100))
 
-        self.checkbox_only_untagged.setChecked(False)
-        self.checkbox_only_uncaptioned.setChecked(False)
-        self.checkbox_exclude_duplicates.setChecked(False)
+        self.ui.checkboxOnlyUntagged.setChecked(False)
+        self.ui.checkboxOnlyUncaptioned.setChecked(False)
+        self.ui.checkboxExcludeDuplicates.setChecked(False)
 
-        self.text_edit_preview.setPlainText("検索結果のプレビューがここに表示されます")
+        self.ui.textEditPreview.setPlainText("検索結果のプレビューがここに表示されます")
 
     # === Public Methods ===
 
     def set_search_text(self, text: str, search_type: str = "tags") -> None:
         """検索テキストを設定"""
-        self.line_edit_search.setText(text)
+        self.ui.lineEditSearch.setText(text)
         if search_type == "tags":
-            self.radio_tags.setChecked(True)
+            self.ui.radioTags.setChecked(True)
         else:
-            self.radio_caption.setChecked(True)
+            self.ui.radioCaption.setChecked(True)
 
     def get_current_conditions(self) -> dict[str, Any]:
         """現在の条件を取得"""
@@ -488,10 +293,60 @@ class FilterSearchPanel(QScrollArea):
         else:
             preview = "検索結果がありません"
 
-        self.text_edit_preview.setPlainText(preview)
+        self.ui.textEditPreview.setPlainText(preview)
         logger.debug(f"検索結果プレビュー更新: {result_count}件")
 
     def clear_search_preview(self) -> None:
         """検索結果プレビューをクリア"""
-        self.text_edit_preview.clear()
+        self.ui.textEditPreview.clear()
         logger.debug("検索結果プレビューをクリア")
+
+    def _on_apply_clicked(self) -> None:
+        """適用ボタンクリック処理"""
+        self._on_search_requested()
+
+    def _on_clear_clicked(self) -> None:
+        """クリアボタンクリック処理"""
+        self._on_clear_requested()
+
+
+if __name__ == "__main__":
+    import sys
+
+    from PySide6.QtWidgets import QApplication, QMainWindow
+
+    from ...utils.log import initialize_logging
+
+    # ログ設定の初期化
+    logconf = {"level": "DEBUG", "file": "FilterSearchPanel.log"}
+    initialize_logging(logconf)
+
+    # テスト用のアプリケーション
+    app = QApplication(sys.argv)
+
+    # メインウィンドウ作成
+    main_window = QMainWindow()
+    main_window.setWindowTitle("FilterSearchPanel テスト")
+    main_window.resize(350, 700)
+
+    # FilterSearchPanelウィジェット作成
+    filter_panel = FilterSearchPanel()
+
+    # シグナル接続（テスト用）
+    def on_search_requested(data: dict[str, Any]) -> None:
+        print(f"検索要求: {data}")
+
+    def on_filter_cleared() -> None:
+        print("フィルタークリア")
+
+    filter_panel.search_requested.connect(on_search_requested)
+    filter_panel.filter_cleared.connect(on_filter_cleared)
+
+    # ウィジェットをメインウィンドウに設定
+    main_window.setCentralWidget(filter_panel)
+
+    # ウィンドウ表示
+    main_window.show()
+
+    # アプリケーション実行
+    sys.exit(app.exec())
