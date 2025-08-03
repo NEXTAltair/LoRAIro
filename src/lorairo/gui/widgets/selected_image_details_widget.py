@@ -5,37 +5,21 @@ Selected Image Details Widget
 画像基本情報、アノテーション概要、Rating/Score の編集機能
 """
 
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QWidget
 
-from ...database.db_manager import ImageDatabaseManager
-from ...database.schema import Image
 from ...utils.log import logger
 from ..designer.SelectedImageDetailsWidget_ui import Ui_SelectedImageDetailsWidget
-from .annotation_data_display_widget import AnnotationData, AnnotationDataDisplayWidget
+from .annotation_data_display_widget import (
+    AnnotationData,
+    AnnotationDataDisplayWidget,
+    ImageDetails,
+)
 
-
-@dataclass
-class ImageDetails:
-    """選択画像の詳細情報"""
-
-    image_id: int | None = None
-    file_name: str = ""
-    file_path: str = ""
-    image_size: str = ""  # "1920x1080" format
-    file_size: str = ""  # "2.5 MB" format
-    created_date: str = ""  # "2025-07-29 15:30:00" format
-    rating_value: str = ""  # "PG", "R", etc.
-    score_value: int = 0  # 0-1000 range
-    annotation_data: AnnotationData = None
-
-    def __post_init__(self):
-        if self.annotation_data is None:
-            self.annotation_data = AnnotationData()
+if TYPE_CHECKING:
+    from ..services.image_db_write_service import ImageDBWriteService
 
 
 class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
@@ -58,13 +42,12 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
     def __init__(
         self,
         parent: QWidget | None = None,
-        db_manager: ImageDatabaseManager | None = None,
     ):
         super().__init__(parent)
         self.setupUi(self)
 
-        # 依存関係
-        self.db_manager = db_manager
+        # Phase 3.2: DB操作分離 - ImageDBWriteService依存注入パターン
+        self.image_db_write_service: ImageDBWriteService | None = None
 
         # 現在の画像情報
         self.current_details: ImageDetails = ImageDetails()
@@ -78,7 +61,7 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
         self._setup_connections()
         self._setup_widget_properties()
 
-        logger.debug("SelectedImageDetailsWidget initialized")
+        logger.debug("SelectedImageDetailsWidget initialized (Phase 3.2 - DB operations separated)")
 
     def _setup_annotation_display(self) -> None:
         """AnnotationDataDisplayWidget を最下部に配置"""
@@ -241,22 +224,22 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
         self.current_details.annotation_data = data
         logger.debug("Annotation data loaded in details widget")
 
-    def set_database_manager(self, db_manager: ImageDatabaseManager) -> None:
-        """データベースマネージャー設定"""
-        self.db_manager = db_manager
-        logger.debug("Database manager set for SelectedImageDetailsWidget")
+    def set_image_db_write_service(self, service: "ImageDBWriteService") -> None:
+        """Phase 1-2依存注入パターン継承"""
+        self.image_db_write_service = service
+        logger.debug("ImageDBWriteService set for SelectedImageDetailsWidget")
 
     def load_image_details(self, image_id: int) -> None:
-        """指定画像IDの詳細情報をロード"""
-        if not self.db_manager:
-            logger.warning("Database manager not available for loading image details")
+        """指定画像IDの詳細情報をロード（Phase 3.2: ImageDBWriteService使用）"""
+        if not self.image_db_write_service:
+            logger.warning("ImageDBWriteService not available for loading image details")
             return
 
         try:
             self.current_image_id = image_id
 
-            # データベースから画像情報取得
-            details = self._fetch_image_details(image_id)
+            # ImageDBWriteServiceから画像情報取得
+            details = self.image_db_write_service.get_image_details(image_id)
 
             # UI更新
             self._update_details_display(details)
@@ -265,87 +248,19 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
             self.current_details = details
 
             self.image_details_loaded.emit(details)
-            logger.debug(f"Image details loaded for ID: {image_id}")
+            logger.debug(f"Image details loaded for ID: {image_id} (via ImageDBWriteService)")
 
         except Exception as e:
             logger.error(f"Error loading image details for ID {image_id}: {e}", exc_info=True)
             self._clear_display()
 
-    def _fetch_image_details(self, image_id: int) -> ImageDetails:
-        """データベースから画像詳細情報を取得"""
-        try:
-            session = self.db_manager.get_session()
+    # Phase 3.2: DB操作分離 - 以下のメソッドはImageDBWriteServiceに移行済み
+    # def _fetch_image_details(self, image_id: int) -> ImageDetails:
+    #     """廃止予定: ImageDBWriteService.get_image_details()を使用"""
 
-            with session:
-                # 画像基本情報取得
-                image_query = session.query(Image).filter(Image.id == image_id).first()
-
-                if not image_query:
-                    logger.warning(f"Image not found for ID: {image_id}")
-                    return ImageDetails()
-
-                # ファイル情報作成
-                file_path = Path(image_query.file_path)
-                file_size_bytes = image_query.file_size or 0
-                file_size_mb = file_size_bytes / (1024 * 1024) if file_size_bytes > 0 else 0
-
-                # アノテーション情報取得
-                annotation_data = self._fetch_annotation_data(session, image_id)
-
-                # Rating/Score 情報取得 (TODO: 実際のスキーマに合わせて実装)
-                # 現在はプレースホルダー
-                rating_value = ""
-                score_value = 0
-
-                return ImageDetails(
-                    image_id=image_id,
-                    file_name=file_path.name,
-                    file_path=str(file_path),
-                    image_size=f"{image_query.width}x{image_query.height}" if image_query.width else "-",
-                    file_size=f"{file_size_mb:.2f} MB" if file_size_mb > 0 else "-",
-                    created_date=image_query.created_at.strftime("%Y-%m-%d %H:%M:%S")
-                    if image_query.created_at
-                    else "-",
-                    rating_value=rating_value,
-                    score_value=score_value,
-                    annotation_data=annotation_data,
-                )
-
-        except Exception as e:
-            logger.error(f"Error fetching image details: {e}")
-            return ImageDetails()
-
-    def _fetch_annotation_data(self, session: Any, image_id: int) -> AnnotationData:
-        """指定画像のアノテーション情報を取得"""
-        try:
-            # タグ取得
-            tags_query = "SELECT content FROM tags WHERE image_id = ? ORDER BY created_at DESC"
-            tags_result = session.execute(tags_query, (image_id,)).fetchall()
-            tags = [row[0] for row in tags_result] if tags_result else []
-
-            # キャプション取得
-            caption_query = (
-                "SELECT content FROM captions WHERE image_id = ? ORDER BY created_at DESC LIMIT 1"
-            )
-            caption_result = session.execute(caption_query, (image_id,)).fetchone()
-            caption = caption_result[0] if caption_result else ""
-
-            # スコア取得
-            score_query = "SELECT value FROM scores WHERE image_id = ? ORDER BY created_at DESC LIMIT 1"
-            score_result = session.execute(score_query, (image_id,)).fetchone()
-            aesthetic_score = score_result[0] if score_result else None
-
-            return AnnotationData(
-                tags=tags,
-                caption=caption,
-                aesthetic_score=aesthetic_score,
-                overall_score=0,
-                score_type="Aesthetic",
-            )
-
-        except Exception as e:
-            logger.error(f"Error fetching annotation data: {e}")
-            return AnnotationData()
+    # Phase 3.2: DB操作分離 - 以下のメソッドはImageDBWriteServiceに移行済み
+    # def _fetch_annotation_data(self, session: Any, image_id: int) -> AnnotationData:
+    #     """廃止予定: ImageDBWriteService.get_annotation_data()を使用"""
 
     def _update_details_display(self, details: ImageDetails) -> None:
         """詳細情報表示を更新"""
@@ -433,3 +348,54 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
             logger.debug("SelectedImageDetailsWidget disabled")
         else:
             logger.debug("SelectedImageDetailsWidget enabled")
+
+
+if __name__ == "__main__":
+    import sys
+
+    from PySide6.QtWidgets import QApplication
+
+    # アプリケーションのエントリポイント
+    def main():
+        """アプリケーションのメイン実行関数"""
+        app = QApplication(sys.argv)
+
+        # ウィジェットのインスタンスを作成
+        widget = SelectedImageDetailsWidget()
+
+        # --- テスト用のダミーデータ ---
+        dummy_annotation = AnnotationData(
+            tags=["tag1", "tag2", "1girl", "solo"],
+            caption="A beautiful illustration of a girl.",
+            aesthetic_score=6.5,
+            overall_score=850,
+            score_type="Aesthetic",
+        )
+
+        dummy_details = ImageDetails(
+            image_id=1,
+            file_name="example_image_01.png",
+            image_size="512x768",
+            file_size="850 KB",
+            created_date="2024-05-20 14:30:00",
+            rating_value="PG",
+            score_value=850,
+            annotation_data=dummy_annotation,
+        )
+        # --- ここまでダミーデータ ---
+
+        # データをウィジェットにロード
+        # 本来は image_db_write_service 経由でロードされるが、
+        # 単体テストのため、内部メソッドを直接呼び出してUIを更新する
+        widget.current_image_id = dummy_details.image_id
+        widget.current_details = dummy_details
+        widget._update_details_display(dummy_details)  # type: ignore
+        widget.set_enabled_state(True)  # 最初から操作可能にする
+
+        # ウィジェットを表示
+        widget.setWindowTitle("Selected Image Details - Test")
+        widget.show()
+
+        sys.exit(app.exec())
+
+    main()
