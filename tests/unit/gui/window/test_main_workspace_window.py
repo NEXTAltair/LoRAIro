@@ -274,7 +274,7 @@ class TestMainWorkspaceWindowPhase3Integration:
 
         # モックオブジェクト作成
         mock_window = Mock()
-        mock_window.image_preview_widget = Mock()
+        mock_window.image_preview = Mock()
         mock_window.dataset_state = mock_dependencies["dataset_state"]
 
         with patch("lorairo.gui.window.main_workspace_window.logger") as mock_logger:
@@ -282,7 +282,7 @@ class TestMainWorkspaceWindowPhase3Integration:
             method(mock_window)
 
             # ImagePreviewWidgetにDatasetStateManagerが接続される
-            mock_window.image_preview_widget.set_dataset_state_manager.assert_called_once_with(
+            mock_window.image_preview.set_dataset_state_manager.assert_called_once_with(
                 mock_dependencies["dataset_state"]
             )
 
@@ -298,7 +298,7 @@ class TestMainWorkspaceWindowPhase3Integration:
         mock_window.db_manager = mock_dependencies["db_manager"]
         mock_window.dataset_state = mock_dependencies["dataset_state"]
         mock_window.selected_image_details_widget = Mock()
-        mock_window.image_preview_widget = Mock()
+        mock_window.image_preview = Mock()
 
         with patch("lorairo.gui.services.image_db_write_service.ImageDBWriteService") as mock_service_class:
             mock_service_instance = Mock()
@@ -311,7 +311,7 @@ class TestMainWorkspaceWindowPhase3Integration:
             # ウィジェットが正しく設定される
             assert mock_window.image_db_write_service == mock_service_instance
             mock_window.selected_image_details_widget.set_image_db_write_service.assert_called_once()
-            mock_window.image_preview_widget.set_dataset_state_manager.assert_called_once()
+            mock_window.image_preview.set_dataset_state_manager.assert_called_once()
 
     def test_service_error_handling(self, mock_dependencies):
         """サービス初期化エラーハンドリングテスト"""
@@ -356,8 +356,8 @@ class TestMainWorkspaceWindowPhase3Integration:
         mock_window = Mock()
         mock_window.dataset_state = mock_dependencies["dataset_state"]
 
-        # image_preview_widgetがNoneの場合
-        mock_window.image_preview_widget = None
+        # image_previewがNoneの場合
+        mock_window.image_preview = None
 
         with pytest.raises(AttributeError):
             MainWorkspaceWindow._setup_state_integration(mock_window)
@@ -370,7 +370,7 @@ class TestMainWorkspaceWindowPhase3Integration:
         mock_window.db_manager = mock_dependencies["db_manager"]
         mock_window.dataset_state = mock_dependencies["dataset_state"]
         mock_window.selected_image_details_widget = Mock()
-        mock_window.image_preview_widget = Mock()
+        mock_window.image_preview = Mock()
 
         with patch("lorairo.gui.services.image_db_write_service.ImageDBWriteService") as mock_service_class:
             with patch("lorairo.gui.window.main_workspace_window.logger") as mock_logger:
@@ -384,7 +384,7 @@ class TestMainWorkspaceWindowPhase3Integration:
                 # 全ての統合が正しく実行される
                 assert mock_window.image_db_write_service == mock_service_instance
                 mock_window.selected_image_details_widget.set_image_db_write_service.assert_called_once()
-                mock_window.image_preview_widget.set_dataset_state_manager.assert_called_once()
+                mock_window.image_preview.set_dataset_state_manager.assert_called_once()
 
                 # 両方のログが出力される
                 expected_calls = [
