@@ -1098,7 +1098,7 @@
   <customwidget>
    <class>ImagePreviewWidget</class>
    <extends>QWidget</extends>
-   <header>..widgets.image_preview_widget</header>
+   <header>..widgets.image_preview</header>
    <container>1</container>
   </customwidget>
   <customwidget>
