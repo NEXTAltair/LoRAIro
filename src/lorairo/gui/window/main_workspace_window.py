@@ -16,6 +16,7 @@ from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
+from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from ..widgets.thumbnail import ThumbnailSelectorWidget
 
 
@@ -63,15 +64,19 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
         self.setup_custom_widgets()
         self.setup_connections()
 
+        # Phase 3.4: サービス統合
+        self._setup_image_db_write_service()
+        self._setup_state_integration()
+
         # 初期状態設定
         self.initialize_state()
 
-        logger.info("MainWorkspaceWindow initialized")
+        logger.info("MainWorkspaceWindow initialized (Phase 3.4 - Service integration completed)")
 
     def setup_custom_widgets(self) -> None:
         """カスタムウィジェットを設定"""
         # フィルター・検索パネル
-        self.filter_search_panel = FilterSearchPanel(self.frameFilterSearchContent, self.dataset_state)
+        self.filter_search_panel = FilterSearchPanel(self.frameFilterSearchContent)
         self.verticalLayout_filterSearchContent.addWidget(self.filter_search_panel)
 
         # サムネイルセレクター（強化版）
@@ -81,6 +86,10 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
         # プレビューウィジェット（既存活用）
         self.image_preview_widget = ImagePreviewWidget(self.framePreviewDetailContent)
         self.verticalLayout_previewDetailContent.addWidget(self.image_preview_widget)
+
+        # Phase 3.4: 選択画像詳細ウィジェット追加
+        self.selected_image_details_widget = SelectedImageDetailsWidget()
+        self.verticalLayout_selectedImageDetails.addWidget(self.selected_image_details_widget)
 
         # スプリッターの初期サイズ設定
         self.splitterMainWorkArea.setSizes([300, 700, 400])  # フィルター:サムネイル:プレビュー
@@ -980,3 +989,26 @@ class MainWorkspaceWindow(QMainWindow, Ui_MainWorkspaceWindow):
             "db_image_count": len(self.dataset_state.all_images),
             "filtered_image_count": len(self.dataset_state.filtered_images),
         }
+
+    # === Phase 3.4: Service Integration Methods ===
+
+    def _setup_image_db_write_service(self) -> None:
+        """ImageDBWriteService統合"""
+        from ..services.image_db_write_service import ImageDBWriteService
+
+        self.image_db_write_service = ImageDBWriteService(self.db_manager)
+
+        # ウィジェットにサービス注入
+        self.selected_image_details_widget.set_image_db_write_service(self.image_db_write_service)
+
+        logger.info("ImageDBWriteService created and injected into SelectedImageDetailsWidget")
+
+    def _setup_state_integration(self) -> None:
+        """DatasetStateManager統合"""
+        # ImagePreviewWidgetにDatasetStateManagerを接続
+        self.image_preview_widget.set_dataset_state_manager(self.dataset_state)
+
+        # SelectedImageDetailsWidgetの状態管理統合（将来の拡張用）
+        # 必要に応じて、SelectedImageDetailsWidgetもDatasetStateManagerと連携させる
+
+        logger.info("DatasetStateManager connected to widgets")
