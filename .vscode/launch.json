@@ -30,19 +30,47 @@
       "justMyCode": false
     },
     {
-      "name": "Windows Environment",
+      "name": "Windows Environment - File",
       "type": "debugpy",
       "request": "launch",
-      "module": "lorairo.gui.widgets.thumbnail",
+      "program": "${file}",
       "console": "integratedTerminal",
       "justMyCode": false,
       "cwd": "${workspaceFolder}",
       "env": {
-        "UV_PROJECT_ENVIRONMENT": ".venv"
+        "UV_PROJECT_ENVIRONMENT": ".venv",
+        "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}/local_packages/image-annotator-lib/src:${workspaceFolder}/local_packages/genai-tag-db-tools/src"
       },
-      "windows": {
-        "python": "${workspaceFolder}/.venv/Scripts/python.exe"
-      }
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe"
+    },
+    {
+      "name": "Windows Environment - Module",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "lorairo.gui.widgets.${fileBasenameNoExtension}",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "UV_PROJECT_ENVIRONMENT": ".venv",
+        "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}/local_packages/image-annotator-lib/src:${workspaceFolder}/local_packages/genai-tag-db-tools/src"
+      },
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe"
+    },
+    {
+      "name": "Windows Environment - Smart File",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "UV_PROJECT_ENVIRONMENT": ".venv",
+        "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}/local_packages/image-annotator-lib/src:${workspaceFolder}/local_packages/genai-tag-db-tools/src"
+      },
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "preLaunchTask": "module-path-resolver"
     }
   ],
   "compounds": [

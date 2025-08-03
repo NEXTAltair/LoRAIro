@@ -1,0 +1,24 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "module-path-resolver",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "-c",
+        "import sys; from pathlib import Path; file_path = '${file}'; workspace = '${workspaceFolder}'; rel_path = Path(file_path).relative_to(Path(workspace)); module_path = str(rel_path).replace('\\\\', '.').replace('/', '.').replace('.py', ''); print(f'Module Path Resolver:'); print(f'Current file: {file_path}'); print(f'Module path: {module_path}'); print(f'PYTHONPATH: src + local_packages'); print(f'Ready to run with enhanced path resolution'); sys.exit(0)"
+      ],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      },
+      "problemMatcher": []
+    }
+  ]
+}

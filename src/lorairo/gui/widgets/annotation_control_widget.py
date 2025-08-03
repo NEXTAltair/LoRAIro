@@ -1,19 +1,27 @@
 """
-Annotation Control Widget
+Annotation Control Widget (Phase 2: UI専用・責任分離版)
 
 複数モデル選択・実行制御機能を提供
 機能タイプ・実行環境によるフィルタリングと実行制御
+
+Phase 2変更:
+- SearchFilterService依存注入パターン継承（Phase 1）
+- ビジネスロジックをSearchFilterServiceに移行
+- UI専用処理に軽量化
+
+# TODO: レイアウトの調整はまた今度やる｡ 2025-08-03
 """
 
 from dataclasses import dataclass
 from typing import Any
 
-from PySide6.QtCore import Signal, Slot
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import QHeaderView, QTableWidget, QTableWidgetItem, QWidget
 
 from ...gui.designer.AnnotationControlWidget_ui import Ui_AnnotationControlWidget
 from ...services.annotator_lib_adapter import AnnotatorLibAdapter
 from ...utils.log import logger
+from ..services.search_filter_service import SearchFilterService
 
 
 @dataclass
@@ -51,10 +59,11 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
         super().__init__(parent)
         self.setupUi(self)  # type: ignore
 
-        # 依存関係
+        # 依存関係（Phase 1パターン継承）
         self.annotator_adapter = annotator_adapter
+        self.search_filter_service: SearchFilterService | None = None
 
-        # モデル情報
+        # モデル情報（UI表示用）
         self.all_models: list[dict[str, Any]] = []
         self.filtered_models: list[dict[str, Any]] = []
 
@@ -70,11 +79,7 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
         self._setup_widget_properties()
         self._setup_model_table()
 
-        # モデル情報の初期ロード
-        if self.annotator_adapter:
-            self.load_models()
-
-        logger.debug("AnnotationControlWidget initialized")
+        logger.debug("AnnotationControlWidget initialized (UI-only)")
 
     def _setup_connections(self) -> None:
         """シグナル・スロット接続設定"""
@@ -95,6 +100,7 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
         self.pushButtonStart.clicked.connect(self._on_execute_clicked)
 
     def _setup_widget_properties(self) -> None:
+        # TODO: レイアウトの定義はQtデザイナーで 2025-08-03
         """ウィジェットプロパティ設定"""
         # チェックボックス共通スタイル
         checkbox_style = """
@@ -159,6 +165,7 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
         """)
 
     def _setup_model_table(self) -> None:
+        # TODO: 別ウィジェットにしてQtデザイナーで作成する 2025-08-03
         """モデル選択テーブルを設定"""
         try:
             # テーブル基本設定
@@ -200,71 +207,64 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
         except Exception as e:
             logger.error(f"Error setting up model table: {e}", exc_info=True)
 
+    def set_search_filter_service(self, service: SearchFilterService) -> None:
+        """Phase 1パターン継承：SearchFilterService設定"""
+        self.search_filter_service = service
+        # サービス設定後、モデル情報を再ロード
+        self.load_models()
+        logger.debug("SearchFilterService set for AnnotationControlWidget")
+
     def set_annotator_adapter(self, adapter: AnnotatorLibAdapter) -> None:
-        """AnnotatorLibAdapter設定"""
+        """AnnotatorLibAdapter設定（後方互換性）"""
         self.annotator_adapter = adapter
         self.load_models()
         logger.debug("AnnotatorLibAdapter set for AnnotationControlWidget")
 
     def load_models(self) -> None:
-        """モデル情報をAnnotatorLibAdapterから取得"""
-        if not self.annotator_adapter:
-            logger.warning("AnnotatorLibAdapter not available")
-            return
+        """モデル情報を取得（SearchFilterService経由）"""
+        if self.search_filter_service:
+            # Phase 1パターン：SearchFilterService経由でモデル取得
+            try:
+                self.all_models = self.search_filter_service.get_annotation_models_list()
+                logger.info(f"Loaded {len(self.all_models)} models via SearchFilterService")
 
-        try:
-            # AnnotatorLibAdapterからモデル情報取得
-            models_metadata = self.annotator_adapter.get_available_models_with_metadata()
+                # フィルタリングしてテーブル更新
+                self._apply_filters()
+                self.models_refreshed.emit(len(self.all_models))
 
-            # モデル情報を内部形式に変換
-            self.all_models = []
-            for model_data in models_metadata:
-                model_info = {
-                    "name": model_data.get("name", ""),
-                    "provider": model_data.get("provider", "unknown"),
-                    "capabilities": self._infer_capabilities(model_data),
-                    "requires_api_key": model_data.get("requires_api_key", False),
-                    "is_local": model_data.get("provider", "").lower() == "local",
-                    "estimated_size_gb": model_data.get("estimated_size_gb"),
-                }
-                self.all_models.append(model_info)
+            except Exception as e:
+                logger.error(f"Failed to load models via SearchFilterService: {e}")
+                self.all_models = []
 
-            logger.info(f"Loaded {len(self.all_models)} models from AnnotatorLibAdapter")
+        elif self.annotator_adapter:
+            # 後方互換性：直接AnnotatorLibAdapter使用（非推奨）
+            logger.warning("Using AnnotatorLibAdapter directly (deprecated, use SearchFilterService)")
+            try:
+                models_metadata = self.annotator_adapter.get_available_models_with_metadata()
 
-            # フィルタリングしてテーブル更新
-            self._apply_filters()
+                # 簡易変換（機能推定なし）
+                self.all_models = []
+                for model_data in models_metadata:
+                    model_info = {
+                        "name": model_data.get("name", ""),
+                        "provider": model_data.get("provider", "unknown"),
+                        "capabilities": ["caption"],  # デフォルト
+                        "requires_api_key": model_data.get("requires_api_key", False),
+                        "is_local": model_data.get("provider", "").lower() == "local",
+                        "estimated_size_gb": model_data.get("estimated_size_gb"),
+                    }
+                    self.all_models.append(model_info)
 
-            self.models_refreshed.emit(len(self.all_models))
+                logger.info(f"Loaded {len(self.all_models)} models from AnnotatorLibAdapter (direct)")
+                self._apply_filters()
+                self.models_refreshed.emit(len(self.all_models))
 
-        except Exception as e:
-            logger.error(f"Failed to load models: {e}", exc_info=True)
-
-    def _infer_capabilities(self, model_data: dict[str, Any]) -> list[str]:
-        """モデル情報から機能を推測"""
-        name = model_data.get("name", "").lower()
-        provider = model_data.get("provider", "").lower()
-
-        capabilities = []
-
-        # マルチモーダルLLM（Caption + Tags生成）
-        if any(keyword in name for keyword in ["gpt-4", "claude", "gemini"]):
-            capabilities = ["caption", "tags"]
-        # Caption特化
-        elif any(keyword in name for keyword in ["gpt-4o", "dall-e"]):
-            capabilities = ["caption"]
-        # タグ生成特化
-        elif any(keyword in name for keyword in ["tagger", "danbooru", "wd-", "deepdanbooru"]):
-            capabilities = ["tags"]
-        # 品質評価特化
-        elif any(keyword in name for keyword in ["aesthetic", "clip", "musiq", "quality", "score"]):
-            capabilities = ["scores"]
-        # プロバイダーベース推測
-        elif provider in ["openai", "anthropic", "google"]:
-            capabilities = ["caption", "tags"]
+            except Exception as e:
+                logger.error(f"Failed to load models: {e}", exc_info=True)
+                self.all_models = []
         else:
-            capabilities = ["caption"]  # デフォルト
-
-        return capabilities
+            logger.warning("Neither SearchFilterService nor AnnotatorLibAdapter available")
+            self.all_models = []
 
     @Slot()
     def _on_function_type_changed(self) -> None:
@@ -288,19 +288,36 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
 
     @Slot()
     def _on_execute_clicked(self) -> None:
-        """実行ボタンクリック時の処理"""
+        """実行ボタンクリック時の処理（SearchFilterService経由検証）"""
         try:
             self._update_current_settings()
 
-            # 選択モデル確認
-            if not self.current_settings.selected_models:
-                logger.warning("No models selected for annotation")
-                return
+            if self.search_filter_service:
+                # Phase 1パターン：SearchFilterService経由で設定検証
+                settings_dict = {
+                    "selected_models": self.current_settings.selected_models,
+                    "selected_function_types": self.current_settings.selected_function_types,
+                    "selected_providers": self.current_settings.selected_providers,
+                    "use_low_resolution": self.current_settings.use_low_resolution,
+                    "batch_mode": self.current_settings.batch_mode,
+                }
 
-            # 機能タイプ確認
-            if not self.current_settings.selected_function_types:
-                logger.warning("No function types selected for annotation")
-                return
+                validation_result = self.search_filter_service.validate_annotation_settings(settings_dict)
+
+                if not validation_result.is_valid:
+                    logger.warning(f"Settings validation failed: {validation_result.error_message}")
+                    return
+
+                logger.info("Settings validated via SearchFilterService")
+            else:
+                # フォールバック：直接検証（非推奨）
+                if not self.current_settings.selected_models:
+                    logger.warning("No models selected for annotation")
+                    return
+
+                if not self.current_settings.selected_function_types:
+                    logger.warning("No function types selected for annotation")
+                    return
 
             # アノテーション開始シグナル送信
             self.annotation_started.emit(self.current_settings)
@@ -351,25 +368,33 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
             logger.error(f"Error updating settings: {e}")
 
     def _apply_filters(self) -> None:
-        """フィルターを適用してテーブル更新"""
+        """フィルターを適用してテーブル更新（SearchFilterService経由）"""
         try:
             # 現在の設定取得
             self._update_current_settings()
 
-            # フィルタリング実行
-            self.filtered_models = []
-            for model in self.all_models:
-                # プロバイダーフィルター
-                if not self._model_matches_provider_filter(model):
-                    continue
+            if self.search_filter_service:
+                # Phase 1パターン：SearchFilterService経由でフィルタリング
+                self.filtered_models = self.search_filter_service.filter_models_by_criteria(
+                    models=self.all_models,
+                    function_types=self.current_settings.selected_function_types,
+                    providers=self.current_settings.selected_providers,
+                )
+            else:
+                # フォールバック：直接フィルタリング（非推奨）
+                self.filtered_models = []
+                for model in self.all_models:
+                    # プロバイダーフィルター
+                    if not self._model_matches_provider_filter(model):
+                        continue
 
-                # 機能フィルター
-                if not self._model_matches_function_filter(model):
-                    continue
+                    # 機能フィルター
+                    if not self._model_matches_function_filter(model):
+                        continue
 
-                self.filtered_models.append(model)
+                    self.filtered_models.append(model)
 
-            # テーブル更新
+            # テーブル更新（UI専用処理）
             self._update_model_table()
 
             logger.debug(f"Applied filters: {len(self.filtered_models)} models displayed")
@@ -424,7 +449,7 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
                 # プロバイダー列
                 provider_display = "ローカル" if model["is_local"] else model["provider"].title()
                 provider_item = QTableWidgetItem(provider_display)
-                provider_item.setFlags(provider_item.flags() & ~QTableWidgetItem.ItemFlag.ItemIsEditable)
+                provider_item.setFlags(provider_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.tableWidgetModels.setItem(row, 2, provider_item)
 
                 # 機能列
@@ -483,3 +508,129 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
             logger.debug("AnnotationControlWidget disabled")
         else:
             logger.debug("AnnotationControlWidget enabled")
+
+
+if __name__ == "__main__":
+    import sys
+    from unittest.mock import Mock
+
+    from PySide6.QtWidgets import QApplication, QMainWindow
+
+    from ...utils.log import initialize_logging
+
+    # ログ設定の初期化
+    logconf = {"level": "DEBUG", "file": "AnnotationControlWidget.log"}
+    initialize_logging(logconf)
+
+    # テスト用のアプリケーション
+    app = QApplication(sys.argv)
+
+    # メインウィンドウ作成
+    main_window = QMainWindow()
+    main_window.setWindowTitle("AnnotationControlWidget テスト - Windows表示確認")
+    main_window.resize(800, 600)
+
+    # AnnotationControlWidgetウィジェット作成
+    annotation_widget = AnnotationControlWidget()
+
+    # モックSearchFilterService設定
+    mock_service = Mock()
+
+    # ダミーモデルデータ
+    dummy_models: list[dict[str, Any]] = [
+        {
+            "name": "gpt-4-vision-preview",
+            "provider": "openai",
+            "capabilities": ["caption", "tags"],
+            "requires_api_key": True,
+            "is_local": False,
+            "estimated_size_gb": None,
+        },
+        {
+            "name": "wd-v1-4-swinv2-tagger-v3",
+            "provider": "local",
+            "capabilities": ["tags"],
+            "requires_api_key": False,
+            "is_local": True,
+            "estimated_size_gb": 1.2,
+        },
+        {
+            "name": "clip-aesthetic-score",
+            "provider": "local",
+            "capabilities": ["scores"],
+            "requires_api_key": False,
+            "is_local": True,
+            "estimated_size_gb": 0.5,
+        },
+        {
+            "name": "claude-3-sonnet",
+            "provider": "anthropic",
+            "capabilities": ["caption", "tags"],
+            "requires_api_key": True,
+            "is_local": False,
+            "estimated_size_gb": None,
+        },
+        {
+            "name": "blip2-opt-2.7b",
+            "provider": "local",
+            "capabilities": ["caption"],
+            "requires_api_key": False,
+            "is_local": True,
+            "estimated_size_gb": 5.4,
+        },
+    ]
+
+    # モックサービスの動作設定
+    mock_service.get_annotation_models_list.return_value = dummy_models
+
+    def mock_filter_models(
+        models: list[dict[str, Any]], function_types: list[str], providers: list[str]
+    ) -> list[dict[str, Any]]:
+        return [
+            model
+            for model in models
+            if any(func in model["capabilities"] for func in function_types)
+            and any(
+                (provider == "web_api" and not model["is_local"])
+                or (provider == "local" and model["is_local"])
+                for provider in providers
+            )
+        ]
+
+    mock_service.filter_models_by_criteria.side_effect = mock_filter_models
+    mock_service.validate_annotation_settings.return_value = Mock(
+        is_valid=True, settings={}, error_message=None
+    )
+
+    # SearchFilterService設定
+    annotation_widget.set_search_filter_service(mock_service)
+
+    # シグナル接続（テスト用）
+    def on_annotation_started(settings: AnnotationSettings) -> None:
+        print(f"アノテーション開始: {settings}")
+
+    def on_settings_changed(settings: AnnotationSettings) -> None:
+        print(f"設定変更: {settings}")
+
+    def on_models_refreshed(count: int) -> None:
+        print(f"モデル一覧更新完了: {count}件")
+
+    annotation_widget.annotation_started.connect(on_annotation_started)
+    annotation_widget.settings_changed.connect(on_settings_changed)
+    annotation_widget.models_refreshed.connect(on_models_refreshed)
+
+    # ウィジェットをメインウィンドウに設定
+    main_window.setCentralWidget(annotation_widget)
+
+    # ウィンドウ表示
+    main_window.show()
+
+    print("AnnotationControlWidget Windows表示テスト起動")
+    print("テスト項目:")
+    print("- チェックボックス操作（Caption/Tags/Scores、Web API/Local）")
+    print("- モデル選択テーブルの表示・フィルタリング")
+    print("- 実行ボタンの動作確認")
+    print("- UI全体のレスポンシブ動作")
+
+    # アプリケーション実行
+    sys.exit(app.exec())

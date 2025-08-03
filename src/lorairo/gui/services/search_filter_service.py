@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ...database.db_manager import ImageDatabaseManager
+from ...services.annotator_lib_adapter import AnnotatorLibAdapter
 from ...utils.log import logger
 
 
@@ -56,6 +57,15 @@ class AnnotationStatusCounts:
         return (self.completed / self.total) * 100.0
 
 
+@dataclass
+class ValidationResult:
+    """アノテーション設定検証結果"""
+
+    is_valid: bool
+    settings: dict[str, Any] | None = None
+    error_message: str | None = None
+
+
 class SearchFilterService:
     """
     検索・フィルター処理に関するビジネスロジックを処理するサービス（拡張版）
@@ -69,10 +79,13 @@ class SearchFilterService:
     - データベース検索・フィルター処理（拡張機能）
     """
 
-    def __init__(self, db_manager: ImageDatabaseManager):
+    def __init__(
+        self, db_manager: ImageDatabaseManager, annotator_adapter: "AnnotatorLibAdapter | None" = None
+    ):
         """SearchFilterServiceのコンストラクタ"""
         self.current_conditions: SearchConditions | None = None
         self.db_manager = db_manager
+        self.annotator_adapter = annotator_adapter
 
     def parse_search_input(self, search_text: str, search_type: str, tag_logic: str) -> list[str]:
         """検索テキストをキーワードリストに変換"""
@@ -734,3 +747,178 @@ class SearchFilterService:
         except Exception as e:
             logger.debug(f"アノテーション状態確認エラー: {e}")
             return False
+
+    # === Phase 2拡張機能：アノテーション系モデル管理 ===
+
+    def get_annotation_models_list(self) -> list[dict[str, Any]]:
+        """
+        アノテーションモデル一覧取得（AnnotationControlWidgetから移行）
+
+        Returns:
+            list: モデル情報のリスト
+        """
+        if not self.annotator_adapter:
+            logger.warning("AnnotatorLibAdapter not available for model list retrieval")
+            return []
+
+        try:
+            # AnnotatorLibAdapterからモデル情報取得
+            models_metadata = self.annotator_adapter.get_available_models_with_metadata()
+
+            # モデル情報を内部形式に変換
+            models_list = []
+            for model_data in models_metadata:
+                model_info = {
+                    "name": model_data.get("name", ""),
+                    "provider": model_data.get("provider", "unknown"),
+                    "capabilities": self.infer_model_capabilities(model_data),
+                    "requires_api_key": model_data.get("requires_api_key", False),
+                    "is_local": model_data.get("provider", "").lower() == "local",
+                    "estimated_size_gb": model_data.get("estimated_size_gb"),
+                }
+                models_list.append(model_info)
+
+            logger.info(f"Retrieved {len(models_list)} models from AnnotatorLibAdapter")
+            return models_list
+
+        except Exception as e:
+            logger.error(f"モデル一覧取得エラー: {e}", exc_info=True)
+            return []
+
+    def filter_models_by_criteria(
+        self,
+        models: list[dict[str, Any]],
+        function_types: list[str],
+        providers: list[str],
+    ) -> list[dict[str, Any]]:
+        """
+        モデルフィルタリング処理（AnnotationControlWidgetから移行）
+
+        Args:
+            models: フィルタリング対象のモデルリスト
+            function_types: 必要な機能タイプ ["caption", "tags", "scores"]
+            providers: 必要なプロバイダー ["web_api", "local"]
+
+        Returns:
+            list: フィルター後のモデルリスト
+        """
+        try:
+            filtered_models = []
+            for model in models:
+                # プロバイダーフィルター
+                if not self._model_matches_provider_filter(model, providers):
+                    continue
+
+                # 機能フィルター
+                if not self._model_matches_function_filter(model, function_types):
+                    continue
+
+                filtered_models.append(model)
+
+            logger.debug(f"Filtered models: {len(models)} -> {len(filtered_models)}")
+            return filtered_models
+
+        except Exception as e:
+            logger.error(f"モデルフィルタリングエラー: {e}", exc_info=True)
+            return []
+
+    def validate_annotation_settings(self, settings: dict[str, Any]) -> ValidationResult:
+        """
+        アノテーション設定検証（新規）
+
+        Args:
+            settings: 検証対象の設定辞書
+
+        Returns:
+            ValidationResult: 検証結果
+        """
+        try:
+            # 必須項目チェック
+            if not settings.get("selected_models"):
+                return ValidationResult(is_valid=False, error_message="選択されたモデルがありません")
+
+            if not settings.get("selected_function_types"):
+                return ValidationResult(is_valid=False, error_message="選択された機能タイプがありません")
+
+            # 有効な設定として返す
+            return ValidationResult(is_valid=True, settings=settings)
+
+        except Exception as e:
+            logger.error(f"アノテーション設定検証エラー: {e}")
+            return ValidationResult(is_valid=False, error_message=f"設定検証中にエラーが発生しました: {e}")
+
+    def infer_model_capabilities(self, model_data: dict[str, Any]) -> list[str]:
+        """
+        モデル機能推定（AnnotationControlWidgetから移行）
+
+        Args:
+            model_data: モデルメタデータ
+
+        Returns:
+            list: 推定される機能リスト ["caption", "tags", "scores"]
+        """
+        name = model_data.get("name", "").lower()
+        provider = model_data.get("provider", "").lower()
+
+        capabilities = []
+
+        # マルチモーダルLLM（Caption + Tags生成）
+        if any(keyword in name for keyword in ["gpt-4", "claude", "gemini"]):
+            capabilities = ["caption", "tags"]
+        # Caption特化
+        elif any(keyword in name for keyword in ["gpt-4o", "dall-e"]):
+            capabilities = ["caption"]
+        # タグ生成特化
+        elif any(keyword in name for keyword in ["tagger", "danbooru", "wd-", "deepdanbooru"]):
+            capabilities = ["tags"]
+        # 品質評価特化
+        elif any(keyword in name for keyword in ["aesthetic", "clip", "musiq", "quality", "score"]):
+            capabilities = ["scores"]
+        # プロバイダーベース推測
+        elif provider in ["openai", "anthropic", "google"]:
+            capabilities = ["caption", "tags"]
+        else:
+            capabilities = ["caption"]  # デフォルト
+
+        return capabilities
+
+    def _model_matches_provider_filter(self, model: dict[str, Any], providers: list[str]) -> bool:
+        """
+        モデルがプロバイダーフィルターに一致するかチェック（内部）
+
+        Args:
+            model: モデル情報
+            providers: プロバイダーリスト
+
+        Returns:
+            bool: フィルター一致有無
+        """
+        if not providers:
+            return False
+
+        if "web_api" in providers:
+            if not model["is_local"]:
+                return True
+
+        if "local" in providers:
+            if model["is_local"]:
+                return True
+
+        return False
+
+    def _model_matches_function_filter(self, model: dict[str, Any], function_types: list[str]) -> bool:
+        """
+        モデルが機能フィルターに一致するかチェック（内部）
+
+        Args:
+            model: モデル情報
+            function_types: 機能タイプリスト
+
+        Returns:
+            bool: フィルター一致有無
+        """
+        if not function_types:
+            return False
+
+        model_capabilities = model.get("capabilities", [])
+        return any(func in model_capabilities for func in function_types)
