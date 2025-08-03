@@ -4,12 +4,12 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QWidget
 
 from lorairo.gui.services.model_selection_service import ModelSelectionService
 from lorairo.gui.services.search_filter_service import SearchFilterService
-from lorairo.gui.widgets.filter import CustomRangeSlider, FilterSearchPanel
+from lorairo.gui.widgets.filter import CustomRangeSlider
+from lorairo.gui.widgets.filter_search_panel import FilterSearchPanel
 
 
 class TestWidgetServiceIntegration:

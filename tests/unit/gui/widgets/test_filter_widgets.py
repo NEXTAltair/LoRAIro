@@ -1,13 +1,12 @@
 # tests/unit/gui/widgets/test_filter_widgets.py
 
-from datetime import datetime
 from unittest.mock import Mock, patch
 
 import pytest
-from PySide6.QtCore import QDate, QDateTime, Qt, QTime, QTimeZone
 from PySide6.QtWidgets import QWidget
 
-from lorairo.gui.widgets.filter import CustomRangeSlider, FilterSearchPanel
+from lorairo.gui.widgets.filter import CustomRangeSlider
+from lorairo.gui.widgets.filter_search_panel import FilterSearchPanel
 
 
 class TestCustomRangeSlider:
