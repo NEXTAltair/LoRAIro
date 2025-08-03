@@ -25,6 +25,25 @@ class AnnotationData:
     score_type: str = "Aesthetic"
 
 
+@dataclass
+class ImageDetails:
+    """選択画像の詳細情報"""
+
+    image_id: int | None = None
+    file_name: str = ""
+    file_path: str = ""
+    image_size: str = ""  # "1920x1080" format
+    file_size: str = ""  # "2.5 MB" format
+    created_date: str = ""  # "2025-07-29 15:30:00" format
+    rating_value: str = ""  # "PG", "R", etc.
+    score_value: int = 0  # 0-1000 range
+    annotation_data: AnnotationData | None = field(default=None)
+
+    def __post_init__(self) -> None:
+        if self.annotation_data is None:
+            self.annotation_data = AnnotationData()
+
+
 class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     """
     アノテーション結果の汎用表示ウィジェット
