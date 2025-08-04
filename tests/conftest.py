@@ -38,17 +38,50 @@ def qapp_args():
     return args
 
 
+@pytest.fixture(scope="session")
+def qapp(qapp_args):
+    """
+    pytest-qt用のQApplicationインスタンス
+    Windows環境でのDLLエラーを回避するための設定
+    """
+    from PySide6.QtWidgets import QApplication
+
+    # 既存のQApplicationインスタンスがある場合は削除
+    app = QApplication.instance()
+    if app is not None:
+        app.quit()
+
+    # 新しいQApplicationインスタンスを作成
+    app = QApplication(qapp_args)
+
+    yield app
+
+    # テスト終了後にクリーンアップ
+    app.quit()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def configure_qt_for_tests():
     """
     Qt環境をテスト用に自動設定する（全テストで自動実行）
     """
-    # Linuxコンテナ環境でのヘッドレス設定
-    if sys.platform.startswith("linux") and os.getenv("DISPLAY") is None:
-        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    # Windows環境でのQt設定
+    if sys.platform.startswith("win"):
+        os.environ.setdefault("QT_QPA_PLATFORM", "windows")
+        os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.*=false")
+        # Windows環境でのDLLエラー回避
+        os.environ.setdefault("QT_AUTO_SCREEN_SCALE_FACTOR", "0")
+        os.environ.setdefault("QT_SCALE_FACTOR", "1")
 
-    # その他のQt関連環境変数設定
-    os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.xcb.warning=false")
+    # Linuxコンテナ環境でのヘッドレス設定
+    elif sys.platform.startswith("linux") and os.getenv("DISPLAY") is None:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.xcb.warning=false")
+
+    # macOS環境での設定
+    elif sys.platform.startswith("darwin"):
+        os.environ.setdefault("QT_QPA_PLATFORM", "cocoa")
+        os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.*=false")
 
     return True
 

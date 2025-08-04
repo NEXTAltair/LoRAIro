@@ -199,3 +199,24 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self.groupBoxTags.setVisible(tags)
         self.groupBoxCaption.setVisible(caption)
         self.groupBoxScores.setVisible(scores)
+
+
+if __name__ == "__main__":
+    # Tier1: 単体表示確認用の最小 __main__ ブロック
+    import sys
+
+    from PySide6.QtWidgets import QApplication, QMainWindow
+
+    from ...utils.log import initialize_logging
+
+    initialize_logging({"level": "DEBUG", "file": "AnnotationDataDisplayWidget.log"})
+    app = QApplication(sys.argv)
+
+    window = QMainWindow()
+    window.setWindowTitle("AnnotationDataDisplayWidget テスト")
+    widget = AnnotationDataDisplayWidget()
+    window.setCentralWidget(widget)
+    window.resize(480, 360)
+    window.show()
+
+    sys.exit(app.exec())

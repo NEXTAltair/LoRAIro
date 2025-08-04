@@ -1,5 +1,3 @@
-from typing import Any
-
 import numpy as np
 from PySide6.QtCore import QDate, QDateTime, Qt, QTime, QTimeZone, Signal, Slot
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
@@ -125,3 +123,25 @@ class CustomRangeSlider(QWidget):
 
         # ラベルを更新
         self.update_labels()
+
+
+if __name__ == "__main__":
+    # Tier1: 単体表示確認用の最小 __main__ ブロック
+    import sys
+
+    from PySide6.QtWidgets import QApplication, QMainWindow
+
+    from ...utils.log import initialize_logging
+
+    initialize_logging({"level": "DEBUG", "file": "CustomRangeSlider.log"})
+    app = QApplication(sys.argv)
+
+    window = QMainWindow()
+    window.setWindowTitle("CustomRangeSlider テスト")
+    widget = CustomRangeSlider()
+    widget.set_date_range()  # 日付モード確認
+    window.setCentralWidget(widget)
+    window.resize(520, 140)
+    window.show()
+
+    sys.exit(app.exec())

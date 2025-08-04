@@ -57,9 +57,7 @@ class TestMainWindowStandard:
             patch("lorairo.gui.window.main_window.WorkerService") as mock_worker_service,
             patch("lorairo.gui.window.main_window.DatasetStateManager") as mock_dataset_state,
             patch("lorairo.gui.window.main_window.FilterSearchPanel") as mock_filter_panel,
-            patch(
-                "lorairo.gui.window.main_window.ThumbnailSelectorWidget"
-            ) as mock_thumbnail_widget,
+            patch("lorairo.gui.window.main_window.ThumbnailSelectorWidget") as mock_thumbnail_widget,
             patch("lorairo.gui.window.main_window.PreviewDetailPanel") as mock_preview_panel,
             patch("lorairo.gui.window.main_window.DefaultSessionLocal"),
         ):

@@ -203,12 +203,24 @@ class TestAnnotationUIState:
 
     def test_annotation_ui_state_initialization(self):
         """AnnotationUIState初期化テスト"""
-        state = AnnotationUIState(selected_models=["model1"])
+        # Qt環境の初期化を確実に行う
+        from PySide6.QtWidgets import QApplication
 
-        assert state.selected_models == ["model1"]
-        assert state.annotation_in_progress is False
-        assert state.results_visible is False
-        assert state.filter_criteria is None
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([])
+
+        try:
+            state = AnnotationUIState(selected_models=["model1"])
+
+            assert state.selected_models == ["model1"]
+            assert state.annotation_in_progress is False
+            assert state.results_visible is False
+            assert state.filter_criteria is None
+        finally:
+            # テスト用に作成したQApplicationの場合はクリーンアップ
+            if app.parent() is None:
+                app.quit()
 
     def test_annotation_ui_state_updates(self):
         """AnnotationUIState更新テスト"""

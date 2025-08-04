@@ -455,3 +455,24 @@ class AnnotationResultsWidget(QWidget, Ui_AnnotationResultsWidget):
             logger.debug("AnnotationResultsWidget disabled")
         else:
             logger.debug("AnnotationResultsWidget enabled")
+
+
+if __name__ == "__main__":
+    # Tier1: 単体表示確認用の最小 __main__ ブロック
+    import sys
+
+    from PySide6.QtWidgets import QApplication, QMainWindow
+
+    from ...utils.log import initialize_logging
+
+    initialize_logging({"level": "DEBUG", "file": "AnnotationResultsWidget.log"})
+    app = QApplication(sys.argv)
+
+    window = QMainWindow()
+    window.setWindowTitle("AnnotationResultsWidget テスト")
+    widget = AnnotationResultsWidget()
+    window.setCentralWidget(widget)
+    window.resize(640, 420)
+    window.show()
+
+    sys.exit(app.exec())

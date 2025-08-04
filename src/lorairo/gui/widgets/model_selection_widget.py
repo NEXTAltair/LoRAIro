@@ -513,3 +513,24 @@ class ModelSelectionWidget(QWidget):
         """指定されたモデルを選択状態に設定"""
         for model_name, checkbox in self.model_checkboxes.items():
             checkbox.setChecked(model_name in model_names)
+
+
+if __name__ == "__main__":
+   # Tier1: 単体表示確認用の最小 __main__ ブロック
+   import sys
+
+   from PySide6.QtWidgets import QApplication, QMainWindow
+
+   from ...utils.log import initialize_logging
+
+   initialize_logging({"level": "DEBUG", "file": "ModelSelectionWidget.log"})
+   app = QApplication(sys.argv)
+
+   window = QMainWindow()
+   window.setWindowTitle("ModelSelectionWidget テスト")
+   widget = ModelSelectionWidget(mode="simple")  # 最小構成
+   window.setCentralWidget(widget)
+   window.resize(600, 400)
+   window.show()
+
+   sys.exit(app.exec())
