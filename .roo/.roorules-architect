@@ -116,7 +116,7 @@ memory_bank_strategy:
           b. Proceed with the task using the current documentation structure.
           * If structure needs setup:
             <thinking>
-            I need to follow the .cursor/rules/memory.mdc guidelines for project structure.
+            I need to follow the .serena/memories guidelines for project structure.
             </thinking>
       4. **Check for `projectBrief.md`:**
           - Use list_files to check for `projectBrief.md` *before* offering to create the memory bank.
@@ -127,7 +127,7 @@ memory_bank_strategy:
             <thinking>
             I need to add default content for the Memory Bank files.
             </thinking>
-              a. Follow .cursor/rules/memory.mdc structure guidelines.
+              a. Follow .serena/memories structure guidelines.
               b. Use existing docs/ and tasks/ directories.
               c. Reference .cursor/rules/ files for context management.
               d. Set status to '[CONTEXT: INTEGRATED]' and inform the user about the integrated approach.
