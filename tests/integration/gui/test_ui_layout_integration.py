@@ -4,7 +4,7 @@
 UI Layout Integration Tests
 
 Phase 4: 統合テスト - UI統合テスト
-MainWorkspaceWindow の3パネルレイアウト統合テスト
+MainWindow の3パネルレイアウト統合テスト
 """
 
 from unittest.mock import Mock, patch
@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 import pytest
 from PySide6.QtCore import QSize, Qt
 
-from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
+from lorairo.gui.window.main_window import MainWindow
 
 # =============================================
 # ファイルレベル Fixtures
@@ -23,12 +23,12 @@ from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
 def mock_services():
     """統合テスト用サービスモック"""
     with (
-        patch("lorairo.gui.window.main_workspace_window.ConfigurationService"),
-        patch("lorairo.gui.window.main_workspace_window.FileSystemManager"),
-        patch("lorairo.gui.window.main_workspace_window.ImageRepository"),
-        patch("lorairo.gui.window.main_workspace_window.ImageDatabaseManager"),
-        patch("lorairo.gui.window.main_workspace_window.WorkerService") as mock_worker,
-        patch("lorairo.gui.window.main_workspace_window.DatasetStateManager"),
+        patch("lorairo.gui.window.main_window.ConfigurationService"),
+        patch("lorairo.gui.window.main_window.FileSystemManager"),
+        patch("lorairo.gui.window.main_window.ImageRepository"),
+        patch("lorairo.gui.window.main_window.ImageDatabaseManager"),
+        patch("lorairo.gui.window.main_window.WorkerService") as mock_worker,
+        patch("lorairo.gui.window.main_window.DatasetStateManager"),
     ):
         # WorkerServiceのget_active_worker_countメソッドを適切にモック化
         mock_worker_instance = Mock()
@@ -39,18 +39,18 @@ def mock_services():
 
 @pytest.fixture
 def main_window(qtbot, mock_services):
-    """MainWorkspaceWindow のテストインスタンス"""
+    """MainWindow のテストインスタンス"""
     with (
         patch("lorairo.gui.widgets.filter_search_panel.FilterSearchPanel"),
         patch("lorairo.gui.widgets.thumbnail_enhanced.ThumbnailSelectorWidget"),
         patch("lorairo.gui.widgets.image_preview.ImagePreviewWidget"),
     ):
         try:
-            window = MainWorkspaceWindow()
+            window = MainWindow()
             qtbot.addWidget(window)
             return window
         except Exception:
-            # MainWorkspaceWindow の初期化でエラーが発生した場合のフォールバック
+            # MainWindow の初期化でエラーが発生した場合のフォールバック
             from PySide6.QtWidgets import QMainWindow
 
             window = QMainWindow()

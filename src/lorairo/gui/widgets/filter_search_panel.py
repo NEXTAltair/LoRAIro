@@ -178,7 +178,7 @@ class FilterSearchPanel(QScrollArea):
         """クリア要求処理"""
         self._clear_all_inputs()
 
-        # MainWorkspaceWindow にクリア要求を送信
+        # MainWindow にクリア要求を送信
         self.filter_cleared.emit()
         logger.info("フィルター・検索をクリア")
 

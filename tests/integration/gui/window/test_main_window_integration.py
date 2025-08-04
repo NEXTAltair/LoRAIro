@@ -1,10 +1,10 @@
-# tests/integration/gui/window/test_main_workspace_window.py
+# tests/integration/gui/window/test_main_window.py
 """
-MainWorkspaceWindow 統合テスト
+MainWindow 統合テスト
 
-責任分離後のMainWorkspaceWindowとThumbnailSelectorWidgetの実際の統合をテスト
+責任分離後のMainWindowとThumbnailSelectorWidgetの実際の統合をテスト
 - 実際のコンポーネントを使用した統合テスト
-- MainWorkspaceWindowの_resolve_optimal_thumbnail_data()の実際の動作
+- MainWindowの_resolve_optimal_thumbnail_data()の実際の動作
 - 責任分離の検証
 - 最小限のモックのみ使用（外部依存のみ）
 """
@@ -21,7 +21,7 @@ from PySide6.QtWidgets import QApplication
 
 from lorairo.gui.state.dataset_state import DatasetStateManager
 from lorairo.gui.widgets.thumbnail import ThumbnailSelectorWidget
-from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
+from lorairo.gui.window.main_window import MainWindow
 from lorairo.utils.log import initialize_logging
 
 
@@ -34,8 +34,8 @@ def qapp() -> Generator[QApplication, None, None]:
     yield app
 
 
-class TestMainWorkspaceWindowThumbnailIntegration:
-    """MainWorkspaceWindow と ThumbnailSelectorWidget の実際の統合テスト"""
+class TestMainWindowThumbnailIntegration:
+    """MainWindow と ThumbnailSelectorWidget の実際の統合テスト"""
 
     @pytest.fixture
     def temp_dir(self) -> Generator[Path, None, None]:
@@ -44,13 +44,13 @@ class TestMainWorkspaceWindowThumbnailIntegration:
             yield Path(tmp_dir)
 
     @pytest.fixture
-    def real_main_window(self, qapp: QApplication) -> MainWorkspaceWindow:
-        """実際のMainWorkspaceWindow（外部依存のみモック）"""
+    def real_main_window(self, qapp: QApplication) -> MainWindow:
+        """実際のMainWindow（外部依存のみモック）"""
         # テスト用にログ初期化
         initialize_logging({"level": "ERROR", "file": None})
 
-        # 実際のMainWorkspaceWindowを作成
-        window = MainWorkspaceWindow()
+        # 実際のMainWindowを作成
+        window = MainWindow()
 
         # 実際のコンポーネントを使用
         window.dataset_state = DatasetStateManager()
@@ -71,9 +71,9 @@ class TestMainWorkspaceWindowThumbnailIntegration:
 
         return widget
 
-    def test_thumbnail_path_resolution_integration(self, real_main_window: MainWorkspaceWindow) -> None:
+    def test_thumbnail_path_resolution_integration(self, real_main_window: MainWindow) -> None:
         """
-        MainWorkspaceWindowの実際のパス解決と統合テスト
+        MainWindowの実際のパス解決と統合テスト
         """
         window = real_main_window
 
@@ -107,7 +107,7 @@ class TestMainWorkspaceWindowThumbnailIntegration:
 
     def test_thumbnail_widget_integration(self, real_main_window, real_thumbnail_widget):
         """
-        MainWorkspaceWindowとThumbnailSelectorWidgetの実際の統合
+        MainWindowとThumbnailSelectorWidgetの実際の統合
         """
         window = real_main_window
         thumbnail_widget = real_thumbnail_widget
@@ -163,7 +163,7 @@ class TestMainWorkspaceWindowThumbnailIntegration:
         window = real_main_window
         thumbnail_widget = real_thumbnail_widget
 
-        # MainWorkspaceWindowの責任：パス解決
+        # MainWindowの責任：パス解決
         assert hasattr(window, "_resolve_optimal_thumbnail_data")
         assert callable(window._resolve_optimal_thumbnail_data)
 

@@ -1,7 +1,7 @@
-# tests/gui/test_main_workspace_window_qt_standard.py
+# tests/gui/test_main_window_qt_standard.py
 
 """
-MainWorkspaceWindow Qt テスト
+MainWindow Qt テスト
 pytest-qt 標準仕様に準拠した実装
 """
 
@@ -14,7 +14,7 @@ import pytest
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QLabel, QLineEdit, QProgressBar, QPushButton
 
-from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
+from lorairo.gui.window.main_window import MainWindow
 
 
 # Qt環境設定（テスト実行前）
@@ -40,28 +40,28 @@ def setup_module():
             os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
 
-class TestMainWorkspaceWindowStandard:
-    """pytest-qt標準仕様に準拠したMainWorkspaceWindowテスト"""
+class TestMainWindowStandard:
+    """pytest-qt標準仕様に準拠したMainWindowテスト"""
 
     @pytest.fixture
     def main_window(self, qtbot, qt_main_window_mock_config):
         """
-        pytest-qt標準のqtbotを使用したMainWorkspaceWindowフィクスチャ
+        pytest-qt標準のqtbotを使用したMainWindowフィクスチャ
         """
-        # 依存関係を全てパッチしてMainWorkspaceWindowを作成
+        # 依存関係を全てパッチしてMainWindowを作成
         with (
-            patch("lorairo.gui.window.main_workspace_window.ConfigurationService") as mock_config_service,
-            patch("lorairo.gui.window.main_workspace_window.FileSystemManager") as mock_fsm,
-            patch("lorairo.gui.window.main_workspace_window.ImageRepository"),
-            patch("lorairo.gui.window.main_workspace_window.ImageDatabaseManager") as mock_db_manager,
-            patch("lorairo.gui.window.main_workspace_window.WorkerService") as mock_worker_service,
-            patch("lorairo.gui.window.main_workspace_window.DatasetStateManager") as mock_dataset_state,
-            patch("lorairo.gui.window.main_workspace_window.FilterSearchPanel") as mock_filter_panel,
+            patch("lorairo.gui.window.main_window.ConfigurationService") as mock_config_service,
+            patch("lorairo.gui.window.main_window.FileSystemManager") as mock_fsm,
+            patch("lorairo.gui.window.main_window.ImageRepository"),
+            patch("lorairo.gui.window.main_window.ImageDatabaseManager") as mock_db_manager,
+            patch("lorairo.gui.window.main_window.WorkerService") as mock_worker_service,
+            patch("lorairo.gui.window.main_window.DatasetStateManager") as mock_dataset_state,
+            patch("lorairo.gui.window.main_window.FilterSearchPanel") as mock_filter_panel,
             patch(
-                "lorairo.gui.window.main_workspace_window.ThumbnailSelectorWidget"
+                "lorairo.gui.window.main_window.ThumbnailSelectorWidget"
             ) as mock_thumbnail_widget,
-            patch("lorairo.gui.window.main_workspace_window.PreviewDetailPanel") as mock_preview_panel,
-            patch("lorairo.gui.window.main_workspace_window.DefaultSessionLocal"),
+            patch("lorairo.gui.window.main_window.PreviewDetailPanel") as mock_preview_panel,
+            patch("lorairo.gui.window.main_window.DefaultSessionLocal"),
         ):
             # モックインスタンス設定
             config_service_instance = qt_main_window_mock_config["config_service"]
@@ -102,8 +102,8 @@ class TestMainWorkspaceWindowStandard:
             mock_thumbnail_widget.return_value = MockThumbnailWidget()
             mock_preview_panel.return_value = MockPreviewPanel()
 
-            # MainWorkspaceWindow作成
-            window = MainWorkspaceWindow()
+            # MainWindow作成
+            window = MainWindow()
 
             # qtbot標準機能でウィジェット管理
             qtbot.addWidget(window)
@@ -177,7 +177,7 @@ class TestMainWorkspaceWindowStandard:
         assert button.isEnabled()
 
         # QFileDialogをモック化してダイアログ表示を回避
-        with patch("lorairo.gui.window.main_workspace_window.QFileDialog") as mock_dialog:
+        with patch("lorairo.gui.window.main_window.QFileDialog") as mock_dialog:
             # ダイアログが空文字列を返すように設定（キャンセル相当）
             mock_dialog.getExistingDirectory.return_value = ""
 
@@ -200,7 +200,7 @@ class TestMainWorkspaceWindowStandard:
 
         # QFileDialogとload_datasetメソッドをモック化
         with (
-            patch("lorairo.gui.window.main_workspace_window.QFileDialog") as mock_dialog,
+            patch("lorairo.gui.window.main_window.QFileDialog") as mock_dialog,
             patch.object(main_window, "load_dataset") as mock_load_dataset,
         ):
             # 有効なパスを返すように設定
@@ -225,7 +225,7 @@ class TestMainWorkspaceWindowStandard:
             button = main_window.pushButtonSettings
 
             # QMessageBoxをモック化してダイアログ表示を回避
-            with patch("lorairo.gui.window.main_workspace_window.QMessageBox") as mock_msgbox:
+            with patch("lorairo.gui.window.main_window.QMessageBox") as mock_msgbox:
                 qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
                 # メッセージボックスが呼ばれたことを確認
                 mock_msgbox.information.assert_called_once()
@@ -375,7 +375,7 @@ class TestMainWorkspaceWindowStandard:
             pass
 
         # エラー状況をシミュレート（例：無効なパス設定）
-        with patch("lorairo.gui.window.main_workspace_window.QMessageBox"):
+        with patch("lorairo.gui.window.main_window.QMessageBox"):
             # 何らかのエラー処理をトリガー
             main_window.labelStatus.setText("エラーが発生しました")
 
@@ -458,24 +458,24 @@ class TestMainWorkspaceWindowStandard:
         assert execution_time < 1.0
 
 
-class TestMainWorkspaceWindowAdvanced:
+class TestMainWindowAdvanced:
     """高度なQt機能のテスト"""
 
     @pytest.fixture
     def advanced_window(self, qtbot, qt_main_window_mock_config):
-        """高度テスト用のMainWorkspaceWindow"""
+        """高度テスト用のMainWindow"""
         # 基本的なセットアップは同じだが、より詳細な設定が必要な場合に使用
         with (
-            patch("lorairo.gui.window.main_workspace_window.ConfigurationService") as mock_config,
-            patch("lorairo.gui.window.main_workspace_window.FileSystemManager") as mock_fsm,
-            patch("lorairo.gui.window.main_workspace_window.ImageRepository"),
-            patch("lorairo.gui.window.main_workspace_window.ImageDatabaseManager") as mock_db,
-            patch("lorairo.gui.window.main_workspace_window.WorkerService") as mock_worker,
-            patch("lorairo.gui.window.main_workspace_window.DatasetStateManager") as mock_state,
-            patch("lorairo.gui.window.main_workspace_window.FilterSearchPanel") as mock_filter,
-            patch("lorairo.gui.window.main_workspace_window.ThumbnailSelectorWidget") as mock_thumb,
-            patch("lorairo.gui.window.main_workspace_window.PreviewDetailPanel") as mock_preview,
-            patch("lorairo.gui.window.main_workspace_window.DefaultSessionLocal"),
+            patch("lorairo.gui.window.main_window.ConfigurationService") as mock_config,
+            patch("lorairo.gui.window.main_window.FileSystemManager") as mock_fsm,
+            patch("lorairo.gui.window.main_window.ImageRepository"),
+            patch("lorairo.gui.window.main_window.ImageDatabaseManager") as mock_db,
+            patch("lorairo.gui.window.main_window.WorkerService") as mock_worker,
+            patch("lorairo.gui.window.main_window.DatasetStateManager") as mock_state,
+            patch("lorairo.gui.window.main_window.FilterSearchPanel") as mock_filter,
+            patch("lorairo.gui.window.main_window.ThumbnailSelectorWidget") as mock_thumb,
+            patch("lorairo.gui.window.main_window.PreviewDetailPanel") as mock_preview,
+            patch("lorairo.gui.window.main_window.DefaultSessionLocal"),
         ):
             # より詳細なモック設定
             mock_config.return_value = qt_main_window_mock_config["config_service"]
@@ -498,7 +498,7 @@ class TestMainWorkspaceWindowAdvanced:
             mock_thumb.return_value = MockPanel()
             mock_preview.return_value = MockPanel()
 
-            window = MainWorkspaceWindow()
+            window = MainWindow()
             qtbot.addWidget(window)
 
             return window
