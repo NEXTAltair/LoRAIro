@@ -543,9 +543,33 @@ if __name__ == "__main__":
     def _inject_dummy_models_for_demo(_w: ModelSelectionWidget) -> None:
         # ダミーModelInfo相当のリストを __main__ 限定で埋める
         _w.all_models = [
-            ModelInfo(name="gpt-4o", provider="openai", capabilities=["caption"], api_model_id="gpt-4o", requires_api_key=True, estimated_size_gb=None, is_recommended=True),
-            ModelInfo(name="wd-v1-4", provider="local", capabilities=["tag"], api_model_id=None, requires_api_key=False, estimated_size_gb=2.0, is_recommended=True),
-            ModelInfo(name="clip-aesthetic", provider="local", capabilities=["score"], api_model_id=None, requires_api_key=False, estimated_size_gb=0.5, is_recommended=True),
+            ModelInfo(
+                name="gpt-4o",
+                provider="openai",
+                capabilities=["caption"],
+                api_model_id="gpt-4o",
+                requires_api_key=True,
+                estimated_size_gb=None,
+                is_recommended=True,
+            ),
+            ModelInfo(
+                name="wd-v1-4",
+                provider="local",
+                capabilities=["tag"],
+                api_model_id=None,
+                requires_api_key=False,
+                estimated_size_gb=2.0,
+                is_recommended=True,
+            ),
+            ModelInfo(
+                name="clip-aesthetic",
+                provider="local",
+                capabilities=["score"],
+                api_model_id=None,
+                requires_api_key=False,
+                estimated_size_gb=0.5,
+                is_recommended=True,
+            ),
         ]
         # 表示更新で filtered_models と model_checkboxes を構築
         _w.update_model_display()

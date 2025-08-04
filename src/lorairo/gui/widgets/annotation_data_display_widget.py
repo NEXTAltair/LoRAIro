@@ -18,7 +18,7 @@ from ...utils.log import logger
 class AnnotationData:
     """アノテーション表示用データ"""
 
-    tags: list[str] = field(default_factory=list)  # type: ignore[type-arg]
+    tags: list[str] = field(default_factory=list)
     caption: str = ""
     aesthetic_score: float | None = None
     overall_score: int = 0
@@ -221,7 +221,9 @@ if __name__ == "__main__":
 
     # シグナル受信確認（print最小）
     def _on_data_loaded(data: AnnotationData) -> None:
-        print(f"[Signal] data_loaded: tags={len(data.tags)}, caption={bool(data.caption)}, aesth={data.aesthetic_score}")
+        print(
+            f"[Signal] data_loaded: tags={len(data.tags)}, caption={bool(data.caption)}, aesth={data.aesthetic_score}"
+        )
 
     def _on_data_cleared() -> None:
         print("[Signal] data_cleared")

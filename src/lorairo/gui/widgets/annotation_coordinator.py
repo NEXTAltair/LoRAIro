@@ -362,7 +362,7 @@ class AnnotationCoordinator(QObject):
             # データベースから既存アノテーションを取得（db_managerにAPIがある前提。なければ空扱い）
             if not hasattr(self.db_manager, "get_annotations_by_image_id"):
                 return None
-            annotations = self.db_manager.get_annotations_by_image_id(image_id)  # type: ignore[attr-defined]
+            annotations = self.db_manager.get_annotations_by_image_id(image_id)
 
             if not annotations:
                 return None
