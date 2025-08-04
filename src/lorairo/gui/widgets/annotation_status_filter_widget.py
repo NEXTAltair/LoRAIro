@@ -221,3 +221,24 @@ class AnnotationStatusFilterWidget(QWidget, Ui_AnnotationStatusFilterWidget):
             logger.debug("AnnotationStatusFilterWidget disabled")
         else:
             logger.debug("AnnotationStatusFilterWidget enabled")
+
+
+if __name__ == "__main__":
+    # Tier1: 単体表示確認用の最小 __main__ ブロック
+    import sys
+
+    from PySide6.QtWidgets import QApplication, QMainWindow
+
+    from ...utils.log import initialize_logging
+
+    initialize_logging({"level": "DEBUG", "file": "AnnotationStatusFilterWidget.log"})
+    app = QApplication(sys.argv)
+
+    window = QMainWindow()
+    window.setWindowTitle("AnnotationStatusFilterWidget テスト")
+    widget = AnnotationStatusFilterWidget()
+    window.setCentralWidget(widget)
+    window.resize(360, 240)
+    window.show()
+
+    sys.exit(app.exec())
