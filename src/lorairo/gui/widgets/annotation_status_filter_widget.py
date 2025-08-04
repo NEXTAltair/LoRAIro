@@ -242,12 +242,12 @@ if __name__ == "__main__":
     window.resize(360, 240)
 
     # シグナル受信をprintで確認（静的型エラー抑制のために明示注釈を付与）
-    from ..services.search_filter_service import AnnotationStatusCounts as _ASC  # type: ignore
+    from ..services.search_filter_service import AnnotationStatusCounts as _ASC
 
     def _on_filter_changed(filters: dict[str, bool]) -> None:
         print(f"[Signal] filter_changed: {filters}")
 
-    def _on_status_updated(counts: _ASC) -> None:  # type: ignore[valid-type]
+    def _on_status_updated(counts: _ASC) -> None:
         try:
             print(f"[Signal] status_updated: completed={counts.completed}, error={counts.error}")
         except Exception:
@@ -264,9 +264,10 @@ if __name__ == "__main__":
     # 可能ならダミーのカウント更新をシミュレート（依存を呼ばない）
     try:
         from ..services.search_filter_service import AnnotationStatusCounts as _ASC
+
         dummy_counts = _ASC(completed=12, error=3)
         # 内部UI更新のみ行い、status_updatedも手動で発火
-        widget._update_count_display(dummy_counts)  # type: ignore[attr-defined]
+        widget._update_count_display(dummy_counts)
         widget.status_updated.emit(dummy_counts)
     except Exception:
         pass

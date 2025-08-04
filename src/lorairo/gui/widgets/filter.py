@@ -68,6 +68,8 @@ class CustomRangeSlider(QWidget):
 
     @Slot()
     def update_labels(self) -> None:
+        min_val: float
+        max_val: float
         min_val, max_val = self.slider.value()
         min_count = self.scale_to_value(min_val)
         max_count = self.scale_to_value(max_val)
@@ -95,6 +97,8 @@ class CustomRangeSlider(QWidget):
         return int(np.expm1(log_value))
 
     def get_range(self) -> tuple[int, int]:
+        min_val: float
+        max_val: float
         min_val, max_val = self.slider.value()
         return (self.scale_to_value(min_val), self.scale_to_value(max_val))
 
@@ -153,6 +157,8 @@ if __name__ == "__main__":
     widget.set_date_range()
     # 現在値を取得してわずかに動かし、valueChanged を確実に発火
     try:
+        vmin: float
+        vmax: float
         vmin, vmax = widget.slider.value()
         # 範囲 [0,100] 内で安全に少しだけ動かす
         new_vmin = max(0, min(100, int(vmin)))
