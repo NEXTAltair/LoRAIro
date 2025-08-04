@@ -43,23 +43,8 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         self._clear_preview()
 
         try:
-            # パスを動的に解決
-            from ...database.db_core import resolve_stored_path
-
-            resolved_path = resolve_stored_path(str(image_path))
-
-            # 画像ファイルの存在確認
-            if not resolved_path.exists():
-                logger.warning(f"Image file not found: {resolved_path}")
-                return
-
             # 画像を読み込み
-            pixmap = QPixmap(str(resolved_path))
-
-            # PixmapがNull（読み込み失敗）でないことを確認
-            if pixmap.isNull():
-                logger.warning(f"Failed to load pixmap from: {resolved_path}")
-                return
+            pixmap = QPixmap(str(image_path))
 
             # 画像をシーンに追加
             self.pixmap_item = self.graphics_scene.addPixmap(pixmap)
@@ -219,6 +204,6 @@ if __name__ == "__main__":
 
     app = QApplication([])
     widget = ImagePreviewWidget()
-    widget.load_image(Path(r"testimg\1_img\file01.png"))  # 画像パスを指定
+    widget.load_image(Path("tests/resources/img/1_img/file01.webp"))  # 画像パスを指定
     widget.show()
     app.exec()

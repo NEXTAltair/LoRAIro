@@ -384,10 +384,10 @@ class AnnotationResultsWidget(QWidget, Ui_AnnotationResultsWidget):
 
     def get_all_results(self) -> list[AnnotationResult]:
         """すべての結果を取得"""
-        all_results = []
-        all_results.extend(self.caption_results.values())
-        all_results.extend(self.tags_results.values())
-        all_results.extend(self.scores_results.values())
+        all_results: list[AnnotationResult] = []
+        all_results.extend(list(self.caption_results.values()))
+        all_results.extend(list(self.tags_results.values()))
+        all_results.extend(list(self.scores_results.values()))
         return all_results
 
     def get_results_summary(self) -> dict[str, Any]:
@@ -458,21 +458,66 @@ class AnnotationResultsWidget(QWidget, Ui_AnnotationResultsWidget):
 
 
 if __name__ == "__main__":
-    # Tier1: 単体表示確認用の最小 __main__ ブロック
+    # Tier2: ダミーデータ投入と主要シグナル結線（最小動作）
     import sys
 
     from PySide6.QtWidgets import QApplication, QMainWindow
 
     from ...utils.log import initialize_logging
 
-    initialize_logging({"level": "DEBUG", "file": "AnnotationResultsWidget.log"})
+    # ログはコンソール優先（ファイル出力なし）
+    initialize_logging({"level": "DEBUG", "file": None})
     app = QApplication(sys.argv)
 
     window = QMainWindow()
-    window.setWindowTitle("AnnotationResultsWidget テスト")
+    window.setWindowTitle("AnnotationResultsWidget テスト (Tier2)")
     widget = AnnotationResultsWidget()
     window.setCentralWidget(widget)
     window.resize(640, 420)
-    window.show()
 
+    # シグナル: 結果選択をログで確認
+    def _on_result_selected(model_name: str, function_type: str) -> None:
+        print(f"[Signal] result_selected: model={model_name}, function={function_type}")
+
+    widget.result_selected.connect(_on_result_selected)
+
+    # ダミー結果を3種投入しテーブルに反映
+    widget.add_result(
+        AnnotationResult(
+            model_name="gpt-4o",
+            function_type="caption",
+            content="A girl with flowers",
+            processing_time=0.42,
+            success=True,
+        )
+    )
+    widget.add_result(
+        AnnotationResult(
+            model_name="wd-v1-4",
+            function_type="tags",
+            content="1girl, solo, flower",
+            processing_time=0.28,
+            success=True,
+        )
+    )
+    widget.add_result(
+        AnnotationResult(
+            model_name="clip-aesthetic",
+            function_type="scores",
+            content="0.732",
+            processing_time=0.15,
+            success=True,
+        )
+    )
+
+    # どれか選択されるようにタブ/行を初期選択
+    try:
+        widget.set_current_tab("caption")
+        table = widget.tableWidgetCaption
+        if table.rowCount() > 0:
+            table.selectRow(0)
+    except Exception as e:
+        logger.warning(f"Initial selection setup failed: {e}")
+
+    window.show()
     sys.exit(app.exec())

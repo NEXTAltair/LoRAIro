@@ -18,7 +18,7 @@ from ...utils.log import logger
 class AnnotationData:
     """アノテーション表示用データ"""
 
-    tags: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)  # type: ignore[type-arg]
     caption: str = ""
     aesthetic_score: float | None = None
     overall_score: int = 0
@@ -202,21 +202,45 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
 
 
 if __name__ == "__main__":
-    # Tier1: 単体表示確認用の最小 __main__ ブロック
+    # Tier2: ダミーデータ投入とシグナル受信ログの最小確認
     import sys
 
     from PySide6.QtWidgets import QApplication, QMainWindow
 
     from ...utils.log import initialize_logging
 
-    initialize_logging({"level": "DEBUG", "file": "AnnotationDataDisplayWidget.log"})
+    # ログはコンソール優先
+    initialize_logging({"level": "DEBUG", "file": None})
     app = QApplication(sys.argv)
 
     window = QMainWindow()
-    window.setWindowTitle("AnnotationDataDisplayWidget テスト")
+    window.setWindowTitle("AnnotationDataDisplayWidget テスト (Tier2)")
     widget = AnnotationDataDisplayWidget()
     window.setCentralWidget(widget)
     window.resize(480, 360)
-    window.show()
 
+    # シグナル受信確認（print最小）
+    def _on_data_loaded(data: AnnotationData) -> None:
+        print(f"[Signal] data_loaded: tags={len(data.tags)}, caption={bool(data.caption)}, aesth={data.aesthetic_score}")
+
+    def _on_data_cleared() -> None:
+        print("[Signal] data_cleared")
+
+    widget.data_loaded.connect(_on_data_loaded)
+    widget.data_cleared.connect(_on_data_cleared)
+
+    # ダミーデータを流し込み
+    dummy = AnnotationData(
+        tags=["1girl", "flower", "solo"],
+        caption="A girl holding flowers in a sunny field.",
+        aesthetic_score=0.732,
+        overall_score=780,
+        score_type="Aesthetic",
+    )
+    widget.update_data(dummy)
+
+    # 一度クリアして data_cleared 発火確認
+    widget.clear_data()
+
+    window.show()
     sys.exit(app.exec())
