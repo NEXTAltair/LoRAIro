@@ -1,6 +1,6 @@
 """HybridAnnotationController - アノテーション機能の統合コントローラー
 
-MainWorkspaceWindow内でのアノテーション機能を管理:
+MainWindow内でのアノテーション機能を管理:
 - ModelInfoManagerと連携したモデル選択UI動的生成
 - アノテーション実行制御
 - 結果表示制御
@@ -46,7 +46,7 @@ class HybridAnnotationController(QObject):
     """HybridAnnotationController - アノテーション機能の中央制御
 
     機能:
-    - MainWorkspaceWindow_HybridAnnotation.uiの動的ロード
+    - MainWindow_HybridAnnotation.uiの動的ロード
     - ModelInfoManagerと連携したモデル選択UI生成
     - 選択画像DB情報表示
     - アノテーション実行・結果表示制御

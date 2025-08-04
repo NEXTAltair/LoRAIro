@@ -7,7 +7,7 @@ import warnings
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
-from .gui.window.main_workspace_window import MainWorkspaceWindow
+from .gui.window.main_window import MainWindow
 from .utils.config import get_config
 from .utils.log import initialize_logging, logger
 
@@ -20,6 +20,15 @@ def setup_qt_environment(config=None):
     if qt_config.get("suppress_warnings", True):
         warnings.filterwarnings("ignore", message=".*propagateSizeHints.*")
         warnings.filterwarnings("ignore", message=".*QFontDatabase.*")
+
+    # 既に環境変数が明示的に設定されている場合は、それを優先する
+    explicit_platform = os.environ.get("QT_QPA_PLATFORM")
+    if explicit_platform:
+        logger.info(f"既存のQT_QPA_PLATFORM環境変数を使用: {explicit_platform}")
+        # フォント設定のみ実行して早期リターン
+        if qt_config.get("font_dir"):
+            os.environ["QT_QPA_FONTDIR"] = qt_config["font_dir"]
+        return
 
     # 設定ファイルからの環境変数オーバーライド
     if qt_config.get("platform"):
@@ -45,6 +54,7 @@ def setup_qt_environment(config=None):
 
         # プラットフォームプラグイン設定
         os.environ["QT_QPA_PLATFORM"] = "windows"
+        logger.info("Windows環境: ネイティブウィンドウプラットフォームを設定")
 
     elif system == "Linux":
         # Linuxシステムフォントディレクトリ
@@ -59,9 +69,18 @@ def setup_qt_environment(config=None):
                 os.environ["QT_QPA_FONTDIR"] = font_dir
                 break
 
-        # WSL/コンテナ環境でのヘッドレス対応
+        # Linux環境でのみヘッドレス対応をチェック
         if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+            logger.info("Linux環境でDISPLAY未設定 - offscreenモードを使用")
             os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        else:
+            # Linux GUI環境では適切なプラットフォームを設定
+            if os.environ.get("WAYLAND_DISPLAY"):
+                os.environ["QT_QPA_PLATFORM"] = "wayland"
+                logger.info("Linux環境: Waylandプラットフォームを設定")
+            else:
+                os.environ["QT_QPA_PLATFORM"] = "xcb"
+                logger.info("Linux環境: X11プラットフォームを設定")
 
     elif system == "Darwin":  # macOS
         # macOSシステムフォントディレクトリ
@@ -74,6 +93,10 @@ def setup_qt_environment(config=None):
             if os.path.exists(font_dir):
                 os.environ["QT_QPA_FONTDIR"] = font_dir
                 break
+
+        # macOS環境でのプラットフォーム設定
+        os.environ["QT_QPA_PLATFORM"] = "cocoa"
+        logger.info("macOS環境: Cocoaプラットフォームを設定")
 
 
 def setup_application_fonts(app: QApplication, config=None):
@@ -198,12 +221,41 @@ def main() -> None:
             logger.debug(f"  利用可能フォント例: {families[:5]}")
 
     try:
-        # MainWorkspaceWindow作成・表示
-        logger.info("MainWorkspaceWindow を作成中...")
-        window = MainWorkspaceWindow()
+        # MainWindow作成・表示
+        logger.info("MainWindow を作成中...")
+        window = MainWindow()
 
         logger.info("ワークスペースGUI の作成完了")
+
+        # ウィンドウ表示の確実化
+        logger.info("ウィンドウ表示中...")
         window.show()
+
+        # 追加の表示確保処理
+        window.raise_()
+        window.activateWindow()
+        app.processEvents()  # イベント処理を強制実行
+
+        # ウィンドウ表示状態確認
+        logger.info(f"ウィンドウ表示状態: visible={window.isVisible()}")
+        logger.info(f"ウィンドウサイズ: {window.size()}")
+
+        if hasattr(window, "_initialization_failed") and window._initialization_failed:
+            logger.warning(f"ウィンドウ初期化に問題がありました: {window._initialization_error}")
+            logger.warning("基本的なウィンドウ表示は継続します")
+
+        if window.isVisible():
+            logger.info("✅ ウィンドウ表示成功")
+        else:
+            logger.error("❌ ウィンドウ表示に失敗しました")
+            # 最後の手段：強制的にウィンドウを表示
+            try:
+                window.showNormal()
+                window.setWindowState(window.windowState() & ~window.windowState().WindowMinimized)
+                app.processEvents()
+                logger.info(f"強制表示後の状態: visible={window.isVisible()}")
+            except Exception as show_error:
+                logger.error(f"強制表示エラー: {show_error}")
 
         # 起動成功ログ
         logger.info("LoRAIro ワークスペースGUI 起動完了")

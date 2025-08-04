@@ -1,6 +1,6 @@
-"""MainWorkspaceWindow ユニットテスト
+"""MainWindow ユニットテスト
 
-責任分離後のMainWorkspaceWindowのビジネスロジックをテスト
+責任分離後のMainWindowのビジネスロジックをテスト
 - 最適パス決定処理の責任
 - データベースアクセスロジック
 - エラーハンドリング
@@ -15,16 +15,16 @@ from unittest.mock import Mock, patch
 import pytest
 
 
-class TestMainWorkspaceWindowPathResolution:
-    """MainWorkspaceWindow パス解決ロジック テスト"""
+class TestMainWindowPathResolution:
+    """MainWindow パス解決ロジック テスト"""
 
     def test_resolve_optimal_thumbnail_data_with_512px_image(self) -> None:
         """512px画像が利用可能な場合の最適パス決定"""
         # GUI初期化をスキップしてメソッドのみテスト
-        from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
+        from lorairo.gui.window.main_window import MainWindow
 
         # メソッドを直接取得
-        resolve_method = MainWorkspaceWindow._resolve_optimal_thumbnail_data
+        resolve_method = MainWindow._resolve_optimal_thumbnail_data
 
         # モックオブジェクト作成
         mock_self = Mock()
@@ -60,9 +60,9 @@ class TestMainWorkspaceWindowPathResolution:
 
     def test_resolve_optimal_thumbnail_data_fallback_to_original(self) -> None:
         """512px画像が存在しない場合の元画像フォールバック"""
-        from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
+        from lorairo.gui.window.main_window import MainWindow
 
-        resolve_method = MainWorkspaceWindow._resolve_optimal_thumbnail_data
+        resolve_method = MainWindow._resolve_optimal_thumbnail_data
 
         mock_self = Mock()
         mock_db = Mock()
@@ -82,9 +82,9 @@ class TestMainWorkspaceWindowPathResolution:
 
     def test_resolve_optimal_thumbnail_data_error_handling(self) -> None:
         """パス解決エラー時のハンドリング"""
-        from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
+        from lorairo.gui.window.main_window import MainWindow
 
-        resolve_method = MainWorkspaceWindow._resolve_optimal_thumbnail_data
+        resolve_method = MainWindow._resolve_optimal_thumbnail_data
 
         mock_self = Mock()
         mock_db = Mock()
@@ -104,9 +104,9 @@ class TestMainWorkspaceWindowPathResolution:
 
     def test_resolve_optimal_thumbnail_data_empty_metadata(self) -> None:
         """空のメタデータの処理"""
-        from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
+        from lorairo.gui.window.main_window import MainWindow
 
-        resolve_method = MainWorkspaceWindow._resolve_optimal_thumbnail_data
+        resolve_method = MainWindow._resolve_optimal_thumbnail_data
 
         mock_self = Mock()
         mock_db = Mock()
@@ -118,9 +118,9 @@ class TestMainWorkspaceWindowPathResolution:
 
     def test_resolve_optimal_thumbnail_data_no_database_manager(self) -> None:
         """データベースマネージャーがない場合の処理"""
-        from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
+        from lorairo.gui.window.main_window import MainWindow
 
-        resolve_method = MainWorkspaceWindow._resolve_optimal_thumbnail_data
+        resolve_method = MainWindow._resolve_optimal_thumbnail_data
 
         mock_self = Mock()
         mock_self.db_manager = None
@@ -134,24 +134,24 @@ class TestMainWorkspaceWindowPathResolution:
         assert result[0] == (Path("/original/image1.jpg"), 401)
 
 
-class TestMainWorkspaceWindowResponsibilityBoundaries:
-    """MainWorkspaceWindow 責任境界テスト"""
+class TestMainWindowResponsibilityBoundaries:
+    """MainWindow 責任境界テスト"""
 
     def test_has_path_resolution_method(self) -> None:
         """パス解決メソッドが存在することを確認"""
-        from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
+        from lorairo.gui.window.main_window import MainWindow
 
         # メソッドが存在することを確認
-        assert hasattr(MainWorkspaceWindow, "_resolve_optimal_thumbnail_data")
-        assert callable(MainWorkspaceWindow._resolve_optimal_thumbnail_data)
+        assert hasattr(MainWindow, "_resolve_optimal_thumbnail_data")
+        assert callable(MainWindow._resolve_optimal_thumbnail_data)
 
     def test_path_resolution_method_signature(self) -> None:
         """パス解決メソッドのシグネチャ確認"""
         import inspect
 
-        from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
+        from lorairo.gui.window.main_window import MainWindow
 
-        method = MainWorkspaceWindow._resolve_optimal_thumbnail_data
+        method = MainWindow._resolve_optimal_thumbnail_data
         signature = inspect.signature(method)
 
         # 期待するパラメータが存在することを確認
@@ -160,14 +160,14 @@ class TestMainWorkspaceWindowResponsibilityBoundaries:
         assert "image_metadata" in params
 
 
-class TestMainWorkspaceWindowBusinessLogic:
-    """MainWorkspaceWindow ビジネスロジック テスト"""
+class TestMainWindowBusinessLogic:
+    """MainWindow ビジネスロジック テスト"""
 
     def test_optimal_path_selection_logic(self) -> None:
         """最適パス選択ロジックのテスト"""
-        from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
+        from lorairo.gui.window.main_window import MainWindow
 
-        resolve_method = MainWorkspaceWindow._resolve_optimal_thumbnail_data
+        resolve_method = MainWindow._resolve_optimal_thumbnail_data
 
         mock_self = Mock()
         mock_db = Mock()
@@ -206,12 +206,12 @@ class TestMainWorkspaceWindowBusinessLogic:
         assert result[2] == (Path("/original/image3.jpg"), 3)  # フォールバック
 
 
-class TestMainWorkspaceWindowPhase3Integration:
-    """MainWorkspaceWindow Phase 3統合機能テスト（サービス統合）"""
+class TestMainWindowPhase3Integration:
+    """MainWindow Phase 3統合機能テスト（サービス統合）"""
 
     @pytest.fixture
     def mock_dependencies(self):
-        """MainWorkspaceWindow依存関係のモック"""
+        """MainWindow依存関係のモック"""
         mocks = {
             "config_service": Mock(),
             "fsm": Mock(),
@@ -231,10 +231,10 @@ class TestMainWorkspaceWindowPhase3Integration:
 
     def test_setup_image_db_write_service(self, mock_dependencies):
         """ImageDBWriteService統合テスト（Phase 3.4）"""
-        from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
+        from lorairo.gui.window.main_window import MainWindow
 
         # MainWindowの_setup_image_db_write_service メソッドをテスト
-        method = MainWorkspaceWindow._setup_image_db_write_service
+        method = MainWindow._setup_image_db_write_service
 
         # モックオブジェクト作成
         mock_window = Mock()
@@ -242,7 +242,7 @@ class TestMainWorkspaceWindowPhase3Integration:
         mock_window.selected_image_details_widget = Mock()
 
         with patch("lorairo.gui.services.image_db_write_service.ImageDBWriteService") as mock_service_class:
-            with patch("lorairo.gui.window.main_workspace_window.logger") as mock_logger:
+            with patch("lorairo.gui.window.main_window.logger") as mock_logger:
                 mock_service_instance = Mock()
                 mock_service_class.return_value = mock_service_instance
 
@@ -267,17 +267,17 @@ class TestMainWorkspaceWindowPhase3Integration:
 
     def test_setup_state_integration(self, mock_dependencies):
         """DatasetStateManager統合テスト（Phase 3.4）"""
-        from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
+        from lorairo.gui.window.main_window import MainWindow
 
         # MainWindowの_setup_state_integration メソッドをテスト
-        method = MainWorkspaceWindow._setup_state_integration
+        method = MainWindow._setup_state_integration
 
         # モックオブジェクト作成
         mock_window = Mock()
         mock_window.image_preview = Mock()
         mock_window.dataset_state = mock_dependencies["dataset_state"]
 
-        with patch("lorairo.gui.window.main_workspace_window.logger") as mock_logger:
+        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
             # メソッド実行
             method(mock_window)
 
@@ -292,7 +292,7 @@ class TestMainWorkspaceWindowPhase3Integration:
     def test_widget_initialization_order(self, mock_dependencies):
         """ウィジェット初期化順序テスト（Phase 3.4）"""
         # setup_custom_widgets後にサービス統合が呼ばれることを確認
-        from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
+        from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         mock_window.db_manager = mock_dependencies["db_manager"]
@@ -305,8 +305,8 @@ class TestMainWorkspaceWindowPhase3Integration:
             mock_service_class.return_value = mock_service_instance
 
             # サービス統合メソッドを実行
-            MainWorkspaceWindow._setup_image_db_write_service(mock_window)
-            MainWorkspaceWindow._setup_state_integration(mock_window)
+            MainWindow._setup_image_db_write_service(mock_window)
+            MainWindow._setup_state_integration(mock_window)
 
             # ウィジェットが正しく設定される
             assert mock_window.image_db_write_service == mock_service_instance
@@ -315,7 +315,7 @@ class TestMainWorkspaceWindowPhase3Integration:
 
     def test_service_error_handling(self, mock_dependencies):
         """サービス初期化エラーハンドリングテスト"""
-        from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
+        from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         mock_window.db_manager = mock_dependencies["db_manager"]
@@ -327,13 +327,13 @@ class TestMainWorkspaceWindowPhase3Integration:
 
             # エラーが発生してもプログラムが停止しないことを確認
             with pytest.raises(Exception) as exc_info:
-                MainWorkspaceWindow._setup_image_db_write_service(mock_window)
+                MainWindow._setup_image_db_write_service(mock_window)
 
             assert "Service initialization error" in str(exc_info.value)
 
     def test_widget_injection_validation(self, mock_dependencies):
         """ウィジェット注入検証テスト"""
-        from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
+        from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         mock_window.db_manager = mock_dependencies["db_manager"]
@@ -347,11 +347,11 @@ class TestMainWorkspaceWindowPhase3Integration:
 
             # AttributeErrorが発生する可能性
             with pytest.raises(AttributeError):
-                MainWorkspaceWindow._setup_image_db_write_service(mock_window)
+                MainWindow._setup_image_db_write_service(mock_window)
 
     def test_state_manager_connection_validation(self, mock_dependencies):
         """DatasetStateManager接続検証テスト"""
-        from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
+        from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         mock_window.dataset_state = mock_dependencies["dataset_state"]
@@ -360,11 +360,11 @@ class TestMainWorkspaceWindowPhase3Integration:
         mock_window.image_preview = None
 
         with pytest.raises(AttributeError):
-            MainWorkspaceWindow._setup_state_integration(mock_window)
+            MainWindow._setup_state_integration(mock_window)
 
     def test_complete_phase3_integration_workflow(self, mock_dependencies):
         """Phase 3完全統合ワークフローテスト"""
-        from lorairo.gui.window.main_workspace_window import MainWorkspaceWindow
+        from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         mock_window.db_manager = mock_dependencies["db_manager"]
@@ -373,13 +373,13 @@ class TestMainWorkspaceWindowPhase3Integration:
         mock_window.image_preview = Mock()
 
         with patch("lorairo.gui.services.image_db_write_service.ImageDBWriteService") as mock_service_class:
-            with patch("lorairo.gui.window.main_workspace_window.logger") as mock_logger:
+            with patch("lorairo.gui.window.main_window.logger") as mock_logger:
                 mock_service_instance = Mock()
                 mock_service_class.return_value = mock_service_instance
 
                 # Phase 3統合メソッドを順番に実行
-                MainWorkspaceWindow._setup_image_db_write_service(mock_window)
-                MainWorkspaceWindow._setup_state_integration(mock_window)
+                MainWindow._setup_image_db_write_service(mock_window)
+                MainWindow._setup_state_integration(mock_window)
 
                 # 全ての統合が正しく実行される
                 assert mock_window.image_db_write_service == mock_service_instance
