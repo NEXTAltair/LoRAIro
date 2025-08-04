@@ -1,5 +1,3 @@
-from typing import Any
-
 import numpy as np
 from PySide6.QtCore import QDate, QDateTime, Qt, QTime, QTimeZone, Signal, Slot
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
@@ -70,6 +68,8 @@ class CustomRangeSlider(QWidget):
 
     @Slot()
     def update_labels(self) -> None:
+        min_val: float
+        max_val: float
         min_val, max_val = self.slider.value()
         min_count = self.scale_to_value(min_val)
         max_count = self.scale_to_value(max_val)
@@ -97,6 +97,8 @@ class CustomRangeSlider(QWidget):
         return int(np.expm1(log_value))
 
     def get_range(self) -> tuple[int, int]:
+        min_val: float
+        max_val: float
         min_val, max_val = self.slider.value()
         return (self.scale_to_value(min_val), self.scale_to_value(max_val))
 
@@ -125,3 +127,47 @@ class CustomRangeSlider(QWidget):
 
         # ラベルを更新
         self.update_labels()
+
+
+if __name__ == "__main__":
+    # Tier2: set_date_range 後に valueChanged(min,max) の発火を最小確認
+    import sys
+
+    from PySide6.QtWidgets import QApplication, QMainWindow
+
+    from ...utils.log import initialize_logging
+
+    # ログはコンソール優先
+    initialize_logging({"level": "DEBUG", "file": None})
+    app = QApplication(sys.argv)
+
+    window = QMainWindow()
+    window.setWindowTitle("CustomRangeSlider テスト (Tier2)")
+    widget = CustomRangeSlider()
+    window.setCentralWidget(widget)
+    window.resize(520, 140)
+
+    # シグナル受信確認
+    def _on_value_changed(min_v: int, max_v: int) -> None:
+        print(f"[Signal] valueChanged: min={min_v}, max={max_v}")
+
+    widget.valueChanged.connect(_on_value_changed)
+
+    # 日付モードを設定し、プログラムから一度値変更を発火させる
+    widget.set_date_range()
+    # 現在値を取得してわずかに動かし、valueChanged を確実に発火
+    try:
+        vmin: float
+        vmax: float
+        vmin, vmax = widget.slider.value()
+        # 範囲 [0,100] 内で安全に少しだけ動かす
+        new_vmin = max(0, min(100, int(vmin)))
+        new_vmax = max(0, min(100, int(vmax) - 1)) if int(vmax) > 0 else int(vmax)
+        if new_vmax == vmin:
+            new_vmax = min(100, new_vmax + 1)
+        widget.slider.setValue((new_vmin, new_vmax))
+    except Exception:
+        pass
+
+    window.show()
+    sys.exit(app.exec())

@@ -221,3 +221,56 @@ class AnnotationStatusFilterWidget(QWidget, Ui_AnnotationStatusFilterWidget):
             logger.debug("AnnotationStatusFilterWidget disabled")
         else:
             logger.debug("AnnotationStatusFilterWidget enabled")
+
+
+if __name__ == "__main__":
+    # Tier2: フィルター切替とシグナル発火の最小確認
+    import sys
+
+    from PySide6.QtWidgets import QApplication, QMainWindow
+
+    from ...utils.log import initialize_logging
+
+    # ログはコンソール優先
+    initialize_logging({"level": "DEBUG", "file": None})
+    app = QApplication(sys.argv)
+
+    window = QMainWindow()
+    window.setWindowTitle("AnnotationStatusFilterWidget テスト (Tier2)")
+    widget = AnnotationStatusFilterWidget()
+    window.setCentralWidget(widget)
+    window.resize(360, 240)
+
+    # シグナル受信をprintで確認（静的型エラー抑制のために明示注釈を付与）
+    from ..services.search_filter_service import AnnotationStatusCounts as _ASC
+
+    def _on_filter_changed(filters: dict[str, bool]) -> None:
+        print(f"[Signal] filter_changed: {filters}")
+
+    def _on_status_updated(counts: _ASC) -> None:
+        try:
+            print(f"[Signal] status_updated: completed={counts.completed}, error={counts.error}")
+        except Exception:
+            print("[Signal] status_updated: received")
+
+    widget.filter_changed.connect(_on_filter_changed)
+    widget.status_updated.connect(_on_status_updated)
+
+    # 初期トグル: completed True -> False をトグルして発火を確認
+    widget.set_filter_state(completed=True, error=False)
+    # トグルでfilter_changedが一度以上発火するか確認
+    widget.checkBoxCompleted.toggle()  # True -> False
+
+    # 可能ならダミーのカウント更新をシミュレート（依存を呼ばない）
+    try:
+        from ..services.search_filter_service import AnnotationStatusCounts as _ASC
+
+        dummy_counts = _ASC(completed=12, error=3)
+        # 内部UI更新のみ行い、status_updatedも手動で発火
+        widget._update_count_display(dummy_counts)
+        widget.status_updated.emit(dummy_counts)
+    except Exception:
+        pass
+
+    window.show()
+    sys.exit(app.exec())
