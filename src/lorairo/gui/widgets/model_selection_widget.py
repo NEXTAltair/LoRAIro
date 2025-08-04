@@ -470,7 +470,7 @@ class ModelSelectionWidget(QWidget):
 
     def get_selected_models(self) -> list[str]:
         """選択されたモデル名のリストを取得"""
-        selected = []
+        selected: list[str] = []
         for model_name, checkbox in self.model_checkboxes.items():
             if checkbox.isChecked():
                 selected.append(model_name)
@@ -513,3 +513,85 @@ class ModelSelectionWidget(QWidget):
         """指定されたモデルを選択状態に設定"""
         for model_name, checkbox in self.model_checkboxes.items():
             checkbox.setChecked(model_name in model_names)
+
+
+if __name__ == "__main__":
+    # Tier2: UI想定動作のみ確認（ダミーチェックボックスを __main__ 内でのみ挿入）
+    import sys
+
+    from PySide6.QtWidgets import QApplication, QCheckBox, QMainWindow
+
+    from ...utils.log import initialize_logging
+
+    # ログはコンソール優先
+    initialize_logging({"level": "DEBUG", "file": None})
+    app = QApplication(sys.argv)
+
+    window = QMainWindow()
+    window.setWindowTitle("ModelSelectionWidget テスト (Tier2)")
+    widget = ModelSelectionWidget(mode="simple")  # 最小構成
+    window.setCentralWidget(widget)
+    window.resize(600, 400)
+
+    # selection_count_changed をprintで確認
+    def _on_selection_count_changed(selected: int, total: int) -> None:
+        print(f"[Signal] selection_count_changed: {selected}/{total}")
+
+    widget.selection_count_changed.connect(_on_selection_count_changed)
+
+    # __main__ 内限定の補助: ダミーモデルをUIに挿入してシグナル動作確認
+    def _inject_dummy_models_for_demo(_w: ModelSelectionWidget) -> None:
+        # ダミーModelInfo相当のリストを __main__ 限定で埋める
+        _w.all_models = [
+            ModelInfo(
+                name="gpt-4o",
+                provider="openai",
+                capabilities=["caption"],
+                api_model_id="gpt-4o",
+                requires_api_key=True,
+                estimated_size_gb=None,
+                is_recommended=True,
+            ),
+            ModelInfo(
+                name="wd-v1-4",
+                provider="local",
+                capabilities=["tag"],
+                api_model_id=None,
+                requires_api_key=False,
+                estimated_size_gb=2.0,
+                is_recommended=True,
+            ),
+            ModelInfo(
+                name="clip-aesthetic",
+                provider="local",
+                capabilities=["score"],
+                api_model_id=None,
+                requires_api_key=False,
+                estimated_size_gb=0.5,
+                is_recommended=True,
+            ),
+        ]
+        # 表示更新で filtered_models と model_checkboxes を構築
+        _w.update_model_display()
+
+        # もしプレースホルダーのみ表示だった場合は手動でチェックボックスを挿入
+        if not _w.model_checkboxes:
+            # プレースホルダーを非表示にして手動追加
+            _w.placeholder_label.setVisible(False)
+            for m in _w.all_models:
+                cb = QCheckBox(m.name)
+                cb.stateChanged.connect(_w.on_model_selection_changed)
+                _w.model_checkboxes[m.name] = cb
+                _w.filtered_models.append(m)
+                _w.scroll_layout.addWidget(cb)
+            _w.update_selection_count()
+
+    _inject_dummy_models_for_demo(widget)
+
+    # 想定動作: 全選択 → 全解除 → 推奨選択 を順に呼ぶ
+    widget.select_all_models()
+    widget.deselect_all_models()
+    widget.select_recommended_models()
+
+    window.show()
+    sys.exit(app.exec())
