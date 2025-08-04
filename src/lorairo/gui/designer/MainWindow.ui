@@ -555,14 +555,10 @@
               <item>
                <widget class="QLabel" name="labelExistingThumbnailsPlaceholder">
                 <property name="styleSheet">
-                 <string>color: #666; font-size: 10px; font-style: italic; padding: 15px; text-align: center;</string>
+                 <string notr="true"/>
                 </property>
                 <property name="text">
-                 <string>🖼️ 既存サムネイル表示機能
-
-※ThumbnailSelectorWidgetが動的に配置
-※各サムネイルに状態オーバーレイを追加:
-  ✓ 完了 (緑) | ⚠ 部分完了 (オレンジ) | ✗ エラー (赤) | ● 処理中 (青)</string>
+                 <string/>
                 </property>
                 <property name="alignment">
                  <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -584,7 +580,7 @@
               </size>
              </property>
              <property name="styleSheet">
-              <string>QFrame { border: 1px solid #2196F3; border-radius: 4px; background-color: #e3f2fd; }</string>
+              <string notr="true"/>
              </property>
              <property name="frameShape">
               <enum>QFrame::Shape::Box</enum>
