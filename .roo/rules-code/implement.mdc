@@ -1,3 +1,3 @@
 # LLM File Reference: Implementation Guidelines
 # This file provides a relative path reference for LLM tools to access implementation documentation
-../../../.cursor/rules/implement.mdc
+../../../.claude/commands/implement.md
