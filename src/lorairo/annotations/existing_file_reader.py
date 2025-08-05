@@ -94,19 +94,6 @@ class ExistingFileReader:
                 return [clean_data.strip()]
             return []
 
-    def has_existing_files(self, image_path: Path) -> bool:
-        """
-        指定された画像に対応する .txt または .caption ファイルが存在するかチェック。
-
-        Args:
-            image_path (Path): 画像ファイルのパス
-
-        Returns:
-            bool: いずれかのファイルが存在する場合 True
-        """
-        tag_path = image_path.with_suffix(".txt")
-        caption_path = image_path.with_suffix(".caption")
-        return tag_path.exists() or caption_path.exists()
 
     def get_tag_file_path(self, image_path: Path) -> Path:
         """

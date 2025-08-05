@@ -113,7 +113,7 @@ investigateフェーズで特定された要件と課題を基に、上記実装
 
 ## 必読ファイル
 - `tasks/investigations/investigate_{investigation_target}_{YYYYMMDD_HHMMSS}.md` - 前フェーズの結果
-- `.cursor/rules/plan.mdc` - プランニングガイドライン
+- `.claude/commands/plan.md` - プランニングガイドライン（本コマンド文書を一次参照とし、最新手順はここに集約）
 - `docs/architecture.md` - アーキテクチャ仕様
 - `docs/technical.md` - 技術実装パターン
 - `src/lorairo/services/` - 既存サービス実装

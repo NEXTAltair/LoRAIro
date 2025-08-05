@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from PySide6.QtCore import Qt, QThread
+from PySide6.QtCore import Qt, QThread, QTimer
 from PySide6.QtWidgets import QProgressDialog, QWidget
 
 from ...utils.log import logger
@@ -101,7 +101,16 @@ class ProgressManager:
         if self.current_thread:
             if self.current_thread.isRunning():
                 self.current_thread.quit()
-                self.current_thread.wait()
+                # wait()を延期実行に変更して自己待機エラーを回避
+                QTimer.singleShot(0, self._deferred_cleanup)
+            else:
+                self.current_thread = None
+
+    def _deferred_cleanup(self) -> None:
+        """延期されたクリーンアップ処理"""
+        if self.current_thread:
+            if not self.current_thread.isFinished():
+                self.current_thread.wait(100)  # 短いタイムアウト
             self.current_thread = None
 
     def is_active(self) -> bool:
