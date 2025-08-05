@@ -100,6 +100,7 @@ clean:
 	@find . -type d -name ".mypy_cache" -exec rm -rf {} + 2>/dev/null || true
 	@rm -rf build/ dist/ docs/build/
 	@rm -rf logs/*
+	@rm -rf .claude/logs
 	@echo "Build artifacts cleaned."
 
 # Windows compatibility (optional .bat targets)
