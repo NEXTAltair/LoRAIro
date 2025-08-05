@@ -22,19 +22,19 @@ description: implement フェーズで実装されたコードについて、包
 
 テスト対象: $ARGUMENTS
 
-implement フェーズで実装された上記機能について、ユニット・統合・BDD（E2E）テストを包括的に実行し、品質とユーザー要件の充足を検証します。異常系テストも含めた堅牢性確認を行います。
+implement フェーズで実装された上記機能について、ユニット・統合・BDD(E2E)テストを包括的に実行し、品質とユーザー要件の充足を検証します。異常系テストも含めた堅牢性確認を行います。
 
 ## タスクに含まれるべき TODO
 
 ### 1. テスト準備・環境確認
 
 1. implement フェーズの実装結果確認
-2. テスト環境セットアップ確認（`UV_PROJECT_ENVIRONMENT=.venv_linux uv sync --dev`）
+2. テスト環境セットアップ確認(`UV_PROJECT_ENVIRONMENT=.venv_linux uv sync --dev`)
 3. 既存テストスイートの実行と基線確認
 4. 新規実装部分のテスト対象特定
 5. テストデータ・リソース準備
 
-### 2. ユニットテスト実行・拡充（tests/unit/）
+### 2. ユニットテスト実行・拡充(tests/unit/)
 
 6. 単一クラス・関数の振る舞いテスト実行
 7. 新規実装コンポーネントのユニットテスト作成
@@ -42,30 +42,30 @@ implement フェーズで実装された上記機能について、ユニット�
 9. 境界値・エッジケーステスト実装
 10. `UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m unit` による単体テスト全実行
 
-### 3. 統合テスト実行・拡充（tests/integration/）
+### 3. 統合テスト実行・拡充(tests/integration/)
 
 11. LoRAIro 内部モジュール間連携テスト実行
 12. サービス層統合テスト実装
 13. データベース操作統合テスト実行
-14. AI 統合（local packages）インターフェーステスト実行（Mockを使用）
+14. AI 統合(local packages)インターフェーステスト実行(Mockを使用)
 15. `UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m integration` による統合テスト全実行
 
-### 4. GUI テスト実行・拡充（tests/gui/）
+### 4. GUI テスト実行・拡充(tests/gui/)
 
 16. PySide6 コンポーネントテスト実行
 17. ユーザーインタラクションシナリオテスト実装
 18. Signal/Slot 連携テスト実行
-19. 非同期処理（QThread）テスト実行
-20. `UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m gui` による GUI テスト全実行（ヘッドレス環境対応）
+19. 非同期処理(QThread)テスト実行
+20. `UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m gui` による GUI テスト全実行(ヘッドレス環境対応)
 
-### 5. BDD（E2E）テスト実行・拡充（tests/bdd/）
+### 5. BDD(E2E)テスト実行・拡充(tests/bdd/)
 
 21. 実際のユーザーシナリオ完全実行テスト
 22. Feature/Scenario/Given-When-Then パターン実装
-23. 実際のAI API（OpenAI、Claude、Gemini等）を使用した完全統合テスト
-24. 実際のMLモデル（CLIP、DeepDanbooru等）を使用したアノテーションテスト
-25. データ永続化・復旧シナリオテスト（実際の外部依存関係含む）
-26. AI アノテーション完全ワークフローテスト（実コスト発生あり）
+23. 実際のAI API(OpenAI、Claude、Gemini等)を使用した完全統合テスト
+24. 実際のMLモデル(CLIP、DeepDanbooru等)を使用したアノテーションテスト
+25. データ永続化・復旧シナリオテスト(実際の外部依存関係含む)
+26. AI アノテーション完全ワークフローテスト(実コスト発生あり)
 
 ### 6. 異常系・エラーハンドリングテスト
 
@@ -77,7 +77,7 @@ implement フェーズで実装された上記機能について、ユニット�
 
 ### 7. パフォーマンス・負荷テスト
 
-32. バッチ処理パフォーマンステスト（1000 画像/5 分目標）
+32. バッチ処理パフォーマンステスト(1000 画像/5 分目標)
 33. メモリ使用量監視テスト
 34. 大容量データセット処理テスト
 35. 並行処理・リソース競合テスト
@@ -93,11 +93,11 @@ implement フェーズで実装された上記機能について、ユニット�
 
 ### 9. 回帰テスト・互換性確認
 
-42. 既存機能への影響確認（回帰テスト）
+42. 既存機能への影響確認(回帰テスト)
 43. 設定ファイル互換性テスト
 44. データベースマイグレーション前後整合性テスト
 45. 異なる AI プロバイダー間互換性テスト
-46. クロスプラットフォーム動作確認（Linux/Windows）
+46. クロスプラットフォーム動作確認(Linux/Windows)
 
 ### 10. ユーザー受け入れテスト計画
 
@@ -119,10 +119,10 @@ implement フェーズで実装された上記機能について、ユニット�
 
 57. テスト結果の包括的分析・レポート作成
 58. 発見された問題・改善点の文書化
-59. カバレッジレポートの保存（@coverage.xml）
+59. カバレッジレポートの保存(@coverage.xml)
 60. テスト結果を文書化し、`tasks/test_results/test_{YYYYMMDD_HHMMSS}.md`に保存
-61. テスト完了をコンソール出力で通知（echo "✅ テスト検証完了"）
-62. 次ステップ（修正・改善・リリース）への推奨事項提示
+61. テスト完了をコンソール出力で通知(echo "✅ テスト検証完了")
+62. 次ステップ(修正・改善・リリース)への推奨事項提示
 
 ## 実行内容
 
@@ -148,7 +148,7 @@ implement フェーズで実装された上記機能について、ユニット�
   - Test structure optimization
   - Code quality verification
   ```
-- 段階的テスト実行（Unit → Integration → GUI → BDD）
+- 段階的テスト実行(Unit → Integration → GUI → BDD)
 - 異常系・パフォーマンステスト
 - 品質指標・カバレッジ確認
 
@@ -190,12 +190,12 @@ implement フェーズで実装された上記機能について、ユニット�
 - [ ] `UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m integration` 実行・全パス確認
 - [ ] モジュール間連携正常性確認
 - [ ] データベース操作整合性確認
-- [ ] AI 統合インターフェース正常性確認（Mock使用）
+- [ ] AI 統合インターフェース正常性確認(Mock使用)
 - [ ] サービス層統合確認
 
 ### GUI テスト
 
-- [ ] `UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m gui` 実行・全パス確認（ヘッドレス）
+- [ ] `UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m gui` 実行・全パス確認(ヘッドレス)
 - [ ] ユーザーインタラクション正常性確認
 - [ ] 非同期処理・応答性確認
 - [ ] Signal/Slot 連携確認
