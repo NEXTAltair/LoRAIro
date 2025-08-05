@@ -1,36 +1,36 @@
 {
   "documentation_first_commands": [
     {
-      "pattern": "^(find|grep|rg|ls).*\\.(py|toml|md)$", 
-      "reason": "Before searching files, check @docs/architecture.md and @docs/technical.md for project structure",
-      "suggestion": "First read @docs/architecture.md and @docs/technical.md to understand component locations, then search if needed"
+      "pattern": "^(find|grep|rg|ls)\\b.*\\.(py|toml|md)$",
+      "reason": "use serena でプロジェクト構造と関連ドキュメントを参照してから検索を行う",
+      "suggestion": "use serena を実行してコンポーネント位置のコンテキストを取得した後に必要なら検索する"
     },
     {
-      "pattern": "^(find|grep|rg).*src/",
-      "reason": "Check docs/architecture.md for component locations before searching src/",
-      "suggestion": "Review architecture.md first: Entry point (src/lorairo/main.py), Services (src/lorairo/services/), GUI (src/lorairo/gui/), Database (src/lorairo/database/), AI Integration (src/lorairo/annotations/)"
+      "pattern": "^(find|grep|rg)\\b.*\\bsrc/",
+      "reason": "src/配下を検索する前に use serena でコンポーネント位置のコンテキストを確認する",
+      "suggestion": "use serena: Entry point (src/lorairo/main.py), Services (src/lorairo/services/), GUI (src/lorairo/gui/), Database (src/lorairo/database/), AI Integration (src/lorairo/annotations/)"
     },
     {
-      "pattern": "^(find|grep|rg).*config/",
-      "reason": "Configuration structure is documented in docs/technical.md",
-      "suggestion": "Check docs/technical.md first: config/lorairo.toml (main config), config/annotator_config.toml (AI settings)"
+      "pattern": "^(find|grep|rg)\\b.*\\bconfig/",
+      "reason": "設定構成の確認は use serena で関連情報を参照する",
+      "suggestion": "use serena: config/lorairo.toml (main config), config/annotator_config.toml (AI settings)"
     }
   ],
   "library_investigation_suggestions": [
     {
       "pattern": "(ImportError|ModuleNotFoundError|No module named)",
       "reason": "Library import error detected",
-      "suggestion": "Use @lib-research to investigate library installation, documentation, and usage patterns"
+      "suggestion": "Use SubAgent library-research to investigate library installation, documentation, and usage patterns"
     },
     {
       "pattern": "(AttributeError.*module|TypeError.*library|API.*error)",
-      "reason": "Library API usage error detected", 
-      "suggestion": "Use @lib-research to check library specifications, API changes, and implementation examples"
+      "reason": "Library API usage error detected",
+      "suggestion": "Use SubAgent library-research to check library specifications, API changes, and implementation examples"
     },
     {
       "pattern": "(site-packages|lib/python|dist-info)",
       "reason": "Direct library investigation detected",
-      "suggestion": "Consider using @lib-research for comprehensive library analysis instead of manual exploration"
+      "suggestion": "Consider using SubAgent library-research for comprehensive library analysis instead of manual exploration"
     }
   ],
   "blocked_commands": [
@@ -41,7 +41,7 @@
     },
     {
       "pattern": "^npm ",
-      "reason": "This is a Python project, npm should not be used", 
+      "reason": "This is a Python project, npm should not be used",
       "suggestion": "Use uv for Python package management"
     },
     {
@@ -55,9 +55,9 @@
       "suggestion": "Create feature branch and use pull request"
     },
     {
-      "pattern": "^rm -rf [^l_.]",
-      "reason": "Destructive operations require explicit approval",
-      "suggestion": "Use make clean or specify exact paths. Safe to remove: logs/, __pycache__, .pytest_cache, .ruff_cache"
+      "pattern": "^rm\\s+-rf\\s+.+",
+      "reason": "Destructive operations require explicit user confirmation",
+      "suggestion": "Confirm with the user before running rm -rf. Prefer safe tasks like: make clean, or remove only approved paths: logs/, __pycache__, .pytest_cache, .ruff_cache"
     }
   ],
   "auto_format_commands": [
@@ -92,12 +92,7 @@
       "pattern": "^python\\s+",
       "transform": "s/^python/uv run python/",
       "description": "Transform python commands to use LoRAIro Linux environment"
-    },
-    {
-      "pattern": "^uv\\s+(add|remove|sync|run)\\s+",
-      "transform": "s/^uv/uv/",
-      "description": "Transform uv commands to use LoRAIro Linux environment"
     }
   ],
-  "description": "LoRAIroプロジェクト用コマンド制御 - ドキュメント優先検索・自動フォーマット・危険コマンドブロック"
+  "description": "LoRAIroプロジェクト用コマンド制御 - use serena 優先検索・自動フォーマット・危険コマンドブロック。ライブラリ調査は SubAgent library-research を推奨。"
 }
