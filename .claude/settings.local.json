@@ -33,8 +33,7 @@
     "deny": [
       "read:.env",
       "execute:rm",
-      "execute:git push",
-      "Bash(pytest:*)"
+      "execute:git push"
     ]
   },
   "enableAllProjectMcpServers": true,
@@ -44,7 +43,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "^Bash\\b:(git\\s+(add|commit|push|pull)\\b|pytest\\b|ruff\\s+(check|format)\\b|mypy\\b|python\\b|uv\\s+(add|remove|sync|run)\\b|make\\b|npm\\s+(install|run)\\b|docker\\s+(build|run)\\b)",
         "hooks": [
           {
             "type": "command",
@@ -55,7 +54,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "^Bash\\b:(echo\\b|cat\\b|ls\\b|grep\\b|rg\\b|find\\b|python\\b|uv\\s+run\\b|pytest\\b)",
         "hooks": [
           {
             "type": "command",

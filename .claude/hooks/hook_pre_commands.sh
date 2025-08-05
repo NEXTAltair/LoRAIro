@@ -6,7 +6,7 @@
 # =========================== デバッグコード開始 ===========================
 # ログディレクトリを確実に作成
 LOG_DIR="/workspaces/LoRAIro/.claude/logs"
-LOG_FILE="$LOG_DIR/hook_debug.log"
+LOG_FILE="$LOG_DIR/hook_pre_commands_debug.log"
 mkdir -p "$LOG_DIR"
 
 echo "=== Hook Debug $(date) ===" >> "$LOG_FILE"
@@ -42,7 +42,7 @@ if [ -z "$ORIGINAL_COMMAND" ]; then
     exit 0
 fi
 
-echo "Original command: $ORIGINAL_COMMAND" >> /tmp/hook_debug.log
+echo "Original command: $ORIGINAL_COMMAND" >> "$LOG_FILE"
 
 # LoRAIro環境コマンド変換関数（ルールファイルベース）
 transform_lorairo_command() {
