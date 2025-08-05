@@ -81,27 +81,27 @@
             }
         }
     },
-    "postCreateCommand": [
-        "bash -lc 'cd /workspaces/LoRAIro && make install-dev'",
-        "bash -lc \"claude mcp add context7 -s project -- npx -y @upstash/context7-mcp\"",
-        "bash -lc \"claude mcp add serena -- uvx --from git+https://github.com/oraios/serena serena start-mcp-server --context ide-assistant --project $(pwd)\"",
-        "bash -lc \"claude mcp add playwright -s project -- npx -y @playwright/mcp@latest\""
-    ],
-     "mounts": [
-        "source=lorairo-bashhistory-${devcontainerId},target=/home/vscode/.bash_history,type=volume",
-        "source=lorairo-vscode-extensions-${devcontainerId},target=/home/vscode/.vscode-server/extensions,type=volume"
-    ],
     "remoteUser": "vscode",
     "remoteEnv": {
         "UV_PROJECT_ENVIRONMENT": ".venv_linux",
         "QT_QPA_PLATFORM": "offscreen",
         "DISPLAY": ":99"
     },
+    "postCreateCommand": [
+        "bash -lc 'set -euo pipefail; cd /workspaces/LoRAIro; make install-dev'",
+        "bash -lc \"claude mcp add context7 -s project -- npx -y @upstash/context7-mcp\"",
+        "bash -lc \"claude mcp add serena -- uvx --from git+https://github.com/oraios/serena serena start-mcp-server --context ide-assistant --project $(pwd)\"",
+        "bash -lc \"claude mcp add playwright -s project -- npx -y @playwright/mcp@latest\""
+    ],
+    "postStartCommand": "bash -lc 'echo UV_PROJECT_ENVIRONMENT=$UV_PROJECT_ENVIRONMENT; ls -ld .venv_linux || true; chmod +x .claude/hooks/*.sh || true'",
+     "mounts": [
+        "source=lorairo-bashhistory-${devcontainerId},target=/home/vscode/.bash_history,type=volume",
+        "source=lorairo-vscode-extensions-${devcontainerId},target=/home/vscode/.vscode-server/extensions,type=volume"
+    ],
     "features": {
         "ghcr.io/devcontainers/features/git:1": {
             "ppa": true,
             "version": "latest"
         }
-    },
-    "postStartCommand": "bash -lc 'chmod +x .claude/hooks/*.sh || true'"
+    }
 }
