@@ -157,7 +157,7 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 ## 必読ファイル
 
 - `tasks/plans/plan_{plan_purpose}_{YYYYMMDD_HHMMSS}.md` - 実装計画詳細
-- `.cursor/rules/implement.mdc` - 実装ガイドライン
+- `.claude/commands/implement.md` - 実装ガイドライン（本コマンド文書を一次参照とし、最新手順はここに集約）
 - `src/lorairo/services/` - 既存サービス実装パターン
 - `src/lorairo/database/schema.py` - データベーススキーマ
 - `src/lorairo/gui/` - GUI 実装パターン

@@ -22,6 +22,48 @@ from lorairo.storage.file_system import FileSystemManager
 # --- pytest-qt Configuration ---
 
 
+def _detect_gui_markers(items: list["pytest.Item"]) -> bool:
+    """収集済みテスト項目からGUIマーカーの存在を検出"""
+    try:
+        for item in items:
+            if getattr(item, "keywords", None):
+                if "gui" in item.keywords or "gui_show" in item.keywords:
+                    return True
+    except Exception:
+        pass
+    return False
+
+
+def _is_headless_environment() -> bool:
+    """ヘッドレス環境かを判定"""
+    if not sys.platform.startswith("linux"):
+        return False
+    return not os.getenv("DISPLAY")
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_finish(session: "pytest.Session") -> None:
+    """GUIテスト用の環境変数を自動設定"""
+    if os.getenv("LORAIRO_PYTEST_QT_ENV_DISABLE") == "1":
+        return
+
+    items = list(getattr(session, "items", []) or [])
+    if not _detect_gui_markers(items):
+        return
+
+    # Windows: オフスクリーン描画設定
+    if sys.platform.startswith("win"):
+        if not os.getenv("QT_QPA_PLATFORM"):
+            os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        if not os.getenv("QT_OPENGL"):
+            os.environ["QT_OPENGL"] = "software"
+
+    # Linux: ヘッドレス環境でのオフスクリーン設定
+    elif sys.platform.startswith("linux") and _is_headless_environment():
+        if not os.getenv("QT_QPA_PLATFORM"):
+            os.environ["QT_QPA_PLATFORM"] = "offscreen"
+
+
 @pytest.fixture(scope="session")
 def qapp_args():
     """
@@ -533,3 +575,38 @@ def past_timestamp():
 #     app.dependency_overrides[get_session] = get_session_override
 #     yield
 #     app.dependency_overrides.pop(get_session, None)
+
+
+# --- QThread Registry for GUI tests ---
+from typing import List
+from PySide6.QtCore import QThread
+
+
+class _ThreadRegistry:
+    """QThreadの安全な終了処理を管理するレジストリ"""
+    
+    def __init__(self, timeout_ms: int = 5000) -> None:
+        self._threads: List[QThread] = []
+        self._timeout_ms = timeout_ms
+
+    def register_thread(self, thread: QThread) -> None:
+        if thread and isinstance(thread, QThread):
+            self._threads.append(thread)
+
+    def finalize_threads(self) -> None:
+        for thread in self._threads:
+            try:
+                if thread.isRunning():
+                    thread.quit()
+                thread.wait(self._timeout_ms)
+            except Exception:
+                pass
+        self._threads.clear()
+
+
+@pytest.fixture(scope="function")
+def threads_registry(request) -> _ThreadRegistry:
+    """QThread終了処理を自動化するレジストリ"""
+    registry = _ThreadRegistry(timeout_ms=5000)
+    request.addfinalizer(registry.finalize_threads)
+    return registry
