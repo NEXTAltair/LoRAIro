@@ -1,21 +1,21 @@
 #!/bin/bash
 
 # LoRAIro Project - Stop Words Hook
-# NGワードチェックスクリプト（静音化・最小ログ）
+# NGワードチェックスクリプト(静音化・最小ログ)
 
 # ログファイルは現状維持
 LOG_DIR="/workspaces/LoRAIro/.claude/logs"
 LOG_FILE="$LOG_DIR/hook_stop_words_debug.log"
 mkdir -p "$LOG_DIR"
 
-# セッションID（あれば採用）
+# セッションID(あれば採用)
 SESSION_ID="${SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
 
 # 前段の冗長デバッグを削除し、最小限だけ記録
 # - 開始時刻とセッションID
 echo "Start $(date) session_id=${SESSION_ID:-none}" >> "$LOG_FILE"
 
-# stdin からの入力をキャプチャ（引数フォールバック）
+# stdin からの入力をキャプチャ(引数フォールバック)
 if [ -p /dev/stdin ]; then
     HOOK_DATA="$(cat)"
 else
@@ -24,34 +24,34 @@ fi
 
 RULES_FILE="$(dirname "$0")/rules/hook_stop_words_rules.json"
 
-# jqが利用可能かチェック（致命のみ）
+# jqが利用可能かチェック(致命のみ)
 if ! command -v jq &> /dev/null; then
     echo "Warning: jq is not installed. Skipping stop words check."  # 既存仕様: STDOUTにも出す
     echo "error: jq not installed; skip" >> "$LOG_FILE"
     exit 0
 fi
 
-# ルールファイルが存在するかチェック（致命のみ）
+# ルールファイルが存在するかチェック(致命のみ)
 if [ ! -f "$RULES_FILE" ]; then
     echo "Warning: Stop words rules file not found: $RULES_FILE"  # 既存仕様: STDOUTにも出す
     echo "error: rules file not found: $RULES_FILE" >> "$LOG_FILE"
     exit 0
 fi
 
-# 入力データからtool_response.stdoutを取得（公式payload）
+# 入力データからtool_response.stdoutを取得(公式payload)
 TOOL_OUTPUT="$(echo "$HOOK_DATA" | jq -r '.tool_response.stdout // empty' 2>/dev/null)"
 BYTES_COUNT="$(printf "%s" "$TOOL_OUTPUT" | wc -c | tr -d ' ')"
 
-# サマリのみ（抽出バイト数）
+# サマリのみ(抽出バイト数)
 echo "summary stdout_bytes=${BYTES_COUNT}" >> "$LOG_FILE"
 
-# tool_output が無い場合は静かにスキップ（1行のみ）
+# tool_output が無い場合は静かにスキップ(1行のみ)
 if [ -z "$TOOL_OUTPUT" ]; then
     echo "skip: no tool_response.stdout" >> "$LOG_FILE"
     exit 0
 fi
 
-# ルール名取得（件数サマリのみ）
+# ルール名取得(件数サマリのみ)
 RULE_NAMES="$(jq -r 'keys[]' "$RULES_FILE" 2>/dev/null)"
 RULE_COUNT="$(printf "%s\n" "$RULE_NAMES" | wc -l | tr -d ' ')"
 echo "summary rules=${RULE_COUNT}" >> "$LOG_FILE"
@@ -60,7 +60,7 @@ FOUND_VIOLATIONS=""
 FIRST_RULE=""
 FIRST_KEYWORD=""
 
-# ループ中の詳細（checking/not found など）は全て削除し、違反があった最初の1件だけ記録
+# ループ中の詳細(checking/not found など)は全て削除し、違反があった最初の1件だけ記録
 while IFS= read -r rule_name; do
     [ -z "$rule_name" ] && continue
 
@@ -83,7 +83,7 @@ while IFS= read -r rule_name; do
 done <<< "$RULE_NAMES"
 
 if [ -n "$FOUND_VIOLATIONS" ]; then
-    # 1行サマリ（違反あり、最初の1件のみ）
+    # 1行サマリ(違反あり、最初の1件のみ)
     echo "violations=1 first_rule='$FIRST_RULE' first_keyword='$FIRST_KEYWORD'" >> "$LOG_FILE"
 
     # 仕様通りJSONを返してブロック

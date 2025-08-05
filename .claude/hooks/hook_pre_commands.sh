@@ -44,7 +44,7 @@ fi
 
 echo "Original command: $ORIGINAL_COMMAND" >> "$LOG_FILE"
 
-# LoRAIro環境コマンド変換関数（ルールファイルベース）
+# LoRAIro環境コマンド変換関数(ルールファイルベース)
 transform_lorairo_command() {
     local cmd="$1"
 

@@ -15,7 +15,7 @@ description: plan フェーズで策定された実装計画に基づき、LoRAI
 
 - 関連するコードは全て読むこと
 - 全ての処理において ultrathink でしっかりと考えて作業を行うこと
-- インクリメンタル開発（小さな単位での継続的実装）を徹底すること
+- インクリメンタル開発(小さな単位での継続的実装)を徹底すること
 
 ## 説明
 
@@ -29,7 +29,7 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 
 1. plan フェーズの実装計画を詳細確認
 2. 要件・設計の完全理解確認
-3. 開発環境セットアップ確認（`uv sync --dev`）
+3. 開発環境セットアップ確認(`uv sync --dev`)
 4. テスト戦略の理解と準備
 5. 既存アーキテクチャパターンの特定
 
@@ -38,58 +38,58 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 6. `feature/implement-<topic>` ブランチ作成
 7. 実装対象コンポーネントの既存コード詳細分析
 8. 依存関係とインターフェースの確認
-9. 実装順序の最終確認（依存関係順）
+9. 実装順序の最終確認(依存関係順)
 10. 初期テストケース準備
 
 ### 3. コード品質基準遵守
 
-11. 全関数に型ヒント（Type Hints）実装
-12. 包括的例外処理（Exception Handling）実装
+11. 全関数に型ヒント(Type Hints)実装
+12. 包括的例外処理(Exception Handling)実装
 13. 適切な Loguru ログ記録実装
-14. コメント追加（なぜを説明、何をではなく）
+14. コメント追加(なぜを説明、何をではなく)
 15. `UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff format` による一貫したフォーマット
 
 ### 4. LoRAIro 実装パターン適用
 
-#### サービス層実装（src/lorairo/services/）
+#### サービス層実装(src/lorairo/services/)
 
 16. 依存性注入パターンでサービス実装
 17. ConfigurationService と DatabaseManager の適切な利用
 18. BaseWorker パターンの継承と活用
 19. エラーハンドリングとログ記録の統一
 
-#### データベース操作実装（src/lorairo/database/）
+#### データベース操作実装(src/lorairo/database/)
 
 20. リポジトリパターンでデータアクセス実装
 21. スキーマ変更必要時の Alembic マイグレーション作成
 22. データ整合性とトランザクション管理
 23. 効率的クエリパターンの実装
 
-#### AI 統合実装（src/lorairo/annotations/）
+#### AI 統合実装(src/lorairo/annotations/)
 
 24. image-annotator-lib の適切な統合
 25. genai-tag-db-tools の活用実装
 26. PHashAnnotationResults の正しい処理
 27. AI プロバイダーエラーハンドリング
 
-#### GUI 実装（src/lorairo/gui/）
+#### GUI 実装(src/lorairo/gui/)
 
 28. PySide6 パターンに従ったウィジェット実装
-29. Qt Designer ファイル更新（必要時）
+29. Qt Designer ファイル更新(必要時)
 30. Signal/Slot による適切なコンポーネント間通信
-31. 非同期処理（QThread）による UI 応答性確保
+31. 非同期処理(QThread)による UI 応答性確保
 
 ### 5. テスト駆動開発
 
-32. 実装と並行した単体テスト作成（UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m unit）
-33. コンポーネント間統合テスト実装（UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m integration）
-34. GUI コンポーネントテスト実装（UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m gui）
+32. 実装と並行した単体テスト作成(UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m unit)
+33. コンポーネント間統合テスト実装(UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m integration)
+34. GUI コンポーネントテスト実装(UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m gui)
 35. テストカバレッジ >75% 維持
 36. モック戦略による外部依存関係分離
 
 ### 6. 設定・環境管理
 
-37. config/lorairo.toml への新設定追加（必要時）
+37. config/lorairo.toml への新設定追加(必要時)
 38. ConfigurationService との統合
 39. 下位互換性確保
 40. 適切なデフォルト値設定
@@ -114,8 +114,8 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 50. 実装完了コードの自己レビュー
 51. 関連ドキュメント更新
 52. 実装結果を文書化し、`tasks/implementations/implement_{YYYYMMDD_HHMMSS}.md`に保存
-53. 小さな原子的コミット（明確なコミットメッセージ）
-54. 実装完了をコンソール出力で通知（echo "⚙️ 実装完了"）
+53. 小さな原子的コミット(明確なコミットメッセージ)
+54. 実装完了をコンソール出力で通知(echo "⚙️ 実装完了")
 55. test フェーズへの引き継ぎ事項整理
 
 ## 実行内容
@@ -145,7 +145,7 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
   - Code structure improvement
   ```
 - インクリメンタル開発による段階的実装
-- テスト駆動開発（TDD）の実践
+- テスト駆動開発(TDD)の実践
 - 継続的品質チェック
 
 ### 検証・統合フェーズ
@@ -157,7 +157,7 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 ## 必読ファイル
 
 - `tasks/plans/plan_{plan_purpose}_{YYYYMMDD_HHMMSS}.md` - 実装計画詳細
-- `.claude/commands/implement.md` - 実装ガイドライン（本コマンド文書を一次参照とし、最新手順はここに集約）
+- `.claude/commands/implement.md` - 実装ガイドライン(本コマンド文書を一次参照とし、最新手順はここに集約)
 - `src/lorairo/services/` - 既存サービス実装パターン
 - `src/lorairo/database/schema.py` - データベーススキーマ
 - `src/lorairo/gui/` - GUI 実装パターン
@@ -199,9 +199,9 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 2. **実装概要**: 実装したコンポーネントと機能
 3. **アーキテクチャ適合**: 既存パターンへの統合状況
 4. **コード品質**: 型安全性・エラーハンドリング・テスト状況
-5. **データベース変更**: スキーマ変更・マイグレーション（該当時）
+5. **データベース変更**: スキーマ変更・マイグレーション(該当時)
 6. **テスト結果**: 実装したテストと実行結果
-7. **設定変更**: 新規設定・設定変更（該当時）
+7. **設定変更**: 新規設定・設定変更(該当時)
 8. **パフォーマンス影響**: 実装による性能への影響評価
 9. **完了状況**: 実装完了項目と残課題
 10. **次ステップ**: test フェーズへの引き継ぎ事項
