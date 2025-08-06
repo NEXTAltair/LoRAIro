@@ -80,10 +80,15 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     DatasetStateManager との統合により状態管理を統一。
     """
 
-    # レガシーシグナル（互換性維持）
-    imageSelected = Signal(Path)
-    multipleImagesSelected = Signal(list)
-    deselected = Signal()
+    # === Phase 5: 現代化Signal（統一snake_case命名規約） ===
+    image_selected = Signal(Path)  # 単一画像選択時
+    multiple_images_selected = Signal(list)  # 複数画像選択時
+    selection_cleared = Signal()  # 選択クリア時
+
+    # === Legacy互換性Signal（段階的廃止予定） ===
+    imageSelected = Signal(Path)  # → image_selected に統一
+    multipleImagesSelected = Signal(list)  # → multiple_images_selected に統一
+    deselected = Signal()  # → selection_cleared に統一
 
     def __init__(self, parent=None, dataset_state: DatasetStateManager | None = None):
         """
@@ -488,14 +493,33 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             self._emit_legacy_signals()
 
     def _emit_legacy_signals(self) -> None:
-        """レガシーシグナルを発行（互換性維持）"""
+        """Phase 5: 現代化Signal + Legacy互換性維持
+
+        統一命名規約の現代Signalを発行し、同時にLegacy Signalも発行することで
+        段階的移行を支援します。
+        """
         selected_images = self.get_selected_images()
+
         if len(selected_images) > 1:
+            # Phase 5: 現代化Signal発行
+            self.multiple_images_selected.emit(selected_images)
+            # Legacy互換性維持
             self.multipleImagesSelected.emit(selected_images)
+            logger.debug(f"Multiple images selected: {len(selected_images)} images")
+
         elif len(selected_images) == 1:
+            # Phase 5: 現代化Signal発行
+            self.image_selected.emit(selected_images[0])
+            # Legacy互換性維持
             self.imageSelected.emit(selected_images[0])
+            logger.debug(f"Single image selected: {selected_images[0]}")
+
         else:
+            # Phase 5: 現代化Signal発行
+            self.selection_cleared.emit()
+            # Legacy互換性維持
             self.deselected.emit()
+            logger.debug("Selection cleared")
 
     def _get_database_manager(self):
         """親ウィジェットの階層からデータベースマネージャーを取得"""
