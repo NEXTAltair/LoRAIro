@@ -9,10 +9,10 @@ from ...services.model_registry_protocol import ModelInfo as ProtocolModelInfo
 
 class ModelInfoDictAdapter:
     """Dict-style access adapter for Protocol-based ModelInfo.
-    
+
     This adapter enables legacy code using dict-style access (model["key"])
     to work seamlessly with the new Protocol-based ModelInfo dataclass.
-    
+
     Usage:
         protocol_model = ModelInfo(name="test", provider="openai", ...)
         dict_model = ModelInfoDictAdapter(protocol_model)
@@ -26,15 +26,15 @@ class ModelInfoDictAdapter:
         """Enable dict-style access to ModelInfo fields."""
         if hasattr(self._model_info, key):
             return getattr(self._model_info, key)
-        
+
         # Handle legacy field mappings
         legacy_mappings = {
             "model_type": self._infer_model_type(),
         }
-        
+
         if key in legacy_mappings:
             return legacy_mappings[key]
-            
+
         raise KeyError(f"Key '{key}' not found in ModelInfo")
 
     def __contains__(self, key: str) -> bool:
@@ -51,7 +51,7 @@ class ModelInfoDictAdapter:
     def _infer_model_type(self) -> str:
         """Infer model_type from capabilities for legacy compatibility."""
         capabilities = self._model_info.capabilities
-        
+
         # Legacy model_type inference based on capabilities
         if "caption" in capabilities and "tags" in capabilities:
             return "multimodal"
