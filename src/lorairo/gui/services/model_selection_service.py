@@ -6,6 +6,8 @@ from typing import Any, overload
 from ...services.annotator_lib_adapter import AnnotatorLibAdapter
 from ...services.model_registry_protocol import (
     ModelInfo as ProtocolModelInfo,
+)
+from ...services.model_registry_protocol import (
     ModelRegistryServiceProtocol,
     NullModelRegistry,
     map_annotator_metadata_to_model_info,
@@ -49,7 +51,7 @@ class ModelSelectionService:
 
     def __init__(self, annotator_adapter: AnnotatorLibAdapter | None = None):
         """Initialize ModelSelectionService with backward compatibility.
-        
+
         Legacy signature: ModelSelectionService(annotator_adapter)
         New approach: Use create() class method for modern initialization
         """
@@ -57,7 +59,7 @@ class ModelSelectionService:
         self.annotator_adapter = annotator_adapter
         self._all_models: list[ModelInfo] = []
         self._cached_models: list[ModelInfo] | None = None
-        
+
     @classmethod
     def create(
         cls,
@@ -84,9 +86,7 @@ class ModelSelectionService:
                 protocol_models = self.model_registry.get_available_models()
                 if protocol_models:
                     # Protocol ModelInfo を 後方互換性 ModelInfo に変換
-                    compat_models = [
-                        self._convert_protocol_to_compat(model) for model in protocol_models
-                    ]
+                    compat_models = [self._convert_protocol_to_compat(model) for model in protocol_models]
                     self._all_models = compat_models
                     self._cached_models = compat_models
                     logger.info(f"Loaded {len(compat_models)} models from ModelRegistry")
@@ -111,21 +111,21 @@ class ModelSelectionService:
             if not self.annotator_adapter:
                 logger.warning("AnnotatorLibAdapter not available for legacy loading")
                 return []
-                
+
             # モデル情報取得
             models_metadata = self.annotator_adapter.get_available_models_with_metadata()
-            
+
             # Protocol準拠のModelInfoに変換
             protocol_models = map_annotator_metadata_to_model_info(models_metadata)
-            
+
             # Protocol ModelInfo を 後方互換性 ModelInfo に変換
             compat_models = [self._convert_protocol_to_compat(model) for model in protocol_models]
-            
+
             self._all_models = compat_models
             self._cached_models = compat_models
             logger.info(f"Loaded {len(compat_models)} models from AnnotatorLibAdapter (legacy)")
             return compat_models
-            
+
         except Exception as e:
             logger.error(f"Legacy model loading failed: {e}")
             return []
@@ -157,14 +157,14 @@ class ModelSelectionService:
         return [m for m in self._all_models if self._is_recommended_model(m.name)]
 
     def filter_models(
-        self, 
+        self,
         criteria: ModelSelectionCriteria | None = None,
         # Legacy parameters for backward compatibility
         provider: str | None = None,
-        capabilities: list[str] | None = None
+        capabilities: list[str] | None = None,
     ) -> list[ModelInfo]:
         """指定した条件でモデルをフィルタリング（現代化版 + 後方互換性）"""
-        
+
         # 後方互換性: 旧シグネチャ (provider, capabilities) の処理
         if criteria is None and (provider is not None or capabilities is not None):
             criteria = ModelSelectionCriteria(
@@ -173,7 +173,7 @@ class ModelSelectionService:
             )
         elif criteria is None:
             criteria = ModelSelectionCriteria()
-            
+
         filtered = self._all_models
 
         # プロバイダーフィルタ
@@ -182,10 +182,7 @@ class ModelSelectionService:
 
         # 機能フィルタ
         if criteria.capabilities:
-            filtered = [
-                m for m in filtered 
-                if any(cap in m.capabilities for cap in criteria.capabilities)
-            ]
+            filtered = [m for m in filtered if any(cap in m.capabilities for cap in criteria.capabilities)]
 
         # 推奨フィルタ
         if criteria.only_recommended:
@@ -250,7 +247,7 @@ class ModelSelectionService:
         }
 
         return type_mapping.get(model_type, ["caption"])
-    
+
     # Backward compatibility alias for tests
     def _infer_capabilities(self, model_data: dict[str, Any]) -> list[str]:
         """Backward compatibility wrapper for _infer_capabilities_legacy"""
