@@ -16,20 +16,9 @@ from PySide6.QtWidgets import (
 )
 
 from ...services.annotator_lib_adapter import AnnotatorLibAdapter
+from ...services.model_registry_protocol import ModelRegistryServiceProtocol, NullModelRegistry
 from ...utils.log import logger
-
-
-@dataclass
-class ModelInfo:
-    """モデル情報データクラス"""
-
-    name: str
-    provider: str
-    capabilities: list[str]  # ["caption", "tags", "scores"] - 実際の機能（ModelTypeと一致）
-    api_model_id: str | None
-    requires_api_key: bool
-    estimated_size_gb: float | None
-    is_recommended: bool = False
+from ..services.model_selection_service import ModelInfo, ModelSelectionCriteria, ModelSelectionService
 
 
 class ModelSelectionWidget(QWidget):
@@ -51,12 +40,25 @@ class ModelSelectionWidget(QWidget):
         self,
         parent: QWidget | None = None,
         annotator_adapter: AnnotatorLibAdapter | None = None,
+        model_registry: ModelRegistryServiceProtocol | None = None,
+        model_selection_service: ModelSelectionService | None = None,
         mode: str = "simple",  # "simple" or "advanced"
     ) -> None:
         super().__init__(parent)
 
+        # Legacy support for backward compatibility
         self.annotator_adapter = annotator_adapter
         self.mode = mode  # 簡単モード or 詳細モード
+
+        # Phase 4: Modern protocol-based architecture
+        self.model_registry = model_registry or NullModelRegistry()
+
+        # Phase 2 Integration: ModelSelectionService
+        if model_selection_service:
+            self.model_selection_service = model_selection_service
+        else:
+            # Create ModelSelectionService with appropriate configuration
+            self.model_selection_service = self._create_model_selection_service()
 
         # モデル情報
         self.all_models: list[ModelInfo] = []
@@ -70,11 +72,28 @@ class ModelSelectionWidget(QWidget):
         # UI設定
         self.setup_ui()
 
-        # モデル情報の初期ロード
-        if self.annotator_adapter:
-            self.load_models()
+        # モデル情報の初期ロード（Phase 4現代化版）
+        self.load_models()
 
-        logger.debug(f"ModelSelectionWidget initialized in {mode} mode")
+        logger.debug(f"ModelSelectionWidget initialized in {mode} mode with Phase 4 enhancements")
+
+    def _create_model_selection_service(self) -> ModelSelectionService:
+        """ModelSelectionService を適切な設定で作成
+
+        Returns:
+            ModelSelectionService: 設定されたサービスインスタンス
+        """
+        # Modern approach: Use protocol-based creation if model_registry is available
+        if (
+            hasattr(self.model_registry, "get_available_models")
+            and self.model_registry.__class__.__name__ != "NullModelRegistry"
+        ):
+            return ModelSelectionService.create(
+                model_registry=self.model_registry, annotator_adapter=self.annotator_adapter
+            )
+        # Legacy approach: Use annotator_adapter directly
+        else:
+            return ModelSelectionService(annotator_adapter=self.annotator_adapter)
 
     def setup_ui(self) -> None:
         """UI初期化"""
@@ -245,67 +264,23 @@ class ModelSelectionWidget(QWidget):
         parent_layout.addWidget(self.status_label)
 
     def load_models(self) -> None:
-        """モデル情報をAnnotatorLibAdapterから取得"""
+        """モデル情報を現代化されたModelSelectionServiceから取得（Phase 4現代化版）"""
         try:
-            if not self.annotator_adapter:
-                logger.warning("AnnotatorLibAdapter not available")
-                return
+            # Phase 4: Delegate to ModelSelectionService
+            self.all_models = self.model_selection_service.load_models()
 
-            # モデル情報取得
-            models_metadata = self.annotator_adapter.get_available_models_with_metadata()
-
-            # ModelInfoに変換
-            self.all_models = []
-            for model_data in models_metadata:
-                model_info = ModelInfo(
-                    name=model_data.get("name", ""),
-                    provider=model_data.get("provider", "unknown"),
-                    capabilities=self._infer_capabilities(model_data),
-                    api_model_id=model_data.get("api_model_id"),
-                    requires_api_key=model_data.get("requires_api_key", False),
-                    estimated_size_gb=model_data.get("estimated_size_gb"),
-                    is_recommended=self._is_recommended_model(model_data.get("name", "")),
-                )
-                self.all_models.append(model_info)
-
-            logger.info(f"Loaded {len(self.all_models)} models from AnnotatorLibAdapter")
+            logger.info(f"Loaded {len(self.all_models)} models via ModelSelectionService")
 
             # 初期表示更新
             self.update_model_display()
 
         except Exception as e:
             logger.error(f"Failed to load models: {e}")
+            # エラー時は空のモデルリスト
+            self.all_models = []
+            self.update_model_display()
 
-    def _infer_capabilities(self, model_data: dict[str, Any]) -> list[str]:
-        """モデルタイプから機能をマッピング"""
-        model_type = model_data.get("model_type", "")
-
-        # DBのmodel_typeカラムから機能をマッピング
-        type_mapping = {
-            "multimodal": ["caption", "tag"],
-            "caption": ["caption"],
-            "tag": ["tag"],
-            "score": ["score"],
-        }
-
-        return type_mapping.get(model_type, ["caption"])
-
-    def _is_recommended_model(self, model_name: str) -> bool:
-        """推奨モデルかどうか判定"""
-        name_lower = model_name.lower()
-
-        # 高品質Caption生成モデル
-        caption_recommended = ["gpt-4o", "claude-3-5-sonnet", "claude-3-sonnet", "gemini-pro"]
-
-        # 高精度タグ生成モデル
-        tags_recommended = ["wd-v1-4", "wd-tagger", "deepdanbooru", "wd-swinv2"]
-
-        # 品質評価モデル
-        scores_recommended = ["clip-aesthetic", "musiq", "aesthetic-scorer"]
-
-        all_recommended = caption_recommended + tags_recommended + scores_recommended
-
-        return any(rec in name_lower for rec in all_recommended)
+    # Phase 4: Legacy methods removed - ModelSelectionService handles capabilities and recommendations
 
     def apply_filters(self, provider: str | None = None, capabilities: list[str] | None = None) -> None:
         """フィルタリング適用"""
@@ -314,13 +289,20 @@ class ModelSelectionWidget(QWidget):
         self.update_model_display()
 
     def update_model_display(self) -> None:
-        """モデル表示更新"""
+        """モデル表示更新（Phase 4現代化版）"""
         # 現在のチェックボックスをクリア
         self.clear_model_display()
 
         # フィルタリング実行
         if self.mode == "simple":
-            self.filtered_models = [m for m in self.all_models if m.is_recommended]
+            # Phase 4: Use ModelSelectionService for recommended models
+            try:
+                recommended_models = self.model_selection_service.get_recommended_models()
+                self.filtered_models = recommended_models
+            except Exception as e:
+                logger.error(f"Failed to get recommended models: {e}")
+                # Fallback: filter by is_recommended flag
+                self.filtered_models = [m for m in self.all_models if m.is_recommended]
         else:
             self.filtered_models = self._apply_advanced_filters()
 
@@ -343,7 +325,28 @@ class ModelSelectionWidget(QWidget):
         self.update_selection_count()
 
     def _apply_advanced_filters(self) -> list[ModelInfo]:
-        """詳細モード用フィルタリング"""
+        """詳細モード用フィルタリング（Phase 4現代化版：ModelSelectionService活用）"""
+        try:
+            # Phase 4: Use ModelSelectionService for filtering
+            criteria = ModelSelectionCriteria(
+                provider=self.current_provider_filter if self.current_provider_filter != "すべて" else None,
+                capabilities=self.current_capability_filters if self.current_capability_filters else None,
+                only_available=True,  # Only show available models
+            )
+
+            # Apply filtering using modern service
+            filtered = self.model_selection_service.filter_models(criteria)
+
+            logger.debug(f"Applied advanced filters: {len(self.all_models)} -> {len(filtered)} models")
+            return filtered
+
+        except Exception as e:
+            logger.error(f"Advanced filtering error: {e}")
+            # Fallback to basic filtering
+            return self._apply_basic_filters()
+
+    def _apply_basic_filters(self) -> list[ModelInfo]:
+        """基本フィルタリング（フォールバック用）"""
         filtered = self.all_models
 
         # プロバイダーフィルタ
@@ -502,12 +505,26 @@ class ModelSelectionWidget(QWidget):
 
     @Slot()
     def select_recommended_models(self) -> None:
-        """推奨モデル選択"""
-        for model_name, checkbox in self.model_checkboxes.items():
-            # 対応するModelInfoを検索
-            model_info = next((m for m in self.filtered_models if m.name == model_name), None)
-            if model_info and model_info.is_recommended:
-                checkbox.setChecked(True)
+        """推奨モデル選択（Phase 4現代化版：ModelSelectionService活用）"""
+        try:
+            # Phase 4: Get recommended models from ModelSelectionService
+            recommended_models = self.model_selection_service.get_recommended_models()
+            recommended_names = {model.name for model in recommended_models}
+
+            # Check boxes for recommended models that are currently displayed
+            for model_name, checkbox in self.model_checkboxes.items():
+                if model_name in recommended_names:
+                    checkbox.setChecked(True)
+
+            logger.debug(f"Selected {len(recommended_names)} recommended models")
+
+        except Exception as e:
+            logger.error(f"Failed to select recommended models: {e}")
+            # Fallback: Use is_recommended flag
+            for model_name, checkbox in self.model_checkboxes.items():
+                model_info = next((m for m in self.filtered_models if m.name == model_name), None)
+                if model_info and model_info.is_recommended:
+                    checkbox.setChecked(True)
 
     def set_selected_models(self, model_names: list[str]) -> None:
         """指定されたモデルを選択状態に設定"""
