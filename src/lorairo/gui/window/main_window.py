@@ -1,6 +1,7 @@
 # src/lorairo/gui/window/main_window.py
 
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QMainWindow
@@ -301,6 +302,101 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def load_images_from_db(self):
         """データベースから画像を読み込み"""
         logger.info("DB画像読み込みが呼び出されました")
+
+    def _resolve_optimal_thumbnail_data(
+        self, image_metadata: list[dict[str, Any]]
+    ) -> list[tuple[Path, int]]:
+        """画像メタデータから最適なサムネイル表示用パスを解決
+
+        512px処理済み画像が利用可能な場合はそれを使用し、
+        利用不可能な場合は元画像にフォールバックする
+
+        Args:
+            image_metadata: 画像メタデータリスト
+
+        Returns:
+            list[tuple[Path, int]]: (画像パス, 画像ID) のタプルリスト
+        """
+        if not image_metadata:
+            return []
+
+        result = []
+
+        for metadata in image_metadata:
+            image_id = metadata["id"]
+            original_path = metadata["stored_image_path"]
+
+            try:
+                # 512px処理済み画像の存在を確認
+                if self.db_manager:
+                    processed_image = self.db_manager.check_processed_image_exists(image_id, 512)
+
+                    if processed_image:
+                        # 512px画像のパス解決
+                        from lorairo.database.db_core import resolve_stored_path
+
+                        resolved_path = resolve_stored_path(processed_image["stored_image_path"])
+
+                        # ファイル存在確認
+                        if resolved_path.exists():
+                            result.append((resolved_path, image_id))
+                            continue
+
+                # フォールバック: 元画像を使用
+                result.append((Path(original_path), image_id))
+
+            except Exception as e:
+                # エラー時もフォールバック: 元画像を使用
+                logger.warning(f"パス解決エラー (image_id={image_id}): {e}")
+                result.append((Path(original_path), image_id))
+
+        return result
+
+    def _setup_image_db_write_service(self) -> None:
+        """ImageDBWriteServiceを作成してselected_image_details_widgetに注入
+
+        Phase 3.4: DB操作分離パターンの実装
+        """
+        from lorairo.gui.services.image_db_write_service import ImageDBWriteService
+
+        try:
+            if self.db_manager and self.selected_image_details_widget:
+                # ImageDBWriteServiceを作成
+                self.image_db_write_service = ImageDBWriteService(self.db_manager)
+
+                # SelectedImageDetailsWidgetに注入
+                self.selected_image_details_widget.set_image_db_write_service(self.image_db_write_service)
+
+                logger.info("ImageDBWriteService created and injected into SelectedImageDetailsWidget")
+            else:
+                logger.warning(
+                    "Cannot setup ImageDBWriteService: db_manager or selected_image_details_widget not available"
+                )
+
+        except Exception as e:
+            logger.error(f"ImageDBWriteService setup failed: {e}", exc_info=True)
+
+    def _setup_state_integration(self) -> None:
+        """DatasetStateManagerをウィジェットに接続
+
+        Phase 3.4: 状態管理統合パターンの実装
+        """
+        try:
+            if (
+                hasattr(self, "dataset_state")
+                and self.dataset_state
+                and hasattr(self, "image_preview")
+                and self.image_preview
+            ):
+                # ImagePreviewWidgetにDatasetStateManagerを接続
+                self.image_preview.set_dataset_state_manager(self.dataset_state)
+                logger.info("DatasetStateManager connected to widgets")
+            else:
+                logger.warning(
+                    "Cannot setup state integration: dataset_state or image_preview not available"
+                )
+        except Exception as e:
+            logger.error(f"State integration setup failed: {e}", exc_info=True)
 
 
 if __name__ == "__main__":

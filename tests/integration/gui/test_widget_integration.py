@@ -56,7 +56,10 @@ class TestWidgetServiceIntegration:
     @pytest.fixture
     def search_service(self):
         """SearchFilterService インスタンス"""
-        return SearchFilterService()
+        from unittest.mock import Mock
+
+        mock_db_manager = Mock()
+        return SearchFilterService(db_manager=mock_db_manager)
 
     def test_filter_search_panel_with_search_service_integration(
         self, parent_widget, search_service, qtbot

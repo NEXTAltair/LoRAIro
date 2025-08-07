@@ -9,7 +9,7 @@ from ...database.db_manager import ImageDatabaseManager
 from ...services.annotator_lib_adapter import AnnotatorLibAdapter
 from ...services.model_registry_protocol import ModelRegistryServiceProtocol, NullModelRegistry
 from ...utils.log import logger
-from .model_selection_service import ModelSelectionCriteria, ModelSelectionService, ModelInfo
+from .model_selection_service import ModelInfo, ModelSelectionCriteria, ModelSelectionService
 
 
 @dataclass

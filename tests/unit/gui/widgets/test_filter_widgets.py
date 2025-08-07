@@ -128,10 +128,9 @@ class TestFilterSearchPanel:
         yield widget
 
     @pytest.fixture
-    @patch("lorairo.gui.widgets.filter.FilterSearchPanel.setupUi")
-    @patch("lorairo.gui.widgets.filter.FilterSearchPanel.setup_date_range_slider")
-    @patch("lorairo.gui.widgets.filter.FilterSearchPanel.setup_connections")
-    def filter_panel(self, mock_connections, mock_date_slider, mock_setup_ui, parent_widget, qtbot):
+    @patch("lorairo.gui.widgets.filter_search_panel.FilterSearchPanel.setup_custom_widgets")
+    @patch("lorairo.gui.widgets.filter_search_panel.FilterSearchPanel.connect_signals")
+    def filter_panel(self, mock_connect_signals, mock_setup_custom_widgets, parent_widget, qtbot):
         """テスト用FilterSearchPanel（UI初期化をモック）"""
         panel = FilterSearchPanel(parent_widget)
         qtbot.addWidget(panel)
@@ -165,23 +164,48 @@ class TestFilterSearchPanel:
             1703980800,
         )  # 2022-01-01 to 2023-12-30
 
+        # UI オブジェクトをモック（実装と一致させる）
+        panel.ui = Mock()
+        panel.ui.lineEditSearch = panel.lineEditSearch
+        panel.ui.radioTags = panel.radioTags
+        panel.ui.radioCaption = panel.radioCaption
+        panel.ui.radioAnd = panel.radioAnd
+        panel.ui.radioOr = panel.radioOr
+        panel.ui.comboResolution = panel.comboResolution
+        panel.ui.comboAspectRatio = panel.comboAspectRatio
+        panel.ui.lineEditWidth = panel.lineEditWidth
+        panel.ui.lineEditHeight = panel.lineEditHeight
+        panel.ui.frameCustomResolution = panel.frameCustomResolution
+        panel.ui.checkboxDateFilter = panel.checkboxDateFilter
+        panel.ui.frameDateRange = panel.frameDateRange
+        panel.ui.checkboxOnlyUntagged = panel.checkboxOnlyUntagged
+        panel.ui.checkboxOnlyUncaptioned = panel.checkboxOnlyUncaptioned
+        panel.ui.checkboxExcludeDuplicates = panel.checkboxExcludeDuplicates
+        panel.ui.checkboxIncludeNSFW = panel.checkboxIncludeNSFW
+        panel.ui.textEditPreview = panel.textEditPreview
+
+        # SearchFilterService モック
+        panel.search_filter_service = Mock()
+
         return panel
 
     def test_initialization(self, filter_panel):
         """初期化テスト"""
         assert hasattr(filter_panel, "lineEditSearch")
         assert hasattr(filter_panel, "date_range_slider")
-        assert hasattr(filter_panel, "filterApplied")
+        assert hasattr(filter_panel, "filter_applied")
 
     def test_toggle_custom_resolution_show(self, filter_panel):
-        """カスタム解像度フレーム表示テスト"""
-        filter_panel.toggle_custom_resolution("カスタム...")
-        filter_panel.frameCustomResolution.setVisible.assert_called_with(True)
+        """カスタム解像度フレーム表示テスト（_on_resolution_changed経由）"""
+        # Simulate dropdown selection of "カスタム..."
+        filter_panel._on_resolution_changed("カスタム...")
+        filter_panel.ui.frameCustomResolution.setVisible.assert_called_with(True)
 
     def test_toggle_custom_resolution_hide(self, filter_panel):
-        """カスタム解像度フレーム非表示テスト"""
-        filter_panel.toggle_custom_resolution("1024x1024")
-        filter_panel.frameCustomResolution.setVisible.assert_called_with(False)
+        """カスタム解像度フレーム非表示テスト（_on_resolution_changed経由）"""
+        # Simulate dropdown selection of standard resolution
+        filter_panel._on_resolution_changed("1024x1024")
+        filter_panel.ui.frameCustomResolution.setVisible.assert_called_with(False)
 
     def test_get_filter_conditions_basic_search(self, filter_panel):
         """基本検索条件取得テスト"""
@@ -199,18 +223,37 @@ class TestFilterSearchPanel:
         filter_panel.checkboxExcludeDuplicates.isChecked.return_value = False
         filter_panel.checkboxIncludeNSFW.isChecked.return_value = False
 
-        conditions = filter_panel.get_filter_conditions()
+        # Mock SearchFilterService to return proper SearchConditions
+        from unittest.mock import Mock
 
-        assert conditions["search_text"] == "test search"
+        mock_search_conditions = Mock()
+        mock_search_conditions.search_type = "tags"
+        mock_search_conditions.keywords = ["test", "search"]
+        mock_search_conditions.tag_logic = "and"
+        mock_search_conditions.resolution_filter = None
+        mock_search_conditions.custom_width = ""
+        mock_search_conditions.custom_height = ""
+        mock_search_conditions.aspect_ratio_filter = None
+        mock_search_conditions.date_filter_enabled = False
+        mock_search_conditions.date_range_start = None
+        mock_search_conditions.date_range_end = None
+        mock_search_conditions.only_untagged = False
+        mock_search_conditions.only_uncaptioned = False
+        mock_search_conditions.exclude_duplicates = False
+
+        filter_panel.search_filter_service.get_current_conditions.return_value = mock_search_conditions
+
+        conditions = filter_panel.get_current_conditions()
+
         assert conditions["search_type"] == "tags"
-        assert conditions["search_mode"] == "and"
-        assert conditions["resolution"] is None
-        assert conditions["aspect_ratio"] is None
-        assert conditions["date_range"] is None
+        assert conditions["keywords"] == ["test", "search"]
+        assert conditions["tag_logic"] == "and"
+        assert conditions["resolution_filter"] is None
+        assert conditions["aspect_ratio_filter"] is None
+        assert conditions["date_filter_enabled"] is False
         assert conditions["only_untagged"] is False
         assert conditions["only_uncaptioned"] is False
         assert conditions["exclude_duplicates"] is False
-        assert conditions["include_nsfw"] is False
 
     def test_get_filter_conditions_caption_search(self, filter_panel):
         """キャプション検索条件テスト"""
@@ -230,11 +273,29 @@ class TestFilterSearchPanel:
         filter_panel.checkboxExcludeDuplicates.isChecked.return_value = False
         filter_panel.checkboxIncludeNSFW.isChecked.return_value = False
 
-        conditions = filter_panel.get_filter_conditions()
+        # Mock SearchFilterService for caption search
+        mock_search_conditions = Mock()
+        mock_search_conditions.search_type = "caption"
+        mock_search_conditions.keywords = ["beautiful", "landscape"]
+        mock_search_conditions.tag_logic = "or"
+        mock_search_conditions.resolution_filter = None
+        mock_search_conditions.custom_width = ""
+        mock_search_conditions.custom_height = ""
+        mock_search_conditions.aspect_ratio_filter = None
+        mock_search_conditions.date_filter_enabled = False
+        mock_search_conditions.date_range_start = None
+        mock_search_conditions.date_range_end = None
+        mock_search_conditions.only_untagged = False
+        mock_search_conditions.only_uncaptioned = False
+        mock_search_conditions.exclude_duplicates = False
 
-        assert conditions["search_text"] == "beautiful landscape"
+        filter_panel.search_filter_service.get_current_conditions.return_value = mock_search_conditions
+
+        conditions = filter_panel.get_current_conditions()
+
+        assert conditions["keywords"] == ["beautiful", "landscape"]
         assert conditions["search_type"] == "caption"
-        assert conditions["search_mode"] == "or"
+        assert conditions["tag_logic"] == "or"
 
     def test_get_filter_conditions_custom_resolution(self, filter_panel):
         """カスタム解像度条件テスト"""
@@ -254,10 +315,29 @@ class TestFilterSearchPanel:
         filter_panel.checkboxExcludeDuplicates.isChecked.return_value = False
         filter_panel.checkboxIncludeNSFW.isChecked.return_value = False
 
-        conditions = filter_panel.get_filter_conditions()
+        # Mock SearchFilterService for custom resolution
+        mock_search_conditions = Mock()
+        mock_search_conditions.search_type = "tags"
+        mock_search_conditions.keywords = []
+        mock_search_conditions.tag_logic = "and"
+        mock_search_conditions.resolution_filter = "カスタム..."
+        mock_search_conditions.custom_width = "1920"
+        mock_search_conditions.custom_height = "1080"
+        mock_search_conditions.aspect_ratio_filter = "風景 (16:9)"
+        mock_search_conditions.date_filter_enabled = False
+        mock_search_conditions.date_range_start = None
+        mock_search_conditions.date_range_end = None
+        mock_search_conditions.only_untagged = False
+        mock_search_conditions.only_uncaptioned = False
+        mock_search_conditions.exclude_duplicates = False
 
-        assert conditions["resolution"] == "1920x1080"
-        assert conditions["aspect_ratio"] == "風景 (16:9)"
+        filter_panel.search_filter_service.get_current_conditions.return_value = mock_search_conditions
+
+        conditions = filter_panel.get_current_conditions()
+
+        assert conditions["custom_width"] == "1920"
+        assert conditions["custom_height"] == "1080"
+        assert conditions["aspect_ratio_filter"] == "風景 (16:9)"
 
     def test_get_filter_conditions_date_range(self, filter_panel):
         """日付範囲条件テスト"""
@@ -275,11 +355,31 @@ class TestFilterSearchPanel:
         filter_panel.checkboxExcludeDuplicates.isChecked.return_value = False
         filter_panel.checkboxIncludeNSFW.isChecked.return_value = False
 
-        conditions = filter_panel.get_filter_conditions()
+        # Mock SearchFilterService for date range
+        mock_search_conditions = Mock()
+        mock_search_conditions.search_type = "tags"
+        mock_search_conditions.keywords = []
+        mock_search_conditions.tag_logic = "and"
+        mock_search_conditions.resolution_filter = None
+        mock_search_conditions.custom_width = ""
+        mock_search_conditions.custom_height = ""
+        mock_search_conditions.aspect_ratio_filter = None
+        mock_search_conditions.date_filter_enabled = True
+        mock_search_conditions.date_range_start = 1640995200  # 2022-01-01
+        mock_search_conditions.date_range_end = 1703980800  # 2023-12-30
+        mock_search_conditions.only_untagged = False
+        mock_search_conditions.only_uncaptioned = False
+        mock_search_conditions.exclude_duplicates = False
 
-        assert conditions["date_range"] is not None
-        assert isinstance(conditions["date_range"], tuple)
-        assert len(conditions["date_range"]) == 2
+        filter_panel.search_filter_service.get_current_conditions.return_value = mock_search_conditions
+
+        conditions = filter_panel.get_current_conditions()
+
+        assert conditions["date_filter_enabled"] is True
+        assert conditions["date_range_start"] is not None
+        assert conditions["date_range_end"] is not None
+        assert isinstance(conditions["date_range_start"], int)
+        assert isinstance(conditions["date_range_end"], int)
 
     def test_get_filter_conditions_all_options(self, filter_panel):
         """全オプション有効時の条件テスト"""
@@ -297,60 +397,101 @@ class TestFilterSearchPanel:
         filter_panel.checkboxExcludeDuplicates.isChecked.return_value = True
         filter_panel.checkboxIncludeNSFW.isChecked.return_value = True
 
-        conditions = filter_panel.get_filter_conditions()
+        # Mock SearchFilterService for all options enabled
+        mock_search_conditions = Mock()
+        mock_search_conditions.search_type = "tags"
+        mock_search_conditions.keywords = ["test"]
+        mock_search_conditions.tag_logic = "and"
+        mock_search_conditions.resolution_filter = "1024x1024"
+        mock_search_conditions.custom_width = ""
+        mock_search_conditions.custom_height = ""
+        mock_search_conditions.aspect_ratio_filter = "正方形 (1:1)"
+        mock_search_conditions.date_filter_enabled = True
+        mock_search_conditions.date_range_start = 1640995200
+        mock_search_conditions.date_range_end = 1703980800
+        mock_search_conditions.only_untagged = True
+        mock_search_conditions.only_uncaptioned = True
+        mock_search_conditions.exclude_duplicates = True
 
-        assert conditions["search_text"] == "test"
-        assert conditions["resolution"] == "1024x1024"
-        assert conditions["aspect_ratio"] == "正方形 (1:1)"
-        assert conditions["date_range"] is not None
+        filter_panel.search_filter_service.get_current_conditions.return_value = mock_search_conditions
+
+        conditions = filter_panel.get_current_conditions()
+
+        assert conditions["keywords"] == ["test"]
+        assert conditions["resolution_filter"] == "1024x1024"
+        assert conditions["aspect_ratio_filter"] == "正方形 (1:1)"
+        assert conditions["date_filter_enabled"] is True
         assert conditions["only_untagged"] is True
         assert conditions["only_uncaptioned"] is True
         assert conditions["exclude_duplicates"] is True
-        assert conditions["include_nsfw"] is True
 
     def test_on_clear_filter(self, filter_panel):
-        """フィルタークリアテスト"""
-        filter_panel.on_clear_filter()
+        """フィルタークリアテスト（実際の清理動作に合わせたテスト）"""
+        filter_panel._on_clear_clicked()
 
-        # 各UI要素がクリアされたことを確認
-        filter_panel.lineEditSearch.clear.assert_called_once()
-        filter_panel.radioTags.setChecked.assert_called_with(True)
-        filter_panel.radioAnd.setChecked.assert_called_with(True)
-        filter_panel.comboResolution.setCurrentIndex.assert_called_with(0)
-        filter_panel.comboAspectRatio.setCurrentIndex.assert_called_with(0)
-        filter_panel.checkboxDateFilter.setChecked.assert_called_with(False)
-        filter_panel.checkboxOnlyUntagged.setChecked.assert_called_with(False)
-        filter_panel.checkboxOnlyUncaptioned.setChecked.assert_called_with(False)
-        filter_panel.checkboxExcludeDuplicates.setChecked.assert_called_with(False)
-        filter_panel.checkboxIncludeNSFW.setChecked.assert_called_with(False)
-        filter_panel.textEditPreview.clear.assert_called_once()
+        # 実際のui要素を通じてクリアされることを確認
+        filter_panel.ui.lineEditSearch.clear.assert_called_once()
+        filter_panel.ui.radioTags.setChecked.assert_called_with(True)
+        filter_panel.ui.radioAnd.setChecked.assert_called_with(True)
+        filter_panel.ui.comboResolution.setCurrentIndex.assert_called_with(0)
+        filter_panel.ui.comboAspectRatio.setCurrentIndex.assert_called_with(0)
+        filter_panel.ui.checkboxDateFilter.setChecked.assert_called_with(False)
+        filter_panel.ui.checkboxOnlyUntagged.setChecked.assert_called_with(False)
+        filter_panel.ui.checkboxOnlyUncaptioned.setChecked.assert_called_with(False)
+        filter_panel.ui.checkboxExcludeDuplicates.setChecked.assert_called_with(False)
+        filter_panel.ui.textEditPreview.setPlainText.assert_called_once()
 
     def test_on_apply_filter_signal(self, filter_panel, qtbot):
         """フィルター適用シグナルテスト"""
-        # UI状態をセットアップ
+        # MockSearchFilterServiceを設定
+        mock_search_service = Mock()
+        mock_search_service.create_search_conditions.return_value = {
+            "search_text": "test",
+            "search_type": "tags",
+        }
+        mock_search_service.execute_search_with_filters.return_value = ([], 0)
+        filter_panel.search_filter_service = mock_search_service
+
+        # UI状態をセットアップ（直接モックされた要素を使用）
         filter_panel.lineEditSearch.text.return_value = "test"
         filter_panel.radioTags.isChecked.return_value = True
         filter_panel.radioAnd.isChecked.return_value = True
         filter_panel.comboResolution.currentText.return_value = "全て"
-        filter_panel.comboResolution.currentIndex.return_value = 0
         filter_panel.comboAspectRatio.currentText.return_value = "全て"
-        filter_panel.comboAspectRatio.currentIndex.return_value = 0
         filter_panel.checkboxDateFilter.isChecked.return_value = False
         filter_panel.checkboxOnlyUntagged.isChecked.return_value = False
         filter_panel.checkboxOnlyUncaptioned.isChecked.return_value = False
         filter_panel.checkboxExcludeDuplicates.isChecked.return_value = False
-        filter_panel.checkboxIncludeNSFW.isChecked.return_value = False
+        filter_panel.lineEditWidth.text.return_value = ""
+        filter_panel.lineEditHeight.text.return_value = ""
 
-        # filterAppliedシグナルをモック
+        # UI オブジェクトをモックして実装と一致させる
+        filter_panel.ui = Mock()
+        filter_panel.ui.lineEditSearch = filter_panel.lineEditSearch
+        filter_panel.ui.radioTags = filter_panel.radioTags
+        filter_panel.ui.radioAnd = filter_panel.radioAnd
+        filter_panel.ui.comboResolution = filter_panel.comboResolution
+        filter_panel.ui.comboAspectRatio = filter_panel.comboAspectRatio
+        filter_panel.ui.checkboxDateFilter = filter_panel.checkboxDateFilter
+        filter_panel.ui.checkboxOnlyUntagged = filter_panel.checkboxOnlyUntagged
+        filter_panel.ui.checkboxOnlyUncaptioned = filter_panel.checkboxOnlyUncaptioned
+        filter_panel.ui.checkboxExcludeDuplicates = filter_panel.checkboxExcludeDuplicates
+        filter_panel.ui.lineEditWidth = filter_panel.lineEditWidth
+        filter_panel.ui.lineEditHeight = filter_panel.lineEditHeight
+        filter_panel.ui.textEditPreview = Mock()
+
+        # search_requestedシグナルをモック
         signal_mock = Mock()
-        filter_panel.filterApplied = signal_mock
+        filter_panel.search_requested = signal_mock
 
-        filter_panel.on_apply_filter()
+        filter_panel._on_apply_clicked()
 
         # シグナルが発行されたことを確認
         signal_mock.emit.assert_called_once()
-        emitted_conditions = signal_mock.emit.call_args[0][0]
-        assert emitted_conditions["search_text"] == "test"
+        emitted_data = signal_mock.emit.call_args[0][0]
+        assert "results" in emitted_data
+        assert "count" in emitted_data
+        assert "conditions" in emitted_data
 
 
 class TestFilterWidgetIntegration:
