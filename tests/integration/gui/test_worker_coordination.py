@@ -287,12 +287,16 @@ class TestWorkerSystemCoordination:
 
         worker = SearchWorker(mock_db_manager, {"tags": []})
 
-        with patch("lorairo.gui.workers.progress_manager.QProgressDialog") as mock_dialog_class:
+        with (
+            patch("lorairo.gui.workers.progress_manager.QProgressDialog") as mock_dialog_class,
+            patch("lorairo.gui.workers.progress_manager.QThread") as mock_thread_class,
+            patch.object(worker, "moveToThread") as mock_move_to_thread,
+        ):
             mock_dialog = Mock()
             mock_dialog_class.return_value = mock_dialog
 
-            # 実際のQThreadを使用してQt型チェックを通過
-            actual_thread = QThread()
+            mock_thread = Mock()
+            mock_thread_class.return_value = mock_thread
 
             # 進捗付きで開始
             progress_manager.start_worker_with_progress(worker, "検索中...", 100)
@@ -301,10 +305,12 @@ class TestWorkerSystemCoordination:
             mock_dialog_class.assert_called_once()
             mock_dialog.show.assert_called_once()
 
-            # スレッドの作成/開始は内部で実行されるため、ダイアログが表示されれば成功
-            # 実際のQThreadオブジェクトのクリーンアップ
-            actual_thread.quit()
-            actual_thread.wait()
+            # QThread作成・設定確認
+            mock_thread_class.assert_called_once()
+            mock_thread.start.assert_called_once()
+
+            # moveToThreadが呼ばれたことを確認
+            mock_move_to_thread.assert_called_once_with(mock_thread)
 
 
 class TestWorkerSystemPerformance:

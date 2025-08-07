@@ -99,9 +99,14 @@ class TestModelSelectionService:
 
     def test_initialization_with_adapter(self, mock_annotator_adapter):
         """アダプター付き初期化テスト"""
-        service = ModelSelectionService(mock_annotator_adapter)
-        assert service.annotator_adapter == mock_annotator_adapter
-        assert service._all_models == []
+        # Windows環境での安全な初期化
+        try:
+            service = ModelSelectionService(mock_annotator_adapter)
+            assert service.annotator_adapter == mock_annotator_adapter
+            assert service._all_models == []
+        except Exception as e:
+            # Windows環境でのAccess Violation詳細情報
+            pytest.fail(f"ModelSelectionService initialization failed: {e}")
 
     def test_initialization_without_adapter(self):
         """アダプターなし初期化テスト"""
@@ -124,7 +129,7 @@ class TestModelSelectionService:
         assert isinstance(gpt_model, ModelInfo)
         assert gpt_model.name == "gpt-4o"
         assert gpt_model.provider == "openai"
-        assert gpt_model.capabilities == ["caption", "tag"]  # multimodal -> ["caption", "tag"]
+        assert gpt_model.capabilities == ["caption", "tags"]  # multimodal -> ["caption", "tags"]
         assert gpt_model.requires_api_key is True
         assert gpt_model.is_recommended is True  # gpt-4o は推奨モデル
 
@@ -134,7 +139,7 @@ class TestModelSelectionService:
             models = service_without_adapter.load_models()
 
             # 警告ログが出力されたことを確認
-            mock_logger.warning.assert_called_with("AnnotatorLibAdapter not available")
+            mock_logger.warning.assert_called_with("No model source available")
 
             # 空のリストが返されることを確認
             assert models == []
@@ -213,18 +218,18 @@ class TestModelSelectionService:
         assert "claude-3-5-sonnet" in caption_names
 
         # タグ機能でフィルタ
-        tag_models = service_with_adapter.filter_models(capabilities=["tag"])
+        tag_models = service_with_adapter.filter_models(capabilities=["tags"])
         tag_names = [m.name for m in tag_models]
         assert "gpt-4o" in tag_names  # multimodal
         assert "claude-3-5-sonnet" in tag_names  # multimodal
-        assert "wd-v1-4" in tag_names  # tag専用
+        assert "wd-v1-4" in tag_names  # tags専用
 
     def test_filter_models_combined(self, service_with_adapter):
         """プロバイダーと機能の組み合わせフィルタリングテスト"""
         service_with_adapter.load_models()
 
         # ローカル + スコア機能
-        local_score_models = service_with_adapter.filter_models(provider="local", capabilities=["score"])
+        local_score_models = service_with_adapter.filter_models(provider="local", capabilities=["scores"])
         assert len(local_score_models) == 1
         assert local_score_models[0].name == "clip-aesthetic"
 
@@ -281,21 +286,21 @@ class TestModelSelectionService:
 
     def test_infer_capabilities(self, service_with_adapter):
         """機能推論テスト"""
-        # multimodal -> ["caption", "tag"]
+        # multimodal -> ["caption", "tags"]
         capabilities = service_with_adapter._infer_capabilities({"model_type": "multimodal"})
-        assert capabilities == ["caption", "tag"]
+        assert capabilities == ["caption", "tags"]
 
         # caption -> ["caption"]
         capabilities = service_with_adapter._infer_capabilities({"model_type": "caption"})
         assert capabilities == ["caption"]
 
-        # tag -> ["tag"]
+        # tag -> ["tags"]
         capabilities = service_with_adapter._infer_capabilities({"model_type": "tag"})
-        assert capabilities == ["tag"]
+        assert capabilities == ["tags"]
 
-        # score -> ["score"]
+        # score -> ["scores"]
         capabilities = service_with_adapter._infer_capabilities({"model_type": "score"})
-        assert capabilities == ["score"]
+        assert capabilities == ["scores"]
 
         # 不明なタイプ -> ["caption"] (デフォルト)
         capabilities = service_with_adapter._infer_capabilities({"model_type": "unknown"})
