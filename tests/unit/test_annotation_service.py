@@ -18,7 +18,7 @@ from lorairo.services.annotation_service import AnnotationService
 class TestAnnotationServiceInitialization:
     """AnnotationService 初期化テスト"""
 
-    @patch("lorairo.services.enhanced_annotation_service.get_service_container")
+    @patch("lorairo.services.annotation_service.get_service_container")
     def test_initialization_success(self, mock_get_container):
         """正常な初期化テスト"""
         mock_container = Mock()
@@ -32,7 +32,7 @@ class TestAnnotationServiceInitialization:
         assert service._last_batch_result is None
         mock_get_container.assert_called_once()
 
-    @patch("lorairo.services.enhanced_annotation_service.get_service_container")
+    @patch("lorairo.services.annotation_service.get_service_container")
     def test_initialization_with_parent(self, mock_get_container):
         """親オブジェクト指定での初期化"""
         mock_container = Mock()
@@ -46,7 +46,7 @@ class TestAnnotationServiceInitialization:
 
     def test_signal_definitions(self):
         """シグナル定義確認"""
-        with patch("lorairo.services.enhanced_annotation_service.get_service_container"):
+        with patch("lorairo.services.annotation_service.get_service_container"):
             service = AnnotationService()
 
             # 各シグナルが定義されていることを確認
@@ -65,9 +65,7 @@ class TestAnnotationServiceModelSync:
     @pytest.fixture
     def service_with_mocks(self):
         """モック付きサービスインスタンス"""
-        with patch(
-            "lorairo.services.enhanced_annotation_service.get_service_container"
-        ) as mock_get_container:
+        with patch("lorairo.services.annotation_service.get_service_container") as mock_get_container:
             mock_container = Mock()
             mock_get_container.return_value = mock_container
             service = AnnotationService()
@@ -143,9 +141,7 @@ class TestAnnotationServiceModelRetrieval:
     @pytest.fixture
     def service_with_mocks(self):
         """モック付きサービスインスタンス"""
-        with patch(
-            "lorairo.services.enhanced_annotation_service.get_service_container"
-        ) as mock_get_container:
+        with patch("lorairo.services.annotation_service.get_service_container") as mock_get_container:
             mock_container = Mock()
             mock_get_container.return_value = mock_container
             service = AnnotationService()
@@ -234,9 +230,7 @@ class TestAnnotationServiceSingleAnnotation:
     @pytest.fixture
     def service_with_mocks(self):
         """モック付きサービスインスタンス"""
-        with patch(
-            "lorairo.services.enhanced_annotation_service.get_service_container"
-        ) as mock_get_container:
+        with patch("lorairo.services.annotation_service.get_service_container") as mock_get_container:
             mock_container = Mock()
             mock_get_container.return_value = mock_container
             service = AnnotationService()
@@ -343,9 +337,7 @@ class TestAnnotationServiceBatchAnnotation:
     @pytest.fixture
     def service_with_mocks(self):
         """モック付きサービスインスタンス"""
-        with patch(
-            "lorairo.services.enhanced_annotation_service.get_service_container"
-        ) as mock_get_container:
+        with patch("lorairo.services.annotation_service.get_service_container") as mock_get_container:
             mock_container = Mock()
             mock_get_container.return_value = mock_container
             service = AnnotationService()
@@ -443,9 +435,7 @@ class TestAnnotationServiceUtilities:
     @pytest.fixture
     def service_with_mocks(self):
         """モック付きサービスインスタンス"""
-        with patch(
-            "lorairo.services.enhanced_annotation_service.get_service_container"
-        ) as mock_get_container:
+        with patch("lorairo.services.annotation_service.get_service_container") as mock_get_container:
             mock_container = Mock()
             mock_get_container.return_value = mock_container
             service = AnnotationService()
@@ -539,9 +529,7 @@ class TestAnnotationServiceInputValidation:
     @pytest.fixture
     def service_with_mocks(self):
         """モック付きサービスインスタンス"""
-        with patch(
-            "lorairo.services.enhanced_annotation_service.get_service_container"
-        ) as mock_get_container:
+        with patch("lorairo.services.annotation_service.get_service_container") as mock_get_container:
             mock_container = Mock()
             mock_get_container.return_value = mock_container
             service = AnnotationService()
@@ -632,9 +620,7 @@ class TestAnnotationServiceEdgeCases:
     @pytest.fixture
     def service_with_mocks(self):
         """モック付きサービスインスタンス"""
-        with patch(
-            "lorairo.services.enhanced_annotation_service.get_service_container"
-        ) as mock_get_container:
+        with patch("lorairo.services.annotation_service.get_service_container") as mock_get_container:
             mock_container = Mock()
             mock_get_container.return_value = mock_container
             service = AnnotationService()

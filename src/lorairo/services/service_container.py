@@ -4,7 +4,7 @@ Phase 2: 既存サービスとPhase 1新サービスの統合管理
 Phase 4: 実ライブラリ統合での依存関係解決
 """
 
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from ..database.db_core import DefaultSessionLocal
 from ..database.db_manager import ImageDatabaseManager
@@ -41,7 +41,7 @@ class ServiceContainer:
 
         重複初期化を防ぐため、_initializedフラグで制御
         """
-        if self._initialized:
+        if ServiceContainer._initialized:
             return
 
         logger.info("ServiceContainer初期化開始")
@@ -61,7 +61,7 @@ class ServiceContainer:
         # Phase 4: プロダクション統合モード制御
         self._use_production_mode: bool = True
 
-        self._initialized = True
+        ServiceContainer._initialized = True
         logger.info("ServiceContainer初期化完了")
 
     @property
@@ -71,6 +71,11 @@ class ServiceContainer:
             self._config_service = ConfigurationService()
             logger.debug("ConfigurationService初期化完了")
         return self._config_service
+
+    @config_service.deleter
+    def config_service(self) -> None:
+        """設定サービス削除（テスト用）"""
+        self._config_service = None
 
     @property
     def file_system_manager(self) -> FileSystemManager:
@@ -87,6 +92,11 @@ class ServiceContainer:
             self._image_repository = ImageRepository(session_factory=DefaultSessionLocal)
             logger.debug("ImageRepository初期化完了")
         return self._image_repository
+
+    @image_repository.deleter
+    def image_repository(self) -> None:
+        """画像リポジトリ削除（テスト用）"""
+        self._image_repository = None
 
     @property
     def db_manager(self) -> ImageDatabaseManager:
@@ -179,7 +189,7 @@ class ServiceContainer:
                 "annotator_lib_adapter": self._annotator_lib_adapter is not None,
                 "batch_processor": self._batch_processor is not None,
             },
-            "container_initialized": self._initialized,
+            "container_initialized": ServiceContainer._initialized,
             "phase": "Phase 4 (Production Integration)"
             if self._use_production_mode
             else "Phase 1-2 (Mock Implementation)",
