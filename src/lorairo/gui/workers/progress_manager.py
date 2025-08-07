@@ -102,16 +102,22 @@ class ProgressManager:
             if self.current_thread.isRunning():
                 self.current_thread.quit()
                 # wait()を延期実行に変更して自己待機エラーを回避
-                QTimer.singleShot(0, self._deferred_cleanup)
+                # Windows環境での安全性を考慮してタイムアウト延長
+                QTimer.singleShot(50, self._deferred_cleanup)
             else:
                 self.current_thread = None
 
     def _deferred_cleanup(self) -> None:
         """延期されたクリーンアップ処理"""
         if self.current_thread:
-            if not self.current_thread.isFinished():
-                self.current_thread.wait(100)  # 短いタイムアウト
-            self.current_thread = None
+            try:
+                if not self.current_thread.isFinished():
+                    # Windows環境での安全性を考慮したタイムアウト延長
+                    self.current_thread.wait(500)  # 100ms -> 500ms
+            except Exception as e:
+                logger.warning(f"Thread cleanup warning (non-critical): {e}")
+            finally:
+                self.current_thread = None
 
     def is_active(self) -> bool:
         """進捗管理中か確認"""
