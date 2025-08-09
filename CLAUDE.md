@@ -16,77 +16,6 @@ NEVER proactively create documentation files (*.md) or README files. Only create
 
 This project supports Windows/Linux environments with independent virtual environments to manage platform-specific dependencies properly.
 
-```bash
-# Automatic OS detection setup (recommended)
-./scripts/setup.sh
-
-# Manual environment specification
-uv sync --dev     # Linux
-$env:UV_PROJECT_ENVIRONMENT=".venv_windows"; uv sync --dev  # Windows
-
-# Traditional single environment
-uv sync --dev
-
-# Add new dependencies
-uv add package-name
-
-# Add development dependencies
-uv add --dev package-name
-```
-
-### Running the Application
-
-#### Cross-Platform Execution
-
-```bash
-# Windows Environment
-$env:UV_PROJECT_ENVIRONMENT = ".venv_windows"; uv run lorairo
-
-# Linux Environment  
-uv run lorairo
-
-# Using Makefile (all platforms)
-make run-gui
-
-# Traditional single environment
-uv run lorairo
-
-# Alternative module execution
-uv run python -m lorairo.main
-```
-
-### Development Tools
-```bash
-# Run tests
-pytest
-
-# Run specific test categories
-pytest -m unit        # Unit tests only
-pytest -m integration # Integration tests only
-pytest -m gui         # GUI tests only (headless in dev container)
-
-# For GUI tests in cross-platform environments (headless in Linux/container)
-
-# Run linting and formatting
-ruff check
-ruff format
-
-# Run type checking
-mypy src/
-
-# Run database migrations
-alembic upgrade head
-
-# Generate new migration
-alembic revision --autogenerate -m "description"
-
-# Run single test file
-pytest tests/path/to/test_file.py
-
-# Check test coverage
-pytest --cov=src --cov-report=html
-```
-
 ## Project Architecture
 
 ### Core Components
@@ -349,7 +278,7 @@ If VS Code cannot discover tests in local packages:
 
 **Environment Isolation:**
 - Windows environment: `.venv_windows` - Windows-specific dependencies and binaries
-- Linux environment: `.venv_linux` - Linux-specific dependencies and binaries  
+- Linux environment: `.venv_linux` - Linux-specific dependencies and binaries
 - Independent GUI operation support for both environments
 
 **Development Workflow:**

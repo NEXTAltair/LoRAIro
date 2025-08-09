@@ -1,11 +1,12 @@
 # src/lorairo/gui/services/model_selection_service.py
 
-from dataclasses import dataclass
-from typing import Any, overload
+from __future__ import annotations
 
-from ...services.annotator_lib_adapter import AnnotatorLibAdapter
+from dataclasses import dataclass
+from typing import Any
+
 from ...services.model_registry_protocol import (
-    ModelInfo as ProtocolModelInfo,
+    ModelInfo as RegistryModelInfo,
 )
 from ...services.model_registry_protocol import (
     ModelRegistryServiceProtocol,
@@ -17,11 +18,11 @@ from ...utils.log import logger
 
 @dataclass
 class ModelInfo:
-    """モデル情報データクラス（後方互換性維持版）"""
+    """モデル情報データクラス（UI向け表示用拡張を含む）"""
 
     name: str
     provider: str
-    capabilities: list[str]  # ["caption", "tags", "scores"] - 実際の機能（ModelTypeと一致）
+    capabilities: list[str]  # ["caption", "tags", "scores"] - 実際の機能
     api_model_id: str | None
     requires_api_key: bool
     estimated_size_gb: float | None

@@ -15,10 +15,24 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...services.annotator_lib_adapter import AnnotatorLibAdapter
 from ...services.model_registry_protocol import ModelRegistryServiceProtocol, NullModelRegistry
 from ...utils.log import logger
-from ..services.model_selection_service import ModelInfo, ModelSelectionCriteria, ModelSelectionService
+from ..services.model_selection_service import ModelSelectionService
+
+# NullModelRegistry は ModelSelectionService 側でデフォルト縮退を実装済みのため、ここでは直接使用しない
+
+
+@dataclass
+class ModelInfo:
+    """モデル情報データクラス"""
+
+    name: str
+    provider: str
+    capabilities: list[str]  # ["caption", "tags", "scores"] - 実際の機能（ModelTypeと一致）
+    api_model_id: str | None
+    requires_api_key: bool
+    estimated_size_gb: float | None
+    is_recommended: bool = False
 
 
 class ModelSelectionWidget(QWidget):
@@ -39,15 +53,11 @@ class ModelSelectionWidget(QWidget):
     def __init__(
         self,
         parent: QWidget | None = None,
-        annotator_adapter: AnnotatorLibAdapter | None = None,
         model_registry: ModelRegistryServiceProtocol | None = None,
         model_selection_service: ModelSelectionService | None = None,
         mode: str = "simple",  # "simple" or "advanced"
     ) -> None:
         super().__init__(parent)
-
-        # Legacy support for backward compatibility
-        self.annotator_adapter = annotator_adapter
         self.mode = mode  # 簡単モード or 詳細モード
 
         # Phase 4: Modern protocol-based architecture
