@@ -94,7 +94,6 @@ class ExistingFileReader:
                 return [clean_data.strip()]
             return []
 
-
     def get_tag_file_path(self, image_path: Path) -> Path:
         """
         画像に対応する .txt ファイルのパスを取得。

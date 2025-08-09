@@ -19,7 +19,6 @@ from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import QHeaderView, QTableWidget, QTableWidgetItem, QWidget
 
 from ...gui.designer.AnnotationControlWidget_ui import Ui_AnnotationControlWidget
-from ...services.annotator_lib_adapter import AnnotatorLibAdapter
 from ...utils.log import logger
 from ..services.search_filter_service import SearchFilterService
 
@@ -54,13 +53,11 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
     def __init__(
         self,
         parent: QWidget | None = None,
-        annotator_adapter: AnnotatorLibAdapter | None = None,
     ):
         super().__init__(parent)
         self.setupUi(self)  # type: ignore
 
         # 依存関係（Phase 1パターン継承）
-        self.annotator_adapter = annotator_adapter
         self.search_filter_service: SearchFilterService | None = None
 
         # モデル情報（UI表示用）
@@ -214,11 +211,6 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
         self.load_models()
         logger.debug("SearchFilterService set for AnnotationControlWidget")
 
-    def set_annotator_adapter(self, adapter: AnnotatorLibAdapter) -> None:
-        """AnnotatorLibAdapter設定（後方互換性）"""
-        self.annotator_adapter = adapter
-        self.load_models()
-        logger.debug("AnnotatorLibAdapter set for AnnotationControlWidget")
 
     def load_models(self) -> None:
         """モデル情報を取得（SearchFilterService経由）"""

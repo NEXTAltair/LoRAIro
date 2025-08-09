@@ -28,7 +28,11 @@
       "mcp__serena__find_symbol",
       "mcp__serena__replace_symbol_body",
       "mcp__serena__insert_after_symbol",
-      "mcp__serena__find_referencing_symbols"
+      "mcp__serena__find_referencing_symbols",
+      "Bash(uv run mypy:*)",
+      "Bash(uv run pytest:*)",
+      "Bash(uv run ruff check:*)",
+      "Bash(uv run ruff format:*)"
     ],
     "deny": [
       "read:.env",

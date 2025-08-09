@@ -21,6 +21,12 @@ class ProgressManager:
         self.progress_dialog: QProgressDialog | None = None
         self.current_worker: LoRAIroWorkerBase | None = None
         self.current_thread: QThread | None = None
+
+        # Phase 2: 状態管理による堅牢性向上
+        self._cleanup_state = 'idle'  # idle, pending, cleaning
+        self._cleanup_timer = QTimer()
+        self._cleanup_timer.timeout.connect(self._process_cleanup)
+
         logger.debug("ProgressManager initialized")
 
     def start_worker_with_progress(
@@ -96,28 +102,61 @@ class ProgressManager:
         logger.error(f"ワーカーエラー: {error_message}")
 
     def _cleanup_thread(self) -> None:
-        """スレッドクリーンアップ"""
+        """スレッドクリーンアップ - 状態管理付き"""
         self.current_worker = None
+
+        # Phase 2: 状態管理による重複クリーンアップ防止
+        if self._cleanup_state != 'idle':
+            logger.debug(f"クリーンアップ既に実行中: {self._cleanup_state}")
+            return
+
         if self.current_thread:
             if self.current_thread.isRunning():
                 self.current_thread.quit()
-                # wait()を延期実行に変更して自己待機エラーを回避
-                # Windows環境での安全性を考慮してタイムアウト延長
-                QTimer.singleShot(50, self._deferred_cleanup)
+                # Phase 1+2: シグナル延期で状態管理付きクリーンアップ
+                # Windows環境での安定性向上のため初期タイムアウトを延長
+                self._cleanup_state = 'pending'
+                QTimer.singleShot(100, self._process_cleanup)
             else:
                 self.current_thread = None
 
-    def _deferred_cleanup(self) -> None:
-        """延期されたクリーンアップ処理"""
-        if self.current_thread:
+    def _process_cleanup(self) -> None:
+        """状態管理付きクリーンアップ処理"""
+        if self._cleanup_state != 'pending':
+            return
+
+        self._cleanup_state = 'cleaning'
+
+        try:
+            if self.current_thread:
+                if self.current_thread.isFinished():
+                    self.current_thread = None
+                    logger.debug("スレッドクリーンアップ完了")
+                else:
+                    # まだ実行中の場合は再スケジュール
+                    logger.debug("スレッド実行中、再スケジュール")
+                    self._cleanup_state = 'pending'
+                    QTimer.singleShot(200, self._process_cleanup)  # 200ms後に再試行 (Windows安定性向上)
+                    return
+        except Exception as e:
+            logger.error(f"クリーンアップエラー: {e}")
+            # Windows環境でのクリティカルエラー回復機能
             try:
-                if not self.current_thread.isFinished():
-                    # Windows環境での安全性を考慮したタイムアウト延長
-                    self.current_thread.wait(500)  # 100ms -> 500ms
-            except Exception as e:
-                logger.warning(f"Thread cleanup warning (non-critical): {e}")
-            finally:
-                self.current_thread = None
+                if self.current_thread and self.current_thread.isRunning():
+                    self.current_thread.terminate()  # 最後の手段
+                    logger.warning("スレッド強制終了を実行")
+            except Exception as critical_e:
+                logger.error(f"クリティカルクリーンアップエラー: {critical_e}")
+        finally:
+            if self._cleanup_state == 'cleaning':
+                self._cleanup_state = 'idle'
+
+    def _deferred_cleanup(self) -> None:
+        """延期されたクリーンアップ処理 - 下位互換性のため保持"""
+        if self.current_thread:
+            if not self.current_thread.isFinished():
+                self.current_thread.wait(100)  # 短いタイムアウト
+            self.current_thread = None
 
     def is_active(self) -> bool:
         """進捗管理中か確認"""

@@ -6,8 +6,14 @@ from pathlib import Path
 from typing import Any
 
 from ...database.db_manager import ImageDatabaseManager
-from ...services.annotator_lib_adapter import AnnotatorLibAdapter
-from ...services.model_registry_protocol import ModelRegistryServiceProtocol, NullModelRegistry
+from ...services.model_registry_protocol import (
+    ModelInfo as RegistryModelInfo,
+)
+from ...services.model_registry_protocol import (
+    ModelRegistryServiceProtocol,
+    NullModelRegistry,
+    map_annotator_metadata_to_model_info,
+)
 from ...utils.log import logger
 from .model_selection_service import ModelInfo, ModelSelectionCriteria, ModelSelectionService
 
@@ -75,7 +81,7 @@ class ValidationResult:
 
 class SearchFilterService:
     """
-    検索・フィルター処理に関するビジネスロジックを処理するサービス（Phase 3拡張版）
+    検索・フィルター処理に関するビジネスロジックを処理するサービス（拡張版）
 
     責任:
     - 検索条件の解析・分離
