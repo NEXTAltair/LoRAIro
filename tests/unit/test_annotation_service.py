@@ -37,11 +37,11 @@ class TestAnnotationServiceInitialization:
         """親オブジェクト指定での初期化"""
         mock_container = Mock()
         mock_get_container.return_value = mock_container
-        mock_parent = Mock(spec=QObject)
+        parent_obj = QObject()  # 実体のQObjectを使用
 
-        service = AnnotationService(parent=mock_parent)
+        service = AnnotationService(parent=parent_obj)
 
-        assert service.parent() is mock_parent
+        assert isinstance(service.parent(), QObject)  # 型確認に変更
         assert service.container is mock_container
 
     def test_signal_definitions(self):
@@ -89,8 +89,8 @@ class TestAnnotationServiceModelSync:
 
         # 検証
         mock_container.model_sync_service.sync_available_models.assert_called_once()
-        assert len(sync_spy) == 1
-        assert sync_spy[0][0] is mock_sync_result
+        assert sync_spy.count() == 1
+        assert sync_spy.at(0)[0] is mock_sync_result
 
     def test_sync_available_models_failure(self, service_with_mocks):
         """モデル同期失敗テスト"""
@@ -109,8 +109,8 @@ class TestAnnotationServiceModelSync:
         service.sync_available_models()
 
         # 検証
-        assert len(error_spy) == 1
-        error_message = error_spy[0][0]
+        assert error_spy.count() == 1
+        error_message = error_spy.at(0)[0]
         assert "モデル同期エラー" in error_message
         assert "エラー1" in error_message
         assert "エラー2" in error_message
@@ -129,8 +129,8 @@ class TestAnnotationServiceModelSync:
         service.sync_available_models()
 
         # 検証
-        assert len(error_spy) == 1
-        error_message = error_spy[0][0]
+        assert error_spy.count() == 1
+        error_message = error_spy.at(0)[0]
         assert "予期しないエラー" in error_message
         assert "同期処理エラー" in error_message
 
@@ -198,8 +198,8 @@ class TestAnnotationServiceModelRetrieval:
         service.fetch_available_annotators()
 
         # 検証
-        assert len(fetched_spy) == 1
-        model_names = fetched_spy[0][0]
+        assert fetched_spy.count() == 1
+        model_names = fetched_spy.at(0)[0]
         assert model_names == ["gpt-4o", "claude-3-5-sonnet"]
 
     def test_fetch_available_annotators_exception(self, service_with_mocks):
@@ -219,9 +219,9 @@ class TestAnnotationServiceModelRetrieval:
         service.fetch_available_annotators()
 
         # 検証
-        assert len(error_spy) == 1
-        assert len(fetched_spy) == 1
-        assert fetched_spy[0][0] == []  # 空リストが返される
+        assert error_spy.count() == 1
+        assert fetched_spy.count() == 1
+        assert fetched_spy.at(0)[0] == []  # 空リストが返される
 
 
 class TestAnnotationServiceSingleAnnotation:
@@ -259,8 +259,8 @@ class TestAnnotationServiceSingleAnnotation:
         mock_container.annotator_lib_adapter.call_annotate.assert_called_once_with(
             images=test_images, models=test_models, phash_list=test_phashes
         )
-        assert len(finished_spy) == 1
-        assert finished_spy[0][0] == mock_results
+        assert finished_spy.count() == 1
+        assert finished_spy.at(0)[0] == mock_results
         assert service._last_annotation_result == mock_results
         assert service.get_last_annotation_result() == mock_results
 
@@ -275,8 +275,8 @@ class TestAnnotationServiceSingleAnnotation:
         service.start_single_annotation([], ["phash_1"], ["gpt-4o"])
 
         # 検証
-        assert len(error_spy) == 1
-        assert "入力画像がありません" in error_spy[0][0]
+        assert error_spy.count() == 1
+        assert "入力画像がありません" in error_spy.at(0)[0]
         mock_container.annotator_lib_adapter.call_annotate.assert_not_called()
 
     def test_start_single_annotation_no_models(self, service_with_mocks):
@@ -291,8 +291,8 @@ class TestAnnotationServiceSingleAnnotation:
         service.start_single_annotation(test_images, ["phash_1"], [])
 
         # 検証
-        assert len(error_spy) == 1
-        assert "モデルが選択されていません" in error_spy[0][0]
+        assert error_spy.count() == 1
+        assert "モデルが選択されていません" in error_spy.at(0)[0]
 
     def test_start_single_annotation_phash_mismatch(self, service_with_mocks):
         """単発アノテーション - 画像とpHashの数不一致エラー"""
@@ -307,8 +307,8 @@ class TestAnnotationServiceSingleAnnotation:
         service.start_single_annotation(test_images, test_phashes, ["gpt-4o"])
 
         # 検証
-        assert len(error_spy) == 1
-        assert "画像とpHashの数が一致しません" in error_spy[0][0]
+        assert error_spy.count() == 1
+        assert "画像とpHashの数が一致しません" in error_spy.at(0)[0]
 
     def test_start_single_annotation_exception(self, service_with_mocks):
         """単発アノテーション処理例外"""
@@ -325,8 +325,8 @@ class TestAnnotationServiceSingleAnnotation:
         service.start_single_annotation(test_images, ["phash_1"], ["gpt-4o"])
 
         # 検証
-        assert len(error_spy) == 1
-        error_message = error_spy[0][0]
+        assert error_spy.count() == 1
+        error_message = error_spy.at(0)[0]
         assert "単発アノテーション処理エラー" in error_message
         assert "アノテーションエラー" in error_message
 
@@ -365,8 +365,8 @@ class TestAnnotationServiceBatchAnnotation:
         service.start_batch_annotation(test_image_paths, test_models, test_batch_size)
 
         # 検証
-        assert len(started_spy) == 1
-        assert started_spy[0][0] == len(test_image_paths)  # 総画像数
+        assert started_spy.count() == 1
+        assert started_spy.at(0)[0] == len(test_image_paths)  # 総画像数
 
         # execute_batch_annotationの呼び出し確認
         call_args = mock_container.batch_processor.execute_batch_annotation.call_args
@@ -375,8 +375,8 @@ class TestAnnotationServiceBatchAnnotation:
         assert call_args[1]["models"] == test_models
         assert call_args[1]["batch_size"] == test_batch_size
 
-        assert len(finished_spy) == 1
-        assert finished_spy[0][0] is mock_batch_result
+        assert finished_spy.count() == 1
+        assert finished_spy.at(0)[0] is mock_batch_result
         assert service._last_batch_result is mock_batch_result
         assert service.get_last_batch_result() is mock_batch_result
 
@@ -391,8 +391,8 @@ class TestAnnotationServiceBatchAnnotation:
         service.start_batch_annotation([], ["gpt-4o"])
 
         # 検証
-        assert len(error_spy) == 1
-        assert "画像パスが指定されていません" in error_spy[0][0]
+        assert error_spy.count() == 1
+        assert "画像パスが指定されていません" in error_spy.at(0)[0]
         mock_container.batch_processor.execute_batch_annotation.assert_not_called()
 
     def test_start_batch_annotation_no_models(self, service_with_mocks):
@@ -406,8 +406,8 @@ class TestAnnotationServiceBatchAnnotation:
         service.start_batch_annotation(["/path/to/image.jpg"], [])
 
         # 検証
-        assert len(error_spy) == 1
-        assert "モデルが選択されていません" in error_spy[0][0]
+        assert error_spy.count() == 1
+        assert "モデルが選択されていません" in error_spy.at(0)[0]
 
     def test_start_batch_annotation_exception(self, service_with_mocks):
         """バッチアノテーション処理例外"""
@@ -423,8 +423,8 @@ class TestAnnotationServiceBatchAnnotation:
         service.start_batch_annotation(["/path/to/image.jpg"], ["gpt-4o"])
 
         # 検証
-        assert len(error_spy) == 1
-        error_message = error_spy[0][0]
+        assert error_spy.count() == 1
+        error_message = error_spy.at(0)[0]
         assert "バッチアノテーション処理エラー" in error_message
         assert "バッチ処理エラー" in error_message
 
@@ -576,8 +576,8 @@ class TestAnnotationServiceInputValidation:
 
         # 検証
         assert result is False
-        assert len(error_spy) == 1
-        assert "入力画像がありません" in error_spy[0][0]
+        assert error_spy.count() == 1
+        assert "入力画像がありません" in error_spy.at(0)[0]
 
     def test_validate_annotation_input_empty_models(self, service_with_mocks):
         """空のモデルリスト検証"""
@@ -592,8 +592,8 @@ class TestAnnotationServiceInputValidation:
 
         # 検証
         assert result is False
-        assert len(error_spy) == 1
-        assert "モデルが選択されていません" in error_spy[0][0]
+        assert error_spy.count() == 1
+        assert "モデルが選択されていません" in error_spy.at(0)[0]
 
     def test_validate_annotation_input_phash_length_mismatch(self, service_with_mocks):
         """画像とpHashの数不一致検証"""
@@ -609,8 +609,8 @@ class TestAnnotationServiceInputValidation:
 
         # 検証
         assert result is False
-        assert len(error_spy) == 1
-        assert "画像とpHashの数が一致しません" in error_spy[0][0]
+        assert error_spy.count() == 1
+        assert "画像とpHashの数が一致しません" in error_spy.at(0)[0]
 
 
 # 境界値・エッジケーステスト

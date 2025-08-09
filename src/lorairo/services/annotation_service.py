@@ -94,6 +94,19 @@ class AnnotationService(QObject):
             logger.error(f"利用可能モデル取得エラー: {e}", exc_info=True)
             return []
 
+    def _get_available_models_with_exception(self) -> list[dict[str, Any]]:
+        """利用可能モデル一覧取得（例外を再発生させる内部メソッド）
+
+        Returns:
+            list[dict[str, Any]]: モデルメタデータリスト
+
+        Raises:
+            Exception: モデル取得時の例外
+        """
+        models = self.container.annotator_lib_adapter.get_available_models_with_metadata()
+        logger.debug(f"利用可能モデル取得: {len(models)}件")
+        return models
+
     def fetch_available_annotators(self) -> None:
         """利用可能アノテーター取得（既存互換性メソッド）
 
@@ -103,7 +116,7 @@ class AnnotationService(QObject):
         logger.info("利用可能アノテーター取得を開始します")
 
         try:
-            models = self.get_available_models()
+            models = self._get_available_models_with_exception()
             model_names = [model["name"] for model in models]
 
             logger.info(f"利用可能アノテーター取得完了: {len(model_names)}件")
