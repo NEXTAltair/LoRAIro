@@ -23,33 +23,35 @@ class TestWidgetServiceIntegration:
         yield widget
 
     @pytest.fixture
-    def mock_annotator_adapter(self):
-        """モック AnnotatorLibAdapter"""
+    def mock_model_registry(self):
+        """モック ModelRegistryServiceProtocol - AnnotatorLibAdapter廃止により更新"""
+        from lorairo.services.model_registry_protocol import ModelInfo
+
         mock = Mock()
-        mock.get_available_models_with_metadata.return_value = [
-            {
-                "name": "gpt-4o",
-                "provider": "openai",
-                "model_type": "multimodal",
-                "api_model_id": "gpt-4o-2024",
-                "requires_api_key": True,
-                "estimated_size_gb": None,
-            },
-            {
-                "name": "wd-v1-4",
-                "provider": "local",
-                "model_type": "tag",
-                "api_model_id": None,
-                "requires_api_key": False,
-                "estimated_size_gb": 2.5,
-            },
+        mock.get_available_models.return_value = [
+            ModelInfo(
+                name="gpt-4o",
+                provider="openai",
+                capabilities=["caption", "tag"],
+                api_model_id="gpt-4o",
+                requires_api_key=True,
+                estimated_size_gb=None,
+            ),
+            ModelInfo(
+                name="wd-v1-4",
+                provider="local",
+                capabilities=["tag"],
+                api_model_id=None,
+                requires_api_key=False,
+                estimated_size_gb=2.5,
+            ),
         ]
         return mock
 
     @pytest.fixture
-    def model_service(self, mock_annotator_adapter):
-        """ModelSelectionService インスタンス"""
-        service = ModelSelectionService(mock_annotator_adapter)
+    def model_service(self, mock_model_registry):
+        """ModelSelectionService インスタンス - Protocol-basedアーキテクチャに更新"""
+        service = ModelSelectionService(mock_model_registry)
         service.load_models()
         return service
 
@@ -66,92 +68,87 @@ class TestWidgetServiceIntegration:
     ):
         """FilterSearchPanel と SearchFilterService の統合テスト"""
         # FilterSearchPanel を実際のサービスと統合
-        with (
-            patch("lorairo.gui.widgets.filter.FilterSearchPanel.setupUi"),
-            patch("lorairo.gui.widgets.filter.FilterSearchPanel.setup_date_range_slider"),
-            patch("lorairo.gui.widgets.filter.FilterSearchPanel.setup_connections"),
-        ):
-            panel = FilterSearchPanel(parent_widget)
-            qtbot.addWidget(panel)
+        panel = FilterSearchPanel(parent_widget)
+        qtbot.addWidget(panel)
 
-            # UI要素をモック
-            panel.lineEditSearch = Mock()
-            panel.radioTags = Mock()
-            panel.radioAnd = Mock()
-            panel.comboResolution = Mock()
-            panel.comboAspectRatio = Mock()
-            panel.checkboxDateFilter = Mock()
-            panel.date_range_slider = Mock()
-            panel.checkboxOnlyUntagged = Mock()
-            panel.checkboxOnlyUncaptioned = Mock()
-            panel.checkboxExcludeDuplicates = Mock()
-            panel.checkboxIncludeNSFW = Mock()
-            panel.textEditPreview = Mock()
+        # UI要素をモック
+        panel.lineEditSearch = Mock()
+        panel.radioTags = Mock()
+        panel.radioAnd = Mock()
+        panel.comboResolution = Mock()
+        panel.comboAspectRatio = Mock()
+        panel.checkboxDateFilter = Mock()
+        panel.date_range_slider = Mock()
+        panel.checkboxOnlyUntagged = Mock()
+        panel.checkboxOnlyUncaptioned = Mock()
+        panel.checkboxExcludeDuplicates = Mock()
+        panel.checkboxIncludeNSFW = Mock()
+        panel.textEditPreview = Mock()
 
-            # サービスを統合
-            panel.search_service = search_service
+        # サービスを統合
+        panel.search_service = search_service
 
-            # テスト用検索条件設定
-            panel.lineEditSearch.text.return_value = "1girl, long hair"
-            panel.radioTags.isChecked.return_value = True
-            panel.radioAnd.isChecked.return_value = True
-            panel.comboResolution.currentText.return_value = "1024x1024"
-            panel.comboAspectRatio.currentText.return_value = "正方形 (1:1)"
-            panel.checkboxDateFilter.isChecked.return_value = False
-            panel.checkboxOnlyUntagged.isChecked.return_value = False
-            panel.checkboxOnlyUncaptioned.isChecked.return_value = False
-            panel.checkboxExcludeDuplicates.isChecked.return_value = True
-            panel.checkboxIncludeNSFW.isChecked.return_value = False
+        # テスト用検索条件設定
+        panel.lineEditSearch.text.return_value = "1girl, long hair"
+        panel.radioTags.isChecked.return_value = True
+        panel.radioAnd.isChecked.return_value = True
+        panel.comboResolution.currentText.return_value = "1024x1024"
+        panel.comboAspectRatio.currentText.return_value = "正方形 (1:1)"
+        panel.checkboxDateFilter.isChecked.return_value = False
+        panel.checkboxOnlyUntagged.isChecked.return_value = False
+        panel.checkboxOnlyUncaptioned.isChecked.return_value = False
+        panel.checkboxExcludeDuplicates.isChecked.return_value = True
+        panel.checkboxIncludeNSFW.isChecked.return_value = False
 
-            # 統合処理メソッドを実装
-            def process_search_with_service():
-                # UI から入力取得
-                search_text = panel.lineEditSearch.text()
-                search_type = "tags" if panel.radioTags.isChecked() else "caption"
-                tag_logic = "and" if panel.radioAnd.isChecked() else "or"
-                resolution = panel.comboResolution.currentText()
-                aspect_ratio = panel.comboAspectRatio.currentText()
+        # 統合処理メソッドを実装
+        def process_search_with_service():
+            # UI から入力取得
+            search_text = panel.lineEditSearch.text()
+            search_type = "tags" if panel.radioTags.isChecked() else "caption"
+            tag_logic = "and" if panel.radioAnd.isChecked() else "or"
+            resolution = panel.comboResolution.currentText()
+            aspect_ratio = panel.comboAspectRatio.currentText()
 
-                # サービスで検索条件作成
-                conditions = panel.search_service.create_search_conditions(
-                    search_text=search_text,
-                    search_type=search_type,
-                    tag_logic=tag_logic,
-                    resolution_filter=resolution,
-                    custom_width="",
-                    custom_height="",
-                    aspect_ratio_filter=aspect_ratio,
-                    date_filter_enabled=panel.checkboxDateFilter.isChecked(),
-                    date_range_start=None,
-                    date_range_end=None,
-                    only_untagged=panel.checkboxOnlyUntagged.isChecked(),
-                    only_uncaptioned=panel.checkboxOnlyUncaptioned.isChecked(),
-                    exclude_duplicates=panel.checkboxExcludeDuplicates.isChecked(),
-                )
+            # サービスで検索条件作成
+            conditions = panel.search_service.create_search_conditions(
+                search_text=search_text,
+                search_type=search_type,
+                tag_logic=tag_logic,
+                resolution_filter=resolution,
+                custom_width="",
+                custom_height="",
+                aspect_ratio_filter=aspect_ratio,
+                date_filter_enabled=panel.checkboxDateFilter.isChecked(),
+                date_range_start=None,
+                date_range_end=None,
+                only_untagged=panel.checkboxOnlyUntagged.isChecked(),
+                only_uncaptioned=panel.checkboxOnlyUncaptioned.isChecked(),
+                exclude_duplicates=panel.checkboxExcludeDuplicates.isChecked(),
+            )
 
-                # プレビュー生成
-                preview = panel.search_service.create_search_preview(conditions)
-                panel.textEditPreview.setPlainText(preview)
+            # プレビュー生成
+            preview = panel.search_service.create_search_preview(conditions)
+            panel.textEditPreview.setPlainText(preview)
 
-                return conditions, preview
+            return conditions, preview
 
-            panel.process_search_with_service = process_search_with_service
+        panel.process_search_with_service = process_search_with_service
 
-            # 統合テスト実行
-            conditions, preview = panel.process_search_with_service()
+        # 統合テスト実行
+        conditions, preview = panel.process_search_with_service()
 
-            # 結果確認
-            assert conditions.search_type == "tags"
-            assert conditions.keywords == ["1girl", "long hair"]
-            assert conditions.tag_logic == "and"
-            assert conditions.resolution_filter == "1024x1024"
-            assert conditions.exclude_duplicates is True
+        # 結果確認
+        assert conditions.search_type == "tags"
+        assert conditions.keywords == ["1girl", "long hair"]
+        assert conditions.tag_logic == "and"
+        assert conditions.resolution_filter == "1024x1024"
+        assert conditions.exclude_duplicates is True
 
-            # プレビューテキストが生成されていることを確認
-            assert "tags: 1girl, long hair" in preview
-            assert "すべて含む" in preview
-            assert "解像度: 1024x1024" in preview
-            assert "重複除外" in preview
+        # プレビューテキストが生成されていることを確認
+        assert "tags: 1girl, long hair" in preview
+        assert "すべて含む" in preview
+        assert "解像度: 1024x1024" in preview
+        assert "重複除外" in preview
 
     def test_model_selection_table_widget_integration(self, parent_widget, model_service, qtbot):
         """ModelSelectionTableWidget とサービスの統合テスト"""
@@ -177,18 +174,18 @@ class TestWidgetServiceIntegration:
                 },
                 {
                     "name": "wd-v1-4",
-                    "provider": "local", 
+                    "provider": "local",
                     "capabilities": ["tags"],
                     "is_local": True,
                 },
             ]
-            
+
             mock_widget.all_models = all_models
             mock_widget.filtered_models = all_models.copy()
 
             # テーブル更新シミュレート（4列構成）
             mock_widget.tableWidgetModels.setRowCount(len(all_models))
-            
+
             # 各行のセットアップ
             for row, model in enumerate(all_models):
                 # 列0: チェックボックス
@@ -218,7 +215,7 @@ class TestWidgetServiceIntegration:
 
         # UI更新が呼ばれたことを確認
         mock_widget.tableWidgetModels.setRowCount.assert_called_with(2)
-        
+
         # setItemが正しい回数呼ばれたことを確認（2行 × 4列 = 8回）
         assert mock_widget.tableWidgetModels.setItem.call_count == 8
 
@@ -342,7 +339,7 @@ class TestWidgetSignalIntegration:
         model_table_widget.selection_count_changed = Mock()
         model_table_widget.models_loaded = Mock()
 
-        # AnnotationControlWidgetのモック  
+        # AnnotationControlWidgetのモック
         annotation_control = Mock()
         annotation_control._on_model_selection_changed = Mock()
         annotation_control._on_selection_count_changed = Mock()
@@ -350,8 +347,12 @@ class TestWidgetSignalIntegration:
 
         # シグナル接続（AnnotationControlWidget内で行われる接続をシミュレート）
         def connect_model_table_to_annotation():
-            model_table_widget.model_selection_changed.connect(annotation_control._on_model_selection_changed)
-            model_table_widget.selection_count_changed.connect(annotation_control._on_selection_count_changed)
+            model_table_widget.model_selection_changed.connect(
+                annotation_control._on_model_selection_changed
+            )
+            model_table_widget.selection_count_changed.connect(
+                annotation_control._on_selection_count_changed
+            )
             model_table_widget.models_loaded.connect(annotation_control._on_models_loaded)
             return True
 
@@ -376,9 +377,7 @@ class TestWidgetSignalIntegration:
         model_table_widget.selection_count_changed.connect.assert_called_with(
             annotation_control._on_selection_count_changed
         )
-        model_table_widget.models_loaded.connect.assert_called_with(
-            annotation_control._on_models_loaded
-        )
+        model_table_widget.models_loaded.connect.assert_called_with(annotation_control._on_models_loaded)
 
     def test_annotation_results_to_data_display_signal_flow(self, parent_widget, qtbot):
         """AnnotationResults から DataDisplay への信号フロー"""
