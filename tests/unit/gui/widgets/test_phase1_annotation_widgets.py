@@ -564,15 +564,15 @@ class TestModelSelectionTableWidget:
         # Create mock widget instead of real widget to avoid UI dependency issues
         widget = Mock()
         widget.parent = QWidget()
-        
+
         # UI要素をモック
         widget.tableWidgetModels = Mock()
-        
+
         # 基本メソッドを手動実装
         widget.all_models = []
         widget.filtered_models = []
         widget.search_filter_service = None
-        
+
         return widget
 
     @pytest.fixture
@@ -587,7 +587,7 @@ class TestModelSelectionTableWidget:
             },
             {
                 "name": "claude-3-sonnet",
-                "provider": "anthropic", 
+                "provider": "anthropic",
                 "capabilities": ["caption", "tags"],
                 "requires_api_key": True,
                 "is_local": False,
@@ -605,19 +605,19 @@ class TestModelSelectionTableWidget:
     def mock_service(self, sample_models):
         svc = Mock()
         svc.get_annotation_models_list.return_value = sample_models
-        
+
         def filter_models(models, function_types, providers):
             def provider_match(m):
                 return ("web_api" in providers and not m.get("is_local", False)) or (
                     "local" in providers and m.get("is_local", False)
                 )
-            
+
             def capability_match(m):
                 caps = m.get("capabilities", [])
                 return any(ft in caps for ft in function_types)
-            
+
             return [m for m in models if provider_match(m) and capability_match(m)]
-        
+
         svc.filter_models_by_criteria.side_effect = filter_models
         return svc
 
@@ -627,12 +627,12 @@ class TestModelSelectionTableWidget:
         def set_search_filter_service(service):
             widget.search_filter_service = service
             return True
-        
+
         widget.set_search_filter_service = set_search_filter_service
-        
+
         # 実行
         result = widget.set_search_filter_service(mock_service)
-        
+
         # 結果確認
         assert result is True
         assert widget.search_filter_service == mock_service
@@ -640,21 +640,21 @@ class TestModelSelectionTableWidget:
     def test_load_models(self, widget, mock_service, sample_models):
         """モデル読み込みテスト"""
         widget.search_filter_service = mock_service
-        
+
         # load_models メソッドを手動実装
         def load_models():
             if not widget.search_filter_service:
                 return False
-            
+
             widget.all_models = widget.search_filter_service.get_annotation_models_list()
             widget.filtered_models = widget.all_models.copy()
             return len(widget.all_models)
-        
+
         widget.load_models = load_models
-        
+
         # 実行
         model_count = widget.load_models()
-        
+
         # 結果確認
         assert model_count == 3
         assert len(widget.all_models) == 3
@@ -664,27 +664,27 @@ class TestModelSelectionTableWidget:
         """フィルター適用テスト"""
         widget.search_filter_service = mock_service
         widget.all_models = sample_models
-        
+
         # apply_filters メソッドを手動実装
         def apply_filters(function_types=None, providers=None):
             if not widget.search_filter_service:
                 return []
-            
+
             widget.filtered_models = widget.search_filter_service.filter_models_by_criteria(
-                models=widget.all_models, 
+                models=widget.all_models,
                 function_types=function_types or [],
                 providers=providers or []
             )
             return widget.filtered_models
-        
+
         widget.apply_filters = apply_filters
-        
+
         # 実行：caption機能のweb_apiモデルのみ
         filtered = widget.apply_filters(
             function_types=["caption"],
             providers=["web_api"]
         )
-        
+
         # 結果確認
         assert len(filtered) == 2  # gpt-4-vision-preview, claude-3-sonnet
         model_names = [m["name"] for m in filtered]
@@ -703,18 +703,18 @@ class TestModelSelectionTableWidget:
                 (Mock(checkState=Mock(return_value=Qt.CheckState.Unchecked)), Mock(text=Mock(return_value="claude-3-sonnet"))),
                 (Mock(checkState=Mock(return_value=Qt.CheckState.Checked)), Mock(text=Mock(return_value="wd-v1-4"))),
             ]
-            
+
             for checkbox_item, name_item in mock_items:
                 if checkbox_item.checkState() == Qt.CheckState.Checked:
                     selected_models.append(name_item.text())
-            
+
             return selected_models
-        
+
         widget.get_selected_models = get_selected_models
-        
+
         # 実行
         selected = widget.get_selected_models()
-        
+
         # 結果確認
         assert len(selected) == 2
         assert "gpt-4o" in selected
@@ -727,13 +727,13 @@ class TestModelSelectionTableWidget:
         def set_selected_models(model_names):
             widget.selected_model_names = model_names
             return len(model_names)
-        
+
         widget.set_selected_models = set_selected_models
-        
+
         # 実行
         target_models = ["gpt-4o", "claude-3-sonnet"]
         count = widget.set_selected_models(target_models)
-        
+
         # 結果確認
         assert count == 2
         assert widget.selected_model_names == target_models
@@ -742,18 +742,18 @@ class TestModelSelectionTableWidget:
         """モデル選択変更シグナルテスト"""
         # シグナル発行をモック
         widget.model_selection_changed = Mock()
-        
+
         # _on_table_item_changed メソッドを手動実装
         def _on_table_item_changed():
             selected_models = ["gpt-4o", "wd-v1-4"]
             widget.model_selection_changed.emit(selected_models)
             return selected_models
-        
+
         widget._on_table_item_changed = _on_table_item_changed
-        
+
         # 実行
         result = widget._on_table_item_changed()
-        
+
         # 結果確認
         assert result == ["gpt-4o", "wd-v1-4"]
         widget.model_selection_changed.emit.assert_called_once_with(["gpt-4o", "wd-v1-4"])
@@ -768,7 +768,7 @@ class TestAnnotationControlWidgetV2:
         # Create mock widget instead of real widget to avoid UI dependency issues
         widget = Mock()
         widget.parent = QWidget()
-        
+
         # UI要素をモック
         widget.checkBoxCaption = Mock()
         widget.checkBoxTagger = Mock()
@@ -778,10 +778,10 @@ class TestAnnotationControlWidgetV2:
         widget.checkBoxLowResolution = Mock()
         widget.checkBoxBatchMode = Mock()
         widget.pushButtonStart = Mock()
-        
+
         # ModelSelectionTableWidgetをモック
         widget.modelSelectionTable = Mock()
-        
+
         # 現在の設定
         from lorairo.gui.widgets.annotation_control_widget import AnnotationSettings
         widget.current_settings = AnnotationSettings(
@@ -789,10 +789,10 @@ class TestAnnotationControlWidgetV2:
             selected_providers=["web_api", "local"],
             selected_models=[],
         )
-        
+
         return widget
 
-    @pytest.fixture  
+    @pytest.fixture
     def mock_service(self):
         svc = Mock()
         svc.validate_annotation_settings.return_value = Mock(is_valid=True, error_message=None)
@@ -807,12 +807,12 @@ class TestAnnotationControlWidgetV2:
             widget.modelSelectionTable.set_search_filter_service(service)
             widget.modelSelectionTable.load_models()
             return True
-        
+
         widget.set_search_filter_service = set_search_filter_service
-        
+
         # 実行
         result = widget.set_search_filter_service(mock_service)
-        
+
         # 結果確認
         assert result is True
         assert widget.search_filter_service == mock_service
@@ -822,7 +822,7 @@ class TestAnnotationControlWidgetV2:
     def test_function_type_filtering(self, widget, mock_service):
         """機能タイプフィルタリングテスト"""
         widget.search_filter_service = mock_service
-        
+
         # _on_function_type_changed メソッドを手動実装
         def _on_function_type_changed():
             # UI状態取得
@@ -833,21 +833,21 @@ class TestAnnotationControlWidgetV2:
                 function_types.append("tags")
             if widget.checkBoxScorer.isChecked():
                 function_types.append("scores")
-            
+
             # ModelSelectionTableWidgetにフィルター適用
             widget.modelSelectionTable.apply_filters(function_types=function_types)
             return function_types
-        
+
         widget._on_function_type_changed = _on_function_type_changed
-        
+
         # UI状態設定：captionのみ選択
         widget.checkBoxCaption.isChecked.return_value = True
         widget.checkBoxTagger.isChecked.return_value = False
         widget.checkBoxScorer.isChecked.return_value = False
-        
+
         # 実行
         result = widget._on_function_type_changed()
-        
+
         # 結果確認
         assert result == ["caption"]
         widget.modelSelectionTable.apply_filters.assert_called_with(function_types=["caption"])
@@ -855,7 +855,7 @@ class TestAnnotationControlWidgetV2:
     def test_provider_filtering(self, widget, mock_service):
         """プロバイダーフィルタリングテスト"""
         widget.search_filter_service = mock_service
-        
+
         # _on_provider_changed メソッドを手動実装
         def _on_provider_changed():
             providers = []
@@ -863,19 +863,19 @@ class TestAnnotationControlWidgetV2:
                 providers.append("web_api")
             if widget.checkBoxLocal.isChecked():
                 providers.append("local")
-            
+
             widget.modelSelectionTable.apply_filters(providers=providers)
             return providers
-        
+
         widget._on_provider_changed = _on_provider_changed
-        
+
         # UI状態設定：Web APIのみ選択
         widget.checkBoxWebAPI.isChecked.return_value = True
         widget.checkBoxLocal.isChecked.return_value = False
-        
+
         # 実行
         result = widget._on_provider_changed()
-        
+
         # 結果確認
         assert result == ["web_api"]
         widget.modelSelectionTable.apply_filters.assert_called_with(providers=["web_api"])
@@ -884,17 +884,17 @@ class TestAnnotationControlWidgetV2:
         """有効な設定での実行テスト"""
         widget.search_filter_service = mock_service
         widget.annotation_started = Mock()
-        
+
         # _on_execute_clicked メソッドを手動実装
         def _on_execute_clicked():
             # 選択モデル取得
             selected_models = ["gpt-4o", "claude-3-sonnet"]
             widget.modelSelectionTable.get_selected_models.return_value = selected_models
-            
+
             # 設定検証
             if not selected_models:
                 return False
-            
+
             # 設定更新
             from lorairo.gui.widgets.annotation_control_widget import AnnotationSettings
             settings = AnnotationSettings(
@@ -904,16 +904,16 @@ class TestAnnotationControlWidgetV2:
                 use_low_resolution=False,
                 batch_mode=False
             )
-            
+
             # シグナル発行
             widget.annotation_started.emit(settings)
             return True
-        
+
         widget._on_execute_clicked = _on_execute_clicked
-        
+
         # 実行
         result = widget._on_execute_clicked()
-        
+
         # 結果確認
         assert result is True
         widget.annotation_started.emit.assert_called_once()
@@ -921,22 +921,22 @@ class TestAnnotationControlWidgetV2:
     def test_execute_clicked_without_models(self, widget):
         """モデル未選択での実行テスト"""
         widget.annotation_started = Mock()
-        
+
         # _on_execute_clicked メソッドを手動実装（モデル未選択）
         def _on_execute_clicked():
             selected_models = []
             widget.modelSelectionTable.get_selected_models.return_value = selected_models
-            
+
             if not selected_models:
                 return False  # シグナル発行せず
-            
+
             return True
-        
+
         widget._on_execute_clicked = _on_execute_clicked
-        
+
         # 実行
         result = widget._on_execute_clicked()
-        
+
         # 結果確認
         assert result is False
         widget.annotation_started.emit.assert_not_called()
@@ -956,19 +956,19 @@ class TestAnnotationControlWidgetV2:
             ]
             for checkbox in checkboxes:
                 checkbox.setEnabled(enabled)
-            
+
             widget.modelSelectionTable.setEnabled(enabled)
             widget.pushButtonStart.setEnabled(enabled)
             return enabled
-        
+
         widget.set_enabled_state = set_enabled_state
-        
+
         # 無効化テスト
         result = widget.set_enabled_state(False)
         assert result is False
         widget.pushButtonStart.setEnabled.assert_called_with(False)
         widget.modelSelectionTable.setEnabled.assert_called_with(False)
-        
+
         # 有効化テスト
         result = widget.set_enabled_state(True)
         assert result is True
