@@ -1,26 +1,24 @@
 """
-Annotation Control Widget (Phase 2: UI専用・責任分離版)
+Annotation Control Widget (Phase 3: ModelSelectionTableWidget統合版)
 
 複数モデル選択・実行制御機能を提供
 機能タイプ・実行環境によるフィルタリングと実行制御
 
-Phase 2変更:
-- SearchFilterService依存注入パターン継承（Phase 1）
-- ビジネスロジックをSearchFilterServiceに移行
-- UI専用処理に軽量化
-
-# TODO: レイアウトの調整はまた今度やる｡ 2025-08-03
+Phase 3変更:
+- ModelSelectionTableWidgetを統合
+- テーブル管理ロジックを専用ウィジェットに分離
 """
 
 from dataclasses import dataclass
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtWidgets import QHeaderView, QTableWidget, QTableWidgetItem, QWidget
+from PySide6.QtWidgets import QWidget
 
 from ...gui.designer.AnnotationControlWidget_ui import Ui_AnnotationControlWidget
 from ...utils.log import logger
 from ..services.search_filter_service import SearchFilterService
+from .model_selection_table_widget import ModelSelectionTableWidget
 
 
 @dataclass
@@ -60,10 +58,6 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
         # 依存関係（Phase 1パターン継承）
         self.search_filter_service: SearchFilterService | None = None
 
-        # モデル情報（UI表示用）
-        self.all_models: list[dict[str, Any]] = []
-        self.filtered_models: list[dict[str, Any]] = []
-
         # 現在の設定
         self.current_settings: AnnotationSettings = AnnotationSettings(
             selected_function_types=["caption", "tags", "scores"],
@@ -74,9 +68,9 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
         # UI初期化
         self._setup_connections()
         self._setup_widget_properties()
-        self._setup_model_table()
+        self._setup_model_table_widget()
 
-        logger.debug("AnnotationControlWidget initialized (UI-only)")
+        logger.debug("AnnotationControlWidget initialized (ModelSelectionTableWidget integrated)")
 
     def _setup_connections(self) -> None:
         """シグナル・スロット接続設定"""
@@ -96,167 +90,53 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
         # 実行ボタン
         self.pushButtonStart.clicked.connect(self._on_execute_clicked)
 
+        # ModelSelectionTableWidgetのシグナル接続（UI統合後に設定）
+
     def _setup_widget_properties(self) -> None:
-        # TODO: レイアウトの定義はQtデザイナーで 2025-08-03
-        """ウィジェットプロパティ設定"""
-        # チェックボックス共通スタイル
-        checkbox_style = """
-            QCheckBox {
-                font-size: 10px;
-                font-weight: normal;
-                spacing: 5px;
-            }
-            QCheckBox::indicator {
-                width: 14px;
-                height: 14px;
-            }
-            QCheckBox::indicator:unchecked {
-                border: 1px solid #ccc;
-                background-color: white;
-                border-radius: 2px;
-            }
-            QCheckBox::indicator:checked {
-                border: 1px solid #4CAF50;
-                background-color: #4CAF50;
-                border-radius: 2px;
-            }
-        """
+        """ウィジェットプロパティ設定（スタイルはQt Designerで定義済み）"""
+        # スタイルシートはQt Designer UIファイルで定義済み
+        # 追加のプロパティ設定が必要な場合はここに記述
+        pass
 
-        # 各チェックボックスにスタイル適用
-        checkboxes = [
-            self.checkBoxCaption,
-            self.checkBoxTagger,
-            self.checkBoxScorer,
-            self.checkBoxWebAPI,
-            self.checkBoxLocal,
-            self.checkBoxLowResolution,
-            self.checkBoxBatchMode,
-        ]
-        for checkbox in checkboxes:
-            checkbox.setStyleSheet(checkbox_style)
-
-        # 実行ボタンスタイル
-        self.pushButtonStart.setStyleSheet(""" # type: ignore
-            QPushButton {
-                font-size: 12px;
-                font-weight: bold;
-                padding: 8px 16px;
-                border: 2px solid #4CAF50;
-                border-radius: 6px;
-                background-color: #f0f8f0;
-                color: #2E7D32;
-                min-height: 30px;
-            }
-            QPushButton:hover {
-                background-color: #e8f5e8;
-            }
-            QPushButton:pressed {
-                background-color: #4CAF50;
-                color: white;
-            }
-            QPushButton:disabled {
-                background-color: #f5f5f5;
-                color: #aaa;
-                border-color: #ddd;
-            }
-        """)
-
-    def _setup_model_table(self) -> None:
-        # TODO: 別ウィジェットにしてQtデザイナーで作成する 2025-08-03
-        """モデル選択テーブルを設定"""
+    def _setup_model_table_widget(self) -> None:
+        """ModelSelectionTableWidgetの設定と接続"""
         try:
-            # テーブル基本設定
-            self.tableWidgetModels.setColumnCount(4)
-            self.tableWidgetModels.setHorizontalHeaderLabels(["選択", "モデル名", "プロバイダー", "機能"])
+            # ModelSelectionTableWidgetのシグナル接続
+            self.modelSelectionTable.model_selection_changed.connect(self._on_model_selection_changed)
+            self.modelSelectionTable.selection_count_changed.connect(self._on_selection_count_changed)
+            self.modelSelectionTable.models_loaded.connect(self._on_models_loaded)
 
-            # ヘッダー設定
-            header = self.tableWidgetModels.horizontalHeader()
-            header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # 選択列
-            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # モデル名列
-            header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # プロバイダー列
-            header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # 機能列
-
-            # テーブルスタイル
-            self.tableWidgetModels.setStyleSheet("""
-                QTableWidget {
-                    font-size: 9px;
-                    gridline-color: #e0e0e0;
-                    selection-background-color: #e3f2fd;
-                }
-                QTableWidget::item {
-                    padding: 4px;
-                }
-                QHeaderView::section {
-                    font-size: 9px;
-                    font-weight: bold;
-                    background-color: #f5f5f5;
-                    border: 1px solid #ddd;
-                    padding: 4px;
-                }
-            """)
-
-            # 選択動作設定
-            self.tableWidgetModels.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-            self.tableWidgetModels.setAlternatingRowColors(True)
-
-            logger.debug("Model selection table setup completed")
+            logger.debug("ModelSelectionTableWidget setup completed")
 
         except Exception as e:
-            logger.error(f"Error setting up model table: {e}", exc_info=True)
+            logger.error(f"Error setting up ModelSelectionTableWidget: {e}", exc_info=True)
 
     def set_search_filter_service(self, service: SearchFilterService) -> None:
-        """Phase 1パターン継承：SearchFilterService設定"""
+        """SearchFilterService設定（ModelSelectionTableWidgetに委譲）"""
         self.search_filter_service = service
-        # サービス設定後、モデル情報を再ロード
-        self.load_models()
-        logger.debug("SearchFilterService set for AnnotationControlWidget")
+        # ModelSelectionTableWidgetにもサービス設定
+        self.modelSelectionTable.set_search_filter_service(service)
+        # モデル情報をロード
+        self.modelSelectionTable.load_models()
+        logger.debug("SearchFilterService set for AnnotationControlWidget and ModelSelectionTableWidget")
 
+    @Slot(list)
+    def _on_model_selection_changed(self, selected_models: list[str]) -> None:
+        """ModelSelectionTableWidgetからのモデル選択変更通知"""
+        self.current_settings.selected_models = selected_models
+        self.settings_changed.emit(self.current_settings)
+        logger.debug(f"Model selection updated: {len(selected_models)} models selected")
 
-    def load_models(self) -> None:
-        """モデル情報を取得（SearchFilterService経由）"""
-        if self.search_filter_service:
-            # Phase 1パターン：SearchFilterService経由でモデル取得
-            try:
-                self.all_models = self.search_filter_service.get_annotation_models_list()
-                logger.info(f"Loaded {len(self.all_models)} models via SearchFilterService")
+    @Slot(int, int)
+    def _on_selection_count_changed(self, selected_count: int, total_count: int) -> None:
+        """ModelSelectionTableWidgetからの選択数変更通知"""
+        logger.debug(f"Selection count changed: {selected_count}/{total_count}")
 
-                # フィルタリングしてテーブル更新
-                self._apply_filters()
-                self.models_refreshed.emit(len(self.all_models))
-
-            except Exception as e:
-                logger.error(f"Failed to load models via SearchFilterService: {e}")
-                self.all_models = []
-
-        elif self.annotator_adapter:
-            # 後方互換性：直接AnnotatorLibAdapter使用（非推奨）
-            logger.warning("Using AnnotatorLibAdapter directly (deprecated, use SearchFilterService)")
-            try:
-                models_metadata = self.annotator_adapter.get_available_models_with_metadata()
-
-                # 簡易変換（機能推定なし）
-                self.all_models = []
-                for model_data in models_metadata:
-                    model_info = {
-                        "name": model_data.get("name", ""),
-                        "provider": model_data.get("provider", "unknown"),
-                        "capabilities": ["caption"],  # デフォルト
-                        "requires_api_key": model_data.get("requires_api_key", False),
-                        "is_local": model_data.get("provider", "").lower() == "local",
-                        "estimated_size_gb": model_data.get("estimated_size_gb"),
-                    }
-                    self.all_models.append(model_info)
-
-                logger.info(f"Loaded {len(self.all_models)} models from AnnotatorLibAdapter (direct)")
-                self._apply_filters()
-                self.models_refreshed.emit(len(self.all_models))
-
-            except Exception as e:
-                logger.error(f"Failed to load models: {e}", exc_info=True)
-                self.all_models = []
-        else:
-            logger.warning("Neither SearchFilterService nor AnnotatorLibAdapter available")
-            self.all_models = []
+    @Slot(int)
+    def _on_models_loaded(self, model_count: int) -> None:
+        """ModelSelectionTableWidgetからのモデル読み込み完了通知"""
+        self.models_refreshed.emit(model_count)
+        logger.debug(f"Models loaded notification: {model_count} models")
 
     @Slot()
     def _on_function_type_changed(self) -> None:
@@ -337,8 +217,8 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
             if self.checkBoxLocal.isChecked():
                 providers.append("local")
 
-            # 選択モデル取得
-            selected_models = self._get_selected_models()
+            # 選択モデル取得（ModelSelectionTableWidgetから）
+            selected_models = self.modelSelectionTable.get_selected_models()
 
             # オプション取得
             use_low_resolution = self.checkBoxLowResolution.isChecked()
@@ -353,124 +233,28 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
                 batch_mode=batch_mode,
             )
 
-            # 設定変更シグナル送信
-            self.settings_changed.emit(self.current_settings)
+            # 設定変更シグナル送信（モデル選択変更以外の場合のみ）
+            # モデル選択変更は_on_model_selection_changedで処理済み
 
         except Exception as e:
             logger.error(f"Error updating settings: {e}")
 
     def _apply_filters(self) -> None:
-        """フィルターを適用してテーブル更新（SearchFilterService経由）"""
+        """フィルターを適用（ModelSelectionTableWidgetに委譲）"""
         try:
             # 現在の設定取得
             self._update_current_settings()
 
-            if self.search_filter_service:
-                # Phase 1パターン：SearchFilterService経由でフィルタリング
-                self.filtered_models = self.search_filter_service.filter_models_by_criteria(
-                    models=self.all_models,
-                    function_types=self.current_settings.selected_function_types,
-                    providers=self.current_settings.selected_providers,
-                )
-            else:
-                # フォールバック：直接フィルタリング（非推奨）
-                self.filtered_models = []
-                for model in self.all_models:
-                    # プロバイダーフィルター
-                    if not self._model_matches_provider_filter(model):
-                        continue
+            # ModelSelectionTableWidgetにフィルターを適用
+            self.modelSelectionTable.apply_filters(
+                function_types=self.current_settings.selected_function_types,
+                providers=self.current_settings.selected_providers,
+            )
 
-                    # 機能フィルター
-                    if not self._model_matches_function_filter(model):
-                        continue
-
-                    self.filtered_models.append(model)
-
-            # テーブル更新（UI専用処理）
-            self._update_model_table()
-
-            logger.debug(f"Applied filters: {len(self.filtered_models)} models displayed")
+            logger.debug("Applied filters to ModelSelectionTableWidget")
 
         except Exception as e:
             logger.error(f"Error applying filters: {e}", exc_info=True)
-
-    def _model_matches_provider_filter(self, model: dict[str, Any]) -> bool:
-        """モデルがプロバイダーフィルターに一致するかチェック"""
-        if not self.current_settings.selected_providers:
-            return False
-
-        if "web_api" in self.current_settings.selected_providers:
-            if not model["is_local"]:
-                return True
-
-        if "local" in self.current_settings.selected_providers:
-            if model["is_local"]:
-                return True
-
-        return False
-
-    def _model_matches_function_filter(self, model: dict[str, Any]) -> bool:
-        """モデルが機能フィルターに一致するかチェック"""
-        if not self.current_settings.selected_function_types:
-            return False
-
-        model_capabilities = model.get("capabilities", [])
-        return any(func in model_capabilities for func in self.current_settings.selected_function_types)
-
-    def _update_model_table(self) -> None:
-        """モデルテーブルを更新"""
-        try:
-            # テーブルクリア
-            self.tableWidgetModels.setRowCount(0)
-
-            # フィルタされたモデルを追加
-            for row, model in enumerate(self.filtered_models):
-                self.tableWidgetModels.insertRow(row)
-
-                # チェックボックス列（選択）
-                checkbox_item = QTableWidgetItem()
-                checkbox_item.setFlags(checkbox_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                checkbox_item.setCheckState(Qt.CheckState.Unchecked)  # デフォルト未選択
-                self.tableWidgetModels.setItem(row, 0, checkbox_item)
-
-                # モデル名列
-                name_item = QTableWidgetItem(model["name"])
-                name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self.tableWidgetModels.setItem(row, 1, name_item)
-
-                # プロバイダー列
-                provider_display = "ローカル" if model["is_local"] else model["provider"].title()
-                provider_item = QTableWidgetItem(provider_display)
-                provider_item.setFlags(provider_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self.tableWidgetModels.setItem(row, 2, provider_item)
-
-                # 機能列
-                capabilities_text = ", ".join(model.get("capabilities", []))
-                capability_item = QTableWidgetItem(capabilities_text)
-                capability_item.setFlags(capability_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self.tableWidgetModels.setItem(row, 3, capability_item)
-
-            logger.debug(f"Model table updated with {len(self.filtered_models)} models")
-
-        except Exception as e:
-            logger.error(f"Error updating model table: {e}")
-
-    def _get_selected_models(self) -> list[str]:
-        """選択されたモデル名のリストを取得"""
-        selected_models = []
-
-        try:
-            for row in range(self.tableWidgetModels.rowCount()):
-                checkbox_item = self.tableWidgetModels.item(row, 0)
-                if checkbox_item and checkbox_item.checkState() == Qt.CheckState.Checked:  # Checked
-                    model_name_item = self.tableWidgetModels.item(row, 1)
-                    if model_name_item:
-                        selected_models.append(model_name_item.text())
-
-        except Exception as e:
-            logger.error(f"Error getting selected models: {e}")
-
-        return selected_models
 
     def get_current_settings(self) -> AnnotationSettings:
         """現在の設定を取得"""
@@ -492,8 +276,8 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
         for checkbox in checkboxes:
             checkbox.setEnabled(enabled)
 
-        # テーブルと実行ボタン
-        self.tableWidgetModels.setEnabled(enabled)
+        # ModelSelectionTableWidgetと実行ボタン
+        self.modelSelectionTable.setEnabled(enabled)
         self.pushButtonStart.setEnabled(enabled)
 
         if not enabled:
