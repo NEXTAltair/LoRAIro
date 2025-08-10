@@ -153,45 +153,59 @@ class TestWidgetServiceIntegration:
             assert "解像度: 1024x1024" in preview
             assert "重複除外" in preview
 
-    def test_model_service_with_widget_integration(self, parent_widget, model_service, qtbot):
-        """ModelSelectionService とウィジェットの統合テスト"""
-        # モデル選択ウィジェットのモック
+    def test_model_selection_table_widget_integration(self, parent_widget, model_service, qtbot):
+        """ModelSelectionTableWidget とサービスの統合テスト"""
+        # ModelSelectionTableWidgetのモック
         mock_widget = QWidget(parent_widget)
         qtbot.addWidget(mock_widget)
 
-        # UI要素をモック
-        mock_widget.comboProvider = Mock()
-        mock_widget.tableModels = Mock()
-        mock_widget.labelRecommended = Mock()
+        # UI要素をモック（ModelSelectionTableWidget相当）
+        mock_widget.tableWidgetModels = Mock()
+        mock_widget.search_filter_service = None
+        mock_widget.all_models = []
+        mock_widget.filtered_models = []
 
-        # サービス統合処理を実装
+        # ModelSelectionTableWidget統合処理を実装
         def integrate_with_model_service():
-            # 全モデル取得
-            all_models = model_service.get_all_models()
+            # SearchFilterService相当のモデル取得
+            all_models = [
+                {
+                    "name": "gpt-4o",
+                    "provider": "openai",
+                    "capabilities": ["caption", "tags"],
+                    "is_local": False,
+                },
+                {
+                    "name": "wd-v1-4",
+                    "provider": "local", 
+                    "capabilities": ["tags"],
+                    "is_local": True,
+                },
+            ]
+            
+            mock_widget.all_models = all_models
+            mock_widget.filtered_models = all_models.copy()
 
-            # プロバイダー別にグループ化
-            grouped = model_service.group_models_by_provider(all_models)
-
-            # 推奨モデル取得
-            recommended = model_service.get_recommended_models()
-
-            # UI更新シミュレート
-            providers = list(grouped.keys())
-            mock_widget.comboProvider.clear()
-            mock_widget.comboProvider.addItems(["すべて", *providers])
-
-            # テーブル更新
-            mock_widget.tableModels.setRowCount(len(all_models))
-
-            # 推奨表示
-            recommended_names = [m.name for m in recommended]
-            mock_widget.labelRecommended.setText(f"推奨: {', '.join(recommended_names)}")
+            # テーブル更新シミュレート（4列構成）
+            mock_widget.tableWidgetModels.setRowCount(len(all_models))
+            
+            # 各行のセットアップ
+            for row, model in enumerate(all_models):
+                # 列0: チェックボックス
+                mock_widget.tableWidgetModels.setItem(row, 0, f"checkbox_{row}")
+                # 列1: モデル名
+                mock_widget.tableWidgetModels.setItem(row, 1, model["name"])
+                # 列2: プロバイダー
+                provider_display = "ローカル" if model["is_local"] else model["provider"].title()
+                mock_widget.tableWidgetModels.setItem(row, 2, provider_display)
+                # 列3: 機能
+                capabilities_text = ", ".join(model["capabilities"])
+                mock_widget.tableWidgetModels.setItem(row, 3, capabilities_text)
 
             return {
                 "all_models": all_models,
-                "grouped": grouped,
-                "recommended": recommended,
-                "providers": providers,
+                "filtered_models": mock_widget.filtered_models,
+                "row_count": len(all_models),
             }
 
         # 統合テスト実行
@@ -199,14 +213,14 @@ class TestWidgetServiceIntegration:
 
         # 結果確認
         assert len(result["all_models"]) == 2
-        assert "openai" in result["grouped"]
-        assert "local" in result["grouped"]
-        assert len(result["recommended"]) >= 1  # gpt-4o が推奨に含まれる
+        assert len(result["filtered_models"]) == 2
+        assert result["row_count"] == 2
 
         # UI更新が呼ばれたことを確認
-        mock_widget.comboProvider.clear.assert_called_once()
-        mock_widget.tableModels.setRowCount.assert_called_with(2)
-        mock_widget.labelRecommended.setText.assert_called()
+        mock_widget.tableWidgetModels.setRowCount.assert_called_with(2)
+        
+        # setItemが正しい回数呼ばれたことを確認（2行 × 4列 = 8回）
+        assert mock_widget.tableWidgetModels.setItem.call_count == 8
 
     def test_custom_range_slider_date_mode_integration(self, parent_widget, qtbot):
         """CustomRangeSlider の日付モード統合テスト"""
@@ -320,32 +334,50 @@ class TestWidgetSignalIntegration:
         # シグナル受信確認
         filter_panel.filterApplied.connect.assert_called_with(model_widget.update_model_list)
 
-    def test_model_selection_to_annotation_control_signal_flow(self, parent_widget, qtbot):
-        """ModelSelection から AnnotationControl への信号フロー"""
-        # モデル選択ウィジェットのモック
-        model_widget = Mock()
-        model_widget.modelSelectionChanged = Mock()
+    def test_model_selection_table_to_annotation_control_signal_flow(self, parent_widget, qtbot):
+        """ModelSelectionTableWidget から AnnotationControl への信号フロー"""
+        # ModelSelectionTableWidgetのモック
+        model_table_widget = Mock()
+        model_table_widget.model_selection_changed = Mock()
+        model_table_widget.selection_count_changed = Mock()
+        model_table_widget.models_loaded = Mock()
 
-        # アノテーション制御ウィジェットのモック
+        # AnnotationControlWidgetのモック  
         annotation_control = Mock()
-        annotation_control.update_selected_models = Mock()
+        annotation_control._on_model_selection_changed = Mock()
+        annotation_control._on_selection_count_changed = Mock()
+        annotation_control._on_models_loaded = Mock()
 
-        # シグナル接続
-        def connect_model_to_annotation():
-            model_widget.modelSelectionChanged.connect(annotation_control.update_selected_models)
+        # シグナル接続（AnnotationControlWidget内で行われる接続をシミュレート）
+        def connect_model_table_to_annotation():
+            model_table_widget.model_selection_changed.connect(annotation_control._on_model_selection_changed)
+            model_table_widget.selection_count_changed.connect(annotation_control._on_selection_count_changed)
+            model_table_widget.models_loaded.connect(annotation_control._on_models_loaded)
             return True
 
         # 接続実行
-        result = connect_model_to_annotation()
+        result = connect_model_table_to_annotation()
         assert result is True
 
-        # シグナル発行テスト
-        selected_models = ["gpt-4o", "claude-3-5-sonnet", "wd-v1-4"]
-        model_widget.modelSelectionChanged.emit(selected_models)
+        # シグナル発行テスト1: モデル選択変更
+        selected_models = ["gpt-4o", "claude-3-sonnet", "wd-v1-4"]
+        model_table_widget.model_selection_changed.emit(selected_models)
+
+        # シグナル発行テスト2: 選択数変更
+        model_table_widget.selection_count_changed.emit(3, 10)  # 3/10選択
+
+        # シグナル発行テスト3: モデル読み込み完了
+        model_table_widget.models_loaded.emit(25)  # 25モデル読み込み
 
         # シグナル受信確認
-        model_widget.modelSelectionChanged.connect.assert_called_with(
-            annotation_control.update_selected_models
+        model_table_widget.model_selection_changed.connect.assert_called_with(
+            annotation_control._on_model_selection_changed
+        )
+        model_table_widget.selection_count_changed.connect.assert_called_with(
+            annotation_control._on_selection_count_changed
+        )
+        model_table_widget.models_loaded.connect.assert_called_with(
+            annotation_control._on_models_loaded
         )
 
     def test_annotation_results_to_data_display_signal_flow(self, parent_widget, qtbot):

@@ -46,6 +46,27 @@
         <property name="checked">
          <bool>true</bool>
         </property>
+        <property name="styleSheet">
+         <string notr="true">QCheckBox {
+    font-size: 10px;
+    font-weight: normal;
+    spacing: 5px;
+}
+QCheckBox::indicator {
+    width: 14px;
+    height: 14px;
+}
+QCheckBox::indicator:unchecked {
+    border: 1px solid #ccc;
+    background-color: white;
+    border-radius: 2px;
+}
+QCheckBox::indicator:checked {
+    border: 1px solid #4CAF50;
+    background-color: #4CAF50;
+    border-radius: 2px;
+}</string>
+        </property>
        </widget>
       </item>
       <item row="1" column="0">
@@ -56,6 +77,27 @@
         <property name="checked">
          <bool>true</bool>
         </property>
+        <property name="styleSheet">
+         <string notr="true">QCheckBox {
+    font-size: 10px;
+    font-weight: normal;
+    spacing: 5px;
+}
+QCheckBox::indicator {
+    width: 14px;
+    height: 14px;
+}
+QCheckBox::indicator:unchecked {
+    border: 1px solid #ccc;
+    background-color: white;
+    border-radius: 2px;
+}
+QCheckBox::indicator:checked {
+    border: 1px solid #4CAF50;
+    background-color: #4CAF50;
+    border-radius: 2px;
+}</string>
+        </property>
        </widget>
       </item>
       <item row="2" column="0">
@@ -65,6 +107,27 @@
         </property>
         <property name="checked">
          <bool>true</bool>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">QCheckBox {
+    font-size: 10px;
+    font-weight: normal;
+    spacing: 5px;
+}
+QCheckBox::indicator {
+    width: 14px;
+    height: 14px;
+}
+QCheckBox::indicator:unchecked {
+    border: 1px solid #ccc;
+    background-color: white;
+    border-radius: 2px;
+}
+QCheckBox::indicator:checked {
+    border: 1px solid #4CAF50;
+    background-color: #4CAF50;
+    border-radius: 2px;
+}</string>
         </property>
        </widget>
       </item>
@@ -88,6 +151,27 @@
         <property name="checked">
          <bool>true</bool>
         </property>
+        <property name="styleSheet">
+         <string notr="true">QCheckBox {
+    font-size: 10px;
+    font-weight: normal;
+    spacing: 5px;
+}
+QCheckBox::indicator {
+    width: 14px;
+    height: 14px;
+}
+QCheckBox::indicator:unchecked {
+    border: 1px solid #ccc;
+    background-color: white;
+    border-radius: 2px;
+}
+QCheckBox::indicator:checked {
+    border: 1px solid #4CAF50;
+    background-color: #4CAF50;
+    border-radius: 2px;
+}</string>
+        </property>
        </widget>
       </item>
       <item>
@@ -97,6 +181,27 @@
         </property>
         <property name="checked">
          <bool>true</bool>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">QCheckBox {
+    font-size: 10px;
+    font-weight: normal;
+    spacing: 5px;
+}
+QCheckBox::indicator {
+    width: 14px;
+    height: 14px;
+}
+QCheckBox::indicator:unchecked {
+    border: 1px solid #ccc;
+    background-color: white;
+    border-radius: 2px;
+}
+QCheckBox::indicator:checked {
+    border: 1px solid #4CAF50;
+    background-color: #4CAF50;
+    border-radius: 2px;
+}</string>
         </property>
        </widget>
       </item>
@@ -123,82 +228,13 @@
      </property>
      <layout class="QVBoxLayout" name="verticalLayoutModels">
       <item>
-       <widget class="QTableWidget" name="tableWidgetModels">
+       <widget class="ModelSelectionTableWidget" name="modelSelectionTable">
         <property name="sizePolicy">
          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
           <horstretch>0</horstretch>
           <verstretch>1</verstretch>
          </sizepolicy>
         </property>
-        <property name="maximumSize">
-         <size>
-          <width>16777203</width>
-          <height>16777215</height>
-         </size>
-        </property>
-        <property name="alternatingRowColors">
-         <bool>true</bool>
-        </property>
-        <property name="selectionBehavior">
-         <enum>QAbstractItemView::SelectionBehavior::SelectRows</enum>
-        </property>
-        <property name="horizontalScrollMode">
-         <enum>QAbstractItemView::ScrollMode::ScrollPerItem</enum>
-        </property>
-        <property name="gridStyle">
-         <enum>Qt::PenStyle::SolidLine</enum>
-        </property>
-        <property name="sortingEnabled">
-         <bool>true</bool>
-        </property>
-        <property name="wordWrap">
-         <bool>true</bool>
-        </property>
-        <property name="columnCount">
-         <number>3</number>
-        </property>
-        <attribute name="horizontalHeaderVisible">
-         <bool>true</bool>
-        </attribute>
-        <attribute name="horizontalHeaderCascadingSectionResizes">
-         <bool>false</bool>
-        </attribute>
-        <attribute name="horizontalHeaderHighlightSections">
-         <bool>false</bool>
-        </attribute>
-        <attribute name="horizontalHeaderShowSortIndicator" stdset="0">
-         <bool>true</bool>
-        </attribute>
-        <attribute name="horizontalHeaderStretchLastSection">
-         <bool>false</bool>
-        </attribute>
-        <attribute name="verticalHeaderVisible">
-         <bool>false</bool>
-        </attribute>
-        <attribute name="verticalHeaderCascadingSectionResizes">
-         <bool>false</bool>
-        </attribute>
-        <attribute name="verticalHeaderDefaultSectionSize">
-         <number>30</number>
-        </attribute>
-        <attribute name="verticalHeaderStretchLastSection">
-         <bool>false</bool>
-        </attribute>
-        <column>
-         <property name="text">
-          <string>選択</string>
-         </property>
-        </column>
-        <column>
-         <property name="text">
-          <string>モデル名</string>
-         </property>
-        </column>
-        <column>
-         <property name="text">
-          <string>サイズ</string>
-         </property>
-        </column>
        </widget>
       </item>
      </layout>
@@ -215,12 +251,54 @@
         <property name="text">
          <string>API負荷軽減用512x512ベースの画像を使用</string>
         </property>
+        <property name="styleSheet">
+         <string notr="true">QCheckBox {
+    font-size: 10px;
+    font-weight: normal;
+    spacing: 5px;
+}
+QCheckBox::indicator {
+    width: 14px;
+    height: 14px;
+}
+QCheckBox::indicator:unchecked {
+    border: 1px solid #ccc;
+    background-color: white;
+    border-radius: 2px;
+}
+QCheckBox::indicator:checked {
+    border: 1px solid #4CAF50;
+    background-color: #4CAF50;
+    border-radius: 2px;
+}</string>
+        </property>
        </widget>
       </item>
       <item>
        <widget class="QCheckBox" name="checkBoxBatchMode">
         <property name="text">
          <string>バッチ処理モード</string>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">QCheckBox {
+    font-size: 10px;
+    font-weight: normal;
+    spacing: 5px;
+}
+QCheckBox::indicator {
+    width: 14px;
+    height: 14px;
+}
+QCheckBox::indicator:unchecked {
+    border: 1px solid #ccc;
+    background-color: white;
+    border-radius: 2px;
+}
+QCheckBox::indicator:checked {
+    border: 1px solid #4CAF50;
+    background-color: #4CAF50;
+    border-radius: 2px;
+}</string>
         </property>
        </widget>
       </item>
@@ -237,12 +315,44 @@
        <property name="text">
         <string>実行</string>
        </property>
+       <property name="styleSheet">
+        <string notr="true">QPushButton {
+    font-size: 12px;
+    font-weight: bold;
+    padding: 8px 16px;
+    border: 2px solid #4CAF50;
+    border-radius: 6px;
+    background-color: palette(button);
+    color: palette(buttonText);
+    min-height: 30px;
+}
+QPushButton:hover {
+    background-color: palette(highlight);
+    color: palette(highlightedText);
+}
+QPushButton:pressed {
+    background-color: #4CAF50;
+    color: white;
+}
+QPushButton:disabled {
+    background-color: palette(window);
+    color: palette(mid);
+    border-color: palette(mid);
+}</string>
+       </property>
       </widget>
      </item>
     </layout>
    </item>
   </layout>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>ModelSelectionTableWidget</class>
+   <extends>QWidget</extends>
+   <header>lorairo.gui.widgets.model_selection_table_widget</header>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections/>
 </ui>
