@@ -4,7 +4,7 @@ Phase 2-4統合によるサービス層実装
 """
 
 from .annotation_service import AnnotationService
-from .annotator_lib_adapter import AnnotatorLibAdapter, MockAnnotatorLibAdapter
+# AnnotatorLibAdapter は廃止されました - Protocol-based ModelRegistryServiceProtocol を使用してください
 from .configuration_service import ConfigurationService
 from .image_processing_service import ImageProcessingService
 from .model_sync_service import ModelSyncService
@@ -18,10 +18,8 @@ enhanced_annotation_service = annotation_service = __import__(
 
 __all__ = [
     "AnnotationService",
-    "AnnotatorLibAdapter",
     "ConfigurationService",
     "ImageProcessingService",
-    "MockAnnotatorLibAdapter",
     "ModelSyncService",
     "ServiceContainer",
     "annotation_service",

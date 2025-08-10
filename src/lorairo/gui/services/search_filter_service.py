@@ -96,25 +96,20 @@ class SearchFilterService:
     def __init__(
         self,
         db_manager: ImageDatabaseManager,
-        annotator_adapter: "AnnotatorLibAdapter | None" = None,
         model_registry: ModelRegistryServiceProtocol | None = None,
         model_selection_service: ModelSelectionService | None = None,
     ):
-        """SearchFilterService のコンストラクタ（Phase 3拡張版）
+        """SearchFilterService のコンストラクタ（現代化版）
 
         Args:
             db_manager: データベースマネージャー（必須）
-            annotator_adapter: レガシーアダプター（後方互換性）
             model_registry: モデルレジストリプロトコル（現代的アプローチ）
             model_selection_service: モデル選択サービス（Phase 2統合）
         """
         self.current_conditions: SearchConditions | None = None
         self.db_manager = db_manager
 
-        # Legacy support for backward compatibility
-        self.annotator_adapter = annotator_adapter
-
-        # Phase 3: Modern protocol-based architecture
+        # Modern protocol-based architecture
         self.model_registry = model_registry or NullModelRegistry()
 
         # Phase 2 Integration: ModelSelectionService
@@ -124,7 +119,7 @@ class SearchFilterService:
             # Create ModelSelectionService with appropriate configuration
             self.model_selection_service = self._create_model_selection_service()
 
-        logger.info("SearchFilterService initialized with Phase 3 enhancements")
+        logger.info("SearchFilterService initialized with modern architecture")
 
     def _create_model_selection_service(self) -> ModelSelectionService:
         """ModelSelectionService を適切な設定で作成
@@ -132,17 +127,7 @@ class SearchFilterService:
         Returns:
             ModelSelectionService: 設定されたサービスインスタンス
         """
-        # Modern approach: Use protocol-based creation if model_registry is available
-        if (
-            hasattr(self.model_registry, "get_available_models")
-            and self.model_registry.__class__.__name__ != "NullModelRegistry"
-        ):
-            return ModelSelectionService.create(
-                model_registry=self.model_registry, annotator_adapter=self.annotator_adapter
-            )
-        # Legacy approach: Use annotator_adapter directly
-        else:
-            return ModelSelectionService(annotator_adapter=self.annotator_adapter)
+        return ModelSelectionService.create(model_registry=self.model_registry)
 
     def parse_search_input(self, search_text: str, search_type: str, tag_logic: str) -> list[str]:
         """検索テキストをキーワードリストに変換"""
@@ -1550,16 +1535,16 @@ class SearchFilterService:
 
     def cleanup_legacy_dependencies(self) -> dict[str, Any]:
         """
-        レガシー依存関係のクリーンアップ状況を報告
+        現代化アーキテクチャ状況を報告
 
         Returns:
-            dict: クリーンアップ状況レポート
+            dict: アーキテクチャ状況レポート
         """
         try:
             report: dict[str, Any] = {
                 "model_selection_service_available": self.model_selection_service is not None,
                 "model_registry_available": self.model_registry is not None,
-                "annotator_adapter_fallback": self.annotator_adapter is not None,
+                "modern_architecture_enabled": True,
                 "recommendations": [],
             }
 
@@ -1571,14 +1556,8 @@ class SearchFilterService:
             if not self.model_registry:
                 report["recommendations"].append("ModelRegistryServiceProtocolの設定を推奨")
 
-            # レガシーアダプターの段階的削除
-            if self.annotator_adapter and self.model_selection_service:
-                report["recommendations"].append(
-                    "ModelSelectionService利用時はAnnotatorLibAdapterの段階的廃止を検討"
-                )
-
             return report
 
         except Exception as e:
-            logger.error(f"レガシー依存関係チェックエラー: {e}")
+            logger.error(f"アーキテクチャ状況チェックエラー: {e}")
             return {"error": str(e)}

@@ -84,18 +84,10 @@ def parent_widget(qtbot: QtBot) -> QWidget:
 @pytest.fixture
 def annotation_control(parent_widget: QWidget, qtbot: QtBot) -> AnnotationControlWidget:
     """AnnotationControlWidget のテストインスタンス"""
-    with patch("lorairo.services.annotator_lib_adapter.AnnotatorLibAdapter") as mock_adapter:
-        # AnnotatorLibAdapter の基本メソッドをモック化
-        mock_instance = MagicMock()
-        mock_instance.get_available_models.return_value = [
-            {"name": "gpt-4o", "provider": "openai", "capabilities": ["caption"]},
-            {"name": "claude-3-5-sonnet", "provider": "anthropic", "capabilities": ["caption"]},
-        ]
-        mock_adapter.return_value = mock_instance
-
-        widget = AnnotationControlWidget(parent_widget, mock_instance)
-        qtbot.addWidget(widget)
-        return widget
+    # AnnotatorLibAdapter廃止により、Protocol-based architectureを使用
+    widget = AnnotationControlWidget(parent_widget)
+    qtbot.addWidget(widget)
+    return widget
 
 
 @pytest.fixture
@@ -112,8 +104,7 @@ def status_filter(
 ) -> AnnotationStatusFilterWidget:
     """AnnotationStatusFilterWidget のテストインスタンス"""
     widget = AnnotationStatusFilterWidget(parent_widget)
-    # データベースマネージャーを設定
-    widget.set_database_manager(test_db_manager)
+    # Protocol-based architectureでは検索フィルターサービスを使用
     qtbot.addWidget(widget)
     return widget
 
@@ -124,8 +115,7 @@ def image_details(
 ) -> SelectedImageDetailsWidget:
     """SelectedImageDetailsWidget のテストインスタンス"""
     widget = SelectedImageDetailsWidget(parent_widget)
-    # データベースマネージャーを設定
-    widget.set_database_manager(test_db_manager)
+    # Protocol-based architectureでは画像DB書き込みサービスを使用
     qtbot.addWidget(widget)
     return widget
 
@@ -201,10 +191,10 @@ class TestWidgetInterconnection:
 
     def test_annotation_control_signals_exist(self, annotation_control: AnnotationControlWidget) -> None:
         """AnnotationControlWidget のシグナル存在確認"""
-        # 必要なシグナルが存在することを確認
+        # 実際に存在するシグナルを確認
         assert hasattr(annotation_control, "annotation_started")
-        assert hasattr(annotation_control, "annotation_completed")
-        assert hasattr(annotation_control, "annotation_error")
+        assert hasattr(annotation_control, "settings_changed")
+        assert hasattr(annotation_control, "models_refreshed")
 
     def test_annotation_results_methods_exist(self, annotation_results: AnnotationResultsWidget) -> None:
         """AnnotationResultsWidget のメソッド存在確認"""
@@ -222,7 +212,6 @@ class TestWidgetInterconnection:
     def test_image_details_methods_exist(self, image_details: SelectedImageDetailsWidget) -> None:
         """SelectedImageDetailsWidget のメソッド存在確認"""
         # 実際に存在するメソッドを確認
-        assert hasattr(image_details, "set_database_manager")
         assert hasattr(image_details, "get_current_details")
         assert hasattr(image_details, "set_enabled_state")
 
