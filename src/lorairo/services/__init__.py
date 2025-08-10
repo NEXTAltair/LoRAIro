@@ -4,6 +4,7 @@ Phase 2-4統合によるサービス層実装
 """
 
 from .annotation_service import AnnotationService
+
 # AnnotatorLibAdapter は廃止されました - Protocol-based ModelRegistryServiceProtocol を使用してください
 from .configuration_service import ConfigurationService
 from .image_processing_service import ImageProcessingService

@@ -11,11 +11,12 @@ from ..database.db_manager import ImageDatabaseManager
 from ..database.db_repository import ImageRepository
 from ..storage.file_system import FileSystemManager
 from ..utils.log import logger
+from .configuration_service import ConfigurationService
+from .image_processing_service import ImageProcessingService
 
 # from .annotation_batch_processor import BatchProcessor
 from .model_registry_protocol import ModelRegistryServiceProtocol, NullModelRegistry
-from .configuration_service import ConfigurationService
-from .image_processing_service import ImageProcessingService
+
 # from .model_sync_service import ModelSyncService
 
 
