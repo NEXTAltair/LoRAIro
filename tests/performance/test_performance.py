@@ -14,7 +14,7 @@ from PIL import Image
 
 from lorairo.services.annotation_batch_processor import BatchProcessor
 
-# MockAnnotatorLibAdapterは廃止されました - Protocol-based ModelRegistryServiceProtocolを使用してください
+# Protocol-based ModelRegistryServiceProtocolアーキテクチャを使用
 from lorairo.services.model_sync_service import ModelSyncService
 from lorairo.services.service_container import ServiceContainer
 
@@ -150,7 +150,7 @@ class TestPerformanceRequirements:
         assert result.total_library_models == 50
 
     # def test_annotator_adapter_performance(self):
-    #     """アノテーターアダプター性能テスト - MockAnnotatorLibAdapter廃止によりコメントアウト"""
+    #     """アノテーターアダプター性能テスト - Protocol-based移行によりコメントアウト"""
     #     pass
 
     def test_service_container_initialization_performance(self):
@@ -189,7 +189,7 @@ class TestPerformanceRequirements:
         process = psutil.Process(os.getpid())
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB
 
-        # 大量データ処理 - MockAnnotatorLibAdapter廃止によりシンプルなメモリテストに変更
+        # 大量データ処理 - Protocol-based移行によりシンプルなメモリテストに変更
         # 大量画像セット
         many_images = []
         for _i in range(100):
@@ -218,7 +218,7 @@ class TestScalabilityRequirements:
         mock_config = Mock()
 
         def annotation_task(task_id):
-            """アノテーションタスク - MockAnnotatorLibAdapter廃止によりシンプルなモック処理に変更"""
+            """アノテーションタスク - Protocol-based移行によりシンプルなモック処理に変更"""
             test_images = [Image.new("RGB", (50, 50), f"color_{task_id}")]
 
             start_time = time.time()
@@ -273,7 +273,7 @@ class TestScalabilityRequirements:
         assert request["total_images"] == 1000
 
     # def test_model_metadata_scalability(self):
-    #     """モデルメタデータスケーラビリティテスト - MockAnnotatorLibAdapter廃止によりコメントアウト"""
+    #     """モデルメタデータスケーラビリティテスト - Protocol-based移行によりコメントアウト"""
     #     pass
 
 
@@ -290,7 +290,7 @@ class TestResourceUtilizationPerformance:
         process = psutil.Process(os.getpid())
         initial_cpu_times = process.cpu_times()
 
-        # CPU集約的処理 - MockAnnotatorLibAdapter廃止によりシンプルな処理に変更
+        # CPU集約的処理 - Protocol-based移行によりシンプルな処理に変更
         # 多数の小さな画像処理
         small_images = []
         for _i in range(50):

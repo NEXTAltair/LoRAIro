@@ -64,7 +64,7 @@ class NullModelRegistry(ModelRegistryServiceProtocol):
 
 
 def map_annotator_metadata_to_model_info(items: list[dict[str, Any]]) -> list[ModelInfo]:
-    """AnnotatorLibAdapterのメタデータ(dict)をModelInfoに正規化
+    """image-annotator-libのメタデータ(dict)をModelInfoに正規化
 
     非スコープ注意:
       - 本サブタスクでは必要最小限のマッピングに留める

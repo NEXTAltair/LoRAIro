@@ -84,7 +84,7 @@ def parent_widget(qtbot: QtBot) -> QWidget:
 @pytest.fixture
 def annotation_control(parent_widget: QWidget, qtbot: QtBot) -> AnnotationControlWidget:
     """AnnotationControlWidget のテストインスタンス"""
-    # AnnotatorLibAdapter廃止により、Protocol-based architectureを使用
+    # Protocol-based architectureを使用
     widget = AnnotationControlWidget(parent_widget)
     qtbot.addWidget(widget)
     return widget

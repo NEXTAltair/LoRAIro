@@ -24,7 +24,7 @@ class TestWidgetServiceIntegration:
 
     @pytest.fixture
     def mock_model_registry(self):
-        """モック ModelRegistryServiceProtocol - AnnotatorLibAdapter廃止により更新"""
+        """モック ModelRegistryServiceProtocol - Protocol-basedアーキテクチャ対応"""
         from lorairo.services.model_registry_protocol import ModelInfo
 
         mock = Mock()
