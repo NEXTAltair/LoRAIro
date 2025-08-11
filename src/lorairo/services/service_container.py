@@ -4,7 +4,7 @@ Phase 2: 既存サービスとPhase 1新サービスの統合管理
 Phase 4: 実ライブラリ統合での依存関係解決
 """
 
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 from ..database.db_core import DefaultSessionLocal
 from ..database.db_manager import ImageDatabaseManager
@@ -12,9 +12,9 @@ from ..database.db_repository import ImageRepository
 from ..storage.file_system import FileSystemManager
 from ..utils.log import logger
 from .annotation_batch_processor import BatchProcessor
-from .annotator_lib_adapter import AnnotatorLibAdapter, MockAnnotatorLibAdapter
 from .configuration_service import ConfigurationService
 from .image_processing_service import ImageProcessingService
+from .model_registry_protocol import ModelRegistryServiceProtocol, NullModelRegistry
 from .model_sync_service import ModelSyncService
 
 
@@ -55,7 +55,7 @@ class ServiceContainer:
 
         # Phase 1新サービス初期化
         self._model_sync_service: ModelSyncService | None = None
-        self._annotator_lib_adapter: AnnotatorLibAdapter | None = None
+        self._model_registry: ModelRegistryServiceProtocol | None = None
         self._batch_processor: BatchProcessor | None = None
 
         # Phase 4: プロダクション統合モード制御
@@ -122,54 +122,44 @@ class ServiceContainer:
     def model_sync_service(self) -> ModelSyncService:
         """モデル同期サービス取得（遅延初期化）
 
-        Phase 4: 実ライブラリ統合 - AnnotatorLibAdapterと連携
+        Protocol-based ModelRegistryServiceProtocolと連携
         """
         if self._model_sync_service is None:
-            # Phase 4: 実AnnotatorLibAdapterを注入
+            # Protocol-basedモデルレジストリを注入
+            from .model_sync_service import ModelSyncService
+
             self._model_sync_service = ModelSyncService(
                 self.image_repository,
                 self.config_service,
-                annotator_library=self.annotator_lib_adapter,  # Phase 4で実装注入
+                annotator_library=self.model_registry,  # Protocol-basedアーキテクチャ
             )
-            logger.info("ModelSyncService初期化完了（Phase 4プロダクション統合）")
+            logger.info("ModelSyncService初期化完了（Protocol-based統合）")
         return self._model_sync_service
 
     @property
-    def annotator_lib_adapter(self) -> AnnotatorLibAdapter:
-        """アノテーターライブラリアダプター取得（遅延初期化）
+    def model_registry(self) -> ModelRegistryServiceProtocol:
+        """モデルレジストリサービス取得（遅延初期化）
 
-        Phase 4: プロダクション統合 - 実AnnotatorLibAdapter使用
-        フォールバック: 実ライブラリ利用不可時はMock使用
+        Protocol-basedモデルレジストリ使用
+        フォールバック: NullModelRegistry使用
         """
-        if self._annotator_lib_adapter is None:
-            if self._use_production_mode:
-                try:
-                    # Phase 4: 実AnnotatorLibAdapter使用
-                    self._annotator_lib_adapter = AnnotatorLibAdapter(self.config_service)
-                    logger.info("AnnotatorLibAdapter初期化完了（Phase 4プロダクション）")
-                except Exception as e:
-                    # フォールバック: Mock実装使用
-                    logger.warning(
-                        f"実AnnotatorLibAdapterの初期化に失敗しました（{e}）。Mock実装を使用します。"
-                    )
-                    self._annotator_lib_adapter = cast(
-                        AnnotatorLibAdapter, MockAnnotatorLibAdapter(self.config_service)
-                    )
-                    logger.info("MockAnnotatorLibAdapter初期化完了（フォールバック）")
-            else:
-                # 明示的にMockモード指定の場合
-                self._annotator_lib_adapter = MockAnnotatorLibAdapter(self.config_service)
-                logger.debug("MockAnnotatorLibAdapter初期化完了（Mock強制モード）")
-        return cast(AnnotatorLibAdapter, self._annotator_lib_adapter)
+        if self._model_registry is None:
+            # Protocol-basedモデルレジストリ使用
+            self._model_registry = NullModelRegistry()
+            logger.info("モデルレジストリ初期化完了（Protocol-based）")
+        return self._model_registry
 
     @property
     def batch_processor(self) -> BatchProcessor:
-        """バッチプロセッサー取得（遅延初期化）"""
+        """バッチプロセッサー取得（遅延初期化）
+
+        Protocol-based ModelRegistryServiceProtocolと連携
+        """
         if self._batch_processor is None:
-            self._batch_processor = BatchProcessor(
-                cast(MockAnnotatorLibAdapter, self.annotator_lib_adapter), self.config_service
-            )
-            logger.debug("BatchProcessor初期化完了")
+            from .annotation_batch_processor import BatchProcessor
+
+            self._batch_processor = BatchProcessor(self.model_registry, self.config_service)
+            logger.debug("BatchProcessor初期化完了（Protocol-based統合）")
         return self._batch_processor
 
     def get_service_summary(self) -> dict[str, Any]:
@@ -186,7 +176,7 @@ class ServiceContainer:
                 "db_manager": self._db_manager is not None,
                 "image_processing_service": self._image_processing_service is not None,
                 "model_sync_service": self._model_sync_service is not None,
-                "annotator_lib_adapter": self._annotator_lib_adapter is not None,
+                "model_registry": self._model_registry is not None,
                 "batch_processor": self._batch_processor is not None,
             },
             "container_initialized": ServiceContainer._initialized,
@@ -209,7 +199,7 @@ class ServiceContainer:
         self._db_manager = None
         self._image_processing_service = None
         self._model_sync_service = None
-        self._annotator_lib_adapter = None
+        self._model_registry = None
         self._batch_processor = None
 
         # クラスレベルリセット
@@ -231,9 +221,9 @@ class ServiceContainer:
             logger.info(f"ServiceContainer動作モード変更: {old_mode} -> {new_mode}")
 
             # モード変更時は関連サービスをリセット
-            if self._annotator_lib_adapter is not None:
-                logger.info("モード変更によりAnnotatorLibAdapterをリセットします")
-                self._annotator_lib_adapter = None
+            if self._model_registry is not None:
+                logger.info("モード変更によりModelRegistryをリセットします")
+                self._model_registry = None
             if self._model_sync_service is not None:
                 logger.info("モード変更によりModelSyncServiceをリセットします")
                 self._model_sync_service = None
@@ -268,12 +258,12 @@ def get_model_sync_service() -> ModelSyncService:
     return get_service_container().model_sync_service
 
 
-def get_annotator_lib_adapter() -> AnnotatorLibAdapter:
-    """アノテーターライブラリアダプター取得（便利関数）
+def get_model_registry() -> ModelRegistryServiceProtocol:
+    """モデルレジストリサービス取得（便利関数）
 
-    Phase 4: プロダクション統合版を返す
+    Protocol-basedモデルレジストリを返す
     """
-    return get_service_container().annotator_lib_adapter
+    return get_service_container().model_registry
 
 
 def get_batch_processor() -> BatchProcessor:

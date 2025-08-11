@@ -47,17 +47,11 @@ class ModelSelectionService:
     - ModelRegistryServiceProtocol経由でのモデル情報取得
     - モデル情報のフィルタリング・推奨判定ロジック
     - 選択状態の管理は行わない（UI側で管理）
-    - 後方互換性維持（AnnotatorLibAdapter support）
     """
 
-    def __init__(self, annotator_adapter: AnnotatorLibAdapter | None = None):
-        """Initialize ModelSelectionService with backward compatibility.
-
-        Legacy signature: ModelSelectionService(annotator_adapter)
-        New approach: Use create() class method for modern initialization
-        """
-        self.model_registry: ModelRegistryServiceProtocol = NullModelRegistry()
-        self.annotator_adapter = annotator_adapter
+    def __init__(self, model_registry: ModelRegistryServiceProtocol | None = None):
+        """Initialize ModelSelectionService with modern protocol-based approach."""
+        self.model_registry: ModelRegistryServiceProtocol = model_registry or NullModelRegistry()
         self._all_models: list[ModelInfo] = []
         self._cached_models: list[ModelInfo] | None = None
 
@@ -65,73 +59,31 @@ class ModelSelectionService:
     def create(
         cls,
         model_registry: ModelRegistryServiceProtocol | None = None,
-        annotator_adapter: AnnotatorLibAdapter | None = None,
-    ) -> "ModelSelectionService":
+    ) -> ModelSelectionService:
         """Create ModelSelectionService with modern protocol-based approach."""
-        instance = cls.__new__(cls)
-        instance.model_registry = model_registry or NullModelRegistry()
-        instance.annotator_adapter = annotator_adapter
-        instance._all_models = []
-        instance._cached_models = None
-        return instance
+        return cls(model_registry=model_registry)
 
     def load_models(self) -> list[ModelInfo]:
-        """モデル情報を取得・変換（Protocol-based + backward compatibility）"""
+        """モデル情報を取得・変換（Protocol-based implementation）"""
         try:
             # キャッシュがあれば返す（パフォーマンス最適化）
             if self._cached_models is not None:
                 return self._cached_models
 
-            # Protocol-based approach (preferred)
-            try:
-                protocol_models = self.model_registry.get_available_models()
-                if protocol_models:
-                    # Protocol ModelInfo を 後方互換性 ModelInfo に変換
-                    compat_models = [self._convert_protocol_to_compat(model) for model in protocol_models]
-                    self._all_models = compat_models
-                    self._cached_models = compat_models
-                    logger.info(f"Loaded {len(compat_models)} models from ModelRegistry")
-                    return compat_models
-            except Exception as e:
-                logger.warning(f"ModelRegistry load failed, trying fallback: {e}")
-
-            # Backward compatibility fallback
-            if self.annotator_adapter:
-                return self._load_models_legacy()
-
-            logger.warning("No model source available")
-            return []
+            # Protocol-based approach
+            protocol_models = self.model_registry.get_available_models()
+            # Protocol ModelInfo を UI用 ModelInfo に変換
+            compat_models = [self._convert_protocol_to_compat(model) for model in protocol_models]
+            self._all_models = compat_models
+            self._cached_models = compat_models
+            logger.info(f"Loaded {len(compat_models)} models from ModelRegistry")
+            return compat_models
 
         except Exception as e:
             logger.error(f"Failed to load models: {e}")
             return []
 
-    def _load_models_legacy(self) -> list[ModelInfo]:
-        """レガシーAnnotatorLibAdapter経由でのモデル読み込み"""
-        try:
-            if not self.annotator_adapter:
-                logger.warning("AnnotatorLibAdapter not available for legacy loading")
-                return []
-
-            # モデル情報取得
-            models_metadata = self.annotator_adapter.get_available_models_with_metadata()
-
-            # Protocol準拠のModelInfoに変換
-            protocol_models = map_annotator_metadata_to_model_info(models_metadata)
-
-            # Protocol ModelInfo を 後方互換性 ModelInfo に変換
-            compat_models = [self._convert_protocol_to_compat(model) for model in protocol_models]
-
-            self._all_models = compat_models
-            self._cached_models = compat_models
-            logger.info(f"Loaded {len(compat_models)} models from AnnotatorLibAdapter (legacy)")
-            return compat_models
-
-        except Exception as e:
-            logger.error(f"Legacy model loading failed: {e}")
-            return []
-
-    def _convert_protocol_to_compat(self, protocol_model: ProtocolModelInfo) -> ModelInfo:
+    def _convert_protocol_to_compat(self, protocol_model: RegistryModelInfo) -> ModelInfo:
         """Protocol ModelInfo を 後方互換性 ModelInfo に変換"""
         return ModelInfo(
             name=protocol_model.name,
@@ -233,26 +185,6 @@ class ModelSelectionService:
         if model.estimated_size_gb:
             display_name += f" ({model.estimated_size_gb:.1f}GB)"
         return display_name
-
-    # Legacy capability inference (移行期間中は保持)
-    def _infer_capabilities_legacy(self, model_data: dict[str, Any]) -> list[str]:
-        """モデルタイプから機能をマッピング（レガシー版）"""
-        model_type = model_data.get("model_type", "")
-
-        # DBのmodel_typeカラムから機能をマッピング
-        type_mapping = {
-            "multimodal": ["caption", "tags"],  # "tag" → "tags" に統一
-            "caption": ["caption"],
-            "tag": ["tags"],
-            "score": ["scores"],
-        }
-
-        return type_mapping.get(model_type, ["caption"])
-
-    # Backward compatibility alias for tests
-    def _infer_capabilities(self, model_data: dict[str, Any]) -> list[str]:
-        """Backward compatibility wrapper for _infer_capabilities_legacy"""
-        return self._infer_capabilities_legacy(model_data)
 
     def _is_recommended_model(self, model_name: str) -> bool:
         """推奨モデルかどうか判定"""

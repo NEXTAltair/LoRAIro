@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 
 from ...services.model_registry_protocol import ModelRegistryServiceProtocol, NullModelRegistry
 from ...utils.log import logger
-from ..services.model_selection_service import ModelSelectionService
+from ..services.model_selection_service import ModelSelectionCriteria, ModelSelectionService
 
 # NullModelRegistry は ModelSelectionService 側でデフォルト縮退を実装済みのため、ここでは直接使用しない
 
@@ -93,17 +93,7 @@ class ModelSelectionWidget(QWidget):
         Returns:
             ModelSelectionService: 設定されたサービスインスタンス
         """
-        # Modern approach: Use protocol-based creation if model_registry is available
-        if (
-            hasattr(self.model_registry, "get_available_models")
-            and self.model_registry.__class__.__name__ != "NullModelRegistry"
-        ):
-            return ModelSelectionService.create(
-                model_registry=self.model_registry, annotator_adapter=self.annotator_adapter
-            )
-        # Legacy approach: Use annotator_adapter directly
-        else:
-            return ModelSelectionService(annotator_adapter=self.annotator_adapter)
+        return ModelSelectionService.create(model_registry=self.model_registry)
 
     def setup_ui(self) -> None:
         """UI初期化"""

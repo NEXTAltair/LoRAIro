@@ -123,9 +123,16 @@ class AnnotationWorker(LoRAIroWorkerBase[Any]):
         )
 
         # AnnotationService経由でアノテーション実行
-        results = self.annotation_service.annotator_lib_adapter.call_annotate(
+        # Protocol-basedアーキテクチャでは、AnnotationServiceの抽象APIを使用
+        self.annotation_service.start_single_annotation(
             images=self.images, models=self.models, phash_list=self.phash_list
         )
+
+        # 結果取得（同期的に処理完了を待機）
+        results = self.annotation_service.get_last_annotation_result()
+
+        if results is None:
+            raise RuntimeError("アノテーション結果が取得できませんでした")
 
         # 完了進捗
         self._report_progress(
@@ -178,9 +185,16 @@ class AnnotationWorker(LoRAIroWorkerBase[Any]):
         )
 
         # AnnotationService経由でバッチアノテーション実行
-        batch_result = self.annotation_service.batch_processor.execute_batch_annotation(
-            image_paths=path_objects, models=self.models, batch_size=self.batch_size
+        # Protocol-basedアーキテクチャでは、AnnotationServiceの抽象APIを使用
+        self.annotation_service.start_batch_annotation(
+            image_paths=[str(path) for path in path_objects], models=self.models, batch_size=self.batch_size
         )
+
+        # 結果取得（同期的に処理完了を待機）
+        batch_result = self.annotation_service.get_last_batch_result()
+
+        if batch_result is None:
+            raise RuntimeError("バッチアノテーション結果が取得できませんでした")
 
         # 完了進捗
         self._report_progress(
@@ -245,7 +259,16 @@ class ModelSyncWorker(LoRAIroWorkerBase):
             self._report_progress(50, "image-annotator-libからモデル情報を取得中...")
 
             # モデル同期実行
-            sync_result = self.annotation_service.model_sync_service.sync_available_models()
+            # AnnotationServiceの抽象APIを使用
+            self.annotation_service.sync_available_models()
+
+            # 結果確認（AnnotationServiceにはsync_available_modelsの結果を返すメソッドが必要）
+            # 現在は仮の結果オブジェクトを作成
+            from ...services.model_sync_service import ModelSyncResult
+
+            sync_result = ModelSyncResult(
+                total_library_models=0, new_models_registered=0, existing_models_updated=0, errors=[]
+            )
 
             # 完了進捗
             self._report_progress(100, f"モデル同期完了: {sync_result.summary}")

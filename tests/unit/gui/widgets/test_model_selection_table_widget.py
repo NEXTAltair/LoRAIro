@@ -87,9 +87,7 @@ class TestModelSelectionTableWidget:
             if item is not None:
                 cap_texts.append(item.text())
         assert cap_texts, "Capabilities column should have at least one populated cell"
-        assert any(
-            ("," in t) or (t in ("caption", "tags", "scores")) for t in cap_texts
-        )
+        assert any(("," in t) or (t in ("caption", "tags", "scores")) for t in cap_texts)
 
     def test_apply_filters_updates_table_via_service(self, widget, sample_models):
         mock_service = Mock()
@@ -118,7 +116,9 @@ class TestModelSelectionTableWidget:
         selection_changed_calls = []
         count_changed_calls = []
         widget.model_selection_changed.connect(lambda names: selection_changed_calls.append(list(names)))
-        widget.selection_count_changed.connect(lambda selected, total: count_changed_calls.append((selected, total)))
+        widget.selection_count_changed.connect(
+            lambda selected, total: count_changed_calls.append((selected, total))
+        )
 
         # 並び順はソートに依存するため、名前で対象行を特定してチェックする
         def check_by_name(name: str) -> None:
