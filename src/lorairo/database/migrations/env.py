@@ -1,5 +1,6 @@
 # Add imports for your models and db core functionality
 from logging.config import fileConfig
+from typing import Any
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool

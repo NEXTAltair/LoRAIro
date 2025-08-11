@@ -623,6 +623,7 @@ class TestModelSelectionTableWidget:
 
     def test_set_search_filter_service(self, widget, mock_service):
         """SearchFilterService設定テスト"""
+
         # set_search_filter_service メソッドを手動実装
         def set_search_filter_service(service):
             widget.search_filter_service = service
@@ -671,19 +672,14 @@ class TestModelSelectionTableWidget:
                 return []
 
             widget.filtered_models = widget.search_filter_service.filter_models_by_criteria(
-                models=widget.all_models,
-                function_types=function_types or [],
-                providers=providers or []
+                models=widget.all_models, function_types=function_types or [], providers=providers or []
             )
             return widget.filtered_models
 
         widget.apply_filters = apply_filters
 
         # 実行：caption機能のweb_apiモデルのみ
-        filtered = widget.apply_filters(
-            function_types=["caption"],
-            providers=["web_api"]
-        )
+        filtered = widget.apply_filters(function_types=["caption"], providers=["web_api"])
 
         # 結果確認
         assert len(filtered) == 2  # gpt-4-vision-preview, claude-3-sonnet
@@ -694,14 +690,24 @@ class TestModelSelectionTableWidget:
 
     def test_get_selected_models(self, widget):
         """選択モデル取得テスト"""
+
         # get_selected_models メソッドを手動実装
         def get_selected_models():
             # モックのテーブルアイテムを設定
             selected_models = []
             mock_items = [
-                (Mock(checkState=Mock(return_value=Qt.CheckState.Checked)), Mock(text=Mock(return_value="gpt-4o"))),
-                (Mock(checkState=Mock(return_value=Qt.CheckState.Unchecked)), Mock(text=Mock(return_value="claude-3-sonnet"))),
-                (Mock(checkState=Mock(return_value=Qt.CheckState.Checked)), Mock(text=Mock(return_value="wd-v1-4"))),
+                (
+                    Mock(checkState=Mock(return_value=Qt.CheckState.Checked)),
+                    Mock(text=Mock(return_value="gpt-4o")),
+                ),
+                (
+                    Mock(checkState=Mock(return_value=Qt.CheckState.Unchecked)),
+                    Mock(text=Mock(return_value="claude-3-sonnet")),
+                ),
+                (
+                    Mock(checkState=Mock(return_value=Qt.CheckState.Checked)),
+                    Mock(text=Mock(return_value="wd-v1-4")),
+                ),
             ]
 
             for checkbox_item, name_item in mock_items:
@@ -723,6 +729,7 @@ class TestModelSelectionTableWidget:
 
     def test_set_selected_models(self, widget):
         """選択モデル設定テスト"""
+
         # set_selected_models メソッドを手動実装
         def set_selected_models(model_names):
             widget.selected_model_names = model_names
@@ -784,6 +791,7 @@ class TestAnnotationControlWidgetV2:
 
         # 現在の設定
         from lorairo.gui.widgets.annotation_control_widget import AnnotationSettings
+
         widget.current_settings = AnnotationSettings(
             selected_function_types=["caption", "tags", "scores"],
             selected_providers=["web_api", "local"],
@@ -800,6 +808,7 @@ class TestAnnotationControlWidgetV2:
 
     def test_set_search_filter_service(self, widget, mock_service):
         """SearchFilterService設定テスト"""
+
         # set_search_filter_service メソッドを手動実装
         def set_search_filter_service(service):
             widget.search_filter_service = service
@@ -897,12 +906,13 @@ class TestAnnotationControlWidgetV2:
 
             # 設定更新
             from lorairo.gui.widgets.annotation_control_widget import AnnotationSettings
+
             settings = AnnotationSettings(
                 selected_function_types=["caption", "tags"],
                 selected_providers=["web_api"],
                 selected_models=selected_models,
                 use_low_resolution=False,
-                batch_mode=False
+                batch_mode=False,
             )
 
             # シグナル発行
@@ -943,6 +953,7 @@ class TestAnnotationControlWidgetV2:
 
     def test_set_enabled_state(self, widget):
         """有効/無効状態設定テスト"""
+
         # set_enabled_state メソッドを手動実装
         def set_enabled_state(enabled):
             checkboxes = [
