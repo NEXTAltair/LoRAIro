@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 
 from ...services.model_registry_protocol import ModelRegistryServiceProtocol, NullModelRegistry
 from ...utils.log import logger
-from ..services.model_selection_service import ModelSelectionService
+from ..services.model_selection_service import ModelSelectionCriteria, ModelSelectionService
 
 # NullModelRegistry は ModelSelectionService 側でデフォルト縮退を実装済みのため、ここでは直接使用しない
 

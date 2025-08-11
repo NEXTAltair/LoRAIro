@@ -12,10 +12,9 @@ from typing import Any
 
 from PIL import Image
 
-
-from .model_registry_protocol import ModelRegistryServiceProtocol
 from ..services.configuration_service import ConfigurationService
 from ..utils.log import logger
+from .model_registry_protocol import ModelRegistryServiceProtocol
 
 
 class BatchAnnotationResult:
@@ -288,16 +287,18 @@ class BatchProcessor:
 
             # アノテーション実行
             logger.info(f"アノテーション実行: {len(images)}画像, {len(models)}モデル")
-            
+
             # Protocol-basedアーキテクチャではプレースホルダー実装
-            logger.warning("バッチアノテーション処理は現在Protocol-based移行中です。プレースホルダー結果を返します。")
-            
+            logger.warning(
+                "バッチアノテーション処理は現在Protocol-based移行中です。プレースホルダー結果を返します。"
+            )
+
             # プレースホルダー結果生成
             annotation_results = {}
             for i, image in enumerate(images):
                 phash = f"batch_placeholder_hash_{i}"
                 annotation_results[phash] = {}
-                
+
                 for model in models:
                     annotation_results[phash][model] = {
                         "tags": ["batch_protocol_migration", "placeholder"],

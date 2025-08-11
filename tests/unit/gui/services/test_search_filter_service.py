@@ -631,8 +631,6 @@ class TestSearchFilterServiceAnnotation:
 
         return Mock()
 
-
-
     def test_get_annotation_models_list_modernized(self, mock_db_manager):
         """現代化されたSearchFilterServiceでのモデル一覧取得テスト"""
         # NullModelRegistryを使用する現代化されたSearchFilterService
@@ -642,4 +640,3 @@ class TestSearchFilterServiceAnnotation:
 
         # NullModelRegistryでは空リストが返される
         assert models == []
-
