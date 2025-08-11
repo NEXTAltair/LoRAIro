@@ -4,7 +4,7 @@ Phase 2: 既存サービスとPhase 1新サービスの統合管理
 Phase 4: 実ライブラリ統合での依存関係解決
 """
 
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 from ..database.db_core import DefaultSessionLocal
 from ..database.db_manager import ImageDatabaseManager
