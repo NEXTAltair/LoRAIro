@@ -4,29 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from unittest.mock import Mock
 
-from ...services.model_registry_protocol import (
-    ModelInfo as RegistryModelInfo,
-)
-from ...services.model_registry_protocol import (
-    ModelRegistryServiceProtocol,
-    NullModelRegistry,
-    map_annotator_metadata_to_model_info,
-)
+from ...database.db_repository import ImageRepository
+from ...database.schema import Model
+from ...services.model_info_manager import ModelInfo, ModelInfoManager
 from ...utils.log import logger
 
-
-@dataclass
-class ModelInfo:
-    """モデル情報データクラス（UI向け表示用拡張を含む）"""
-
-    name: str
-    provider: str
-    capabilities: list[str]  # ["caption", "tags", "scores"] - 実際の機能
-    api_model_id: str | None
-    requires_api_key: bool
-    estimated_size_gb: float | None
-    is_recommended: bool = False
+# ModelInfo dataclass 削除 - DB Modelを直接使用
 
 
 @dataclass
@@ -41,73 +26,77 @@ class ModelSelectionCriteria:
 
 class ModelSelectionService:
     """
-    モデル選択に関するビジネスロジックを処理するサービス（現代化版）
+    モデル選択に関するビジネスロジックを処理するサービス（DB中心アプローチ）
 
     責任:
-    - ModelRegistryServiceProtocol経由でのモデル情報取得
+    - DB経由でのモデル情報取得（直接利用）
     - モデル情報のフィルタリング・推奨判定ロジック
     - 選択状態の管理は行わない（UI側で管理）
     """
 
-    def __init__(self, model_registry: ModelRegistryServiceProtocol | None = None):
-        """Initialize ModelSelectionService with modern protocol-based approach."""
-        self.model_registry: ModelRegistryServiceProtocol = model_registry or NullModelRegistry()
-        self._all_models: list[ModelInfo] = []
-        self._cached_models: list[ModelInfo] | None = None
+    def __init__(
+        self, model_manager: ModelInfoManager | None = None, db_repository: ImageRepository | None = None
+    ):
+        """Initialize ModelSelectionService with DB-centric approach."""
+        # 注入がない場合は一時的に空のマネージャーを使用（後で修正）
+        self.model_manager = model_manager
+        self.db_repository = db_repository
+        self._all_models: list[Model] = []
+        self._cached_models: list[Model] | None = None
 
     @classmethod
     def create(
         cls,
-        model_registry: ModelRegistryServiceProtocol | None = None,
+        model_manager: ModelInfoManager | None = None,
+        db_repository: ImageRepository | None = None,
     ) -> ModelSelectionService:
-        """Create ModelSelectionService with modern protocol-based approach."""
-        return cls(model_registry=model_registry)
+        """Create ModelSelectionService with DB-centric approach."""
+        return cls(model_manager=model_manager, db_repository=db_repository)
 
-    def load_models(self) -> list[ModelInfo]:
-        """モデル情報を取得・変換（Protocol-based implementation）"""
+    def load_models(self) -> list[Model]:
+        """モデル情報をDBから直接取得（DB-centric implementation）"""
         try:
             # キャッシュがあれば返す（パフォーマンス最適化）
             if self._cached_models is not None:
                 return self._cached_models
 
-            # Protocol-based approach
-            protocol_models = self.model_registry.get_available_models()
-            # Protocol ModelInfo を UI用 ModelInfo に変換
-            compat_models = [self._convert_protocol_to_compat(model) for model in protocol_models]
-            self._all_models = compat_models
-            self._cached_models = compat_models
-            logger.info(f"Loaded {len(compat_models)} models from ModelRegistry")
-            return compat_models
+            # DBから直接取得（簡素化）
+            if self.db_repository:
+                # DBからdict形式で取得してModelオブジェクトに変換
+                db_model_dicts = self.db_repository.get_models()
+                db_models = self._convert_db_dicts_to_models(db_model_dicts)
+            elif self.model_manager:
+                # ModelInfoManager経由でTypedDictを取得して変換
+                model_infos = self.model_manager.get_available_models()
+                db_models = self._convert_model_infos_to_models(model_infos)
+            else:
+                # 一時的フォールバック（空リスト）
+                db_models = []
+
+            self._all_models = db_models
+            self._cached_models = db_models
+            logger.info(f"Loaded {len(db_models)} models from DB")
+            return db_models
 
         except Exception as e:
-            logger.error(f"Failed to load models: {e}")
+            logger.error(f"Failed to load models from DB: {e}")
             return []
 
-    def _convert_protocol_to_compat(self, protocol_model: RegistryModelInfo) -> ModelInfo:
-        """Protocol ModelInfo を 後方互換性 ModelInfo に変換"""
-        return ModelInfo(
-            name=protocol_model.name,
-            provider=protocol_model.provider,
-            capabilities=protocol_model.capabilities,
-            api_model_id=protocol_model.api_model_id,
-            requires_api_key=protocol_model.requires_api_key,
-            estimated_size_gb=protocol_model.estimated_size_gb,
-            is_recommended=self._is_recommended_model(protocol_model.name),
-        )
+    # _convert_protocol_to_compat メソッド削除 - DB Modelを直接使用するため不要
 
-    def refresh_models(self) -> list[ModelInfo]:
+    def refresh_models(self) -> list[Model]:
         """モデルキャッシュをクリアして再読み込み"""
         self._cached_models = None
         self._all_models = []
         return self.load_models()
 
-    def get_all_models(self) -> list[ModelInfo]:
+    def get_all_models(self) -> list[Model]:
         """すべてのモデル情報を取得"""
         return self._all_models.copy()
 
-    def get_recommended_models(self) -> list[ModelInfo]:
-        """推奨モデルのみを取得"""
-        return [m for m in self._all_models if self._is_recommended_model(m.name)]
+    def get_recommended_models(self) -> list[Model]:
+        """推奨モデルのみを取得（DB Modelプロパティ使用）"""
+        return [m for m in self._all_models if m.is_recommended]
 
     def filter_models(
         self,
@@ -115,8 +104,8 @@ class ModelSelectionService:
         # Legacy parameters for backward compatibility
         provider: str | None = None,
         capabilities: list[str] | None = None,
-    ) -> list[ModelInfo]:
-        """指定した条件でモデルをフィルタリング（現代化版 + 後方互換性）"""
+    ) -> list[Model]:
+        """指定した条件でモデルをフィルタリング（DB Model直接使用）"""
 
         # 後方互換性: 旧シグネチャ (provider, capabilities) の処理
         if criteria is None and (provider is not None or capabilities is not None):
@@ -137,25 +126,21 @@ class ModelSelectionService:
         if criteria.capabilities:
             filtered = [m for m in filtered if any(cap in m.capabilities for cap in criteria.capabilities)]
 
-        # 推奨フィルタ
+        # 推奨フィルタ（DB Modelプロパティ使用）
         if criteria.only_recommended:
-            filtered = [m for m in filtered if self._is_recommended_model(m.name)]
+            filtered = [m for m in filtered if m.is_recommended]
 
-        # 利用可能フィルタ（API keyチェックなど）
+        # 利用可能フィルタ（DB Modelプロパティ使用）
         if criteria.only_available:
-            filtered = [m for m in filtered if self._is_model_available(m)]
+            filtered = [m for m in filtered if m.available]
 
         return filtered
 
-    def _is_model_available(self, model: ModelInfo) -> bool:
-        """モデルが利用可能かチェック（API keyなど）"""
-        # APIキーが必要なモデルの場合、設定チェックが必要
-        # 今回は簡易実装として常にTrue
-        return True
+    # _is_model_available メソッド削除 - DB Model.available プロパティを使用
 
-    def group_models_by_provider(self, models: list[ModelInfo]) -> dict[str, list[ModelInfo]]:
-        """プロバイダー別にモデルをグループ化"""
-        groups: dict[str, list[ModelInfo]] = {}
+    def group_models_by_provider(self, models: list[Model]) -> dict[str, list[Model]]:
+        """プロバイダー別にモデルをグループ化（DB Model使用）"""
+        groups: dict[str, list[Model]] = {}
         for model in models:
             provider = model.provider or "local"
             if provider not in groups:
@@ -163,42 +148,116 @@ class ModelSelectionService:
             groups[provider].append(model)
         return groups
 
-    def create_model_tooltip(self, model: ModelInfo) -> str:
-        """モデル用ツールチップを作成"""
-        tooltip_parts = [f"プロバイダー: {model.provider}", f"機能: {', '.join(model.capabilities)}"]
+    def _convert_model_infos_to_models(self, model_infos: list[ModelInfo]) -> list[Model]:
+        """モデル情報TypedDictをDB Modelオブジェクトに変換（Cプランブリッジ）
 
-        if model.api_model_id:
-            tooltip_parts.append(f"API ID: {model.api_model_id}")
+        Args:
+            model_infos: ModelInfoManagerからのTypedDict形式のモデル情報
 
-        if model.estimated_size_gb:
-            tooltip_parts.append(f"サイズ: {model.estimated_size_gb:.1f}GB")
+        Returns:
+            list[Model]: DB Modelオブジェクトのリスト
+        """
+        converted_models: list[Model] = []
 
-        tooltip_parts.append(f"APIキー必要: {'Yes' if model.requires_api_key else 'No'}")
+        for model_info in model_infos:
+            try:
+                # Mock Modelオブジェクトを作成（Cプランのブリッジ実装）
+                mock_model = Mock(spec=Model)
+                mock_model.id = model_info.get("id")
+                mock_model.name = model_info["name"]
+                mock_model.provider = model_info.get("provider")
+                mock_model.api_model_id = model_info.get("api_model_id")
+                mock_model.requires_api_key = model_info.get("requires_api_key", False)
+                mock_model.estimated_size_gb = model_info.get("estimated_size_gb")
+                mock_model.discontinued_at = model_info.get("discontinued_at")
 
-        return "\n".join(tooltip_parts)
+                # UIプロパティの設定
+                mock_model.available = model_info.get("available", True)
+                # model_typeをcapabilitiesに変換
+                model_type = model_info.get("model_type", "")
+                if model_type == "vision":
+                    mock_model.capabilities = ["caption"]
+                elif model_type == "tagger":
+                    mock_model.capabilities = ["tags"]
+                elif model_type == "score":
+                    mock_model.capabilities = ["scores"]
+                else:
+                    mock_model.capabilities = ["caption"]  # デフォルト
 
-    def create_model_display_name(self, model: ModelInfo) -> str:
-        """モデルの表示名を作成"""
-        display_name = model.name
-        if model.requires_api_key:
-            display_name += " (API)"
-        if model.estimated_size_gb:
-            display_name += f" ({model.estimated_size_gb:.1f}GB)"
-        return display_name
+                # is_recommendedプロパティの計算
+                name_lower = mock_model.name.lower() if mock_model.name else ""
+                caption_recommended = ["gpt-4o", "claude-3-5-sonnet", "claude-3-sonnet", "gemini-pro"]
+                tags_recommended = ["wd-v1-4", "wd-tagger", "deepdanbooru", "wd-swinv2"]
+                scores_recommended = ["clip-aesthetic", "musiq", "aesthetic-scorer"]
+                all_recommended = caption_recommended + tags_recommended + scores_recommended
+                mock_model.is_recommended = any(rec in name_lower for rec in all_recommended)
 
-    def _is_recommended_model(self, model_name: str) -> bool:
-        """推奨モデルかどうか判定"""
-        name_lower = model_name.lower()
+                converted_models.append(mock_model)
 
-        # 高品質Caption生成モデル
-        caption_recommended = ["gpt-4o", "claude-3-5-sonnet", "claude-3-sonnet", "gemini-pro"]
+            except Exception as e:
+                logger.warning(
+                    f"Failed to convert model info to Model object for {model_info.get('name', 'unknown')}: {e}"
+                )
+                continue
 
-        # 高精度タグ生成モデル
-        tags_recommended = ["wd-v1-4", "wd-tagger", "deepdanbooru", "wd-swinv2"]
+        logger.debug(f"Converted {len(converted_models)} ModelInfo objects to Model objects")
+        return converted_models
 
-        # 品質評価モデル
-        scores_recommended = ["clip-aesthetic", "musiq", "aesthetic-scorer"]
+    def _convert_db_dicts_to_models(self, db_dicts: list[dict[str, Any]]) -> list[Model]:
+        """データベース辞書形式をDB Modelオブジェクトに変換（Cプランブリッジ）
 
-        all_recommended = caption_recommended + tags_recommended + scores_recommended
+        Args:
+            db_dicts: DBからの辞書形式のモデル情報
 
-        return any(rec in name_lower for rec in all_recommended)
+        Returns:
+            list[Model]: DB Modelオブジェクトのリスト
+        """
+        converted_models: list[Model] = []
+
+        for db_dict in db_dicts:
+            try:
+                # Mock Modelオブジェクトを作成（Cプランのブリッジ実装）
+                mock_model = Mock(spec=Model)
+                mock_model.id = db_dict.get("id")
+                mock_model.name = db_dict.get("name", "")
+                mock_model.provider = db_dict.get("provider")
+                mock_model.discontinued_at = db_dict.get("discontinued_at")
+                mock_model.created_at = db_dict.get("created_at")
+                mock_model.updated_at = db_dict.get("updated_at")
+
+                # model_typesをcapabilitiesに変換
+                model_types = db_dict.get("model_types", [])
+                mock_model.capabilities = model_types
+
+                # UIプロパティの設定
+                mock_model.available = mock_model.discontinued_at is None
+
+                # is_recommendedプロパティの計算
+                name_lower = mock_model.name.lower() if mock_model.name else ""
+                caption_recommended = ["gpt-4o", "claude-3-5-sonnet", "claude-3-sonnet", "gemini-pro"]
+                tags_recommended = ["wd-v1-4", "wd-tagger", "deepdanbooru", "wd-swinv2"]
+                scores_recommended = ["clip-aesthetic", "musiq", "aesthetic-scorer"]
+                all_recommended = caption_recommended + tags_recommended + scores_recommended
+                mock_model.is_recommended = any(rec in name_lower for rec in all_recommended)
+
+                # その他のフィールドはデフォルト値
+                mock_model.api_model_id = None
+                mock_model.requires_api_key = False
+                mock_model.estimated_size_gb = None
+
+                converted_models.append(mock_model)
+
+            except Exception as e:
+                logger.warning(
+                    f"Failed to convert db dict to Model object for {db_dict.get('name', 'unknown')}: {e}"
+                )
+                continue
+
+        logger.debug(f"Converted {len(converted_models)} DB dict objects to Model objects")
+        return converted_models
+
+    # create_model_tooltip メソッド削除 - Widgetに移動
+
+    # create_model_display_name メソッド削除 - Widgetに移動
+
+    # _is_recommended_model メソッド削除 - DB Model.is_recommended プロパティを使用

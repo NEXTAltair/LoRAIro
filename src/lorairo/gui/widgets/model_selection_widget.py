@@ -15,24 +15,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...database.schema import Model
 from ...services.model_registry_protocol import ModelRegistryServiceProtocol, NullModelRegistry
 from ...utils.log import logger
 from ..services.model_selection_service import ModelSelectionCriteria, ModelSelectionService
 
 # NullModelRegistry は ModelSelectionService 側でデフォルト縮退を実装済みのため、ここでは直接使用しない
-
-
-@dataclass
-class ModelInfo:
-    """モデル情報データクラス"""
-
-    name: str
-    provider: str
-    capabilities: list[str]  # ["caption", "tags", "scores"] - 実際の機能（ModelTypeと一致）
-    api_model_id: str | None
-    requires_api_key: bool
-    estimated_size_gb: float | None
-    is_recommended: bool = False
+# ModelInfo dataclass 削除 - DB Modelを直接使用
 
 
 class ModelSelectionWidget(QWidget):
@@ -70,9 +59,9 @@ class ModelSelectionWidget(QWidget):
             # Create ModelSelectionService with appropriate configuration
             self.model_selection_service = self._create_model_selection_service()
 
-        # モデル情報
-        self.all_models: list[ModelInfo] = []
-        self.filtered_models: list[ModelInfo] = []
+        # モデル情報（DB Model直接使用）
+        self.all_models: list[Model] = []
+        self.filtered_models: list[Model] = []
         self.model_checkboxes: dict[str, QCheckBox] = {}
 
         # フィルタ状態
@@ -93,7 +82,7 @@ class ModelSelectionWidget(QWidget):
         Returns:
             ModelSelectionService: 設定されたサービスインスタンス
         """
-        return ModelSelectionService.create(model_registry=self.model_registry)
+        return ModelSelectionService.create(model_manager=None, db_repository=None)
 
     def setup_ui(self) -> None:
         """UI初期化"""
@@ -114,6 +103,8 @@ class ModelSelectionWidget(QWidget):
         self.setup_status_display(main_layout)
 
     def setup_control_buttons(self, parent_layout: QVBoxLayout) -> None:
+        # TODO: レイアウト定義は QtDesigner へ移動 全選択、全解除、推奨選択ボタンは不要
+        # 推奨な何をもって決定するロジックか?
         """制御ボタン領域設定"""
         control_frame = QFrame()
         control_layout = QHBoxLayout(control_frame)
@@ -196,6 +187,7 @@ class ModelSelectionWidget(QWidget):
         self.scroll_layout.setSpacing(2)
 
         # プレースホルダーラベル
+        # TODO: プレースホルダーラベルは不要
         self.placeholder_label = QLabel()
         if self.mode == "simple":
             self.placeholder_label.setText(
@@ -301,7 +293,7 @@ class ModelSelectionWidget(QWidget):
                 self.filtered_models = recommended_models
             except Exception as e:
                 logger.error(f"Failed to get recommended models: {e}")
-                # Fallback: filter by is_recommended flag
+                # Fallback: filter by is_recommended property
                 self.filtered_models = [m for m in self.all_models if m.is_recommended]
         else:
             self.filtered_models = self._apply_advanced_filters()
@@ -324,7 +316,7 @@ class ModelSelectionWidget(QWidget):
 
         self.update_selection_count()
 
-    def _apply_advanced_filters(self) -> list[ModelInfo]:
+    def _apply_advanced_filters(self) -> list[Model]:
         """詳細モード用フィルタリング（Phase 4現代化版：ModelSelectionService活用）"""
         try:
             # Phase 4: Use ModelSelectionService for filtering
@@ -345,13 +337,17 @@ class ModelSelectionWidget(QWidget):
             # Fallback to basic filtering
             return self._apply_basic_filters()
 
-    def _apply_basic_filters(self) -> list[ModelInfo]:
+    def _apply_basic_filters(self) -> list[Model]:
         """基本フィルタリング（フォールバック用）"""
         filtered = self.all_models
 
         # プロバイダーフィルタ
         if self.current_provider_filter and self.current_provider_filter != "すべて":
-            filtered = [m for m in filtered if m.provider.lower() == self.current_provider_filter.lower()]
+            filtered = [
+                m
+                for m in filtered
+                if m.provider and m.provider.lower() == self.current_provider_filter.lower()
+            ]
 
         # 機能フィルタ
         if self.current_capability_filters:
@@ -361,9 +357,9 @@ class ModelSelectionWidget(QWidget):
 
         return filtered
 
-    def _group_models_by_provider(self) -> dict[str, list[ModelInfo]]:
+    def _group_models_by_provider(self) -> dict[str, list[Model]]:
         """プロバイダー別にモデルをグループ化"""
-        groups: dict[str, list[ModelInfo]] = {}
+        groups: dict[str, list[Model]] = {}
         for model in self.filtered_models:
             provider = model.provider or "local"
             if provider not in groups:
@@ -371,7 +367,7 @@ class ModelSelectionWidget(QWidget):
             groups[provider].append(model)
         return groups
 
-    def _add_provider_group(self, provider: str, models: list[ModelInfo]) -> None:
+    def _add_provider_group(self, provider: str, models: list[Model]) -> None:
         """プロバイダーグループをUIに追加"""
         # プロバイダーラベル
         provider_icons = {"openai": "🤖", "anthropic": "🧠", "google": "🌟", "local": "💻"}
@@ -392,7 +388,7 @@ class ModelSelectionWidget(QWidget):
             self.model_checkboxes[model.name] = checkbox
             self.scroll_layout.addWidget(checkbox)
 
-    def _create_model_checkbox(self, model: ModelInfo) -> QCheckBox:
+    def _create_model_checkbox(self, model: Model) -> QCheckBox:
         """モデル用チェックボックス作成"""
         # 表示名作成
         display_name = model.name
@@ -406,7 +402,7 @@ class ModelSelectionWidget(QWidget):
         checkbox.setToolTip(self._create_model_tooltip(model))
         checkbox.stateChanged.connect(self.on_model_selection_changed)
 
-        # スタイル
+        # TODO: レイアウト定義は QtDesigner へ移動
         checkbox.setStyleSheet("""
             QCheckBox {
                 font-size: 10px;
@@ -432,7 +428,7 @@ class ModelSelectionWidget(QWidget):
 
         return checkbox
 
-    def _create_model_tooltip(self, model: ModelInfo) -> str:
+    def _create_model_tooltip(self, model: Model) -> str:
         """モデル用ツールチップ作成"""
         tooltip_parts = [f"プロバイダー: {model.provider}", f"機能: {', '.join(model.capabilities)}"]
 
@@ -520,7 +516,7 @@ class ModelSelectionWidget(QWidget):
 
         except Exception as e:
             logger.error(f"Failed to select recommended models: {e}")
-            # Fallback: Use is_recommended flag
+            # Fallback: Use is_recommended property
             for model_name, checkbox in self.model_checkboxes.items():
                 model_info = next((m for m in self.filtered_models if m.name == model_name), None)
                 if model_info and model_info.is_recommended:
@@ -558,36 +554,39 @@ if __name__ == "__main__":
 
     # __main__ 内限定の補助: ダミーモデルをUIに挿入してシグナル動作確認
     def _inject_dummy_models_for_demo(_w: ModelSelectionWidget) -> None:
-        # ダミーModelInfo相当のリストを __main__ 限定で埋める
-        _w.all_models = [
-            ModelInfo(
-                name="gpt-4o",
-                provider="openai",
-                capabilities=["caption"],
-                api_model_id="gpt-4o",
-                requires_api_key=True,
-                estimated_size_gb=None,
-                is_recommended=True,
-            ),
-            ModelInfo(
-                name="wd-v1-4",
-                provider="local",
-                capabilities=["tag"],
-                api_model_id=None,
-                requires_api_key=False,
-                estimated_size_gb=2.0,
-                is_recommended=True,
-            ),
-            ModelInfo(
-                name="clip-aesthetic",
-                provider="local",
-                capabilities=["score"],
-                api_model_id=None,
-                requires_api_key=False,
-                estimated_size_gb=0.5,
-                is_recommended=True,
-            ),
-        ]
+        # 注意: DB Model オブジェクトの作成には本来セッションが必要
+        # __main__ 限定でのテスト用にMockオブジェクトを使用
+        from unittest.mock import Mock
+
+        # MockでDB Model互換オブジェクトを作成（テスト用のみ）
+        mock_model_1 = Mock()
+        mock_model_1.name = "gpt-4o"
+        mock_model_1.provider = "openai"
+        mock_model_1.capabilities = ["caption"]
+        mock_model_1.api_model_id = "gpt-4o"
+        mock_model_1.requires_api_key = True
+        mock_model_1.estimated_size_gb = None
+        mock_model_1.is_recommended = True
+
+        mock_model_2 = Mock()
+        mock_model_2.name = "wd-v1-4"
+        mock_model_2.provider = "local"
+        mock_model_2.capabilities = ["tag"]
+        mock_model_2.api_model_id = None
+        mock_model_2.requires_api_key = False
+        mock_model_2.estimated_size_gb = 2.0
+        mock_model_2.is_recommended = True
+
+        mock_model_3 = Mock()
+        mock_model_3.name = "clip-aesthetic"
+        mock_model_3.provider = "local"
+        mock_model_3.capabilities = ["score"]
+        mock_model_3.api_model_id = None
+        mock_model_3.requires_api_key = False
+        mock_model_3.estimated_size_gb = 0.5
+        mock_model_3.is_recommended = True
+
+        _w.all_models = [mock_model_1, mock_model_2, mock_model_3]
         # 表示更新で filtered_models と model_checkboxes を構築
         _w.update_model_display()
 
