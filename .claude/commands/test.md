@@ -13,7 +13,7 @@ description: implement フェーズで実装されたコードについて、包
 
 ## 重要原則
 
-- 関連するコードは全て読むこと [doc-lookup-rules.mdc](mdc:.cursor/rules/doc-lookup-rules.mdc)
+- 関連するコードは全て読むこと use serena
 - 全ての処理において ultrathink でしっかりと考えて作業を行うこと
 - `.cursor/rules/test_rules/testing-rules.mdc`のテスト方針に完全準拠すること
 - 75%以上のテストカバレッジを維持すること
@@ -29,10 +29,9 @@ implement フェーズで実装された上記機能について、ユニット�
 ### 1. テスト準備・環境確認
 
 1. implement フェーズの実装結果確認
-2. テスト環境セットアップ確認(`UV_PROJECT_ENVIRONMENT=.venv_linux uv sync --dev`)
-3. 既存テストスイートの実行と基線確認
-4. 新規実装部分のテスト対象特定
-5. テストデータ・リソース準備
+2. 既存テストスイートの実行と基線確認
+3. 新規実装部分のテスト対象特定
+4. テストデータ・リソース準備
 
 ### 2. ユニットテスト実行・拡充(tests/unit/)
 
@@ -40,7 +39,7 @@ implement フェーズで実装された上記機能について、ユニット�
 7. 新規実装コンポーネントのユニットテスト作成
 8. 外部依存関係の最小限モック化
 9. 境界値・エッジケーステスト実装
-10. `UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m unit` による単体テスト全実行
+10. `uv run pytest -m unit` による単体テスト全実行
 
 ### 3. 統合テスト実行・拡充(tests/integration/)
 
@@ -48,7 +47,7 @@ implement フェーズで実装された上記機能について、ユニット�
 12. サービス層統合テスト実装
 13. データベース操作統合テスト実行
 14. AI 統合(local packages)インターフェーステスト実行(Mockを使用)
-15. `UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m integration` による統合テスト全実行
+15. `uv run pytest -m integration` による統合テスト全実行
 
 ### 4. GUI テスト実行・拡充(tests/gui/)
 
@@ -56,7 +55,7 @@ implement フェーズで実装された上記機能について、ユニット�
 17. ユーザーインタラクションシナリオテスト実装
 18. Signal/Slot 連携テスト実行
 19. 非同期処理(QThread)テスト実行
-20. `UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m gui` による GUI テスト全実行(ヘッドレス環境対応)
+20. `uv run pytest -m gui` による GUI テスト全実行(ヘッドレス環境対応)
 
 ### 5. BDD(E2E)テスト実行・拡充(tests/bdd/)
 
@@ -85,10 +84,10 @@ implement フェーズで実装された上記機能について、ユニット�
 
 ### 8. 品質指標・カバレッジ確認
 
-37. `UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest --cov=src --cov-report=html` によるカバレッジ測定
+37. `uv run pytest --cov=src --cov-report=html` によるカバレッジ測定
 38. テストカバレッジ >75% 確認・必要時追加テスト実装
-39. `UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff check` による最終コード品質チェック
-40. `UV_PROJECT_ENVIRONMENT=.venv_linux uv run mypy src/` による型安全性最終確認
+39. `uv run ruff check` による最終コード品質チェック
+40. `uv run mypy src/` による型安全性最終確認
 41. コード複雑度・可読性チェック
 
 ### 9. 回帰テスト・互換性確認
@@ -179,7 +178,7 @@ implement フェーズで実装された上記機能について、ユニット�
 
 ### ユニットテスト
 
-- [ ] `UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m unit` 実行・全パス確認
+- [ ] `uv run pytest -m unit` 実行・全パス確認
 - [ ] 新規コンポーネントテスト網羅確認
 - [ ] モック戦略適切性確認
 - [ ] 境界値・エッジケース網羅確認
@@ -187,7 +186,7 @@ implement フェーズで実装された上記機能について、ユニット�
 
 ### 統合テスト
 
-- [ ] `UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m integration` 実行・全パス確認
+- [ ] `uv run pytest -m integration` 実行・全パス確認
 - [ ] モジュール間連携正常性確認
 - [ ] データベース操作整合性確認
 - [ ] AI 統合インターフェース正常性確認(Mock使用)
@@ -195,7 +194,7 @@ implement フェーズで実装された上記機能について、ユニット�
 
 ### GUI テスト
 
-- [ ] `UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m gui` 実行・全パス確認(ヘッドレス)
+- [ ] `uv run pytest -m gui` 実行・全パス確認(ヘッドレス)
 - [ ] ユーザーインタラクション正常性確認
 - [ ] 非同期処理・応答性確認
 - [ ] Signal/Slot 連携確認
@@ -203,10 +202,10 @@ implement フェーズで実装された上記機能について、ユニット�
 
 ### 品質・カバレッジ確認
 
-- [ ] `UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest --cov=src --cov-report=html` 実行
+- [ ] `uv run pytest --cov=src --cov-report=html` 実行
 - [ ] テストカバレッジ >75% 確認
-- [ ] `UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff check` クリア確認
-- [ ] `UV_PROJECT_ENVIRONMENT=.venv_linux uv run mypy src/` クリア確認
+- [ ] `uv run ruff check` クリア確認
+- [ ] `uv run mypy src/` クリア確認
 - [ ] パフォーマンス基準クリア確認
 
 ## 出力形式
@@ -224,4 +223,4 @@ implement フェーズで実装された上記機能について、ユニット�
 
 ## 次のコマンド
 
-テスト完了後、問題があれば `@investigate` で原因調査、または改善実装のため `@plan` で計画策定を行います。
+テスト完了後、問題があれば `/investigate` で原因調査、または改善実装のため `/plan` で計画策定を行います。

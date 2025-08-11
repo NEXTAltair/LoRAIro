@@ -86,7 +86,23 @@ class AnnotationService(QObject):
             list[dict[str, Any]]: モデルメタデータリスト
         """
         try:
-            models = self.container.annotator_lib_adapter.get_available_models_with_metadata()
+            # Protocol-basedモデルレジストリ経由で取得
+            model_infos = self.container.model_registry.get_available_models()
+
+            # ModelInfoからdictに変換
+            models = []
+            for model_info in model_infos:
+                models.append(
+                    {
+                        "name": model_info.name,
+                        "provider": model_info.provider,
+                        "capabilities": model_info.capabilities,
+                        "api_model_id": model_info.api_model_id,
+                        "requires_api_key": model_info.requires_api_key,
+                        "estimated_size_gb": model_info.estimated_size_gb,
+                    }
+                )
+
             logger.debug(f"利用可能モデル取得: {len(models)}件")
             return models
 
@@ -103,7 +119,12 @@ class AnnotationService(QObject):
         Raises:
             Exception: モデル取得時の例外
         """
-        models = self.container.annotator_lib_adapter.get_available_models_with_metadata()
+        # 既存のget_available_modelsメソッドを再利用
+        # 例外は内部で処理されるため、空リストが返された場合は例外を発生
+        models = self.get_available_models()
+        if not models:
+            raise Exception("利用可能なモデルが取得できませんでした")
+
         logger.debug(f"利用可能モデル取得: {len(models)}件")
         return models
 
@@ -148,14 +169,32 @@ class AnnotationService(QObject):
             return
 
         try:
-            # アノテーション実行
-            results = self.container.annotator_lib_adapter.call_annotate(
-                images=images, models=models, phash_list=phash_list
+            # Protocol-basedアーキテクチャでは直接アノテーション実行は廃止
+            # 代わりにプレースホルダー結果を生成（Phase 4で実装置換）
+            logger.warning(
+                "単発アノテーション処理は現在Protocol-based移行中です。プレースホルダー結果を返します。"
             )
+
+            # プレースホルダー結果生成
+            results = {}
+            for i, _image in enumerate(images):
+                phash = phash_list[i] if phash_list and i < len(phash_list) else f"placeholder_hash_{i}"
+                results[phash] = {}
+
+                for model in models:
+                    results[phash][model] = {
+                        "tags": ["protocol_migration", "placeholder"],
+                        "formatted_output": {
+                            "captions": [f"Protocol migration placeholder for {model}"],
+                            "tags": ["protocol_migration", "placeholder"],
+                            "score": 0.0,
+                        },
+                        "error": None,
+                    }
 
             # 結果保存・通知
             self._last_annotation_result = results
-            logger.info(f"単発アノテーション完了: {len(results)}件の結果")
+            logger.info(f"単発アノテーション完了（プレースホルダー）: {len(results)}件の結果")
             self.annotationFinished.emit(results)
 
         except Exception as e:

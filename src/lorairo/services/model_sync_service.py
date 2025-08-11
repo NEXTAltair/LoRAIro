@@ -55,7 +55,7 @@ class AnnotatorLibraryProtocol(Protocol):
     """アノテーターライブラリのプロトコル定義（DI用）"""
 
     def get_available_models_with_metadata(self) -> list[dict[str, Any]]:
-        """利用可能アノテーターのメタデータ付き一覧を返す（AnnotatorLibAdapter仕様）"""
+        """利用可能アノテーターのメタデータ付き一覧を返す（Protocol-based仕様）"""
         ...
 
 
@@ -66,7 +66,7 @@ class MockAnnotatorLibrary:
         """モックのメタデータ付きモデル一覧"""
         logger.debug("モックライブラリからメタデータ付きモデル一覧を取得")
 
-        # モックデータ - AnnotatorLibAdapter仕様に合わせてlist形式で返却
+        # モックデータ - Protocol-based仕様に合わせてlist形式で返却
         return [
             {
                 "name": "gpt-4o",
@@ -133,7 +133,7 @@ class ModelSyncService:
     LoRAIro DBとの同期を担当。upscaler等のLoRAIro独自機能は対象外。
 
     Phase 4: 実ライブラリ統合実装
-    AnnotatorLibAdapter経由で実ライブラリまたはMockと連携
+    Protocol-based経由で実ライブラリまたはMockと連携
     """
 
     def __init__(
@@ -147,7 +147,7 @@ class ModelSyncService:
         Args:
             db_repository: 画像データベースリポジトリ
             config_service: 設定サービス
-            annotator_library: アノテーターライブラリアダプター（AnnotatorLibAdapter or Mock）
+            annotator_library: アノテーターライブラリアダプター（Protocol-based or Mock）
         """
         self.db_repository = db_repository
         self.config_service = config_service
@@ -155,10 +155,10 @@ class ModelSyncService:
 
         # Phase 4: 実ライブラリかMockかの判定
         adapter_type = type(self.annotator_library).__name__
-        if adapter_type == "AnnotatorLibAdapter":
-            logger.info(f"ModelSyncService初期化完了（Phase 4プロダクション統合 - {adapter_type}）")
-        else:
+        if adapter_type == "MockAnnotatorLibrary":
             logger.info(f"ModelSyncService初期化完了（Mock実装 - {adapter_type}）")
+        else:
+            logger.info(f"ModelSyncService初期化完了（Protocol-based実装 - {adapter_type}）")
 
     def sync_available_models(self) -> ModelSyncResult:
         """利用可能モデルの自動同期

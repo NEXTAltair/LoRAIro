@@ -6,7 +6,7 @@ ModelSyncServiceと連携してライブラリとDB間のモデル情報を統�
 
 import datetime
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 from ..database.db_repository import ImageRepository
 from ..services.configuration_service import ConfigurationService
