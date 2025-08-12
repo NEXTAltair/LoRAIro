@@ -16,12 +16,9 @@ from PySide6.QtWidgets import (
 )
 
 from ...database.schema import Model
-from ...services.model_registry_protocol import ModelRegistryServiceProtocol, NullModelRegistry
+from ...services import get_service_container
 from ...utils.log import logger
 from ..services.model_selection_service import ModelSelectionCriteria, ModelSelectionService
-
-# NullModelRegistry は ModelSelectionService 側でデフォルト縮退を実装済みのため、ここでは直接使用しない
-# ModelInfo dataclass 削除 - DB Modelを直接使用
 
 
 class ModelSelectionWidget(QWidget):
@@ -42,15 +39,11 @@ class ModelSelectionWidget(QWidget):
     def __init__(
         self,
         parent: QWidget | None = None,
-        model_registry: ModelRegistryServiceProtocol | None = None,
         model_selection_service: ModelSelectionService | None = None,
         mode: str = "simple",  # "simple" or "advanced"
     ) -> None:
         super().__init__(parent)
         self.mode = mode  # 簡単モード or 詳細モード
-
-        # Phase 4: Modern protocol-based architecture
-        self.model_registry = model_registry or NullModelRegistry()
 
         # Phase 2 Integration: ModelSelectionService
         if model_selection_service:
@@ -77,12 +70,14 @@ class ModelSelectionWidget(QWidget):
         logger.debug(f"ModelSelectionWidget initialized in {mode} mode with Phase 4 enhancements")
 
     def _create_model_selection_service(self) -> ModelSelectionService:
-        """ModelSelectionService を適切な設定で作成
+        """ModelSelectionService を適切な設定で作成（DB中心アーキテクチャ）
 
         Returns:
             ModelSelectionService: 設定されたサービスインスタンス
         """
-        return ModelSelectionService.create(model_manager=None, db_repository=None)
+        # ServiceContainer経由で適切なDB Repositoryを注入
+        service_container = get_service_container()
+        return ModelSelectionService.create(db_repository=service_container.image_repository)
 
     def setup_ui(self) -> None:
         """UI初期化"""
