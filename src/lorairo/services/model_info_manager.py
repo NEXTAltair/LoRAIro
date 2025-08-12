@@ -10,7 +10,7 @@ from typing import Any, TypedDict, cast
 
 from ..database.db_repository import ImageRepository
 from ..services.configuration_service import ConfigurationService
-from ..services.model_sync_service import AnnotatorLibraryProtocol, ModelSyncService
+from ..services.model_sync_service import AnnotatorLibraryProtocol, ModelMetadata, ModelSyncService
 from ..utils.log import logger
 
 
@@ -192,7 +192,7 @@ class ModelInfoManager:
         try:
             models = self.get_available_models()
 
-            stats = {
+            stats: dict[str, Any] = {
                 "total_models": len(models),
                 "available_models": len([m for m in models if m["available"]]),
                 "providers": {},
@@ -204,17 +204,19 @@ class ModelInfoManager:
             for model in models:
                 # プロバイダー別集計
                 provider = model["provider"] or "local"
-                stats["providers"][provider] = int(stats["providers"].get(provider, 0)) + 1
+                providers_dict = cast(dict[str, int], stats["providers"])
+                providers_dict[provider] = providers_dict.get(provider, 0) + 1
 
                 # モデルタイプ別集計
                 model_type = model["model_type"]
-                stats["model_types"][model_type] = int(stats["model_types"].get(model_type, 0)) + 1
+                types_dict = cast(dict[str, int], stats["model_types"])
+                types_dict[model_type] = types_dict.get(model_type, 0) + 1
 
                 # APIキー・ローカルモデル集計
                 if model["requires_api_key"]:
-                    stats["api_key_required"] += 1
+                    stats["api_key_required"] = cast(int, stats["api_key_required"]) + 1
                 else:
-                    stats["local_models"] += 1
+                    stats["local_models"] = cast(int, stats["local_models"]) + 1
 
             return stats
 
@@ -222,7 +224,7 @@ class ModelInfoManager:
             logger.error(f"モデル統計情報取得エラー: {e}")
             return {}
 
-    def _convert_to_model_info_list(self, library_models: list[dict[str, Any]]) -> list[ModelInfo]:
+    def _convert_to_model_info_list(self, library_models: list[ModelMetadata]) -> list[ModelInfo]:
         """ライブラリモデル情報をModelInfo形式に変換
 
         Args:
@@ -276,7 +278,7 @@ class ModelInfoManager:
             logger.debug(f"DBモデルID取得エラー ({model_name}): {e}")
             return None
 
-    def _check_model_availability(self, library_model: dict[str, Any]) -> bool:
+    def _check_model_availability(self, library_model: ModelMetadata) -> bool:
         """モデルの利用可能性を判定
 
         APIキー要件と設定状況を照合して利用可能性を判定。
@@ -298,7 +300,7 @@ class ModelInfoManager:
                 return False
 
             # 設定サービスからAPIキー設定をチェック
-            config = cast(dict[str, Any], self.config_service.get_all_settings())
+            config = self.config_service.get_all_settings()
             api_config = config.get("api", {})
 
             api_key_mapping = {

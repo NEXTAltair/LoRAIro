@@ -120,7 +120,9 @@ class ModelSelectionService:
 
         # プロバイダーフィルタ
         if criteria.provider and criteria.provider != "すべて":
-            filtered = [m for m in filtered if m.provider.lower() == criteria.provider.lower()]
+            filtered = [
+                m for m in filtered if m.provider and m.provider.lower() == criteria.provider.lower()
+            ]
 
         # 機能フィルタ
         if criteria.capabilities:
