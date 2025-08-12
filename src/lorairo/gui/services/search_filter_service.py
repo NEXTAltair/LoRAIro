@@ -15,7 +15,8 @@ from ...services.model_registry_protocol import (
     map_annotator_metadata_to_model_info,
 )
 from ...utils.log import logger
-from .model_selection_service import ModelInfo, ModelSelectionCriteria, ModelSelectionService
+from .model_selection_service import ModelSelectionCriteria, ModelSelectionService
+from ...database.schema import Model
 
 
 @dataclass
@@ -127,7 +128,17 @@ class SearchFilterService:
         Returns:
             ModelSelectionService: 設定されたサービスインスタンス
         """
-        return ModelSelectionService.create(model_registry=self.model_registry)
+        # DB-centric approach: ImageRepositoryが必要
+        # ImageDatabaseManager から repository を取得
+        try:
+            db_repository = self.db_manager.repository
+            return ModelSelectionService.create(db_repository=db_repository)
+        except Exception as e:
+            logger.error(f"ModelSelectionService作成エラー: {e}")
+            # フォールバック用の最小設定
+            from ...database.db_repository import ImageRepository
+            fallback_repo = ImageRepository()
+            return ModelSelectionService.create(db_repository=fallback_repo)
 
     def parse_search_input(self, search_text: str, search_type: str, tag_logic: str) -> list[str]:
         """検索テキストをキーワードリストに変換"""
@@ -830,7 +841,7 @@ class SearchFilterService:
             # Phase 3: Delegate to modernized ModelSelectionService
             models = self.model_selection_service.load_models()
 
-            # Convert ModelInfo objects to dict format for backward compatibility
+            # Convert DB Model objects to dict format for backward compatibility
             models_list = []
             for model in models:
                 model_info = {
@@ -998,7 +1009,7 @@ class SearchFilterService:
         try:
             # Phase 3: ModelSelectionServiceの機能推定ロジックに委譲
             if self.model_selection_service:
-                # Protocol-based ModelInfoから機能情報を取得
+                # Protocol-based Model から機能情報を取得
                 models = self.model_selection_service.load_models()
                 model_name = model_data.get("name", "")
 
@@ -1064,37 +1075,22 @@ class SearchFilterService:
                 models = self.model_selection_service.load_models()
                 model_name = model.get("name", "")
 
-                # 名前で一致するModelInfoを検索
-                for modern_model in models:
-                    if modern_model.name == model_name:
-                        # web_api -> requires_api_key, local -> not requires_api_key
-                        if "web_api" in providers and modern_model.requires_api_key:
-                            return True
-                        if "local" in providers and not modern_model.requires_api_key:
-                            return True
-                        # プロバイダー名による直接一致
-                        if modern_model.provider.lower() in [p.lower() for p in providers]:
+                # 名前で一致するModel を検索
+                for db_model in models:
+                    if db_model.name == model_name:
+                        # DB Model のプロバイダー情報を使用
+                        model_provider = db_model.provider or "local"
+                        if any(p.lower() in model_provider.lower() for p in providers):
                             return True
                         break
 
-            # レガシーフォールバック
-            return self._legacy_model_matches_provider_filter(model, providers)
+            # フォールバック: 従来ロジック
+            model_provider = model.get("provider", "").lower()
+            return any(provider.lower() in model_provider for provider in providers)
 
         except Exception as e:
-            logger.warning(f"プロバイダーフィルターエラー、レガシー処理にフォールバック: {e}")
-            return self._legacy_model_matches_provider_filter(model, providers)
-
-    def _legacy_model_matches_provider_filter(self, model: dict[str, Any], providers: list[str]) -> bool:
-        """レガシープロバイダーフィルター（後方互換用）"""
-        if "web_api" in providers:
-            if not model.get("is_local", True):  # is_localがFalseまたは存在しない
-                return True
-
-        if "local" in providers:
-            if model.get("is_local", True):  # is_localがTrueまたは存在しない
-                return True
-
-        return False
+            logger.error(f"プロバイダー一致チェックエラー: {e}")
+            return False
 
     def _model_matches_function_filter(self, model: dict[str, Any], function_types: list[str]) -> bool:
         """
@@ -1108,7 +1104,7 @@ class SearchFilterService:
             bool: フィルター一致有無
         """
         if not function_types:
-            return False
+            return True
 
         try:
             # Phase 3: ModelSelectionServiceを使用して機能判定を現代化
@@ -1116,119 +1112,132 @@ class SearchFilterService:
                 models = self.model_selection_service.load_models()
                 model_name = model.get("name", "")
 
-                # 名前で一致するModelInfoを検索
-                for modern_model in models:
-                    if modern_model.name == model_name:
-                        # ModelInfoのcapabilitiesと要求機能を比較
-                        return any(func in modern_model.capabilities for func in function_types)
+                # 名前で一致するModel を検索
+                for db_model in models:
+                    if db_model.name == model_name:
+                        # DB Model の機能情報を使用
+                        model_capabilities = db_model.capabilities
+                        if any(func in model_capabilities for func in function_types):
+                            return True
+                        break
 
-            # レガシーフォールバック
-            return self._legacy_model_matches_function_filter(model, function_types)
+            # フォールバック: 従来ロジック
+            model_capabilities = model.get("capabilities", [])
+            return any(func in model_capabilities for func in function_types)
 
         except Exception as e:
-            logger.warning(f"機能フィルターエラー、レガシー処理にフォールバック: {e}")
-            return self._legacy_model_matches_function_filter(model, function_types)
+            logger.error(f"機能一致チェックエラー: {e}")
+            return False
 
-    def _legacy_model_matches_function_filter(
-        self, model: dict[str, Any], function_types: list[str]
-    ) -> bool:
-        """レガシー機能フィルター（後方互換用）"""
-        model_capabilities = model.get("capabilities", [])
-        return any(func in model_capabilities for func in function_types)
+    # === Phase 3: Advanced Model Filtering Extensions ===
 
-    # ================================================================================
-    # Phase 3: Enhanced Model Filtering Methods
-    # ================================================================================
+    def _has_advanced_model_filters(self, conditions: SearchConditions) -> bool:
+        """高度なモデルフィルターが有効かチェック"""
+        return (
+            conditions.model_criteria is not None
+            or conditions.annotation_provider_filter is not None
+            or conditions.annotation_function_filter is not None
+        )
+
+    def create_advanced_model_search_preview(self, conditions: SearchConditions) -> dict[str, Any]:
+        """高度なモデル検索プレビューを作成"""
+        preview_result = {"has_advanced_filters": False}
+
+        try:
+            if not self._has_advanced_model_filters(conditions):
+                return preview_result
+
+            preview_result["has_advanced_filters"] = True
+
+            # モデル条件のサマリー
+            if conditions.model_criteria:
+                criteria_parts = []
+                if conditions.model_criteria.provider:
+                    criteria_parts.append(f"Provider: {conditions.model_criteria.provider}")
+                if conditions.model_criteria.capabilities:
+                    criteria_parts.append(f"Functions: {', '.join(conditions.model_criteria.capabilities)}")
+                if conditions.model_criteria.only_recommended:
+                    criteria_parts.append("Recommended only")
+                preview_result["model_criteria_summary"] = " | ".join(criteria_parts)
+
+            # プロバイダーフィルター
+            if conditions.annotation_provider_filter:
+                preview_result["provider_filter_summary"] = ", ".join(conditions.annotation_provider_filter)
+
+            # 機能フィルター
+            if conditions.annotation_function_filter:
+                preview_result["function_filter_summary"] = ", ".join(conditions.annotation_function_filter)
+
+            return preview_result
+
+        except Exception as e:
+            logger.error(f"高度モデル検索プレビュー作成エラー: {e}")
+            return {"has_advanced_filters": False}
 
     def apply_advanced_model_filters(
         self, images: list[dict[str, Any]], conditions: SearchConditions
     ) -> list[dict[str, Any]]:
-        """
-        拡張されたモデルフィルタリング条件を適用（Phase 3新機能）
+        """高度なモデルフィルターを適用"""
+        if not self._has_advanced_model_filters(conditions):
+            return images
 
-        Args:
-            images: フィルタリング対象の画像リスト
-            conditions: 検索条件（拡張モデルフィルターを含む）
-
-        Returns:
-            list: フィルタリング後の画像リスト
-        """
         try:
-            if not self._has_advanced_model_filters(conditions):
-                return images  # フィルター条件がない場合はそのまま返す
-
-            logger.info(f"高度なモデルフィルターを適用: {len(images)} 件の画像から開始")
-
             filtered_images = []
+            available_models = self.model_selection_service.load_models() if self.model_selection_service else []
 
             for image in images:
-                if self._image_matches_advanced_model_criteria(image, conditions):
+                if self._image_matches_advanced_model_criteria(image, conditions, available_models):
                     filtered_images.append(image)
 
-            logger.info(f"高度なモデルフィルター結果: {len(filtered_images)} 件の画像が条件に一致")
+            logger.info(f"高度モデルフィルター適用: {len(images)} -> {len(filtered_images)}")
             return filtered_images
 
         except Exception as e:
-            logger.error(f"高度なモデルフィルター適用エラー: {e}")
-            return images  # エラー時は元の画像リストを返す
+            logger.error(f"高度モデルフィルター適用エラー: {e}")
+            return images
 
-    def _has_advanced_model_filters(self, conditions: SearchConditions) -> bool:
-        """拡張モデルフィルター条件が設定されているかチェック"""
-        return bool(
-            conditions.model_criteria
-            or conditions.annotation_provider_filter
-            or conditions.annotation_function_filter
-        )
+    def optimize_advanced_filtering_performance(
+        self, images: list[dict[str, Any]], conditions: SearchConditions
+    ) -> list[dict[str, Any]]:
+        """パフォーマンス最適化された高度フィルタリング"""
+        try:
+            # モデルルックアップキャッシュを構築
+            model_cache = self.get_model_lookup_cache()
+            if not model_cache:
+                logger.warning("モデルキャッシュが空です、標準処理にフォールバック")
+                return self.apply_advanced_model_filters(images, conditions)
+
+            # 最適化されたフィルタリング処理
+            filtered_images = []
+            for image in images:
+                if self._image_matches_criteria_optimized(image, conditions, model_cache):
+                    filtered_images.append(image)
+
+            logger.info(f"最適化フィルタリング完了: {len(images)} -> {len(filtered_images)}")
+            return filtered_images
+
+        except Exception as e:
+            logger.error(f"最適化フィルタリングエラー、標準処理にフォールバック: {e}")
+            return self.apply_advanced_model_filters(images, conditions)
 
     def _image_matches_advanced_model_criteria(
-        self, image: dict[str, Any], conditions: SearchConditions
+        self, image: dict[str, Any], conditions: SearchConditions, available_models: list[Model]
     ) -> bool:
-        """
-        画像が高度なモデル条件に一致するかチェック
-
-        Args:
-            image: 画像情報
-            conditions: 検索条件
-
-        Returns:
-            bool: 条件一致有無
-        """
+        """画像が高度なモデル条件に一致するかチェック"""
         try:
-            # Phase 3: ModelSelectionServiceを使用してモデル情報を取得
-            if not self.model_selection_service:
-                logger.warning("ModelSelectionService未設定、高度フィルターをスキップ")
-                return True
-
-            available_models = self.model_selection_service.load_models()
-            if not available_models:
-                logger.warning("利用可能モデル情報なし、高度フィルターをスキップ")
-                return True
-
-            # アノテーション情報から使用されたモデルを特定
+            # 使用されたモデルを抽出
             used_models = self._extract_models_used_for_image(image, available_models)
             if not used_models:
-                return False  # モデル情報が取得できない画像は除外
+                return True  # モデル情報がない場合は包含的
 
-            # ModelSelectionCriteriaによるフィルタリング
-            if conditions.model_criteria:
-                matching_models = self.model_selection_service.filter_models(conditions.model_criteria)
-                matching_model_names = {model.name for model in matching_models}
-
-                if not any(model.name in matching_model_names for model in used_models):
-                    return False
-
-            # プロバイダーフィルタリング
+            # プロバイダーフィルター
             if conditions.annotation_provider_filter:
-                if not self._models_match_provider_criteria(
-                    used_models, conditions.annotation_provider_filter
-                ):
+                if not self._models_match_provider_criteria(used_models, conditions.annotation_provider_filter):
                     return False
 
-            # 機能フィルタリング
+            # 機能フィルター
             if conditions.annotation_function_filter:
-                if not self._models_match_function_criteria(
-                    used_models, conditions.annotation_function_filter
-                ):
+                if not self._models_match_function_criteria(used_models, conditions.annotation_function_filter):
                     return False
 
             return True
@@ -1236,302 +1245,6 @@ class SearchFilterService:
         except Exception as e:
             logger.error(f"高度モデル条件チェックエラー: {e}")
             return True  # エラー時は包含的に処理
-
-    def _extract_models_used_for_image(
-        self, image: dict[str, Any], available_models: list[ModelInfo]
-    ) -> list[ModelInfo]:
-        """
-        画像で使用されたモデル情報を抽出
-
-        Args:
-            image: 画像情報
-            available_models: 利用可能モデルリスト
-
-        Returns:
-            list: 使用されたModelInfoのリスト
-        """
-        try:
-            used_models = []
-
-            # アノテーション情報を確認
-            annotations = image.get("annotations", [])
-
-            for annotation in annotations:
-                model_name = annotation.get("model_name")
-                if model_name:
-                    # 名前でModelInfoを検索
-                    for model in available_models:
-                        if model.name == model_name:
-                            used_models.append(model)
-                            break
-
-            return used_models
-
-        except Exception as e:
-            logger.error(f"使用モデル抽出エラー: {e}")
-            return []
-
-    def _models_match_provider_criteria(
-        self, used_models: list[ModelInfo], provider_filter: list[str]
-    ) -> bool:
-        """使用されたモデルがプロバイダー条件に一致するかチェック"""
-        try:
-            for model in used_models:
-                # web_api -> requires_api_key, local -> not requires_api_key
-                if "web_api" in provider_filter and model.requires_api_key:
-                    return True
-                if "local" in provider_filter and not model.requires_api_key:
-                    return True
-                # プロバイダー名による直接一致
-                if model.provider.lower() in [p.lower() for p in provider_filter]:
-                    return True
-            return False
-
-        except Exception as e:
-            logger.error(f"プロバイダー条件チェックエラー: {e}")
-            return True
-
-    def _models_match_function_criteria(
-        self, used_models: list[ModelInfo], function_filter: list[str]
-    ) -> bool:
-        """使用されたモデルが機能条件に一致するかチェック"""
-        try:
-            for model in used_models:
-                if any(func in model.capabilities for func in function_filter):
-                    return True
-            return False
-
-        except Exception as e:
-            logger.error(f"機能条件チェックエラー: {e}")
-            return True
-
-    def create_advanced_model_search_preview(self, conditions: SearchConditions) -> dict[str, Any]:
-        """
-        高度なモデルフィルター条件のプレビューを作成
-
-        Args:
-            conditions: 検索条件
-
-        Returns:
-            dict: プレビュー情報
-        """
-        try:
-            preview: dict[str, Any] = {
-                "has_advanced_filters": self._has_advanced_model_filters(conditions),
-                "model_criteria_summary": None,
-                "provider_filter_summary": None,
-                "function_filter_summary": None,
-                "estimated_matches": None,
-            }
-
-            # ModelSelectionCriteriaサマリー
-            if conditions.model_criteria:
-                criteria = conditions.model_criteria
-                summary_parts = []
-
-                if criteria.provider:
-                    summary_parts.append(f"プロバイダー: {criteria.provider}")
-                if criteria.capabilities:
-                    summary_parts.append(f"機能: {', '.join(criteria.capabilities)}")
-                if criteria.only_recommended:
-                    summary_parts.append("推奨モデルのみ")
-                if criteria.only_available:
-                    summary_parts.append("利用可能モデルのみ")
-
-                preview["model_criteria_summary"] = " | ".join(summary_parts)
-
-            # プロバイダーフィルターサマリー
-            if conditions.annotation_provider_filter:
-                preview["provider_filter_summary"] = ", ".join(conditions.annotation_provider_filter)
-
-            # 機能フィルターサマリー
-            if conditions.annotation_function_filter:
-                preview["function_filter_summary"] = ", ".join(conditions.annotation_function_filter)
-
-            return preview
-
-        except Exception as e:
-            logger.error(f"高度モデルフィルタープレビュー作成エラー: {e}")
-            return {"has_advanced_filters": False, "error": str(e)}
-
-    # ================================================================================
-    # Phase 3: Performance Optimization Methods
-    # ================================================================================
-
-    def clear_model_cache(self) -> None:
-        """
-        モデルキャッシュをクリアして次回読み込み時に最新情報を取得（パフォーマンス最適化）
-        """
-        try:
-            if self.model_selection_service:
-                self.model_selection_service.refresh_models()
-                logger.info("モデルキャッシュをクリアしました")
-            else:
-                logger.warning("ModelSelectionService未設定のためキャッシュクリアをスキップ")
-        except Exception as e:
-            logger.error(f"モデルキャッシュクリアエラー: {e}")
-
-    def preload_models_for_filtering(self) -> bool:
-        """
-        フィルタリング処理を高速化するためにモデル情報を事前読み込み
-
-        Returns:
-            bool: 事前読み込み成功可否
-        """
-        try:
-            if not self.model_selection_service:
-                logger.warning("ModelSelectionService未設定のため事前読み込みをスキップ")
-                return False
-
-            models = self.model_selection_service.load_models()
-            logger.info(f"モデル情報事前読み込み完了: {len(models)} 件")
-            return len(models) > 0
-
-        except Exception as e:
-            logger.error(f"モデル事前読み込みエラー: {e}")
-            return False
-
-    def get_model_lookup_cache(self) -> dict[str, ModelInfo]:
-        """
-        モデル名による高速検索用キャッシュを構築
-
-        Returns:
-            dict: モデル名をキーとするModelInfo辞書
-        """
-        try:
-            if not self.model_selection_service:
-                return {}
-
-            models = self.model_selection_service.load_models()
-            return {model.name: model for model in models}
-
-        except Exception as e:
-            logger.error(f"モデル検索キャッシュ構築エラー: {e}")
-            return {}
-
-    def optimize_advanced_filtering_performance(
-        self, images: list[dict[str, Any]], conditions: SearchConditions
-    ) -> list[dict[str, Any]]:
-        """
-        高度フィルタリングのパフォーマンス最適化版
-
-        Args:
-            images: フィルタリング対象の画像リスト
-            conditions: 検索条件
-
-        Returns:
-            list: フィルタリング後の画像リスト
-        """
-        try:
-            if not self._has_advanced_model_filters(conditions):
-                return images
-
-            # パフォーマンス最適化: モデル検索キャッシュを事前構築
-            model_cache = self.get_model_lookup_cache()
-            if not model_cache:
-                logger.warning("モデルキャッシュが空のため最適化フィルタリングをスキップ")
-                return self.apply_advanced_model_filters(images, conditions)
-
-            logger.info(f"最適化フィルタリング開始: {len(images)} 件の画像、{len(model_cache)} 件のモデル")
-
-            # 事前に条件をチェックして処理を最適化
-            filtered_models = None
-            if conditions.model_criteria and self.model_selection_service:
-                filtered_models = self.model_selection_service.filter_models(conditions.model_criteria)
-                filtered_model_names = {model.name for model in filtered_models}
-
-            filtered_images = []
-
-            for image in images:
-                if self._image_matches_criteria_optimized(
-                    image, conditions, model_cache, filtered_model_names if filtered_models else None
-                ):
-                    filtered_images.append(image)
-
-            logger.info(f"最適化フィルタリング完了: {len(filtered_images)} 件が条件に一致")
-            return filtered_images
-
-        except Exception as e:
-            logger.error(f"最適化フィルタリングエラー、標準処理にフォールバック: {e}")
-            return self.apply_advanced_model_filters(images, conditions)
-
-    def _image_matches_criteria_optimized(
-        self,
-        image: dict[str, Any],
-        conditions: SearchConditions,
-        model_cache: dict[str, ModelInfo],
-        filtered_model_names: set[str] | None = None,
-    ) -> bool:
-        """
-        パフォーマンス最適化された画像条件一致チェック
-
-        Args:
-            image: 画像情報
-            conditions: 検索条件
-            model_cache: モデル名検索キャッシュ
-            filtered_model_names: 事前フィルタリング済みモデル名セット
-
-        Returns:
-            bool: 条件一致有無
-        """
-        try:
-            # アノテーション情報から使用モデルを高速抽出
-            used_models = self._extract_models_optimized(image, model_cache)
-            if not used_models:
-                return False
-
-            # ModelSelectionCriteriaによる事前フィルタリング結果を使用
-            if filtered_model_names is not None:
-                if not any(model.name in filtered_model_names for model in used_models):
-                    return False
-
-            # プロバイダーフィルタリング（最適化版）
-            if conditions.annotation_provider_filter:
-                if not self._models_match_provider_criteria(
-                    used_models, conditions.annotation_provider_filter
-                ):
-                    return False
-
-            # 機能フィルタリング（最適化版）
-            if conditions.annotation_function_filter:
-                if not self._models_match_function_criteria(
-                    used_models, conditions.annotation_function_filter
-                ):
-                    return False
-
-            return True
-
-        except Exception as e:
-            logger.error(f"最適化条件チェックエラー: {e}")
-            return True
-
-    def _extract_models_optimized(
-        self, image: dict[str, Any], model_cache: dict[str, ModelInfo]
-    ) -> list[ModelInfo]:
-        """
-        モデルキャッシュを使用した高速モデル抽出
-
-        Args:
-            image: 画像情報
-            model_cache: モデル名検索キャッシュ
-
-        Returns:
-            list: 使用されたModelInfoのリスト
-        """
-        try:
-            used_models = []
-            annotations = image.get("annotations", [])
-
-            for annotation in annotations:
-                model_name = annotation.get("model_name")
-                if model_name and model_name in model_cache:
-                    used_models.append(model_cache[model_name])
-
-            return used_models
-
-        except Exception as e:
-            logger.error(f"最適化モデル抽出エラー: {e}")
-            return []
 
     def cleanup_legacy_dependencies(self) -> dict[str, Any]:
         """
