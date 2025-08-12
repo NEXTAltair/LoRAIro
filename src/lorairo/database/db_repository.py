@@ -1256,6 +1256,26 @@ class ImageRepository:
                 logger.error(f"全モデル情報の取得中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
+    def get_model_objects(self) -> list[Model]:
+        """
+        データベースから実際のModelオブジェクトを直接取得します（DB中心アーキテクチャ用）
+
+        Returns:
+            list[Model]: Modelオブジェクトのリスト（関連するmodel_types含む）
+        """
+        try:
+            with self.session_factory() as session:
+                stmt = select(Model).options(selectinload(Model.model_types)).order_by(Model.name)
+                models_result = session.execute(stmt).scalars().unique().all()
+
+                model_list = list(models_result)
+                logger.info(f"DB Modelオブジェクトを取得しました。 件数: {len(model_list)}")
+                return model_list
+
+        except SQLAlchemyError as e:
+            logger.error(f"DB Modelオブジェクトの取得中にエラーが発生しました: {e}", exc_info=True)
+            raise
+
     def get_models_by_type(self, model_type_name: str) -> list[dict[str, Any]]:
         """
         指定されたタイプ名を持つモデルの情報を取得します。

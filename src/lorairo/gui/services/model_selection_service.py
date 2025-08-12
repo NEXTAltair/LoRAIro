@@ -3,15 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
-from unittest.mock import Mock
 
 from ...database.db_repository import ImageRepository
 from ...database.schema import Model
-from ...services.model_info_manager import ModelInfo, ModelInfoManager
 from ...utils.log import logger
-
-# ModelInfo dataclass 削除 - DB Modelを直接使用
 
 
 @dataclass
@@ -34,48 +29,30 @@ class ModelSelectionService:
     - 選択状態の管理は行わない（UI側で管理）
     """
 
-    def __init__(
-        self, model_manager: ModelInfoManager | None = None, db_repository: ImageRepository | None = None
-    ):
-        """Initialize ModelSelectionService with DB-centric approach."""
-        # 注入がない場合は一時的に空のマネージャーを使用（後で修正）
-        self.model_manager = model_manager
+    def __init__(self, db_repository: ImageRepository):
+        """Initialize ModelSelectionService with DB-centric architecture."""
         self.db_repository = db_repository
         self._all_models: list[Model] = []
         self._cached_models: list[Model] | None = None
 
     @classmethod
-    def create(
-        cls,
-        model_manager: ModelInfoManager | None = None,
-        db_repository: ImageRepository | None = None,
-    ) -> ModelSelectionService:
-        """Create ModelSelectionService with DB-centric approach."""
-        return cls(model_manager=model_manager, db_repository=db_repository)
+    def create(cls, db_repository: ImageRepository) -> ModelSelectionService:
+        """Create ModelSelectionService with DB-centric architecture."""
+        return cls(db_repository=db_repository)
 
     def load_models(self) -> list[Model]:
-        """モデル情報をDBから直接取得（DB-centric implementation）"""
+        """モデル情報をDBから直接取得（真のDB中心実装）"""
         try:
             # キャッシュがあれば返す（パフォーマンス最適化）
             if self._cached_models is not None:
                 return self._cached_models
 
-            # DBから直接取得（簡素化）
-            if self.db_repository:
-                # DBからdict形式で取得してModelオブジェクトに変換
-                db_model_dicts = self.db_repository.get_models()
-                db_models = self._convert_db_dicts_to_models(db_model_dicts)
-            elif self.model_manager:
-                # ModelInfoManager経由でTypedDictを取得して変換
-                model_infos = self.model_manager.get_available_models()
-                db_models = self._convert_model_infos_to_models(model_infos)
-            else:
-                # 一時的フォールバック（空リスト）
-                db_models = []
+            # DBから直接Model オブジェクトを取得（変換レイヤーなし）
+            db_models = self.db_repository.get_model_objects()
 
             self._all_models = db_models
             self._cached_models = db_models
-            logger.info(f"Loaded {len(db_models)} models from DB")
+            logger.info(f"Loaded {len(db_models)} models directly from DB")
             return db_models
 
         except Exception as e:
@@ -150,113 +127,6 @@ class ModelSelectionService:
             groups[provider].append(model)
         return groups
 
-    def _convert_model_infos_to_models(self, model_infos: list[ModelInfo]) -> list[Model]:
-        """モデル情報TypedDictをDB Modelオブジェクトに変換（Cプランブリッジ）
-
-        Args:
-            model_infos: ModelInfoManagerからのTypedDict形式のモデル情報
-
-        Returns:
-            list[Model]: DB Modelオブジェクトのリスト
-        """
-        converted_models: list[Model] = []
-
-        for model_info in model_infos:
-            try:
-                # Mock Modelオブジェクトを作成（Cプランのブリッジ実装）
-                mock_model = Mock(spec=Model)
-                mock_model.id = model_info.get("id")
-                mock_model.name = model_info["name"]
-                mock_model.provider = model_info.get("provider")
-                mock_model.api_model_id = model_info.get("api_model_id")
-                mock_model.requires_api_key = model_info.get("requires_api_key", False)
-                mock_model.estimated_size_gb = model_info.get("estimated_size_gb")
-                mock_model.discontinued_at = model_info.get("discontinued_at")
-
-                # UIプロパティの設定
-                mock_model.available = model_info.get("available", True)
-                # model_typeをcapabilitiesに変換
-                model_type = model_info.get("model_type", "")
-                if model_type == "vision":
-                    mock_model.capabilities = ["caption"]
-                elif model_type == "tagger":
-                    mock_model.capabilities = ["tags"]
-                elif model_type == "score":
-                    mock_model.capabilities = ["scores"]
-                else:
-                    mock_model.capabilities = ["caption"]  # デフォルト
-
-                # is_recommendedプロパティの計算
-                name_lower = mock_model.name.lower() if mock_model.name else ""
-                caption_recommended = ["gpt-4o", "claude-3-5-sonnet", "claude-3-sonnet", "gemini-pro"]
-                tags_recommended = ["wd-v1-4", "wd-tagger", "deepdanbooru", "wd-swinv2"]
-                scores_recommended = ["clip-aesthetic", "musiq", "aesthetic-scorer"]
-                all_recommended = caption_recommended + tags_recommended + scores_recommended
-                mock_model.is_recommended = any(rec in name_lower for rec in all_recommended)
-
-                converted_models.append(mock_model)
-
-            except Exception as e:
-                logger.warning(
-                    f"Failed to convert model info to Model object for {model_info.get('name', 'unknown')}: {e}"
-                )
-                continue
-
-        logger.debug(f"Converted {len(converted_models)} ModelInfo objects to Model objects")
-        return converted_models
-
-    def _convert_db_dicts_to_models(self, db_dicts: list[dict[str, Any]]) -> list[Model]:
-        """データベース辞書形式をDB Modelオブジェクトに変換（Cプランブリッジ）
-
-        Args:
-            db_dicts: DBからの辞書形式のモデル情報
-
-        Returns:
-            list[Model]: DB Modelオブジェクトのリスト
-        """
-        converted_models: list[Model] = []
-
-        for db_dict in db_dicts:
-            try:
-                # Mock Modelオブジェクトを作成（Cプランのブリッジ実装）
-                mock_model = Mock(spec=Model)
-                mock_model.id = db_dict.get("id")
-                mock_model.name = db_dict.get("name", "")
-                mock_model.provider = db_dict.get("provider")
-                mock_model.discontinued_at = db_dict.get("discontinued_at")
-                mock_model.created_at = db_dict.get("created_at")
-                mock_model.updated_at = db_dict.get("updated_at")
-
-                # model_typesをcapabilitiesに変換
-                model_types = db_dict.get("model_types", [])
-                mock_model.capabilities = model_types
-
-                # UIプロパティの設定
-                mock_model.available = mock_model.discontinued_at is None
-
-                # is_recommendedプロパティの計算
-                name_lower = mock_model.name.lower() if mock_model.name else ""
-                caption_recommended = ["gpt-4o", "claude-3-5-sonnet", "claude-3-sonnet", "gemini-pro"]
-                tags_recommended = ["wd-v1-4", "wd-tagger", "deepdanbooru", "wd-swinv2"]
-                scores_recommended = ["clip-aesthetic", "musiq", "aesthetic-scorer"]
-                all_recommended = caption_recommended + tags_recommended + scores_recommended
-                mock_model.is_recommended = any(rec in name_lower for rec in all_recommended)
-
-                # その他のフィールドはデフォルト値
-                mock_model.api_model_id = None
-                mock_model.requires_api_key = False
-                mock_model.estimated_size_gb = None
-
-                converted_models.append(mock_model)
-
-            except Exception as e:
-                logger.warning(
-                    f"Failed to convert db dict to Model object for {db_dict.get('name', 'unknown')}: {e}"
-                )
-                continue
-
-        logger.debug(f"Converted {len(converted_models)} DB dict objects to Model objects")
-        return converted_models
 
     # create_model_tooltip メソッド削除 - Widgetに移動
 
