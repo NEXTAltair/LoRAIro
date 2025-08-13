@@ -1,0 +1,70 @@
+---
+description: MCP運用ルール（cipher/serenaの使い分け、記録先、手順）
+globs:
+alwaysApply: false
+---
+version: "1.0.0"
+
+# MCP運用ルール（cipher / serena）
+
+本プロジェクトにおける MCP ベースAI支援の運用ルールを定義する。ドキュメント参照は serena による読解（`.serena/memories/`）を優先し、メモリ運用は [memory.mdc](mdc:.cursor/rules/memory.mdc)、ロギングは [logging-rules.mdc](mdc:.cursor/rules/logging-rules.mdc)、コーディングは [coding-rules.mdc](mdc:.cursor/rules/coding-rules.mdc) に従う。
+
+## 1. 目的
+- PLAN/ACT モードに準拠し、serena と cipher を役割分担して効率よく開発を進める。
+- 機械メモリと人間計画の境界を明確化し、重複や齟齬を防ぐ。
+
+## 2. エージェントの役割
+- **serena（読む・まとめる）**
+  - 役割: コード/ドキュメントの読解、要約、差分把握、計画草案作成。
+  - 入出力: `.serena/memories/`（機械メモリ）にのみ書き込み。コードや `tasks/` には直接書かない。
+  - 制約: 副作用のある操作（コード編集、コマンド実行、外部MCPの呼出）は行わない。
+- **cipher（実行・編成する）**
+  - 役割: 実装/編集、コマンド実行、他MCP呼出（例: perplexity）、ドキュメント/タスク反映。
+  - 入出力: `docs/` と `tasks/` を更新。必要時に `.serena/memories/` の要点を同期。
+  - 制約: 変更は必ず関連ドキュメント更新とテスト/リンタ実行を伴う。
+
+## 3. 保存場所と原本
+- **機械メモリの原本**: `.serena/memories/`（serenaが管理）
+- **人間向け計画の原本**: `tasks/`（cipherが更新）
+- **設計/仕様の原本**: `docs/`（cipherが更新）
+
+## 4. 運用フロー（概要）
+- **PLAN（調査/設計）**
+  1. serena が `docs/` と `src/` を読んで要約/差分/計画草案を `.serena/memories/` に記録。
+  2. 必要箇所のみを cipher が `tasks/` に鏡像（要約や次アクション）。
+- **ACT（実装/検証）**
+  1. cipher がコード編集/コマンド実行/テスト・Lint/ドキュメント更新。
+  2. 重要知見は必要に応じて `.serena/memories/` に反映（要点のみ）。
+
+## 5. 使い分け判断基準
+- 「読む/理解/棚卸/比較/計画案作成」→ serena
+- 「編集/実行/検証/公開/記録反映」→ cipher
+- 「他MCP（web検索等）が必要」→ cipher
+- 不明点が多い場合は serena で解像度を上げ、その結果を受けて cipher が実行。
+
+## 6. 禁止事項
+- serena がコードや `tasks/` を直接編集すること。
+- cipher がドキュメント未参照のまま編集すること。
+- シークレットや API キーをMCPログ/プロンプトに出力すること（[logging-rules.mdc](mdc:.cursor/rules/logging-rules.mdc) 参照）。
+
+## 7. 実行ガイドライン（cipher）
+- コマンドは非対話フラグを付与（`--yes` 等）。
+- 長時間/常駐ジョブはバックグラウンド実行。
+- 変更後は Lint/型/テスト（該当範囲）を実行し、失敗時は修正してから完了とする。
+- 変更点は `docs/` と `tasks/` を同期し、必要なら `.serena/memories/` にも要点を反映。
+
+## 8. ドキュメント更新義務
+- 設計/仕様変更時は `docs/` を更新。
+- タスク/進行は `tasks/active_context.md` と `tasks/tasks_plan.md` を更新。
+- serena の学習結果は `.serena/memories/` に保存（mirror は最小限）。
+
+## 9. チェックリスト
+- [ ] PLAN: serena が `.serena/memories/` に最新の要約/計画を保存したか？
+- [ ] ACT: cipher が関連 `docs/` と `tasks/` を更新したか？
+- [ ] シークレットや機微情報を出力/記録していないか？
+- [ ] Lint/型/テストを実行し問題がないか？
+
+## 10. 例シナリオ
+- 仕様と実装の乖離調査: serena が差分を `.serena/memories/` に記録 → cipher が `docs/` を整合修正。
+- 新機能スパイク: serena が影響範囲/設計案 → cipher が最小実装とテスト/ドキュメント反映。
+- ビルド失敗: cipher がログ収集・修正・再実行 → serena が原因と再発防止策を `.serena/memories/` に記録。

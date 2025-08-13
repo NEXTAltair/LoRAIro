@@ -1,5 +1,5 @@
 ---
-allowed-tools: mcp__serena__search_for_pattern, mcp__serena__find_file, mcp__serena__list_dir, mcp__serena__read_memory, mcp__serena__write_memory, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, Read, Bash, TodoWrite, WebSearch, WebFetch, Task
+allowed-tools: mcp__serena__search_for_pattern, mcp__serena__find_file, mcp__serena__list_dir, mcp__serena__read_memory, mcp__serena__write_memory, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, mcp__cipher__ask_cipher, Read, Bash, TodoWrite, WebSearch, WebFetch, Task
 description: 実装予定機能に対する既存ライブラリ・ツールの徹底調査コマンド(要件明確化ヒアリング付き)
 ---
 # Check Existing Solutions
@@ -170,3 +170,41 @@ AI: AI画像解析について詳しく確認させてください...
 ```
 
 このアプローチにより、曖昧な要求から始まっても最終的に的確な既存解決策を発見できます。
+
+## MCP統合・ハイブリッド操作
+
+### cipher+serenaハイブリッド操作指針
+
+check-existingフェーズでは以下のMCP操作戦略を採用:
+
+#### 🚀 直接serena操作 (高速・軽量タスク)
+```
+高速検索・メモリ管理:
+- mcp__serena__search_for_pattern: コードベース内検索
+- mcp__serena__find_file: ファイル発見
+- mcp__serena__list_dir: ディレクトリ構造確認
+- mcp__serena__read_memory: 既存知識参照
+- mcp__serena__write_memory: 調査結果保存
+```
+
+#### 🔄 cipher経由操作 (重い・統合タスク)
+```
+複合的分析・外部連携:
+- mcp__cipher__ask_cipher: 複数MCPサービス連携
+  - serena + context7 + perplexity-ask同時活用
+  - 複雑な技術調査・アーキテクチャ分析
+  - WebSearchと組み合わせた包括的調査
+```
+
+### パフォーマンス最適化
+
+#### 操作選択ガイドライン
+- **単純検索**: 直接serena (1-3秒)
+- **技術調査**: cipher経由 (10-30秒, タイムアウト注意)
+- **メモリ操作**: 直接serena (即座)
+- **外部情報**: cipher経由でperplexity-ask活用
+
+#### エラーハンドリング
+- cipher接続エラー時は直接serena操作にフォールバック
+- 30秒タイムアウト発生時は操作分割
+- perplexity-ask利用不可時はWebSearch代替
