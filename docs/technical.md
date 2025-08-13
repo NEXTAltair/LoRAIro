@@ -95,7 +95,7 @@ WorkerService → AnnotationWorker → ai_annotator.py → image-annotator-lib
 **Key Components**
 - **WorkerService** (`src/lorairo/gui/services/worker_service.py`): Qt-based worker coordination
 - **AnnotationWorker** (`src/lorairo/gui/workers/annotation_worker.py`): QRunnable-based asynchronous processing
-- **AnnotationService** (`src/lorairo/services/annotation_service.py`): Legacy business logic (deprecated)
+- **AnnotationService** (`src/lorairo/services/annotation_service.py`): AI annotation business logic with dynamic model synchronization and ServiceContainer integration
 - **ai_annotator.py** (`src/lorairo/annotations/ai_annotator.py`): Library integration wrapper
   - `get_available_annotator_models()`: Retrieve available AI models
   - `call_annotate_library()`: Execute annotation with comprehensive error handling
@@ -111,8 +111,8 @@ WorkerService → AnnotationWorker → ai_annotator.py → image-annotator-lib
 **Current Implementation Status**
 - ✅ **Fully Integrated**: image-annotator-lib for AI annotation
 - ✅ **Fully Integrated**: genai-tag-db-tools for tag cleaning and database operations
-- ✅ **Active**: Clean separation between legacy and current implementation
-- 🔄 **In Progress**: Legacy code cleanup and documentation alignment
+- ✅ **Active**: Modern implementation in `src/lorairo/` directory
+- ✅ **Integrated**: Both local packages fully operational and documented
 
 ### Development Tools
 
