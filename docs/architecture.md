@@ -18,7 +18,7 @@ The application follows clean architecture principles with clear separation of c
 The system uses Qt's QThreadPool and QRunnable for asynchronous operations:
 
 - **WorkerManager**: QThreadPool-based task execution coordination (`src/lorairo/gui/workers/manager.py`)
-- **BaseWorker**: Standardized QRunnable implementation with progress reporting (`src/lorairo/gui/workers/base_worker.py`)
+- **BaseWorker**: Standardized QRunnable implementation with progress reporting (`src/lorairo/gui/workers/base.py`)
 - **Specialized Workers**: Database, annotation, search, and thumbnail workers in `src/lorairo/gui/workers/`
 - **WorkerService**: Qt service layer for worker coordination and GUI integration (`src/lorairo/gui/services/worker_service.py`)
 - **DatasetStateManager**: Centralized state management with Qt signals (`src/lorairo/gui/state/dataset_state.py`)
@@ -41,11 +41,10 @@ Components communicate through Qt signals/slots for loose coupling and responsiv
 
 ### Core Application Flow
 
-> Note: In the current implementation the main window class is `MainWindow` (see `src/lorairo/gui/window/main_window.py`). Mentions of `MainWorkspaceWindow` in this document refer to the same concept and will be gradually renamed in diagrams and text.
 
 ```mermaid
 graph TD
-    A[main.py] --> B[MainWorkspaceWindow]
+    A[main.py] --> B[MainWindow]
     B --> C[ImageProcessingService]
     B --> D[WorkerService]
     B --> E[ConfigurationService]
@@ -273,7 +272,7 @@ graph TD
 #### Worker Components
 
 **Core Worker Infrastructure**
-- **`src/lorairo/gui/workers/base_worker.py`**: LoRAIroWorkerBase
+- **`src/lorairo/gui/workers/base.py`**: LoRAIroWorkerBase
 - Standardized QRunnable implementation with progress reporting
 - Built-in cancellation support and error handling
 - Qt signal integration for GUI communication
@@ -302,7 +301,7 @@ graph TD
 
 #### Worker Implementation Details
 
-**Worker Data Structures** (`src/lorairo/gui/workers/base_worker.py`)
+**Worker Data Structures** (`src/lorairo/gui/workers/base.py`)
 - `WorkerProgress`: Progress reporting data structure
 - `ProgressReporter`: Qt signal-based progress reporting
 - `CancellationController`: Cooperative cancellation support
