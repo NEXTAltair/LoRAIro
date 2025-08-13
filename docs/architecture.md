@@ -41,6 +41,8 @@ Components communicate through Qt signals/slots for loose coupling and responsiv
 
 ### Core Application Flow
 
+> Note: In the current implementation the main window class is `MainWindow` (see `src/lorairo/gui/window/main_window.py`). Mentions of `MainWorkspaceWindow` in this document refer to the same concept and will be gradually renamed in diagrams and text.
+
 ```mermaid
 graph TD
     A[main.py] --> B[MainWorkspaceWindow]
@@ -75,7 +77,7 @@ graph TD
   - Launches main window
 
 #### Main Window Controller
-- **`src/lorairo/gui/window/main_workspace_window.py`**: Primary GUI orchestrator (MainWorkspaceWindow)
+- **`src/lorairo/gui/window/main_window.py`**: Primary GUI orchestrator (MainWindow)
   - Workflow-centered 3-panel layout design
   - Coordinates between filter/search, thumbnail, and preview panels
   - Manages service dependencies and worker coordination
@@ -206,7 +208,7 @@ The GUI follows a workflow-centered 3-panel design with PySide6 Worker System ar
 
 ```mermaid
 graph TD
-    A[MainWorkspaceWindow] --> B[FilterSearchPanel]
+    A[MainWindow] --> B[FilterSearchPanel]
     A --> C[ThumbnailSelectorWidget]
     A --> D[PreviewDetailPanel]
     A --> E[WorkerService]
@@ -223,7 +225,7 @@ graph TD
 #### GUI Components (Modernized Architecture)
 
 **Main Window**
-- **`src/lorairo/gui/window/main_workspace_window.py`**: MainWorkspaceWindow
+- **`src/lorairo/gui/window/main_window.py`**: MainWindow
 - Workflow-centered 3-panel design replacing legacy page-based architecture
 - Qt auto-connection pattern with standardized signal naming
 - Dependency injection for services (ConfigurationService, WorkerService, DatasetStateManager)
@@ -406,7 +408,7 @@ graph TD
 - **Purpose**: Tag database management and cleaning utilities
 - **Integration**: Direct Python import via `from genai_tag_db_tools import initialize_tag_searcher`
 - **Location**: `local_packages/genai-tag-db-tools/`
-- **Features**: 
+- **Features**:
   - Tag taxonomy database (tags_v3.db)
   - Tag cleaning and normalization (`initialize_tag_searcher`)
   - Used in `src/lorairo/annotations/cleanup_txt.py`
@@ -416,7 +418,7 @@ graph TD
 - **Purpose**: Core AI-powered image annotation functionality
 - **Integration**: Direct Python import via `from image_annotator_lib import annotate, list_available_annotators`
 - **Location**: `local_packages/image-annotator-lib/`
-- **Features**: 
+- **Features**:
   - Multi-provider AI annotation (OpenAI, Anthropic, Google)
   - Local ML model support (CLIP, DeepDanbooru)
   - Unified annotation interface with structured results
@@ -525,6 +527,30 @@ graph TD
 - CPU utilization optimization
 - I/O operation efficiency
 - Network request optimization
+
+## AI Assistance Tooling (MCP)
+
+The development workflow employs MCP-based agents to accelerate planning and documentation alignment:
+
+- cipher: Orchestrator capable of invoking other MCPs (e.g., web search) and updating project memory files.
+- serena: Repository and documentation ingestion agent that persists its memory under `.serena/memories/`.
+
+These tools are development-only and do not affect the runtime application. Changes proposed via MCP must keep `docs/` in sync. serena's working memory is stored in `.serena/memories/`; `tasks/` remains human-authored plans.
+
+```mermaid
+sequenceDiagram
+    participant Dev as Developer
+    participant Serena as serena (MCP)
+    participant Cipher as cipher (MCP)
+    participant Repo as Repo/Docs
+
+    Dev->>Serena: Ingest project context
+    Serena->>Repo: Read docs/tasks/src
+    Serena-->>Dev: Summary + plan
+    Dev->>Cipher: Execute plan, call web/tools
+    Cipher->>Repo: Apply edits (docs/tasks)
+    Repo-->>Dev: Updated state
+```
 
 ## Testing Architecture
 
