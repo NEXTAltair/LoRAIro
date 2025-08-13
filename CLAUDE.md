@@ -141,249 +141,84 @@ The local packages are installed in editable mode and automatically linked durin
 - Batch processing support for large datasets
 - Quality scoring with aesthetic and technical metrics
 
-**Project Directory Structure:**
-```
-lorairo_data/
-├── main_dataset_20250707_001/          # Main project (English name)
-│   ├── image_database.db               # SQLite database with all metadata
-│   └── image_dataset/
-│       ├── original_images/
-│       │   └── 2024/10/08/source_dir/  # Date-based organization
-│       ├── 1024/                       # Target resolution directories
-│       │   └── 2024/10/08/source_dir/
-│       └── batch_request_jsonl/        # OpenAI Batch API files
-├── 猫画像_20250707_002/                # Japanese project name
-│   ├── image_database.db
-│   └── image_dataset/
-└── extracted_nsfw_20250708_001/        # Extracted subset project
-    ├── image_database.db               # Contains only extracted data
-    └── image_dataset/
-```
+**Project Structure:** `lorairo_data/project_name_YYYYMMDD_NNN/` with SQLite database and organized image directories. Supports Unicode project names and subset extraction workflows.
 
-**Use Cases:**
-- **Unified Management**: All images in one main database for search and analysis
-- **Project Extraction**: Create focused datasets (e.g., "NSFW only", "High quality only")
-- **HuggingFace Publishing**: Export curated projects to HuggingFace datasets
-- **Multi-language Support**: Unicode project names (Japanese, English, mixed)
+## Development Workflow
 
-## Development Workflow Integration
+### Command-Based Development Process
 
-### 🎯 **Command-Based Development Process**
+**Standard workflow pattern:**
+1. **Analysis**: `/check-existing` for understanding current functionality
+2. **Planning**: `/plan` for strategic design and architecture  
+3. **Implementation**: `/implement` for code development
+4. **Validation**: `/test` for quality assurance and testing
 
-**Modern development workflow using specialized commands and agents:**
+### MCP Integration (cipher+serena)
 
-1. **Analysis Phase**: Use `/check-existing` for understanding current functionality
-2. **Planning Phase**: Use `/plan` for strategic design and architecture
-3. **Implementation Phase**: Use `/implement` for code development
-4. **Validation Phase**: Use `/test` for quality assurance and testing
-
-### 🧰 **Agent-Driven Task Execution**
-
-**Specialized Agents Automatically Used by Commands:**
-
-- **[`investigation`](.claude/agents/investigation.md)**: Codebase analysis and semantic search
-  - Symbol-level search and dependency analysis
-  - Architecture pattern identification
-  - Code relationship mapping
-
-- **[`library-research`](.claude/agents/library-research.md)**: Technology research and evaluation
-  - Real-time documentation retrieval
-  - Compatibility assessment
-  - Implementation pattern research
-
-- **[`solutions`](.claude/agents/solutions.md)**: Multi-approach problem solving
-  - Solution strategy generation
-  - Risk-benefit analysis
-  - Implementation trade-off evaluation
-
-- **[`code-formatter`](.claude/agents/code-formatter.md)**: Code quality maintenance
-  - Ruff-based formatting and linting
-  - Code structure optimization
-  - Quality standard enforcement
-
-### 📋 **Development Guidelines**
-
-**Command Usage Pattern:**
-- Use commands as primary development interface
-- Commands automatically delegate to appropriate specialized agents
-- Agents leverage MCP tools for efficient task execution
-- Context and quality maintained through integrated workflow
+**Operation Selection:**
+- **Fast operations** (1-3s): Direct serena for search, memory, basic editing
+- **Complex analysis** (10-30s): Cipher aggregator for multi-tool integration
+- **Fallback**: Direct operations when cipher timeouts occur
 
 **Quality Standards:**
-- Follow `.cursor/rules/` guidelines for development standards
-- Use command-integrated quality checks and validation
-- Apply established coding conventions and patterns
-- Execute comprehensive testing through `/test` command
+- Follow `.cursor/rules/` development guidelines
+- Use Ruff formatting (line length: 108)
+- Maintain 75%+ test coverage
+- Apply modern Python types (list/dict over typing.List/Dict)
 
-**Modern Principles:**
-- Command-based workflow for structured development
-- Agent delegation for specialized task execution
-- MCP tool optimization for maximum efficiency
-- Integrated quality assurance and testing
+## Problem-Solving Approach
 
-## Problem-Solving Methodology
+**Solution Analysis:**
+1. **Enumerate approaches** - List multiple solution methods
+2. **Evaluate trade-offs** - Assess complexity, maintainability, performance
+3. **Select optimal solution** - Balance effectiveness and sustainability
+4. **Document decisions** - Record rationale for choices
 
-**Multiple Solution Analysis:**
-Before implementing any solution, always:
-
-1. **Enumerate All Possible Approaches** - List every conceivable solution method
-2. **Evaluate Each Option** - Assess pros/cons, complexity, maintainability, and trade-offs
-3. **Select Optimal Solution** - Choose the approach that best balances effectiveness, simplicity, and long-term sustainability
-4. **Document Decision Rationale** - Record why the chosen solution was selected over alternatives
-
-**Example Solution Categories:**
-- **Direct Implementation** - Modify target code directly
-- **Abstraction Layer** - Add intermediate interfaces/wrappers
-- **Configuration Changes** - Adjust settings/parameters
-- **Test Modifications** - Update test expectations/setup
-- **Library/Tool Substitution** - Replace problematic dependencies
-- **Architecture Refactoring** - Restructure component relationships
-- **Mock/Stub Strategies** - Isolate external dependencies in tests
-
-**Decision Criteria:**
-- Maintenance burden and complexity
-- Performance and resource impact
-- Code readability and debugging ease
-- Compatibility with existing architecture
-- Risk of introducing new issues
-- Time investment vs. benefit ratio
-
-### Modern Context Management
-
-**Before making changes, always reference:**
-- Start with `/check-existing` to understand current functionality
-- Use `/plan` to analyze requirements and design approach
-- Reference `docs/product_requirement_docs.md` for requirements
-- Check `docs/architecture.md` for system design principles
-- Review `docs/technical.md` for implementation patterns
-
-**When updating code, ensure workflow adherence:**
-- Follow the `/check-existing` → `/plan` → `/implement` → `/test` workflow
-- Use agents automatically through commands for specialized tasks
-- Maintain code quality through integrated formatting and validation
-- Document significant changes and architectural decisions
+**Reference documents:** `docs/architecture.md` for design principles, `docs/technical.md` for implementation patterns.
 
 ## Troubleshooting
 
+### Environment Issues
+- **Test Discovery**: Ensure no conflicting `.venv` directories in local packages, verify `uv sync --dev`
+- **Cross-Platform**: Use `.venv_linux` for development/testing, `.venv_windows` for execution
+- **Setup**: Run `./scripts/setup.sh` for automatic OS detection
 
+### MCP Issues
+- **Cipher timeout**: Break operations into stages, fallback to direct serena
+- **Connection errors**: Use direct serena operations + WebSearch
+- **Performance**: Direct serena (1-3s) for simple ops, cipher (10-30s) for complex analysis
 
-### Test Discovery Issues
+## Quick Reference
 
-If VS Code cannot discover tests in local packages:
-- Ensure no conflicting `.venv` directories exist in local packages
-- Check Python interpreter is set to appropriate environment (`.venv_linux/bin/python` or `.venv_windows/Scripts/python.exe`)
-- Verify `uv sync --dev` has been run successfully
+### Commands
+- **[/check-existing](.claude/commands/check-existing.md)**: Analyze existing functionality
+- **[/plan](.claude/commands/plan.md)**: Strategic planning and design
+- **[/implement](.claude/commands/implement.md)**: Code development
+- **[/test](.claude/commands/test.md)**: Testing and validation
 
-### Cross-Platform Development Environment
-
-**Environment Isolation:**
-- Windows environment: `.venv_windows` - Windows-specific dependencies and binaries
-- Linux environment: `.venv_linux` - Linux-specific dependencies and binaries
-- Independent GUI operation support for both environments
-
-**Development Workflow:**
-```bash
-# Setup using unified script (automatic OS detection)
-./scripts/setup.sh
-
-# Linux/Container environment - development and testing
-uv run pytest
-
-# Windows environment - execution and GUI verification
-$env:UV_PROJECT_ENVIRONMENT = ".venv_windows"; uv run lorairo
-
-# Unified execution using Makefile
-make run-gui  # Automatically selects appropriate environment
-```
-
-**GUI Testing Notes:**
-- Linux environment: Headless execution (pytest-qt + QT_QPA_PLATFORM=offscreen)
-- Windows environment: Native GUI window display
-- Cross-platform test compatibility guaranteed
-
-## Command & Agent Development Workflow
-
-### 🚀 **Command-Based Development Structure**
-
-**Primary Development Commands:**
-- 🔍 **[/check-existing](.claude/commands/check-existing.md)**: Analyze existing functionality and codebase
-- 📋 **[/plan](.claude/commands/plan.md)**: Strategic planning and architecture design
-- ⚙️ **[/implement](.claude/commands/implement.md)**: Code implementation and development
-- 🧪 **[/test](.claude/commands/test.md)**: Testing and quality validation
-
-### 🤖 **Specialized Agent Integration**
-
-**Agents Automatically Used by Commands:**
-- **[investigation](.claude/agents/investigation.md)**: Codebase analysis and semantic search
-- **[library-research](.claude/agents/library-research.md)**: Technology research and evaluation
+### Agents (automatically used by commands)
+- **[investigation](.claude/agents/investigation.md)**: Codebase analysis
+- **[library-research](.claude/agents/library-research.md)**: Technology research  
 - **[solutions](.claude/agents/solutions.md)**: Multi-approach problem solving
-- **[code-formatter](.claude/agents/code-formatter.md)**: Code quality and formatting
+- **[code-formatter](.claude/agents/code-formatter.md)**: Code quality
 
-**Workflow Integration:**
-- Commands leverage agents for specialized task execution
-- MCP tools provide enhanced functionality (Serena, Context7)
-- Automatic delegation ensures efficient development process
-- Quality standards maintained through integrated validation
+### Documentation
+- **[docs/architecture.md](docs/architecture.md)**: System design principles
+- **[docs/technical.md](docs/technical.md)**: Implementation specifications
 
-### 📚 **Development Guidelines**
+### Configuration
 
-**Development Workflow Pattern:**
-1. **Analysis Phase**: Use `/check-existing` for existing functionality review
-2. **Planning Phase**: Use `/plan` for strategic design and architecture
-3. **Implementation Phase**: Use `/implement` for code development
-4. **Validation Phase**: Use `/test` for quality assurance
-
-**Command Usage:**
-```bash
-# Primary development workflow
-/check-existing <functionality-to-analyze>
-/plan <feature-or-improvement-description>
-/implement <implementation-target>
-/test <testing-focus>
-
-# Agents are automatically invoked by commands
-# investigation: Codebase analysis and semantic search
-# library-research: Technology evaluation and documentation
-# solutions: Multi-approach problem solving
-# code-formatter: Code quality and formatting
-```
-
-### 🔗 **Quick Navigation**
-
-| Purpose | Tool/Location | Description |
-|---------|---------------|-------------|
-| **Analysis** | [/check-existing](.claude/commands/check-existing.md) | Existing functionality review |
-| **Planning** | [/plan](.claude/commands/plan.md) | Strategic design and implementation planning |
-| **Implementation** | [/implement](.claude/commands/implement.md) | Code development and quality assurance |
-| **Testing** | [/test](.claude/commands/test.md) | Validation and testing workflows |
-| **Specialized Agents** | [.claude/agents/](/.claude/agents/) | Task-specific automation tools |
-| **Requirements** | [docs/product_requirement_docs.md](docs/product_requirement_docs.md) | What to build |
-| **Architecture** | [docs/architecture.md](docs/architecture.md) | How to build it |
-| **Technical Details** | [docs/technical.md](docs/technical.md) | Implementation specifics |
-
-### ⚙️ Configuration Quick Reference (2025/07/07)
-
-**ConfigurationService Settings:**
+**Basic config/lorairo.toml structure:**
 ```toml
-[api]                    # Plain-text storage, log masking
-openai_key = ""         # Auto-exclude models if missing
+[api]
+openai_key = ""
 claude_key = ""
 google_key = ""
 
-[directories]           # Project structure design
-database_dir = ""       # Empty = auto-generate project_name_YYYYMMDD_NNN
-database_base_dir = "lorairo_data"  # Base directory for project creation
-export_dir = ""         # Annotation results export (.txt/.caption)
-batch_results_dir = ""  # OpenAI Batch API results (JSONL)
+[directories]
+database_base_dir = "lorairo_data"
 
-[huggingface]           # Plain-text storage
-hf_username = ""
-repo_name = ""
-token = ""
-
-[log]                   # Logging configuration
+[log]
 level = "INFO"
-file_path = ""
 ```
 
-**💡 Development Workflow:** Use `/check-existing` → `/plan` → `/implement` → `/test` for structured development. Commands automatically use specialized agents for optimal task execution and quality assurance.

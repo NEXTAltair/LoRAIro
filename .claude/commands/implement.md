@@ -1,5 +1,5 @@
 ---
-allowed-tools: mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__replace_symbol_body, mcp__serena__insert_after_symbol, mcp__serena__insert_before_symbol, mcp__serena__replace_regex, mcp__serena__get_symbols_overview, mcp__serena__think_about_task_adherence, mcp__serena__think_about_whether_you_are_done, mcp__serena__write_memory, Read, Edit, MultiEdit, Write, Bash, TodoWrite, Task
+allowed-tools: mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__replace_symbol_body, mcp__serena__insert_after_symbol, mcp__serena__insert_before_symbol, mcp__serena__replace_regex, mcp__serena__get_symbols_overview, mcp__serena__think_about_task_adherence, mcp__serena__think_about_whether_you_are_done, mcp__serena__write_memory, mcp__cipher__ask_cipher, Read, Edit, MultiEdit, Write, Bash, TodoWrite, Task
 description: plan フェーズで策定された実装計画に基づき、LoRAIro プロジェクトの実際のコード実装を行います。
 ---
 
@@ -209,3 +209,48 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 ## 次のコマンド
 
 実装完了後は `/test` コマンドで包括的検証を実施します。
+
+## MCP統合・ハイブリッド操作
+
+### cipher+serenaハイブリッド操作指針
+
+implementフェーズでは以下のMCP操作戦略を採用:
+
+#### 🚀 直接serena操作 (コード編集・高速操作)
+```
+効率的コード実装:
+- mcp__serena__find_symbol: 編集対象の特定
+- mcp__serena__find_referencing_symbols: 影響範囲確認
+- mcp__serena__replace_symbol_body: シンボル単位での実装
+- mcp__serena__insert_after_symbol: 新機能追加
+- mcp__serena__insert_before_symbol: 依存関係実装
+- mcp__serena__replace_regex: 細かい修正・リファクタリング
+- mcp__serena__get_symbols_overview: コード構造把握
+- mcp__serena__think_about_task_adherence: 実装方針確認
+- mcp__serena__think_about_whether_you_are_done: 完了判定
+- mcp__serena__write_memory: 実装結果記録
+```
+
+#### 🔄 cipher経由操作 (複合・検証タスク)
+```
+包括的品質確保:
+- mcp__cipher__ask_cipher: 実装品質総合評価
+  - serena(コード構造) + context7(技術ドキュメント) + perplexity-ask(最新実装パターン)
+  - アーキテクチャ適合性検証
+  - セキュリティ・パフォーマンス評価
+  - テスト戦略・カバレッジ分析
+```
+
+### 実装フェーズ特化最適化
+
+#### 操作パターン
+- **コード編集**: 直接serena で高速実装
+- **技術参照**: cipher経由で context7 活用
+- **品質検証**: cipher経由で包括的評価
+- **記録・文書化**: 直接serena で効率化
+
+#### エラーハンドリング・実装継続
+- serena編集エラー時: 段階的実装に分割
+- cipher品質検証タイムアウト時: 直接serena + 手動確認
+- 複雑な統合は cipher、詳細実装は直接serena で分離
+- 実装完了判定は serena think系ツール活用
