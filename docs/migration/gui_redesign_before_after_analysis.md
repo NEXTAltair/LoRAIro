@@ -76,7 +76,7 @@ graph TB
 
 ```mermaid
 graph TB
-    subgraph MainWorkspaceWindow ["MainWorkspaceWindow (統合ワークスペース)"]
+    subgraph MainWindow ["MainWindow (統合ワークスペース)"]
         FilterPanel[FilterSearchPanel<br/>左: 検索・フィルタリング]
         ThumbnailPanel[ThumbnailSelectorWidget<br/>中央: サムネイル選択]
         DetailPanel[PreviewDetailPanel<br/>右: プレビュー・詳細]
@@ -103,7 +103,7 @@ graph TB
     WorkerService --> ThumbnailWorker
     WorkerService --> AnnotationWorker
     
-    style MainWorkspaceWindow fill:#ccffcc
+    style MainWindow fill:#ccffcc
     style StateManagement fill:#ccccff
     style Workers fill:#ffffcc
 ```

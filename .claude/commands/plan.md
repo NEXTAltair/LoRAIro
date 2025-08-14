@@ -1,5 +1,5 @@
 ---
-allowed-tools: mcp__serena__get_symbols_overview, mcp__serena__find_symbol, mcp__serena__search_for_pattern, mcp__serena__read_memory, mcp__serena__write_memory, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, Read, Bash, TodoWrite, Task
+allowed-tools: mcp__serena__get_symbols_overview, mcp__serena__find_symbol, mcp__serena__search_for_pattern, mcp__serena__read_memory, mcp__serena__write_memory, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, mcp__cipher__ask_cipher, Read, Bash, TodoWrite, Task
 description: investigateフェーズの結果を基に、LoRAIro プロジェクトの実装戦略と詳細設計を策定します。
 ---
 
@@ -133,4 +133,43 @@ investigateフェーズで特定された要件と課題を基に、上記実装
 10. **次ステップ**: implementフェーズへの引き継ぎ
 
 ## 次のコマンド
-計画完了・承認後は `@implement` コマンドで実装を開始します。
+計画完了・承認後は `/implement` コマンドで実装を開始します。
+
+## MCP統合・ハイブリッド操作
+
+### cipher+serenaハイブリッド操作指針
+
+planフェーズでは以下のMCP操作戦略を採用:
+
+#### 🚀 直接serena操作 (高速・分析タスク)
+```
+コードベース分析・メモリ管理:
+- mcp__serena__get_symbols_overview: 既存コード構造把握
+- mcp__serena__find_symbol: 実装対象コンポーネント特定
+- mcp__serena__search_for_pattern: アーキテクチャパターン調査
+- mcp__serena__read_memory: 過去の設計知識参照
+- mcp__serena__write_memory: 設計決定の記録
+```
+
+#### 🔄 cipher経由操作 (複合・戦略タスク)
+```
+複数視点での戦略分析:
+- mcp__cipher__ask_cipher: 包括的設計分析
+  - serena(既存コード) + context7(技術ドキュメント) + perplexity-ask(最新情報)
+  - 複数アプローチの生成・評価
+  - リスク分析・トレードオフ評価
+  - アーキテクチャ適合性の総合判断
+```
+
+### 計画フェーズ特化最適化
+
+#### 操作パターン
+- **現状分析**: 直接serena で高速コード調査
+- **技術選定**: cipher経由で context7 + perplexity-ask 活用
+- **アーキテクチャ設計**: cipher経由で複数視点統合
+- **リスク評価**: cipher経由で包括的分析
+
+#### エラーハンドリング・計画継続
+- cipher重複タイムアウト時: 分析を段階分割実行
+- context7接続エラー時: 直接serena + WebSearch で代替
+- 複雑な戦略分析は cipher、詳細は直接serena で効率化

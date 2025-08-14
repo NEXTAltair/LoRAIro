@@ -1,6 +1,6 @@
 ---
 description: Cursor用ルールとして「どの頻度でログを残すべきか」「ベストプラクティス」「例外エラーのキャッチ・raise・トレースバックの使い方の指針」を明記しています。
-globs: 
+globs:
 alwaysApply: false
 ---
 Version "1.0.0"
@@ -9,7 +9,7 @@ Version "1.0.0"
 
 
 **ロギングライブラリの仕様**
-- [logging_specification.md](mdc:LoRAIro/LoRAIro/LoRAIro/LoRAIro/docs/specs/core/logging_specification.md)
+- [logging_specification.md](mdc:docs/specs/core/logging_specification.md)
 
 ## ログ出力の頻度・タイミング
 

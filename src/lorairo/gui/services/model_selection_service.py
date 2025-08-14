@@ -3,30 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
-from ...services.model_registry_protocol import (
-    ModelInfo as RegistryModelInfo,
-)
-from ...services.model_registry_protocol import (
-    ModelRegistryServiceProtocol,
-    NullModelRegistry,
-    map_annotator_metadata_to_model_info,
-)
+from ...database.db_repository import ImageRepository
+from ...database.schema import Model
 from ...utils.log import logger
-
-
-@dataclass
-class ModelInfo:
-    """モデル情報データクラス（UI向け表示用拡張を含む）"""
-
-    name: str
-    provider: str
-    capabilities: list[str]  # ["caption", "tags", "scores"] - 実際の機能
-    api_model_id: str | None
-    requires_api_key: bool
-    estimated_size_gb: float | None
-    is_recommended: bool = False
 
 
 @dataclass
@@ -41,73 +21,59 @@ class ModelSelectionCriteria:
 
 class ModelSelectionService:
     """
-    モデル選択に関するビジネスロジックを処理するサービス（現代化版）
+    モデル選択に関するビジネスロジックを処理するサービス（DB中心アプローチ）
 
     責任:
-    - ModelRegistryServiceProtocol経由でのモデル情報取得
+    - DB経由でのモデル情報取得（直接利用）
     - モデル情報のフィルタリング・推奨判定ロジック
     - 選択状態の管理は行わない（UI側で管理）
     """
 
-    def __init__(self, model_registry: ModelRegistryServiceProtocol | None = None):
-        """Initialize ModelSelectionService with modern protocol-based approach."""
-        self.model_registry: ModelRegistryServiceProtocol = model_registry or NullModelRegistry()
-        self._all_models: list[ModelInfo] = []
-        self._cached_models: list[ModelInfo] | None = None
+    def __init__(self, db_repository: ImageRepository):
+        """Initialize ModelSelectionService with DB-centric architecture."""
+        self.db_repository = db_repository
+        self._all_models: list[Model] = []
+        self._cached_models: list[Model] | None = None
 
     @classmethod
-    def create(
-        cls,
-        model_registry: ModelRegistryServiceProtocol | None = None,
-    ) -> ModelSelectionService:
-        """Create ModelSelectionService with modern protocol-based approach."""
-        return cls(model_registry=model_registry)
+    def create(cls, db_repository: ImageRepository) -> ModelSelectionService:
+        """Create ModelSelectionService with DB-centric architecture."""
+        return cls(db_repository=db_repository)
 
-    def load_models(self) -> list[ModelInfo]:
-        """モデル情報を取得・変換（Protocol-based implementation）"""
+    def load_models(self) -> list[Model]:
+        """モデル情報をDBから直接取得（真のDB中心実装）"""
         try:
             # キャッシュがあれば返す（パフォーマンス最適化）
             if self._cached_models is not None:
                 return self._cached_models
 
-            # Protocol-based approach
-            protocol_models = self.model_registry.get_available_models()
-            # Protocol ModelInfo を UI用 ModelInfo に変換
-            compat_models = [self._convert_protocol_to_compat(model) for model in protocol_models]
-            self._all_models = compat_models
-            self._cached_models = compat_models
-            logger.info(f"Loaded {len(compat_models)} models from ModelRegistry")
-            return compat_models
+            # DBから直接Model オブジェクトを取得（変換レイヤーなし）
+            db_models = self.db_repository.get_model_objects()
+
+            self._all_models = db_models
+            self._cached_models = db_models
+            logger.info(f"Loaded {len(db_models)} models directly from DB")
+            return db_models
 
         except Exception as e:
-            logger.error(f"Failed to load models: {e}")
+            logger.error(f"Failed to load models from DB: {e}")
             return []
 
-    def _convert_protocol_to_compat(self, protocol_model: RegistryModelInfo) -> ModelInfo:
-        """Protocol ModelInfo を 後方互換性 ModelInfo に変換"""
-        return ModelInfo(
-            name=protocol_model.name,
-            provider=protocol_model.provider,
-            capabilities=protocol_model.capabilities,
-            api_model_id=protocol_model.api_model_id,
-            requires_api_key=protocol_model.requires_api_key,
-            estimated_size_gb=protocol_model.estimated_size_gb,
-            is_recommended=self._is_recommended_model(protocol_model.name),
-        )
+    # _convert_protocol_to_compat メソッド削除 - DB Modelを直接使用するため不要
 
-    def refresh_models(self) -> list[ModelInfo]:
+    def refresh_models(self) -> list[Model]:
         """モデルキャッシュをクリアして再読み込み"""
         self._cached_models = None
         self._all_models = []
         return self.load_models()
 
-    def get_all_models(self) -> list[ModelInfo]:
+    def get_all_models(self) -> list[Model]:
         """すべてのモデル情報を取得"""
         return self._all_models.copy()
 
-    def get_recommended_models(self) -> list[ModelInfo]:
-        """推奨モデルのみを取得"""
-        return [m for m in self._all_models if self._is_recommended_model(m.name)]
+    def get_recommended_models(self) -> list[Model]:
+        """推奨モデルのみを取得（DB Modelプロパティ使用）"""
+        return [m for m in self._all_models if m.is_recommended]
 
     def filter_models(
         self,
@@ -115,8 +81,8 @@ class ModelSelectionService:
         # Legacy parameters for backward compatibility
         provider: str | None = None,
         capabilities: list[str] | None = None,
-    ) -> list[ModelInfo]:
-        """指定した条件でモデルをフィルタリング（現代化版 + 後方互換性）"""
+    ) -> list[Model]:
+        """指定した条件でモデルをフィルタリング（DB Model直接使用）"""
 
         # 後方互換性: 旧シグネチャ (provider, capabilities) の処理
         if criteria is None and (provider is not None or capabilities is not None):
@@ -131,31 +97,29 @@ class ModelSelectionService:
 
         # プロバイダーフィルタ
         if criteria.provider and criteria.provider != "すべて":
-            filtered = [m for m in filtered if m.provider.lower() == criteria.provider.lower()]
+            filtered = [
+                m for m in filtered if m.provider and m.provider.lower() == criteria.provider.lower()
+            ]
 
         # 機能フィルタ
         if criteria.capabilities:
             filtered = [m for m in filtered if any(cap in m.capabilities for cap in criteria.capabilities)]
 
-        # 推奨フィルタ
+        # 推奨フィルタ（DB Modelプロパティ使用）
         if criteria.only_recommended:
-            filtered = [m for m in filtered if self._is_recommended_model(m.name)]
+            filtered = [m for m in filtered if m.is_recommended]
 
-        # 利用可能フィルタ（API keyチェックなど）
+        # 利用可能フィルタ（DB Modelプロパティ使用）
         if criteria.only_available:
-            filtered = [m for m in filtered if self._is_model_available(m)]
+            filtered = [m for m in filtered if m.available]
 
         return filtered
 
-    def _is_model_available(self, model: ModelInfo) -> bool:
-        """モデルが利用可能かチェック（API keyなど）"""
-        # APIキーが必要なモデルの場合、設定チェックが必要
-        # 今回は簡易実装として常にTrue
-        return True
+    # _is_model_available メソッド削除 - DB Model.available プロパティを使用
 
-    def group_models_by_provider(self, models: list[ModelInfo]) -> dict[str, list[ModelInfo]]:
-        """プロバイダー別にモデルをグループ化"""
-        groups: dict[str, list[ModelInfo]] = {}
+    def group_models_by_provider(self, models: list[Model]) -> dict[str, list[Model]]:
+        """プロバイダー別にモデルをグループ化（DB Model使用）"""
+        groups: dict[str, list[Model]] = {}
         for model in models:
             provider = model.provider or "local"
             if provider not in groups:
@@ -163,42 +127,9 @@ class ModelSelectionService:
             groups[provider].append(model)
         return groups
 
-    def create_model_tooltip(self, model: ModelInfo) -> str:
-        """モデル用ツールチップを作成"""
-        tooltip_parts = [f"プロバイダー: {model.provider}", f"機能: {', '.join(model.capabilities)}"]
 
-        if model.api_model_id:
-            tooltip_parts.append(f"API ID: {model.api_model_id}")
+    # create_model_tooltip メソッド削除 - Widgetに移動
 
-        if model.estimated_size_gb:
-            tooltip_parts.append(f"サイズ: {model.estimated_size_gb:.1f}GB")
+    # create_model_display_name メソッド削除 - Widgetに移動
 
-        tooltip_parts.append(f"APIキー必要: {'Yes' if model.requires_api_key else 'No'}")
-
-        return "\n".join(tooltip_parts)
-
-    def create_model_display_name(self, model: ModelInfo) -> str:
-        """モデルの表示名を作成"""
-        display_name = model.name
-        if model.requires_api_key:
-            display_name += " (API)"
-        if model.estimated_size_gb:
-            display_name += f" ({model.estimated_size_gb:.1f}GB)"
-        return display_name
-
-    def _is_recommended_model(self, model_name: str) -> bool:
-        """推奨モデルかどうか判定"""
-        name_lower = model_name.lower()
-
-        # 高品質Caption生成モデル
-        caption_recommended = ["gpt-4o", "claude-3-5-sonnet", "claude-3-sonnet", "gemini-pro"]
-
-        # 高精度タグ生成モデル
-        tags_recommended = ["wd-v1-4", "wd-tagger", "deepdanbooru", "wd-swinv2"]
-
-        # 品質評価モデル
-        scores_recommended = ["clip-aesthetic", "musiq", "aesthetic-scorer"]
-
-        all_recommended = caption_recommended + tags_recommended + scores_recommended
-
-        return any(rec in name_lower for rec in all_recommended)
+    # _is_recommended_model メソッド削除 - DB Model.is_recommended プロパティを使用
