@@ -4,12 +4,12 @@ from unittest.mock import Mock
 
 import pytest
 
+from lorairo.database.schema import Model
 from lorairo.gui.services.model_selection_service import (
     ModelSelectionCriteria,
     ModelSelectionService,
 )
 from lorairo.services.model_registry_protocol import ModelInfo
-from lorairo.database.schema import Model
 
 
 class TestModel:
@@ -54,7 +54,7 @@ class TestModelSelectionService:
         mock = Mock()
         # Create mock Model objects with only valid database fields
         mock_models = []
-        
+
         # Create Model objects with just the DB fields
         gpt_model = Model(
             name="gpt-4o",
@@ -63,15 +63,15 @@ class TestModelSelectionService:
             requires_api_key=True,
             estimated_size_gb=None,
         )
-        
+
         claude_model = Model(
             name="claude-3-5-sonnet",
-            provider="anthropic", 
+            provider="anthropic",
             api_model_id="claude-3-5-sonnet-20241022",
             requires_api_key=True,
             estimated_size_gb=None,
         )
-        
+
         wd_model = Model(
             name="wd-v1-4",
             provider="local",
@@ -79,7 +79,7 @@ class TestModelSelectionService:
             requires_api_key=False,
             estimated_size_gb=2.5,
         )
-        
+
         clip_model = Model(
             name="clip-aesthetic",
             provider="local",
@@ -87,7 +87,7 @@ class TestModelSelectionService:
             requires_api_key=False,
             estimated_size_gb=1.2,
         )
-        
+
         mock_models = [gpt_model, claude_model, wd_model, clip_model]
         mock.get_model_objects.return_value = mock_models
         return mock
