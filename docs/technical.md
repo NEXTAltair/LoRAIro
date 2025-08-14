@@ -5,7 +5,7 @@
 ### Core Technologies
 
 #### Programming Language
-- **Python 3.11+**: Primary development language
+- **Python 3.12+**: Primary development language
   - Modern type hints and features
   - Excellent AI/ML library ecosystem
   - Strong GUI framework support
@@ -95,7 +95,7 @@ WorkerService → AnnotationWorker → ai_annotator.py → image-annotator-lib
 **Key Components**
 - **WorkerService** (`src/lorairo/gui/services/worker_service.py`): Qt-based worker coordination
 - **AnnotationWorker** (`src/lorairo/gui/workers/annotation_worker.py`): QRunnable-based asynchronous processing
-- **AnnotationService** (`src/lorairo/services/annotation_service.py`): Legacy business logic (deprecated)
+- **AnnotationService** (`src/lorairo/services/annotation_service.py`): AI annotation business logic with dynamic model synchronization and ServiceContainer integration
 - **ai_annotator.py** (`src/lorairo/annotations/ai_annotator.py`): Library integration wrapper
   - `get_available_annotator_models()`: Retrieve available AI models
   - `call_annotate_library()`: Execute annotation with comprehensive error handling
@@ -111,8 +111,8 @@ WorkerService → AnnotationWorker → ai_annotator.py → image-annotator-lib
 **Current Implementation Status**
 - ✅ **Fully Integrated**: image-annotator-lib for AI annotation
 - ✅ **Fully Integrated**: genai-tag-db-tools for tag cleaning and database operations
-- ✅ **Active**: Clean separation between legacy and current implementation
-- 🔄 **In Progress**: Legacy code cleanup and documentation alignment
+- ✅ **Active**: Modern implementation in `src/lorairo/` directory
+- ✅ **Integrated**: Both local packages fully operational and documented
 
 ### Development Tools
 
@@ -149,6 +149,40 @@ WorkerService → AnnotationWorker → ai_annotator.py → image-annotator-lib
   - Better performance than standard logging
   - Configured via `src/lorairo/utils/log.py`
 
+## MCP Integration and Agent Roles
+
+### Overview
+This project uses MCP-based assistants during development in Cursor. The primary agents are:
+
+- cipher: Orchestrator agent. Can invoke other MCP tools/agents, including web search or repository utilities. Handles memory/context updates per project rules.
+- serena: Codebase/document ingestion agent. Ingests `docs/` and `src/` and persists its memory to `.serena/memories/` (not `tasks/`).
+
+These agents are used only for development assistance and do not ship with the runtime application.
+
+### Usage Guidelines
+- Always follow workspace rules for planning vs. implementation modes (PLAN/ACT). serena persists to `.serena/memories/`; `tasks/` is human-owned planning documentation.
+- Do not expose secrets/keys via MCP logs or prompts. Follow logging rules to mask credentials.
+- Prefer non-interactive flags for commands invoked via tools. Long-running jobs should be backgrounded.
+- When agents change code, ensure related docs are updated and run linters/tests.
+
+### Example MCP Configuration (Cursor)
+Note: Replace placeholders with your values; do not commit real credentials.
+
+```json
+{
+  "mcpServers": {
+    "cipher": { "command": "cipher-mcp", "args": [] },
+    "serena": { "command": "serena-mcp", "args": [] },
+    "perplexity-mcp": { "command": "perplexity-mcp", "args": [] }
+  }
+}
+```
+
+### Operational Flow (Development)
+1. PLAN: serena ingests `docs/`/`src/` → proposes summary/plan → write to `.serena/memories/` (optionally mirror highlights into `tasks/`).
+2. ACT: Implement with edits; cipher coordinates additional MCP calls (e.g., web search) as needed.
+3. Verify: Lint/tests; update docs and memory files (`lessons-learned.mdc`, `error-documentation.mdc`) and, if needed, mirror to `tasks/`.
+
 ## Development Environment
 
 ### System Requirements
@@ -166,7 +200,7 @@ WorkerService → AnnotationWorker → ai_annotator.py → image-annotator-lib
   - 4GB+ VRAM for larger models
 
 #### Python Environment
-- **Python 3.11 or higher**
+- **Python 3.12 or higher**
 - **Virtual environment support**
 - **Package compilation tools** (for some dependencies)
 
@@ -387,10 +421,10 @@ target_metadata = Base.metadata
 def run_migrations_online():
     configuration = context.config
     configuration.set_main_option(
-        "sqlalchemy.url", 
+        "sqlalchemy.url",
         get_database_url()
     )
-    
+
     connectable = engine_from_config(
         configuration.get_section(configuration.config_ini_section),
         prefix="sqlalchemy.",
@@ -428,15 +462,15 @@ class ImageRepositoryInterface(ABC):
     @abstractmethod
     def create(self, image_data: dict) -> ImageRecord:
         pass
-    
+
     @abstractmethod
     def get_by_id(self, image_id: int) -> Optional[ImageRecord]:
         pass
-    
+
     @abstractmethod
     def get_by_path(self, file_path: str) -> Optional[ImageRecord]:
         pass
-    
+
     @abstractmethod
     def list_all(self, limit: int = 100, offset: int = 0) -> List[ImageRecord]:
         pass
@@ -444,7 +478,7 @@ class ImageRepositoryInterface(ABC):
 class SQLAlchemyImageRepository(ImageRepositoryInterface):
     def __init__(self, session_factory):
         self.session_factory = session_factory
-    
+
     def create(self, image_data: dict) -> ImageRecord:
         with self.session_factory() as session:
             image = ImageRecord(**image_data)
@@ -472,27 +506,27 @@ class ImageProcessingService:
         self.file_manager = file_manager
         self.config = config
         self.logger = get_logger(__name__)
-    
+
     async def process_images(
-        self, 
+        self,
         image_paths: List[Path]
     ) -> List[Dict[str, Any]]:
         """Process multiple images with error handling and progress tracking."""
         results = []
-        
+
         for i, path in enumerate(image_paths):
             try:
                 result = await self._process_single_image(path)
                 results.append(result)
-                
+
                 # Emit progress signal
                 progress = int((i + 1) / len(image_paths) * 100)
                 self.progress_updated.emit(progress)
-                
+
             except Exception as e:
                 self.logger.error(f"Failed to process {path}: {e}")
                 results.append({"error": str(e), "path": str(path)})
-        
+
         return results
 ```
 
@@ -507,18 +541,18 @@ class AIProviderFactory:
         "anthropic": "lorairo.annotations.providers.anthropic.AnthropicProvider",
         "google": "lorairo.annotations.providers.google.GoogleProvider",
     }
-    
+
     @classmethod
     def create_provider(cls, provider_name: str, config: dict) -> AIProvider:
         if provider_name not in cls._providers:
             raise ValueError(f"Unknown provider: {provider_name}")
-        
+
         provider_class_path = cls._providers[provider_name]
         module_path, class_name = provider_class_path.rsplit(".", 1)
-        
+
         module = importlib.import_module(module_path)
         provider_class = getattr(module, class_name)
-        
+
         return provider_class(config)
 ```
 
@@ -648,13 +682,13 @@ from PIL import Image
 def memory_limited_processing(max_memory_mb: int = 1000):
     """Context manager to limit memory usage during processing."""
     initial_memory = psutil.Process().memory_info().rss / 1024 / 1024
-    
+
     try:
         yield
     finally:
         current_memory = psutil.Process().memory_info().rss / 1024 / 1024
         memory_used = current_memory - initial_memory
-        
+
         if memory_used > max_memory_mb:
             import gc
             gc.collect()
@@ -669,11 +703,11 @@ def process_large_image(image_path: Path) -> Image.Image:
             if img.size[0] * img.size[1] > 4000 * 4000:
                 # Resize for processing
                 img.thumbnail((2048, 2048), Image.Resampling.LANCZOS)
-            
+
             # Convert to RGB if needed
             if img.mode != "RGB":
                 img = img.convert("RGB")
-            
+
             return img.copy()
 ```
 
@@ -694,7 +728,7 @@ class DatabaseManager:
             pool_recycle=3600
         )
         self.SessionLocal = sessionmaker(bind=self.engine)
-    
+
     @contextmanager
     def get_session(self):
         session = self.SessionLocal()
@@ -716,7 +750,7 @@ class HybridBatchProcessor:
     def __init__(self, batch_size: int = 100):
         self.batch_size = batch_size
         self.performance_target = 300  # 5 minutes for 1000 images = 300 seconds
-        
+
     async def process_images_batch(
         self,
         image_paths: List[Path],
@@ -725,19 +759,19 @@ class HybridBatchProcessor:
         """Process images in 100-image batches for optimal memory control."""
         total_images = len(image_paths)
         processed_count = 0
-        
+
         for batch_start in range(0, total_images, self.batch_size):
             batch_end = min(batch_start + self.batch_size, total_images)
             batch = image_paths[batch_start:batch_end]
-            
+
             # Batch registration and processing
             batch_results = await self._process_single_batch(batch)
             processed_count += len(batch_results)
-            
+
             if progress_callback:
                 progress = int(processed_count / total_images * 100)
                 progress_callback(progress)
-                
+
         return results
 
 #### Policy Violation Tracking (clarified 2025/07/06)
@@ -745,7 +779,7 @@ class HybridBatchProcessor:
 # Database schema addition for policy violation tracking
 class AnnotationFailure(Base):
     __tablename__ = 'annotation_failures'
-    
+
     id = Column(Integer, primary_key=True)
     image_id = Column(Integer, ForeignKey('images.id'))
     model_name = Column(String, nullable=False)
@@ -763,11 +797,11 @@ def check_policy_violations(image_ids: List[int], model_name: str) -> List[int]:
         AnnotationFailure.model_name == model_name,
         AnnotationFailure.is_policy_violation == True
     ).all()
-    
+
     if violations:
         # Show warning dialog to user
         show_policy_violation_warning(violations)
-    
+
     return [v.image_id for v in violations]
 ```
 
@@ -781,9 +815,9 @@ class TaskManager:
     def __init__(self, max_workers: int = 4):
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.active_tasks: List[asyncio.Task] = []
-    
+
     async def run_in_background(
-        self, 
+        self,
         func: Callable,
         *args,
         **kwargs
@@ -792,13 +826,13 @@ class TaskManager:
         loop = asyncio.get_event_loop()
         task = loop.run_in_executor(self.executor, func, *args, **kwargs)
         self.active_tasks.append(task)
-        
+
         try:
             result = await task
             return result
         finally:
             self.active_tasks.remove(task)
-    
+
     async def process_batch(
         self,
         items: List[Any],
@@ -807,17 +841,17 @@ class TaskManager:
     ) -> List[Any]:
         """Process items in batches to control resource usage."""
         results = []
-        
+
         for i in range(0, len(items), batch_size):
             batch = items[i:i + batch_size]
             batch_tasks = [
                 self.run_in_background(processor, item)
                 for item in batch
             ]
-            
+
             batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
             results.extend(batch_results)
-        
+
         return results
 ```
 
@@ -856,7 +890,7 @@ database_dir/
 │   ├── database.db      # SQLite database for project_a
 │   └── images/          # Processed images for project_a
 └── project_b/
-    ├── database.db      # SQLite database for project_b  
+    ├── database.db      # SQLite database for project_b
     └── images/          # Processed images for project_b
 ```
 
@@ -936,10 +970,10 @@ def normalize_legacy_paths(db_path: Path) -> None:
 
 def __init__(self, config_path: Path | None = None, shared_config: dict[str, Any] | None = None):
     """Initialize with optional shared configuration object for DI pattern"""
-    
+
 def _create_default_config_file(self) -> dict[str, Any]:
     """Create default configuration file when missing"""
-    
+
 def mask_api_key(key: str) -> str:
     """APIキーを***でマスキング"""
     if not key or len(key) < 8:
@@ -968,35 +1002,35 @@ import mimetypes
 class FileValidator:
     ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
     MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-    
+
     @classmethod
     def validate_image_file(cls, file_path: Path) -> bool:
         """Validate image file for security and format compliance."""
-        
+
         # Check if file exists
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
-        
+
         # Check file extension
         if file_path.suffix.lower() not in cls.ALLOWED_EXTENSIONS:
             raise ValueError(f"Unsupported file type: {file_path.suffix}")
-        
+
         # Check file size
         if file_path.stat().st_size > cls.MAX_FILE_SIZE:
             raise ValueError(f"File too large: {file_path.stat().st_size} bytes")
-        
+
         # Check MIME type
         mime_type, _ = mimetypes.guess_type(str(file_path))
         if not mime_type or not mime_type.startswith("image/"):
             raise ValueError(f"Invalid MIME type: {mime_type}")
-        
+
         # Validate image content
         try:
             with Image.open(file_path) as img:
                 img.verify()
         except Exception as e:
             raise ValueError(f"Invalid image file: {e}")
-        
+
         return True
 ```
 
@@ -1014,7 +1048,7 @@ description = "AI-powered image annotation for ML datasets"
 authors = [{name = "Your Name", email = "your.email@example.com"}]
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 
 dependencies = [
     "PySide6>=6.6.0",
@@ -1083,11 +1117,11 @@ The image processing system has been successfully refactored from a monolithic a
 **1. ImageProcessingManager Integration**
 ```python
 class ImageProcessingManager:
-    def __init__(self, file_system_manager: FileSystemManager, target_resolution: int, 
+    def __init__(self, file_system_manager: FileSystemManager, target_resolution: int,
                  preferred_resolutions: list[tuple[int, int]], config_service: ConfigurationService):
         self.upscaler = Upscaler(config_service)  # Dependency injection
-        
-    def process_image(self, db_stored_original_path: Path, original_has_alpha: bool, 
+
+    def process_image(self, db_stored_original_path: Path, original_has_alpha: bool,
                      original_mode: str, upscaler: str | None = None) -> tuple[Image.Image | None, dict[str, Any]]:
         cropped_img = AutoCrop.auto_crop_image(img)  # Static method call
         upscaled_img = self.upscaler.upscale_image(converted_img, upscaler)  # Instance method
@@ -1097,11 +1131,11 @@ class ImageProcessingManager:
 ```python
 class AutoCrop:
     """Singleton pattern with complementary color difference algorithm"""
-    
+
     @classmethod
     def auto_crop_image(cls, pil_image: Image.Image) -> Image.Image:
         """Main public interface for automatic image cropping"""
-        
+
     def _get_crop_area(self, np_image: np.ndarray) -> tuple[int, int, int, int] | None:
         """Core complementary color analysis algorithm"""
 ```
@@ -1110,19 +1144,19 @@ class AutoCrop:
 ```python
 class Upscaler:
     """Configuration-driven upscaler with dependency injection"""
-    
+
     def __init__(self, config_service: ConfigurationService):
         self.config_service = config_service
         self._loaded_models: dict[str, Any] = {}  # Model caching
-        
+
     @classmethod
     def create_default(cls) -> "Upscaler":
         """Factory method for backward compatibility"""
-        
+
     def upscale_image(self, img: Image.Image, model_name: str, scale: float | None = None) -> Image.Image:
         """Main upscaling interface with model management"""
         """指定解像度への画像アップスケール処理"""
-        
+
     def get_available_models(self) -> list[str]:
         """利用可能なアップスケールモデルの一覧取得"""
 ```
@@ -1134,7 +1168,7 @@ class Upscaler:
 class ProcessedImage(Base):
     # 既存フィールド
     upscaler_used: Mapped[str | None] = mapped_column(String)  # 使用されたアップスケーラー名
-    
+
     # 新規追加フィールド (2025/07/12)
     crop_status: Mapped[str | None] = mapped_column(String)    # クロップ状態: None/"auto"/"approved"/"manual"
 ```
@@ -1156,16 +1190,16 @@ class ProcessedImage(Base):
 ```python
 def process_with_crop_awareness(self, image_id: int, image_path: Path) -> ProcessingResult:
     """クロップ状態を考慮した処理パイプライン"""
-    
+
     # 1. 既存処理済み画像のクロップ状態確認
     existing_metadata = self.db_manager.get_processed_metadata(image_id)
     crop_status = existing_metadata.get('crop_status') if existing_metadata else None
-    
+
     # 2. 承認済み画像は再処理スキップ
     if crop_status in ["approved", "manual"]:
         logger.info(f"スキップ: 承認済みクロップ (status={crop_status})")
         return existing_metadata
-        
+
     # 3. 自動クロップ実行 (None, "auto"の場合)
     processed_image, processing_metadata = self.auto_crop.crop_image(image, crop_status)
     processing_metadata['crop_status'] = 'auto'  # 処理後のステータス設定
@@ -1177,17 +1211,17 @@ def process_with_crop_awareness(self, image_id: int, image_path: Path) -> Proces
 ```python
 class Upscaler:
     MODEL_DIRECTORY = Path("models/upscalers")
-    
+
     def get_available_models(self) -> list[str]:
         """models/upscalers内の全モデルをリストアップ"""
         if not self.MODEL_DIRECTORY.exists():
             return []
-            
+
         model_files = []
         for file_path in self.MODEL_DIRECTORY.iterdir():
             if file_path.is_file() and file_path.suffix.lower() in ['.pth', '.safetensors', '.pt', '.ckpt']:
                 model_files.append(file_path.stem)
-        
+
         return sorted(model_files)
 ```
 
@@ -1198,7 +1232,7 @@ from spandrel import ModelLoader, UnsupportedModelError
 class SpandrelUpscaler:
     def __init__(self):
         self.model_loader = ModelLoader(device="cuda" if torch.cuda.is_available() else "cpu")
-        
+
     def load_model(self, model_path: Path) -> bool:
         """Spandrelによるモデル読み込みと互換性チェック"""
         try:
@@ -1230,11 +1264,11 @@ models/
 class ResourceAwareProcessor:
     def __init__(self, max_memory_mb: int = 2048):
         self.max_memory_mb = max_memory_mb
-        
+
     def process_with_memory_limit(self, image: Image.Image) -> Image.Image:
         """メモリ使用量を監視しながら処理実行"""
         initial_memory = psutil.Process().memory_info().rss / 1024 / 1024
-        
+
         try:
             result = self._execute_processing(image)
             return result
@@ -1250,17 +1284,17 @@ class ResourceAwareProcessor:
 def process_batch_with_crop_status(self, image_ids: list[int]) -> list[ProcessingResult]:
     """バッチ処理でのクロップ状態考慮"""
     results = []
-    
+
     for image_id in image_ids:
         # 承認済み画像のフィルタリング
         if self._is_approved_crop(image_id):
             logger.debug(f"スキップ: 承認済みクロップ (ID={image_id})")
             continue
-            
+
         # 未処理・自動処理済み画像の処理実行
         result = self.process_with_crop_awareness(image_id)
         results.append(result)
-        
+
     return results
 ```
 
@@ -1281,7 +1315,7 @@ Create Date: 2025-07-12
 """
 
 def upgrade():
-    op.add_column('processed_images', 
+    op.add_column('processed_images',
                   sa.Column('crop_status', sa.String(), nullable=True))
 
 def downgrade():
@@ -1290,7 +1324,7 @@ def downgrade():
 
 **Phase 3: Integration Testing**
 - モジュール間インターフェース検証
-- クロップ状態管理ロジック検証  
+- クロップ状態管理ロジック検証
 - Spandrelモデル互換性テスト
 - パフォーマンスベンチマーク
 
@@ -1340,11 +1374,11 @@ Spandrelベースのアップスケーラーインスタンス管理の実装計
 ```python
 class Upscaler:
     """Spandrelベースの画像アップスケーラー（シングルトンパターン）"""
-    
+
     # クラス変数（グローバル状態）
     _global_instance: "Upscaler | None" = None
     _current_model_name: str | None = None
-    
+
     @classmethod
     def get_for_model(cls, model_name: str) -> "Upscaler":
         """指定モデル用のUpscalerインスタンス取得"""
@@ -1354,14 +1388,14 @@ class Upscaler:
             cls._global_instance = cls(model_name)
             cls._current_model_name = model_name
         return cls._global_instance
-    
+
     @classmethod
     def force_cleanup(cls):
         """アノテーション処理前の強制解放"""
         if cls._global_instance:
             logger.info(f"VRAM解放のためUpscaler強制破棄: {cls._current_model_name}")
             cls._cleanup_current()
-    
+
     @classmethod
     def _cleanup_current(cls):
         """現在のインスタンス解放"""
@@ -1385,12 +1419,12 @@ class Upscaler:
 # batch_processor.py での使用例
 def process_directory_batch(..., upscaler_name: str | None = None):
     """効率的なバッチ処理（共有Upscalerインスタンス使用）"""
-    
+
     shared_upscaler = None
     if upscaler_name:
         shared_upscaler = Upscaler.get_for_model(upscaler_name)
         # ↑ バッチ全体で同一インスタンス使用
-    
+
     for image_file in image_files:
         if shared_upscaler:
             # 既に読み込まれたモデルで高速処理
@@ -1403,11 +1437,11 @@ def process_directory_batch(..., upscaler_name: str | None = None):
 class AnnotationService:
     def start_annotation_batch(self, ...):
         """アノテーション処理開始（VRAM競合回避）"""
-        
+
         # アノテーション処理前にUpscalerリソース強制解放
         Upscaler.force_cleanup()
         logger.info("アノテーション処理のためVRAM解放完了")
-        
+
         # アノテーション実行（VRAMフル活用可能）
         results = self._execute_annotations(...)
 ```
@@ -1436,7 +1470,7 @@ class AnnotationService:
 2. `auto_crop.py` - AutoCropクラス分離
 3. `processing_manager.py` - 統合処理マネージャー
 
-#### Phase 2: Resource Management Integration  
+#### Phase 2: Resource Management Integration
 1. グローバルインスタンス管理実装
 2. 強制クリーンアップ機能実装
 3. モデル切り替え検知機能実装

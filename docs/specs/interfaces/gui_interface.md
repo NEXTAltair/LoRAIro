@@ -6,11 +6,11 @@
 
 ## 2. 全体構成
 
-アプリケーションは単一のメインワークスペースウィンドウ (`MainWorkspaceWindow`) で構成され、3パネル構成の統一的なワークフローインターフェースを提供する。
+アプリケーションは単一のメインワークスペースウィンドウ (`MainWindow`) で構成され、3パネル構成の統一的なワークフローインターフェースを提供する。
 
 ```mermaid
 graph TD
-    subgraph MainWorkspaceWindow ["MainWorkspaceWindow (3パネル構成)"]
+    subgraph MainWindow ["MainWindow (3パネル構成)"]
         A[FilterSearchPanel];
         B[ThumbnailSelectorWidget];
         C[PreviewDetailPanel];
@@ -41,12 +41,12 @@ graph TD
     WM --> W3;
     WM --> W4;
 
-    style MainWorkspaceWindow fill:#eee,stroke:#333,stroke-width:2px
+    style MainWindow fill:#eee,stroke:#333,stroke-width:2px
     style Architecture fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
     style Workers fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
 ```
 
--   **MainWorkspaceWindow:** データベース中心設計の3パネル構成メインウィンドウ。画像管理・検索・処理を統合的に提供。
+-   **MainWindow:** データベース中心設計の3パネル構成メインウィンドウ。画像管理・検索・処理を統合的に提供。
 -   **FilterSearchPanel (左パネル):** 画像検索・フィルタリング機能を集約。タグ検索、日付範囲、解像度フィルタ等。
 -   **ThumbnailSelectorWidget (中央パネル):** データセット画像のサムネイル表示・選択。グリッド/リスト表示切り替え、複数選択対応。
 -   **PreviewDetailPanel (右パネル):** 選択画像のプレビュー表示とメタデータ・アノテーション情報表示。
@@ -158,7 +158,7 @@ class WorkerProgress:
 
 ```mermaid
 sequenceDiagram
-    participant UI as MainWorkspaceWindow
+    participant UI as MainWindow
     participant DS as DatasetStateManager  
     participant WS as WorkerService
     participant WM as WorkerManager
@@ -288,8 +288,8 @@ def test_worker_execution_with_real_objects(self, real_db_manager, mock_fsm):
 @pytest.fixture
 def minimal_main_window(self, real_config_service, real_db_manager, mock_fsm):
     with patch("...FilterSearchPanel") as mock_filter, \
-         patch.object(MainWorkspaceWindow, "setupUi"):
-        window = MainWorkspaceWindow()
+         patch.object(MainWindow, "setupUi"):
+        window = MainWindow()
         # 実際のサービスオブジェクトを注入
         window.config_service = real_config_service
         window.db_manager = real_db_manager
@@ -306,7 +306,7 @@ def test_dataset_selection_signal(self, main_window, qtbot):
 
 ## 5. 主要機能仕様 (Updated)
 
-### 5.1. 統合ワークフロー (MainWorkspaceWindow)
+### 5.1. 統合ワークフロー (MainWindow)
 
 新しいアーキテクチャでは、従来の複数ページ構成から統合的な3パネル構成に変更。全ての主要機能が単一ウィンドウで完結する。
 
@@ -362,152 +362,77 @@ def test_dataset_selection_signal(self, main_window, qtbot):
 - **キャプション表示:** 複数行対応・編集可能  
 - **スコア表示:** 品質・美観スコアの可視化
 
-### 5.5. 廃止された機能 (Legacy)
+### 5.5. アーキテクチャ移行による機能統合
 
-従来のページベース機能は MainWorkspaceWindow に統合され、以下は廃止:
+従来の複数ページ構成から統合ワークフローへの移行により、以下の機能が MainWindow に統合されました：
 
-**廃止ページ:**
-- ~~画像編集ページ (pageImageEdit)~~ → 統合ワークフロー
-- ~~AIタグ付けページ (pageImageTagger)~~ → 統合ワークフロー  
-- ~~データセット概要ページ (pageDatasetOverview)~~ → 統合ワークフロー
-- ~~エクスポートページ (pageExport)~~ → メニューバーアクション
-- ~~設定ページ (pageSettings)~~ → 設定ダイアログ
+**統合された機能:**
+- **画像編集**: PreviewDetailPanel + AnnotationWorker
+- **AIタグ付け**: ワンクリックアノテーション (統合ワークフロー)  
+- **データセット概要**: FilterSearchPanel + ThumbnailSelectorWidget
+- **エクスポート**: メニューバー統合アクション
+- **設定**: 設定ダイアログ
 
-## 6. レガシー機能仕様 (参考用)
+詳細な廃止機能仕様は [DEPRECATIONS.md](../DEPRECATIONS.md) を参照してください。
 
-### 6.1. AIタグ付けページ (Legacy - 参考用)
+## 6. アーキテクチャ移行のメリット
 
--   **目的:** 選択された画像に対してAIによるタグ・キャプション生成を実行し、結果の確認・編集・保存を行う。
--   **主要コンポーネント:**
-    -   **サムネイルセレクター (`ThumbnailSelector`):**
-        -   データセット内の画像（.webp限定）をサムネイル表示し、処理対象を選択する (`ThumbnailSelectorWidget` を使用)。
-        -   単一選択、複数選択（Ctrl/Shiftキー使用）に対応。
-        -   選択された画像は `selected_webp` リストに保持される。
-        -   選択変更時に画像プレビューとアノテーション表示を更新する。
-    -   **画像プレビュー (`ImagePreview`):**
-        -   サムネイルセレクターで最後に選択された画像を表示する (`ImagePreviewWidget` を使用)。
-    -   **DB検索 (`dbSearchWidget`):**
-        -   タグやキャプションでDB内の画像を検索し、結果をサムネイルセレクターに表示する機能 (`TagFilterWidget` を使用)。
-        -   タグ未付与、NSFWコンテンツのフィルタリングオプションあり。
-    -   **AIモデル選択:**
-        -   **アノテーター/モデル (`comboBoxModel`):** `image-annotator-lib` が提供する利用可能な全てのアノテーター（APIベース、ローカルモデル等）のリストを表示し、選択する。選択されたモデル名は `ConfigManager` に保存される。(変更)
-        -   **タグフォーマット (`comboBoxTagFormat`):** 出力タグの整形に使用するフォーマット名 (danbooru, e621, derpibooru) を選択。
-    -   **プロンプト設定:**
-        -   **メインプロンプト (`textEditMainPrompt`):** AIに渡す主要な指示。編集可能で `ConfigManager` に保存される。
-        -   **追加プロンプト (`textEditAddPrompt`):** AIに渡す追加の指示。編集可能で `ConfigManager` に保存される。
-        -   **画像生成プロンプト (`textEditGenaiPrompt`):** (※用途不明瞭) 編集可能で `ConfigManager` に保存される。タグとしてDBに別途登録されるロジックあり。
-    -   **処理オプション:**
-        -   **低解像度画像使用 (`lowRescheckBox`):** チェック時、AIへの入力にDB内の低解像度版処理済み画像を使用する。
-    -   **生成実行ボタン (`pushButtonGenerate`):**
-        -   選択された画像 (`selected_webp`) と **アノテーター/モデル設定** に基づき、`image-annotator-lib` の `annotate` 関数を呼び出してタグ・キャプション・スコア生成を実行する。(変更)
-        -   処理結果は `all_results` 辞書 (キー: 画像パス) に保持される。
-        -   最後に処理した画像の結果をタグ/キャプション編集エリアとスコアスライダーに表示する。
-    -   **結果表示/編集:**
-        -   **タグ (`textEditTags`):** 生成されたタグをカンマ区切りで表示。編集可能。
-        -   **キャプション (`textEditCaption`):** 生成されたキャプションを表示。編集可能。
-        -   **スコア (`scoreSlider`):** 生成されたスコアを0-100の範囲で表示。ツールチップで実際の値表示。編集不可？
-    -   **保存オプション:**
-        -   **テキストファイル保存 (`checkBoxText`):** チェック時、タグとキャプションを画像と同名の .txt / .caption ファイルとして保存。
-        -   **JSONファイル保存 (`checkBoxJson`):** チェック時、アノテーション情報をJSONファイルとして保存。
-        -   **DB登録 (`checkBoxDB`):** チェック時、生成/編集されたアノテーションをデータベースに保存。
-        -   **キャプションをタグにマージ (`MergeCaptionWithTagscheckBox`):** テキストファイル保存時にキャプションをタグリストの先頭に追加するかどうか。
-    -   **保存実行ボタン (`pushButtonSave`):**
-        -   選択された保存オプションに基づき、`all_results` に保持されたアノテーション情報をファイルまたはDBに保存する。
-        -   テキスト/JSON保存時は保存先ディレクトリを選択するダイアログを表示 (`DirectoryPickerSave`)。
-        -   DB保存時は `idm.save_annotations` を呼び出す。画像がDB未登録の場合は先に登録する。
--   **初期化 (`initialize`):**
-    -   `ConfigManager`, `ImageDatabaseManager` のインスタンスを受け取る。
-    -   `ConfigManager` からプロンプト、**利用可能なアノテーター/モデルリスト (ライブラリから取得)**、ディレクトリパスなどを取得し、UIに設定。(変更)
-    -   DB検索ウィジェットを初期化。
--   **データフロー:**
-    -   メインウィンドウのデータセットセレクターで選択された画像リストが `load_images` で渡される。
-    -   DB検索結果も `load_images` でサムネイル表示が更新される。
-    -   生成/編集されたアノテーションは `all_results` 辞書に一時保持され、保存ボタン押下時に永続化される。
-
-### 6.2. データセット概要ページ (Legacy - 参考用)
-
--   **目的:** 選択されたデータセット内の画像のメタデータやアノテーション情報を一覧表示・確認する。
--   **主要コンポーネント:**
-    -   **サムネイルセレクター (`thumbnailSelector`):** データセット内の画像を表示・選択 (`ThumbnailSelectorWidget` を使用)。
-    -   **画像プレビュー (`ImagePreview`):** 選択された画像を表示 (`ImagePreviewWidget` を使用)。
-    -   **メタデータ表示:**
-        -   ファイル名 (`fileNameValueLabel`)
-        -   パス (`imagePathValueLabel`)
-        -   フォーマット (`formatValueLabel`)
-        -   モード (`modeValueLabel`)
-        -   アルファチャンネル有無 (`alphaChannelValueLabel`)
-        -   解像度 (`resolutionValueLabel`)
-        -   アスペクト比 (`aspectRatioValueLabel`)
-        -   拡張子 (`extensionValueLabel`)
-    -   **アノテーション表示:**
-        -   タグ (`tagsTextEdit`): 関連付けられたタグをカンマ区切りで表示。**読み取り専用**。
-        -   キャプション (`captionTextEdit`): 関連付けられたキャプションを表示。**読み取り専用**。
-    -   **DB検索 (`dbSearchWidget`):** タグやキャプション等でDB内の画像を検索し、結果をサムネイルセレクターに表示 (`TagFilterWidget` を使用)。日付範囲、解像度、タグ未付与、NSFWフィルタリングオプションあり。
--   **処理フロー:**
-    -   データセットセレクターでディレクトリが選択されると `load_images` が呼ばれ、サムネイルセレクターに画像が表示される。
-    -   サムネイルが選択されると `update_preview` が呼ばれ、画像プレビューとメタデータ・アノテーション表示が更新される (`update_metadata`, `update_annotations`)。
-    -   メタデータは `FileSystemManager.get_image_info` で取得。
-    -   アノテーションはまず既存ファイル (`.txt`, `.caption`) を探し (`ImageAnalyzer.get_existing_annotations`)、なければDBから取得 (`idm.get_image_annotations`) して表示。
-    -   DB検索ウィジェットで検索が実行されると `on_filter_applied` が呼ばれ、DBを検索 (`idm.get_images_by_filter`) し、結果の画像パスリストでサムネイルセレクターを更新する。
-
-## 7. アーキテクチャ移行のメリット
-
-### 7.1. パフォーマンス向上
+### 6.1. パフォーマンス向上
 - **非同期処理:** QThreadPool/QRunnable による効率的な並行処理
 - **プログレッシブ読み込み:** 大量データの段階的表示
 - **メモリ効率:** バーチャルスクロールとサムネイル遅延読み込み
 - **レスポンシブUI:** 長時間処理中もUIがブロックされない
 
-### 7.2. ユーザビリティ向上
+### 6.2. ユーザビリティ向上
 - **統合ワークフロー:** 3パネル構成による直感的操作
 - **リアルタイム更新:** 状態変更の即座な反映
 - **進捗表示:** 詳細な処理状況の可視化
 - **エラー回復:** 適切なエラーハンドリングとユーザーフィードバック
 
-### 7.3. 開発・保守性向上
+### 6.3. 開発・保守性向上
 - **責任分離:** 状態管理・UI・ビジネスロジックの明確な分離
 - **テスタビリティ:** pytest-qt による包括的なGUIテスト
 - **拡張性:** 新しいワーカー・パネル・機能の追加が容易
 - **デバッグ:** 統一されたログとエラー報告システム
 
-### 7.4. クロスプラットフォーム対応
+### 6.4. クロスプラットフォーム対応
 - **Linux/Container:** ヘッドレス実行とCI/CD統合
 - **Windows:** ネイティブGUI体験
 - **同一コードベース:** プラットフォーム固有の差異を抽象化
 
-## 8. 実装ファイル参照
+## 7. 実装ファイル参照
 
-### 8.1. 主要実装ファイル
-- **MainWorkspaceWindow:** `/src/lorairo/gui/window/main_workspace_window.py`
+### 7.1. 主要実装ファイル
+- **MainWindow:** `/src/lorairo/gui/window/main_window.py`
 - **DatasetStateManager:** `/src/lorairo/gui/state/dataset_state.py`
 - **WorkerService:** `/src/lorairo/gui/services/worker_service.py`
 - **WorkerManager:** `/src/lorairo/gui/workers/manager.py`
 - **Base Worker:** `/src/lorairo/gui/workers/base.py`
 
-### 8.2. ウィジェット実装
+### 7.2. ウィジェット実装
 - **FilterSearchPanel:** `/src/lorairo/gui/widgets/filter_search_panel.py`
 - **ThumbnailSelectorWidget:** `/src/lorairo/gui/widgets/thumbnail_enhanced.py`
 - **PreviewDetailPanel:** `/src/lorairo/gui/widgets/preview_detail_panel.py`
 
-### 8.3. ワーカー実装
+### 7.3. ワーカー実装
 - **DatabaseRegistrationWorker:** `/src/lorairo/gui/workers/database_worker.py`
 - **AnnotationWorker:** `/src/lorairo/gui/workers/annotation_worker.py`
 - **SearchWorker:** `/src/lorairo/gui/workers/database_worker.py`
 - **ThumbnailWorker:** `/src/lorairo/gui/workers/database_worker.py`
 
-### 8.4. テスト実装
+### 7.4. テスト実装
 
 **単体テスト (Unit Tests):**
-- **MainWorkspaceWindow Tests:** `/tests/unit/gui/window/test_main_workspace_window_improved.py`
+- **MainWindow Tests:** `/tests/unit/gui/window/test_main_window.py`
 - **DatabaseWorker Tests:** `/tests/unit/workers/test_database_worker.py`
-- **Legacy Tests (参考用):** `/tests/unit/gui/window/test_main_workspace_window.py`
+- **MainWindow Integration Tests:** `/tests/integration/gui/window/test_main_window_integration.py`
 
 **統合テスト (Integration Tests):**
 - **GUI Integration Tests:** `/tests/integration/gui/test_worker_coordination.py`
 - **Database Integration Tests:** `/tests/integration/test_upscaler_database_integration.py`
 
 **GUI テスト (pytest-qt):**
-- **MainWorkspaceWindow GUI Tests:** `/tests/gui/test_main_workspace_window_qt.py`
+- **MainWindow GUI Tests:** `/tests/gui/test_main_window_qt.py`
 
 **テスト品質改善の実装例:**
 ```python

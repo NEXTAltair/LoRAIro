@@ -103,6 +103,38 @@ class Model(Base):
     def __repr__(self) -> str:
         return f"<Model(id={self.id}, name='{self.name}')>"
 
+    # UI用プロパティ（ModelInfo代替機能）
+    @property
+    def is_recommended(self) -> bool:
+        """推奨モデル判定（UIロジック）"""
+        if not self.name:
+            return False
+
+        name_lower = self.name.lower()
+
+        # 高品質Caption生成モデル
+        caption_recommended = ["gpt-4o", "claude-3-5-sonnet", "claude-3-sonnet", "gemini-pro"]
+
+        # 高精度タグ生成モデル
+        tags_recommended = ["wd-v1-4", "wd-tagger", "deepdanbooru", "wd-swinv2"]
+
+        # 品質評価モデル
+        scores_recommended = ["clip-aesthetic", "musiq", "aesthetic-scorer"]
+
+        all_recommended = caption_recommended + tags_recommended + scores_recommended
+
+        return any(rec in name_lower for rec in all_recommended)
+
+    @property
+    def available(self) -> bool:
+        """利用可能性判定"""
+        return self.discontinued_at is None
+
+    @property
+    def capabilities(self) -> list[str]:
+        """機能リスト取得（model_types互換性プロパティ）"""
+        return [model_type.name for model_type in self.model_types]
+
 
 class Image(Base):
     """オリジナル画像情報を格納するテーブル"""

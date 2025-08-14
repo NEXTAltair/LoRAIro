@@ -18,7 +18,7 @@ The application follows clean architecture principles with clear separation of c
 The system uses Qt's QThreadPool and QRunnable for asynchronous operations:
 
 - **WorkerManager**: QThreadPool-based task execution coordination (`src/lorairo/gui/workers/manager.py`)
-- **BaseWorker**: Standardized QRunnable implementation with progress reporting (`src/lorairo/gui/workers/base_worker.py`)
+- **BaseWorker**: Standardized QRunnable implementation with progress reporting (`src/lorairo/gui/workers/base.py`)
 - **Specialized Workers**: Database, annotation, search, and thumbnail workers in `src/lorairo/gui/workers/`
 - **WorkerService**: Qt service layer for worker coordination and GUI integration (`src/lorairo/gui/services/worker_service.py`)
 - **DatasetStateManager**: Centralized state management with Qt signals (`src/lorairo/gui/state/dataset_state.py`)
@@ -41,9 +41,10 @@ Components communicate through Qt signals/slots for loose coupling and responsiv
 
 ### Core Application Flow
 
+
 ```mermaid
 graph TD
-    A[main.py] --> B[MainWorkspaceWindow]
+    A[main.py] --> B[MainWindow]
     B --> C[ImageProcessingService]
     B --> D[WorkerService]
     B --> E[ConfigurationService]
@@ -75,7 +76,7 @@ graph TD
   - Launches main window
 
 #### Main Window Controller
-- **`src/lorairo/gui/window/main_workspace_window.py`**: Primary GUI orchestrator (MainWorkspaceWindow)
+- **`src/lorairo/gui/window/main_window.py`**: Primary GUI orchestrator (MainWindow)
   - Workflow-centered 3-panel layout design
   - Coordinates between filter/search, thumbnail, and preview panels
   - Manages service dependencies and worker coordination
@@ -206,7 +207,7 @@ The GUI follows a workflow-centered 3-panel design with PySide6 Worker System ar
 
 ```mermaid
 graph TD
-    A[MainWorkspaceWindow] --> B[FilterSearchPanel]
+    A[MainWindow] --> B[FilterSearchPanel]
     A --> C[ThumbnailSelectorWidget]
     A --> D[PreviewDetailPanel]
     A --> E[WorkerService]
@@ -223,7 +224,7 @@ graph TD
 #### GUI Components (Modernized Architecture)
 
 **Main Window**
-- **`src/lorairo/gui/window/main_workspace_window.py`**: MainWorkspaceWindow
+- **`src/lorairo/gui/window/main_window.py`**: MainWindow
 - Workflow-centered 3-panel design replacing legacy page-based architecture
 - Qt auto-connection pattern with standardized signal naming
 - Dependency injection for services (ConfigurationService, WorkerService, DatasetStateManager)
@@ -271,7 +272,7 @@ graph TD
 #### Worker Components
 
 **Core Worker Infrastructure**
-- **`src/lorairo/gui/workers/base_worker.py`**: LoRAIroWorkerBase
+- **`src/lorairo/gui/workers/base.py`**: LoRAIroWorkerBase
 - Standardized QRunnable implementation with progress reporting
 - Built-in cancellation support and error handling
 - Qt signal integration for GUI communication
@@ -300,7 +301,7 @@ graph TD
 
 #### Worker Implementation Details
 
-**Worker Data Structures** (`src/lorairo/gui/workers/base_worker.py`)
+**Worker Data Structures** (`src/lorairo/gui/workers/base.py`)
 - `WorkerProgress`: Progress reporting data structure
 - `ProgressReporter`: Qt signal-based progress reporting
 - `CancellationController`: Cooperative cancellation support
@@ -406,7 +407,7 @@ graph TD
 - **Purpose**: Tag database management and cleaning utilities
 - **Integration**: Direct Python import via `from genai_tag_db_tools import initialize_tag_searcher`
 - **Location**: `local_packages/genai-tag-db-tools/`
-- **Features**: 
+- **Features**:
   - Tag taxonomy database (tags_v3.db)
   - Tag cleaning and normalization (`initialize_tag_searcher`)
   - Used in `src/lorairo/annotations/cleanup_txt.py`
@@ -416,7 +417,7 @@ graph TD
 - **Purpose**: Core AI-powered image annotation functionality
 - **Integration**: Direct Python import via `from image_annotator_lib import annotate, list_available_annotators`
 - **Location**: `local_packages/image-annotator-lib/`
-- **Features**: 
+- **Features**:
   - Multi-provider AI annotation (OpenAI, Anthropic, Google)
   - Local ML model support (CLIP, DeepDanbooru)
   - Unified annotation interface with structured results
@@ -525,6 +526,30 @@ graph TD
 - CPU utilization optimization
 - I/O operation efficiency
 - Network request optimization
+
+## AI Assistance Tooling (MCP)
+
+The development workflow employs MCP-based agents to accelerate planning and documentation alignment:
+
+- cipher: Orchestrator capable of invoking other MCPs (e.g., web search) and updating project memory files.
+- serena: Repository and documentation ingestion agent that persists its memory under `.serena/memories/`.
+
+These tools are development-only and do not affect the runtime application. Changes proposed via MCP must keep `docs/` in sync. serena's working memory is stored in `.serena/memories/`; `tasks/` remains human-authored plans.
+
+```mermaid
+sequenceDiagram
+    participant Dev as Developer
+    participant Serena as serena (MCP)
+    participant Cipher as cipher (MCP)
+    participant Repo as Repo/Docs
+
+    Dev->>Serena: Ingest project context
+    Serena->>Repo: Read docs/tasks/src
+    Serena-->>Dev: Summary + plan
+    Dev->>Cipher: Execute plan, call web/tools
+    Cipher->>Repo: Apply edits (docs/tasks)
+    Repo-->>Dev: Updated state
+```
 
 ## Testing Architecture
 
