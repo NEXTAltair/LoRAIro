@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ...database.db_manager import ImageDatabaseManager
+from ...database.schema import Model
 from ...services.model_registry_protocol import (
     ModelInfo as RegistryModelInfo,
 )
@@ -16,7 +17,6 @@ from ...services.model_registry_protocol import (
 )
 from ...utils.log import logger
 from .model_selection_service import ModelSelectionCriteria, ModelSelectionService
-from ...database.schema import Model
 
 
 @dataclass
