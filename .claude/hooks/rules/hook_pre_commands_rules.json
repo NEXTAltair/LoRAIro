@@ -58,6 +58,21 @@
       "pattern": "^rm\\s+-rf\\s+.+",
       "reason": "Destructive operations require explicit user confirmation",
       "suggestion": "Confirm with the user before running rm -rf. Prefer safe tasks like: make clean, or remove only approved paths: logs/, __pycache__, .pytest_cache, .ruff_cache"
+    },
+    {
+      "pattern": "^grep\\s+",
+      "reason": "Use 'git grep --function-context' for better code search with context",
+      "suggestion": "git grep --function-context <pattern> [path]"
+    },
+    {
+      "pattern": "^rg\\s+",
+      "reason": "Use 'git grep --function-context' for consistent git-tracked file search",
+      "suggestion": "git grep --function-context <pattern> [path]"
+    },
+    {
+      "pattern": "^git\\s+grep\\s+(?!.*(--function-context|--show-function|-W|-p))",
+      "reason": "git grep requires --function-context or --show-function flag for better code context",
+      "suggestion": "git grep --function-context <pattern> [path]"
     }
   ],
   "auto_format_commands": [

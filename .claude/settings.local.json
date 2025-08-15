@@ -6,8 +6,6 @@
     "allow": [
       "Bash(ls:*)",
       "Bash(find:*)",
-      "Bash(grep:*)",
-      "Bash(rg:*)",
       "Bash(diff:*)",
       "edit:**/*.md",
       "edit:**/*.mdc",
@@ -32,12 +30,15 @@
       "Bash(uv run mypy:*)",
       "Bash(uv run pytest:*)",
       "Bash(uv run ruff check:*)",
-      "Bash(uv run ruff format:*)"
+      "Bash(uv run ruff format:*)",
+      "mcp__cipher__ask_cipher",
+      "WebFetch(domain:docs.byterover.dev)"
     ],
     "deny": [
       "read:.env",
       "execute:rm",
-      "execute:git push"
+      "execute:git push",
+      "Bash(grep:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
@@ -47,18 +48,27 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "^Bash\\b:(git\\s+(add|commit|push|pull)\\b|pytest\\b|ruff\\s+(check|format)\\b|mypy\\b|python\\b|uv\\s+(add|remove|sync|run)\\b|make\\b|npm\\s+(install|run)\\b|docker\\s+(build|run)\\b)",
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
             "command": "/workspaces/LoRAIro/.claude/hooks/hook_pre_commands.sh"
           }
         ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/block_grep.py"
+          }
+        ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "^Bash\\b:(echo\\b|cat\\b|ls\\b|grep\\b|rg\\b|find\\b|python\\b|uv\\s+run\\b|pytest\\b)",
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
