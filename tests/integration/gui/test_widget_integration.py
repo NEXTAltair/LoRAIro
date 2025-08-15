@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QWidget
 
 from lorairo.gui.services.model_selection_service import ModelSelectionService
 from lorairo.gui.services.search_filter_service import SearchFilterService
-from lorairo.gui.widgets.filter import CustomRangeSlider
+from lorairo.gui.widgets.custom_range_slider import CustomRangeSlider
 from lorairo.gui.widgets.filter_search_panel import FilterSearchPanel
 
 

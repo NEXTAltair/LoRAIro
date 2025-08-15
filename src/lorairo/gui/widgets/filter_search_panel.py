@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QScrollArea
 from ...utils.log import logger
 from ..designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
 from ..services.search_filter_service import SearchFilterService
-from .filter import CustomRangeSlider
+from .custom_range_slider import CustomRangeSlider
 
 
 class FilterSearchPanel(QScrollArea):
