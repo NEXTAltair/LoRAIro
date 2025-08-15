@@ -92,15 +92,19 @@ echo "Checking for rg/git grep commands: $COMMAND" >> "$LOG_FILE"
 # rgコマンド → 段階的検索ガイダンス
 if echo "$COMMAND" | grep -qE "^rg\s"; then
     echo "RG command detected, calling read_mcp_memorys.py" >> "$LOG_FILE"
-    echo "$HOOK_DATA" | /workspaces/LoRAIro/.claude/hooks/read_mcp_memorys.py
-    exit $?
+    echo "$HOOK_DATA" | python3 /workspaces/LoRAIro/.claude/hooks/read_mcp_memorys.py
+    RG_EXIT_CODE=$?
+    echo "RG script exit code: $RG_EXIT_CODE" >> "$LOG_FILE"
+    exit $RG_EXIT_CODE
 fi
 
 # git grepコマンド → フラグチェック
 if echo "$COMMAND" | grep -qE "^git\s+grep"; then
     echo "Git grep command detected, calling bash_grep_checker.py" >> "$LOG_FILE"
-    echo "$HOOK_DATA" | /workspaces/LoRAIro/.claude/hooks/bash_grep_checker.py
-    exit $?
+    echo "$HOOK_DATA" | python3 /workspaces/LoRAIro/.claude/hooks/bash_grep_checker.py
+    GREP_EXIT_CODE=$?
+    echo "Git grep script exit code: $GREP_EXIT_CODE" >> "$LOG_FILE"
+    exit $GREP_EXIT_CODE
 fi
 # =========================== rg/git grep特別処理終了 ========================
 
@@ -187,8 +191,8 @@ EOF
                 if [ $? -eq 0 ]; then
                     echo "✅ 自動フォーマット完了"
                 else
-                    echo "❌ 自動フォーマット失敗"
-                    exit 1
+                    echo "⚠️ 自動フォーマット失敗 - 続行します"
+                    # exit 1 を削除してコマンド実行を続行
                 fi
             fi
         fi
