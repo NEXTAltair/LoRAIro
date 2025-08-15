@@ -13,20 +13,22 @@ git grep --function-context の使用を推奨する専用スクリプト。
 import json
 import sys
 
-def main():
+
+def main() -> None:
     """Grepツールを完全にブロックし、git grepの使用を推奨"""
-    
+
     # Claude CodeのGrepツール使用を完全ブロック
     output = {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
-            "permissionDecisionReason": "🔍 Use 'git grep --function-context <pattern> [path]' instead of Grep tool for better code search with function context and git-tracked files only"
+            "permissionDecisionReason": "🔍 Use 'git grep --function-context <pattern> [path]' instead of Grep tool for better code search with function context and git-tracked files only",
         }
     }
-    
+
     print(json.dumps(output))
     sys.exit(0)
+
 
 if __name__ == "__main__":
     main()

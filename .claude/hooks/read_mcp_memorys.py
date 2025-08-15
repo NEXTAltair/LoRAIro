@@ -138,15 +138,16 @@ def generate_guidance_message(file_path: str, file_category: str) -> str:
 
 def generate_rg_guidance(log_file: str, command: str) -> None:
     """rgコマンド用の段階的検索ガイダンス生成"""
-    
+
     # コマンドからパターンを抽出
     import shlex
+
     try:
         cmd_parts = shlex.split(command)
         pattern = cmd_parts[1] if len(cmd_parts) > 1 else "<pattern>"
     except (IndexError, ValueError):
         pattern = "<pattern>"
-    
+
     guidance_message = f"""🔍 **効率的な段階的検索フロー - {pattern}を探す:**
 
 **第1段階: プロジェクト構造把握**
@@ -170,18 +171,18 @@ def generate_rg_guidance(log_file: str, command: str) -> None:
 • 闇雲な全文検索より高速・構造的で理解しやすい結果"""
 
     log_debug(log_file, "Providing RG guidance")
-    
+
     # PreToolUse形式でrgコマンドをブロックし、段階的検索を推奨
     output: dict[str, Any] = {
         "hookSpecificOutput": {
-            "hookEventName": "PreToolUse", 
+            "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
-            "permissionDecisionReason": guidance_message
+            "permissionDecisionReason": guidance_message,
         }
     }
-    
+
     print(json.dumps(output))
-    sys.exit(0)
+    sys.exit(2)  # Block command (deny permission)
 
 
 def main() -> None:
@@ -206,16 +207,16 @@ def main() -> None:
             # Bashコマンド処理（rgコマンド）
             tool_input = input_data.get("tool_input", {})
             command = tool_input.get("command", "")
-            
+
             # rgコマンドチェック
             if not command.strip().startswith("rg"):
                 log_debug(log_file, f"Not an rg command: {command}, skipping")
                 sys.exit(0)
-                
+
             log_debug(log_file, f"RG command detected: {command}")
             generate_rg_guidance(log_file, command)
             return
-            
+
         # Readツール処理
         tool_input = input_data.get("tool_input", {})
         file_path = tool_input.get("file_path", "")
