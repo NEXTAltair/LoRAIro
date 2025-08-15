@@ -13,15 +13,9 @@ echo "=== Hook Debug $(date) ===" >> "$LOG_FILE"
 echo "Hook executed with args: $@" >> "$LOG_FILE"
 echo "HOOK_DATA variable: $HOOK_DATA" >> "$LOG_FILE"
 
-# stdin からの入力をキャプチャ
-if [ -p /dev/stdin ]; then
-    STDIN_DATA=$(cat)
-    echo "STDIN data: $STDIN_DATA" >> "$LOG_FILE"
-    # 後続処理で使うためにHOOK_DATAに代入
-    HOOK_DATA="$STDIN_DATA"
-else
-    HOOK_DATA="${1:-}"
-fi
+# stdin からのJSON入力をキャプチャ
+HOOK_DATA=$(cat)
+echo "STDIN data: $HOOK_DATA" >> "$LOG_FILE"
 
 echo "Final HOOK_DATA: $HOOK_DATA" >> "$LOG_FILE"
 echo "=================================" >> "$LOG_FILE"
@@ -38,7 +32,8 @@ fi
 # 入力データからコマンドを取得
 ORIGINAL_COMMAND=$(echo "$HOOK_DATA" | jq -r '.tool_input.command // empty' 2>/dev/null)
 
-if [ -z "$ORIGINAL_COMMAND" ]; then
+if [ -z "$ORIGINAL_COMMAND" ] || [ "$ORIGINAL_COMMAND" = "null" ]; then
+    echo "No command found in HOOK_DATA" >> "$LOG_FILE"
     exit 0
 fi
 
@@ -90,6 +85,24 @@ if [ "$COMMAND" != "$ORIGINAL_COMMAND" ]; then
 EOF
     exit 2  # ツールコールをブロックして変換後コマンドを提案
 fi
+
+# =========================== rg/git grep特別処理 ===========================
+echo "Checking for rg/git grep commands: $COMMAND" >> "$LOG_FILE"
+
+# rgコマンド → 段階的検索ガイダンス
+if echo "$COMMAND" | grep -qE "^rg\s"; then
+    echo "RG command detected, calling read_mcp_memorys.py" >> "$LOG_FILE"
+    echo "$HOOK_DATA" | /workspaces/LoRAIro/.claude/hooks/read_mcp_memorys.py
+    exit $?
+fi
+
+# git grepコマンド → フラグチェック
+if echo "$COMMAND" | grep -qE "^git\s+grep"; then
+    echo "Git grep command detected, calling bash_grep_checker.py" >> "$LOG_FILE"
+    echo "$HOOK_DATA" | /workspaces/LoRAIro/.claude/hooks/bash_grep_checker.py
+    exit $?
+fi
+# =========================== rg/git grep特別処理終了 ========================
 
 # ルールファイルが存在する場合のみルールチェック実行
 if [ -f "$RULES_FILE" ]; then

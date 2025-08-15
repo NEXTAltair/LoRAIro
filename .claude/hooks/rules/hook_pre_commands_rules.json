@@ -1,17 +1,17 @@
 {
   "documentation_first_commands": [
     {
-      "pattern": "^(find|grep|rg|ls)\\b.*\\.(py|toml|md)$",
+      "pattern": "^(find|ls)\\b.*\\.(py|toml|md)$",
       "reason": "use serena でプロジェクト構造と関連ドキュメントを参照してから検索を行う",
       "suggestion": "use serena を実行してコンポーネント位置のコンテキストを取得した後に必要なら検索する"
     },
     {
-      "pattern": "^(find|grep|rg)\\b.*\\bsrc/",
+      "pattern": "^find\\b.*\\bsrc/",
       "reason": "src/配下を検索する前に use serena でコンポーネント位置のコンテキストを確認する",
       "suggestion": "use serena: Entry point (src/lorairo/main.py), Services (src/lorairo/services/), GUI (src/lorairo/gui/), Database (src/lorairo/database/), AI Integration (src/lorairo/annotations/)"
     },
     {
-      "pattern": "^(find|grep|rg)\\b.*\\bconfig/",
+      "pattern": "^find\\b.*\\bconfig/",
       "reason": "設定構成の確認は use serena で関連情報を参照する",
       "suggestion": "use serena: config/lorairo.toml (main config), config/annotator_config.toml (AI settings)"
     }
@@ -58,21 +58,6 @@
       "pattern": "^rm\\s+-rf\\s+.+",
       "reason": "Destructive operations require explicit user confirmation",
       "suggestion": "Confirm with the user before running rm -rf. Prefer safe tasks like: make clean, or remove only approved paths: logs/, __pycache__, .pytest_cache, .ruff_cache"
-    },
-    {
-      "pattern": "^grep\\s+",
-      "reason": "Use 'git grep --function-context' for better code search with context",
-      "suggestion": "git grep --function-context <pattern> [path]"
-    },
-    {
-      "pattern": "^rg\\s+",
-      "reason": "Use 'git grep --function-context' for consistent git-tracked file search",
-      "suggestion": "git grep --function-context <pattern> [path]"
-    },
-    {
-      "pattern": "^git\\s+grep\\s+(?!.*(--function-context|--show-function|-W|-p))",
-      "reason": "git grep requires --function-context or --show-function flag for better code context",
-      "suggestion": "git grep --function-context <pattern> [path]"
     }
   ],
   "auto_format_commands": [
