@@ -137,22 +137,18 @@ class SearchFilterService:
             logger.error(f"ModelSelectionService作成エラー: {e}")
             # フォールバック用の最小設定
             from ...database.db_repository import ImageRepository
+
             fallback_repo = ImageRepository()
             return ModelSelectionService.create(db_repository=fallback_repo)
 
     def parse_search_input(self, search_text: str, search_type: str, tag_logic: str) -> list[str]:
-        """検索テキストをキーワードリストに変換"""
-        if not search_text.strip():
+        """検索テキストをキーワードリストに変換（最適化版）"""
+        if not (text := search_text.strip()):
             return []
 
-        if search_type == "tags":
-            # タグ検索の場合はカンマ区切りで分割
-            keywords = [kw.strip() for kw in search_text.split(",")]
-            return [kw for kw in keywords if kw]  # 空文字列を除去
-        else:
-            # キャプション検索の場合はスペース区切りで分割
-            keywords = search_text.strip().split()
-            return keywords
+        # 辞書ベースの分割ロジック
+        delimiter = "," if search_type == "tags" else None
+        return [kw.strip() for kw in text.split(delimiter) if kw.strip()]
 
     def create_search_conditions(
         self,
@@ -173,23 +169,19 @@ class SearchFilterService:
         """UI入力から検索条件オブジェクトを作成"""
         keywords = self.parse_search_input(search_text, search_type, tag_logic)
 
-        # カスタム解像度の処理
-        custom_width_int = None
-        custom_height_int = None
-        if resolution_filter == "カスタム...":
-            # 幅の処理
+        # カスタム解像度の処理（簡素化版）
+        def safe_int(value: str, name: str) -> int | None:
             try:
-                custom_width_int = int(custom_width) if custom_width.strip() else None
+                return int(value) if value.strip() else None
             except ValueError:
-                logger.warning(f"Invalid custom width: {custom_width}")
-                custom_width_int = None
+                logger.warning(f"Invalid {name}: {value}")
+                return None
 
-            # 高さの処理
-            try:
-                custom_height_int = int(custom_height) if custom_height.strip() else None
-            except ValueError:
-                logger.warning(f"Invalid custom height: {custom_height}")
-                custom_height_int = None
+        custom_width_int, custom_height_int = (
+            (safe_int(custom_width, "custom width"), safe_int(custom_height, "custom height"))
+            if resolution_filter == "カスタム..."
+            else (None, None)
+        )
 
         conditions = SearchConditions(
             search_type=search_type,
@@ -327,13 +319,13 @@ class SearchFilterService:
         ]
 
     def _parse_resolution_string(self, resolution_str: str) -> tuple[int, int] | None:
-        """解像度文字列を(width, height)タプルに変換"""
-        try:
-            if "x" in resolution_str:
-                width_str, height_str = resolution_str.split("x")
-                return (int(width_str), int(height_str))
-        except ValueError:
-            logger.warning(f"Failed to parse resolution string: {resolution_str}")
+        """解像度文字列を(width, height)タプルに変換（正規表現版）"""
+        import re
+
+        match = re.match(r"(\d+)x(\d+)", resolution_str)
+        if match:
+            return (int(match.group(1)), int(match.group(2)))
+        logger.warning(f"Failed to parse resolution string: {resolution_str}")
         return None
 
     def clear_conditions(self) -> None:
@@ -390,7 +382,7 @@ class SearchFilterService:
 
     def get_directory_images(self, directory_path: Path) -> list[dict[str, Any]]:
         """
-        ディレクトリ内画像の取得（軽量な読み取り操作）
+        ディレクトリ内画像の取得（データ層に委譲）
 
         Args:
             directory_path: 検索対象ディレクトリのパス
@@ -398,39 +390,16 @@ class SearchFilterService:
         Returns:
             list: ディレクトリ内の画像メタデータリスト
         """
-
-        try:
-            image_ids = self.db_manager.get_image_ids_from_directory(directory_path)
-            if not image_ids:
-                return []
-
-            # 画像IDリストからメタデータを取得
-            images = []
-            for image_id in image_ids:
-                metadata = self.db_manager.get_image_metadata(image_id)
-                if metadata:
-                    images.append(metadata)
-
-            return images
-
-        except Exception as e:
-            logger.error(f"ディレクトリ画像取得エラー: {directory_path}, {e}")
-            return []
+        return self.db_manager.get_directory_images_metadata(directory_path)
 
     def get_dataset_status(self) -> dict[str, Any]:
         """
-        データセット状態の取得（軽量な読み取り操作）
+        データセット状態の取得（データ層に委譲）
 
         Returns:
             dict: データセット状態情報
         """
-
-        try:
-            total_count = self.db_manager.get_total_image_count()
-            return {"total_images": total_count, "status": "ready" if total_count > 0 else "empty"}
-        except Exception as e:
-            logger.error(f"データセット状態取得エラー: {e}")
-            return {"total_images": 0, "status": "error"}
+        return self.db_manager.get_dataset_status()
 
     def process_resolution_filter(self, conditions: dict[str, Any]) -> dict[str, Any]:
         """
@@ -594,60 +563,39 @@ class SearchFilterService:
         return filtered_images
 
     def _parse_resolution_value(self, resolution_text: str) -> int:
-        """
-        解像度テキストを解析（FilterSearchPanelから移行）
+        """解像度テキストを解析（正規表現版）"""
+        import re
 
-        Args:
-            resolution_text: 解像度テキスト
-
-        Returns:
-            int: 解像度値
-        """
-        if resolution_text.startswith("512"):
-            return 512
-        elif resolution_text.startswith("1024"):
-            return 1024
-        elif resolution_text.startswith("2048"):
-            return 2048
-        return 0
+        match = re.search(r"(\d+)", resolution_text)
+        return int(match.group(1)) if match else 0
 
     def _filter_by_aspect_ratio(
         self, images: list[dict[str, Any]], aspect_ratio: str
     ) -> list[dict[str, Any]]:
-        """
-        アスペクト比でフィルター
-
-        Args:
-            images: 画像リスト
-            aspect_ratio: アスペクト比文字列
-
-        Returns:
-            list: フィルター後の画像リスト
-        """
+        """アスペクト比でフィルター（辞書ベース最適化版）"""
         if aspect_ratio == "全て":
             return images
 
-        filtered = []
-        for img in images:
-            width = img.get("width", 0)
-            height = img.get("height", 0)
-            if width <= 0 or height <= 0:
-                continue
+        # 辞書ベースのアスペクト比判定
+        aspect_ranges = {
+            "正方形 (1:1)": (0.95, 1.05),
+            "風景 (16:9)": (1.7, 1.9),
+            "縦長 (9:16)": (0.5, 0.6),
+            "風景 (4:3)": (1.25, 1.4),
+            "縦長 (3:4)": (0.7, 0.8),
+        }
 
-            ratio = width / height
+        min_ratio, max_ratio = aspect_ranges.get(aspect_ratio, (0, 0))
+        if min_ratio == 0:  # 未対応のアスペクト比
+            return images
 
-            if aspect_ratio == "正方形 (1:1)" and 0.95 <= ratio <= 1.05:
-                filtered.append(img)
-            elif aspect_ratio == "風景 (16:9)" and 1.7 <= ratio <= 1.9:
-                filtered.append(img)
-            elif aspect_ratio == "縦長 (9:16)" and 0.5 <= ratio <= 0.6:
-                filtered.append(img)
-            elif aspect_ratio == "風景 (4:3)" and 1.25 <= ratio <= 1.4:
-                filtered.append(img)
-            elif aspect_ratio == "縦長 (3:4)" and 0.7 <= ratio <= 0.8:
-                filtered.append(img)
-
-        return filtered
+        return [
+            img
+            for img in images
+            if (w := img.get("width", 0)) > 0
+            and (h := img.get("height", 0)) > 0
+            and min_ratio <= (w / h) <= max_ratio
+        ]
 
     def _filter_by_date_range(
         self, images: list[dict[str, Any]], start_date: datetime, end_date: datetime
@@ -688,44 +636,21 @@ class SearchFilterService:
 
     def get_annotation_status_counts(self) -> AnnotationStatusCounts:
         """
-        アノテーション状態カウントを取得
+        アノテーション状態カウントを取得（データ層に委譲）
 
         Returns:
             AnnotationStatusCounts: アノテーション状態統計
         """
-        try:
-            session = self.db_manager.get_session()
-
-            with session:
-                # 総画像数取得
-                total_images = session.execute("SELECT COUNT(*) FROM images").scalar() or 0
-
-                # 完了画像数取得 (タグまたはキャプションが存在)
-                completed_query = """
-                    SELECT COUNT(DISTINCT i.id) FROM images i
-                    LEFT JOIN tags t ON i.id = t.image_id
-                    LEFT JOIN captions c ON i.id = c.image_id
-                    WHERE t.id IS NOT NULL OR c.id IS NOT NULL
-                """
-                completed_images = session.execute(completed_query).scalar() or 0
-
-                # エラー画像数取得 (TODO: エラー記録テーブルが必要)
-                # 現在はプレースホルダー
-                error_images = 0
-
-                return AnnotationStatusCounts(
-                    total=total_images, completed=completed_images, error=error_images
-                )
-
-        except Exception as e:
-            logger.error(f"アノテーション状態カウント取得エラー: {e}")
-            return AnnotationStatusCounts()
+        result = self.db_manager.get_annotation_status_counts()
+        return AnnotationStatusCounts(
+            total=result["total"], completed=result["completed"], error=result["error"]
+        )
 
     def filter_by_annotation_status(
         self, completed: bool = False, error: bool = False
     ) -> list[dict[str, Any]]:
         """
-        アノテーション状態でフィルタリング
+        アノテーション状態でフィルタリング（データ層に委譲）
 
         Args:
             completed: 完了画像のみ
@@ -734,31 +659,7 @@ class SearchFilterService:
         Returns:
             list: フィルター後の画像リスト
         """
-        try:
-            session = self.db_manager.get_session()
-
-            with session:
-                if completed:
-                    # 完了画像（タグまたはキャプション有り）
-                    query = """
-                        SELECT DISTINCT i.* FROM images i
-                        LEFT JOIN tags t ON i.id = t.image_id
-                        LEFT JOIN captions c ON i.id = c.image_id
-                        WHERE t.id IS NOT NULL OR c.id IS NOT NULL
-                    """
-                elif error:
-                    # エラー画像（TODO: エラー記録テーブル参照）
-                    query = "SELECT * FROM images WHERE 1=0"  # 現在は空結果
-                else:
-                    # 全ての画像
-                    query = "SELECT * FROM images"
-
-                result = session.execute(query).fetchall()
-                return [dict(row._mapping) for row in result]
-
-        except Exception as e:
-            logger.error(f"アノテーション状態フィルタリングエラー: {e}")
-            return []
+        return self.db_manager.filter_by_annotation_status(completed=completed, error=error)
 
     def filter_images_by_annotation_status(
         self, images: list[dict[str, Any]], completed: bool = False, error: bool = False
@@ -1183,7 +1084,9 @@ class SearchFilterService:
 
         try:
             filtered_images = []
-            available_models = self.model_selection_service.load_models() if self.model_selection_service else []
+            available_models = (
+                self.model_selection_service.load_models() if self.model_selection_service else []
+            )
 
             for image in images:
                 if self._image_matches_advanced_model_criteria(image, conditions, available_models):
@@ -1232,12 +1135,16 @@ class SearchFilterService:
 
             # プロバイダーフィルター
             if conditions.annotation_provider_filter:
-                if not self._models_match_provider_criteria(used_models, conditions.annotation_provider_filter):
+                if not self._models_match_provider_criteria(
+                    used_models, conditions.annotation_provider_filter
+                ):
                     return False
 
             # 機能フィルター
             if conditions.annotation_function_filter:
-                if not self._models_match_function_criteria(used_models, conditions.annotation_function_filter):
+                if not self._models_match_function_criteria(
+                    used_models, conditions.annotation_function_filter
+                ):
                     return False
 
             return True

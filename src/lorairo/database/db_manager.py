@@ -632,6 +632,133 @@ class ImageDatabaseManager:
             )
             return []
 
+    def get_dataset_status(self) -> dict[str, Any]:
+        """
+        データセット状態の取得（軽量な読み取り操作）
+
+        Returns:
+            dict: データセット状態情報 {"total_images": int, "status": str}
+        """
+        try:
+            total_count = self.get_total_image_count()
+            return {"total_images": total_count, "status": "ready" if total_count > 0 else "empty"}
+        except Exception as e:
+            logger.error(f"データセット状態取得エラー: {e}")
+            return {"total_images": 0, "status": "error"}
+
+    def get_annotation_status_counts(self) -> dict[str, int]:
+        """
+        アノテーション状態カウントを取得
+
+        Returns:
+            dict: アノテーション状態統計 {"total": int, "completed": int, "error": int, "completion_rate": float}
+        """
+        try:
+            # 総画像数取得
+            total_images = self.get_total_image_count()
+
+            if total_images == 0:
+                return {"total": 0, "completed": 0, "error": 0, "completion_rate": 0.0}
+
+            # 完了画像数取得 (タグまたはキャプションが存在)
+            session = self.repository.get_session()
+            with session:
+                completed_query = """
+                    SELECT COUNT(DISTINCT i.id) FROM images i
+                    LEFT JOIN tags t ON i.id = t.image_id
+                    LEFT JOIN captions c ON i.id = c.image_id
+                    WHERE t.id IS NOT NULL OR c.id IS NOT NULL
+                """
+                result = session.execute(completed_query)
+                completed_images = result.scalar() or 0
+
+                # エラー画像数取得 (TODO: エラー記録テーブルが必要)
+                # 現在はプレースホルダー
+                error_images = 0
+
+                completion_rate = (completed_images / total_images) * 100.0 if total_images > 0 else 0.0
+
+                return {
+                    "total": total_images,
+                    "completed": completed_images,
+                    "error": error_images,
+                    "completion_rate": completion_rate,
+                }
+
+        except Exception as e:
+            logger.error(f"アノテーション状態カウント取得エラー: {e}", exc_info=True)
+            return {"total": 0, "completed": 0, "error": 0, "completion_rate": 0.0}
+
+    def filter_by_annotation_status(
+        self, completed: bool = False, error: bool = False
+    ) -> list[dict[str, Any]]:
+        """
+        アノテーション状態でフィルタリング
+
+        Args:
+            completed: 完了画像のみ
+            error: エラー画像のみ
+
+        Returns:
+            list: フィルター後の画像リスト
+        """
+        try:
+            session = self.repository.get_session()
+
+            with session:
+                if completed:
+                    # 完了画像（タグまたはキャプション有り）
+                    query = """
+                        SELECT DISTINCT i.* FROM images i
+                        LEFT JOIN tags t ON i.id = t.image_id
+                        LEFT JOIN captions c ON i.id = c.image_id
+                        WHERE t.id IS NOT NULL OR c.id IS NOT NULL
+                    """
+                elif error:
+                    # エラー画像（TODO: エラー記録テーブル参照）
+                    query = "SELECT * FROM images WHERE 1=0"  # 現在は空結果
+                else:
+                    # 全ての画像
+                    query = "SELECT * FROM images"
+
+                result = session.execute(query).fetchall()
+                return [dict(row._mapping) for row in result]
+
+        except Exception as e:
+            logger.error(f"アノテーション状態フィルタリングエラー: {e}", exc_info=True)
+            return []
+
+    def get_directory_images_metadata(self, directory_path: Path) -> list[dict[str, Any]]:
+        """
+        ディレクトリ内画像のメタデータ取得（軽量な読み取り操作）
+
+        Args:
+            directory_path: 検索対象ディレクトリのパス
+
+        Returns:
+            list: ディレクトリ内の画像メタデータリスト
+        """
+        try:
+            image_ids = self.get_image_ids_from_directory(directory_path)
+            if not image_ids:
+                return []
+
+            # 画像IDリストからメタデータを取得
+            images = []
+            for image_id in image_ids:
+                metadata = self.get_image_metadata(image_id)
+                if metadata:
+                    images.append(metadata)
+
+            logger.info(
+                f"ディレクトリ {directory_path} から {len(images)} 件の画像メタデータを取得しました"
+            )
+            return images
+
+        except Exception as e:
+            logger.error(f"ディレクトリ画像メタデータ取得エラー: {directory_path}, {e}", exc_info=True)
+            return []
+
     def check_processed_image_exists(self, image_id: int, target_resolution: int) -> dict[str, Any] | None:
         """
         指定された画像IDと目標解像度に一致する処理済み画像が存在するかチェックします。

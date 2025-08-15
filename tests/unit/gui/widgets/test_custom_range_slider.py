@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 import pytest
 from PySide6.QtWidgets import QWidget
 
-from lorairo.gui.widgets.filter import CustomRangeSlider
+from lorairo.gui.widgets.custom_range_slider import CustomRangeSlider
 from lorairo.gui.widgets.filter_search_panel import FilterSearchPanel
 
 
@@ -45,27 +45,28 @@ class TestCustomRangeSlider:
         assert slider.is_date_mode is False
 
     def test_scale_to_value_edge_cases(self, range_slider):
-        """スケール変換の境界値テスト"""
-        # 最小値 (0)
-        assert range_slider.scale_to_value(0) == 100
-
-        # 最大値 (100)
-        assert range_slider.scale_to_value(100) == 10000
-
-        # 中間値テスト（対数スケール）
-        mid_value = range_slider.scale_to_value(50)
-        assert 100 < mid_value < 10000
+        """簡素化後の直接値操作テスト（対数スケール除去）"""
+        # 簡素化後は直接値を使用するため、スライダーの範囲をテスト
+        assert range_slider.slider.minimum() == range_slider.min_value
+        assert range_slider.slider.maximum() == range_slider.max_value
+        
+        # 初期値が正しく設定されているか確認
+        min_val, max_val = range_slider.slider.value()
+        assert min_val == range_slider.min_value
+        assert max_val == range_slider.max_value
 
     def test_get_range(self, range_slider):
-        """範囲取得テスト"""
-        # スライダーの値を設定
-        range_slider.slider.setValue((25, 75))
+        """範囲取得テスト（簡素化後の直接値使用）"""
+        # 範囲内の具体的な値を設定（100-10000の範囲内）
+        test_min = 500
+        test_max = 8000
+        range_slider.slider.setValue((test_min, test_max))
         min_val, max_val = range_slider.get_range()
 
         assert isinstance(min_val, int)
         assert isinstance(max_val, int)
-        assert min_val >= range_slider.min_value
-        assert max_val <= range_slider.max_value
+        assert min_val == test_min
+        assert max_val == test_max
         assert min_val < max_val
 
     def test_set_range(self, range_slider):
