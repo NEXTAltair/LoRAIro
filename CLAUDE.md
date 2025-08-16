@@ -153,12 +153,31 @@ The local packages are installed in editable mode and automatically linked durin
 3. **Implementation**: `/implement` for code development
 4. **Validation**: `/test` for quality assurance and testing
 
-### MCP Integration (cipher+serena)
+### MCP Integration (serena+cipher統合)
+
+**統合アーキテクチャ:**
+- **serena**: 高速操作（検索、メモリ管理、基本編集）- 直接接続
+- **cipher**: 複合分析（context7経由ライブラリ検索、長期記憶管理）- aggregator経由
+- **自動選択**: タスクの複雑さに応じて最適なMCP経路を自動選択
 
 **Operation Selection:**
-- **Fast operations** (1-3s): Direct serena for search, memory, basic editing
-- **Complex analysis** (10-30s): Cipher aggregator for multi-tool integration
-- **Fallback**: Direct operations when cipher timeouts occur
+- **Fast operations** (1-3s): Direct serena（symbol検索、メモリ操作、基本編集）
+- **Complex analysis** (10-30s): Cipher aggregator（ライブラリ研究、複数ツール統合）
+- **Library Research**: context7経由でのライブラリ情報検索・長期記憶
+- **Fallback**: 直接操作 when cipher timeouts occur
+
+### Hook System（自動実行）
+
+**セキュリティ・品質管理:**
+- **Grep拒否Hook**: `git grep --function-context <pattern>`強制使用
+- **Bash検証Hook**: 実行前セキュリティチェック・コマンド最適化提案
+- **設定場所**: `.claude/settings.local.json`
+- **自動動作**: PreToolUse/PostToolUseで透明に実行
+
+**Hook機能:**
+- コード検索の統一化（gitトラッキング対象のみ、関数コンテキスト付き）
+- 危険コマンドの事前ブロック
+- 開発ベストプラクティスの自動適用
 
 **Quality Standards:**
 - Follow `.cursor/rules/` development guidelines
@@ -190,17 +209,17 @@ The local packages are installed in editable mode and automatically linked durin
 
 ## Quick Reference
 
-### Commands
-- **[/check-existing](.claude/commands/check-existing.md)**: Analyze existing functionality
-- **[/plan](.claude/commands/plan.md)**: Strategic planning and design
-- **[/implement](.claude/commands/implement.md)**: Code development
-- **[/test](.claude/commands/test.md)**: Testing and validation
+### Commands（MCP統合スラッシュコマンド）
+- **`/check-existing`**: 既存機能の詳細分析（serena経由）
+- **`/plan`**: 戦略的設計・計画立案（cipher+serena統合）
+- **`/implement`**: コード開発実装（段階的実行）
+- **`/test`**: 品質保証・テスト実行
 
-### Agents (automatically used by commands)
-- **[investigation](.claude/agents/investigation.md)**: Codebase analysis
-- **[library-research](.claude/agents/library-research.md)**: Technology research  
-- **[solutions](.claude/agents/solutions.md)**: Multi-approach problem solving
-- **[code-formatter](.claude/agents/code-formatter.md)**: Code quality
+### Agents（コマンド内で自動使用）
+- **investigation**: コードベース調査・分析（serena semantic search活用）
+- **library-research**: 技術研究（cipher+context7経由）
+- **solutions**: 多角的問題解決・アプローチ評価
+- **code-formatter**: コード品質管理（Ruff統合）
 
 ### Documentation
 - **[docs/architecture.md](docs/architecture.md)**: System design principles
