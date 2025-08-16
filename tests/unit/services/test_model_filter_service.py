@@ -29,7 +29,7 @@ class TestModelFilterService:
                 "capabilities": ["image_analysis", "text_generation"],
                 "requires_api_key": True,
                 "estimated_size_gb": 0,
-                "is_recommended": True,
+            "is_recommended": True,
             },
             {
                 "name": "claude-3-sonnet",
