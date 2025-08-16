@@ -1,5 +1,5 @@
 ---
-allowed-tools: mcp__serena__search_for_pattern, mcp__serena__find_file, mcp__serena__list_dir, mcp__serena__read_memory, mcp__serena__write_memory, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, mcp__cipher__ask_cipher, Read, Bash, TodoWrite, WebSearch, WebFetch, Task
+allowed-tools: mcp__serena__search_for_pattern, mcp__serena__find_file, mcp__serena__list_dir, mcp__serena__read_memory, mcp__serena__write_memory, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, cipher_memory_search, cipher_store_reasoning_memory, cipher_extract_entities, cipher_query_graph, Read, Bash, TodoWrite, WebSearch, WebFetch, Task
 description: 実装予定機能に対する既存ライブラリ・ツールの徹底調査コマンド(要件明確化ヒアリング付き)
 ---
 # Check Existing Solutions
@@ -16,36 +16,48 @@ description: 実装予定機能に対する既存ライブラリ・ツールの�
 
 ## 実行手順
 
-### Phase 1: 要件明確化ヒアリング
+### Phase 1: Memory-Based事前調査
 
-**AIAgent が以下の質問を通じて要件を明確化:**
+**過去の類似調査結果を活用した効率的調査開始:**
 
-#### 1. 基本機能の特定
-- **Q**: 「具体的にどのような処理・機能を実現したいですか?」
-- **Q**: 「入力は何で、出力は何を期待していますか?」
-- **Q**: 「ユーザーの操作フローはどのようなものですか?」
+#### 1.1 既存知識の確認
+- **Cipher記憶検索**: `cipher_memory_search` で類似機能の過去調査結果を確認
+- **Serena記憶参照**: `mcp__serena__read_memory` でプロジェクト固有の要件を確認
+- **関連エンティティ**: `cipher_extract_entities` で重要な技術要素を特定
 
-#### 2. 技術的制約の確認
-- **Q**: 「LoRAIroのどの部分(GUI/DB/AI/サービス層)に統合予定ですか?」
-- **Q**: 「パフォーマンス要件はありますか?(処理速度、メモリ使用量等)」
-- **Q**: 「既存のライブラリ(PySide6、SQLAlchemy等)との連携は必要ですか?」
+#### 1.2 調査戦略の決定
+- 既存知識を基に効率的な調査計画を立案
+- 重複調査を回避し、知識不足領域を特定
+- Web検索キーワードの事前準備
 
-#### 3. 規模・複雑さの把握
-- **Q**: 「1回限りのツールですか?それとも再利用可能なコンポーネントですか?」
-- **Q**: 「設定可能な項目やカスタマイズ性は必要ですか?」
-- **Q**: 「エラーハンドリングやロギングの要件はありますか?」
+### Phase 2: 戦略的要件明確化ヒアリング
 
-#### 4. 類似機能の確認
-- **Q**: 「今まで使ったことがある類似ツール・ライブラリはありますか?」
-- **Q**: 「理想的には○○のような動作をして欲しい、という参考はありますか?」
-- **Q**: 「避けたい実装方法や制約はありますか?」
+**積極的質問による実装指向の要件定義:**
 
-#### 5. 優先度・重要度の整理
-- **Q**: 「Must-have(必須)とNice-to-have(あると良い)を分けるとどうなりますか?」
-- **Q**: 「80%の要件を満たす既存解決策があれば採用しますか?」
-- **Q**: 「開発工数と保守性、どちらを重視しますか?」
+#### 2.1 実装意図の深掘り
+- **Q**: 「この機能で解決したい具体的な問題は何ですか?」
+- **Q**: 「現在どのような方法で対応していて、何が不満ですか?」
+- **Q**: 「成功した場合、どのような改善効果を期待していますか?」
 
-### Phase 2: 要件定義書生成
+#### 2.2 技術的詳細の特定
+- **Q**: 「処理対象のデータサイズ・量はどの程度ですか?」
+- **Q**: 「リアルタイム処理ですか?バッチ処理ですか?」
+- **Q**: 「LoRAIroのどのワークフローに組み込む予定ですか?」
+- **Q**: 「ユーザーの操作は?自動実行?GUI操作?設定ファイル?」
+
+#### 2.3 制約と優先度の明確化
+- **Q**: 「絶対に外せない機能は何ですか?(Must-have)」
+- **Q**: 「あると嬉しい機能は何ですか?(Nice-to-have)」
+- **Q**: 「パフォーマンス要件はありますか?(処理速度、メモリ使用量、精度等)」
+- **Q**: 「複雑さを避けて、シンプルで理解しやすい実装を優先しますか?」
+
+#### 2.4 Web検索キーワードの特定
+- **Q**: 「この機能を英語で説明するとどうなりますか?」
+- **Q**: 「業界固有の専門用語はありますか?」
+- **Q**: 「類似ツールで知っているものはありますか?」
+- **Q**: 「PyPIやGitHubで検索するとしたら、どんなキーワードを使いますか?」
+
+### Phase 3: 要件定義書生成
 
 ヒアリング結果を以下の形式で整理:
 
@@ -73,56 +85,63 @@ description: 実装予定機能に対する既存ライブラリ・ツールの�
 - **ドメインキーワード**: [業界・分野特有の用語]
 ```
 
-### Phase 3: 徹底的な既存解決策調査
+### Phase 4: Web検索中心の包括的調査
 
-明確化された要件を基に以下を実行:
+**戦略的Web検索とCipher統合による徹底的な既存解決策発見:**
 
-#### 3.1 Python生態系調査
-- **PyPI検索**: 明確化されたキーワードでの既存パッケージ検索
-- **GitHub検索**: Topics、コード検索、Issue検索
-- **Python標準ライブラリ**: 標準機能での実現可能性
+#### 4.1 段階的Web検索戦略
+##### 第1段階: 基本キーワード検索
+- **PyPI検索**: `WebSearch` で "python [機能名] library PyPI"
+- **GitHub Topics**: `WebSearch` で "[機能名] python topic:python"
+- **標準ライブラリ**: `WebSearch` で "python standard library [機能名]"
 
-#### 3.2 専門エージェント活用による深度調査
+##### 第2段階: 詳細・専門検索
+- **実装例検索**: `WebSearch` で "[機能名] python implementation example"
+- **比較記事**: `WebSearch` で "best python [機能名] libraries comparison"
+- **Stack Overflow**: `WebSearch` で "[機能名] python site:stackoverflow.com"
+
+##### 第3段階: 最新情報・トレンド
+- **2024-2025動向**: `WebSearch` で "[機能名] python 2024 2025 latest"
+- **GitHubトレンド**: `WebSearch` で "trending [機能名] python repositories"
+- **技術ブログ**: `WebSearch` で "[機能名] python tutorial blog 2024"
+
+#### 4.2 Cipher統合による多角的分析
+- **包括的技術調査**: Cipher経由でWebSearch + context7 + perplexity-askを統合活用
+- **リアルタイム情報**: 最新のライブラリ動向と技術トレンドの把握
+- **クロス検証**: 複数ソースからの情報を統合して信頼性確認
+
+#### 4.3 専門エージェント活用
 - **🔍 Investigation Agent**: 既存コードベース内の類似機能調査
-  ```
-  Use the investigation agent to search for similar functionality in the LoRAIro codebase:
-  - Symbol-level search for related classes/functions
-  - Dependency analysis of existing implementations
-  - Architecture pattern identification
-  ```
-- **📚 Library Research Agent**: ライブラリ・技術選定調査
-  ```
-  Use the library-research agent to investigate external solutions:
-  - Context7-powered library documentation research
-  - Real-time API specification retrieval
-  - Compatibility assessment with existing stack
-  ```
-- **🎯 Solutions Agent**: 複数アプローチの評価・比較
-  ```
-  Use the solutions agent to evaluate different approaches:
-  - Multiple solution strategy generation
-  - Trade-off analysis and risk assessment
-  - Implementation complexity evaluation
-  ```
+- **📚 Library Research Agent**: Context7活用による技術ドキュメント詳細調査
+- **🎯 Solutions Agent**: 発見された選択肢の比較評価・実装可能性分析
 
-#### 3.3 Web検索・情報収集(WebSearch/MCP活用)
-- **技術ブログ**: 明確化された要件での実装例検索
-- **Stack Overflow**: 具体的な技術的課題での解決策
-- **GitHub Issues**: 類似要件での議論・解決策
-- **公式ドキュメント**: 関連ライブラリの機能確認
+#### 4.4 LoRAIro統合性調査
+- **依存関係確認**: `Bash uv list` で既存ライブラリとの互換性確認
+- **local_packages機能**: genai-tag-db-tools、image-annotator-libでの代替可能性
+- **アーキテクチャ適合**: `mcp__serena__get_symbols_overview` で統合箇所の分析
 
-#### 3.4 LoRAIro環境調査
-- **現在の依存関係**: `uv list` での既存ライブラリ機能確認
-- **local_packages**: genai-tag-db-tools、image-annotator-lib での提供機能
-- **既存実装**: src/lorairo/ での類似機能実装状況
+### Phase 5: 適合性評価・知識蓄積・推奨事項
 
-### Phase 4: 適合性評価・推奨事項
+**調査結果の評価・記録・推奨事項決定:**
+
+#### 5.1 知識蓄積戦略
+- **調査過程記録**: `cipher_store_reasoning_memory` で評価プロセスと判断根拠を保存
+- **ライブラリ評価**: 発見された各ライブラリの特性・制約・適用可能性を記録
+- **技術関係分析**: `cipher_query_graph` でライブラリ間の依存関係・競合関係を分析
+- **プロジェクト結論**: `mcp__serena__write_memory` で当該プロジェクト向けの最終結論を保存
+
+#### 5.2 結果レポート生成
 
 ```markdown
 # 既存解決策調査結果 ({機能名}_{YYYYMMDD_HHMMSS}.md)
 
 ## ヒアリング結果
 [Phase 2で生成された要件定義書]
+
+## Web検索・調査プロセス
+- **検索キーワード**: [使用したキーワード一覧]
+- **調査ソース**: [PyPI/GitHub/Stack Overflow/技術ブログ等]
+- **発見ライブラリ数**: [調査した候補数]
 
 ## 発見された既存解決策
 
@@ -151,6 +170,10 @@ description: 実装予定機能に対する既存ライブラリ・ツールの�
 - **理由**: [既存解決策の限界・不足]
 - **最小実装範囲**: [本当に必要な独自開発部分]
 - **既存活用**: [部分的に使える機能・ライブラリ]
+
+## 知識蓄積完了
+- **Cipher記憶**: 長期参照用のライブラリ評価知識として保存済み
+- **Serena記憶**: プロジェクト固有の要件・結論として保存済み
 ```
 
 ## 実行例
@@ -171,40 +194,61 @@ AI: AI画像解析について詳しく確認させてください...
 
 このアプローチにより、曖昧な要求から始まっても最終的に的確な既存解決策を発見できます。
 
-## MCP統合・ハイブリッド操作
+## 最適化されたMCP調査戦略 (Cipher Aggregator Mode)
 
-### cipher+serenaハイブリッド操作指針
+### Memory-First + Web検索中心アプローチ
 
-check-existingフェーズでは以下のMCP操作戦略を採用:
+check-existingコマンドでは以下の最適化戦略を採用:
 
-#### 🚀 直接serena操作 (高速・軽量タスク)
+#### 🧠 Memory-First事前調査 (1-3秒)
 ```
-高速検索・メモリ管理:
-- mcp__serena__search_for_pattern: コードベース内検索
-- mcp__serena__find_file: ファイル発見
-- mcp__serena__list_dir: ディレクトリ構造確認
-- mcp__serena__read_memory: 既存知識参照
-- mcp__serena__write_memory: 調査結果保存
+既存知識の活用:
+- cipher_memory_search: 過去の類似機能調査結果を検索
+- mcp__serena__read_memory: プロジェクト固有の要件・制約確認
+- cipher_extract_entities: 重要な技術要素の特定
 ```
 
-#### 🔄 cipher経由操作 (重い・統合タスク)
+#### 🔍 Web検索中心調査 (主要手法)
 ```
-複合的分析・外部連携:
-- mcp__cipher__ask_cipher: 複数MCPサービス連携
-  - serena + context7 + perplexity-ask同時活用
-  - 複雑な技術調査・アーキテクチャ分析
-  - WebSearchと組み合わせた包括的調査
+段階的Web情報収集:
+- WebSearch: PyPI、GitHub、Stack Overflow、技術ブログの体系的調査
+- WebFetch: 特定ページの詳細情報取得
+- Cipher統合: WebSearch + context7 + perplexity-askの組み合わせ
 ```
 
-### パフォーマンス最適化
+#### 🚀 補完的直接操作 (詳細分析)
+```
+ローカル分析・技術調査:
+- mcp__serena__search_for_pattern: コードベース内類似機能
+- mcp__context7__resolve-library-id: 技術ドキュメント取得
+- mcp__context7__get-library-docs: API仕様確認
+```
 
-#### 操作選択ガイドライン
-- **単純検索**: 直接serena (1-3秒)
-- **技術調査**: cipher経由 (10-30秒, タイムアウト注意)
-- **メモリ操作**: 直接serena (即座)
-- **外部情報**: cipher経由でperplexity-ask活用
+#### 🎯 長期記憶蓄積
+```
+調査結果の永続化:
+- cipher_store_reasoning_memory: 調査過程と評価結果の保存
+- cipher_query_graph: 技術間の関係性分析
+- mcp__serena__write_memory: プロジェクト固有の結論保存
+```
 
-#### エラーハンドリング
-- cipher接続エラー時は直接serena操作にフォールバック
-- 30秒タイムアウト発生時は操作分割
-- perplexity-ask利用不可時はWebSearch代替
+### 調査効率最適化
+
+#### Memory-First原則
+1. **過去調査確認**: 類似機能の調査履歴を優先参照
+2. **重複回避**: 既存知識で充足する部分は再調査しない
+3. **知識不足特定**: 追加調査が必要な領域を明確化
+
+#### Web検索戦略
+1. **段階的深掘り**: 基本→詳細→最新トレンドの順で調査
+2. **複数ソース**: PyPI + GitHub + Stack Overflow + 技術ブログ
+3. **クロス検証**: 複数の情報源で信頼性確認
+
+#### 記録・蓄積戦略
+**Serena Memory**: 現在の調査進捗と要件
+**Cipher Memory**: 将来参照可能なライブラリ評価知識
+
+### エラーハンドリング・フォールバック
+- **Web検索失敗**: 直接context7操作で技術ドキュメント取得
+- **Cipher統合タイムアウト**: 段階分割で個別調査実行
+- **情報不足**: 専門エージェント(Task)による詳細分析

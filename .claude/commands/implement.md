@@ -1,5 +1,5 @@
 ---
-allowed-tools: mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__replace_symbol_body, mcp__serena__insert_after_symbol, mcp__serena__insert_before_symbol, mcp__serena__replace_regex, mcp__serena__get_symbols_overview, mcp__serena__think_about_task_adherence, mcp__serena__think_about_whether_you_are_done, mcp__serena__write_memory, mcp__cipher__ask_cipher, Read, Edit, MultiEdit, Write, Bash, TodoWrite, Task
+allowed-tools: mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__replace_symbol_body, mcp__serena__insert_after_symbol, mcp__serena__insert_before_symbol, mcp__serena__replace_regex, mcp__serena__get_symbols_overview, mcp__serena__think_about_task_adherence, mcp__serena__think_about_whether_you_are_done, mcp__serena__read_memory, mcp__serena__write_memory, cipher_memory_search, cipher_store_reasoning_memory, cipher_extract_entities, cipher_query_graph, Read, Edit, MultiEdit, Write, Bash, TodoWrite, Task
 description: plan フェーズで策定された実装計画に基づき、LoRAIro プロジェクトの実際のコード実装を行います。
 ---
 
@@ -13,9 +13,15 @@ description: plan フェーズで策定された実装計画に基づき、LoRAI
 
 ## 重要原則
 
+### LoRAIro品質方針
+- **コード品質第一**: シンプルさ、可読性、テスタビリティ、保守性を最優先
+- **Memory-First**: 過去の実装パターンと知識を活用した効率的開発
+- **段階的実装**: 小さな単位でのインクリメンタル開発を徹底
+
+### 実装基本原則
 - 関連するコードは全て読むこと
 - 全ての処理において ultrathink でしっかりと考えて作業を行うこと
-- インクリメンタル開発(小さな単位での継続的実装)を徹底すること
+- 過去の実装知識を必ず確認してから開発開始すること
 
 ## 説明
 
@@ -27,27 +33,30 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 
 ### 1. 実装前チェックリスト
 
-1. plan フェーズの実装計画を詳細確認
-2. 要件・設計の完全理解確認
-3. 開発環境セットアップ確認(`uv sync --dev`)
-4. テスト戦略の理解と準備
-5. 既存アーキテクチャパターンの特定
+1. **Memory-Based事前確認**: `cipher_memory_search` で類似実装の過去事例を確認
+2. plan フェーズの実装計画を詳細確認
+3. 要件・設計の完全理解確認
+4. **実装知識確認**: `mcp__serena__read_memory` でプロジェクト固有の実装状況を確認
+5. 開発環境セットアップ確認(`uv sync --dev`)
+6. テスト戦略の理解と準備
+7. 既存アーキテクチャパターンの特定
+8. **課題予測**: 過去の実装で発見された問題とリスク要因の事前把握
 
 ### 2. 実装準備
 
-6. `feature/implement-<topic>` ブランチ作成
-7. 実装対象コンポーネントの既存コード詳細分析
-8. 依存関係とインターフェースの確認
-9. 実装順序の最終確認(依存関係順)
-10. 初期テストケース準備
+9. `feature/implement-<topic>` ブランチ作成
+10. 実装対象コンポーネントの既存コード詳細分析
+11. 依存関係とインターフェースの確認
+12. 実装順序の最終確認(依存関係順)
+13. 初期テストケース準備
 
 ### 3. コード品質基準遵守
 
-11. 全関数に型ヒント(Type Hints)実装
-12. 包括的例外処理(Exception Handling)実装
-13. 適切な Loguru ログ記録実装
-14. コメント追加(なぜを説明、何をではなく)
-15. `UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff format` による一貫したフォーマット
+14. 全関数に型ヒント(Type Hints)実装
+15. 包括的例外処理(Exception Handling)実装
+16. 適切な Loguru ログ記録実装
+17. コメント追加(なぜを説明、何をではなく)
+18. `UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff format` による一貫したフォーマット
 
 ### 4. LoRAIro 実装パターン適用
 
@@ -109,20 +118,27 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 48. UI ブロッキング回避
 49. 適切なエラー伝播とハンドリング
 
-### 9. ドキュメント・完了処理
+### 9. 知識蓄積・完了処理
 
 50. 実装完了コードの自己レビュー
-51. 関連ドキュメント更新
-52. 実装結果を文書化し、`tasks/implementations/implement_{YYYYMMDD_HHMMSS}.md`に保存
-53. 小さな原子的コミット(明確なコミットメッセージ)
-54. 実装完了をコンソール出力で通知(echo "⚙️ 実装完了")
-55. test フェーズへの引き継ぎ事項整理
+51. **実装知識蓄積**: `cipher_store_reasoning_memory` で実装判断と根拠を保存
+52. **技術関係記録**: `cipher_query_graph` で実装要素間の依存関係を記録
+53. **プロジェクト記録**: `mcp__serena__write_memory` で現在プロジェクト向けの実装結果保存
+54. 関連ドキュメント更新(必要時のみ)
+55. 小さな原子的コミット(明確なコミットメッセージ)
+56. 実装完了をコンソール出力で通知(echo "⚙️ 実装完了")
+57. test フェーズへの引き継ぎ事項整理
 
 ## 実行内容
 
 ### 実装準備フェーズ
 
-- plan フェーズ結果の詳細分析
+#### Memory-Based事前分析
+- **既存実装知識確認**: `cipher_memory_search` で類似実装パターンの過去事例を検索
+- **アーキテクチャ分析**: `cipher_extract_entities` で重要な設計要素を特定
+- **実装課題予測**: 過去の実装で発見された課題とリスク要因を確認
+
+#### 詳細コード分析
 - **🔍 Investigation Agent活用**: 実装対象の既存コード詳細調査
   ```
   Use the investigation agent for detailed code analysis:
@@ -132,6 +148,9 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
   ```
 - **📚 Library Research Agent活用**: 実装時の技術情報取得
 - **Context7 実装ガイド取得**: 実装対象ライブラリの詳細ドキュメント・パターン取得
+
+#### 実装環境準備
+- plan フェーズ結果の詳細分析
 - 既存コードパターンの理解
 - 実装環境の確認・準備
 
@@ -148,11 +167,18 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 - テスト駆動開発(TDD)の実践
 - 継続的品質チェック
 
-### 検証・統合フェーズ
+### 検証・統合・知識蓄積フェーズ
 
+#### 品質検証
 - 包括的テスト実行
 - 品質基準クリア確認
 - 機能統合と動作確認
+
+#### 実装知識の蓄積
+- **実装パターン記録**: `cipher_store_reasoning_memory` で実装アプローチと判断根拠を保存
+- **技術関係分析**: `cipher_query_graph` で実装要素間の依存関係を記録
+- **教訓保存**: 実装中に発見した課題・解決策・ベストプラクティスを長期記憶化
+- **プロジェクト記録**: `mcp__serena__write_memory` で現在プロジェクト固有の実装結果を保存
 
 ## 必読ファイル
 
@@ -210,13 +236,21 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 
 実装完了後は `/test` コマンドで包括的検証を実施します。
 
-## MCP統合・ハイブリッド操作
+## 最適化された実装戦略 (Cipher Aggregator Mode)
 
-### cipher+serenaハイブリッド操作指針
+### Memory-First + 高速コード編集アプローチ
 
-implementフェーズでは以下のMCP操作戦略を採用:
+implementコマンドでは以下の最適化戦略を採用:
 
-#### 🚀 直接serena操作 (コード編集・高速操作)
+#### 🧠 Memory-First実装準備 (1-3秒)
+```
+既存知識の活用:
+- cipher_memory_search: 過去の類似実装パターンを検索
+- mcp__serena__read_memory: プロジェクト固有の実装進捗を確認
+- cipher_extract_entities: 重要なアーキテクチャ要素を特定
+```
+
+#### 🚀 高速コード編集 (主要手法)
 ```
 効率的コード実装:
 - mcp__serena__find_symbol: 編集対象の特定
@@ -226,31 +260,62 @@ implementフェーズでは以下のMCP操作戦略を採用:
 - mcp__serena__insert_before_symbol: 依存関係実装
 - mcp__serena__replace_regex: 細かい修正・リファクタリング
 - mcp__serena__get_symbols_overview: コード構造把握
+```
+
+#### 🔍 実装品質管理
+```
+継続的品質確保:
 - mcp__serena__think_about_task_adherence: 実装方針確認
 - mcp__serena__think_about_whether_you_are_done: 完了判定
-- mcp__serena__write_memory: 実装結果記録
+- Edit/MultiEdit/Write: 従来ツールによる補完的編集
 ```
 
-#### 🔄 cipher経由操作 (複合・検証タスク)
+#### 🎯 知識蓄積・記録
 ```
-包括的品質確保:
-- mcp__cipher__ask_cipher: 実装品質総合評価
-  - serena(コード構造) + context7(技術ドキュメント) + perplexity-ask(最新実装パターン)
-  - アーキテクチャ適合性検証
-  - セキュリティ・パフォーマンス評価
-  - テスト戦略・カバレッジ分析
+実装知識の永続化:
+- cipher_store_reasoning_memory: 実装判断と根拠の保存
+- cipher_query_graph: 実装要素間の関係性分析
+- mcp__serena__write_memory: プロジェクト固有の実装結果保存
 ```
 
-### 実装フェーズ特化最適化
+### 2重メモリ戦略
 
-#### 操作パターン
-- **コード編集**: 直接serena で高速実装
-- **技術参照**: cipher経由で context7 活用
-- **品質検証**: cipher経由で包括的評価
-- **記録・文書化**: 直接serena で効率化
+#### Serena Memory (プロジェクト固有・短期)
+- **用途**: 現在の実装進捗と一時的な開発メモ
+- **保存内容**: 
+  - 現在の実装状況と次のステップ
+  - 進行中のリファクタリング計画
+  - 実装中の一時的な課題と解決策
+  - デバッグ情報と検証結果
 
-#### エラーハンドリング・実装継続
-- serena編集エラー時: 段階的実装に分割
-- cipher品質検証タイムアウト時: 直接serena + 手動確認
-- 複雑な統合は cipher、詳細実装は直接serena で分離
-- 実装完了判定は serena think系ツール活用
+#### Cipher Memory (実装知識・長期)
+- **用途**: 将来参照可能な実装パターン資産
+- **保存内容**:
+  - 実装アプローチと判断根拠
+  - アーキテクチャ設計の意図と背景
+  - パフォーマンス・保守性の評価
+  - 実装時の課題と解決策
+  - ベストプラクティスとアンチパターン
+  - テスト戦略と品質基準
+
+### 実装効率最適化
+
+#### Memory-First原則
+1. **過去実装確認**: 類似機能の実装履歴を優先参照
+2. **パターン再利用**: 成功した実装パターンの活用
+3. **課題予測**: 過去に発見された問題とリスク要因の事前把握
+
+#### 段階的実装戦略
+1. **小単位実装**: Serenaによる効率的なシンボル単位編集
+2. **継続的検証**: think系ツールによる実装品質確認
+3. **知識蓄積**: 実装過程と結果の段階的記録
+
+#### 記録・蓄積戦略
+**Serena記録対象**: "今何を実装しているか" "次に何をするか"
+**Cipher記録対象**: "なぜそう実装したか" "どのような判断をしたか"
+
+### エラーハンドリング・継続戦略
+- **Serena編集エラー**: 段階的実装に分割して継続
+- **複雑な統合**: Investigation/Library-Research/Solutionsエージェントで分析
+- **品質確認**: Code-Formatterエージェントによる自動品質管理
+- **実装完了判定**: Serena think系ツールによる客観的評価
