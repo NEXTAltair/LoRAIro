@@ -127,7 +127,6 @@ class ModelSelectionService:
             groups[provider].append(model)
         return groups
 
-
     # create_model_tooltip メソッド削除 - Widgetに移動
 
     # create_model_display_name メソッド削除 - Widgetに移動
