@@ -32,13 +32,18 @@ This project supports Windows/Linux environments with independent virtual enviro
 - Manager: `src/lorairo/database/db_manager.py` - High-level database operations
 - Core: `src/lorairo/database/db_core.py` - Database initialization and core utilities
 
-**Service Layer:**
-- `ImageProcessingService` (`src/lorairo/services/image_processing_service.py`) - Image processing workflows
-- `ConfigurationService` (`src/lorairo/services/configuration_service.py`) - Application configuration
-- `AnnotationService` (`src/lorairo/services/annotation_service.py`) - AI annotation coordination (deprecated)
+**Service Layer (2-Tier Architecture):**
+- **Business Logic Services** (`src/lorairo/services/`):
+  - `ImageProcessingService` - Image processing workflows
+  - `ConfigurationService` - Application configuration
+  - `AnnotationService` - AI annotation coordination (deprecated)
+  - `SearchCriteriaProcessor` - Search and filtering business logic
+  - `ModelFilterService` - AI model management and filtering
+- **GUI Services** (`src/lorairo/gui/services/`):
+  - `WorkerService` - Qt-based asynchronous task coordination
+  - `SearchFilterService` - GUI-focused search and filter operations (refactored)
 
-**GUI Services & Workers:**
-- `WorkerService` (`src/lorairo/gui/services/worker_service.py`) - Qt-based asynchronous task coordination
+**Workers & Async Processing:**
 - `WorkerManager` (`src/lorairo/gui/workers/manager.py`) - QThreadPool-based worker execution
 - Specialized workers in `src/lorairo/gui/workers/`: DatabaseRegistration, Annotation, Search, Thumbnail
 
