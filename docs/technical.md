@@ -489,45 +489,116 @@ class SQLAlchemyImageRepository(ImageRepositoryInterface):
 ```
 
 #### Service Layer Pattern
+
+The service layer is organized into two distinct tiers: GUI Services for user interface operations and Business Logic Services for core functionality.
+
+**Business Logic Services Pattern**
 ```python
 from typing import List, Dict, Any
 from pathlib import Path
-from lorairo.database.db_repository import ImageRepository
-from lorairo.storage.file_system import FileSystemManager
+from lorairo.database.db_manager import ImageDatabaseManager
 
-class ImageProcessingService:
-    def __init__(
-        self,
-        image_repository: ImageRepository,
-        file_manager: FileSystemManager,
-        config: dict
-    ):
-        self.image_repository = image_repository
-        self.file_manager = file_manager
-        self.config = config
+class SearchCriteriaProcessor:
+    """Business logic service for search and filtering operations."""
+    
+    def __init__(self, db_manager: ImageDatabaseManager):
+        self.db_manager = db_manager
         self.logger = get_logger(__name__)
 
-    async def process_images(
+    def execute_search_with_filters(
+        self, 
+        conditions: SearchConditions
+    ) -> tuple[list[dict], int]:
+        """Execute search with database and frontend filters."""
+        # Separate database and frontend filtering
+        db_conditions, frontend_filters = self.separate_search_and_filter_conditions(conditions)
+        
+        # Execute database search
+        results, total_count = self.db_manager.execute_filtered_search(db_conditions)
+        
+        # Apply frontend filters
+        if frontend_filters:
+            results = self._apply_frontend_filters(results, frontend_filters)
+        
+        return results, total_count
+
+    def process_resolution_filter(self, conditions: SearchConditions) -> dict:
+        """Process resolution filtering logic."""
+        # Business logic for resolution filtering
+        pass
+
+class ModelFilterService:
+    """Business logic service for AI model management."""
+    
+    def __init__(self, db_manager: ImageDatabaseManager, model_selection_service):
+        self.db_manager = db_manager
+        self.model_selection_service = model_selection_service
+        self.logger = get_logger(__name__)
+
+    def get_annotation_models_list(self) -> list[dict]:
+        """Retrieve available annotation models with capabilities."""
+        # Model retrieval and capability inference logic
+        pass
+
+    def validate_annotation_settings(self, settings: dict) -> ValidationResult:
+        """Validate annotation configuration."""
+        # Validation business logic
+        pass
+```
+
+**GUI Services Pattern**
+```python
+from lorairo.services.search_criteria_processor import SearchCriteriaProcessor
+from lorairo.services.model_filter_service import ModelFilterService
+
+class SearchFilterService:
+    """GUI service layer - delegates business logic to specialized services."""
+    
+    def __init__(
         self,
-        image_paths: List[Path]
-    ) -> List[Dict[str, Any]]:
-        """Process multiple images with error handling and progress tracking."""
-        results = []
+        criteria_processor: SearchCriteriaProcessor,
+        model_filter_service: ModelFilterService
+    ):
+        self.criteria_processor = criteria_processor
+        self.model_filter_service = model_filter_service
+        self.logger = get_logger(__name__)
 
-        for i, path in enumerate(image_paths):
-            try:
-                result = await self._process_single_image(path)
-                results.append(result)
+    def parse_search_input(self, input_text: str) -> list[str]:
+        """Parse user input from GUI components."""
+        if not input_text or not input_text.strip():
+            return []
+        
+        keywords = [keyword.strip() for keyword in input_text.replace(",", " ").split() if keyword.strip()]
+        return keywords
 
-                # Emit progress signal
-                progress = int((i + 1) / len(image_paths) * 100)
-                self.progress_updated.emit(progress)
+    def create_search_conditions_from_ui(self, ui_params: dict) -> SearchConditions:
+        """Create search conditions from UI parameters."""
+        # GUI-specific input processing
+        return SearchConditions(**processed_params)
 
-            except Exception as e:
-                self.logger.error(f"Failed to process {path}: {e}")
-                results.append({"error": str(e), "path": str(path)})
+    def validate_ui_inputs(self, inputs: dict) -> ValidationResult:
+        """Validate user inputs from GUI."""
+        # GUI-specific validation logic
+        pass
+```
 
-        return results
+**Layered Architecture Integration**
+```python
+# Dependency injection pattern with layered services
+class ServiceContainer:
+    def __init__(self):
+        # Data layer
+        self.db_manager = ImageDatabaseManager()
+        
+        # Business logic layer
+        self.search_criteria_processor = SearchCriteriaProcessor(self.db_manager)
+        self.model_filter_service = ModelFilterService(self.db_manager, model_selection_service)
+        
+        # GUI layer
+        self.search_filter_service = SearchFilterService(
+            self.search_criteria_processor,
+            self.model_filter_service
+        )
 ```
 
 #### Factory Pattern

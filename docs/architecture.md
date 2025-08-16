@@ -98,6 +98,14 @@ graph TD
   - Manages WorkerManager and asynchronous operations
   - Provides unified interface for database registration, search, annotation, and thumbnail loading
 
+- **`src/lorairo/gui/services/search_filter_service.py`**: GUI-focused search and filter operations
+  - User input parsing and validation
+  - Search condition creation from UI parameters
+  - Search preview generation for user feedback
+  - Available options provision (resolutions, aspect ratios)
+  - UI input validation and error messaging
+  - Delegates business logic to SearchCriteriaProcessor and ModelFilterService
+
 #### Core Processing Components
 - **`src/lorairo/editor/image_processor.py`**: ImageProcessingManager
   - Coordinates image processing workflows
@@ -137,11 +145,33 @@ The service layer encapsulates business logic and provides clean interfaces for 
 
 ```mermaid
 graph LR
-    A[GUI Components] --> B[Service Layer]
-    B --> C[Repository Layer]
-    B --> D[External APIs]
-    C --> E[Database]
-    D --> F[AI Providers]
+    A[GUI Components] --> B[GUI Services]
+    B --> C[Business Logic Services]
+    C --> D[Repository Layer]
+    C --> E[External APIs]
+    D --> F[Database]
+    E --> G[AI Providers]
+    
+    subgraph "GUI Services"
+        B1[SearchFilterService]
+        B2[WorkerService]
+    end
+    
+    subgraph "Business Logic Services"
+        C1[SearchCriteriaProcessor]
+        C2[ModelFilterService]
+        C3[ImageProcessingService]
+        C4[AnnotationService]
+    end
+    
+    B --> B1
+    B --> B2
+    C --> C1
+    C --> C2
+    C --> C3
+    C --> C4
+    B1 --> C1
+    B1 --> C2
 ```
 
 #### Core Services
@@ -161,6 +191,21 @@ graph LR
 - Result aggregation and storage
 - Dynamic model synchronization
 - ServiceContainer integration
+
+**SearchCriteriaProcessor** (`src/lorairo/services/search_criteria_processor.py`)
+- Search and filtering business logic
+- Database query condition processing
+- Frontend filter application
+- Resolution and date filter processing
+- Tag filtering logic with boolean operations
+- Search criteria separation and optimization
+
+**ModelFilterService** (`src/lorairo/services/model_filter_service.py`)
+- AI model management and filtering
+- Model capability inference
+- Model list retrieval and filtering
+- Annotation settings validation
+- Advanced model filtering with performance optimization
 
 **ConfigurationService**
 - TOML configuration management
@@ -188,6 +233,10 @@ graph TD
 - Transaction coordination
 - Session lifecycle
 - Migration management
+- Dataset statistics and status information
+- Filtered search execution
+- Annotation existence checking
+- Enhanced data access methods for service layer integration
 
 **Repository Layer** (`src/lorairo/database/db_repository.py`)
 - Data access abstraction
@@ -231,6 +280,13 @@ graph TD
 
 **Panel Components**
 - **`src/lorairo/gui/widgets/filter_search_panel.py`**: Advanced search and filtering
+  - Integrated search and filter functionality
+  - CustomRangeSlider integration for date and numeric ranges
+  - Service layer delegation for business logic
+- **`src/lorairo/gui/widgets/custom_range_slider.py`**: Independent range selection widget
+  - Leverages superqt QDoubleRangeSlider for optimal performance
+  - Supports both date and numeric range selection
+  - Reusable across application components
 - **`src/lorairo/gui/widgets/thumbnail_selector_widget.py`**: Efficient image display and selection
 - **`src/lorairo/gui/widgets/preview_detail_panel.py`**: Rich preview and metadata display
 - Virtual scrolling and progressive loading for performance
