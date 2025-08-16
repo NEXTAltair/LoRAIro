@@ -899,7 +899,9 @@ class ImageDatabaseManager:
                 result = session.execute(query, {"image_id": image_id})
                 has_annotation = result.scalar() is not None
 
-                logger.debug(f"アノテーション存在確認: image_id={image_id}, has_annotation={has_annotation}")
+                logger.debug(
+                    f"アノテーション存在確認: image_id={image_id}, has_annotation={has_annotation}"
+                )
                 return has_annotation
 
         except Exception as e:

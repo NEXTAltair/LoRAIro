@@ -31,7 +31,8 @@
       "Bash(uv run pytest:*)",
       "Bash(uv run ruff check:*)",
       "Bash(uv run ruff format:*)",
-      "WebFetch(domain:docs.byterover.dev)"
+      "WebFetch(domain:docs.byterover.dev)",
+      "mcp__cipher__cipher_memory_search"
     ],
     "deny": [
       "read:.env",

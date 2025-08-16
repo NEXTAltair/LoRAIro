@@ -32,18 +32,11 @@ class TestSearchCriteriaProcessor:
     def test_execute_search_with_filters_basic(self, processor, mock_db_manager):
         """基本的な検索実行テスト"""
         # モック設定
-        mock_images = [
-            {"id": 1, "width": 1024, "height": 768},
-            {"id": 2, "width": 512, "height": 512}
-        ]
+        mock_images = [{"id": 1, "width": 1024, "height": 768}, {"id": 2, "width": 512, "height": 512}]
         mock_db_manager.get_images_by_filter.return_value = (mock_images, 2)
 
         # 検索条件作成
-        conditions = SearchConditions(
-            search_type="tags",
-            keywords=["test", "tag"],
-            tag_logic="and"
-        )
+        conditions = SearchConditions(search_type="tags", keywords=["test", "tag"], tag_logic="and")
 
         # 検索実行
         results, count = processor.execute_search_with_filters(conditions)
@@ -67,7 +60,7 @@ class TestSearchCriteriaProcessor:
             date_range_start=datetime(2023, 1, 1),
             date_range_end=datetime(2023, 12, 31),
             only_untagged=False,
-            only_uncaptioned=True
+            only_uncaptioned=True,
         )
 
         search_cond, filter_cond = processor.separate_search_and_filter_conditions(conditions)
@@ -83,12 +76,7 @@ class TestSearchCriteriaProcessor:
 
     def test_separate_search_and_filter_conditions_no_keywords(self, processor):
         """キーワードなし条件分離テスト"""
-        conditions = SearchConditions(
-            search_type="tags",
-            keywords=[],
-            tag_logic="and",
-            only_untagged=True
-        )
+        conditions = SearchConditions(search_type="tags", keywords=[], tag_logic="and", only_untagged=True)
 
         search_cond, filter_cond = processor.separate_search_and_filter_conditions(conditions)
 
@@ -99,10 +87,7 @@ class TestSearchCriteriaProcessor:
     def test_process_resolution_filter_valid(self, processor):
         """有効な解像度フィルター処理テスト"""
         conditions = SearchConditions(
-            search_type="tags",
-            keywords=["test"],
-            tag_logic="and",
-            resolution_filter="1920x1080"
+            search_type="tags", keywords=["test"], tag_logic="and", resolution_filter="1920x1080"
         )
 
         result = processor.process_resolution_filter(conditions)
@@ -115,10 +100,7 @@ class TestSearchCriteriaProcessor:
     def test_process_resolution_filter_invalid(self, processor):
         """無効な解像度フィルター処理テスト"""
         conditions = SearchConditions(
-            search_type="tags",
-            keywords=["test"],
-            tag_logic="and",
-            resolution_filter="invalid_format"
+            search_type="tags", keywords=["test"], tag_logic="and", resolution_filter="invalid_format"
         )
 
         result = processor.process_resolution_filter(conditions)
@@ -137,7 +119,7 @@ class TestSearchCriteriaProcessor:
             tag_logic="and",
             date_filter_enabled=True,
             date_range_start=start_date,
-            date_range_end=end_date
+            date_range_end=end_date,
         )
 
         result = processor.process_date_filter(conditions)
@@ -149,11 +131,7 @@ class TestSearchCriteriaProcessor:
 
     def test_process_date_filter_no_dates(self, processor):
         """日付なしフィルター処理テスト"""
-        conditions = SearchConditions(
-            search_type="tags",
-            keywords=["test"],
-            tag_logic="and"
-        )
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
 
         result = processor.process_date_filter(conditions)
 
@@ -163,10 +141,7 @@ class TestSearchCriteriaProcessor:
     def test_apply_untagged_filter_untagged_only(self, processor):
         """未タグ付きのみフィルター適用テスト"""
         conditions = SearchConditions(
-            search_type="tags",
-            keywords=["test"],
-            tag_logic="and",
-            only_untagged=True
+            search_type="tags", keywords=["test"], tag_logic="and", only_untagged=True
         )
 
         result = processor.apply_untagged_filter(conditions)
@@ -176,10 +151,7 @@ class TestSearchCriteriaProcessor:
     def test_apply_untagged_filter_tagged_only(self, processor):
         """タグ付きのみフィルター適用テスト"""
         conditions = SearchConditions(
-            search_type="tags",
-            keywords=["test"],
-            tag_logic="and",
-            only_untagged=False
+            search_type="tags", keywords=["test"], tag_logic="and", only_untagged=False
         )
         # 擬似的にtagged_onlyを設定
         conditions.tagged_only = True
@@ -190,11 +162,7 @@ class TestSearchCriteriaProcessor:
 
     def test_apply_tagged_filter_logic_with_tags(self, processor):
         """タグ付きフィルターロジック適用テスト"""
-        conditions = SearchConditions(
-            search_type="tags",
-            keywords=["tag1", "tag2"],
-            tag_logic="or"
-        )
+        conditions = SearchConditions(search_type="tags", keywords=["tag1", "tag2"], tag_logic="or")
         # 擬似的にtagsプロパティを設定
         conditions.tags = ["tag1", "tag2"]
 
@@ -205,11 +173,7 @@ class TestSearchCriteriaProcessor:
 
     def test_apply_tagged_filter_logic_no_tags(self, processor):
         """タグなしフィルターロジック適用テスト"""
-        conditions = SearchConditions(
-            search_type="tags",
-            keywords=[],
-            tag_logic="and"
-        )
+        conditions = SearchConditions(search_type="tags", keywords=[], tag_logic="and")
         # 擬似的にtagsプロパティを設定
         conditions.tags = None
 
@@ -225,7 +189,7 @@ class TestSearchCriteriaProcessor:
             "tag_operator": "AND",
             "min_width": 1024,
             "max_height": 2048,
-            "annotation_status": "completed"
+            "annotation_status": "completed",
         }
 
         result = processor._convert_to_db_query_conditions(search_conditions)
@@ -243,7 +207,7 @@ class TestSearchCriteriaProcessor:
             "keywords": ["test"],
             "invalid_field": None,
             "empty_field": "",
-            "valid_field": "value"
+            "valid_field": "value",
         }
 
         result = processor._convert_to_db_query_conditions(search_conditions)
@@ -259,12 +223,10 @@ class TestSearchCriteriaProcessor:
         images = [
             {"width": 1000, "height": 1000},  # 1:1
             {"width": 1920, "height": 1080},  # 16:9
-            {"width": 800, "height": 800}     # 1:1
+            {"width": 800, "height": 800},  # 1:1
         ]
 
-        filter_conditions = FilterConditions(
-            aspect_ratio="正方形 (1:1)"
-        )
+        filter_conditions = FilterConditions(aspect_ratio="正方形 (1:1)")
 
         result = processor._apply_frontend_filters(images, filter_conditions)
 
@@ -281,9 +243,7 @@ class TestSearchCriteriaProcessor:
             {"created_at": "2023-06-15T00:00:00Z"},  # 範囲内
         ]
 
-        filter_conditions = FilterConditions(
-            date_range=(datetime(2023, 1, 1), datetime(2023, 12, 31))
-        )
+        filter_conditions = FilterConditions(date_range=(datetime(2023, 1, 1), datetime(2023, 12, 31)))
 
         result = processor._apply_frontend_filters(images, filter_conditions)
 
@@ -295,7 +255,7 @@ class TestSearchCriteriaProcessor:
         images = [
             {"width": 1024, "height": 1024},  # 正方形
             {"width": 1920, "height": 1080},  # 横長
-            {"width": 512, "height": 512}     # 正方形
+            {"width": 512, "height": 512},  # 正方形
         ]
 
         result = processor._filter_by_aspect_ratio(images, "正方形 (1:1)")
@@ -305,10 +265,7 @@ class TestSearchCriteriaProcessor:
 
     def test_filter_by_aspect_ratio_no_filter(self, processor):
         """アスペクト比フィルターなしテスト"""
-        images = [
-            {"width": 1024, "height": 1024},
-            {"width": 1920, "height": 1080}
-        ]
+        images = [{"width": 1024, "height": 1024}, {"width": 1920, "height": 1080}]
 
         result = processor._filter_by_aspect_ratio(images, "全て")
 
@@ -320,13 +277,10 @@ class TestSearchCriteriaProcessor:
         images = [
             {"created_at": "2023-06-15T00:00:00Z"},  # 範囲内
             {"created_at": "2022-12-01T00:00:00Z"},  # 範囲外
-            {"modified_at": "2023-03-15T00:00:00Z"}  # modified_atで範囲内
+            {"modified_at": "2023-03-15T00:00:00Z"},  # modified_atで範囲内
         ]
 
-        date_filter = {
-            "start_date": datetime(2023, 1, 1),
-            "end_date": datetime(2023, 12, 31)
-        }
+        date_filter = {"start_date": datetime(2023, 1, 1), "end_date": datetime(2023, 12, 31)}
 
         result = processor._filter_by_date_range(images, date_filter)
 
@@ -334,10 +288,7 @@ class TestSearchCriteriaProcessor:
 
     def test_filter_by_date_range_no_filter(self, processor):
         """日付範囲フィルターなしテスト"""
-        images = [
-            {"created_at": "2023-06-15T00:00:00Z"},
-            {"created_at": "2022-12-01T00:00:00Z"}
-        ]
+        images = [{"created_at": "2023-06-15T00:00:00Z"}, {"created_at": "2022-12-01T00:00:00Z"}]
 
         result = processor._filter_by_date_range(images, None)
 
@@ -346,9 +297,7 @@ class TestSearchCriteriaProcessor:
 
     def test_filter_images_by_annotation_status_annotated(self, processor, mock_db_manager):
         """アノテーション済み画像フィルタリングテスト"""
-        images = [
-            {"id": 1}, {"id": 2}, {"id": 3}
-        ]
+        images = [{"id": 1}, {"id": 2}, {"id": 3}]
 
         # id=1,3はアノテーション済み、id=2は未アノテーション
         mock_db_manager.check_image_has_annotation.side_effect = lambda img_id: img_id in [1, 3]
@@ -361,9 +310,7 @@ class TestSearchCriteriaProcessor:
 
     def test_filter_images_by_annotation_status_not_annotated(self, processor, mock_db_manager):
         """未アノテーション画像フィルタリングテスト"""
-        images = [
-            {"id": 1}, {"id": 2}, {"id": 3}
-        ]
+        images = [{"id": 1}, {"id": 2}, {"id": 3}]
 
         # id=2のみ未アノテーション
         mock_db_manager.check_image_has_annotation.side_effect = lambda img_id: img_id != 2
@@ -375,9 +322,7 @@ class TestSearchCriteriaProcessor:
 
     def test_filter_images_by_annotation_status_all(self, processor, mock_db_manager):
         """全画像フィルタリングテスト"""
-        images = [
-            {"id": 1}, {"id": 2}, {"id": 3}
-        ]
+        images = [{"id": 1}, {"id": 2}, {"id": 3}]
 
         result = processor.filter_images_by_annotation_status(images, "all")
 
@@ -399,17 +344,13 @@ class TestSearchCriteriaProcessor:
         assert processor._parse_resolution_value("") == (None, None)
         assert processor._parse_resolution_value(None) == (None, None)
 
-    @patch('lorairo.services.search_criteria_processor.logger')
+    @patch("lorairo.services.search_criteria_processor.logger")
     def test_execute_search_with_filters_error_handling(self, mock_logger, processor, mock_db_manager):
         """検索実行エラーハンドリングテスト"""
         # データベースエラーを発生させる
         mock_db_manager.get_images_by_filter.side_effect = Exception("Database error")
 
-        conditions = SearchConditions(
-            search_type="tags",
-            keywords=["test"],
-            tag_logic="and"
-        )
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
 
         # エラーが再発生することを確認
         with pytest.raises(Exception, match="Database error"):
@@ -418,7 +359,7 @@ class TestSearchCriteriaProcessor:
         # エラーログが出力されることを確認
         mock_logger.error.assert_called_once()
 
-    @patch('lorairo.services.search_criteria_processor.logger')
+    @patch("lorairo.services.search_criteria_processor.logger")
     def test_separate_search_and_filter_conditions_error_handling(self, mock_logger, processor):
         """条件分離エラーハンドリングテスト"""
         # 不正な条件オブジェクトを作成
@@ -450,24 +391,9 @@ class TestSearchCriteriaProcessorIntegration:
         """エンドツーエンド検索実行テスト"""
         # モック画像データ
         mock_images = [
-            {
-                "id": 1,
-                "width": 1024,
-                "height": 1024,
-                "created_at": "2023-06-15T00:00:00Z"
-            },
-            {
-                "id": 2,
-                "width": 1920,
-                "height": 1080,
-                "created_at": "2023-07-20T00:00:00Z"
-            },
-            {
-                "id": 3,
-                "width": 512,
-                "height": 512,
-                "created_at": "2022-12-01T00:00:00Z"
-            }
+            {"id": 1, "width": 1024, "height": 1024, "created_at": "2023-06-15T00:00:00Z"},
+            {"id": 2, "width": 1920, "height": 1080, "created_at": "2023-07-20T00:00:00Z"},
+            {"id": 3, "width": 512, "height": 512, "created_at": "2022-12-01T00:00:00Z"},
         ]
         mock_db_manager.get_images_by_filter.return_value = (mock_images, 3)
 
@@ -480,7 +406,7 @@ class TestSearchCriteriaProcessorIntegration:
             aspect_ratio_filter="正方形 (1:1)",
             date_filter_enabled=True,
             date_range_start=datetime(2023, 1, 1),
-            date_range_end=datetime(2023, 12, 31)
+            date_range_end=datetime(2023, 12, 31),
         )
 
         # 検索実行

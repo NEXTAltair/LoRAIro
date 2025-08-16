@@ -29,7 +29,7 @@ class TestModelFilterService:
                 "capabilities": ["image_analysis", "text_generation"],
                 "requires_api_key": True,
                 "estimated_size_gb": 0,
-                "is_recommended": True
+                "is_recommended": True,
             },
             {
                 "name": "claude-3-sonnet",
@@ -37,7 +37,7 @@ class TestModelFilterService:
                 "capabilities": ["image_analysis", "advanced_reasoning"],
                 "requires_api_key": True,
                 "estimated_size_gb": 0,
-                "is_recommended": True
+                "is_recommended": True,
             },
             {
                 "name": "local-llava",
@@ -45,8 +45,8 @@ class TestModelFilterService:
                 "capabilities": ["image_analysis"],
                 "requires_api_key": False,
                 "estimated_size_gb": 7.5,
-                "is_recommended": False
-            }
+                "is_recommended": False,
+            },
         ]
 
         mock_service.load_models.return_value = mock_models
@@ -90,7 +90,7 @@ class TestModelFilterService:
         assert local_model["estimated_size_gb"] == 7.5
         assert local_model["is_recommended"] is False
 
-    @patch('lorairo.services.model_filter_service.logger')
+    @patch("lorairo.services.model_filter_service.logger")
     def test_get_annotation_models_list_error(self, mock_logger, service, mock_model_selection_service):
         """アノテーションモデル一覧取得エラーテスト"""
         # ModelSelectionServiceでエラーを発生させる
@@ -144,7 +144,7 @@ class TestModelFilterService:
         providers = {model["provider"] for model in filtered_models}
         assert providers == {"openai", "anthropic"}
 
-    @patch('lorairo.services.model_filter_service.logger')
+    @patch("lorairo.services.model_filter_service.logger")
     def test_filter_models_by_criteria_error(self, mock_logger, service, mock_model_selection_service):
         """モデルフィルタリングエラーテスト"""
         # get_annotation_models_listでエラーを発生させる
@@ -163,7 +163,7 @@ class TestModelFilterService:
             "name": "gpt-4-vision-preview",
             "provider": "openai",
             "capabilities": ["existing_capability"],
-            "is_local": False
+            "is_local": False,
         }
 
         capabilities = service.infer_model_capabilities(model_data)
@@ -176,7 +176,7 @@ class TestModelFilterService:
             "text_generation",
             "description_generation",
             "advanced_reasoning",
-            "contextual_analysis"
+            "contextual_analysis",
         }
 
         assert set(capabilities) == expected_capabilities
@@ -187,7 +187,7 @@ class TestModelFilterService:
             "name": "local-image-model",
             "provider": "local",
             "capabilities": [],
-            "is_local": True
+            "is_local": True,
         }
 
         capabilities = service.infer_model_capabilities(model_data)
@@ -203,7 +203,7 @@ class TestModelFilterService:
             "name": "claude-3-opus",
             "provider": "anthropic",
             "capabilities": [],
-            "is_local": False
+            "is_local": False,
         }
 
         capabilities = service.infer_model_capabilities(model_data)
@@ -214,7 +214,7 @@ class TestModelFilterService:
         assert "advanced_reasoning" in capabilities
         assert "contextual_analysis" in capabilities
 
-    @patch('lorairo.services.model_filter_service.logger')
+    @patch("lorairo.services.model_filter_service.logger")
     def test_infer_model_capabilities_error(self, mock_logger, service):
         """モデル能力推定エラーテスト"""
         # 不正なモデルデータ
@@ -237,7 +237,7 @@ class TestModelFilterService:
             "openai_api_key": "test_key",
             "anthropic_api_key": "test_key",
             "batch_size": 10,
-            "timeout": 60
+            "timeout": 60,
         }
 
         result = service.validate_annotation_settings(settings)
@@ -247,11 +247,7 @@ class TestModelFilterService:
 
     def test_validate_annotation_settings_no_models(self, service):
         """モデル未選択設定検証テスト"""
-        settings = {
-            "selected_models": [],
-            "batch_size": 5,
-            "timeout": 30
-        }
+        settings = {"selected_models": [], "batch_size": 5, "timeout": 30}
 
         result = service.validate_annotation_settings(settings)
 
@@ -260,11 +256,7 @@ class TestModelFilterService:
 
     def test_validate_annotation_settings_unavailable_model(self, service):
         """利用不可モデル設定検証テスト"""
-        settings = {
-            "selected_models": ["non-existent-model"],
-            "batch_size": 5,
-            "timeout": 30
-        }
+        settings = {"selected_models": ["non-existent-model"], "batch_size": 5, "timeout": 30}
 
         result = service.validate_annotation_settings(settings)
 
@@ -280,7 +272,7 @@ class TestModelFilterService:
         settings = {
             "selected_models": [api_key_required_model["name"]],
             "batch_size": 5,
-            "timeout": 30
+            "timeout": 30,
             # APIキーが設定されていない
         }
 
@@ -295,7 +287,7 @@ class TestModelFilterService:
         settings = {
             "selected_models": ["gpt-4-vision"],
             "batch_size": 150,  # 最大値超過
-            "timeout": 30
+            "timeout": 30,
         }
 
         result = service.validate_annotation_settings(settings)
@@ -308,15 +300,17 @@ class TestModelFilterService:
         settings = {
             "selected_models": ["gpt-4-vision"],
             "batch_size": 5,
-            "timeout": 400  # 推奨値超過
+            "timeout": 400,  # 推奨値超過
         }
 
         result = service.validate_annotation_settings(settings)
 
         # 警告として扱われる
-        assert any("タイムアウトは5秒から300秒の間での設定を推奨します" in warning for warning in result.warnings)
+        assert any(
+            "タイムアウトは5秒から300秒の間での設定を推奨します" in warning for warning in result.warnings
+        )
 
-    @patch('lorairo.services.model_filter_service.logger')
+    @patch("lorairo.services.model_filter_service.logger")
     def test_validate_annotation_settings_error(self, mock_logger, service, mock_model_selection_service):
         """アノテーション設定検証エラーテスト"""
         # get_annotation_models_listでエラーを発生させる
@@ -335,11 +329,7 @@ class TestModelFilterService:
     def test_apply_advanced_model_filters_no_filters(self, service):
         """高度なモデルフィルターなしテスト"""
         images = [{"id": 1}, {"id": 2}]
-        conditions = SearchConditions(
-            search_type="tags",
-            keywords=["test"],
-            tag_logic="and"
-        )
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
 
         # 高度なフィルターが設定されていない場合
         result = service.apply_advanced_model_filters(images, conditions)
@@ -350,11 +340,7 @@ class TestModelFilterService:
     def test_apply_advanced_model_filters_with_filters(self, service):
         """高度なモデルフィルター適用テスト"""
         images = [{"id": 1}, {"id": 2}, {"id": 3}]
-        conditions = SearchConditions(
-            search_type="tags",
-            keywords=["test"],
-            tag_logic="and"
-        )
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
         # 高度なフィルターを擬似的に設定
         conditions.model_filters = {"quality_threshold": 0.8}
 
@@ -367,11 +353,7 @@ class TestModelFilterService:
         """高度なフィルタリングパフォーマンス最適化テスト"""
         # 大量の画像データを作成
         images = [{"id": i} for i in range(200)]
-        conditions = SearchConditions(
-            search_type="tags",
-            keywords=["test"],
-            tag_logic="and"
-        )
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
 
         result = service.optimize_advanced_filtering_performance(images, conditions)
 
@@ -403,7 +385,7 @@ class TestModelFilterService:
             "provider": "openai",
             "name": "gpt-4-vision",
             "capabilities": ["image_analysis"],
-            "is_local": False
+            "is_local": False,
         }
         criteria = {"function_filter": ["image_analysis"]}
 
@@ -417,7 +399,7 @@ class TestModelFilterService:
             "provider": "openai",
             "name": "gpt-4-vision",
             "capabilities": [],  # 空だが推定される
-            "is_local": False
+            "is_local": False,
         }
         criteria = {"function_filter": "text_generation"}
 
@@ -448,11 +430,7 @@ class TestModelFilterService:
 
     def test_has_advanced_model_filters_true(self, service):
         """高度なモデルフィルター有効判定テスト"""
-        conditions = SearchConditions(
-            search_type="tags",
-            keywords=["test"],
-            tag_logic="and"
-        )
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
         # 高度なフィルターを擬似的に設定
         conditions.model_filters = {"quality_threshold": 0.8}
 
@@ -462,11 +440,7 @@ class TestModelFilterService:
 
     def test_has_advanced_model_filters_false(self, service):
         """高度なモデルフィルター無効判定テスト"""
-        conditions = SearchConditions(
-            search_type="tags",
-            keywords=["test"],
-            tag_logic="and"
-        )
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
 
         result = service._has_advanced_model_filters(conditions)
 
@@ -475,11 +449,7 @@ class TestModelFilterService:
     def test_image_matches_advanced_model_criteria_basic(self, service):
         """画像高度モデル条件マッチテスト"""
         image = {"id": 1, "quality_score": 0.9}
-        conditions = SearchConditions(
-            search_type="tags",
-            keywords=["test"],
-            tag_logic="and"
-        )
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
         # 品質閾値を擬似的に設定
         conditions.quality_threshold = 0.8
 
@@ -491,11 +461,7 @@ class TestModelFilterService:
     def test_image_matches_advanced_model_criteria_below_threshold(self, service):
         """画像高度モデル条件閾値下回りテスト"""
         image = {"id": 1, "quality_score": 0.5}
-        conditions = SearchConditions(
-            search_type="tags",
-            keywords=["test"],
-            tag_logic="and"
-        )
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
         # 品質閾値を擬似的に設定
         conditions.quality_threshold = 0.8
 
@@ -523,7 +489,7 @@ class TestModelFilterServicePerformance:
                 capabilities=[f"capability-{j}" for j in range(i % 10)],
                 requires_api_key=i % 2 == 0,
                 estimated_size_gb=i * 0.5,
-                is_recommended=i % 10 == 0
+                is_recommended=i % 10 == 0,
             )
             large_model_list.append(mock_model)
 
@@ -544,11 +510,7 @@ class TestModelFilterServicePerformance:
         """バッチパフォーマンス最適化テスト"""
         # 大量の画像データ
         images = [{"id": i, "quality_score": i * 0.01} for i in range(1000)]
-        conditions = SearchConditions(
-            search_type="tags",
-            keywords=["test"],
-            tag_logic="and"
-        )
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
 
         # パフォーマンス最適化版を実行
         result = service_with_large_dataset.optimize_advanced_filtering_performance(images, conditions)

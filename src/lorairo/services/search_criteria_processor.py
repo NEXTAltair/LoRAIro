@@ -148,7 +148,11 @@ class SearchCriteriaProcessor:
 
             # 基本的な解像度フィルター処理
             if conditions.resolution_filter and conditions.resolution_filter != "全て":
-                if conditions.resolution_filter == "カスタム" and conditions.custom_width and conditions.custom_height:
+                if (
+                    conditions.resolution_filter == "カスタム"
+                    and conditions.custom_width
+                    and conditions.custom_height
+                ):
                     resolution_conditions["min_width"] = conditions.custom_width
                     resolution_conditions["min_height"] = conditions.custom_height
                     resolution_conditions["max_width"] = conditions.custom_width
@@ -214,7 +218,7 @@ class SearchCriteriaProcessor:
                 untagged_conditions["has_tags"] = False
 
             # tagged_onlyプロパティがある場合の処理
-            if hasattr(conditions, 'tagged_only') and getattr(conditions, 'tagged_only', False):
+            if hasattr(conditions, "tagged_only") and getattr(conditions, "tagged_only", False):
                 untagged_conditions["has_tags"] = True
 
             logger.debug(f"未タグ付きフィルター処理完了: {untagged_conditions}")
@@ -342,13 +346,13 @@ class SearchCriteriaProcessor:
             if "正方形" in aspect_ratio_filter or "1:1" in aspect_ratio_filter:
                 target_ratio = 1.0
             elif "風景" in aspect_ratio_filter or "16:9" in aspect_ratio_filter:
-                target_ratio = 16/9
+                target_ratio = 16 / 9
             elif "4:3" in aspect_ratio_filter:
-                target_ratio = 4/3
+                target_ratio = 4 / 3
             elif "9:16" in aspect_ratio_filter:
-                target_ratio = 9/16
+                target_ratio = 9 / 16
             elif "3:4" in aspect_ratio_filter:
-                target_ratio = 3/4
+                target_ratio = 3 / 4
 
             for image in images:
                 width = image.get("width", 0)
@@ -394,8 +398,8 @@ class SearchCriteriaProcessor:
                 if image_date:
                     if isinstance(image_date, str):
                         # ISO文字列の「Z」サフィックスを適切に処理
-                        if image_date.endswith('Z'):
-                            image_date = image_date[:-1] + '+00:00'
+                        if image_date.endswith("Z"):
+                            image_date = image_date[:-1] + "+00:00"
                         image_date = datetime.fromisoformat(image_date)
 
                     # timezone-aware/naive問題を修正：両方ともnaiveにする
@@ -403,8 +407,12 @@ class SearchCriteriaProcessor:
                         image_date = image_date.replace(tzinfo=None)
 
                     # start_date/end_dateもnaiveに統一
-                    start_date_naive = start_date.replace(tzinfo=None) if start_date and start_date.tzinfo else start_date
-                    end_date_naive = end_date.replace(tzinfo=None) if end_date and end_date.tzinfo else end_date
+                    start_date_naive = (
+                        start_date.replace(tzinfo=None) if start_date and start_date.tzinfo else start_date
+                    )
+                    end_date_naive = (
+                        end_date.replace(tzinfo=None) if end_date and end_date.tzinfo else end_date
+                    )
 
                     if start_date_naive and image_date < start_date_naive:
                         continue
