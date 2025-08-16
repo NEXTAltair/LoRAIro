@@ -1,5 +1,5 @@
 ---
-allowed-tools: mcp__serena__get_symbols_overview, mcp__serena__find_symbol, mcp__serena__search_for_pattern, mcp__serena__read_memory, mcp__serena__write_memory, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, mcp__cipher__ask_cipher, Read, Bash, TodoWrite, Task
+allowed-tools: mcp__serena__get_symbols_overview, mcp__serena__find_symbol, mcp__serena__search_for_pattern, mcp__serena__read_memory, mcp__serena__write_memory, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, cipher_memory_search, cipher_store_reasoning_memory, cipher_extract_entities, cipher_query_graph, Read, Bash, TodoWrite, Task
 description: investigateフェーズの結果を基に、LoRAIro プロジェクトの実装戦略と詳細設計を策定します。
 ---
 
@@ -9,8 +9,16 @@ description: investigateフェーズの結果を基に、LoRAIro プロジェク
 ```
 
 ## 重要原則
+
+### LoRAIro品質方針
+- **コード品質第一**: シンプルさ、可読性、テスタビリティ、保守性を最優先
+- **Memory-First**: 過去の設計パターンと知識を活用した効率的プランニング
+- **段階的設計**: 小さな単位でのインクリメンタル設計を徹底
+
+### プランニング基本原則
 - 関連するコードは全て読むこと
 - 全ての処理においてultrathinkでしっかりと考えて作業を行うこと
+- 過去の設計知識を必ず確認してから計画策定すること
 - LoRAIroの確立されたアーキテクチャパターンに従うこと
 
 ## 説明
@@ -20,12 +28,15 @@ investigateフェーズで特定された要件と課題を基に、上記実装
 
 ## タスクに含まれるべきTODO
 
-### 1. 要件明確化
-1. investigateフェーズの結果を確認・分析
-2. 問題の具体的な定義と成功基準の設定
-3. 制約条件の特定(時間・リソース・互換性)
-4. 既存コードベース・アーキテクチャのコンテキスト収集
-5. 不明点の明確化(仮定を避け具体的に質問)
+### 1. Memory-Based事前分析と要件明確化
+1. **Memory-First計画準備**: `cipher_memory_search` で類似設計の過去事例を確認
+2. investigateフェーズの結果を確認・分析
+3. **設計知識確認**: `mcp__serena__read_memory` でプロジェクト固有の設計状況を確認
+4. 問題の具体的な定義と成功基準の設定
+5. 制約条件の特定(時間・リソース・互換性)
+6. 既存コードベース・アーキテクチャのコンテキスト収集
+7. **設計予測**: 過去の設計で発見された問題とリスク要因の事前把握
+8. 不明点の明確化(仮定を避け具体的に質問)
 
 ### 2. 包括的分析
 6. 現状評価(既存機能・コード・設定)
@@ -77,17 +88,26 @@ investigateフェーズで特定された要件と課題を基に、上記実装
 40. データ移行計画(既存データ変換)
 41. ロールバック計画(変更の取り消し方法)
 
-### 9. 文書化・完了処理
-42. 設計決定の記録とその理由
-43. 計画結果を文書化し、`tasks/plans/plan_{YYYYMMDD_HHMMSS}.md`に保存
-44. ユーザー検証(明確な選択肢提示・トレードオフ説明)
-45. フィードバック収集と承認取得
-46. 計画完了をコンソール出力で通知(echo "📋 プランニング完了")
-47. implementフェーズへの引き継ぎ事項整理
+### 9. 知識蓄積・完了処理
+42. **設計知識蓄積**: `cipher_store_reasoning_memory` で設計判断と根拠を保存
+43. **設計関係記録**: `cipher_query_graph` で設計要素間の依存関係を記録
+44. **プロジェクト記録**: `mcp__serena__write_memory` で現在プロジェクト向けの設計結果保存
+45. 設計決定の記録とその理由
+46. ユーザー検証(明確な選択肢提示・トレードオフ説明)
+47. フィードバック収集と承認取得
+48. 計画完了をコンソール出力で通知(echo "📋 プランニング完了")
+49. implementフェーズへの引き継ぎ事項整理
 
 ## 実行内容
 
 ### 要件明確化フェーズ
+
+#### Memory-Based設計準備
+- **既存設計知識確認**: `cipher_memory_search` で類似設計パターンの過去事例を検索
+- **アーキテクチャ分析**: `cipher_extract_entities` で重要な設計要素を特定
+- **設計課題予測**: 過去の設計で発見された課題とリスク要因を確認
+
+#### 詳細要件分析
 - investigateフェーズ結果の詳細分析
 - **🔍 Investigation Agent活用**: 既存実装の詳細調査とアーキテクチャ理解
 - **📚 Library Research Agent活用**: 技術選定と設計パターン調査
@@ -106,10 +126,18 @@ investigateフェーズで特定された要件と課題を基に、上記実装
 - アーキテクチャ適合性の評価
 - パフォーマンス・セキュリティ考慮
 
-### 実装計画フェーズ
+### 実装計画・知識蓄積フェーズ
+
+#### 実装計画策定
 - 詳細タスク分割と順序決定
 - リスク分析と対策立案
 - テスト・検証戦略策定
+
+#### 設計知識の蓄積
+- **設計パターン記録**: `cipher_store_reasoning_memory` で設計アプローチと判断根拠を保存
+- **技術関係分析**: `cipher_query_graph` で設計要素間の依存関係を記録
+- **教訓保存**: 設計中に発見した課題・解決策・ベストプラクティスを長期記憶化
+- **プロジェクト記録**: `mcp__serena__write_memory` で現在プロジェクト固有の設計結果を保存
 
 ## 必読ファイル
 - `tasks/investigations/investigate_{investigation_target}_{YYYYMMDD_HHMMSS}.md` - 前フェーズの結果
@@ -135,41 +163,84 @@ investigateフェーズで特定された要件と課題を基に、上記実装
 ## 次のコマンド
 計画完了・承認後は `/implement` コマンドで実装を開始します。
 
-## MCP統合・ハイブリッド操作
+## 最適化されたプランニング戦略 (Cipher Aggregator Mode)
 
-### cipher+serenaハイブリッド操作指針
+### Memory-First + 設計知識活用アプローチ
 
-planフェーズでは以下のMCP操作戦略を採用:
+planコマンドでは以下の最適化戦略を採用:
 
-#### 🚀 直接serena操作 (高速・分析タスク)
+#### 🧠 Memory-First設計準備 (1-3秒)
 ```
-コードベース分析・メモリ管理:
+既存知識の活用:
+- cipher_memory_search: 過去の類似設計パターンを検索
+- mcp__serena__read_memory: プロジェクト固有の設計進捗を確認
+- cipher_extract_entities: 重要な設計要素を特定
+```
+
+#### 🚀 高速コード分析 (主要手法)
+```
+効率的アーキテクチャ分析:
 - mcp__serena__get_symbols_overview: 既存コード構造把握
 - mcp__serena__find_symbol: 実装対象コンポーネント特定
 - mcp__serena__search_for_pattern: アーキテクチャパターン調査
-- mcp__serena__read_memory: 過去の設計知識参照
 - mcp__serena__write_memory: 設計決定の記録
 ```
 
 #### 🔄 cipher経由操作 (複合・戦略タスク)
 ```
 複数視点での戦略分析:
-- mcp__cipher__ask_cipher: 包括的設計分析
-  - serena(既存コード) + context7(技術ドキュメント) + perplexity-ask(最新情報)
-  - 複数アプローチの生成・評価
-  - リスク分析・トレードオフ評価
-  - アーキテクチャ適合性の総合判断
+- cipher_memory_search: 過去の設計パターンと意思決定の検索
+- cipher_store_reasoning_memory: 設計決定と根拠の長期保存
+- cipher_extract_entities: 重要な設計要素の特定
+- cipher_query_graph: 設計要素間の関係性分析
 ```
 
-### 計画フェーズ特化最適化
+#### 🎯 知識蓄積・記録
+```
+設計知識の永続化:
+- cipher_store_reasoning_memory: 設計判断と根拠の保存
+- cipher_query_graph: 設計要素間の関係性分析
+- mcp__serena__write_memory: プロジェクト固有の設計結果保存
+```
 
-#### 操作パターン
-- **現状分析**: 直接serena で高速コード調査
-- **技術選定**: cipher経由で context7 + perplexity-ask 活用
-- **アーキテクチャ設計**: cipher経由で複数視点統合
-- **リスク評価**: cipher経由で包括的分析
+### 2重メモリ戦略
 
-#### エラーハンドリング・計画継続
-- cipher重複タイムアウト時: 分析を段階分割実行
-- context7接続エラー時: 直接serena + WebSearch で代替
-- 複雑な戦略分析は cipher、詳細は直接serena で効率化
+#### Serena Memory (プロジェクト固有・短期)
+- **用途**: 現在の設計進捗と一時的な開発メモ
+- **保存内容**: 
+  - 現在の設計状況と次のステップ
+  - 進行中の設計決定
+  - 設計中の一時的な課題と解決策
+  - 技術選定の評価結果
+
+#### Cipher Memory (設計知識・長期)
+- **用途**: 将来参照可能な設計パターン資産
+- **保存内容**:
+  - 設計アプローチと判断根拠
+  - アーキテクチャ設計の意図と背景
+  - パフォーマンス・保守性の評価
+  - 設計時の課題と解決策
+  - ベストプラクティスとアンチパターン
+  - 技術選定の基準と結果
+
+### プランニング効率最適化
+
+#### Memory-First原則
+1. **過去設計確認**: 類似機能の設計履歴を優先参照
+2. **パターン再利用**: 成功した設計パターンの活用
+3. **課題予測**: 過去に発見された問題とリスク要因の事前把握
+
+#### 段階的設計戦略
+1. **小単位設計**: 段階的な設計決定プロセス
+2. **継続的検証**: エージェントによる設計品質確認
+3. **知識蓄積**: 設計過程と結果の段階的記録
+
+#### 記録・蓄積戦略
+**Serena記録対象**: "今何を設計しているか" "次に何を決定するか"
+**Cipher記録対象**: "なぜそう設計したか" "どのような判断をしたか"
+
+### エラーハンドリング・継続戦略
+- **Cipher統合タイムアウト**: 段階的設計に分割して継続
+- **複雑な設計**: Investigation/Library-Research/Solutionsエージェントで分析
+- **設計確認**: 専門エージェントによる設計品質評価
+- **設計完了判定**: Serenaメモリによる客観的評価

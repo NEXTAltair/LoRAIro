@@ -1,5 +1,5 @@
 ---
-allowed-tools: mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, mcp__serena__search_for_pattern, mcp__serena__write_memory, mcp__cipher__ask_cipher, Read, Edit, Write, Bash, TodoWrite, Task
+allowed-tools: mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, mcp__serena__search_for_pattern, mcp__serena__read_memory, mcp__serena__write_memory, cipher_memory_search, cipher_store_reasoning_memory, cipher_extract_entities, cipher_query_graph, Read, Edit, Write, Bash, TodoWrite, Task
 description: implement フェーズで実装されたコードについて、包括的なテスト・検証を実行します。
 
 ---
@@ -13,8 +13,15 @@ description: implement フェーズで実装されたコードについて、包
 
 ## 重要原則
 
+### LoRAIro品質方針
+- **コード品質第一**: シンプルさ、可読性、テスタビリティ、保守性を最優先
+- **Memory-First**: 過去のテスト知識とパターンを活用した効率的テスト実行
+- **段階的検証**: 小さな単位でのインクリメンタルテストを徹底
+
+### テスト基本原則
 - 関連するコードは全て読むこと use serena
 - 全ての処理において ultrathink でしっかりと考えて作業を行うこと
+- 過去のテスト経験を必ず確認してからテスト開始すること
 - `.cursor/rules/test_rules/testing-rules.mdc`のテスト方針に完全準拠すること
 - 75%以上のテストカバレッジを維持すること
 
@@ -26,12 +33,15 @@ implement フェーズで実装された上記機能について、ユニット�
 
 ## タスクに含まれるべき TODO
 
-### 1. テスト準備・環境確認
+### 1. Memory-Based事前分析・テスト準備・環境確認
 
-1. implement フェーズの実装結果確認
-2. 既存テストスイートの実行と基線確認
-3. 新規実装部分のテスト対象特定
-4. テストデータ・リソース準備
+1. **Memory-Firstテスト準備**: `cipher_memory_search` で類似テストの過去事例を確認
+2. implement フェーズの実装結果確認
+3. **テスト知識確認**: `mcp__serena__read_memory` でプロジェクト固有のテスト状況を確認
+4. 既存テストスイートの実行と基線確認
+5. 新規実装部分のテスト対象特定
+6. **テスト課題予測**: 過去のテストで発見された問題とリスク要因の事前把握
+7. テストデータ・リソース準備
 
 ### 2. ユニットテスト実行・拡充(tests/unit/)
 
@@ -114,19 +124,27 @@ implement フェーズで実装された上記機能について、ユニット�
 55. リソース枯渇・メモリリークテスト
 56. 長時間稼働安定性テスト
 
-### 12. ドキュメント・完了処理
+### 12. 知識蓄積・完了処理
 
-57. テスト結果の包括的分析・レポート作成
-58. 発見された問題・改善点の文書化
-59. カバレッジレポートの保存(@coverage.xml)
-60. テスト結果を文書化し、`tasks/test_results/test_{YYYYMMDD_HHMMSS}.md`に保存
-61. テスト完了をコンソール出力で通知(echo "✅ テスト検証完了")
-62. 次ステップ(修正・改善・リリース)への推奨事項提示
+57. **テスト知識蓄積**: `cipher_store_reasoning_memory` でテスト判断と根拠を保存
+58. **テスト関係記録**: `cipher_query_graph` でテスト要素間の依存関係を記録
+59. **プロジェクト記録**: `mcp__serena__write_memory` で現在プロジェクト向けのテスト結果保存
+60. テスト結果の包括的分析・レポート作成
+61. 発見された問題・改善点の文書化
+62. カバレッジレポートの保存(@coverage.xml)
+63. テスト完了をコンソール出力で通知(echo "✅ テスト検証完了")
+64. 次ステップ(修正・改善・リリース)への推奨事項提示
 
 ## 実行内容
 
 ### テスト準備フェーズ
 
+#### Memory-Basedテスト準備
+- **既存テスト知識確認**: `cipher_memory_search` で類似テストパターンの過去事例を検索
+- **テスト要素分析**: `cipher_extract_entities` で重要なテスト要素を特定
+- **テスト課題予測**: 過去のテストで発見された課題とリスク要因を確認
+
+#### 詳細テスト分析
 - **🔍 Investigation Agent活用**: テスト対象コードの詳細分析
   ```
   Use the investigation agent for test preparation:
@@ -151,16 +169,23 @@ implement フェーズで実装された上記機能について、ユニット�
 - 異常系・パフォーマンステスト
 - 品質指標・カバレッジ確認
 
-### 検証・分析フェーズ
+### 検証・分析・知識蓄積フェーズ
 
+#### テスト結果検証
 - テスト結果総合分析
 - 問題・改善点特定
 - 受け入れ基準適合確認
 
+#### テスト知識の蓄積
+- **テストパターン記録**: `cipher_store_reasoning_memory` でテストアプローチと判断根拠を保存
+- **技術関係分析**: `cipher_query_graph` でテスト要素間の依存関係を記録
+- **教訓保存**: テスト中に発見した課題・解決策・ベストプラクティスを長期記憶化
+- **プロジェクト記録**: `mcp__serena__write_memory` で現在プロジェクト固有のテスト結果を保存
+
 ## 必読ファイル
 
-- `tasks/implementations/implement_{implementation_target}_{YYYYMMDD_HHMMSS}.md` - 実装結果詳細
-- `.cursor/rules/test_rules/testing-rules.mdc` - テスト方針・基準
+- **Serena Memory**: `mcp__serena__read_memory` でプロジェクト固有の実装結果確認
+- **Cipher Memory**: `cipher_memory_search` で類似実装のテスト履歴参照- `.cursor/rules/test_rules/testing-rules.mdc` - テスト方針・基準
 - `pyproject.toml` - テスト設定・カバレッジ設定
 - `tests/` - 既存テスト構造・パターン
 - `tests/resources/` - テストリソース・データ
@@ -225,13 +250,21 @@ implement フェーズで実装された上記機能について、ユニット�
 
 テスト完了後、問題があれば `/investigate` で原因調査、または改善実装のため `/plan` で計画策定を行います。
 
-## MCP統合・ハイブリッド操作
+## 最適化されたテスト戦略 (Cipher Aggregator Mode)
 
-### cipher+serenaハイブリッド操作指針
+### Memory-First + テスト知識活用アプローチ
 
-testフェーズでは以下のMCP操作戦略を採用:
+testコマンドでは以下の最適化戦略を採用:
 
-#### 🚀 直接serena操作 (テスト対象分析・結果記録)
+#### 🧠 Memory-Firstテスト準備 (1-3秒)
+```
+既存知識の活用:
+- cipher_memory_search: 過去の類似テストパターンを検索
+- mcp__serena__read_memory: プロジェクト固有のテスト進捗を確認
+- cipher_extract_entities: 重要なテスト要素を特定
+```
+
+#### 🚀 高速テスト分析 (主要手法)
 ```
 効率的テスト準備・分析:
 - mcp__serena__find_symbol: テスト対象コードの特定
@@ -244,24 +277,58 @@ testフェーズでは以下のMCP操作戦略を採用:
 #### 🔄 cipher経由操作 (包括的品質評価)
 ```
 多角的テスト戦略・品質保証:
-- mcp__cipher__ask_cipher: 包括的テスト品質評価
-  - serena(コード構造) + context7(テスト技術ドキュメント) + perplexity-ask(最新テスト手法)
-  - テストカバレッジ戦略立案
-  - パフォーマンス・セキュリティテスト設計
-  - 異常系・エッジケーステスト計画
-  - 回帰テスト・互換性評価
+- cipher_memory_search: 過去のテストパターンと品質評価の検索
+- cipher_store_reasoning_memory: テスト判断と根拠の長期保存
+- cipher_extract_entities: 重要なテスト要素の特定
+- cipher_query_graph: テスト要素間の関係性分析
 ```
 
-### テストフェーズ特化最適化
+#### 🎯 知識蓄積・記録
+```
+テスト知識の永続化:
+- cipher_store_reasoning_memory: テスト判断と根拠の保存
+- cipher_query_graph: テスト要素間の関係性分析
+- mcp__serena__write_memory: プロジェクト固有のテスト結果保存
+```
 
-#### 操作パターン
-- **テスト対象分析**: 直接serena で高速コード調査
-- **テスト戦略設計**: cipher経由で包括的計画立案
-- **品質評価**: cipher経由で多角的分析
-- **結果記録**: 直接serena で効率的文書化
+### 2重メモリ戦略
 
-#### エラーハンドリング・テスト継続
-- serenaテスト分析エラー時: 段階的調査に分割
-- cipherテスト戦略タイムアウト時: 直接serena + 手動設計
-- 複雑な品質評価は cipher、詳細分析は直接serena で分離
-- テスト結果記録は serena write_memory で集約
+#### Serena Memory (プロジェクト固有・短期)
+- **用途**: 現在のテスト進捗と一時的な検証メモ
+- **保存内容**:
+  - 現在のテスト状況と次のステップ
+  - 進行中のテスト実行結果
+  - テスト中の一時的な課題と解決策
+  - 品質検証の結果
+
+#### Cipher Memory (テスト知識・長期)
+- **用途**: 将来参照可能なテストパターン資産
+- **保存内容**:
+  - テストアプローチと判断根拠
+  - テスト戦略の意図と背景
+  - パフォーマンス・品質の評価
+  - テスト時の課題と解決策
+  - ベストプラクティスとアンチパターン
+  - 異常系・エッジケースの知見
+
+### テスト効率最適化
+
+#### Memory-First原則
+1. **過去テスト確認**: 類似機能のテスト履歴を優先参照
+2. **パターン再利用**: 成功したテストパターンの活用
+3. **課題予測**: 過去に発見された問題とリスク要因の事前把握
+
+#### 段階的テスト戦略
+1. **小単位テスト**: 段階的なテスト実行プロセス
+2. **継続的検証**: エージェントによるテスト品質確認
+3. **知識蓄積**: テスト過程と結果の段階的記録
+
+#### 記録・蓄積戦略
+**Serena記録対象**: "今何をテストしているか" "次に何を検証するか"
+**Cipher記録対象**: "なぜそうテストしたか" "どのような判断をしたか"
+
+### エラーハンドリング・継続戦略
+- **Cipher統合タイムアウト**: 段階的テストに分割して継続
+- **複雑なテスト**: Investigation/Library-Research/Solutionsエージェントで分析
+- **品質確認**: Code-Formatterエージェントによる自動品質管理
+- **テスト完了判定**: Serenaメモリによる客観的評価
