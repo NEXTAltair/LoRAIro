@@ -180,11 +180,18 @@ EOF
                 # $FILESを実際のファイルリストで置換 (git addの場合)
                 if echo "$COMMAND" | grep -q "^git add"; then
                     FILES=$(echo "$COMMAND" | sed 's/git add //' | tr ' ' '\n' | grep '\.py$' | tr '\n' ' ')
-                    ACTUAL_HOOK=$(echo "$PRE_HOOK" | sed "s/\$FILES/$FILES/g")
+                    echo "Debug: FILES='$FILES'" >> "$LOG_FILE"
+                    if [ -n "$FILES" ]; then
+                        ACTUAL_HOOK=$(echo "$PRE_HOOK" | sed "s|\$FILES|$FILES|g")
+                    else
+                        echo "Debug: No Python files found, skipping auto-format" >> "$LOG_FILE"
+                        continue  # Python ファイルがない場合はスキップ
+                    fi
                 else
                     ACTUAL_HOOK="$PRE_HOOK"
                 fi
 
+                echo "Debug: ACTUAL_HOOK='$ACTUAL_HOOK'" >> "$LOG_FILE"
                 echo "実行コマンド: $ACTUAL_HOOK"
                 eval "$ACTUAL_HOOK"
 

@@ -48,20 +48,20 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_pre_commands.sh"
-          }
-        ]
-      },
-      {
         "matcher": "Grep",
         "hooks": [
           {
             "type": "command",
             "command": "/workspaces/LoRAIro/.claude/hooks/block_grep.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_pre_commands.sh"
           }
         ]
       }

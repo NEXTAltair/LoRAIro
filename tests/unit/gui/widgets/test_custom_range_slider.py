@@ -49,7 +49,7 @@ class TestCustomRangeSlider:
         # 簡素化後は直接値を使用するため、スライダーの範囲をテスト
         assert range_slider.slider.minimum() == range_slider.min_value
         assert range_slider.slider.maximum() == range_slider.max_value
-        
+
         # 初期値が正しく設定されているか確認
         min_val, max_val = range_slider.slider.value()
         assert min_val == range_slider.min_value
