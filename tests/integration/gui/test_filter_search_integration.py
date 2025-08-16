@@ -44,7 +44,7 @@ class TestFilterSearchIntegration:
                 "width": 1024,
                 "height": 1024,
                 "created_at": "2023-06-15T00:00:00Z",
-                "tags": ["anime", "1girl"]
+                "tags": ["anime", "1girl"],
             },
             {
                 "id": 2,
@@ -52,8 +52,8 @@ class TestFilterSearchIntegration:
                 "width": 1920,
                 "height": 1080,
                 "created_at": "2023-07-20T00:00:00Z",
-                "tags": ["landscape", "nature"]
-            }
+                "tags": ["landscape", "nature"],
+            },
         ]
 
         mock_db_manager.get_images_by_filter.return_value = (mock_images, 2)
@@ -62,7 +62,7 @@ class TestFilterSearchIntegration:
         return {
             "db_manager": mock_db_manager,
             "model_selection_service": mock_model_selection_service,
-            "mock_images": mock_images
+            "mock_images": mock_images,
         }
 
     @pytest.fixture
@@ -75,14 +75,13 @@ class TestFilterSearchIntegration:
         criteria_processor = SearchCriteriaProcessor(db_manager)
         model_filter_service = ModelFilterService(db_manager, model_selection_service)
         search_filter_service = SearchFilterService(
-            db_manager=db_manager,
-            model_selection_service=model_selection_service
+            db_manager=db_manager, model_selection_service=model_selection_service
         )
 
         return {
             "criteria_processor": criteria_processor,
             "model_filter_service": model_filter_service,
-            "search_filter_service": search_filter_service
+            "search_filter_service": search_filter_service,
         }
 
     @pytest.fixture
@@ -106,9 +105,7 @@ class TestFilterSearchIntegration:
 
         # 検索条件作成
         conditions = search_filter_service.create_search_conditions(
-            search_type="tags",
-            keywords=["anime", "1girl"],
-            tag_logic="and"
+            search_type="tags", keywords=["anime", "1girl"], tag_logic="and"
         )
 
         # 検索実行（新しいサービス層経由）
@@ -127,7 +124,7 @@ class TestFilterSearchIntegration:
         filter_panel.ui.radioAnd.setChecked(True)
 
         # 検索実行
-        with patch.object(filter_panel, 'search_requested') as mock_signal:
+        with patch.object(filter_panel, "search_requested") as mock_signal:
             filter_panel._on_search_requested()
 
             # シグナルが発行されることを確認
@@ -147,7 +144,7 @@ class TestFilterSearchIntegration:
         date_slider.set_date_range()
 
         # スライダーの値変更をシミュレート
-        with patch.object(date_slider, 'valueChanged') as mock_signal:
+        with patch.object(date_slider, "valueChanged") as mock_signal:
             # 値変更を手動で発火
             date_slider.update_labels()
 
@@ -177,7 +174,7 @@ class TestFilterSearchIntegration:
             keywords=keywords,
             tag_logic="or",
             resolution_filter="1024x1024",
-            only_untagged=True
+            only_untagged=True,
         )
 
         assert conditions.search_type == "caption"
@@ -202,7 +199,7 @@ class TestFilterSearchIntegration:
             date_range_end=datetime(2023, 12, 31),
             only_untagged=False,
             only_uncaptioned=True,
-            exclude_duplicates=True
+            exclude_duplicates=True,
         )
 
         # プレビュー作成
@@ -228,7 +225,7 @@ class TestFilterSearchIntegration:
             "custom_height": 1080,
             "date_filter_enabled": True,
             "date_range_start": datetime(2023, 1, 1),
-            "date_range_end": datetime(2023, 12, 31)
+            "date_range_end": datetime(2023, 12, 31),
         }
 
         result = service.validate_ui_inputs(valid_inputs)
@@ -240,7 +237,7 @@ class TestFilterSearchIntegration:
             "keywords": [],
             "resolution_filter": "カスタム",
             "custom_width": None,
-            "custom_height": None
+            "custom_height": None,
         }
 
         result = service.validate_ui_inputs(invalid_inputs)
@@ -279,7 +276,7 @@ class TestFilterSearchIntegration:
         filter_panel.ui.lineEditSearch.setText("test")
 
         # エラーハンドリング確認用のモック
-        with patch.object(filter_panel, 'search_requested') as mock_signal:
+        with patch.object(filter_panel, "search_requested") as mock_signal:
             filter_panel._on_search_requested()
 
             # エラー情報が含まれたシグナルが発行されることを確認
@@ -295,6 +292,7 @@ class TestFilterSearchIntegration:
 
         # パフォーマンス測定
         import time
+
         start_time = time.time()
 
         filter_panel.ui.lineEditSearch.setText("performance test")
@@ -334,7 +332,7 @@ class TestServiceLayerIntegration:
         mock_db = Mock()
         mock_images = [
             {"id": 1, "width": 1024, "height": 1024, "created_at": "2023-06-15T00:00:00Z"},
-            {"id": 2, "width": 1920, "height": 1080, "created_at": "2023-07-20T00:00:00Z"}
+            {"id": 2, "width": 1920, "height": 1080, "created_at": "2023-07-20T00:00:00Z"},
         ]
         mock_db.get_images_by_filter.return_value = (mock_images, 2)
         mock_db.check_image_has_annotation.return_value = True
@@ -351,7 +349,7 @@ class TestServiceLayerIntegration:
         return {
             "criteria_processor": criteria_processor,
             "model_filter_service": model_filter_service,
-            "db_manager": mock_db_manager
+            "db_manager": mock_db_manager,
         }
 
     def test_criteria_processor_to_db_integration(self, service_integration):
@@ -359,10 +357,7 @@ class TestServiceLayerIntegration:
         processor = service_integration["criteria_processor"]
 
         conditions = SearchConditions(
-            search_type="tags",
-            keywords=["anime", "girl"],
-            tag_logic="and",
-            resolution_filter="1024x1024"
+            search_type="tags", keywords=["anime", "girl"], tag_logic="and", resolution_filter="1024x1024"
         )
 
         # 統合検索実行
@@ -379,11 +374,7 @@ class TestServiceLayerIntegration:
         model_service = service_integration["model_filter_service"]
 
         # アノテーション設定検証
-        settings = {
-            "selected_models": ["gpt-4-vision"],
-            "batch_size": 10,
-            "timeout": 60
-        }
+        settings = {"selected_models": ["gpt-4-vision"], "batch_size": 10, "timeout": 60}
 
         result = model_service.validate_annotation_settings(settings)
 
@@ -398,11 +389,7 @@ class TestServiceLayerIntegration:
         model_service = service_integration["model_filter_service"]
 
         # 検索実行後、結果に対してモデルフィルター適用
-        conditions = SearchConditions(
-            search_type="tags",
-            keywords=["test"],
-            tag_logic="and"
-        )
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
 
         # 1. 検索実行
         images, count = processor.execute_search_with_filters(conditions)
@@ -479,7 +466,7 @@ class TestEndToEndIntegration:
                 "file_name": "anime_girl.jpg",
                 "width": 1024,
                 "height": 1024,
-                "created_at": "2023-06-15T00:00:00Z"
+                "created_at": "2023-06-15T00:00:00Z",
             }
         ]
         mock_db_manager.get_images_by_filter.return_value = (sample_images, 1)
@@ -489,8 +476,7 @@ class TestEndToEndIntegration:
         criteria_processor = SearchCriteriaProcessor(mock_db_manager)
         model_filter_service = ModelFilterService(mock_db_manager, mock_model_selection_service)
         search_filter_service = SearchFilterService(
-            db_manager=mock_db_manager,
-            model_selection_service=mock_model_selection_service
+            db_manager=mock_db_manager, model_selection_service=mock_model_selection_service
         )
 
         # GUI層構築
@@ -503,7 +489,7 @@ class TestEndToEndIntegration:
             "criteria_processor": criteria_processor,
             "model_filter_service": model_filter_service,
             "mock_db_manager": mock_db_manager,
-            "sample_images": sample_images
+            "sample_images": sample_images,
         }
 
     def test_complete_search_workflow(self, full_integration_setup):

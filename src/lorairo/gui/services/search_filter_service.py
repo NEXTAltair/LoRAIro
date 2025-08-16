@@ -145,7 +145,7 @@ class SearchFilterService:
             return []
 
         # 基本的なキーワード分割(カンマ、スペース区切り)
-        keywords = [keyword.strip() for keyword in input_text.replace(',', ' ').split() if keyword.strip()]
+        keywords = [keyword.strip() for keyword in input_text.replace(",", " ").split() if keyword.strip()]
         logger.debug(f"入力解析完了: '{input_text}' -> {keywords}")
         return keywords
 
@@ -270,7 +270,7 @@ class SearchFilterService:
             "1920x1080",
             "2560x1440",
             "3840x2160",
-            "カスタム"
+            "カスタム",
         ]
 
     def get_available_aspect_ratios(self) -> list[str]:
@@ -286,7 +286,7 @@ class SearchFilterService:
             "16:9 (ワイド)",
             "3:2 (一眼レフ)",
             "2:3 (ポートレート)",
-            "9:16 (縦長ワイド)"
+            "9:16 (縦長ワイド)",
         ]
 
     def validate_ui_inputs(self, inputs: dict[str, Any]) -> ValidationResult:
@@ -303,28 +303,30 @@ class SearchFilterService:
         warnings = []
 
         # キーワード検証
-        keywords = inputs.get('keywords', [])
-        if not keywords and not any([
-            inputs.get('only_untagged'),
-            inputs.get('only_uncaptioned'),
-            inputs.get('resolution_filter'),
-            inputs.get('date_filter_enabled')
-        ]):
+        keywords = inputs.get("keywords", [])
+        if not keywords and not any(
+            [
+                inputs.get("only_untagged"),
+                inputs.get("only_uncaptioned"),
+                inputs.get("resolution_filter"),
+                inputs.get("date_filter_enabled"),
+            ]
+        ):
             warnings.append("検索条件が指定されていません。すべての画像が対象になります。")
 
         # 解像度検証
-        custom_width = inputs.get('custom_width')
-        custom_height = inputs.get('custom_height')
-        if inputs.get('resolution_filter') == 'カスタム':
+        custom_width = inputs.get("custom_width")
+        custom_height = inputs.get("custom_height")
+        if inputs.get("resolution_filter") == "カスタム":
             if not custom_width or not custom_height:
                 errors.append("カスタム解像度を選択した場合は幅と高さを指定してください。")
             elif custom_width <= 0 or custom_height <= 0:
                 errors.append("幅と高さは正の値で指定してください。")
 
         # 日付範囲検証
-        if inputs.get('date_filter_enabled'):
-            start_date = inputs.get('date_range_start')
-            end_date = inputs.get('date_range_end')
+        if inputs.get("date_filter_enabled"):
+            start_date = inputs.get("date_range_start")
+            end_date = inputs.get("date_range_end")
             if start_date and end_date and start_date > end_date:
                 errors.append("開始日付は終了日付より前に設定してください。")
 
