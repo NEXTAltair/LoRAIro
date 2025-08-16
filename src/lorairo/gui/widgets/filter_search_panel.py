@@ -142,10 +142,14 @@ class FilterSearchPanel(QScrollArea):
         self.ui.textEditPreview.setPlainText("検索中...")
 
         try:
+            # 検索テキストをキーワードリストに変換
+            search_text = self.ui.lineEditSearch.text().strip()
+            keywords = self.search_filter_service.parse_search_input(search_text) if search_text else []
+
             # SearchFilterServiceを使用して検索条件を作成
             conditions = self.search_filter_service.create_search_conditions(
-                search_text=self.ui.lineEditSearch.text(),
                 search_type="tags" if self.ui.radioTags.isChecked() else "caption",
+                keywords=keywords,
                 tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
                 resolution_filter=self.ui.comboResolution.currentText(),
                 custom_width=self.ui.lineEditWidth.text(),

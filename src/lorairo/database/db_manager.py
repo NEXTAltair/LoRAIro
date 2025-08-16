@@ -875,6 +875,60 @@ class ImageDatabaseManager:
         logger.info(f"最近更新されたアノテーションをフィルタリングしました (閾値: {minutes_threshold}分)。")
         return filtered_annotations
 
+    def check_image_has_annotation(self, image_id: int) -> bool:
+        """
+        画像にアノテーション（タグまたはキャプション）が存在するかチェック
+
+        Args:
+            image_id: 画像ID
+
+        Returns:
+            bool: アノテーションが存在するかどうか
+        """
+        try:
+            session = self.repository.get_session()
+            with session:
+                # タグまたはキャプションの存在確認
+                query = """
+                    SELECT 1 FROM images i
+                    LEFT JOIN tags t ON i.id = t.image_id
+                    LEFT JOIN captions c ON i.id = c.image_id
+                    WHERE i.id = :image_id AND (t.id IS NOT NULL OR c.id IS NOT NULL)
+                    LIMIT 1
+                """
+                result = session.execute(query, {"image_id": image_id})
+                has_annotation = result.scalar() is not None
+
+                logger.debug(f"アノテーション存在確認: image_id={image_id}, has_annotation={has_annotation}")
+                return has_annotation
+
+        except Exception as e:
+            logger.error(f"アノテーション存在確認エラー: image_id={image_id}, error={e}", exc_info=True)
+            return False
+
+    def execute_filtered_search(self, conditions: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
+        """
+        フィルタリング検索実行（データ層の適切な責任）
+
+        検索条件に基づいてデータベース検索を実行し、結果を返します。
+
+        Args:
+            conditions: 検索条件辞書
+
+        Returns:
+            tuple: (検索結果リスト, 総件数)
+        """
+        try:
+            # 既存のget_images_by_filterメソッドを活用
+            images, total_count = self.get_images_by_filter(**conditions)
+
+            logger.info(f"フィルタリング検索実行完了: 条件={len(conditions)}項目, 結果={len(images)}件")
+            return images, total_count
+
+        except Exception as e:
+            logger.error(f"フィルタリング検索実行エラー: {e}", exc_info=True)
+            return [], 0
+
 
 # --- 初期化チェック ---
 # try:
