@@ -6,10 +6,10 @@ from unittest.mock import Mock, patch
 import pytest
 from PySide6.QtWidgets import QWidget
 
-from lorairo.gui.services.model_selection_service import ModelSelectionService
 from lorairo.gui.services.search_filter_service import SearchFilterService
 from lorairo.gui.widgets.custom_range_slider import CustomRangeSlider
 from lorairo.gui.widgets.filter_search_panel import FilterSearchPanel
+from lorairo.services.model_selection_service import ModelSelectionService
 
 
 class TestWidgetServiceIntegration:
@@ -115,8 +115,6 @@ class TestWidgetServiceIntegration:
                 search_type=search_type,
                 tag_logic=tag_logic,
                 resolution_filter=resolution,
-                custom_width="",
-                custom_height="",
                 aspect_ratio_filter=aspect_ratio,
                 date_filter_enabled=panel.checkboxDateFilter.isChecked(),
                 date_range_start=None,
@@ -259,9 +257,7 @@ class TestWidgetServiceIntegration:
             search_text="1girl, school uniform, smile",
             search_type="tags",
             tag_logic="and",
-            resolution_filter="カスタム...",
-            custom_width="1920",
-            custom_height="1080",
+            resolution_filter="1920x1080",
             aspect_ratio_filter="風景 (16:9)",
             date_filter_enabled=True,
             date_range_start=None,  # 簡略化
@@ -282,7 +278,7 @@ class TestWidgetServiceIntegration:
         assert search_cond["only_uncaptioned"] is True
 
         # フィルター条件確認
-        assert filter_cond["resolution"] == (1920, 1080)  # カスタム解像度
+        assert filter_cond["resolution"] == (1920, 1080)  # 1920x1080解像度
         assert filter_cond["aspect_ratio"] == "風景 (16:9)"
         assert filter_cond["exclude_duplicates"] is True
 

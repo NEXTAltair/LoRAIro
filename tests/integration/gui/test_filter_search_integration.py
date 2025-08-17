@@ -9,11 +9,12 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-from lorairo.gui.services.search_filter_service import SearchConditions, SearchFilterService
+from lorairo.gui.services.search_filter_service import SearchFilterService
 from lorairo.gui.widgets.custom_range_slider import CustomRangeSlider
 from lorairo.gui.widgets.filter_search_panel import FilterSearchPanel
 from lorairo.services.model_filter_service import ModelFilterService
 from lorairo.services.search_criteria_processor import SearchCriteriaProcessor
+from lorairo.services.search_models import SearchConditions
 
 
 @pytest.fixture(scope="module")
@@ -221,8 +222,6 @@ class TestFilterSearchIntegration:
         valid_inputs = {
             "keywords": ["test"],
             "resolution_filter": "1024x1024",
-            "custom_width": 1920,
-            "custom_height": 1080,
             "date_filter_enabled": True,
             "date_range_start": datetime(2023, 1, 1),
             "date_range_end": datetime(2023, 12, 31),
@@ -232,12 +231,10 @@ class TestFilterSearchIntegration:
         assert result.is_valid is True
         assert len(result.errors) == 0
 
-        # 無効な入力（カスタム解像度エラー）
+        # 無効な入力（キーワードなし）
         invalid_inputs = {
             "keywords": [],
-            "resolution_filter": "カスタム",
-            "custom_width": None,
-            "custom_height": None,
+            "resolution_filter": "1024x1024",
         }
 
         result = service.validate_ui_inputs(invalid_inputs)
