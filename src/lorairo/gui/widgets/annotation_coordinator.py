@@ -14,6 +14,8 @@ from PySide6.QtCore import QObject, Signal, Slot
 from PySide6.QtWidgets import QWidget
 
 from ...database.db_manager import ImageDatabaseManager
+from ...services import get_service_container
+from ...services.model_selection_service import ModelSelectionService
 from ...utils.log import logger
 from ..services.search_filter_service import SearchFilterService
 from .annotation_control_widget import AnnotationControlWidget
@@ -75,6 +77,39 @@ class AnnotationCoordinator(QObject):
     annotation_batch_completed = Signal(dict)  # complete_results
     annotation_batch_error = Signal(str)  # error_message
 
+    def _create_search_filter_service(self) -> SearchFilterService:
+        """
+        SearchFilterServiceを適切な設定で作成
+
+        Returns:
+            SearchFilterService: 設定されたサービスインスタンス
+        """
+        try:
+            # ServiceContainer経由で適切なModelSelectionServiceを注入
+            service_container = get_service_container()
+            model_selection_service = ModelSelectionService.create(
+                db_repository=service_container.image_repository
+            )
+
+            return SearchFilterService(
+                db_manager=self.db_manager,
+                model_selection_service=model_selection_service
+            )
+        except Exception as e:
+            logger.error(f"Failed to create SearchFilterService: {e}")
+            # フォールバック: NullModelRegistryを使用した最小限の機能提供
+            from ...database.db_repository import ImageRepository
+            from ...services.model_selection_service import ModelSelectionService
+
+            # 最小限のModelSelectionServiceを作成
+            fallback_repo = ImageRepository(self.db_manager.get_db_path())
+            model_selection_service = ModelSelectionService(fallback_repo)
+
+            return SearchFilterService(
+                db_manager=self.db_manager,
+                model_selection_service=model_selection_service
+            )
+
     def __init__(
         self,
         parent: QWidget,
@@ -91,8 +126,8 @@ class AnnotationCoordinator(QObject):
         self.parent_widget = parent
         self.db_manager = db_manager
 
-        # SearchFilterService初期化
-        self.search_filter_service = SearchFilterService(db_manager)
+        # SearchFilterService初期化（依存性注入対応）
+        self.search_filter_service = self._create_search_filter_service()
 
         # ワークフロー状態
         self.workflow_state = AnnotationWorkflowState()
