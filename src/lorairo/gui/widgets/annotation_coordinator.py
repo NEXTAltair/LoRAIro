@@ -92,8 +92,7 @@ class AnnotationCoordinator(QObject):
             )
 
             return SearchFilterService(
-                db_manager=self.db_manager,
-                model_selection_service=model_selection_service
+                db_manager=self.db_manager, model_selection_service=model_selection_service
             )
         except Exception as e:
             logger.error(f"Failed to create SearchFilterService: {e}")
@@ -106,8 +105,7 @@ class AnnotationCoordinator(QObject):
             model_selection_service = ModelSelectionService(fallback_repo)
 
             return SearchFilterService(
-                db_manager=self.db_manager,
-                model_selection_service=model_selection_service
+                db_manager=self.db_manager, model_selection_service=model_selection_service
             )
 
     def __init__(
