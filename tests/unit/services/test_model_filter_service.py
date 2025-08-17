@@ -4,8 +4,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from lorairo.gui.services.search_filter_service import SearchConditions, ValidationResult
 from lorairo.services.model_filter_service import ModelFilterService
+from lorairo.services.search_models import SearchConditions, ValidationResult
 
 
 class TestModelFilterService:
@@ -29,7 +29,7 @@ class TestModelFilterService:
                 "capabilities": ["image_analysis", "text_generation"],
                 "requires_api_key": True,
                 "estimated_size_gb": 0,
-            "is_recommended": True,
+                "is_recommended": True,
             },
             {
                 "name": "claude-3-sonnet",

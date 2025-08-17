@@ -15,44 +15,9 @@ from ...services.model_registry_protocol import (
     NullModelRegistry,
     map_annotator_metadata_to_model_info,
 )
+from ...services.model_selection_service import ModelSelectionCriteria, ModelSelectionService
+from ...services.search_models import FilterConditions, SearchConditions, ValidationResult
 from ...utils.log import logger
-from .model_selection_service import ModelSelectionCriteria, ModelSelectionService
-
-
-@dataclass
-class SearchConditions:
-    """検索条件データクラス(Phase 3拡張版)"""
-
-    search_type: str  # "tags" or "caption"
-    keywords: list[str]
-    tag_logic: str  # "and" or "or"
-    resolution_filter: str | None = None
-    custom_width: int | None = None
-    custom_height: int | None = None
-    aspect_ratio_filter: str | None = None
-    date_filter_enabled: bool = False
-    date_range_start: datetime | None = None
-    date_range_end: datetime | None = None
-    only_untagged: bool = False
-    only_uncaptioned: bool = False
-    exclude_duplicates: bool = False
-
-    # Phase 3: Advanced Model Filtering Extensions
-    model_criteria: ModelSelectionCriteria | None = None
-    annotation_provider_filter: list[str] | None = None  # ["web_api", "local"]
-    annotation_function_filter: list[str] | None = None  # ["caption", "tags", "scores"]
-
-
-@dataclass
-class FilterConditions:
-    """フィルター条件データクラス(検索条件から抽出)"""
-
-    resolution: tuple[int, int] | None = None
-    aspect_ratio: str | None = None
-    date_range: tuple[datetime, datetime] | None = None
-    only_untagged: bool = False
-    only_uncaptioned: bool = False
-    exclude_duplicates: bool = False
 
 
 @dataclass
@@ -69,24 +34,6 @@ class AnnotationStatusCounts:
         if self.total == 0:
             return 0.0
         return (self.completed / self.total) * 100.0
-
-
-@dataclass
-class ValidationResult:
-    """アノテーション設定検証結果(拡張版)"""
-
-    is_valid: bool
-    errors: list[str] = None
-    warnings: list[str] = None
-    settings: dict[str, Any] | None = None
-    error_message: str | None = None
-
-    def __post_init__(self):
-        """デフォルト値設定"""
-        if self.errors is None:
-            self.errors = []
-        if self.warnings is None:
-            self.warnings = []
 
 
 class SearchFilterService:
@@ -144,8 +91,8 @@ class SearchFilterService:
         if not input_text:
             return []
 
-        # 基本的なキーワード分割(カンマ、スペース区切り)
-        keywords = [keyword.strip() for keyword in input_text.replace(",", " ").split() if keyword.strip()]
+        # 基本的なキーワード分割(カンマ区切り、タグ内スペース保持)
+        keywords = [keyword.strip() for keyword in input_text.split(",") if keyword.strip()]
         logger.debug(f"入力解析完了: '{input_text}' -> {keywords}")
         return keywords
 
@@ -155,8 +102,6 @@ class SearchFilterService:
         keywords: list[str],
         tag_logic: str = "and",
         resolution_filter: str | None = None,
-        custom_width: int | None = None,
-        custom_height: int | None = None,
         aspect_ratio_filter: str | None = None,
         date_filter_enabled: bool = False,
         date_range_start: datetime | None = None,
@@ -182,8 +127,6 @@ class SearchFilterService:
             keywords=keywords,
             tag_logic=tag_logic,
             resolution_filter=resolution_filter,
-            custom_width=custom_width,
-            custom_height=custom_height,
             aspect_ratio_filter=aspect_ratio_filter,
             date_filter_enabled=date_filter_enabled,
             date_range_start=date_range_start,
@@ -221,9 +164,6 @@ class SearchFilterService:
         if conditions.resolution_filter:
             preview_parts.append(f"解像度: {conditions.resolution_filter}")
 
-        if conditions.custom_width and conditions.custom_height:
-            preview_parts.append(f"カスタム解像度: {conditions.custom_width}x{conditions.custom_height}")
-
         if conditions.aspect_ratio_filter:
             preview_parts.append(f"アスペクト比: {conditions.aspect_ratio_filter}")
 
@@ -257,20 +197,18 @@ class SearchFilterService:
 
     def get_available_resolutions(self) -> list[str]:
         """
-        UI選択肢用の利用可能解像度リストを取得
+        UI選択肢用の利用可能解像度リストを取得（LoRA最適化版）
 
         Returns:
             list: 解像度選択肢リスト
         """
         return [
-            "512x512",
-            "768x768",
-            "1024x1024",
-            "1280x720",
-            "1920x1080",
-            "2560x1440",
-            "3840x2160",
-            "カスタム",
+            "512x512",  # レガシーSD1.5
+            "1024x1024",  # SDXL標準（メイン）
+            "1280x720",  # 16:9横長
+            "720x1280",  # 9:16縦長
+            "1920x1080",  # フルHD
+            "1536x1536",  # SDXL高解像度
         ]
 
     def get_available_aspect_ratios(self) -> list[str]:
@@ -314,14 +252,7 @@ class SearchFilterService:
         ):
             warnings.append("検索条件が指定されていません。すべての画像が対象になります。")
 
-        # 解像度検証
-        custom_width = inputs.get("custom_width")
-        custom_height = inputs.get("custom_height")
-        if inputs.get("resolution_filter") == "カスタム":
-            if not custom_width or not custom_height:
-                errors.append("カスタム解像度を選択した場合は幅と高さを指定してください。")
-            elif custom_width <= 0 or custom_height <= 0:
-                errors.append("幅と高さは正の値で指定してください。")
+        # 解像度検証は不要（固定選択肢のみ）
 
         # 日付範囲検証
         if inputs.get("date_filter_enabled"):

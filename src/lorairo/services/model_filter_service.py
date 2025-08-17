@@ -12,11 +12,8 @@ from typing import Any
 from loguru import logger
 
 from ..database.db_manager import ImageDatabaseManager
-from ..gui.services.model_selection_service import ModelSelectionService
-from ..gui.services.search_filter_service import (
-    SearchConditions,
-    ValidationResult,
-)
+from .model_selection_service import ModelSelectionService
+from .search_models import SearchConditions, ValidationResult
 
 
 class ModelFilterService:

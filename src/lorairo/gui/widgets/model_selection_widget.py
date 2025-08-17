@@ -17,8 +17,8 @@ from PySide6.QtWidgets import (
 
 from ...database.schema import Model
 from ...services import get_service_container
+from ...services.model_selection_service import ModelSelectionCriteria, ModelSelectionService
 from ...utils.log import logger
-from ..services.model_selection_service import ModelSelectionCriteria, ModelSelectionService
 
 
 class ModelSelectionWidget(QWidget):
