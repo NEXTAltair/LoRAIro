@@ -38,7 +38,7 @@ class FilterSearchPanel(QScrollArea):
         logger.debug("FilterSearchPanel initialized")
 
     def setup_custom_widgets(self) -> None:
-        """Qt DesignerのUIにカスタムウィジェットを追加"""
+        """Qt DesignerのUIに日付範囲スライダーを追加"""
         # 日付範囲スライダーを作成してプレースホルダーと置き換え
         self.date_range_slider = CustomRangeSlider()
         self.date_range_slider.set_date_range()
@@ -80,8 +80,7 @@ class FilterSearchPanel(QScrollArea):
 
     def _on_resolution_changed(self, text: str) -> None:
         """解像度選択変更処理"""
-        is_custom = text == "カスタム..."
-        self.ui.frameCustomResolution.setVisible(is_custom)
+        # 固定解像度選択肢のみのため処理不要
 
     def _on_date_filter_toggled(self, checked: bool) -> None:
         """日付フィルター有効化切り替え処理"""
@@ -91,6 +90,53 @@ class FilterSearchPanel(QScrollArea):
         """日付範囲変更処理"""
         logger.debug(f"日付範囲変更: {min_timestamp} - {max_timestamp}")
         # 自動検索は行わず、ユーザーが検索ボタンを押すまで待つ
+
+    def get_date_range_from_slider(self) -> tuple[datetime | None, datetime | None]:
+        """
+        CustomRangeSliderから日付範囲を取得してdatetimeオブジェクトに変換
+
+        Returns:
+            tuple: (start_datetime, end_datetime) または (None, None) if not enabled
+        """
+        if not self.ui.checkboxDateFilter.isChecked():
+            return None, None
+
+        try:
+            min_timestamp, max_timestamp = self.date_range_slider.get_range()
+
+            # タイムスタンプの妥当性検証
+            if min_timestamp < 0 or max_timestamp < 0:
+                logger.warning(f"無効なタイムスタンプ: min={min_timestamp}, max={max_timestamp}")
+                return None, None
+
+            if min_timestamp > max_timestamp:
+                logger.warning(f"開始日付が終了日付より後: start={min_timestamp}, end={max_timestamp}")
+                # 自動修正: 値を交換
+                min_timestamp, max_timestamp = max_timestamp, min_timestamp
+
+            # タイムスタンプをdatetimeオブジェクトに変換
+            start_date = datetime.fromtimestamp(min_timestamp)
+            end_date = datetime.fromtimestamp(max_timestamp)
+
+            # 日付範囲の妥当性確認（未来の日付チェック）
+            current_time = datetime.now()
+            if start_date > current_time:
+                logger.warning(f"開始日付が未来: {start_date}, 現在時刻に調整")
+                start_date = current_time
+
+            if end_date > current_time:
+                logger.info(f"終了日付が未来: {end_date}, 現在時刻に調整")
+                end_date = current_time
+
+            logger.debug(f"日付範囲変換完了: {start_date} - {end_date}")
+            return start_date, end_date
+
+        except (ValueError, OSError) as e:
+            logger.error(f"日付範囲変換エラー (タイムスタンプ無効): {e}")
+            return None, None
+        except Exception as e:
+            logger.error(f"予期しない日付範囲変換エラー: {e}", exc_info=True)
+            return None, None
 
     def _on_only_untagged_toggled(self, checked: bool) -> None:
         """未タグ画像のみ検索トグル処理"""
@@ -146,18 +192,42 @@ class FilterSearchPanel(QScrollArea):
             search_text = self.ui.lineEditSearch.text().strip()
             keywords = self.search_filter_service.parse_search_input(search_text) if search_text else []
 
+            # 基本的な入力検証
+            if not keywords and not any(
+                [
+                    self.ui.checkboxOnlyUntagged.isChecked(),
+                    self.ui.checkboxOnlyUncaptioned.isChecked(),
+                    self.ui.checkboxDateFilter.isChecked(),
+                    self.ui.comboResolution.currentText() != "全て",
+                    self.ui.comboAspectRatio.currentText() != "全て",
+                ]
+            ):
+                self.ui.textEditPreview.setPlainText("検索条件を入力してください")
+                logger.info("検索条件が未指定のため検索をスキップ")
+                return
+
+            # 日付範囲を取得
+            date_range_start, date_range_end = self.get_date_range_from_slider()
+
+            # 日付フィルターが有効だが範囲が取得できない場合の処理
+            if self.ui.checkboxDateFilter.isChecked() and (
+                date_range_start is None or date_range_end is None
+            ):
+                error_msg = "日付範囲の設定に問題があります。日付フィルターを無効にするか、範囲を再設定してください。"
+                self.ui.textEditPreview.setPlainText(error_msg)
+                logger.warning("日付範囲フィルターエラー: 有効だが範囲が無効")
+                return
+
             # SearchFilterServiceを使用して検索条件を作成
             conditions = self.search_filter_service.create_search_conditions(
                 search_type="tags" if self.ui.radioTags.isChecked() else "caption",
                 keywords=keywords,
                 tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
                 resolution_filter=self.ui.comboResolution.currentText(),
-                custom_width=self.ui.lineEditWidth.text(),
-                custom_height=self.ui.lineEditHeight.text(),
                 aspect_ratio_filter=self.ui.comboAspectRatio.currentText(),
                 date_filter_enabled=self.ui.checkboxDateFilter.isChecked(),
-                date_range_start=None,  # TODO: 日付範囲から取得
-                date_range_end=None,  # TODO: 日付範囲から取得
+                date_range_start=date_range_start,
+                date_range_end=date_range_end,
                 only_untagged=self.ui.checkboxOnlyUntagged.isChecked(),
                 only_uncaptioned=self.ui.checkboxOnlyUncaptioned.isChecked(),
                 exclude_duplicates=self.ui.checkboxExcludeDuplicates.isChecked(),
@@ -173,9 +243,20 @@ class FilterSearchPanel(QScrollArea):
             self.search_requested.emit({"results": results, "count": count, "conditions": conditions})
             logger.info(f"検索完了: {count}件")
 
+        except AttributeError as e:
+            error_msg = "UIコンポーネントへのアクセスエラーが発生しました"
+            logger.error(f"UI AttributeError: {e}", exc_info=True)
+            self.ui.textEditPreview.setPlainText(error_msg)
+            self.search_requested.emit({"results": [], "count": 0, "error": error_msg})
+        except ValueError as e:
+            error_msg = f"入力値エラー: {e}"
+            logger.error(f"検索入力値エラー: {e}")
+            self.ui.textEditPreview.setPlainText(error_msg)
+            self.search_requested.emit({"results": [], "count": 0, "error": error_msg})
         except Exception as e:
+            error_msg = f"予期しない検索エラーが発生しました: {str(e)[:100]}"
             logger.error(f"検索実行エラー: {e}", exc_info=True)
-            self.ui.textEditPreview.setPlainText(f"検索エラー: {e}")
+            self.ui.textEditPreview.setPlainText(error_msg)
             self.search_requested.emit({"results": [], "count": 0, "error": str(e)})
 
     def _on_clear_requested(self) -> None:
@@ -207,13 +288,6 @@ class FilterSearchPanel(QScrollArea):
                 self.ui.comboResolution.itemText(i) for i in range(self.ui.comboResolution.count())
             ]:
                 self.ui.comboResolution.setCurrentText(resolution)
-            else:
-                # カスタム解像度
-                self.ui.comboResolution.setCurrentText("カスタム...")
-                if "x" in resolution:
-                    width, height = resolution.split("x", 1)
-                    self.ui.lineEditWidth.setText(width)
-                    self.ui.lineEditHeight.setText(height)
 
         # 日付範囲
         if "date_range" in conditions:
@@ -233,9 +307,6 @@ class FilterSearchPanel(QScrollArea):
 
         self.ui.comboResolution.setCurrentIndex(0)
         self.ui.comboAspectRatio.setCurrentIndex(0)
-        self.ui.lineEditWidth.clear()
-        self.ui.lineEditHeight.clear()
-        self.ui.frameCustomResolution.setVisible(False)
 
         self.ui.checkboxDateFilter.setChecked(False)
         self.ui.frameDateRange.setVisible(False)
@@ -272,8 +343,6 @@ class FilterSearchPanel(QScrollArea):
                 "keywords": current.keywords,
                 "tag_logic": current.tag_logic,
                 "resolution_filter": current.resolution_filter,
-                "custom_width": current.custom_width,
-                "custom_height": current.custom_height,
                 "aspect_ratio_filter": current.aspect_ratio_filter,
                 "date_filter_enabled": current.date_filter_enabled,
                 "date_range_start": current.date_range_start,
