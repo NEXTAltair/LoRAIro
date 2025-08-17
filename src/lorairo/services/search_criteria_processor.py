@@ -15,10 +15,7 @@ from typing import Any
 from loguru import logger
 
 from ..database.db_manager import ImageDatabaseManager
-from ..gui.services.search_filter_service import (
-    FilterConditions,
-    SearchConditions,
-)
+from .search_models import FilterConditions, SearchConditions
 
 
 class SearchCriteriaProcessor:
@@ -44,7 +41,7 @@ class SearchCriteriaProcessor:
 
     def execute_search_with_filters(self, conditions: SearchConditions) -> tuple[list[dict[str, Any]], int]:
         """
-        統一検索実行（DB分離後）
+        統一検索実行（直接呼び出し方式）
 
         SearchConditionsを使用してデータベース検索を実行し、
         フィルター処理も適用した結果を返します。
@@ -56,120 +53,60 @@ class SearchCriteriaProcessor:
             tuple: (検索結果リスト, 総件数)
         """
         try:
-            # 検索条件とフィルター条件を分離
-            search_conditions, filter_conditions = self.separate_search_and_filter_conditions(conditions)
+            # フロントエンドフィルターが必要な条件のみ分離
+            frontend_filters = {
+                "aspect_ratio": conditions.aspect_ratio_filter,
+                "exclude_duplicates": conditions.exclude_duplicates,
+            }
 
-            # データベース検索実行
-            db_conditions = self._convert_to_db_query_conditions(search_conditions)
-            images, total_count = self.db_manager.get_images_by_filter(**db_conditions)
+            # DB検索実行（直接変換）
+            db_args = conditions.to_db_filter_args()
+            images, total_count = self.db_manager.get_images_by_filter(**db_args)
 
-            # フロントエンドフィルター適用（必要に応じて）
-            filtered_images = self._apply_frontend_filters(images, filter_conditions)
+            # フロントエンドフィルター適用（必要時のみ）
+            if any(frontend_filters.values()):
+                images = self._apply_simple_frontend_filters(images, conditions)
 
-            logger.info(f"検索実行完了: 条件={search_conditions}, 結果件数={len(filtered_images)}")
-            return filtered_images, len(filtered_images)
+            logger.info(f"検索実行完了: DB引数={len(db_args)}項目, 結果件数={len(images)}")
+            return images, len(images)
 
         except Exception as e:
             logger.error(f"検索実行中にエラーが発生しました: {e}", exc_info=True)
             raise
 
+    # === DEPRECATED: 以下のメソッドは変換レイヤー削除により不要 ===
+    # 後方互換性のため一時的に保持、将来的に削除予定
+
     def separate_search_and_filter_conditions(
         self, conditions: SearchConditions
     ) -> tuple[dict[str, Any], FilterConditions]:
         """
-        検索条件とフィルター条件を分離
-
-        データベースで効率的に処理できる条件と、
-        フロントエンドで処理が必要な条件を分離します。
-
-        Args:
-            conditions: 元の検索条件
-
-        Returns:
-            tuple: (DB検索条件, フロントエンドフィルター条件)
+        DEPRECATED: 検索条件とフィルター条件を分離（廃止予定）
         """
-        try:
-            # データベースで処理可能な条件
-            search_conditions = {}
+        logger.warning(
+            "separate_search_and_filter_conditions は廃止予定です。to_db_filter_args() を使用してください。"
+        )
 
-            # 基本的な検索条件
-            if conditions.keywords:
-                search_conditions["keywords"] = conditions.keywords
-                search_conditions["search_type"] = conditions.search_type
-                search_conditions["tag_logic"] = conditions.tag_logic
+        # 最小限の実装で後方互換性を維持
+        db_args = conditions.to_db_filter_args()
+        filter_conditions = FilterConditions(
+            aspect_ratio=conditions.aspect_ratio_filter,
+            exclude_duplicates=conditions.exclude_duplicates,
+        )
 
-            # 解像度条件（範囲指定の場合はDBで処理）
-            if conditions.resolution_filter:
-                resolution_data = self.process_resolution_filter(conditions)
-                search_conditions.update(resolution_data)
-
-            # 特殊条件
-            if conditions.only_untagged:
-                search_conditions["only_untagged"] = conditions.only_untagged
-            if conditions.only_uncaptioned:
-                search_conditions["only_uncaptioned"] = conditions.only_uncaptioned
-
-            # フロントエンドで処理が必要な条件
-            date_range = None
-            if conditions.date_filter_enabled and conditions.date_range_start and conditions.date_range_end:
-                date_range = (conditions.date_range_start, conditions.date_range_end)
-
-            filter_conditions = FilterConditions(
-                aspect_ratio=conditions.aspect_ratio_filter,
-                date_range=date_range,
-                only_untagged=conditions.only_untagged,
-                only_uncaptioned=conditions.only_uncaptioned,
-                exclude_duplicates=conditions.exclude_duplicates,
-            )
-
-            logger.debug(
-                f"条件分離完了: DB条件={len(search_conditions)}項目, フィルター条件={filter_conditions}"
-            )
-            return search_conditions, filter_conditions
-
-        except Exception as e:
-            logger.error(f"条件分離中にエラーが発生しました: {e}", exc_info=True)
-            raise
+        return db_args, filter_conditions
 
     def process_resolution_filter(self, conditions: SearchConditions) -> dict[str, Any]:
         """
-        解像度フィルター処理と検証
-
-        解像度条件を処理し、データベースクエリに適した形式に変換します。
-
-        Args:
-            conditions: 検索条件
-
-        Returns:
-            dict: 処理済み解像度条件
+        DEPRECATED: 解像度フィルター処理（廃止予定）
         """
-        try:
-            resolution_conditions = {}
+        logger.warning(
+            "process_resolution_filter は廃止予定です。SearchConditions._resolve_resolution() を使用してください。"
+        )
 
-            # 基本的な解像度フィルター処理
-            if conditions.resolution_filter and conditions.resolution_filter != "全て":
-                if (
-                    conditions.resolution_filter == "カスタム"
-                    and conditions.custom_width
-                    and conditions.custom_height
-                ):
-                    resolution_conditions["min_width"] = conditions.custom_width
-                    resolution_conditions["min_height"] = conditions.custom_height
-                    resolution_conditions["max_width"] = conditions.custom_width
-                    resolution_conditions["max_height"] = conditions.custom_height
-                else:
-                    # 標準解像度の場合
-                    width, height = self._parse_resolution_value(conditions.resolution_filter)
-                    if width and height:
-                        resolution_conditions["min_width"] = width
-                        resolution_conditions["min_height"] = height
-
-            logger.debug(f"解像度条件処理完了: {resolution_conditions}")
-            return resolution_conditions
-
-        except Exception as e:
-            logger.error(f"解像度フィルター処理中にエラー: {e}", exc_info=True)
-            return {}
+        # 最小限の実装で後方互換性を維持
+        resolution = conditions._resolve_resolution()
+        return {"resolution": resolution} if resolution > 0 else {}
 
     def process_date_filter(self, conditions: SearchConditions) -> dict[str, Any]:
         """
@@ -256,42 +193,26 @@ class SearchCriteriaProcessor:
 
     def _convert_to_db_query_conditions(self, search_conditions: dict[str, Any]) -> dict[str, Any]:
         """
-        検索条件をデータベースクエリ形式に変換
-
-        サービス層の検索条件をデータベース層で処理可能な形式に変換します。
-
-        Args:
-            search_conditions: 検索条件辞書
-
-        Returns:
-            dict: データベースクエリ条件
+        DEPRECATED: 検索条件をデータベースクエリ形式に変換（廃止予定）
         """
-        try:
-            db_conditions = {}
+        logger.warning(
+            "_convert_to_db_query_conditions は廃止予定です。SearchConditions.to_db_filter_args() を使用してください。"
+        )
 
-            # 条件をそのまま渡すか、必要に応じて変換
-            for key, value in search_conditions.items():
-                if value is not None:
-                    db_conditions[key] = value
+        # 最小限の実装で後方互換性を維持
+        return search_conditions.copy() if search_conditions else {}
 
-            logger.debug(f"DB条件変換完了: {len(db_conditions)}項目")
-            return db_conditions
-
-        except Exception as e:
-            logger.error(f"DB条件変換中にエラー: {e}", exc_info=True)
-            return {}
-
-    def _apply_frontend_filters(
-        self, images: list[dict[str, Any]], filter_conditions: FilterConditions
+    def _apply_simple_frontend_filters(
+        self, images: list[dict[str, Any]], conditions: SearchConditions
     ) -> list[dict[str, Any]]:
         """
-        フロントエンドフィルターの適用
+        シンプルなフロントエンドフィルターの適用
 
         データベースで処理できない条件をメモリ内で処理します。
 
         Args:
             images: 画像データリスト
-            filter_conditions: フィルター条件
+            conditions: 検索条件
 
         Returns:
             list: フィルター済み画像データリスト
@@ -300,16 +221,15 @@ class SearchCriteriaProcessor:
             filtered_images = images
 
             # アスペクト比フィルター
-            if filter_conditions.aspect_ratio:
+            if conditions.aspect_ratio_filter:
                 filtered_images = self._filter_by_aspect_ratio(
-                    filtered_images, filter_conditions.aspect_ratio
+                    filtered_images, conditions.aspect_ratio_filter
                 )
 
-            # 日付範囲フィルター
-            if filter_conditions.date_range:
-                start_date, end_date = filter_conditions.date_range
-                date_filter = {"start_date": start_date, "end_date": end_date}
-                filtered_images = self._filter_by_date_range(filtered_images, date_filter)
+            # 重複除外フィルター（将来実装用プレースホルダー）
+            if conditions.exclude_duplicates:
+                # TODO: 重複除外ロジック実装
+                pass
 
             logger.debug(f"フロントエンドフィルター適用完了: {len(images)} -> {len(filtered_images)}件")
             return filtered_images
@@ -318,7 +238,7 @@ class SearchCriteriaProcessor:
             logger.error(f"フロントエンドフィルター適用中にエラー: {e}", exc_info=True)
             return images
 
-    def _filter_by_aspect_ratio(
+    def _filter_by_aspect_ratio(  # noqa: C901
         self, images: list[dict[str, Any]], aspect_ratio_filter: str
     ) -> list[dict[str, Any]]:
         """
