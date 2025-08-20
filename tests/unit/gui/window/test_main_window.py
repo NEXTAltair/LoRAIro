@@ -265,30 +265,6 @@ class TestMainWindowPhase3Integration:
                     "ImageDBWriteService created and injected into SelectedImageDetailsWidget"
                 )
 
-    def test_setup_state_integration(self, mock_dependencies):
-        """DatasetStateManager統合テスト（Phase 3.4）"""
-        from lorairo.gui.window.main_window import MainWindow
-
-        # MainWindowの_setup_state_integration メソッドをテスト
-        method = MainWindow._setup_state_integration
-
-        # モックオブジェクト作成
-        mock_window = Mock()
-        mock_window.image_preview = Mock()
-        mock_window.dataset_state = mock_dependencies["dataset_state"]
-
-        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
-            # メソッド実行
-            method(mock_window)
-
-            # ImagePreviewWidgetにDatasetStateManagerが接続される
-            mock_window.image_preview.set_dataset_state_manager.assert_called_once_with(
-                mock_dependencies["dataset_state"]
-            )
-
-            # ログが出力される
-            mock_logger.info.assert_called_with("DatasetStateManager connected to widgets")
-
     def test_widget_initialization_order(self, mock_dependencies):
         """ウィジェット初期化順序テスト（Phase 3.4）"""
         # setup_custom_widgets後にサービス統合が呼ばれることを確認
@@ -306,7 +282,6 @@ class TestMainWindowPhase3Integration:
 
             # サービス統合メソッドを実行
             MainWindow._setup_image_db_write_service(mock_window)
-            MainWindow._setup_state_integration(mock_window)
 
             # ウィジェットが正しく設定される
             assert mock_window.image_db_write_service == mock_service_instance
@@ -379,7 +354,6 @@ class TestMainWindowPhase3Integration:
 
                 # Phase 3統合メソッドを順番に実行
                 MainWindow._setup_image_db_write_service(mock_window)
-                MainWindow._setup_state_integration(mock_window)
 
                 # 全ての統合が正しく実行される
                 assert mock_window.image_db_write_service == mock_service_instance
