@@ -7,10 +7,13 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QMainWindow
 
 from ...database.db_manager import ImageDatabaseManager
+from ...services import get_service_container
 from ...services.configuration_service import ConfigurationService
+from ...services.model_selection_service import ModelSelectionService
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
 from ..designer.MainWindow_ui import Ui_MainWindow
+from ..services.search_filter_service import SearchFilterService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
 from ..widgets.filter_search_panel import FilterSearchPanel
@@ -62,6 +65,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # Phase 3: UI カスタマイズ（サービス依存）
             logger.info("Phase 3: UI カスタマイズ開始")
             self.setup_custom_widgets()
+
+            # Phase 3.5: サービス統合（新規）
+            logger.info("Phase 3.5: SearchFilterService統合開始")
+            self._setup_search_filter_integration()
 
             # Phase 4: イベント接続（最終段階）
             logger.info("Phase 4: イベント接続開始")
@@ -375,6 +382,56 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         except Exception as e:
             logger.error(f"ImageDBWriteService setup failed: {e}", exc_info=True)
+
+    def _create_search_filter_service(self) -> SearchFilterService:
+        """
+        SearchFilterServiceを適切な設定で作成（MainWindow統合用）
+
+        Returns:
+            SearchFilterService: 設定されたサービスインスタンス
+        """
+        try:
+            # ServiceContainer経由で適切なModelSelectionServiceを注入
+            service_container = get_service_container()
+            model_selection_service = ModelSelectionService.create(
+                db_repository=service_container.image_repository
+            )
+
+            return SearchFilterService(
+                db_manager=self.db_manager, model_selection_service=model_selection_service
+            )
+        except Exception as e:
+            logger.error(f"Failed to create SearchFilterService: {e}")
+            # フォールバック: NullModelRegistryを使用した最小限の機能提供
+            from ...database.db_repository import ImageRepository
+
+            # 最小限のModelSelectionServiceを作成
+            fallback_repo = ImageRepository(self.db_manager.get_db_path())
+            model_selection_service = ModelSelectionService(fallback_repo)
+
+            return SearchFilterService(
+                db_manager=self.db_manager, model_selection_service=model_selection_service
+            )
+
+    def _setup_search_filter_integration(self) -> None:
+        """SearchFilterService統合処理（Phase 3.5）
+
+        FilterSearchPanelにSearchFilterServiceを注入して検索機能を有効化
+        """
+        try:
+            if self.filter_search_panel:
+                # SearchFilterServiceを作成
+                search_filter_service = self._create_search_filter_service()
+
+                # FilterSearchPanelに注入
+                self.filter_search_panel.set_search_filter_service(search_filter_service)
+
+                logger.info("SearchFilterService integration completed - FilterSearchPanel search functionality enabled")
+            else:
+                logger.warning("Cannot setup SearchFilterService integration: filter_search_panel not available")
+
+        except Exception as e:
+            logger.error(f"SearchFilterService integration failed: {e}", exc_info=True)
 
     def _setup_state_integration(self) -> None:
         """DatasetStateManagerをウィジェットに接続
