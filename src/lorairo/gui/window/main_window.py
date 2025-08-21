@@ -7,10 +7,13 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QMainWindow
 
 from ...database.db_manager import ImageDatabaseManager
+from ...services import get_service_container
 from ...services.configuration_service import ConfigurationService
+from ...services.model_selection_service import ModelSelectionService
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
 from ..designer.MainWindow_ui import Ui_MainWindow
+from ..services.search_filter_service import SearchFilterService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
 from ..widgets.filter_search_panel import FilterSearchPanel
@@ -63,6 +66,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("Phase 3: UI カスタマイズ開始")
             self.setup_custom_widgets()
 
+            # Phase 3.5: サービス統合（新規）
+            logger.info("Phase 3.5: SearchFilterService統合開始")
+            self._setup_search_filter_integration()
+
             # Phase 4: イベント接続（最終段階）
             logger.info("Phase 4: イベント接続開始")
             self._connect_events()
@@ -74,75 +81,63 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self._initialization_error = f"初期化エラー: {e}"
             logger.error(f"MainWindow初期化失敗: {e}", exc_info=True)
 
-            # 基本的なUI表示は継続（エラー状態でも表示可能にする）
-            try:
-                self.setupUi(self)
-                logger.info("エラー状態でもUI表示を継続")
-            except Exception as ui_error:
-                logger.error(f"UI設定も失敗: {ui_error}")
-                raise  # UI設定に失敗した場合は致命的エラー
-
     def _initialize_services(self) -> None:
-        """サービスを段階的に初期化し、例外処理を個別に行う"""
+        """サービスを段階的に初期化し、致命的コンポーネントは強制終了"""
 
-        # ConfigurationService初期化
+        # ServiceContainer（必須）
+        try:
+            logger.info("  - ServiceContainer/ImageDatabaseManager初期化中...")
+            service_container = get_service_container()
+            self.db_manager = service_container.db_manager
+            if not self.db_manager:
+                raise RuntimeError("ServiceContainer経由でImageDatabaseManagerを取得できません")
+            logger.info("  ✅ ImageDatabaseManager初期化成功（ServiceContainer統一）")
+        except Exception as e:
+            self._handle_critical_initialization_failure("ServiceContainer/ImageDatabaseManager", e)
+            return
+
+        # ConfigurationService（必須）
         try:
             logger.info("  - ConfigurationService初期化中...")
             self.config_service = ConfigurationService()
             logger.info("  ✅ ConfigurationService初期化成功")
         except Exception as e:
-            logger.error(f"  ❌ ConfigurationService初期化失敗: {e}")
-            self.config_service = None
+            self._handle_critical_initialization_failure("ConfigurationService", e)
+            return
 
-        # FileSystemManager初期化
+        # 非致命的サービス（ログして継続）
         try:
             logger.info("  - FileSystemManager初期化中...")
             self.file_system_manager = FileSystemManager()
             logger.info("  ✅ FileSystemManager初期化成功")
         except Exception as e:
-            logger.error(f"  ❌ FileSystemManager初期化失敗: {e}")
+            logger.error(f"  ❌ FileSystemManager初期化失敗（継続）: {e}")
             self.file_system_manager = None
 
-        # ImageDatabaseManager初期化
-        try:
-            logger.info("  - ImageDatabaseManager初期化中...")
-            if self.config_service:
-                db_path = self.config_service.get_database_directory() / "image_database.db"
-            else:
-                db_path = Path("lorairo_data/default_project/image_database.db")
-
-            self.db_manager = ImageDatabaseManager(str(db_path))
-            logger.info("  ✅ ImageDatabaseManager初期化成功")
-        except Exception as e:
-            logger.error(f"  ❌ ImageDatabaseManager初期化失敗: {e}")
-            self.db_manager = None
-
-        # WorkerService初期化
         try:
             logger.info("  - WorkerService初期化中...")
             self.worker_service = WorkerService()
             logger.info("  ✅ WorkerService初期化成功")
         except Exception as e:
-            logger.error(f"  ❌ WorkerService初期化失敗: {e}")
+            logger.error(f"  ❌ WorkerService初期化失敗（継続）: {e}")
             self.worker_service = None
 
-        # DatasetStateManager初期化
         try:
             logger.info("  - DatasetStateManager初期化中...")
             self.dataset_state_manager = DatasetStateManager()
             logger.info("  ✅ DatasetStateManager初期化成功")
         except Exception as e:
-            logger.error(f"  ❌ DatasetStateManager初期化失敗: {e}")
+            logger.error(f"  ❌ DatasetStateManager初期化失敗（継続）: {e}")
             self.dataset_state_manager = None
 
-        # 初期化成功サービスの確認
+        # 初期化結果サマリー
         successful_services = []
         failed_services = []
 
         services = [
             ("ConfigurationService", self.config_service),
-            ("FileSystemManager", self.file_system_manager),
             ("ImageDatabaseManager", self.db_manager),
+            ("FileSystemManager", self.file_system_manager),
             ("WorkerService", self.worker_service),
             ("DatasetStateManager", self.dataset_state_manager),
         ]
@@ -157,32 +152,67 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if successful_services:
             logger.info(f"  成功: {', '.join(successful_services)}")
         if failed_services:
-            logger.warning(f"  失敗: {', '.join(failed_services)}")
+            logger.warning(f"  失敗（非致命的）: {', '.join(failed_services)}")
 
-        # 最低限必要なサービスのチェック
-        if self.config_service is None:
-            logger.warning("ConfigurationServiceの初期化に失敗しましたが、継続します")
-        if self.db_manager is None:
-            logger.warning("ImageDatabaseManagerの初期化に失敗しました - 一部機能が制限されます")
+        logger.info("致命的サービス（ConfigurationService, ImageDatabaseManager）初期化完了")
+
+    def _handle_critical_initialization_failure(self, component_name: str, error: Exception) -> None:
+        """致命的初期化失敗時の処理
+
+        Args:
+            component_name: 失敗したコンポーネント名
+            error: 発生した例外
+        """
+        error_message = (
+            f"致命的な初期化エラーが発生しました。\n\n"
+            f"コンポーネント: {component_name}\n"
+            f"エラー: {error!s}\n\n"
+            f"アプリケーションを終了します。\n"
+            f"問題が解決しない場合は、設定ファイルの確認または再インストールをお試しください。"
+        )
+
+        logger.critical(f"Critical initialization failure - {component_name}: {error}")
+
+        # ユーザーへの通知（GUI利用可能なら）
+        try:
+            from PySide6.QtWidgets import QMessageBox
+
+            msg_box = QMessageBox()
+            msg_box.setIcon(QMessageBox.Icon.Critical)
+            msg_box.setWindowTitle("LoRAIro - 致命的エラー")
+            msg_box.setText(error_message)
+            msg_box.exec()
+        except Exception:
+            # GUI不可の場合はコンソール出力
+            print(f"\n{'=' * 60}")
+            print("LoRAIro - 致命的エラー")
+            print(f"{'=' * 60}")
+            print(error_message)
+            print(f"{'=' * 60}\n")
+
+        # アプリケーション終了
+        import sys
+
+        sys.exit(1)
 
     def setup_custom_widgets(self) -> None:
-        """カスタムウィジェットを設定（安全な実装）"""
-        # フィルター・検索パネル
+        """カスタムウィジェットを設定（致命的コンポーネントチェック実装）"""
+        # フィルター・検索パネル（Designer生成専用・必須）
         try:
-            if hasattr(self, "frameFilterSearchContent") and hasattr(
-                self, "verticalLayout_filterSearchContent"
-            ):
-                self.filter_search_panel = FilterSearchPanel(self.frameFilterSearchContent)
-                self.verticalLayout_filterSearchContent.addWidget(self.filter_search_panel)
-                logger.info("フィルター・検索パネル設定完了")
+            if hasattr(self, "filterSearchPanel") and self.filterSearchPanel:
+                self.filter_search_panel = self.filterSearchPanel  # type: ignore[attr-defined]
+                logger.info("フィルター・検索パネル(Designer生成)を使用")
+                logger.debug(f"FilterSearchPanel instance ID: {id(self.filter_search_panel)}")
             else:
-                logger.warning("フィルター・検索パネル用UIコンポーネントが見つかりません")
-                self.filter_search_panel = None
+                # 致命的エラー: メイン機能が利用不可
+                raise RuntimeError(
+                    "Designer生成filterSearchPanelが見つかりません - UIファイルの破損またはバージョン不整合の可能性"
+                )
         except Exception as e:
-            logger.error(f"フィルター・検索パネル設定エラー: {e}", exc_info=True)
-            self.filter_search_panel = None
+            self._handle_critical_initialization_failure("FilterSearchPanel", e)
+            return  # この行は実行されないが明示的記述
 
-        # サムネイルセレクター（強化版）
+        # サムネイルセレクター（非致命的）
         try:
             if (
                 hasattr(self, "frameThumbnailContent")
@@ -196,14 +226,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 logger.info("サムネイルセレクター設定完了")
             else:
                 logger.warning(
-                    "サムネイルセレクター用UIコンポーネントまたはdataset_state_managerが見つかりません"
+                    "サムネイルセレクター用UIコンポーネントまたはdataset_state_managerが見つかりません（継続）"
                 )
                 self.thumbnail_selector = None
         except Exception as e:
-            logger.error(f"サムネイルセレクター設定エラー: {e}", exc_info=True)
+            logger.error(f"サムネイルセレクター設定エラー（継続）: {e}", exc_info=True)
             self.thumbnail_selector = None
 
-        # プレビューウィジェット（既存活用）
+        # プレビューウィジェット（非致命的）
         try:
             if hasattr(self, "framePreviewDetailContent") and hasattr(
                 self, "verticalLayout_previewDetailContent"
@@ -212,32 +242,32 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.verticalLayout_previewDetailContent.addWidget(self.image_preview_widget)
                 logger.info("プレビューウィジェット設定完了")
             else:
-                logger.warning("プレビューウィジェット用UIコンポーネントが見つかりません")
+                logger.warning("プレビューウィジェット用UIコンポーネントが見つかりません（継続）")
                 self.image_preview_widget = None
         except Exception as e:
-            logger.error(f"プレビューウィジェット設定エラー: {e}", exc_info=True)
+            logger.error(f"プレビューウィジェット設定エラー（継続）: {e}", exc_info=True)
             self.image_preview_widget = None
 
-        # Phase 3.4: 選択画像詳細ウィジェット追加
+        # 選択画像詳細ウィジェット（非致命的）
         try:
             if hasattr(self, "verticalLayout_selectedImageDetails"):
                 self.selected_image_details_widget = SelectedImageDetailsWidget()
                 self.verticalLayout_selectedImageDetails.addWidget(self.selected_image_details_widget)
                 logger.info("選択画像詳細ウィジェット設定完了")
             else:
-                logger.warning("選択画像詳細ウィジェット用UIコンポーネントが見つかりません")
+                logger.warning("選択画像詳細ウィジェット用UIコンポーネントが見つかりません（継続）")
                 self.selected_image_details_widget = None
         except Exception as e:
-            logger.error(f"選択画像詳細ウィジェット設定エラー: {e}", exc_info=True)
+            logger.error(f"選択画像詳細ウィジェット設定エラー（継続）: {e}", exc_info=True)
             self.selected_image_details_widget = None
 
-        # スプリッターの初期サイズ設定
+        # スプリッターの初期サイズ設定（非致命的）
         try:
             if hasattr(self, "splitterMainWorkArea"):
                 self.splitterMainWorkArea.setSizes([300, 700, 400])  # フィルター:サムネイル:プレビュー
                 logger.info("スプリッター初期サイズ設定完了")
         except Exception as e:
-            logger.warning(f"スプリッター設定エラー: {e}")
+            logger.warning(f"スプリッター設定エラー（継続）: {e}")
 
     def _connect_events(self) -> None:
         """イベント接続を設定（安全な実装）"""
@@ -376,27 +406,78 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except Exception as e:
             logger.error(f"ImageDBWriteService setup failed: {e}", exc_info=True)
 
-    def _setup_state_integration(self) -> None:
-        """DatasetStateManagerをウィジェットに接続
+    def _create_search_filter_service(self) -> SearchFilterService:
+        """
+        SearchFilterService作成（ServiceContainer統一）
 
-        Phase 3.4: 状態管理統合パターンの実装
+        Returns:
+            SearchFilterService: 設定されたサービスインスタンス
         """
         try:
-            if (
-                hasattr(self, "dataset_state")
-                and self.dataset_state
-                and hasattr(self, "image_preview")
-                and self.image_preview
-            ):
-                # ImagePreviewWidgetにDatasetStateManagerを接続
-                self.image_preview.set_dataset_state_manager(self.dataset_state)
-                logger.info("DatasetStateManager connected to widgets")
-            else:
-                logger.warning(
-                    "Cannot setup state integration: dataset_state or image_preview not available"
-                )
+            # ServiceContainer経由で一貫したサービス取得
+            service_container = get_service_container()
+            repo = service_container.image_repository
+            model_selection_service = ModelSelectionService.create(db_repository=repo)
+
+            dbm = self.db_manager
+
+            if not dbm:
+                raise ValueError("ImageDatabaseManager is required but not available")
+
+            return SearchFilterService(db_manager=dbm, model_selection_service=model_selection_service)
+
         except Exception as e:
-            logger.error(f"State integration setup failed: {e}", exc_info=True)
+            logger.error(f"Failed to create SearchFilterService: {e}", exc_info=True)
+            # 致命的エラーとして扱う（フォールバック中止）
+            raise ValueError("SearchFilterService作成不可") from e
+
+    def _setup_search_filter_integration(self) -> None:
+        """SearchFilterService統合処理（Phase 3.5）致命的チェック実装
+
+        FilterSearchPanelにSearchFilterServiceを注入して検索機能を有効化
+        """
+        # 前提条件チェック（致命的）
+        if not self.filter_search_panel:
+            self._handle_critical_initialization_failure(
+                "SearchFilterService統合",
+                RuntimeError("filter_search_panel が None - setup_custom_widgets() の失敗"),
+            )
+            return
+
+        if not self.db_manager:
+            self._handle_critical_initialization_failure(
+                "SearchFilterService統合", RuntimeError("db_manager が None - ServiceContainer初期化失敗")
+            )
+            return
+
+        # 同一性確認の追加（GPT5指摘対応）
+        if hasattr(self, "filterSearchPanel") and self.filterSearchPanel:
+            if self.filter_search_panel is not self.filterSearchPanel:
+                logger.warning(
+                    f"FilterSearchPanel インスタンス不一致を検出 - 修正中: "
+                    f"filter_search_panel={id(self.filter_search_panel)}, "
+                    f"filterSearchPanel={id(self.filterSearchPanel)}"
+                )
+                # Designer生成UIを確実に使用
+                self.filter_search_panel = self.filterSearchPanel
+                logger.info("Designer生成filterSearchPanelに修正完了")
+
+            # 同一性確認ログ（明示的検証）
+            logger.debug(
+                f"FilterSearchPanel 同一性確認: "
+                f"filter_search_panel is filterSearchPanel = {self.filter_search_panel is self.filterSearchPanel}"
+            )
+            logger.debug(f"Instance ID: {id(self.filter_search_panel)}")
+
+        # 統合処理実行
+        try:
+            search_filter_service = self._create_search_filter_service()
+            self.filter_search_panel.set_search_filter_service(search_filter_service)
+            logger.info(
+                "SearchFilterService integration completed - FilterSearchPanel search functionality enabled"
+            )
+        except Exception as e:
+            self._handle_critical_initialization_failure("SearchFilterService統合", e)
 
 
 if __name__ == "__main__":

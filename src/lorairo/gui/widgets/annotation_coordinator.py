@@ -77,36 +77,34 @@ class AnnotationCoordinator(QObject):
     annotation_batch_completed = Signal(dict)  # complete_results
     annotation_batch_error = Signal(str)  # error_message
 
-    def _create_search_filter_service(self) -> SearchFilterService:
+    def _create_search_filter_service(self) -> SearchFilterService | None:
         """
-        SearchFilterServiceを適切な設定で作成
+        SearchFilterService作成（ServiceContainer統一）
 
         Returns:
-            SearchFilterService: 設定されたサービスインスタンス
+            SearchFilterService | None: 設定されたサービスインスタンス、失敗時はNone
         """
         try:
-            # ServiceContainer経由で適切なModelSelectionServiceを注入
+            # ServiceContainer経由で一貫したサービス取得
             service_container = get_service_container()
-            model_selection_service = ModelSelectionService.create(
-                db_repository=service_container.image_repository
-            )
+            repo = service_container.image_repository
+            model_selection_service = ModelSelectionService.create(db_repository=repo)
+            
+            # db_managerはinit必須引数なのでこれで十分
+            dbm = self.db_manager
+            
+            if not dbm:
+                logger.error("ImageDatabaseManager is required but not available")
+                return None
 
             return SearchFilterService(
-                db_manager=self.db_manager, model_selection_service=model_selection_service
+                db_manager=dbm, 
+                model_selection_service=model_selection_service
             )
+            
         except Exception as e:
-            logger.error(f"Failed to create SearchFilterService: {e}")
-            # フォールバック: NullModelRegistryを使用した最小限の機能提供
-            from ...database.db_repository import ImageRepository
-            from ...services.model_selection_service import ModelSelectionService
-
-            # 最小限のModelSelectionServiceを作成
-            fallback_repo = ImageRepository(self.db_manager.get_db_path())
-            model_selection_service = ModelSelectionService(fallback_repo)
-
-            return SearchFilterService(
-                db_manager=self.db_manager, model_selection_service=model_selection_service
-            )
+            logger.error(f"Failed to create SearchFilterService: {e}", exc_info=True)
+            return None
 
     def __init__(
         self,
@@ -177,8 +175,10 @@ class AnnotationCoordinator(QObject):
 
     def _setup_database_connections(self) -> None:
         """各ウィジェットにサービス層を設定"""
-        if self.status_filter_widget:
+        if self.status_filter_widget and self.search_filter_service:
             self.status_filter_widget.set_search_filter_service(self.search_filter_service)
+        elif self.status_filter_widget and not self.search_filter_service:
+            logger.warning("SearchFilterService is None, status_filter_widget will not have search functionality")
 
         # SelectedImageDetailsWidget へのDB直接注入は未対応APIのためスキップ
         logger.debug("Database connections setup completed")

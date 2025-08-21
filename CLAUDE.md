@@ -22,7 +22,7 @@ This project supports Windows/Linux environments with independent virtual enviro
 
 **Main Application Flow:**
 - Entry point: `src/lorairo/main.py` - Initializes Qt application and main window
-- Main Window: `src/lorairo/gui/window/main_window.py` - Primary GUI orchestrator
+- Main Window: `src/lorairo/gui/window/main_window.py` - Primary GUI orchestrator (5段階初期化、SearchFilterService統合完了)
 - Configuration: `config/lorairo.toml` - Application settings and parameters
 
 **Data Layer:**
@@ -41,7 +41,7 @@ This project supports Windows/Linux environments with independent virtual enviro
   - `ModelFilterService` - AI model management and filtering
 - **GUI Services** (`src/lorairo/gui/services/`):
   - `WorkerService` - Qt-based asynchronous task coordination
-  - `SearchFilterService` - GUI-focused search and filter operations (refactored)
+  - `SearchFilterService` - GUI-focused search and filter operations (MainWindow統合完了)
 
 **Workers & Async Processing:**
 - `WorkerManager` (`src/lorairo/gui/workers/manager.py`) - QThreadPool-based worker execution
