@@ -120,7 +120,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.worker_service = WorkerService(self.db_manager, self.file_system_manager)
                 logger.info("  ✅ WorkerService初期化成功")
             else:
-                raise RuntimeError("db_manager または file_system_manager が未初期化のため WorkerService を作成できません")
+                raise RuntimeError(
+                    "db_manager または file_system_manager が未初期化のため WorkerService を作成できません"
+                )
         except Exception as e:
             logger.error(f"  ❌ WorkerService初期化失敗（継続）: {e}")
             self.worker_service = None
@@ -318,10 +320,140 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 except Exception as e:
                     logger.error(f"    ❌ サムネイル→プレビュー接続失敗: {e}")
 
+            # Phase 2: Sequential Worker Pipeline 統合シグナル接続
+            self._setup_worker_pipeline_signals()
+
             logger.info("  ✅ イベント接続完了")
 
         except Exception as e:
             logger.error(f"イベント接続で予期しないエラー: {e}", exc_info=True)
+
+    def _setup_worker_pipeline_signals(self) -> None:
+        """Phase 2: Sequential Worker Pipeline シグナル接続設定"""
+        if not self.worker_service:
+            logger.warning("WorkerService not available - Sequential Pipeline signals not connected")
+            return
+
+        try:
+            # SearchWorker完了 → ThumbnailWorker自動起動
+            self.worker_service.search_finished.connect(self._on_search_completed_start_thumbnail)
+
+            # ThumbnailWorker完了 → ThumbnailSelectorWidget更新
+            self.worker_service.thumbnail_finished.connect(self._on_thumbnail_completed_update_display)
+
+            # Pipeline進捗統合表示
+            self.worker_service.search_started.connect(self._on_pipeline_search_started)
+            self.worker_service.thumbnail_started.connect(self._on_pipeline_thumbnail_started)
+
+            # Pipeline エラー・キャンセレーション処理
+            self.worker_service.search_error.connect(self._on_pipeline_search_error)
+            self.worker_service.thumbnail_error.connect(self._on_pipeline_thumbnail_error)
+
+            logger.info("    ✅ Sequential Worker Pipeline signals connected")
+
+        except Exception as e:
+            logger.error(f"    ❌ Sequential Worker Pipeline signals connection failed: {e}")
+
+    def _on_search_completed_start_thumbnail(self, search_result: Any) -> None:
+        """SearchWorker完了時にThumbnailWorkerを自動起動"""
+        if not search_result or not hasattr(search_result, "image_metadata"):
+            logger.warning("Search completed but no valid results - Thumbnail loading skipped")
+            return
+
+        if not search_result.image_metadata:
+            logger.info("Search completed with 0 results - Thumbnail loading skipped")
+            # サムネイル領域をクリア（要求仕様通り）
+            if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
+                self.thumbnail_selector.clear_thumbnails()
+            return
+
+        try:
+            # ThumbnailWorker開始 - SearchResultを直接使用
+            from PySide6.QtCore import QSize
+            default_thumbnail_size = QSize(150, 150)  # デフォルトサムネイルサイズ
+            worker_id = self.worker_service.start_thumbnail_loading(search_result, default_thumbnail_size)
+            logger.info(
+                f"ThumbnailWorker started automatically after search: {worker_id} ({len(search_result.image_metadata)} images)"
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to start automatic thumbnail loading: {e}", exc_info=True)
+
+    def _on_thumbnail_completed_update_display(self, thumbnail_result: Any) -> None:
+        """ThumbnailWorker完了時にThumbnailSelectorWidget更新"""
+        if not self.thumbnail_selector:
+            logger.warning("ThumbnailSelectorWidget not available - thumbnail display update skipped")
+            return
+
+        try:
+            # ThumbnailSelectorWidget統合（既存メソッド活用）
+            if hasattr(self.thumbnail_selector, "load_thumbnails_from_result"):
+                self.thumbnail_selector.load_thumbnails_from_result(thumbnail_result)
+                logger.info("ThumbnailSelectorWidget updated with results")
+            else:
+                logger.warning("ThumbnailSelectorWidget.load_thumbnails_from_result method not found")
+
+        except Exception as e:
+            logger.error(f"Failed to update ThumbnailSelectorWidget: {e}", exc_info=True)
+
+    def _on_pipeline_search_started(self, worker_id: str) -> None:
+        """Pipeline検索フェーズ開始時の進捗表示"""
+        if hasattr(self.filter_search_panel, "update_pipeline_progress"):
+            self.filter_search_panel.update_pipeline_progress("検索中...", 0.0, 0.3)
+
+    def _on_pipeline_thumbnail_started(self, worker_id: str) -> None:
+        """Pipelineサムネイル生成フェーズ開始時の進捗表示"""
+        if hasattr(self.filter_search_panel, "update_pipeline_progress"):
+            self.filter_search_panel.update_pipeline_progress("サムネイル読込中...", 0.3, 1.0)
+
+    def _on_pipeline_search_error(self, error_message: str) -> None:
+        """Pipeline検索エラー時の処理（検索結果破棄）"""
+        logger.error(f"Pipeline search error: {error_message}")
+        if hasattr(self.filter_search_panel, "handle_pipeline_error"):
+            self.filter_search_panel.handle_pipeline_error("search", {"message": error_message})
+        # 検索結果破棄（要求仕様通り）
+        if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
+            self.thumbnail_selector.clear_thumbnails()
+
+    def _on_pipeline_thumbnail_error(self, error_message: str) -> None:
+        """Pipelineサムネイル生成エラー時の処理（検索結果破棄）"""
+        logger.error(f"Pipeline thumbnail error: {error_message}")
+        if hasattr(self.filter_search_panel, "handle_pipeline_error"):
+            self.filter_search_panel.handle_pipeline_error("thumbnail", {"message": error_message})
+        # 検索結果破棄（要求仕様通り）
+        if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
+            self.thumbnail_selector.clear_thumbnails()
+
+    def cancel_current_pipeline(self) -> None:
+        """現在のPipeline全体をキャンセル"""
+        if not self.worker_service:
+            logger.warning("WorkerService not available - Pipeline cancellation skipped")
+            return
+
+        try:
+            # SearchWorker + ThumbnailWorker の cascade cancellation
+            if (
+                hasattr(self.worker_service, "current_search_worker_id")
+                and self.worker_service.current_search_worker_id
+            ):
+                self.worker_service.cancel_search(self.worker_service.current_search_worker_id)
+                logger.info("Search worker cancelled in pipeline")
+
+            if (
+                hasattr(self.worker_service, "current_thumbnail_worker_id")
+                and self.worker_service.current_thumbnail_worker_id
+            ):
+                self.worker_service.cancel_thumbnail_loading(self.worker_service.current_thumbnail_worker_id)
+                logger.info("Thumbnail worker cancelled in pipeline")
+
+            # キャンセル時の結果破棄（要求仕様通り）
+            if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
+                self.thumbnail_selector.clear_thumbnails()
+
+            logger.info("Pipeline cancellation completed")
+
+        except Exception as e:
+            logger.error(f"Pipeline cancellation failed: {e}", exc_info=True)
 
     # Placeholder methods for UI actions - implement these based on your requirements
     def select_dataset_directory(self):
@@ -482,7 +614,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.filter_search_panel.set_worker_service(self.worker_service)
                 logger.info("WorkerService integrated into FilterSearchPanel")
             else:
-                logger.warning("WorkerService not available - FilterSearchPanel will use synchronous search")
+                logger.warning(
+                    "WorkerService not available - FilterSearchPanel will use synchronous search"
+                )
             logger.info(
                 "SearchFilterService integration completed - FilterSearchPanel search functionality enabled"
             )

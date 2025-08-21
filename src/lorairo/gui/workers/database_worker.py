@@ -257,12 +257,12 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
 
     def __init__(
         self,
-        image_metadata: list[dict[str, Any]],
+        search_result: "SearchResult",
         thumbnail_size: QSize,
         db_manager: "ImageDatabaseManager",
     ):
         super().__init__()
-        self.image_metadata = image_metadata
+        self.search_result = search_result
         self.thumbnail_size = thumbnail_size
         self.db_manager = db_manager
 
@@ -271,7 +271,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
         import time
 
         start_time = time.time()
-        total_count = len(self.image_metadata)
+        total_count = len(self.search_result.image_metadata)
 
         if total_count == 0:
             logger.warning("サムネイル読み込み対象がありません")
@@ -286,7 +286,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
         # 初期進捗報告
         self._report_progress(5, "サムネイル読み込み開始...")
 
-        for i, image_data in enumerate(self.image_metadata):
+        for i, image_data in enumerate(self.search_result.image_metadata):
             # キャンセルチェック
             self._check_cancellation()
 
