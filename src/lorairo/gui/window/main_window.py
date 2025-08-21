@@ -116,8 +116,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         try:
             logger.info("  - WorkerService初期化中...")
-            self.worker_service = WorkerService()
-            logger.info("  ✅ WorkerService初期化成功")
+            if self.db_manager and self.file_system_manager:
+                self.worker_service = WorkerService(self.db_manager, self.file_system_manager)
+                logger.info("  ✅ WorkerService初期化成功")
+            else:
+                raise RuntimeError("db_manager または file_system_manager が未初期化のため WorkerService を作成できません")
         except Exception as e:
             logger.error(f"  ❌ WorkerService初期化失敗（継続）: {e}")
             self.worker_service = None
@@ -473,6 +476,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         try:
             search_filter_service = self._create_search_filter_service()
             self.filter_search_panel.set_search_filter_service(search_filter_service)
+
+            # WorkerService設定
+            if self.worker_service:
+                self.filter_search_panel.set_worker_service(self.worker_service)
+                logger.info("WorkerService integrated into FilterSearchPanel")
+            else:
+                logger.warning("WorkerService not available - FilterSearchPanel will use synchronous search")
             logger.info(
                 "SearchFilterService integration completed - FilterSearchPanel search functionality enabled"
             )

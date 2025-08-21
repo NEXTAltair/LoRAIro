@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QScrollArea
 from ...utils.log import logger
 from ..designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
 from ..services.search_filter_service import SearchFilterService
+from ..services.worker_service import WorkerService
 from .custom_range_slider import CustomRangeSlider
 
 
@@ -22,12 +23,21 @@ class FilterSearchPanel(QScrollArea):
     filter_applied = Signal(dict)  # filter_conditions
     filter_cleared = Signal()
     search_requested = Signal(dict)  # search_conditions
+    search_progress_started = Signal()  # 検索開始
+    search_progress_updated = Signal(int, str)  # 進捗値, メッセージ
+    search_completed = Signal(dict)  # 検索結果
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
         # SearchFilterService（依存注入）
         self.search_filter_service: SearchFilterService | None = None
+
+        # WorkerService（依存注入）
+        self.worker_service: WorkerService | None = None
+
+        # 現在のSearchWorkerのID
+        self._current_search_worker_id: str | None = None
 
         # UI設定
         self.ui = Ui_FilterSearchPanel()
@@ -38,7 +48,9 @@ class FilterSearchPanel(QScrollArea):
         logger.debug("FilterSearchPanel initialized")
 
     def setup_custom_widgets(self) -> None:
-        """Qt DesignerのUIに日付範囲スライダーを追加"""
+        """Qt DesignerのUIに日付範囲スライダーと進捗表示を追加"""
+        from PySide6.QtWidgets import QHBoxLayout, QProgressBar, QPushButton
+
         # 日付範囲スライダーを作成してプレースホルダーと置き換え
         self.date_range_slider = CustomRangeSlider()
         self.date_range_slider.set_date_range()
@@ -52,6 +64,27 @@ class FilterSearchPanel(QScrollArea):
             layout.removeWidget(placeholder)
             placeholder.deleteLater()
             layout.insertWidget(index, self.date_range_slider)
+
+        # 進捗表示UI作成
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setMaximum(100)
+
+        self.cancel_button = QPushButton("キャンセル")
+        self.cancel_button.setVisible(False)
+        self.cancel_button.clicked.connect(self._on_cancel_search_requested)
+
+        # 進捗表示レイアウト作成
+        self.progress_layout = QHBoxLayout()
+        self.progress_layout.addWidget(self.progress_bar)
+        self.progress_layout.addWidget(self.cancel_button)
+
+        # プレビューテキストエリアの下に進捗UIを追加
+        main_layout = self.ui.textEditPreview.parent().layout()
+        if main_layout:
+            # textEditPreviewの下に進捗UIを挿入
+            preview_index = main_layout.indexOf(self.ui.textEditPreview)
+            main_layout.insertLayout(preview_index + 1, self.progress_layout)
 
     def connect_signals(self) -> None:
         """Qt DesignerのUIコンポーネントにシグナルを接続"""
@@ -75,6 +108,66 @@ class FilterSearchPanel(QScrollArea):
         """SearchFilterServiceを設定"""
         self.search_filter_service = service
         logger.debug("SearchFilterService set for FilterSearchPanel")
+
+    def set_worker_service(self, service: WorkerService) -> None:
+        """WorkerServiceを設定"""
+        self.worker_service = service
+
+        # WorkerServiceのシグナル接続（検索専用）
+        if self.worker_service:
+            self.worker_service.search_finished.connect(self._on_search_finished)
+            self.worker_service.search_error.connect(self._on_search_error)
+
+        logger.debug("WorkerService set for FilterSearchPanel")
+
+    def _on_cancel_search_requested(self) -> None:
+        """検索キャンセル処理"""
+        if self._current_search_worker_id and self.worker_service:
+            logger.info(f"検索キャンセル要求: {self._current_search_worker_id}")
+            self.worker_service.cancel_search(self._current_search_worker_id)
+            self._reset_search_ui()
+
+    def _on_search_finished(self, result: dict[str, Any]) -> None:
+        """検索完了イベント処理"""
+        logger.info("検索完了イベント受信")
+
+        # 検索結果処理
+        if isinstance(result, dict) and "results" in result and "count" in result:
+            self.update_search_preview(result["count"])
+            self.search_completed.emit(result)
+            logger.info(f"検索結果: {result['count']}件")
+        else:
+            error_msg = "検索結果の形式が無効です"
+            logger.error(f"無効な検索結果: {result}")
+            self.ui.textEditPreview.setPlainText(error_msg)
+
+        # 状態リセット
+        self._current_search_worker_id = None
+        self._reset_search_ui()
+
+    def _on_search_error(self, error: str) -> None:
+        """検索エラーイベント処理"""
+        logger.error(f"検索エラー: {error}")
+        self._current_search_worker_id = None
+
+        error_msg = f"検索中にエラーが発生しました: {error}"
+        self.ui.textEditPreview.setPlainText(error_msg)
+        self.search_completed.emit({"results": [], "count": 0, "error": error})
+
+        self._reset_search_ui()
+
+    def _reset_search_ui(self) -> None:
+        """検索UI状態をリセット"""
+        self.progress_bar.setVisible(False)
+        self.cancel_button.setVisible(False)
+        self.progress_bar.setValue(0)
+
+    def _show_search_progress(self) -> None:
+        """検索進捗UI表示"""
+        self.progress_bar.setVisible(True)
+        self.cancel_button.setVisible(True)
+        self.progress_bar.setValue(10)  # 開始時の進捗
+        self.search_progress_started.emit()
 
     # === Event Handlers ===
 
@@ -178,14 +271,22 @@ class FilterSearchPanel(QScrollArea):
         self.ui.lineEditSearch.setEnabled(not disabled)
 
     def _on_search_requested(self) -> None:
-        """検索要求処理 - SearchFilterService経由"""
+        """検索要求処理 - WorkerService経由で非同期実行"""
         if not self.search_filter_service:
             logger.warning("SearchFilterService not set, cannot execute search")
             self.ui.textEditPreview.setPlainText("SearchFilterServiceが設定されていません")
             return
 
-        # 検索中表示
-        self.ui.textEditPreview.setPlainText("検索中...")
+        if not self.worker_service:
+            logger.warning("WorkerService not set, falling back to synchronous search")
+            self._execute_synchronous_search()
+            return
+
+        # 既存の検索をキャンセル
+        if self._current_search_worker_id:
+            logger.info(f"既存の検索をキャンセル: {self._current_search_worker_id}")
+            self.worker_service.cancel_search(self._current_search_worker_id)
+            self._reset_search_ui()
 
         try:
             # 検索テキストをキーワードリストに変換
@@ -193,15 +294,13 @@ class FilterSearchPanel(QScrollArea):
             keywords = self.search_filter_service.parse_search_input(search_text) if search_text else []
 
             # 基本的な入力検証
-            if not keywords and not any(
-                [
-                    self.ui.checkboxOnlyUntagged.isChecked(),
-                    self.ui.checkboxOnlyUncaptioned.isChecked(),
-                    self.ui.checkboxDateFilter.isChecked(),
-                    self.ui.comboResolution.currentText() != "全て",
-                    self.ui.comboAspectRatio.currentText() != "全て",
-                ]
-            ):
+            if not keywords and not any([
+                self.ui.checkboxOnlyUntagged.isChecked(),
+                self.ui.checkboxOnlyUncaptioned.isChecked(),
+                self.ui.checkboxDateFilter.isChecked(),
+                self.ui.comboResolution.currentText() != "全て",
+                self.ui.comboAspectRatio.currentText() != "全て",
+            ]):
                 self.ui.textEditPreview.setPlainText("検索条件を入力してください")
                 logger.info("検索条件が未指定のため検索をスキップ")
                 return
@@ -233,6 +332,70 @@ class FilterSearchPanel(QScrollArea):
                 exclude_duplicates=self.ui.checkboxExcludeDuplicates.isChecked(),
             )
 
+            # 進捗UI表示
+            self._show_search_progress()
+            self.ui.textEditPreview.setPlainText("検索中...")
+
+            # WorkerServiceで非同期検索開始
+            worker_id = self.worker_service.start_search(conditions)
+            if worker_id:
+                self._current_search_worker_id = worker_id
+                logger.info(f"非同期検索開始: {worker_id}")
+
+                # 旧形式のシグナルも発行（後方互換性）
+                self.search_requested.emit({"conditions": conditions, "worker_id": worker_id})
+            else:
+                error_msg = "検索の開始に失敗しました"
+                logger.error("WorkerService.start_search failed")
+                self.ui.textEditPreview.setPlainText(error_msg)
+                self._reset_search_ui()
+
+        except AttributeError as e:
+            error_msg = "UIコンポーネントへのアクセスエラーが発生しました"
+            logger.error(f"UI AttributeError: {e}", exc_info=True)
+            self.ui.textEditPreview.setPlainText(error_msg)
+            self._reset_search_ui()
+        except ValueError as e:
+            error_msg = f"入力値エラー: {e}"
+            logger.error(f"検索入力値エラー: {e}")
+            self.ui.textEditPreview.setPlainText(error_msg)
+            self._reset_search_ui()
+        except Exception as e:
+            error_msg = f"予期しない検索エラーが発生しました: {str(e)[:100]}"
+            logger.error(f"検索実行エラー: {e}", exc_info=True)
+            self.ui.textEditPreview.setPlainText(error_msg)
+            self._reset_search_ui()
+
+    def _execute_synchronous_search(self) -> None:
+        """同期検索実行（WorkerServiceが利用できない場合のフォールバック）"""
+        logger.info("フォールバック: 同期検索を実行")
+
+        # 検索中表示
+        self.ui.textEditPreview.setPlainText("検索中...")
+
+        try:
+            # 検索テキストをキーワードリストに変換
+            search_text = self.ui.lineEditSearch.text().strip()
+            keywords = self.search_filter_service.parse_search_input(search_text) if search_text else []
+
+            # 日付範囲を取得
+            date_range_start, date_range_end = self.get_date_range_from_slider()
+
+            # SearchFilterServiceを使用して検索条件を作成
+            conditions = self.search_filter_service.create_search_conditions(
+                search_type="tags" if self.ui.radioTags.isChecked() else "caption",
+                keywords=keywords,
+                tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
+                resolution_filter=self.ui.comboResolution.currentText(),
+                aspect_ratio_filter=self.ui.comboAspectRatio.currentText(),
+                date_filter_enabled=self.ui.checkboxDateFilter.isChecked(),
+                date_range_start=date_range_start,
+                date_range_end=date_range_end,
+                only_untagged=self.ui.checkboxOnlyUntagged.isChecked(),
+                only_uncaptioned=self.ui.checkboxOnlyUncaptioned.isChecked(),
+                exclude_duplicates=self.ui.checkboxExcludeDuplicates.isChecked(),
+            )
+
             # 検索実行
             results, count = self.search_filter_service.execute_search_with_filters(conditions)
 
@@ -240,24 +403,16 @@ class FilterSearchPanel(QScrollArea):
             self.update_search_preview(count)
 
             # 結果をシグナルで送信
-            self.search_requested.emit({"results": results, "count": count, "conditions": conditions})
-            logger.info(f"検索完了: {count}件")
+            result_data = {"results": results, "count": count, "conditions": conditions}
+            self.search_requested.emit(result_data)
+            self.search_completed.emit(result_data)
+            logger.info(f"同期検索完了: {count}件")
 
-        except AttributeError as e:
-            error_msg = "UIコンポーネントへのアクセスエラーが発生しました"
-            logger.error(f"UI AttributeError: {e}", exc_info=True)
-            self.ui.textEditPreview.setPlainText(error_msg)
-            self.search_requested.emit({"results": [], "count": 0, "error": error_msg})
-        except ValueError as e:
-            error_msg = f"入力値エラー: {e}"
-            logger.error(f"検索入力値エラー: {e}")
-            self.ui.textEditPreview.setPlainText(error_msg)
-            self.search_requested.emit({"results": [], "count": 0, "error": error_msg})
         except Exception as e:
-            error_msg = f"予期しない検索エラーが発生しました: {str(e)[:100]}"
-            logger.error(f"検索実行エラー: {e}", exc_info=True)
+            error_msg = f"検索エラー: {str(e)[:100]}"
+            logger.error(f"同期検索実行エラー: {e}", exc_info=True)
             self.ui.textEditPreview.setPlainText(error_msg)
-            self.search_requested.emit({"results": [], "count": 0, "error": str(e)})
+            self.search_completed.emit({"results": [], "count": 0, "error": str(e)})
 
     def _on_clear_requested(self) -> None:
         """クリア要求処理"""
