@@ -370,6 +370,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         try:
             # ThumbnailWorker開始 - SearchResultを直接使用
             from PySide6.QtCore import QSize
+
             default_thumbnail_size = QSize(150, 150)  # デフォルトサムネイルサイズ
             worker_id = self.worker_service.start_thumbnail_loading(search_result, default_thumbnail_size)
             logger.info(
@@ -443,7 +444,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 hasattr(self.worker_service, "current_thumbnail_worker_id")
                 and self.worker_service.current_thumbnail_worker_id
             ):
-                self.worker_service.cancel_thumbnail_loading(self.worker_service.current_thumbnail_worker_id)
+                self.worker_service.cancel_thumbnail_loading(
+                    self.worker_service.current_thumbnail_worker_id
+                )
                 logger.info("Thumbnail worker cancelled in pipeline")
 
             # キャンセル時の結果破棄（要求仕様通り）
