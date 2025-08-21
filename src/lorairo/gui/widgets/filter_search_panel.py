@@ -153,11 +153,13 @@ class FilterSearchPanel(QScrollArea):
                 # プレビュー更新
                 self.update_search_preview(count)
                 # 後方互換: dict形式でも通知
-                self.search_completed.emit({
-                    "results": result.image_metadata,
-                    "count": count,
-                    "conditions": getattr(result, "filter_conditions", {}),
-                })
+                self.search_completed.emit(
+                    {
+                        "results": result.image_metadata,
+                        "count": count,
+                        "conditions": getattr(result, "filter_conditions", {}),
+                    }
+                )
                 logger.info(f"検索結果: {count}件")
             else:
                 error_msg = "検索結果の形式が無効です"
