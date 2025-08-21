@@ -13,6 +13,7 @@ from ...utils.log import logger
 from ..workers.annotation_worker import AnnotationWorker, ModelSyncWorker
 from ..workers.database_worker import DatabaseRegistrationWorker, SearchWorker, ThumbnailWorker
 from ..workers.manager import WorkerManager
+from ..workers.search import SearchResult
 
 
 class WorkerService(QObject):
@@ -274,12 +275,12 @@ class WorkerService(QObject):
 
     # === Thumbnail Loading ===
 
-    def start_thumbnail_loading(self, image_metadata: list[dict], thumbnail_size: QSize) -> str:
+    def start_thumbnail_loading(self, search_result: "SearchResult", thumbnail_size: QSize) -> str:
         """
         サムネイル読み込み開始（既存の読み込みは自動キャンセル）
 
         Args:
-            image_metadata: 画像メタデータリスト
+            search_result: 検索結果オブジェクト
             thumbnail_size: サムネイルサイズ
 
         Returns:
@@ -291,7 +292,7 @@ class WorkerService(QObject):
             self.worker_manager.cancel_worker(self.current_thumbnail_worker_id)
             self.current_thumbnail_worker_id = None
 
-        worker = ThumbnailWorker(image_metadata, thumbnail_size, self.db_manager)
+        worker = ThumbnailWorker(search_result, thumbnail_size, self.db_manager)
         worker_id = f"thumbnail_{int(time.time())}"
         self.current_thumbnail_worker_id = worker_id
 
@@ -301,7 +302,7 @@ class WorkerService(QObject):
         )
 
         if self.worker_manager.start_worker(worker_id, worker):
-            logger.info(f"サムネイル読み込み開始: {len(image_metadata)}件 (ID: {worker_id})")
+            logger.info(f"サムネイル読み込み開始: {len(search_result.image_metadata)}件 (ID: {worker_id})")
             return worker_id
         else:
             raise RuntimeError(f"ワーカー開始失敗: {worker_id}")

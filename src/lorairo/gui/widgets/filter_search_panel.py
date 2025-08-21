@@ -121,29 +121,52 @@ class FilterSearchPanel(QScrollArea):
         logger.debug("WorkerService set for FilterSearchPanel")
 
     def _on_cancel_search_requested(self) -> None:
-        """検索キャンセル処理"""
+        """検索キャンセル処理（Pipeline対応）"""
         if self._current_search_worker_id and self.worker_service:
             logger.info(f"検索キャンセル要求: {self._current_search_worker_id}")
-            self.worker_service.cancel_search(self._current_search_worker_id)
-            self._reset_search_ui()
 
-    def _on_search_finished(self, result: dict[str, Any]) -> None:
-        """検索完了イベント処理"""
+            # Phase 2: Pipeline全体のキャンセレーション
+            # MainWindow経由でPipeline cascade cancellationを実行
+            parent_window = self.parent()
+            while parent_window and not hasattr(parent_window, "cancel_current_pipeline"):
+                parent_window = parent_window.parent()
+
+            if parent_window and hasattr(parent_window, "cancel_current_pipeline"):
+                parent_window.cancel_current_pipeline()
+                logger.info("Pipeline cancellation requested through MainWindow")
+            else:
+                # Fallback: 直接SearchWorkerキャンセル
+                self.worker_service.cancel_search(self._current_search_worker_id)
+                logger.info("Direct search worker cancellation (fallback)")
+
+            # Pipeline結果クリア
+            self.clear_pipeline_results()
+
+    def _on_search_finished(self, result: Any) -> None:
+        """検索完了イベント処理（SearchResult/dataclass想定）"""
         logger.info("検索完了イベント受信")
 
-        # 検索結果処理
-        if isinstance(result, dict) and "results" in result and "count" in result:
-            self.update_search_preview(result["count"])
-            self.search_completed.emit(result)
-            logger.info(f"検索結果: {result['count']}件")
-        else:
-            error_msg = "検索結果の形式が無効です"
-            logger.error(f"無効な検索結果: {result}")
-            self.ui.textEditPreview.setPlainText(error_msg)
-
-        # 状態リセット
-        self._current_search_worker_id = None
-        self._reset_search_ui()
+        try:
+            # SearchWorkerの標準結果（SearchResult dataclass）
+            if hasattr(result, "total_count") and hasattr(result, "image_metadata"):
+                count = result.total_count
+                # プレビュー更新
+                self.update_search_preview(count)
+                # 後方互換: dict形式でも通知
+                self.search_completed.emit({
+                    "results": result.image_metadata,
+                    "count": count,
+                    "conditions": getattr(result, "filter_conditions", {}),
+                })
+                logger.info(f"検索結果: {count}件")
+            else:
+                error_msg = "検索結果の形式が無効です"
+                logger.error(f"無効な検索結果: {result}")
+                self.ui.textEditPreview.setPlainText(error_msg)
+        finally:
+            # 状態リセット
+            self._current_search_worker_id = None
+            self._reset_search_ui()
 
     def _on_search_error(self, error: str) -> None:
         """検索エラーイベント処理"""
@@ -294,13 +317,15 @@ class FilterSearchPanel(QScrollArea):
             keywords = self.search_filter_service.parse_search_input(search_text) if search_text else []
 
             # 基本的な入力検証
-            if not keywords and not any([
-                self.ui.checkboxOnlyUntagged.isChecked(),
-                self.ui.checkboxOnlyUncaptioned.isChecked(),
-                self.ui.checkboxDateFilter.isChecked(),
-                self.ui.comboResolution.currentText() != "全て",
-                self.ui.comboAspectRatio.currentText() != "全て",
-            ]):
+            if not keywords and not any(
+                [
+                    self.ui.checkboxOnlyUntagged.isChecked(),
+                    self.ui.checkboxOnlyUncaptioned.isChecked(),
+                    self.ui.checkboxDateFilter.isChecked(),
+                    self.ui.comboResolution.currentText() != "全て",
+                    self.ui.comboAspectRatio.currentText() != "全て",
+                ]
+            ):
                 self.ui.textEditPreview.setPlainText("検索条件を入力してください")
                 logger.info("検索条件が未指定のため検索をスキップ")
                 return
@@ -536,6 +561,63 @@ class FilterSearchPanel(QScrollArea):
     def _on_clear_clicked(self) -> None:
         """クリアボタンクリック処理"""
         self._on_clear_requested()
+
+    def update_pipeline_progress(self, message: str, current_progress: float, end_progress: float) -> None:
+        """Pipeline進捗表示の更新（Phase 2対応）"""
+        try:
+            if hasattr(self, "progress_bar") and self.progress_bar:
+                # 進捗バーの値設定（0-100スケール）
+                progress_value = int(current_progress * 100)
+                self.progress_bar.setValue(progress_value)
+
+                # 進捗メッセージ表示（ProgressBar format使用）
+                if hasattr(self.progress_bar, "setFormat"):
+                    progress_percent = int(current_progress * 100)
+                    self.progress_bar.setFormat(f"{message} ({progress_percent}%)")
+
+                # ProgressBarの表示状態確認
+                if not self.progress_bar.isVisible():
+                    self.progress_bar.setVisible(True)
+
+                logger.debug(f"Pipeline progress updated: {message} ({progress_value}%)")
+
+        except Exception as e:
+            logger.error(f"Failed to update pipeline progress: {e}")
+
+    def handle_pipeline_error(self, phase: str, error_info: dict) -> None:
+        """Pipelineエラー処理（Phase 2対応）"""
+        try:
+            # 進捗表示のリセット
+            self._reset_search_ui()
+
+            # エラーメッセージの表示
+            error_message = error_info.get("message", "Unknown error")
+            logger.error(f"Pipeline {phase} error: {error_message}")
+
+            # UI状態のリセット（エラー時は検索結果破棄）
+            if hasattr(self, "cancel_button") and self.cancel_button:
+                self.cancel_button.setEnabled(False)
+
+            # エラー状態の通知（オプション）
+            if hasattr(self, "search_completed"):
+                self.search_completed.emit({"success": False, "phase": phase, "error": error_message})
+
+        except Exception as e:
+            logger.error(f"Failed to handle pipeline error: {e}")
+
+    def clear_pipeline_results(self) -> None:
+        """Pipeline結果のクリア（キャンセル・エラー時用）"""
+        try:
+            # UI状態リセット
+            self._reset_search_ui()
+
+            # フィルター結果クリア通知
+            self.filter_cleared.emit()
+
+            logger.info("Pipeline results cleared")
+
+        except Exception as e:
+            logger.error(f"Failed to clear pipeline results: {e}")
 
 
 if __name__ == "__main__":
