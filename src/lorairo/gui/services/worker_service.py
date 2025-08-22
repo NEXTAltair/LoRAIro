@@ -8,12 +8,17 @@ from PIL.Image import Image
 from PySide6.QtCore import QObject, QSize, Signal
 
 from ...database.db_manager import ImageDatabaseManager
+from ...services.search_models import SearchConditions
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
 from ..workers.annotation_worker import AnnotationWorker, ModelSyncWorker
-from ..workers.database_worker import DatabaseRegistrationWorker, SearchWorker, ThumbnailWorker
+from ..workers.database_worker import (
+    DatabaseRegistrationWorker,
+    SearchResult,
+    SearchWorker,
+    ThumbnailWorker,
+)
 from ..workers.manager import WorkerManager
-from ..workers.search import SearchResult
 
 
 class WorkerService(QObject):
@@ -238,12 +243,12 @@ class WorkerService(QObject):
 
     # === Search ===
 
-    def start_search(self, filter_conditions: dict[str, Any]) -> str:
+    def start_search(self, search_conditions: SearchConditions) -> str:
         """
         検索開始（既存の検索は自動キャンセル）
 
         Args:
-            filter_conditions: フィルター条件
+            search_conditions: 検索条件
 
         Returns:
             str: ワーカーID
@@ -254,7 +259,7 @@ class WorkerService(QObject):
             self.worker_manager.cancel_worker(self.current_search_worker_id)
             self.current_search_worker_id = None
 
-        worker = SearchWorker(self.db_manager, filter_conditions)
+        worker = SearchWorker(self.db_manager, search_conditions)
         worker_id = f"search_{int(time.time())}"
         self.current_search_worker_id = worker_id
 
@@ -263,8 +268,15 @@ class WorkerService(QObject):
             lambda progress: self.worker_progress_updated.emit(worker_id, progress)
         )
 
+        # Option B: バッチ進捗シグナル接続を追加
+        worker.batch_progress.connect(
+            lambda current, total, filename: self.worker_batch_progress.emit(
+                worker_id, current, total, filename
+            )
+        )
+
         if self.worker_manager.start_worker(worker_id, worker):
-            logger.info(f"検索開始: {filter_conditions} (ID: {worker_id})")
+            logger.info(f"検索開始: {search_conditions} (ID: {worker_id})")
             return worker_id
         else:
             raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
@@ -299,6 +311,13 @@ class WorkerService(QObject):
         # 進捗シグナル接続
         worker.progress_updated.connect(
             lambda progress: self.worker_progress_updated.emit(worker_id, progress)
+        )
+
+        # Option B: バッチ進捗シグナル接続を追加
+        worker.batch_progress.connect(
+            lambda current, total, filename: self.worker_batch_progress.emit(
+                worker_id, current, total, filename
+            )
         )
 
         if self.worker_manager.start_worker(worker_id, worker):

@@ -13,6 +13,7 @@ from .base import LoRAIroWorkerBase
 
 if TYPE_CHECKING:
     from ...database.db_manager import ImageDatabaseManager
+    from ...services.search_models import SearchConditions
     from ...storage.file_system import FileSystemManager
 
 
@@ -187,10 +188,10 @@ class SearchResult:
 class SearchWorker(LoRAIroWorkerBase[SearchResult]):
     """データベース検索専用ワーカー"""
 
-    def __init__(self, db_manager: "ImageDatabaseManager", filter_conditions: dict[str, Any]):
+    def __init__(self, db_manager: "ImageDatabaseManager", search_conditions: "SearchConditions"):
         super().__init__()
         self.db_manager = db_manager
-        self.filter_conditions = filter_conditions
+        self.search_conditions = search_conditions
 
     def execute(self) -> SearchResult:
         """検索処理を実行"""
@@ -201,13 +202,29 @@ class SearchWorker(LoRAIroWorkerBase[SearchResult]):
         # 検索開始
         self._report_progress(20, "データベース検索を開始...")
 
-        # フィルター条件の解析
-        tags = self.filter_conditions.get("tags", [])
-        caption = self.filter_conditions.get("caption", "")
-        resolution = self.filter_conditions.get("resolution", 0)
-        use_and = self.filter_conditions.get("use_and", True)
-        date_range = self.filter_conditions.get("date_range", (None, None))
-        include_untagged = self.filter_conditions.get("include_untagged", False)
+        # SearchConditionsから条件を抽出
+        if self.search_conditions.search_type == "tags":
+            tags = self.search_conditions.keywords
+            caption = None
+        elif self.search_conditions.search_type == "caption":
+            tags = None
+            caption = self.search_conditions.keywords[0] if self.search_conditions.keywords else ""
+        else:
+            tags = None
+            caption = None
+
+        # 解像度フィルター
+        resolution = self.search_conditions._resolve_resolution()
+
+        # タグロジック
+        use_and = self.search_conditions.tag_logic == "and"
+
+        # 日付範囲
+        date_range_start = self.search_conditions.date_range_start
+        date_range_end = self.search_conditions.date_range_end
+
+        # その他のオプション
+        include_untagged = self.search_conditions.only_untagged
 
         # 検索実行
         self._report_progress(60, "フィルター条件を適用中...")
@@ -220,10 +237,23 @@ class SearchWorker(LoRAIroWorkerBase[SearchResult]):
             caption=caption,
             resolution=resolution,
             use_and=use_and,
-            start_date=date_range[0],
-            end_date=date_range[1],
+            start_date=date_range_start.isoformat() if date_range_start else None,
+            end_date=date_range_end.isoformat() if date_range_end else None,
             include_untagged=include_untagged,
         )
+
+        # Option B: バッチ進捗報告を追加（検索結果処理）
+        if total_count > 0:
+            # 検索結果を一件ずつ処理するバッチ進捗として報告
+            batch_size = min(100, total_count)  # 100件ずつバッチ処理をシミュレート
+            for i in range(0, total_count, batch_size):
+                self._check_cancellation()  # キャンセルチェック
+
+                current_batch = min(i + batch_size, total_count)
+                # ファイル名の代わりに件数情報を使用
+                self._report_batch_progress(
+                    current_batch, total_count, f"search_batch_{i // batch_size + 1}"
+                )
 
         search_time = time.time() - start_time
 
@@ -234,7 +264,7 @@ class SearchWorker(LoRAIroWorkerBase[SearchResult]):
             image_metadata=image_metadata,
             total_count=total_count,
             search_time=search_time,
-            filter_conditions=self.filter_conditions,
+            filter_conditions=self.search_conditions,
         )
 
         logger.info(f"検索完了: {total_count}件, 処理時間={search_time:.3f}秒")
@@ -320,7 +350,11 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
 
                 loaded_thumbnails.append((image_id, scaled_pixmap))
 
-                # 進捗報告
+                # Option B: バッチ進捗報告を追加
+                filename = thumbnail_path.name if thumbnail_path else f"image_{image_id}"
+                self._report_batch_progress(i + 1, total_count, filename)
+
+                # 従来の進捗報告も継続
                 percentage = 5 + int((i + 1) / total_count * 90)  # 5-95%
                 self._report_progress(
                     percentage,
