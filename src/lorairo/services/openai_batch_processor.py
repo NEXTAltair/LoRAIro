@@ -139,7 +139,7 @@ class OpenAIBatchProcessor:
             return batch.id
 
         except Exception as e:
-            raise APIError(f"バッチ処理開始中にエラーが発生しました: {e}", "OpenAI")
+            raise APIError(f"バッチ処理開始中にエラーが発生しました: {e}", "OpenAI") from e
 
     def get_batch_status(self, batch_id: str) -> dict[str, Any]:
         """
@@ -175,7 +175,7 @@ class OpenAIBatchProcessor:
             }
 
         except Exception as e:
-            raise APIError(f"バッチステータス取得中にエラーが発生しました: {e}", "OpenAI")
+            raise APIError(f"バッチステータス取得中にエラーが発生しました: {e}", "OpenAI") from e
 
     def get_batch_results(self, batch_result_dir: Path) -> dict[str, str]:
         """
@@ -281,7 +281,7 @@ class OpenAIBatchProcessor:
             return output_file
 
         except Exception as e:
-            raise APIError(f"ダウンロード中にエラーが発生しました: {e}", "OpenAI")
+            raise APIError(f"ダウンロード中にエラーが発生しました: {e}", "OpenAI") from e
 
     def list_batches(self, limit: int = 20) -> list[dict[str, Any]]:
         """
@@ -311,7 +311,7 @@ class OpenAIBatchProcessor:
             ]
 
         except Exception as e:
-            raise APIError(f"バッチリスト取得中にエラーが発生しました: {e}", "OpenAI")
+            raise APIError(f"バッチリスト取得中にエラーが発生しました: {e}", "OpenAI") from e
 
     def cancel_batch(self, batch_id: str) -> dict[str, Any]:
         """
@@ -335,4 +335,4 @@ class OpenAIBatchProcessor:
             }
 
         except Exception as e:
-            raise APIError(f"バッチキャンセル中にエラーが発生しました: {e}", "OpenAI")
+            raise APIError(f"バッチキャンセル中にエラーが発生しました: {e}", "OpenAI") from e
