@@ -302,16 +302,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     logger.error(f"    ❌ DB読み込みボタン接続失敗: {e}")
 
             # ウィジェット間のイベント接続
-            if self.filter_search_panel and self.thumbnail_selector:
-                try:
-                    # フィルター結果をサムネイルセレクターに反映
-                    self.filter_search_panel.filter_applied.connect(
-                        self.thumbnail_selector.apply_filter_results
-                    )
-                    logger.info("    ✅ フィルター→サムネイル接続完了")
-                except Exception as e:
-                    logger.error(f"    ❌ フィルター→サムネイル接続失敗: {e}")
-
             if self.thumbnail_selector and self.image_preview_widget:
                 try:
                     # サムネイル選択をプレビューに反映
@@ -368,11 +358,23 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return
 
         try:
-            # ThumbnailWorker開始 - SearchResultを直接使用
+            # サムネイルレイアウト用の image_data を事前設定
+            if self.thumbnail_selector:
+                image_data = [
+                    (Path(item["stored_image_path"]), item["id"])
+                    for item in search_result.image_metadata
+                    if "stored_image_path" in item and "id" in item
+                ]
+                self.thumbnail_selector.image_data = image_data
+                logger.info(f"ThumbnailSelectorWidget.image_data set: {len(image_data)} items")
+
+            # ThumbnailWorker開始 - image_metadata を引数に渡す
             from PySide6.QtCore import QSize
 
             default_thumbnail_size = QSize(150, 150)  # デフォルトサムネイルサイズ
-            worker_id = self.worker_service.start_thumbnail_loading(search_result, default_thumbnail_size)
+            worker_id = self.worker_service.start_thumbnail_loading(
+                search_result.image_metadata, default_thumbnail_size
+            )
             logger.info(
                 f"ThumbnailWorker started automatically after search: {worker_id} ({len(search_result.image_metadata)} images)"
             )
@@ -393,6 +395,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 logger.info("ThumbnailSelectorWidget updated with results")
             else:
                 logger.warning("ThumbnailSelectorWidget.load_thumbnails_from_result method not found")
+
+            # パイプライン完了後にプログレスバーを非表示
+            if hasattr(self.filter_search_panel, "hide_progress_after_completion"):
+                self.filter_search_panel.hide_progress_after_completion()
 
         except Exception as e:
             logger.error(f"Failed to update ThumbnailSelectorWidget: {e}", exc_info=True)
@@ -424,6 +430,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # 検索結果破棄（要求仕様通り）
         if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
             self.thumbnail_selector.clear_thumbnails()
+        # エラー時もプログレスバーを非表示
+        if hasattr(self.filter_search_panel, "hide_progress_after_completion"):
+            self.filter_search_panel.hide_progress_after_completion()
 
     def cancel_current_pipeline(self) -> None:
         """現在のPipeline全体をキャンセル"""
@@ -452,6 +461,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # キャンセル時の結果破棄（要求仕様通り）
             if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
                 self.thumbnail_selector.clear_thumbnails()
+
+            # キャンセル時もプログレスバーを非表示
+            if hasattr(self.filter_search_panel, "hide_progress_after_completion"):
+                self.filter_search_panel.hide_progress_after_completion()
 
             logger.info("Pipeline cancellation completed")
 
