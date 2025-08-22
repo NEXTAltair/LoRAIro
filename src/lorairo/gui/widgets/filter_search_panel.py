@@ -1,6 +1,7 @@
 # src/lorairo/gui/widgets/filter_search_panel.py
 
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
 from PySide6.QtCore import Signal
@@ -9,7 +10,19 @@ from PySide6.QtWidgets import QScrollArea
 from ...utils.log import logger
 from ..designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
 from ..services.search_filter_service import SearchFilterService
+from ..services.worker_service import WorkerService
 from .custom_range_slider import CustomRangeSlider
+
+
+class PipelineState(Enum):
+    """Pipeline state machine for search-thumbnail integration (Phase 3)"""
+
+    IDLE = "idle"  # 初期状態/操作待ち
+    SEARCHING = "searching"  # 検索実行中
+    LOADING_THUMBNAILS = "loading_thumbnails"  # サムネイル読み込み中
+    DISPLAYING = "displaying"  # 結果表示中
+    ERROR = "error"  # エラー状態
+    CANCELED = "canceled"  # キャンセル状態
 
 
 class FilterSearchPanel(QScrollArea):
@@ -22,12 +35,35 @@ class FilterSearchPanel(QScrollArea):
     filter_applied = Signal(dict)  # filter_conditions
     filter_cleared = Signal()
     search_requested = Signal(dict)  # search_conditions
+    search_progress_started = Signal()  # 検索開始
+    search_progress_updated = Signal(int, str)  # 進捗値, メッセージ
+    search_completed = Signal(dict)  # 検索結果
+
+    # Phase 3: Pipeline State Management
+    pipeline_state_changed = Signal(object)  # PipelineState
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
         # SearchFilterService（依存注入）
         self.search_filter_service: SearchFilterService | None = None
+
+        # WorkerService（依存注入）
+        self.worker_service: WorkerService | None = None
+
+        # 現在のSearchWorkerのID
+        self._current_search_worker_id: str | None = None
+
+        # Phase 3: Pipeline State Management
+        self._current_state: PipelineState = PipelineState.IDLE
+        self._state_messages: dict[PipelineState, str] = {
+            PipelineState.IDLE: "操作待ち",
+            PipelineState.SEARCHING: "検索中...",
+            PipelineState.LOADING_THUMBNAILS: "サムネイル読み込み中...",
+            PipelineState.DISPLAYING: "表示中",
+            PipelineState.ERROR: "エラーが発生しました",
+            PipelineState.CANCELED: "キャンセルされました",
+        }
 
         # UI設定
         self.ui = Ui_FilterSearchPanel()
@@ -38,7 +74,9 @@ class FilterSearchPanel(QScrollArea):
         logger.debug("FilterSearchPanel initialized")
 
     def setup_custom_widgets(self) -> None:
-        """Qt DesignerのUIに日付範囲スライダーを追加"""
+        """Qt DesignerのUIに日付範囲スライダーと進捗表示を追加"""
+        from PySide6.QtWidgets import QHBoxLayout, QProgressBar, QPushButton
+
         # 日付範囲スライダーを作成してプレースホルダーと置き換え
         self.date_range_slider = CustomRangeSlider()
         self.date_range_slider.set_date_range()
@@ -52,6 +90,27 @@ class FilterSearchPanel(QScrollArea):
             layout.removeWidget(placeholder)
             placeholder.deleteLater()
             layout.insertWidget(index, self.date_range_slider)
+
+        # 進捗表示UI作成
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setMaximum(100)
+
+        self.cancel_button = QPushButton("キャンセル")
+        self.cancel_button.setVisible(False)
+        self.cancel_button.clicked.connect(self._on_cancel_search_requested)
+
+        # 進捗表示レイアウト作成
+        self.progress_layout = QHBoxLayout()
+        self.progress_layout.addWidget(self.progress_bar)
+        self.progress_layout.addWidget(self.cancel_button)
+
+        # プレビューテキストエリアの下に進捗UIを追加
+        main_layout = self.ui.textEditPreview.parent().layout()
+        if main_layout:
+            # textEditPreviewの下に進捗UIを挿入
+            preview_index = main_layout.indexOf(self.ui.textEditPreview)
+            main_layout.insertLayout(preview_index + 1, self.progress_layout)
 
     def connect_signals(self) -> None:
         """Qt DesignerのUIコンポーネントにシグナルを接続"""
@@ -75,6 +134,186 @@ class FilterSearchPanel(QScrollArea):
         """SearchFilterServiceを設定"""
         self.search_filter_service = service
         logger.debug("SearchFilterService set for FilterSearchPanel")
+
+    def set_worker_service(self, service: WorkerService) -> None:
+        """WorkerServiceを設定"""
+        self.worker_service = service
+
+        # WorkerServiceのシグナル接続（検索専用）
+        if self.worker_service:
+            self.worker_service.search_finished.connect(self._on_search_finished)
+            self.worker_service.search_error.connect(self._on_search_error)
+
+            # Option B: バッチ進捗シグナル接続を追加
+            self.worker_service.worker_batch_progress.connect(self._on_worker_batch_progress)
+
+        logger.debug("WorkerService set for FilterSearchPanel")
+
+    def _on_cancel_search_requested(self) -> None:
+        """検索キャンセル処理（Pipeline対応）"""
+        if self._current_search_worker_id and self.worker_service:
+            logger.info(f"検索キャンセル要求: {self._current_search_worker_id}")
+
+            # Phase 2: Pipeline全体のキャンセレーション
+            # MainWindow経由でPipeline cascade cancellationを実行
+            parent_window = self.parent()
+            while parent_window and not hasattr(parent_window, "cancel_current_pipeline"):
+                parent_window = parent_window.parent()
+
+            if parent_window and hasattr(parent_window, "cancel_current_pipeline"):
+                parent_window.cancel_current_pipeline()
+                logger.info("Pipeline cancellation requested through MainWindow")
+            else:
+                # Fallback: 直接SearchWorkerキャンセル
+                self.worker_service.cancel_search(self._current_search_worker_id)
+                logger.info("Direct search worker cancellation (fallback)")
+
+            # Pipeline結果クリア
+            self.clear_pipeline_results()
+
+    def _on_search_finished(self, result: Any) -> None:
+        """検索完了イベント処理（SearchResult/dataclass想定）"""
+        logger.info("検索完了イベント受信")
+
+        try:
+            # SearchWorkerの標準結果（SearchResult dataclass）
+            if hasattr(result, "total_count") and hasattr(result, "image_metadata"):
+                count = result.total_count
+
+                # Phase 3: State transition based on result
+                if count > 0:
+                    # サムネイル読み込み段階に移行
+                    self._transition_to_state(PipelineState.LOADING_THUMBNAILS)
+                else:
+                    # 結果0件の場合は表示状態に直接移行
+                    self._transition_to_state(PipelineState.DISPLAYING)
+
+                # プレビュー更新
+                self.update_search_preview(count)
+
+                # 後方互換: dict形式でも通知
+                self.search_completed.emit(
+                    {
+                        "results": result.image_metadata,
+                        "count": count,
+                        "conditions": getattr(result, "filter_conditions", {}),
+                    }
+                )
+                logger.info(f"検索結果: {count}件")
+            else:
+                logger.error(f"無効な検索結果: {result}")
+                # Phase 3: State transition to ERROR
+                self._transition_to_state(PipelineState.ERROR)
+        except Exception as e:
+            logger.error(f"検索完了処理エラー: {e}", exc_info=True)
+            # Phase 3: State transition to ERROR
+            self._transition_to_state(PipelineState.ERROR)
+        finally:
+            # 状態リセット
+            self._current_search_worker_id = None
+
+    def _on_search_error(self, error: str) -> None:
+        """検索エラーイベント処理"""
+        logger.error(f"検索エラー: {error}")
+        self._current_search_worker_id = None
+
+        # Phase 3: State transition to ERROR
+        self._transition_to_state(PipelineState.ERROR)
+
+        self.search_completed.emit({"results": [], "count": 0, "error": error})
+
+    def _on_worker_batch_progress(self, worker_id: str, current: int, total: int, filename: str) -> None:
+        """ワーカーのバッチ進捗処理（Option B: 動的進捗計算）"""
+        try:
+            # 現在の検索・サムネイルワーカーかチェック
+            if worker_id == self._current_search_worker_id:
+                # 検索フェーズ: 0-30%
+                if total > 0:
+                    search_progress = current / total
+                    overall_progress = search_progress * 0.3  # 30%まで
+                    self.update_pipeline_progress(f"検索中... ({current}/{total})", overall_progress, 0.3)
+                    logger.debug(f"Search batch progress: {current}/{total} -> {overall_progress:.1%}")
+
+            elif (
+                hasattr(self.worker_service, "current_thumbnail_worker_id")
+                and worker_id == self.worker_service.current_thumbnail_worker_id
+            ):
+                # サムネイル読み込みフェーズ: 30-100%
+                if total > 0:
+                    thumbnail_progress = current / total
+                    overall_progress = 0.3 + (thumbnail_progress * 0.7)  # 30% + 70%
+                    self.update_pipeline_progress(
+                        f"サムネイル読み込み中... ({current}/{total}) {filename}", overall_progress, 1.0
+                    )
+                    logger.debug(f"Thumbnail batch progress: {current}/{total} -> {overall_progress:.1%}")
+
+        except Exception as e:
+            logger.error(f"バッチ進捗処理エラー: {e}")
+
+    def _reset_search_ui(self) -> None:
+        """検索UI状態をリセット"""
+        # Phase 3: State transition to IDLE
+        self._transition_to_state(PipelineState.IDLE)
+
+    def _show_search_progress(self) -> None:
+        """検索進捗UI表示"""
+        self.progress_bar.setVisible(True)
+        self.cancel_button.setVisible(True)
+        self.progress_bar.setValue(10)  # 開始時の進捗
+        self.search_progress_started.emit()
+
+    def _transition_to_state(self, new_state: PipelineState) -> None:
+        """パイプライン状態遷移管理 (Phase 3)"""
+        if self._current_state == new_state:
+            return  # 同じ状態への遷移は無視
+
+        old_state = self._current_state
+        self._current_state = new_state
+
+        # 状態遷移ログ
+        logger.info(f"Pipeline state transition: {old_state.value} → {new_state.value}")
+
+        # 状態別UI更新
+        self._update_ui_for_state(new_state)
+
+        # 状態変更シグナル発火
+        self.pipeline_state_changed.emit(new_state)
+
+    def _update_ui_for_state(self, state: PipelineState) -> None:
+        """状態に応じたUI更新 (Phase 3)"""
+        message = self._state_messages.get(state, "不明な状態")
+
+        if state == PipelineState.IDLE:
+            self.progress_bar.setVisible(False)
+            self.cancel_button.setVisible(False)
+            self.ui.textEditPreview.setPlainText("")
+
+        elif state == PipelineState.SEARCHING:
+            self.progress_bar.setVisible(True)
+            self.cancel_button.setVisible(True)
+            self.progress_bar.setValue(10)  # 開始時の進捗
+            self.ui.textEditPreview.setPlainText(message)
+
+        elif state == PipelineState.LOADING_THUMBNAILS:
+            # 検索完了、サムネイル読み込み開始
+            self.progress_bar.setValue(30)  # 0.3 * 100 = 30%
+            self.ui.textEditPreview.setPlainText(message)
+
+        elif state == PipelineState.DISPLAYING:
+            # プログレスバーは表示継続（サムネイル読み込み中の可能性があるため）
+            self.progress_bar.setValue(100)  # 完了表示
+            self.cancel_button.setVisible(False)
+            # 結果表示はmessageで行う（検索結果テキスト）
+
+        elif state in (PipelineState.ERROR, PipelineState.CANCELED):
+            self.progress_bar.setVisible(False)
+            self.cancel_button.setVisible(False)
+            self.ui.textEditPreview.setPlainText(message)
+
+    def hide_progress_after_completion(self) -> None:
+        """パイプライン完全完了後にプログレスバーを非表示にする"""
+        self.progress_bar.setVisible(False)
+        logger.debug("プログレスバーを非表示にしました（パイプライン完了）")
 
     # === Event Handlers ===
 
@@ -178,14 +417,22 @@ class FilterSearchPanel(QScrollArea):
         self.ui.lineEditSearch.setEnabled(not disabled)
 
     def _on_search_requested(self) -> None:
-        """検索要求処理 - SearchFilterService経由"""
+        """検索要求処理 - WorkerService経由で非同期実行"""
         if not self.search_filter_service:
             logger.warning("SearchFilterService not set, cannot execute search")
             self.ui.textEditPreview.setPlainText("SearchFilterServiceが設定されていません")
             return
 
-        # 検索中表示
-        self.ui.textEditPreview.setPlainText("検索中...")
+        if not self.worker_service:
+            logger.warning("WorkerService not set, falling back to synchronous search")
+            self._execute_synchronous_search()
+            return
+
+        # 既存の検索をキャンセル
+        if self._current_search_worker_id:
+            logger.info(f"既存の検索をキャンセル: {self._current_search_worker_id}")
+            self.worker_service.cancel_search(self._current_search_worker_id)
+            self._reset_search_ui()
 
         try:
             # 検索テキストをキーワードリストに変換
@@ -233,6 +480,69 @@ class FilterSearchPanel(QScrollArea):
                 exclude_duplicates=self.ui.checkboxExcludeDuplicates.isChecked(),
             )
 
+            # Phase 3: State transition to SEARCHING
+            self._transition_to_state(PipelineState.SEARCHING)
+
+            # WorkerServiceで非同期検索開始
+            worker_id = self.worker_service.start_search(conditions)
+            if worker_id:
+                self._current_search_worker_id = worker_id
+                logger.info(f"非同期検索開始: {worker_id}")
+
+                # 旧形式のシグナルも発行（後方互換性）
+                self.search_requested.emit({"conditions": conditions, "worker_id": worker_id})
+            else:
+                error_msg = "検索の開始に失敗しました"
+                logger.error("WorkerService.start_search failed")
+                # Phase 3: State transition to ERROR
+                self._transition_to_state(PipelineState.ERROR)
+
+        except AttributeError as e:
+            error_msg = "UIコンポーネントへのアクセスエラーが発生しました"
+            logger.error(f"UI AttributeError: {e}", exc_info=True)
+            # Phase 3: State transition to ERROR
+            self._transition_to_state(PipelineState.ERROR)
+        except ValueError as e:
+            error_msg = f"入力値エラー: {e}"
+            logger.error(f"検索入力値エラー: {e}")
+            # Phase 3: State transition to ERROR
+            self._transition_to_state(PipelineState.ERROR)
+        except Exception as e:
+            error_msg = f"予期しない検索エラーが発生しました: {str(e)[:100]}"
+            logger.error(f"検索実行エラー: {e}", exc_info=True)
+            # Phase 3: State transition to ERROR
+            self._transition_to_state(PipelineState.ERROR)
+
+    def _execute_synchronous_search(self) -> None:
+        """同期検索実行（WorkerServiceが利用できない場合のフォールバック）"""
+        logger.info("フォールバック: 同期検索を実行")
+
+        # 検索中表示
+        self.ui.textEditPreview.setPlainText("検索中...")
+
+        try:
+            # 検索テキストをキーワードリストに変換
+            search_text = self.ui.lineEditSearch.text().strip()
+            keywords = self.search_filter_service.parse_search_input(search_text) if search_text else []
+
+            # 日付範囲を取得
+            date_range_start, date_range_end = self.get_date_range_from_slider()
+
+            # SearchFilterServiceを使用して検索条件を作成
+            conditions = self.search_filter_service.create_search_conditions(
+                search_type="tags" if self.ui.radioTags.isChecked() else "caption",
+                keywords=keywords,
+                tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
+                resolution_filter=self.ui.comboResolution.currentText(),
+                aspect_ratio_filter=self.ui.comboAspectRatio.currentText(),
+                date_filter_enabled=self.ui.checkboxDateFilter.isChecked(),
+                date_range_start=date_range_start,
+                date_range_end=date_range_end,
+                only_untagged=self.ui.checkboxOnlyUntagged.isChecked(),
+                only_uncaptioned=self.ui.checkboxOnlyUncaptioned.isChecked(),
+                exclude_duplicates=self.ui.checkboxExcludeDuplicates.isChecked(),
+            )
+
             # 検索実行
             results, count = self.search_filter_service.execute_search_with_filters(conditions)
 
@@ -240,24 +550,16 @@ class FilterSearchPanel(QScrollArea):
             self.update_search_preview(count)
 
             # 結果をシグナルで送信
-            self.search_requested.emit({"results": results, "count": count, "conditions": conditions})
-            logger.info(f"検索完了: {count}件")
+            result_data = {"results": results, "count": count, "conditions": conditions}
+            self.search_requested.emit(result_data)
+            self.search_completed.emit(result_data)
+            logger.info(f"同期検索完了: {count}件")
 
-        except AttributeError as e:
-            error_msg = "UIコンポーネントへのアクセスエラーが発生しました"
-            logger.error(f"UI AttributeError: {e}", exc_info=True)
-            self.ui.textEditPreview.setPlainText(error_msg)
-            self.search_requested.emit({"results": [], "count": 0, "error": error_msg})
-        except ValueError as e:
-            error_msg = f"入力値エラー: {e}"
-            logger.error(f"検索入力値エラー: {e}")
-            self.ui.textEditPreview.setPlainText(error_msg)
-            self.search_requested.emit({"results": [], "count": 0, "error": error_msg})
         except Exception as e:
-            error_msg = f"予期しない検索エラーが発生しました: {str(e)[:100]}"
-            logger.error(f"検索実行エラー: {e}", exc_info=True)
+            error_msg = f"検索エラー: {str(e)[:100]}"
+            logger.error(f"同期検索実行エラー: {e}", exc_info=True)
             self.ui.textEditPreview.setPlainText(error_msg)
-            self.search_requested.emit({"results": [], "count": 0, "error": str(e)})
+            self.search_completed.emit({"results": [], "count": 0, "error": str(e)})
 
     def _on_clear_requested(self) -> None:
         """クリア要求処理"""
@@ -359,8 +661,22 @@ class FilterSearchPanel(QScrollArea):
 
     def update_search_preview(self, result_count: int, preview_text: str = "") -> None:
         """検索結果プレビューを更新"""
+        # 大量データ警告の閾値
+        LARGE_RESULT_WARNING_THRESHOLD = 10000
+
         if result_count > 0:
             preview = f"検索結果: {result_count}件"
+
+            # 10000件超で警告メッセージ追加
+            if result_count > LARGE_RESULT_WARNING_THRESHOLD:
+                warning_msg = (
+                    f"\n\n⚠️ 警告: 検索結果が {result_count:,} 件と非常に多いです。\n"
+                    "サムネイル表示に時間がかかる可能性があります。\n"
+                    "より具体的な条件での絞り込みをお勧めします。"
+                )
+                preview += warning_msg
+                logger.warning(f"Large search result warning displayed: {result_count} items")
+
             if preview_text:
                 preview += f"\n{preview_text}"
         else:
@@ -381,6 +697,112 @@ class FilterSearchPanel(QScrollArea):
     def _on_clear_clicked(self) -> None:
         """クリアボタンクリック処理"""
         self._on_clear_requested()
+
+    def update_pipeline_progress(self, message: str, current_progress: float, end_progress: float) -> None:
+        """Pipeline進捗表示の更新（Phase 2対応）"""
+        try:
+            if hasattr(self, "progress_bar") and self.progress_bar:
+                # Phase 3: Progress calculation formula (0.3/0.7 split)
+                if self._current_state == PipelineState.SEARCHING:
+                    # 検索フェーズ: 0-30%
+                    progress_value = int(current_progress * 30)
+                elif self._current_state == PipelineState.LOADING_THUMBNAILS:
+                    # サムネイル読み込みフェーズ: 30-100%
+                    progress_value = int(30 + (current_progress * 70))
+                else:
+                    # その他の状態では現在の進捗をそのまま使用
+                    progress_value = int(current_progress * 100)
+
+                self.progress_bar.setValue(progress_value)
+
+                # 進捗メッセージ表示（ProgressBar format使用）
+                if hasattr(self.progress_bar, "setFormat"):
+                    # Phase 3: State-based messaging
+                    state_message = self._state_messages.get(self._current_state, message)
+                    self.progress_bar.setFormat(f"{state_message} ({progress_value}%)")
+
+                # ProgressBarの表示状態確認
+                if not self.progress_bar.isVisible():
+                    self.progress_bar.setVisible(True)
+
+                logger.debug(
+                    f"Pipeline progress updated: {message} ({progress_value}%) - State: {self._current_state.value}"
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to update pipeline progress: {e}")
+
+    def handle_pipeline_error(self, phase: str, error_info: dict) -> None:
+        """Pipelineエラー処理（Phase 2対応）"""
+        try:
+            # Phase 3: State transition to ERROR
+            self._transition_to_state(PipelineState.ERROR)
+
+            # エラーメッセージの表示
+            error_message = error_info.get("message", "Unknown error")
+            logger.error(f"Pipeline {phase} error: {error_message}")
+
+            # UI状態のリセット（エラー時は検索結果破棄）
+            if hasattr(self, "cancel_button") and self.cancel_button:
+                self.cancel_button.setEnabled(False)
+
+            # エラー状態の通知（オプション）
+            if hasattr(self, "search_completed"):
+                self.search_completed.emit({"success": False, "phase": phase, "error": error_message})
+
+        except Exception as e:
+            logger.error(f"Failed to handle pipeline error: {e}")
+
+    def clear_pipeline_results(self) -> None:
+        """Pipeline結果のクリア（キャンセル・エラー時用）"""
+        try:
+            # Phase 3: State transition to CANCELED or IDLE
+            if self._current_state == PipelineState.ERROR:
+                # エラー状態からのクリアの場合はIDLEに遷移
+                self._transition_to_state(PipelineState.IDLE)
+            else:
+                # その他の場合（キャンセル等）はCANCELED状態に遷移
+                self._transition_to_state(PipelineState.CANCELED)
+
+            # フィルター結果クリア通知
+            self.filter_cleared.emit()
+
+            logger.info("Pipeline results cleared")
+
+        except Exception as e:
+            logger.error(f"Failed to clear pipeline results: {e}")
+
+    # Phase 3: Additional Pipeline State Management Methods
+
+    def notify_thumbnail_loading_started(self) -> None:
+        """サムネイル読み込み開始通知 (MainWindowから呼び出し)"""
+        if self._current_state == PipelineState.SEARCHING:
+            self._transition_to_state(PipelineState.LOADING_THUMBNAILS)
+            logger.info("Thumbnail loading phase started")
+
+    def notify_thumbnail_loading_completed(self, thumbnail_count: int) -> None:
+        """サムネイル読み込み完了通知 (MainWindowから呼び出し)"""
+        if self._current_state == PipelineState.LOADING_THUMBNAILS:
+            self._transition_to_state(PipelineState.DISPLAYING)
+            logger.info(f"Thumbnail loading completed: {thumbnail_count} thumbnails")
+
+    def notify_thumbnail_loading_error(self, error: str) -> None:
+        """サムネイル読み込みエラー通知 (MainWindowから呼び出し)"""
+        logger.error(f"Thumbnail loading error: {error}")
+        self._transition_to_state(PipelineState.ERROR)
+
+    def get_current_pipeline_state(self) -> PipelineState:
+        """現在のパイプライン状態を取得"""
+        return self._current_state
+
+    def is_pipeline_active(self) -> bool:
+        """パイプラインがアクティブ状態かどうか"""
+        return self._current_state in (PipelineState.SEARCHING, PipelineState.LOADING_THUMBNAILS)
+
+    def force_pipeline_reset(self) -> None:
+        """強制的にパイプライン状態をリセット（緊急時用）"""
+        logger.warning("Force pipeline reset requested")
+        self._transition_to_state(PipelineState.IDLE)
 
 
 if __name__ == "__main__":

@@ -295,7 +295,7 @@ class BatchProcessor:
 
             # プレースホルダー結果生成
             annotation_results = {}
-            for i, image in enumerate(images):
+            for i, _image in enumerate(images):
                 phash = f"batch_placeholder_hash_{i}"
                 annotation_results[phash] = {}
 

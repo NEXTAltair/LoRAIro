@@ -11,7 +11,6 @@ from collections.abc import Callable
 from typing import Any, ClassVar, Protocol, runtime_checkable
 
 from PySide6.QtCore import QObject
-from PySide6.QtWidgets import QWidget
 
 
 @runtime_checkable
