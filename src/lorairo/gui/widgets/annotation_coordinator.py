@@ -89,19 +89,16 @@ class AnnotationCoordinator(QObject):
             service_container = get_service_container()
             repo = service_container.image_repository
             model_selection_service = ModelSelectionService.create(db_repository=repo)
-            
+
             # db_managerはinit必須引数なのでこれで十分
             dbm = self.db_manager
-            
+
             if not dbm:
                 logger.error("ImageDatabaseManager is required but not available")
                 return None
 
-            return SearchFilterService(
-                db_manager=dbm, 
-                model_selection_service=model_selection_service
-            )
-            
+            return SearchFilterService(db_manager=dbm, model_selection_service=model_selection_service)
+
         except Exception as e:
             logger.error(f"Failed to create SearchFilterService: {e}", exc_info=True)
             return None
@@ -178,7 +175,9 @@ class AnnotationCoordinator(QObject):
         if self.status_filter_widget and self.search_filter_service:
             self.status_filter_widget.set_search_filter_service(self.search_filter_service)
         elif self.status_filter_widget and not self.search_filter_service:
-            logger.warning("SearchFilterService is None, status_filter_widget will not have search functionality")
+            logger.warning(
+                "SearchFilterService is None, status_filter_widget will not have search functionality"
+            )
 
         # SelectedImageDetailsWidget へのDB直接注入は未対応APIのためスキップ
         logger.debug("Database connections setup completed")

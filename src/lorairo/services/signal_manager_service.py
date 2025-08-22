@@ -11,12 +11,9 @@ from collections.abc import Callable
 from typing import Any
 
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QWidget
 
 from ..utils.log import logger
 from .signal_manager_protocol import (
-    SignalManagerServiceProtocol,
-    SignalNameValidatorProtocol,
     SignalNamingStandard,
 )
 

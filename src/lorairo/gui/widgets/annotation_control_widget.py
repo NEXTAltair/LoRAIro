@@ -12,13 +12,12 @@ Phase 3変更:
 from dataclasses import dataclass
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QWidget
 
 from ...gui.designer.AnnotationControlWidget_ui import Ui_AnnotationControlWidget
 from ...utils.log import logger
 from ..services.search_filter_service import SearchFilterService
-from .model_selection_table_widget import ModelSelectionTableWidget
 
 
 @dataclass
