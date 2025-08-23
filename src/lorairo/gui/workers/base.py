@@ -1,15 +1,13 @@
 # src/lorairo/workers/base.py
 
+import time
 from abc import abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import TypeVar
 
 from PySide6.QtCore import QObject, Signal
 
 from ...utils.log import logger
-
-T = TypeVar("T")
 
 
 class WorkerStatus(Enum):
@@ -53,14 +51,32 @@ class CancellationController:
 
 
 class ProgressReporter(QObject):
-    """進捗報告クラス"""
+    """進捗報告クラス - スロットリング機能付き"""
 
     progress_updated = Signal(WorkerProgress)
     batch_progress = Signal(int, int, str)  # current, total, filename
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._last_emit_time = 0
+        self._min_interval_ms = 50  # 50ms間隔でスロットリング
+
     def report(self, progress: WorkerProgress) -> None:
-        """進捗報告"""
+        """進捗報告（従来互換）"""
         self.progress_updated.emit(progress)
+
+    def report_throttled(self, progress: WorkerProgress, force_emit: bool = False) -> None:
+        """スロットリング付き進捗報告
+        
+        Args:
+            progress: 進捗情報
+            force_emit: 強制発行フラグ（error/finished等重要シグナル用）
+        """
+        current_time = time.monotonic_ns() // 1_000_000
+
+        if force_emit or (current_time - self._last_emit_time >= self._min_interval_ms):
+            self.progress_updated.emit(progress)
+            self._last_emit_time = current_time
 
     def report_batch(self, current: int, total: int, filename: str) -> None:
         """バッチ進捗報告"""
@@ -157,6 +173,34 @@ class LoRAIroWorkerBase[T](QObject):
             total_count=total_count,
         )
         self.progress.report(progress)
+
+    def _report_progress_throttled(
+        self,
+        percentage: int,
+        status_message: str,
+        current_item: str = "",
+        processed_count: int = 0,
+        total_count: int = 0,
+        force_emit: bool = False,
+    ) -> None:
+        """スロットリング付き進捗報告ヘルパー
+        
+        Args:
+            percentage: 進捗パーセンテージ
+            status_message: ステータスメッセージ
+            current_item: 現在処理中のアイテム
+            processed_count: 処理済み数
+            total_count: 総数
+            force_emit: 重要シグナル（error/finished等）の強制発行
+        """
+        progress = WorkerProgress(
+            percentage=percentage,
+            status_message=status_message,
+            current_item=current_item,
+            processed_count=processed_count,
+            total_count=total_count,
+        )
+        self.progress.report_throttled(progress, force_emit)
 
     def _report_batch_progress(self, current: int, total: int, filename: str) -> None:
         """バッチ進捗報告ヘルパー"""

@@ -5,11 +5,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QImage
 
 from ...annotations.existing_file_reader import ExistingFileReader
 from ...utils.log import logger
 from .base import LoRAIroWorkerBase
+from .progress_helper import ProgressHelper
 
 if TYPE_CHECKING:
     from ...database.db_manager import ImageDatabaseManager
@@ -95,8 +96,8 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
                         errors += 1
                         logger.error(f"画像登録失敗: {image_path}")
 
-                # 進捗報告
-                percentage = 10 + int((i + 1) / total_count * 85)  # 10-95%
+                # 進捗報告（ProgressHelper使用）
+                percentage = ProgressHelper.calculate_percentage(i + 1, total_count, 10, 85)  # 10-95%
                 self._report_progress(
                     percentage,
                     f"登録中: {image_path.name}",
@@ -113,7 +114,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         processing_time = time.time() - start_time
         self._report_progress(100, "データベース登録完了")
 
-        result = DatabaseRegistrationResult(
+        registration_result = DatabaseRegistrationResult(
             registered_count=registered,
             skipped_count=skipped,
             error_count=errors,
@@ -126,7 +127,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             f"エラー={errors}, 処理時間={processing_time:.2f}秒"
         )
 
-        return result
+        return registration_result
 
     def _process_associated_files(self, image_path: Path, image_id: int) -> None:
         """
@@ -182,7 +183,7 @@ class SearchResult:
     image_metadata: list[dict[str, Any]]
     total_count: int
     search_time: float
-    filter_conditions: dict[str, Any]
+    filter_conditions: "SearchConditions"
 
 
 class SearchWorker(LoRAIroWorkerBase[SearchResult]):
@@ -242,7 +243,7 @@ class SearchWorker(LoRAIroWorkerBase[SearchResult]):
             include_untagged=include_untagged,
         )
 
-        # Option B: バッチ進捗報告を追加（検索結果処理）
+        # バッチ進捗報告（検索結果処理）
         if total_count > 0:
             # 検索結果を一件ずつ処理するバッチ進捗として報告
             batch_size = min(100, total_count)  # 100件ずつバッチ処理をシミュレート
@@ -276,7 +277,7 @@ class SearchWorker(LoRAIroWorkerBase[SearchResult]):
 class ThumbnailLoadResult:
     """サムネイル読み込み結果"""
 
-    loaded_thumbnails: list[tuple[int, QPixmap]]  # (image_id, pixmap)
+    loaded_thumbnails: list[tuple[int, "QImage"]]  # (image_id, qimage)
     failed_count: int
     total_count: int
     processing_time: float
@@ -297,7 +298,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
         self.db_manager = db_manager
 
     def execute(self) -> ThumbnailLoadResult:
-        """サムネイル読み込み処理を実行"""
+        """サムネイル読み込み処理を実行（バッチ処理最適化版）"""
         import time
 
         start_time = time.time()
@@ -314,63 +315,83 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
         failed_count = 0
 
         # 初期進捗報告
-        self._report_progress(5, "サムネイル読み込み開始...")
+        self._report_progress_throttled(5, "サムネイル読み込み開始...", force_emit=True)
 
-        for i, image_data in enumerate(self.search_result.image_metadata):
-            # キャンセルチェック
+        # バッチ処理設定
+        BATCH_SIZE = 100
+        batch_boundaries = ProgressHelper.get_batch_boundaries(total_count, BATCH_SIZE)
+        total_batches = len(batch_boundaries)
+
+        logger.info(f"バッチ処理開始: {total_batches}バッチ（バッチサイズ: {BATCH_SIZE}）")
+
+        # バッチ単位で処理
+        for batch_idx, (start_idx, end_idx) in enumerate(batch_boundaries):
+            # キャンセルチェック（バッチ境界で実行）
             self._check_cancellation()
 
-            try:
-                image_id = image_data.get("id")
-                if not image_id:
-                    failed_count += 1
-                    continue
+            # 現在のバッチを取得
+            batch_items = self.search_result.image_metadata[start_idx:end_idx]
+            batch_loaded = 0
+            batch_failed = 0
 
-                # サムネイル用の最適な画像パスを取得
-                thumbnail_path = self._get_thumbnail_path(image_data, image_id)
+            # バッチ内のアイテムを処理（進捗シグナル発行なし）
+            for image_data in batch_items:
+                try:
+                    image_id = image_data.get("id")
+                    if not image_id:
+                        batch_failed += 1
+                        continue
 
-                if not thumbnail_path or not thumbnail_path.exists():
-                    failed_count += 1
-                    logger.debug(f"サムネイル画像が見つかりません: {thumbnail_path}")
-                    continue
+                    # サムネイル用の最適な画像パスを取得
+                    thumbnail_path = self._get_thumbnail_path(image_data, image_id)
 
-                # サムネイル読み込み
-                pixmap = QPixmap(str(thumbnail_path))
-                if pixmap.isNull():
-                    failed_count += 1
-                    logger.debug(f"サムネイル読み込み失敗: {thumbnail_path}")
-                    continue
+                    if not thumbnail_path or not thumbnail_path.exists():
+                        batch_failed += 1
+                        continue
 
-                # サイズ調整
-                scaled_pixmap = pixmap.scaled(
-                    self.thumbnail_size,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
+                    # サムネイル読み込み（QImageでスレッドセーフ）
+                    qimage = QImage(str(thumbnail_path))
+                    if qimage.isNull():
+                        batch_failed += 1
+                        continue
 
-                loaded_thumbnails.append((image_id, scaled_pixmap))
+                    # サイズ調整
+                    scaled_qimage = qimage.scaled(
+                        self.thumbnail_size,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
 
-                # Option B: バッチ進捗報告を追加
-                filename = thumbnail_path.name if thumbnail_path else f"image_{image_id}"
-                self._report_batch_progress(i + 1, total_count, filename)
+                    loaded_thumbnails.append((image_id, scaled_qimage))
+                    batch_loaded += 1
 
-                # 従来の進捗報告も継続
-                percentage = 5 + int((i + 1) / total_count * 90)  # 5-95%
-                self._report_progress(
-                    percentage,
-                    f"サムネイル読み込み中: {i + 1}/{total_count}",
-                    current_item=str(thumbnail_path),
-                    processed_count=i + 1,
-                    total_count=total_count,
-                )
+                except Exception as e:
+                    batch_failed += 1
+                    logger.error(f"サムネイル読み込みエラー: {e}")
 
-            except Exception as e:
-                failed_count += 1
-                logger.error(f"サムネイル読み込みエラー: {e}")
+            # バッチ統計更新
+            failed_count += batch_failed
+
+            # バッチ境界での進捗報告（重要：シグナル発行はここのみ）
+            percentage = ProgressHelper.calculate_percentage(end_idx, total_count, 5, 90)  # 5-95%
+            current_item = f"バッチ {batch_idx + 1}/{total_batches}"
+
+            self._report_progress_throttled(
+                percentage,
+                f"サムネイル読み込み中: {current_item}",
+                current_item=current_item,
+                processed_count=end_idx,
+                total_count=total_count,
+            )
+
+            # バッチ進捗も報告
+            self._report_batch_progress(end_idx, total_count, current_item)
+
+            logger.debug(f"バッチ {batch_idx + 1}/{total_batches} 完了: 成功={batch_loaded}, 失敗={batch_failed}")
 
         # 完了処理
         processing_time = time.time() - start_time
-        self._report_progress(100, "サムネイル読み込み完了")
+        self._report_progress_throttled(100, "サムネイル読み込み完了", force_emit=True)
 
         result = ThumbnailLoadResult(
             loaded_thumbnails=loaded_thumbnails,
@@ -381,7 +402,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
 
         logger.info(
             f"サムネイル読み込み完了: 成功={len(loaded_thumbnails)}, 失敗={failed_count}, "
-            f"処理時間={processing_time:.3f}秒"
+            f"処理時間={processing_time:.3f}秒, バッチ数={total_batches}"
         )
 
         return result
