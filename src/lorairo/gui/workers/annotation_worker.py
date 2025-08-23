@@ -224,14 +224,14 @@ class AnnotationWorker(LoRAIroWorkerBase[Any]):
         }
 
 
-class ModelSyncWorker(LoRAIroWorkerBase):
+class ModelSyncWorker(LoRAIroWorkerBase[Any]):
     """モデル同期専用ワーカー
 
     ModelSyncServiceを使用したライブラリモデル同期を
     非同期で実行するワーカー
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """ModelSyncWorker初期化"""
         super().__init__()
 

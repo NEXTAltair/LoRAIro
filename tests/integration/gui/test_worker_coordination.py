@@ -9,7 +9,8 @@ import pytest
 from PySide6.QtCore import QEventLoop, QThread, QTimer
 
 from lorairo.gui.services.worker_service import WorkerService
-from lorairo.gui.workers.progress_manager import ProgressManager
+
+# ProgressManager削除により不要
 from lorairo.gui.workers.search import SearchResult, SearchWorker
 
 
@@ -52,10 +53,7 @@ class TestWorkerSystemCoordination:
         service.worker_manager = mock_worker_manager
         return service
 
-    @pytest.fixture
-    def progress_manager(self):
-        """テスト用ProgressManager"""
-        return ProgressManager()
+    # ProgressManager削除により不要となったfixture
 
     def test_worker_service_search_integration(self, worker_service, mock_db_manager):
         """WorkerService検索統合テスト"""
