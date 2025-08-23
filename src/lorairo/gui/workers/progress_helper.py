@@ -6,20 +6,20 @@ from collections.abc import Callable
 
 class ProgressHelper:
     """進捗管理のための共通ユーティリティクラス
-    
+
     コード重複を削減し、一貫性のある進捗管理を提供します。
     """
 
     @staticmethod
     def calculate_percentage(current: int, total: int, base: int = 0, range_value: int = 100) -> int:
         """進捗パーセンテージ計算の統一
-        
+
         Args:
             current: 現在の処理数
             total: 総処理数
             base: ベースパーセンテージ（開始点）
             range_value: パーセンテージ範囲
-            
+
         Returns:
             計算されたパーセンテージ
         """
@@ -30,11 +30,11 @@ class ProgressHelper:
     @staticmethod
     def create_batch_reporter(total_items: int, target_reports: int = 50) -> Callable[[int], bool]:
         """バッチ進捗レポーター生成
-        
+
         Args:
             total_items: 総アイテム数
             target_reports: 目標報告回数
-            
+
         Returns:
             現在位置で報告すべきかを判定する関数
         """
@@ -47,10 +47,10 @@ class ProgressHelper:
     @staticmethod
     def create_time_throttled_checker(min_interval_ms: int = 50) -> Callable[[], bool]:
         """時間ベーススロットリング制御生成
-        
+
         Args:
             min_interval_ms: 最小報告間隔（ミリ秒）
-            
+
         Returns:
             報告すべきかを時間基準で判定する関数
         """
@@ -67,17 +67,15 @@ class ProgressHelper:
 
     @staticmethod
     def create_combined_throttle(
-        total_items: int,
-        target_reports: int = 50,
-        min_interval_ms: int = 50
+        total_items: int, target_reports: int = 50, min_interval_ms: int = 50
     ) -> Callable[[int], bool]:
         """バッチ + 時間制御の組み合わせ
-        
+
         Args:
             total_items: 総アイテム数
             target_reports: 目標報告回数
             min_interval_ms: 最小報告間隔（ミリ秒）
-            
+
         Returns:
             現在位置と時間の両方を考慮した判定関数
         """
@@ -89,11 +87,11 @@ class ProgressHelper:
     @staticmethod
     def get_batch_boundaries(total_items: int, batch_size: int) -> list[tuple[int, int]]:
         """バッチ境界の計算
-        
+
         Args:
             total_items: 総アイテム数
             batch_size: バッチサイズ
-            
+
         Returns:
             (start_idx, end_idx) のタプルリスト
         """

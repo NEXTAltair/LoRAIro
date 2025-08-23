@@ -67,7 +67,7 @@ class ProgressReporter(QObject):
 
     def report_throttled(self, progress: WorkerProgress, force_emit: bool = False) -> None:
         """スロットリング付き進捗報告
-        
+
         Args:
             progress: 進捗情報
             force_emit: 強制発行フラグ（error/finished等重要シグナル用）
@@ -184,7 +184,7 @@ class LoRAIroWorkerBase[T](QObject):
         force_emit: bool = False,
     ) -> None:
         """スロットリング付き進捗報告ヘルパー
-        
+
         Args:
             percentage: 進捗パーセンテージ
             status_message: ステータスメッセージ
