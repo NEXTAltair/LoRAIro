@@ -368,13 +368,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.thumbnail_selector.image_data = image_data
                 logger.info(f"ThumbnailSelectorWidget.image_data set: {len(image_data)} items")
 
-            # ThumbnailWorker開始 - image_metadata を引数に渡す
+            # ThumbnailWorker開始 - SearchResultオブジェクトを渡す
             from PySide6.QtCore import QSize
 
             default_thumbnail_size = QSize(150, 150)  # デフォルトサムネイルサイズ
-            worker_id = self.worker_service.start_thumbnail_loading(
-                search_result.image_metadata, default_thumbnail_size
-            )
+            worker_id = self.worker_service.start_thumbnail_loading(search_result, default_thumbnail_size)
             logger.info(
                 f"ThumbnailWorker started automatically after search: {worker_id} ({len(search_result.image_metadata)} images)"
             )

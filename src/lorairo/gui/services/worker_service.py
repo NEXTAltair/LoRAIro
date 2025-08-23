@@ -1,6 +1,6 @@
 # src/lorairo/services/worker_service.py
 
-import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -99,7 +99,7 @@ class WorkerService(QObject):
             str: ワーカーID
         """
         worker = DatabaseRegistrationWorker(directory, self.db_manager, self.fsm)
-        worker_id = f"batch_reg_{int(time.time())}"
+        worker_id = f"batch_reg_{uuid.uuid4().hex[:8]}"
 
         # 進捗シグナル接続
         worker.progress_updated.connect(
@@ -136,7 +136,7 @@ class WorkerService(QObject):
             str: ワーカーID
         """
         worker = AnnotationWorker(images, phash_list, models)
-        worker_id = f"annotation_{int(time.time())}"
+        worker_id = f"annotation_{uuid.uuid4().hex[:8]}"
 
         # 進捗シグナル接続
         worker.progress_updated.connect(
@@ -171,7 +171,7 @@ class WorkerService(QObject):
         worker = AnnotationWorker(
             images=images, phash_list=phash_list, models=models, operation_mode="single"
         )
-        worker_id = f"enhanced_annotation_{int(time.time())}"
+        worker_id = f"enhanced_annotation_{uuid.uuid4().hex[:8]}"
 
         # 進捗シグナル接続
         worker.progress_updated.connect(
@@ -202,7 +202,7 @@ class WorkerService(QObject):
         worker = AnnotationWorker(
             image_paths=image_paths, models=models, batch_size=batch_size, operation_mode="batch"
         )
-        worker_id = f"enhanced_batch_{int(time.time())}"
+        worker_id = f"enhanced_batch_{uuid.uuid4().hex[:8]}"
 
         # 進捗シグナル接続
         worker.progress_updated.connect(
@@ -224,7 +224,7 @@ class WorkerService(QObject):
             str: ワーカーID
         """
         worker = ModelSyncWorker()
-        worker_id = f"model_sync_{int(time.time())}"
+        worker_id = f"model_sync_{uuid.uuid4().hex[:8]}"
 
         # 進捗シグナル接続
         worker.progress_updated.connect(
@@ -260,7 +260,7 @@ class WorkerService(QObject):
             self.current_search_worker_id = None
 
         worker = SearchWorker(self.db_manager, search_conditions)
-        worker_id = f"search_{int(time.time())}"
+        worker_id = f"search_{uuid.uuid4().hex[:8]}"
         self.current_search_worker_id = worker_id
 
         # 進捗シグナル接続
@@ -305,7 +305,7 @@ class WorkerService(QObject):
             self.current_thumbnail_worker_id = None
 
         worker = ThumbnailWorker(search_result, thumbnail_size, self.db_manager)
-        worker_id = f"thumbnail_{int(time.time())}"
+        worker_id = f"thumbnail_{uuid.uuid4().hex[:8]}"
         self.current_thumbnail_worker_id = worker_id
 
         # 進捗シグナル接続

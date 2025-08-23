@@ -387,7 +387,9 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
             # バッチ進捗も報告
             self._report_batch_progress(end_idx, total_count, current_item)
 
-            logger.debug(f"バッチ {batch_idx + 1}/{total_batches} 完了: 成功={batch_loaded}, 失敗={batch_failed}")
+            logger.debug(
+                f"バッチ {batch_idx + 1}/{total_batches} 完了: 成功={batch_loaded}, 失敗={batch_failed}"
+            )
 
         # 完了処理
         processing_time = time.time() - start_time

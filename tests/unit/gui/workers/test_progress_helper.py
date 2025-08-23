@@ -75,9 +75,9 @@ class TestProgressHelper:
         should_report = ProgressHelper.create_batch_reporter(100, 50)
 
         # 2間隔で報告すべき
-        assert should_report(0) is True   # 0 % 2 == 0
+        assert should_report(0) is True  # 0 % 2 == 0
         assert should_report(1) is False  # 1 % 2 != 0
-        assert should_report(2) is True   # 2 % 2 == 0
+        assert should_report(2) is True  # 2 % 2 == 0
 
     def test_create_batch_reporter_edge_cases(self):
         """バッチレポーター生成エッジケースのテスト"""
