@@ -272,25 +272,44 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         if not thumbnail_result.loaded_thumbnails:
             return
 
-        # 事前にサムネイルデータを準備
-        thumbnail_map = dict(thumbnail_result.loaded_thumbnails)
+        # QImageからQPixmapへの変換マップを作成（null pixmapチェック付き）
+        thumbnail_map = {}
+        for image_id, qimage in thumbnail_result.loaded_thumbnails:
+            try:
+                # QImageからQPixmapに変換（メインスレッドで実行）
+                from PySide6.QtGui import QPixmap
+
+                qpixmap = QPixmap.fromImage(qimage)
+
+                # Critical Fix: Null pixmap validation
+                if not qpixmap.isNull():
+                    thumbnail_map[image_id] = qpixmap
+                else:
+                    logger.warning(f"Failed to create pixmap from QImage for image_id: {image_id}")
+                    continue
+
+            except Exception as e:
+                logger.error(f"QImage to QPixmap conversion failed for image_id {image_id}: {e}")
+                continue
 
         # 元の画像データからレイアウトを作成
         button_width = self.thumbnail_size.width()
         grid_width = self.scrollAreaThumbnails.viewport().width()
         column_count = max(grid_width // button_width, 1)
 
+        valid_thumbnails = 0
         for i, (image_path, image_id) in enumerate(self.image_data):
             if image_id in thumbnail_map:
                 self.add_thumbnail_item_with_pixmap(
                     image_path, image_id, i, column_count, thumbnail_map[image_id]
                 )
+                valid_thumbnails += 1
 
         row_count = (len(self.image_data) + column_count - 1) // column_count
         scene_height = row_count * self.thumbnail_size.height()
         self.scene.setSceneRect(0, 0, grid_width, scene_height)
 
-        logger.info(f"サムネイル表示完了: {len(thumbnail_result.loaded_thumbnails)}件")
+        logger.info(f"サムネイル表示完了: {valid_thumbnails}/{len(self.image_data)}件")
 
     def add_thumbnail_item_with_pixmap(
         self, image_path: Path, image_id: int, index: int, column_count: int, pixmap: QPixmap
@@ -448,6 +467,13 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
+
+        # Critical Fix: Null pixmap validation for legacy direct loading path
+        if pixmap.isNull():
+            logger.warning(f"Failed to load pixmap from image path: {image_path}")
+            # Create a placeholder pixmap to maintain UI consistency
+            pixmap = QPixmap(self.thumbnail_size)
+            pixmap.fill(Qt.GlobalColor.gray)  # Gray placeholder for failed loads
 
         item = ThumbnailItem(pixmap, image_path, image_id, self)
         self.scene.addItem(item)
