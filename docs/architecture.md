@@ -39,216 +39,79 @@ Components communicate through Qt signals/slots for loose coupling and responsiv
 
 ## System Components
 
-### Core Application Flow
-
+### High-Level Component Overview
 
 ```mermaid
 graph TD
-    A[main.py] --> B[MainWindow]
-    B --> C[ImageProcessingService]
-    B --> D[WorkerService]
-    B --> E[ConfigurationService]
-    B --> F[DatasetStateManager]
-    C --> G[ImageProcessingManager]
-    C --> H[FileSystemManager]
-    C --> I[ImageDatabaseManager]
-    D --> J[WorkerManager]
-    D --> K[AnnotationWorker]
-    D --> L[DatabaseWorker]
-    D --> M[SearchWorker]
-    D --> N[ThumbnailWorker]
-    K --> O[ai_annotator]
-    O --> P[image-annotator-lib]
-    E --> Q[Config Files]
-    G --> H
-    I --> R[ImageRepository]
-    J --> K
-    J --> L
-    J --> M
-    J --> N
+    A[Entry Point] --> B[Main Window]
+    B --> C[Service Layer]
+    B --> D[Worker System]
+    C --> E[Business Logic]
+    C --> F[Data Layer]
+    D --> G[Background Processing]
+    E --> H[AI Integration]
+    F --> I[Storage Systems]
 ```
 
-#### Entry Point
-- **`src/lorairo/main.py`**: Application initialization
-  - Sets up Qt application
-  - Configures logging
-  - Initializes service dependencies
-  - Launches main window
+### Component Architecture Summary
 
-#### Main Window Controller
-- **`src/lorairo/gui/window/main_window.py`**: Primary GUI orchestrator (MainWindow)
-  - Workflow-centered 3-panel layout design
-  - Coordinates between filter/search, thumbnail, and preview panels
-  - Manages service dependencies and worker coordination
-  - Handles application lifecycle
+**Detailed implementation information is maintained in Serena memory.**  
+Use `mcp__serena__read_memory current-project-status` for current implementation status.
 
-#### Service Layer
-- **`src/lorairo/services/image_processing_service.py`**: Image processing business logic
-  - Coordinates between GUI, ImageProcessingManager, and database
-  - Manages image processing workflows
-- **`src/lorairo/services/annotation_service.py`**: AI annotation business logic
-  - Now incorporates dynamic model synchronization, batch processing, and DI via ServiceContainer (replaces previous `EnhancedAnnotationService` functionality).
-- **`src/lorairo/services/configuration_service.py`**: Configuration management
-  - TOML configuration file handling
-  - Application settings management
+#### Core Layers
+- **Presentation Layer**: PySide6 GUI with Qt worker system
+- **Service Layer**: Business logic coordination (2-tier architecture)
+- **Data Layer**: SQLite database with repository pattern
+- **AI Integration**: Multi-provider annotation system
 
-#### GUI Services
-- **`src/lorairo/gui/services/worker_service.py`**: Qt-based worker coordination
-  - High-level API for GUI layer
-  - Manages WorkerManager and asynchronous operations
-  - Provides unified interface for database registration, search, annotation, and thumbnail loading
+#### Implementation Reference
 
-- **`src/lorairo/gui/services/search_filter_service.py`**: GUI-focused search and filter operations
-  - User input parsing and validation
-  - Search condition creation from UI parameters
-  - Search preview generation for user feedback
-  - Available options provision (resolutions, aspect ratios)
-  - UI input validation and error messaging
-  - Delegates business logic to SearchCriteriaProcessor and ModelFilterService
+**For detailed component implementations, file paths, and current status:**
 
-#### Core Processing Components
-- **`src/lorairo/editor/image_processor.py`**: ImageProcessingManager
-  - Coordinates image processing workflows
-  - Integrates with AutoCrop and Upscaler modules
-- **`src/lorairo/editor/autocrop.py`**: AutoCrop
-  - Automatic letterbox detection and removal
-  - Complementary color difference algorithm
-- **`src/lorairo/editor/upscaler.py`**: Upscaler
-  - AI-powered image upscaling functionality
-  - Configuration-driven model selection
-  - Supports RealESRGAN and other models
-- **`src/lorairo/database/db_manager.py`**: ImageDatabaseManager
-  - High-level database operations
-  - Coordinates with ImageRepository
-- **`src/lorairo/database/db_repository.py`**: ImageRepository
-  - Direct database access layer
-  - SQLAlchemy-based data operations
-- **`src/lorairo/storage/file_system.py`**: FileSystemManager
-  - File system operations
-  - Image storage and metadata handling
+- **Current Status**: `mcp__serena__read_memory current-project-status`
+- **Implementation Details**: `mcp__serena__read_memory active-development-tasks`
+- **Architecture Patterns**: `mcp__serena__list_memories` for specific component memories
 
-#### AI Integration
-- **`src/lorairo/annotations/ai_annotator.py`**: AI library integration
-  - Clean wrapper for image-annotator-lib
-  - Functions: `get_available_annotator_models()`, `call_annotate_library()`
-  - Comprehensive error handling with `AiAnnotatorError`
-  - Structured logging for debugging
-- **`local_packages/image-annotator-lib/`**: External AI annotation library
-  - Multi-provider AI annotation support (OpenAI, Anthropic, Google, Local models)
-  - Unified interface via `annotate()` function
-  - Returns `PHashAnnotationResults` with structured data
-  - Local and cloud-based model execution
+#### Core Architecture Layers
+
+**Service Layer**: Business logic coordination with 2-tier architecture  
+**Data Layer**: SQLite database with repository pattern  
+**Worker System**: QThreadPool-based asynchronous processing  
+**AI Integration**: Multi-provider annotation with local package integration
+
+**Detailed information about specific services, components, and integration patterns is maintained in Serena memory for current reference.**
 
 ### Service Layer Architecture
 
-The service layer encapsulates business logic and provides clean interfaces for the GUI layer.
+**For detailed service implementations and current architecture:**
+- **Service Details**: `mcp__serena__read_memory service-layer-architecture`  
+- **Implementation Status**: `mcp__serena__read_memory current-project-status`
 
-```mermaid
-graph LR
-    A[GUI Components] --> B[GUI Services]
-    B --> C[Business Logic Services]
-    C --> D[Repository Layer]
-    C --> E[External APIs]
-    D --> F[Database]
-    E --> G[AI Providers]
-    
-    subgraph "GUI Services"
-        B1[SearchFilterService]
-        B2[WorkerService]
-    end
-    
-    subgraph "Business Logic Services"
-        C1[SearchCriteriaProcessor]
-        C2[ModelFilterService]
-        C3[ImageProcessingService]
-        C4[AnnotationService]
-    end
-    
-    B --> B1
-    B --> B2
-    C --> C1
-    C --> C2
-    C --> C3
-    C --> C4
-    B1 --> C1
-    B1 --> C2
-```
+The service layer encapsulates business logic with a 2-tier architecture:
 
-#### Core Services
+**Business Logic Services** (`src/lorairo/services/`):
+- SearchCriteriaProcessor, ModelFilterService, ImageProcessingService, ConfigurationService
 
-**ImageProcessingService**
-- Image loading and validation
-- Format conversion (JPEG, PNG, WebP)
-- Resizing and quality optimization
-- Batch processing coordination
-- Metadata extraction
+**GUI Services** (`src/lorairo/gui/services/`):
+- WorkerService, SearchFilterService
 
-**AnnotationService**
-- AI provider coordination
-- Caption and tag generation
-- Quality scoring integration
-- Batch annotation processing
-- Result aggregation and storage
-- Dynamic model synchronization
-- ServiceContainer integration
-
-**SearchCriteriaProcessor** (`src/lorairo/services/search_criteria_processor.py`)
-- Search and filtering business logic
-- Database query condition processing
-- Frontend filter application
-- Resolution and date filter processing
-- Tag filtering logic with boolean operations
-- Search criteria separation and optimization
-
-**ModelFilterService** (`src/lorairo/services/model_filter_service.py`)
-- AI model management and filtering
-- Model capability inference
-- Model list retrieval and filtering
-- Annotation settings validation
-- Advanced model filtering with performance optimization
-
-**ConfigurationService**
-- TOML configuration management
-- Environment variable integration
-- Runtime configuration updates
-- Validation and defaults
+**Current implementation details and integration patterns are maintained in Serena memory.**
 
 ### Data Layer Architecture
 
-The data layer provides persistent storage and manages image metadata.
+**For detailed data layer implementation:**
+- **Database Architecture**: `mcp__serena__read_memory database-architecture`
+- **Schema Details**: `mcp__serena__read_memory current-project-status`
 
-```mermaid
-graph TD
-    A[DatabaseManager] --> B[Repository Pattern]
-    B --> C[SQLAlchemy ORM]
-    C --> D[SQLite Database]
-    E[Alembic] --> D
-    F[Schema Models] --> C
-```
+The data layer provides persistent storage with:
 
-#### Database Components
+**Core Components**:
+- DatabaseManager (`src/lorairo/database/db_manager.py`)
+- Repository Pattern (`src/lorairo/database/db_repository.py`)
+- SQLAlchemy ORM with Schema Models (`src/lorairo/database/schema.py`)
+- SQLite Database with Alembic migrations
 
-**DatabaseManager** (`src/lorairo/database/db_manager.py`)
-- Connection management
-- Transaction coordination
-- Session lifecycle
-- Migration management
-- Dataset statistics and status information
-- Filtered search execution
-- Annotation existence checking
-- Enhanced data access methods for service layer integration
-
-**Repository Layer** (`src/lorairo/database/db_repository.py`)
-- Data access abstraction
-- Query optimization
-- Business logic isolation
-- Transaction boundaries
-
-**Schema Models** (`src/lorairo/database/schema.py`)
-- Entity definitions
-- Relationship mapping
-- Validation rules
-- Database constraints
+**Current implementation details maintained in Serena memory.**
 
 ### GUI Architecture (Updated: 2025-07-21)
 
@@ -270,638 +133,146 @@ graph TD
     L --> M[State Signals]
 ```
 
-#### GUI Components (Modernized Architecture)
+#### GUI Components
 
-**Main Window**
-- **`src/lorairo/gui/window/main_window.py`**: MainWindow
-- Workflow-centered 3-panel design replacing legacy page-based architecture
-- Qt auto-connection pattern with standardized signal naming
-- Dependency injection for services (ConfigurationService, WorkerService, DatasetStateManager)
+**For detailed GUI implementation:**
+- **Widget Architecture**: `mcp__serena__read_memory gui-architecture`
+- **State Management**: `mcp__serena__read_memory current-project-status`
 
-**Panel Components**
-- **`src/lorairo/gui/widgets/filter_search_panel.py`**: Advanced search and filtering
-  - Integrated search and filter functionality
-  - CustomRangeSlider integration for date and numeric ranges
-  - Service layer delegation for business logic
-- **`src/lorairo/gui/widgets/custom_range_slider.py`**: Independent range selection widget
-  - Leverages superqt QDoubleRangeSlider for optimal performance
-  - Supports both date and numeric range selection
-  - Reusable across application components
-- **`src/lorairo/gui/widgets/thumbnail_selector_widget.py`**: Efficient image display and selection
-- **`src/lorairo/gui/widgets/preview_detail_panel.py`**: Rich preview and metadata display
-- Virtual scrolling and progressive loading for performance
+**Main Components**:
+- **MainWindow** (`src/lorairo/gui/window/main_window.py`): 3-panel workflow design
+- **Panel Widgets**: Filter/Search, Thumbnail Selector, Preview/Detail panels
+- **State Management** (`src/lorairo/gui/state/dataset_state.py`): DatasetStateManager
+- **Worker Integration**: Qt QThreadPool-based asynchronous processing
 
-**State Management**
-- **`src/lorairo/gui/state/dataset_state.py`**: DatasetStateManager
-- Centralized state coordination with Qt signals
-- Image selection tracking, filter state persistence
-- Worker status coordination
-
-**Designer Integration (Legacy)**
-- **`src/lorairo/gui/designer/`**: Auto-generated UI classes (being phased out)
-- **`.ui` files**: Qt Designer interface definitions
-- **`*_ui.py` files**: Compiled Python UI classes
+**Current implementation details maintained in Serena memory.**
 
 ### Worker Architecture (PySide6 QThreadPool System)
 
-The worker system provides asynchronous task execution using Qt's QRunnable and QThreadPool with standardized patterns.
+**For detailed worker implementation:**
+- **Worker Architecture**: `mcp__serena__read_memory worker-architecture`
+- **Implementation Details**: `mcp__serena__read_memory current-project-status`
 
-```mermaid
-graph TD
-    A[WorkerService] --> B[WorkerManager]
-    B --> C[QThreadPool]
-    C --> D[AnnotationWorker]
-    C --> E[DatabaseRegistrationWorker]
-    C --> F[SearchWorker]
-    C --> G[ThumbnailWorker]
-    D --> H[BaseWorker/QRunnable]
-    E --> H
-    F --> H
-    G --> H
-    H --> I[ProgressManager]
-    I --> J[Qt Signals/Slots]
-    J --> K[GUI Updates]
-    L[DatasetStateManager] --> A
-    L --> M[State Synchronization]
-```
+**Core Architecture**: Qt QRunnable and QThreadPool-based asynchronous processing
 
-#### Worker Components
+**Key Components**:
+- **WorkerService** (`src/lorairo/gui/services/worker_service.py`): High-level API
+- **WorkerManager** (`src/lorairo/gui/workers/manager.py`): QThreadPool coordination
+- **BaseWorker** (`src/lorairo/gui/workers/base.py`): Standardized QRunnable implementation
+- **Specialized Workers**: Database, Annotation, Search, Thumbnail workers
 
-**Core Worker Infrastructure**
-- **`src/lorairo/gui/workers/base.py`**: LoRAIroWorkerBase
-- Standardized QRunnable implementation with progress reporting
-- Built-in cancellation support and error handling
-- Qt signal integration for GUI communication
+**Features**: Progress reporting, cancellation support, error handling, state management integration
 
-**Worker Management**
-- **`src/lorairo/gui/workers/manager.py`**: WorkerManager
-- QThreadPool coordination and lifecycle management
-- Worker registration and status tracking
-- Resource management and cleanup
-
-**Service Integration**
-- **`src/lorairo/gui/services/worker_service.py`**: WorkerService
-- High-level API for async operations
-- Unified signal patterns across all workers
-- State management integration
-
-**Specialized Workers**
-- **DatabaseRegistrationWorker**: Batch image registration to database
-- **AnnotationWorker**: AI annotation processing with progress reporting, including batch processing and ServiceContainer integration (replaces the previous AnnotationWorker)
-- **SearchWorker**: Asynchronous database search operations
-- **ThumbnailWorker**: Progressive thumbnail loading and caching
-    E --> I
-    F --> I
-    G --> I
-```
-
-#### Worker Implementation Details
-
-**Worker Data Structures** (`src/lorairo/gui/workers/base.py`)
-- `WorkerProgress`: Progress reporting data structure
-- `ProgressReporter`: Qt signal-based progress reporting
-- `CancellationController`: Cooperative cancellation support
-
-#### Worker Features
-
-**Asynchronous Execution**
-- Non-blocking GUI operations
-- QRunnable-based task execution
-- QThreadPool for efficient resource management
-
-**Progress Reporting**
-- Real-time progress updates via Qt signals
-- Percentage-based and message-based reporting
-- Integration with QProgressDialog
-
-**Cancellation Support**
-- Cooperative cancellation mechanism
-- Resource cleanup on cancellation
-- Graceful worker termination
-
-**Error Handling**
-- Structured error reporting
-- Exception capture and forwarding
-- Worker state recovery
+**Current implementation details maintained in Serena memory.**
 
 ### AI Integration Architecture
 
-The system supports multiple AI providers through a unified interface.
+**For detailed AI integration:**
+- **AI Architecture**: `mcp__serena__read_memory ai-integration-architecture`
+- **Provider Details**: `mcp__serena__read_memory current-project-status`
 
-```mermaid
-graph TD
-    A[AnnotationWorker] --> B[AI Annotator Wrapper]
-    B --> C[image-annotator-lib]
-    C --> D[AI Providers]
-    C --> E[Local ML Models]
-```
+**Multi-Provider Support**: OpenAI, Anthropic, Google, Local ML models via `image-annotator-lib`
 
-#### AI Provider Integration
+**Key Integration**:
+- **AnnotationWorker**: Primary AI coordination
+- **image-annotator-lib**: Unified provider interface
+- **Local Models**: CLIP, DeepDanbooru, ONNX/TensorFlow support
 
-The AI integration is primarily handled by the `AnnotationWorker` (formerly `EnhancedAnnotationWorker`) which leverages the `image-annotator-lib` for multi-provider AI annotation and local ML model support.
-
-**Multi-Provider Support**
-- OpenAI GPT-4 Vision
-- Anthropic Claude
-- Google Gemini
-- Local ML models via image-annotator-lib
-
-**Unified Interface**
-- The `image-annotator-lib` provides a unified interface for various AI providers and local models.
-- It handles provider-specific configuration, error handling, retry logic, and rate limiting.
-
-**Local Model Integration**
-- CLIP-based aesthetic scoring
-- DeepDanbooru tagging
-- ONNX and TensorFlow models
-- GPU acceleration support
+**Current implementation details maintained in Serena memory.**
 
 ### Storage Architecture
 
-File system management handles image storage and organization.
+**For detailed storage implementation:**
+- **Storage Architecture**: `mcp__serena__read_memory storage-architecture`
+- **File Management**: `mcp__serena__read_memory current-project-status`
 
-```mermaid
-graph TD
-    A[FileSystemManager] --> B[Image Storage]
-    A --> C[Metadata Files]
-    A --> D[Cache Management]
-    B --> E[Directory Organization]
-    C --> F[.txt/.caption Files]
-    D --> G[Temporary Files]
-```
+**Key Components**:
+- **FileSystemManager** (`src/lorairo/storage/file_system.py`): Directory and file management
+- **File Organization**: Images with metadata files (.txt/.caption)
+- **Project Structure**: `lorairo_data/project_name_YYYYMMDD_NNN/` format
 
-#### Storage Components
-
-**FileSystemManager** (`src/lorairo/storage/file_system.py`)
-- Directory management
-- File organization patterns
-- Metadata file coordination
-- Cleanup and maintenance
-
-**File Organization**
-- Images with associated metadata files
-- Directory-based categorization
-- Atomic file operations
-- Backup and recovery support
+**Current implementation details maintained in Serena memory.**
 
 ## Local Package Integration
 
-### Submodule Architecture
+**For detailed local package information:**
+- **Package Integration**: `mcp__serena__read_memory local-package-integration`
+- **Dependency Management**: `mcp__serena__read_memory current-project-status`
 
-The project leverages two local packages as Git submodules managed through uv:
+**Local Packages (uv-managed submodules)**:
+- **genai-tag-db-tools**: Tag database management and cleaning utilities
+- **image-annotator-lib**: Multi-provider AI annotation core
 
-```mermaid
-graph TD
-    A[LoRAIro Main] --> B[genai-tag-db-tools]
-    A --> C[image-annotator-lib]
-    B --> D[Tag Database Management]
-    C --> E[AI Annotation Core]
-    C --> F[Local ML Models]
-```
+**Integration**: Direct Python imports, editable installs via uv.sources
 
-#### genai-tag-db-tools
-- **Purpose**: Tag database management and cleaning utilities
-- **Integration**: Direct Python import via `from genai_tag_db_tools import initialize_tag_searcher`
-- **Location**: `local_packages/genai-tag-db-tools/`
-- **Features**:
-  - Tag taxonomy database (tags_v3.db)
-  - Tag cleaning and normalization (`initialize_tag_searcher`)
-  - Used in `src/lorairo/annotations/cleanup_txt.py`
-  - Database path resolution via `src/lorairo/database/db_core.py`
-
-#### image-annotator-lib
-- **Purpose**: Core AI-powered image annotation functionality
-- **Integration**: Direct Python import via `from image_annotator_lib import annotate, list_available_annotators`
-- **Location**: `local_packages/image-annotator-lib/`
-- **Features**:
-  - Multi-provider AI annotation (OpenAI, Anthropic, Google)
-  - Local ML model support (CLIP, DeepDanbooru)
-  - Unified annotation interface with structured results
-  - Integration via `src/lorairo/annotations/ai_annotator.py`
-
-### Dependency Management
-
-**uv Integration**
-- Packages linked via `uv.sources` in `pyproject.toml`
-- Editable installs for development
-- Automatic dependency resolution
-- Version pinning and updates
+**Current implementation details maintained in Serena memory.**
 
 ## Configuration Architecture
 
-### Hierarchical Configuration
+**For detailed configuration implementation:**
+- **Configuration Details**: `mcp__serena__read_memory configuration-architecture`
 
-```mermaid
-graph TD
-    A[Configuration System] --> B[System Defaults]
-    A --> C[User Configuration]
-    A --> D[Environment Variables]
-    B --> E[config/lorairo.toml]
-    C --> F[User Overrides]
-    D --> G[Runtime Settings]
-```
+**Hierarchical Configuration**: System defaults (`config/lorairo.toml`), environment variables, user overrides
 
-#### Configuration Layers
+**Key Features**: API key management, runtime updates, validation
 
-**System Configuration** (`config/lorairo.toml`)
-- Application defaults
-- AI provider settings
-- Database configuration
-- Logging setup
-
-**Environment Integration**
-- API key management
-- Development/production flags
-- Debug configuration
-- Path overrides
-
-**Runtime Configuration**
-- User preference persistence
-- Session state management
-- Dynamic setting updates
-- Validation and defaults
+**Current implementation details maintained in Serena memory.**
 
 ## Security Architecture
 
-### Data Protection
+**Security Details**: `mcp__serena__read_memory security-architecture`
 
-**API Key Management**
-- Environment variable storage
-- Secure configuration handling
-- No credential logging
-- Provider-specific security
+**Key Features**: API key management, file system security, error handling
 
-**File System Security**
-- Proper file permissions
-- Temporary file cleanup
-- Path validation
-- Directory traversal prevention
-
-### Error Handling
-
-**Comprehensive Error Management**
-- Structured error types
-- User-friendly messages
-- Detailed logging for debugging
-- Graceful degradation strategies
+**Current implementation details maintained in Serena memory.**
 
 ## Performance Architecture
 
-### Memory Management
+**Performance Details**: `mcp__serena__read_memory performance-architecture`
 
-**Image Processing Optimization**
-- Lazy loading strategies
-- Memory-efficient processing
-- Garbage collection optimization
-- Resource cleanup automation
+**Key Features**: 
+- **Batch Processing**: 100-image batches, 5min target for 1000 images
+- **Memory Management**: Lazy loading, resource cleanup automation
+- **Scalability**: Parallel processing, queue management
 
-**Database Performance**
-- Connection pooling
-- Query optimization
-- Index management
-- Batch operations
-
-### Batch Processing Architecture
-
-**Hybrid Controlled Batch Processing**
-- **Design**: 100-image batches for registration and processing
-- **Performance Target**: 5 minutes for 1000 image database registration
-- **Benefits**: Memory control, error isolation, responsive progress updates
-- **Implementation**: Sequential batch processing with cancellation support
-
-### Scalability Considerations
-
-**Batch Processing**
-- Parallel image processing
-- Queue management
-- Progress tracking
-- Error recovery
-
-**Resource Management**
-- Memory usage monitoring
-- CPU utilization optimization
-- I/O operation efficiency
-- Network request optimization
+**Current implementation details maintained in Serena memory.**
 
 ## AI Assistance Tooling (MCP)
 
-The development workflow employs MCP-based agents to accelerate planning and documentation alignment:
+**Development Agents**: cipher (orchestrator), serena (repository/memory management)
 
-- cipher: Orchestrator capable of invoking other MCPs (e.g., web search) and updating project memory files.
-- serena: Repository and documentation ingestion agent that persists its memory under `.serena/memories/`.
+**Working Memory**: `.serena/memories/` for current project knowledge
 
-These tools are development-only and do not affect the runtime application. Changes proposed via MCP must keep `docs/` in sync. serena's working memory is stored in `.serena/memories/`; `tasks/` remains human-authored plans.
-
-```mermaid
-sequenceDiagram
-    participant Dev as Developer
-    participant Serena as serena (MCP)
-    participant Cipher as cipher (MCP)
-    participant Repo as Repo/Docs
-
-    Dev->>Serena: Ingest project context
-    Serena->>Repo: Read docs/tasks/src
-    Serena-->>Dev: Summary + plan
-    Dev->>Cipher: Execute plan, call web/tools
-    Cipher->>Repo: Apply edits (docs/tasks)
-    Repo-->>Dev: Updated state
-```
+**Development-only tools that do not affect runtime application.**
 
 ## Testing Architecture
 
-### Test Strategy
+**Testing Details**: `mcp__serena__read_memory testing-architecture`
 
-```mermaid
-graph TD
-    A[Test Suite] --> B[Unit Tests]
-    A --> C[Integration Tests]
-    A --> D[GUI Tests]
-    B --> E[Service Testing]
-    B --> F[Repository Testing]
-    C --> G[Database Integration]
-    C --> H[AI Provider Integration]
-    D --> I[Widget Testing]
-    D --> J[Workflow Testing]
-```
+**Test Categories**:
+- **Unit Tests** (`pytest -m unit`): Service and business logic testing
+- **Integration Tests** (`pytest -m integration`): Database and service coordination
+- **GUI Tests** (`pytest -m gui`): pytest-qt framework with cross-platform support
 
-#### Test Categories
+**Current implementation details maintained in Serena memory.**
 
-**Unit Tests** (`pytest -m unit`)
-- Service layer testing
-- Business logic validation
-- Mock-based isolation
-- Fast execution
+## Deployment & Future Architecture
 
-**Integration Tests** (`pytest -m integration`)
-- Database operations
-- File system interactions
-- Service coordination
-- End-to-end workflows
+**Deployment Details**: `mcp__serena__read_memory deployment-architecture`
 
-**GUI Tests** (`pytest -m gui`) - pytest-qt Framework
-- **pytest-qt Integration**: Standard patterns using qtbot fixtures
-- **Widget Testing**: QWidget lifecycle management with automatic cleanup
-- **Cross-platform Support**: Linux headless (QT_QPA_PLATFORM=offscreen) vs Windows native GUI
-- **Signal Testing**: Qt signal/slot validation and async worker coordination
-- **Mock Strategies**: Dependency injection patterns for service isolation
+**Current**: Local development with uv virtual environment, SQLite database
 
-**Custom Test Markers**
-- **`fast`**: Fast unit tests (no external dependencies, <30s)
-- **`standard`**: Standard unit tests (light mocking, <3min)
-- **`real_api`**: Real API tests (for validation)
-- **Additional markers**: `webapi`, `scorer`, `tagger`, `model_factory` from local packages
+**Future Considerations**: Plugin architecture, microservice potential, framework evolution
 
-## Deployment Architecture
+**Current implementation details maintained in Serena memory.**
 
-### Development Environment
+## Detailed Implementation Information
 
-**Local Development**
-- uv virtual environment
-- Local SQLite database
-- File-based configuration
-- Debug logging enabled
+**For comprehensive implementation details, sequence diagrams, and workflow documentation:**
+- **Sequence Diagrams**: `mcp__serena__read_memory architecture-sequence-diagrams`
+- **Implementation Workflows**: `mcp__serena__read_memory workflow-documentation`
+- **Component Interactions**: `mcp__serena__read_memory current-project-status`
 
-### Package Management
+**All detailed architectural information is maintained in Serena memory for current reference.**
 
-**Dependencies**
-- Core dependencies in `pyproject.toml`
-- Development tools separation
-- Local package integration
-- Version pinning strategy
-
-## Future Architecture Considerations
-
-### Extensibility Points
-
-**Plugin Architecture**
-- AI provider plugins
-- Processing pipeline extensions
-- Custom widget plugins
-- Export format plugins
-
-**Microservice Potential**
-- Annotation service separation
-- API-based communication
-- Horizontal scaling capability
-- Cloud deployment options
-
-### Technology Evolution
-
-**Framework Updates**
-- PySide6 version management
-- Python version compatibility
-- Dependency update strategy
-- Migration planning
-
-## Sequence Diagrams
-
-The following sequence diagrams illustrate the detailed interactions between components during key application workflows.
-
-### Application Startup Flow
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant Main as main.py
-    participant Config as ConfigurationService
-    participant Log as Logger
-    participant App as QApplication
-    participant MW as MainWindow
-    participant UI as Ui_MainWindow
-
-    User->>+Main: アプリケーション起動
-    Main->>+Config: get_config()
-    Config-->>-Main: 設定情報
-    Main->>+Log: initialize_logging(config)
-    Log-->>-Main: ログ初期化完了
-    Main->>+App: QApplication([])
-    App-->>-Main: アプリインスタンス
-    Main->>+MW: MainWindow()
-    MW->>+UI: setupUi(self)
-    UI-->>-MW: UI初期化完了
-    MW-->>-Main: ウィンドウインスタンス
-    Main->>MW: show()
-    Main->>App: exec()
-    App-->>-User: アプリケーション表示
-```
-
-### MainWindow Initialization Flow
-
-```mermaid
-sequenceDiagram
-    participant MW as MainWindow
-    participant CS as ConfigurationService
-    participant IR as ImageRepository
-    participant IDM as ImageDatabaseManager
-    participant FSM as FileSystemManager
-    participant ITR as ImageTextFileReader
-    participant IPS as ImageProcessingService
-    participant PW as ProgressWidget
-    participant PC as ProgressController
-
-    MW->>+CS: ConfigurationService()
-    CS-->>-MW: 設定サービス
-    MW->>MW: setupUi(self)
-
-    Note over MW: init_managers()
-    MW->>+IR: ImageRepository(DefaultSessionLocal)
-    IR-->>-MW: リポジトリインスタンス
-    MW->>+IDM: ImageDatabaseManager(image_repo)
-    IDM-->>-MW: DBマネージャー
-    MW->>+FSM: FileSystemManager()
-    FSM-->>-MW: ファイルシステムマネージャー
-    MW->>+ITR: ImageTextFileReader(idm)
-    ITR-->>-MW: テキストリーダー
-    MW->>+IPS: ImageProcessingService(config, fsm, idm)
-    IPS-->>-MW: 画像処理サービス
-    MW->>+PW: ProgressWidget()
-    PW-->>-MW: プログレスウィジェット
-    MW->>+PC: Controller(progress_widget)
-    PC-->>-MW: プログレスコントローラー
-
-    Note over MW: init_pages()
-    MW->>MW: 各ページ初期化
-    MW->>MW: connect_signals()
-    MW->>MW: init_dataset_selector()
-    MW->>MW: init_statusbar()
-```
-
-### Image Processing Flow
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant MW as MainWindow
-    participant PC as ProgressController
-    participant IPS as ImageProcessingService
-    participant IPM as ImageProcessingManager
-    participant IDM as ImageDatabaseManager
-    participant FSM as FileSystemManager
-
-    User->>+MW: 画像処理開始
-    MW->>+PC: start_process(process_function, args)
-    PC->>+IPS: process_images_in_list(image_paths, callbacks)
-
-    loop 各画像に対して
-        IPS->>+IDM: detect_duplicate_image(image_file)
-        IDM-->>-IPS: image_id or None
-
-        alt 画像が未登録の場合
-            IPS->>+IDM: register_original_image(image_file, fsm)
-            IDM->>+FSM: get_image_info(image_file)
-            FSM-->>-IDM: メタデータ
-            IDM-->>-IPS: (image_id, metadata)
-        else 画像が登録済みの場合
-            IPS->>+IDM: get_image_metadata(image_id)
-            IDM-->>-IPS: メタデータ
-        end
-
-        IPS->>+IDM: check_processed_image_exists(image_id, resolution)
-        IDM-->>-IPS: 処理済み画像の存在確認
-
-        alt 処理済み画像が存在しない場合
-            IPS->>+IPM: process_image(file, has_alpha, mode, upscaler)
-            IPM-->>-IPS: 処理済み画像
-            IPS->>+FSM: save_processed_image(image, file)
-            FSM-->>-IPS: 保存パス
-            IPS->>+IDM: register_processed_image(id, path, metadata)
-            IDM-->>-IPS: 登録完了
-        end
-
-        IPS->>MW: progress_callback(progress)
-        IPS->>MW: status_callback(status)
-    end
-
-    IPS-->>-PC: 処理完了
-    PC-->>-MW: 完了通知
-    MW-->>-User: 処理完了表示
-```
-
-### AI Annotation Processing Flow
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant IT as ImageTaggerWidget
-    participant WS as WorkerService
-    participant AW as AnnotationWorker
-    participant Thread as QThread
-    participant EAS as EnhancedAnnotationService
-    participant AIL as image-annotator-lib
-
-    User->>+IT: アノテーション開始
-    IT->>+WS: start_annotation_worker(images, phash_list, models)
-    WS->>+Thread: QThread()
-    Thread-->>-WS: スレッドインスタンス
-    WS->>+AW: AnnotationWorker(images, phash_list, models)
-    AW-->>-WS: ワーカーインスタンス
-    WS->>AW: moveToThread(thread)
-    WS->>Thread: シグナル接続
-    WS->>Thread: start()
-
-    Thread->>+AW: run()
-    AW->>+AW: execute()
-    AW->>+EAS: call_annotate(images, models, phash_list)
-    EAS->>+AIL: annotate(images, models, phash_list)
-
-    loop 各画像・各モデルに対して
-        AIL->>AIL: AIモデル呼び出し
-        AIL->>AIL: アノテーション生成
-    end
-
-    AIL-->>-EAS: アノテーション結果
-    EAS-->>-AW: アノテーション結果
-    AW-->>-AW: execute完了
-    AW->>WS: finished(results)
-    AW-->>-Thread: 処理完了
-
-    WS->>+IT: annotationFinished(results)
-    IT->>IT: 結果処理・UI更新
-    IT-->>-User: アノテーション結果表示
-
-    Thread->>Thread: quit()
-    Thread->>AW: deleteLater()
-    Thread->>Thread: deleteLater()
-```
-
-### Database Operation Flow
-
-```mermaid
-sequenceDiagram
-    participant Service as Service Layer
-    participant IDM as ImageDatabaseManager
-    participant IR as ImageRepository
-    participant Session as DB Session
-    participant Schema as Database
-
-    Service->>+IDM: データ操作要求
-    IDM->>+IR: リポジトリメソッド呼び出し
-    IR->>+Session: session_factory()
-    Session-->>-IR: セッションインスタンス
-    IR->>+Schema: SQLクエリ実行
-    Schema-->>-IR: クエリ結果
-    IR->>Session: commit() or rollback()
-    IR-->>-IDM: 処理結果
-    IDM-->>-Service: 結果返却
-```
-
-### Configuration Management Flow
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant ConfigWidget as 設定画面
-    participant CS as ConfigurationService
-    participant File as config/lorairo.toml
-
-    User->>+ConfigWidget: 設定変更
-    ConfigWidget->>+CS: update_setting(section, key, value)
-    CS->>CS: 設定値検証
-    CS->>+File: TOML書き込み
-    File-->>-CS: 保存完了
-    CS-->>-ConfigWidget: 更新完了
-    ConfigWidget->>ConfigWidget: UI更新
-    ConfigWidget-->>-User: 設定変更完了表示
-```
-
-This architecture provides a solid foundation for the LoRAIro application while maintaining flexibility for future enhancements and scaling requirements.
+This simplified architecture documentation provides the essential system overview while maintaining detailed implementation information in dynamic memory storage.
