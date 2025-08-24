@@ -171,6 +171,34 @@ The local packages are installed in editable mode and automatically linked durin
 - **Library Research**: context7経由でのライブラリ情報検索・長期記憶
 - **Fallback**: 直接操作 when cipher timeouts occur
 
+### Serena Memory Management（統合知識管理）
+
+**Memory-First開発原則:**
+- **事前確認**: `mcp__serena__read_memory` で関連実装知識を確認
+- **実装中記録**: 進捗と判断を `mcp__serena__write_memory` で記録
+- **完了後蓄積**: 実装パターンと教訓を永続化
+
+**Memory Categories:**
+- **current-project-status**: プロジェクト全体状況と進捗
+- **active-development-tasks**: 現在の開発タスクと計画
+- **実装記録**: 具体的実装の詳細と根拠（例: `thumbnail_null_check_implementation_2025`）
+- **アーカイブ**: 完了タスクの歴史的記録（例: `archived_active_context_*`）
+
+**Memory Operations:**
+```bash
+# 関連知識検索
+mcp__serena__list_memories  # 利用可能なメモリ一覧
+mcp__serena__read_memory <memory_name>  # 特定メモリ読み込み
+
+# 知識記録・更新
+mcp__serena__write_memory <memory_name> <content>  # 新規記録・更新
+```
+
+**Development Integration:**
+- 実装前: 過去の類似実装パターン確認
+- 実装中: 進捗・課題・判断の継続記録
+- 完了後: 実装知識・教訓・パターンの蓄積
+
 ### Hook System（自動実行）
 
 **セキュリティ・品質管理:**
@@ -189,6 +217,23 @@ The local packages are installed in editable mode and automatically linked durin
 - Use Ruff formatting (line length: 108)
 - Maintain 75%+ test coverage
 - Apply modern Python types (list/dict over typing.List/Dict)
+
+### Context Migration完了後の統合ワークフロー
+
+**新しい開発サイクル（2025-08-24以降）:**
+1. **Memory-First Analysis**: 関連実装知識をSerena memoryから事前確認
+2. **コマンド実行**: `/check-existing` → `/plan` → `/implement` → `/test`
+3. **知識蓄積**: 実装完了後に新しい知識・パターンをSerena memoryに記録
+
+**従来との比較:**
+- **Before**: `tasks/active_context.md`, `tasks/tasks_plan.md` による静的管理
+- **After**: Serena memory による動的・検索可能な知識管理
+
+**利点:**
+- **即座の知識参照**: 過去の実装パターンへの高速アクセス
+- **重複回避**: 既存実装の再利用と改善
+- **継続的蓄積**: 開発知識の永続化と共有
+- **効率化**: Memory-First原則による開発速度向上
 
 ## Problem-Solving Approach
 
@@ -225,6 +270,12 @@ The local packages are installed in editable mode and automatically linked durin
 - **library-research**: 技術研究（cipher+context7経由）
 - **solutions**: 多角的問題解決・アプローチ評価
 - **code-formatter**: コード品質管理（Ruff統合）
+
+### Serena Memory Operations（統合知識管理）
+- **`mcp__serena__list_memories`**: 利用可能なメモリ一覧取得
+- **`mcp__serena__read_memory <name>`**: 特定メモリ読み込み
+- **`mcp__serena__write_memory <name> <content>`**: メモリ作成・更新
+- **Key Memories**: `current-project-status`, `active-development-tasks`
 
 ### Documentation
 - **[docs/architecture.md](docs/architecture.md)**: System design principles
