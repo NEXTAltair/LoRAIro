@@ -8,16 +8,20 @@ AnnotationServiceとWorkerManagerの統合
 """
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from image_annotator_lib import PHashAnnotationResults
 from PIL.Image import Image
 
 from ...services.annotation_service import AnnotationService
 from ...utils.log import logger
 from .base import LoRAIroWorkerBase
 
+if TYPE_CHECKING:
+    from ...services.model_sync_service import ModelSyncResult
 
-class AnnotationWorker(LoRAIroWorkerBase[Any]):
+
+class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
     """拡張アノテーションワーカー
 
     Phase 2: AnnotationService統合版
@@ -74,13 +78,13 @@ class AnnotationWorker(LoRAIroWorkerBase[Any]):
             f"Models: {len(self.models)}"
         )
 
-    def execute(self) -> Any:
+    def execute(self) -> PHashAnnotationResults:
         """アノテーション処理実行
 
         動作モードに応じて単発またはバッチ処理を実行
 
         Returns:
-            Any: アノテーション結果
+            PHashAnnotationResults: アノテーション結果
         """
         logger.info(f"Enhanced アノテーション開始 - Mode: {self.operation_mode}")
 
@@ -96,11 +100,11 @@ class AnnotationWorker(LoRAIroWorkerBase[Any]):
             logger.error(f"Enhanced アノテーション処理エラー: {e}", exc_info=True)
             raise
 
-    def _execute_single_annotation(self) -> Any:
+    def _execute_single_annotation(self) -> PHashAnnotationResults:
         """単発アノテーション処理実行
 
         Returns:
-            Any: アノテーション結果
+            PHashAnnotationResults: アノテーション結果
         """
         # 入力検証
         if not self.images:
@@ -145,11 +149,11 @@ class AnnotationWorker(LoRAIroWorkerBase[Any]):
         logger.info(f"Enhanced 単発アノテーション完了: {len(results)}件の結果")
         return results
 
-    def _execute_batch_annotation(self) -> Any:
+    def _execute_batch_annotation(self) -> PHashAnnotationResults:
         """バッチアノテーション処理実行
 
         Returns:
-            Any: バッチアノテーション結果
+            PHashAnnotationResults: バッチアノテーション結果
         """
         # 入力検証
         if not self.image_paths:
@@ -224,7 +228,7 @@ class AnnotationWorker(LoRAIroWorkerBase[Any]):
         }
 
 
-class ModelSyncWorker(LoRAIroWorkerBase[Any]):
+class ModelSyncWorker(LoRAIroWorkerBase["ModelSyncResult"]):
     """モデル同期専用ワーカー
 
     ModelSyncServiceを使用したライブラリモデル同期を
@@ -240,11 +244,11 @@ class ModelSyncWorker(LoRAIroWorkerBase[Any]):
 
         logger.info("ModelSyncWorker初期化完了")
 
-    def execute(self) -> Any:
+    def execute(self) -> "ModelSyncResult":
         """モデル同期処理実行
 
         Returns:
-            Any: ModelSyncResult
+            ModelSyncResult: ModelSyncResult
         """
         logger.info("モデル同期ワーカー開始")
 

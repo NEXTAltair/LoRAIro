@@ -121,6 +121,119 @@ class TestThumbnailSelectorWidgetLoadImages:
             mock_add_item.assert_called_once_with(mock_item)
 
 
+class TestThumbnailSelectorWidgetQPixmapConversion:
+    """ThumbnailSelectorWidget QImage → QPixmap変換テスト"""
+
+    @pytest.fixture
+    def widget(self, qtbot):
+        """テスト用ウィジェット"""
+        widget = ThumbnailSelectorWidget()
+        qtbot.addWidget(widget)
+        return widget
+
+    @pytest.fixture
+    def mock_thumbnail_result(self):
+        """テスト用のThumbnailLoadResult"""
+        from PySide6.QtGui import QImage
+
+        from lorairo.gui.workers.database_worker import ThumbnailLoadResult
+
+        # テスト用のQImageを作成
+        test_qimage = QImage(100, 100, QImage.Format.Format_RGB32)
+        test_qimage.fill(0xFF0000)  # 赤で塗りつぶし
+
+        loaded_thumbnails = [(1, test_qimage), (2, test_qimage), (3, test_qimage)]
+
+        return ThumbnailLoadResult(
+            loaded_thumbnails=loaded_thumbnails, failed_count=0, total_count=3, processing_time=1.0
+        )
+
+    @patch("lorairo.gui.widgets.thumbnail.QPixmap")
+    def test_load_thumbnails_from_result_qimage_to_qpixmap_conversion(
+        self, mock_pixmap_class, widget, mock_thumbnail_result
+    ):
+        """load_thumbnails_from_result でのQImage → QPixmap変換テスト"""
+        # モックPixmapの設定
+        mock_pixmap = Mock()
+        mock_pixmap_class.fromImage.return_value = mock_pixmap
+
+        # テスト用の画像データを設定（add_thumbnail_item_with_pixmapが呼び出されるため）
+        widget.image_data = [(Path("image1.jpg"), 1), (Path("image2.jpg"), 2), (Path("image3.jpg"), 3)]
+
+        # GUI処理をモック化してテストを高速化
+        with (
+            patch("lorairo.gui.widgets.thumbnail.ThumbnailItem") as mock_item_class,
+            patch.object(widget.scene, "addItem") as mock_add_item,
+            patch.object(widget.scene, "clear") as mock_clear,
+            patch.object(widget.scene, "setSceneRect") as mock_set_rect,
+        ):
+            mock_item = Mock()
+            mock_item_class.return_value = mock_item
+
+            # load_thumbnails_from_result実行
+            widget.load_thumbnails_from_result(mock_thumbnail_result)
+
+            # シーンがクリアされることを確認
+            mock_clear.assert_called_once()
+
+            # QPixmap.fromImage が各QImageに対して呼び出されることを確認
+            assert mock_pixmap_class.fromImage.call_count == 3
+            for call in mock_pixmap_class.fromImage.call_args_list:
+                args, kwargs = call
+                assert len(args) == 1
+                # QImageが渡されていることを確認（モックなので型チェックのみ）
+                assert hasattr(args[0], "format")  # QImageの特徴的メソッド
+
+            # 3つのアイテムがsceneに追加されることを確認
+            assert mock_add_item.call_count == 3
+
+            # シーンレクトが設定されることを確認
+            mock_set_rect.assert_called_once()
+
+    def test_load_thumbnails_from_result_empty_result(self, widget):
+        """空のThumbnailLoadResultでのテスト"""
+        from lorairo.gui.workers.database_worker import ThumbnailLoadResult
+
+        empty_result = ThumbnailLoadResult(
+            loaded_thumbnails=[], failed_count=0, total_count=0, processing_time=0.0
+        )
+
+        # エラーなく処理されることを確認
+        widget.load_thumbnails_from_result(empty_result)
+
+        # アイテムが追加されていないことを確認
+        assert len(widget.thumbnail_items) == 0
+
+    @patch("lorairo.gui.widgets.thumbnail.QPixmap")
+    def test_load_thumbnails_from_result_failed_qimage_conversion(
+        self, mock_pixmap_class, widget, mock_thumbnail_result
+    ):
+        """QImage変換に失敗した場合のテスト"""
+        # fromImageが失敗する場合をシミュレート（null pixmapを返す）
+        null_pixmap = Mock()
+        null_pixmap.isNull.return_value = True
+        mock_pixmap_class.fromImage.return_value = null_pixmap
+
+        # テスト用の画像データを設定
+        widget.image_data = [(Path("image1.jpg"), 1), (Path("image2.jpg"), 2), (Path("image3.jpg"), 3)]
+
+        with (
+            patch("lorairo.gui.widgets.thumbnail.ThumbnailItem"),
+            patch.object(widget.scene, "addItem") as mock_add_item,
+            patch.object(widget.scene, "clear"),
+            patch.object(widget.scene, "setSceneRect"),
+        ):
+            # エラーがあっても処理が完了することを確認
+            widget.load_thumbnails_from_result(mock_thumbnail_result)
+
+            # fromImageが3回呼び出されることを確認
+            assert mock_pixmap_class.fromImage.call_count == 3
+
+            # 失敗したPixmapでもThumbnailItemが作成されることを確認
+            # (実装では isNull チェックをしていない場合)
+            assert mock_add_item.call_count == 3  # 3つの失敗したアイテム
+
+
 class TestThumbnailSelectorWidgetResponsibilitySeparation:
     """責任分離の確認テスト"""
 
