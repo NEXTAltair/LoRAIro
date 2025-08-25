@@ -25,61 +25,46 @@ class TestThumbnailSelectorSignalModernization:
         self.dataset_state = Mock(spec=DatasetStateManager)
 
     def test_modern_signals_exist(self, qtbot: Any) -> None:
-        """現代化Signalの存在確認テスト"""
+        """統一現代化Signalの存在確認テスト"""
         widget = ThumbnailSelectorWidget(dataset_state=self.dataset_state)
         qtbot.addWidget(widget)
 
-        # Phase 5: 現代化Signal確認
+        # 統一現代化Signal確認
         assert hasattr(widget, "image_selected")
         assert hasattr(widget, "multiple_images_selected")
         assert hasattr(widget, "selection_cleared")
 
-        # Legacy互換性Signal確認
-        assert hasattr(widget, "imageSelected")
-        assert hasattr(widget, "multipleImagesSelected")
-        assert hasattr(widget, "deselected")
+        # Legacy Signalが削除されていることを確認
+        assert not hasattr(widget, "imageSelected")
+        assert not hasattr(widget, "multipleImagesSelected")
+        assert not hasattr(widget, "deselected")
 
-    def test_legacy_compatibility_maintained(self, qtbot: Any) -> None:
-        """Legacy互換性維持テスト"""
+    def test_modern_signal_emission(self, qtbot: Any) -> None:
+        """現代化Signal発行テスト"""
         widget = ThumbnailSelectorWidget(dataset_state=self.dataset_state)
         qtbot.addWidget(widget)
 
-        # Legacy Signal接続テスト
-        legacy_signals_received = []
-
-        widget.imageSelected.connect(lambda path: legacy_signals_received.append(("imageSelected", path)))
-        widget.multipleImagesSelected.connect(
-            lambda paths: legacy_signals_received.append(("multipleImagesSelected", paths))
-        )
-        widget.deselected.connect(lambda: legacy_signals_received.append(("deselected", None)))
-
         # 現代化Signal接続テスト
-        modern_signals_received = []
+        signals_received = []
 
-        widget.image_selected.connect(lambda path: modern_signals_received.append(("image_selected", path)))
+        widget.image_selected.connect(lambda path: signals_received.append(("image_selected", path)))
         widget.multiple_images_selected.connect(
-            lambda paths: modern_signals_received.append(("multiple_images_selected", paths))
+            lambda paths: signals_received.append(("multiple_images_selected", paths))
         )
-        widget.selection_cleared.connect(
-            lambda: modern_signals_received.append(("selection_cleared", None))
-        )
+        widget.selection_cleared.connect(lambda: signals_received.append(("selection_cleared", None)))
 
         # Mock selected images
         test_path = Path("/test/image.jpg")
         with patch.object(widget, "get_selected_images", return_value=[test_path]):
-            widget._emit_legacy_signals()
+            widget._emit_selection_signals()
 
         # Wait for signal processing
         QTimer.singleShot(50, lambda: None)
         qtbot.wait(100)
 
-        # 両方のSignalが発行されることを確認
-        assert len(legacy_signals_received) == 1
-        assert len(modern_signals_received) == 1
-
-        # Signal内容確認
-        assert legacy_signals_received[0] == ("imageSelected", test_path)
-        assert modern_signals_received[0] == ("image_selected", test_path)
+        # 現代化Signalが発行されることを確認
+        assert len(signals_received) == 1
+        assert signals_received[0] == ("image_selected", test_path)
 
     def test_multiple_images_signal_emission(self, qtbot: Any) -> None:
         """複数画像選択Signalテスト"""
@@ -90,28 +75,23 @@ class TestThumbnailSelectorSignalModernization:
         signals_received = []
 
         widget.multiple_images_selected.connect(lambda paths: signals_received.append(("modern", paths)))
-        widget.multipleImagesSelected.connect(lambda paths: signals_received.append(("legacy", paths)))
 
         # 複数画像選択をシミュレート
         test_paths = [Path("/test/image1.jpg"), Path("/test/image2.jpg")]
         with patch.object(widget, "get_selected_images", return_value=test_paths):
-            widget._emit_legacy_signals()
+            widget._emit_selection_signals()
 
         # Wait for signal processing
         QTimer.singleShot(50, lambda: None)
         qtbot.wait(100)
 
-        # 両方のSignalが発行されることを確認
-        assert len(signals_received) == 2
+        # 現代化Signalが発行されることを確認
+        assert len(signals_received) == 1
 
         # 内容確認
-        modern_signal = next((s for s in signals_received if s[0] == "modern"), None)
-        legacy_signal = next((s for s in signals_received if s[0] == "legacy"), None)
-
-        assert modern_signal is not None
-        assert legacy_signal is not None
+        modern_signal = signals_received[0]
+        assert modern_signal[0] == "modern"
         assert modern_signal[1] == test_paths
-        assert legacy_signal[1] == test_paths
 
     def test_selection_cleared_signal_emission(self, qtbot: Any) -> None:
         """選択クリアSignalテスト"""
@@ -122,38 +102,34 @@ class TestThumbnailSelectorSignalModernization:
         signals_received = []
 
         widget.selection_cleared.connect(lambda: signals_received.append("modern_cleared"))
-        widget.deselected.connect(lambda: signals_received.append("legacy_cleared"))
 
         # 選択なしをシミュレート
         with patch.object(widget, "get_selected_images", return_value=[]):
-            widget._emit_legacy_signals()
+            widget._emit_selection_signals()
 
         # Wait for signal processing
         QTimer.singleShot(50, lambda: None)
         qtbot.wait(100)
 
-        # 両方のSignalが発行されることを確認
+        # 現代化Signalが発行されることを確認
         assert "modern_cleared" in signals_received
-        assert "legacy_cleared" in signals_received
 
     def test_signal_naming_consistency(self, qtbot: Any) -> None:
         """Signal命名一貫性テスト"""
         widget = ThumbnailSelectorWidget(dataset_state=self.dataset_state)
         qtbot.addWidget(widget)
 
-        # 現代化Signalは統一snake_case命名規約に準拠
+        # 統一現代化Signalは統一snake_case命名規約に準拠
         modern_signals = ["image_selected", "multiple_images_selected", "selection_cleared"]
         for signal_name in modern_signals:
             assert hasattr(widget, signal_name)
             signal = getattr(widget, signal_name)
             assert hasattr(signal, "emit")  # 実際にSignalオブジェクトか確認
 
-        # Legacy Signalはcamel Case（互換性維持）
+        # Legacy Signalが削除されていることを確認
         legacy_signals = ["imageSelected", "multipleImagesSelected", "deselected"]
         for signal_name in legacy_signals:
-            assert hasattr(widget, signal_name)
-            signal = getattr(widget, signal_name)
-            assert hasattr(signal, "emit")
+            assert not hasattr(widget, signal_name)
 
     def test_dataset_state_integration_with_modern_signals(self, qtbot: Any) -> None:
         """DatasetStateManager統合と現代化Signalテスト"""
@@ -173,7 +149,7 @@ class TestThumbnailSelectorSignalModernization:
         # Mock selection and emit
         test_path = Path("/test/integrated_image.jpg")
         with patch.object(widget, "get_selected_images", return_value=[test_path]):
-            widget._emit_legacy_signals()
+            widget._emit_selection_signals()
 
         # Wait for signal processing
         QTimer.singleShot(50, lambda: None)
@@ -211,7 +187,7 @@ class TestThumbnailSelectorSignalModernization:
         # 選択状態をシミュレート
         test_paths = [Path(f"/test/image{i}.jpg") for i in range(selection_count)]
         with patch.object(widget, "get_selected_images", return_value=test_paths):
-            widget._emit_legacy_signals()
+            widget._emit_selection_signals()
 
         # Wait for signal processing
         QTimer.singleShot(50, lambda: None)
@@ -232,7 +208,7 @@ class TestThumbnailSelectorSignalModernization:
         test_path = Path("/test/thread_safe_image.jpg")
         with patch.object(widget, "get_selected_images", return_value=[test_path]):
             for _ in range(5):
-                widget._emit_legacy_signals()
+                widget._emit_selection_signals()
 
         # Wait for all signals to be processed
         QTimer.singleShot(100, lambda: None)

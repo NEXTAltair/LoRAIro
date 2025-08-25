@@ -80,15 +80,10 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     DatasetStateManager との統合により状態管理を統一。
     """
 
-    # === Phase 5: 現代化Signal（統一snake_case命名規約） ===
+    # === Unified Modern Signals（統一snake_case命名規約） ===
     image_selected = Signal(Path)  # 単一画像選択時
     multiple_images_selected = Signal(list)  # 複数画像選択時
     selection_cleared = Signal()  # 選択クリア時
-
-    # === Legacy互換性Signal（段階的廃止予定） ===
-    imageSelected = Signal(Path)  # → image_selected に統一
-    multipleImagesSelected = Signal(list)  # → multiple_images_selected に統一
-    deselected = Signal()  # → selection_cleared に統一
 
     def __init__(self, parent=None, dataset_state: DatasetStateManager | None = None):
         """
@@ -221,10 +216,10 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     @Slot(list)
     def _on_state_selection_changed(self, selected_image_ids: list[int]) -> None:
-        """状態管理からの選択変更通知"""
-        # UI選択状態を更新
+        """状態管理からの選択変更通知 - UI更新トリガー"""
+        # 選択状態は動的取得されるため、再描画のみトリガー
         for item in self.thumbnail_items:
-            item.setSelected(item.image_id in selected_image_ids)
+            item.update()  # 再描画トリガー
 
     @Slot(int)
     def _on_state_current_image_changed(self, current_image_id: int) -> None:
@@ -238,27 +233,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.thumbnail_size = QSize(new_size, new_size)
         self.update_thumbnail_layout()
 
-    # === Legacy Interface (互換性維持) ===
-
-    @Slot(list)
-    def load_images(self, image_paths: list[Path]) -> None:
-        """
-        画像パスリストからサムネイルをロード（レガシー互換）
-        Args:
-            image_paths: 画像パスリスト
-        """
-        # IDなしの場合は仮IDを割り当て
-        self.image_data = [(path, i) for i, path in enumerate(image_paths)]
-        self.update_thumbnail_layout()
-
-    def load_images_with_ids(self, image_data: list[tuple[Path, int]]) -> None:
-        """
-        画像パスとIDのペアでサムネイルをロード（レガシー互換）
-        Args:
-            image_data: (画像パス, 画像ID) のタプルリスト
-        """
-        self.image_data = image_data
-        self.update_thumbnail_layout()
+    # === Modern Loading Interface ===
 
     def load_thumbnails_from_result(self, thumbnail_result) -> None:
         """
@@ -327,10 +302,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         y = row * self.thumbnail_size.height()
         item.setPos(x, y)
 
-        # 状態管理から選択状態を反映
-        if self.dataset_state:
-            is_selected = self.dataset_state.is_image_selected(image_id)
-            item.setSelected(is_selected)
+        # 選択状態はThumbnailItem.isSelected()で動的取得
 
     def clear_thumbnails(self) -> None:
         """全てのサムネイルをクリア"""
@@ -338,15 +310,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.thumbnail_items.clear()
         self.image_data.clear()
         logger.debug("サムネイル表示をクリアしました")
-
-    def _update_display_mode(self, mode: str) -> None:
-        """表示モードを更新（grid/list）"""
-        self.display_mode = mode
-        logger.debug(f"表示モードを変更: {mode}")
-
-        # レイアウトを再計算して更新
-        if self.image_data:
-            self.update_thumbnail_layout()
 
     def _setup_placeholder_layout(self) -> None:
         """大量データ用のプレースホルダーレイアウトを設定"""
@@ -387,52 +350,37 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         """
         アイテムの選択を処理（状態管理統合版）
         """
+        # DatasetStateManagerを使用した統一選択処理
+        if not self.dataset_state:
+            logger.warning("状態管理が未設定です")
+            return
+
         if modifiers & Qt.KeyboardModifier.ControlModifier:
             # Ctrl選択: 選択状態をトグル
-            if self.dataset_state:
-                self.dataset_state.toggle_selection(item.image_id)
-            else:
-                item.setSelected(not item.isSelected())
-
+            self.dataset_state.toggle_selection(item.image_id)
         elif modifiers & Qt.KeyboardModifier.ShiftModifier and self.last_selected_item:
             # Shift選択: 範囲選択
             self.select_range(self.last_selected_item, item)
-
         else:
             # 通常選択: 単一選択
-            if self.dataset_state:
-                self.dataset_state.set_selected_images([item.image_id])
-                self.dataset_state.set_current_image(item.image_id)
-            else:
-                for other_item in self.thumbnail_items:
-                    other_item.setSelected(other_item == item)
+            self.dataset_state.set_selected_images([item.image_id])
+            self.dataset_state.set_current_image(item.image_id)
 
         self.last_selected_item = item
 
-        # レガシーシグナル発行（互換性維持）
-        self._emit_legacy_signals()
-
     def select_range(self, start_item: ThumbnailItem, end_item: ThumbnailItem) -> None:
-        """
-        開始アイテムと終了アイテムの間の範囲を選択
-        """
-        if start_item is None or end_item is None:
+        """範囲選択処理（DatasetStateManager経由）"""
+        if start_item is None or end_item is None or not self.dataset_state:
             return
 
         start_index = self.thumbnail_items.index(start_item)
         end_index = self.thumbnail_items.index(end_item)
         start_index, end_index = min(start_index, end_index), max(start_index, end_index)
 
-        selected_ids = []
-        for i, item in enumerate(self.thumbnail_items):
-            is_selected = start_index <= i <= end_index
-            if is_selected:
-                selected_ids.append(item.image_id)
-            if not self.dataset_state:
-                item.setSelected(is_selected)
-
-        if self.dataset_state:
-            self.dataset_state.set_selected_images(selected_ids)
+        selected_ids = [
+            item.image_id for i, item in enumerate(self.thumbnail_items) if start_index <= i <= end_index
+        ]
+        self.dataset_state.set_selected_images(selected_ids)
 
     # === Layout Management ===
 
@@ -485,76 +433,46 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         y = row * self.thumbnail_size.height()
         item.setPos(x, y)
 
-        # 状態管理から選択状態を反映
-        if self.dataset_state:
-            is_selected = self.dataset_state.is_image_selected(image_id)
-            item.setSelected(is_selected)
+        # 選択状態はThumbnailItem.isSelected()で動的取得
 
     # === Utility Methods ===
 
     def get_selected_images(self) -> list[Path]:
-        """
-        現在選択されている画像のパスのリストを返す（レガシー互換）
-        """
-        if self.dataset_state:
-            selected_ids = self.dataset_state.selected_image_ids
-            return [item.image_path for item in self.thumbnail_items if item.image_id in selected_ids]
-        else:
-            return [item.image_path for item in self.thumbnail_items if item.isSelected()]
+        """選択中画像パスをDatasetStateManagerから取得"""
+        if not self.dataset_state:
+            return []
+
+        selected_ids = self.dataset_state.selected_image_ids
+        return [item.image_path for item in self.thumbnail_items if item.image_id in selected_ids]
 
     def select_first_image(self) -> None:
-        """
-        リスト内の最初の画像を選択
-        """
-        if self.thumbnail_items:
-            first_item = self.thumbnail_items[0]
-            if self.dataset_state:
-                self.dataset_state.set_selected_images([first_item.image_id])
-                self.dataset_state.set_current_image(first_item.image_id)
-            else:
-                for item in self.thumbnail_items:
-                    item.setSelected(item == first_item)
+        """最初の画像を選択（DatasetStateManager経由）"""
+        if not self.thumbnail_items or not self.dataset_state:
+            return
 
-            self.last_selected_item = first_item
-            self._emit_legacy_signals()
+        first_item = self.thumbnail_items[0]
+        self.dataset_state.set_selected_images([first_item.image_id])
+        self.dataset_state.set_current_image(first_item.image_id)
+        self.last_selected_item = first_item
 
-    def _emit_legacy_signals(self) -> None:
-        """Phase 5: 現代化Signal + Legacy互換性維持
+    def _emit_selection_signals(self) -> None:
+        """選択状態変更に応じた統一Signalを発行
 
-        統一命名規約の現代Signalを発行し、同時にLegacy Signalも発行することで
-        段階的移行を支援します。
+        現代化された統一命名規約のSignalのみを発行します。
         """
         selected_images = self.get_selected_images()
 
         if len(selected_images) > 1:
-            # Phase 5: 現代化Signal発行
             self.multiple_images_selected.emit(selected_images)
-            # Legacy互換性維持
-            self.multipleImagesSelected.emit(selected_images)
             logger.debug(f"Multiple images selected: {len(selected_images)} images")
 
         elif len(selected_images) == 1:
-            # Phase 5: 現代化Signal発行
             self.image_selected.emit(selected_images[0])
-            # Legacy互換性維持
-            self.imageSelected.emit(selected_images[0])
             logger.debug(f"Single image selected: {selected_images[0]}")
 
         else:
-            # Phase 5: 現代化Signal発行
             self.selection_cleared.emit()
-            # Legacy互換性維持
-            self.deselected.emit()
             logger.debug("Selection cleared")
-
-    def _get_database_manager(self):
-        """親ウィジェットの階層からデータベースマネージャーを取得"""
-        widget = self.parent()
-        while widget:
-            if hasattr(widget, "idm") and widget.idm:
-                return widget.idm
-            widget = widget.parent()
-        return None
 
 
 if __name__ == "__main__":
@@ -579,7 +497,9 @@ if __name__ == "__main__":
         Path("tests/resources/img/1_img/file08.webp"),
         Path("tests/resources/img/1_img/file09.webp"),
     ]
-    widget.load_images(image_paths)
+    # Convert paths to metadata format for modern loading method
+    image_metadata = [{"stored_image_path": str(path), "id": i} for i, path in enumerate(image_paths)]
+    widget.load_images_from_metadata(image_metadata)
     widget.setMinimumSize(400, 300)  # ウィジェットの最小サイズを設定
     widget.show()
     sys.exit(app.exec())
