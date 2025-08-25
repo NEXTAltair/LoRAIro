@@ -60,15 +60,15 @@ class TestThumbnailSelectorWidgetLoadImages:
         qtbot.addWidget(widget)
         return widget
 
-    def test_load_images_from_metadata(self, widget):
-        """メタデータからの画像読み込み"""
-        test_metadata = [
-            {"stored_image_path": "test1.jpg", "id": 1},
-            {"stored_image_path": "test2.jpg", "id": 2},
-            {"stored_image_path": "test3.jpg", "id": 3},
+    def test_direct_image_data_setting(self, widget):
+        """画像データの直接設定"""
+        test_image_data = [
+            (Path("test1.jpg"), 1),
+            (Path("test2.jpg"), 2),
+            (Path("test3.jpg"), 3),
         ]
 
-        widget.load_images_from_metadata(test_metadata)
+        widget.image_data = test_image_data
 
         # 画像データが正しく設定されているか
         assert len(widget.image_data) == 3
@@ -76,15 +76,15 @@ class TestThumbnailSelectorWidgetLoadImages:
         assert widget.image_data[1] == (Path("test2.jpg"), 2)
         assert widget.image_data[2] == (Path("test3.jpg"), 3)
 
-    def test_load_images_metadata_with_custom_ids(self, widget):
-        """カスタムIDつきメタデータでの画像読み込み"""
-        test_metadata = [
-            {"stored_image_path": "image1.jpg", "id": 101},
-            {"stored_image_path": "image2.jpg", "id": 102},
-            {"stored_image_path": "image3.jpg", "id": 103},
+    def test_direct_metadata_setting_with_custom_ids(self, widget):
+        """カスタムIDつきメタデータの直接設定"""
+        test_image_data = [
+            (Path("image1.jpg"), 101),
+            (Path("image2.jpg"), 102),
+            (Path("image3.jpg"), 103),
         ]
 
-        widget.load_images_from_metadata(test_metadata)
+        widget.image_data = test_image_data
 
         # 画像データが正しく設定されているか
         assert len(widget.image_data) == 3
@@ -92,9 +92,9 @@ class TestThumbnailSelectorWidgetLoadImages:
         assert widget.image_data[1] == (Path("image2.jpg"), 102)
         assert widget.image_data[2] == (Path("image3.jpg"), 103)
 
-    def test_load_empty_images(self, widget):
-        """空のメタデータでの画像読み込み"""
-        widget.load_images_from_metadata([])
+    def test_empty_image_data(self, widget):
+        """空の画像データ設定"""
+        widget.image_data = []
         assert len(widget.image_data) == 0
 
     @patch("lorairo.gui.widgets.thumbnail.QPixmap")
@@ -262,8 +262,8 @@ class TestThumbnailSelectorWidgetResponsibilitySeparation:
         """データベースマネージャーへの依存がないことを確認（シンプル版）"""
         # 通常の操作でエラーが発生しないことを確認（データベースアクセスなし）
         try:
-            test_metadata = [{"stored_image_path": "test.jpg", "id": 1}]
-            widget.load_images_from_metadata(test_metadata)
+            test_image_data = [(Path("test.jpg"), 1)]
+            widget.image_data = test_image_data
             widget.clear_thumbnails()
         except Exception as e:
             pytest.fail(f"データベース依存のないシンプルな操作でエラーが発生: {e}")
@@ -272,7 +272,6 @@ class TestThumbnailSelectorWidgetResponsibilitySeparation:
         """純粋な表示専用コンポーネントであることを確認"""
         # 表示関連のメソッドのみ持つことを確認
         display_methods = [
-            "load_images_from_metadata",
             "load_thumbnails_from_result",
             "clear_thumbnails",
             "add_thumbnail_item",
@@ -306,7 +305,7 @@ class TestThumbnailSelectorWidgetSelection:
 
     def test_get_current_image_data(self, widget):
         """現在の画像データ取得テスト（責任分離で追加されたメソッド）"""
-        # メタデータを直接設定（load_images_with_idsはメタデータを設定しない）
+        # メタデータを直接設定（load_images_from_metadataでメタデータ設定）
         test_metadata = [
             {"id": 101, "stored_image_path": "image1.jpg"},
             {"id": 102, "stored_image_path": "image2.jpg"},
@@ -374,12 +373,12 @@ class TestThumbnailSelectorWidgetWorkflow:
 
     def test_full_workflow_without_database(self, widget):
         """データベースなしでの完全ワークフロー（ユニットテスト）"""
-        # 1. 画像メタデータを設定
-        test_metadata = [
-            {"stored_image_path": "test1.jpg", "id": 1},
-            {"stored_image_path": "test2.jpg", "id": 2},
+        # 1. 画像データを設定
+        test_image_data = [
+            (Path("test1.jpg"), 1),
+            (Path("test2.jpg"), 2),
         ]
-        widget.load_images_from_metadata(test_metadata)
+        widget.image_data = test_image_data
 
         # 2. サムネイルサイズ変更（直接設定 - 責任分離後）
         widget.thumbnail_size = QSize(100, 100)

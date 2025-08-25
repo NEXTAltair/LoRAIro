@@ -172,8 +172,7 @@ class TestMainWindowThumbnailIntegration:
 
         # ThumbnailSelectorWidgetの責任：表示のみ
         display_methods = [
-            "load_images_with_ids",
-            "load_images",
+            "load_thumbnails_from_result",
             "clear_thumbnails",
             "get_current_image_data",
         ]
@@ -257,15 +256,16 @@ class TestMainWindowThumbnailIntegration:
         ]
 
         # 2. サムネイル表示（ThumbnailWidgetの責任）
-        thumbnail_widget.load_images_from_metadata(optimal_metadata)
+        # load_images_from_metadataが削除されたため、直接データを設定
+        thumbnail_widget.image_data = optimal_paths
+        thumbnail_widget.current_image_metadata = optimal_metadata
 
         # 3. 統合結果の検証
         assert len(thumbnail_widget.image_data) == 2
         assert thumbnail_widget.image_data == optimal_paths
 
         # 4. メタデータ取得（責任分離で追加されたメソッド）
-        # メタデータはload_images_with_idsでは設定されないため、
-        # 直接メタデータを設定してテスト
+        # メタデータを直接設定してテスト
         test_metadata = [
             {"id": 1, "stored_image_path": "/original/image1.jpg"},
             {"id": 2, "stored_image_path": "/original/image2.jpg"},
