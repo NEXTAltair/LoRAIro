@@ -22,11 +22,28 @@ from ..state.dataset_state import DatasetStateManager
 
 class ThumbnailItem(QGraphicsObject):
     """
-    サムネイル画像を表すクラス。
-    選択されたときに枠を表示します。
+    サムネイル画像を表示するGraphicsアイテム。
+
+    Qt Graphics Viewフレームワークを使用してサムネイル画像を描画し、
+    マウスイベントによる選択状態の管理と視覚的フィードバックを提供する。
+
+    Attributes:
+        pixmap (QPixmap): 表示する画像データ
+        image_path (Path): 画像ファイルのパス
+        image_id (int): データベース内での画像ID
+        parent_widget (ThumbnailSelectorWidget): 親ウィジェット
     """
 
     def __init__(self, pixmap: QPixmap, image_path: Path, image_id: int, parent: "ThumbnailSelectorWidget"):
+        """
+        ThumbnailItemを初期化する。
+
+        Args:
+            pixmap (QPixmap): 表示する画像データ（既にスケール済み）
+            image_path (Path): 元画像ファイルのパス
+            image_id (int): データベース内での一意な画像ID
+            parent (ThumbnailSelectorWidget): 親となるサムネイルセレクターウィジェット
+        """
         super().__init__()
         self.pixmap = pixmap
         self.image_path = image_path
@@ -37,14 +54,34 @@ class ThumbnailItem(QGraphicsObject):
         self._is_selected = False
 
     def isSelected(self) -> bool:
-        return self._is_selected
+        """
+        現在の選択状態をDatasetStateManagerから動的に取得する。
 
-    def setSelected(self, selected: bool):
-        if self._is_selected != selected:
-            self._is_selected = selected
+        Returns:
+            bool: このアイテムが選択されている場合True
+        """
+        if self.parent_widget.dataset_state:
+            return self.parent_widget.dataset_state.is_image_selected(self.image_id)
+        return False
+
+    def setSelected(self, selected: bool) -> None:
+        """
+        アイテムの選択状態を設定し、必要に応じて再描画をトリガーする。
+
+        Args:
+            selected (bool): 設定する選択状態
+        """
+        current_selected = self.isSelected()
+        if current_selected != selected:
             self.update()  # 再描画をトリガー
 
     def boundingRect(self) -> QRectF:
+        """
+        このアイテムの境界矩形を返す（Qt Graphics View必須メソッド）。
+
+        Returns:
+            QRectF: pixmapのサイズに基づく境界矩形
+        """
         return QRectF(self.pixmap.rect())
 
     def paint(self, painter, option, widget):
@@ -76,8 +113,25 @@ class CustomGraphicsView(QGraphicsView):
 
 class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     """
-    サムネイル画像を表示し、選択操作を管理するウィジェット。
-    DatasetStateManager との統合により状態管理を統一。
+    画像のサムネイル表示と選択操作を管理するメインウィジェット。
+
+    このウィジェットは以下の責任を持つ：
+    - 画像メタデータからサムネイル画像の表示
+    - ユーザーの選択操作（単一選択・複数選択・範囲選択）の処理
+    - DatasetStateManagerとの状態同期
+    - 動的レイアウト調整（ウィンドウリサイズ対応）
+    - WorkerからのThumbnailLoadResult処理
+
+    Signals:
+        image_selected (Path): 単一画像が選択された時に発火
+        multiple_images_selected (list[Path]): 複数画像が選択された時に発火
+        selection_cleared (): 選択がクリアされた時に発火
+
+    Attributes:
+        dataset_state (DatasetStateManager): データセット状態管理オブジェクト
+        thumbnail_size (QSize): サムネイル画像のサイズ
+        image_data (list[tuple[Path, int]]): 表示中の画像データ（パスとID）
+        thumbnail_items (list[ThumbnailItem]): 表示中のサムネイルアイテム
     """
 
     # === Unified Modern Signals（統一snake_case命名規約） ===
@@ -87,10 +141,15 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     def __init__(self, parent=None, dataset_state: DatasetStateManager | None = None):
         """
-        コンストラクタ
+        ThumbnailSelectorWidgetを初期化する。
+
+        UIコンポーネントの設定、Graphics Viewの初期化、
+        DatasetStateManagerとの接続を行う。
+
         Args:
-            parent (QWidget, optional): 親ウィジェット. Defaults to None.
-            dataset_state (DatasetStateManager, optional): データセット状態管理. Defaults to None.
+            parent (QWidget, optional): 親ウィジェット。Qtの親子関係管理用。
+            dataset_state (DatasetStateManager, optional): データセット状態管理オブジェクト。
+                画像選択状態、フィルタ状態などの中央管理を行う。Noneの場合は状態管理なしで動作。
         """
         super().__init__(parent)
         self.setupUi(self)
@@ -128,7 +187,16 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             self._connect_dataset_state()
 
     def set_dataset_state(self, dataset_state: DatasetStateManager) -> None:
-        """データセット状態管理を設定"""
+        """
+        DatasetStateManagerを設定または更新する。
+
+        既存の状態管理オブジェクトがある場合は切断してから新しいものを設定し、
+        Signal接続を再構築する。
+
+        Args:
+            dataset_state (DatasetStateManager): 新しい状態管理オブジェクト。
+                画像選択状態、フィルタ結果、サムネイルサイズなどを中央管理する。
+        """
         if self.dataset_state:
             self._disconnect_dataset_state()
 
@@ -136,7 +204,15 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self._connect_dataset_state()
 
     def _connect_dataset_state(self) -> None:
-        """データセット状態管理との連携を設定"""
+        """
+        DatasetStateManagerとのSignal接続を確立する。
+
+        状態変更通知を受信するため、以下のSignalを接続する：
+        - selection_changed: 選択状態変更時の同期
+        - current_image_changed: 現在画像変更時の表示更新
+        - thumbnail_size_changed: サムネイルサイズ変更時のレイアウト更新
+        - images_filtered: フィルタ結果適用時の表示更新
+        """
         if not self.dataset_state:
             return
 
@@ -386,7 +462,12 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     def update_thumbnail_layout(self) -> None:
         """
-        シーン内のサムネイルをグリッドレイアウトで配置
+        現在のimage_dataに基づいてサムネイルグリッドレイアウトを更新する。
+
+        ウィンドウ幅とサムネイルサイズから最適な列数を計算し、
+        各画像をグリッド位置に配置。ウィンドウリサイズ時に自動呼び出し。
+        実際のファイル読み込みとQPixmap変換を行うため、
+        大量の画像に対してはパフォーマンスに注意が必要。
         """
         self.scene.clear()
         self.thumbnail_items.clear()
@@ -407,7 +488,17 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     def add_thumbnail_item(self, image_path: Path, image_id: int, index: int, column_count: int) -> None:
         """
-        指定されたグリッド位置にサムネイルアイテムをシーンに追加
+        指定されたパスから直接ファイルを読み込んでサムネイルアイテムを作成する。
+
+        与えられたパスからQPixmapを作成し、サムネイルサイズにスケール。
+        ファイル読み込みに失敗した場合は灰色のプレースホルダーを作成。
+        メインスレッドでの同期処理のため、大量の画像ではUIフリーズの原因となる。
+
+        Args:
+            image_path (Path): 読み込む画像ファイルのパス
+            image_id (int): データベース内の画像ID
+            index (int): グリッド内での順序インデックス
+            column_count (int): グリッドの列数（位置計算用）
         """
         # 渡されたパスをそのまま使用（最適化は呼び出し側で実施済み）
         pixmap = QPixmap(str(image_path)).scaled(
@@ -438,7 +529,17 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     # === Utility Methods ===
 
     def get_selected_images(self) -> list[Path]:
-        """選択中画像パスをDatasetStateManagerから取得"""
+        """
+        現在選択中の画像パスリストを取得する。
+
+        DatasetStateManagerの状態とthumbnail_itemsを照合して、
+        選択状態の画像IDに対応するパスを抽出。
+        選択シグナル発火や外部コンポーネントへの情報提供で使用。
+
+        Returns:
+            list[Path]: 選択中の画像ファイルパスのリスト。
+                DatasetStateManagerがない場合は空リストを返す。
+        """
         if not self.dataset_state:
             return []
 
@@ -446,7 +547,17 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         return [item.image_path for item in self.thumbnail_items if item.image_id in selected_ids]
 
     def select_first_image(self) -> None:
-        """最初の画像を選択（DatasetStateManager経由）"""
+        """
+        表示中の最初の画像を選択状態に設定する。
+
+        アプリケーション初期化時やフィルタ結果適用後に、
+        ユーザーに初期選択状態を提供するためのユーティリティ関数。
+        サムネイルが存在しない場合は何も行わない。
+
+        Note:
+            選択状態はDatasetStateManagerを通じて管理され、
+            関連する他のコンポーネントにもSignalで通知される。
+        """
         if not self.thumbnail_items or not self.dataset_state:
             return
 
