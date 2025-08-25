@@ -270,27 +270,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         return self.current_image_metadata.copy()
 
     @Slot(list)
-    def load_images_from_metadata(self, image_metadata: list[dict]) -> None:
-        """
-        メタデータからサムネイルをロード（状態管理統合版）
-        Args:
-            image_metadata: 画像メタデータリスト
-        """
-        self.image_data = [
-            (Path(item["stored_image_path"]), item["id"])
-            for item in image_metadata
-            if "stored_image_path" in item and "id" in item
-        ]
-        # 大量の場合は画像データのみ準備してサムネイル読み込みはスキップ
-        if len(self.image_data) > 200:
-            logger.info(f"大量データ({len(self.image_data)}件) - サムネイル読み込みをスキップ")
-            # プレースホルダーのみ表示
-            self._setup_placeholder_layout()
-        else:
-            # 少量の場合は通常の読み込み
-            self.update_thumbnail_layout()
-
-    @Slot(list)
     def _on_state_selection_changed(self, selected_image_ids: list[int]) -> None:
         """状態管理からの選択変更通知 - UI更新トリガー"""
         # 選択状態は動的取得されるため、再描画のみトリガー
@@ -608,9 +587,8 @@ if __name__ == "__main__":
         Path("tests/resources/img/1_img/file08.webp"),
         Path("tests/resources/img/1_img/file09.webp"),
     ]
-    # Convert paths to metadata format for modern loading method
-    image_metadata = [{"stored_image_path": str(path), "id": i} for i, path in enumerate(image_paths)]
-    widget.load_images_from_metadata(image_metadata)
+    # Convert paths to image_data format
+    widget.image_data = [(path, i) for i, path in enumerate(image_paths)]
     widget.setMinimumSize(400, 300)  # ウィジェットの最小サイズを設定
     widget.show()
     sys.exit(app.exec())

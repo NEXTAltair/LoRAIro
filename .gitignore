@@ -136,3 +136,5 @@ tmp/
 .serena/cache/python/document_symbols_cache_v23-06-25.pkl
 data/cipher-sessions.db-shm
 data/cipher-sessions.db-wal
+data/cipher.db-shm
+data/cipher.db-wal
