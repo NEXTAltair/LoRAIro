@@ -525,44 +525,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         selected_ids = self.dataset_state.selected_image_ids
         return [item.image_path for item in self.thumbnail_items if item.image_id in selected_ids]
 
-    def select_first_image(self) -> None:
-        """
-        表示中の最初の画像を選択状態に設定する。
-
-        アプリケーション初期化時やフィルタ結果適用後に、
-        ユーザーに初期選択状態を提供するためのユーティリティ関数。
-        サムネイルが存在しない場合は何も行わない。
-
-        Note:
-            選択状態はDatasetStateManagerを通じて管理され、
-            関連する他のコンポーネントにもSignalで通知される。
-        """
-        if not self.thumbnail_items or not self.dataset_state:
-            return
-
-        first_item = self.thumbnail_items[0]
-        self.dataset_state.set_selected_images([first_item.image_id])
-        self.dataset_state.set_current_image(first_item.image_id)
-        self.last_selected_item = first_item
-
-    def _emit_selection_signals(self) -> None:
-        """選択状態変更に応じた統一Signalを発行
-
-        現代化された統一命名規約のSignalのみを発行します。
-        """
-        selected_images = self.get_selected_images()
-
-        if len(selected_images) > 1:
-            self.multiple_images_selected.emit(selected_images)
-            logger.debug(f"Multiple images selected: {len(selected_images)} images")
-
-        elif len(selected_images) == 1:
-            self.image_selected.emit(selected_images[0])
-            logger.debug(f"Single image selected: {selected_images[0]}")
-
-        else:
-            self.selection_cleared.emit()
-            logger.debug("Selection cleared")
 
 
 if __name__ == "__main__":
