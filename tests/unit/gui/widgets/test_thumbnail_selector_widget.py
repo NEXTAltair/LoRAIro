@@ -157,7 +157,7 @@ class TestThumbnailSelectorWidgetQPixmapConversion:
             loaded_thumbnails=loaded_thumbnails, failed_count=0, total_count=3, processing_time=1.0
         )
 
-    @patch("PySide6.QtGui.QPixmap")
+    @patch("lorairo.gui.widgets.thumbnail.QPixmap")
     def test_load_thumbnails_from_result_qimage_to_qpixmap_conversion(
         self, mock_pixmap_class, widget, mock_thumbnail_result
     ):
@@ -214,7 +214,7 @@ class TestThumbnailSelectorWidgetQPixmapConversion:
         # アイテムが追加されていないことを確認
         assert len(widget.thumbnail_items) == 0
 
-    @patch("PySide6.QtGui.QPixmap")
+    @patch("lorairo.gui.widgets.thumbnail.QPixmap")
     def test_load_thumbnails_from_result_failed_qimage_conversion(
         self, mock_pixmap_class, widget, mock_thumbnail_result
     ):
