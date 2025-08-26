@@ -329,8 +329,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         for image_id, qimage in thumbnail_result.loaded_thumbnails:
             try:
                 # QImage→QPixmapに変換（メインスレッドで実行）
-                from PySide6.QtGui import QPixmap
-
                 qpixmap = QPixmap.fromImage(qimage)
 
                 # Critical Fix: Null pixmap validation
