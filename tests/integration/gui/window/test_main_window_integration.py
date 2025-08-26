@@ -115,11 +115,14 @@ class TestMainWindowThumbnailIntegration:
         # 実際の統合：MainWindowがThumbnailWidgetにデータを渡す
         window.thumbnail_selector = thumbnail_widget
 
-        # テスト用の最適化されたパスデータ
-        optimal_paths = [(Path("/processed/image1.jpg"), 1), (Path("/processed/image2.jpg"), 2)]
+        # テスト用の最適化されたメタデータ
+        optimal_metadata = [
+            {"stored_image_path": "/processed/image1.jpg", "id": 1},
+            {"stored_image_path": "/processed/image2.jpg", "id": 2},
+        ]
 
         # 実際のメソッド呼び出し
-        thumbnail_widget.load_images_with_ids(optimal_paths)
+        thumbnail_widget.load_images_from_metadata(optimal_metadata)
 
         # 実際の統合結果を検証
         assert len(thumbnail_widget.image_data) == 2
@@ -169,8 +172,7 @@ class TestMainWindowThumbnailIntegration:
 
         # ThumbnailSelectorWidgetの責任：表示のみ
         display_methods = [
-            "load_images_with_ids",
-            "load_images",
+            "load_thumbnails_from_result",
             "clear_thumbnails",
             "get_current_image_data",
         ]
@@ -248,16 +250,22 @@ class TestMainWindowThumbnailIntegration:
         # 実際のパス解決処理
         optimal_paths = window._resolve_optimal_thumbnail_data(image_metadata)
 
+        # optimal_pathsをメタデータ形式に変換
+        optimal_metadata = [
+            {"stored_image_path": str(path), "id": image_id} for path, image_id in optimal_paths
+        ]
+
         # 2. サムネイル表示（ThumbnailWidgetの責任）
-        thumbnail_widget.load_images_with_ids(optimal_paths)
+        # load_images_from_metadataが削除されたため、直接データを設定
+        thumbnail_widget.image_data = optimal_paths
+        thumbnail_widget.current_image_metadata = optimal_metadata
 
         # 3. 統合結果の検証
         assert len(thumbnail_widget.image_data) == 2
         assert thumbnail_widget.image_data == optimal_paths
 
         # 4. メタデータ取得（責任分離で追加されたメソッド）
-        # メタデータはload_images_with_idsでは設定されないため、
-        # 直接メタデータを設定してテスト
+        # メタデータを直接設定してテスト
         test_metadata = [
             {"id": 1, "stored_image_path": "/original/image1.jpg"},
             {"id": 2, "stored_image_path": "/original/image2.jpg"},

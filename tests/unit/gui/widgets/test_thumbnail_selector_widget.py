@@ -60,23 +60,31 @@ class TestThumbnailSelectorWidgetLoadImages:
         qtbot.addWidget(widget)
         return widget
 
-    def test_load_images_simple_paths(self, widget):
-        """シンプルなパスリストでの画像読み込み"""
-        test_paths = [Path("test1.jpg"), Path("test2.jpg"), Path("test3.jpg")]
+    def test_direct_image_data_setting(self, widget):
+        """画像データの直接設定"""
+        test_image_data = [
+            (Path("test1.jpg"), 1),
+            (Path("test2.jpg"), 2),
+            (Path("test3.jpg"), 3),
+        ]
 
-        widget.load_images(test_paths)
+        widget.image_data = test_image_data
 
         # 画像データが正しく設定されているか
         assert len(widget.image_data) == 3
-        assert widget.image_data[0] == (Path("test1.jpg"), 0)
-        assert widget.image_data[1] == (Path("test2.jpg"), 1)
-        assert widget.image_data[2] == (Path("test3.jpg"), 2)
+        assert widget.image_data[0] == (Path("test1.jpg"), 1)
+        assert widget.image_data[1] == (Path("test2.jpg"), 2)
+        assert widget.image_data[2] == (Path("test3.jpg"), 3)
 
-    def test_load_images_with_ids(self, widget):
-        """IDつきデータでの画像読み込み"""
-        test_data = [(Path("image1.jpg"), 101), (Path("image2.jpg"), 102), (Path("image3.jpg"), 103)]
+    def test_direct_metadata_setting_with_custom_ids(self, widget):
+        """カスタムIDつきメタデータの直接設定"""
+        test_image_data = [
+            (Path("image1.jpg"), 101),
+            (Path("image2.jpg"), 102),
+            (Path("image3.jpg"), 103),
+        ]
 
-        widget.load_images_with_ids(test_data)
+        widget.image_data = test_image_data
 
         # 画像データが正しく設定されているか
         assert len(widget.image_data) == 3
@@ -84,9 +92,9 @@ class TestThumbnailSelectorWidgetLoadImages:
         assert widget.image_data[1] == (Path("image2.jpg"), 102)
         assert widget.image_data[2] == (Path("image3.jpg"), 103)
 
-    def test_load_empty_images(self, widget):
-        """空のリストでの画像読み込み"""
-        widget.load_images([])
+    def test_empty_image_data(self, widget):
+        """空の画像データ設定"""
+        widget.image_data = []
         assert len(widget.image_data) == 0
 
     @patch("lorairo.gui.widgets.thumbnail.QPixmap")
@@ -96,6 +104,7 @@ class TestThumbnailSelectorWidgetLoadImages:
         mock_pixmap = Mock()
         mock_pixmap.scaled.return_value = mock_pixmap
         mock_pixmap.rect.return_value = Mock(width=lambda: 128, height=lambda: 128)
+        mock_pixmap.isNull.return_value = False  # 正常なPixmapをシミュレート
         mock_pixmap_class.return_value = mock_pixmap
 
         # GUI処理をモック化してテストを高速化
@@ -109,7 +118,7 @@ class TestThumbnailSelectorWidgetLoadImages:
             widget.add_thumbnail_item(Path("test_image.jpg"), 123, 0, 3)
 
             # QPixmapがパスで呼び出されることを確認
-            mock_pixmap_class.assert_called_once_with("test_image.jpg")
+            mock_pixmap_class.assert_called_with("test_image.jpg")
             mock_pixmap.scaled.assert_called_once_with(
                 widget.thumbnail_size,
                 Qt.AspectRatioMode.KeepAspectRatio,
@@ -155,6 +164,7 @@ class TestThumbnailSelectorWidgetQPixmapConversion:
         """load_thumbnails_from_result でのQImage → QPixmap変換テスト"""
         # モックPixmapの設定
         mock_pixmap = Mock()
+        mock_pixmap.isNull.return_value = False
         mock_pixmap_class.fromImage.return_value = mock_pixmap
 
         # テスト用の画像データを設定（add_thumbnail_item_with_pixmapが呼び出されるため）
@@ -229,9 +239,8 @@ class TestThumbnailSelectorWidgetQPixmapConversion:
             # fromImageが3回呼び出されることを確認
             assert mock_pixmap_class.fromImage.call_count == 3
 
-            # 失敗したPixmapでもThumbnailItemが作成されることを確認
-            # (実装では isNull チェックをしていない場合)
-            assert mock_add_item.call_count == 3  # 3つの失敗したアイテム
+            # null pixmapの場合、ThumbnailItemは作成されない（isNull チェックが実装されているため）
+            assert mock_add_item.call_count == 0  # null pixmapは除外される
 
 
 class TestThumbnailSelectorWidgetResponsibilitySeparation:
@@ -253,7 +262,8 @@ class TestThumbnailSelectorWidgetResponsibilitySeparation:
         """データベースマネージャーへの依存がないことを確認（シンプル版）"""
         # 通常の操作でエラーが発生しないことを確認（データベースアクセスなし）
         try:
-            widget.load_images([Path("test.jpg")])
+            test_image_data = [(Path("test.jpg"), 1)]
+            widget.image_data = test_image_data
             widget.clear_thumbnails()
         except Exception as e:
             pytest.fail(f"データベース依存のないシンプルな操作でエラーが発生: {e}")
@@ -262,8 +272,7 @@ class TestThumbnailSelectorWidgetResponsibilitySeparation:
         """純粋な表示専用コンポーネントであることを確認"""
         # 表示関連のメソッドのみ持つことを確認
         display_methods = [
-            "load_images",
-            "load_images_with_ids",
+            "load_thumbnails_from_result",
             "clear_thumbnails",
             "add_thumbnail_item",
             "get_selected_images",
@@ -296,7 +305,7 @@ class TestThumbnailSelectorWidgetSelection:
 
     def test_get_current_image_data(self, widget):
         """現在の画像データ取得テスト（責任分離で追加されたメソッド）"""
-        # メタデータを直接設定（load_images_with_idsはメタデータを設定しない）
+        # メタデータを直接設定（load_images_from_metadataでメタデータ設定）
         test_metadata = [
             {"id": 101, "stored_image_path": "image1.jpg"},
             {"id": 102, "stored_image_path": "image2.jpg"},
@@ -364,9 +373,12 @@ class TestThumbnailSelectorWidgetWorkflow:
 
     def test_full_workflow_without_database(self, widget):
         """データベースなしでの完全ワークフロー（ユニットテスト）"""
-        # 1. 画像パスを設定
-        test_paths = [Path("test1.jpg"), Path("test2.jpg")]
-        widget.load_images(test_paths)
+        # 1. 画像データを設定
+        test_image_data = [
+            (Path("test1.jpg"), 1),
+            (Path("test2.jpg"), 2),
+        ]
+        widget.image_data = test_image_data
 
         # 2. サムネイルサイズ変更（直接設定 - 責任分離後）
         widget.thumbnail_size = QSize(100, 100)

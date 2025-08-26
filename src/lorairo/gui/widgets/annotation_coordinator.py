@@ -197,11 +197,11 @@ class AnnotationCoordinator(QObject):
 
         # 3. サムネイル選択 → 画像詳細表示の連携
         if self.thumbnail_selector_widget and self.image_details_widget:
-            self.thumbnail_selector_widget.imageSelected.connect(self._on_image_selected)
+            self.thumbnail_selector_widget.image_selected.connect(self._on_image_selected)
 
         # 4. サムネイル選択 → 既存アノテーション結果の連携
         if self.thumbnail_selector_widget and self.results_widget:
-            self.thumbnail_selector_widget.imageSelected.connect(self._on_image_selected_for_results)
+            self.thumbnail_selector_widget.image_selected.connect(self._on_image_selected_for_results)
 
         # 5. 画像詳細の評価変更 → サムネイル表示更新の連携
         # Note: update_image_rating and update_image_score methods do not exist in ThumbnailSelectorWidget
