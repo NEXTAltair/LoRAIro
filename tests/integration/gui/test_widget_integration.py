@@ -475,7 +475,7 @@ class TestMainWorkspaceIntegration:
 
             # パネル間シグナル接続
             left_panel.filter_widget.filterApplied.connect = Mock()
-            center_panel.thumbnail_widget.imageSelected.connect = Mock()
+            center_panel.thumbnail_widget.image_selected.connect = Mock()
             right_panel.control_widget.annotationStarted.connect = Mock()
 
             return {"left": left_panel, "center": center_panel, "right": right_panel}
