@@ -190,8 +190,15 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         """
         DatasetStateManagerを設定または更新する。
 
+        **呼び出し箇所**: MainWindow初期化時 (main_window.py:228)
+        **使用意図**: メインウィンドウ設定時にDatasetStateManagerとの連携を確立
+        **アーキテクチャ連携**:
+        - MainWindow → ThumbnailSelectorWidget の依存性注入
+        - DatasetStateManagerとのSignal/Slot双方向通信開始
+        - 状態同期により複数コンポーネント間の一貫性保証
+
         既存の状態管理オブジェクトがある場合は切断してから新しいものを設定し、
-        Signal接続を再構築する。
+        Signal接続を再構築する。これにより他のUIコンポーネントとの状態同期が可能になる。
 
         Args:
             dataset_state (DatasetStateManager): 新しい状態管理オブジェクト。
@@ -290,11 +297,26 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     # === Modern Loading Interface ===
 
-    def load_thumbnails_from_result(self, thumbnail_result) -> None:
+    def load_thumbnails_from_result(self, thumbnail_result: Any) -> None:
         """
         ThumbnailLoadResultからサムネイルをロード（ワーカー版）
+
+        **呼び出し箇所**: MainWindow._on_thumbnail_completed_update_display (main_window.py:392)
+        **使用意図**: ThumbnailWorkerからの非同期結果を効率的にUI表示に反映
+        **アーキテクチャ連携**:
+        - ThumbnailWorker → MainWindow → ThumbnailSelectorWidget のデータフロー
+        - QImage→QPixmap変換による安全なメインスレッド描画
+        - 大量画像データの効率的UI更新（プリロード済みデータ活用）
+
+        ThumbnailWorkerで事前処理されたQImageデータをQPixmapに変換し、
+        UI表示用サムネイルとして配置する。ファイルI/Oを回避した高速描画が特徴。
+        null pixmap検証により、変換失敗時も安定動作を保証。
+
         Args:
-            thumbnail_result: ThumbnailLoadResult オブジェクト
+            thumbnail_result: ThumbnailLoadResultオブジェクト
+                loaded_thumbnails: list[(image_id, QImage)] - プリロード済み画像データ
+                failed_count: int - 読み込み失敗数
+                total_count: int - 処理対象総数
         """
         self.scene.clear()
         self.thumbnail_items.clear()
@@ -302,11 +324,11 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         if not thumbnail_result.loaded_thumbnails:
             return
 
-        # QImageからQPixmapへの変換マップを作成（null pixmapチェック付き）
+        # QImage→QPixmapの変換マップを作成（null pixmapチェック付き）
         thumbnail_map = {}
         for image_id, qimage in thumbnail_result.loaded_thumbnails:
             try:
-                # QImageからQPixmapに変換（メインスレッドで実行）
+                # QImage→QPixmapに変換（メインスレッドで実行）
                 from PySide6.QtGui import QPixmap
 
                 qpixmap = QPixmap.fromImage(qimage)
@@ -360,7 +382,23 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         # 選択状態はThumbnailItem.isSelected()で動的取得
 
     def clear_thumbnails(self) -> None:
-        """全てのサムネイルをクリア"""
+        """
+        全てのサムネイルをクリア
+
+        **呼び出し箇所**:
+        - MainWindow._on_pipeline_search_started (main_window.py:357)
+        - MainWindow._on_search_started (main_window.py:421)
+        - MainWindow._on_search_canceled (main_window.py:430)
+        - MainWindow._on_search_error (main_window.py:461)
+        **使用意図**: 検索処理の開始・終了・エラー時の表示リセット
+        **アーキテクチャ連携**:
+        - 検索パイプライン制御による一貫した表示状態管理
+        - メモリリーク防止（QGraphicsSceneアイテム解放）
+        - UIリフレッシュ前の準備処理
+
+        GraphicsSceneとthumbnail_items、image_dataを完全にクリアし、
+        新しい検索結果受信に備える。メモリ効率化と表示一貫性維持が目的。
+        """
         self.scene.clear()
         self.thumbnail_items.clear()
         self.image_data.clear()
@@ -394,7 +432,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     # === UI Event Handlers ===
 
-    def resizeEvent(self, event):
+    def resizeEvent(self, event: Any) -> None:
         """
         ウィジェットがリサイズされたときにタイマーをリセット
         """
@@ -404,6 +442,24 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     def handle_item_selection(self, item: ThumbnailItem, modifiers: Qt.KeyboardModifier) -> None:
         """
         アイテムの選択を処理（状態管理統合版）
+
+        **呼び出し箇所**: CustomGraphicsView.itemClicked Signal (thumbnail.py:168)
+        **使用意図**: ユーザーのクリック操作を選択状態に変換し、DatasetStateManagerに伝達
+        **アーキテクチャ連携**:
+        - UI入力 → DatasetStateManager → 全UIコンポーネント への状態伝播
+        - 単一責任原則による選択ロジックのDatasetStateManager集約
+        - Signal/Slotパターンによる疎結合なコンポーネント間通信
+
+        マウスクリックとキーボード修飾子（Ctrl/Shift）の組み合わせにより、
+        単一選択・複数選択・範囲選択を統一的に処理。選択状態はDatasetStateManagerで
+        一元管理され、他のUIコンポーネント（プレビュー、詳細表示）にも自動的に反映される。
+
+        Args:
+            item (ThumbnailItem): クリックされたサムネイルアイテム
+            modifiers (Qt.KeyboardModifier): キーボード修飾子
+                - None: 単一選択
+                - Ctrl: トグル選択（現在の選択状態を切り替え）
+                - Shift: 範囲選択（前回選択から現在まで）
         """
         # DatasetStateManagerを使用した統一選択処理
         if not self.dataset_state:
@@ -443,10 +499,20 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         """
         現在のimage_dataに基づいてサムネイルグリッドレイアウトを更新する。
 
+        **呼び出し箇所**:
+        - QTimer.timeout Signal (thumbnail.py:183) - リサイズ遅延実行
+        - _on_thumbnail_size_changed (thumbnail.py:296) - サムネイルサイズ変更時
+        - _on_images_filtered (thumbnail.py:260) - 少量データフィルタ結果表示時
+        **使用意図**: レスポンシブなグリッドレイアウトの動的再計算・再配置
+        **アーキテクチャ連携**:
+        - リサイズイベント → タイマー遅延 → バッチ更新による性能最適化
+        - ウィンドウ幅変更に対するリアルタイム列数調整
+        - 直接ファイルロード方式による同期的UI更新
+
         ウィンドウ幅とサムネイルサイズから最適な列数を計算し、
-        各画像をグリッド位置に配置。ウィンドウリサイズ時に自動呼び出し。
-        実際のファイル読み込みとQPixmap変換を行うため、
+        各画像をグリッド位置に配置。実際のファイル読み込みとQPixmap変換を行うため、
         大量の画像に対してはパフォーマンスに注意が必要。
+        小〜中規模データでの即座な表示更新が主な用途。
         """
         self.scene.clear()
         self.thumbnail_items.clear()
@@ -469,9 +535,17 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         """
         指定されたパスから直接ファイルを読み込んでサムネイルアイテムを作成する。
 
+        **呼び出し箇所**: update_thumbnail_layout (thumbnail.py:525内のループ)
+        **使用意図**: 小〜中規模データの直接ファイル読み込みによる即座表示
+        **アーキテクチャ連携**:
+        - update_thumbnail_layout → add_thumbnail_item のシーケンシャル実行
+        - メインスレッド同期処理による即座UI反映
+        - load_thumbnails_from_result（ワーカー版）との役割分担
+
         与えられたパスからQPixmapを作成し、サムネイルサイズにスケール。
         ファイル読み込みに失敗した場合は灰色のプレースホルダーを作成。
         メインスレッドでの同期処理のため、大量の画像ではUIフリーズの原因となる。
+        レスポンシブレイアウト更新や少量データの即座表示が主な用途。
 
         Args:
             image_path (Path): 読み込む画像ファイルのパス
@@ -511,9 +585,16 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         """
         現在選択中の画像パスリストを取得する。
 
+        **呼び出し箇所**: テストコード (test_thumbnail_selector_widget.py:303)
+        **使用意図**: 選択状態の外部確認・シグナル発火時のデータ取得
+        **アーキテクチャ連携**:
+        - DatasetStateManagerの選択状態とThumbnailItemsの照合処理
+        - 他UIコンポーネントへの選択情報提供（プレビュー更新等）
+        - Signal発火時のペイロード生成
+
         DatasetStateManagerの状態とthumbnail_itemsを照合して、
-        選択状態の画像IDに対応するパスを抽出。
-        選択シグナル発火や外部コンポーネントへの情報提供で使用。
+        選択状態の画像IDに対応するパスを抽出。Signal発火や外部コンポーネントへの
+        情報提供で使用される。
 
         Returns:
             list[Path]: 選択中の画像ファイルパスのリスト。
@@ -524,7 +605,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         selected_ids = self.dataset_state.selected_image_ids
         return [item.image_path for item in self.thumbnail_items if item.image_id in selected_ids]
-
 
 
 if __name__ == "__main__":
