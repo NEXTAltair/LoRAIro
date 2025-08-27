@@ -411,7 +411,7 @@ def test_dataset_selection_signal(self, main_window, qtbot):
 
 ### 7.2. ウィジェット実装
 - **FilterSearchPanel:** `/src/lorairo/gui/widgets/filter_search_panel.py`
-- **ThumbnailSelectorWidget:** `/src/lorairo/gui/widgets/thumbnail_enhanced.py`
+- **ThumbnailSelectorWidget:** `/src/lorairo/gui/widgets/thumbnail.py`
 - **PreviewDetailPanel:** `/src/lorairo/gui/widgets/preview_detail_panel.py`
 
 ### 7.3. ワーカー実装

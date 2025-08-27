@@ -42,7 +42,7 @@ def main_window(qtbot, mock_services):
     """MainWindow のテストインスタンス"""
     with (
         patch("lorairo.gui.widgets.filter_search_panel.FilterSearchPanel"),
-        patch("lorairo.gui.widgets.thumbnail_enhanced.ThumbnailSelectorWidget"),
+        patch("lorairo.gui.widgets.thumbnail.ThumbnailSelectorWidget"),
         patch("lorairo.gui.widgets.image_preview.ImagePreviewWidget"),
     ):
         try:

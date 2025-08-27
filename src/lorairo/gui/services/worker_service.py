@@ -23,7 +23,7 @@ from ..workers.manager import WorkerManager
 
 class WorkerService(QObject):
     """
-    ワーカーサービス - 高レベルAPI提供。
+    Workerサービス - 高レベルAPI提供。
     各種ワーカーの統一的な管理とGUI層への簡潔なインターフェースを提供。
     """
 
@@ -252,6 +252,9 @@ class WorkerService(QObject):
 
         Returns:
             str: ワーカーID
+            
+        Raises:
+            RuntimeError: ワーカー開始失敗の場合
         """
         # 既存の検索をキャンセル
         if self.current_search_worker_id:
@@ -267,8 +270,6 @@ class WorkerService(QObject):
         worker.progress_updated.connect(
             lambda progress: self.worker_progress_updated.emit(worker_id, progress)
         )
-
-        # Option B: バッチ進捗シグナル接続を追加
         worker.batch_progress.connect(
             lambda current, total, filename: self.worker_batch_progress.emit(
                 worker_id, current, total, filename
@@ -285,52 +286,37 @@ class WorkerService(QObject):
         """検索キャンセル"""
         return self.worker_manager.cancel_worker(worker_id)
 
-    # === Thumbnail Loading ===
+    # === Thumbnail ===
 
-    def start_thumbnail_loading(self, search_result: "SearchResult", thumbnail_size: QSize) -> str:
+    def start_thumbnail_load(self, image_metadata: list[dict[str, Any]]) -> str:
         """
-        サムネイル読み込み開始（既存の読み込みは自動キャンセル）
+        サムネイル読み込み開始
 
         Args:
-            search_result: 検索結果オブジェクト
-            thumbnail_size: サムネイルサイズ
+            image_metadata: 画像メタデータリスト
 
         Returns:
             str: ワーカーID
         """
-        # 既存のサムネイル読み込みをキャンセル
-        if self.current_thumbnail_worker_id:
-            logger.info(f"既存のサムネイル読み込みをキャンセル: {self.current_thumbnail_worker_id}")
-            self.worker_manager.cancel_worker(self.current_thumbnail_worker_id)
-            self.current_thumbnail_worker_id = None
-
-        worker = ThumbnailWorker(search_result, thumbnail_size, self.db_manager)
+        worker = ThumbnailWorker(image_metadata)
         worker_id = f"thumbnail_{uuid.uuid4().hex[:8]}"
-        self.current_thumbnail_worker_id = worker_id
 
         # 進捗シグナル接続
         worker.progress_updated.connect(
             lambda progress: self.worker_progress_updated.emit(worker_id, progress)
         )
 
-        # Option B: バッチ進捗シグナル接続を追加
-        worker.batch_progress.connect(
-            lambda current, total, filename: self.worker_batch_progress.emit(
-                worker_id, current, total, filename
-            )
-        )
-
         if self.worker_manager.start_worker(worker_id, worker):
-            logger.info(f"サムネイル読み込み開始: {len(search_result.image_metadata)}件 (ID: {worker_id})")
+            logger.info(f"サムネイル読み込み開始: {len(image_metadata)}件 (ID: {worker_id})")
             return worker_id
         else:
             raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
 
-    def cancel_thumbnail_loading(self, worker_id: str) -> bool:
+    def cancel_thumbnail_load(self, worker_id: str) -> bool:
         """サムネイル読み込みキャンセル"""
         return self.worker_manager.cancel_worker(worker_id)
 
-    # === General Worker Management ===
+    # === 全般管理 ===
 
     def cancel_all_workers(self) -> None:
         """全ワーカーキャンセル"""
@@ -338,81 +324,73 @@ class WorkerService(QObject):
 
     def get_active_worker_count(self) -> int:
         """アクティブワーカー数取得"""
-        return self.worker_manager.get_active_worker_count()
+        return self.worker_manager.active_worker_count()
 
-    def get_active_worker_ids(self) -> list[str]:
-        """アクティブワーカーIDリスト取得"""
-        return self.worker_manager.get_active_worker_ids()
+    def get_worker_status(self, worker_id: str) -> str | None:
+        """指定ワーカーのステータス取得"""
+        return self.worker_manager.get_worker_status(worker_id)
 
-    def is_worker_active(self, worker_id: str) -> bool:
-        """ワーカーアクティブ状態確認"""
-        return self.worker_manager.is_worker_active(worker_id)
-
-    def wait_for_all_workers(self, timeout_ms: int = 30000) -> bool:
-        """全ワーカー完了待機"""
-        return self.worker_manager.wait_for_all_workers(timeout_ms)
-
-    # === Private Event Handlers ===
+    # === プライベートメソッド ===
 
     def _on_worker_started(self, worker_id: str) -> None:
-        """ワーカー開始イベントハンドラー"""
-        if worker_id.startswith("batch_reg"):
+        """ワーカー開始ハンドラ"""
+        if worker_id.startswith("batch_reg_"):
             self.batch_registration_started.emit(worker_id)
-        elif worker_id.startswith("annotation"):
+        elif worker_id.startswith("annotation_"):
             self.annotation_started.emit(worker_id)
-        elif worker_id.startswith("enhanced_annotation") or worker_id.startswith("enhanced_batch"):
+        elif worker_id.startswith("enhanced_"):
             self.enhanced_annotation_started.emit(worker_id)
-        elif worker_id.startswith("model_sync"):
+        elif worker_id.startswith("model_sync_"):
             self.model_sync_started.emit(worker_id)
-        elif worker_id.startswith("search"):
+        elif worker_id.startswith("search_"):
             self.search_started.emit(worker_id)
-        elif worker_id.startswith("thumbnail"):
+        elif worker_id.startswith("thumbnail_"):
             self.thumbnail_started.emit(worker_id)
 
-    def _on_worker_finished(self, worker_id: str, result) -> None:
-        """ワーカー完了イベントハンドラー"""
-        if worker_id.startswith("batch_reg"):
-            self.current_registration_worker_id = None
+    def _on_worker_finished(self, worker_id: str, result: Any) -> None:
+        """ワーカー完了ハンドラ"""
+        if worker_id.startswith("batch_reg_"):
             self.batch_registration_finished.emit(result)
-        elif worker_id.startswith("annotation"):
-            self.current_annotation_worker_id = None
+            if self.current_registration_worker_id == worker_id:
+                self.current_registration_worker_id = None
+        elif worker_id.startswith("annotation_"):
             self.annotation_finished.emit(result)
-        elif worker_id.startswith("enhanced_annotation") or worker_id.startswith("enhanced_batch"):
+            if self.current_annotation_worker_id == worker_id:
+                self.current_annotation_worker_id = None
+        elif worker_id.startswith("enhanced_"):
             self.enhanced_annotation_finished.emit(result)
-        elif worker_id.startswith("model_sync"):
+        elif worker_id.startswith("model_sync_"):
             self.model_sync_finished.emit(result)
-        elif worker_id.startswith("search"):
-            self.current_search_worker_id = None
+        elif worker_id.startswith("search_"):
             self.search_finished.emit(result)
-        elif worker_id.startswith("thumbnail"):
-            self.current_thumbnail_worker_id = None
+            if self.current_search_worker_id == worker_id:
+                self.current_search_worker_id = None
+        elif worker_id.startswith("thumbnail_"):
             self.thumbnail_finished.emit(result)
+            if self.current_thumbnail_worker_id == worker_id:
+                self.current_thumbnail_worker_id = None
 
     def _on_worker_error(self, worker_id: str, error: str) -> None:
-        """ワーカーエラーイベントハンドラー"""
-        if worker_id.startswith("batch_reg"):
-            self.current_registration_worker_id = None
+        """ワーカーエラーハンドラ"""
+        logger.error(f"ワーカーエラー {worker_id}: {error}")
+
+        if worker_id.startswith("batch_reg_"):
             self.batch_registration_error.emit(error)
-        elif worker_id.startswith("annotation"):
-            self.current_annotation_worker_id = None
+            if self.current_registration_worker_id == worker_id:
+                self.current_registration_worker_id = None
+        elif worker_id.startswith("annotation_"):
             self.annotation_error.emit(error)
-        elif worker_id.startswith("enhanced_annotation") or worker_id.startswith("enhanced_batch"):
+            if self.current_annotation_worker_id == worker_id:
+                self.current_annotation_worker_id = None
+        elif worker_id.startswith("enhanced_"):
             self.enhanced_annotation_error.emit(error)
-        elif worker_id.startswith("model_sync"):
+        elif worker_id.startswith("model_sync_"):
             self.model_sync_error.emit(error)
-        elif worker_id.startswith("search"):
-            self.current_search_worker_id = None
+        elif worker_id.startswith("search_"):
             self.search_error.emit(error)
-        elif worker_id.startswith("thumbnail"):
-            self.current_thumbnail_worker_id = None
+            if self.current_search_worker_id == worker_id:
+                self.current_search_worker_id = None
+        elif worker_id.startswith("thumbnail_"):
             self.thumbnail_error.emit(error)
-
-    # === Utility Methods ===
-
-    def get_service_summary(self) -> dict[str, Any]:
-        """サービス状態サマリー取得"""
-        return {
-            "service_name": "WorkerService",
-            "active_workers": self.get_active_worker_count(),
-            "worker_details": self.worker_manager.get_worker_summary(),
-        }
+            if self.current_thumbnail_worker_id == worker_id:
+                self.current_thumbnail_worker_id = None

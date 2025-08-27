@@ -328,8 +328,8 @@ class AnnotationCoordinator(QObject):
             # アノテーション状態でフィルタリング
             filtered_images = self._filter_by_annotation_status(current_images, filter_conditions)
 
-            # サムネイル表示を更新
-            self.thumbnail_selector_widget._on_images_filtered(filtered_images)
+            # サムネイル表示を更新（公開API使用）
+            self.thumbnail_selector_widget.apply_filtered_metadata(filtered_images)
 
             logger.debug(f"Display filter applied: {len(current_images)} → {len(filtered_images)} images")
 

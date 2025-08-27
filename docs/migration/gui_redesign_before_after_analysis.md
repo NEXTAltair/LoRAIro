@@ -113,7 +113,7 @@ graph TB
 |---------------|------|----------|--------|
 | `main_workspace_window.py` | ~754行 | 統合ワークフロー制御 | 3パネル統合設計 |
 | `filter_search_panel.py` | ~562行 | 高度な検索・フィルタリング | リアルタイム検索 |
-| `thumbnail_enhanced.py` | ~518行 | 高性能サムネイル表示 | バーチャルスクロール |
+| `thumbnail.py` | ~518行 | 高性能サムネイル表示 | バーチャルスクロール |
 | `preview_detail_panel.py` | ~420行 | プレビューと詳細情報 | 統合表示 |
 | `dataset_state.py` | ~266行 | 中央集権的状態管理 | 全コンポーネント統一 |
 | `worker_service.py` | ~290行 | 非同期処理統括 | PySide6標準活用 |
@@ -163,7 +163,7 @@ src/lorairo/gui/
 │   └── main_workspace_window.py     (754行) → ✅ 新規
 ├── widgets/
 │   ├── filter_search_panel.py       (562行) → ✅ 新規
-│   ├── thumbnail_enhanced.py        (518行) → ✅ 新規
+│   ├── thumbnail.py        (518行) → ✅ 新規
 │   └── preview_detail_panel.py      (420行) → ✅ 新規
 ├── state/
 │   ├── dataset_state.py             (266行) → ✅ 新規

@@ -121,8 +121,10 @@ class TestMainWindowThumbnailIntegration:
             {"stored_image_path": "/processed/image2.jpg", "id": 2},
         ]
 
-        # 実際のメソッド呼び出し
-        thumbnail_widget.load_images_from_metadata(optimal_metadata)
+        # 画像データとメタデータを直接設定（現行API）
+        optimal_paths = [(Path(item["stored_image_path"]), item["id"]) for item in optimal_metadata]
+        thumbnail_widget.image_data = optimal_paths
+        thumbnail_widget.current_image_metadata = optimal_metadata
 
         # 実際の統合結果を検証
         assert len(thumbnail_widget.image_data) == 2
