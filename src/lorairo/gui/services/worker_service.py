@@ -252,7 +252,7 @@ class WorkerService(QObject):
 
         Returns:
             str: ワーカーID
-            
+
         Raises:
             RuntimeError: ワーカー開始失敗の場合
         """
