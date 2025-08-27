@@ -219,8 +219,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # サムネイルセレクター（UI配置済みウィジェットへの参照取得）
         try:
-            logger.debug(f"ThumbnailSelectorWidget接続チェック - hasattr: {hasattr(self, 'thumbnailSelectorWidget')}")
-            logger.debug(f"DatasetStateManager存在チェック - dataset_state_manager: {self.dataset_state_manager is not None}")
+            logger.debug(
+                f"ThumbnailSelectorWidget接続チェック - hasattr: {hasattr(self, 'thumbnailSelectorWidget')}"
+            )
+            logger.debug(
+                f"DatasetStateManager存在チェック - dataset_state_manager: {self.dataset_state_manager is not None}"
+            )
 
             if hasattr(self, "thumbnailSelectorWidget") and self.dataset_state_manager:
                 self.thumbnail_selector = self.thumbnailSelectorWidget  # type: ignore[attr-defined]

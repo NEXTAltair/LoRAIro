@@ -173,7 +173,9 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         # キャッシュ機構（新設計）
         self.image_cache: dict[int, QPixmap] = {}  # image_id -> 元QPixmap
-        self.scaled_cache: dict[tuple[int, int, int], QPixmap] = {}  # (image_id, width, height) -> スケールされたQPixmap
+        self.scaled_cache: dict[
+            tuple[int, int, int], QPixmap
+        ] = {}  # (image_id, width, height) -> スケールされたQPixmap
         self.image_metadata: dict[int, dict[str, Any]] = {}  # image_id -> メタデータ
 
         # レガシー互換（段階的廃止予定）
@@ -197,11 +199,11 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     def _setup_header_connections(self):
         """
         ヘッダー部分のUI接続を設定する。
-        
+
         サムネイルサイズスライダーと画像件数表示の初期化と接続を行う。
         """
         # サムネイルサイズスライダーの接続
-        if hasattr(self, 'sliderThumbnailSize'):
+        if hasattr(self, "sliderThumbnailSize"):
             self.sliderThumbnailSize.valueChanged.connect(self._on_thumbnail_size_slider_changed)
 
         # 画像件数表示の初期化
@@ -210,10 +212,10 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     def _on_thumbnail_size_slider_changed(self, value: int):
         """
         サムネイルサイズスライダーの値変更を処理する（高速キャッシュ版）。
-        
+
         キャッシュされた元画像から新サイズにスケールし、ファイルI/Oを
         完全回避した高速なサイズ変更を実現する。
-        
+
         Args:
             value (int): 新しいサムネイルサイズ値
         """
@@ -237,20 +239,20 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     def _update_image_count_display(self):
         """
         画像件数表示を更新する。
-        
+
         現在読み込まれている画像数をヘッダーに表示する。
         """
-        if hasattr(self, 'labelThumbnailCount'):
+        if hasattr(self, "labelThumbnailCount"):
             count = len(self.image_data)
             self.labelThumbnailCount.setText(f"画像: {count}件")
 
     def cache_thumbnail(self, image_id: int, pixmap: QPixmap, metadata: dict[str, Any]) -> None:
         """
         サムネイル画像をキャッシュに保存する。
-        
+
         ThumbnailWorkerからの結果やファイル読み込み結果を効率的にキャッシュし、
         サイズ変更時の高速処理を可能にする。
-        
+
         Args:
             image_id (int): 画像ID
             pixmap (QPixmap): キャッシュする元画像のQPixmap
@@ -263,14 +265,14 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     def get_cached_thumbnail(self, image_id: int, target_size: QSize) -> QPixmap | None:
         """
         指定サイズのサムネイルをキャッシュから取得する。
-        
+
         スケール済みキャッシュに存在すればそれを返し、なければ元画像から
         スケールして新しいキャッシュエントリを作成する。
-        
+
         Args:
             image_id (int): 画像ID
             target_size (QSize): 目標サイズ
-            
+
         Returns:
             QPixmap | None: スケール済みQPixmap、またはキャッシュにない場合None
         """
@@ -298,7 +300,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     def clear_cache(self) -> None:
         """
         全てのキャッシュをクリアする。
-        
+
         メモリ効率化のため、新しい検索結果受信時や
         大きな状態変更時に呼び出される。
         """
@@ -310,28 +312,26 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     def cache_usage_info(self) -> dict[str, int]:
         """
         キャッシュ使用状況を返す（デバッグ用）
-        
+
         Returns:
             dict: キャッシュ統計情報
         """
         return {
             "original_cache_count": len(self.image_cache),
             "scaled_cache_count": len(self.scaled_cache),
-            "metadata_count": len(self.image_metadata)
+            "metadata_count": len(self.image_metadata),
         }
 
     def _display_cached_thumbnails(self) -> None:
         """
         キャッシュされた画像からサムネイル表示を構築する。
-        
+
         image_data の順序に従って、キャッシュから適切なサイズの
         サムネイルを取得してUIに配置する。
-        
-        ★重要: 既存表示を完全クリアしてから再構築★
+
+        注意: 呼び出し元で事前にscene.clear()とthumbnail_items.clear()が
+        実行されている前提で動作する。
         """
-        # 既存表示を完全クリア（これが抜けていた！）
-        self.scene.clear()
-        self.thumbnail_items.clear()
 
         if not self.image_data:
             return
@@ -346,9 +346,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             scaled_pixmap = self.get_cached_thumbnail(image_id, self.thumbnail_size)
 
             if scaled_pixmap and not scaled_pixmap.isNull():
-                self._add_thumbnail_item_from_cache(
-                    image_path, image_id, i, column_count, scaled_pixmap
-                )
+                self._add_thumbnail_item_from_cache(image_path, image_id, i, column_count, scaled_pixmap)
                 displayed_count += 1
             else:
                 # キャッシュにない場合のフォールバック（プレースホルダー）
@@ -370,7 +368,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     ) -> None:
         """
         キャッシュから取得したPixmapでThumbnailItemを作成・配置する。
-        
+
         Args:
             image_path (Path): 画像パス（メタデータ用）
             image_id (int): 画像ID
@@ -506,7 +504,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         **呼び出し箇所**: MainWindow._on_thumbnail_completed_update_display (main_window.py:392)
         **使用意図**: ThumbnailWorkerからの非同期結果を効率的にUI表示に反映
         **新設計**: 画像オブジェクト直接キャッシュによるファイルI/O完全回避
-        
+
         ThumbnailWorkerで事前処理されたQImageデータをQPixmapに変換し、
         キャッシュに保存してからUI表示用サムネイルとして配置する。
         サイズ変更時の高速処理とファイルパス依存問題を根本解決。
@@ -557,24 +555,11 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self._update_image_count_display()
 
         cache_info = self.cache_usage_info()
-        logger.info(f"サムネイル表示完了: {valid_thumbnails}/{len(self.image_data)}件, "
-                   f"キャッシュ: 元画像={cache_info['original_cache_count']}件")
+        logger.info(
+            f"サムネイル表示完了: {valid_thumbnails}/{len(self.image_data)}件, "
+            f"キャッシュ: 元画像={cache_info['original_cache_count']}件"
+        )
 
-    def add_thumbnail_item_with_pixmap(
-        self, image_path: Path, image_id: int, index: int, column_count: int, pixmap: QPixmap
-    ) -> None:
-        """
-        事前に読み込まれたPixmapでサムネイルアイテムを追加
-        """
-        item = ThumbnailItem(pixmap, image_path, image_id, self)
-        self.scene.addItem(item)
-        self.thumbnail_items.append(item)
-
-        row = index // column_count
-        col = index % column_count
-        x = col * self.thumbnail_size.width()
-        y = row * self.thumbnail_size.height()
-        item.setPos(x, y)
 
         # 選択状態はThumbnailItem.isSelected()で動的取得
 
@@ -702,7 +687,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         - _on_thumbnail_size_changed (thumbnail.py:296) - サムネイルサイズ変更時
         - _on_images_filtered (thumbnail.py:260) - 少量データフィルタ結果表示時
         **新設計**: キャッシュ優先でファイルI/O最小化
-        
+
         キャッシュが利用可能な場合は高速表示、なければ従来のファイル読み込みに
         フォールバック。段階的にキャッシュベース処理への移行を図る。
         """
@@ -723,7 +708,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     def _legacy_file_based_layout(self) -> None:
         """
         レガシーファイル読み込みベースのレイアウト処理（フォールバック用）
-        
+
         段階的廃止予定だが、キャッシュが利用できない場合の
         後方互換性確保のため一時的に維持。
         """
