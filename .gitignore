@@ -138,3 +138,6 @@ data/cipher-sessions.db-shm
 data/cipher-sessions.db-wal
 data/cipher.db-shm
 data/cipher.db-wal
+
+# 開発用ツール（サブモジュールではないため除外）
+cipher/
