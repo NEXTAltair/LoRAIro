@@ -171,7 +171,12 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         layout.addWidget(self.graphics_view)
         self.widgetThumbnailsContent.setLayout(layout)
 
-        # 内部状態
+        # キャッシュ機構（新設計）
+        self.image_cache: dict[int, QPixmap] = {}  # image_id -> 元QPixmap
+        self.scaled_cache: dict[tuple[int, int, int], QPixmap] = {}  # (image_id, width, height) -> スケールされたQPixmap
+        self.image_metadata: dict[int, dict[str, Any]] = {}  # image_id -> メタデータ
+
+        # レガシー互換（段階的廃止予定）
         self.image_data: list[tuple[Path, int]] = []  # (image_path, image_id)
         self.current_image_metadata: list[dict[str, Any]] = []  # フィルタリング用の画像メタデータ
         self.thumbnail_items: list[ThumbnailItem] = []  # ThumbnailItem のリスト
@@ -182,9 +187,206 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.resize_timer.setSingleShot(True)
         self.resize_timer.timeout.connect(self.update_thumbnail_layout)
 
+        # ヘッダー部分の接続設定
+        self._setup_header_connections()
+
         # 状態管理との連携
         if self.dataset_state:
             self._connect_dataset_state()
+
+    def _setup_header_connections(self):
+        """
+        ヘッダー部分のUI接続を設定する。
+        
+        サムネイルサイズスライダーと画像件数表示の初期化と接続を行う。
+        """
+        # サムネイルサイズスライダーの接続
+        if hasattr(self, 'sliderThumbnailSize'):
+            self.sliderThumbnailSize.valueChanged.connect(self._on_thumbnail_size_slider_changed)
+
+        # 画像件数表示の初期化
+        self._update_image_count_display()
+
+    def _on_thumbnail_size_slider_changed(self, value: int):
+        """
+        サムネイルサイズスライダーの値変更を処理する（高速キャッシュ版）。
+        
+        キャッシュされた元画像から新サイズにスケールし、ファイルI/Oを
+        完全回避した高速なサイズ変更を実現する。
+        
+        Args:
+            value (int): 新しいサムネイルサイズ値
+        """
+        old_size = self.thumbnail_size
+        self.thumbnail_size = QSize(value, value)
+
+        # 画像件数表示を更新
+        self._update_image_count_display()
+
+        # キャッシュから高速再表示（ファイルI/O完全回避）
+        if self.image_cache:
+            logger.debug(f"サムネイルサイズ変更: {old_size.width()}x{old_size.height()} → {value}x{value}")
+            self._display_cached_thumbnails()
+        else:
+            # キャッシュが空の場合は従来方式（フォールバック）
+            if len(self.image_data) <= 50:
+                self.update_thumbnail_layout()
+            # 大量データの場合は何もしない（Worker再実行待ち）
+        # 大量データの場合、既存のWorkerワークフローに依存（何もしない）
+
+    def _update_image_count_display(self):
+        """
+        画像件数表示を更新する。
+        
+        現在読み込まれている画像数をヘッダーに表示する。
+        """
+        if hasattr(self, 'labelThumbnailCount'):
+            count = len(self.image_data)
+            self.labelThumbnailCount.setText(f"画像: {count}件")
+
+    def cache_thumbnail(self, image_id: int, pixmap: QPixmap, metadata: dict[str, Any]) -> None:
+        """
+        サムネイル画像をキャッシュに保存する。
+        
+        ThumbnailWorkerからの結果やファイル読み込み結果を効率的にキャッシュし、
+        サイズ変更時の高速処理を可能にする。
+        
+        Args:
+            image_id (int): 画像ID
+            pixmap (QPixmap): キャッシュする元画像のQPixmap
+            metadata (dict): 画像メタデータ
+        """
+        if not pixmap.isNull():
+            self.image_cache[image_id] = pixmap
+            self.image_metadata[image_id] = metadata.copy()
+
+    def get_cached_thumbnail(self, image_id: int, target_size: QSize) -> QPixmap | None:
+        """
+        指定サイズのサムネイルをキャッシュから取得する。
+        
+        スケール済みキャッシュに存在すればそれを返し、なければ元画像から
+        スケールして新しいキャッシュエントリを作成する。
+        
+        Args:
+            image_id (int): 画像ID
+            target_size (QSize): 目標サイズ
+            
+        Returns:
+            QPixmap | None: スケール済みQPixmap、またはキャッシュにない場合None
+        """
+        cache_key = (image_id, target_size.width(), target_size.height())
+
+        # スケール済みキャッシュをチェック
+        if cache_key in self.scaled_cache:
+            return self.scaled_cache[cache_key]
+
+        # 元画像からスケール
+        if image_id in self.image_cache:
+            original_pixmap = self.image_cache[image_id]
+            scaled_pixmap = original_pixmap.scaled(
+                target_size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+
+            # スケール済みキャッシュに保存
+            self.scaled_cache[cache_key] = scaled_pixmap
+            return scaled_pixmap
+
+        return None
+
+    def clear_cache(self) -> None:
+        """
+        全てのキャッシュをクリアする。
+        
+        メモリ効率化のため、新しい検索結果受信時や
+        大きな状態変更時に呼び出される。
+        """
+        self.image_cache.clear()
+        self.scaled_cache.clear()
+        self.image_metadata.clear()
+        logger.debug("サムネイルキャッシュをクリアしました")
+
+    def cache_usage_info(self) -> dict[str, int]:
+        """
+        キャッシュ使用状況を返す（デバッグ用）
+        
+        Returns:
+            dict: キャッシュ統計情報
+        """
+        return {
+            "original_cache_count": len(self.image_cache),
+            "scaled_cache_count": len(self.scaled_cache),
+            "metadata_count": len(self.image_metadata)
+        }
+
+    def _display_cached_thumbnails(self) -> None:
+        """
+        キャッシュされた画像からサムネイル表示を構築する。
+        
+        image_data の順序に従って、キャッシュから適切なサイズの
+        サムネイルを取得してUIに配置する。
+        
+        ★重要: 既存表示を完全クリアしてから再構築★
+        """
+        # 既存表示を完全クリア（これが抜けていた！）
+        self.scene.clear()
+        self.thumbnail_items.clear()
+
+        if not self.image_data:
+            return
+
+        button_width = self.thumbnail_size.width()
+        grid_width = self.scrollAreaThumbnails.viewport().width()
+        column_count = max(grid_width // button_width, 1)
+
+        displayed_count = 0
+        for i, (image_path, image_id) in enumerate(self.image_data):
+            # キャッシュから適切サイズのサムネイルを取得
+            scaled_pixmap = self.get_cached_thumbnail(image_id, self.thumbnail_size)
+
+            if scaled_pixmap and not scaled_pixmap.isNull():
+                self._add_thumbnail_item_from_cache(
+                    image_path, image_id, i, column_count, scaled_pixmap
+                )
+                displayed_count += 1
+            else:
+                # キャッシュにない場合のフォールバック（プレースホルダー）
+                placeholder_pixmap = QPixmap(self.thumbnail_size)
+                placeholder_pixmap.fill(Qt.GlobalColor.lightGray)
+                self._add_thumbnail_item_from_cache(
+                    image_path, image_id, i, column_count, placeholder_pixmap
+                )
+
+        # シーンサイズを調整
+        row_count = (len(self.image_data) + column_count - 1) // column_count
+        scene_height = row_count * self.thumbnail_size.height()
+        self.scene.setSceneRect(0, 0, grid_width, scene_height)
+
+        logger.debug(f"キャッシュからサムネイル表示: {displayed_count}/{len(self.image_data)}件")
+
+    def _add_thumbnail_item_from_cache(
+        self, image_path: Path, image_id: int, index: int, column_count: int, pixmap: QPixmap
+    ) -> None:
+        """
+        キャッシュから取得したPixmapでThumbnailItemを作成・配置する。
+        
+        Args:
+            image_path (Path): 画像パス（メタデータ用）
+            image_id (int): 画像ID
+            index (int): グリッド内インデックス
+            column_count (int): グリッド列数
+            pixmap (QPixmap): 表示するPixmap
+        """
+        item = ThumbnailItem(pixmap, image_path, image_id, self)
+        self.scene.addItem(item)
+        self.thumbnail_items.append(item)
+
+        row = index // column_count
+        col = index % column_count
+        x = col * self.thumbnail_size.width()
+        y = row * self.thumbnail_size.height()
+        item.setPos(x, y)
 
     def set_dataset_state(self, dataset_state: DatasetStateManager) -> None:
         """
@@ -299,18 +501,15 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     def load_thumbnails_from_result(self, thumbnail_result: Any) -> None:
         """
-        ThumbnailLoadResultからサムネイルをロード（ワーカー版）
+        ThumbnailLoadResultからサムネイルをロード（新キャッシュ統合版）
 
         **呼び出し箇所**: MainWindow._on_thumbnail_completed_update_display (main_window.py:392)
         **使用意図**: ThumbnailWorkerからの非同期結果を効率的にUI表示に反映
-        **アーキテクチャ連携**:
-        - ThumbnailWorker → MainWindow → ThumbnailSelectorWidget のデータフロー
-        - QImage→QPixmap変換による安全なメインスレッド描画
-        - 大量画像データの効率的UI更新（プリロード済みデータ活用）
-
+        **新設計**: 画像オブジェクト直接キャッシュによるファイルI/O完全回避
+        
         ThumbnailWorkerで事前処理されたQImageデータをQPixmapに変換し、
-        UI表示用サムネイルとして配置する。ファイルI/Oを回避した高速描画が特徴。
-        null pixmap検証により、変換失敗時も安定動作を保証。
+        キャッシュに保存してからUI表示用サムネイルとして配置する。
+        サイズ変更時の高速処理とファイルパス依存問題を根本解決。
 
         Args:
             thumbnail_result: ThumbnailLoadResultオブジェクト
@@ -321,45 +520,45 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.scene.clear()
         self.thumbnail_items.clear()
 
+        # 新しいキャッシュクリア（メモリ効率化）
+        self.clear_cache()
+
         if not thumbnail_result.loaded_thumbnails:
             return
 
-        # QImage→QPixmapの変換マップを作成（null pixmapチェック付き）
-        thumbnail_map = {}
+        # QImage→QPixmap変換 + キャッシュ保存
+        valid_thumbnails = 0
         for image_id, qimage in thumbnail_result.loaded_thumbnails:
             try:
                 # QImage→QPixmapに変換（メインスレッドで実行）
                 qpixmap = QPixmap.fromImage(qimage)
 
-                # Critical Fix: Null pixmap validation
                 if not qpixmap.isNull():
-                    thumbnail_map[image_id] = qpixmap
+                    # 対応するメタデータを探す
+                    metadata = {}
+                    for item_meta in self.current_image_metadata:
+                        if item_meta.get("id") == image_id:
+                            metadata = item_meta
+                            break
+
+                    # キャッシュに保存（新設計の核心）
+                    self.cache_thumbnail(image_id, qpixmap, metadata)
+                    valid_thumbnails += 1
                 else:
                     logger.warning(f"Failed to create pixmap from QImage for image_id: {image_id}")
-                    continue
 
             except Exception as e:
                 logger.error(f"QImage to QPixmap conversion failed for image_id {image_id}: {e}")
-                continue
 
-        # 元の画像データからレイアウトを作成
-        button_width = self.thumbnail_size.width()
-        grid_width = self.scrollAreaThumbnails.viewport().width()
-        column_count = max(grid_width // button_width, 1)
+        # キャッシュからUI表示を構築
+        self._display_cached_thumbnails()
 
-        valid_thumbnails = 0
-        for i, (image_path, image_id) in enumerate(self.image_data):
-            if image_id in thumbnail_map:
-                self.add_thumbnail_item_with_pixmap(
-                    image_path, image_id, i, column_count, thumbnail_map[image_id]
-                )
-                valid_thumbnails += 1
+        # 画像件数表示を更新
+        self._update_image_count_display()
 
-        row_count = (len(self.image_data) + column_count - 1) // column_count
-        scene_height = row_count * self.thumbnail_size.height()
-        self.scene.setSceneRect(0, 0, grid_width, scene_height)
-
-        logger.info(f"サムネイル表示完了: {valid_thumbnails}/{len(self.image_data)}件")
+        cache_info = self.cache_usage_info()
+        logger.info(f"サムネイル表示完了: {valid_thumbnails}/{len(self.image_data)}件, "
+                   f"キャッシュ: 元画像={cache_info['original_cache_count']}件")
 
     def add_thumbnail_item_with_pixmap(
         self, image_path: Path, image_id: int, index: int, column_count: int, pixmap: QPixmap
@@ -381,7 +580,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     def clear_thumbnails(self) -> None:
         """
-        全てのサムネイルをクリア
+        全てのサムネイルをクリア（キャッシュ統合版）
 
         **呼び出し箇所**:
         - MainWindow._on_pipeline_search_started (main_window.py:357)
@@ -389,18 +588,19 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         - MainWindow._on_search_canceled (main_window.py:430)
         - MainWindow._on_search_error (main_window.py:461)
         **使用意図**: 検索処理の開始・終了・エラー時の表示リセット
-        **アーキテクチャ連携**:
-        - 検索パイプライン制御による一貫した表示状態管理
-        - メモリリーク防止（QGraphicsSceneアイテム解放）
-        - UIリフレッシュ前の準備処理
+        **新設計**: キャッシュも含めた完全クリアによるメモリ効率化
 
-        GraphicsSceneとthumbnail_items、image_dataを完全にクリアし、
-        新しい検索結果受信に備える。メモリ効率化と表示一貫性維持が目的。
+        GraphicsSceneとthumbnail_items、image_data、および新しいキャッシュを
+        完全にクリアし、新しい検索結果受信に備える。
         """
         self.scene.clear()
         self.thumbnail_items.clear()
         self.image_data.clear()
-        logger.debug("サムネイル表示をクリアしました")
+
+        # 新しいキャッシュもクリア（メモリ効率化）
+        self.clear_cache()
+
+        logger.debug("サムネイル表示とキャッシュをクリアしました")
 
     def _setup_placeholder_layout(self) -> None:
         """大量データ用のプレースホルダーレイアウトを設定"""
@@ -495,22 +695,16 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     def update_thumbnail_layout(self) -> None:
         """
-        現在のimage_dataに基づいてサムネイルグリッドレイアウトを更新する。
+        現在のimage_dataに基づいてサムネイルグリッドレイアウトを更新する（キャッシュ優先版）。
 
         **呼び出し箇所**:
         - QTimer.timeout Signal (thumbnail.py:183) - リサイズ遅延実行
         - _on_thumbnail_size_changed (thumbnail.py:296) - サムネイルサイズ変更時
         - _on_images_filtered (thumbnail.py:260) - 少量データフィルタ結果表示時
-        **使用意図**: レスポンシブなグリッドレイアウトの動的再計算・再配置
-        **アーキテクチャ連携**:
-        - リサイズイベント → タイマー遅延 → バッチ更新による性能最適化
-        - ウィンドウ幅変更に対するリアルタイム列数調整
-        - 直接ファイルロード方式による同期的UI更新
-
-        ウィンドウ幅とサムネイルサイズから最適な列数を計算し、
-        各画像をグリッド位置に配置。実際のファイル読み込みとQPixmap変換を行うため、
-        大量の画像に対してはパフォーマンスに注意が必要。
-        小〜中規模データでの即座な表示更新が主な用途。
+        **新設計**: キャッシュ優先でファイルI/O最小化
+        
+        キャッシュが利用可能な場合は高速表示、なければ従来のファイル読み込みに
+        フォールバック。段階的にキャッシュベース処理への移行を図る。
         """
         self.scene.clear()
         self.thumbnail_items.clear()
@@ -518,6 +712,21 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         if not self.image_data:
             return
 
+        # キャッシュが利用可能かチェック
+        if self.image_cache:
+            logger.debug("キャッシュからレイアウト更新を実行")
+            self._display_cached_thumbnails()
+        else:
+            logger.debug("キャッシュなし - ファイルから直接読み込み（レガシーパス）")
+            self._legacy_file_based_layout()
+
+    def _legacy_file_based_layout(self) -> None:
+        """
+        レガシーファイル読み込みベースのレイアウト処理（フォールバック用）
+        
+        段階的廃止予定だが、キャッシュが利用できない場合の
+        後方互換性確保のため一時的に維持。
+        """
         button_width = self.thumbnail_size.width()
         grid_width = self.scrollAreaThumbnails.viewport().width()
         column_count = max(grid_width // button_width, 1)

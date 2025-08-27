@@ -217,22 +217,32 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self._handle_critical_initialization_failure("FilterSearchPanel", e)
             return  # この行は実行されないが明示的記述
 
-        # サムネイルセレクター（非致命的）
+        # サムネイルセレクター（UI配置済みウィジェットへの参照取得）
         try:
-            if (
-                hasattr(self, "frameThumbnailContent")
-                and hasattr(self, "verticalLayout_thumbnailContent")
-                and self.dataset_state_manager
-            ):
-                self.thumbnail_selector = ThumbnailSelectorWidget(
-                    self.frameThumbnailContent, self.dataset_state_manager
-                )
-                self.verticalLayout_thumbnailContent.addWidget(self.thumbnail_selector)
-                logger.info("サムネイルセレクター設定完了")
+            logger.debug(f"ThumbnailSelectorWidget接続チェック - hasattr: {hasattr(self, 'thumbnailSelectorWidget')}")
+            logger.debug(f"DatasetStateManager存在チェック - dataset_state_manager: {self.dataset_state_manager is not None}")
+
+            if hasattr(self, "thumbnailSelectorWidget") and self.dataset_state_manager:
+                self.thumbnail_selector = self.thumbnailSelectorWidget  # type: ignore[attr-defined]
+                logger.info(f"ThumbnailSelectorWidget参照取得成功: {type(self.thumbnail_selector)}")
+
+                # DatasetStateManagerとの接続
+                self.thumbnail_selector.set_dataset_state(self.dataset_state_manager)
+                logger.info("DatasetStateManager接続完了")
+
+                # 基本プロパティ確認
+                logger.debug(f"ThumbnailSize: {getattr(self.thumbnail_selector, 'thumbnail_size', 'NONE')}")
+                logger.debug(f"ImageData count: {len(getattr(self.thumbnail_selector, 'image_data', []))}")
+
+                logger.info("サムネイルセレクター（UI配置済み）設定完了")
             else:
-                logger.warning(
-                    "サムネイルセレクター用UIコンポーネントまたはdataset_state_managerが見つかりません（継続）"
-                )
+                missing_components = []
+                if not hasattr(self, "thumbnailSelectorWidget"):
+                    missing_components.append("thumbnailSelectorWidget")
+                if not self.dataset_state_manager:
+                    missing_components.append("dataset_state_manager")
+
+                logger.warning(f"UI配置済みコンポーネントが見つかりません（継続）: {missing_components}")
                 self.thumbnail_selector = None
         except Exception as e:
             logger.error(f"サムネイルセレクター設定エラー（継続）: {e}", exc_info=True)
@@ -245,6 +255,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             ):
                 self.image_preview_widget = ImagePreviewWidget(self.framePreviewDetailContent)
                 self.verticalLayout_previewDetailContent.addWidget(self.image_preview_widget)
+
+                # DatasetStateManagerとの接続を追加
+                if self.dataset_state_manager:
+                    self.image_preview_widget.set_dataset_state_manager(self.dataset_state_manager)
+                    logger.info("ImagePreviewWidget - DatasetStateManager接続完了")
+                else:
+                    logger.warning("DatasetStateManagerが利用できないためImagePreviewWidget接続をスキップ")
+
                 logger.info("プレビューウィジェット設定完了")
             else:
                 logger.warning("プレビューウィジェット用UIコンポーネントが見つかりません（継続）")
