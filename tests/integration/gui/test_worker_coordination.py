@@ -9,9 +9,8 @@ import pytest
 from PySide6.QtCore import QEventLoop, QThread, QTimer
 
 from lorairo.gui.services.worker_service import WorkerService
-
-# ProgressManager削除により不要
-from lorairo.gui.workers.search import SearchResult, SearchWorker
+from lorairo.gui.workers.database_worker import SearchResult, SearchWorker
+from lorairo.services.search_models import SearchConditions
 
 
 class TestWorkerSystemCoordination:
@@ -82,11 +81,11 @@ class TestWorkerSystemCoordination:
         """複数検索ワーカーキャンセルテスト"""
         with patch("lorairo.gui.services.worker_service.SearchWorker"):
             # 最初の検索開始
-            worker_id1 = worker_service.start_search({"tags": ["test1"]})
+            worker_id1 = worker_service.start_search(SearchConditions(tags=["test1"]))
             assert worker_service.current_search_worker_id == worker_id1
 
             # 2番目の検索開始（1番目は自動キャンセル）
-            worker_id2 = worker_service.start_search({"tags": ["test2"]})
+            worker_id2 = worker_service.start_search(SearchConditions(tags=["test2"]))
 
             # 1番目のワーカーがキャンセルされたことを確認
             worker_service.worker_manager.cancel_worker.assert_called_with(worker_id1)
@@ -94,37 +93,7 @@ class TestWorkerSystemCoordination:
             # 現在のワーカーIDが更新されたことを確認
             assert worker_service.current_search_worker_id == worker_id2
 
-    def test_progress_manager_worker_integration(self, progress_manager):
-        """ProgressManager-Worker統合テスト"""
-        # 実際のSearchWorkerでテスト
-        mock_db_manager = Mock()
-        mock_db_manager.get_images_by_filter.return_value = ([], 0)
-
-        worker = SearchWorker(mock_db_manager, {"tags": []})
-
-        # 進捗追跡用
-        progress_updates = []
-        finished_called = Event()
-
-        def track_progress(progress):
-            progress_updates.append(progress.percentage)
-
-        def on_finished():
-            finished_called.set()
-
-        worker.progress_updated.connect(track_progress)
-        worker.finished.connect(lambda result: on_finished())
-
-        # ProgressManagerでワーカー開始
-        with patch.object(progress_manager, "_update_progress") as mock_update:
-            mock_update.side_effect = track_progress
-
-            # 手動でワーカー実行（テスト用簡略化）
-            worker.run()
-
-            # 結果確認
-            assert len(progress_updates) > 0
-            assert 100 in progress_updates  # 完了進捗が含まれる
+    # ProgressManager は削除済みのため該当テストを削除
 
     def test_worker_error_propagation(self, worker_service):
         """ワーカーエラー伝播テスト"""
@@ -142,7 +111,7 @@ class TestWorkerSystemCoordination:
             worker_service.search_error.connect(capture_error)
 
             # ワーカー開始
-            worker_id = worker_service.start_search({"tags": ["test"]})
+            worker_id = worker_service.start_search(SearchConditions(tags=["test"]))
 
             # エラーシグナル発行をシミュレート
             # connect.call_argsがNoneの場合があるので、直接エラーシグナルを発行
@@ -166,7 +135,7 @@ class TestWorkerSystemCoordination:
         ):
             # 複数種類のワーカーを並行実行
             registration_id = worker_service.start_batch_registration(Path("/test"))
-            search_id = worker_service.start_search({"tags": ["test"]})
+            search_id = worker_service.start_search(SearchConditions(tags=["test"]))
             annotation_id = worker_service.start_annotation([], [], [])
 
             # 各ワーカーが独立して管理されることを確認
@@ -182,7 +151,7 @@ class TestWorkerSystemCoordination:
             mock_worker_class.return_value = mock_worker
 
             # ワーカー開始
-            worker_id = worker_service.start_search({"tags": ["test"]})
+            worker_id = worker_service.start_search(SearchConditions(tags=["test"]))
 
             # 進捗シグナル接続確認
             assert mock_worker.progress_updated.connect.called
@@ -211,7 +180,7 @@ class TestWorkerSystemCoordination:
             mock_worker_class.return_value = mock_worker
 
             # 検索開始
-            worker_id = worker_service.start_search({"tags": ["test"]})
+            worker_id = worker_service.start_search(SearchConditions(tags=["test"]))
 
             # 進捗更新シミュレート
             progress_callback = mock_worker.progress_updated.connect.call_args[0][0]
@@ -225,7 +194,7 @@ class TestWorkerSystemCoordination:
     def test_worker_result_processing(self, worker_service, mock_db_manager):
         """ワーカー結果処理テスト"""
         # 実際のSearchWorkerで結果処理をテスト
-        filter_conditions = {"tags": ["test"], "caption": ""}
+        filter_conditions = SearchConditions(tags=["test"], caption="")
         worker = SearchWorker(mock_db_manager, filter_conditions)
 
         # 結果受信用
@@ -254,10 +223,10 @@ class TestWorkerSystemCoordination:
 
             # 最初の検索は失敗
             with pytest.raises(RuntimeError):
-                worker_service.start_search({"tags": ["test1"]})
+                worker_service.start_search(SearchConditions(tags=["test1"]))
 
             # 2回目の検索は成功
-            worker_id = worker_service.start_search({"tags": ["test2"]})
+            worker_id = worker_service.start_search(SearchConditions(tags=["test2"]))
             assert worker_id.startswith("search_")
 
     def test_resource_cleanup_integration(self, worker_service):
@@ -267,48 +236,17 @@ class TestWorkerSystemCoordination:
             mock_worker_class.return_value = mock_worker
 
             # 検索開始
-            worker_id = worker_service.start_search({"tags": ["test"]})
+            worker_id = worker_service.start_search(SearchConditions(tags=["test"]))
             assert worker_service.current_search_worker_id == worker_id
 
             # 新しい検索開始（自動クリーンアップ）
-            new_worker_id = worker_service.start_search({"tags": ["new_test"]})
+            new_worker_id = worker_service.start_search(SearchConditions(tags=["new_test"]))
 
             # 古いワーカーがキャンセルされ、新しいIDが設定される
             worker_service.worker_manager.cancel_worker.assert_called_with(worker_id)
             assert worker_service.current_search_worker_id == new_worker_id
 
-    def test_progress_dialog_integration(self, progress_manager):
-        """プログレスダイアログ統合テスト"""
-        # 実際のワーカーでプログレスダイアログをテスト
-        mock_db_manager = Mock()
-        mock_db_manager.get_images_by_filter.return_value = ([], 0)
-
-        worker = SearchWorker(mock_db_manager, {"tags": []})
-
-        with (
-            patch("lorairo.gui.workers.progress_manager.QProgressDialog") as mock_dialog_class,
-            patch("lorairo.gui.workers.progress_manager.QThread") as mock_thread_class,
-            patch.object(worker, "moveToThread") as mock_move_to_thread,
-        ):
-            mock_dialog = Mock()
-            mock_dialog_class.return_value = mock_dialog
-
-            mock_thread = Mock()
-            mock_thread_class.return_value = mock_thread
-
-            # 進捗付きで開始
-            progress_manager.start_worker_with_progress(worker, "検索中...", 100)
-
-            # プログレスダイアログ作成確認
-            mock_dialog_class.assert_called_once()
-            mock_dialog.show.assert_called_once()
-
-            # QThread作成・設定確認
-            mock_thread_class.assert_called_once()
-            mock_thread.start.assert_called_once()
-
-            # moveToThreadが呼ばれたことを確認
-            mock_move_to_thread.assert_called_once_with(mock_thread)
+    # ProgressManager は削除済みのため該当テストを削除
 
 
 class TestWorkerSystemPerformance:
@@ -324,7 +262,7 @@ class TestWorkerSystemPerformance:
         # 複数ワーカーを連続作成
         workers = []
         for i in range(10):
-            worker = SearchWorker(mock_db_manager, {"tags": [f"test_{i}"]})
+            worker = SearchWorker(mock_db_manager, SearchConditions(tags=[f"test_{i}"]))
             workers.append(worker)
 
         creation_time = time.time() - start_time
@@ -345,7 +283,7 @@ class TestWorkerSystemPerformance:
         start_time = time.time()
 
         for i in range(5):
-            worker = SearchWorker(mock_db_manager, {"tags": [f"test_{i}"]})
+            worker = SearchWorker(mock_db_manager, SearchConditions(tags=[f"test_{i}"]))
             worker.finished.connect(lambda result: results.append(result))
             workers.append(worker)
 
@@ -368,7 +306,7 @@ class TestWorkerSystemPerformance:
         import gc
 
         for i in range(50):
-            worker = SearchWorker(mock_db_manager, {"tags": [f"test_{i}"]})
+            worker = SearchWorker(mock_db_manager, SearchConditions(tags=[f"test_{i}"]))
             worker.run()
             del worker
 

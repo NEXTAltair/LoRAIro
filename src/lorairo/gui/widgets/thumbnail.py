@@ -1,4 +1,4 @@
-# src/lorairo/gui/widgets/thumbnail_enhanced.py
+# src/lorairo/gui/widgets/thumbnail.py
 
 from pathlib import Path
 from typing import Any
@@ -97,7 +97,7 @@ class CustomGraphicsView(QGraphicsView):
     アイテムのクリックを処理し、信号を発行するカスタムQGraphicsView。
     """
 
-    itemClicked = Signal(QGraphicsPixmapItem, Qt.KeyboardModifier)
+    itemClicked = Signal(ThumbnailItem, Qt.KeyboardModifier)
 
     def mousePressEvent(self, event):
         """
@@ -442,20 +442,22 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     # === State Manager Integration ===
 
-    @Slot(list)
-    def _on_images_filtered(self, image_metadata: list[dict[str, Any]]) -> None:
+    def apply_filtered_metadata(self, filtered_data: list[dict[str, Any]]) -> None:
         """
-        データセット状態管理からの画像フィルタリング通知
+        フィルター結果の適用
+        
         Args:
-            image_metadata: 画像メタデータリスト
+            filtered_data: フィルター済み画像メタデータリスト
         """
+        logger.debug(f"apply_filtered_metadata 呼び出し: {len(filtered_data)}件の画像データ")
+        
         # フィルタリング用にメタデータを保持
-        self.current_image_metadata = image_metadata.copy()
+        self.current_image_metadata = filtered_data.copy()
 
         # 画像データのみ準備（実際の読み込みは行わない）
         self.image_data = [
             (Path(item["stored_image_path"]), item["id"])
-            for item in image_metadata
+            for item in filtered_data
             if "stored_image_path" in item and "id" in item
         ]
 
@@ -466,6 +468,17 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         else:
             logger.info(f"フィルタリング結果受信: {len(self.image_data)}件 - サムネイル読み込み開始")
             self.update_thumbnail_layout()
+
+    @Slot(list)
+    def _on_images_filtered(self, image_metadata: list[dict[str, Any]]) -> None:
+        """
+        データセット状態管理からの画像フィルタリング通知（互換性維持）
+        
+        Args:
+            image_metadata: 画像メタデータリスト
+        """
+        logger.debug("_on_images_filtered 呼び出し - apply_filtered_metadata に委譲")
+        self.apply_filtered_metadata(image_metadata)
 
     def get_current_image_data(self) -> list[dict[str, Any]]:
         """
@@ -559,7 +572,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             f"サムネイル表示完了: {valid_thumbnails}/{len(self.image_data)}件, "
             f"キャッシュ: 元画像={cache_info['original_cache_count']}件"
         )
-
 
         # 選択状態はThumbnailItem.isSelected()で動的取得
 
@@ -795,7 +807,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         if not self.dataset_state:
             return []
 
-        selected_ids = self.dataset_state.selected_image_ids
+        selected_ids = set(self.dataset_state.selected_image_ids)
         return [item.image_path for item in self.thumbnail_items if item.image_id in selected_ids]
 
 
