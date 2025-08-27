@@ -445,12 +445,12 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     def apply_filtered_metadata(self, filtered_data: list[dict[str, Any]]) -> None:
         """
         フィルター結果の適用
-        
+
         Args:
             filtered_data: フィルター済み画像メタデータリスト
         """
         logger.debug(f"apply_filtered_metadata 呼び出し: {len(filtered_data)}件の画像データ")
-        
+
         # フィルタリング用にメタデータを保持
         self.current_image_metadata = filtered_data.copy()
 
@@ -473,7 +473,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     def _on_images_filtered(self, image_metadata: list[dict[str, Any]]) -> None:
         """
         データセット状態管理からの画像フィルタリング通知（互換性維持）
-        
+
         Args:
             image_metadata: 画像メタデータリスト
         """
