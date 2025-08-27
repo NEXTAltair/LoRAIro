@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1400</width>
-    <height>900</height>
+    <width>1402</width>
+    <height>914</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -137,6 +137,12 @@
     </item>
     <item>
      <widget class="QFrame" name="frameDbStatus">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
       <property name="minimumSize">
        <size>
         <width>0</width>
@@ -231,6 +237,12 @@
     </item>
     <item>
      <widget class="QSplitter" name="splitterMainWorkArea">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
       <property name="orientation">
        <enum>Qt::Orientation::Horizontal</enum>
       </property>
@@ -384,6 +396,12 @@
        </layout>
       </widget>
       <widget class="QFrame" name="frameThumbnailGrid">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
        <property name="frameShape">
         <enum>QFrame::Shape::StyledPanel</enum>
        </property>
@@ -407,172 +425,23 @@
          <number>5</number>
         </property>
         <item>
-         <widget class="QFrame" name="frameThumbnailHeader">
+         <widget class="ThumbnailSelectorWidget" name="thumbnailSelectorWidget" native="true">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
           <property name="minimumSize">
            <size>
-            <width>0</width>
-            <height>30</height>
+            <width>200</width>
+            <height>200</height>
            </size>
           </property>
-          <property name="maximumSize">
-           <size>
-            <width>16777215</width>
-            <height>30</height>
-           </size>
-          </property>
-          <property name="frameShape">
-           <enum>QFrame::Shape::NoFrame</enum>
-          </property>
-          <layout class="QHBoxLayout" name="horizontalLayout_thumbnailHeader">
-           <property name="leftMargin">
-            <number>0</number>
-           </property>
-           <property name="topMargin">
-            <number>0</number>
-           </property>
-           <property name="rightMargin">
-            <number>0</number>
-           </property>
-           <property name="bottomMargin">
-            <number>0</number>
-           </property>
-           <item>
-            <widget class="QLabel" name="labelThumbnailCount">
-             <property name="text">
-              <string>画像: 0件</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <spacer name="horizontalSpacer_thumbnailHeader">
-             <property name="orientation">
-              <enum>Qt::Orientation::Horizontal</enum>
-             </property>
-             <property name="sizeHint" stdset="0">
-              <size>
-               <width>40</width>
-               <height>20</height>
-              </size>
-             </property>
-            </spacer>
-           </item>
-           <item>
-            <widget class="QLabel" name="labelThumbnailSize">
-             <property name="text">
-              <string>サイズ:</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QSlider" name="sliderThumbnailSize">
-             <property name="minimumSize">
-              <size>
-               <width>100</width>
-               <height>0</height>
-              </size>
-             </property>
-             <property name="maximumSize">
-              <size>
-               <width>100</width>
-               <height>16777215</height>
-              </size>
-             </property>
-             <property name="minimum">
-              <number>64</number>
-             </property>
-             <property name="maximum">
-              <number>256</number>
-             </property>
-             <property name="value">
-              <number>128</number>
-             </property>
-             <property name="orientation">
-              <enum>Qt::Orientation::Horizontal</enum>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QPushButton" name="pushButtonLayoutMode">
-             <property name="minimumSize">
-              <size>
-               <width>50</width>
-               <height>0</height>
-              </size>
-             </property>
-             <property name="maximumSize">
-              <size>
-               <width>50</width>
-               <height>16777215</height>
-              </size>
-             </property>
-             <property name="text">
-              <string>Grid</string>
-             </property>
-             <property name="checkable">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-          </layout>
          </widget>
         </item>
         <item>
-         <widget class="QFrame" name="frameThumbnailContent">
-          <property name="frameShape">
-           <enum>QFrame::Shape::NoFrame</enum>
-          </property>
-          <layout class="QVBoxLayout" name="verticalLayout_thumbnailContent">
-           <property name="spacing">
-            <number>5</number>
-           </property>
-           <property name="leftMargin">
-            <number>0</number>
-           </property>
-           <property name="topMargin">
-            <number>0</number>
-           </property>
-           <property name="rightMargin">
-            <number>0</number>
-           </property>
-           <property name="bottomMargin">
-            <number>0</number>
-           </property>
-           <item>
-            <widget class="QFrame" name="frameExistingThumbnails">
-             <property name="enabled">
-              <bool>true</bool>
-             </property>
-             <property name="layoutDirection">
-              <enum>Qt::LayoutDirection::LeftToRight</enum>
-             </property>
-             <property name="styleSheet">
-              <string notr="true"/>
-             </property>
-             <property name="frameShape">
-              <enum>QFrame::Shape::StyledPanel</enum>
-             </property>
-             <layout class="QVBoxLayout" name="verticalLayout_existingThumbnails">
-              <item>
-               <widget class="QLabel" name="labelExistingThumbnailsPlaceholder">
-                <property name="styleSheet">
-                 <string notr="true"/>
-                </property>
-                <property name="text">
-                 <string/>
-                </property>
-                <property name="alignment">
-                 <set>Qt::AlignmentFlag::AlignCenter</set>
-                </property>
-                <property name="wordWrap">
-                 <bool>true</bool>
-                </property>
-               </widget>
-              </item>
-             </layout>
-            </widget>
-           </item>
-           <item>
-            <widget class="QFrame" name="frameThumbnailStatusIndicator">
+         <widget class="QFrame" name="frameThumbnailStatusIndicator">
              <property name="maximumSize">
               <size>
                <width>16777215</width>
@@ -659,9 +528,6 @@
                </spacer>
               </item>
              </layout>
-            </widget>
-           </item>
-          </layout>
          </widget>
         </item>
        </layout>
@@ -945,7 +811,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1400</width>
+     <width>1402</width>
      <height>33</height>
     </rect>
    </property>
@@ -1094,6 +960,12 @@
    <class>ModelSelectionWidget</class>
    <extends>QWidget</extends>
    <header>..widgets.model_selection_widget</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ThumbnailSelectorWidget</class>
+   <extends>QWidget</extends>
+   <header>..widgets.thumbnail</header>
    <container>1</container>
   </customwidget>
  </customwidgets>
