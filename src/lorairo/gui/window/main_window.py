@@ -384,6 +384,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.thumbnail_selector.clear_thumbnails()
             return
 
+        # WorkerService存在チェック（型安全性）
+        if not self.worker_service:
+            logger.error("WorkerService not available - thumbnail loading skipped")
+            return
+
         try:
             # サムネイルレイアウト用の image_data を事前設定
             if self.thumbnail_selector:
@@ -513,7 +518,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 hasattr(self.worker_service, "current_thumbnail_worker_id")
                 and self.worker_service.current_thumbnail_worker_id
             ):
-                self.worker_service.cancel_thumbnail_loading(
+                self.worker_service.cancel_thumbnail_load(
                     self.worker_service.current_thumbnail_worker_id
                 )
                 logger.info("Thumbnail worker cancelled in pipeline")
