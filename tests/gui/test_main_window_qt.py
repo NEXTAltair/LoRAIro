@@ -52,13 +52,11 @@ class TestMainWindowStandard:
         with (
             patch("lorairo.gui.window.main_window.ConfigurationService") as mock_config_service,
             patch("lorairo.gui.window.main_window.FileSystemManager") as mock_fsm,
-            patch("lorairo.gui.window.main_window.ImageRepository"),
             patch("lorairo.gui.window.main_window.ImageDatabaseManager") as mock_db_manager,
             patch("lorairo.gui.window.main_window.WorkerService") as mock_worker_service,
             patch("lorairo.gui.window.main_window.DatasetStateManager") as mock_dataset_state,
             patch("lorairo.gui.window.main_window.FilterSearchPanel") as mock_filter_panel,
             patch("lorairo.gui.window.main_window.ThumbnailSelectorWidget") as mock_thumbnail_widget,
-            patch("lorairo.gui.window.main_window.PreviewDetailPanel") as mock_preview_panel,
             patch("lorairo.gui.window.main_window.DefaultSessionLocal"),
         ):
             # モックインスタンス設定
@@ -466,13 +464,11 @@ class TestMainWindowAdvanced:
         with (
             patch("lorairo.gui.window.main_window.ConfigurationService") as mock_config,
             patch("lorairo.gui.window.main_window.FileSystemManager") as mock_fsm,
-            patch("lorairo.gui.window.main_window.ImageRepository"),
             patch("lorairo.gui.window.main_window.ImageDatabaseManager") as mock_db,
             patch("lorairo.gui.window.main_window.WorkerService") as mock_worker,
             patch("lorairo.gui.window.main_window.DatasetStateManager") as mock_state,
             patch("lorairo.gui.window.main_window.FilterSearchPanel") as mock_filter,
             patch("lorairo.gui.window.main_window.ThumbnailSelectorWidget") as mock_thumb,
-            patch("lorairo.gui.window.main_window.PreviewDetailPanel") as mock_preview,
             patch("lorairo.gui.window.main_window.DefaultSessionLocal"),
         ):
             # より詳細なモック設定

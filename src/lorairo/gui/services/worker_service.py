@@ -98,7 +98,20 @@ class WorkerService(QObject):
         Returns:
             str: ワーカーID
         """
-        worker = DatabaseRegistrationWorker(directory, self.db_manager, self.fsm)
+        return self.start_batch_registration_with_fsm(directory, self.fsm)
+
+    def start_batch_registration_with_fsm(self, directory: Path, fsm: FileSystemManager) -> str:
+        """
+        バッチ登録開始（FileSystemManager指定版）
+
+        Args:
+            directory: 登録対象ディレクトリ
+            fsm: 初期化済みFileSystemManager
+
+        Returns:
+            str: ワーカーID
+        """
+        worker = DatabaseRegistrationWorker(directory, self.db_manager, fsm)
         worker_id = f"batch_reg_{uuid.uuid4().hex[:8]}"
 
         # 進捗シグナル接続
