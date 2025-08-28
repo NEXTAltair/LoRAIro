@@ -3,9 +3,10 @@
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QMainWindow
+from PySide6.QtCore import QSize, Signal
+from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
+from ...database.db_core import resolve_stored_path
 from ...database.db_manager import ImageDatabaseManager
 from ...services import get_service_container
 from ...services.configuration_service import ConfigurationService
@@ -13,6 +14,7 @@ from ...services.model_selection_service import ModelSelectionService
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
 from ..designer.MainWindow_ui import Ui_MainWindow
+from ..services.image_db_write_service import ImageDBWriteService
 from ..services.search_filter_service import SearchFilterService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
@@ -180,8 +182,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # ユーザーへの通知（GUI利用可能なら）
         try:
-            from PySide6.QtWidgets import QMessageBox
-
             msg_box = QMessageBox()
             msg_box.setIcon(QMessageBox.Icon.Critical)
             msg_box.setWindowTitle("LoRAIro - 致命的エラー")
@@ -302,9 +302,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("  - イベント接続開始...")
 
             # ボタンイベント接続（安全な実装）
-            if hasattr(self, "pushButtonSelectDirectory"):
+            if hasattr(self, "pushButtonSelectDataset"):
                 try:
-                    self.pushButtonSelectDirectory.clicked.connect(self.select_dataset_directory)
+                    self.pushButtonSelectDataset.clicked.connect(self.select_dataset_directory)
                     logger.info("    ✅ ディレクトリ選択ボタン接続完了")
                 except Exception as e:
                     logger.error(f"    ❌ ディレクトリ選択ボタン接続失敗: {e}")
@@ -361,6 +361,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.worker_service.search_error.connect(self._on_pipeline_search_error)
             self.worker_service.thumbnail_error.connect(self._on_pipeline_thumbnail_error)
 
+            # Batch Registration signals (Phase 2 addition)
+            self.worker_service.batch_registration_started.connect(self._on_batch_registration_started)
+            self.worker_service.batch_registration_finished.connect(self._on_batch_registration_finished)
+            self.worker_service.batch_registration_error.connect(self._on_batch_registration_error)
+
             logger.info("    ✅ Sequential Worker Pipeline signals connected")
 
         except Exception as e:
@@ -391,8 +396,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 logger.info(f"ThumbnailSelectorWidget.image_data set: {len(image_data)} items")
 
             # ThumbnailWorker開始 - SearchResultオブジェクトを渡す
-            from PySide6.QtCore import QSize
-
             default_thumbnail_size = QSize(150, 150)  # デフォルトサムネイルサイズ
             worker_id = self.worker_service.start_thumbnail_loading(search_result, default_thumbnail_size)
             logger.info(
@@ -454,6 +457,44 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if hasattr(self.filter_search_panel, "hide_progress_after_completion"):
             self.filter_search_panel.hide_progress_after_completion()
 
+    def _on_batch_registration_started(self, worker_id: str) -> None:
+        """Batch registration started signal handler"""
+        # Remove verbose logging - just handle the signal silently
+        # TODO: Add UI feedback for batch registration start (progress bar, status text)
+
+    def _on_batch_registration_finished(self, result: Any) -> None:
+        """Batch registration finished signal handler"""
+        try:
+            # Extract results from DatabaseRegistrationResult
+            if hasattr(result, "registered_count"):
+                registered = result.registered_count
+                skipped = result.skipped_count
+                errors = result.error_count
+                processing_time = result.total_processing_time
+
+                success_message = (
+                    f"バッチ登録完了！\n\n"
+                    f"登録: {registered}件\n"
+                    f"スキップ: {skipped}件\n"
+                    f"エラー: {errors}件\n"
+                    f"処理時間: {processing_time:.2f}秒"
+                )
+
+                # Emit completion signal for other components
+                self.database_registration_completed.emit(registered)
+
+                QMessageBox.information(self, "バッチ登録完了", success_message)
+
+        except Exception:
+            # Silent error handling - no verbose logging
+            pass
+
+    def _on_batch_registration_error(self, error_message: str) -> None:
+        """Batch registration error signal handler"""
+        QMessageBox.critical(
+            self, "バッチ登録エラー", f"バッチ登録中にエラーが発生しました:\n\n{error_message}"
+        )
+
     def cancel_current_pipeline(self) -> None:
         """現在のPipeline全体をキャンセル"""
         if not self.worker_service:
@@ -492,13 +533,50 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"Pipeline cancellation failed: {e}", exc_info=True)
 
     # Placeholder methods for UI actions - implement these based on your requirements
-    def select_dataset_directory(self):
+    def select_dataset_directory(self) -> None:
         """データセットディレクトリ選択"""
-        logger.info("データセットディレクトリ選択が呼び出されました")
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "データセットディレクトリを選択してください",
+            "",  # 初期ディレクトリ
+            QFileDialog.Option.ShowDirsOnly,
+        )
 
-    def register_images_to_db(self):
-        """画像をデータベースに登録"""
-        logger.info("DB画像登録が呼び出されました")
+        if directory:
+            # WorkerServiceが利用可能かチェック
+            if not self.worker_service:
+                QMessageBox.warning(
+                    self,
+                    "サービス未初期化",
+                    "WorkerServiceが初期化されていないため、バッチ登録を開始できません。",
+                )
+                return
+
+            try:
+                # FileSystemManagerの初期化（必須）
+                if not self.file_system_manager:
+                    # 致命的エラー - アプリケーション終了
+                    error_msg = "FileSystemManagerが初期化されていません。バッチ登録処理を実行できません。"
+                    logger.critical(f"Critical error during batch registration: {error_msg}")
+                    self._handle_critical_initialization_failure(
+                        "FileSystemManager", RuntimeError(error_msg)
+                    )
+                    return
+
+                # 選択されたディレクトリの親ディレクトリに出力する
+                output_dir = Path(directory).parent / "lorairo_output"
+                self.file_system_manager.initialize(output_dir)
+
+                # バッチ登録開始（初期化済みFileSystemManagerを渡す）
+                worker_id = self.worker_service.start_batch_registration_with_fsm(
+                    Path(directory), self.file_system_manager
+                )
+            except Exception as e:
+                QMessageBox.critical(self, "バッチ登録エラー", f"データセット登録の開始に失敗しました: {e}")
+
+    def register_images_to_db(self) -> None:
+        """画像をデータベースに登録（データセットディレクトリ選択に転送）"""
+        self.select_dataset_directory()
 
     def load_images_from_db(self):
         """データベースから画像を読み込み"""
@@ -534,8 +612,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
                     if processed_image:
                         # 512px画像のパス解決
-                        from lorairo.database.db_core import resolve_stored_path
-
                         resolved_path = resolve_stored_path(processed_image["stored_image_path"])
 
                         # ファイル存在確認
@@ -558,8 +634,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         Phase 3.4: DB操作分離パターンの実装
         """
-        from lorairo.gui.services.image_db_write_service import ImageDBWriteService
-
         try:
             if self.db_manager and self.selected_image_details_widget:
                 # ImageDBWriteServiceを作成
