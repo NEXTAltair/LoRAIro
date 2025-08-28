@@ -395,15 +395,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.thumbnail_selector.image_data = image_data
                 logger.info(f"ThumbnailSelectorWidget.image_data set: {len(image_data)} items")
 
-            # ThumbnailWorker開始 - SearchResultオブジェクトを渡す
-            default_thumbnail_size = QSize(150, 150)  # デフォルトサムネイルサイズ
-            worker_id = self.worker_service.start_thumbnail_loading(search_result, default_thumbnail_size)
+            # ThumbnailWorker開始 - 正しいメソッド名とパラメータで呼び出し
+            worker_id = self.worker_service.start_thumbnail_load(search_result.image_metadata)
             logger.info(
                 f"ThumbnailWorker started automatically after search: {worker_id} ({len(search_result.image_metadata)} images)"
             )
 
         except Exception as e:
-            logger.error(f"Failed to start automatic thumbnail loading: {e}", exc_info=True)
+            logger.error(f"Failed to start automatic thumbnail loading: {e}")
 
     def _on_thumbnail_completed_update_display(self, thumbnail_result: Any) -> None:
         """ThumbnailWorker完了時にThumbnailSelectorWidget更新"""
