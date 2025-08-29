@@ -231,6 +231,12 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             # UI要素クリア（古い画像残存問題の修正）
             self.scene.clear()
             self.thumbnail_items.clear()
+
+            # 選択状態同期（ImagePreview警告解決）
+            if self.dataset_state:
+                self.dataset_state.clear_current_image()
+                self.dataset_state.clear_selection()
+
             self._display_cached_thumbnails()
         else:
             # キャッシュが空の場合は従来方式（フォールバック）
