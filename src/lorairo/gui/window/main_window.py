@@ -389,25 +389,41 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error("WorkerService not available - thumbnail loading skipped")
             return
 
+        # ThumbnailSelector存在チェック
+        if not self.thumbnail_selector:
+            logger.error("ThumbnailSelector not available - thumbnail loading skipped")
+            return
+
         try:
             # サムネイルレイアウト用の image_data を事前設定
-            if self.thumbnail_selector:
-                image_data = [
-                    (Path(item["stored_image_path"]), item["id"])
-                    for item in search_result.image_metadata
-                    if "stored_image_path" in item and "id" in item
-                ]
-                self.thumbnail_selector.image_data = image_data
-                logger.info(f"ThumbnailSelectorWidget.image_data set: {len(image_data)} items")
+            image_data = [
+                (Path(item["stored_image_path"]), item["id"])
+                for item in search_result.image_metadata
+                if "stored_image_path" in item and "id" in item
+            ]
+            self.thumbnail_selector.image_data = image_data
+            logger.info(f"ThumbnailSelectorWidget.image_data set: {len(image_data)} items")
 
-            # ThumbnailWorker開始 - 正しいメソッド名とパラメータで呼び出し
-            worker_id = self.worker_service.start_thumbnail_load(search_result.image_metadata)
+            # サムネイルサイズ取得（フォールバック付き）
+            thumbnail_size = getattr(self.thumbnail_selector, "thumbnail_size", None)
+            if not thumbnail_size or thumbnail_size.isEmpty():
+                from PySide6.QtCore import QSize
+
+                thumbnail_size = QSize(128, 128)
+                logger.info("Using default thumbnail size: 128x128")
+
+            # ThumbnailWorker開始 - 修正されたパラメータで呼び出し
+            worker_id = self.worker_service.start_thumbnail_load(search_result, thumbnail_size)
             logger.info(
-                f"ThumbnailWorker started automatically after search: {worker_id} ({len(search_result.image_metadata)} images)"
+                f"ThumbnailWorker started automatically after search: {worker_id} "
+                f"({len(search_result.image_metadata)} images, size={thumbnail_size.width()}x{thumbnail_size.height()})"
             )
 
         except Exception as e:
             logger.error(f"Failed to start automatic thumbnail loading: {e}")
+            # エラー発生時もUI状態をクリア
+            if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
+                self.thumbnail_selector.clear_thumbnails()
 
     def _on_thumbnail_completed_update_display(self, thumbnail_result: Any) -> None:
         """ThumbnailWorker完了時にThumbnailSelectorWidget更新"""
@@ -518,9 +534,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 hasattr(self.worker_service, "current_thumbnail_worker_id")
                 and self.worker_service.current_thumbnail_worker_id
             ):
-                self.worker_service.cancel_thumbnail_load(
-                    self.worker_service.current_thumbnail_worker_id
-                )
+                self.worker_service.cancel_thumbnail_load(self.worker_service.current_thumbnail_worker_id)
                 logger.info("Thumbnail worker cancelled in pipeline")
 
             # キャンセル時の結果破棄（要求仕様通り）
