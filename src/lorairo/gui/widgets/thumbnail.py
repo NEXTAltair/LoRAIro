@@ -228,6 +228,9 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         # キャッシュから高速再表示（ファイルI/O完全回避）
         if self.image_cache:
             logger.debug(f"サムネイルサイズ変更: {old_size.width()}x{old_size.height()} → {value}x{value}")
+            # UI要素クリア（古い画像残存問題の修正）
+            self.scene.clear()
+            self.thumbnail_items.clear()
             self._display_cached_thumbnails()
         else:
             # キャッシュが空の場合は従来方式（フォールバック）
