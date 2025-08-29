@@ -73,7 +73,7 @@ class ExistingFileReader:
             list[str]: アノテーションのリスト
         """
         with open(file_path, encoding="utf-8") as f:
-            clean_data = self.tag_cleaner.clean_format(f.read())
+            clean_data = TagCleaner.clean_format(f.read())
             items = clean_data.strip().split(",")
             # 空文字列を除去
             return [item.strip() for item in items if item.strip()]
@@ -89,7 +89,7 @@ class ExistingFileReader:
             list[str]: キャプションのリスト
         """
         with open(file_path, encoding="utf-8") as f:
-            clean_data = self.tag_cleaner.clean_format(f.read())
+            clean_data = TagCleaner.clean_format(f.read())
             if clean_data.strip():
                 return [clean_data.strip()]
             return []
