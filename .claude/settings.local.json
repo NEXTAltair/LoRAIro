@@ -4,42 +4,10 @@
   },
   "permissions": {
     "allow": [
-      "Bash(ls:*)",
-      "Bash(find:*)",
-      "Bash(diff:*)",
-      "edit:**/*.md",
-      "edit:**/*.mdc",
-      "Bash(tree:*)",
-      "WebFetch(domain:github.com)",
-      "Bash(git merge-base:*)",
-      "Bash(git for-each-ref:*)",
-      "Bash(ruff format:*)",
-      "mcp__serena__find_file",
-      "mcp__serena__list_dir",
-      "mcp__serena__write_memory",
-      "mcp__serena__read_memory",
-      "mcp__serena__search_for_pattern",
-      "mcp__serena__think_about_collected_information",
-      "mcp__serena__list_memories",
-      "mcp__serena__check_onboarding_performed",
-      "mcp__serena__get_symbols_overview",
-      "mcp__serena__find_symbol",
-      "mcp__serena__replace_symbol_body",
-      "mcp__serena__insert_after_symbol",
-      "mcp__serena__find_referencing_symbols",
-      "Bash(uv run mypy:*)",
-      "Bash(uv run pytest:*)",
-      "Bash(uv run ruff check:*)",
-      "Bash(uv run ruff format:*)",
-      "WebFetch(domain:docs.byterover.dev)",
-      "mcp__cipher__cipher_memory_search"
+      "mcp__serena__read_memory"
     ],
-    "deny": [
-      "read:.env",
-      "execute:rm",
-      "execute:git push",
-      "Bash(grep:*)"
-    ]
+    "deny": [],
+    "ask": []
   },
   "enableAllProjectMcpServers": true,
   "hooks": {
