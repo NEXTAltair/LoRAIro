@@ -290,12 +290,10 @@ class FileSystemManager:
             # 画像をコピー
             self.copy_file(image_file, output_path)
 
-            logger.info("元画像を保存: %s", output_path)
+            logger.debug(f"元画像を保存: {output_path}")
             return output_path
         except Exception as e:
-            logger.error(
-                "元画像の保存に失敗: %s. FileSystemManager.save_original_image: %s", image_file, str(e)
-            )
+            logger.error(f"元画像の保存に失敗: {image_file}. FileSystemManager.save_original_image: {e!s}")
             raise
 
     def create_batch_request_file(self) -> Path:
