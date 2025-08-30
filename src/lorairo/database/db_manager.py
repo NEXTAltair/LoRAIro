@@ -777,7 +777,7 @@ class ImageDatabaseManager:
             )
 
             if isinstance(processed_image_metadata, dict):
-                logger.info(
+                logger.debug(
                     f"解像度 {target_resolution} の処理済み画像が既に存在します: 元画像ID={image_id}, 処理済ID={processed_image_metadata.get('id')}"
                 )
                 return processed_image_metadata
