@@ -400,11 +400,23 @@ class ImageRepository:
         try:
             # tag_db.TAGS テーブルを検索
             stmt = text("SELECT tag_id FROM tag_db.TAGS WHERE tag = :tag_name")
-            result = session.execute(stmt, {"tag_name": tag_string}).scalar_one_or_none()
+            result = session.execute(stmt, {"tag_name": tag_string}).first()
 
             if result:
-                logger.debug(f"Found tag_id {result} for tag '{tag_string}' in tag_db.")
-                return result
+                tag_id: int = int(result[0])  # Get the first column (tag_id) from the first row
+                logger.debug(f"Found tag_id {tag_id} for tag '{tag_string}' in tag_db.")
+
+                # Check if there are multiple rows and log a warning
+                count_stmt = text("SELECT COUNT(*) FROM tag_db.TAGS WHERE tag = :tag_name")
+                count_result = session.execute(count_stmt, {"tag_name": tag_string}).scalar()
+
+                if count_result is not None and int(count_result) > 1:
+                    logger.warning(
+                        f"Multiple entries ({int(count_result)}) found for tag '{tag_string}' in tag_db. "
+                        f"Using the first tag_id: {tag_id}. Database cleanup may be needed."
+                    )
+
+                return tag_id
             else:
                 # 見つからなかった場合 (新規作成はここでは行わない)
                 logger.info(
