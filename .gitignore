@@ -134,10 +134,8 @@ tmp/
 *.pid
 *.lock
 .serena/cache/python/document_symbols_cache_v23-06-25.pkl
-data/cipher-sessions.db-shm
-data/cipher-sessions.db-wal
-data/cipher.db-shm
-data/cipher.db-wal
 
 # 開発用ツール（サブモジュールではないため除外）
 cipher/
+data/cipher*
+data/
