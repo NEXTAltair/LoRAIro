@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <ui version="4.0">
  <class>PickerWidget</class>
  <widget class="QWidget" name="PickerWidget">
@@ -28,6 +28,12 @@
      <property name="text">
       <string>Path</string>
      </property>
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
     </widget>
    </item>
    <item>
@@ -41,19 +47,32 @@
     </widget>
    </item>
    <item>
-    <widget class="QComboBox" name="comboBoxHistory"/>
+    <widget class="QComboBox" name="comboBoxHistory">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+    </widget>
    </item>
    <item>
     <widget class="QPushButton" name="pushButtonPicker">
      <property name="text">
       <string>選択...</string>
      </property>
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
     </widget>
    </item>
   </layout>
  </widget>
- <resources/>
- <connections/>
+ <resources />
+ <connections />
  <slots>
   <slot>toggle_history_visibility()</slot>
  </slots>

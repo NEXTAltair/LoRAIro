@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <ui version="4.0">
  <class>FilePickerWidget</class>
  <widget class="QWidget" name="FilePickerWidget">
@@ -15,9 +15,15 @@
   </property>
   <layout class="QHBoxLayout" name="horizontalLayout">
    <item>
-    <widget class="PickerWidget" name="FilePicker" native="true"/>
+    <widget class="PickerWidget" name="FilePicker" native="true" />
    </item>
   </layout>
+  <property name="sizePolicy">
+   <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+    <horstretch>0</horstretch>
+    <verstretch>0</verstretch>
+   </sizepolicy>
+  </property>
  </widget>
  <customwidgets>
   <customwidget>
@@ -27,6 +33,6 @@
    <container>1</container>
   </customwidget>
  </customwidgets>
- <resources/>
- <connections/>
+ <resources />
+ <connections />
 </ui>
