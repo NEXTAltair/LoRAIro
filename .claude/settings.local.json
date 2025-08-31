@@ -8,7 +8,8 @@
       "mcp__cipher__get-library-docs",
       "mcp__cipher__resolve-library-id",
       "WebSearch",
-      "mcp__serena__find_file"
+      "mcp__serena__find_file",
+      "mcp__serena__search_for_pattern"
     ],
     "deny": [],
     "ask": []
