@@ -908,5 +908,93 @@
   </customwidget>
  </customwidgets>
  <resources/>
- <connections/>
+ <connections>
+  <connection>
+   <sender>pushButtonSelectDataset</sender>
+   <signal>clicked()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>select_dataset_directory()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>94</x>
+     <y>30</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>701</x>
+     <y>457</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>pushButtonRegisterImages</sender>
+   <signal>clicked()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>register_images_to_db()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>261</x>
+     <y>70</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>701</x>
+     <y>457</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>pushButtonSettings</sender>
+   <signal>clicked()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>open_settings()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>130</x>
+     <y>30</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>701</x>
+     <y>457</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>pushButtonAnnotate</sender>
+   <signal>clicked()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>start_annotation()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>100</x>
+     <y>764</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>701</x>
+     <y>457</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>pushButtonExport</sender>
+   <signal>clicked()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>export_data()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>200</x>
+     <y>764</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>701</x>
+     <y>457</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+ <slots>
+  <slot>select_dataset_directory()</slot>
+  <slot>register_images_to_db()</slot>
+  <slot>open_settings()</slot>
+  <slot>start_annotation()</slot>
+  <slot>export_data()</slot>
+ </slots>
 </ui>
