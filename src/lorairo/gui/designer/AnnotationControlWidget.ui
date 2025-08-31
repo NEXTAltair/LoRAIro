@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <ui version="4.0">
  <class>AnnotationControlWidget</class>
  <widget class="QWidget" name="AnnotationControlWidget">
@@ -132,6 +132,12 @@ QCheckBox::indicator:checked {
        </widget>
       </item>
      </layout>
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
     </widget>
    </item>
    <item>
@@ -219,6 +225,12 @@ QCheckBox::indicator:checked {
        </spacer>
       </item>
      </layout>
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
     </widget>
    </item>
    <item>
@@ -303,6 +315,12 @@ QCheckBox::indicator:checked {
        </widget>
       </item>
      </layout>
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
     </widget>
    </item>
    <item>
@@ -340,6 +358,12 @@ QPushButton:disabled {
     border-color: palette(mid);
 }</string>
        </property>
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
       </widget>
      </item>
     </layout>
@@ -353,6 +377,6 @@ QPushButton:disabled {
    <header>lorairo.gui.widgets.model_selection_table_widget</header>
   </customwidget>
  </customwidgets>
- <resources/>
- <connections/>
+ <resources />
+ <connections />
 </ui>
