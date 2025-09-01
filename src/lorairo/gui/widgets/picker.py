@@ -3,7 +3,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFileDialog, QWidget
 
-from ...gui.designer.PickerWidget_ui import Ui_PickerWidget
+from ...gui.ui.Picker_ui import Ui_PickerWidget
 from ...utils.log import logger
 
 

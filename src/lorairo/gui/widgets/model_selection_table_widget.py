@@ -18,7 +18,7 @@ from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import QHeaderView, QTableWidgetItem, QWidget
 
 from ...utils.log import logger
-from ..designer.ModelSelectionTableWidget_ui import Ui_ModelSelectionTableWidget
+from ...gui.ui.ModelSelectionTable_ui import Ui_ModelSelectionTableWidget
 from ..services.search_filter_service import SearchFilterService
 
 
