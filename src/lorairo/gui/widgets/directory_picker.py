@@ -4,7 +4,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QFileDialog, QWidget
 
-from ...gui.designer.DirectoryPickerWidget_ui import Ui_DirectoryPickerWidget
+from ...gui.ui.DirectoryPicker_ui import Ui_DirectoryPickerWidget
 from ...utils.log import logger
 
 

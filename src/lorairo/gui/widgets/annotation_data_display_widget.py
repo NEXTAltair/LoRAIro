@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QWidget
 
-from ...gui.designer.AnnotationDataDisplayWidget_ui import Ui_AnnotationDataDisplayWidget
+from ...gui.ui.AnnotationDataDisplay_ui import Ui_AnnotationDataDisplayWidget
 from ...utils.log import logger
 
 

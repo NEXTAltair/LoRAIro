@@ -8,7 +8,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QScrollArea
 
 from ...utils.log import logger
-from ..designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
+from ...gui.ui.FilterSearchPanel_ui import Ui_FilterSearchPanel
 from ..services.search_filter_service import SearchFilterService
 from ..services.worker_service import WorkerService
 from .custom_range_slider import CustomRangeSlider

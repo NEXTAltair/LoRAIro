@@ -11,7 +11,7 @@ from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QWidget
 
 from ...utils.log import logger
-from ..designer.SelectedImageDetailsWidget_ui import Ui_SelectedImageDetailsWidget
+from ...gui.ui.SelectedImageDetails_ui import Ui_SelectedImageDetailsWidget
 from .annotation_data_display_widget import (
     AnnotationData,
     AnnotationDataDisplayWidget,

@@ -7,7 +7,7 @@ from PySide6.QtGui import QPainter, QPixmap, QResizeEvent
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QSizePolicy, QWidget
 
 from ...utils.log import logger
-from ..designer.ImagePreviewWidget_ui import Ui_ImagePreviewWidget
+from ...gui.ui.ImagePreview_ui import Ui_ImagePreviewWidget
 
 if TYPE_CHECKING:
     from ..state.dataset_state import DatasetStateManager

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...utils.log import logger
-from ..designer.ThumbnailSelectorWidget_ui import Ui_ThumbnailSelectorWidget
+from ...gui.ui.ThumbnailSelector_ui import Ui_ThumbnailSelectorWidget
 from ..state.dataset_state import DatasetStateManager
 
 
