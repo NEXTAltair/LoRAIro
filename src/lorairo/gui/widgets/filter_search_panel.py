@@ -7,8 +7,8 @@ from typing import Any
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QScrollArea
 
+from ...gui.designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
 from ...utils.log import logger
-from ...gui.ui.FilterSearchPanel_ui import Ui_FilterSearchPanel
 from ..services.search_filter_service import SearchFilterService
 from ..services.worker_service import WorkerService
 from .custom_range_slider import CustomRangeSlider
@@ -333,6 +333,7 @@ class FilterSearchPanel(QScrollArea):
     def get_date_range_from_slider(self) -> tuple[datetime | None, datetime | None]:
         """
         CustomRangeSliderから日付範囲を取得してdatetimeオブジェクトに変換
+        # NOTE: CustomRangeSliderがdatetimeオブジェクトを返すようにしたほうがいいかも
 
         Returns:
             tuple: (start_datetime, end_datetime) または (None, None) if not enabled

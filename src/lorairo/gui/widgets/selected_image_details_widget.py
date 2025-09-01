@@ -3,6 +3,7 @@ Selected Image Details Widget
 
 選択画像の詳細情報表示とインライン編集機能を提供
 画像基本情報、アノテーション概要、Rating/Score の編集機能
+# TODO: 他のウィジェットの機能も直に実装してあるので修正が必要､レイアウトはここに定義しない
 """
 
 from typing import TYPE_CHECKING
@@ -10,8 +11,8 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QWidget
 
+from ...gui.designer.SelectedImageDetails_ui import Ui_SelectedImageDetailsWidget
 from ...utils.log import logger
-from ...gui.ui.SelectedImageDetails_ui import Ui_SelectedImageDetailsWidget
 from .annotation_data_display_widget import (
     AnnotationData,
     AnnotationDataDisplayWidget,
