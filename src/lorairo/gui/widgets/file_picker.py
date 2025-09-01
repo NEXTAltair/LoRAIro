@@ -3,8 +3,8 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFileDialog, QWidget
 
+from ...gui.designer.FilePicker_ui import Ui_FilePickerWidget
 from ...utils.log import logger
-from ...gui.ui.FilePicker_ui import Ui_FilePickerWidget
 
 
 class FilePickerWidget(QWidget, Ui_FilePickerWidget):

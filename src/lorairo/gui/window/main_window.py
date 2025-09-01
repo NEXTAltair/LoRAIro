@@ -3,17 +3,17 @@
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QSize, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
 from ...database.db_core import resolve_stored_path
 from ...database.db_manager import ImageDatabaseManager
+from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
 from ...services.configuration_service import ConfigurationService
 from ...services.model_selection_service import ModelSelectionService
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
-from ..designer.MainWindow_ui import Ui_MainWindow
 from ..services.image_db_write_service import ImageDBWriteService
 from ..services.search_filter_service import SearchFilterService
 from ..services.worker_service import WorkerService
