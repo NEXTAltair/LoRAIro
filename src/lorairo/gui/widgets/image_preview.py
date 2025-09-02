@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtGui import QPainter, QPixmap, QResizeEvent
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QSizePolicy, QWidget
 
-from ...gui.designer.ImagePreview_ui import Ui_ImagePreviewWidget
+from ...gui.designer.ImagePreviewWidget_ui import Ui_ImagePreviewWidget
 from ...utils.log import logger
 
 if TYPE_CHECKING:

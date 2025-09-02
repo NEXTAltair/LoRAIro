@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QWidget
 
-from ...gui.designer.SelectedImageDetails_ui import Ui_SelectedImageDetailsWidget
+from ...gui.designer.SelectedImageDetailsWidget_ui import Ui_SelectedImageDetailsWidget
 from ...utils.log import logger
 from .annotation_data_display_widget import (
     AnnotationData,
