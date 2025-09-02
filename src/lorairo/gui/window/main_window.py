@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
 from ...database.db_core import resolve_stored_path
@@ -288,13 +288,55 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"選択画像詳細ウィジェット設定エラー（継続）: {e}", exc_info=True)
             self.selected_image_details_widget = None
 
-        # スプリッターの初期サイズ設定（非致命的）
+        # スプリッターの初期サイズ設定（動的比例レイアウト）
         try:
             if hasattr(self, "splitterMainWorkArea"):
-                self.splitterMainWorkArea.setSizes([300, 700, 400])  # フィルター:サムネイル:プレビュー
-                logger.info("スプリッター初期サイズ設定完了")
+                self._setup_responsive_splitter()
+                logger.info("スプリッター動的サイズ設定完了")
         except Exception as e:
             logger.warning(f"スプリッター設定エラー（継続）: {e}")
+
+    def _setup_responsive_splitter(self) -> None:
+        """レスポンシブスプリッターサイズ設定"""
+        try:
+            # 現在のウィンドウサイズを取得
+            window_width = self.width()
+            if window_width < 800:  # 最小サイズ保証
+                window_width = 1400  # デフォルト幅
+
+            # 新しい比率: 左20%, 中央55%, 右25%
+            left_ratio = 0.20
+            center_ratio = 0.55  # サムネイルエリアを拡大
+            right_ratio = 0.25
+
+            # 最小・最大サイズ制限
+            min_left = 280
+            max_left = 400
+            min_center = 500  # サムネイル表示に必要な最小幅
+            min_right = 350
+
+            # 計算されたサイズ
+            calc_left = int(window_width * left_ratio)
+            calc_center = int(window_width * center_ratio)
+            calc_right = int(window_width * right_ratio)
+
+            # 制限適用
+            final_left = max(min_left, min(max_left, calc_left))
+            final_center = max(min_center, calc_center)
+            final_right = max(min_right, calc_right)
+
+            # サイズ適用
+            self.splitterMainWorkArea.setSizes([final_left, final_center, final_right])
+
+            logger.debug(
+                f"スプリッターサイズ設定: {final_left}:{final_center}:{final_right} "
+                f"(ウィンドウ幅: {window_width}px)"
+            )
+
+        except Exception as e:
+            # フォールバック: 改善された固定サイズ
+            logger.warning(f"動的サイズ計算失敗、フォールバック使用: {e}")
+            self.splitterMainWorkArea.setSizes([320, 800, 380])  # 改善された比率
 
     def _connect_events(self) -> None:
         """イベント接続を設定（安全な実装）"""
@@ -647,6 +689,35 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         return result
 
+    def resizeEvent(self, event) -> None:
+        """ウィンドウリサイズイベント - スプリッターサイズを動的調整"""
+        try:
+            super().resizeEvent(event)
+
+            # スプリッターが存在し、初期化が完了している場合のみ調整
+            if hasattr(self, "splitterMainWorkArea") and self.splitterMainWorkArea is not None:
+                # リサイズ完了後に調整（イベントループで遅延実行）
+                QTimer.singleShot(50, self._adjust_splitter_on_resize)
+
+        except Exception as e:
+            logger.warning(f"リサイズイベント処理エラー: {e}")
+
+    def _adjust_splitter_on_resize(self) -> None:
+        """リサイズ後のスプリッター調整（遅延実行用）"""
+        try:
+            # 現在のサイズが変更されている場合のみ再計算
+            current_width = self.width()
+
+            # 小さすぎる場合はスキップ（初期化中の可能性）
+            if current_width < 600:
+                return
+
+            self._setup_responsive_splitter()
+            logger.debug(f"リサイズ後スプリッター調整完了: {current_width}px")
+
+        except Exception as e:
+            logger.warning(f"リサイズ後の調整エラー: {e}")
+
     def _setup_image_db_write_service(self) -> None:
         """ImageDBWriteServiceを作成してselected_image_details_widgetに注入
 
@@ -713,42 +784,73 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             )
             return
 
-        # 同一性確認の追加（GPT5指摘対応）
+        # インスタンス一貫性確認（修正版）
         if hasattr(self, "filterSearchPanel") and self.filterSearchPanel:
             if self.filter_search_panel is not self.filterSearchPanel:
-                logger.warning(
-                    f"FilterSearchPanel インスタンス不一致を検出 - 修正中: "
+                logger.error(
+                    f"FilterSearchPanel インスタンス不一致検出: "
                     f"filter_search_panel={id(self.filter_search_panel)}, "
-                    f"filterSearchPanel={id(self.filterSearchPanel)}"
+                    f"filterSearchPanel={id(self.filterSearchPanel)} "
+                    f"- 重複インスタンス化の可能性"
                 )
-                # Designer生成UIを確実に使用
-                self.filter_search_panel = self.filterSearchPanel
-                logger.info("Designer生成filterSearchPanelに修正完了")
+                # インスタンス再割り当てはSEARCHFilterService注入後に行わない
+                # setup_custom_widgets()で設定されたインスタンスを信頼
+                logger.warning(
+                    "既存のfilter_search_panelインスタンスを維持してSearchFilterService注入を継続"
+                )
+            else:
+                logger.debug("FilterSearchPanel インスタンス一貫性確認: OK")
 
-            # 同一性確認ログ（明示的検証）
-            logger.debug(
-                f"FilterSearchPanel 同一性確認: "
-                f"filter_search_panel is filterSearchPanel = {self.filter_search_panel is self.filterSearchPanel}"
-            )
-            logger.debug(f"Instance ID: {id(self.filter_search_panel)}")
+        # インスタンス情報ログ（デバッグ用）
+        logger.info(f"SearchFilterService注入対象: FilterSearchPanel(id={id(self.filter_search_panel)})")
 
         # 統合処理実行
         try:
+            # SearchFilterService作成
+            logger.info("SearchFilterService作成中...")
             search_filter_service = self._create_search_filter_service()
+            logger.info(f"SearchFilterService作成完了: {type(search_filter_service)}")
+
+            # 注入前の状態確認
+            current_service = getattr(self.filter_search_panel, "search_filter_service", None)
+            logger.debug(f"注入前のSearchFilterService状態: {current_service}")
+
+            # SearchFilterService注入
             self.filter_search_panel.set_search_filter_service(search_filter_service)
+            logger.info("SearchFilterService注入完了")
+
+            # 注入後の検証
+            injected_service = getattr(self.filter_search_panel, "search_filter_service", None)
+            if injected_service is None:
+                raise RuntimeError("SearchFilterService注入後も None - 注入失敗")
+            if injected_service is not search_filter_service:
+                raise RuntimeError(
+                    "SearchFilterService注入後のインスタンス不一致 - 予期しないオーバーライド"
+                )
+            logger.info("SearchFilterService注入検証: OK")
 
             # WorkerService設定
             if self.worker_service:
+                logger.info("WorkerService統合中...")
                 self.filter_search_panel.set_worker_service(self.worker_service)
                 logger.info("WorkerService integrated into FilterSearchPanel")
             else:
                 logger.warning(
                     "WorkerService not available - FilterSearchPanel will use synchronous search"
                 )
+
+            # 最終検証
+            final_service = getattr(self.filter_search_panel, "search_filter_service", None)
+            final_worker = getattr(self.filter_search_panel, "worker_service", None)
             logger.info(
-                "SearchFilterService integration completed - FilterSearchPanel search functionality enabled"
+                f"SearchFilterService integration completed - "
+                f"SearchFilterService: {final_service is not None}, "
+                f"WorkerService: {final_worker is not None}"
             )
+            logger.info("FilterSearchPanel search functionality enabled")
+
         except Exception as e:
+            logger.error(f"SearchFilterService統合処理中のエラー: {e}", exc_info=True)
             self._handle_critical_initialization_failure("SearchFilterService統合", e)
 
 
