@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...gui.designer.AnnotationResults_ui import Ui_AnnotationResultsWidget
+from ...gui.designer.AnnotationResultsWidget_ui import Ui_AnnotationResultsWidget
 from ...utils.log import logger
 
 

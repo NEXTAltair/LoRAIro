@@ -17,7 +17,7 @@ from typing import Any
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import QHeaderView, QTableWidgetItem, QWidget
 
-from ...gui.designer.ModelSelectionTable_ui import Ui_ModelSelectionTableWidget
+from ...gui.designer.ModelSelectionTableWidget_ui import Ui_ModelSelectionTableWidget
 from ...utils.log import logger
 from ..services.search_filter_service import SearchFilterService
 
