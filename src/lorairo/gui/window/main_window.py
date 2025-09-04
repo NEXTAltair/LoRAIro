@@ -631,6 +631,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 worker_id = self.worker_service.start_batch_registration_with_fsm(
                     Path(directory), self.file_system_manager
                 )
+                if worker_id:
+                    logger.info(f"バッチ登録開始: worker_id={worker_id}, directory={directory}")
+                else:
+                    logger.error("バッチ登録の開始に失敗しました")
             except Exception as e:
                 QMessageBox.critical(self, "バッチ登録エラー", f"データセット登録の開始に失敗しました: {e}")
 
@@ -766,9 +770,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             raise ValueError("SearchFilterService作成不可") from e
 
     def _setup_search_filter_integration(self) -> None:
-        """SearchFilterService統合処理（Phase 3.5）致命的チェック実装
+        """SearchFilterService統合処理（Phase 3.5）レイアウト変更耐性強化版
 
         FilterSearchPanelにSearchFilterServiceを注入して検索機能を有効化
+        Qt Designer Phase 2レスポンシブレイアウト変更対応済み
         """
         # 前提条件チェック（致命的）
         if not self.filter_search_panel:
@@ -784,25 +789,27 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             )
             return
 
-        # インスタンス一貫性確認（修正版）
-        if hasattr(self, "filterSearchPanel") and self.filterSearchPanel:
-            if self.filter_search_panel is not self.filterSearchPanel:
-                logger.error(
-                    f"FilterSearchPanel インスタンス不一致検出: "
-                    f"filter_search_panel={id(self.filter_search_panel)}, "
-                    f"filterSearchPanel={id(self.filterSearchPanel)} "
-                    f"- 重複インスタンス化の可能性"
-                )
-                # インスタンス再割り当てはSEARCHFilterService注入後に行わない
-                # setup_custom_widgets()で設定されたインスタンスを信頼
-                logger.warning(
-                    "既存のfilter_search_panelインスタンスを維持してSearchFilterService注入を継続"
-                )
-            else:
-                logger.debug("FilterSearchPanel インスタンス一貫性確認: OK")
-
-        # インスタンス情報ログ（デバッグ用）
+        # インスタンス状況の詳細ログ（Qt Designer Phase 2対応診断）
         logger.info(f"SearchFilterService注入対象: FilterSearchPanel(id={id(self.filter_search_panel)})")
+
+        # Qt Designer生成インスタンスとの関係性確認（診断のみ、再割り当て禁止）
+        if hasattr(self, "filterSearchPanel") and self.filterSearchPanel:
+            is_same_instance = self.filter_search_panel is self.filterSearchPanel
+            logger.info(
+                f"Qt Designer生成インスタンス関係: "
+                f"filter_search_panel(id={id(self.filter_search_panel)}) "
+                f"filterSearchPanel(id={id(self.filterSearchPanel)}) "
+                f"same_instance={is_same_instance}"
+            )
+            # 重要：インスタンス再割り当てを完全に削除
+            # setup_custom_widgets()で設定されたインスタンスを完全に信頼
+            if not is_same_instance:
+                logger.warning(
+                    "Qt Designer Phase 2レスポンシブレイアウト変更により異なるインスタンス検出 - "
+                    "setup_custom_widgets()設定インスタンスを維持"
+                )
+        else:
+            logger.debug("Qt Designer生成filterSearchPanelインスタンス未検出")
 
         # 統合処理実行
         try:
@@ -815,42 +822,93 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             current_service = getattr(self.filter_search_panel, "search_filter_service", None)
             logger.debug(f"注入前のSearchFilterService状態: {current_service}")
 
-            # SearchFilterService注入
+            # SearchFilterService注入（強化版バリデーション付き）
+            logger.info("SearchFilterService注入実行...")
             self.filter_search_panel.set_search_filter_service(search_filter_service)
             logger.info("SearchFilterService注入完了")
 
-            # 注入後の検証
+            # 注入後の即座検証（Phase 2対応強化版）
             injected_service = getattr(self.filter_search_panel, "search_filter_service", None)
             if injected_service is None:
-                raise RuntimeError("SearchFilterService注入後も None - 注入失敗")
+                raise RuntimeError(
+                    "SearchFilterService注入後もNone - 注入失敗またはQt Designer Phase 2変更の影響"
+                )
             if injected_service is not search_filter_service:
                 raise RuntimeError(
-                    "SearchFilterService注入後のインスタンス不一致 - 予期しないオーバーライド"
+                    f"SearchFilterService注入後のインスタンス不一致 - "
+                    f"expected={id(search_filter_service)}, actual={id(injected_service) if injected_service else 'None'}"
                 )
-            logger.info("SearchFilterService注入検証: OK")
 
-            # WorkerService設定
+            # サービス機能性確認
+            try:
+                if not hasattr(injected_service, "create_search_conditions"):
+                    raise RuntimeError(
+                        "注入されたSearchFilterServiceに必須メソッド'create_search_conditions'が存在しない"
+                    )
+                logger.debug("SearchFilterService機能性確認: OK")
+            except Exception as validation_error:
+                raise RuntimeError(
+                    f"SearchFilterService機能性検証失敗: {validation_error}"
+                ) from validation_error
+
+            logger.info("SearchFilterService注入検証: 完全成功")
+
+            # WorkerService統合
             if self.worker_service:
                 logger.info("WorkerService統合中...")
                 self.filter_search_panel.set_worker_service(self.worker_service)
                 logger.info("WorkerService integrated into FilterSearchPanel")
+
+                # WorkerService統合検証
+                worker_service_check = getattr(self.filter_search_panel, "worker_service", None)
+                if worker_service_check is None:
+                    logger.warning("WorkerService統合後もNone - 非同期検索が利用できません")
+                else:
+                    logger.debug(f"WorkerService統合確認: {type(worker_service_check)}")
             else:
                 logger.warning(
                     "WorkerService not available - FilterSearchPanel will use synchronous search"
                 )
 
-            # 最終検証
-            final_service = getattr(self.filter_search_panel, "search_filter_service", None)
-            final_worker = getattr(self.filter_search_panel, "worker_service", None)
+            # 最終統合状況確認
+            final_search_service = getattr(self.filter_search_panel, "search_filter_service", None)
+            final_worker_service = getattr(self.filter_search_panel, "worker_service", None)
+
             logger.info(
-                f"SearchFilterService integration completed - "
-                f"SearchFilterService: {final_service is not None}, "
-                f"WorkerService: {final_worker is not None}"
+                f"SearchFilterService integration completed successfully - "
+                f"SearchFilterService: {final_search_service is not None}, "
+                f"WorkerService: {final_worker_service is not None}"
+            )
+
+            # 成功状態の詳細ログ
+            logger.info(
+                f"FilterSearchPanel準備完了 - "
+                f"instance_id={id(self.filter_search_panel)}, "
+                f"search_service_type={type(final_search_service)}, "
+                f"worker_service_type={type(final_worker_service) if final_worker_service else 'None'}"
             )
             logger.info("FilterSearchPanel search functionality enabled")
 
         except Exception as e:
-            logger.error(f"SearchFilterService統合処理中のエラー: {e}", exc_info=True)
+            # 詳細エラー診断とレポート
+            error_context = {
+                "filter_search_panel_id": id(self.filter_search_panel)
+                if self.filter_search_panel
+                else None,
+                "filter_search_panel_type": type(self.filter_search_panel)
+                if self.filter_search_panel
+                else None,
+                "db_manager_available": self.db_manager is not None,
+                "worker_service_available": self.worker_service is not None,
+                "qt_designer_instance_available": hasattr(self, "filterSearchPanel")
+                and self.filterSearchPanel is not None,
+            }
+
+            logger.error(
+                f"SearchFilterService統合処理中のエラー - Qt Designer Phase 2レスポンシブレイアウト対応版: {e}",
+                extra={"error_context": error_context},
+                exc_info=True,
+            )
             self._handle_critical_initialization_failure("SearchFilterService統合", e)
 
 
