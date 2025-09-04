@@ -8,8 +8,8 @@ Annotation Status Filter Widget
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QWidget
 
+from ...gui.designer.AnnotationStatusFilterWidget_ui import Ui_AnnotationStatusFilterWidget
 from ...utils.log import logger
-from ..designer.AnnotationStatusFilterWidget_ui import Ui_AnnotationStatusFilterWidget
 from ..services.search_filter_service import AnnotationStatusCounts, SearchFilterService
 
 

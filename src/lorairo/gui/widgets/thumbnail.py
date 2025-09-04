@@ -8,15 +8,14 @@ from PySide6.QtGui import QColor, QPen, QPixmap
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsObject,
-    QGraphicsPixmapItem,
     QGraphicsScene,
     QGraphicsView,
     QVBoxLayout,
     QWidget,
 )
 
+from ...gui.designer.ThumbnailSelectorWidget_ui import Ui_ThumbnailSelectorWidget
 from ...utils.log import logger
-from ..designer.ThumbnailSelectorWidget_ui import Ui_ThumbnailSelectorWidget
 from ..state.dataset_state import DatasetStateManager
 
 

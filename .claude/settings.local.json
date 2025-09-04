@@ -4,7 +4,20 @@
   },
   "permissions": {
     "allow": [
-      "mcp__serena__read_memory"
+      "mcp__cipher__cipher_memory_search",
+      "mcp__cipher__get-library-docs",
+      "mcp__cipher__resolve-library-id",
+      "WebSearch",
+      "mcp__serena__find_file",
+      "mcp__serena__search_for_pattern",
+      "mcp__serena__list_dir",
+      "Bash(find:*)",
+      "mcp__serena__list_memories",
+      "mcp__cipher__list_memories",
+      "mcp__cipher__activate_project",
+      "mcp__cipher__search_for_pattern",
+      "mcp__cipher__cipher_extract_and_operate_memory",
+      "mcp__ide__getDiagnostics"
     ],
     "deny": [],
     "ask": []

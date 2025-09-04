@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <ui version="4.0">
  <class>ConfigurationWindow</class>
  <widget class="QWidget" name="ConfigurationWindow">
@@ -36,15 +36,21 @@
          </property>
          <layout class="QVBoxLayout" name="layoutFolders">
           <item>
-           <widget class="DirectoryPickerWidget" name="dirPickerExportDir" native="true"/>
+           <widget class="DirectoryPickerWidget" name="dirPickerExportDir" native="true" />
           </item>
           <item>
-           <widget class="DirectoryPickerWidget" name="dirPickerBatchResults" native="true"/>
+           <widget class="DirectoryPickerWidget" name="dirPickerBatchResults" native="true" />
           </item>
           <item>
-           <widget class="DirectoryPickerWidget" name="dirPickerDatabaseDir" native="true"/>
+           <widget class="DirectoryPickerWidget" name="dirPickerDatabaseDir" native="true" />
           </item>
          </layout>
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
         </widget>
        </item>
        <item>
@@ -58,30 +64,69 @@
             <property name="text">
              <string>OpenAI</string>
             </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
            </widget>
           </item>
           <item row="0" column="1">
-           <widget class="QLineEdit" name="lineEditOpenAiKey"/>
+           <widget class="QLineEdit" name="lineEditOpenAiKey">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
           </item>
           <item row="1" column="0">
            <widget class="QLabel" name="labelGoogleKey">
             <property name="text">
              <string>Google AI Studio</string>
             </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
            </widget>
           </item>
           <item row="1" column="1">
-           <widget class="QLineEdit" name="lineEditGoogleVisionKey"/>
+           <widget class="QLineEdit" name="lineEditGoogleVisionKey">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
           </item>
           <item row="2" column="0">
            <widget class="QLabel" name="labelAnthropicKey">
             <property name="text">
              <string>Anthropic</string>
             </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
            </widget>
           </item>
           <item row="2" column="1">
-           <widget class="QLineEdit" name="lineEditAnthropicKey"/>
+           <widget class="QLineEdit" name="lineEditAnthropicKey">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
           </item>
          </layout>
         </widget>
@@ -97,30 +142,69 @@
             <property name="text">
              <string>ユーザー名:</string>
             </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
            </widget>
           </item>
           <item row="0" column="1">
-           <widget class="QLineEdit" name="lineEditHfUsername"/>
+           <widget class="QLineEdit" name="lineEditHfUsername">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
           </item>
           <item row="1" column="0">
            <widget class="QLabel" name="labelHfRepoName">
             <property name="text">
              <string>リポジトリ名:</string>
             </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
            </widget>
           </item>
           <item row="1" column="1">
-           <widget class="QLineEdit" name="lineEditHfRepoName"/>
+           <widget class="QLineEdit" name="lineEditHfRepoName">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
           </item>
           <item row="2" column="0">
            <widget class="QLabel" name="labelHfToken">
             <property name="text">
              <string>トークン:</string>
             </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
            </widget>
           </item>
           <item row="2" column="1">
-           <widget class="QLineEdit" name="lineEditHfToken"/>
+           <widget class="QLineEdit" name="lineEditHfToken">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
           </item>
          </layout>
         </widget>
@@ -145,10 +229,23 @@
                <property name="text">
                 <string>ログレベル:</string>
                </property>
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
               </widget>
              </item>
              <item>
-              <widget class="QComboBox" name="comboBoxLogLevel"/>
+              <widget class="QComboBox" name="comboBoxLogLevel">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+              </widget>
              </item>
              <item>
               <spacer name="HSpacerLogLevel">
@@ -200,12 +297,24 @@
             <property name="text">
              <string>保存</string>
             </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
            </widget>
           </item>
           <item>
            <widget class="QPushButton" name="buttonSaveAs">
             <property name="text">
              <string>名前を付けて保存</string>
+            </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
             </property>
            </widget>
           </item>
@@ -232,8 +341,8 @@
    <container>1</container>
   </customwidget>
  </customwidgets>
- <resources/>
- <connections/>
+ <resources />
+ <connections />
  <slots>
   <slot>on_buttonSave_clicked()</slot>
   <slot>on_buttonSaveAs_clicked()</slot>

@@ -47,6 +47,7 @@
       "pathlib",
       "pytest",
       "shibokensupport",
+      "swinv2",
       "venv",
       "pycache"
     ],

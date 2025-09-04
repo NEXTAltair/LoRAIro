@@ -2,28 +2,14 @@
 <ui version="4.0">
  <class>ThumbnailSelectorWidget</class>
  <widget class="QWidget" name="ThumbnailSelectorWidget">
-  <property name="geometry">
-   <rect>
-    <x>0</x>
-    <y>0</y>
-    <width>400</width>
-    <height>300</height>
-   </rect>
-  </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
     <widget class="QFrame" name="frameThumbnailHeader">
-     <property name="minimumSize">
-      <size>
-       <width>0</width>
-       <height>30</height>
-      </size>
-     </property>
-     <property name="maximumSize">
-      <size>
-       <width>16777215</width>
-       <height>30</height>
-      </size>
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
      </property>
      <property name="frameShape">
       <enum>QFrame::Shape::NoFrame</enum>
@@ -70,17 +56,11 @@
       </item>
       <item>
        <widget class="QSlider" name="sliderThumbnailSize">
-        <property name="minimumSize">
-         <size>
-          <width>100</width>
-          <height>0</height>
-         </size>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>100</width>
-          <height>16777215</height>
-         </size>
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
         </property>
         <property name="minimum">
          <number>64</number>
@@ -105,19 +85,11 @@
       <bool>true</bool>
      </property>
      <widget class="QWidget" name="widgetThumbnailsContent">
-      <property name="geometry">
-       <rect>
-        <x>0</x>
-        <y>0</y>
-        <width>380</width>
-        <height>254</height>
-       </rect>
-      </property>
-      <property name="minimumSize">
-       <size>
-        <width>64</width>
-        <height>64</height>
-       </size>
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
       </property>
      </widget>
     </widget>
@@ -125,5 +97,25 @@
   </layout>
  </widget>
  <resources/>
- <connections/>
+ <connections>
+  <connection>
+   <sender>sliderThumbnailSize</sender>
+   <signal>valueChanged(int)</signal>
+   <receiver>ThumbnailSelectorWidget</receiver>
+   <slot>_on_thumbnail_size_slider_changed(int)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>148</x>
+     <y>15</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>200</x>
+     <y>150</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+ <slots>
+  <slot>_on_thumbnail_size_slider_changed(int)</slot>
+ </slots>
 </ui>
