@@ -2,14 +2,6 @@
 <ui version="4.0">
  <class>FilterSearchPanel</class>
  <widget class="QScrollArea" name="FilterSearchPanel">
-  <property name="geometry">
-   <rect>
-    <x>0</x>
-    <y>0</y>
-    <width>300</width>
-    <height>600</height>
-   </rect>
-  </property>
   <property name="windowTitle">
    <string>Filter Search Panel</string>
   </property>
@@ -23,14 +15,6 @@
    <bool>true</bool>
   </property>
   <widget class="QWidget" name="scrollAreaWidgetContents">
-   <property name="geometry">
-    <rect>
-     <x>0</x>
-     <y>0</y>
-     <width>298</width>
-     <height>598</height>
-    </rect>
-   </property>
    <layout class="QVBoxLayout" name="mainLayout">
     <property name="spacing">
      <number>10</number>
@@ -144,11 +128,11 @@
        </item>
        <item>
         <widget class="QTextEdit" name="textEditPreview">
-         <property name="maximumSize">
-          <size>
-           <width>16777215</width>
-           <height>60</height>
-          </size>
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
          </property>
          <property name="readOnly">
           <bool>true</bool>
@@ -416,5 +400,70 @@
   </widget>
  </widget>
  <resources/>
- <connections/>
+ <connections>
+  <connection>
+   <sender>checkboxDateFilter</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>frameDateRange</receiver>
+   <slot>setVisible(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>149</x>
+     <y>302</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>149</x>
+     <y>330</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>buttonClear</sender>
+   <signal>clicked()</signal>
+   <receiver>lineEditSearch</receiver>
+   <slot>clear()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>347</x>
+     <y>397</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>149</x>
+     <y>100</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>buttonClear</sender>
+   <signal>clicked()</signal>
+   <receiver>comboResolution</receiver>
+   <slot>reset()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>347</x>
+     <y>397</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>180</x>
+     <y>180</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>buttonClear</sender>
+   <signal>clicked()</signal>
+   <receiver>comboAspectRatio</receiver>
+   <slot>reset()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>347</x>
+     <y>397</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>243</x>
+     <y>243</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
 </ui>

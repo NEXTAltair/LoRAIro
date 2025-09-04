@@ -2,14 +2,6 @@
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
-  <property name="geometry">
-   <rect>
-    <x>0</x>
-    <y>0</y>
-    <width>1402</width>
-    <height>914</height>
-   </rect>
-  </property>
   <property name="windowTitle">
    <string>LoRAIro - ワークスペース</string>
   </property>
@@ -36,17 +28,11 @@
     </property>
     <item>
      <widget class="QFrame" name="frameDatasetSelector">
-      <property name="minimumSize">
-       <size>
-        <width>0</width>
-        <height>60</height>
-       </size>
-      </property>
-      <property name="maximumSize">
-       <size>
-        <width>16777215</width>
-        <height>60</height>
-       </size>
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
       </property>
       <property name="frameShape">
        <enum>QFrame::Shape::StyledPanel</enum>
@@ -69,11 +55,11 @@
        </property>
        <item>
         <widget class="QLabel" name="labelDataset">
-         <property name="minimumSize">
-          <size>
-           <width>80</width>
-           <height>0</height>
-          </size>
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
          </property>
          <property name="text">
           <string>データセット:</string>
@@ -92,11 +78,11 @@
        </item>
        <item>
         <widget class="QPushButton" name="pushButtonSelectDataset">
-         <property name="minimumSize">
-          <size>
-           <width>80</width>
-           <height>0</height>
-          </size>
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
          </property>
          <property name="text">
           <string>選択</string>
@@ -121,11 +107,11 @@
        </item>
        <item>
         <widget class="QPushButton" name="pushButtonSettings">
-         <property name="minimumSize">
-          <size>
-           <width>60</width>
-           <height>0</height>
-          </size>
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
          </property>
          <property name="text">
           <string>設定</string>
@@ -138,22 +124,10 @@
     <item>
      <widget class="QFrame" name="frameDbStatus">
       <property name="sizePolicy">
-       <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+       <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
         <horstretch>0</horstretch>
         <verstretch>0</verstretch>
        </sizepolicy>
-      </property>
-      <property name="minimumSize">
-       <size>
-        <width>0</width>
-        <height>40</height>
-       </size>
-      </property>
-      <property name="maximumSize">
-       <size>
-        <width>16777215</width>
-        <height>40</height>
-       </size>
       </property>
       <property name="frameShape">
        <enum>QFrame::Shape::StyledPanel</enum>
@@ -199,11 +173,11 @@
        </item>
        <item>
         <widget class="QPushButton" name="pushButtonRegisterImages">
-         <property name="minimumSize">
-          <size>
-           <width>120</width>
-           <height>25</height>
-          </size>
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
          </property>
          <property name="text">
           <string>画像をDB登録</string>
@@ -212,17 +186,11 @@
        </item>
        <item>
         <widget class="QProgressBar" name="progressBarRegistration">
-         <property name="minimumSize">
-          <size>
-           <width>150</width>
-           <height>0</height>
-          </size>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>150</width>
-           <height>16777215</height>
-          </size>
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
          </property>
          <property name="visible">
           <bool>false</bool>
@@ -250,17 +218,11 @@
        <bool>false</bool>
       </property>
       <widget class="QFrame" name="frameFilterSearchPanel">
-       <property name="minimumSize">
-        <size>
-         <width>250</width>
-         <height>0</height>
-        </size>
-       </property>
-       <property name="maximumSize">
-        <size>
-         <width>400</width>
-         <height>16777215</height>
-        </size>
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+         <horstretch>1</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
        </property>
        <property name="frameShape">
         <enum>QFrame::Shape::StyledPanel</enum>
@@ -317,11 +279,11 @@
            </property>
            <item>
             <widget class="FilterSearchPanel" name="filterSearchPanel" native="true">
-             <property name="minimumSize">
-              <size>
-               <width>250</width>
-               <height>300</height>
-              </size>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+               <horstretch>0</horstretch>
+               <verstretch>1</verstretch>
+              </sizepolicy>
              </property>
             </widget>
            </item>
@@ -354,11 +316,11 @@
            </property>
            <item>
             <widget class="QTableView" name="tableViewSelectedImageInfo">
-             <property name="minimumSize">
-              <size>
-               <width>0</width>
-               <height>200</height>
-              </size>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+               <horstretch>0</horstretch>
+               <verstretch>1</verstretch>
+              </sizepolicy>
              </property>
              <property name="styleSheet">
               <string notr="true"/>
@@ -428,25 +390,19 @@
          <widget class="ThumbnailSelectorWidget" name="thumbnailSelectorWidget" native="true">
           <property name="sizePolicy">
            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-            <horstretch>0</horstretch>
+            <horstretch>2</horstretch>
             <verstretch>0</verstretch>
            </sizepolicy>
-          </property>
-          <property name="minimumSize">
-           <size>
-            <width>200</width>
-            <height>200</height>
-           </size>
           </property>
          </widget>
         </item>
         <item>
          <widget class="QFrame" name="frameThumbnailStatusIndicator">
-             <property name="maximumSize">
-              <size>
-               <width>16777215</width>
-               <height>60</height>
-              </size>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
              </property>
              <property name="styleSheet">
               <string notr="true"/>
@@ -533,17 +489,11 @@
        </layout>
       </widget>
       <widget class="QFrame" name="framePreviewDetailPanel">
-       <property name="minimumSize">
-        <size>
-         <width>512</width>
-         <height>512</height>
-        </size>
-       </property>
-       <property name="maximumSize">
-        <size>
-         <width>16777215</width>
-         <height>16777215</height>
-        </size>
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+         <horstretch>2</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
        </property>
        <property name="frameShape">
         <enum>QFrame::Shape::StyledPanel</enum>
@@ -615,27 +565,21 @@
            </property>
            <item>
             <widget class="ImagePreviewWidget" name="imagePreviewWidget" native="true">
-             <property name="minimumSize">
-              <size>
-               <width>400</width>
-               <height>400</height>
-              </size>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+               <horstretch>0</horstretch>
+               <verstretch>2</verstretch>
+              </sizepolicy>
              </property>
             </widget>
            </item>
            <item>
             <widget class="QGroupBox" name="groupBoxAnnotationControl">
-             <property name="minimumSize">
-              <size>
-               <width>0</width>
-               <height>120</height>
-              </size>
-             </property>
-             <property name="maximumSize">
-              <size>
-               <width>16777215</width>
-               <height>150</height>
-              </size>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
              </property>
              <property name="title">
               <string>アノテーション制御</string>
@@ -643,11 +587,11 @@
              <layout class="QVBoxLayout" name="verticalLayout_annotationControl">
               <item>
                <widget class="ModelSelectionWidget" name="modelSelectionWidget" native="true">
-                <property name="minimumSize">
-                 <size>
-                  <width>0</width>
-                  <height>80</height>
-                 </size>
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
                 </property>
                </widget>
               </item>
@@ -724,17 +668,11 @@
     </item>
     <item>
      <widget class="QFrame" name="frameActionToolbar">
-      <property name="minimumSize">
-       <size>
-        <width>0</width>
-        <height>50</height>
-       </size>
-      </property>
-      <property name="maximumSize">
-       <size>
-        <width>16777215</width>
-        <height>50</height>
-       </size>
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
       </property>
       <property name="frameShape">
        <enum>QFrame::Shape::StyledPanel</enum>
@@ -757,11 +695,11 @@
        </property>
        <item>
         <widget class="QPushButton" name="pushButtonAnnotate">
-         <property name="minimumSize">
-          <size>
-           <width>100</width>
-           <height>30</height>
-          </size>
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
          </property>
          <property name="text">
           <string>アノテーション</string>
@@ -770,11 +708,11 @@
        </item>
        <item>
         <widget class="QPushButton" name="pushButtonExport">
-         <property name="minimumSize">
-          <size>
-           <width>100</width>
-           <height>30</height>
-          </size>
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
          </property>
          <property name="text">
           <string>エクスポート</string>
@@ -970,5 +908,93 @@
   </customwidget>
  </customwidgets>
  <resources/>
- <connections/>
+ <connections>
+  <connection>
+   <sender>pushButtonSelectDataset</sender>
+   <signal>clicked()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>select_dataset_directory()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>94</x>
+     <y>30</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>701</x>
+     <y>457</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>pushButtonRegisterImages</sender>
+   <signal>clicked()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>register_images_to_db()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>261</x>
+     <y>70</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>701</x>
+     <y>457</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>pushButtonSettings</sender>
+   <signal>clicked()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>open_settings()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>130</x>
+     <y>30</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>701</x>
+     <y>457</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>pushButtonAnnotate</sender>
+   <signal>clicked()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>start_annotation()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>100</x>
+     <y>764</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>701</x>
+     <y>457</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>pushButtonExport</sender>
+   <signal>clicked()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>export_data()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>200</x>
+     <y>764</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>701</x>
+     <y>457</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+ <slots>
+  <slot>select_dataset_directory()</slot>
+  <slot>register_images_to_db()</slot>
+  <slot>open_settings()</slot>
+  <slot>start_annotation()</slot>
+  <slot>export_data()</slot>
+ </slots>
 </ui>

@@ -6,8 +6,8 @@ from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtGui import QPainter, QPixmap, QResizeEvent
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QSizePolicy, QWidget
 
+from ...gui.designer.ImagePreviewWidget_ui import Ui_ImagePreviewWidget
 from ...utils.log import logger
-from ..designer.ImagePreviewWidget_ui import Ui_ImagePreviewWidget
 
 if TYPE_CHECKING:
     from ..state.dataset_state import DatasetStateManager
@@ -205,5 +205,6 @@ if __name__ == "__main__":
     app = QApplication([])
     widget = ImagePreviewWidget()
     widget.load_image(Path("tests/resources/img/1_img/file01.webp"))  # 画像パスを指定
+    # TODO: この表示される画像が異常に小さい
     widget.show()
     app.exec()

@@ -7,8 +7,8 @@ from typing import Any
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QScrollArea
 
+from ...gui.designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
 from ...utils.log import logger
-from ..designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
 from ..services.search_filter_service import SearchFilterService
 from ..services.worker_service import WorkerService
 from .custom_range_slider import CustomRangeSlider
@@ -131,9 +131,39 @@ class FilterSearchPanel(QScrollArea):
         self.ui.buttonClear.clicked.connect(self._on_clear_clicked)
 
     def set_search_filter_service(self, service: SearchFilterService) -> None:
-        """SearchFilterServiceを設定"""
+        """SearchFilterServiceを設定（拡張版：バリデーションとログ強化）"""
+        if service is None:
+            raise ValueError("SearchFilterService cannot be None")
+
+        if not hasattr(service, "create_search_conditions"):
+            raise TypeError(f"Invalid SearchFilterService: missing required methods. Got: {type(service)}")
+
+        # 既存サービスの置き換え警告
+        if self.search_filter_service is not None:
+            logger.warning(
+                f"SearchFilterService置き換え: "
+                f"old={type(self.search_filter_service)} -> new={type(service)}"
+            )
+
         self.search_filter_service = service
-        logger.debug("SearchFilterService set for FilterSearchPanel")
+        logger.info(f"SearchFilterService set for FilterSearchPanel: {type(service)}")
+
+        # サービス機能確認（デバッグ用）
+        try:
+            # 基本メソッド存在確認
+            required_methods = ["create_search_conditions", "parse_search_input"]
+            missing_methods = []
+            for method in required_methods:
+                if not hasattr(service, method):
+                    missing_methods.append(method)
+
+            if missing_methods:
+                logger.warning(f"SearchFilterService missing methods: {missing_methods}")
+            else:
+                logger.debug("SearchFilterService method validation: OK")
+
+        except Exception as e:
+            logger.error(f"SearchFilterService validation error: {e}", exc_info=True)
 
     def set_worker_service(self, service: WorkerService) -> None:
         """WorkerServiceを設定"""
@@ -333,6 +363,7 @@ class FilterSearchPanel(QScrollArea):
     def get_date_range_from_slider(self) -> tuple[datetime | None, datetime | None]:
         """
         CustomRangeSliderから日付範囲を取得してdatetimeオブジェクトに変換
+        # NOTE: CustomRangeSliderがdatetimeオブジェクトを返すようにしたほうがいいかも
 
         Returns:
             tuple: (start_datetime, end_datetime) または (None, None) if not enabled
@@ -419,8 +450,36 @@ class FilterSearchPanel(QScrollArea):
     def _on_search_requested(self) -> None:
         """検索要求処理 - WorkerService経由で非同期実行"""
         if not self.search_filter_service:
-            logger.warning("SearchFilterService not set, cannot execute search")
-            self.ui.textEditPreview.setPlainText("SearchFilterServiceが設定されていません")
+            # 詳細診断情報を追加
+            error_details = [
+                "SearchFilterService not set - 詳細診断:",
+                f"  - FilterSearchPanel instance: {id(self)}",
+                f"  - search_filter_service: {self.search_filter_service}",
+                f"  - hasattr(search_filter_service): {hasattr(self, 'search_filter_service')}",
+            ]
+            logger.error("\n".join(error_details))
+
+            # MainWindow統合状況の確認（可能な場合）
+            try:
+                parent_window = self.window()
+                if hasattr(parent_window, "filter_search_panel"):
+                    parent_instance = parent_window.filter_search_panel
+                    is_same_instance = parent_instance is self
+                    logger.error(
+                        f"  - MainWindow.filter_search_panel: {id(parent_instance) if parent_instance else None}"
+                        f" (same instance: {is_same_instance})"
+                    )
+                    if parent_instance and hasattr(parent_instance, "search_filter_service"):
+                        parent_service = parent_instance.search_filter_service
+                        logger.error(f"  - Parent instance service: {parent_service}")
+            except Exception as diagnostic_error:
+                logger.error(f"  - Diagnostic error: {diagnostic_error}")
+
+            self.ui.textEditPreview.setPlainText(
+                "SearchFilterServiceが設定されていません。\n"
+                "MainWindow初期化エラーの可能性があります。\n"
+                "ログを確認してください。"
+            )
             return
 
         if not self.worker_service:

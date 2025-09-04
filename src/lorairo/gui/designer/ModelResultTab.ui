@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <ui version="4.0">
  <class>ModelResultTab</class>
  <widget class="QWidget" name="ModelResultTab">
@@ -27,7 +27,6 @@
     <number>10</number>
    </property>
    <item>
-    <!-- モデル情報ヘッダー -->
     <widget class="QFrame" name="frameModelHeader">
      <property name="frameShape">
       <enum>QFrame::StyledPanel</enum>
@@ -50,6 +49,12 @@
           <weight>75</weight>
           <bold>true</bold>
          </font>
+        </property>
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
         </property>
        </widget>
       </item>
@@ -76,6 +81,12 @@
           <pointsize>8</pointsize>
          </font>
         </property>
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
        </widget>
       </item>
       <item>
@@ -93,22 +104,25 @@
         <property name="styleSheet">
          <string notr="true">color: green;</string>
         </property>
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
        </widget>
       </item>
      </layout>
     </widget>
    </item>
    <item>
-    <!-- 結果表示エリア（成功時とエラー時で切り替え） -->
     <widget class="QStackedWidget" name="stackedWidgetContent">
      <property name="currentIndex">
       <number>0</number>
      </property>
-     <!-- 成功時の結果表示 -->
      <widget class="QWidget" name="pageSuccess">
       <layout class="QVBoxLayout" name="verticalLayoutSuccess">
        <item>
-        <!-- タグセクション -->
         <widget class="QGroupBox" name="groupBoxTags">
          <property name="title">
           <string>タグ</string>
@@ -138,7 +152,6 @@
               </rect>
              </property>
              <layout class="QVBoxLayout" name="verticalLayoutTagsContent">
-              <!-- 動的にタグが追加される -->
               <item>
                <widget class="QLabel" name="labelTagsPlaceholder">
                 <property name="text">
@@ -147,17 +160,28 @@
                 <property name="styleSheet">
                  <string notr="true">color: #888;</string>
                 </property>
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
                </widget>
               </item>
              </layout>
             </widget>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
            </widget>
           </item>
          </layout>
         </widget>
        </item>
        <item>
-        <!-- キャプションセクション -->
         <widget class="QGroupBox" name="groupBoxCaptions">
          <property name="title">
           <string>キャプション</string>
@@ -189,7 +213,6 @@
         </widget>
        </item>
        <item>
-        <!-- スコアセクション -->
         <widget class="QGroupBox" name="groupBoxScores">
          <property name="title">
           <string>スコア</string>
@@ -222,6 +245,12 @@
                <property name="alignment">
                 <set>Qt::AlignCenter</set>
                </property>
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
               </widget>
              </item>
              <item>
@@ -240,6 +269,12 @@
                </property>
                <property name="orientation">
                 <enum>Qt::Horizontal</enum>
+               </property>
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
                </property>
               </widget>
              </item>
@@ -264,7 +299,6 @@
        </item>
       </layout>
      </widget>
-     <!-- エラー時の表示 -->
      <widget class="QWidget" name="pageError">
       <layout class="QVBoxLayout" name="verticalLayoutError">
        <item>
@@ -296,6 +330,12 @@
               <pointsize>16</pointsize>
              </font>
             </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
            </widget>
           </item>
           <item>
@@ -312,6 +352,12 @@
             </property>
             <property name="styleSheet">
              <string notr="true">color: #d32f2f;</string>
+            </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
             </property>
            </widget>
           </item>
@@ -353,6 +399,12 @@
     font-family: monospace;
 }</string>
             </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
            </widget>
           </item>
          </layout>
@@ -377,6 +429,6 @@
    </item>
   </layout>
  </widget>
- <resources/>
- <connections/>
+ <resources />
+ <connections />
 </ui>
