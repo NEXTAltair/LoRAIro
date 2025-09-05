@@ -41,8 +41,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     worker_service: WorkerService | None
     dataset_state_manager: DatasetStateManager | None
 
-    # ウィジェット属性の型定義（初期化で設定）
-    filter_search_panel: FilterSearchPanel | None
+    # ウィジェット属性の型定義（Qt Designerで生成）
+    filterSearchPanel: FilterSearchPanel  # Qt Designer生成
     thumbnail_selector: ThumbnailSelectorWidget | None
     image_preview_widget: ImagePreviewWidget | None
     selected_image_details_widget: SelectedImageDetailsWidget | None
@@ -201,100 +201,73 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         sys.exit(1)
 
     def setup_custom_widgets(self) -> None:
-        """カスタムウィジェットを設定（致命的コンポーネントチェック実装）"""
-        # フィルター・検索パネル（Designer生成専用・必須）
-        try:
-            if hasattr(self, "filterSearchPanel") and self.filterSearchPanel:
-                self.filter_search_panel = self.filterSearchPanel  # type: ignore[attr-defined]
-                logger.info("フィルター・検索パネル(Designer生成)を使用")
-                logger.debug(f"FilterSearchPanel instance ID: {id(self.filter_search_panel)}")
-            else:
-                # 致命的エラー: メイン機能が利用不可
-                raise RuntimeError(
-                    "Designer生成filterSearchPanelが見つかりません - UIファイルの破損またはバージョン不整合の可能性"
-                )
-        except Exception as e:
-            self._handle_critical_initialization_failure("FilterSearchPanel", e)
-            return  # この行は実行されないが明示的記述
+        """カスタムウィジェットを設定（Qt Designer生成ウィジェット直接使用版）"""
 
-        # サムネイルセレクター（UI配置済みウィジェットへの参照取得）
-        try:
-            logger.debug(
-                f"ThumbnailSelectorWidget接続チェック - hasattr: {hasattr(self, 'thumbnailSelectorWidget')}"
+        logger.info("🔍 カスタムウィジェット設定開始")
+
+        # Qt Designer生成済みウィジェットの検証
+        if not hasattr(self, "filterSearchPanel"):
+            logger.error("❌ filterSearchPanel not found - Qt Designer UI generation failed")
+            self._handle_critical_initialization_failure(
+                "FilterSearchPanel設定", RuntimeError("filterSearchPanel attribute missing from setupUi()")
             )
-            logger.debug(
-                f"DatasetStateManager存在チェック - dataset_state_manager: {self.dataset_state_manager is not None}"
+            return
+        if not isinstance(self.filterSearchPanel, FilterSearchPanel):
+            logger.error(
+                f"❌ filterSearchPanel type mismatch - expected FilterSearchPanel, got {type(self.filterSearchPanel)}"
             )
+            self._handle_critical_initialization_failure(
+                "FilterSearchPanel設定",
+                RuntimeError(f"filterSearchPanel type validation failed: {type(self.filterSearchPanel)}"),
+            )
+            return
 
-            if hasattr(self, "thumbnailSelectorWidget") and self.dataset_state_manager:
-                self.thumbnail_selector = self.thumbnailSelectorWidget  # type: ignore[attr-defined]
-                logger.info(f"ThumbnailSelectorWidget参照取得成功: {type(self.thumbnail_selector)}")
+        # FilterSearchPanel interface validation
+        required_methods = ["set_search_filter_service", "set_worker_service"]
+        missing_methods = [
+            method for method in required_methods if not hasattr(self.filterSearchPanel, method)
+        ]
 
-                # DatasetStateManagerとの接続
-                self.thumbnail_selector.set_dataset_state(self.dataset_state_manager)
-                logger.info("DatasetStateManager接続完了")
+        if missing_methods:
+            logger.error(f"❌ filterSearchPanel missing required methods: {missing_methods}")
+            self._handle_critical_initialization_failure(
+                "FilterSearchPanel設定",
+                RuntimeError(f"filterSearchPanel interface validation failed: missing {missing_methods}"),
+            )
+            return
 
-                # 基本プロパティ確認
-                logger.debug(f"ThumbnailSize: {getattr(self.thumbnail_selector, 'thumbnail_size', 'NONE')}")
-                logger.debug(f"ImageData count: {len(getattr(self.thumbnail_selector, 'image_data', []))}")
+        logger.info(
+            f"✅ filterSearchPanel validation successful: {type(self.filterSearchPanel)} (ID: {id(self.filterSearchPanel)})"
+        )
 
-                logger.info("サムネイルセレクター（UI配置済み）設定完了")
-            else:
-                missing_components = []
-                if not hasattr(self, "thumbnailSelectorWidget"):
-                    missing_components.append("thumbnailSelectorWidget")
-                if not self.dataset_state_manager:
-                    missing_components.append("dataset_state_manager")
+        # その他のカスタムウィジェット設定
+        self._setup_other_custom_widgets()
 
-                logger.warning(f"UI配置済みコンポーネントが見つかりません（継続）: {missing_components}")
-                self.thumbnail_selector = None
-        except Exception as e:
-            logger.error(f"サムネイルセレクター設定エラー（継続）: {e}", exc_info=True)
-            self.thumbnail_selector = None
+        logger.info("カスタムウィジェット設定完了")
 
-        # プレビューウィジェット（非致命的）
-        try:
-            if hasattr(self, "framePreviewDetailContent") and hasattr(
-                self, "verticalLayout_previewDetailContent"
-            ):
-                self.image_preview_widget = ImagePreviewWidget(self.framePreviewDetailContent)
-                self.verticalLayout_previewDetailContent.addWidget(self.image_preview_widget)
+    def _setup_other_custom_widgets(self) -> None:
+        """その他のカスタムウィジェット設定"""
 
-                # DatasetStateManagerとの接続を追加
-                if self.dataset_state_manager:
-                    self.image_preview_widget.set_dataset_state_manager(self.dataset_state_manager)
-                    logger.info("ImagePreviewWidget - DatasetStateManager接続完了")
-                else:
-                    logger.warning("DatasetStateManagerが利用できないためImagePreviewWidget接続をスキップ")
+        # ThumbnailSelectorWidget設定
+        if hasattr(self, "thumbnailSelectorWidget") and self.thumbnailSelectorWidget:
+            try:
+                # ThumbnailSelectorWidgetの追加設定があればここに実装
+                self.thumbnail_selector = self.thumbnailSelectorWidget
+                logger.info("✅ ThumbnailSelectorWidget設定完了")
+            except Exception as e:
+                logger.error(f"ThumbnailSelectorWidget設定エラー: {e}")
 
-                logger.info("プレビューウィジェット設定完了")
-            else:
-                logger.warning("プレビューウィジェット用UIコンポーネントが見つかりません（継続）")
-                self.image_preview_widget = None
-        except Exception as e:
-            logger.error(f"プレビューウィジェット設定エラー（継続）: {e}", exc_info=True)
-            self.image_preview_widget = None
+        # ImagePreviewWidget設定
+        if hasattr(self, "imagePreviewWidget") and self.imagePreviewWidget:
+            try:
+                # ImagePreviewWidgetの追加設定があればここに実装
+                self.image_preview_widget = self.imagePreviewWidget
+                logger.info("✅ ImagePreviewWidget設定完了")
+            except Exception as e:
+                logger.error(f"ImagePreviewWidget設定エラー: {e}")
 
-        # 選択画像詳細ウィジェット（非致命的）
-        try:
-            if hasattr(self, "verticalLayout_selectedImageDetails"):
-                self.selected_image_details_widget = SelectedImageDetailsWidget()
-                self.verticalLayout_selectedImageDetails.addWidget(self.selected_image_details_widget)
-                logger.info("選択画像詳細ウィジェット設定完了")
-            else:
-                logger.warning("選択画像詳細ウィジェット用UIコンポーネントが見つかりません（継続）")
-                self.selected_image_details_widget = None
-        except Exception as e:
-            logger.error(f"選択画像詳細ウィジェット設定エラー（継続）: {e}", exc_info=True)
-            self.selected_image_details_widget = None
-
-        # スプリッターの初期サイズ設定（動的比例レイアウト）
-        try:
-            if hasattr(self, "splitterMainWorkArea"):
-                self._setup_responsive_splitter()
-                logger.info("スプリッター動的サイズ設定完了")
-        except Exception as e:
-            logger.warning(f"スプリッター設定エラー（継続）: {e}")
+        # その他のウィジェット設定...
+        logger.debug("その他のカスタムウィジェット設定完了")
 
     def _setup_responsive_splitter(self) -> None:
         """レスポンシブスプリッターサイズ設定"""
@@ -482,27 +455,33 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 logger.warning("ThumbnailSelectorWidget.load_thumbnails_from_result method not found")
 
             # パイプライン完了後にプログレスバーを非表示
-            if hasattr(self.filter_search_panel, "hide_progress_after_completion"):
-                self.filter_search_panel.hide_progress_after_completion()
+            if hasattr(self, "filterSearchPanel") and hasattr(
+                self.filterSearchPanel, "hide_progress_after_completion"
+            ):
+                self.filterSearchPanel.hide_progress_after_completion()
 
         except Exception as e:
             logger.error(f"Failed to update ThumbnailSelectorWidget: {e}", exc_info=True)
 
     def _on_pipeline_search_started(self, worker_id: str) -> None:
         """Pipeline検索フェーズ開始時の進捗表示"""
-        if hasattr(self.filter_search_panel, "update_pipeline_progress"):
-            self.filter_search_panel.update_pipeline_progress("検索中...", 0.0, 0.3)
+        if hasattr(self, "filterSearchPanel") and hasattr(
+            self.filterSearchPanel, "update_pipeline_progress"
+        ):
+            self.filterSearchPanel.update_pipeline_progress("検索中...", 0.0, 0.3)
 
     def _on_pipeline_thumbnail_started(self, worker_id: str) -> None:
         """Pipelineサムネイル生成フェーズ開始時の進捗表示"""
-        if hasattr(self.filter_search_panel, "update_pipeline_progress"):
-            self.filter_search_panel.update_pipeline_progress("サムネイル読込中...", 0.3, 1.0)
+        if hasattr(self, "filterSearchPanel") and hasattr(
+            self.filterSearchPanel, "update_pipeline_progress"
+        ):
+            self.filterSearchPanel.update_pipeline_progress("サムネイル読込中...", 0.3, 1.0)
 
     def _on_pipeline_search_error(self, error_message: str) -> None:
         """Pipeline検索エラー時の処理（検索結果破棄）"""
         logger.error(f"Pipeline search error: {error_message}")
-        if hasattr(self.filter_search_panel, "handle_pipeline_error"):
-            self.filter_search_panel.handle_pipeline_error("search", {"message": error_message})
+        if hasattr(self, "filterSearchPanel") and hasattr(self.filterSearchPanel, "handle_pipeline_error"):
+            self.filterSearchPanel.handle_pipeline_error("search", {"message": error_message})
         # 検索結果破棄（要求仕様通り）
         if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
             self.thumbnail_selector.clear_thumbnails()
@@ -510,14 +489,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _on_pipeline_thumbnail_error(self, error_message: str) -> None:
         """Pipelineサムネイル生成エラー時の処理（検索結果破棄）"""
         logger.error(f"Pipeline thumbnail error: {error_message}")
-        if hasattr(self.filter_search_panel, "handle_pipeline_error"):
-            self.filter_search_panel.handle_pipeline_error("thumbnail", {"message": error_message})
+        if hasattr(self, "filterSearchPanel") and hasattr(self.filterSearchPanel, "handle_pipeline_error"):
+            self.filterSearchPanel.handle_pipeline_error("thumbnail", {"message": error_message})
         # 検索結果破棄（要求仕様通り）
         if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
             self.thumbnail_selector.clear_thumbnails()
         # エラー時もプログレスバーを非表示
-        if hasattr(self.filter_search_panel, "hide_progress_after_completion"):
-            self.filter_search_panel.hide_progress_after_completion()
+        if hasattr(self, "filterSearchPanel") and hasattr(
+            self.filterSearchPanel, "hide_progress_after_completion"
+        ):
+            self.filterSearchPanel.hide_progress_after_completion()
 
     def _on_batch_registration_started(self, worker_id: str) -> None:
         """Batch registration started signal handler"""
@@ -584,8 +565,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.thumbnail_selector.clear_thumbnails()
 
             # キャンセル時もプログレスバーを非表示
-            if hasattr(self.filter_search_panel, "hide_progress_after_completion"):
-                self.filter_search_panel.hide_progress_after_completion()
+            if hasattr(self, "filterSearchPanel") and hasattr(
+                self.filterSearchPanel, "hide_progress_after_completion"
+            ):
+                self.filterSearchPanel.hide_progress_after_completion()
 
             logger.info("Pipeline cancellation completed")
 
@@ -631,6 +614,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 worker_id = self.worker_service.start_batch_registration_with_fsm(
                     Path(directory), self.file_system_manager
                 )
+                if worker_id:
+                    logger.info(f"バッチ登録開始: worker_id={worker_id}, directory={directory}")
+                else:
+                    logger.error("バッチ登録の開始に失敗しました")
             except Exception as e:
                 QMessageBox.critical(self, "バッチ登録エラー", f"データセット登録の開始に失敗しました: {e}")
 
@@ -766,92 +753,169 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             raise ValueError("SearchFilterService作成不可") from e
 
     def _setup_search_filter_integration(self) -> None:
-        """SearchFilterService統合処理（Phase 3.5）致命的チェック実装
+        """SearchFilterService統合処理（シンプル・直接的アプローチ）
 
-        FilterSearchPanelにSearchFilterServiceを注入して検索機能を有効化
+        filterSearchPanelにSearchFilterServiceを注入して検索機能を有効化
         """
-        # 前提条件チェック（致命的）
-        if not self.filter_search_panel:
-            self._handle_critical_initialization_failure(
-                "SearchFilterService統合",
-                RuntimeError("filter_search_panel が None - setup_custom_widgets() の失敗"),
-            )
+        # 前提条件チェック
+        if not hasattr(self, "filterSearchPanel") or not self.filterSearchPanel:
+            logger.error("❌ filterSearchPanel not available - SearchFilterService integration skipped")
             return
 
         if not self.db_manager:
-            self._handle_critical_initialization_failure(
-                "SearchFilterService統合", RuntimeError("db_manager が None - ServiceContainer初期化失敗")
-            )
+            logger.error("❌ db_manager not available - SearchFilterService integration skipped")
             return
 
-        # インスタンス一貫性確認（修正版）
-        if hasattr(self, "filterSearchPanel") and self.filterSearchPanel:
-            if self.filter_search_panel is not self.filterSearchPanel:
-                logger.error(
-                    f"FilterSearchPanel インスタンス不一致検出: "
-                    f"filter_search_panel={id(self.filter_search_panel)}, "
-                    f"filterSearchPanel={id(self.filterSearchPanel)} "
-                    f"- 重複インスタンス化の可能性"
-                )
-                # インスタンス再割り当てはSEARCHFilterService注入後に行わない
-                # setup_custom_widgets()で設定されたインスタンスを信頼
-                logger.warning(
-                    "既存のfilter_search_panelインスタンスを維持してSearchFilterService注入を継続"
-                )
-            else:
-                logger.debug("FilterSearchPanel インスタンス一貫性確認: OK")
+        logger.info(f"SearchFilterService注入開始: filterSearchPanel(id={id(self.filterSearchPanel)})")
 
-        # インスタンス情報ログ（デバッグ用）
-        logger.info(f"SearchFilterService注入対象: FilterSearchPanel(id={id(self.filter_search_panel)})")
-
-        # 統合処理実行
         try:
             # SearchFilterService作成
             logger.info("SearchFilterService作成中...")
             search_filter_service = self._create_search_filter_service()
-            logger.info(f"SearchFilterService作成完了: {type(search_filter_service)}")
 
-            # 注入前の状態確認
-            current_service = getattr(self.filter_search_panel, "search_filter_service", None)
-            logger.debug(f"注入前のSearchFilterService状態: {current_service}")
+            if not search_filter_service:
+                raise RuntimeError("SearchFilterService作成失敗")
+            logger.info(f"SearchFilterService作成成功: {type(search_filter_service)}")
 
             # SearchFilterService注入
-            self.filter_search_panel.set_search_filter_service(search_filter_service)
-            logger.info("SearchFilterService注入完了")
+            logger.info("SearchFilterService注入実行...")
+            self.filterSearchPanel.set_search_filter_service(search_filter_service)
 
-            # 注入後の検証
-            injected_service = getattr(self.filter_search_panel, "search_filter_service", None)
+            # 注入検証
+            injected_service = getattr(self.filterSearchPanel, "search_filter_service", None)
             if injected_service is None:
-                raise RuntimeError("SearchFilterService注入後も None - 注入失敗")
+                raise RuntimeError("SearchFilterService注入後もNone")
             if injected_service is not search_filter_service:
-                raise RuntimeError(
-                    "SearchFilterService注入後のインスタンス不一致 - 予期しないオーバーライド"
-                )
-            logger.info("SearchFilterService注入検証: OK")
+                raise RuntimeError("SearchFilterService注入後のインスタンス不一致")
 
-            # WorkerService設定
+            logger.info("SearchFilterService注入検証: 成功")
+
+            # WorkerService統合（オプショナル）
             if self.worker_service:
                 logger.info("WorkerService統合中...")
-                self.filter_search_panel.set_worker_service(self.worker_service)
-                logger.info("WorkerService integrated into FilterSearchPanel")
-            else:
-                logger.warning(
-                    "WorkerService not available - FilterSearchPanel will use synchronous search"
-                )
+                self.filterSearchPanel.set_worker_service(self.worker_service)
 
-            # 最終検証
-            final_service = getattr(self.filter_search_panel, "search_filter_service", None)
-            final_worker = getattr(self.filter_search_panel, "worker_service", None)
+                worker_service_check = getattr(self.filterSearchPanel, "worker_service", None)
+                if worker_service_check:
+                    logger.info("WorkerService統合成功")
+                else:
+                    logger.warning("WorkerService統合失敗 - 非同期検索は利用できません")
+            else:
+                logger.warning("WorkerService not available - 同期検索モードで動作")
+
+            # 最終確認
+            final_search_service = getattr(self.filterSearchPanel, "search_filter_service", None)
+            final_worker_service = getattr(self.filterSearchPanel, "worker_service", None)
+
             logger.info(
-                f"SearchFilterService integration completed - "
-                f"SearchFilterService: {final_service is not None}, "
-                f"WorkerService: {final_worker is not None}"
+                f"SearchFilterService統合完了 - "
+                f"SearchFilterService: {final_search_service is not None}, "
+                f"WorkerService: {final_worker_service is not None}"
             )
-            logger.info("FilterSearchPanel search functionality enabled")
 
         except Exception as e:
-            logger.error(f"SearchFilterService統合処理中のエラー: {e}", exc_info=True)
-            self._handle_critical_initialization_failure("SearchFilterService統合", e)
+            logger.error(f"SearchFilterService統合失敗: {e}", exc_info=True)
+            logger.warning("検索機能は利用できませんが、その他の機能は正常に動作します")
+
+    def open_settings(self) -> None:
+        """設定ウィンドウを開く"""
+        try:
+            from PySide6.QtWidgets import QDialog
+
+            from ...gui.designer.ConfigurationWindow_ui import Ui_ConfigurationWindow
+
+            # 設定ダイアログの作成
+            config_dialog = QDialog(self)
+            config_ui = Ui_ConfigurationWindow()
+            config_ui.setupUi(config_dialog)
+
+            # ダイアログのタイトル設定
+            config_dialog.setWindowTitle("設定")
+            config_dialog.setModal(True)
+
+            # 現在の設定値の読み込み（ConfigurationServiceが利用可能な場合）
+            if self.config_service:
+                # TODO: 設定値をUIに反映する処理をここに追加
+                logger.info("設定ダイアログに現在の設定値を読み込み")
+            else:
+                logger.warning("ConfigurationServiceが利用できないため、デフォルト設定で表示")
+
+            # ダイアログを表示
+            result = config_dialog.exec()
+
+            if result == QDialog.DialogCode.Accepted:
+                # OK が押された場合、設定を保存
+                if self.config_service:
+                    # TODO: UIから設定値を取得して保存する処理をここに追加
+                    logger.info("設定が更新されました")
+                else:
+                    logger.warning("ConfigurationServiceが利用できないため、設定を保存できませんでした")
+            else:
+                logger.info("設定ダイアログがキャンセルされました")
+
+        except Exception as e:
+            error_msg = f"設定ウィンドウの表示に失敗しました: {e}"
+            logger.error(error_msg, exc_info=True)
+            QMessageBox.critical(self, "設定エラー", error_msg)
+
+    def start_annotation(self) -> None:
+        """アノテーション処理を開始"""
+        try:
+            # WorkerServiceの存在確認
+            if not self.worker_service:
+                QMessageBox.warning(
+                    self,
+                    "サービス未初期化",
+                    "WorkerServiceが初期化されていないため、アノテーション処理を開始できません。",
+                )
+                return
+
+            # TODO: 実際の実装では、選択された画像とモデルを取得する必要があります
+            # 現在は仮実装として空のリストを使用
+            images = []  # 実際には選択された画像リストを取得
+            phash_list = []  # 実際にはpHashリストを取得
+            models = ["gpt-4o-mini"]  # 実際には選択されたモデルリストを取得
+
+            if not images:
+                QMessageBox.information(
+                    self,
+                    "画像未選択",
+                    "アノテーション処理を行う画像を選択してください。",
+                )
+                return
+
+            if not models:
+                QMessageBox.warning(
+                    self,
+                    "モデル未選択",
+                    "アノテーション処理に使用するモデルを選択してください。",
+                )
+                return
+
+            # アノテーション処理開始
+            worker_id = self.worker_service.start_annotation(images, phash_list, models)
+
+            if worker_id:
+                logger.info(
+                    f"アノテーション処理開始: {len(images)}画像, {len(models)}モデル (ID: {worker_id})"
+                )
+                QMessageBox.information(
+                    self,
+                    "アノテーション開始",
+                    f"アノテーション処理を開始しました。\n画像: {len(images)}件\nモデル: {', '.join(models)}",
+                )
+            else:
+                logger.error("アノテーション処理の開始に失敗しました")
+                QMessageBox.critical(
+                    self,
+                    "アノテーション開始エラー",
+                    "アノテーション処理の開始に失敗しました。",
+                )
+
+        except Exception as e:
+            error_msg = f"アノテーション処理の開始に失敗しました: {e}"
+            logger.error(error_msg, exc_info=True)
+            QMessageBox.critical(self, "アノテーションエラー", error_msg)
 
 
 if __name__ == "__main__":

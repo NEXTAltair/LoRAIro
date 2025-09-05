@@ -437,7 +437,7 @@
    <sender>buttonClear</sender>
    <signal>clicked()</signal>
    <receiver>comboResolution</receiver>
-   <slot>reset()</slot>
+   <slot>clear()</slot>
    <hints>
     <hint type="sourcelabel">
      <x>347</x>
@@ -453,7 +453,7 @@
    <sender>buttonClear</sender>
    <signal>clicked()</signal>
    <receiver>comboAspectRatio</receiver>
-   <slot>reset()</slot>
+   <slot>clear()</slot>
    <hints>
     <hint type="sourcelabel">
      <x>347</x>
