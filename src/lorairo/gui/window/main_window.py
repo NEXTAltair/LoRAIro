@@ -206,35 +206,39 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         logger.info("🔍 カスタムウィジェット設定開始")
 
         # Qt Designer生成済みウィジェットの検証
-        if not hasattr(self, 'filterSearchPanel'):
+        if not hasattr(self, "filterSearchPanel"):
             logger.error("❌ filterSearchPanel not found - Qt Designer UI generation failed")
             self._handle_critical_initialization_failure(
-                "FilterSearchPanel設定",
-                RuntimeError("filterSearchPanel attribute missing from setupUi()")
+                "FilterSearchPanel設定", RuntimeError("filterSearchPanel attribute missing from setupUi()")
             )
             return
         if not isinstance(self.filterSearchPanel, FilterSearchPanel):
-            logger.error(f"❌ filterSearchPanel type mismatch - expected FilterSearchPanel, got {type(self.filterSearchPanel)}")
+            logger.error(
+                f"❌ filterSearchPanel type mismatch - expected FilterSearchPanel, got {type(self.filterSearchPanel)}"
+            )
             self._handle_critical_initialization_failure(
                 "FilterSearchPanel設定",
-                RuntimeError(f"filterSearchPanel type validation failed: {type(self.filterSearchPanel)}")
+                RuntimeError(f"filterSearchPanel type validation failed: {type(self.filterSearchPanel)}"),
             )
             return
 
         # FilterSearchPanel interface validation
-        required_methods = ['set_search_filter_service', 'set_worker_service']
-        missing_methods = [method for method in required_methods
-                          if not hasattr(self.filterSearchPanel, method)]
+        required_methods = ["set_search_filter_service", "set_worker_service"]
+        missing_methods = [
+            method for method in required_methods if not hasattr(self.filterSearchPanel, method)
+        ]
 
         if missing_methods:
             logger.error(f"❌ filterSearchPanel missing required methods: {missing_methods}")
             self._handle_critical_initialization_failure(
                 "FilterSearchPanel設定",
-                RuntimeError(f"filterSearchPanel interface validation failed: missing {missing_methods}")
+                RuntimeError(f"filterSearchPanel interface validation failed: missing {missing_methods}"),
             )
             return
 
-        logger.info(f"✅ filterSearchPanel validation successful: {type(self.filterSearchPanel)} (ID: {id(self.filterSearchPanel)})")
+        logger.info(
+            f"✅ filterSearchPanel validation successful: {type(self.filterSearchPanel)} (ID: {id(self.filterSearchPanel)})"
+        )
 
         # その他のカスタムウィジェット設定
         self._setup_other_custom_widgets()
@@ -245,7 +249,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """その他のカスタムウィジェット設定"""
 
         # ThumbnailSelectorWidget設定
-        if hasattr(self, 'thumbnailSelectorWidget') and self.thumbnailSelectorWidget:
+        if hasattr(self, "thumbnailSelectorWidget") and self.thumbnailSelectorWidget:
             try:
                 # ThumbnailSelectorWidgetの追加設定があればここに実装
                 self.thumbnail_selector = self.thumbnailSelectorWidget
@@ -254,7 +258,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 logger.error(f"ThumbnailSelectorWidget設定エラー: {e}")
 
         # ImagePreviewWidget設定
-        if hasattr(self, 'imagePreviewWidget') and self.imagePreviewWidget:
+        if hasattr(self, "imagePreviewWidget") and self.imagePreviewWidget:
             try:
                 # ImagePreviewWidgetの追加設定があればここに実装
                 self.image_preview_widget = self.imagePreviewWidget
@@ -451,7 +455,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 logger.warning("ThumbnailSelectorWidget.load_thumbnails_from_result method not found")
 
             # パイプライン完了後にプログレスバーを非表示
-            if hasattr(self, 'filterSearchPanel') and hasattr(self.filterSearchPanel, "hide_progress_after_completion"):
+            if hasattr(self, "filterSearchPanel") and hasattr(
+                self.filterSearchPanel, "hide_progress_after_completion"
+            ):
                 self.filterSearchPanel.hide_progress_after_completion()
 
         except Exception as e:
@@ -459,18 +465,22 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def _on_pipeline_search_started(self, worker_id: str) -> None:
         """Pipeline検索フェーズ開始時の進捗表示"""
-        if hasattr(self, 'filterSearchPanel') and hasattr(self.filterSearchPanel, "update_pipeline_progress"):
+        if hasattr(self, "filterSearchPanel") and hasattr(
+            self.filterSearchPanel, "update_pipeline_progress"
+        ):
             self.filterSearchPanel.update_pipeline_progress("検索中...", 0.0, 0.3)
 
     def _on_pipeline_thumbnail_started(self, worker_id: str) -> None:
         """Pipelineサムネイル生成フェーズ開始時の進捗表示"""
-        if hasattr(self, 'filterSearchPanel') and hasattr(self.filterSearchPanel, "update_pipeline_progress"):
+        if hasattr(self, "filterSearchPanel") and hasattr(
+            self.filterSearchPanel, "update_pipeline_progress"
+        ):
             self.filterSearchPanel.update_pipeline_progress("サムネイル読込中...", 0.3, 1.0)
 
     def _on_pipeline_search_error(self, error_message: str) -> None:
         """Pipeline検索エラー時の処理（検索結果破棄）"""
         logger.error(f"Pipeline search error: {error_message}")
-        if hasattr(self, 'filterSearchPanel') and hasattr(self.filterSearchPanel, "handle_pipeline_error"):
+        if hasattr(self, "filterSearchPanel") and hasattr(self.filterSearchPanel, "handle_pipeline_error"):
             self.filterSearchPanel.handle_pipeline_error("search", {"message": error_message})
         # 検索結果破棄（要求仕様通り）
         if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
@@ -479,13 +489,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _on_pipeline_thumbnail_error(self, error_message: str) -> None:
         """Pipelineサムネイル生成エラー時の処理（検索結果破棄）"""
         logger.error(f"Pipeline thumbnail error: {error_message}")
-        if hasattr(self, 'filterSearchPanel') and hasattr(self.filterSearchPanel, "handle_pipeline_error"):
+        if hasattr(self, "filterSearchPanel") and hasattr(self.filterSearchPanel, "handle_pipeline_error"):
             self.filterSearchPanel.handle_pipeline_error("thumbnail", {"message": error_message})
         # 検索結果破棄（要求仕様通り）
         if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
             self.thumbnail_selector.clear_thumbnails()
         # エラー時もプログレスバーを非表示
-        if hasattr(self, 'filterSearchPanel') and hasattr(self.filterSearchPanel, "hide_progress_after_completion"):
+        if hasattr(self, "filterSearchPanel") and hasattr(
+            self.filterSearchPanel, "hide_progress_after_completion"
+        ):
             self.filterSearchPanel.hide_progress_after_completion()
 
     def _on_batch_registration_started(self, worker_id: str) -> None:
@@ -553,7 +565,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.thumbnail_selector.clear_thumbnails()
 
             # キャンセル時もプログレスバーを非表示
-            if hasattr(self, 'filterSearchPanel') and hasattr(self.filterSearchPanel, "hide_progress_after_completion"):
+            if hasattr(self, "filterSearchPanel") and hasattr(
+                self.filterSearchPanel, "hide_progress_after_completion"
+            ):
                 self.filterSearchPanel.hide_progress_after_completion()
 
             logger.info("Pipeline cancellation completed")
@@ -744,7 +758,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         filterSearchPanelにSearchFilterServiceを注入して検索機能を有効化
         """
         # 前提条件チェック
-        if not hasattr(self, 'filterSearchPanel') or not self.filterSearchPanel:
+        if not hasattr(self, "filterSearchPanel") or not self.filterSearchPanel:
             logger.error("❌ filterSearchPanel not available - SearchFilterService integration skipped")
             return
 
@@ -882,7 +896,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             worker_id = self.worker_service.start_annotation(images, phash_list, models)
 
             if worker_id:
-                logger.info(f"アノテーション処理開始: {len(images)}画像, {len(models)}モデル (ID: {worker_id})")
+                logger.info(
+                    f"アノテーション処理開始: {len(images)}画像, {len(models)}モデル (ID: {worker_id})"
+                )
                 QMessageBox.information(
                     self,
                     "アノテーション開始",
@@ -900,7 +916,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             error_msg = f"アノテーション処理の開始に失敗しました: {e}"
             logger.error(error_msg, exc_info=True)
             QMessageBox.critical(self, "アノテーションエラー", error_msg)
-
 
 
 if __name__ == "__main__":
