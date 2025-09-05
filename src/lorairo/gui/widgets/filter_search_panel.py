@@ -448,38 +448,84 @@ class FilterSearchPanel(QScrollArea):
         self.ui.lineEditSearch.setEnabled(not disabled)
 
     def _on_search_requested(self) -> None:
-        """検索要求処理 - WorkerService経由で非同期実行"""
+        """検索要求処理 - WorkerService経由で非同期実行（Qt Designer Phase 2レスポンシブレイアウト対応強化版）"""
         if not self.search_filter_service:
-            # 詳細診断情報を追加
+            # 詳細診断情報を追加（Qt Designer Phase 2対応強化版）
             error_details = [
                 "SearchFilterService not set - 詳細診断:",
                 f"  - FilterSearchPanel instance: {id(self)}",
                 f"  - search_filter_service: {self.search_filter_service}",
                 f"  - hasattr(search_filter_service): {hasattr(self, 'search_filter_service')}",
             ]
-            logger.error("\n".join(error_details))
 
-            # MainWindow統合状況の確認（可能な場合）
+            # MainWindow統合状況の確認（Qt Designer Phase 2診断強化版）
             try:
                 parent_window = self.window()
                 if hasattr(parent_window, "filter_search_panel"):
                     parent_instance = parent_window.filter_search_panel
                     is_same_instance = parent_instance is self
-                    logger.error(
-                        f"  - MainWindow.filter_search_panel: {id(parent_instance) if parent_instance else None}"
-                        f" (same instance: {is_same_instance})"
+                    parent_service = (
+                        getattr(parent_instance, "search_filter_service", None) if parent_instance else None
                     )
-                    if parent_instance and hasattr(parent_instance, "search_filter_service"):
-                        parent_service = parent_instance.search_filter_service
-                        logger.error(f"  - Parent instance service: {parent_service}")
-            except Exception as diagnostic_error:
-                logger.error(f"  - Diagnostic error: {diagnostic_error}")
 
-            self.ui.textEditPreview.setPlainText(
-                "SearchFilterServiceが設定されていません。\n"
-                "MainWindow初期化エラーの可能性があります。\n"
+                    error_details.extend(
+                        [
+                            f"  - MainWindow.filter_search_panel: {id(parent_instance) if parent_instance else None}",
+                            f"    (same instance: {is_same_instance})",
+                            f"  - Parent instance service: {parent_service}",
+                            f"    (parent service type: {type(parent_service) if parent_service else 'None'})",
+                        ]
+                    )
+
+                    # Qt Designer生成インスタンス確認
+                    if hasattr(parent_window, "filterSearchPanel"):
+                        qt_designer_instance = parent_window.filterSearchPanel
+                        qt_same_as_parent = qt_designer_instance is parent_instance
+                        qt_same_as_self = qt_designer_instance is self
+
+                        error_details.extend(
+                            [
+                                f"  - Qt Designer filterSearchPanel: {id(qt_designer_instance) if qt_designer_instance else None}",
+                                f"    (same as parent: {qt_same_as_parent}, same as self: {qt_same_as_self})",
+                            ]
+                        )
+
+                        # Qt Designer Phase 2の影響を確認
+                        if qt_designer_instance and hasattr(qt_designer_instance, "search_filter_service"):
+                            qt_service = getattr(qt_designer_instance, "search_filter_service", None)
+                            error_details.append(f"    (Qt Designer instance service: {qt_service})")
+
+                    # Phase 3.5統合状況の推測
+                    if parent_instance and parent_service and not is_same_instance:
+                        error_details.append(
+                            "  - 疑われる問題: Qt Designer Phase 2変更によるインスタンス不整合"
+                        )
+                    elif parent_instance and not parent_service:
+                        error_details.append(
+                            "  - 疑われる問題: MainWindow._setup_search_filter_integration()未実行または失敗"
+                        )
+                    elif not parent_instance:
+                        error_details.append(
+                            "  - 疑われる問題: MainWindow.setup_custom_widgets()未実行または失敗"
+                        )
+
+                else:
+                    error_details.append("  - MainWindow.filter_search_panel attribute not found")
+
+            except Exception as diagnostic_error:
+                error_details.append(f"  - Diagnostic error: {diagnostic_error}")
+
+            # 詳細エラーログ出力
+            logger.error("\n".join(error_details))
+
+            # ユーザー向けエラーメッセージ（Qt Designer Phase 2対応版）
+            user_error_message = (
+                "SearchFilterService が設定されていません。\n"
+                "Qt Designer Phase 2 レスポンシブレイアウト変更の影響または\n"
+                "MainWindow 初期化エラーの可能性があります。\n"
                 "ログを確認してください。"
             )
+            self.ui.textEditPreview.setPlainText(user_error_message)
             return
 
         if not self.worker_service:

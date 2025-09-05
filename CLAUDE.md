@@ -257,6 +257,14 @@ mcp__serena__write_memory <memory_name> <content>  # 新規記録・更新
 - **Connection errors**: Use direct serena operations + WebSearch
 - **Performance**: Direct serena (1-3s) for simple ops, cipher (10-30s) for complex analysis
 
+### UI Generation Issues
+- **SearchFilterService Configuration Error**: If you see "SearchFilterService が設定されていません" error, the issue is missing Qt Designer UI file generation
+- **Missing filterSearchPanel Widget**: MainWindow fails to create filterSearchPanel because _ui.py files are missing
+- **Import Errors from designer**: `from ...MainWindow_ui import Ui_MainWindow` fails because UI files weren't generated
+- **Solution**: Run `UV_PROJECT_ENVIRONMENT=.venv_linux uv run python scripts/generate_ui.py` to generate all missing UI files
+- **Prevention**: Always run UI generation after modifying .ui files or when setting up development environment
+- **Verification**: Script should report 100% success rate and verify MainWindow_ui.py contains filterSearchPanel creation
+
 ## Quick Reference
 
 ### Commands（MCP統合スラッシュコマンド）
