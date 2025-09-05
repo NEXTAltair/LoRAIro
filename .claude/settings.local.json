@@ -17,7 +17,10 @@
       "mcp__cipher__activate_project",
       "mcp__cipher__search_for_pattern",
       "mcp__cipher__cipher_extract_and_operate_memory",
-      "mcp__ide__getDiagnostics"
+      "mcp__ide__getDiagnostics",
+      "mcp__serena__think_about_collected_information",
+      "mcp__serena__replace_symbol_body",
+      "mcp__serena__find_symbol"
     ],
     "deny": [],
     "ask": []
