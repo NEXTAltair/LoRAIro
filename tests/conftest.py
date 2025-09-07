@@ -133,8 +133,8 @@ def fs_manager(storage_dir):
     storage_dir.mkdir(parents=True)
 
     fsm = FileSystemManager()
-    # NOTE: Adjust target_resolution if needed for tests
-    fsm.initialize(storage_dir, target_resolution=512)
+    # Updated to use new FileSystemManager.initialize() interface
+    fsm.initialize(storage_dir)
     yield fsm
 
     if storage_dir.exists():
