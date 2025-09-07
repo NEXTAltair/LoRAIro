@@ -343,21 +343,21 @@ class FileSystemManager:
 
     @staticmethod
     def export_dataset_to_txt(
-        image_data: dict[str, Any], save_dir: Path, mearge_caption: bool = False
+        image_data: dict[str, Any], save_dir: Path, merge_caption: bool = False
     ) -> None:
         """学習用データセットをテキスト形式で指定ディレクトリに出力する
 
         Args:
             image_data (dict]): 画像データ. 各辞書は 'path', 'tags', 'caption' をキーに持つ
             save_dir (Path): 保存先のディレクトリパス
-            mearge_caption (bool): キャプションをタグに追加する
+            merge_caption (bool): キャプションをタグに追加する
         """
         image_path = image_data["path"]
         file_name = image_path.stem
 
         with open(save_dir / f"{file_name}.txt", "w", encoding="utf-8") as f:
             tags = ", ".join([tag_data["tag"] for tag_data in image_data["tags"]])
-            if mearge_caption:
+            if merge_caption:
                 captions = ", ".join([caption_data["caption"] for caption_data in image_data["captions"]])
                 tags = f"{tags}, {captions}"
             f.write(tags)
@@ -370,22 +370,39 @@ class FileSystemManager:
     def export_dataset_to_json(image_data: dict[str, Any], save_dir: Path) -> None:
         """学習用データセットをJSON形式で指定ディレクトリに出力する
 
+        Note: この関数は単一画像用です。複数画像の場合は呼び出し側でJSONを統合してください。
+
         Args:
-            image_data (list[dict]): 画像データのリスト. 各辞書は 'path', 'tags', 'caption' をキーに持つ
+            image_data (dict[str, Any]): 画像データ. 各辞書は 'path', 'tags', 'caption' をキーに持つ
             save_dir (Path): 保存先のディレクトリパス
         """
-        json_data = {}
         image_path = image_data["path"]
         save_image = save_dir / image_path.name
         FileSystemManager.copy_file(image_path, save_image)
+
         tags = ", ".join([tag_data["tag"] for tag_data in image_data["tags"]])
         captions = ", ".join([caption_data["caption"] for caption_data in image_data["captions"]])
-        image_key = str(save_image)
-        json_data[image_key] = {"tags": tags, "caption": captions}
 
-        with open(save_dir / "meta_data.json", "a", encoding="utf-8") as f:
-            json.dump(json_data, f, indent=4, ensure_ascii=False)
-            f.write("\n")
+        json_data = {str(save_image): {"tags": tags, "caption": captions}}
+
+        # 既存のJSONファイルを読み込み、データを追加
+        metadata_path = save_dir / "meta_data.json"
+        existing_data = {}
+
+        if metadata_path.exists():
+            try:
+                with open(metadata_path, encoding="utf-8") as f:
+                    existing_data = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                # ファイルが存在しないか無効なJSONの場合は空の辞書を使用
+                existing_data = {}
+
+        # 新しいデータを追加
+        existing_data.update(json_data)
+
+        # 完全なJSONとして書き込み
+        with open(metadata_path, "w", encoding="utf-8") as f:
+            json.dump(existing_data, f, indent=4, ensure_ascii=False)
 
     @staticmethod
     def save_toml_config(config: dict, filename: str) -> None:

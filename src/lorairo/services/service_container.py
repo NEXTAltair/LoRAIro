@@ -13,6 +13,7 @@ from ..storage.file_system import FileSystemManager
 from ..utils.log import logger
 from .annotation_batch_processor import BatchProcessor
 from .configuration_service import ConfigurationService
+from .dataset_export_service import DatasetExportService
 from .image_processing_service import ImageProcessingService
 from .model_registry_protocol import ModelRegistryServiceProtocol, NullModelRegistry
 from .model_sync_service import ModelSyncService
@@ -52,6 +53,7 @@ class ServiceContainer:
         self._image_repository: ImageRepository | None = None
         self._db_manager: ImageDatabaseManager | None = None
         self._image_processing_service: ImageProcessingService | None = None
+        self._dataset_export_service: DatasetExportService | None = None
 
         # Phase 1新サービス初期化
         self._model_sync_service: ModelSyncService | None = None
@@ -119,6 +121,21 @@ class ServiceContainer:
         return self._image_processing_service
 
     @property
+    def dataset_export_service(self) -> DatasetExportService:
+        """データセットエクスポートサービス取得（遅延初期化）"""
+        if self._dataset_export_service is None:
+            from .search_criteria_processor import SearchCriteriaProcessor
+
+            # SearchCriteriaProcessorの初期化
+            search_processor = SearchCriteriaProcessor(self.db_manager)
+
+            self._dataset_export_service = DatasetExportService(
+                self.config_service, self.file_system_manager, self.db_manager, search_processor
+            )
+            logger.debug("DatasetExportService初期化完了")
+        return self._dataset_export_service
+
+    @property
     def model_sync_service(self) -> ModelSyncService:
         """モデル同期サービス取得（遅延初期化）
 
@@ -175,6 +192,7 @@ class ServiceContainer:
                 "image_repository": self._image_repository is not None,
                 "db_manager": self._db_manager is not None,
                 "image_processing_service": self._image_processing_service is not None,
+                "dataset_export_service": self._dataset_export_service is not None,
                 "model_sync_service": self._model_sync_service is not None,
                 "model_registry": self._model_registry is not None,
                 "batch_processor": self._batch_processor is not None,
@@ -198,6 +216,7 @@ class ServiceContainer:
         self._image_repository = None
         self._db_manager = None
         self._image_processing_service = None
+        self._dataset_export_service = None
         self._model_sync_service = None
         self._model_registry = None
         self._batch_processor = None
