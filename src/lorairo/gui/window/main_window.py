@@ -917,6 +917,68 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(error_msg, exc_info=True)
             QMessageBox.critical(self, "アノテーションエラー", error_msg)
 
+    def export_data(self) -> None:
+        """データセットエクスポート機能を開く"""
+        try:
+            # Get current image selection
+            current_image_ids = self._get_current_selected_images()
+
+            if not current_image_ids:
+                QMessageBox.warning(
+                    self,
+                    "エクスポート",
+                    "エクスポートする画像が選択されていません。\n"
+                    "フィルタリング条件を設定して画像を表示するか、\n"
+                    "サムネイル表示で画像を選択してください。",
+                )
+                return
+
+            logger.info(f"データセットエクスポート開始: {len(current_image_ids)}画像")
+
+            # Create and show export dialog
+            from ..widgets.dataset_export_widget import DatasetExportWidget
+
+            export_dialog = DatasetExportWidget(
+                service_container=self.service_container, initial_image_ids=current_image_ids, parent=self
+            )
+
+            # Connect export completion signal for feedback
+            export_dialog.export_completed.connect(
+                lambda path: logger.info(f"データセットエクスポート完了: {path}")
+            )
+
+            # Show as modal dialog
+            export_dialog.exec()
+
+        except Exception as e:
+            error_msg = f"データセットエクスポート画面の表示に失敗しました: {e!s}"
+            logger.error(error_msg, exc_info=True)
+            QMessageBox.critical(self, "エラー", f"エクスポート機能の起動に失敗しました。\n\n{e!s}")
+
+    def _get_current_selected_images(self) -> list[int]:
+        """現在表示・選択中の画像IDリストを取得"""
+        try:
+            # First priority: explicitly selected images
+            if self.dataset_state_manager and self.dataset_state_manager.selected_image_ids:
+                selected_ids = self.dataset_state_manager.selected_image_ids
+                logger.debug(f"選択画像を使用: {len(selected_ids)}件")
+                return selected_ids
+
+            # Second priority: all currently filtered/displayed images
+            if self.dataset_state_manager and self.dataset_state_manager.has_filtered_images():
+                filtered_images = self.dataset_state_manager.filtered_images
+                filtered_ids = [img.get("id") for img in filtered_images if img.get("id")]
+                logger.debug(f"表示中の画像を使用: {len(filtered_ids)}件")
+                return filtered_ids
+
+            # No images available
+            logger.warning("エクスポート可能な画像が見つかりません")
+            return []
+
+        except Exception as e:
+            logger.error(f"選択画像の取得に失敗: {e}")
+            return []
+
 
 if __name__ == "__main__":
     import os
