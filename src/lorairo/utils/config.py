@@ -1,10 +1,30 @@
+import os
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import toml
 
-PROJECT_ROOT = Path.cwd()
+
+# Test isolation: Use temp directory for tests, actual project root otherwise
+def get_project_root() -> Path:
+    """Get project root path, with test isolation support."""
+    # Check if we're running in pytest environment
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        # Use a temp directory for tests to avoid creating files in src/
+        import tempfile
+
+        temp_dir = Path(tempfile.gettempdir()) / "lorairo_test"
+        temp_dir.mkdir(exist_ok=True)
+        return temp_dir
+
+    # For normal execution, use the actual project root (parent of src directory)
+    current_file = Path(__file__)  # src/lorairo/utils/config.py
+    project_root = current_file.parent.parent.parent.parent  # Go up 4 levels to project root
+    return project_root
+
+
+PROJECT_ROOT = get_project_root()
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "lorairo.toml"
 DEFAULT_LOG_PATH = PROJECT_ROOT / "logs" / "lorairo.log"
 
