@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 ################################################################################
 ## Form generated from reading UI file 'ModelSelectionTableWidget.ui'
 ##
@@ -6,61 +8,27 @@
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
 
-from PySide6.QtCore import (
-    QCoreApplication,
-    QDate,
-    QDateTime,
-    QLocale,
-    QMetaObject,
-    QObject,
-    QPoint,
-    QRect,
-    QSize,
-    Qt,
-    QTime,
-    QUrl,
-)
-from PySide6.QtGui import (
-    QBrush,
-    QColor,
-    QConicalGradient,
-    QCursor,
-    QFont,
-    QFontDatabase,
-    QGradient,
-    QIcon,
-    QImage,
-    QKeySequence,
-    QLinearGradient,
-    QPainter,
-    QPalette,
-    QPixmap,
-    QRadialGradient,
-    QTransform,
-)
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QApplication,
-    QHeaderView,
-    QSizePolicy,
-    QTableWidget,
-    QTableWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtCore import (QCoreApplication, QDate, QDateTime, QLocale,
+    QMetaObject, QObject, QPoint, QRect,
+    QSize, QTime, QUrl, Qt)
+from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
+    QFont, QFontDatabase, QGradient, QIcon,
+    QImage, QKeySequence, QLinearGradient, QPainter,
+    QPalette, QPixmap, QRadialGradient, QTransform)
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHeaderView, QSizePolicy,
+    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
-
-class Ui_ModelSelectionTableWidget:
+class Ui_ModelSelectionTableWidget(object):
     def setupUi(self, ModelSelectionTableWidget):
         if not ModelSelectionTableWidget.objectName():
-            ModelSelectionTableWidget.setObjectName("ModelSelectionTableWidget")
+            ModelSelectionTableWidget.setObjectName(u"ModelSelectionTableWidget")
         ModelSelectionTableWidget.resize(400, 300)
         self.verticalLayoutMain = QVBoxLayout(ModelSelectionTableWidget)
         self.verticalLayoutMain.setSpacing(6)
-        self.verticalLayoutMain.setObjectName("verticalLayoutMain")
+        self.verticalLayoutMain.setObjectName(u"verticalLayoutMain")
         self.verticalLayoutMain.setContentsMargins(0, 0, 0, 0)
         self.tableWidgetModels = QTableWidget(ModelSelectionTableWidget)
-        if self.tableWidgetModels.columnCount() < 4:
+        if (self.tableWidgetModels.columnCount() < 4):
             self.tableWidgetModels.setColumnCount(4)
         __qtablewidgetitem = QTableWidgetItem()
         self.tableWidgetModels.setHorizontalHeaderItem(0, __qtablewidgetitem)
@@ -70,7 +38,7 @@ class Ui_ModelSelectionTableWidget:
         self.tableWidgetModels.setHorizontalHeaderItem(2, __qtablewidgetitem2)
         __qtablewidgetitem3 = QTableWidgetItem()
         self.tableWidgetModels.setHorizontalHeaderItem(3, __qtablewidgetitem3)
-        self.tableWidgetModels.setObjectName("tableWidgetModels")
+        self.tableWidgetModels.setObjectName(u"tableWidgetModels")
         sizePolicy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(1)
@@ -87,7 +55,7 @@ class Ui_ModelSelectionTableWidget:
         self.tableWidgetModels.horizontalHeader().setVisible(True)
         self.tableWidgetModels.horizontalHeader().setCascadingSectionResizes(False)
         self.tableWidgetModels.horizontalHeader().setHighlightSections(False)
-        self.tableWidgetModels.horizontalHeader().setProperty("showSortIndicator", True)
+        self.tableWidgetModels.horizontalHeader().setProperty(u"showSortIndicator", True)
         self.tableWidgetModels.horizontalHeader().setStretchLastSection(False)
         self.tableWidgetModels.verticalHeader().setVisible(False)
         self.tableWidgetModels.verticalHeader().setCascadingSectionResizes(False)
@@ -96,56 +64,38 @@ class Ui_ModelSelectionTableWidget:
 
         self.verticalLayoutMain.addWidget(self.tableWidgetModels)
 
+
         self.retranslateUi(ModelSelectionTableWidget)
 
         QMetaObject.connectSlotsByName(ModelSelectionTableWidget)
-
     # setupUi
 
     def retranslateUi(self, ModelSelectionTableWidget):
-        ModelSelectionTableWidget.setWindowTitle(
-            QCoreApplication.translate("ModelSelectionTableWidget", "Model Selection Table", None)
-        )
+        ModelSelectionTableWidget.setWindowTitle(QCoreApplication.translate("ModelSelectionTableWidget", u"Model Selection Table", None))
         ___qtablewidgetitem = self.tableWidgetModels.horizontalHeaderItem(0)
-        ___qtablewidgetitem.setText(
-            QCoreApplication.translate("ModelSelectionTableWidget", "\u9078\u629e", None)
-        )
+        ___qtablewidgetitem.setText(QCoreApplication.translate("ModelSelectionTableWidget", u"\u9078\u629e", None));
         ___qtablewidgetitem1 = self.tableWidgetModels.horizontalHeaderItem(1)
-        ___qtablewidgetitem1.setText(
-            QCoreApplication.translate("ModelSelectionTableWidget", "\u30e2\u30c7\u30eb\u540d", None)
-        )
+        ___qtablewidgetitem1.setText(QCoreApplication.translate("ModelSelectionTableWidget", u"\u30e2\u30c7\u30eb\u540d", None));
         ___qtablewidgetitem2 = self.tableWidgetModels.horizontalHeaderItem(2)
-        ___qtablewidgetitem2.setText(
-            QCoreApplication.translate(
-                "ModelSelectionTableWidget", "\u30d7\u30ed\u30d0\u30a4\u30c0\u30fc", None
-            )
-        )
+        ___qtablewidgetitem2.setText(QCoreApplication.translate("ModelSelectionTableWidget", u"\u30d7\u30ed\u30d0\u30a4\u30c0\u30fc", None));
         ___qtablewidgetitem3 = self.tableWidgetModels.horizontalHeaderItem(3)
-        ___qtablewidgetitem3.setText(
-            QCoreApplication.translate("ModelSelectionTableWidget", "\u6a5f\u80fd", None)
-        )
-        self.tableWidgetModels.setStyleSheet(
-            QCoreApplication.translate(
-                "ModelSelectionTableWidget",
-                "QTableWidget {\n"
-                "    font-size: 9px;\n"
-                "    gridline-color: #e0e0e0;\n"
-                "    selection-background-color: #e3f2fd;\n"
-                "}\n"
-                "QTableWidget::item {\n"
-                "    padding: 4px;\n"
-                "    color: palette(text);\n"
-                "}\n"
-                "QHeaderView::section {\n"
-                "    font-size: 9px;\n"
-                "    font-weight: bold;\n"
-                "    background-color: palette(button);\n"
-                "    color: palette(buttonText);\n"
-                "    border: 1px solid palette(mid);\n"
-                "    padding: 4px;\n"
-                "}",
-                None,
-            )
-        )
-
+        ___qtablewidgetitem3.setText(QCoreApplication.translate("ModelSelectionTableWidget", u"\u6a5f\u80fd", None));
+        self.tableWidgetModels.setStyleSheet(QCoreApplication.translate("ModelSelectionTableWidget", u"QTableWidget {\n"
+"    font-size: 9px;\n"
+"    gridline-color: #e0e0e0;\n"
+"    selection-background-color: #e3f2fd;\n"
+"}\n"
+"QTableWidget::item {\n"
+"    padding: 4px;\n"
+"    color: palette(text);\n"
+"}\n"
+"QHeaderView::section {\n"
+"    font-size: 9px;\n"
+"    font-weight: bold;\n"
+"    background-color: palette(button);\n"
+"    color: palette(buttonText);\n"
+"    border: 1px solid palette(mid);\n"
+"    padding: 4px;\n"
+"}", None))
     # retranslateUi
+
