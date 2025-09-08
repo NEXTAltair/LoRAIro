@@ -1,5 +1,6 @@
 # src/lorairo/gui/window/main_window.py
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -585,7 +586,71 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             QFileDialog.Option.ShowDirsOnly,
         )
 
+        if directory:
+            # 基本的なディレクトリ検証（DirectoryPickerWidget パターンに従う）
+            path_obj = Path(directory)
+            if not self._validate_dataset_directory(path_obj):
+                QMessageBox.warning(
+                    self,
+                    "無効なディレクトリ",
+                    f"選択されたディレクトリは画像データセットとして適切ではありません:\n{directory}"
+                )
+                return None
+            logger.info(f"有効なデータセットディレクトリを選択: {directory}")
+
         return Path(directory) if directory else None
+
+    def _validate_dataset_directory(self, directory_path: Path) -> bool:
+        """データセットディレクトリとしての適性をシンプルに検証（DirectoryPickerWidget パターンに従う）"""
+        try:
+            # 基本チェック
+            if not (directory_path.exists() and directory_path.is_dir()):
+                logger.warning(f"ディレクトリが存在しないか読み取れません: {directory_path}")
+                return False
+
+            # 階層制限とファイルカウント
+            max_depth = 3
+            max_files = 10000
+            image_count = 0
+            total_files = 0
+
+            # 画像拡張子リスト
+            image_extensions = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
+
+            for root, dirs, files in os.walk(directory_path):
+                # 階層深度チェック
+                try:
+                    current_depth = len(Path(root).relative_to(directory_path).parts)
+                    if current_depth > max_depth:
+                        dirs.clear()  # これ以上深く探索しない
+                        continue
+                except ValueError:
+                    # relative_to が失敗した場合はスキップ
+                    continue
+
+                for file in files:
+                    total_files += 1
+                    if total_files > max_files:
+                        logger.warning(f"ファイル数が上限を超過: {directory_path} ({max_files}+件)")
+                        return False
+
+                    # 画像ファイルチェック
+                    if Path(file).suffix.lower() in image_extensions:
+                        image_count += 1
+
+            # 最終判定
+            if image_count == 0:
+                logger.warning(f"画像ファイルが見つかりません: {directory_path}")
+                return False
+
+            logger.debug(
+                f"有効なデータセットディレクトリ: {directory_path} (画像{image_count}枚, 総ファイル{total_files}件)"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"ディレクトリ検証中にエラー: {directory_path} - {e}")
+            return False
 
     def _start_batch_registration(self, directory: Path) -> None:
         """バッチ登録処理を開始（内部メソッド）"""
