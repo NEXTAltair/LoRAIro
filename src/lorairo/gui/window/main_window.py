@@ -576,8 +576,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"Pipeline cancellation failed: {e}", exc_info=True)
 
     # Placeholder methods for UI actions - implement these based on your requirements
-    def select_dataset_directory(self) -> None:
-        """データセットディレクトリ選択"""
+    def select_dataset_directory(self) -> Path | None:
+        """データセットディレクトリ選択（ディレクトリ選択のみ）"""
         directory = QFileDialog.getExistingDirectory(
             self,
             "データセットディレクトリを選択してください",
@@ -585,45 +585,50 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             QFileDialog.Option.ShowDirsOnly,
         )
 
-        if directory:
-            # WorkerServiceが利用可能かチェック
-            if not self.worker_service:
-                QMessageBox.warning(
-                    self,
-                    "サービス未初期化",
-                    "WorkerServiceが初期化されていないため、バッチ登録を開始できません。",
+        return Path(directory) if directory else None
+
+    def _start_batch_registration(self, directory: Path) -> None:
+        """バッチ登録処理を開始（内部メソッド）"""
+        # WorkerServiceが利用可能かチェック
+        if not self.worker_service:
+            QMessageBox.warning(
+                self,
+                "サービス未初期化",
+                "WorkerServiceが初期化されていないため、バッチ登録を開始できません。",
+            )
+            return
+
+        try:
+            # FileSystemManagerの初期化（必須）
+            if not self.file_system_manager:
+                # 致命的エラー - アプリケーション終了
+                error_msg = "FileSystemManagerが初期化されていません。バッチ登録処理を実行できません。"
+                logger.critical(f"Critical error during batch registration: {error_msg}")
+                self._handle_critical_initialization_failure(
+                    "FileSystemManager", RuntimeError(error_msg)
                 )
                 return
 
-            try:
-                # FileSystemManagerの初期化（必須）
-                if not self.file_system_manager:
-                    # 致命的エラー - アプリケーション終了
-                    error_msg = "FileSystemManagerが初期化されていません。バッチ登録処理を実行できません。"
-                    logger.critical(f"Critical error during batch registration: {error_msg}")
-                    self._handle_critical_initialization_failure(
-                        "FileSystemManager", RuntimeError(error_msg)
-                    )
-                    return
+            # 選択されたディレクトリの親ディレクトリに出力する
+            output_dir = directory.parent / "lorairo_output"
+            self.file_system_manager.initialize(output_dir)
 
-                # 選択されたディレクトリの親ディレクトリに出力する
-                output_dir = Path(directory).parent / "lorairo_output"
-                self.file_system_manager.initialize(output_dir)
-
-                # バッチ登録開始（初期化済みFileSystemManagerを渡す）
-                worker_id = self.worker_service.start_batch_registration_with_fsm(
-                    Path(directory), self.file_system_manager
-                )
-                if worker_id:
-                    logger.info(f"バッチ登録開始: worker_id={worker_id}, directory={directory}")
-                else:
-                    logger.error("バッチ登録の開始に失敗しました")
-            except Exception as e:
-                QMessageBox.critical(self, "バッチ登録エラー", f"データセット登録の開始に失敗しました: {e}")
+            # バッチ登録開始（初期化済みFileSystemManagerを渡す）
+            worker_id = self.worker_service.start_batch_registration_with_fsm(
+                directory, self.file_system_manager
+            )
+            if worker_id:
+                logger.info(f"バッチ登録開始: worker_id={worker_id}, directory={directory}")
+            else:
+                logger.error("バッチ登録の開始に失敗しました")
+        except Exception as e:
+            QMessageBox.critical(self, "バッチ登録エラー", f"データセット登録の開始に失敗しました: {e}")
 
     def register_images_to_db(self) -> None:
-        """画像をデータベースに登録（データセットディレクトリ選択に転送）"""
-        self.select_dataset_directory()
+        """画像をデータベースに登録（完全なワークフロー：ディレクトリ選択 + バッチ登録開始）"""
+        directory = self.select_dataset_directory()
+        if directory:
+            self._start_batch_registration(directory)
 
     def load_images_from_db(self):
         """データベースから画像を読み込み"""
