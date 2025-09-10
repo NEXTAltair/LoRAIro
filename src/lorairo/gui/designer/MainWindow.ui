@@ -913,7 +913,7 @@
    <sender>pushButtonSelectDataset</sender>
    <signal>clicked()</signal>
    <receiver>MainWindow</receiver>
-   <slot>select_dataset_directory()</slot>
+   <slot>select_and_process_dataset()</slot>
    <hints>
     <hint type="sourcelabel">
      <x>94</x>
