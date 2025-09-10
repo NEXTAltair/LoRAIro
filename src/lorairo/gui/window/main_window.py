@@ -317,29 +317,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         try:
             logger.info("  - イベント接続開始...")
 
-            # ボタンイベント接続（安全な実装）
-            if hasattr(self, "pushButtonSelectDataset"):
-                try:
-                    self.pushButtonSelectDataset.clicked.connect(self.select_dataset_directory)
-                    logger.info("    ✅ ディレクトリ選択ボタン接続完了")
-                except Exception as e:
-                    logger.error(f"    ❌ ディレクトリ選択ボタン接続失敗: {e}")
-
-            if hasattr(self, "pushButtonRegisterImages"):
-                try:
-                    self.pushButtonRegisterImages.clicked.connect(self.register_images_to_db)
-                    logger.info("    ✅ 画像登録ボタン接続完了")
-                except Exception as e:
-                    logger.error(f"    ❌ 画像登録ボタン接続失敗: {e}")
-
-            if hasattr(self, "pushButtonLoadDbImages"):
-                try:
-                    self.pushButtonLoadDbImages.clicked.connect(self.load_images_from_db)
-                    logger.info("    ✅ DB読み込みボタン接続完了")
-                except Exception as e:
-                    logger.error(f"    ❌ DB読み込みボタン接続失敗: {e}")
-
-            # ウィジェット間のイベント接続
+            # ウィジェット間のイベント接続（複雑な動的接続）
             if self.thumbnail_selector and self.image_preview_widget:
                 try:
                     # サムネイル選択をプレビューに反映
@@ -357,35 +335,60 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"イベント接続で予期しないエラー: {e}", exc_info=True)
 
     def _setup_worker_pipeline_signals(self) -> None:
-        """Phase 2: Sequential Worker Pipeline シグナル接続設定"""
+        """WorkerService pipeline signal connections setup"""
         if not self.worker_service:
-            logger.warning("WorkerService not available - Sequential Pipeline signals not connected")
+            logger.warning("WorkerService not available - pipeline signals not connected")
             return
 
         try:
-            # SearchWorker完了 → ThumbnailWorker自動起動
-            self.worker_service.search_finished.connect(self._on_search_completed_start_thumbnail)
+            # Verify WorkerService has required signals
+            required_signals = [
+                "search_finished",
+                "search_started",
+                "search_error",
+                "thumbnail_finished",
+                "thumbnail_started",
+                "thumbnail_error",
+                "batch_registration_started",
+                "batch_registration_finished",
+                "batch_registration_error",
+                "worker_progress_updated",
+                "worker_batch_progress",
+            ]
 
-            # ThumbnailWorker完了 → ThumbnailSelectorWidget更新
+            missing_signals = [
+                signal for signal in required_signals if not hasattr(self.worker_service, signal)
+            ]
+
+            if missing_signals:
+                logger.error(f"WorkerService missing required signals: {missing_signals}")
+                return
+
+            # Core pipeline connections
+            self.worker_service.search_finished.connect(self._on_search_completed_start_thumbnail)
             self.worker_service.thumbnail_finished.connect(self._on_thumbnail_completed_update_display)
 
-            # Pipeline進捗統合表示
+            # Progress tracking connections
             self.worker_service.search_started.connect(self._on_pipeline_search_started)
             self.worker_service.thumbnail_started.connect(self._on_pipeline_thumbnail_started)
 
-            # Pipeline エラー・キャンセレーション処理
+            # Error handling connections
             self.worker_service.search_error.connect(self._on_pipeline_search_error)
             self.worker_service.thumbnail_error.connect(self._on_pipeline_thumbnail_error)
 
-            # Batch Registration signals (Phase 2 addition)
+            # Batch registration connections
             self.worker_service.batch_registration_started.connect(self._on_batch_registration_started)
             self.worker_service.batch_registration_finished.connect(self._on_batch_registration_finished)
             self.worker_service.batch_registration_error.connect(self._on_batch_registration_error)
 
-            logger.info("    ✅ Sequential Worker Pipeline signals connected")
+            # Progress feedback connections
+            self.worker_service.worker_progress_updated.connect(self._on_worker_progress_updated)
+            self.worker_service.worker_batch_progress.connect(self._on_worker_batch_progress)
+
+            logger.info("WorkerService pipeline signals connected (13 connections)")
 
         except Exception as e:
-            logger.error(f"    ❌ Sequential Worker Pipeline signals connection failed: {e}")
+            logger.error(f"Pipeline signals connection failed: {e}", exc_info=True)
 
     def _on_search_completed_start_thumbnail(self, search_result: Any) -> None:
         """SearchWorker完了時にThumbnailWorkerを自動起動"""
@@ -503,11 +506,26 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def _on_batch_registration_started(self, worker_id: str) -> None:
         """Batch registration started signal handler"""
-        # Remove verbose logging - just handle the signal silently
-        # TODO: Add UI feedback for batch registration start (progress bar, status text)
+        logger.info(f"バッチ登録開始: worker_id={worker_id}")
+
+        # UI feedback - show user that processing has started
+        try:
+            self.statusBar().showMessage("データベース登録処理を開始しています...")
+        except Exception as e:
+            logger.debug(f"Status bar update failed: {e}")
+
+        # TODO: プログレスバーなどのUI進捗表示をバッチ登録に追加
 
     def _on_batch_registration_finished(self, result: Any) -> None:
         """Batch registration finished signal handler"""
+        logger.info(f"バッチ登録完了: result={type(result)}")
+
+        # Clear statusbar processing message
+        try:
+            self.statusBar().clearMessage()
+        except Exception as e:
+            logger.debug(f"Status bar clear failed: {e}")
+
         try:
             # Extract results from DatabaseRegistrationResult
             if hasattr(result, "registered_count"):
@@ -525,19 +543,70 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 )
 
                 # Emit completion signal for other components
-                self.database_registration_completed.emit(registered)
+                if hasattr(self, "database_registration_completed"):
+                    self.database_registration_completed.emit(registered)
 
                 QMessageBox.information(self, "バッチ登録完了", success_message)
+                logger.info(f"バッチ登録統計: 登録={registered}, スキップ={skipped}, エラー={errors}")
 
-        except Exception:
-            # Silent error handling - no verbose logging
-            pass
+            else:
+                # Fallback for unexpected result format
+                logger.warning(f"Unexpected batch registration result format: {result}")
+                QMessageBox.information(
+                    self,
+                    "バッチ登録完了",
+                    f"バッチ登録が完了しましたが、詳細情報を取得できませんでした。\n結果: {result}",
+                )
+
+        except Exception as e:
+            # Proper error logging instead of silent failure
+            logger.error(f"バッチ登録完了処理中にエラー: {e}", exc_info=True)
+            QMessageBox.warning(
+                self,
+                "バッチ登録完了",
+                f"バッチ登録は完了しましたが、結果の表示中にエラーが発生しました:\n{e}",
+            )
 
     def _on_batch_registration_error(self, error_message: str) -> None:
         """Batch registration error signal handler"""
         QMessageBox.critical(
             self, "バッチ登録エラー", f"バッチ登録中にエラーが発生しました:\n\n{error_message}"
         )
+
+    def _on_worker_progress_updated(self, worker_id: str, progress: Any) -> None:
+        """Worker progress update signal handler"""
+        try:
+            # Extract progress information
+            if hasattr(progress, "current") and hasattr(progress, "total"):
+                current = progress.current
+                total = progress.total
+                percentage = int((current / total) * 100) if total > 0 else 0
+
+                # Update status bar with progress
+                status_message = f"処理中... {current}/{total} ({percentage}%)"
+                self.statusBar().showMessage(status_message)
+
+                logger.debug(f"ワーカー進捗更新: {worker_id} - {current}/{total} ({percentage}%)")
+
+            else:
+                logger.debug(f"ワーカー進捗更新: {worker_id} - {progress}")
+
+        except Exception as e:
+            logger.warning(f"進捗更新処理エラー: {e}")
+
+    def _on_worker_batch_progress(self, worker_id: str, current: int, total: int, filename: str) -> None:
+        """Worker batch progress update signal handler"""
+        try:
+            percentage = int((current / total) * 100) if total > 0 else 0
+
+            # Update status bar with detailed batch progress
+            status_message = f"バッチ処理中... {current}/{total} ({percentage}%) - {filename}"
+            self.statusBar().showMessage(status_message)
+
+            logger.debug(f"バッチ進捗更新: {worker_id} - {current}/{total} ({percentage}%) - {filename}")
+
+        except Exception as e:
+            logger.warning(f"バッチ進捗更新処理エラー: {e}")
 
     def cancel_current_pipeline(self) -> None:
         """現在のPipeline全体をキャンセル"""
@@ -578,79 +647,40 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     # Placeholder methods for UI actions - implement these based on your requirements
     def select_dataset_directory(self) -> Path | None:
-        """データセットディレクトリ選択（ディレクトリ選択のみ）"""
+        """データセットディレクトリ選択"""
         directory = QFileDialog.getExistingDirectory(
             self,
             "データセットディレクトリを選択してください",
-            "",  # 初期ディレクトリ
+            "",
             QFileDialog.Option.ShowDirsOnly,
         )
-
-        if directory:
-            # 基本的なディレクトリ検証（DirectoryPickerWidget パターンに従う）
-            path_obj = Path(directory)
-            if not self._validate_dataset_directory(path_obj):
-                QMessageBox.warning(
-                    self,
-                    "無効なディレクトリ",
-                    f"選択されたディレクトリは画像データセットとして適切ではありません:\n{directory}"
-                )
-                return None
-            logger.info(f"有効なデータセットディレクトリを選択: {directory}")
-
         return Path(directory) if directory else None
 
-    def _validate_dataset_directory(self, directory_path: Path) -> bool:
-        """データセットディレクトリとしての適性をシンプルに検証（DirectoryPickerWidget パターンに従う）"""
-        try:
-            # 基本チェック
-            if not (directory_path.exists() and directory_path.is_dir()):
-                logger.warning(f"ディレクトリが存在しないか読み取れません: {directory_path}")
-                return False
+    def select_and_process_dataset(self) -> None:
+        """データセット選択と自動処理開始（統合ワークフロー）
 
-            # 階層制限とファイルカウント
-            max_depth = 3
-            max_files = 10000
-            image_count = 0
-            total_files = 0
+        ユーザーがpushButtonSelectDatasetをクリックした際に実行される統合ワークフロー。
+        ディレクトリ選択後、自動的にデータベース登録・サムネイル生成処理を開始する。
 
-            # 画像拡張子リスト
-            image_extensions = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
+        処理フロー:
+        1. ディレクトリ選択ダイアログ表示
+        2. 選択後、バッチ登録処理を自動開始
+        3. DatabaseRegistrationWorker起動
+        4. サムネイル生成・検索機能有効化
+        """
+        logger.info("統合ワークフロー: データセット選択と自動処理開始")
 
-            for root, dirs, files in os.walk(directory_path):
-                # 階層深度チェック
-                try:
-                    current_depth = len(Path(root).relative_to(directory_path).parts)
-                    if current_depth > max_depth:
-                        dirs.clear()  # これ以上深く探索しない
-                        continue
-                except ValueError:
-                    # relative_to が失敗した場合はスキップ
-                    continue
+        # ディレクトリ選択実行
+        directory = self.select_dataset_directory()
 
-                for file in files:
-                    total_files += 1
-                    if total_files > max_files:
-                        logger.warning(f"ファイル数が上限を超過: {directory_path} ({max_files}+件)")
-                        return False
+        if directory:
+            logger.info(f"ディレクトリ選択完了: {directory}")
+            logger.info("自動的にバッチ登録処理を開始します...")
 
-                    # 画像ファイルチェック
-                    if Path(file).suffix.lower() in image_extensions:
-                        image_count += 1
-
-            # 最終判定
-            if image_count == 0:
-                logger.warning(f"画像ファイルが見つかりません: {directory_path}")
-                return False
-
-            logger.debug(
-                f"有効なデータセットディレクトリ: {directory_path} (画像{image_count}枚, 総ファイル{total_files}件)"
-            )
-            return True
-
-        except Exception as e:
-            logger.error(f"ディレクトリ検証中にエラー: {directory_path} - {e}")
-            return False
+            # 既存の成功パターン（register_images_to_db）と同じ処理フローを実行
+            self._start_batch_registration(directory)
+        else:
+            logger.info("ディレクトリ選択がキャンセルされました")
 
     def _start_batch_registration(self, directory: Path) -> None:
         """バッチ登録処理を開始（内部メソッド）"""
@@ -669,9 +699,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 # 致命的エラー - アプリケーション終了
                 error_msg = "FileSystemManagerが初期化されていません。バッチ登録処理を実行できません。"
                 logger.critical(f"Critical error during batch registration: {error_msg}")
-                self._handle_critical_initialization_failure(
-                    "FileSystemManager", RuntimeError(error_msg)
-                )
+                self._handle_critical_initialization_failure("FileSystemManager", RuntimeError(error_msg))
                 return
 
             # 選択されたディレクトリの親ディレクトリに出力する
@@ -1012,10 +1040,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 service_container=self.service_container, initial_image_ids=current_image_ids, parent=self
             )
 
-            # Connect export completion signal for feedback
-            export_dialog.export_completed.connect(
-                lambda path: logger.info(f"データセットエクスポート完了: {path}")
-            )
+            # Connect export completion signal
+            export_dialog.export_completed.connect(self._on_export_completed)
 
             # Show as modal dialog
             export_dialog.exec()
@@ -1024,6 +1050,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             error_msg = f"データセットエクスポート画面の表示に失敗しました: {e!s}"
             logger.error(error_msg, exc_info=True)
             QMessageBox.critical(self, "エラー", f"エクスポート機能の起動に失敗しました。\n\n{e!s}")
+
+    def _on_export_completed(self, path: str) -> None:
+        """Export completion handler"""
+        logger.info(f"データセットエクスポート完了: {path}")
 
     def _get_current_selected_images(self) -> list[int]:
         """現在表示・選択中の画像IDリストを取得"""
