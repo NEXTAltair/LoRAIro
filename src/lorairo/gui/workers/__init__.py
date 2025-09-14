@@ -13,11 +13,17 @@ from .base import (
     WorkerProgress,
     WorkerStatus,
 )
+from .modern_progress_manager import (
+    ModernProgressManager,
+    create_worker_id,
+)
 
 __all__ = [
     "CancellationController",
     "LoRAIroWorkerBase",
+    "ModernProgressManager",
     "ProgressReporter",
     "WorkerProgress",
     "WorkerStatus",
+    "create_worker_id",
 ]

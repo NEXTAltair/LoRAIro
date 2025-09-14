@@ -19,6 +19,7 @@ from ..workers.database_worker import (
     ThumbnailWorker,
 )
 from ..workers.manager import WorkerManager
+from ..workers.modern_progress_manager import ModernProgressManager, create_worker_id
 
 
 class WorkerService(QObject):
@@ -71,6 +72,10 @@ class WorkerService(QObject):
         self.fsm = fsm
         self.worker_manager = WorkerManager(self)
 
+        # モダンプログレス管理
+        self.progress_manager = ModernProgressManager(parent)
+        self.progress_manager.cancellation_requested.connect(self._on_progress_cancellation_requested)
+
         # シングルトンワーカー管理
         self.current_search_worker_id: str | None = None
         self.current_registration_worker_id: str | None = None
@@ -83,6 +88,10 @@ class WorkerService(QObject):
         self.worker_manager.worker_error.connect(self._on_worker_error)
         self.worker_manager.active_worker_count_changed.connect(self.active_worker_count_changed)
         self.worker_manager.all_workers_finished.connect(self.all_workers_finished)
+
+        # プログレス更新シグナル接続
+        self.worker_progress_updated.connect(self._on_progress_updated)
+        self.worker_batch_progress.connect(self._on_batch_progress_updated)
 
         logger.debug("WorkerService initialized")
 
@@ -364,25 +373,62 @@ class WorkerService(QObject):
         """指定ワーカーのステータス取得"""
         return self.worker_manager.get_worker_status(worker_id)
 
+    def _on_progress_updated(self, worker_id: str, progress: "WorkerProgress") -> None:
+        """プログレス更新処理 - ModernProgressManagerに転送"""
+        self.progress_manager.update_worker_progress(worker_id, progress)
+
+    def _on_batch_progress_updated(self, worker_id: str, current: int, total: int, filename: str) -> None:
+        """バッチプログレス更新処理 - ModernProgressManagerに転送"""
+        self.progress_manager.update_batch_progress(worker_id, current, total, filename)
+
+    def _on_progress_cancellation_requested(self, worker_id: str) -> None:
+        """プログレスダイアログからのキャンセル要求処理"""
+        logger.info(f"プログレスダイアログからキャンセル要求: {worker_id}")
+
+        # 該当ワーカーをキャンセル
+        success = self.worker_manager.cancel_worker(worker_id)
+        if success:
+            logger.info(f"ワーカーキャンセル実行: {worker_id}")
+        else:
+            logger.warning(f"ワーカーキャンセル失敗: {worker_id}")
+
     # === プライベートメソッド ===
 
     def _on_worker_started(self, worker_id: str) -> None:
-        """ワーカー開始ハンドラ"""
+        """ワーカー開始ハンドラ - プログレスダイアログ自動開始"""
+        operation_name = "不明な操作"
+
         if worker_id.startswith("batch_reg_"):
+            operation_name = "データベース登録"
             self.batch_registration_started.emit(worker_id)
         elif worker_id.startswith("annotation_"):
+            operation_name = "アノテーション処理"
             self.annotation_started.emit(worker_id)
         elif worker_id.startswith("enhanced_"):
+            operation_name = "拡張アノテーション"
             self.enhanced_annotation_started.emit(worker_id)
         elif worker_id.startswith("model_sync_"):
+            operation_name = "モデル同期"
             self.model_sync_started.emit(worker_id)
         elif worker_id.startswith("search_"):
+            operation_name = "検索処理"
             self.search_started.emit(worker_id)
         elif worker_id.startswith("thumbnail_"):
+            operation_name = "サムネイル読み込み"
             self.thumbnail_started.emit(worker_id)
 
+        # プログレスダイアログ自動開始
+        self.progress_manager.start_worker_progress(
+            worker_id, operation_name, f"{operation_name}を開始しています...", parent=self.parent()
+        )
+
+        logger.info(f"ワーカー開始とプログレス表示: {operation_name} (ID: {worker_id})")
+
     def _on_worker_finished(self, worker_id: str, result: Any) -> None:
-        """ワーカー完了ハンドラ"""
+        """ワーカー完了ハンドラ - プログレスダイアログ終了処理"""
+        # プログレスダイアログ完了処理
+        self.progress_manager.finish_worker_progress(worker_id, success=True)
+
         if worker_id.startswith("batch_reg_"):
             self.batch_registration_finished.emit(result)
             if self.current_registration_worker_id == worker_id:
@@ -404,9 +450,14 @@ class WorkerService(QObject):
             if self.current_thumbnail_worker_id == worker_id:
                 self.current_thumbnail_worker_id = None
 
+        logger.info(f"ワーカー完了とプログレス終了: {worker_id}")
+
     def _on_worker_error(self, worker_id: str, error: str) -> None:
-        """ワーカーエラーハンドラ"""
+        """ワーカーエラーハンドラ - プログレスダイアログエラー処理"""
         logger.error(f"ワーカーエラー {worker_id}: {error}")
+
+        # プログレスダイアログエラー完了処理
+        self.progress_manager.finish_worker_progress(worker_id, success=False)
 
         if worker_id.startswith("batch_reg_"):
             self.batch_registration_error.emit(error)
@@ -428,3 +479,5 @@ class WorkerService(QObject):
             self.thumbnail_error.emit(error)
             if self.current_thumbnail_worker_id == worker_id:
                 self.current_thumbnail_worker_id = None
+
+        logger.info(f"ワーカーエラーとプログレス終了: {worker_id}")

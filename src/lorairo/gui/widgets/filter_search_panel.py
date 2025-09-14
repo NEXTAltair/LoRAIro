@@ -286,11 +286,8 @@ class FilterSearchPanel(QScrollArea):
         self._transition_to_state(PipelineState.IDLE)
 
     def _show_search_progress(self) -> None:
-        """検索進捗UI表示"""
-        self.progress_bar.setVisible(True)
-        self.cancel_button.setVisible(True)
-        self.progress_bar.setValue(10)  # 開始時の進捗
-        self.search_progress_started.emit()
+        """検索進捗UI表示 - ModernProgressManagerに移行済みため無効化"""
+        logger.debug("Search progress display delegated to ModernProgressManager popup")
 
     def _transition_to_state(self, new_state: PipelineState) -> None:
         """パイプライン状態遷移管理 (Phase 3)"""
@@ -341,9 +338,14 @@ class FilterSearchPanel(QScrollArea):
             self.ui.textEditPreview.setPlainText(message)
 
     def hide_progress_after_completion(self) -> None:
-        """パイプライン完全完了後にプログレスバーを非表示にする"""
-        self.progress_bar.setVisible(False)
-        logger.debug("プログレスバーを非表示にしました（パイプライン完了）")
+        """パイプライン完全完了後にプログレスバーを非表示にする - ModernProgressManagerに移行済み"""
+        # Phase 3: ポップアップ式プログレス表示への完全移行
+        # ModernProgressManagerが自動的にプログレス完了処理を行うため、無効化
+        logger.debug("Progress hiding delegated to ModernProgressManager (pipeline completion)")
+
+        # インライン要素は既に非表示にされているが、確実に非表示状態を維持
+        if hasattr(self, "progress_bar") and self.progress_bar:
+            self.progress_bar.setVisible(False)
 
     # === Event Handlers ===
 
@@ -804,38 +806,19 @@ class FilterSearchPanel(QScrollArea):
         self._on_clear_requested()
 
     def update_pipeline_progress(self, message: str, current_progress: float, end_progress: float) -> None:
-        """Pipeline進捗表示の更新（Phase 2対応）"""
-        try:
-            if hasattr(self, "progress_bar") and self.progress_bar:
-                # Phase 3: Progress calculation formula (0.3/0.7 split)
-                if self._current_state == PipelineState.SEARCHING:
-                    # 検索フェーズ: 0-30%
-                    progress_value = int(current_progress * 30)
-                elif self._current_state == PipelineState.LOADING_THUMBNAILS:
-                    # サムネイル読み込みフェーズ: 30-100%
-                    progress_value = int(30 + (current_progress * 70))
-                else:
-                    # その他の状態では現在の進捗をそのまま使用
-                    progress_value = int(current_progress * 100)
+        """Pipeline進捗表示の更新 - ModernProgressManagerに移行済みため無効化"""
+        # Phase 3: ポップアップ式プログレス表示への完全移行
+        # WorkerServiceのModernProgressManagerが自動的にポップアップ表示を提供するため、
+        # インライン表示は無効化してプログレス表示を統一
+        logger.debug(
+            f"Progress update delegated to ModernProgressManager: {message} ({current_progress * 100:.1f}%)"
+        )
 
-                self.progress_bar.setValue(progress_value)
-
-                # 進捗メッセージ表示（ProgressBar format使用）
-                if hasattr(self.progress_bar, "setFormat"):
-                    # Phase 3: State-based messaging
-                    state_message = self._state_messages.get(self._current_state, message)
-                    self.progress_bar.setFormat(f"{state_message} ({progress_value}%)")
-
-                # ProgressBarの表示状態確認
-                if not self.progress_bar.isVisible():
-                    self.progress_bar.setVisible(True)
-
-                logger.debug(
-                    f"Pipeline progress updated: {message} ({progress_value}%) - State: {self._current_state.value}"
-                )
-
-        except Exception as e:
-            logger.error(f"Failed to update pipeline progress: {e}")
+        # 既存のプログレスバーを非表示にして統一
+        if hasattr(self, "progress_bar") and self.progress_bar:
+            if self.progress_bar.isVisible():
+                self.progress_bar.setVisible(False)
+                logger.debug("Inline progress bar hidden - using popup progress display")
 
     def handle_pipeline_error(self, phase: str, error_info: dict) -> None:
         """Pipelineエラー処理（Phase 2対応）"""
