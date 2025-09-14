@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QTimer, Signal
-from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
+from PySide6.QtGui import QResizeEvent
+from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QWidget
 
 from ...database.db_core import resolve_stored_path
 from ...database.db_manager import ImageDatabaseManager
@@ -13,6 +14,7 @@ from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
 from ...services.configuration_service import ConfigurationService
 from ...services.model_selection_service import ModelSelectionService
+from ...services.service_container import ServiceContainer
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
 from ..services.image_db_write_service import ImageDBWriteService
@@ -42,13 +44,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     worker_service: WorkerService | None
     dataset_state_manager: DatasetStateManager | None
 
+    @property
+    def service_container(self) -> ServiceContainer:
+        """ServiceContainer singleton instance"""
+        return ServiceContainer()
+
     # ウィジェット属性の型定義（Qt Designerで生成）
     filterSearchPanel: FilterSearchPanel  # Qt Designer生成
     thumbnail_selector: ThumbnailSelectorWidget | None
     image_preview_widget: ImagePreviewWidget | None
     selected_image_details_widget: SelectedImageDetailsWidget | None
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
         # 初期化失敗フラグ
@@ -213,15 +220,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 "FilterSearchPanel設定", RuntimeError("filterSearchPanel attribute missing from setupUi()")
             )
             return
-        if not isinstance(self.filterSearchPanel, FilterSearchPanel):
-            logger.error(
-                f"❌ filterSearchPanel type mismatch - expected FilterSearchPanel, got {type(self.filterSearchPanel)}"
-            )
-            self._handle_critical_initialization_failure(
-                "FilterSearchPanel設定",
-                RuntimeError(f"filterSearchPanel type validation failed: {type(self.filterSearchPanel)}"),
-            )
-            return
+        # filterSearchPanelは型定義により保証されているため、isinstance不要
 
         # FilterSearchPanel interface validation
         required_methods = ["set_search_filter_service", "set_worker_service"]
@@ -467,14 +466,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except Exception as e:
             logger.error(f"Failed to update ThumbnailSelectorWidget: {e}", exc_info=True)
 
-    def _on_pipeline_search_started(self, worker_id: str) -> None:
+    def _on_pipeline_search_started(self, _worker_id: str) -> None:
         """Pipeline検索フェーズ開始時の進捗表示"""
         if hasattr(self, "filterSearchPanel") and hasattr(
             self.filterSearchPanel, "update_pipeline_progress"
         ):
             self.filterSearchPanel.update_pipeline_progress("検索中...", 0.0, 0.3)
 
-    def _on_pipeline_thumbnail_started(self, worker_id: str) -> None:
+    def _on_pipeline_thumbnail_started(self, _worker_id: str) -> None:
         """Pipelineサムネイル生成フェーズ開始時の進捗表示"""
         if hasattr(self, "filterSearchPanel") and hasattr(
             self.filterSearchPanel, "update_pipeline_progress"
@@ -514,8 +513,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except Exception as e:
             logger.debug(f"Status bar update failed: {e}")
 
-        # TODO: プログレスバーなどのUI進捗表示をバッチ登録に追加
-
     def _on_batch_registration_finished(self, result: Any) -> None:
         """Batch registration finished signal handler"""
         logger.info(f"バッチ登録完了: result={type(result)}")
@@ -534,38 +531,26 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 errors = result.error_count
                 processing_time = result.total_processing_time
 
-                success_message = (
-                    f"バッチ登録完了！\n\n"
-                    f"登録: {registered}件\n"
-                    f"スキップ: {skipped}件\n"
-                    f"エラー: {errors}件\n"
-                    f"処理時間: {processing_time:.2f}秒"
-                )
-
                 # Emit completion signal for other components
                 if hasattr(self, "database_registration_completed"):
                     self.database_registration_completed.emit(registered)
 
-                QMessageBox.information(self, "バッチ登録完了", success_message)
+                # 非ブロッキング通知でUIクラッシュを防止
+                status_msg = f"バッチ登録完了: 登録={registered}件, スキップ={skipped}件, エラー={errors}件, 処理時間={processing_time:.1f}秒"
+                self.statusBar().showMessage(status_msg, 8000)  # 8秒表示
                 logger.info(f"バッチ登録統計: 登録={registered}, スキップ={skipped}, エラー={errors}")
 
             else:
                 # Fallback for unexpected result format
                 logger.warning(f"Unexpected batch registration result format: {result}")
-                QMessageBox.information(
-                    self,
-                    "バッチ登録完了",
-                    f"バッチ登録が完了しましたが、詳細情報を取得できませんでした。\n結果: {result}",
-                )
+                # 非ブロッキング通知でUIクラッシュを防止
+                self.statusBar().showMessage("バッチ登録完了（詳細情報取得不可）", 5000)
 
         except Exception as e:
             # Proper error logging instead of silent failure
             logger.error(f"バッチ登録完了処理中にエラー: {e}", exc_info=True)
-            QMessageBox.warning(
-                self,
-                "バッチ登録完了",
-                f"バッチ登録は完了しましたが、結果の表示中にエラーが発生しました:\n{e}",
-            )
+            # 非ブロッキング通知でUIクラッシュを防止
+            self.statusBar().showMessage(f"バッチ登録完了（結果表示エラー: {str(e)[:50]}）", 5000)
 
     def _on_batch_registration_error(self, error_message: str) -> None:
         """Batch registration error signal handler"""
@@ -723,9 +708,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if directory:
             self._start_batch_registration(directory)
 
-    def load_images_from_db(self):
-        """データベースから画像を読み込み"""
-        logger.info("DB画像読み込みが呼び出されました")
+    def load_images_from_db(self) -> None:
+        """データベースから画像を読み込み、検索パイプラインを開始"""
+        self._on_search_completed_start_thumbnail(True)
 
     def _resolve_optimal_thumbnail_data(
         self, image_metadata: list[dict[str, Any]]
@@ -774,7 +759,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         return result
 
-    def resizeEvent(self, event) -> None:
+    def resizeEvent(self, event: QResizeEvent) -> None:
         """ウィンドウリサイズイベント - スプリッターサイズを動的調整"""
         try:
             super().resizeEvent(event)
@@ -933,8 +918,67 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             # 現在の設定値の読み込み（ConfigurationServiceが利用可能な場合）
             if self.config_service:
-                # TODO: 設定値をUIに反映する処理をここに追加
-                logger.info("設定ダイアログに現在の設定値を読み込み")
+                try:
+                    # 設定値を取得
+                    settings = self.config_service.get_all_settings()
+
+                    # API Keys（マスク表示）
+                    openai_key = settings.get("api", {}).get("openai_key", "")
+                    if openai_key:
+                        config_ui.lineEditOpenAiKey.setText(self.config_service._mask_api_key(openai_key))
+
+                    google_key = settings.get("api", {}).get("google_key", "")
+                    if google_key:
+                        config_ui.lineEditGoogleVisionKey.setText(
+                            self.config_service._mask_api_key(google_key)
+                        )
+
+                    claude_key = settings.get("api", {}).get("claude_key", "")
+                    if claude_key:
+                        config_ui.lineEditAnthropicKey.setText(
+                            self.config_service._mask_api_key(claude_key)
+                        )
+
+                    # HuggingFace設定
+                    hf_username = settings.get("huggingface", {}).get("username", "")
+                    if hf_username:
+                        config_ui.lineEditHfUsername.setText(hf_username)
+
+                    hf_repo_name = settings.get("huggingface", {}).get("repo_name", "")
+                    if hf_repo_name:
+                        config_ui.lineEditHfRepoName.setText(hf_repo_name)
+
+                    # ディレクトリ設定
+                    export_dir = self.config_service.get_export_directory()
+                    if export_dir and hasattr(config_ui.dirPickerExportDir, "set_path"):
+                        config_ui.dirPickerExportDir.set_path(str(export_dir))
+
+                    database_dir = self.config_service.get_database_directory()
+                    if database_dir and hasattr(config_ui.dirPickerDatabaseDir, "set_path"):
+                        config_ui.dirPickerDatabaseDir.set_path(str(database_dir))
+
+                    batch_results_dir = self.config_service.get_batch_results_directory()
+                    if batch_results_dir and hasattr(config_ui.dirPickerBatchResults, "set_path"):
+                        config_ui.dirPickerBatchResults.set_path(str(batch_results_dir))
+
+                    # ログレベル設定
+                    log_level = settings.get("log", {}).get("level", "INFO")
+                    if hasattr(config_ui, "comboBoxLogLevel"):
+                        # ログレベル選択肢を設定
+                        log_levels: list[str] = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+                        config_ui.comboBoxLogLevel.clear()
+                        config_ui.comboBoxLogLevel.addItems(log_levels)
+
+                        # 現在のログレベルを選択
+                        index = config_ui.comboBoxLogLevel.findText(log_level)
+                        if index >= 0:
+                            config_ui.comboBoxLogLevel.setCurrentIndex(index)
+
+                    logger.info("設定ダイアログに現在の設定値を読み込み完了")
+
+                except Exception as e:
+                    logger.error(f"設定値読み込み中にエラー: {e}", exc_info=True)
+                    logger.warning("デフォルト設定で表示します")
             else:
                 logger.warning("ConfigurationServiceが利用できないため、デフォルト設定で表示")
 
@@ -944,10 +988,75 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             if result == QDialog.DialogCode.Accepted:
                 # OK が押された場合、設定を保存
                 if self.config_service:
-                    # TODO: UIから設定値を取得して保存する処理をここに追加
-                    logger.info("設定が更新されました")
+                    try:
+                        # API Keys取得（マスクされていない場合のみ更新）
+                        openai_key = config_ui.lineEditOpenAiKey.text().strip()
+                        if openai_key and not openai_key.startswith("*"):
+                            self.config_service.update_setting("api", "openai_key", openai_key)
+
+                        google_key = config_ui.lineEditGoogleVisionKey.text().strip()
+                        if google_key and not google_key.startswith("*"):
+                            self.config_service.update_setting("api", "google_key", google_key)
+
+                        claude_key = config_ui.lineEditAnthropicKey.text().strip()
+                        if claude_key and not claude_key.startswith("*"):
+                            self.config_service.update_setting("api", "claude_key", claude_key)
+
+                        # HuggingFace設定
+                        hf_username = config_ui.lineEditHfUsername.text().strip()
+                        if hf_username:
+                            self.config_service.update_setting("huggingface", "username", hf_username)
+
+                        hf_repo_name = config_ui.lineEditHfRepoName.text().strip()
+                        if hf_repo_name:
+                            self.config_service.update_setting("huggingface", "repo_name", hf_repo_name)
+
+                        # ディレクトリ設定
+                        if hasattr(config_ui.dirPickerExportDir, "get_selected_path"):
+                            export_dir_path = config_ui.dirPickerExportDir.get_selected_path()
+                            if export_dir_path:
+                                self.config_service.update_setting(
+                                    "directories", "export_dir", str(export_dir_path)
+                                )
+
+                        if hasattr(config_ui.dirPickerDatabaseDir, "get_selected_path"):
+                            database_dir_path = config_ui.dirPickerDatabaseDir.get_selected_path()
+                            if database_dir_path:
+                                self.config_service.update_setting(
+                                    "directories", "database_base_dir", str(database_dir_path)
+                                )
+
+                        if hasattr(config_ui.dirPickerBatchResults, "get_selected_path"):
+                            batch_results_dir_path = config_ui.dirPickerBatchResults.get_selected_path()
+                            if batch_results_dir_path:
+                                self.config_service.update_setting(
+                                    "directories", "batch_results_dir", str(batch_results_dir_path)
+                                )
+
+                        # ログレベル設定
+                        if hasattr(config_ui, "comboBoxLogLevel"):
+                            log_level = config_ui.comboBoxLogLevel.currentText()
+                            if log_level:
+                                self.config_service.update_setting("log", "level", log_level)
+
+                        # 設定保存
+                        self.config_service.save_settings()
+                        logger.info("設定が正常に保存されました")
+
+                        # 保存成功をユーザーに通知
+                        self.statusBar().showMessage("設定を保存しました", 3000)
+
+                    except Exception as e:
+                        error_msg = f"設定の保存に失敗しました: {e}"
+                        logger.error(error_msg, exc_info=True)
+                        QMessageBox.critical(self, "設定保存エラー", error_msg)
                 else:
                     logger.warning("ConfigurationServiceが利用できないため、設定を保存できませんでした")
+                    QMessageBox.warning(
+                        self,
+                        "設定保存エラー",
+                        "ConfigurationServiceが初期化されていないため、設定を保存できませんでした。",
+                    )
             else:
                 logger.info("設定ダイアログがキャンセルされました")
 
@@ -968,46 +1077,146 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 )
                 return
 
-            # TODO: 実際の実装では、選択された画像とモデルを取得する必要があります
-            # 現在は仮実装として空のリストを使用
-            images = []  # 実際には選択された画像リストを取得
-            phash_list = []  # 実際にはpHashリストを取得
-            models = ["gpt-4o-mini"]  # 実際には選択されたモデルリストを取得
+            # 選択された画像の取得
+            selected_image_ids: list[int] = []
+            image_paths: list[str] = []
 
-            if not images:
+            # DatasetStateManagerから選択画像IDを取得
+            if self.dataset_state_manager and self.dataset_state_manager.selected_image_ids:
+                selected_image_ids = self.dataset_state_manager.selected_image_ids
+                logger.debug(f"DatasetStateManagerから選択画像を取得: {len(selected_image_ids)}件")
+
+            # DatasetStateManagerから取得できない場合、ThumbnailSelectorWidgetから取得
+            elif self.thumbnail_selector and hasattr(self.thumbnail_selector, "get_selected_images"):
+                selected_paths = self.thumbnail_selector.get_selected_images()
+                if selected_paths and self.dataset_state_manager:
+                    # パスから画像IDを逆引き
+                    for path in selected_paths:
+                        for img in self.dataset_state_manager.all_images:
+                            if img.get("stored_image_path") == str(path):
+                                img_id = img.get("id")
+                                if img_id is not None:
+                                    selected_image_ids.append(img_id)
+                                break
+                logger.debug(f"ThumbnailSelectorWidgetから選択画像を取得: {len(selected_image_ids)}件")
+
+            # 画像が選択されていない場合、表示中の画像を使用
+            if (
+                not selected_image_ids
+                and self.dataset_state_manager
+                and self.dataset_state_manager.has_filtered_images()
+            ):
+                filtered_images = self.dataset_state_manager.filtered_images
+                selected_image_ids = [
+                    img_id for img in filtered_images if (img_id := img.get("id")) is not None
+                ]
+                logger.info(f"画像未選択のため、表示中の全画像を使用: {len(selected_image_ids)}件")
+
+            if not selected_image_ids:
                 QMessageBox.information(
                     self,
                     "画像未選択",
-                    "アノテーション処理を行う画像を選択してください。",
+                    "アノテーション処理を行う画像を選択してください。\n"
+                    "フィルタリング条件を設定して画像を表示するか、\n"
+                    "サムネイル表示で画像を選択してください。",
                 )
                 return
 
-            if not models:
+            # 画像パスの構築
+            for image_id in selected_image_ids:
+                if self.dataset_state_manager:
+                    image_data = self.dataset_state_manager.get_image_by_id(image_id)
+                    if image_data:
+                        image_path = image_data.get("stored_image_path")
+                        if image_path:
+                            image_paths.append(str(image_path))
+
+            if not image_paths:
                 QMessageBox.warning(
                     self,
-                    "モデル未選択",
-                    "アノテーション処理に使用するモデルを選択してください。",
+                    "画像データ取得エラー",
+                    "選択された画像のパスを取得できませんでした。\nデータベースの状態を確認してください。",
                 )
                 return
 
-            # アノテーション処理開始
-            worker_id = self.worker_service.start_annotation(images, phash_list, models)
+            # モデル選択の取得
+            models: list[str] = []
+
+            # ConfigurationServiceから利用可能なプロバイダーを取得
+            if self.config_service:
+                try:
+                    available_providers = self.config_service.get_available_providers()
+                    if available_providers:
+                        # 利用可能なプロバイダーに基づいてデフォルトモデルを設定
+                        provider_models = {
+                            "openai": "gpt-4o-mini",
+                            "anthropic": "claude-3-haiku-20240307",
+                            "google": "gemini-1.5-flash-latest",
+                        }
+
+                        for provider in available_providers:
+                            if provider in provider_models:
+                                models.append(provider_models[provider])
+                                break
+
+                        logger.info(f"利用可能なプロバイダーに基づいてモデルを選択: {models}")
+
+                except Exception as e:
+                    logger.warning(f"プロバイダー取得中にエラー: {e}")
+
+            # フォールバック: デフォルトモデルを使用
+            if not models:
+                models = ["gpt-4o-mini"]
+                logger.info("デフォルトモデルを使用: gpt-4o-mini")
+
+            # モデル選択確認ダイアログを表示
+            from PySide6.QtWidgets import QInputDialog
+
+            available_models = [
+                "gpt-4o-mini",
+                "gpt-4o",
+                "claude-3-haiku-20240307",
+                "claude-3-sonnet-20240229",
+                "gemini-1.5-flash-latest",
+                "gemini-1.5-pro-latest",
+            ]
+
+            selected_model, ok = QInputDialog.getItem(
+                self,
+                "モデル選択",
+                "アノテーションに使用するモデルを選択してください:",
+                available_models,
+                0,  # デフォルト選択
+                False,  # 編集不可
+            )
+
+            if not ok:
+                logger.info("モデル選択がキャンセルされました")
+                return
+
+            models = [selected_model]
+            logger.info(f"ユーザー選択モデル: {selected_model}")
+
+            # バッチアノテーション処理開始（画像パスを使用）
+            worker_id = self.worker_service.start_enhanced_batch_annotation(
+                image_paths, models, batch_size=50
+            )
 
             if worker_id:
                 logger.info(
-                    f"アノテーション処理開始: {len(images)}画像, {len(models)}モデル (ID: {worker_id})"
+                    f"バッチアノテーション処理開始: {len(image_paths)}画像, {len(models)}モデル (ID: {worker_id})"
                 )
-                QMessageBox.information(
-                    self,
-                    "アノテーション開始",
-                    f"アノテーション処理を開始しました。\n画像: {len(images)}件\nモデル: {', '.join(models)}",
-                )
+
+                # 非ブロッキング通知でUIクラッシュを防止
+                status_msg = f"アノテーション処理を開始: {len(image_paths)}画像, モデル: {selected_model}"
+                self.statusBar().showMessage(status_msg, 5000)
+
             else:
                 logger.error("アノテーション処理の開始に失敗しました")
                 QMessageBox.critical(
                     self,
                     "アノテーション開始エラー",
-                    "アノテーション処理の開始に失敗しました。",
+                    "アノテーション処理の開始に失敗しました。\nWorkerServiceの状態を確認してください。",
                 )
 
         except Exception as e:
@@ -1067,7 +1276,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # Second priority: all currently filtered/displayed images
             if self.dataset_state_manager and self.dataset_state_manager.has_filtered_images():
                 filtered_images = self.dataset_state_manager.filtered_images
-                filtered_ids = [img.get("id") for img in filtered_images if img.get("id")]
+                filtered_ids = [img_id for img in filtered_images if (img_id := img.get("id")) is not None]
                 logger.debug(f"表示中の画像を使用: {len(filtered_ids)}件")
                 return filtered_ids
 
@@ -1090,7 +1299,7 @@ if __name__ == "__main__":
     from ...utils.config import get_config
     from ...utils.log import initialize_logging
 
-    def setup_test_environment():
+    def setup_test_environment() -> None:
         """テスト用Qt環境設定"""
         system = platform.system()
         if system == "Windows":
