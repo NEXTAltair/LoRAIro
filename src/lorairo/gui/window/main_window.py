@@ -253,6 +253,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             try:
                 # ThumbnailSelectorWidgetの追加設定があればここに実装
                 self.thumbnail_selector = self.thumbnailSelectorWidget
+
+                # DatasetStateManager接続 - 状態管理復旧
+                if self.dataset_state_manager:
+                    self.thumbnail_selector.set_dataset_state(self.dataset_state_manager)
+                    logger.info("✅ ThumbnailSelectorWidget DatasetStateManager接続完了")
+                else:
+                    logger.warning("⚠️ DatasetStateManagerが初期化されていません - ThumbnailSelectorWidget接続をスキップ")
+
                 logger.info("✅ ThumbnailSelectorWidget設定完了")
             except Exception as e:
                 logger.error(f"ThumbnailSelectorWidget設定エラー: {e}")
@@ -262,12 +270,64 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             try:
                 # ImagePreviewWidgetの追加設定があればここに実装
                 self.image_preview_widget = self.imagePreviewWidget
+
+                # DatasetStateManager接続 - 状態管理復旧
+                if self.dataset_state_manager:
+                    self.image_preview_widget.set_dataset_state_manager(self.dataset_state_manager)
+                    logger.info("✅ ImagePreviewWidget DatasetStateManager接続完了")
+                else:
+                    logger.warning("⚠️ DatasetStateManagerが初期化されていません - ImagePreviewWidget接続をスキップ")
+
                 logger.info("✅ ImagePreviewWidget設定完了")
             except Exception as e:
                 logger.error(f"ImagePreviewWidget設定エラー: {e}")
 
+        # 状態管理接続の検証
+        self._verify_state_management_connections()
+
         # その他のウィジェット設定...
         logger.debug("その他のカスタムウィジェット設定完了")
+
+    def _verify_state_management_connections(self) -> None:
+        """状態管理接続の検証"""
+        try:
+            connection_status = []
+
+            # DatasetStateManager初期化確認
+            if self.dataset_state_manager:
+                connection_status.append("✅ DatasetStateManager: 初期化済み")
+            else:
+                connection_status.append("❌ DatasetStateManager: 未初期化")
+                logger.error("DatasetStateManagerが初期化されていません")
+                return
+
+            # ThumbnailSelectorWidget接続確認
+            if hasattr(self, "thumbnail_selector") and self.thumbnail_selector:
+                if hasattr(self.thumbnail_selector, "dataset_state") and self.thumbnail_selector.dataset_state:
+                    connection_status.append("✅ ThumbnailSelectorWidget: 状態管理接続済み")
+                else:
+                    connection_status.append("❌ ThumbnailSelectorWidget: 状態管理未接続")
+                    logger.error("ThumbnailSelectorWidgetの状態管理が接続されていません")
+            else:
+                connection_status.append("⚠️ ThumbnailSelectorWidget: ウィジェット未設定")
+
+            # ImagePreviewWidget接続確認
+            if hasattr(self, "image_preview_widget") and self.image_preview_widget:
+                if hasattr(self.image_preview_widget, "dataset_state_manager") and self.image_preview_widget.dataset_state_manager:
+                    connection_status.append("✅ ImagePreviewWidget: 状態管理接続済み")
+                else:
+                    connection_status.append("❌ ImagePreviewWidget: 状態管理未接続")
+                    logger.error("ImagePreviewWidgetの状態管理が接続されていません")
+            else:
+                connection_status.append("⚠️ ImagePreviewWidget: ウィジェット未設定")
+
+            # 検証結果をログ出力
+            logger.info("📋 状態管理接続検証結果:")
+            for status in connection_status:
+                logger.info(f"  {status}")
+
+        except Exception as e:
+            logger.error(f"状態管理接続検証エラー: {e}")
 
     def _setup_responsive_splitter(self) -> None:
         """レスポンシブスプリッターサイズ設定"""
