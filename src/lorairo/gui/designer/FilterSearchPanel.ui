@@ -47,7 +47,7 @@
           </widget>
          </item>
          <item>
-          <widget class="QRadioButton" name="radioTags">
+          <widget class="QCheckBox" name="checkboxTags">
            <property name="text">
             <string>タグ</string>
            </property>
@@ -57,7 +57,7 @@
           </widget>
          </item>
          <item>
-          <widget class="QRadioButton" name="radioCaption">
+          <widget class="QCheckBox" name="checkboxCaption">
            <property name="text">
             <string>キャプション</string>
            </property>
@@ -125,22 +125,6 @@
           </spacer>
          </item>
         </layout>
-       </item>
-       <item>
-        <widget class="QTextEdit" name="textEditPreview">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-           <horstretch>0</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
-         </property>
-         <property name="readOnly">
-          <bool>true</bool>
-         </property>
-         <property name="placeholderText">
-          <string>検索結果のプレビューがここに表示されます</string>
-         </property>
-        </widget>
        </item>
       </layout>
      </widget>
@@ -430,38 +414,6 @@
     <hint type="destinationlabel">
      <x>149</x>
      <y>100</y>
-    </hint>
-   </hints>
-  </connection>
-  <connection>
-   <sender>buttonClear</sender>
-   <signal>clicked()</signal>
-   <receiver>comboResolution</receiver>
-   <slot>clear()</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>347</x>
-     <y>397</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>180</x>
-     <y>180</y>
-    </hint>
-   </hints>
-  </connection>
-  <connection>
-   <sender>buttonClear</sender>
-   <signal>clicked()</signal>
-   <receiver>comboAspectRatio</receiver>
-   <slot>clear()</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>347</x>
-     <y>397</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>243</x>
-     <y>243</y>
     </hint>
    </hints>
   </connection>
