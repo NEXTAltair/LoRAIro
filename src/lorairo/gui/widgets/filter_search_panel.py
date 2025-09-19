@@ -74,8 +74,8 @@ class FilterSearchPanel(QScrollArea):
         logger.debug("FilterSearchPanel initialized")
 
     def setup_custom_widgets(self) -> None:
-        """Qt DesignerのUIに日付範囲スライダーと進捗表示を追加"""
-        from PySide6.QtWidgets import QHBoxLayout, QProgressBar, QPushButton
+        """Qt DesignerのUIに日付範囲スライダー、進捗表示、QButtonGroupを追加"""
+        from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QProgressBar, QPushButton
 
         # 日付範囲スライダーを作成してプレースホルダーと置き換え
         self.date_range_slider = CustomRangeSlider()
@@ -91,33 +91,34 @@ class FilterSearchPanel(QScrollArea):
             placeholder.deleteLater()
             layout.insertWidget(index, self.date_range_slider)
 
-        # 進捗表示UI作成
+        # QButtonGroup実装（論理演算子の独立化）
+        self.logic_button_group = QButtonGroup(self)
+        self.logic_button_group.addButton(self.ui.radioAnd)
+        self.logic_button_group.addButton(self.ui.radioOr)
+        # デフォルト設定
+        self.ui.radioAnd.setChecked(True)
+
+        # 進捗表示UI作成（キャンセルボタン削除）
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setMaximum(100)
 
-        self.cancel_button = QPushButton("キャンセル")
-        self.cancel_button.setVisible(False)
-        self.cancel_button.clicked.connect(self._on_cancel_search_requested)
-
-        # 進捗表示レイアウト作成
+        # 進捗表示レイアウト作成（キャンセルボタンなし）
         self.progress_layout = QHBoxLayout()
         self.progress_layout.addWidget(self.progress_bar)
-        self.progress_layout.addWidget(self.cancel_button)
 
-        # プレビューテキストエリアの下に進捗UIを追加
-        main_layout = self.ui.textEditPreview.parent().layout()
+        # 検索グループの最後に進捗UIを追加
+        # プレビューエリア削除後は、lineEditSearchの下に追加
+        main_layout = self.ui.searchGroup.layout()
         if main_layout:
-            # textEditPreviewの下に進捗UIを挿入
-            preview_index = main_layout.indexOf(self.ui.textEditPreview)
-            main_layout.insertLayout(preview_index + 1, self.progress_layout)
+            main_layout.addLayout(self.progress_layout)
 
     def connect_signals(self) -> None:
         """Qt DesignerのUIコンポーネントにシグナルを接続"""
-        # 検索関連
+        # 検索関連（チェックボックスに更新）
         self.ui.lineEditSearch.returnPressed.connect(self._on_search_requested)
-        self.ui.radioTags.toggled.connect(self._on_search_type_changed)
-        self.ui.radioCaption.toggled.connect(self._on_search_type_changed)
+        self.ui.checkboxTags.toggled.connect(self._on_search_type_changed)
+        self.ui.checkboxCaption.toggled.connect(self._on_search_type_changed)
 
         # 解像度フィルター
         self.ui.comboResolution.currentTextChanged.connect(self._on_resolution_changed)
@@ -179,27 +180,8 @@ class FilterSearchPanel(QScrollArea):
 
         logger.debug("WorkerService set for FilterSearchPanel")
 
-    def _on_cancel_search_requested(self) -> None:
-        """検索キャンセル処理（Pipeline対応）"""
-        if self._current_search_worker_id and self.worker_service:
-            logger.info(f"検索キャンセル要求: {self._current_search_worker_id}")
-
-            # Phase 2: Pipeline全体のキャンセレーション
-            # MainWindow経由でPipeline cascade cancellationを実行
-            parent_window = self.parent()
-            while parent_window and not hasattr(parent_window, "cancel_current_pipeline"):
-                parent_window = parent_window.parent()
-
-            if parent_window and hasattr(parent_window, "cancel_current_pipeline"):
-                parent_window.cancel_current_pipeline()
-                logger.info("Pipeline cancellation requested through MainWindow")
-            else:
-                # Fallback: 直接SearchWorkerキャンセル
-                self.worker_service.cancel_search(self._current_search_worker_id)
-                logger.info("Direct search worker cancellation (fallback)")
-
-            # Pipeline結果クリア
-            self.clear_pipeline_results()
+    # TODO: キャンセル機能が必要になった場合は、MainWindow経由でPipelineキャンセルを実装する
+    # 現在はキャンセルボタンを削除して、UI簡素化を優先
 
     def _on_search_finished(self, result: Any) -> None:
         """検索完了イベント処理（SearchResult/dataclass想定）"""
@@ -312,30 +294,27 @@ class FilterSearchPanel(QScrollArea):
 
         if state == PipelineState.IDLE:
             self.progress_bar.setVisible(False)
-            self.cancel_button.setVisible(False)
-            self.ui.textEditPreview.setPlainText("")
+            # TODO: エラー表示方法を検討（プレビューエリア削除のため）
+            pass
 
         elif state == PipelineState.SEARCHING:
             self.progress_bar.setVisible(True)
-            self.cancel_button.setVisible(True)
             self.progress_bar.setValue(10)  # 開始時の進捗
-            self.ui.textEditPreview.setPlainText(message)
+            # TODO: 検索開始メッセージの表示方法を検討（プレビューエリア削除のため）
 
         elif state == PipelineState.LOADING_THUMBNAILS:
             # 検索完了、サムネイル読み込み開始
             self.progress_bar.setValue(30)  # 0.3 * 100 = 30%
-            self.ui.textEditPreview.setPlainText(message)
+            # TODO: サムネイル読み込み開始メッセージの表示方法を検討（プレビューエリア削除のため）
 
         elif state == PipelineState.DISPLAYING:
             # プログレスバーは表示継続（サムネイル読み込み中の可能性があるため）
             self.progress_bar.setValue(100)  # 完了表示
-            self.cancel_button.setVisible(False)
             # 結果表示はmessageで行う（検索結果テキスト）
 
         elif state in (PipelineState.ERROR, PipelineState.CANCELED):
             self.progress_bar.setVisible(False)
-            self.cancel_button.setVisible(False)
-            self.ui.textEditPreview.setPlainText(message)
+            # TODO: エラー・キャンセルメッセージの表示方法を検討（プレビューエリア削除のため）
 
     def hide_progress_after_completion(self) -> None:
         """パイプライン完全完了後にプログレスバーを非表示にする - ModernProgressManagerに移行済み"""
@@ -343,7 +322,7 @@ class FilterSearchPanel(QScrollArea):
         # ModernProgressManagerが自動的にプログレス完了処理を行うため、無効化
         logger.debug("Progress hiding delegated to ModernProgressManager (pipeline completion)")
 
-        # インライン要素は既に非表示にされているが、確実に非表示状態を維持
+        # プログレスバーのみ非表示（キャンセルボタン削除により簡素化）
         if hasattr(self, "progress_bar") and self.progress_bar:
             self.progress_bar.setVisible(False)
 
@@ -420,32 +399,61 @@ class FilterSearchPanel(QScrollArea):
         self._update_search_input_state()
         self._on_search_type_changed()
 
+    def _get_selected_search_types(self) -> list[str]:
+        """選択された検索タイプのリストを取得"""
+        types = []
+        if self.ui.checkboxTags.isChecked():
+            types.append("tags")
+        if self.ui.checkboxCaption.isChecked():
+            types.append("caption")
+        return types
+
+    def _get_primary_search_type(self) -> str:
+        """主要な検索タイプを取得（従来のAPI互換性のため）"""
+        types = self._get_selected_search_types()
+        if "tags" in types:
+            return "tags"
+        elif "caption" in types:
+            return "caption"
+        else:
+            return "tags"  # デフォルト
+
     def _on_search_type_changed(self) -> None:
-        """検索タイプ変更時の処理"""
+        """検索タイプ変更時の処理（チェックボックス対応）"""
         # 入力フィールドの有効/無効を更新
         self._update_search_input_state()
 
         # プレースホルダーテキストを更新
-        if self.ui.radioTags.isChecked():
-            if self.ui.checkboxOnlyUntagged.isChecked():
-                self.ui.lineEditSearch.setPlaceholderText("未タグ画像検索中（タグ入力無効）")
-            else:
-                self.ui.lineEditSearch.setPlaceholderText(
-                    "検索キーワードを入力（複数タグの場合はカンマ区切り）..."
-                )
-        else:  # caption
-            if self.ui.checkboxOnlyUncaptioned.isChecked():
-                self.ui.lineEditSearch.setPlaceholderText(
-                    "未キャプション画像検索中（キャプション入力無効）"
-                )
-            else:
-                self.ui.lineEditSearch.setPlaceholderText("キャプション検索キーワードを入力...")
+        selected_types = self._get_selected_search_types()
+
+        if not selected_types:
+            # 何も選択されていない場合
+            self.ui.lineEditSearch.setPlaceholderText("検索タイプを選択してください...")
+        elif len(selected_types) == 1:
+            # 単一タイプ選択時
+            if "tags" in selected_types:
+                if self.ui.checkboxOnlyUntagged.isChecked():
+                    self.ui.lineEditSearch.setPlaceholderText("未タグ画像検索中（タグ入力無効）")
+                else:
+                    self.ui.lineEditSearch.setPlaceholderText(
+                        "検索キーワードを入力（複数タグの場合はカンマ区切り）..."
+                    )
+            elif "caption" in selected_types:
+                if self.ui.checkboxOnlyUncaptioned.isChecked():
+                    self.ui.lineEditSearch.setPlaceholderText(
+                        "未キャプション画像検索中（キャプション入力無効）"
+                    )
+                else:
+                    self.ui.lineEditSearch.setPlaceholderText("キャプション検索キーワードを入力...")
+        else:
+            # 複数タイプ選択時
+            self.ui.lineEditSearch.setPlaceholderText("タグ・キャプション検索キーワードを入力...")
 
     def _update_search_input_state(self) -> None:
-        """検索入力フィールドの有効/無効状態を更新"""
+        """検索入力フィールドの有効/無効状態を更新（チェックボックス対応）"""
         # タグ検索で未タグ検索が有効、またはキャプション検索で未キャプション検索が有効の場合は無効化
-        disabled = (self.ui.radioTags.isChecked() and self.ui.checkboxOnlyUntagged.isChecked()) or (
-            self.ui.radioCaption.isChecked() and self.ui.checkboxOnlyUncaptioned.isChecked()
+        disabled = (self.ui.checkboxTags.isChecked() and self.ui.checkboxOnlyUntagged.isChecked()) or (
+            self.ui.checkboxCaption.isChecked() and self.ui.checkboxOnlyUncaptioned.isChecked()
         )
         self.ui.lineEditSearch.setEnabled(not disabled)
 
@@ -527,7 +535,8 @@ class FilterSearchPanel(QScrollArea):
                 "MainWindow 初期化エラーの可能性があります。\n"
                 "ログを確認してください。"
             )
-            self.ui.textEditPreview.setPlainText(user_error_message)
+            # TODO: SearchFilterService未設定エラーの表示方法を検討（プレビューエリア削除のため）
+            # user_error_message = SearchFilterService が設定されていません...
             return
 
         if not self.worker_service:
@@ -556,7 +565,8 @@ class FilterSearchPanel(QScrollArea):
                     self.ui.comboAspectRatio.currentText() != "全て",
                 ]
             ):
-                self.ui.textEditPreview.setPlainText("検索条件を入力してください")
+                # TODO: 検索条件未入力エラーの表示方法を検討（プレビューエリア削除のため）
+                # "検索条件を入力してください"
                 logger.info("検索条件が未指定のため検索をスキップ")
                 return
 
@@ -568,13 +578,14 @@ class FilterSearchPanel(QScrollArea):
                 date_range_start is None or date_range_end is None
             ):
                 error_msg = "日付範囲の設定に問題があります。日付フィルターを無効にするか、範囲を再設定してください。"
-                self.ui.textEditPreview.setPlainText(error_msg)
+                # TODO: 日付範囲エラーの表示方法を検討（プレビューエリア削除のため）
+                # error_msg = 日付範囲の設定に問題があります...
                 logger.warning("日付範囲フィルターエラー: 有効だが範囲が無効")
                 return
 
             # SearchFilterServiceを使用して検索条件を作成
             conditions = self.search_filter_service.create_search_conditions(
-                search_type="tags" if self.ui.radioTags.isChecked() else "caption",
+                search_type=self._get_primary_search_type(),
                 keywords=keywords,
                 tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
                 resolution_filter=self.ui.comboResolution.currentText(),
@@ -624,8 +635,7 @@ class FilterSearchPanel(QScrollArea):
         """同期検索実行（WorkerServiceが利用できない場合のフォールバック）"""
         logger.info("フォールバック: 同期検索を実行")
 
-        # 検索中表示
-        self.ui.textEditPreview.setPlainText("検索中...")
+        # TODO: 検索中メッセージの表示方法を検討（プレビューエリア削除のため）
 
         try:
             # 検索テキストをキーワードリストに変換
@@ -637,7 +647,7 @@ class FilterSearchPanel(QScrollArea):
 
             # SearchFilterServiceを使用して検索条件を作成
             conditions = self.search_filter_service.create_search_conditions(
-                search_type="tags" if self.ui.radioTags.isChecked() else "caption",
+                search_type=self._get_primary_search_type(),
                 keywords=keywords,
                 tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
                 resolution_filter=self.ui.comboResolution.currentText(),
@@ -665,7 +675,7 @@ class FilterSearchPanel(QScrollArea):
         except Exception as e:
             error_msg = f"検索エラー: {str(e)[:100]}"
             logger.error(f"同期検索実行エラー: {e}", exc_info=True)
-            self.ui.textEditPreview.setPlainText(error_msg)
+            # TODO: 同期検索エラーの表示方法を検討（プレビューエリア削除のため）
             self.search_completed.emit({"results": [], "count": 0, "error": str(e)})
 
     def _on_clear_requested(self) -> None:
@@ -680,14 +690,14 @@ class FilterSearchPanel(QScrollArea):
 
     def _update_ui_from_conditions(self, conditions: dict) -> None:
         """条件からUIを更新"""
-        # 検索テキスト
+        # 検索テキスト（チェックボックス対応）
         if conditions.get("tags"):
-            self.ui.radioTags.setChecked(True)
+            self.ui.checkboxTags.setChecked(True)
             self.ui.lineEditSearch.setText(", ".join(conditions["tags"]))
             self.ui.radioAnd.setChecked(conditions.get("use_and", True))
             self.ui.radioOr.setChecked(not conditions.get("use_and", True))
         elif conditions.get("caption"):
-            self.ui.radioCaption.setChecked(True)
+            self.ui.checkboxCaption.setChecked(True)
             self.ui.lineEditSearch.setText(conditions["caption"])
 
         # 解像度
@@ -711,7 +721,8 @@ class FilterSearchPanel(QScrollArea):
     def _clear_all_inputs(self) -> None:
         """全入力をクリア"""
         self.ui.lineEditSearch.clear()
-        self.ui.radioTags.setChecked(True)
+        self.ui.checkboxTags.setChecked(True)
+        self.ui.checkboxCaption.setChecked(False)
         self.ui.radioAnd.setChecked(True)
 
         self.ui.comboResolution.setCurrentIndex(0)
@@ -726,7 +737,7 @@ class FilterSearchPanel(QScrollArea):
         self.ui.checkboxOnlyUncaptioned.setChecked(False)
         self.ui.checkboxExcludeDuplicates.setChecked(False)
 
-        self.ui.textEditPreview.setPlainText("検索結果のプレビューがここに表示されます")
+        # TODO: クリア時のメッセージ表示方法を検討（プレビューエリア削除のため）
 
     # === Public Methods ===
 
@@ -734,9 +745,11 @@ class FilterSearchPanel(QScrollArea):
         """検索テキストを設定"""
         self.ui.lineEditSearch.setText(text)
         if search_type == "tags":
-            self.ui.radioTags.setChecked(True)
+            self.ui.checkboxTags.setChecked(True)
+            self.ui.checkboxCaption.setChecked(False)
         else:
-            self.ui.radioCaption.setChecked(True)
+            self.ui.checkboxCaption.setChecked(True)
+            self.ui.checkboxTags.setChecked(False)
 
     def get_current_conditions(self) -> dict[str, Any]:
         """現在の条件を取得"""
@@ -789,12 +802,12 @@ class FilterSearchPanel(QScrollArea):
         else:
             preview = "検索結果がありません"
 
-        self.ui.textEditPreview.setPlainText(preview)
+        # TODO: 検索結果プレビューの表示方法を検討（プレビューエリア削除のため）
         logger.debug(f"検索結果プレビュー更新: {result_count}件")
 
     def clear_search_preview(self) -> None:
         """検索結果プレビューをクリア"""
-        self.ui.textEditPreview.clear()
+        # TODO: プレビュークリア機能の代替手段を検討（プレビューエリア削除のため）
         logger.debug("検索結果プレビューをクリア")
 
     def _on_apply_clicked(self) -> None:
@@ -831,8 +844,7 @@ class FilterSearchPanel(QScrollArea):
             logger.error(f"Pipeline {phase} error: {error_message}")
 
             # UI状態のリセット（エラー時は検索結果破棄）
-            if hasattr(self, "cancel_button") and self.cancel_button:
-                self.cancel_button.setEnabled(False)
+            # キャンセルボタン削除のため、UI状態リセット処理を簡素化
 
             # エラー状態の通知（オプション）
             if hasattr(self, "search_completed"):

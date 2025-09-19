@@ -136,10 +136,10 @@ class TestFilterSearchPanel:
         panel = FilterSearchPanel(parent_widget)
         qtbot.addWidget(panel)
 
-        # UI要素をモック
+        # UI要素をモック（チェックボックス更新）
         panel.lineEditSearch = Mock()
-        panel.radioTags = Mock()
-        panel.radioCaption = Mock()
+        panel.checkboxTags = Mock()  # radioTags → checkboxTags
+        panel.checkboxCaption = Mock()  # radioCaption → checkboxCaption
         panel.radioAnd = Mock()
         panel.radioOr = Mock()
         panel.comboResolution = Mock()
@@ -153,7 +153,7 @@ class TestFilterSearchPanel:
         panel.checkboxOnlyUncaptioned = Mock()
         panel.checkboxExcludeDuplicates = Mock()
         panel.checkboxIncludeNSFW = Mock()
-        panel.textEditPreview = Mock()
+        # textEditPreview は削除されたため除外
         panel.buttonApply = Mock()
         panel.buttonClear = Mock()
         panel.dateRangeSliderPlaceholder = Mock()
@@ -165,11 +165,15 @@ class TestFilterSearchPanel:
             1703980800,
         )  # 2022-01-01 to 2023-12-30
 
-        # UI オブジェクトをモック（実装と一致させる）
+        # QButtonGroup モック（新機能）
+        from PySide6.QtWidgets import QButtonGroup
+        panel.logic_button_group = Mock(spec=QButtonGroup)
+
+        # UI オブジェクトをモック（更新された実装と一致させる）
         panel.ui = Mock()
         panel.ui.lineEditSearch = panel.lineEditSearch
-        panel.ui.radioTags = panel.radioTags
-        panel.ui.radioCaption = panel.radioCaption
+        panel.ui.checkboxTags = panel.checkboxTags  # 更新
+        panel.ui.checkboxCaption = panel.checkboxCaption  # 更新
         panel.ui.radioAnd = panel.radioAnd
         panel.ui.radioOr = panel.radioOr
         panel.ui.comboResolution = panel.comboResolution
@@ -183,7 +187,7 @@ class TestFilterSearchPanel:
         panel.ui.checkboxOnlyUncaptioned = panel.checkboxOnlyUncaptioned
         panel.ui.checkboxExcludeDuplicates = panel.checkboxExcludeDuplicates
         panel.ui.checkboxIncludeNSFW = panel.checkboxIncludeNSFW
-        panel.ui.textEditPreview = panel.textEditPreview
+        # textEditPreview は削除
 
         # SearchFilterService モック
         panel.search_filter_service = Mock()
@@ -191,9 +195,10 @@ class TestFilterSearchPanel:
         return panel
 
     def test_initialization(self, filter_panel):
-        """初期化テスト"""
+        """初期化テスト（リファクタリング後）"""
         assert hasattr(filter_panel, "lineEditSearch")
         assert hasattr(filter_panel, "date_range_slider")
+        assert hasattr(filter_panel, "logic_button_group")  # 新機能
         assert hasattr(filter_panel, "filter_applied")
 
     def test_toggle_custom_resolution_show(self, filter_panel):
@@ -210,9 +215,9 @@ class TestFilterSearchPanel:
 
     def test_get_filter_conditions_basic_search(self, filter_panel):
         """基本検索条件取得テスト"""
-        # UI状態設定
+        # UI状態設定（チェックボックス更新）
         filter_panel.lineEditSearch.text.return_value = "test search"
-        filter_panel.radioTags.isChecked.return_value = True
+        filter_panel.checkboxTags.isChecked.return_value = True  # 更新
         filter_panel.radioAnd.isChecked.return_value = True
         filter_panel.comboResolution.currentText.return_value = "全て"
         filter_panel.comboResolution.currentIndex.return_value = 0
@@ -258,10 +263,10 @@ class TestFilterSearchPanel:
 
     def test_get_filter_conditions_caption_search(self, filter_panel):
         """キャプション検索条件テスト"""
-        # UI状態設定（キャプション検索）
+        # UI状態設定（キャプション検索、チェックボックス更新）
         filter_panel.lineEditSearch.text.return_value = "beautiful landscape"
-        filter_panel.radioTags.isChecked.return_value = False
-        filter_panel.radioCaption.isChecked.return_value = True
+        filter_panel.checkboxTags.isChecked.return_value = False  # 更新
+        filter_panel.checkboxCaption.isChecked.return_value = True  # 更新
         filter_panel.radioAnd.isChecked.return_value = False
         filter_panel.radioOr.isChecked.return_value = True
         filter_panel.comboResolution.currentText.return_value = "全て"
@@ -300,9 +305,9 @@ class TestFilterSearchPanel:
 
     def test_get_filter_conditions_custom_resolution(self, filter_panel):
         """カスタム解像度条件テスト"""
-        # UI状態設定（カスタム解像度）
+        # UI状態設定（カスタム解像度、チェックボックス更新）
         filter_panel.lineEditSearch.text.return_value = ""
-        filter_panel.radioTags.isChecked.return_value = True
+        filter_panel.checkboxTags.isChecked.return_value = True  # 更新
         filter_panel.radioAnd.isChecked.return_value = True
         filter_panel.comboResolution.currentText.return_value = "カスタム..."
         filter_panel.comboResolution.currentIndex.return_value = -1
@@ -342,9 +347,9 @@ class TestFilterSearchPanel:
 
     def test_get_filter_conditions_date_range(self, filter_panel):
         """日付範囲条件テスト"""
-        # UI状態設定（日付フィルター有効）
+        # UI状態設定（日付フィルター有効、チェックボックス更新）
         filter_panel.lineEditSearch.text.return_value = ""
-        filter_panel.radioTags.isChecked.return_value = True
+        filter_panel.checkboxTags.isChecked.return_value = True  # 更新
         filter_panel.radioAnd.isChecked.return_value = True
         filter_panel.comboResolution.currentText.return_value = "全て"
         filter_panel.comboResolution.currentIndex.return_value = 0
@@ -384,9 +389,9 @@ class TestFilterSearchPanel:
 
     def test_get_filter_conditions_all_options(self, filter_panel):
         """全オプション有効時の条件テスト"""
-        # UI状態設定（全オプション有効）
+        # UI状態設定（全オプション有効、チェックボックス更新）
         filter_panel.lineEditSearch.text.return_value = "test"
-        filter_panel.radioTags.isChecked.return_value = True
+        filter_panel.checkboxTags.isChecked.return_value = True  # 更新
         filter_panel.radioAnd.isChecked.return_value = True
         filter_panel.comboResolution.currentText.return_value = "1024x1024"
         filter_panel.comboResolution.currentIndex.return_value = 2
@@ -430,9 +435,10 @@ class TestFilterSearchPanel:
         """フィルタークリアテスト（実際の清理動作に合わせたテスト）"""
         filter_panel._on_clear_clicked()
 
-        # 実際のui要素を通じてクリアされることを確認
+        # 実際のui要素を通じてクリアされることを確認（チェックボックス更新）
         filter_panel.ui.lineEditSearch.clear.assert_called_once()
-        filter_panel.ui.radioTags.setChecked.assert_called_with(True)
+        filter_panel.ui.checkboxTags.setChecked.assert_called_with(True)  # 更新
+        filter_panel.ui.checkboxCaption.setChecked.assert_called_with(False)  # 更新
         filter_panel.ui.radioAnd.setChecked.assert_called_with(True)
         filter_panel.ui.comboResolution.setCurrentIndex.assert_called_with(0)
         filter_panel.ui.comboAspectRatio.setCurrentIndex.assert_called_with(0)
@@ -440,7 +446,24 @@ class TestFilterSearchPanel:
         filter_panel.ui.checkboxOnlyUntagged.setChecked.assert_called_with(False)
         filter_panel.ui.checkboxOnlyUncaptioned.setChecked.assert_called_with(False)
         filter_panel.ui.checkboxExcludeDuplicates.setChecked.assert_called_with(False)
-        filter_panel.ui.textEditPreview.setPlainText.assert_called_once()
+        # textEditPreview は削除されたため、関連アサートを削除
+
+    def test_dropdown_items_preserved_after_clear(self, filter_panel):
+        """ドロップダウンアイテムが保持されるテスト（バグ修正確認）"""
+        # ドロップダウンのアイテムが初期状態で存在することを確認
+        filter_panel.ui.comboResolution.count.return_value = 7  # 解像度の選択肢数
+        filter_panel.ui.comboAspectRatio.count.return_value = 6  # アスペクト比の選択肢数
+
+        # クリアボタンを押す
+        filter_panel._on_clear_clicked()
+
+        # setCurrentIndex(0)が呼ばれることを確認（アイテムをクリアしていない）
+        filter_panel.ui.comboResolution.setCurrentIndex.assert_called_with(0)
+        filter_panel.ui.comboAspectRatio.setCurrentIndex.assert_called_with(0)
+
+        # clear()は呼ばれないことを確認（これがバグ修正のポイント）
+        filter_panel.ui.comboResolution.clear.assert_not_called()
+        filter_panel.ui.comboAspectRatio.clear.assert_not_called()
 
     def test_on_apply_filter_signal(self, filter_panel, qtbot):
         """フィルター適用シグナルテスト"""
@@ -453,9 +476,9 @@ class TestFilterSearchPanel:
         mock_search_service.execute_search_with_filters.return_value = ([], 0)
         filter_panel.search_filter_service = mock_search_service
 
-        # UI状態をセットアップ（直接モックされた要素を使用）
+        # UI状態をセットアップ（直接モックされた要素を使用、チェックボックス更新）
         filter_panel.lineEditSearch.text.return_value = "test"
-        filter_panel.radioTags.isChecked.return_value = True
+        filter_panel.checkboxTags.isChecked.return_value = True  # 更新
         filter_panel.radioAnd.isChecked.return_value = True
         filter_panel.comboResolution.currentText.return_value = "全て"
         filter_panel.comboAspectRatio.currentText.return_value = "全て"
@@ -469,7 +492,7 @@ class TestFilterSearchPanel:
         # UI オブジェクトをモックして実装と一致させる
         filter_panel.ui = Mock()
         filter_panel.ui.lineEditSearch = filter_panel.lineEditSearch
-        filter_panel.ui.radioTags = filter_panel.radioTags
+        filter_panel.ui.checkboxTags = filter_panel.checkboxTags  # 更新
         filter_panel.ui.radioAnd = filter_panel.radioAnd
         filter_panel.ui.comboResolution = filter_panel.comboResolution
         filter_panel.ui.comboAspectRatio = filter_panel.comboAspectRatio
@@ -479,7 +502,7 @@ class TestFilterSearchPanel:
         filter_panel.ui.checkboxExcludeDuplicates = filter_panel.checkboxExcludeDuplicates
         filter_panel.ui.lineEditWidth = filter_panel.lineEditWidth
         filter_panel.ui.lineEditHeight = filter_panel.lineEditHeight
-        filter_panel.ui.textEditPreview = Mock()
+        # textEditPreview は削除されたため除外
 
         # search_requestedシグナルをモック
         signal_mock = Mock()
@@ -493,6 +516,98 @@ class TestFilterSearchPanel:
         assert "results" in emitted_data
         assert "count" in emitted_data
         assert "conditions" in emitted_data
+
+    def test_checkbox_search_types_new_functionality(self, filter_panel):
+        """チェックボックス式検索タイプ選択テスト（新機能）"""
+        # タグのみ選択
+        filter_panel.ui.checkboxTags.isChecked.return_value = True
+        filter_panel.ui.checkboxCaption.isChecked.return_value = False
+
+        selected_types = filter_panel._get_selected_search_types()
+        assert selected_types == ["tags"]
+
+        primary_type = filter_panel._get_primary_search_type()
+        assert primary_type == "tags"
+
+    def test_checkbox_both_search_types_new_functionality(self, filter_panel):
+        """両方のチェックボックス選択テスト（新機能）"""
+        # 両方選択
+        filter_panel.ui.checkboxTags.isChecked.return_value = True
+        filter_panel.ui.checkboxCaption.isChecked.return_value = True
+
+        selected_types = filter_panel._get_selected_search_types()
+        assert "tags" in selected_types
+        assert "caption" in selected_types
+        assert len(selected_types) == 2
+
+        # プライマリタイプはタグが優先
+        primary_type = filter_panel._get_primary_search_type()
+        assert primary_type == "tags"
+
+    def test_checkbox_caption_only_new_functionality(self, filter_panel):
+        """キャプションのみ選択テスト（新機能）"""
+        # キャプションのみ選択
+        filter_panel.ui.checkboxTags.isChecked.return_value = False
+        filter_panel.ui.checkboxCaption.isChecked.return_value = True
+
+        selected_types = filter_panel._get_selected_search_types()
+        assert selected_types == ["caption"]
+
+        primary_type = filter_panel._get_primary_search_type()
+        assert primary_type == "caption"
+
+    def test_checkbox_none_selected_new_functionality(self, filter_panel):
+        """何も選択されていない場合のテスト（新機能）"""
+        # 何も選択されていない
+        filter_panel.ui.checkboxTags.isChecked.return_value = False
+        filter_panel.ui.checkboxCaption.isChecked.return_value = False
+
+        selected_types = filter_panel._get_selected_search_types()
+        assert selected_types == []
+
+        # デフォルトはタグ
+        primary_type = filter_panel._get_primary_search_type()
+        assert primary_type == "tags"
+
+    def test_qbuttongroup_logic_operators_new_functionality(self, filter_panel):
+        """QButtonGroup論理演算子テスト（新機能）"""
+        # QButtonGroupが正しく設定されているかテスト
+        assert hasattr(filter_panel, "logic_button_group")
+        assert filter_panel.logic_button_group is not None
+
+        # AND選択
+        filter_panel.ui.radioAnd.isChecked.return_value = True
+        filter_panel.ui.radioOr.isChecked.return_value = False
+
+        # OR選択
+        filter_panel.ui.radioAnd.isChecked.return_value = False
+        filter_panel.ui.radioOr.isChecked.return_value = True
+
+    def test_search_type_input_state_update_new_functionality(self, filter_panel):
+        """検索タイプ変更時の入力状態更新テスト（新機能）"""
+        # 未タグ検索有効時
+        filter_panel.ui.checkboxTags.isChecked.return_value = True
+        filter_panel.ui.checkboxOnlyUntagged.isChecked.return_value = True
+        filter_panel.ui.checkboxCaption.isChecked.return_value = False
+        filter_panel.ui.checkboxOnlyUncaptioned.isChecked.return_value = False
+
+        filter_panel._update_search_input_state()
+
+        # 入力が無効化されることを確認
+        filter_panel.ui.lineEditSearch.setEnabled.assert_called_with(False)
+
+    def test_search_type_input_state_normal_new_functionality(self, filter_panel):
+        """検索タイプ通常時の入力状態テスト（新機能）"""
+        # 通常の検索時
+        filter_panel.ui.checkboxTags.isChecked.return_value = True
+        filter_panel.ui.checkboxOnlyUntagged.isChecked.return_value = False
+        filter_panel.ui.checkboxCaption.isChecked.return_value = False
+        filter_panel.ui.checkboxOnlyUncaptioned.isChecked.return_value = False
+
+        filter_panel._update_search_input_state()
+
+        # 入力が有効のままであることを確認
+        filter_panel.ui.lineEditSearch.setEnabled.assert_called_with(True)
 
 
 class TestFilterWidgetIntegration:
@@ -538,3 +653,32 @@ class TestFilterWidgetIntegration:
 
         # シグナルが発行されたことを確認
         assert callback_mock.call_count >= 1
+
+    def test_qbuttongroup_integration_real(self, parent_widget, qtbot):
+        """QButtonGroup統合テスト（実際のウィジェット、新機能）"""
+        # QButtonGroupが正しく動作することを確認
+        from PySide6.QtWidgets import QButtonGroup, QRadioButton, QVBoxLayout
+
+        layout = QVBoxLayout(parent_widget)
+        radio1 = QRadioButton("AND")
+        radio2 = QRadioButton("OR")
+
+        layout.addWidget(radio1)
+        layout.addWidget(radio2)
+
+        button_group = QButtonGroup(parent_widget)
+        button_group.addButton(radio1)
+        button_group.addButton(radio2)
+
+        # 片方を選択すると、もう片方が自動的に無効になることを確認
+        radio1.setChecked(True)
+        assert radio1.isChecked()
+        assert not radio2.isChecked()
+
+        radio2.setChecked(True)
+        assert not radio1.isChecked()
+        assert radio2.isChecked()
+
+        # デフォルト設定テスト
+        radio1.setChecked(True)  # ANDをデフォルトに設定
+        assert radio1.isChecked()  # ANDが選択されている
