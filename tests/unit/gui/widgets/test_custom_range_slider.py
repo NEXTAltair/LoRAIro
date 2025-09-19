@@ -167,6 +167,7 @@ class TestFilterSearchPanel:
 
         # QButtonGroup モック（新機能）
         from PySide6.QtWidgets import QButtonGroup
+
         panel.logic_button_group = Mock(spec=QButtonGroup)
 
         # UI オブジェクトをモック（更新された実装と一致させる）

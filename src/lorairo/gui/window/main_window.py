@@ -259,7 +259,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     self.thumbnail_selector.set_dataset_state(self.dataset_state_manager)
                     logger.info("✅ ThumbnailSelectorWidget DatasetStateManager接続完了")
                 else:
-                    logger.warning("⚠️ DatasetStateManagerが初期化されていません - ThumbnailSelectorWidget接続をスキップ")
+                    logger.warning(
+                        "⚠️ DatasetStateManagerが初期化されていません - ThumbnailSelectorWidget接続をスキップ"
+                    )
 
                 logger.info("✅ ThumbnailSelectorWidget設定完了")
             except Exception as e:
@@ -276,7 +278,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     self.image_preview_widget.set_dataset_state_manager(self.dataset_state_manager)
                     logger.info("✅ ImagePreviewWidget DatasetStateManager接続完了")
                 else:
-                    logger.warning("⚠️ DatasetStateManagerが初期化されていません - ImagePreviewWidget接続をスキップ")
+                    logger.warning(
+                        "⚠️ DatasetStateManagerが初期化されていません - ImagePreviewWidget接続をスキップ"
+                    )
 
                 logger.info("✅ ImagePreviewWidget設定完了")
             except Exception as e:
@@ -303,7 +307,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             # ThumbnailSelectorWidget接続確認
             if hasattr(self, "thumbnail_selector") and self.thumbnail_selector:
-                if hasattr(self.thumbnail_selector, "dataset_state") and self.thumbnail_selector.dataset_state:
+                if (
+                    hasattr(self.thumbnail_selector, "dataset_state")
+                    and self.thumbnail_selector.dataset_state
+                ):
                     connection_status.append("✅ ThumbnailSelectorWidget: 状態管理接続済み")
                 else:
                     connection_status.append("❌ ThumbnailSelectorWidget: 状態管理未接続")
@@ -313,7 +320,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             # ImagePreviewWidget接続確認
             if hasattr(self, "image_preview_widget") and self.image_preview_widget:
-                if hasattr(self.image_preview_widget, "dataset_state_manager") and self.image_preview_widget.dataset_state_manager:
+                if (
+                    hasattr(self.image_preview_widget, "dataset_state_manager")
+                    and self.image_preview_widget.dataset_state_manager
+                ):
                     connection_status.append("✅ ImagePreviewWidget: 状態管理接続済み")
                 else:
                     connection_status.append("❌ ImagePreviewWidget: 状態管理未接続")
