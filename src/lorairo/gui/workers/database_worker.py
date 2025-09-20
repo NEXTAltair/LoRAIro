@@ -281,6 +281,7 @@ class ThumbnailLoadResult:
     failed_count: int
     total_count: int
     processing_time: float
+    image_metadata: list[dict[str, Any]] = None  # 検索結果メタデータ（DatasetStateManager同期用）
 
 
 class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
@@ -306,7 +307,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
 
         if total_count == 0:
             logger.warning("サムネイル読み込み対象がありません")
-            return ThumbnailLoadResult([], 0, 0, 0.0)
+            return ThumbnailLoadResult([], 0, 0, 0.0, [])
 
         logger.info(f"サムネイル読み込み開始: {total_count}件")
 
@@ -400,6 +401,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
             failed_count=failed_count,
             total_count=total_count,
             processing_time=processing_time,
+            image_metadata=self.search_result.image_metadata,
         )
 
         logger.info(
