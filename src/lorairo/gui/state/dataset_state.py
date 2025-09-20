@@ -29,10 +29,11 @@ class DatasetStateManager(QObject):
     # === 選択状態シグナル ===
     selection_changed = Signal(list)  # List[int] - selected image IDs
     current_image_changed = Signal(int)  # current_image_id
+    current_image_data_changed = Signal(dict)  # current_image_data (complete metadata)
     current_image_cleared = Signal()
 
     # === UI状態シグナル ===
-    ui_state_changed = Signal(str, Any)  # state_key, state_value
+    ui_state_changed = Signal(str, object)  # state_key, state_value
     thumbnail_size_changed = Signal(int)  # thumbnail_size
     layout_mode_changed = Signal(str)  # layout_mode
 
@@ -185,6 +186,51 @@ class DatasetStateManager(QObject):
             if not current_valid:
                 self.clear_current_image()
 
+    def update_from_search_results(self, search_results: list[dict[str, Any]]) -> None:
+        """
+        検索結果による完全データ更新（クリーンなデータフロー）
+
+        従来のapply_filter_results()とは異なり、検索結果でマスターデータを完全置換し、
+        単一データソースとしての信頼性を確保します。
+
+        Args:
+            search_results: 検索結果の画像メタデータリスト
+                各辞書は以下のキーを含む必要があります:
+                - "id": 画像ID (int)
+                - "stored_image_path": 画像ファイルパス (str)
+                - その他の画像メタデータ (width, height, etc.)
+
+        Side Effects:
+            - _all_images と _filtered_images を同時更新（同期保証）
+            - images_loaded と images_filtered シグナルを発行
+            - 現在選択中の画像が結果に含まれない場合、選択をクリア
+        """
+        logger.info(f"検索結果によるデータ完全更新: {len(search_results)}件")
+
+        # 完全データ置換（Single Source of Truth）
+        self._all_images = search_results.copy()
+        self._filtered_images = search_results.copy()
+
+        # フィルター条件はクリア（検索結果が新しい基準）
+        self._filter_conditions = {}
+
+        # シグナル発行で UI コンポーネントに通知
+        self.images_loaded.emit(self._all_images)
+        self.images_filtered.emit(self._filtered_images)
+
+        # 現在の選択状態を検証・クリア
+        if self._current_image_id:
+            current_valid = any(img.get("id") == self._current_image_id for img in self._all_images)
+            if not current_valid:
+                logger.debug(
+                    f"現在の画像ID {self._current_image_id} が検索結果に含まれていないため選択をクリア"
+                )
+                self.clear_current_image()
+
+        logger.debug(
+            f"データ同期完了: all_images={len(self._all_images)}, filtered_images={len(self._filtered_images)}"
+        )
+
     def clear_filter(self) -> None:
         """フィルターをクリア"""
         self._filter_conditions = {}
@@ -232,8 +278,33 @@ class DatasetStateManager(QObject):
         """現在の画像IDを設定"""
         if self._current_image_id != image_id:
             self._current_image_id = image_id
+
+            # 後方互換性のためIDシグナルを維持
             self.current_image_changed.emit(image_id)
-            logger.debug(f"現在画像変更: ID {image_id}")
+
+            # 新しいデータシグナルで完全な画像メタデータを送信
+            image_data = self.get_image_by_id(image_id)
+            if image_data:
+                self.current_image_data_changed.emit(image_data)
+                logger.info(f"✅ 画像選択成功: ID {image_id} - current_image_data_changed シグナル発行")
+            else:
+                # デバッグ情報を詳細化
+                state_summary = self.get_state_summary()
+                logger.warning(
+                    f"画像データ取得失敗: ID {image_id} | "
+                    f"all_images={state_summary['total_images']}, "
+                    f"filtered_images={state_summary['filtered_images']} | "
+                    f"検索対象: _all_images 優先検索に変更が必要な可能性"
+                )
+
+                # フィルター済み画像からも検索を試行
+                filtered_image_data = self._get_image_from_filtered(image_id)
+                if filtered_image_data:
+                    logger.info(f"フィルター済み画像で発見: ID {image_id} - データを送信")
+                    self.current_image_data_changed.emit(filtered_image_data)
+                else:
+                    # 空のデータでもシグナルを送信して一貫性を保つ
+                    self.current_image_data_changed.emit({})
 
     def clear_current_image(self) -> None:
         """現在の画像選択をクリア"""
@@ -268,8 +339,43 @@ class DatasetStateManager(QObject):
     # === Utility Methods ===
 
     def get_image_by_id(self, image_id: int) -> dict[str, Any] | None:
-        """IDで画像メタデータを取得"""
+        """
+        IDで画像メタデータを取得（統一データソース：all_images優先、filtered_imagesフォールバック）
+
+        Args:
+            image_id: 検索する画像ID
+
+        Returns:
+            画像メタデータ辞書、見つからない場合はNone
+        """
+        # 1. all_images から検索（メインデータソース）
         for img in self._all_images:
+            if img.get("id") == image_id:
+                logger.debug(
+                    f"画像ID {image_id} をall_imagesで発見（正常な状態）- path: {img.get('stored_image_path', 'N/A')}"
+                )
+                return img
+
+        # 2. filtered_images からフォールバック検索
+        for img in self._filtered_images:
+            if img.get("id") == image_id:
+                logger.warning(
+                    f"画像ID {image_id} をfiltered_imagesで発見（all_imagesとの同期問題あり）- path: {img.get('stored_image_path', 'N/A')}"
+                )
+                return img
+
+        # デバッグ情報の詳細ログ
+        logger.debug(
+            f"画像ID {image_id} が見つかりません。"
+            f"all_images: {len(self._all_images)}件, "
+            f"filtered_images: {len(self._filtered_images)}件, "
+            f"IDサンプル: {[img.get('id') for img in (self._all_images or self._filtered_images)[:3]]}..."
+        )
+        return None
+
+    def _get_image_from_filtered(self, image_id: int) -> dict[str, Any] | None:
+        """フィルター済み画像からの検索（デバッグ用）"""
+        for img in self._filtered_images:
             if img.get("id") == image_id:
                 return img
         return None

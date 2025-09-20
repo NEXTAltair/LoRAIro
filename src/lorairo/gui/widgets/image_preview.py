@@ -30,11 +30,9 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         )
         self.pixmap_item: QGraphicsPixmapItem | None = None
 
-        # Phase 3.3: DatasetStateManager統合
-        self.state_manager: DatasetStateManager | None = None
-        self._current_image_id: int | None = None
+        # Phase 3.3: Enhanced Event-Driven Pattern (状態管理なし)
 
-        logger.debug("ImagePreviewWidget initialized with DatasetStateManager support")
+        logger.debug("ImagePreviewWidget initialized with Enhanced Event-Driven Pattern support")
 
     @Slot(Path)
     def load_image(self, image_path: Path) -> None:
@@ -122,63 +120,65 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         super().resizeEvent(event)
         self._adjust_view_size()
 
-    # === Phase 3.3: DatasetStateManager統合メソッド ===
+    # === Phase 3.3: Enhanced Event-Driven Pattern ===
 
-    def set_dataset_state_manager(self, state_manager: "DatasetStateManager") -> None:
-        """状態管理統合"""
-        # 既存の接続があれば切断
-        if self.state_manager:
-            self.state_manager.current_image_changed.disconnect(self._on_current_image_changed)
+    def connect_to_data_signals(self, state_manager: "DatasetStateManager") -> None:
+        """データシグナル接続（状態管理なし）"""
+        # 新しいデータシグナルに接続
+        state_manager.current_image_data_changed.connect(self._on_image_data_received)
 
-        self.state_manager = state_manager
+        logger.debug("ImagePreviewWidget connected to current_image_data_changed signal")
 
-        # シグナル接続
-        self.state_manager.current_image_changed.connect(self._on_current_image_changed)
+    @Slot(dict)
+    def _on_image_data_received(self, image_data: dict) -> None:
+        """
+        画像データ受信時のプレビュー更新（純粋表示専用）
 
-        logger.debug("DatasetStateManager connected to ImagePreviewWidget")
-
-        # 現在の画像があれば即座に表示
-        if self.state_manager.current_image_id:
-            self._on_current_image_changed(self.state_manager.current_image_id)
-
-    @Slot(int)
-    def _on_current_image_changed(self, image_id: int) -> None:
-        """状態変更時の自動プレビュー更新"""
+        DatasetStateManagerから直接送信される完全な画像メタデータを受信し、
+        プレビュー表示を更新します。検索機能への依存を完全に排除。
+        """
         try:
-            if not self.state_manager:
-                logger.warning("DatasetStateManager not available for preview update")
-                return
+            logger.info(
+                f"📨 ImagePreviewWidget: current_image_data_changed シグナル受信 - データサイズ: {len(image_data) if image_data else 0}"
+            )
 
-            # 同じ画像の場合はスキップ（無駄な再描画を防ぐ）
-            if self._current_image_id == image_id:
-                logger.debug(f"Same image ID {image_id}, skipping reload")
-                return
-
-            # 画像データを取得
-            image_data = self.state_manager.get_image_by_id(image_id)
+            # 空データの場合はプレビューをクリア
             if not image_data:
-                logger.warning(f"Image data not found for ID: {image_id}")
+                logger.debug("Empty image data received, clearing preview")
                 self._clear_preview()
                 return
+
+            # 画像IDを取得（ログ用）
+            image_id = image_data.get("id", "Unknown")
+            logger.debug(f"🔍 画像データ受信: ID={image_id}")
 
             # ファイルパスを取得
             image_path_str = image_data.get("stored_image_path")
             if not image_path_str:
-                logger.warning(f"Image path not found for ID: {image_id}")
+                logger.warning(f"画像パス未設定 ID:{image_id} | メタデータ: {list(image_data.keys())}")
                 self._clear_preview()
                 return
 
-            # プレビュー更新
-            image_path = Path(image_path_str)
+            # プレビュー更新（LoRAIro標準パス解決使用）
+            from ...database.db_core import resolve_stored_path
+
+            image_path = resolve_stored_path(image_path_str)
+            if not image_path.exists():
+                logger.warning(f"画像ファイル不存在 ID:{image_id} | パス: {image_path}")
+                self._clear_preview()
+                return
+
             self.load_image(image_path)
 
-            # 現在のIDを更新
-            self._current_image_id = image_id
-
-            logger.debug(f"Preview updated for image ID: {image_id}")
+            logger.info(
+                f"✅ プレビュー表示成功: ID={image_id}, path={image_path.name} - Enhanced Event-Driven Pattern 完全動作"
+            )
 
         except Exception as e:
-            logger.error(f"Error updating preview for image ID {image_id}: {e}", exc_info=True)
+            logger.error(
+                f"プレビュー更新エラー データ:{image_data.get('id', 'Unknown')} | エラー: {e}",
+                exc_info=True,
+            )
             self._clear_preview()
 
     def _clear_preview(self) -> None:
@@ -189,9 +189,6 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
 
             # PixmapItemの参照もクリア
             self.pixmap_item = None
-
-            # 現在のIDもクリア
-            self._current_image_id = None
 
             logger.debug("Preview cleared and memory optimized")
 

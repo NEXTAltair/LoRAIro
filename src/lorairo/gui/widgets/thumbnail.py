@@ -450,33 +450,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     # === State Manager Integration ===
 
-    def apply_filtered_metadata(self, filtered_data: list[dict[str, Any]]) -> None:
-        """
-        フィルター結果の適用
-
-        Args:
-            filtered_data: フィルター済み画像メタデータリスト
-        """
-        logger.debug(f"apply_filtered_metadata 呼び出し: {len(filtered_data)}件の画像データ")
-
-        # フィルタリング用にメタデータを保持
-        self.current_image_metadata = filtered_data.copy()
-
-        # 画像データのみ準備（実際の読み込みは行わない）
-        self.image_data = [
-            (Path(item["stored_image_path"]), item["id"])
-            for item in filtered_data
-            if "stored_image_path" in item and "id" in item
-        ]
-
-        # 大量の場合はプレースホルダー、少量の場合はサムネイル読み込み
-        if len(self.image_data) > 200:
-            logger.info(f"フィルタリング結果受信: {len(self.image_data)}件 - プレースホルダー表示中")
-            self._setup_placeholder_layout()
-        else:
-            logger.info(f"フィルタリング結果受信: {len(self.image_data)}件 - サムネイル読み込み開始")
-            self.update_thumbnail_layout()
-
     @Slot(list)
     def _on_images_filtered(self, image_metadata: list[dict[str, Any]]) -> None:
         """
@@ -485,17 +458,19 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         Args:
             image_metadata: 画像メタデータリスト
         """
-        logger.debug("_on_images_filtered 呼び出し - apply_filtered_metadata に委譲")
-        self.apply_filtered_metadata(image_metadata)
+        logger.debug("_on_images_filtered 呼び出し - apply_filtered_metadata() 削除により処理をスキップ")
+        # Note: apply_filtered_metadata() は削除されました
 
     def get_current_image_data(self) -> list[dict[str, Any]]:
         """
-        現在表示中の画像メタデータを返す（フィルタリング用）
+        [DEPRECATED] 冗長データ管理のため削除予定
 
-        Returns:
-            list[dict]: 現在表示中の画像メタデータリスト
+        DatasetStateManager.all_images プロパティを直接使用してください。
         """
-        return self.current_image_metadata.copy()
+        logger.warning(
+            "get_current_image_data() は非推奨です。DatasetStateManager.all_images を直接使用してください。"
+        )
+        return []
 
     @Slot(list)
     def _on_state_selection_changed(self, selected_image_ids: list[int]) -> None:
@@ -520,65 +495,71 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     def load_thumbnails_from_result(self, thumbnail_result: Any) -> None:
         """
-        ThumbnailLoadResultからサムネイルをロード（新キャッシュ統合版）
+        ThumbnailLoadResultからサムネイルをロード（クリーンアーキテクチャ版）
 
-        **呼び出し箇所**: MainWindow._on_thumbnail_completed_update_display (main_window.py:392)
-        **使用意図**: ThumbnailWorkerからの非同期結果を効率的にUI表示に反映
-        **新設計**: 画像オブジェクト直接キャッシュによるファイルI/O完全回避
-
-        ThumbnailWorkerで事前処理されたQImageデータをQPixmapに変換し、
-        キャッシュに保存してからUI表示用サムネイルとして配置する。
-        サイズ変更時の高速処理とファイルパス依存問題を根本解決。
+        **新設計原則**:
+        - DatasetStateManagerによる統一データ管理
+        - ThumbnailSelectorWidgetは表示のみに専念
+        - 冗長なデータ管理の完全削除
 
         Args:
             thumbnail_result: ThumbnailLoadResultオブジェクト
                 loaded_thumbnails: list[(image_id, QImage)] - プリロード済み画像データ
+                image_metadata: list[dict[str, Any]] - 画像メタデータリスト
                 failed_count: int - 読み込み失敗数
                 total_count: int - 処理対象総数
         """
+        logger.info(f"サムネイル表示開始: {len(thumbnail_result.loaded_thumbnails)}件")
+
+        # UI表示のクリア
         self.scene.clear()
         self.thumbnail_items.clear()
-
-        # 新しいキャッシュクリア（メモリ効率化）
         self.clear_cache()
 
         if not thumbnail_result.loaded_thumbnails:
+            logger.info("表示する画像がありません")
             return
 
-        # QImage→QPixmap変換 + キャッシュ保存
+        # **クリーンアーキテクチャ**: DatasetStateManagerに統一データ管理を委譲
+        if self.dataset_state and hasattr(thumbnail_result, "image_metadata"):
+            self.dataset_state.update_from_search_results(thumbnail_result.image_metadata)
+            logger.debug("検索結果をDatasetStateManagerに同期完了")
+
+        # **表示専念**: UI表示のみに集中
         valid_thumbnails = 0
         for image_id, qimage in thumbnail_result.loaded_thumbnails:
             try:
-                # QImage→QPixmapに変換（メインスレッドで実行）
                 qpixmap = QPixmap.fromImage(qimage)
-
                 if not qpixmap.isNull():
-                    # 対応するメタデータを探す
+                    # シンプルなキャッシュ保存（メタデータはDatasetStateManagerから取得）
                     metadata = {}
-                    for item_meta in self.current_image_metadata:
-                        if item_meta.get("id") == image_id:
-                            metadata = item_meta
-                            break
+                    if self.dataset_state:
+                        metadata = self.dataset_state.get_image_by_id(image_id) or {}
 
-                    # キャッシュに保存（新設計の核心）
                     self.cache_thumbnail(image_id, qpixmap, metadata)
                     valid_thumbnails += 1
                 else:
-                    logger.warning(f"Failed to create pixmap from QImage for image_id: {image_id}")
+                    logger.warning(f"QPixmap変換失敗: image_id={image_id}")
 
             except Exception as e:
-                logger.error(f"QImage to QPixmap conversion failed for image_id {image_id}: {e}")
+                logger.error(f"QImage→QPixmap変換エラー image_id={image_id}: {e}")
 
-        # キャッシュからUI表示を構築
+        # UI表示を構築
         self._display_cached_thumbnails()
-
-        # 画像件数表示を更新
         self._update_image_count_display()
+
+        # レガシー互換性（段階的削除予定）
+        if hasattr(thumbnail_result, "image_metadata"):
+            self.image_data = [
+                (Path(item["stored_image_path"]), item["id"])
+                for item in thumbnail_result.image_metadata
+                if "stored_image_path" in item and "id" in item
+            ]
 
         cache_info = self.cache_usage_info()
         logger.info(
-            f"サムネイル表示完了: {valid_thumbnails}/{len(self.image_data)}件, "
-            f"キャッシュ: 元画像={cache_info['original_cache_count']}件"
+            f"サムネイル表示完了: {valid_thumbnails}件表示, "
+            f"キャッシュ: {cache_info['original_cache_count']}件"
         )
 
         # 選択状態はThumbnailItem.isSelected()で動的取得
