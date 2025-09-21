@@ -62,7 +62,8 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
         self._setup_connections()
         self._setup_widget_properties()
 
-        logger.debug("SelectedImageDetailsWidget initialized (Phase 3.2 - DB operations separated)")
+        # Phase 3.3: Enhanced Event-Driven Pattern (状態管理なし)
+        logger.debug("SelectedImageDetailsWidget initialized with Enhanced Event-Driven Pattern support")
 
     def _setup_annotation_display(self) -> None:
         """AnnotationDataDisplayWidget を最下部に配置"""
@@ -229,6 +230,127 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
         """Phase 1-2依存注入パターン継承"""
         self.image_db_write_service = service
         logger.debug("ImageDBWriteService set for SelectedImageDetailsWidget")
+
+    # === Phase 3.3: Enhanced Event-Driven Pattern ===
+
+    def connect_to_data_signals(self, state_manager: "DatasetStateManager") -> None:
+        """データシグナル接続（状態管理なし）"""
+        # 新しいデータシグナルに接続
+        state_manager.current_image_data_changed.connect(self._on_image_data_received)
+
+        logger.debug("SelectedImageDetailsWidget connected to current_image_data_changed signal")
+
+    @Slot(dict)
+    def _on_image_data_received(self, image_data: dict) -> None:
+        """
+        画像データ受信時のメタデータ更新（純粋表示専用）
+
+        DatasetStateManagerから直接送信される完全な画像メタデータを受信し、
+        詳細情報表示を更新します。検索機能への依存を完全に排除。
+        """
+        try:
+            logger.info(
+                f"📨 SelectedImageDetailsWidget: current_image_data_changed シグナル受信 - データサイズ: {len(image_data) if image_data else 0}"
+            )
+
+            # 空データの場合は表示をクリア
+            if not image_data:
+                logger.debug("Empty image data received, clearing details display")
+                self._clear_display()
+                return
+
+            # 画像IDを取得
+            image_id = image_data.get("id")
+            if not image_id:
+                logger.warning(f"画像ID未設定 | メタデータ: {list(image_data.keys())}")
+                self._clear_display()
+                return
+
+            logger.debug(f"🔍 画像データ受信: ID={image_id}")
+
+            # メタデータから詳細情報を構築
+            details = self._build_image_details_from_metadata(image_data)
+
+            # UI更新
+            self._update_details_display(details)
+
+            # 現在の詳細情報保存
+            self.current_details = details
+            self.current_image_id = image_id
+
+            # シグナル発行
+            self.image_details_loaded.emit(details)
+
+            logger.info(
+                f"✅ メタデータ表示成功: ID={image_id} - Enhanced Event-Driven Pattern 完全動作"
+            )
+
+        except Exception as e:
+            logger.error(
+                f"メタデータ更新エラー データ:{image_data.get('id', 'Unknown')} | エラー: {e}",
+                exc_info=True,
+            )
+            self._clear_display()
+
+    def _build_image_details_from_metadata(self, image_data: dict) -> ImageDetails:
+        """メタデータから ImageDetails を構築"""
+        try:
+            # ファイル名の取得
+            image_path_str = image_data.get("stored_image_path", "")
+            file_name = Path(image_path_str).name if image_path_str else "Unknown"
+
+            # 画像サイズの構築 (width x height)
+            width = image_data.get("width", 0)
+            height = image_data.get("height", 0)
+            image_size = f"{width} x {height}" if width and height else "Unknown"
+
+            # ファイルサイズの取得
+            file_size_bytes = image_data.get("file_size_bytes")
+            if file_size_bytes:
+                # バイトを適切な単位に変換
+                if file_size_bytes >= 1024 * 1024:
+                    file_size = f"{file_size_bytes / (1024 * 1024):.1f} MB"
+                elif file_size_bytes >= 1024:
+                    file_size = f"{file_size_bytes / 1024:.1f} KB"
+                else:
+                    file_size = f"{file_size_bytes} bytes"
+            else:
+                file_size = "Unknown"
+
+            # 作成日時の取得
+            created_date = image_data.get("created_at", "Unknown")
+            if created_date and created_date != "Unknown":
+                # ISO形式を読みやすい形式に変換
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(created_date.replace('Z', '+00:00'))
+                    created_date = dt.strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    pass  # 変換に失敗した場合は元の値を使用
+
+            # Rating/Score の取得
+            rating_value = image_data.get("rating", "") or ""
+            score_value = image_data.get("score", 0) or 0
+
+            # ImageDetails を構築
+            details = ImageDetails(
+                file_name=file_name,
+                image_size=image_size,
+                file_size=file_size,
+                created_date=created_date,
+                rating_value=rating_value,
+                score_value=score_value,
+                annotation_data=None  # アノテーションデータは別途取得
+            )
+
+            logger.debug(f"ImageDetails constructed from metadata: {file_name}")
+            return details
+
+        except Exception as e:
+            logger.error(f"Error building ImageDetails from metadata: {e}", exc_info=True)
+            return ImageDetails()
+
+    # === Legacy Methods (移行期のサポート) ===
 
     def load_image_details(self, image_id: int) -> None:
         """指定画像IDの詳細情報をロード（Phase 3.2: ImageDBWriteService使用）"""

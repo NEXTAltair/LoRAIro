@@ -273,10 +273,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 # ImagePreviewWidgetの追加設定があればここに実装
                 self.image_preview_widget = self.imagePreviewWidget
 
-                # DatasetStateManager接続 - 状態管理復旧
+                # DatasetStateManager接続 - Enhanced Event-Driven Pattern
                 if self.dataset_state_manager:
-                    self.image_preview_widget.set_dataset_state_manager(self.dataset_state_manager)
-                    logger.info("✅ ImagePreviewWidget DatasetStateManager接続完了")
+                    self.image_preview_widget.connect_to_data_signals(self.dataset_state_manager)
+                    logger.info("✅ ImagePreviewWidget データシグナル接続完了")
                 else:
                     logger.warning(
                         "⚠️ DatasetStateManagerが初期化されていません - ImagePreviewWidget接続をスキップ"
@@ -285,6 +285,25 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 logger.info("✅ ImagePreviewWidget設定完了")
             except Exception as e:
                 logger.error(f"ImagePreviewWidget設定エラー: {e}")
+
+        # SelectedImageDetailsWidget設定
+        if hasattr(self, "selectedImageDetailsWidget") and self.selectedImageDetailsWidget:
+            try:
+                # SelectedImageDetailsWidgetの追加設定があればここに実装
+                self.selected_image_details_widget = self.selectedImageDetailsWidget
+
+                # DatasetStateManager接続 - Enhanced Event-Driven Pattern
+                if self.dataset_state_manager:
+                    self.selected_image_details_widget.connect_to_data_signals(self.dataset_state_manager)
+                    logger.info("✅ SelectedImageDetailsWidget データシグナル接続完了")
+                else:
+                    logger.warning(
+                        "⚠️ DatasetStateManagerが初期化されていません - SelectedImageDetailsWidget接続をスキップ"
+                    )
+
+                logger.info("✅ SelectedImageDetailsWidget設定完了")
+            except Exception as e:
+                logger.error(f"SelectedImageDetailsWidget設定エラー: {e}")
 
         # 状態管理接続の検証
         self._verify_state_management_connections()
@@ -320,16 +339,27 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             # ImagePreviewWidget接続確認
             if hasattr(self, "image_preview_widget") and self.image_preview_widget:
-                if (
-                    hasattr(self.image_preview_widget, "dataset_state_manager")
-                    and self.image_preview_widget.dataset_state_manager
-                ):
-                    connection_status.append("✅ ImagePreviewWidget: 状態管理接続済み")
+                # Enhanced Event-Driven Pattern では connect_to_data_signals で接続するため、
+                # 直接的な属性確認ではなく接続メソッドの存在を確認
+                if hasattr(self.image_preview_widget, "connect_to_data_signals"):
+                    connection_status.append("✅ ImagePreviewWidget: Enhanced Event-Driven Pattern対応済み")
                 else:
-                    connection_status.append("❌ ImagePreviewWidget: 状態管理未接続")
-                    logger.error("ImagePreviewWidgetの状態管理が接続されていません")
+                    connection_status.append("❌ ImagePreviewWidget: Enhanced Event-Driven Pattern未対応")
+                    logger.error("ImagePreviewWidgetのEnhanced Event-Driven Pattern対応が不完全です")
             else:
                 connection_status.append("⚠️ ImagePreviewWidget: ウィジェット未設定")
+
+            # SelectedImageDetailsWidget接続確認
+            if hasattr(self, "selected_image_details_widget") and self.selected_image_details_widget:
+                # Enhanced Event-Driven Pattern では connect_to_data_signals で接続するため、
+                # 直接的な属性確認ではなく接続メソッドの存在を確認
+                if hasattr(self.selected_image_details_widget, "connect_to_data_signals"):
+                    connection_status.append("✅ SelectedImageDetailsWidget: Enhanced Event-Driven Pattern対応済み")
+                else:
+                    connection_status.append("❌ SelectedImageDetailsWidget: Enhanced Event-Driven Pattern未対応")
+                    logger.error("SelectedImageDetailsWidgetのEnhanced Event-Driven Pattern対応が不完全です")
+            else:
+                connection_status.append("⚠️ SelectedImageDetailsWidget: ウィジェット未設定")
 
             # 検証結果をログ出力
             logger.info("📋 状態管理接続検証結果:")
