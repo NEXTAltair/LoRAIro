@@ -6,7 +6,8 @@ Selected Image Details Widget
 # TODO: 他のウィジェットの機能も直に実装してあるので修正が必要､レイアウトはここに定義しない
 """
 
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QWidget
@@ -21,6 +22,7 @@ from .annotation_data_display_widget import (
 
 if TYPE_CHECKING:
     from ..services.image_db_write_service import ImageDBWriteService
+    from ..state.dataset_state import DatasetStateManager
 
 
 class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
@@ -60,7 +62,6 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
 
         # UI初期化
         self._setup_connections()
-        self._setup_widget_properties()
 
         # Phase 3.3: Enhanced Event-Driven Pattern (状態管理なし)
         logger.debug("SelectedImageDetailsWidget initialized with Enhanced Event-Driven Pattern support")
@@ -80,110 +81,10 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
             logger.error(f"Error setting up annotation display: {e}", exc_info=True)
 
     def _setup_connections(self) -> None:
-        """シグナル・スロット接続設定"""
-        # Rating コンボボックス変更
-        self.comboBoxRating.currentTextChanged.connect(self._on_rating_changed)
-
-        # Score スライダー変更
-        self.sliderScore.valueChanged.connect(self._on_score_changed)
-
-        # 保存ボタン（Rating用とScore用）
-        self.pushButtonSaveRating.clicked.connect(self._on_save_clicked)
-        self.pushButtonSaveScore.clicked.connect(self._on_save_clicked)
-
-        # アノテーション表示コンポーネントのシグナル
+        """Enhanced Event-Driven Pattern シグナル接続設定（基本接続はUIファイルで定義済み）"""
+        # アノテーション表示コンポーネントのシグナル（動的接続のため残存）
         if self.annotation_display:
             self.annotation_display.data_loaded.connect(self._on_annotation_data_loaded)
-
-    def _setup_widget_properties(self) -> None:
-        """ウィジェットプロパティ設定"""
-        # Rating コンボボックス設定
-        rating_options = ["", "PG", "PG-13", "R", "X", "XXX"]
-        self.comboBoxRating.addItems(rating_options)
-        self.comboBoxRating.setStyleSheet("""
-            QComboBox {
-                font-size: 10px;
-                padding: 2px 4px;
-                border: 1px solid #ccc;
-                border-radius: 3px;
-            }
-        """)
-
-        # Score スライダー設定 (0-1000 範囲)
-        self.sliderScore.setMinimum(0)
-        self.sliderScore.setMaximum(1000)
-        self.sliderScore.setValue(0)
-        self.sliderScore.setStyleSheet("""
-            QSlider::groove:horizontal {
-                border: 1px solid #bbb;
-                background: white;
-                height: 10px;
-                border-radius: 4px;
-            }
-            QSlider::handle:horizontal {
-                background: #4CAF50;
-                border: 1px solid #5c5c5c;
-                width: 18px;
-                margin: -2px 0;
-                border-radius: 3px;
-            }
-        """)
-
-        # スコア値ラベル
-        self.labelScoreValue.setStyleSheet("font-size: 10px; font-weight: bold; color: #333;")
-
-        # 保存ボタン
-        button_style = """
-            QPushButton {
-                font-size: 10px;
-                padding: 4px 8px;
-                border: 1px solid #4CAF50;
-                border-radius: 3px;
-                background-color: #f0f8f0;
-                color: #2E7D32;
-            }
-            QPushButton:hover {
-                background-color: #e8f5e8;
-            }
-            QPushButton:pressed {
-                background-color: #4CAF50;
-                color: white;
-            }
-            QPushButton:disabled {
-                background-color: #f5f5f5;
-                color: #aaa;
-                border-color: #ddd;
-            }
-        """
-
-        # 保存ボタンにスタイル適用
-        self.pushButtonSaveRating.setStyleSheet(button_style)
-        self.pushButtonSaveScore.setStyleSheet(button_style)
-
-        # 情報ラベルスタイル
-        info_label_style = "font-size: 9px; font-weight: bold; color: #333;"
-        value_label_style = "font-size: 9px; color: #666;"
-
-        # 各ラベルにスタイル適用
-        for label_name in [
-            "labelFileName",
-            "labelImageSize",
-            "labelFileSize",
-            "labelCreatedDate",
-        ]:
-            label = getattr(self, label_name, None)
-            if label:
-                label.setStyleSheet(info_label_style)
-
-        for label_name in [
-            "labelFileNameValue",
-            "labelImageSizeValue",
-            "labelFileSizeValue",
-            "labelCreatedDateValue",
-        ]:
-            label = getattr(self, label_name, None)
-            if label:
-                label.setStyleSheet(value_label_style)
 
     @Slot(str)
     def _on_rating_changed(self, rating_value: str) -> None:
@@ -211,7 +112,7 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
             logger.warning("No image selected for save operation")
             return
 
-        save_data = {
+        save_data: dict[str, Any] = {
             "image_id": self.current_image_id,
             "rating": self.current_details.rating_value,
             "score": self.current_details.score_value,
@@ -241,7 +142,7 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
         logger.debug("SelectedImageDetailsWidget connected to current_image_data_changed signal")
 
     @Slot(dict)
-    def _on_image_data_received(self, image_data: dict) -> None:
+    def _on_image_data_received(self, image_data: dict[str, Any]) -> None:
         """
         画像データ受信時のメタデータ更新（純粋表示専用）
 
@@ -281,9 +182,7 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
             # シグナル発行
             self.image_details_loaded.emit(details)
 
-            logger.info(
-                f"✅ メタデータ表示成功: ID={image_id} - Enhanced Event-Driven Pattern 完全動作"
-            )
+            logger.info(f"✅ メタデータ表示成功: ID={image_id} - Enhanced Event-Driven Pattern 完全動作")
 
         except Exception as e:
             logger.error(
@@ -292,7 +191,7 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
             )
             self._clear_display()
 
-    def _build_image_details_from_metadata(self, image_data: dict) -> ImageDetails:
+    def _build_image_details_from_metadata(self, image_data: dict[str, Any]) -> ImageDetails:
         """メタデータから ImageDetails を構築"""
         try:
             # ファイル名の取得
@@ -323,7 +222,8 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
                 # ISO形式を読みやすい形式に変換
                 try:
                     from datetime import datetime
-                    dt = datetime.fromisoformat(created_date.replace('Z', '+00:00'))
+
+                    dt = datetime.fromisoformat(created_date.replace("Z", "+00:00"))
                     created_date = dt.strftime("%Y-%m-%d %H:%M:%S")
                 except Exception:
                     pass  # 変換に失敗した場合は元の値を使用
@@ -340,7 +240,7 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
                 created_date=created_date,
                 rating_value=rating_value,
                 score_value=score_value,
-                annotation_data=None  # アノテーションデータは別途取得
+                annotation_data=None,  # アノテーションデータは別途取得
             )
 
             logger.debug(f"ImageDetails constructed from metadata: {file_name}")
