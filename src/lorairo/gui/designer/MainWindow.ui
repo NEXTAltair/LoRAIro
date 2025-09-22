@@ -315,27 +315,12 @@
             <number>4</number>
            </property>
            <item>
-            <widget class="QTableView" name="tableViewSelectedImageInfo">
+            <widget class="SelectedImageDetailsWidget" name="selectedImageDetailsWidget" native="true">
              <property name="sizePolicy">
               <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
                <horstretch>0</horstretch>
                <verstretch>1</verstretch>
               </sizepolicy>
-             </property>
-             <property name="styleSheet">
-              <string notr="true"/>
-             </property>
-             <property name="alternatingRowColors">
-              <bool>true</bool>
-             </property>
-             <property name="selectionBehavior">
-              <enum>QAbstractItemView::SelectionBehavior::SelectRows</enum>
-             </property>
-             <property name="showGrid">
-              <bool>false</bool>
-             </property>
-             <property name="sortingEnabled">
-              <bool>true</bool>
              </property>
             </widget>
            </item>
@@ -904,6 +889,12 @@
    <class>ThumbnailSelectorWidget</class>
    <extends>QWidget</extends>
    <header>..widgets.thumbnail</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>SelectedImageDetailsWidget</class>
+   <extends>QWidget</extends>
+   <header>..widgets.selected_image_details_widget</header>
    <container>1</container>
   </customwidget>
  </customwidgets>

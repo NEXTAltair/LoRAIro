@@ -1,4 +1,3 @@
-
 ################################################################################
 ## Form generated from reading UI file 'MainWindow.ui'
 ##
@@ -41,12 +40,10 @@ from PySide6.QtGui import (
     QTransform,
 )
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QApplication,
     QFrame,
     QGroupBox,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -58,7 +55,6 @@ from PySide6.QtWidgets import (
     QSpacerItem,
     QSplitter,
     QStatusBar,
-    QTableView,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -68,6 +64,7 @@ from PySide6.QtWidgets import (
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.model_selection_widget import ModelSelectionWidget
+from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from ..widgets.thumbnail import ThumbnailSelectorWidget
 
 
@@ -143,7 +140,9 @@ class Ui_MainWindow:
 
         self.horizontalLayout_dataset.addWidget(self.pushButtonSelectDataset)
 
-        self.horizontalSpacer_dataset = QSpacerItem(20, 20, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
+        self.horizontalSpacer_dataset = QSpacerItem(
+            20, 20, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum
+        )
 
         self.horizontalLayout_dataset.addItem(self.horizontalSpacer_dataset)
 
@@ -153,7 +152,6 @@ class Ui_MainWindow:
         self.pushButtonSettings.setSizePolicy(sizePolicy1)
 
         self.horizontalLayout_dataset.addWidget(self.pushButtonSettings)
-
 
         self.verticalLayout_main.addWidget(self.frameDatasetSelector)
 
@@ -171,7 +169,9 @@ class Ui_MainWindow:
 
         self.horizontalLayout_dbStatus.addWidget(self.labelDbInfo)
 
-        self.horizontalSpacer_dbStatus = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.horizontalSpacer_dbStatus = QSpacerItem(
+            40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
 
         self.horizontalLayout_dbStatus.addItem(self.horizontalSpacer_dbStatus)
 
@@ -190,7 +190,6 @@ class Ui_MainWindow:
         self.progressBarRegistration.setValue(0)
 
         self.horizontalLayout_dbStatus.addWidget(self.progressBarRegistration)
-
 
         self.verticalLayout_main.addWidget(self.frameDbStatus)
 
@@ -238,7 +237,6 @@ class Ui_MainWindow:
 
         self.verticalLayout_filterSearchContent.addWidget(self.filterSearchPanel)
 
-
         self.verticalLayout_filterSearch.addWidget(self.frameFilterSearchContent)
 
         self.groupBoxSelectedImageDetails = QGroupBox(self.frameFilterSearchPanel)
@@ -248,24 +246,18 @@ class Ui_MainWindow:
         self.verticalLayout_selectedImageDetails.setSpacing(4)
         self.verticalLayout_selectedImageDetails.setObjectName("verticalLayout_selectedImageDetails")
         self.verticalLayout_selectedImageDetails.setContentsMargins(4, 4, 4, 4)
-        self.tableViewSelectedImageInfo = QTableView(self.groupBoxSelectedImageDetails)
-        self.tableViewSelectedImageInfo.setObjectName("tableViewSelectedImageInfo")
-        sizePolicy4.setHeightForWidth(self.tableViewSelectedImageInfo.sizePolicy().hasHeightForWidth())
-        self.tableViewSelectedImageInfo.setSizePolicy(sizePolicy4)
-        self.tableViewSelectedImageInfo.setStyleSheet("")
-        self.tableViewSelectedImageInfo.setAlternatingRowColors(True)
-        self.tableViewSelectedImageInfo.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.tableViewSelectedImageInfo.setShowGrid(False)
-        self.tableViewSelectedImageInfo.setSortingEnabled(True)
+        self.selectedImageDetailsWidget = SelectedImageDetailsWidget(self.groupBoxSelectedImageDetails)
+        self.selectedImageDetailsWidget.setObjectName("selectedImageDetailsWidget")
+        sizePolicy4.setHeightForWidth(self.selectedImageDetailsWidget.sizePolicy().hasHeightForWidth())
+        self.selectedImageDetailsWidget.setSizePolicy(sizePolicy4)
 
-        self.verticalLayout_selectedImageDetails.addWidget(self.tableViewSelectedImageInfo)
+        self.verticalLayout_selectedImageDetails.addWidget(self.selectedImageDetailsWidget)
 
         self.labelImageSummary = QLabel(self.groupBoxSelectedImageDetails)
         self.labelImageSummary.setObjectName("labelImageSummary")
         self.labelImageSummary.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.verticalLayout_selectedImageDetails.addWidget(self.labelImageSummary)
-
 
         self.verticalLayout_filterSearch.addWidget(self.groupBoxSelectedImageDetails)
 
@@ -301,7 +293,9 @@ class Ui_MainWindow:
         self.frameThumbnailStatusIndicator.setFrameShape(QFrame.Shape.Box)
         self.horizontalLayout_thumbnailStatusIndicator = QHBoxLayout(self.frameThumbnailStatusIndicator)
         self.horizontalLayout_thumbnailStatusIndicator.setSpacing(8)
-        self.horizontalLayout_thumbnailStatusIndicator.setObjectName("horizontalLayout_thumbnailStatusIndicator")
+        self.horizontalLayout_thumbnailStatusIndicator.setObjectName(
+            "horizontalLayout_thumbnailStatusIndicator"
+        )
         self.horizontalLayout_thumbnailStatusIndicator.setContentsMargins(8, -1, 8, -1)
         self.labelStatusIndicatorTitle = QLabel(self.frameThumbnailStatusIndicator)
         self.labelStatusIndicatorTitle.setObjectName("labelStatusIndicatorTitle")
@@ -328,10 +322,11 @@ class Ui_MainWindow:
 
         self.horizontalLayout_thumbnailStatusIndicator.addWidget(self.labelStatusProcessing)
 
-        self.horizontalSpacerStatusIndicator = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.horizontalSpacerStatusIndicator = QSpacerItem(
+            40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
 
         self.horizontalLayout_thumbnailStatusIndicator.addItem(self.horizontalSpacerStatusIndicator)
-
 
         self.verticalLayout_thumbnailGrid.addWidget(self.frameThumbnailStatusIndicator)
 
@@ -391,7 +386,6 @@ class Ui_MainWindow:
 
         self.verticalLayout_annotationControl.addWidget(self.modelSelectionWidget)
 
-
         self.verticalLayout_previewDetailContent.addWidget(self.groupBoxAnnotationControl)
 
         self.groupBoxAnnotationResults = QGroupBox(self.framePreviewDetailContent)
@@ -434,9 +428,7 @@ class Ui_MainWindow:
 
         self.verticalLayout_annotationResults.addWidget(self.tabWidgetAnnotationResults)
 
-
         self.verticalLayout_previewDetailContent.addWidget(self.groupBoxAnnotationResults)
-
 
         self.verticalLayout_previewDetail.addWidget(self.framePreviewDetailContent)
 
@@ -467,7 +459,9 @@ class Ui_MainWindow:
 
         self.horizontalLayout_actionToolbar.addWidget(self.pushButtonExport)
 
-        self.horizontalSpacer_actionToolbar = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.horizontalSpacer_actionToolbar = QSpacerItem(
+            40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
 
         self.horizontalLayout_actionToolbar.addItem(self.horizontalSpacer_actionToolbar)
 
@@ -475,7 +469,6 @@ class Ui_MainWindow:
         self.labelStatus.setObjectName("labelStatus")
 
         self.horizontalLayout_actionToolbar.addWidget(self.labelStatus)
-
 
         self.verticalLayout_main.addWidget(self.frameActionToolbar)
 
@@ -525,82 +518,219 @@ class Ui_MainWindow:
 
         self.tabWidgetAnnotationResults.setCurrentIndex(0)
 
-
         QMetaObject.connectSlotsByName(MainWindow)
+
     # setupUi
 
     def retranslateUi(self, MainWindow):
-        MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", "LoRAIro - \u30ef\u30fc\u30af\u30b9\u30da\u30fc\u30b9", None))
-        self.actionOpenDataset.setText(QCoreApplication.translate("MainWindow", "\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8\u3092\u958b\u304f", None))
-#if QT_CONFIG(shortcut)
+        MainWindow.setWindowTitle(
+            QCoreApplication.translate(
+                "MainWindow", "LoRAIro - \u30ef\u30fc\u30af\u30b9\u30da\u30fc\u30b9", None
+            )
+        )
+        self.actionOpenDataset.setText(
+            QCoreApplication.translate(
+                "MainWindow", "\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8\u3092\u958b\u304f", None
+            )
+        )
+        # if QT_CONFIG(shortcut)
         self.actionOpenDataset.setShortcut(QCoreApplication.translate("MainWindow", "Ctrl+O", None))
-#endif // QT_CONFIG(shortcut)
+        # endif // QT_CONFIG(shortcut)
         self.actionExit.setText(QCoreApplication.translate("MainWindow", "\u7d42\u4e86", None))
-#if QT_CONFIG(shortcut)
+        # if QT_CONFIG(shortcut)
         self.actionExit.setShortcut(QCoreApplication.translate("MainWindow", "Ctrl+Q", None))
-#endif // QT_CONFIG(shortcut)
-        self.actionSelectAll.setText(QCoreApplication.translate("MainWindow", "\u3059\u3079\u3066\u9078\u629e", None))
-#if QT_CONFIG(shortcut)
+        # endif // QT_CONFIG(shortcut)
+        self.actionSelectAll.setText(
+            QCoreApplication.translate("MainWindow", "\u3059\u3079\u3066\u9078\u629e", None)
+        )
+        # if QT_CONFIG(shortcut)
         self.actionSelectAll.setShortcut(QCoreApplication.translate("MainWindow", "Ctrl+A", None))
-#endif // QT_CONFIG(shortcut)
-        self.actionDeselectAll.setText(QCoreApplication.translate("MainWindow", "\u9078\u629e\u89e3\u9664", None))
-#if QT_CONFIG(shortcut)
+        # endif // QT_CONFIG(shortcut)
+        self.actionDeselectAll.setText(
+            QCoreApplication.translate("MainWindow", "\u9078\u629e\u89e3\u9664", None)
+        )
+        # if QT_CONFIG(shortcut)
         self.actionDeselectAll.setShortcut(QCoreApplication.translate("MainWindow", "Ctrl+D", None))
-#endif // QT_CONFIG(shortcut)
-        self.actionToggleFilterPanel.setText(QCoreApplication.translate("MainWindow", "\u30d5\u30a3\u30eb\u30bf\u30fc\u30d1\u30cd\u30eb\u8868\u793a\u5207\u66ff", None))
-        self.actionTogglePreviewPanel.setText(QCoreApplication.translate("MainWindow", "\u30d7\u30ec\u30d3\u30e5\u30fc\u30d1\u30cd\u30eb\u8868\u793a\u5207\u66ff", None))
-        self.actionAnnotation.setText(QCoreApplication.translate("MainWindow", "\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3", None))
-#if QT_CONFIG(shortcut)
+        # endif // QT_CONFIG(shortcut)
+        self.actionToggleFilterPanel.setText(
+            QCoreApplication.translate(
+                "MainWindow",
+                "\u30d5\u30a3\u30eb\u30bf\u30fc\u30d1\u30cd\u30eb\u8868\u793a\u5207\u66ff",
+                None,
+            )
+        )
+        self.actionTogglePreviewPanel.setText(
+            QCoreApplication.translate(
+                "MainWindow",
+                "\u30d7\u30ec\u30d3\u30e5\u30fc\u30d1\u30cd\u30eb\u8868\u793a\u5207\u66ff",
+                None,
+            )
+        )
+        self.actionAnnotation.setText(
+            QCoreApplication.translate("MainWindow", "\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3", None)
+        )
+        # if QT_CONFIG(shortcut)
         self.actionAnnotation.setShortcut(QCoreApplication.translate("MainWindow", "Ctrl+T", None))
-#endif // QT_CONFIG(shortcut)
-        self.actionExport.setText(QCoreApplication.translate("MainWindow", "\u30a8\u30af\u30b9\u30dd\u30fc\u30c8", None))
-#if QT_CONFIG(shortcut)
+        # endif // QT_CONFIG(shortcut)
+        self.actionExport.setText(
+            QCoreApplication.translate("MainWindow", "\u30a8\u30af\u30b9\u30dd\u30fc\u30c8", None)
+        )
+        # if QT_CONFIG(shortcut)
         self.actionExport.setShortcut(QCoreApplication.translate("MainWindow", "Ctrl+E", None))
-#endif // QT_CONFIG(shortcut)
+        # endif // QT_CONFIG(shortcut)
         self.actionSettings.setText(QCoreApplication.translate("MainWindow", "\u8a2d\u5b9a", None))
-#if QT_CONFIG(shortcut)
+        # if QT_CONFIG(shortcut)
         self.actionSettings.setShortcut(QCoreApplication.translate("MainWindow", "Ctrl+,", None))
-#endif // QT_CONFIG(shortcut)
-        self.actionAbout.setText(QCoreApplication.translate("MainWindow", "LoRAIro\u306b\u3064\u3044\u3066", None))
-        self.labelDataset.setText(QCoreApplication.translate("MainWindow", "\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8:", None))
-        self.lineEditDatasetPath.setPlaceholderText(QCoreApplication.translate("MainWindow", "\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8\u30c7\u30a3\u30ec\u30af\u30c8\u30ea\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044", None))
+        # endif // QT_CONFIG(shortcut)
+        self.actionAbout.setText(
+            QCoreApplication.translate("MainWindow", "LoRAIro\u306b\u3064\u3044\u3066", None)
+        )
+        self.labelDataset.setText(
+            QCoreApplication.translate("MainWindow", "\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8:", None)
+        )
+        self.lineEditDatasetPath.setPlaceholderText(
+            QCoreApplication.translate(
+                "MainWindow",
+                "\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8\u30c7\u30a3\u30ec\u30af\u30c8\u30ea\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044",
+                None,
+            )
+        )
         self.pushButtonSelectDataset.setText(QCoreApplication.translate("MainWindow", "\u9078\u629e", None))
         self.pushButtonSettings.setText(QCoreApplication.translate("MainWindow", "\u8a2d\u5b9a", None))
         self.labelDbInfo.setStyleSheet(QCoreApplication.translate("MainWindow", "font-weight: bold;", None))
-        self.labelDbInfo.setText(QCoreApplication.translate("MainWindow", "\u30c7\u30fc\u30bf\u30d9\u30fc\u30b9: \u672a\u63a5\u7d9a", None))
-        self.pushButtonRegisterImages.setText(QCoreApplication.translate("MainWindow", "\u753b\u50cf\u3092DB\u767b\u9332", None))
-        self.labelFilterSearch.setStyleSheet(QCoreApplication.translate("MainWindow", "font-weight: bold;", None))
-        self.labelFilterSearch.setText(QCoreApplication.translate("MainWindow", "\u691c\u7d22\u30fb\u30d5\u30a3\u30eb\u30bf\u30fc", None))
-        self.groupBoxSelectedImageDetails.setTitle(QCoreApplication.translate("MainWindow", "\u9078\u629e\u753b\u50cf\u8a73\u7d30\u60c5\u5831", None))
-        self.labelImageSummary.setStyleSheet(QCoreApplication.translate("MainWindow", "color: #666; font-size: 10px; font-style: italic; padding: 4px;", None))
-        self.labelImageSummary.setText(QCoreApplication.translate("MainWindow", "\u9078\u629e: \u306a\u3057", None))
-        self.labelStatusIndicatorTitle.setStyleSheet(QCoreApplication.translate("MainWindow", "font-size: 10px; font-weight: bold; color: #1976D2;", None))
-        self.labelStatusIndicatorTitle.setText(QCoreApplication.translate("MainWindow", "\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u72b6\u614b:", None))
-        self.labelStatusCompleted.setStyleSheet(QCoreApplication.translate("MainWindow", "font-size: 9px; color: #4CAF50; font-weight: bold;", None))
-        self.labelStatusCompleted.setText(QCoreApplication.translate("MainWindow", "\u2713 \u5b8c\u4e86: 0", None))
-        self.labelStatusPartial.setStyleSheet(QCoreApplication.translate("MainWindow", "font-size: 9px; color: #FF9800; font-weight: bold;", None))
-        self.labelStatusPartial.setText(QCoreApplication.translate("MainWindow", "\u26a0 \u90e8\u5206: 0", None))
-        self.labelStatusError.setStyleSheet(QCoreApplication.translate("MainWindow", "font-size: 9px; color: #f44336; font-weight: bold;", None))
-        self.labelStatusError.setText(QCoreApplication.translate("MainWindow", "\u2717 \u30a8\u30e9\u30fc: 0", None))
-        self.labelStatusProcessing.setStyleSheet(QCoreApplication.translate("MainWindow", "font-size: 9px; color: #2196F3; font-weight: bold;", None))
-        self.labelStatusProcessing.setText(QCoreApplication.translate("MainWindow", "\u25cf \u51e6\u7406\u4e2d: 0", None))
-        self.labelPreviewDetail.setStyleSheet(QCoreApplication.translate("MainWindow", "font-weight: bold;", None))
-        self.labelPreviewDetail.setText(QCoreApplication.translate("MainWindow", "\u30d7\u30ec\u30d3\u30e5\u30fc\u30fb\u8a73\u7d30", None))
-        self.groupBoxAnnotationControl.setTitle(QCoreApplication.translate("MainWindow", "\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u5236\u5fa1", None))
-        self.groupBoxAnnotationResults.setTitle(QCoreApplication.translate("MainWindow", "\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u7d50\u679c", None))
-        self.textEditCaption.setPlaceholderText(QCoreApplication.translate("MainWindow", "\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3\u304c\u3053\u3053\u306b\u8868\u793a\u3055\u308c\u307e\u3059", None))
-        self.tabWidgetAnnotationResults.setTabText(self.tabWidgetAnnotationResults.indexOf(self.tabCaption), QCoreApplication.translate("MainWindow", "\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3", None))
-        self.textEditTags.setPlaceholderText(QCoreApplication.translate("MainWindow", "\u30bf\u30b0\u304c\u3053\u3053\u306b\u8868\u793a\u3055\u308c\u307e\u3059", None))
-        self.tabWidgetAnnotationResults.setTabText(self.tabWidgetAnnotationResults.indexOf(self.tabTags), QCoreApplication.translate("MainWindow", "\u30bf\u30b0", None))
-        self.textEditMetadata.setPlaceholderText(QCoreApplication.translate("MainWindow", "\u30e1\u30bf\u30c7\u30fc\u30bf\u304c\u3053\u3053\u306b\u8868\u793a\u3055\u308c\u307e\u3059", None))
-        self.tabWidgetAnnotationResults.setTabText(self.tabWidgetAnnotationResults.indexOf(self.tabMetadata), QCoreApplication.translate("MainWindow", "\u30e1\u30bf\u30c7\u30fc\u30bf", None))
-        self.pushButtonAnnotate.setText(QCoreApplication.translate("MainWindow", "\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3", None))
-        self.pushButtonExport.setText(QCoreApplication.translate("MainWindow", "\u30a8\u30af\u30b9\u30dd\u30fc\u30c8", None))
+        self.labelDbInfo.setText(
+            QCoreApplication.translate(
+                "MainWindow", "\u30c7\u30fc\u30bf\u30d9\u30fc\u30b9: \u672a\u63a5\u7d9a", None
+            )
+        )
+        self.pushButtonRegisterImages.setText(
+            QCoreApplication.translate("MainWindow", "\u753b\u50cf\u3092DB\u767b\u9332", None)
+        )
+        self.labelFilterSearch.setStyleSheet(
+            QCoreApplication.translate("MainWindow", "font-weight: bold;", None)
+        )
+        self.labelFilterSearch.setText(
+            QCoreApplication.translate(
+                "MainWindow", "\u691c\u7d22\u30fb\u30d5\u30a3\u30eb\u30bf\u30fc", None
+            )
+        )
+        self.groupBoxSelectedImageDetails.setTitle(
+            QCoreApplication.translate(
+                "MainWindow", "\u9078\u629e\u753b\u50cf\u8a73\u7d30\u60c5\u5831", None
+            )
+        )
+        self.labelImageSummary.setStyleSheet(
+            QCoreApplication.translate(
+                "MainWindow", "color: #666; font-size: 10px; font-style: italic; padding: 4px;", None
+            )
+        )
+        self.labelImageSummary.setText(
+            QCoreApplication.translate("MainWindow", "\u9078\u629e: \u306a\u3057", None)
+        )
+        self.labelStatusIndicatorTitle.setStyleSheet(
+            QCoreApplication.translate(
+                "MainWindow", "font-size: 10px; font-weight: bold; color: #1976D2;", None
+            )
+        )
+        self.labelStatusIndicatorTitle.setText(
+            QCoreApplication.translate(
+                "MainWindow", "\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u72b6\u614b:", None
+            )
+        )
+        self.labelStatusCompleted.setStyleSheet(
+            QCoreApplication.translate(
+                "MainWindow", "font-size: 9px; color: #4CAF50; font-weight: bold;", None
+            )
+        )
+        self.labelStatusCompleted.setText(
+            QCoreApplication.translate("MainWindow", "\u2713 \u5b8c\u4e86: 0", None)
+        )
+        self.labelStatusPartial.setStyleSheet(
+            QCoreApplication.translate(
+                "MainWindow", "font-size: 9px; color: #FF9800; font-weight: bold;", None
+            )
+        )
+        self.labelStatusPartial.setText(
+            QCoreApplication.translate("MainWindow", "\u26a0 \u90e8\u5206: 0", None)
+        )
+        self.labelStatusError.setStyleSheet(
+            QCoreApplication.translate(
+                "MainWindow", "font-size: 9px; color: #f44336; font-weight: bold;", None
+            )
+        )
+        self.labelStatusError.setText(
+            QCoreApplication.translate("MainWindow", "\u2717 \u30a8\u30e9\u30fc: 0", None)
+        )
+        self.labelStatusProcessing.setStyleSheet(
+            QCoreApplication.translate(
+                "MainWindow", "font-size: 9px; color: #2196F3; font-weight: bold;", None
+            )
+        )
+        self.labelStatusProcessing.setText(
+            QCoreApplication.translate("MainWindow", "\u25cf \u51e6\u7406\u4e2d: 0", None)
+        )
+        self.labelPreviewDetail.setStyleSheet(
+            QCoreApplication.translate("MainWindow", "font-weight: bold;", None)
+        )
+        self.labelPreviewDetail.setText(
+            QCoreApplication.translate(
+                "MainWindow", "\u30d7\u30ec\u30d3\u30e5\u30fc\u30fb\u8a73\u7d30", None
+            )
+        )
+        self.groupBoxAnnotationControl.setTitle(
+            QCoreApplication.translate(
+                "MainWindow", "\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u5236\u5fa1", None
+            )
+        )
+        self.groupBoxAnnotationResults.setTitle(
+            QCoreApplication.translate(
+                "MainWindow", "\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u7d50\u679c", None
+            )
+        )
+        self.textEditCaption.setPlaceholderText(
+            QCoreApplication.translate(
+                "MainWindow",
+                "\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3\u304c\u3053\u3053\u306b\u8868\u793a\u3055\u308c\u307e\u3059",
+                None,
+            )
+        )
+        self.tabWidgetAnnotationResults.setTabText(
+            self.tabWidgetAnnotationResults.indexOf(self.tabCaption),
+            QCoreApplication.translate("MainWindow", "\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3", None),
+        )
+        self.textEditTags.setPlaceholderText(
+            QCoreApplication.translate(
+                "MainWindow",
+                "\u30bf\u30b0\u304c\u3053\u3053\u306b\u8868\u793a\u3055\u308c\u307e\u3059",
+                None,
+            )
+        )
+        self.tabWidgetAnnotationResults.setTabText(
+            self.tabWidgetAnnotationResults.indexOf(self.tabTags),
+            QCoreApplication.translate("MainWindow", "\u30bf\u30b0", None),
+        )
+        self.textEditMetadata.setPlaceholderText(
+            QCoreApplication.translate(
+                "MainWindow",
+                "\u30e1\u30bf\u30c7\u30fc\u30bf\u304c\u3053\u3053\u306b\u8868\u793a\u3055\u308c\u307e\u3059",
+                None,
+            )
+        )
+        self.tabWidgetAnnotationResults.setTabText(
+            self.tabWidgetAnnotationResults.indexOf(self.tabMetadata),
+            QCoreApplication.translate("MainWindow", "\u30e1\u30bf\u30c7\u30fc\u30bf", None),
+        )
+        self.pushButtonAnnotate.setText(
+            QCoreApplication.translate("MainWindow", "\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3", None)
+        )
+        self.pushButtonExport.setText(
+            QCoreApplication.translate("MainWindow", "\u30a8\u30af\u30b9\u30dd\u30fc\u30c8", None)
+        )
         self.labelStatus.setText(QCoreApplication.translate("MainWindow", "\u6e96\u5099\u5b8c\u4e86", None))
         self.menuFile.setTitle(QCoreApplication.translate("MainWindow", "\u30d5\u30a1\u30a4\u30eb", None))
         self.menuEdit.setTitle(QCoreApplication.translate("MainWindow", "\u7de8\u96c6", None))
         self.menuView.setTitle(QCoreApplication.translate("MainWindow", "\u8868\u793a", None))
         self.menuTools.setTitle(QCoreApplication.translate("MainWindow", "\u30c4\u30fc\u30eb", None))
         self.menuHelp.setTitle(QCoreApplication.translate("MainWindow", "\u30d8\u30eb\u30d7", None))
-    # retranslateUi
 
+    # retranslateUi
