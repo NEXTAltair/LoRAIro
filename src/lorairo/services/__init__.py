@@ -7,6 +7,7 @@ from .annotation_service import AnnotationService
 
 # Protocol-based ModelRegistryServiceProtocol アーキテクチャに移行済み
 from .configuration_service import ConfigurationService
+from .date_formatter import format_datetime_for_display
 from .image_processing_service import ImageProcessingService
 from .model_sync_service import ModelSyncService
 from .service_container import ServiceContainer, get_service_container
@@ -20,6 +21,7 @@ enhanced_annotation_service = annotation_service = __import__(
 __all__ = [
     "AnnotationService",
     "ConfigurationService",
+    "format_datetime_for_display",
     "ImageProcessingService",
     "ModelSyncService",
     "ServiceContainer",
