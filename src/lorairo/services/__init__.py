@@ -21,11 +21,11 @@ enhanced_annotation_service = annotation_service = __import__(
 __all__ = [
     "AnnotationService",
     "ConfigurationService",
-    "format_datetime_for_display",
     "ImageProcessingService",
     "ModelSyncService",
     "ServiceContainer",
     "annotation_service",
     "enhanced_annotation_service",
+    "format_datetime_for_display",
     "get_service_container",
 ]
