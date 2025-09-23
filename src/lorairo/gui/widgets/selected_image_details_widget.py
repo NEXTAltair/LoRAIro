@@ -3,7 +3,6 @@ Selected Image Details Widget
 
 選択画像の詳細情報表示とインライン編集機能を提供
 画像基本情報、アノテーション概要、Rating/Score の編集機能
-# TODO: 他のウィジェットの機能も直に実装してあるので修正が必要､レイアウトはここに定義しない
 """
 
 from pathlib import Path

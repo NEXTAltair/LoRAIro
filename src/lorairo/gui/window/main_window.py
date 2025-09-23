@@ -354,10 +354,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 # Enhanced Event-Driven Pattern では connect_to_data_signals で接続するため、
                 # 直接的な属性確認ではなく接続メソッドの存在を確認
                 if hasattr(self.selected_image_details_widget, "connect_to_data_signals"):
-                    connection_status.append("✅ SelectedImageDetailsWidget: Enhanced Event-Driven Pattern対応済み")
+                    connection_status.append(
+                        "✅ SelectedImageDetailsWidget: Enhanced Event-Driven Pattern対応済み"
+                    )
                 else:
-                    connection_status.append("❌ SelectedImageDetailsWidget: Enhanced Event-Driven Pattern未対応")
-                    logger.error("SelectedImageDetailsWidgetのEnhanced Event-Driven Pattern対応が不完全です")
+                    connection_status.append(
+                        "❌ SelectedImageDetailsWidget: Enhanced Event-Driven Pattern未対応"
+                    )
+                    logger.error(
+                        "SelectedImageDetailsWidgetのEnhanced Event-Driven Pattern対応が不完全です"
+                    )
             else:
                 connection_status.append("⚠️ SelectedImageDetailsWidget: ウィジェット未設定")
 
