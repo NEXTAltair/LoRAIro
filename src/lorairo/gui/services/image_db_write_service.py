@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from ...database.db_manager import ImageDatabaseManager
+from ...services.date_formatter import format_datetime_for_display
 from ...utils.log import logger
 from ..widgets.annotation_data_display_widget import AnnotationData, ImageDetails
 
@@ -65,7 +66,7 @@ class ImageDBWriteService:
                 if image_metadata.get("width")
                 else "-",
                 file_size=f"{file_size_mb:.2f} MB" if file_size_mb > 0 else "-",
-                created_date=image_metadata.get("created_at", "-"),
+                created_date=format_datetime_for_display(image_metadata.get("created_at")),
                 rating_value=rating_value,
                 score_value=score_value,
                 annotation_data=annotation_data,

@@ -13,6 +13,7 @@ from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QWidget
 
 from ...gui.designer.SelectedImageDetailsWidget_ui import Ui_SelectedImageDetailsWidget
+from ...services.date_formatter import format_datetime_for_display
 from ...utils.log import logger
 from .annotation_data_display_widget import (
     AnnotationData,
@@ -216,17 +217,8 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
             else:
                 file_size = "Unknown"
 
-            # 作成日時の取得
-            created_date = image_data.get("created_at", "Unknown")
-            if created_date and created_date != "Unknown":
-                # ISO形式を読みやすい形式に変換
-                try:
-                    from datetime import datetime
-
-                    dt = datetime.fromisoformat(created_date.replace("Z", "+00:00"))
-                    created_date = dt.strftime("%Y-%m-%d %H:%M:%S")
-                except Exception:
-                    pass  # 変換に失敗した場合は元の値を使用
+            # 作成日時の取得と文字列変換
+            created_date = format_datetime_for_display(image_data.get("created_at"))
 
             # Rating/Score の取得
             rating_value = image_data.get("rating", "") or ""
