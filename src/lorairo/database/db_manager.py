@@ -5,6 +5,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+from sqlalchemy.engine import Result
+
 from ..storage.file_system import FileSystemManager
 from ..utils.log import logger
 from ..utils.tools import calculate_phash
@@ -646,7 +650,7 @@ class ImageDatabaseManager:
             logger.error(f"データセット状態取得エラー: {e}")
             return {"total_images": 0, "status": "error"}
 
-    def get_annotation_status_counts(self) -> dict[str, int]:
+    def get_annotation_status_counts(self) -> dict[str, int | float]:
         """
         アノテーション状態カウントを取得
 
@@ -661,16 +665,16 @@ class ImageDatabaseManager:
                 return {"total": 0, "completed": 0, "error": 0, "completion_rate": 0.0}
 
             # 完了画像数取得 (タグまたはキャプションが存在)
-            session = self.repository.get_session()
+            session: Session = self.repository.get_session()
             with session:
-                completed_query = """
+                completed_query = text("""
                     SELECT COUNT(DISTINCT i.id) FROM images i
                     LEFT JOIN tags t ON i.id = t.image_id
                     LEFT JOIN captions c ON i.id = c.image_id
                     WHERE t.id IS NOT NULL OR c.id IS NOT NULL
-                """
-                result = session.execute(completed_query)
-                completed_images = result.scalar() or 0
+                """)
+                result: Result = session.execute(completed_query)
+                completed_images: int = result.scalar() or 0
 
                 # エラー画像数取得 (TODO: エラー記録テーブルが必要)
                 # 現在はプレースホルダー
@@ -703,26 +707,26 @@ class ImageDatabaseManager:
             list: フィルター後の画像リスト
         """
         try:
-            session = self.repository.get_session()
+            session: Session = self.repository.get_session()
 
             with session:
                 if completed:
                     # 完了画像（タグまたはキャプション有り）
-                    query = """
+                    query = text("""
                         SELECT DISTINCT i.* FROM images i
                         LEFT JOIN tags t ON i.id = t.image_id
                         LEFT JOIN captions c ON i.id = c.image_id
                         WHERE t.id IS NOT NULL OR c.id IS NOT NULL
-                    """
+                    """)
                 elif error:
                     # エラー画像（TODO: エラー記録テーブル参照）
-                    query = "SELECT * FROM images WHERE 1=0"  # 現在は空結果
+                    query = text("SELECT * FROM images WHERE 1=0")  # 現在は空結果
                 else:
                     # 全ての画像
-                    query = "SELECT * FROM images"
+                    query = text("SELECT * FROM images")
 
-                result = session.execute(query).fetchall()
-                return [dict(row._mapping) for row in result]
+                result: Result = session.execute(query)
+                return [dict(row._mapping) for row in result.fetchall()]
 
         except Exception as e:
             logger.error(f"アノテーション状態フィルタリングエラー: {e}", exc_info=True)
