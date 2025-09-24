@@ -47,7 +47,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSlider,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -135,37 +134,6 @@ class Ui_SelectedImageDetailsWidget:
         self.groupBoxAnnotationSummary.setObjectName("groupBoxAnnotationSummary")
         self.verticalLayoutAnnotationSummary = QVBoxLayout(self.groupBoxAnnotationSummary)
         self.verticalLayoutAnnotationSummary.setObjectName("verticalLayoutAnnotationSummary")
-        self.groupBoxTags = QGroupBox(self.groupBoxAnnotationSummary)
-        self.groupBoxTags.setObjectName("groupBoxTags")
-        self.verticalLayoutTags = QVBoxLayout(self.groupBoxTags)
-        self.verticalLayoutTags.setObjectName("verticalLayoutTags")
-        self.labelTagsContent = QLabel(self.groupBoxTags)
-        self.labelTagsContent.setObjectName("labelTagsContent")
-        self.labelTagsContent.setWordWrap(True)
-        sizePolicy.setHeightForWidth(self.labelTagsContent.sizePolicy().hasHeightForWidth())
-        self.labelTagsContent.setSizePolicy(sizePolicy)
-
-        self.verticalLayoutTags.addWidget(self.labelTagsContent)
-
-        self.verticalLayoutAnnotationSummary.addWidget(self.groupBoxTags)
-
-        self.groupBoxCaptions = QGroupBox(self.groupBoxAnnotationSummary)
-        self.groupBoxCaptions.setObjectName("groupBoxCaptions")
-        self.verticalLayoutCaptions = QVBoxLayout(self.groupBoxCaptions)
-        self.verticalLayoutCaptions.setObjectName("verticalLayoutCaptions")
-        self.textEditCaptionsContent = QTextEdit(self.groupBoxCaptions)
-        self.textEditCaptionsContent.setObjectName("textEditCaptionsContent")
-        sizePolicy1 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        sizePolicy1.setHorizontalStretch(0)
-        sizePolicy1.setVerticalStretch(1)
-        sizePolicy1.setHeightForWidth(self.textEditCaptionsContent.sizePolicy().hasHeightForWidth())
-        self.textEditCaptionsContent.setSizePolicy(sizePolicy1)
-        self.textEditCaptionsContent.setReadOnly(True)
-
-        self.verticalLayoutCaptions.addWidget(self.textEditCaptionsContent)
-
-        self.verticalLayoutAnnotationSummary.addWidget(self.groupBoxCaptions)
-
         self.gridLayoutRatingScore = QGridLayout()
         self.gridLayoutRatingScore.setObjectName("gridLayoutRatingScore")
         self.labelRating = QLabel(self.groupBoxAnnotationSummary)
@@ -192,22 +160,22 @@ class Ui_SelectedImageDetailsWidget:
         self.comboBoxRating.addItem("")
         self.comboBoxRating.setObjectName("comboBoxRating")
         self.comboBoxRating.setVisible(True)
-        sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        sizePolicy2.setHorizontalStretch(0)
-        sizePolicy2.setVerticalStretch(0)
-        sizePolicy2.setHeightForWidth(self.comboBoxRating.sizePolicy().hasHeightForWidth())
-        self.comboBoxRating.setSizePolicy(sizePolicy2)
+        sizePolicy1 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        sizePolicy1.setHorizontalStretch(0)
+        sizePolicy1.setVerticalStretch(0)
+        sizePolicy1.setHeightForWidth(self.comboBoxRating.sizePolicy().hasHeightForWidth())
+        self.comboBoxRating.setSizePolicy(sizePolicy1)
 
         self.gridLayoutRatingScore.addWidget(self.comboBoxRating, 0, 1, 1, 1)
 
         self.pushButtonSaveRating = QPushButton(self.groupBoxAnnotationSummary)
         self.pushButtonSaveRating.setObjectName("pushButtonSaveRating")
         self.pushButtonSaveRating.setVisible(True)
-        sizePolicy3 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        sizePolicy3.setHorizontalStretch(0)
-        sizePolicy3.setVerticalStretch(0)
-        sizePolicy3.setHeightForWidth(self.pushButtonSaveRating.sizePolicy().hasHeightForWidth())
-        self.pushButtonSaveRating.setSizePolicy(sizePolicy3)
+        sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        sizePolicy2.setHorizontalStretch(0)
+        sizePolicy2.setVerticalStretch(0)
+        sizePolicy2.setHeightForWidth(self.pushButtonSaveRating.sizePolicy().hasHeightForWidth())
+        self.pushButtonSaveRating.setSizePolicy(sizePolicy2)
 
         self.gridLayoutRatingScore.addWidget(self.pushButtonSaveRating, 0, 2, 1, 1)
 
@@ -239,8 +207,8 @@ class Ui_SelectedImageDetailsWidget:
         self.pushButtonSaveScore = QPushButton(self.groupBoxAnnotationSummary)
         self.pushButtonSaveScore.setObjectName("pushButtonSaveScore")
         self.pushButtonSaveScore.setVisible(True)
-        sizePolicy3.setHeightForWidth(self.pushButtonSaveScore.sizePolicy().hasHeightForWidth())
-        self.pushButtonSaveScore.setSizePolicy(sizePolicy3)
+        sizePolicy2.setHeightForWidth(self.pushButtonSaveScore.sizePolicy().hasHeightForWidth())
+        self.pushButtonSaveScore.setSizePolicy(sizePolicy2)
 
         self.gridLayoutRatingScore.addWidget(self.pushButtonSaveScore, 1, 2, 1, 1)
 
@@ -250,8 +218,11 @@ class Ui_SelectedImageDetailsWidget:
 
         self.annotationDataDisplay = AnnotationDataDisplayWidget(SelectedImageDetailsWidget)
         self.annotationDataDisplay.setObjectName("annotationDataDisplay")
-        sizePolicy1.setHeightForWidth(self.annotationDataDisplay.sizePolicy().hasHeightForWidth())
-        self.annotationDataDisplay.setSizePolicy(sizePolicy1)
+        sizePolicy3 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        sizePolicy3.setHorizontalStretch(0)
+        sizePolicy3.setVerticalStretch(1)
+        sizePolicy3.setHeightForWidth(self.annotationDataDisplay.sizePolicy().hasHeightForWidth())
+        self.annotationDataDisplay.setSizePolicy(sizePolicy3)
 
         self.verticalLayoutMain.addWidget(self.annotationDataDisplay)
 
@@ -304,24 +275,6 @@ class Ui_SelectedImageDetailsWidget:
         self.groupBoxAnnotationSummary.setTitle(
             QCoreApplication.translate(
                 "SelectedImageDetailsWidget", "\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u6982\u8981", None
-            )
-        )
-        self.groupBoxTags.setTitle(
-            QCoreApplication.translate("SelectedImageDetailsWidget", "\u30bf\u30b0", None)
-        )
-        self.labelTagsContent.setText(
-            QCoreApplication.translate("SelectedImageDetailsWidget", "cat, sitting, outdoor, wooden", None)
-        )
-        self.groupBoxCaptions.setTitle(
-            QCoreApplication.translate(
-                "SelectedImageDetailsWidget", "\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3", None
-            )
-        )
-        self.textEditCaptionsContent.setPlaceholderText(
-            QCoreApplication.translate(
-                "SelectedImageDetailsWidget",
-                "\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3\u304c\u8868\u793a\u3055\u308c\u307e\u3059",
-                None,
             )
         )
         self.labelRating.setText(QCoreApplication.translate("SelectedImageDetailsWidget", "Rating:", None))
