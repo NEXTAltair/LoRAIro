@@ -161,25 +161,17 @@ class TestDatasetStateManager:
         """ユーティリティメソッドテスト"""
         state_manager.set_dataset_images(sample_image_metadata)
 
-        # 画像検索
-        image_data = state_manager.get_image_by_id(1)
-        assert image_data["id"] == 1
-        # Cross-platform path comparison using Path objects
-        assert Path(image_data["stored_image_path"]) == Path("/test/image1.jpg")
-
-        # 存在チェック
-        assert state_manager.has_images() is True
-        assert state_manager.has_filtered_images() is True
+        # Phase 3実装: キャッシュ機能削除により、ユーティリティメソッドテストはスキップ
+        # 削除されたメソッド: get_image_by_id(), has_images(), has_filtered_images()
 
         # 選択状態チェック
         state_manager.set_selected_images([1, 2])
         assert state_manager.is_image_selected(1) is True
         assert state_manager.is_image_selected(3) is False
 
-        # 現在画像データ取得
+        # Phase 3実装: get_current_image_data()削除により、現在画像データ取得テストはスキップ
         state_manager.set_current_image(2)
-        current_data = state_manager.get_current_image_data()
-        assert current_data["id"] == 2
+        # 削除されたメソッド: get_current_image_data()
 
     def test_state_summary(self, state_manager, sample_image_metadata):
         """状態サマリーテスト"""

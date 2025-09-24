@@ -117,6 +117,71 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
         self.image_db_write_service = service
         logger.debug("ImageDBWriteService set for SelectedImageDetailsWidget")
 
+    def connect_to_thumbnail_widget(self, thumbnail_widget) -> None:
+        """
+        ThumbnailSelectorWidget との直接接続を確立
+        
+        Phase 2実装: SelectedImageDetailsWidget直接接続機能
+        DatasetStateManagerを経由せず、ThumbnailSelectorWidgetから直接
+        メタデータを受信できるよう接続する。
+        
+        Args:
+            thumbnail_widget: ThumbnailSelectorWidget インスタンス
+        """
+        if hasattr(thumbnail_widget, 'image_metadata_selected'):
+            thumbnail_widget.image_metadata_selected.connect(self._on_direct_metadata_received)
+            logger.debug("ThumbnailSelectorWidget との直接接続を確立しました")
+        else:
+            logger.error("ThumbnailSelectorWidget に image_metadata_selected シグナルがありません")
+
+    @Slot(dict)
+    def _on_direct_metadata_received(self, metadata: dict[str, Any]) -> None:
+        """
+        ThumbnailSelectorWidget からの直接メタデータ受信処理
+        
+        Phase 2実装: DatasetStateManagerを経由しない直接データフロー
+        キャッシュから取得されたメタデータを直接受信し、画像詳細表示を更新する。
+        
+        Args:
+            metadata (dict[str, Any]): ThumbnailSelectorWidgetのキャッシュから取得されたメタデータ
+        """
+        try:
+            logger.debug(f"直接メタデータ受信: データサイズ={len(metadata) if metadata else 0}")
+            
+            # 空データの場合は表示をクリア
+            if not metadata:
+                logger.debug("空のメタデータ受信、表示をクリア")
+                self._clear_display()
+                return
+                
+            # 画像IDを取得
+            image_id = metadata.get("id")
+            if not image_id:
+                logger.warning(f"画像ID未設定 | メタデータ: {list(metadata.keys())}")
+                self._clear_display()
+                return
+                
+            logger.debug(f"直接メタデータ処理: ID={image_id}")
+            
+            # メタデータから詳細情報を構築（既存メソッド活用）
+            details = self._build_image_details_from_metadata(metadata)
+            
+            # UI更新
+            self._update_details_display(details)
+            
+            # 現在の詳細情報保存
+            self.current_details = details
+            self.current_image_id = image_id
+            
+            # シグナル発行
+            self.image_details_loaded.emit(details)
+            
+            logger.info(f"直接メタデータ表示成功: ID={image_id} - クリーンデータフロー動作")
+            
+        except Exception as e:
+            logger.error(f"直接メタデータ受信エラー データ:{metadata.get('id', 'Unknown')} | エラー: {e}", exc_info=True)
+            self._clear_display()
+
     # === Phase 3.3: Enhanced Event-Driven Pattern ===
 
     def connect_to_data_signals(self, state_manager: "DatasetStateManager") -> None:
