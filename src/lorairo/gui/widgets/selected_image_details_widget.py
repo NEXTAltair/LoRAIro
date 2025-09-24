@@ -56,9 +56,8 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
         self.current_details: ImageDetails = ImageDetails()
         self.current_image_id: int | None = None
 
-        # 共通コンポーネント取得 - AnnotationDataDisplayWidget
-        self.annotation_display: AnnotationDataDisplayWidget | None = None
-        self._setup_annotation_display()
+        # UIファイルの既存AnnotationDataDisplayWidgetを参照
+        self.annotation_display: AnnotationDataDisplayWidget = self.annotationDataDisplay
 
         # UI初期化
         self._setup_connections()
@@ -66,25 +65,11 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
         # Phase 3.3: Enhanced Event-Driven Pattern (状態管理なし)
         logger.debug("SelectedImageDetailsWidget initialized with Enhanced Event-Driven Pattern support")
 
-    def _setup_annotation_display(self) -> None:
-        """AnnotationDataDisplayWidget を最下部に配置"""
-        try:
-            # 共通コンポーネントとして AnnotationDataDisplayWidget を作成
-            self.annotation_display = AnnotationDataDisplayWidget(self)
-
-            # メインレイアウトに追加
-            self.verticalLayoutMain.addWidget(self.annotation_display)
-
-            logger.debug("AnnotationDataDisplayWidget added to SelectedImageDetailsWidget")
-
-        except Exception as e:
-            logger.error(f"Error setting up annotation display: {e}", exc_info=True)
 
     def _setup_connections(self) -> None:
         """Enhanced Event-Driven Pattern シグナル接続設定（基本接続はUIファイルで定義済み）"""
-        # アノテーション表示コンポーネントのシグナル（動的接続のため残存）
-        if self.annotation_display:
-            self.annotation_display.data_loaded.connect(self._on_annotation_data_loaded)
+        # アノテーション表示コンポーネントのシグナル接続
+        self.annotation_display.data_loaded.connect(self._on_annotation_data_loaded)
 
     @Slot(str)
     def _on_rating_changed(self, rating_value: str) -> None:
@@ -289,7 +274,7 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
             self._update_rating_score_display(details.rating_value, details.score_value)
 
             # アノテーション表示更新
-            if self.annotation_display and details.annotation_data:
+            if details.annotation_data:
                 self.annotation_display.update_data(details.annotation_data)
 
         except Exception as e:
@@ -332,8 +317,7 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
             self._update_rating_score_display("", 0)
 
             # アノテーション表示クリア
-            if self.annotation_display:
-                self.annotation_display.clear_data()
+            self.annotation_display.clear_data()
 
             # 現在のデータリセット
             self.current_details = ImageDetails()
@@ -355,8 +339,7 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
         self.pushButtonSaveRating.setEnabled(enabled)
         self.pushButtonSaveScore.setEnabled(enabled)
 
-        if self.annotation_display:
-            self.annotation_display.setEnabled(enabled)
+        self.annotation_display.setEnabled(enabled)
 
         if not enabled:
             logger.debug("SelectedImageDetailsWidget disabled")
