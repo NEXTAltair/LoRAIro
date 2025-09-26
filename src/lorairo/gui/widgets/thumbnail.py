@@ -137,7 +137,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     image_selected = Signal(Path)  # 単一画像選択時
     multiple_images_selected = Signal(list)  # 複数画像選択時
     selection_cleared = Signal()  # 選択クリア時
-    image_metadata_selected = Signal(dict)  # 選択時に完全メタデータを供給
 
     def __init__(self, parent=None, dataset_state: DatasetStateManager | None = None):
         """
@@ -330,21 +329,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             "scaled_cache_count": len(self.scaled_cache),
             "metadata_count": len(self.image_metadata),
         }
-
-    def get_cached_metadata(self, image_id: int) -> dict[str, Any] | None:
-        """
-        キャッシュからメタデータを取得
-
-        Phase 1実装: ThumbnailSelectorWidgetメタデータ直接供給機能
-        DatasetStateManagerを経由せず、キャッシュから直接メタデータを取得する。
-
-        Args:
-            image_id (int): 画像ID
-
-        Returns:
-            dict[str, Any] | None: メタデータ辞書、またはキャッシュにない場合None
-        """
-        return self.image_metadata.get(image_id)
 
     def _display_cached_thumbnails(self) -> None:
         """
@@ -541,40 +525,16 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             self.dataset_state.update_from_search_results(thumbnail_result.image_metadata)
             logger.debug("検索結果をDatasetStateManagerに同期完了")
 
-        # **Phase 1 Fix**: メタデータキャッシュ同期修正 - ThumbnailSelectorWidget cache population
-        # 検索結果からself.image_metadataキャッシュを更新（Direct Widget Communication Pattern対応）
-        if hasattr(thumbnail_result, "image_metadata") and thumbnail_result.image_metadata:
-            cache_updated_count = 0
-            for metadata_item in thumbnail_result.image_metadata:
-                if isinstance(metadata_item, dict) and "id" in metadata_item:
-                    image_id = metadata_item["id"]
-                    self.image_metadata[image_id] = metadata_item
-                    cache_updated_count += 1
-                    
-                    # メタデータ構造の詳細ログ出力
-                    has_captions = "captions" in metadata_item and metadata_item["captions"]
-                    has_tags = "tags" in metadata_item and metadata_item["tags"]
-                    logger.debug(f"メタデータキャッシュ更新: image_id={image_id}, captions={has_captions}, tags={has_tags}")
-                    
-                    if has_captions:
-                        logger.debug(f"  captions内容: {metadata_item['captions']}")
-                    if has_tags:
-                        logger.debug(f"  tags内容: {metadata_item['tags']}")
-                else:
-                    logger.warning(f"無効なメタデータ形式をスキップ: {type(metadata_item)} - {metadata_item}")
-
-            logger.info(f"✅ メタデータキャッシュ同期完了: {cache_updated_count}/{len(thumbnail_result.image_metadata)}件更新")
-        else:
-            logger.warning("thumbnail_result.image_metadataが空または無効 - キャッシュ更新スキップ")
-
         # **表示専念**: UI表示のみに集中
         valid_thumbnails = 0
         for image_id, qimage in thumbnail_result.loaded_thumbnails:
             try:
                 qpixmap = QPixmap.fromImage(qimage)
                 if not qpixmap.isNull():
-                    # Phase 3実装: メタデータはimage_metadataキャッシュから取得
-                    metadata = self.image_metadata.get(image_id, {})
+                    # シンプルなキャッシュ保存（メタデータはDatasetStateManagerから取得）
+                    metadata = {}
+                    if self.dataset_state:
+                        metadata = self.dataset_state.get_image_by_id(image_id) or {}
 
                     self.cache_thumbnail(image_id, qpixmap, metadata)
                     valid_thumbnails += 1
@@ -665,17 +625,18 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     def handle_item_selection(self, item: ThumbnailItem, modifiers: Qt.KeyboardModifier) -> None:
         """
-        アイテムの選択を処理（Phase 1: メタデータ直接供給版）
-
-        **実装変更**: DatasetStateManager処理は維持しつつ、キャッシュから
-        メタデータを直接取得してimage_metadata_selectedシグナルで供給する。
+        アイテムの選択を処理（状態管理統合版）
 
         **呼び出し箇所**: CustomGraphicsView.itemClicked Signal (thumbnail.py:168)
-        **使用意図**: ユーザーのクリック操作を選択状態に変換し、メタデータを直接供給
-        **新アーキテクチャ連携**:
-        - UI入力 → キャッシュメタデータ取得 → 直接シグナル発信
-        - DatasetStateManager処理は並行実行（後方互換性維持）
-        - SelectedImageDetailsWidget への直接データフロー確立
+        **使用意図**: ユーザーのクリック操作を選択状態に変換し、DatasetStateManagerに伝達
+        **アーキテクチャ連携**:
+        - UI入力 → DatasetStateManager → 全UIコンポーネント への状態伝播
+        - 単一責任原則による選択ロジックのDatasetStateManager集約
+        - Signal/Slotパターンによる疎結合なコンポーネント間通信
+
+        マウスクリックとキーボード修飾子（Ctrl/Shift）の組み合わせにより、
+        単一選択・複数選択・範囲選択を統一的に処理。選択状態はDatasetStateManagerで
+        一元管理され、他のUIコンポーネント（プレビュー、詳細表示）にも自動的に反映される。
 
         Args:
             item (ThumbnailItem): クリックされたサムネイルアイテム
@@ -684,32 +645,25 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
                 - Ctrl: トグル選択（現在の選択状態を切り替え）
                 - Shift: 範囲選択（前回選択から現在まで）
         """
-        # Phase 1: メタデータ直接供給 - キャッシュからメタデータを取得して直接発信
-        cached_metadata = self.get_cached_metadata(item.image_id)
-        if cached_metadata:
-            self.image_metadata_selected.emit(cached_metadata)
-            logger.debug(f"メタデータ直接供給: image_id={item.image_id}")
-        else:
-            logger.warning(f"キャッシュにメタデータが見つかりません: image_id={item.image_id}")
-
-        # 既存DatasetStateManager処理（後方互換性維持）
-        if self.dataset_state:
-            if modifiers & Qt.KeyboardModifier.ControlModifier:
-                # Ctrl選択: 選択状態をトグル
-                self.dataset_state.toggle_selection(item.image_id)
-            elif modifiers & Qt.KeyboardModifier.ShiftModifier and self.last_selected_item:
-                # Shift選択: 範囲選択
-                self.select_range(self.last_selected_item, item)
-            else:
-                # 通常選択: 単一選択
-                self.dataset_state.set_selected_images([item.image_id])
-                self.dataset_state.set_current_image(item.image_id)
-        else:
+        # DatasetStateManagerを使用した統一選択処理
+        if not self.dataset_state:
             logger.warning("状態管理が未設定です")
+            return
+
+        if modifiers & Qt.KeyboardModifier.ControlModifier:
+            # Ctrl選択: 選択状態をトグル
+            self.dataset_state.toggle_selection(item.image_id)
+        elif modifiers & Qt.KeyboardModifier.ShiftModifier and self.last_selected_item:
+            # Shift選択: 範囲選択
+            self.select_range(self.last_selected_item, item)
+        else:
+            # 通常選択: 単一選択
+            self.dataset_state.set_selected_images([item.image_id])
+            self.dataset_state.set_current_image(item.image_id)
 
         self.last_selected_item = item
 
-    def select_range(self, start_item: ThumbnailItem | None, end_item: ThumbnailItem | None) -> None:
+    def select_range(self, start_item: ThumbnailItem, end_item: ThumbnailItem) -> None:
         """範囲選択処理（DatasetStateManager経由）"""
         if start_item is None or end_item is None or not self.dataset_state:
             return

@@ -267,19 +267,19 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             except Exception as e:
                 logger.error(f"ThumbnailSelectorWidget設定エラー: {e}")
 
-        # ImagePreviewWidget設定 - Direct Widget Communication Pattern 適用
+        # ImagePreviewWidget設定
         if hasattr(self, "imagePreviewWidget") and self.imagePreviewWidget:
             try:
                 # ImagePreviewWidgetの追加設定があればここに実装
                 self.image_preview_widget = self.imagePreviewWidget
 
-                # 直接接続パターン - ThumbnailSelectorWidgetとの直接接続
-                if self.thumbnail_selector:
-                    self.image_preview_widget.connect_to_thumbnail_widget(self.thumbnail_selector)
-                    logger.info("✅ ImagePreviewWidget直接接続完了 (Direct Widget Communication)")
+                # DatasetStateManager接続 - Enhanced Event-Driven Pattern
+                if self.dataset_state_manager:
+                    self.image_preview_widget.connect_to_data_signals(self.dataset_state_manager)
+                    logger.info("✅ ImagePreviewWidget データシグナル接続完了")
                 else:
                     logger.warning(
-                        "⚠️ ThumbnailSelectorWidgetが初期化されていません - ImagePreviewWidget直接接続をスキップ"
+                        "⚠️ DatasetStateManagerが初期化されていません - ImagePreviewWidget接続をスキップ"
                     )
 
                 logger.info("✅ ImagePreviewWidget設定完了")
@@ -292,13 +292,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 # SelectedImageDetailsWidgetの追加設定があればここに実装
                 self.selected_image_details_widget = self.selectedImageDetailsWidget
 
-                # Phase 4: 直接接続パターン - ThumbnailSelectorWidgetとの直接接続
-                if self.thumbnail_selector:
-                    self.selected_image_details_widget.connect_to_thumbnail_widget(self.thumbnail_selector)
-                    logger.info("✅ SelectedImageDetailsWidget 直接接続完了 (Phase 4: クリーンデータフロー)")
+                # DatasetStateManager接続 - Enhanced Event-Driven Pattern
+                if self.dataset_state_manager:
+                    self.selected_image_details_widget.connect_to_data_signals(self.dataset_state_manager)
+                    logger.info("✅ SelectedImageDetailsWidget データシグナル接続完了")
                 else:
                     logger.warning(
-                        "⚠️ ThumbnailSelectorWidgetが初期化されていません - SelectedImageDetailsWidget直接接続をスキップ"
+                        "⚠️ DatasetStateManagerが初期化されていません - SelectedImageDetailsWidget接続をスキップ"
                     )
 
                 logger.info("✅ SelectedImageDetailsWidget設定完了")
@@ -337,32 +337,32 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             else:
                 connection_status.append("⚠️ ThumbnailSelectorWidget: ウィジェット未設定")
 
-            # ImagePreviewWidget接続確認 - Direct Widget Communication Pattern 対応
+            # ImagePreviewWidget接続確認
             if hasattr(self, "image_preview_widget") and self.image_preview_widget:
-                # Direct Widget Communication Pattern では connect_to_thumbnail_widget で接続するため、
-                # 直接接続メソッドの存在を確認
-                if hasattr(self.image_preview_widget, "connect_to_thumbnail_widget"):
-                    connection_status.append("✅ ImagePreviewWidget: Direct Widget Communication Pattern対応済み")
+                # Enhanced Event-Driven Pattern では connect_to_data_signals で接続するため、
+                # 直接的な属性確認ではなく接続メソッドの存在を確認
+                if hasattr(self.image_preview_widget, "connect_to_data_signals"):
+                    connection_status.append("✅ ImagePreviewWidget: Enhanced Event-Driven Pattern対応済み")
                 else:
-                    connection_status.append("❌ ImagePreviewWidget: Direct Widget Communication Pattern未対応")
-                    logger.error("ImagePreviewWidgetのDirect Widget Communication Pattern対応が不完全です")
+                    connection_status.append("❌ ImagePreviewWidget: Enhanced Event-Driven Pattern未対応")
+                    logger.error("ImagePreviewWidgetのEnhanced Event-Driven Pattern対応が不完全です")
             else:
                 connection_status.append("⚠️ ImagePreviewWidget: ウィジェット未設定")
 
             # SelectedImageDetailsWidget接続確認
             if hasattr(self, "selected_image_details_widget") and self.selected_image_details_widget:
-                # Phase 4: 直接接続パターンでは connect_to_thumbnail_widget で接続するため、
-                # 直接接続メソッドの存在を確認
-                if hasattr(self.selected_image_details_widget, "connect_to_thumbnail_widget"):
+                # Enhanced Event-Driven Pattern では connect_to_data_signals で接続するため、
+                # 直接的な属性確認ではなく接続メソッドの存在を確認
+                if hasattr(self.selected_image_details_widget, "connect_to_data_signals"):
                     connection_status.append(
-                        "✅ SelectedImageDetailsWidget: Phase 4直接接続パターン対応済み"
+                        "✅ SelectedImageDetailsWidget: Enhanced Event-Driven Pattern対応済み"
                     )
                 else:
                     connection_status.append(
-                        "❌ SelectedImageDetailsWidget: Phase 4直接接続パターン未対応"
+                        "❌ SelectedImageDetailsWidget: Enhanced Event-Driven Pattern未対応"
                     )
                     logger.error(
-                        "SelectedImageDetailsWidgetのPhase 4直接接続パターン対応が不完全です"
+                        "SelectedImageDetailsWidgetのEnhanced Event-Driven Pattern対応が不完全です"
                     )
             else:
                 connection_status.append("⚠️ SelectedImageDetailsWidget: ウィジェット未設定")
@@ -1192,12 +1192,31 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 selected_image_ids = self.dataset_state_manager.selected_image_ids
                 logger.debug(f"DatasetStateManagerから選択画像を取得: {len(selected_image_ids)}件")
 
-            # Phase 3実装: ThumbnailSelectorWidgetから直接データを取得
-            elif self.thumbnail_selector and hasattr(self.thumbnail_selector, 'image_metadata'):
-                # 選択されたIDがある場合はそれを使用、なければ全画像を使用
-                thumbnail_image_ids = list(self.thumbnail_selector.image_metadata.keys())
-                selected_image_ids = thumbnail_image_ids
-                logger.debug(f"ThumbnailSelectorWidgetから画像を取得: {len(selected_image_ids)}件")
+            # DatasetStateManagerから取得できない場合、ThumbnailSelectorWidgetから取得
+            elif self.thumbnail_selector and hasattr(self.thumbnail_selector, "get_selected_images"):
+                selected_paths = self.thumbnail_selector.get_selected_images()
+                if selected_paths and self.dataset_state_manager:
+                    # パスから画像IDを逆引き
+                    for path in selected_paths:
+                        for img in self.dataset_state_manager.all_images:
+                            if img.get("stored_image_path") == str(path):
+                                img_id = img.get("id")
+                                if img_id is not None:
+                                    selected_image_ids.append(img_id)
+                                break
+                logger.debug(f"ThumbnailSelectorWidgetから選択画像を取得: {len(selected_image_ids)}件")
+
+            # 画像が選択されていない場合、表示中の画像を使用
+            if (
+                not selected_image_ids
+                and self.dataset_state_manager
+                and self.dataset_state_manager.has_filtered_images()
+            ):
+                filtered_images = self.dataset_state_manager.filtered_images
+                selected_image_ids = [
+                    img_id for img in filtered_images if (img_id := img.get("id")) is not None
+                ]
+                logger.info(f"画像未選択のため、表示中の全画像を使用: {len(selected_image_ids)}件")
 
             if not selected_image_ids:
                 QMessageBox.information(
@@ -1209,10 +1228,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 )
                 return
 
-            # Phase 3実装: ThumbnailSelectorWidgetから直接画像パスを構築
+            # 画像パスの構築
             for image_id in selected_image_ids:
-                if self.thumbnail_selector and hasattr(self.thumbnail_selector, 'image_metadata'):
-                    image_data = self.thumbnail_selector.image_metadata.get(image_id)
+                if self.dataset_state_manager:
+                    image_data = self.dataset_state_manager.get_image_by_id(image_id)
                     if image_data:
                         image_path = image_data.get("stored_image_path")
                         if image_path:
@@ -1360,11 +1379,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 logger.debug(f"選択画像を使用: {len(selected_ids)}件")
                 return selected_ids
 
-            # Phase 3実装: ThumbnailSelectorWidgetから直接データを取得
-            if self.thumbnail_selector and hasattr(self.thumbnail_selector, 'image_metadata'):
-                thumbnail_image_ids = list(self.thumbnail_selector.image_metadata.keys())
-                logger.debug(f"表示中の画像を使用: {len(thumbnail_image_ids)}件")
-                return thumbnail_image_ids
+            # Second priority: all currently filtered/displayed images
+            if self.dataset_state_manager and self.dataset_state_manager.has_filtered_images():
+                filtered_images = self.dataset_state_manager.filtered_images
+                filtered_ids = [img_id for img in filtered_images if (img_id := img.get("id")) is not None]
+                logger.debug(f"表示中の画像を使用: {len(filtered_ids)}件")
+                return filtered_ids
 
             # No images available
             logger.warning("エクスポート可能な画像が見つかりません")

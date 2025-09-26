@@ -129,69 +129,6 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
 
         logger.debug("ImagePreviewWidget connected to current_image_data_changed signal")
 
-    def connect_to_thumbnail_widget(self, thumbnail_widget) -> None:
-        """
-        ThumbnailSelectorWidget との直接接続を確立
-        
-        Direct Widget Communication Pattern 実装: ImagePreviewWidget直接接続機能
-        DatasetStateManager を経由せず、ThumbnailSelectorWidget から直接
-        メタデータを受信してプレビュー表示を更新できるよう接続する。
-        
-        Args:
-            thumbnail_widget: ThumbnailSelectorWidget インスタンス
-        """
-        if hasattr(thumbnail_widget, 'image_metadata_selected'):
-            thumbnail_widget.image_metadata_selected.connect(self._on_direct_metadata_received)
-            logger.debug("ImagePreviewWidget - ThumbnailSelectorWidget直接接続確立")
-        else:
-            logger.error("ThumbnailSelectorWidget に image_metadata_selected シグナルがありません")
-
-    @Slot(dict)
-    def _on_direct_metadata_received(self, metadata: dict) -> None:
-        """
-        ThumbnailSelectorWidget からの直接メタデータ受信処理
-        
-        Direct Widget Communication Pattern: DatasetStateManager を経由しない直接データフロー
-        キャッシュから取得されたメタデータを直接受信し、プレビュー表示を更新する。
-        
-        Args:
-            metadata (dict): ThumbnailSelectorWidget のキャッシュから取得されたメタデータ
-        """
-        try:
-            logger.debug(f"ImagePreviewWidget: 直接メタデータ受信 - データサイズ={len(metadata) if metadata else 0}")
-            
-            # 空データの場合はプレビューをクリア
-            if not metadata:
-                logger.debug("空のメタデータ受信、プレビューをクリア")
-                self._clear_preview()
-                return
-                
-            # 画像パスを取得
-            image_path_str = metadata.get("stored_image_path")
-            if not image_path_str:
-                image_id = metadata.get("id", "Unknown")
-                logger.warning(f"画像パス未設定 ID:{image_id} | メタデータ: {list(metadata.keys())}")
-                self._clear_preview()
-                return
-                
-            # プレビュー更新（LoRAIro標準パス解決使用）
-            from ...database.db_core import resolve_stored_path
-            
-            image_path = resolve_stored_path(image_path_str) 
-            if image_path.exists():
-                self.load_image(image_path)
-                image_id = metadata.get("id", "Unknown")
-                logger.debug(f"プレビュー画像読み込み成功: ID={image_id}, path={image_path.name}")
-            else:
-                image_id = metadata.get("id", "Unknown")
-                logger.warning(f"画像ファイルが見つかりません: ID={image_id}, path={image_path}")
-                self._clear_preview()
-                
-        except Exception as e:
-            image_id = metadata.get("id", "Unknown") if metadata else "Unknown"
-            logger.error(f"直接メタデータ受信エラー ID:{image_id} | エラー: {e}", exc_info=True)
-            self._clear_preview()
-
     @Slot(dict)
     def _on_image_data_received(self, image_data: dict) -> None:
         """

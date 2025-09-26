@@ -304,11 +304,7 @@ class TestThumbnailSelectorWidgetSelection:
         assert selected == []
 
     def test_get_current_image_data(self, widget):
-        """Phase 3実装: get_current_image_data()は非推奨メソッドとして削除対象のため、テストをスキップ"""
-        # Phase 3実装により、get_current_image_data()は非推奨メソッドとなり、
-        # 実装も空の配列を返すのみに変更されました。
-        # 実際のデータ取得はThumbnailSelectorWidget.image_metadataから直接行います。
-
+        """現在の画像データ取得テスト（責任分離で追加されたメソッド）"""
         # メタデータを直接設定（load_images_from_metadataでメタデータ設定）
         test_metadata = [
             {"id": 101, "stored_image_path": "image1.jpg"},
@@ -316,9 +312,11 @@ class TestThumbnailSelectorWidgetSelection:
         ]
         widget.current_image_metadata = test_metadata
 
-        # 非推奨メソッドは空配列を返すことを確認
+        # メタデータ形式での取得
         current_data = widget.get_current_image_data()
-        assert current_data == []  # Phase 3実装: 非推奨メソッドは空配列を返す
+        assert len(current_data) == 2
+        assert current_data[0]["id"] == 101
+        assert current_data[1]["id"] == 102
 
 
 class TestThumbnailSelectorWidgetLayout:

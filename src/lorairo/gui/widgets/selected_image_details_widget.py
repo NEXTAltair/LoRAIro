@@ -51,6 +51,7 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
 
         # Phase 3.2: DB操作分離 - ImageDBWriteService依存注入パターン
         self.image_db_write_service: ImageDBWriteService | None = None
+
         # 現在の画像情報
         self.current_details: ImageDetails = ImageDetails()
         self.current_image_id: int | None = None
@@ -115,91 +116,6 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
         """Phase 1-2依存注入パターン継承"""
         self.image_db_write_service = service
         logger.debug("ImageDBWriteService set for SelectedImageDetailsWidget")
-
-    def connect_to_thumbnail_widget(self, thumbnail_widget) -> None:
-        """
-        ThumbnailSelectorWidget との直接接続を確立
-
-        Phase 2実装: SelectedImageDetailsWidget直接接続機能
-        DatasetStateManagerを経由せず、ThumbnailSelectorWidgetから直接
-        メタデータを受信できるよう接続する。
-
-        Args:
-            thumbnail_widget: ThumbnailSelectorWidget インスタンス
-        """
-        if hasattr(thumbnail_widget, 'image_metadata_selected'):
-            thumbnail_widget.image_metadata_selected.connect(self._on_direct_metadata_received)
-            logger.debug("ThumbnailSelectorWidget との直接接続を確立しました")
-        else:
-            logger.error("ThumbnailSelectorWidget に image_metadata_selected シグナルがありません")
-
-    @Slot(dict)
-    def _on_direct_metadata_received(self, metadata: dict[str, Any]) -> None:
-        """
-        ThumbnailSelectorWidget からの直接メタデータ受信処理
-        
-        Phase 2実装: DatasetStateManagerを経由しない直接データフロー
-        キャッシュから取得されたメタデータを直接受信し、画像詳細表示を更新する。
-        
-        Args:
-            metadata (dict[str, Any]): ImagePreviewWidgetを経由して受信されたメタデータ
-        """
-        try:
-            # メタデータの詳細構造をログ出力
-            if metadata:
-                logger.debug(f"直接メタデータ受信詳細:")
-                logger.debug(f"  - データサイズ={len(metadata)}")
-                logger.debug(f"  - キー一覧: {list(metadata.keys())}")
-                if "captions" in metadata:
-                    logger.debug(f"  - captions: {metadata['captions']}")
-                else:
-                    logger.debug(f"  - captions: キーが存在しません")
-                if "tags" in metadata:
-                    logger.debug(f"  - tags: {metadata['tags']}")
-                else:
-                    logger.debug(f"  - tags: キーが存在しません")
-            
-            # 空データの場合は表示をクリア
-            if not metadata:
-                logger.debug("空のメタデータ受信、表示をクリア")
-                self._clear_display()
-                return
-                
-            # 画像IDを取得
-            image_id = metadata.get("id")
-            if not image_id:
-                logger.warning(f"画像ID未設定 | メタデータ: {list(metadata.keys())}")
-                self._clear_display()
-                return
-                
-            logger.debug(f"直接メタデータ処理: ID={image_id}")
-            
-            # キャプションとタグの存在確認とログ出力
-            has_captions = "captions" in metadata and metadata["captions"]
-            has_tags = "tags" in metadata and metadata["tags"]
-            logger.info(f"メタデータ構造確認 ID={image_id}: captions={has_captions}, tags={has_tags}")
-            
-            # メタデータから詳細情報を構築（既存メソッド活用）
-            details = self._build_image_details_from_metadata(metadata)
-            
-            # 構築後の詳細情報も確認
-            logger.info(f"ImageDetails構築後: caption={len(details.caption)} chars, tags={len(details.tags)} chars")
-            
-            # UI更新
-            self._update_details_display(details)
-            
-            # 現在の詳細情報保存
-            self.current_details = details
-            self.current_image_id = image_id
-            
-            # シグナル発行
-            self.image_details_loaded.emit(details)
-            
-            logger.info(f"直接メタデータ表示成功: ID={image_id} - クリーンデータフロー動作")
-            
-        except Exception as e:
-            logger.error(f"直接メタデータ受信エラー データ:{metadata.get('id', 'Unknown')} | エラー: {e}", exc_info=True)
-            self._clear_display()
 
     # === Phase 3.3: Enhanced Event-Driven Pattern ===
 
@@ -292,48 +208,18 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
             rating_value = image_data.get("rating", "") or ""
             score_value = image_data.get("score", 0) or 0
 
-            # Caption/Tags の取得
-            caption = ""
-            tags = ""
-            
-            # メタデータからキャプションとタグを取得
-            if "captions" in image_data and isinstance(image_data["captions"], list):
-                # 最初のキャプションを使用
-                captions_list = image_data["captions"]
-                if captions_list and len(captions_list) > 0:
-                    first_caption = captions_list[0]
-                    if isinstance(first_caption, dict) and "caption" in first_caption:
-                        caption = first_caption["caption"]
-                    elif isinstance(first_caption, str):
-                        caption = first_caption
-
-            if "tags" in image_data and isinstance(image_data["tags"], list):
-                # タグをカンマ区切り文字列に変換
-                tags_list = image_data["tags"]
-                tag_strings = []
-                for tag_item in tags_list:
-                    if isinstance(tag_item, dict) and "tag" in tag_item:
-                        tag_strings.append(tag_item["tag"])
-                    elif isinstance(tag_item, str):
-                        tag_strings.append(tag_item)
-                tags = ", ".join(tag_strings)
-
             # ImageDetails を構築
             details = ImageDetails(
-                image_id=image_data.get("id"),
                 file_name=file_name,
-                file_path=image_path_str,
                 image_size=image_size,
                 file_size=file_size,
                 created_date=created_date,
                 rating_value=rating_value,
                 score_value=score_value,
-                caption=caption,
-                tags=tags,
                 annotation_data=None,  # アノテーションデータは別途取得
             )
 
-            logger.debug(f"ImageDetails constructed from metadata: {file_name}, caption={len(caption)} chars, tags={len(tags_list) if 'tags_list' in locals() else 0} items")
+            logger.debug(f"ImageDetails constructed from metadata: {file_name}")
             return details
 
         except Exception as e:
@@ -387,40 +273,9 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
             # Rating/Score 更新
             self._update_rating_score_display(details.rating_value, details.score_value)
 
-            # キャプションとタグをAnnotationDataに設定してアノテーション表示を更新
-            if details.caption or details.tags:
-                # ImageDetailsのcaptionとtagsからAnnotationDataを作成
-                tags_list = []
-                if details.tags:
-                    tags_list = [tag.strip() for tag in details.tags.split(",") if tag.strip()]
-                
-                annotation_data = AnnotationData(
-                    tags=tags_list,
-                    caption=details.caption,
-                    aesthetic_score=0.0,
-                    overall_score=0,
-                    score_type=""
-                )
-                
-                # 既存のannotation_dataがあれば統合
-                if details.annotation_data:
-                    annotation_data.aesthetic_score = details.annotation_data.aesthetic_score
-                    annotation_data.overall_score = details.annotation_data.overall_score
-                    annotation_data.score_type = details.annotation_data.score_type
-                    # 既存のタグやキャプションが優先される場合は統合
-                    if details.annotation_data.tags:
-                        all_tags = set(tags_list + details.annotation_data.tags)
-                        annotation_data.tags = list(all_tags)
-                    if details.annotation_data.caption and not details.caption:
-                        annotation_data.caption = details.annotation_data.caption
-                
-                self.annotation_display.update_data(annotation_data)
-            elif details.annotation_data:
-                # ImageDetailsにcaptionとtagsがないが、annotation_dataがある場合
+            # アノテーション表示更新
+            if details.annotation_data:
                 self.annotation_display.update_data(details.annotation_data)
-            else:
-                # どちらもない場合はクリア
-                self.annotation_display.clear_data()
 
         except Exception as e:
             logger.error(f"Error updating details display: {e}")
