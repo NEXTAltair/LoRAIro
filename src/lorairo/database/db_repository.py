@@ -604,30 +604,17 @@ class ImageRepository:
         """
         with self.session_factory() as session:
             try:
-                from sqlalchemy.orm import joinedload
-                
-                # Image + Caption + Tag を JOIN して取得
-                stmt = (
-                    select(Image)
-                    .options(joinedload(Image.captions), joinedload(Image.tags))
-                    .where(Image.id == image_id)
-                )
-                image: Image | None = session.execute(stmt).scalars().first()
-                
+                # 主キー検索には session.get が効率的
+                image: Image | None = session.get(Image, image_id)
                 if image is None:
                     logger.warning(f"画像メタデータが見つかりません: image_id={image_id}")
                     return None
 
-                # SQLAlchemy オブジェクトを辞書に変換
+                # SQLAlchemy オブジェクトを辞書に変換して返す
+                # (必要に応じて __dict__ 以外の方法も検討)
+                # relationship でロードされたオブジェクトは除外するなど、調整が必要な場合がある
                 metadata = {c.name: getattr(image, c.name) for c in image.__table__.columns}
-                
-                # キャプション情報を追加
-                metadata["captions"] = [{"caption": cap.caption} for cap in image.captions] if image.captions else []
-                
-                # タグ情報を追加
-                metadata["tags"] = [{"tag": tag.tag} for tag in image.tags] if image.tags else []
-                
-                logger.debug(f"画像メタデータを取得しました: image_id={image_id}, captions={len(metadata['captions'])}, tags={len(metadata['tags'])}")
+                logger.debug(f"画像メタデータを取得しました: image_id={image_id}")
                 return metadata
 
             except SQLAlchemyError as e:
@@ -1103,27 +1090,11 @@ class ImageRepository:
             return []
 
         if resolution == 0:
-            # オリジナル画像の場合：Image + Caption + Tag を JOIN して取得
-            from sqlalchemy.orm import joinedload
-            
-            orig_stmt = (
-                select(Image)
-                .options(joinedload(Image.captions), joinedload(Image.tags))
-                .where(Image.id.in_(image_ids))
-            )
-            orig_results: list[Image] = list(session.execute(orig_stmt).scalars().unique().all())
-            
-            for img in orig_results:
-                metadata = {c.name: getattr(img, c.name) for c in img.__table__.columns}
-                
-                # キャプション情報を追加
-                metadata["captions"] = [{"caption": cap.caption} for cap in img.captions] if img.captions else []
-                
-                # タグ情報を追加
-                metadata["tags"] = [{"tag": tag.tag} for tag in img.tags] if img.tags else []
-                
-                final_metadata_list.append(metadata)
-                
+            orig_stmt = select(Image).where(Image.id.in_(image_ids))
+            orig_results: list[Image] = list(session.execute(orig_stmt).scalars().all())
+            final_metadata_list = [
+                {c.name: getattr(img, c.name) for c in img.__table__.columns} for img in orig_results
+            ]
         else:
             # ProcessedImage を image_id で一括ロード
             proc_stmt = select(ProcessedImage).where(ProcessedImage.image_id.in_(image_ids))
@@ -1144,19 +1115,6 @@ class ImageRepository:
                 if metadata_list:
                     selected_metadata = self._filter_by_resolution(metadata_list, resolution)
                     if selected_metadata:
-                        # ProcessedImageの場合も元ImageのCaption/Tagを取得
-                        orig_stmt = (
-                            select(Image)
-                            .options(joinedload(Image.captions), joinedload(Image.tags))
-                            .where(Image.id == image_id)
-                        )
-                        orig_img = session.execute(orig_stmt).scalars().first()
-                        
-                        if orig_img:
-                            # キャプションとタグを追加
-                            selected_metadata["captions"] = [{"caption": cap.caption} for cap in orig_img.captions] if orig_img.captions else []
-                            selected_metadata["tags"] = [{"tag": tag.tag} for tag in orig_img.tags] if orig_img.tags else []
-                        
                         final_metadata_list.append(selected_metadata)
 
         return final_metadata_list

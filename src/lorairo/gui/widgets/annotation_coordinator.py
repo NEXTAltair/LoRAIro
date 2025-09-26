@@ -322,8 +322,8 @@ class AnnotationCoordinator(QObject):
             return
 
         try:
-            # Phase 3実装: ThumbnailSelectorWidgetから直接データを取得
-            current_images = list(self.thumbnail_selector_widget.image_metadata.values())
+            # 現在表示中の画像データを取得
+            current_images = self.thumbnail_selector_widget.get_current_image_data()
 
             # アノテーション状態でフィルタリング
             filtered_images = self._filter_by_annotation_status(current_images, filter_conditions)
