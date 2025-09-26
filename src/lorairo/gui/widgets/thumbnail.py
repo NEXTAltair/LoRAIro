@@ -541,6 +541,32 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             self.dataset_state.update_from_search_results(thumbnail_result.image_metadata)
             logger.debug("検索結果をDatasetStateManagerに同期完了")
 
+        # **Phase 1 Fix**: メタデータキャッシュ同期修正 - ThumbnailSelectorWidget cache population
+        # 検索結果からself.image_metadataキャッシュを更新（Direct Widget Communication Pattern対応）
+        if hasattr(thumbnail_result, "image_metadata") and thumbnail_result.image_metadata:
+            cache_updated_count = 0
+            for metadata_item in thumbnail_result.image_metadata:
+                if isinstance(metadata_item, dict) and "id" in metadata_item:
+                    image_id = metadata_item["id"]
+                    self.image_metadata[image_id] = metadata_item
+                    cache_updated_count += 1
+                    
+                    # メタデータ構造の詳細ログ出力
+                    has_captions = "captions" in metadata_item and metadata_item["captions"]
+                    has_tags = "tags" in metadata_item and metadata_item["tags"]
+                    logger.debug(f"メタデータキャッシュ更新: image_id={image_id}, captions={has_captions}, tags={has_tags}")
+                    
+                    if has_captions:
+                        logger.debug(f"  captions内容: {metadata_item['captions']}")
+                    if has_tags:
+                        logger.debug(f"  tags内容: {metadata_item['tags']}")
+                else:
+                    logger.warning(f"無効なメタデータ形式をスキップ: {type(metadata_item)} - {metadata_item}")
+
+            logger.info(f"✅ メタデータキャッシュ同期完了: {cache_updated_count}/{len(thumbnail_result.image_metadata)}件更新")
+        else:
+            logger.warning("thumbnail_result.image_metadataが空または無効 - キャッシュ更新スキップ")
+
         # **表示専念**: UI表示のみに集中
         valid_thumbnails = 0
         for image_id, qimage in thumbnail_result.loaded_thumbnails:
