@@ -267,19 +267,19 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             except Exception as e:
                 logger.error(f"ThumbnailSelectorWidget設定エラー: {e}")
 
-        # ImagePreviewWidget設定
+        # ImagePreviewWidget設定 - Direct Widget Communication Pattern 適用
         if hasattr(self, "imagePreviewWidget") and self.imagePreviewWidget:
             try:
                 # ImagePreviewWidgetの追加設定があればここに実装
                 self.image_preview_widget = self.imagePreviewWidget
 
-                # DatasetStateManager接続 - Enhanced Event-Driven Pattern
-                if self.dataset_state_manager:
-                    self.image_preview_widget.connect_to_data_signals(self.dataset_state_manager)
-                    logger.info("✅ ImagePreviewWidget データシグナル接続完了")
+                # 直接接続パターン - ThumbnailSelectorWidgetとの直接接続
+                if self.thumbnail_selector:
+                    self.image_preview_widget.connect_to_thumbnail_widget(self.thumbnail_selector)
+                    logger.info("✅ ImagePreviewWidget直接接続完了 (Direct Widget Communication)")
                 else:
                     logger.warning(
-                        "⚠️ DatasetStateManagerが初期化されていません - ImagePreviewWidget接続をスキップ"
+                        "⚠️ ThumbnailSelectorWidgetが初期化されていません - ImagePreviewWidget直接接続をスキップ"
                     )
 
                 logger.info("✅ ImagePreviewWidget設定完了")
@@ -337,15 +337,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             else:
                 connection_status.append("⚠️ ThumbnailSelectorWidget: ウィジェット未設定")
 
-            # ImagePreviewWidget接続確認
+            # ImagePreviewWidget接続確認 - Direct Widget Communication Pattern 対応
             if hasattr(self, "image_preview_widget") and self.image_preview_widget:
-                # Enhanced Event-Driven Pattern では connect_to_data_signals で接続するため、
-                # 直接的な属性確認ではなく接続メソッドの存在を確認
-                if hasattr(self.image_preview_widget, "connect_to_data_signals"):
-                    connection_status.append("✅ ImagePreviewWidget: Enhanced Event-Driven Pattern対応済み")
+                # Direct Widget Communication Pattern では connect_to_thumbnail_widget で接続するため、
+                # 直接接続メソッドの存在を確認
+                if hasattr(self.image_preview_widget, "connect_to_thumbnail_widget"):
+                    connection_status.append("✅ ImagePreviewWidget: Direct Widget Communication Pattern対応済み")
                 else:
-                    connection_status.append("❌ ImagePreviewWidget: Enhanced Event-Driven Pattern未対応")
-                    logger.error("ImagePreviewWidgetのEnhanced Event-Driven Pattern対応が不完全です")
+                    connection_status.append("❌ ImagePreviewWidget: Direct Widget Communication Pattern未対応")
+                    logger.error("ImagePreviewWidgetのDirect Widget Communication Pattern対応が不完全です")
             else:
                 connection_status.append("⚠️ ImagePreviewWidget: ウィジェット未設定")
 

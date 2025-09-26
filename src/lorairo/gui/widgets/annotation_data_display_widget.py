@@ -37,6 +37,8 @@ class ImageDetails:
     created_date: str = ""  # "2025-07-29 15:30:00" format
     rating_value: str = ""  # "PG", "R", etc.
     score_value: int = 0  # 0-1000 range
+    caption: str = ""  # AI生成キャプション
+    tags: str = ""  # カンマ区切りタグ
     annotation_data: AnnotationData | None = field(default=None)
 
     def __post_init__(self) -> None:
