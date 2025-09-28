@@ -1081,33 +1081,152 @@ class ImageRepository:
 
         return query
 
+    def _format_annotations_for_metadata(self, image: Image) -> dict[str, list[dict[str, Any]]]:
+        """
+        SQLAlchemyのImageオブジェクトからアノテーション辞書を生成します。
+        get_image_annotations()と同じ構造の辞書を返します。
+
+        Args:
+            image (Image): アノテーション情報を含むSQLAlchemyのImageオブジェクト
+
+        Returns:
+            dict[str, list[dict[str, Any]]]: アノテーションデータを含む辞書。
+                キー: 'tags', 'captions', 'scores', 'ratings'
+                値: 各アノテーション情報の辞書のリスト。
+        """
+        annotations: dict[str, list[dict[str, Any]]] = {
+            "tags": [],
+            "captions": [],
+            "scores": [],
+            "ratings": [],
+        }
+
+        # Tags formatting - get_image_annotations() と同じ構造
+        if image.tags:
+            annotations["tags"] = [
+                {
+                    "id": tag.id,
+                    "tag": tag.tag,
+                    "tag_id": tag.tag_id,
+                    "model_id": tag.model_id,
+                    "existing": tag.existing,
+                    "is_edited_manually": tag.is_edited_manually,
+                    "confidence_score": tag.confidence_score,
+                    "created_at": tag.created_at,
+                    "updated_at": tag.updated_at,
+                }
+                for tag in image.tags
+            ]
+
+        # Captions formatting - get_image_annotations() と同じ構造
+        if image.captions:
+            annotations["captions"] = [
+                {
+                    "id": caption.id,
+                    "caption": caption.caption,
+                    "model_id": caption.model_id,
+                    "existing": caption.existing,
+                    "is_edited_manually": caption.is_edited_manually,
+                    "created_at": caption.created_at,
+                    "updated_at": caption.updated_at,
+                }
+                for caption in image.captions
+            ]
+
+        # Scores formatting - get_image_annotations() と同じ構造
+        if image.scores:
+            annotations["scores"] = [
+                {
+                    "id": score.id,
+                    "score": score.score,
+                    "model_id": score.model_id,
+                    "is_edited_manually": score.is_edited_manually,
+                    "created_at": score.created_at,
+                    "updated_at": score.updated_at,
+                }
+                for score in image.scores
+            ]
+
+        # Ratings formatting - get_image_annotations() と同じ構造
+        if image.ratings:
+            annotations["ratings"] = [
+                {
+                    "id": rating.id,
+                    "raw_rating_value": rating.raw_rating_value,
+                    "normalized_rating": rating.normalized_rating,
+                    "model_id": rating.model_id,
+                    "confidence_score": rating.confidence_score,
+                    "created_at": rating.created_at,
+                    "updated_at": rating.updated_at,
+                }
+                for rating in image.ratings
+            ]
+
+        return annotations
+
     def _fetch_filtered_metadata(
         self, session: Session, image_ids: list[int], resolution: int
     ) -> list[dict[str, Any]]:
         """フィルタリングされたIDリストに基づき、指定解像度のメタデータを取得します。"""
+        from sqlalchemy.orm import joinedload
+
         final_metadata_list = []
         if not image_ids:
             return []
 
         if resolution == 0:
-            orig_stmt = select(Image).where(Image.id.in_(image_ids))
-            orig_results: list[Image] = list(session.execute(orig_stmt).scalars().all())
-            final_metadata_list = [
-                {c.name: getattr(img, c.name) for c in img.__table__.columns} for img in orig_results
-            ]
+            # Original Images - アノテーション情報を含めて取得
+            orig_stmt = (
+                select(Image)
+                .where(Image.id.in_(image_ids))
+                .options(
+                    joinedload(Image.tags),
+                    joinedload(Image.captions),
+                    joinedload(Image.scores),
+                    joinedload(Image.ratings),
+                )
+            )
+            orig_results: list[Image] = list(session.execute(orig_stmt).unique().scalars().all())
+
+            # メタデータ構築 - 基本カラム + アノテーション情報
+            for img in orig_results:
+                metadata = {c.name: getattr(img, c.name) for c in img.__table__.columns}
+                # アノテーション情報を追加
+                metadata.update(self._format_annotations_for_metadata(img))
+                final_metadata_list.append(metadata)
         else:
             # ProcessedImage を image_id で一括ロード
             proc_stmt = select(ProcessedImage).where(ProcessedImage.image_id.in_(image_ids))
             all_proc_images = session.execute(proc_stmt).scalars().all()
+
+            # 対応するOriginal Imageのアノテーション情報を一括取得
+            orig_annotations_stmt = (
+                select(Image)
+                .where(Image.id.in_(image_ids))
+                .options(
+                    joinedload(Image.tags),
+                    joinedload(Image.captions),
+                    joinedload(Image.scores),
+                    joinedload(Image.ratings),
+                )
+            )
+            orig_images_with_annotations = session.execute(orig_annotations_stmt).unique().scalars().all()
+
+            # image_id → annotations のマッピング作成
+            annotations_by_image_id: dict[int, dict[str, list[dict[str, Any]]]] = {}
+            for img in orig_images_with_annotations:
+                annotations_by_image_id[img.id] = self._format_annotations_for_metadata(img)
 
             # image_id ごとにグループ化
             proc_images_by_id: dict[int, list[dict[str, Any]]] = {}
             for img in all_proc_images:
                 if img.image_id not in proc_images_by_id:
                     proc_images_by_id[img.image_id] = []
-                proc_images_by_id[img.image_id].append(
-                    {c.name: getattr(img, c.name) for c in img.__table__.columns}
-                )
+                proc_metadata = {c.name: getattr(img, c.name) for c in img.__table__.columns}
+                # Original Imageのアノテーション情報を追加
+                if img.image_id in annotations_by_image_id:
+                    proc_metadata.update(annotations_by_image_id[img.image_id])
+                proc_images_by_id[img.image_id].append(proc_metadata)
 
             # 各 image_id グループ内で解像度フィルタを適用
             for image_id in image_ids:
