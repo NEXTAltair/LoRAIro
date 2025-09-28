@@ -46,6 +46,16 @@
         <property name="placeholderText">
          <string>タグが表示されます</string>
         </property>
+        <property name="styleSheet">
+         <string>QTextEdit {
+    font-size: 10px;
+    background-color: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+    padding: 6px;
+    color: palette(text);
+}</string>
+        </property>
        </widget>
       </item>
      </layout>
@@ -67,6 +77,16 @@
         </property>
         <property name="placeholderText">
          <string>キャプションが表示されます</string>
+        </property>
+        <property name="styleSheet">
+         <string>QTextEdit {
+    font-size: 10px;
+    background-color: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+    padding: 6px;
+    color: palette(text);
+}</string>
         </property>
        </widget>
       </item>
@@ -106,6 +126,9 @@
           <verstretch>0</verstretch>
          </sizepolicy>
         </property>
+        <property name="styleSheet">
+         <string>font-size: 10px; font-weight: bold; color: palette(text);</string>
+        </property>
        </widget>
       </item>
       <item row="1" column="0">
@@ -134,6 +157,9 @@
           <horstretch>0</horstretch>
           <verstretch>0</verstretch>
          </sizepolicy>
+        </property>
+        <property name="styleSheet">
+         <string>font-size: 10px; font-weight: bold; color: palette(text);</string>
         </property>
        </widget>
       </item>

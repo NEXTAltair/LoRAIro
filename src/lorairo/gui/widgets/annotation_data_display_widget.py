@@ -78,24 +78,6 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self.textEditTags.setReadOnly(True)
         self.textEditCaption.setReadOnly(True)
 
-        # スタイル設定
-        text_edit_style = """
-            QTextEdit {
-                font-size: 10px;
-                background-color: #f8f9fa;
-                border: 1px solid #e9ecef;
-                border-radius: 4px;
-                padding: 6px;
-            }
-        """
-        self.textEditTags.setStyleSheet(text_edit_style)
-        self.textEditCaption.setStyleSheet(text_edit_style)
-
-        # スコアラベルのスタイル
-        score_style = "font-size: 10px; font-weight: bold; color: #495057;"
-        self.labelScoreTypeValue.setStyleSheet(score_style)
-        self.labelOverallValue.setStyleSheet(score_style)
-
     def update_data(self, data: AnnotationData) -> None:
         """アノテーションデータで表示を更新"""
         try:
