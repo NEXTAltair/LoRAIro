@@ -527,16 +527,6 @@ class FilterSearchPanel(QScrollArea):
 
             # 詳細エラーログ出力
             logger.error("\n".join(error_details))
-
-            # ユーザー向けエラーメッセージ（Qt Designer Phase 2対応版）
-            user_error_message = (
-                "SearchFilterService が設定されていません。\n"
-                "Qt Designer Phase 2 レスポンシブレイアウト変更の影響または\n"
-                "MainWindow 初期化エラーの可能性があります。\n"
-                "ログを確認してください。"
-            )
-            # TODO: SearchFilterService未設定エラーの表示方法を検討（プレビューエリア削除のため）
-            # user_error_message = SearchFilterService が設定されていません...
             return
 
         if not self.worker_service:
@@ -565,8 +555,6 @@ class FilterSearchPanel(QScrollArea):
                     self.ui.comboAspectRatio.currentText() != "全て",
                 ]
             ):
-                # TODO: 検索条件未入力エラーの表示方法を検討（プレビューエリア削除のため）
-                # "検索条件を入力してください"
                 logger.info("検索条件が未指定のため検索をスキップ")
                 return
 
@@ -577,9 +565,6 @@ class FilterSearchPanel(QScrollArea):
             if self.ui.checkboxDateFilter.isChecked() and (
                 date_range_start is None or date_range_end is None
             ):
-                error_msg = "日付範囲の設定に問題があります。日付フィルターを無効にするか、範囲を再設定してください。"
-                # TODO: 日付範囲エラーの表示方法を検討（プレビューエリア削除のため）
-                # error_msg = 日付範囲の設定に問題があります...
                 logger.warning("日付範囲フィルターエラー: 有効だが範囲が無効")
                 return
 
@@ -610,32 +595,27 @@ class FilterSearchPanel(QScrollArea):
                 # 旧形式のシグナルも発行（後方互換性）
                 self.search_requested.emit({"conditions": conditions, "worker_id": worker_id})
             else:
-                error_msg = "検索の開始に失敗しました"
                 logger.error("WorkerService.start_search failed")
                 # Phase 3: State transition to ERROR
                 self._transition_to_state(PipelineState.ERROR)
 
         except AttributeError as e:
-            error_msg = "UIコンポーネントへのアクセスエラーが発生しました"
             logger.error(f"UI AttributeError: {e}", exc_info=True)
             # Phase 3: State transition to ERROR
             self._transition_to_state(PipelineState.ERROR)
         except ValueError as e:
-            error_msg = f"入力値エラー: {e}"
             logger.error(f"検索入力値エラー: {e}")
             # Phase 3: State transition to ERROR
             self._transition_to_state(PipelineState.ERROR)
         except Exception as e:
-            error_msg = f"予期しない検索エラーが発生しました: {str(e)[:100]}"
             logger.error(f"検索実行エラー: {e}", exc_info=True)
             # Phase 3: State transition to ERROR
             self._transition_to_state(PipelineState.ERROR)
 
     def _execute_synchronous_search(self) -> None:
+        # TODO: ワーカーが使えない状況は想定せずメソッドごと消す
         """同期検索実行（WorkerServiceが利用できない場合のフォールバック）"""
         logger.info("フォールバック: 同期検索を実行")
-
-        # TODO: 検索中メッセージの表示方法を検討（プレビューエリア削除のため）
 
         try:
             # 検索テキストをキーワードリストに変換
@@ -673,7 +653,6 @@ class FilterSearchPanel(QScrollArea):
             logger.info(f"同期検索完了: {count}件")
 
         except Exception as e:
-            error_msg = f"検索エラー: {str(e)[:100]}"
             logger.error(f"同期検索実行エラー: {e}", exc_info=True)
             # TODO: 同期検索エラーの表示方法を検討（プレビューエリア削除のため）
             self.search_completed.emit({"results": [], "count": 0, "error": str(e)})
