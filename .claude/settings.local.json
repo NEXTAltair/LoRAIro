@@ -6,7 +6,14 @@
     "allow": [
       "mcp__cipher__cipher_memory_search",
       "mcp__cipher__cipher_extract_and_operate_memory",
-      "mcp__serena__delete_memory"
+      "mcp__serena__delete_memory",
+      "mcp__serena__get_symbols_overview",
+      "mcp__serena__list_dir",
+      "mcp__serena__search_for_pattern",
+      "mcp__serena__list_memories",
+      "WebSearch",
+      "mcp__serena__read_memory",
+      "SlashCommand(/plan)"
     ],
     "deny": [],
     "ask": []
@@ -14,6 +21,15 @@
   "enableAllProjectMcpServers": true,
   "hooks": {
     "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_assistant_response_checker.py"
+          }
+        ]
+      },
       {
         "matcher": "Grep",
         "hooks": [
@@ -40,6 +56,17 @@
           {
             "type": "command",
             "command": "/workspaces/LoRAIro/.claude/hooks/hook_stop_words.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_response_monitor.py"
           }
         ]
       }

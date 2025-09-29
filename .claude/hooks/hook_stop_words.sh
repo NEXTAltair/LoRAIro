@@ -15,11 +15,24 @@ SESSION_ID="${SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
 # - 開始時刻とセッションID
 echo "Start $(date) session_id=${SESSION_ID:-none}" >> "$LOG_FILE"
 
+# DEBUG: Hook入力データの調査
+echo "=== DEBUG HOOK INPUT ===" >> "$LOG_FILE"
+echo "STDIN available: $([[ -p /dev/stdin ]] && echo "YES" || echo "NO")" >> "$LOG_FILE"
+echo "ARG1: ${1:-}" >> "$LOG_FILE"
+echo "ARG count: $#" >> "$LOG_FILE"
+echo "ENV CLAUDE_TOOL_RESPONSE: ${CLAUDE_TOOL_RESPONSE:-}" >> "$LOG_FILE"
+echo "ENV CLAUDE_HOOK_DATA: ${CLAUDE_HOOK_DATA:-}" >> "$LOG_FILE"
+echo "All ENV vars with CLAUDE:" >> "$LOG_FILE"
+env | grep CLAUDE >> "$LOG_FILE" 2>/dev/null || echo "No CLAUDE env vars found" >> "$LOG_FILE"
+echo "=========================" >> "$LOG_FILE"
+
 # stdin からの入力をキャプチャ(引数フォールバック)
 if [ -p /dev/stdin ]; then
     HOOK_DATA="$(cat)"
+    echo "HOOK_DATA from stdin: ${HOOK_DATA}" >> "$LOG_FILE"
 else
     HOOK_DATA="${1:-}"
+    echo "HOOK_DATA from arg: ${HOOK_DATA}" >> "$LOG_FILE"
 fi
 
 RULES_FILE="$(dirname "$0")/rules/hook_stop_words_rules.json"
@@ -86,11 +99,13 @@ if [ -n "$FOUND_VIOLATIONS" ]; then
     # 1行サマリ(違反あり、最初の1件のみ)
     echo "violations=1 first_rule='$FIRST_RULE' first_keyword='$FIRST_KEYWORD'" >> "$LOG_FILE"
 
-    # 仕様通りJSONを返してブロック
+    # 新仕様に対応したJSONを返してブロック
     cat << EOF
 {
-    "decision": "block",
-    "reason": "🚫 NGワード規則違反が検出されました:\n$FOUND_VIOLATIONS\nLoRAIroプロジェクトでは指示されたことのみを正確に実行してください。"
+    "hookSpecificOutput": {
+        "permissionDecision": "deny",
+        "permissionDecisionReason": "🚫 NGワード規則違反が検出されました:\n$FOUND_VIOLATIONS\nLoRAIroプロジェクトでは指示されたことのみを正確に実行してください。"
+    }
 }
 EOF
     exit 2
