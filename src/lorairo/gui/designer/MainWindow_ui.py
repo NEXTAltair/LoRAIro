@@ -22,6 +22,12 @@ from PySide6.QtWidgets import (QApplication, QFrame, QGroupBox, QHBoxLayout,
     QSpacerItem, QSplitter, QStatusBar, QTabWidget,
     QTextEdit, QVBoxLayout, QWidget)
 
+from ..widgets.filter_search_panel import FilterSearchPanel
+from ..widgets.image_preview import ImagePreviewWidget
+from ..widgets.model_selection_widget import ModelSelectionWidget
+from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
+from ..widgets.thumbnail import ThumbnailSelectorWidget
+
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         if not MainWindow.objectName():
@@ -196,31 +202,12 @@ class Ui_MainWindow(object):
         self.verticalLayout_2.addWidget(self.filterSearchPanel)
 
         self.splitter.addWidget(self.frameFilterSearchContent)
-        self.groupBoxSelectedImageDetails = QGroupBox(self.splitter)
-        self.groupBoxSelectedImageDetails.setObjectName(u"groupBoxSelectedImageDetails")
-        sizePolicy6 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        sizePolicy6.setHorizontalStretch(0)
-        sizePolicy6.setVerticalStretch(0)
-        sizePolicy6.setHeightForWidth(self.groupBoxSelectedImageDetails.sizePolicy().hasHeightForWidth())
-        self.groupBoxSelectedImageDetails.setSizePolicy(sizePolicy6)
-        self.groupBoxSelectedImageDetails.setMinimumSize(QSize(200, 100))
-        self.groupBoxSelectedImageDetails.setStyleSheet(u"")
-        self.verticalLayout_3 = QVBoxLayout(self.groupBoxSelectedImageDetails)
-        self.verticalLayout_3.setObjectName(u"verticalLayout_3")
-        self.selectedImageDetailsWidget = SelectedImageDetailsWidget(self.groupBoxSelectedImageDetails)
+        self.selectedImageDetailsWidget = SelectedImageDetailsWidget(self.splitter)
         self.selectedImageDetailsWidget.setObjectName(u"selectedImageDetailsWidget")
-        sizePolicy6.setHeightForWidth(self.selectedImageDetailsWidget.sizePolicy().hasHeightForWidth())
-        self.selectedImageDetailsWidget.setSizePolicy(sizePolicy6)
-
-        self.verticalLayout_3.addWidget(self.selectedImageDetailsWidget)
-
-        self.labelImageSummary = QLabel(self.groupBoxSelectedImageDetails)
-        self.labelImageSummary.setObjectName(u"labelImageSummary")
-        self.labelImageSummary.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.verticalLayout_3.addWidget(self.labelImageSummary)
-
-        self.splitter.addWidget(self.groupBoxSelectedImageDetails)
+        sizePolicy5.setHeightForWidth(self.selectedImageDetailsWidget.sizePolicy().hasHeightForWidth())
+        self.selectedImageDetailsWidget.setSizePolicy(sizePolicy5)
+        self.selectedImageDetailsWidget.setMinimumSize(QSize(200, 100))
+        self.splitter.addWidget(self.selectedImageDetailsWidget)
 
         self.verticalLayout.addWidget(self.splitter)
 
@@ -237,21 +224,21 @@ class Ui_MainWindow(object):
         self.verticalLayout_thumbnailGrid.setContentsMargins(5, 5, 5, 5)
         self.thumbnailSelectorWidget = ThumbnailSelectorWidget(self.frameThumbnailGrid)
         self.thumbnailSelectorWidget.setObjectName(u"thumbnailSelectorWidget")
-        sizePolicy7 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        sizePolicy7.setHorizontalStretch(2)
-        sizePolicy7.setVerticalStretch(0)
-        sizePolicy7.setHeightForWidth(self.thumbnailSelectorWidget.sizePolicy().hasHeightForWidth())
-        self.thumbnailSelectorWidget.setSizePolicy(sizePolicy7)
+        sizePolicy6 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        sizePolicy6.setHorizontalStretch(2)
+        sizePolicy6.setVerticalStretch(0)
+        sizePolicy6.setHeightForWidth(self.thumbnailSelectorWidget.sizePolicy().hasHeightForWidth())
+        self.thumbnailSelectorWidget.setSizePolicy(sizePolicy6)
 
         self.verticalLayout_thumbnailGrid.addWidget(self.thumbnailSelectorWidget)
 
         self.frameThumbnailStatusIndicator = QFrame(self.frameThumbnailGrid)
         self.frameThumbnailStatusIndicator.setObjectName(u"frameThumbnailStatusIndicator")
-        sizePolicy8 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        sizePolicy8.setHorizontalStretch(0)
-        sizePolicy8.setVerticalStretch(0)
-        sizePolicy8.setHeightForWidth(self.frameThumbnailStatusIndicator.sizePolicy().hasHeightForWidth())
-        self.frameThumbnailStatusIndicator.setSizePolicy(sizePolicy8)
+        sizePolicy7 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        sizePolicy7.setHorizontalStretch(0)
+        sizePolicy7.setVerticalStretch(0)
+        sizePolicy7.setHeightForWidth(self.frameThumbnailStatusIndicator.sizePolicy().hasHeightForWidth())
+        self.frameThumbnailStatusIndicator.setSizePolicy(sizePolicy7)
         self.frameThumbnailStatusIndicator.setStyleSheet(u"")
         self.frameThumbnailStatusIndicator.setFrameShape(QFrame.Shape.Box)
         self.horizontalLayout_thumbnailStatusIndicator = QHBoxLayout(self.frameThumbnailStatusIndicator)
@@ -293,8 +280,8 @@ class Ui_MainWindow(object):
         self.splitterMainWorkArea.addWidget(self.frameThumbnailGrid)
         self.framePreviewDetailPanel = QFrame(self.splitterMainWorkArea)
         self.framePreviewDetailPanel.setObjectName(u"framePreviewDetailPanel")
-        sizePolicy7.setHeightForWidth(self.framePreviewDetailPanel.sizePolicy().hasHeightForWidth())
-        self.framePreviewDetailPanel.setSizePolicy(sizePolicy7)
+        sizePolicy6.setHeightForWidth(self.framePreviewDetailPanel.sizePolicy().hasHeightForWidth())
+        self.framePreviewDetailPanel.setSizePolicy(sizePolicy6)
         self.framePreviewDetailPanel.setFrameShape(QFrame.Shape.StyledPanel)
         self.framePreviewDetailPanel.setFrameShadow(QFrame.Shadow.Raised)
         self.verticalLayout_previewDetail = QVBoxLayout(self.framePreviewDetailPanel)
@@ -308,11 +295,11 @@ class Ui_MainWindow(object):
 
         self.framePreviewDetailContent = QFrame(self.framePreviewDetailPanel)
         self.framePreviewDetailContent.setObjectName(u"framePreviewDetailContent")
-        sizePolicy9 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
-        sizePolicy9.setHorizontalStretch(0)
-        sizePolicy9.setVerticalStretch(0)
-        sizePolicy9.setHeightForWidth(self.framePreviewDetailContent.sizePolicy().hasHeightForWidth())
-        self.framePreviewDetailContent.setSizePolicy(sizePolicy9)
+        sizePolicy8 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        sizePolicy8.setHorizontalStretch(0)
+        sizePolicy8.setVerticalStretch(0)
+        sizePolicy8.setHeightForWidth(self.framePreviewDetailContent.sizePolicy().hasHeightForWidth())
+        self.framePreviewDetailContent.setSizePolicy(sizePolicy8)
         self.framePreviewDetailContent.setMaximumSize(QSize(16777215, 16777215))
         self.framePreviewDetailContent.setStyleSheet(u"")
         self.framePreviewDetailContent.setFrameShape(QFrame.Shape.NoFrame)
@@ -322,24 +309,27 @@ class Ui_MainWindow(object):
         self.verticalLayout_previewDetailContent.setContentsMargins(5, 5, 5, 5)
         self.imagePreviewWidget = ImagePreviewWidget(self.framePreviewDetailContent)
         self.imagePreviewWidget.setObjectName(u"imagePreviewWidget")
-        sizePolicy10 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        sizePolicy10.setHorizontalStretch(0)
-        sizePolicy10.setVerticalStretch(2)
-        sizePolicy10.setHeightForWidth(self.imagePreviewWidget.sizePolicy().hasHeightForWidth())
-        self.imagePreviewWidget.setSizePolicy(sizePolicy10)
+        sizePolicy9 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        sizePolicy9.setHorizontalStretch(0)
+        sizePolicy9.setVerticalStretch(2)
+        sizePolicy9.setHeightForWidth(self.imagePreviewWidget.sizePolicy().hasHeightForWidth())
+        self.imagePreviewWidget.setSizePolicy(sizePolicy9)
 
         self.verticalLayout_previewDetailContent.addWidget(self.imagePreviewWidget)
 
         self.groupBoxAnnotationControl = QGroupBox(self.framePreviewDetailContent)
         self.groupBoxAnnotationControl.setObjectName(u"groupBoxAnnotationControl")
-        sizePolicy8.setHeightForWidth(self.groupBoxAnnotationControl.sizePolicy().hasHeightForWidth())
-        self.groupBoxAnnotationControl.setSizePolicy(sizePolicy8)
+        sizePolicy7.setHeightForWidth(self.groupBoxAnnotationControl.sizePolicy().hasHeightForWidth())
+        self.groupBoxAnnotationControl.setSizePolicy(sizePolicy7)
         self.verticalLayout_annotationControl = QVBoxLayout(self.groupBoxAnnotationControl)
         self.verticalLayout_annotationControl.setObjectName(u"verticalLayout_annotationControl")
         self.modelSelectionWidget = ModelSelectionWidget(self.groupBoxAnnotationControl)
         self.modelSelectionWidget.setObjectName(u"modelSelectionWidget")
-        sizePolicy6.setHeightForWidth(self.modelSelectionWidget.sizePolicy().hasHeightForWidth())
-        self.modelSelectionWidget.setSizePolicy(sizePolicy6)
+        sizePolicy10 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        sizePolicy10.setHorizontalStretch(0)
+        sizePolicy10.setVerticalStretch(0)
+        sizePolicy10.setHeightForWidth(self.modelSelectionWidget.sizePolicy().hasHeightForWidth())
+        self.modelSelectionWidget.setSizePolicy(sizePolicy10)
 
         self.verticalLayout_annotationControl.addWidget(self.modelSelectionWidget)
 
@@ -398,8 +388,8 @@ class Ui_MainWindow(object):
 
         self.frameActionToolbar = QFrame(self.centralwidget)
         self.frameActionToolbar.setObjectName(u"frameActionToolbar")
-        sizePolicy8.setHeightForWidth(self.frameActionToolbar.sizePolicy().hasHeightForWidth())
-        self.frameActionToolbar.setSizePolicy(sizePolicy8)
+        sizePolicy7.setHeightForWidth(self.frameActionToolbar.sizePolicy().hasHeightForWidth())
+        self.frameActionToolbar.setSizePolicy(sizePolicy7)
         self.frameActionToolbar.setFrameShape(QFrame.Shape.StyledPanel)
         self.frameActionToolbar.setFrameShadow(QFrame.Shadow.Raised)
         self.horizontalLayout_actionToolbar = QHBoxLayout(self.frameActionToolbar)
@@ -523,9 +513,6 @@ class Ui_MainWindow(object):
         self.pushButtonRegisterImages.setText(QCoreApplication.translate("MainWindow", u"\u753b\u50cf\u3092DB\u767b\u9332", None))
         self.labelFilterSearch.setStyleSheet(QCoreApplication.translate("MainWindow", u"font-weight: bold;", None))
         self.labelFilterSearch.setText(QCoreApplication.translate("MainWindow", u"\u691c\u7d22\u30fb\u30d5\u30a3\u30eb\u30bf\u30fc", None))
-        self.groupBoxSelectedImageDetails.setTitle(QCoreApplication.translate("MainWindow", u"\u9078\u629e\u753b\u50cf\u8a73\u7d30\u60c5\u5831", None))
-        self.labelImageSummary.setStyleSheet(QCoreApplication.translate("MainWindow", u"color: #666; font-size: 10px; font-style: italic; padding: 4px;", None))
-        self.labelImageSummary.setText(QCoreApplication.translate("MainWindow", u"\u9078\u629e: \u306a\u3057", None))
         self.labelStatusIndicatorTitle.setStyleSheet(QCoreApplication.translate("MainWindow", u"font-size: 10px; font-weight: bold; color: #1976D2;", None))
         self.labelStatusIndicatorTitle.setText(QCoreApplication.translate("MainWindow", u"\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u72b6\u614b:", None))
         self.labelStatusCompleted.setStyleSheet(QCoreApplication.translate("MainWindow", u"font-size: 9px; color: #4CAF50; font-weight: bold;", None))

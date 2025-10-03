@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Signal, Slot
-from PySide6.QtWidgets import QScrollArea
+from PySide6.QtWidgets import QScrollArea, QWidget
 
 from ...gui.designer.SelectedImageDetailsWidget_ui import Ui_SelectedImageDetailsWidget
 from ...services.date_formatter import format_datetime_for_display
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from ..state.dataset_state import DatasetStateManager
 
 
-class SelectedImageDetailsWidget(QScrollArea, Ui_SelectedImageDetailsWidget):
+class SelectedImageDetailsWidget(QScrollArea):
     """
     選択画像詳細情報表示ウィジェット
 
@@ -476,7 +476,7 @@ class SelectedImageDetailsWidget(QScrollArea, Ui_SelectedImageDetailsWidget):
         self.ui.sliderScore.blockSignals(False)
 
         # AnnotationDataDisplayWidgetのクリア
-        self.annotation_display.clear_display()
+        self.annotation_display.clear_data()
 
         logger.debug("SelectedImageDetailsWidget display cleared")
 
