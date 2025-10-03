@@ -108,12 +108,30 @@ class Ui_AnnotationDataDisplayWidget(object):
         AnnotationDataDisplayWidget.setWindowTitle(QCoreApplication.translate("AnnotationDataDisplayWidget", u"Annotation Data Display", None))
         self.groupBoxTags.setTitle(QCoreApplication.translate("AnnotationDataDisplayWidget", u"\u30bf\u30b0", None))
         self.textEditTags.setPlaceholderText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"\u30bf\u30b0\u304c\u8868\u793a\u3055\u308c\u307e\u3059", None))
+        self.textEditTags.setStyleSheet(QCoreApplication.translate("AnnotationDataDisplayWidget", u"QTextEdit {\n"
+"    font-size: 10px;\n"
+"    background-color: palette(base);\n"
+"    border: 1px solid palette(mid);\n"
+"    border-radius: 4px;\n"
+"    padding: 6px;\n"
+"    color: palette(text);\n"
+"}", None))
         self.groupBoxCaption.setTitle(QCoreApplication.translate("AnnotationDataDisplayWidget", u"\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3", None))
         self.textEditCaption.setPlaceholderText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3\u304c\u8868\u793a\u3055\u308c\u307e\u3059", None))
+        self.textEditCaption.setStyleSheet(QCoreApplication.translate("AnnotationDataDisplayWidget", u"QTextEdit {\n"
+"    font-size: 10px;\n"
+"    background-color: palette(base);\n"
+"    border: 1px solid palette(mid);\n"
+"    border-radius: 4px;\n"
+"    padding: 6px;\n"
+"    color: palette(text);\n"
+"}", None))
         self.groupBoxScores.setTitle(QCoreApplication.translate("AnnotationDataDisplayWidget", u"\u54c1\u8cea\u30b9\u30b3\u30a2", None))
         self.labelScoreType.setText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"Aesthetic:", None))
         self.labelScoreTypeValue.setText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"-", None))
+        self.labelScoreTypeValue.setStyleSheet(QCoreApplication.translate("AnnotationDataDisplayWidget", u"font-size: 10px; font-weight: bold; color: palette(text);", None))
         self.labelOverallScore.setText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"\u30b9\u30b3\u30a2:", None))
         self.labelOverallValue.setText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"0", None))
+        self.labelOverallValue.setStyleSheet(QCoreApplication.translate("AnnotationDataDisplayWidget", u"font-size: 10px; font-weight: bold; color: palette(text);", None))
     # retranslateUi
 
