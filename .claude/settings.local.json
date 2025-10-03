@@ -13,7 +13,9 @@
       "mcp__serena__list_memories",
       "WebSearch",
       "mcp__serena__read_memory",
-      "SlashCommand(/plan)"
+      "SlashCommand(/plan)",
+      "mcp__serena__find_symbol",
+      "Bash(git config:*)"
     ],
     "deny": [],
     "ask": []
@@ -35,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/block_grep.py"
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_git_grep_enforcement.py"
           }
         ]
       },
@@ -44,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_pre_commands.sh"
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_pre_commands.py"
           }
         ]
       }
@@ -55,7 +57,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_stop_words.sh"
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_stop_words.py"
           }
         ]
       }
