@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Signal, Slot
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QScrollArea
 
 from ...gui.designer.SelectedImageDetailsWidget_ui import Ui_SelectedImageDetailsWidget
 from ...services.date_formatter import format_datetime_for_display
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from ..state.dataset_state import DatasetStateManager
 
 
-class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
+class SelectedImageDetailsWidget(QScrollArea, Ui_SelectedImageDetailsWidget):
     """
     選択画像詳細情報表示ウィジェット
 
@@ -79,424 +79,427 @@ class SelectedImageDetailsWidget(QWidget, Ui_SelectedImageDetailsWidget):
         Qt Designer UIファイルからの自動生成UIと手動制御UIコンポーネントを統合。
 
         Args:
-            parent: 親ウィジェット。Noneの場合は独立ウィジェットとして動作
+            parent: 親ウィジェット
 
-        初期化プロセス:
-        1. Qt基底クラス初期化（QWidget, Ui_SelectedImageDetailsWidget）
-        2. 内部状態変数の初期化（current_details, current_image_id）
-        3. UI参照の確立（annotation_display）
-        4. シグナル・スロット接続（_setup_connections）
-
-        注意:
-        - Enhanced Event-Driven Pattern準拠の初期化
-        - レガシーImageDBWriteService依存は完全削除済み
+        初期状態:
+            - current_details: None（未選択状態）
+            - current_image_id: None
+            - UI: 空表示状態
         """
         super().__init__(parent)
-        self.setupUi(self)
+        logger.debug("SelectedImageDetailsWidget.__init__() called")
 
-        # 現在の画像情報
-        self.current_details: ImageDetails = ImageDetails()
+        # DatasetStateManagerへの参照（後でset_dataset_state_managerで設定）
+        self._dataset_state_manager: DatasetStateManager | None = None
+
+        # 内部状態
+        self.current_details: ImageDetails | None = None
         self.current_image_id: int | None = None
 
-        # UIファイルの既存AnnotationDataDisplayWidgetを参照
-        self.annotation_display: AnnotationDataDisplayWidget = self.annotationDataDisplay
-
-        # UI初期化
+        # UI設定
+        self.ui = Ui_SelectedImageDetailsWidget()
+        self.ui.setupUi(self)
+        self.annotation_display: AnnotationDataDisplayWidget = self.ui.annotationDataDisplay
         self._setup_connections()
+        self._clear_display()
 
         logger.debug("SelectedImageDetailsWidget initialized")
 
     def _setup_connections(self) -> None:
         """
-        内部シグナル・スロット接続の設定
+        UIコンポーネントのシグナル接続設定
 
-        AnnotationDataDisplayWidgetとの内部通信を確立。
-        Rating/Score編集やボタンクリックの接続はQt Designer UIファイルで定義済み。
-
-        接続内容:
-        - annotation_display.data_loaded -> _on_annotation_data_loaded
-          アノテーション表示ウィジェットからのデータ読み込み完了通知
-
-        注意:
-        - UI要素の基本的なシグナル接続（ボタンクリック等）はUIファイルで自動接続
-        - ここでは内部コンポーネント間の追加接続のみ実装
+        Qt Designerで設定されていないシグナルを追加接続。
+        - Rating/Scoreの変更監視
+        - 保存ボタンのクリック処理
         """
-        # アノテーション表示コンポーネントのシグナル接続
+        # 自動接続されるシグナル（Qt Designerで設定済み）:
+        # - comboBoxRating.currentTextChanged -> _on_rating_changed
+        # - sliderScore.valueChanged -> _on_score_changed
+        # - pushButtonSaveRating.clicked -> _on_save_clicked
+        # - pushButtonSaveScore.clicked -> _on_save_clicked
+
+        # AnnotationDataDisplayWidgetからのシグナル接続
         self.annotation_display.data_loaded.connect(self._on_annotation_data_loaded)
+
+        logger.debug("SelectedImageDetailsWidget signals connected")
 
     @Slot(str)
     def _on_rating_changed(self, rating_value: str) -> None:
         """
-        Rating変更時の処理（コンボボックス選択変更）
-
-        ユーザーがRatingコンボボックスで値を変更した際の処理。
-        変更検出、内部状態更新、外部通知シグナル発行を実行。
+        Ratingコンボボックス変更ハンドラ
 
         Args:
-            rating_value: 選択されたRating値（例: "SFW", "PG", "R18"）
+            rating_value: 選択されたRating値（PG, PG-13, R, X, XXX）
 
-        処理フロー:
-        1. 現在画像IDの存在確認
-        2. 変更検出（既存値との比較）
-        3. 内部状態更新（current_details.rating_value）
-        4. 外部通知（rating_updatedシグナル発行）
+        処理:
+        1. 現在の画像IDチェック
+        2. rating_updated シグナル発行
+        3. ログ記録
 
-        注意:
-        - Qt Designer UIファイルでcomboBoxRatingと自動接続済み
-        - 無限ループ防止のため変更検出を実装
+        Notes:
+            - Qt Designerで自動接続
+            - 保存は別途保存ボタンクリックで実行
         """
-        if self.current_image_id and rating_value != self.current_details.rating_value:
-            self.current_details.rating_value = rating_value
-            self.rating_updated.emit(self.current_image_id, rating_value)
-            logger.debug(f"Rating changed to: {rating_value}")
+        if self.current_image_id is None:
+            logger.warning("Rating changed but no image selected")
+            return
+
+        logger.debug(f"Rating changed: image_id={self.current_image_id}, rating={rating_value}")
+        self.rating_updated.emit(self.current_image_id, rating_value)
 
     @Slot(int)
     def _on_score_changed(self, score_value: int) -> None:
         """
-        Score変更時の処理（スライダー値変更）
-
-        ユーザーがScoreスライダーで値を変更した際の処理。
-        UI表示更新、変更検出、内部状態更新、外部通知シグナル発行を実行。
+        Scoreスライダー変更ハンドラ
 
         Args:
-            score_value: 変更されたScore値（通常0-1000の整数範囲）
+            score_value: スライダー値（0-1000）
 
-        処理フロー:
-        1. スコア値ラベルの即座更新（labelScoreValue）
-        2. 現在画像IDの存在確認
-        3. 変更検出（既存値との比較）
-        4. 内部状態更新（current_details.score_value）
-        5. 外部通知（score_updatedシグナル発行）
+        処理:
+        1. 現在の画像IDチェック
+        2. 表示値の更新（0.1単位で表示）
+        3. score_updated シグナル発行
+        4. ログ記録
 
-        注意:
-        - Qt Designer UIファイルでsliderScoreと自動接続済み
-        - ラベル更新は変更検出前に実行（即座のUI反応）
-        - 無限ループ防止のため変更検出を実装
+        Notes:
+            - Qt Designerで自動接続
+            - 保存は別途保存ボタンクリックで実行
+            - スライダー値を10で割って小数点1桁表示
         """
-        # スコア値ラベル更新
-        self.labelScoreValue.setText(str(score_value))
+        if self.current_image_id is None:
+            logger.warning("Score changed but no image selected")
+            return
 
-        if self.current_image_id and score_value != self.current_details.score_value:
-            self.current_details.score_value = score_value
-            self.score_updated.emit(self.current_image_id, score_value)
-            logger.debug(f"Score changed to: {score_value}")
+        # スライダー値を0.1単位に変換して表示
+        display_value = score_value / 10.0
+        logger.debug(f"Score changed: image_id={self.current_image_id}, score={display_value}")
+
+        self.score_updated.emit(self.current_image_id, score_value)
 
     @Slot()
     def _on_save_clicked(self) -> None:
         """
-        保存ボタンクリック時の処理
+        保存ボタンクリックハンドラ
 
-        現在の画像に対するRating/Score変更をデータベースに保存するための処理。
-        変更データを辞書形式で構築し、外部保存処理へのシグナル発行を実行。
+        処理:
+        1. 現在の画像IDチェック
+        2. Rating/Scoreの現在値を取得
+        3. save_requested シグナル発行
+        4. ログ記録
 
-        処理フロー:
-        1. 画像選択状態の確認（current_image_id存在チェック）
-        2. 保存データ辞書の構築（image_id, rating, score）
-        3. 外部保存処理への通知（save_requestedシグナル発行）
+        シグナルデータ形式:
+            {
+                "image_id": int,
+                "rating": str,
+                "score": int
+            }
 
-        保存データ形式:
-        {
-            "image_id": int,           # 対象画像ID
-            "rating": str,             # Rating値（例: "SFW", "PG", "R18"）
-            "score": int               # Score値（0-1000整数）
-        }
-
-        注意:
-        - Qt Designer UIファイルでpushButtonSaveと自動接続済み
-        - 実際の保存処理は外部コンポーネント（MainWindow等）が担当
-        - 画像未選択時は警告ログ出力のみで処理中断
+        Notes:
+            - Qt Designerで自動接続
+            - pushButtonSaveRating/pushButtonSaveScore両方から接続
+            - 実際の保存処理はMainWindowで実行
         """
-        if not self.current_image_id:
-            logger.warning("No image selected for save operation")
+        if self.current_image_id is None:
+            logger.warning("Save requested but no image selected")
             return
 
-        save_data: dict[str, Any] = {
+        current_rating = self.ui.comboBoxRating.currentText()
+        current_score = self.ui.sliderScore.value()
+
+        save_data = {
             "image_id": self.current_image_id,
-            "rating": self.current_details.rating_value,
-            "score": self.current_details.score_value,
+            "rating": current_rating,
+            "score": current_score,
         }
 
+        logger.debug(f"Save requested: {save_data}")
         self.save_requested.emit(save_data)
-        logger.debug(f"Save requested for image {self.current_image_id}")
 
-    @Slot(AnnotationData)
-    def _on_annotation_data_loaded(self, data: AnnotationData) -> None:
-        """アノテーション表示データ読み込み完了時の処理"""
-        self.current_details.annotation_data = data
-        logger.debug("Annotation data loaded in details widget")
+    @Slot()
+    def _on_annotation_data_loaded(self) -> None:
+        """
+        AnnotationDataDisplayWidgetからのデータ読み込み完了通知ハンドラ
 
-    # === Enhanced Event-Driven Pattern ===
+        AnnotationDataDisplayWidgetの内部処理完了を受けて追加処理を実行可能。
+        現在は特別な処理なし。
+        """
+        logger.debug("Annotation data loaded in AnnotationDataDisplayWidget")
 
-    def connect_to_data_signals(self, state_manager: "DatasetStateManager") -> None:
-        """データシグナル接続（状態管理なし）"""
-        # 新しいデータシグナルに接続
-        state_manager.current_image_data_changed.connect(self._on_image_data_received)
+    # Phase 3: Direct Widget Communication Pattern
+    def connect_to_thumbnail_widget(self, thumbnail_widget: Any) -> None:
+        """
+        ThumbnailSelectorWidgetと直接接続（Phase 3パターン）
 
-        logger.debug("SelectedImageDetailsWidget connected to current_image_data_changed signal")
+        Args:
+            thumbnail_widget: 接続先のThumbnailSelectorWidgetインスタンス
+
+        接続するシグナル:
+            - thumbnail_widget.image_metadata_selected -> _on_direct_metadata_received
+
+        Notes:
+            - DatasetStateManager経由の接続に代わる直接接続パターン
+            - より高速で明示的なデータフロー
+        """
+        thumbnail_widget.image_metadata_selected.connect(self._on_direct_metadata_received)
+        logger.debug("Connected SelectedImageDetailsWidget to ThumbnailSelectorWidget directly")
+
+    @Slot(dict)
+    def _on_direct_metadata_received(self, metadata: dict[str, Any]) -> None:
+        """
+        ThumbnailSelectorWidgetからの直接メタデータ受信（Phase 3パターン）
+
+        Args:
+            metadata: 画像メタデータ辞書
+
+        処理:
+        1. メタデータからImageDetailsを構築
+        2. UI更新
+        """
+        logger.debug(f"Direct metadata received: image_id={metadata.get('id')}")
+        details = self._build_image_details_from_metadata(metadata)
+        self._update_details_display(details)
 
     @Slot(dict)
     def _on_image_data_received(self, image_data: dict[str, Any]) -> None:
         """
-        画像データ受信時のメタデータ更新（純粋表示専用）
+        DatasetStateManagerからの画像データ受信ハンドラ（Phase 2互換）
 
-        DatasetStateManagerから直接送信される完全な画像メタデータを受信し、
-        詳細情報表示を更新します。検索機能への依存を完全に排除。
+        Args:
+            image_data: 画像メタデータ辞書
+
+        処理:
+        1. 空データチェック（選択解除時）
+        2. ImageDetails構造体への変換
+        3. UI更新処理の実行
+
+        Notes:
+            - Enhanced Event-Driven Pattern実装
+            - ImageDetails dataclass による型安全な処理
+            - Phase 3では direct_metadata_received が推奨
         """
-        try:
-            logger.info(
-                f"📨 SelectedImageDetailsWidget: current_image_data_changed シグナル受信 - データサイズ: {len(image_data) if image_data else 0}"
-            )
-
-            # 空データの場合は表示をクリア
-            if not image_data:
-                logger.debug("Empty image data received, clearing details display")
-                self._clear_display()
-                return
-
-            # 画像IDを取得
-            image_id = image_data.get("id")
-            if not image_id:
-                logger.warning(f"画像ID未設定 | メタデータ: {list(image_data.keys())}")
-                self._clear_display()
-                return
-
-            logger.debug(f"🔍 画像データ受信: ID={image_id}")
-
-            # メタデータから詳細情報を構築
-            details = self._build_image_details_from_metadata(image_data)
-
-            # UI更新
-            self._update_details_display(details)
-
-            # 現在の詳細情報保存
-            self.current_details = details
-            self.current_image_id = image_id
-
-            # シグナル発行
-            self.image_details_loaded.emit(details)
-
-            logger.info(f"✅ メタデータ表示成功: ID={image_id} - Enhanced Event-Driven Pattern 完全動作")
-
-        except Exception as e:
-            logger.error(
-                f"メタデータ更新エラー データ:{image_data.get('id', 'Unknown')} | エラー: {e}",
-                exc_info=True,
-            )
+        if not image_data:
+            logger.debug("Empty image data received, clearing display")
             self._clear_display()
+            return
 
-    def _build_image_details_from_metadata(self, image_data: dict[str, Any]) -> ImageDetails:
-        """メタデータから ImageDetails を構築"""
-        try:
-            # ファイル名の取得
-            image_path_str = image_data.get("stored_image_path", "")
-            file_name = Path(image_path_str).name if image_path_str else "Unknown"
+        image_id = image_data.get("id")
+        logger.debug(f"Image data received: {image_id}")
 
-            # 画像サイズの構築 (width x height)
-            width = image_data.get("width", 0)
-            height = image_data.get("height", 0)
-            image_size = f"{width} x {height}" if width and height else "Unknown"
+        details = self._build_image_details_from_metadata(image_data)
+        self._update_details_display(details)
 
-            # ファイルサイズの取得
-            file_size_bytes = image_data.get("file_size_bytes")
-            if file_size_bytes:
-                # バイトを適切な単位に変換
-                if file_size_bytes >= 1024 * 1024:
-                    file_size = f"{file_size_bytes / (1024 * 1024):.1f} MB"
-                elif file_size_bytes >= 1024:
-                    file_size = f"{file_size_bytes / 1024:.1f} KB"
-                else:
-                    file_size = f"{file_size_bytes} bytes"
-            else:
-                file_size = "Unknown"
+    def _build_image_details_from_metadata(self, metadata: dict[str, Any]) -> ImageDetails:
+        """
+        メタデータ辞書からImageDetails構造体を構築
 
-            # 作成日時の取得と文字列変換
-            created_date = format_datetime_for_display(image_data.get("created_at"))
+        Args:
+            metadata: データベースから取得した画像メタデータ辞書
 
-            # Rating/Score の取得 - 新しい配列形式のみ対応
-            rating_value = ""
-            score_value = 0
+        Returns:
+            ImageDetails: 型安全な画像詳細情報構造体
 
-            # ratings配列から最初の値を取得
-            if "ratings" in image_data and isinstance(image_data["ratings"], list):
-                ratings_list = image_data["ratings"]
-                if ratings_list and len(ratings_list) > 0:
-                    first_rating = ratings_list[0]
-                    if isinstance(first_rating, dict):
-                        # raw_rating_valueまたはnormalized_ratingを使用
-                        rating_value = first_rating.get("raw_rating_value", "") or str(first_rating.get("normalized_rating", ""))
+        処理:
+        1. 必須フィールドの抽出と型変換
+        2. オプショナルフィールドのNone安全な処理
+        3. AnnotationData構造体の構築
+        4. ImageDetails構造体の組み立て
 
-            # scores配列から最初の値を取得
-            if "scores" in image_data and isinstance(image_data["scores"], list):
-                scores_list = image_data["scores"]
-                if scores_list and len(scores_list) > 0:
-                    first_score = scores_list[0]
-                    if isinstance(first_score, dict) and "score" in first_score:
-                        score_value = int(first_score["score"] * 1000) if first_score["score"] <= 1.0 else int(first_score["score"])
+        型安全性:
+        - 全フィールドの型チェック
+        - デフォルト値の適用
+        - None値の適切な処理
+        """
+        # 基本情報
+        image_id = metadata.get("id")
+        file_path_str = metadata.get("file_path", "")
+        file_path = Path(file_path_str) if file_path_str else Path()
 
-            # Caption/Tags の取得
-            caption = ""
-            tags = ""
+        width = metadata.get("width", 0)
+        height = metadata.get("height", 0)
+        file_size = metadata.get("file_size", 0)
+        created_at = metadata.get("created_at")
 
-            # メタデータからキャプションを取得
-            if "captions" in image_data and isinstance(image_data["captions"], list):
-                captions_list = image_data["captions"]
-                if captions_list and len(captions_list) > 0:
-                    first_caption = captions_list[0]
-                    if isinstance(first_caption, dict) and "caption" in first_caption:
-                        caption = first_caption["caption"]
-                        logger.debug(f"Caption extracted: {len(caption)} characters")
+        # Rating / Score
+        rating = metadata.get("rating", "")
+        score = metadata.get("score", 0)
 
-            # メタデータからタグを取得
-            if "tags" in image_data and isinstance(image_data["tags"], list):
-                tags_list = image_data["tags"]
-                tag_strings = []
-                for tag_item in tags_list:
-                    if isinstance(tag_item, dict) and "tag" in tag_item:
-                        tag_strings.append(tag_item["tag"])
-                tags = ", ".join(tag_strings)
-                logger.debug(f"Tags extracted: {len(tag_strings)} items")
+        # アノテーション情報
+        tags_text = metadata.get("tags", "")
+        caption_text = metadata.get("caption", "")
+        has_tags = bool(tags_text)
+        has_caption = bool(caption_text)
 
-            # ImageDetails を構築
-            details = ImageDetails(
-                image_id=image_data.get("id"),
-                file_name=file_name,
-                file_path=image_path_str,
-                image_size=image_size,
-                file_size=file_size,
-                created_date=created_date,
-                rating_value=rating_value,
-                score_value=score_value,
-                caption=caption,
-                tags=tags,
-                annotation_data=None,  # アノテーションデータは別途取得
-            )
+        # AnnotationStatus
+        annotation_status = metadata.get("annotation_status", "未処理")
 
-            logger.debug(f"ImageDetails constructed from metadata: {file_name}, caption={len(caption)} chars, tags={len(tag_strings) if 'tag_strings' in locals() else 0} items, rating={rating_value}, score={score_value}")
-            return details
+        annotation_data = AnnotationData(
+            tags=tags_text,
+            caption=caption_text,
+            has_tags=has_tags,
+            has_caption=has_caption,
+            annotation_status=annotation_status,
+        )
 
-        except Exception as e:
-            logger.error(f"Error building ImageDetails from metadata: {e}", exc_info=True)
-            return ImageDetails()
+        details = ImageDetails(
+            image_id=image_id,
+            file_path=file_path,
+            width=width,
+            height=height,
+            file_size=file_size,
+            created_at=created_at,
+            rating=rating,
+            score=score,
+            annotation_data=annotation_data,
+        )
+
+        logger.debug(f"Built ImageDetails: {details.image_id}")
+        return details
 
     def _update_details_display(self, details: ImageDetails) -> None:
-        """詳細情報表示を更新"""
-        try:
-            # 画像基本情報更新
-            self.labelFileNameValue.setText(details.file_name)
-            self.labelImageSizeValue.setText(details.image_size)
-            self.labelFileSizeValue.setText(details.file_size)
-            self.labelCreatedDateValue.setText(details.created_date)
+        """
+        ImageDetailsを基にUI表示を更新
 
-            # Rating/Score 更新
-            self._update_rating_score_display(details.rating_value, details.score_value)
+        Args:
+            details: 表示する画像詳細情報
 
-            # キャプションとタグをAnnotationDataに設定してアノテーション表示を更新
-            if details.caption or details.tags:
-                # ImageDetailsのcaptionとtagsからAnnotationDataを作成
-                tags_list = []
-                if details.tags:
-                    tags_list = [tag.strip() for tag in details.tags.split(",") if tag.strip()]
+        処理:
+        1. 内部状態の更新
+        2. 画像情報の表示
+        3. Rating/Scoreの設定
+        4. AnnotationDataの表示
 
-                annotation_data = AnnotationData(
-                    tags=tags_list,
-                    caption=details.caption,
-                    aesthetic_score=0.0,
-                    overall_score=0,
-                    score_type=""
-                )
+        UI更新対象:
+        - labelFileNameValue: ファイル名
+        - labelImageSizeValue: 解像度（幅x高さ）
+        - labelFileSizeValue: ファイルサイズ（KB/MB）
+        - labelCreatedDateValue: 登録日時
+        - comboBoxRating: Rating選択
+        - sliderScore: Score調整
+        - annotationDataDisplay: タグ・キャプション
+        """
+        self.current_details = details
+        self.current_image_id = details.image_id
 
-                # 既存のannotation_dataがあれば統合
-                if details.annotation_data:
-                    annotation_data.aesthetic_score = details.annotation_data.aesthetic_score
-                    annotation_data.overall_score = details.annotation_data.overall_score
-                    annotation_data.score_type = details.annotation_data.score_type
-                    # 既存のタグやキャプションが優先される場合は統合
-                    if details.annotation_data.tags:
-                        all_tags = set(tags_list + details.annotation_data.tags)
-                        annotation_data.tags = list(all_tags)
-                    if details.annotation_data.caption and not details.caption:
-                        annotation_data.caption = details.annotation_data.caption
+        # ファイル名
+        file_name = details.file_path.name if details.file_path else "-"
+        self.ui.labelFileNameValue.setText(file_name)
 
-                # アノテーション表示更新
-                self.annotation_display.update_data(annotation_data)
-                logger.info(f"Annotation display updated: caption={len(details.caption)} chars, tags={len(tags_list)} items")
-            else:
-                # キャプション・タグが空の場合は既存のannotation_dataのみ使用
-                if details.annotation_data:
-                    self.annotation_display.update_data(details.annotation_data)
-                else:
-                    # 完全に空の場合はクリア
-                    empty_annotation = AnnotationData(tags=[], caption="", aesthetic_score=0.0, overall_score=0, score_type="")
-                    self.annotation_display.update_data(empty_annotation)
+        # 解像度
+        resolution_text = f"{details.width} x {details.height}" if details.width and details.height else "-"
+        self.ui.labelImageSizeValue.setText(resolution_text)
 
-        except Exception as e:
-            logger.error(f"Error updating details display: {e}", exc_info=True)
+        # ファイルサイズ
+        if details.file_size:
+            size_kb = details.file_size / 1024
+            size_text = f"{size_kb / 1024:.2f} MB" if size_kb >= 1024 else f"{size_kb:.2f} KB"
+        else:
+            size_text = "-"
+        self.ui.labelFileSizeValue.setText(size_text)
 
-    def _update_rating_score_display(self, rating_value: str, score_value: int) -> None:
-        """Rating/Score 表示を更新"""
-        try:
-            # シグナルブロック
-            self.comboBoxRating.blockSignals(True)
-            self.sliderScore.blockSignals(True)
+        # 作成日時
+        created_date_text = format_datetime_for_display(details.created_at) if details.created_at else "-"
+        self.ui.labelCreatedDateValue.setText(created_date_text)
 
-            # Rating コンボボックス設定
-            if rating_value:
-                index = self.comboBoxRating.findText(rating_value)
-                if index >= 0:
-                    self.comboBoxRating.setCurrentIndex(index)
-            else:
-                self.comboBoxRating.setCurrentIndex(0)
+        # Rating / Score
+        self._update_rating_score_display(details)
 
-            # Score スライダー設定
-            self.sliderScore.setValue(score_value)
-            self.labelScoreValue.setText(str(score_value))
+        # アノテーションデータ
+        self.annotation_display.load_annotation_data(details.annotation_data)
 
-        finally:
-            # シグナルブロック解除
-            self.comboBoxRating.blockSignals(False)
-            self.sliderScore.blockSignals(False)
+        logger.debug(f"Updated details display for image {details.image_id}")
+        self.image_details_loaded.emit(details)
+
+    def _update_rating_score_display(self, details: ImageDetails) -> None:
+        """
+        Rating/Scoreの表示更新
+
+        Args:
+            details: 画像詳細情報
+
+        処理:
+        1. Rating コンボボックスの選択
+        2. Score スライダーの値設定
+
+        Notes:
+            - シグナル発火を抑制して内部更新のみ実行
+            - blockSignals() で一時的にシグナルを無効化
+        """
+        # Rating設定（シグナル発火を抑制）
+        self.ui.comboBoxRating.blockSignals(True)
+        rating_index = self.ui.comboBoxRating.findText(details.rating)
+        if rating_index >= 0:
+            self.ui.comboBoxRating.setCurrentIndex(rating_index)
+        else:
+            self.ui.comboBoxRating.setCurrentIndex(0)  # 空の選択肢
+        self.ui.comboBoxRating.blockSignals(False)
+
+        # Score設定（シグナル発火を抑制）
+        self.ui.sliderScore.blockSignals(True)
+        self.ui.sliderScore.setValue(details.score)
+        self.ui.sliderScore.blockSignals(False)
+
+        logger.debug(f"Rating/Score updated: {details.rating}, {details.score}")
 
     def _clear_display(self) -> None:
-        """表示をクリア"""
-        try:
-            # 基本情報クリア
-            self.labelFileNameValue.setText("-")
-            self.labelImageSizeValue.setText("-")
-            self.labelFileSizeValue.setText("-")
-            self.labelCreatedDateValue.setText("-")
+        """
+        表示内容をクリア（未選択状態）
 
-            # Rating/Score クリア
-            self._update_rating_score_display("", 0)
+        処理:
+        1. 内部状態のリセット
+        2. 全UI要素を初期状態に戻す
 
-            # アノテーション表示クリア
-            self.annotation_display.clear_data()
+        UI初期化対象:
+        - labelFileNameValue: "-"
+        - labelImageSizeValue: "-"
+        - labelFileSizeValue: "-"
+        - labelCreatedDateValue: "-"
+        - comboBoxRating: 空選択
+        - sliderScore: 0
+        - annotationDataDisplay: クリア
+        """
+        self.current_details = None
+        self.current_image_id = None
 
-            # 現在のデータリセット
-            self.current_details = ImageDetails()
-            self.current_image_id = None
+        self.ui.labelFileNameValue.setText("-")
+        self.ui.labelImageSizeValue.setText("-")
+        self.ui.labelFileSizeValue.setText("-")
+        self.ui.labelCreatedDateValue.setText("-")
 
-            logger.debug("Image details display cleared")
+        # Rating/Scoreをリセット（シグナル発火抑制）
+        self.ui.comboBoxRating.blockSignals(True)
+        self.ui.comboBoxRating.setCurrentIndex(0)
+        self.ui.comboBoxRating.blockSignals(False)
 
-        except Exception as e:
-            logger.error(f"Error clearing display: {e}")
+        self.ui.sliderScore.blockSignals(True)
+        self.ui.sliderScore.setValue(0)
+        self.ui.sliderScore.blockSignals(False)
 
-    def get_current_details(self) -> ImageDetails:
-        """現在表示中の詳細情報を取得"""
+        # AnnotationDataDisplayWidgetのクリア
+        self.annotation_display.clear_display()
+
+        logger.debug("SelectedImageDetailsWidget display cleared")
+
+    def get_current_details(self) -> ImageDetails | None:
+        """現在表示中の画像詳細情報を返す"""
         return self.current_details
 
     def set_enabled_state(self, enabled: bool) -> None:
-        """ウィジェット全体の有効/無効状態を設定"""
-        self.comboBoxRating.setEnabled(enabled)
-        self.sliderScore.setEnabled(enabled)
-        self.pushButtonSaveRating.setEnabled(enabled)
-        self.pushButtonSaveScore.setEnabled(enabled)
+        """
+        ウィジェット全体の有効/無効状態を設定
 
-        self.annotation_display.setEnabled(enabled)
+        Args:
+            enabled: True=有効, False=無効
 
-        if not enabled:
-            logger.debug("SelectedImageDetailsWidget disabled")
-        else:
-            logger.debug("SelectedImageDetailsWidget enabled")
+        処理:
+        - Rating/Score編集の有効/無効切り替え
+        - 保存ボタンの有効/無効切り替え
+        """
+        self.ui.comboBoxRating.setEnabled(enabled)
+        self.ui.sliderScore.setEnabled(enabled)
+        self.ui.pushButtonSaveRating.setEnabled(enabled)
+        self.ui.pushButtonSaveScore.setEnabled(enabled)
+        logger.debug(f"SelectedImageDetailsWidget enabled state set to {enabled}")
 
 
 if __name__ == "__main__":
