@@ -151,10 +151,8 @@ def generate_warning_response(violations: list[str]) -> dict[str, Any]:
     violations_text = "\n".join(violations)
 
     return {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "allow",
-            "permissionDecisionReason": f"""🔍 NGワード規則違反が検出されました（エージェント向け内部指示）:
+        "decision": "allow",
+        "systemMessage": f"""🔍 NGワード規則違反が検出されました（エージェント向け内部指示）:
 
 {violations_text}
 
@@ -165,7 +163,6 @@ def generate_warning_response(violations: list[str]) -> dict[str, Any]:
 4. テスト実行で動作確認
 
 推測・代替案・追加作業は禁止。指示されたことのみを正確に実行してください。""",
-        }
     }
 
 
