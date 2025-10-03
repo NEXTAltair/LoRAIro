@@ -283,11 +283,11 @@
             </item>
            </layout>
           </widget>
-          <widget class="QGroupBox" name="groupBoxSelectedImageDetails">
+          <widget class="SelectedImageDetailsWidget" name="selectedImageDetailsWidget">
            <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
              <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
+             <verstretch>1</verstretch>
             </sizepolicy>
            </property>
            <property name="minimumSize">
@@ -296,37 +296,6 @@
              <height>100</height>
             </size>
            </property>
-           <property name="styleSheet">
-            <string notr="true"/>
-           </property>
-           <property name="title">
-            <string>選択画像詳細情報</string>
-           </property>
-           <layout class="QVBoxLayout" name="verticalLayout_3">
-            <item>
-             <widget class="SelectedImageDetailsWidget" name="selectedImageDetailsWidget" native="true">
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QLabel" name="labelImageSummary">
-              <property name="styleSheet">
-               <string>color: #666; font-size: 10px; font-style: italic; padding: 4px;</string>
-              </property>
-              <property name="text">
-               <string>選択: なし</string>
-              </property>
-              <property name="alignment">
-               <set>Qt::AlignmentFlag::AlignCenter</set>
-              </property>
-             </widget>
-            </item>
-           </layout>
           </widget>
          </widget>
         </item>
@@ -856,7 +825,38 @@
    </property>
   </action>
  </widget>
- <customwidgets/>
+ <customwidgets>
+  <customwidget>
+   <class>FilterSearchPanel</class>
+   <extends>QScrollArea</extends>
+   <header>..widgets.filter_search_panel</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>SelectedImageDetailsWidget</class>
+   <extends>QScrollArea</extends>
+   <header>..widgets.selected_image_details_widget</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ThumbnailSelectorWidget</class>
+   <extends>QWidget</extends>
+   <header>..widgets.thumbnail</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ImagePreviewWidget</class>
+   <extends>QWidget</extends>
+   <header>..widgets.image_preview</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ModelSelectionWidget</class>
+   <extends>QWidget</extends>
+   <header>..widgets.model_selection_widget</header>
+   <container>1</container>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections>
   <connection>
