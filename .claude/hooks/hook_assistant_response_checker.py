@@ -104,10 +104,15 @@ def extract_assistant_message(input_data: dict[str, Any], log_file: Path) -> str
     """
 
     # 可能性1: tool_input内にメッセージが含まれる場合
+    # ただし、Write/Editツールのcontentはファイル内容なのでスキップ
+    tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
+
     if isinstance(tool_input, dict):
-        # Write/Edit ツールの content
-        if "content" in tool_input:
+        # Write/Edit ツールの content はファイル内容なのでチェック対象外
+        skip_content = tool_name in ["Write", "Edit", "NotebookEdit"]
+
+        if not skip_content and "content" in tool_input:
             content = tool_input["content"]
             if isinstance(content, str) and content.strip():
                 log_debug(log_file, "Found assistant message in tool_input.content")
@@ -140,28 +145,26 @@ def extract_assistant_message(input_data: dict[str, Any], log_file: Path) -> str
     return None
 
 
-def generate_block_response(violations: list[str]) -> dict[str, Any]:
-    """ブロック応答生成（Claude Code 2025年新仕様対応）"""
+def generate_warning_response(violations: list[str]) -> dict[str, Any]:
+    """警告応答生成（エージェント向け指示、ユーザーには非表示）"""
 
     violations_text = "\n".join(violations)
 
     return {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": f"""🚫 NGワード規則違反が検出されました:
+            "permissionDecision": "allow",
+            "permissionDecisionReason": f"""🔍 NGワード規則違反が検出されました（エージェント向け内部指示）:
 
 {violations_text}
 
-LoRAIroプロジェクトでは以下が必要です:
-• 推測や憶測ではなく、具体的な調査・確認を実行
-• 代替案提示ではなく、指示されたことの正確な実行
-• 勝手な改善ではなく、厳密に指示したことのみ実行
-• 追加作業は禁止、指示されたタスクのみに集中
-• 推奨ではなく確実な実装、人間の意思決定を尊重
-• MCP統合環境（Serena+Cipher）の適切な使い分け実行
+以下の手順で確実に実装してください:
+1. MCP Serena/Cipherで既存実装を検索・確認
+2. Context7経由でライブラリ公式ドキュメント確認
+3. 具体的なコード調査・検証を実施
+4. テスト実行で動作確認
 
-Context7ライブラリ検索やテスト実行による確実な検証を優先してください。""",
+推測・代替案・追加作業は禁止。指示されたことのみを正確に実行してください。""",
         }
     }
 
@@ -198,13 +201,14 @@ def main() -> None:
         has_violations, violations = check_ng_words(message, rules, log_file)
 
         if has_violations:
-            log_debug(log_file, f"BLOCKING: {len(violations)} violations detected")
+            log_debug(log_file, f"WARNING: {len(violations)} violations detected")
 
-            # ブロック応答を生成・出力
-            block_response = generate_block_response(violations)
-            print(json.dumps(block_response, ensure_ascii=False, indent=2))
+            # エージェント向け指示を生成（ユーザーには非表示）
+            warning_response = generate_warning_response(violations)
+            print(json.dumps(warning_response, ensure_ascii=False, indent=2))
 
-            sys.exit(2)  # Block operation (deny permission)
+            # 処理は続行（エージェントが指示を読んで対応）
+            sys.exit(0)
         else:
             log_debug(log_file, "No violations detected, allowing operation")
 

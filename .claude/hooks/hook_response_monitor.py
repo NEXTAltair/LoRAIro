@@ -22,7 +22,7 @@ import re
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import An
+from typing import Any
 
 
 def setup_logging() -> Path:
@@ -118,27 +118,41 @@ def extract_response_content(input_data: dict[str, Any], log_file: Path) -> str 
                 log_debug(log_file, f"Found response content in '{field}' field")
                 return value
 
-    # 可能性3: transcript_path からの読み取り（最新エントリ）
+    # 可能性3: transcript_path からの読み取り（最新assistantエントリを逆順探索）
     transcript_path = input_data.get("transcript_path", "")
     if transcript_path and Path(transcript_path).exists():
         try:
             log_debug(log_file, f"Attempting to read transcript: {transcript_path}")
             with open(transcript_path, encoding="utf-8") as f:
                 lines = f.readlines()
-                if lines:
-                    # 最新の行（JSON形式）を確認
-                    last_line = lines[-1].strip()
-                    if last_line:
-                        try:
-                            transcript_entry = json.loads(last_line)
-                            # assistant応答を探す
-                            if transcript_entry.get("role") == "assistant":
-                                content = transcript_entry.get("content", "")
-                                if isinstance(content, str) and content.strip():
-                                    log_debug(log_file, "Found response content in transcript")
-                                    return content
-                        except json.JSONDecodeError:
-                            pass
+                # 逆順で最新のassistantメッセージを探す
+                for line in reversed(lines):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        transcript_entry = json.loads(line)
+                        # assistant応答を探す
+                        if transcript_entry.get("type") == "assistant":
+                            # messageフィールドから内容を取得（辞書の場合はcontentを抽出）
+                            message = transcript_entry.get("message", "")
+                            if isinstance(message, dict):
+                                # messageが辞書の場合、content配列からテキストを抽出
+                                content_list = message.get("content", [])
+                                if isinstance(content_list, list):
+                                    text_parts = []
+                                    for item in content_list:
+                                        if isinstance(item, dict) and item.get("type") == "text":
+                                            text_parts.append(item.get("text", ""))
+                                    if text_parts:
+                                        combined_text = "\n".join(text_parts)
+                                        log_debug(log_file, f"Found response content in transcript (length: {len(combined_text)})")
+                                        return combined_text
+                            elif isinstance(message, str) and message.strip():
+                                log_debug(log_file, "Found response content in transcript")
+                                return message
+                    except json.JSONDecodeError:
+                        continue
         except (OSError, Exception) as e:
             log_debug(log_file, f"Error reading transcript: {e}")
 
@@ -180,6 +194,11 @@ def main() -> None:
 
     try:
         # 標準入力からClaude Codeのフックデータを読み取り
+        # テスト実行時は標準入力がないため早期終了
+        if sys.stdin.isatty():
+            log_debug(log_file, "Running in test mode (no stdin), exiting")
+            sys.exit(0)
+
         input_data: dict[str, Any] = json.load(sys.stdin)
         log_debug(log_file, f"Stop hook input data: {json.dumps(input_data, indent=2)}")
 
@@ -204,14 +223,26 @@ def main() -> None:
         has_violations, violations = check_ng_words(response_content, rules, log_file)
 
         if has_violations:
-            log_debug(log_file, f"WARNING: {len(violations)} violations detected")
+            log_debug(log_file, f"BLOCKING: {len(violations)} violations detected")
 
-            # 警告出力を生成・表示
-            warning_output = generate_warning_output(violations)
-            print(json.dumps(warning_output, ensure_ascii=False, indent=2))
+            # ブロック応答を生成（エージェント向け）
+            violations_text = "\n".join(violations)
+            block_response = {
+                "decision": "block",
+                "reason": f"""🚫 NGワード規則違反が検出されました:
 
-            # Stop hookでは警告のみ（ブロックなし）
-            sys.exit(0)
+{violations_text}
+
+作業を中止し、以下の手順で確実に実装してください:
+1. MCP Serena/Cipherで既存実装を検索・確認
+2. Context7経由でライブラリ公式ドキュメント確認
+3. 具体的なコード調査・検証を実施
+4. テスト実行で動作確認
+
+推測・代替案・追加作業は禁止。指示されたことのみを正確に実行してください。"""
+            }
+            print(json.dumps(block_response, ensure_ascii=False, indent=2))
+            sys.exit(2)
         else:
             log_debug(log_file, "No violations detected, monitoring complete")
 
