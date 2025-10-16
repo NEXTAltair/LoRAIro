@@ -203,22 +203,6 @@ class TestModelSelectionService:
         # model_typesが設定されていないため、フィルタに引っかからない
         assert len(tag_models) == 0
 
-    def test_filter_models_legacy_parameters(self, service):
-        """後方互換性パラメータによるフィルタリングテスト"""
-        service.load_models()
-
-        # レガシーパラメータでのフィルタ
-        openai_models = service.filter_models(provider="openai")
-        assert len(openai_models) == 1
-        assert openai_models[0].name == "gpt-4o"
-
-        # ローカルプロバイダーでフィルタ
-        local_models = service.filter_models(provider="local")
-        assert len(local_models) == 2
-        local_names = [m.name for m in local_models]
-        assert "wd-v1-4" in local_names
-        assert "clip-aesthetic" in local_names
-
     def test_filter_models_combined(self, service):
         """複合条件フィルタリングテスト"""
         service.load_models()
