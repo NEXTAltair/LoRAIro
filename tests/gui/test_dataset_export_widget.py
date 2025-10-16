@@ -17,8 +17,8 @@ from PySide6.QtGui import QAction
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
-from src.lorairo.gui.widgets.dataset_export_widget import DatasetExportWidget, DatasetExportWorker
-from src.lorairo.services.service_container import ServiceContainer
+from lorairo.gui.widgets.dataset_export_widget import DatasetExportWidget, DatasetExportWorker
+from lorairo.services.service_container import ServiceContainer
 
 
 @pytest.fixture
@@ -247,7 +247,7 @@ class TestExportWorkflow:
             qtbot.mouseClick(export_widget.ui.exportButton, Qt.LeftButton)
             mock_warning.assert_called_once_with("先に検証を実行してください。")
 
-    @patch("src.lorairo.gui.widgets.dataset_export_widget.QFileDialog.getExistingDirectory")
+    @patch("lorairo.gui.widgets.dataset_export_widget.QFileDialog.getExistingDirectory")
     def test_export_txt_format(self, mock_file_dialog, qtbot, export_widget):
         """Test TXT format export workflow."""
         # Setup validation results
@@ -267,7 +267,7 @@ class TestExportWorkflow:
             assert args["resolution"] == 512
             assert not args["merge_caption"]
 
-    @patch("src.lorairo.gui.widgets.dataset_export_widget.QFileDialog.getExistingDirectory")
+    @patch("lorairo.gui.widgets.dataset_export_widget.QFileDialog.getExistingDirectory")
     def test_export_json_format(self, mock_file_dialog, qtbot, export_widget):
         """Test JSON format export workflow."""
         # Setup for JSON export
@@ -433,7 +433,7 @@ class TestProgressAndCancellation:
         export_widget.export_completed.connect(lambda p: completion_signals.append(p))
 
         with patch.object(export_widget, "_cleanup_worker"):
-            with patch("src.lorairo.gui.widgets.dataset_export_widget.QMessageBox.information"):
+            with patch("lorairo.gui.widgets.dataset_export_widget.QMessageBox.information"):
                 export_widget._on_export_finished("/tmp/export/result")
 
         # Check completion handling
@@ -521,7 +521,7 @@ class TestErrorHandling:
 
     def test_handle_error_updates_ui(self, export_widget):
         """Test error handling updates UI correctly."""
-        with patch("src.lorairo.gui.widgets.dataset_export_widget.QMessageBox.critical") as mock_msg:
+        with patch("lorairo.gui.widgets.dataset_export_widget.QMessageBox.critical") as mock_msg:
             export_widget._handle_error("Test error message")
 
             # Check UI state
@@ -537,7 +537,7 @@ class TestErrorHandling:
 
     def test_show_warning(self, export_widget):
         """Test warning message display."""
-        with patch("src.lorairo.gui.widgets.dataset_export_widget.QMessageBox.warning") as mock_warn:
+        with patch("lorairo.gui.widgets.dataset_export_widget.QMessageBox.warning") as mock_warn:
             export_widget._show_warning("Test warning")
 
             mock_warn.assert_called_once()

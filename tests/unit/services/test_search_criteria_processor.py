@@ -79,39 +79,6 @@ class TestSearchCriteriaProcessor:
         assert db_args["start_date"] is None
         assert db_args["end_date"] is None
 
-    def test_separate_search_and_filter_conditions_no_keywords(self, processor):
-        """DEPRECATED: キーワードなし条件分離テスト（廃止予定メソッド）"""
-        conditions = SearchConditions(search_type="tags", keywords=[], tag_logic="and", only_untagged=True)
-
-        # 廃止予定メソッドの動作確認のみ
-        search_cond, filter_cond = processor.separate_search_and_filter_conditions(conditions)
-
-        # 基本的な戻り値の型確認
-        assert isinstance(search_cond, dict)
-        assert isinstance(filter_cond, FilterConditions)
-
-    def test_process_resolution_filter_valid(self, processor):
-        """DEPRECATED: 有効な解像度フィルター処理テスト（廃止予定メソッド）"""
-        conditions = SearchConditions(
-            search_type="tags", keywords=["test"], tag_logic="and", resolution_filter="1920x1080"
-        )
-
-        result = processor.process_resolution_filter(conditions)
-
-        # 廃止予定メソッドの基本動作確認のみ
-        assert isinstance(result, dict)
-
-    def test_process_resolution_filter_invalid(self, processor):
-        """DEPRECATED: 無効な解像度フィルター処理テスト（廃止予定メソッド）"""
-        conditions = SearchConditions(
-            search_type="tags", keywords=["test"], tag_logic="and", resolution_filter="invalid_format"
-        )
-
-        result = processor.process_resolution_filter(conditions)
-
-        # 廃止予定メソッドの基本動作確認のみ
-        assert isinstance(result, dict)
-
     def test_process_date_filter_with_dates(self, processor):
         """日付フィルター処理テスト"""
         start_date = datetime(2023, 1, 1)
@@ -181,35 +148,6 @@ class TestSearchCriteriaProcessor:
 
         # keywordsが空の場合は空の辞書
         assert "tags" not in result or not result.get("tags")
-
-    def test_convert_to_db_query_conditions(self, processor):
-        """DEPRECATED: DB条件変換テスト（廃止予定メソッド）"""
-        search_conditions = {
-            "keywords": ["test", "tag"],
-            "tag_operator": "AND",
-            "min_width": 1024,
-            "max_height": 2048,
-            "annotation_status": "completed",
-        }
-
-        result = processor._convert_to_db_query_conditions(search_conditions)
-
-        # 廃止予定メソッドの基本動作確認のみ
-        assert isinstance(result, dict)
-
-    def test_convert_to_db_query_conditions_with_none_values(self, processor):
-        """DEPRECATED: None値を含むDB条件変換テスト（廃止予定メソッド）"""
-        search_conditions = {
-            "keywords": ["test"],
-            "invalid_field": None,
-            "empty_field": "",
-            "valid_field": "value",
-        }
-
-        result = processor._convert_to_db_query_conditions(search_conditions)
-
-        # 廃止予定メソッドの基本動作確認のみ
-        assert isinstance(result, dict)
 
     def test_apply_simple_frontend_filters_aspect_ratio(self, processor):
         """シンプルフロントエンドフィルター適用テスト（アスペクト比）"""
@@ -352,15 +290,6 @@ class TestSearchCriteriaProcessor:
 
         # エラーログが出力されることを確認
         mock_logger.error.assert_called_once()
-
-    def test_separate_search_and_filter_conditions_error_handling(self, processor):
-        """DEPRECATED: 条件分離エラーハンドリングテスト（廃止予定メソッド）"""
-        # 不正な条件オブジェクトを作成
-        invalid_conditions = None
-
-        # エラーが再発生することを確認
-        with pytest.raises(AttributeError):
-            processor.separate_search_and_filter_conditions(invalid_conditions)
 
 
 class TestSearchCriteriaProcessorIntegration:
