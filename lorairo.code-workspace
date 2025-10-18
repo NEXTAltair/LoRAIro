@@ -31,9 +31,16 @@
     "python.terminal.activateEnvironment": true,
     "python.envFile": "${workspaceFolder}/.env",
 
+    // Python インタープリター設定（環境自動判定）
+    "python.defaultInterpreterPath": "${env:UV_PROJECT_ENVIRONMENT}/bin/python",
+
     // Python テスト設定
     "python.testing.pytestEnabled": true,
     "python.testing.unittestEnabled": false,
+    "python.testing.pytestArgs": [
+      "--ignore=.venv",
+      "--ignore=.venv_windows"
+    ],
 
     // スペルチェック設定
     "cSpell.userWords": [
@@ -85,6 +92,7 @@
     // Git 設定
     "git.autofetch": true,
     "makefile.configureOnOpen": false,
+    "commentTranslate.hover.enabled": false,
   },
   // Extensions managed by devcontainer.json
   "extensions": {

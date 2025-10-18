@@ -2,16 +2,18 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QScrollArea
 
 from ...gui.designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
 from ...utils.log import logger
-from ..services.search_filter_service import SearchFilterService
-from ..services.worker_service import WorkerService
 from .custom_range_slider import CustomRangeSlider
+
+if TYPE_CHECKING:
+    from ..services.search_filter_service import SearchFilterService
+    from ..services.worker_service import WorkerService
 
 
 class PipelineState(Enum):
@@ -46,10 +48,10 @@ class FilterSearchPanel(QScrollArea):
         super().__init__(parent)
 
         # SearchFilterService（依存注入）
-        self.search_filter_service: SearchFilterService | None = None
+        self.search_filter_service: "SearchFilterService | None" = None
 
         # WorkerService（依存注入）
-        self.worker_service: WorkerService | None = None
+        self.worker_service: "WorkerService | None" = None
 
         # 現在のSearchWorkerのID
         self._current_search_worker_id: str | None = None
@@ -131,7 +133,7 @@ class FilterSearchPanel(QScrollArea):
         self.ui.buttonApply.clicked.connect(self._on_apply_clicked)
         self.ui.buttonClear.clicked.connect(self._on_clear_clicked)
 
-    def set_search_filter_service(self, service: SearchFilterService) -> None:
+    def set_search_filter_service(self, service: "SearchFilterService") -> None:
         """SearchFilterServiceを設定（拡張版：バリデーションとログ強化）"""
         if service is None:
             raise ValueError("SearchFilterService cannot be None")
@@ -166,7 +168,7 @@ class FilterSearchPanel(QScrollArea):
         except Exception as e:
             logger.error(f"SearchFilterService validation error: {e}", exc_info=True)
 
-    def set_worker_service(self, service: WorkerService) -> None:
+    def set_worker_service(self, service: "WorkerService") -> None:
         """WorkerServiceを設定"""
         self.worker_service = service
 

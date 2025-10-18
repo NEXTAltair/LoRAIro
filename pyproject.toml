@@ -125,6 +125,13 @@ addopts = [
     "--cov-report=xml",
 ]
 qt_api = "pyside6"
+norecursedirs = [
+    ".venv",
+    ".venv_*",
+    "*.egg",
+    "build",
+    "dist",
+]
 markers = [
     "unit: Unit tests",
     "integration: Integration tests",
