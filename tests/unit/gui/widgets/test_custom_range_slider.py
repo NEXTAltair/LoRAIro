@@ -146,7 +146,6 @@ class TestFilterSearchPanel:
         panel.comboAspectRatio = Mock()
         panel.lineEditWidth = Mock()
         panel.lineEditHeight = Mock()
-        panel.frameCustomResolution = Mock()
         panel.checkboxDateFilter = Mock()
         panel.frameDateRange = Mock()
         panel.checkboxOnlyUntagged = Mock()
@@ -181,7 +180,6 @@ class TestFilterSearchPanel:
         panel.ui.comboAspectRatio = panel.comboAspectRatio
         panel.ui.lineEditWidth = panel.lineEditWidth
         panel.ui.lineEditHeight = panel.lineEditHeight
-        panel.ui.frameCustomResolution = panel.frameCustomResolution
         panel.ui.checkboxDateFilter = panel.checkboxDateFilter
         panel.ui.frameDateRange = panel.frameDateRange
         panel.ui.checkboxOnlyUntagged = panel.checkboxOnlyUntagged
@@ -201,18 +199,6 @@ class TestFilterSearchPanel:
         assert hasattr(filter_panel, "date_range_slider")
         assert hasattr(filter_panel, "logic_button_group")  # 新機能
         assert hasattr(filter_panel, "filter_applied")
-
-    def test_toggle_custom_resolution_show(self, filter_panel):
-        """カスタム解像度フレーム表示テスト（_on_resolution_changed経由）"""
-        # Simulate dropdown selection of "カスタム..."
-        filter_panel._on_resolution_changed("カスタム...")
-        filter_panel.ui.frameCustomResolution.setVisible.assert_called_with(True)
-
-    def test_toggle_custom_resolution_hide(self, filter_panel):
-        """カスタム解像度フレーム非表示テスト（_on_resolution_changed経由）"""
-        # Simulate dropdown selection of standard resolution
-        filter_panel._on_resolution_changed("1024x1024")
-        filter_panel.ui.frameCustomResolution.setVisible.assert_called_with(False)
 
     def test_get_filter_conditions_basic_search(self, filter_panel):
         """基本検索条件取得テスト"""
@@ -303,48 +289,6 @@ class TestFilterSearchPanel:
         assert conditions["keywords"] == ["beautiful", "landscape"]
         assert conditions["search_type"] == "caption"
         assert conditions["tag_logic"] == "or"
-
-    def test_get_filter_conditions_custom_resolution(self, filter_panel):
-        """カスタム解像度条件テスト"""
-        # UI状態設定（カスタム解像度、チェックボックス更新）
-        filter_panel.lineEditSearch.text.return_value = ""
-        filter_panel.checkboxTags.isChecked.return_value = True  # 更新
-        filter_panel.radioAnd.isChecked.return_value = True
-        filter_panel.comboResolution.currentText.return_value = "カスタム..."
-        filter_panel.comboResolution.currentIndex.return_value = -1
-        filter_panel.lineEditWidth.text.return_value = "1920"
-        filter_panel.lineEditHeight.text.return_value = "1080"
-        filter_panel.comboAspectRatio.currentText.return_value = "風景 (16:9)"
-        filter_panel.comboAspectRatio.currentIndex.return_value = 2
-        filter_panel.checkboxDateFilter.isChecked.return_value = False
-        filter_panel.checkboxOnlyUntagged.isChecked.return_value = False
-        filter_panel.checkboxOnlyUncaptioned.isChecked.return_value = False
-        filter_panel.checkboxExcludeDuplicates.isChecked.return_value = False
-        filter_panel.checkboxIncludeNSFW.isChecked.return_value = False
-
-        # Mock SearchFilterService for custom resolution
-        mock_search_conditions = Mock()
-        mock_search_conditions.search_type = "tags"
-        mock_search_conditions.keywords = []
-        mock_search_conditions.tag_logic = "and"
-        mock_search_conditions.resolution_filter = "カスタム..."
-        mock_search_conditions.custom_width = "1920"
-        mock_search_conditions.custom_height = "1080"
-        mock_search_conditions.aspect_ratio_filter = "風景 (16:9)"
-        mock_search_conditions.date_filter_enabled = False
-        mock_search_conditions.date_range_start = None
-        mock_search_conditions.date_range_end = None
-        mock_search_conditions.only_untagged = False
-        mock_search_conditions.only_uncaptioned = False
-        mock_search_conditions.exclude_duplicates = False
-
-        filter_panel.search_filter_service.get_current_conditions.return_value = mock_search_conditions
-
-        conditions = filter_panel.get_current_conditions()
-
-        assert conditions["custom_width"] == "1920"
-        assert conditions["custom_height"] == "1080"
-        assert conditions["aspect_ratio_filter"] == "風景 (16:9)"
 
     def test_get_filter_conditions_date_range(self, filter_panel):
         """日付範囲条件テスト"""
