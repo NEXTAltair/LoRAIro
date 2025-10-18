@@ -1,5 +1,6 @@
 # tests/unit/gui/services/test_image_db_write_service.py
 
+from datetime import datetime
 from unittest.mock import Mock, patch
 
 import pytest
@@ -42,7 +43,7 @@ class TestImageDBWriteService:
             "width": 1024,
             "height": 768,
             "file_size": 2048000,
-            "created_at": "2024-01-15T10:30:00",
+            "created_at": datetime(2024, 1, 15, 10, 30, 0),
         }
         mock_annotation_data = {
             "tags": [{"content": "1girl"}, {"content": "long hair"}],
@@ -65,7 +66,7 @@ class TestImageDBWriteService:
         assert result.file_path == expected_path
         assert result.image_size == "1024x768"
         assert result.file_size == "1.95 MB"
-        assert result.created_date == "2024-01-15T10:30:00"
+        assert result.created_date == "2024-01-15 10:30:00"
 
         # AnnotationDataの検証
         assert isinstance(result.annotation_data, AnnotationData)
@@ -212,7 +213,7 @@ class TestImageDBWriteServiceIntegration:
                     "width": 1920,
                     "height": 1080,
                     "file_size": 5242880,  # 5MB
-                    "created_at": "2024-02-01T14:20:30",
+                    "created_at": datetime(2024, 2, 1, 14, 20, 30),
                 },
                 2: {
                     "id": 2,
@@ -220,7 +221,7 @@ class TestImageDBWriteServiceIntegration:
                     "width": 512,
                     "height": 512,
                     "file_size": 1048576,  # 1MB
-                    "created_at": "2024-02-02T16:45:15",
+                    "created_at": datetime(2024, 2, 2, 16, 45, 15),
                 },
             }
             return metadata_map.get(image_id)
