@@ -332,13 +332,22 @@ class TestAsyncExportProcessing:
         )
 
         # Connect signals for testing
-        progress_signals = []
-        finished_signals = []
-        error_signals = []
+        progress_signals: list[tuple[int, str]] = []
+        finished_signals: list[str] = []
+        error_signals: list[str] = []
 
-        worker.progress.connect(lambda p, m: progress_signals.append((p, m)))
-        worker.finished.connect(lambda p: finished_signals.append(p))
-        worker.error.connect(lambda e: error_signals.append(e))
+        def record_progress(progress: int, message: str) -> None:
+            progress_signals.append((progress, message))
+
+        def record_finished(path: str) -> None:
+            finished_signals.append(path)
+
+        def record_error(error: str) -> None:
+            error_signals.append(error)
+
+        worker.progress.connect(record_progress)
+        worker.finished.connect(record_finished)
+        worker.error.connect(record_error)
 
         # Run worker
         worker.run()
@@ -362,8 +371,12 @@ class TestAsyncExportProcessing:
             export_format="json",
         )
 
-        finished_signals = []
-        worker.finished.connect(lambda p: finished_signals.append(p))
+        finished_signals: list[str] = []
+
+        def record_finished(path: str) -> None:
+            finished_signals.append(path)
+
+        worker.finished.connect(record_finished)
 
         worker.run()
 
@@ -389,11 +402,17 @@ class TestAsyncExportProcessing:
             export_format="txt_separate",
         )
 
-        error_signals = []
-        finished_signals = []
+        error_signals: list[str] = []
+        finished_signals: list[str] = []
 
-        worker.error.connect(lambda e: error_signals.append(e))
-        worker.finished.connect(lambda p: finished_signals.append(p))
+        def record_error(error: str) -> None:
+            error_signals.append(error)
+
+        def record_finished(path: str) -> None:
+            finished_signals.append(path)
+
+        worker.error.connect(record_error)
+        worker.finished.connect(record_finished)
 
         worker.run()
 
@@ -407,8 +426,12 @@ class TestProgressAndCancellation:
 
     def test_export_progress_updates(self, qtbot, export_widget):
         """Test export progress signal handling."""
-        progress_updates = []
-        export_widget.export_progress.connect(lambda p, m: progress_updates.append((p, m)))
+        progress_updates: list[tuple[int, str]] = []
+
+        def record_progress(progress: int, message: str) -> None:
+            progress_updates.append((progress, message))
+
+        export_widget.export_progress.connect(record_progress)
 
         # Simulate progress updates
         export_widget._on_export_progress(25, "処理中...")
@@ -426,8 +449,12 @@ class TestProgressAndCancellation:
 
     def test_export_completion(self, qtbot, export_widget):
         """Test export completion handling."""
-        completion_signals = []
-        export_widget.export_completed.connect(lambda p: completion_signals.append(p))
+        completion_signals: list[str] = []
+
+        def record_completion(path: str) -> None:
+            completion_signals.append(path)
+
+        export_widget.export_completed.connect(record_completion)
 
         with patch.object(export_widget, "_cleanup_worker"):
             with patch("lorairo.gui.widgets.dataset_export_widget.QMessageBox.information"):
@@ -455,8 +482,12 @@ class TestProgressAndCancellation:
 
     def test_export_error_handling(self, qtbot, export_widget):
         """Test export error handling."""
-        error_signals = []
-        export_widget.export_error.connect(lambda e: error_signals.append(e))
+        error_signals: list[str] = []
+
+        def record_error(error: str) -> None:
+            error_signals.append(error)
+
+        export_widget.export_error.connect(record_error)
 
         with patch.object(export_widget, "_cleanup_worker"):
             with patch.object(export_widget, "_handle_error") as mock_handle_error:
