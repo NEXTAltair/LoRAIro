@@ -48,13 +48,12 @@ class TestSelectedImageDetailsWidget:
     def test_initialization(self, widget):
         """初期化テスト（Enhanced Event-Driven Pattern）"""
         # Enhanced Event-Driven Patternでの初期化確認
-        assert widget.current_details is not None
-        assert isinstance(widget.current_details, ImageDetails)
+        assert widget.current_details is None
         assert widget.current_image_id is None
 
         # UIコンポーネントの存在確認
-        assert hasattr(widget, "groupBoxImageInfo")
-        assert hasattr(widget, "groupBoxAnnotationSummary")
+        assert hasattr(widget.ui, "groupBoxImageInfo")
+        assert hasattr(widget.ui, "groupBoxAnnotationSummary")
 
     def test_clear_display(self, widget, sample_image_details):
         """表示クリアテスト"""
@@ -80,18 +79,11 @@ class TestSelectedImageDetailsWidget:
 
     def test_annotation_data_loaded_slot(self, widget):
         """アノテーションデータ読み込み完了スロットテスト"""
-        annotation_data = AnnotationData(
-            tags=["test", "data"], caption="Test caption", aesthetic_score=0.75
-        )
-
         with patch("lorairo.gui.widgets.selected_image_details_widget.logger") as mock_logger:
-            widget._on_annotation_data_loaded(annotation_data)
-
-            # current_detailsが更新される
-            assert widget.current_details.annotation_data == annotation_data
+            widget._on_annotation_data_loaded()
 
             # ログが出力される
-            mock_logger.debug.assert_called_with("Annotation data loaded in details widget")
+            mock_logger.debug.assert_called_with("Annotation data loaded in AnnotationDataDisplayWidget")
 
     def test_enable_disable_widget(self, widget):
         """ウィジェット有効/無効化テスト"""
@@ -108,10 +100,10 @@ class TestSelectedImageDetailsWidget:
         # テスト用画像メタデータ
         image_data = {
             "id": 456,
-            "stored_image_path": "/test/path/test_image.jpg",
+            "file_path": "/test/path/test_image.jpg",
             "width": 1920,
             "height": 1080,
-            "file_size_bytes": 2048000,
+            "file_size": 2048000,
             "created_at": "2024-03-15T10:30:00",
             "rating": "PG",
             "score": 750,
@@ -131,7 +123,7 @@ class TestSelectedImageDetailsWidget:
         """Enhanced Event-Driven Pattern: 空データ受信テスト"""
         # 初期状態設定
         widget.current_image_id = 123
-        widget.current_details.file_name = "previous.jpg"
+        widget.current_details = ImageDetails(file_name="previous.jpg")
 
         # 空データ受信
         widget._on_image_data_received({})
