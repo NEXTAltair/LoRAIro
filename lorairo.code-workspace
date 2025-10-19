@@ -102,7 +102,15 @@
       "tests/**/*.py"
     ],
     "mypy-type-checker.preferDaemon": false,
-    "mypy-type-checker.reportingScope": "workspace"
+    "mypy-type-checker.reportingScope": "workspace",
+    "cSpell.words": [
+        "autofetch",
+        "charliermarsh",
+        "htmlcov",
+        "Pylance",
+        "pyproject",
+        "qtbot"
+    ]
   },
   // Extensions managed by devcontainer.json
   "extensions": {
