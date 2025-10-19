@@ -33,6 +33,7 @@
 
     // Python インタープリター設定（環境自動判定）
     "python.defaultInterpreterPath": "${env:UV_PROJECT_ENVIRONMENT}/bin/python",
+    "python.languageServer": "Pylance",
 
     // Python テスト設定
     "python.testing.pytestEnabled": true,

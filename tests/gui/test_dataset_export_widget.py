@@ -9,13 +9,10 @@ Comprehensive test suite for dataset export functionality including:
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
-from PySide6.QtCore import Qt, QThread
-from PySide6.QtGui import QAction
-from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
+from PySide6.QtCore import Qt
 
 from lorairo.gui.widgets.dataset_export_widget import DatasetExportWidget, DatasetExportWorker
 from lorairo.services.service_container import ServiceContainer
@@ -153,7 +150,7 @@ class TestUIInteractions:
     def test_close_button(self, qtbot, export_widget):
         """Test close button functionality."""
         with patch.object(export_widget, "close") as mock_close:
-            qtbot.mouseClick(export_widget.ui.closeButton, Qt.LeftButton)
+            qtbot.mouseClick(export_widget.ui.closeButton, Qt.MouseButton.LeftButton)
             mock_close.assert_called_once()
 
 
@@ -163,7 +160,7 @@ class TestValidationWorkflow:
     def test_validation_with_valid_images(self, qtbot, export_widget):
         """Test validation workflow with valid images."""
         # Click validate button
-        qtbot.mouseClick(export_widget.ui.validateButton, Qt.LeftButton)
+        qtbot.mouseClick(export_widget.ui.validateButton, Qt.MouseButton.LeftButton)
 
         # Check service was called
         export_service = export_widget.export_service
@@ -189,7 +186,7 @@ class TestValidationWorkflow:
             "issues": ["Image 4: Missing processed file", "Image 5: No annotations"],
         }
 
-        qtbot.mouseClick(export_widget.ui.validateButton, Qt.LeftButton)
+        qtbot.mouseClick(export_widget.ui.validateButton, Qt.MouseButton.LeftButton)
 
         # Check UI reflects errors
         assert export_widget.ui.validImagesLabel.text() == "エクスポート可能: 3"
@@ -207,7 +204,7 @@ class TestValidationWorkflow:
             "issues": ["All images have issues"],
         }
 
-        qtbot.mouseClick(export_widget.ui.validateButton, Qt.LeftButton)
+        qtbot.mouseClick(export_widget.ui.validateButton, Qt.MouseButton.LeftButton)
 
         # Check export button remains disabled
         assert not export_widget.ui.exportButton.isEnabled()
@@ -221,7 +218,7 @@ class TestValidationWorkflow:
         with patch.object(widget, "_show_warning") as mock_warning:
             # Manually enable button for test
             widget.ui.validateButton.setEnabled(True)
-            qtbot.mouseClick(widget.ui.validateButton, Qt.LeftButton)
+            qtbot.mouseClick(widget.ui.validateButton, Qt.MouseButton.LeftButton)
 
             mock_warning.assert_called_once_with("エクスポートする画像が選択されていません。")
 
@@ -231,7 +228,7 @@ class TestValidationWorkflow:
         export_widget.export_service.validate_export_requirements.side_effect = Exception("Service error")
 
         with patch.object(export_widget, "_handle_error") as mock_handle_error:
-            qtbot.mouseClick(export_widget.ui.validateButton, Qt.LeftButton)
+            qtbot.mouseClick(export_widget.ui.validateButton, Qt.MouseButton.LeftButton)
 
             mock_handle_error.assert_called_once()
             error_msg = mock_handle_error.call_args[0][0]
@@ -244,7 +241,7 @@ class TestExportWorkflow:
     def test_export_without_validation(self, qtbot, export_widget):
         """Test export attempt without prior validation."""
         with patch.object(export_widget, "_show_warning") as mock_warning:
-            qtbot.mouseClick(export_widget.ui.exportButton, Qt.LeftButton)
+            qtbot.mouseClick(export_widget.ui.exportButton, Qt.MouseButton.LeftButton)
             mock_warning.assert_called_once_with("先に検証を実行してください。")
 
     @patch("lorairo.gui.widgets.dataset_export_widget.QFileDialog.getExistingDirectory")
@@ -259,7 +256,7 @@ class TestExportWorkflow:
 
         # Mock worker creation and threading
         with patch.object(export_widget, "_start_export_worker") as mock_start_worker:
-            qtbot.mouseClick(export_widget.ui.exportButton, Qt.LeftButton)
+            qtbot.mouseClick(export_widget.ui.exportButton, Qt.MouseButton.LeftButton)
 
             mock_start_worker.assert_called_once()
             args = mock_start_worker.call_args[1]
@@ -278,7 +275,7 @@ class TestExportWorkflow:
         mock_file_dialog.return_value = "/tmp/export"
 
         with patch.object(export_widget, "_start_export_worker") as mock_start_worker:
-            qtbot.mouseClick(export_widget.ui.exportButton, Qt.LeftButton)
+            qtbot.mouseClick(export_widget.ui.exportButton, Qt.MouseButton.LeftButton)
 
             args = mock_start_worker.call_args[1]
             assert args["export_format"] == "json"
@@ -290,7 +287,7 @@ class TestExportWorkflow:
 
         with patch.object(export_widget, "_get_output_directory", return_value=None):
             with patch.object(export_widget, "_start_export_worker") as mock_start_worker:
-                qtbot.mouseClick(export_widget.ui.exportButton, Qt.LeftButton)
+                qtbot.mouseClick(export_widget.ui.exportButton, Qt.MouseButton.LeftButton)
                 mock_start_worker.assert_not_called()
 
 
@@ -449,7 +446,7 @@ class TestProgressAndCancellation:
         mock_thread.isRunning.return_value = True
         export_widget.export_thread = mock_thread
 
-        qtbot.mouseClick(export_widget.ui.cancelButton, Qt.LeftButton)
+        qtbot.mouseClick(export_widget.ui.cancelButton, Qt.MouseButton.LeftButton)
 
         # Check thread termination
         mock_thread.terminate.assert_called_once()
@@ -569,13 +566,13 @@ class TestDatasetExportIntegration:
         qtbot.addWidget(widget)
 
         # Run validation
-        qtbot.mouseClick(widget.ui.validateButton, Qt.LeftButton)
+        qtbot.mouseClick(widget.ui.validateButton, Qt.MouseButton.LeftButton)
         assert widget.ui.exportButton.isEnabled()
 
         # Mock file dialog for output directory
         with patch.object(widget, "_get_output_directory", return_value=tmp_path):
             with patch.object(widget, "_start_export_worker") as mock_start:
-                qtbot.mouseClick(widget.ui.exportButton, Qt.LeftButton)
+                qtbot.mouseClick(widget.ui.exportButton, Qt.MouseButton.LeftButton)
                 mock_start.assert_called_once()
 
 
