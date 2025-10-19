@@ -99,7 +99,12 @@ line-ending = "auto"
 strict = true
 python_version = "3.12"
 ignore_missing_imports = true
-exclude = ["src/lorairo/gui/designer/"]
+exclude = ['^src/lorairo/gui/designer/', '^tests/']
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+ignore_errors = true
+follow_imports = "skip"
 
 [tool.pytest.ini_options]
 pythonpath = [

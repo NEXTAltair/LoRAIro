@@ -94,6 +94,15 @@
     "git.autofetch": true,
     "makefile.configureOnOpen": false,
     "commentTranslate.hover.enabled": false,
+
+    // Mypy 設定
+    "mypy-type-checker.ignorePatterns": [
+      "**/tests/**",
+      "**/test_*.py",
+      "tests/**/*.py"
+    ],
+    "mypy-type-checker.preferDaemon": false,
+    "mypy-type-checker.reportingScope": "workspace"
   },
   // Extensions managed by devcontainer.json
   "extensions": {
