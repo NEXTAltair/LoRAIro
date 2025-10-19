@@ -227,6 +227,11 @@ class SelectedImageDetailsWidget(QScrollArea):
         logger.debug("Annotation data loaded in AnnotationDataDisplayWidget")
 
     # Phase 3: Direct Widget Communication Pattern
+    def connect_to_data_signals(self, state_manager: "DatasetStateManager") -> None:
+        """データシグナル接続（Phase 2互換）"""
+        state_manager.current_image_data_changed.connect(self._on_image_data_received)
+        logger.debug("SelectedImageDetailsWidget connected to current_image_data_changed signal")
+
     def connect_to_thumbnail_widget(self, thumbnail_widget: Any) -> None:
         """
         ThumbnailSelectorWidgetと直接接続（Phase 3パターン）
@@ -327,18 +332,13 @@ class SelectedImageDetailsWidget(QScrollArea):
         # アノテーション情報
         tags_text = metadata.get("tags", "")
         caption_text = metadata.get("caption", "")
-        has_tags = bool(tags_text)
-        has_caption = bool(caption_text)
 
-        # AnnotationStatus
-        annotation_status = metadata.get("annotation_status", "未処理")
+        # tags_textをlist[str]に変換（カンマ区切り文字列を分割）
+        tags_list = [tag.strip() for tag in tags_text.split(",") if tag.strip()] if tags_text else []
 
         annotation_data = AnnotationData(
-            tags=tags_text,
+            tags=tags_list,
             caption=caption_text,
-            has_tags=has_tags,
-            has_caption=has_caption,
-            annotation_status=annotation_status,
         )
 
         details = ImageDetails(
