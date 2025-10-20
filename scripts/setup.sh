@@ -1,29 +1,22 @@
 #!/bin/bash
-# クロスプラットフォーム環境セットアップスクリプト
+# LoRAIro development environment setup script
 
-echo "Setting up development environment..."
+echo "Setting up LoRAIro development environment..."
 
-# OS判別と環境変数設定
-if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    export UV_PROJECT_ENVIRONMENT=.venv_linux
-    echo "Detected Linux environment - using .venv_linux"
-elif [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
-    export UV_PROJECT_ENVIRONMENT=.venv_windows
-    echo "Detected Windows environment - using .venv_windows"
-else
-    echo "Unknown OS type: $OSTYPE - using default .venv"
-fi
+# Use default .venv directory (managed by devcontainer volume mount)
+echo "Using default .venv directory"
 
-echo "UV_PROJECT_ENVIRONMENT = $UV_PROJECT_ENVIRONMENT"
-
-# 依存関係の同期
-echo "Syncing dependencies..."
+# Sync dependencies
+echo "Syncing dependencies with uv..."
 uv sync --dev
 
 if [ $? -eq 0 ]; then
-    echo "Environment setup complete!"
+    echo "✅ Environment setup complete!"
+    echo ""
+    echo "Virtual environment: .venv"
     echo "To run the application: uv run lorairo"
+    echo "To run tests: uv run pytest"
 else
-    echo "Setup failed!"
+    echo "❌ Setup failed!"
     exit 1
 fi

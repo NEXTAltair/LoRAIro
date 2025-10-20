@@ -42,76 +42,25 @@
                 "esbenp.prettier-vscode",
                 "ms-azuretools.vscode-docker",
                 "masakit.zenkaku-hankaku"
-            ],
-            "settings": {
-                "python.defaultInterpreterPath": "/workspaces/LoRAIro/.venv_linux/bin/python",
-                "python.analysis.extraPaths": [
-                "./src",
-                "./local_packages/genai-tag-db-tools/src",
-                "./local_packages/image-annotator-lib/src"
-                ],
-                "[python]": {
-                    "editor.defaultFormatter": "charliermarsh.ruff",
-                    "editor.formatOnSave": true,
-                    "editor.codeActionsOnSave": {
-                        "source.fixAll": "explicit",
-                        "source.organizeImports": "explicit"
-                    }
-                },
-                "python.testing.pytestEnabled": true,
-                "python.analysis.autoImportCompletions": true,
-                "python.analysis.typeCheckingMode": "strict",
-                "python.analysis.diagnosticSeverityOverrides": {
-                    "reportUnknownMemberType": "none",
-                    "reportUnknownVariableType": "none",
-                    "reportUnknownArgumentType": "none"
-                },
-                "python.linting.enabled": true,
-                "python.linting.pylintEnabled": false,
-                "python.linting.mypyEnabled": true,
-                "mypy-type-checker.ignorePatterns": [
-                    "**/tests/**",
-                    "**/test_*.py",
-                    "tests/**/*.py"
-                ],
-                "mypy-type-checker.args": [
-                    "--config-file=pyproject.toml"
-                ],
-                "mypy-type-checker.preferDaemon": false,
-                "mypy-type-checker.reportingScope": "workspace",
-                "files.exclude": {
-                    "**/__pycache__": true,
-                    "**/*.pyc": true,
-                    "**/.pytest_cache": true,
-                    "**/.mypy_cache": true,
-                    "**/.ruff_cache": true
-                },
-                "terminal.integrated.defaultProfile.linux": "bash",
-                "terminal.integrated.profiles.linux": {
-                    "bash": {
-                        "path": "bash",
-                        "icon": "terminal-bash"
-                    }
-                }
-            }
+            ]
         }
     },
     "remoteUser": "vscode",
     "remoteEnv": {
-        "UV_PROJECT_ENVIRONMENT": ".venv_linux",
         "QT_QPA_PLATFORM": "offscreen",
         "DISPLAY": ":99"
     },
-    "postCreateCommand": [
-        "bash -lc 'set -euo pipefail; cd /workspaces/LoRAIro; make install-dev'",
-        "bash -lc \"claude mcp add context7 -s project -- npx -y @upstash/context7-mcp\"",
-        "bash -lc \"claude mcp add serena -- uvx --from git+https://github.com/oraios/serena serena start-mcp-server --context ide-assistant --project $(pwd)\"",
-        "bash -lc \"claude mcp add playwright -s project -- npx -y @playwright/mcp@latest\""
-    ],
-    "postStartCommand": "bash -lc 'echo UV_PROJECT_ENVIRONMENT=$UV_PROJECT_ENVIRONMENT; ls -ld .venv_linux || true; chmod +x .claude/hooks/*.sh || true'",
-     "mounts": [
+    "postCreateCommand": "bash -c 'grep -q \"LoRAIro venv auto-activation\" ~/.bashrc || cat >> ~/.bashrc << \"EOF\"\n\n# LoRAIro venv auto-activation\nif [ -z \"$VIRTUAL_ENV\" ] && [ -f \"/workspaces/LoRAIro/.venv/bin/activate\" ]; then\n    source /workspaces/LoRAIro/.venv/bin/activate\nfi\nEOF\n'",
+    "postStartCommand": {
+        "hookPermissions": "chmod +x .claude/hooks/*.sh || true",
+        "install": "make install-dev",
+        "mcpSerena": "claude mcp add serena -- uvx --from git+https://github.com/oraios/serena serena start-mcp-server --context ide-assistant --project /workspaces/LoRAIro",
+        "mcpCipher": "claude mcp add cipher -t sse http://192.168.11.2:5000/mcp/sse"
+    },
+    "mounts": [
         "source=lorairo-bashhistory-${devcontainerId},target=/home/vscode/.bash_history,type=volume",
-        "source=lorairo-vscode-extensions-${devcontainerId},target=/home/vscode/.vscode-server/extensions,type=volume"
+        "source=lorairo-vscode-extensions-${devcontainerId},target=/home/vscode/.vscode-server/extensions,type=volume",
+        "source=lorairo-venv-${devcontainerId},target=/workspaces/LoRAIro/.venv,type=volume"
     ],
     "features": {
         "ghcr.io/devcontainers/features/git:1": {
