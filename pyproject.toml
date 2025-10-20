@@ -99,7 +99,12 @@ line-ending = "auto"
 strict = true
 python_version = "3.12"
 ignore_missing_imports = true
-exclude = ["src/lorairo/gui/designer/"]
+exclude = ['^src/lorairo/gui/designer/', '^tests/']
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+ignore_errors = true
+follow_imports = "skip"
 
 [tool.pytest.ini_options]
 pythonpath = [
@@ -125,6 +130,13 @@ addopts = [
     "--cov-report=xml",
 ]
 qt_api = "pyside6"
+norecursedirs = [
+    ".venv",
+    ".venv_*",
+    "*.egg",
+    "build",
+    "dist",
+]
 markers = [
     "unit: Unit tests",
     "integration: Integration tests",
