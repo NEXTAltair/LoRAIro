@@ -26,21 +26,21 @@
   "settings": {
     // ターミナル設定
     "terminal.integrated.defaultProfile.windows": "PowerShell",
+    "terminal.integrated.cwd": "${workspaceFolder:LoRAIro}",
 
     // Python 基本設定 (テスト設定はpyproject.tomlに移動)
     "python.terminal.activateEnvironment": true,
     "python.envFile": "${workspaceFolder}/.env",
 
-    // Python インタープリター設定（環境自動判定）
-    "python.defaultInterpreterPath": "${env:UV_PROJECT_ENVIRONMENT}/bin/python",
+    // Python インタープリター設定
+    "python.defaultInterpreterPath": ".venv/bin/python",
     "python.languageServer": "Pylance",
 
     // Python テスト設定
     "python.testing.pytestEnabled": true,
     "python.testing.unittestEnabled": false,
     "python.testing.pytestArgs": [
-      "--ignore=.venv",
-      "--ignore=.venv_windows"
+      "--ignore=.venv"
     ],
 
     // スペルチェック設定
