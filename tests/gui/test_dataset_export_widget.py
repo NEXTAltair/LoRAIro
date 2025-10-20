@@ -9,13 +9,10 @@ Comprehensive test suite for dataset export functionality including:
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
-from PySide6.QtCore import Qt, QThread
-from PySide6.QtGui import QAction
-from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
+from PySide6.QtCore import Qt
 
 from lorairo.gui.widgets.dataset_export_widget import DatasetExportWidget, DatasetExportWorker
 from lorairo.services.service_container import ServiceContainer
@@ -153,7 +150,7 @@ class TestUIInteractions:
     def test_close_button(self, qtbot, export_widget):
         """Test close button functionality."""
         with patch.object(export_widget, "close") as mock_close:
-            qtbot.mouseClick(export_widget.ui.closeButton, Qt.LeftButton)
+            qtbot.mouseClick(export_widget.ui.closeButton, Qt.MouseButton.LeftButton)
             mock_close.assert_called_once()
 
 
@@ -163,7 +160,7 @@ class TestValidationWorkflow:
     def test_validation_with_valid_images(self, qtbot, export_widget):
         """Test validation workflow with valid images."""
         # Click validate button
-        qtbot.mouseClick(export_widget.ui.validateButton, Qt.LeftButton)
+        qtbot.mouseClick(export_widget.ui.validateButton, Qt.MouseButton.LeftButton)
 
         # Check service was called
         export_service = export_widget.export_service
@@ -189,7 +186,7 @@ class TestValidationWorkflow:
             "issues": ["Image 4: Missing processed file", "Image 5: No annotations"],
         }
 
-        qtbot.mouseClick(export_widget.ui.validateButton, Qt.LeftButton)
+        qtbot.mouseClick(export_widget.ui.validateButton, Qt.MouseButton.LeftButton)
 
         # Check UI reflects errors
         assert export_widget.ui.validImagesLabel.text() == "エクスポート可能: 3"
@@ -207,7 +204,7 @@ class TestValidationWorkflow:
             "issues": ["All images have issues"],
         }
 
-        qtbot.mouseClick(export_widget.ui.validateButton, Qt.LeftButton)
+        qtbot.mouseClick(export_widget.ui.validateButton, Qt.MouseButton.LeftButton)
 
         # Check export button remains disabled
         assert not export_widget.ui.exportButton.isEnabled()
@@ -221,7 +218,7 @@ class TestValidationWorkflow:
         with patch.object(widget, "_show_warning") as mock_warning:
             # Manually enable button for test
             widget.ui.validateButton.setEnabled(True)
-            qtbot.mouseClick(widget.ui.validateButton, Qt.LeftButton)
+            qtbot.mouseClick(widget.ui.validateButton, Qt.MouseButton.LeftButton)
 
             mock_warning.assert_called_once_with("エクスポートする画像が選択されていません。")
 
@@ -231,7 +228,7 @@ class TestValidationWorkflow:
         export_widget.export_service.validate_export_requirements.side_effect = Exception("Service error")
 
         with patch.object(export_widget, "_handle_error") as mock_handle_error:
-            qtbot.mouseClick(export_widget.ui.validateButton, Qt.LeftButton)
+            qtbot.mouseClick(export_widget.ui.validateButton, Qt.MouseButton.LeftButton)
 
             mock_handle_error.assert_called_once()
             error_msg = mock_handle_error.call_args[0][0]
@@ -244,7 +241,7 @@ class TestExportWorkflow:
     def test_export_without_validation(self, qtbot, export_widget):
         """Test export attempt without prior validation."""
         with patch.object(export_widget, "_show_warning") as mock_warning:
-            qtbot.mouseClick(export_widget.ui.exportButton, Qt.LeftButton)
+            qtbot.mouseClick(export_widget.ui.exportButton, Qt.MouseButton.LeftButton)
             mock_warning.assert_called_once_with("先に検証を実行してください。")
 
     @patch("lorairo.gui.widgets.dataset_export_widget.QFileDialog.getExistingDirectory")
@@ -259,7 +256,7 @@ class TestExportWorkflow:
 
         # Mock worker creation and threading
         with patch.object(export_widget, "_start_export_worker") as mock_start_worker:
-            qtbot.mouseClick(export_widget.ui.exportButton, Qt.LeftButton)
+            qtbot.mouseClick(export_widget.ui.exportButton, Qt.MouseButton.LeftButton)
 
             mock_start_worker.assert_called_once()
             args = mock_start_worker.call_args[1]
@@ -278,7 +275,7 @@ class TestExportWorkflow:
         mock_file_dialog.return_value = "/tmp/export"
 
         with patch.object(export_widget, "_start_export_worker") as mock_start_worker:
-            qtbot.mouseClick(export_widget.ui.exportButton, Qt.LeftButton)
+            qtbot.mouseClick(export_widget.ui.exportButton, Qt.MouseButton.LeftButton)
 
             args = mock_start_worker.call_args[1]
             assert args["export_format"] == "json"
@@ -290,7 +287,7 @@ class TestExportWorkflow:
 
         with patch.object(export_widget, "_get_output_directory", return_value=None):
             with patch.object(export_widget, "_start_export_worker") as mock_start_worker:
-                qtbot.mouseClick(export_widget.ui.exportButton, Qt.LeftButton)
+                qtbot.mouseClick(export_widget.ui.exportButton, Qt.MouseButton.LeftButton)
                 mock_start_worker.assert_not_called()
 
 
@@ -335,13 +332,22 @@ class TestAsyncExportProcessing:
         )
 
         # Connect signals for testing
-        progress_signals = []
-        finished_signals = []
-        error_signals = []
+        progress_signals: list[tuple[int, str]] = []
+        finished_signals: list[str] = []
+        error_signals: list[str] = []
 
-        worker.progress.connect(lambda p, m: progress_signals.append((p, m)))
-        worker.finished.connect(lambda p: finished_signals.append(p))
-        worker.error.connect(lambda e: error_signals.append(e))
+        def record_progress(progress: int, message: str) -> None:
+            progress_signals.append((progress, message))
+
+        def record_finished(path: str) -> None:
+            finished_signals.append(path)
+
+        def record_error(error: str) -> None:
+            error_signals.append(error)
+
+        worker.progress.connect(record_progress)
+        worker.finished.connect(record_finished)
+        worker.error.connect(record_error)
 
         # Run worker
         worker.run()
@@ -365,8 +371,12 @@ class TestAsyncExportProcessing:
             export_format="json",
         )
 
-        finished_signals = []
-        worker.finished.connect(lambda p: finished_signals.append(p))
+        finished_signals: list[str] = []
+
+        def record_finished(path: str) -> None:
+            finished_signals.append(path)
+
+        worker.finished.connect(record_finished)
 
         worker.run()
 
@@ -392,11 +402,17 @@ class TestAsyncExportProcessing:
             export_format="txt_separate",
         )
 
-        error_signals = []
-        finished_signals = []
+        error_signals: list[str] = []
+        finished_signals: list[str] = []
 
-        worker.error.connect(lambda e: error_signals.append(e))
-        worker.finished.connect(lambda p: finished_signals.append(p))
+        def record_error(error: str) -> None:
+            error_signals.append(error)
+
+        def record_finished(path: str) -> None:
+            finished_signals.append(path)
+
+        worker.error.connect(record_error)
+        worker.finished.connect(record_finished)
 
         worker.run()
 
@@ -410,8 +426,12 @@ class TestProgressAndCancellation:
 
     def test_export_progress_updates(self, qtbot, export_widget):
         """Test export progress signal handling."""
-        progress_updates = []
-        export_widget.export_progress.connect(lambda p, m: progress_updates.append((p, m)))
+        progress_updates: list[tuple[int, str]] = []
+
+        def record_progress(progress: int, message: str) -> None:
+            progress_updates.append((progress, message))
+
+        export_widget.export_progress.connect(record_progress)
 
         # Simulate progress updates
         export_widget._on_export_progress(25, "処理中...")
@@ -429,8 +449,12 @@ class TestProgressAndCancellation:
 
     def test_export_completion(self, qtbot, export_widget):
         """Test export completion handling."""
-        completion_signals = []
-        export_widget.export_completed.connect(lambda p: completion_signals.append(p))
+        completion_signals: list[str] = []
+
+        def record_completion(path: str) -> None:
+            completion_signals.append(path)
+
+        export_widget.export_completed.connect(record_completion)
 
         with patch.object(export_widget, "_cleanup_worker"):
             with patch("lorairo.gui.widgets.dataset_export_widget.QMessageBox.information"):
@@ -449,7 +473,7 @@ class TestProgressAndCancellation:
         mock_thread.isRunning.return_value = True
         export_widget.export_thread = mock_thread
 
-        qtbot.mouseClick(export_widget.ui.cancelButton, Qt.LeftButton)
+        qtbot.mouseClick(export_widget.ui.cancelButton, Qt.MouseButton.LeftButton)
 
         # Check thread termination
         mock_thread.terminate.assert_called_once()
@@ -458,8 +482,12 @@ class TestProgressAndCancellation:
 
     def test_export_error_handling(self, qtbot, export_widget):
         """Test export error handling."""
-        error_signals = []
-        export_widget.export_error.connect(lambda e: error_signals.append(e))
+        error_signals: list[str] = []
+
+        def record_error(error: str) -> None:
+            error_signals.append(error)
+
+        export_widget.export_error.connect(record_error)
 
         with patch.object(export_widget, "_cleanup_worker"):
             with patch.object(export_widget, "_handle_error") as mock_handle_error:
@@ -569,13 +597,13 @@ class TestDatasetExportIntegration:
         qtbot.addWidget(widget)
 
         # Run validation
-        qtbot.mouseClick(widget.ui.validateButton, Qt.LeftButton)
+        qtbot.mouseClick(widget.ui.validateButton, Qt.MouseButton.LeftButton)
         assert widget.ui.exportButton.isEnabled()
 
         # Mock file dialog for output directory
         with patch.object(widget, "_get_output_directory", return_value=tmp_path):
             with patch.object(widget, "_start_export_worker") as mock_start:
-                qtbot.mouseClick(widget.ui.exportButton, Qt.LeftButton)
+                qtbot.mouseClick(widget.ui.exportButton, Qt.MouseButton.LeftButton)
                 mock_start.assert_called_once()
 
 

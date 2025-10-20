@@ -61,9 +61,24 @@
                 "python.testing.pytestEnabled": true,
                 "python.analysis.autoImportCompletions": true,
                 "python.analysis.typeCheckingMode": "strict",
+                "python.analysis.diagnosticSeverityOverrides": {
+                    "reportUnknownMemberType": "none",
+                    "reportUnknownVariableType": "none",
+                    "reportUnknownArgumentType": "none"
+                },
                 "python.linting.enabled": true,
                 "python.linting.pylintEnabled": false,
                 "python.linting.mypyEnabled": true,
+                "mypy-type-checker.ignorePatterns": [
+                    "**/tests/**",
+                    "**/test_*.py",
+                    "tests/**/*.py"
+                ],
+                "mypy-type-checker.args": [
+                    "--config-file=pyproject.toml"
+                ],
+                "mypy-type-checker.preferDaemon": false,
+                "mypy-type-checker.reportingScope": "workspace",
                 "files.exclude": {
                     "**/__pycache__": true,
                     "**/*.pyc": true,
