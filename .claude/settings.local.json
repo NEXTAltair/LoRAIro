@@ -21,7 +21,9 @@
       "Bash(timeout 10 uv run mypy:*)",
       "Bash(find:*)",
       "Bash(uv run python:*)",
-      "Bash(UV_PROJECT_ENVIRONMENT=.venv_linux uv run python:*)"
+      "Bash(uv run pytest:*)",
+      "Bash(env)",
+      "Bash(uv sync:*)"
     ],
     "deny": [],
     "ask": []
