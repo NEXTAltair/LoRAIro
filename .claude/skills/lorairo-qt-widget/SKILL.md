@@ -147,7 +147,7 @@ class BadWidget(QWidget):
 
 ```python
 # UI生成コマンド
-# UV_PROJECT_ENVIRONMENT=.venv_linux uv run python scripts/generate_ui.py
+# uv run python scripts/generate_ui.py
 
 from .ExampleWidget_ui import Ui_ExampleWidget
 

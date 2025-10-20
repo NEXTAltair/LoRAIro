@@ -44,15 +44,15 @@ def test_widget_interaction(qtbot):
 
 ```bash
 # 全テスト
-UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest
+uv run pytest
 
 # カテゴリ別
-UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m unit
-UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m integration
-UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m gui
+uv run pytest -m unit
+uv run pytest -m integration
+uv run pytest -m gui
 
 # カバレッジ付き
-UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest --cov=src --cov-report=html
+uv run pytest --cov=src --cov-report=html
 ```
 
 ## 1. Unit Test パターン
@@ -317,7 +317,7 @@ def test_batch_processing(batch_size):
 
 ```bash
 # カバレッジレポート生成
-UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest --cov=src --cov-report=html
+uv run pytest --cov=src --cov-report=html
 
 # カバレッジ確認
 # htmlcov/index.html をブラウザで開く

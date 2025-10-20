@@ -59,7 +59,7 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 15. 包括的例外処理(Exception Handling)実装
 16. 適切な Loguru ログ記録実装
 17. コメント追加(なぜを説明、何をではなく)
-18. `UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff format` による一貫したフォーマット
+18. `uv run ruff format` による一貫したフォーマット
 
 ### 4. LoRAIro 実装パターン適用
 
@@ -93,9 +93,9 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 
 ### 5. テスト駆動開発
 
-32. 実装と並行した単体テスト作成(UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m unit)
-33. コンポーネント間統合テスト実装(UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m integration)
-34. GUI コンポーネントテスト実装(UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m gui)
+32. 実装と並行した単体テスト作成(uv run pytest -m unit)
+33. コンポーネント間統合テスト実装(uv run pytest -m integration)
+34. GUI コンポーネントテスト実装(uv run pytest -m gui)
 35. テストカバレッジ >75% 維持
 36. モック戦略による外部依存関係分離
 
@@ -108,8 +108,8 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 
 ### 7. 品質検証
 
-41. `UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff check` によるリンティングクリア
-42. `UV_PROJECT_ENVIRONMENT=.venv_linux uv run mypy src/` による型チェッククリア
+41. `uv run ruff check` によるリンティングクリア
+42. `uv run mypy src/` による型チェッククリア
 43. 全テストスイートの実行・パス確認
 44. 手動機能テストの実行
 45. パフォーマンス影響確認
@@ -210,9 +210,9 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 
 ### 品質チェック
 
-- [ ] `UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff format` 実行・フォーマット確認
-- [ ] `UV_PROJECT_ENVIRONMENT=.venv_linux uv run ruff check` 実行・問題修正
-- [ ] `UV_PROJECT_ENVIRONMENT=.venv_linux uv run mypy src/` 実行・型エラー解決
+- [ ] `uv run ruff format` 実行・フォーマット確認
+- [ ] `uv run ruff check` 実行・問題修正
+- [ ] `uv run mypy src/` 実行・型エラー解決
 - [ ] テストカバレッジ >75% 確保
 - [ ] 全テスト実行・パス確認
 - [ ] 手動機能テスト実行

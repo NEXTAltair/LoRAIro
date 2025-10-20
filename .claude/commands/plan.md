@@ -78,9 +78,9 @@ investigateフェーズで特定された要件と課題を基に、上記実装
 31. マイルストーン定義(進捗追跡のチェックポイント)
 
 ### 7. テスト・検証計画
-32. 単体テスト計画(UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m unit)
-33. 統合テスト計画(UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m integration)
-34. GUIテスト計画(UV_PROJECT_ENVIRONMENT=.venv_linux uv run pytest -m gui)
+32. 単体テスト計画(uv run pytest -m unit)
+33. 統合テスト計画(uv run pytest -m integration)
+34. GUIテスト計画(uv run pytest -m gui)
 35. モック戦略(外部依存関係)
 36. テストデータ準備(画像・データセット)
 
