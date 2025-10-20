@@ -214,7 +214,7 @@ def test_thumbnail_widget(qtbot):
 ## Deployment Considerations
 
 ### Cross-Platform Compatibility
-- **Environment isolation**: Separate `.venv_linux` and `.venv_windows`
+- **Environment management**: Unified `.venv` directory with devcontainer volume mount
 - **GUI compatibility**: QT_QPA_PLATFORM handling for headless environments
 - **Path handling**: Use `pathlib.Path` for cross-platform file operations
 

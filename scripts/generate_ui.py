@@ -8,7 +8,7 @@ Qt Designer UI files were not converted to Python code, causing MainWindow
 to fail loading the filterSearchPanel widget.
 
 Usage:
-    UV_PROJECT_ENVIRONMENT=.venv_linux uv run python scripts/generate_ui.py
+    uv run python scripts/generate_ui.py
 
 Author: Claude Code (Anthropic)
 Date: 2025-09-04
