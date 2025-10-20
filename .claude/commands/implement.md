@@ -33,14 +33,17 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 
 ### 1. 実装前チェックリスト
 
-1. **Memory-Based事前確認**: `cipher_memory_search` で類似実装の過去事例を確認
-2. plan フェーズの実装計画を詳細確認
-3. 要件・設計の完全理解確認
-4. **実装知識確認**: `mcp__serena__read_memory` でプロジェクト固有の実装状況を確認
-5. 開発環境セットアップ確認(`uv sync --dev`)
-6. テスト戦略の理解と準備
-7. 既存アーキテクチャパターンの特定
-8. **課題予測**: 過去の実装で発見された問題とリスク要因の事前把握
+過去の実装パターンと現在のプロジェクト状況を確認：
+- 詳細なMemory-Firstワークフローは **mcp-memory-first-development** Skill参照
+- 高速Memory操作は **mcp-serena-fast-ops** Skill参照
+- 複雑な分析は **mcp-cipher-complex-analysis** Skill参照
+
+実装前タスク:
+1. plan フェーズの実装計画を詳細確認
+2. 要件・設計の完全理解確認
+3. 開発環境セットアップ確認(`uv sync --dev`)
+4. テスト戦略の理解と準備
+5. 既存アーキテクチャパターンの特定
 
 ### 2. 実装準備
 
@@ -120,23 +123,21 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 
 ### 9. 知識蓄積・完了処理
 
+実装知識を長期記憶として保存（**mcp-memory-first-development** Skill参照）
+
+完了処理タスク:
 50. 実装完了コードの自己レビュー
-51. **実装知識蓄積**: `cipher_store_reasoning_memory` で実装判断と根拠を保存
-52. **技術関係記録**: `cipher_query_graph` で実装要素間の依存関係を記録
-53. **プロジェクト記録**: `mcp__serena__write_memory` で現在プロジェクト向けの実装結果保存
-54. 関連ドキュメント更新(必要時のみ)
-55. 小さな原子的コミット(明確なコミットメッセージ)
-56. 実装完了をコンソール出力で通知(echo "⚙️ 実装完了")
-57. test フェーズへの引き継ぎ事項整理
+51. 関連ドキュメント更新(必要時のみ)
+52. 小さな原子的コミット(明確なコミットメッセージ)
+53. 実装完了をコンソール出力で通知(echo "⚙️ 実装完了")
+54. test フェーズへの引き継ぎ事項整理
 
 ## 実行内容
 
 ### 実装準備フェーズ
 
-#### Memory-Based事前分析
-- **既存実装知識確認**: `cipher_memory_search` で類似実装パターンの過去事例を検索
-- **アーキテクチャ分析**: `cipher_extract_entities` で重要な設計要素を特定
-- **実装課題予測**: 過去の実装で発見された課題とリスク要因を確認
+#### Memory-First実装準備
+過去の実装知識を確認（**mcp-memory-first-development** Skill参照）
 
 #### 詳細コード分析
 - **🔍 Investigation Agent活用**: 実装対象の既存コード詳細調査
@@ -175,10 +176,7 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 - 機能統合と動作確認
 
 #### 実装知識の蓄積
-- **実装パターン記録**: `cipher_store_reasoning_memory` で実装アプローチと判断根拠を保存
-- **技術関係分析**: `cipher_query_graph` で実装要素間の依存関係を記録
-- **教訓保存**: 実装中に発見した課題・解決策・ベストプラクティスを長期記憶化
-- **プロジェクト記録**: `mcp__serena__write_memory` で現在プロジェクト固有の実装結果を保存
+実装判断と教訓を長期記憶として保存（**mcp-memory-first-development** Skill参照）
 
 ## 必読ファイル
 
@@ -236,86 +234,11 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 
 実装完了後は `/test` コマンドで包括的検証を実施します。
 
-## 最適化された実装戦略 (Cipher Aggregator Mode)
+## Memory管理とSkills
 
-### Memory-First + 高速コード編集アプローチ
+このコマンドでは以下のSkillsを活用してメモリー管理を効率化します：
+- **mcp-memory-first-development**: Memory-First開発ワークフロー
+- **mcp-serena-fast-ops**: 高速コード編集とMemory操作
+- **mcp-cipher-complex-analysis**: 実装知識の長期記憶化
 
-implementコマンドでは以下の最適化戦略を採用:
-
-#### 🧠 Memory-First実装準備 (1-3秒)
-```
-既存知識の活用:
-- cipher_memory_search: 過去の類似実装パターンを検索
-- mcp__serena__read_memory: プロジェクト固有の実装進捗を確認
-- cipher_extract_entities: 重要なアーキテクチャ要素を特定
-```
-
-#### 🚀 高速コード編集 (主要手法)
-```
-効率的コード実装:
-- mcp__serena__find_symbol: 編集対象の特定
-- mcp__serena__find_referencing_symbols: 影響範囲確認
-- mcp__serena__replace_symbol_body: シンボル単位での実装
-- mcp__serena__insert_after_symbol: 新機能追加
-- mcp__serena__insert_before_symbol: 依存関係実装
-- mcp__serena__replace_regex: 細かい修正・リファクタリング
-- mcp__serena__get_symbols_overview: コード構造把握
-```
-
-#### 🔍 実装品質管理
-```
-継続的品質確保:
-- mcp__serena__think_about_task_adherence: 実装方針確認
-- mcp__serena__think_about_whether_you_are_done: 完了判定
-- Edit/MultiEdit/Write: 従来ツールによる補完的編集
-```
-
-#### 🎯 知識蓄積・記録
-```
-実装知識の永続化:
-- cipher_store_reasoning_memory: 実装判断と根拠の保存
-- cipher_query_graph: 実装要素間の関係性分析
-- mcp__serena__write_memory: プロジェクト固有の実装結果保存
-```
-
-### 2重メモリ戦略
-
-#### Serena Memory (プロジェクト固有・短期)
-- **用途**: 現在の実装進捗と一時的な開発メモ
-- **保存内容**: 
-  - 現在の実装状況と次のステップ
-  - 進行中のリファクタリング計画
-  - 実装中の一時的な課題と解決策
-  - デバッグ情報と検証結果
-
-#### Cipher Memory (実装知識・長期)
-- **用途**: 将来参照可能な実装パターン資産
-- **保存内容**:
-  - 実装アプローチと判断根拠
-  - アーキテクチャ設計の意図と背景
-  - パフォーマンス・保守性の評価
-  - 実装時の課題と解決策
-  - ベストプラクティスとアンチパターン
-  - テスト戦略と品質基準
-
-### 実装効率最適化
-
-#### Memory-First原則
-1. **過去実装確認**: 類似機能の実装履歴を優先参照
-2. **パターン再利用**: 成功した実装パターンの活用
-3. **課題予測**: 過去に発見された問題とリスク要因の事前把握
-
-#### 段階的実装戦略
-1. **小単位実装**: Serenaによる効率的なシンボル単位編集
-2. **継続的検証**: think系ツールによる実装品質確認
-3. **知識蓄積**: 実装過程と結果の段階的記録
-
-#### 記録・蓄積戦略
-**Serena記録対象**: "今何を実装しているか" "次に何をするか"
-**Cipher記録対象**: "なぜそう実装したか" "どのような判断をしたか"
-
-### エラーハンドリング・継続戦略
-- **Serena編集エラー**: 段階的実装に分割して継続
-- **複雑な統合**: Investigation/Library-Research/Solutionsエージェントで分析
-- **品質確認**: Code-Formatterエージェントによる自動品質管理
-- **実装完了判定**: Serena think系ツールによる客観的評価
+詳細な使い方は各SkillのSKILL.mdを参照してください。
