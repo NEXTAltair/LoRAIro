@@ -208,8 +208,8 @@ LoRAIroの開発パターンとMCP操作は **Claude Skills** で自動化され
 
 ### Environment Issues
 - **Test Discovery**: Ensure no conflicting `.venv` directories in local packages, verify `uv sync --dev`
-- **Cross-Platform**: Use `.venv_linux` for development/testing, `.venv_windows` for execution
-- **Setup**: Run `./scripts/setup.sh` for automatic OS detection
+- **Virtual Environment**: The project uses `.venv` directory (managed by devcontainer volume mount)
+- **Setup**: Run `./scripts/setup.sh` for dependency installation
 
 ### MCP Issues
 - **Cipher timeout**: Break operations into stages, fallback to direct serena
@@ -220,7 +220,7 @@ LoRAIroの開発パターンとMCP操作は **Claude Skills** で自動化され
 - **SearchFilterService Configuration Error**: If you see "SearchFilterService が設定されていません" error, the issue is missing Qt Designer UI file generation
 - **Missing filterSearchPanel Widget**: MainWindow fails to create filterSearchPanel because _ui.py files are missing
 - **Import Errors from designer**: `from ...MainWindow_ui import Ui_MainWindow` fails because UI files weren't generated
-- **Solution**: Run `UV_PROJECT_ENVIRONMENT=.venv_linux uv run python scripts/generate_ui.py` to generate all missing UI files
+- **Solution**: Run `uv run python scripts/generate_ui.py` to generate all missing UI files
 - **Prevention**: Always run UI generation after modifying .ui files or when setting up development environment
 - **Verification**: Script should report 100% success rate and verify MainWindow_ui.py contains filterSearchPanel creation
 

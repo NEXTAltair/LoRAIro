@@ -108,9 +108,9 @@ lorairo_data/
 ## Cross-Platform Support
 
 ### Environment Management
-- **Linux Environment**: `.venv_linux` for development/testing
-- **Windows Environment**: `.venv_windows` for GUI execution
-- **Independent Dependencies**: Platform-specific binary management
+- **Virtual Environment**: `.venv` directory (unified across platforms)
+- **devcontainer**: Volume mount for persistent dependencies
+- **uv**: Automatic `.venv` detection and management
 
 ### GUI Compatibility
 - **Linux**: Headless execution (QT_QPA_PLATFORM=offscreen)

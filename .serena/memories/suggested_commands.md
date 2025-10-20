@@ -7,11 +7,8 @@
 # Automatic cross-platform setup (recommended)
 ./scripts/setup.sh
 
-# Manual Linux environment
+# Manual dependency sync
 uv sync --dev
-
-# Manual Windows environment
-$env:UV_PROJECT_ENVIRONMENT=".venv_windows"; uv sync --dev
 
 # Add dependencies
 uv add package-name
