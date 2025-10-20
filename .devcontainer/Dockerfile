@@ -1,5 +1,5 @@
 # Use an official Python runtime as a parent image
-FROM python:3.12-slim
+FROM python:3.12-slim-bookworm
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -104,8 +104,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create a non-root user
 RUN useradd -m -s /bin/bash vscode
 
-# Create workspaces directory and set ownership
-RUN mkdir -p /workspaces && chown vscode:vscode /workspaces
+# Create workspaces directory and .venv with proper ownership
+RUN mkdir -p /workspaces/LoRAIro/.venv && chown -R vscode:vscode /workspaces
 
 # Set the default shell to bash
 SHELL ["/bin/bash", "-c"]
@@ -128,10 +128,10 @@ RUN mkdir -p ~/.npm-global && \
 
 # Setup zsh with oh-my-zsh for better development experience
 RUN sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \
-    && echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.zshrc \
+    && echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.zshrc
 
-    # Set bash history persistence
-    RUN echo 'export HISTFILE=/home/vscode/.bash_history' >> ~/.bashrc \
+# Set bash history persistence
+RUN echo 'export HISTFILE=/home/vscode/.bash_history' >> ~/.bashrc \
     && echo 'export HISTSIZE=10000' >> ~/.bashrc \
     && echo 'export HISTFILESIZE=10000' >> ~/.bashrc
 
