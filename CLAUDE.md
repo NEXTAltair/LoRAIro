@@ -158,46 +158,21 @@ The local packages are installed in editable mode and automatically linked durin
 3. **Implementation**: `/implement` for code development
 4. **Validation**: `/test` for quality assurance and testing
 
-### MCP Integration (serena+cipher統合)
+### Claude Skills
 
-**統合アーキテクチャ:**
-- **serena**: 高速操作（検索、メモリ管理、基本編集）- 直接接続
-- **cipher**: 複合分析（context7経由ライブラリ検索、長期記憶管理）- aggregator経由
-- **自動選択**: タスクの複雑さに応じて最適なMCP経路を自動選択
+LoRAIroの開発パターンとMCP操作は **Claude Skills** で自動化されています。
 
-**Operation Selection:**
-- **Fast operations** (1-3s): Direct serena（symbol検索、メモリ操作、基本編集）
-- **Complex analysis** (10-30s): Cipher aggregator（ライブラリ研究、複数ツール統合）
-- **Library Research**: context7経由でのライブラリ情報検索・長期記憶
-- **Fallback**: 直接操作 when cipher timeouts occur
+**MCP Operations Skills** (`.claude/skills/`):
+- `mcp-serena-fast-ops`: 高速コード操作（1-3秒）- Symbol検索、Memory操作、基本編集
+- `mcp-cipher-complex-analysis`: 複雑分析（10-30秒）- ライブラリ研究、設計パターン検索
+- `mcp-memory-first-development`: 2重メモリ戦略 - Serena短期 + Cipher長期記憶
 
-### Serena Memory Management（統合知識管理）
+**LoRAIro Development Skills**:
+- `lorairo-repository-pattern`: SQLAlchemyリポジトリパターン実装ガイド
+- `lorairo-qt-widget`: PySide6ウィジェット実装（Signal/Slot、Direct Widget Communication）
+- `lorairo-test-generator`: pytest+pytest-qtテスト生成（75%+ カバレッジ）
 
-**Memory-First開発原則:**
-- **事前確認**: `mcp__serena__read_memory` で関連実装知識を確認
-- **実装中記録**: 進捗と判断を `mcp__serena__write_memory` で記録
-- **完了後蓄積**: 実装パターンと教訓を永続化
-
-**Memory Categories:**
-- **current-project-status**: プロジェクト全体状況と進捗
-- **active-development-tasks**: 現在の開発タスクと計画
-- **実装記録**: 具体的実装の詳細と根拠（例: `thumbnail_null_check_implementation_2025`）
-- **アーカイブ**: 完了タスクの歴史的記録（例: `archived_active_context_*`）
-
-**Memory Operations:**
-```bash
-# 関連知識検索
-mcp__serena__list_memories  # 利用可能なメモリ一覧
-mcp__serena__read_memory <memory_name>  # 特定メモリ読み込み
-
-# 知識記録・更新
-mcp__serena__write_memory <memory_name> <content>  # 新規記録・更新
-```
-
-**Development Integration:**
-- 実装前: 過去の類似実装パターン確認
-- 実装中: 進捗・課題・判断の継続記録
-- 完了後: 実装知識・教訓・パターンの蓄積
+**Note**: Skills are automatically invoked by Claude based on task context. 詳細は各SkillのSKILL.mdを参照。
 
 ### Hook System（自動実行）
 
@@ -218,22 +193,6 @@ mcp__serena__write_memory <memory_name> <content>  # 新規記録・更新
 - Maintain 75%+ test coverage
 - Apply modern Python types (list/dict over typing.List/Dict)
 
-### Context Migration完了後の統合ワークフロー
-
-**新しい開発サイクル（2025-08-24以降）:**
-1. **Memory-First Analysis**: 関連実装知識をSerena memoryから事前確認
-2. **コマンド実行**: `/check-existing` → `/plan` → `/implement` → `/test`
-3. **知識蓄積**: 実装完了後に新しい知識・パターンをSerena memoryに記録
-
-**従来との比較:**
-- **Before**: `tasks/active_context.md`, `tasks/tasks_plan.md` による静的管理
-- **After**: Serena memory による動的・検索可能な知識管理
-
-**利点:**
-- **即座の知識参照**: 過去の実装パターンへの高速アクセス
-- **重複回避**: 既存実装の再利用と改善
-- **継続的蓄積**: 開発知識の永続化と共有
-- **効率化**: Memory-First原則による開発速度向上
 
 ## Problem-Solving Approach
 
@@ -279,11 +238,9 @@ mcp__serena__write_memory <memory_name> <content>  # 新規記録・更新
 - **solutions**: 多角的問題解決・アプローチ評価
 - **code-formatter**: コード品質管理（Ruff統合）
 
-### Serena Memory Operations（統合知識管理）
-- **`mcp__serena__list_memories`**: 利用可能なメモリ一覧取得
-- **`mcp__serena__read_memory <name>`**: 特定メモリ読み込み
-- **`mcp__serena__write_memory <name> <content>`**: メモリ作成・更新
-- **Key Memories**: `current-project-status`, `active-development-tasks`
+### Skills
+- **`.claude/skills/`**: 6つのSkills（MCP操作 + LoRAIro開発パターン）
+- 詳細は各SkillのSKILL.mdを参照
 
 ### Documentation
 - **[docs/architecture.md](docs/architecture.md)**: System design principles
