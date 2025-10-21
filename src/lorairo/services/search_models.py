@@ -35,6 +35,11 @@ class SearchConditions:
     annotation_provider_filter: list[str] | None = None  # ["web_api", "local"]
     annotation_function_filter: list[str] | None = None  # ["caption", "tags", "scores"]
 
+    # Rating Filter Extensions
+    include_nsfw: bool = True  # NSFWコンテンツを含むか（デフォルト: True for 後方互換性）
+    rating_filter: str | None = None  # 特定Rating値でフィルタ ('PG', 'PG-13', 'R', 'X', 'XXX')
+    include_unrated: bool = True  # 未評価画像を含むか
+
     def to_db_filter_args(self) -> dict[str, Any]:
         """DB APIの引数に直接変換"""
         return {
@@ -45,6 +50,8 @@ class SearchConditions:
             "include_untagged": self.only_untagged,
             "start_date": self.date_range_start.isoformat() if self.date_range_start else None,
             "end_date": self.date_range_end.isoformat() if self.date_range_end else None,
+            "include_nsfw": self.include_nsfw,
+            "manual_rating_filter": self.rating_filter,  # 既存パラメータを活用
         }
 
     def _resolve_resolution(self) -> int:

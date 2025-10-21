@@ -106,6 +106,9 @@ class SearchFilterService:
         model_criteria: ModelSelectionCriteria | None = None,
         annotation_provider_filter: list[str] | None = None,
         annotation_function_filter: list[str] | None = None,
+        include_nsfw: bool = True,
+        rating_filter: str | None = None,
+        include_unrated: bool = True,
     ) -> SearchConditions:
         """
         UIフォームデータからSearchConditionsオブジェクトを作成
@@ -131,6 +134,9 @@ class SearchFilterService:
             model_criteria=model_criteria,
             annotation_provider_filter=annotation_provider_filter,
             annotation_function_filter=annotation_function_filter,
+            include_nsfw=include_nsfw,
+            rating_filter=rating_filter,
+            include_unrated=include_unrated,
         )
 
         self.current_conditions = conditions
@@ -177,6 +183,14 @@ class SearchFilterService:
             preview_parts.append("未キャプションのみ")
         if conditions.exclude_duplicates:
             preview_parts.append("重複除外")
+
+        # Ratingフィルター
+        if conditions.rating_filter:
+            preview_parts.append(f"レーティング: {conditions.rating_filter}")
+        if not conditions.include_nsfw:
+            preview_parts.append("NSFW除外")
+        if not conditions.include_unrated:
+            preview_parts.append("未評価除外")
 
         # モデルフィルター
         if conditions.model_criteria:

@@ -51,6 +51,42 @@ class TestSearchConditions:
         assert conditions.only_untagged is False
         assert conditions.only_uncaptioned is False
         assert conditions.exclude_duplicates is False
+        # Rating filter defaults
+        assert conditions.include_nsfw is True  # 後方互換性のため True
+        assert conditions.rating_filter is None
+        assert conditions.include_unrated is True
+
+    def test_search_conditions_with_rating_filter(self):
+        """SearchConditions のRatingフィルター付き作成テスト"""
+        conditions = SearchConditions(
+            search_type="tags",
+            keywords=["tag1"],
+            tag_logic="and",
+            include_nsfw=False,
+            rating_filter="PG",
+            include_unrated=False,
+        )
+
+        assert conditions.include_nsfw is False
+        assert conditions.rating_filter == "PG"
+        assert conditions.include_unrated is False
+
+    def test_to_db_filter_args_with_rating(self):
+        """to_db_filter_args() のRatingフィルター変換テスト"""
+        conditions = SearchConditions(
+            search_type="tags",
+            keywords=["tag1", "tag2"],
+            tag_logic="and",
+            include_nsfw=False,
+            rating_filter="PG-13",
+        )
+
+        db_args = conditions.to_db_filter_args()
+
+        assert db_args["include_nsfw"] is False
+        assert db_args["manual_rating_filter"] == "PG-13"
+        assert db_args["tags"] == ["tag1", "tag2"]
+        assert db_args["use_and"] is True
 
 
 class TestSearchFilterService:
@@ -179,6 +215,23 @@ class TestSearchFilterService:
         assert "日付範囲: 開始: 2023-01-01, 終了: 2023-12-31" in preview
         assert "未タグ付きのみ" in preview
         assert "重複除外" in preview
+
+    def test_create_search_preview_with_rating_filter(self, service):
+        """Ratingフィルター付き検索プレビュー作成テスト"""
+        conditions = SearchConditions(
+            search_type="tags",
+            keywords=["1girl"],
+            tag_logic="and",
+            rating_filter="PG",
+            include_nsfw=False,
+            include_unrated=False,
+        )
+
+        preview = service.create_search_preview(conditions)
+
+        assert "レーティング: PG" in preview
+        assert "NSFW除外" in preview
+        assert "未評価除外" in preview
 
     def test_create_search_preview_empty(self, service):
         """空の検索プレビュー作成テスト"""
