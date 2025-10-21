@@ -48,10 +48,10 @@ class FilterSearchPanel(QScrollArea):
         super().__init__(parent)
 
         # SearchFilterService（依存注入）
-        self.search_filter_service: "SearchFilterService | None" = None
+        self.search_filter_service: SearchFilterService | None = None
 
         # WorkerService（依存注入）
-        self.worker_service: "WorkerService | None" = None
+        self.worker_service: WorkerService | None = None
 
         # 現在のSearchWorkerのID
         self._current_search_worker_id: str | None = None
@@ -128,6 +128,9 @@ class FilterSearchPanel(QScrollArea):
         # 日付フィルター
         self.ui.checkboxDateFilter.toggled.connect(self._on_date_filter_toggled)
         self.date_range_slider.valueChanged.connect(self._on_date_range_changed)
+
+        # Ratingフィルター
+        self.ui.comboRating.currentTextChanged.connect(self._on_rating_changed)
 
         # アクションボタン
         self.ui.buttonApply.clicked.connect(self._on_apply_clicked)
@@ -334,6 +337,11 @@ class FilterSearchPanel(QScrollArea):
         """解像度選択変更処理"""
         # 固定解像度選択肢のみのため処理不要
 
+    def _on_rating_changed(self, text: str) -> None:
+        """Rating選択変更処理"""
+        # Rating選択肢変更時の処理（必要に応じて実装）
+        logger.debug(f"Rating changed: {text}")
+
     def _on_date_filter_toggled(self, checked: bool) -> None:
         """日付フィルター有効化切り替え処理"""
         self.ui.frameDateRange.setVisible(checked)
@@ -419,6 +427,22 @@ class FilterSearchPanel(QScrollArea):
             return "caption"
         else:
             return "tags"  # デフォルト
+
+    def _get_rating_filter_value(self) -> str | None:
+        """
+        Ratingコンボボックスから選択された値を取得
+
+        Returns:
+            str | None: Rating値（'PG', 'PG-13', 'R', 'X', 'XXX'）または None（全て選択時）
+        """
+        text = self.ui.comboRating.currentText()
+        if text == "全て":
+            return None
+
+        # "PG (全年齢)" -> "PG" に変換
+        rating_value = text.split()[0] if text else None
+        logger.debug(f"Rating filter value: {rating_value}")
+        return rating_value
 
     def _on_search_type_changed(self) -> None:
         """検索タイプ変更時の処理（チェックボックス対応）"""
@@ -583,6 +607,9 @@ class FilterSearchPanel(QScrollArea):
                 only_untagged=self.ui.checkboxOnlyUntagged.isChecked(),
                 only_uncaptioned=self.ui.checkboxOnlyUncaptioned.isChecked(),
                 exclude_duplicates=self.ui.checkboxExcludeDuplicates.isChecked(),
+                include_nsfw=self.ui.checkboxIncludeNSFW.isChecked(),
+                rating_filter=self._get_rating_filter_value(),
+                include_unrated=self.ui.checkboxIncludeUnrated.isChecked(),
             )
 
             # Phase 3: State transition to SEARCHING
@@ -640,6 +667,9 @@ class FilterSearchPanel(QScrollArea):
                 only_untagged=self.ui.checkboxOnlyUntagged.isChecked(),
                 only_uncaptioned=self.ui.checkboxOnlyUncaptioned.isChecked(),
                 exclude_duplicates=self.ui.checkboxExcludeDuplicates.isChecked(),
+                include_nsfw=self.ui.checkboxIncludeNSFW.isChecked(),
+                rating_filter=self._get_rating_filter_value(),
+                include_unrated=self.ui.checkboxIncludeUnrated.isChecked(),
             )
 
             # 検索実行

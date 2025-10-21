@@ -313,6 +313,83 @@
      </widget>
     </item>
     <item>
+     <widget class="QGroupBox" name="ratingGroup">
+      <property name="title">
+       <string>レーティング</string>
+      </property>
+      <layout class="QVBoxLayout" name="ratingLayout">
+       <item>
+        <layout class="QHBoxLayout" name="ratingFilterLayout">
+         <item>
+          <widget class="QLabel" name="ratingLabel">
+           <property name="text">
+            <string>レーティング:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="comboRating">
+           <item>
+            <property name="text">
+             <string>全て</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>PG (全年齢)</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>PG-13 (軽微な表現)</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>R (中程度)</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>X (強い表現)</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>XXX (過激な表現)</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <spacer name="ratingSpacer">
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="checkboxIncludeUnrated">
+         <property name="text">
+          <string>未評価画像を含む</string>
+         </property>
+         <property name="checked">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
      <widget class="QGroupBox" name="optionsGroup">
       <property name="title">
        <string>オプション</string>
