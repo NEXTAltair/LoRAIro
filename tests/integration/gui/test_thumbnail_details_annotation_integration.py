@@ -3,19 +3,14 @@
 """
 
 from datetime import datetime
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
-from lorairo.gui.state.dataset_state import DatasetStateManager
-from lorairo.gui.widgets.thumbnail import ThumbnailSelectorWidget
-
-# Qt test framework
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
 
 from lorairo.gui.services.worker_service import WorkerService
+from lorairo.gui.state.dataset_state import DatasetStateManager
 from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetailsWidget
+from lorairo.gui.widgets.thumbnail import ThumbnailSelectorWidget
 
 
 class TestThumbnailDetailsAnnotationIntegration:
