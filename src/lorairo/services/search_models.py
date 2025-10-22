@@ -82,12 +82,12 @@ class ValidationResult:
     """アノテーション設定検証結果(拡張版)"""
 
     is_valid: bool
-    errors: list[str] = None
-    warnings: list[str] = None
+    errors: list[str] | None = None
+    warnings: list[str] | None = None
     settings: dict[str, Any] | None = None
     error_message: str | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """デフォルト値設定"""
         if self.errors is None:
             self.errors = []
