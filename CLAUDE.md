@@ -12,6 +12,77 @@ NEVER proactively create documentation files (*.md) or README files. Only create
 
 ### Environment Setup
 
+```bash
+# Initial setup
+uv sync                    # Install dependencies
+uv sync --dev              # Install with dev dependencies
+./scripts/setup.sh         # Run setup script (includes submodules)
+
+# UI Generation (required after .ui file changes)
+uv run python scripts/generate_ui.py
+```
+
+### Running the Application
+
+```bash
+uv run lorairo            # Start GUI application
+make run-gui              # Alternative via Makefile
+```
+
+### Testing
+
+```bash
+# Run all tests
+uv run pytest
+make test
+
+# Run specific test categories
+uv run pytest -m unit              # Unit tests only
+uv run pytest -m integration       # Integration tests only
+uv run pytest -m gui               # GUI tests (headless)
+
+# Run single test file
+uv run pytest tests/unit/path/to/test_file.py
+
+# With coverage
+uv run pytest --cov=src --cov-report=xml
+```
+
+### Code Quality
+
+```bash
+# Linting and formatting
+make format                # Format with Ruff
+make mypy                  # Type checking
+uv run ruff format src/ tests/
+uv run ruff check src/ tests/ --fix
+
+# Type checking
+uv run mypy -p lorairo
+```
+
+### Database Migrations
+
+```bash
+# Located in src/lorairo/database/migrations/
+alembic upgrade head       # Apply migrations
+alembic revision --autogenerate -m "description"  # Generate migration
+```
+
+### Documentation
+
+```bash
+make docs                  # Build Sphinx documentation
+make docs-serve            # Serve docs locally on port 8000
+make docs-publish          # Publish to gh-pages
+```
+
+### Cleanup
+
+```bash
+make clean                 # Remove build artifacts and caches
+```
+
 #### Cross-Platform Environment Management
 
 This project supports Windows/Linux environments with independent virtual environments to manage platform-specific dependencies properly.
@@ -118,16 +189,33 @@ The local packages are installed in editable mode and automatically linked durin
 **Code Style:**
 - Uses Ruff for linting and formatting (line length: 108)
 - Type hints required for all functions
-- Modern Python types preferred (list/dict over typing.List/Dict)
+- Modern Python types preferred (list/dict over typing.List/Dict, use `| None` instead of `Optional`)
 - Path operations use pathlib, not os
+- **NO `# type: ignore` or `# noqa` comments** - fix the underlying issue instead
+- Avoid `Any` type; use specific types or explain with comment
+- Class names should be specific nouns (e.g., `ModelLoad` not `Loader`)
+- Half-width characters only in code/comments (no full-width alphanumerics/symbols)
+
+**Error Handling:**
+- Catch specific expected errors only (FileNotFoundError, ValueError, etc.)
+- Avoid broad `Exception` catching; let unexpected errors propagate
+- Include clear error messages that aid debugging
+- Don't layer unnecessary try-except blocks
+
+**Documentation Requirements:**
+- Google-style docstrings for all functions/methods (Args, Returns, Raises)
+- Module-level comments explaining purpose and dependencies
+- Implementation comments in Japanese for clarity
+- Use Todo Tree tags (TODO, FIXME, OPTIMIZE, BUG, HACK, XXX) when changing code
+- Update related docs when changing code
 
 **Testing:**
 - pytest-based with coverage reporting (minimum 75%)
 - Test resources in `tests/resources/`
-- Separate unit, integration, and GUI test categories
+- Test levels: unit (tests/unit/), integration (tests/integration/), BDD E2E (tests/bdd/)
 - GUI tests run headless in Linux/container using QT_QPA_PLATFORM=offscreen
 - Windows environment supports native GUI windows
-- Linux environment includes EGL libraries for Qt offscreen rendering
+- Avoid mocks in unit tests; use only for external dependencies (filesystem, network, APIs)
 
 **Database:**
 - Uses Alembic for migrations
@@ -150,13 +238,31 @@ The local packages are installed in editable mode and automatically linked durin
 
 ## Development Workflow
 
+### MCP-Based Development Approach
+
+This project uses a dual-MCP strategy for efficient development:
+
+- **Serena MCP** (fast, 1-3s): Code reading, symbol search, memory operations, basic editing
+- **Cipher MCP** (complex, 10-30s): Library research, design pattern analysis, implementation execution
+
+**Memory Strategy:**
+- Machine memory: `.serena/memories/` (managed by Serena)
+- Human planning: `tasks/` (managed by Cipher)
+- Design/specs: `docs/` (managed by Cipher)
+
 ### Command-Based Development Process
 
 **Standard workflow pattern:**
 1. **Analysis**: `/check-existing` for understanding current functionality
-2. **Planning**: `/plan` for strategic design and architecture  
+2. **Planning**: `/plan` for strategic design and architecture
 3. **Implementation**: `/implement` for code development
 4. **Validation**: `/test` for quality assurance and testing
+
+**Process Rules:**
+- Always read related code before making changes
+- Reference past design knowledge before planning
+- Follow established LoRAIro architectural patterns
+- Update related docs when changing code
 
 ### Claude Skills
 
@@ -196,11 +302,22 @@ LoRAIroの開発パターンとMCP操作は **Claude Skills** で自動化され
 
 ## Problem-Solving Approach
 
+**Design Principles:**
+- **YAGNI (You Aren't Gonna Need It)**: Only implement what's needed now, not "might need later"
+- **Readability First**: Code should be clear and understandable
+- **Single Responsibility**: Each component should have one clear purpose
+
 **Solution Analysis:**
-1. **Enumerate approaches** - List multiple solution methods
+1. **Enumerate approaches** - List multiple solution methods (minimum 3 options)
 2. **Evaluate trade-offs** - Assess complexity, maintainability, performance
 3. **Select optimal solution** - Balance effectiveness and sustainability
 4. **Document decisions** - Record rationale for choices
+
+**When to Ask User:**
+- If violating defined principles is unavoidable, stop and explain why
+- If stuck after 3+ solution attempts, explain situation and ask for guidance
+- If requirements are ambiguous or multiple valid approaches exist
+- If design changes affect established architecture
 
 **Reference documents:** `docs/architecture.md` for design principles, `docs/technical.md` for implementation patterns.
 
