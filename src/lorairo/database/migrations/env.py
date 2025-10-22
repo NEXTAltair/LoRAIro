@@ -28,19 +28,6 @@ target_metadata = Base.metadata  # Set your Base's metadata here
 # ... etc.
 
 
-# --- Function to attach tag_db (Commented out for now) ---
-# def _attach_tag_database(connection):
-#     """Attaches the tag database to the current connection."""
-#     # TODO: Make TAG_DB_PATH dynamic from config or db_core
-#     tag_db_path = "local_packages/genai-tag-db-tools/tags_v4.db" # Placeholder, adjust as needed
-#     tag_db_attach_sql = f"ATTACH DATABASE '{tag_db_path}' AS tag_db;"
-#     try:
-#         connection.execute(text(tag_db_attach_sql))
-#         print(f"Attached database: {tag_db_path} AS tag_db") # Use print or logging
-#     except Exception as e:
-#         print(f"Error attaching tag database: {e}")
-
-
 # --- Function to ignore tag_db schema objects ---
 def include_object(object: Any, name: str, type_: str, reflected: bool, compare_to: Any) -> bool:
     """Exclude objects belonging to the 'tag_db' schema from comparison."""
@@ -101,9 +88,6 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        # Attach the tag database here (Commented out)
-        # _attach_tag_database(connection)
-
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
