@@ -295,8 +295,6 @@ class FilterSearchPanel(QScrollArea):
 
     def _update_ui_for_state(self, state: PipelineState) -> None:
         """状態に応じたUI更新 (Phase 3)"""
-        message = self._state_messages.get(state, "不明な状態")
-
         if state == PipelineState.IDLE:
             self.progress_bar.setVisible(False)
             # TODO: エラー表示方法を検討（プレビューエリア削除のため）

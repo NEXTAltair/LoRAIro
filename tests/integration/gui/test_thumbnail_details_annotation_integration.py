@@ -2,19 +2,20 @@
 サムネイル選択時の画像詳細表示アノテーション統合テスト
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
+from lorairo.gui.state.dataset_state import DatasetStateManager
+from lorairo.gui.widgets.thumbnail import ThumbnailSelectorWidget
 
 # Qt test framework
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
 
-from lorairo.gui.widgets.thumbnail_selector_widget import ThumbnailSelectorWidget
-from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from lorairo.gui.services.worker_service import WorkerService
-from lorairo.gui.state.dataset_state_manager import DatasetStateManager
+from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetailsWidget
 
 
 class TestThumbnailDetailsAnnotationIntegration:
@@ -159,7 +160,7 @@ class TestThumbnailDetailsAnnotationIntegration:
     def test_details_widget_annotation_processing(self, details_widget, sample_metadata_with_annotations):
         """SelectedImageDetailsWidgetでのアノテーション処理テスト"""
         # 既存の_build_image_details_from_metadata をモック
-        with patch.object(details_widget, '_build_image_details_from_metadata') as mock_build:
+        with patch.object(details_widget, "_build_image_details_from_metadata") as mock_build:
             mock_build.return_value = "Mock HTML content with annotations"
 
             # メタデータを直接受信
@@ -178,7 +179,9 @@ class TestThumbnailDetailsAnnotationIntegration:
             assert call_args["tags"][0]["tag"] == "landscape"
             assert call_args["tags"][1]["tag"] == "nature"
 
-    def test_end_to_end_annotation_display(self, thumbnail_widget, details_widget, sample_metadata_with_annotations, app):
+    def test_end_to_end_annotation_display(
+        self, thumbnail_widget, details_widget, sample_metadata_with_annotations, app
+    ):
         """エンドツーエンドでのアノテーション表示テスト"""
         # 直接接続を確立
         details_widget.connect_to_thumbnail_widget(thumbnail_widget)
@@ -187,7 +190,7 @@ class TestThumbnailDetailsAnnotationIntegration:
         thumbnail_widget.image_metadata = {1: sample_metadata_with_annotations}
 
         # _build_image_details_from_metadata をモックして、アノテーション処理を確認
-        with patch.object(details_widget, '_build_image_details_from_metadata') as mock_build:
+        with patch.object(details_widget, "_build_image_details_from_metadata") as mock_build:
             mock_build.return_value = "Mock HTML with annotations"
 
             # サムネイル選択をシミュレート
@@ -203,7 +206,10 @@ class TestThumbnailDetailsAnnotationIntegration:
             assert processed_metadata["id"] == 1
             assert len(processed_metadata["tags"]) == 2
             assert processed_metadata["tags"][0]["confidence_score"] == 0.95
-            assert processed_metadata["captions"][0]["caption"] == "A beautiful landscape with mountains and trees"
+            assert (
+                processed_metadata["captions"][0]["caption"]
+                == "A beautiful landscape with mountains and trees"
+            )
 
     def test_empty_annotation_handling(self, thumbnail_widget, details_widget):
         """アノテーションが空の場合の処理テスト"""
@@ -222,7 +228,7 @@ class TestThumbnailDetailsAnnotationIntegration:
         # メタデータをキャッシュに設定
         thumbnail_widget.image_metadata = {1: metadata_without_annotations}
 
-        with patch.object(details_widget, '_build_image_details_from_metadata') as mock_build:
+        with patch.object(details_widget, "_build_image_details_from_metadata") as mock_build:
             mock_build.return_value = "Mock HTML without annotations"
 
             # サムネイル選択をシミュレート
@@ -238,7 +244,9 @@ class TestThumbnailDetailsAnnotationIntegration:
             assert processed_metadata["scores"] == []
             assert processed_metadata["ratings"] == []
 
-    def test_multiple_annotation_types_display(self, thumbnail_widget, details_widget, sample_metadata_with_annotations):
+    def test_multiple_annotation_types_display(
+        self, thumbnail_widget, details_widget, sample_metadata_with_annotations
+    ):
         """複数種類のアノテーション表示テスト"""
         # 直接接続を確立
         details_widget.connect_to_thumbnail_widget(thumbnail_widget)
@@ -246,7 +254,7 @@ class TestThumbnailDetailsAnnotationIntegration:
         # メタデータをキャッシュに設定
         thumbnail_widget.image_metadata = {1: sample_metadata_with_annotations}
 
-        with patch.object(details_widget, '_build_image_details_from_metadata') as mock_build:
+        with patch.object(details_widget, "_build_image_details_from_metadata") as mock_build:
             mock_build.return_value = "Mock HTML with all annotation types"
 
             # サムネイル選択をシミュレート
