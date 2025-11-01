@@ -8,6 +8,25 @@ NEVER create files unless they're absolutely necessary for achieving your goal.
 ALWAYS prefer editing an existing file to creating a new one.
 NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
 
+## Virtual Environment Rules (CRITICAL)
+
+**ALWAYS use the project root virtual environment:**
+- Virtual environment location: `/workspaces/LoRAIro/.venv`
+- NEVER execute `uv run` from local package directories (`local_packages/*/`)
+- ALWAYS execute `uv run` from project root (`/workspaces/LoRAIro/`)
+- Local packages share the project root `.venv` (editable install via `uv sync`)
+
+**Examples:**
+```bash
+# ✅ CORRECT: From project root
+cd /workspaces/LoRAIro
+uv run pytest local_packages/image-annotator-lib/tests/
+
+# ❌ WRONG: From local package directory (creates separate .venv)
+cd /workspaces/LoRAIro/local_packages/image-annotator-lib
+uv run pytest tests/
+```
+
 ## Development Commands
 
 ### Environment Setup

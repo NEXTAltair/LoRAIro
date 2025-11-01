@@ -58,6 +58,11 @@
       "pattern": "^rm\\s+-rf\\s+.+",
       "reason": "Destructive operations require explicit user confirmation",
       "suggestion": "Confirm with the user before running rm -rf. Prefer safe tasks like: make clean, or remove only approved paths: logs/, __pycache__, .pytest_cache, .ruff_cache"
+    },
+    {
+      "pattern": "cd.*local_packages/[^/]+.*[;&].*uv run",
+      "reason": "ローカルパッケージディレクトリで uv run を実行すると、そのディレクトリに .venv が作成され、プロジェクトルートの .venv を使用しなくなります",
+      "suggestion": "プロジェクトルートから実行: uv run pytest local_packages/<package-name>/tests/"
     }
   ],
   "auto_format_commands": [
