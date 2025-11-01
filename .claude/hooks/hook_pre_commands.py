@@ -9,7 +9,7 @@ LoRAIroプロジェクト用コマンド制御・変換システム。
 - LoRAIro環境コマンド変換（pytest → uv run pytest など）
 - rg コマンド検出 → read_mcp_memorys.py 呼び出し
 - git grep フラグチェック → bash_grep_checker.py 呼び出し
-- ドキュメント優先推奨メッセージ
+- ドキュメント優先チェック
 - ブロックコマンド検出とブロック
 - 自動フォーマット実行（git add/commit時）
 """
@@ -91,42 +91,46 @@ def transform_lorairo_command(command: str, rules: dict[str, Any], log_file: Pat
 
 def check_documentation_first(
     command: str, rules: dict[str, Any], log_file: Path
-) -> list[str]:
-    """ドキュメント優先推奨チェック"""
-    recommendations = []
+) -> tuple[bool, str]:
+    """ドキュメント優先チェック - 該当時は指定アクションを実行"""
     doc_rules = rules.get("documentation_first_commands", [])
 
     for rule in doc_rules:
         pattern = rule.get("pattern", "")
         reason = rule.get("reason", "")
-        suggestion = rule.get("suggestion", "")
+        action = rule.get("suggestion", "")
 
         if re.search(pattern, command):
-            msg = f"📚 ドキュメント優先推奨:\n理由: {reason}\n提案: {suggestion}\n"
-            recommendations.append(msg)
-            log_debug(log_file, f"Documentation first recommendation: {pattern}")
+            log_debug(log_file, f"Documentation first matched: {pattern}")
+            log_debug(log_file, f"Reason: {reason}")
+            log_debug(log_file, f"Action: {action}")
 
-    return recommendations
+            block_message = f"📚 {reason}\n\n次のアクションを実行してください:\n{action}"
+            return True, block_message
+
+    return False, ""
 
 
 def check_library_investigation(
     command: str, rules: dict[str, Any], log_file: Path
-) -> list[str]:
-    """ライブラリ調査提案チェック"""
-    suggestions = []
+) -> tuple[bool, str]:
+    """ライブラリ調査チェック - 該当時は指定アクションを実行"""
     lib_rules = rules.get("library_investigation_suggestions", [])
 
     for rule in lib_rules:
         pattern = rule.get("pattern", "")
         reason = rule.get("reason", "")
-        suggestion = rule.get("suggestion", "")
+        action = rule.get("suggestion", "")
 
         if re.search(pattern, command):
-            msg = f"🔬 ライブラリ調査推奨:\n理由: {reason}\n提案: {suggestion}\n"
-            suggestions.append(msg)
-            log_debug(log_file, f"Library investigation suggestion: {pattern}")
+            log_debug(log_file, f"Library investigation matched: {pattern}")
+            log_debug(log_file, f"Reason: {reason}")
+            log_debug(log_file, f"Action: {action}")
 
-    return suggestions
+            block_message = f"🔬 {reason}\n\n次のアクションを実行してください:\n{action}"
+            return True, block_message
+
+    return False, ""
 
 
 def check_blocked_commands(
@@ -138,11 +142,11 @@ def check_blocked_commands(
     for rule in blocked_rules:
         pattern = rule.get("pattern", "")
         reason = rule.get("reason", "")
-        suggestion = rule.get("suggestion", "")
+        correct_command = rule.get("suggestion", "")
 
         if re.search(pattern, command):
             log_debug(log_file, f"BLOCKING: Command matched pattern: {pattern}")
-            block_reason = f"🚫 コマンドがブロックされました:\n理由: {reason}\n代替案: {suggestion}"
+            block_reason = f"🚫 コマンドがブロックされました:\n理由: {reason}\n使用するコマンド: {correct_command}"
             return True, block_reason
 
     return False, ""
@@ -297,15 +301,25 @@ def main() -> None:
 
         log_debug(log_file, f"🔍 Command check: {command}")
 
-        # 1. ドキュメント優先推奨
-        doc_recommendations = check_documentation_first(command, rules, log_file)
-        for msg in doc_recommendations:
-            print(msg)
+        # 1. ドキュメント優先チェック（該当時はブロックして指定アクション実行を促す）
+        has_doc_rule, doc_message = check_documentation_first(command, rules, log_file)
+        if has_doc_rule:
+            response = {
+                "decision": "block",
+                "reason": doc_message
+            }
+            print(json.dumps(response, ensure_ascii=False, indent=2))
+            sys.exit(2)
 
-        # 1.5. ライブラリ調査提案
-        lib_suggestions = check_library_investigation(command, rules, log_file)
-        for msg in lib_suggestions:
-            print(msg)
+        # 1.5. ライブラリ調査提案（該当時はブロックしてsuggestion実行を促す）
+        has_lib_rule, lib_message = check_library_investigation(command, rules, log_file)
+        if has_lib_rule:
+            response = {
+                "decision": "block",
+                "reason": lib_message
+            }
+            print(json.dumps(response, ensure_ascii=False, indent=2))
+            sys.exit(2)
 
         # 2. ブロックコマンドチェック
         is_blocked, block_reason = check_blocked_commands(command, rules, log_file)
