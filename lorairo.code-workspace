@@ -8,18 +8,30 @@
       "path": "./local_packages/image-annotator-lib",
       "name": "image-annotator-lib",
       "settings": {
+        "python.defaultInterpreterPath": "${workspaceFolder:LoRAIro}/.venv/bin/python",
+        "python.testing.cwd": "${workspaceFolder:LoRAIro}",
         "python.testing.pytestEnabled": true,
         "python.testing.unittestEnabled": false,
-        "python.testing.promptToConfigure": false
+        "python.testing.promptToConfigure": false,
+        "python.testing.pytestArgs": [
+          "--rootdir=${workspaceFolder:LoRAIro}",
+          "local_packages/image-annotator-lib/tests"
+        ]
       }
     },
     {
       "path": "./local_packages/genai-tag-db-tools",
       "name": "genai-tag-db-tools",
       "settings": {
+        "python.defaultInterpreterPath": "${workspaceFolder:LoRAIro}/.venv/bin/python",
+        "python.testing.cwd": "${workspaceFolder:LoRAIro}",
         "python.testing.pytestEnabled": true,
         "python.testing.unittestEnabled": false,
-        "python.testing.promptToConfigure": false
+        "python.testing.promptToConfigure": false,
+        "python.testing.pytestArgs": [
+          "--rootdir=${workspaceFolder:LoRAIro}",
+          "local_packages/genai-tag-db-tools/tests"
+        ]
       }
     }
   ],
