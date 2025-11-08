@@ -4,7 +4,10 @@ Phase 2: 既存サービスとPhase 1新サービスの統合管理
 Phase 4: 実ライブラリ統合での依存関係解決
 """
 
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from .annotator_library_adapter import AnnotatorLibraryAdapter
 
 from ..database.db_core import DefaultSessionLocal
 from ..database.db_manager import ImageDatabaseManager
@@ -65,6 +68,9 @@ class ServiceContainer:
 
         ServiceContainer._initialized = True
         logger.info("ServiceContainer初期化完了")
+
+        # Phase 4: AnnotatorLibraryAdapter統合
+        self._annotator_library: AnnotatorLibraryAdapter | None = None
 
     @property
     def config_service(self) -> ConfigurationService:
@@ -139,18 +145,18 @@ class ServiceContainer:
     def model_sync_service(self) -> ModelSyncService:
         """モデル同期サービス取得（遅延初期化）
 
-        Protocol-based ModelRegistryServiceProtocolと連携
+        Phase 4: AnnotatorLibraryAdapterと連携
         """
         if self._model_sync_service is None:
-            # Protocol-basedモデルレジストリを注入
+            # AnnotatorLibraryAdapterを注入
             from .model_sync_service import ModelSyncService
 
             self._model_sync_service = ModelSyncService(
                 self.image_repository,
                 self.config_service,
-                annotator_library=self.model_registry,  # Protocol-basedアーキテクチャ
+                annotator_library=self.annotator_library,  # Phase 4統合
             )
-            logger.info("ModelSyncService初期化完了（Protocol-based統合）")
+            logger.info("ModelSyncService初期化完了（Phase 4統合）")
         return self._model_sync_service
 
     @property
@@ -179,6 +185,19 @@ class ServiceContainer:
             logger.debug("BatchProcessor初期化完了（Protocol-based統合）")
         return self._batch_processor
 
+    @property
+    def annotator_library(self) -> "AnnotatorLibraryAdapter":
+        """AnnotatorLibraryAdapter取得（遅延初期化）
+
+        Phase 4: image-annotator-lib統合アダプター
+        """
+        if self._annotator_library is None:
+            from .annotator_library_adapter import AnnotatorLibraryAdapter
+
+            self._annotator_library = AnnotatorLibraryAdapter(self.config_service)
+            logger.info("AnnotatorLibraryAdapter初期化完了（Phase 4統合）")
+        return self._annotator_library
+
     def get_service_summary(self) -> dict[str, Any]:
         """サービス初期化状況のサマリー取得
 
@@ -196,6 +215,7 @@ class ServiceContainer:
                 "model_sync_service": self._model_sync_service is not None,
                 "model_registry": self._model_registry is not None,
                 "batch_processor": self._batch_processor is not None,
+                "annotator_library": self._annotator_library is not None,
             },
             "container_initialized": ServiceContainer._initialized,
             "phase": "Phase 4 (Production Integration)"
@@ -220,6 +240,7 @@ class ServiceContainer:
         self._model_sync_service = None
         self._model_registry = None
         self._batch_processor = None
+        self._annotator_library = None
 
         # クラスレベルリセット
         ServiceContainer._instance = None

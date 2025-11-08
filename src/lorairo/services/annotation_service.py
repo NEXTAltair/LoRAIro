@@ -155,7 +155,7 @@ class AnnotationService(QObject):
         """単発アノテーション処理開始
 
         少数画像に対する即座アノテーション処理
-        WorkerServiceとの統合は Phase 2-3で実装
+        AnnotatorLibraryAdapter経由でimage-annotator-libのannotate()を呼び出す
 
         Args:
             images: アノテーション対象画像リスト
@@ -169,32 +169,16 @@ class AnnotationService(QObject):
             return
 
         try:
-            # Protocol-basedアーキテクチャでは直接アノテーション実行は廃止
-            # 代わりにプレースホルダー結果を生成（Phase 4で実装置換）
-            logger.warning(
-                "単発アノテーション処理は現在Protocol-based移行中です。プレースホルダー結果を返します。"
+            # AnnotatorLibraryAdapter経由でアノテーション実行
+            results = self.container.annotator_library.annotate(
+                images=images,
+                model_names=models,
+                phash_list=phash_list,
             )
-
-            # プレースホルダー結果生成
-            results = {}
-            for i, _image in enumerate(images):
-                phash = phash_list[i] if phash_list and i < len(phash_list) else f"placeholder_hash_{i}"
-                results[phash] = {}
-
-                for model in models:
-                    results[phash][model] = {
-                        "tags": ["protocol_migration", "placeholder"],
-                        "formatted_output": {
-                            "captions": [f"Protocol migration placeholder for {model}"],
-                            "tags": ["protocol_migration", "placeholder"],
-                            "score": 0.0,
-                        },
-                        "error": None,
-                    }
 
             # 結果保存・通知
             self._last_annotation_result = results
-            logger.info(f"単発アノテーション完了（プレースホルダー）: {len(results)}件の結果")
+            logger.info(f"単発アノテーション完了: {len(results)}件の結果")
             self.annotationFinished.emit(results)
 
         except Exception as e:
