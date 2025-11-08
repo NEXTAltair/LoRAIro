@@ -2,9 +2,11 @@
 
 Phase 4-1: 実ライブラリ統合実装
 AnnotatorLibraryProtocolを実装し、image-annotator-libとLoRAIroを統合
+
+Phase 4-5: APIキー管理統合（引数ベース方式）
+ConfigurationServiceからAPIキーを取得し、api_keysパラメータとして明示的に渡す
 """
 
-import os
 from typing import TYPE_CHECKING, Any
 
 from image_annotator_lib import list_available_annotators_with_metadata
@@ -68,7 +70,7 @@ class AnnotatorLibraryAdapter:
         """アノテーション実行
 
         image-annotator-libの`annotate()`を呼び出し、画像にアノテーションを付与する。
-        実行前にAPIキーを環境変数に設定する。
+        APIキーは引数として明示的に渡す（グローバル環境変数を汚染しない）。
 
         Args:
             images: アノテーション対象画像リスト
@@ -84,17 +86,17 @@ class AnnotatorLibraryAdapter:
         try:
             logger.debug(f"アノテーション実行開始: {len(images)}画像, {len(model_names)}モデル")
 
-            # APIキー設定（環境変数に設定）
-            self._set_api_keys_to_env()
+            # APIキー準備（引数として渡す形式）
+            api_keys = self._prepare_api_keys()
 
             # image-annotator-lib API呼び出し
-            # NOTE: image-annotator-libは内部で環境変数からAPIキーを読み取る
             from image_annotator_lib import annotate
 
             results = annotate(
                 images_list=images,
                 model_name_list=model_names,
                 phash_list=phash_list,
+                api_keys=api_keys,  # 明示的に引数として渡す
             )
 
             logger.info(f"アノテーション実行完了: {len(results)}件の結果")
@@ -105,40 +107,54 @@ class AnnotatorLibraryAdapter:
             logger.error(error_msg, exc_info=True)
             raise
 
-    def _set_api_keys_to_env(self) -> None:
-        """APIキーを環境変数に設定
+    def _prepare_api_keys(self) -> dict[str, str]:
+        """APIキー辞書を準備
 
         ConfigurationService経由でconfig/lorairo.tomlからAPIキーを取得し、
-        image-annotator-libが参照する環境変数に設定する。
+        image-annotator-libに渡す形式の辞書を構築する。
 
-        image-annotator-libが参照する環境変数:
-        - OPENAI_API_KEY: OpenAI APIキー
-        - ANTHROPIC_API_KEY: Anthropic APIキー
-        - GOOGLE_API_KEY: Google APIキー
+        Returns:
+            dict[str, str]: APIキー辞書
+                - キー: プロバイダー名（"openai", "anthropic", "google"）
+                - 値: APIキー文字列
+
+        Note:
+            空文字列のキーは除外される。
+            ログ出力時はマスキングされる。
         """
-        # OpenAI APIキー
-        openai_key = self.config_service.get_setting("api", "openai_key", "")
-        if openai_key:
-            os.environ["OPENAI_API_KEY"] = openai_key
-            logger.debug("OPENAI_API_KEY を環境変数に設定")
-        else:
-            logger.debug("OPENAI_API_KEY は未設定")
+        # ConfigurationServiceから各プロバイダーのAPIキーを取得
+        api_keys = {
+            "openai": self.config_service.get_setting("api", "openai_key", ""),
+            "anthropic": self.config_service.get_setting("api", "claude_key", ""),
+            "google": self.config_service.get_setting("api", "google_key", ""),
+        }
 
-        # Anthropic APIキー
-        claude_key = self.config_service.get_setting("api", "claude_key", "")
-        if claude_key:
-            os.environ["ANTHROPIC_API_KEY"] = claude_key
-            logger.debug("ANTHROPIC_API_KEY を環境変数に設定")
-        else:
-            logger.debug("ANTHROPIC_API_KEY は未設定")
+        # 空のキーを除外（空文字列や空白のみの文字列を除く）
+        api_keys = {k: v for k, v in api_keys.items() if v and v.strip()}
 
-        # Google APIキー
-        google_key = self.config_service.get_setting("api", "google_key", "")
-        if google_key:
-            os.environ["GOOGLE_API_KEY"] = google_key
-            logger.debug("GOOGLE_API_KEY を環境変数に設定")
+        if api_keys:
+            # マスキングしてデバッグログ出力
+            masked_keys = {k: self._mask_key(v) for k, v in api_keys.items()}
+            logger.debug(f"APIキー準備完了: {list(api_keys.keys())} (masked: {masked_keys})")
         else:
-            logger.debug("GOOGLE_API_KEY は未設定")
+            logger.warning("利用可能なAPIキーがありません")
+
+        return api_keys
+
+    def _mask_key(self, key: str) -> str:
+        """APIキーをマスキング（ログ用）
+
+        Args:
+            key: APIキー文字列
+
+        Returns:
+            str: マスキングされたAPIキー
+                - 8文字未満: "***"
+                - 8文字以上: "sk-ab***cd" 形式（先頭4文字 + *** + 末尾4文字）
+        """
+        if not key or len(key) < 8:
+            return "***"
+        return f"{key[:4]}***{key[-4:]}"
 
     def get_adapter_info(self) -> dict[str, Any]:
         """アダプター情報取得
