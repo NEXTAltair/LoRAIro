@@ -735,37 +735,132 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except Exception as e:
             logger.warning(f"バッチ進捗更新処理エラー: {e}")
 
-    # AnnotationService signal handlers
+    # AnnotationService signal handlers (Phase 5 Stage 3)
     def _on_annotation_finished(self, result: Any) -> None:
-        """アノテーション完了ハンドラ（Stage 3で実装予定）"""
-        logger.info(f"アノテーション完了: {result}")
-        self.statusBar().showMessage("アノテーション処理が完了しました", 5000)
+        """単発アノテーション完了ハンドラ"""
+        try:
+            logger.info(f"アノテーション完了: {result}")
+            self.statusBar().showMessage("アノテーション処理が完了しました", 5000)
+
+            # TODO: Stage 4で結果をDBに保存する処理を追加
+            # self._save_annotation_results_to_db(result)
+
+        except Exception as e:
+            logger.error(f"アノテーション完了ハンドラエラー: {e}", exc_info=True)
 
     def _on_annotation_error(self, error_msg: str) -> None:
-        """アノテーションエラーハンドラ（Stage 3で実装予定）"""
-        logger.error(f"アノテーションエラー: {error_msg}")
-        self.statusBar().showMessage(f"アノテーションエラー: {error_msg}", 5000)
-        QMessageBox.warning(self, "アノテーションエラー", error_msg)
+        """アノテーションエラーハンドラ"""
+        try:
+            logger.error(f"アノテーションエラー: {error_msg}")
+            self.statusBar().showMessage(f"エラー: {error_msg}", 8000)
+
+            # ユーザーへの詳細エラー通知
+            QMessageBox.warning(
+                self,
+                "アノテーション処理エラー",
+                f"アノテーション処理中にエラーが発生しました:\n\n{error_msg}\n\n"
+                "APIキーの設定やネットワーク接続を確認してください。",
+            )
+
+        except Exception as e:
+            logger.error(f"エラーハンドラで予期しない例外: {e}", exc_info=True)
 
     def _on_batch_annotation_started(self, total_images: int) -> None:
-        """バッチアノテーション開始ハンドラ（Stage 3で実装予定）"""
-        logger.info(f"バッチアノテーション開始: {total_images}画像")
-        self.statusBar().showMessage(f"バッチアノテーション開始: {total_images}画像", 5000)
+        """バッチアノテーション開始ハンドラ"""
+        try:
+            logger.info(f"バッチアノテーション開始: {total_images}画像")
+
+            # ステータスバー表示
+            self.statusBar().showMessage(f"アノテーション処理開始: {total_images}画像を処理中...", 10000)
+
+            # TODO: Stage 4でプログレスバー表示を追加
+            # self._show_progress_dialog(total_images)
+
+        except Exception as e:
+            logger.error(f"バッチ開始ハンドラエラー: {e}", exc_info=True)
 
     def _on_batch_annotation_progress(self, processed: int, total: int) -> None:
-        """バッチアノテーション進捗ハンドラ（Stage 3で実装予定）"""
-        percentage = int((processed / total) * 100) if total > 0 else 0
-        self.statusBar().showMessage(f"アノテーション処理中... {processed}/{total} ({percentage}%)")
+        """バッチアノテーション進捗ハンドラ"""
+        try:
+            percentage = int((processed / total) * 100) if total > 0 else 0
+
+            # ステータスバー更新
+            self.statusBar().showMessage(f"アノテーション処理中... {processed}/{total} ({percentage}%)")
+
+            logger.debug(f"バッチ進捗: {processed}/{total} ({percentage}%)")
+
+            # TODO: Stage 4でプログレスバー更新を追加
+            # self._update_progress_dialog(processed, total)
+
+        except Exception as e:
+            logger.warning(f"進捗ハンドラエラー: {e}")
 
     def _on_batch_annotation_finished(self, result: Any) -> None:
-        """バッチアノテーション完了ハンドラ（Stage 3で実装予定）"""
-        logger.info(f"バッチアノテーション完了: {result}")
-        self.statusBar().showMessage("バッチアノテーション処理が完了しました", 5000)
+        """バッチアノテーション完了ハンドラ"""
+        try:
+            # BatchAnnotationResult属性にアクセス
+            total = getattr(result, "total_images", 0)
+            successful = getattr(result, "successful_annotations", 0)
+            failed = getattr(result, "failed_annotations", 0)
+            success_rate = getattr(result, "success_rate", 0.0)
+            summary = getattr(result, "summary", "バッチ処理完了")
+
+            logger.info(f"バッチアノテーション完了: {summary}")
+
+            # ステータスバー表示（成功率を含む）
+            status_msg = f"完了: {successful}件成功, {failed}件失敗 (成功率: {success_rate:.1f}%)"
+            self.statusBar().showMessage(status_msg, 10000)
+
+            # 成功時の通知（完了メッセージ）
+            if failed == 0:
+                # 全て成功
+                QMessageBox.information(
+                    self,
+                    "アノテーション完了",
+                    f"アノテーション処理が正常に完了しました。\n\n"
+                    f"処理画像数: {total}件\n"
+                    f"成功: {successful}件",
+                )
+            else:
+                # 一部失敗
+                QMessageBox.warning(
+                    self,
+                    "アノテーション完了（一部エラー）",
+                    f"アノテーション処理が完了しましたが、一部にエラーがありました。\n\n"
+                    f"処理画像数: {total}件\n"
+                    f"成功: {successful}件\n"
+                    f"失敗: {failed}件\n"
+                    f"成功率: {success_rate:.1f}%\n\n"
+                    "詳細はログを確認してください。",
+                )
+
+            # TODO: Stage 4でDB保存処理を追加
+            # self._save_batch_results_to_db(result)
+
+        except Exception as e:
+            logger.error(f"バッチ完了ハンドラエラー: {e}", exc_info=True)
+            QMessageBox.critical(
+                self, "処理エラー", f"結果処理中にエラーが発生しました:\n{e}"
+            )
 
     def _on_model_sync_completed(self, sync_result: Any) -> None:
-        """モデル同期完了ハンドラ（Stage 3で実装予定）"""
-        logger.info(f"モデル同期完了: {sync_result}")
-        self.statusBar().showMessage("モデル同期が完了しました", 3000)
+        """モデル同期完了ハンドラ"""
+        try:
+            logger.info(f"モデル同期完了: {sync_result}")
+
+            # 同期成功通知
+            if hasattr(sync_result, "success") and sync_result.success:
+                summary = getattr(sync_result, "summary", "モデル同期完了")
+                self.statusBar().showMessage(f"モデル同期完了: {summary}", 5000)
+            else:
+                # 同期失敗
+                errors = getattr(sync_result, "errors", [])
+                error_msg = ", ".join(errors) if errors else "不明なエラー"
+                self.statusBar().showMessage(f"モデル同期エラー: {error_msg}", 8000)
+                logger.error(f"モデル同期エラー: {error_msg}")
+
+        except Exception as e:
+            logger.error(f"モデル同期完了ハンドラエラー: {e}", exc_info=True)
 
     def cancel_current_pipeline(self) -> None:
         """現在のPipeline全体をキャンセル"""
