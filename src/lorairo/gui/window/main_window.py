@@ -12,6 +12,7 @@ from ...database.db_core import resolve_stored_path
 from ...database.db_manager import ImageDatabaseManager
 from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
+from ...services.annotation_service import AnnotationService
 from ...services.configuration_service import ConfigurationService
 from ...services.model_selection_service import ModelSelectionService
 from ...services.service_container import ServiceContainer
@@ -42,6 +43,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     file_system_manager: FileSystemManager | None
     db_manager: ImageDatabaseManager | None
     worker_service: WorkerService | None
+    annotation_service: AnnotationService | None
     dataset_state_manager: DatasetStateManager | None
 
     @property
@@ -138,6 +140,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.worker_service = None
 
         try:
+            logger.info("  - AnnotationService初期化中...")
+            self.annotation_service = AnnotationService(parent=self)
+            self._connect_annotation_service_signals()
+            logger.info("  ✅ AnnotationService初期化成功")
+        except Exception as e:
+            logger.error(f"  ❌ AnnotationService初期化失敗（継続）: {e}")
+            self.annotation_service = None
+
+        try:
             logger.info("  - DatasetStateManager初期化中...")
             self.dataset_state_manager = DatasetStateManager()
             logger.info("  ✅ DatasetStateManager初期化成功")
@@ -154,6 +165,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             ("ImageDatabaseManager", self.db_manager),
             ("FileSystemManager", self.file_system_manager),
             ("WorkerService", self.worker_service),
+            ("AnnotationService", self.annotation_service),
             ("DatasetStateManager", self.dataset_state_manager),
         ]
 
@@ -163,7 +175,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             else:
                 failed_services.append(name)
 
-        logger.info(f"サービス初期化結果: 成功 {len(successful_services)}/5")
+        logger.info(f"サービス初期化結果: 成功 {len(successful_services)}/6")
         if successful_services:
             logger.info(f"  成功: {', '.join(successful_services)}")
         if failed_services:
@@ -495,6 +507,30 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except Exception as e:
             logger.error(f"Pipeline signals connection failed: {e}", exc_info=True)
 
+    def _connect_annotation_service_signals(self) -> None:
+        """AnnotationService signal connections setup"""
+        if not self.annotation_service:
+            logger.warning("AnnotationService not available - signals not connected")
+            return
+
+        try:
+            # Annotation completion/error signals
+            self.annotation_service.annotationFinished.connect(self._on_annotation_finished)
+            self.annotation_service.annotationError.connect(self._on_annotation_error)
+
+            # Batch processing signals
+            self.annotation_service.batchProcessingStarted.connect(self._on_batch_annotation_started)
+            self.annotation_service.batchProcessingProgress.connect(self._on_batch_annotation_progress)
+            self.annotation_service.batchProcessingFinished.connect(self._on_batch_annotation_finished)
+
+            # Model sync signals
+            self.annotation_service.modelSyncCompleted.connect(self._on_model_sync_completed)
+
+            logger.info("AnnotationService signals connected (6 connections)")
+
+        except Exception as e:
+            logger.error(f"AnnotationService signal connection failed: {e}", exc_info=True)
+
     def _on_search_completed_start_thumbnail(self, search_result: Any) -> None:
         """SearchWorker完了時にThumbnailWorkerを自動起動"""
         if not search_result or not hasattr(search_result, "image_metadata"):
@@ -698,6 +734,38 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         except Exception as e:
             logger.warning(f"バッチ進捗更新処理エラー: {e}")
+
+    # AnnotationService signal handlers
+    def _on_annotation_finished(self, result: Any) -> None:
+        """アノテーション完了ハンドラ（Stage 3で実装予定）"""
+        logger.info(f"アノテーション完了: {result}")
+        self.statusBar().showMessage("アノテーション処理が完了しました", 5000)
+
+    def _on_annotation_error(self, error_msg: str) -> None:
+        """アノテーションエラーハンドラ（Stage 3で実装予定）"""
+        logger.error(f"アノテーションエラー: {error_msg}")
+        self.statusBar().showMessage(f"アノテーションエラー: {error_msg}", 5000)
+        QMessageBox.warning(self, "アノテーションエラー", error_msg)
+
+    def _on_batch_annotation_started(self, total_images: int) -> None:
+        """バッチアノテーション開始ハンドラ（Stage 3で実装予定）"""
+        logger.info(f"バッチアノテーション開始: {total_images}画像")
+        self.statusBar().showMessage(f"バッチアノテーション開始: {total_images}画像", 5000)
+
+    def _on_batch_annotation_progress(self, processed: int, total: int) -> None:
+        """バッチアノテーション進捗ハンドラ（Stage 3で実装予定）"""
+        percentage = int((processed / total) * 100) if total > 0 else 0
+        self.statusBar().showMessage(f"アノテーション処理中... {processed}/{total} ({percentage}%)")
+
+    def _on_batch_annotation_finished(self, result: Any) -> None:
+        """バッチアノテーション完了ハンドラ（Stage 3で実装予定）"""
+        logger.info(f"バッチアノテーション完了: {result}")
+        self.statusBar().showMessage("バッチアノテーション処理が完了しました", 5000)
+
+    def _on_model_sync_completed(self, sync_result: Any) -> None:
+        """モデル同期完了ハンドラ（Stage 3で実装予定）"""
+        logger.info(f"モデル同期完了: {sync_result}")
+        self.statusBar().showMessage("モデル同期が完了しました", 3000)
 
     def cancel_current_pipeline(self) -> None:
         """現在のPipeline全体をキャンセル"""
