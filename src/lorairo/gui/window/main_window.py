@@ -1240,14 +1240,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             QMessageBox.critical(self, "設定エラー", error_msg)
 
     def start_annotation(self) -> None:
-        """アノテーション処理を開始"""
+        """アノテーション処理を開始（Phase 5: AnnotationService統合版）"""
         try:
-            # WorkerServiceの存在確認
-            if not self.worker_service:
+            # AnnotationServiceの存在確認
+            if not self.annotation_service:
                 QMessageBox.warning(
                     self,
                     "サービス未初期化",
-                    "WorkerServiceが初期化されていないため、アノテーション処理を開始できません。",
+                    "AnnotationServiceが初期化されていないため、アノテーション処理を開始できません。",
                 )
                 return
 
@@ -1371,27 +1371,22 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             models = [selected_model]
             logger.info(f"ユーザー選択モデル: {selected_model}")
 
-            # バッチアノテーション処理開始（画像パスを使用）
-            worker_id = self.worker_service.start_enhanced_batch_annotation(
-                image_paths, models, batch_size=50
+            # バッチアノテーション処理開始（AnnotationService経由）
+            logger.info(
+                f"バッチアノテーション処理開始: {len(image_paths)}画像, {len(models)}モデル"
             )
 
-            if worker_id:
-                logger.info(
-                    f"バッチアノテーション処理開始: {len(image_paths)}画像, {len(models)}モデル (ID: {worker_id})"
-                )
+            # AnnotationService.start_batch_annotation()を呼び出し
+            # Signal経由で進捗・完了・エラーがハンドラに通知される
+            self.annotation_service.start_batch_annotation(
+                image_paths=image_paths,
+                models=models,
+                batch_size=50
+            )
 
-                # 非ブロッキング通知でUIクラッシュを防止
-                status_msg = f"アノテーション処理を開始: {len(image_paths)}画像, モデル: {selected_model}"
-                self.statusBar().showMessage(status_msg, 5000)
-
-            else:
-                logger.error("アノテーション処理の開始に失敗しました")
-                QMessageBox.critical(
-                    self,
-                    "アノテーション開始エラー",
-                    "アノテーション処理の開始に失敗しました。\nWorkerServiceの状態を確認してください。",
-                )
+            # 非ブロッキング通知でUIクラッシュを防止
+            status_msg = f"アノテーション処理を開始: {len(image_paths)}画像, モデル: {selected_model}"
+            self.statusBar().showMessage(status_msg, 5000)
 
         except Exception as e:
             error_msg = f"アノテーション処理の開始に失敗しました: {e}"
