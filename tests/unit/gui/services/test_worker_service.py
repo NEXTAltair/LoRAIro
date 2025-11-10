@@ -383,3 +383,111 @@ class TestWorkerService:
         assert worker_service.current_registration_worker_id is None
         assert worker_service.current_annotation_worker_id is None
         assert worker_service.current_thumbnail_worker_id is None
+
+    @patch("lorairo.gui.services.worker_service.AnnotationWorker")
+    def test_start_enhanced_batch_annotation_with_api_keys(
+        self, mock_worker_class, worker_service
+    ):
+        """Enhancedバッチアノテーション開始テスト（APIキー付き）"""
+        mock_worker = Mock()
+        mock_worker_class.return_value = mock_worker
+        worker_service.worker_manager.start_worker.return_value = True
+
+        image_paths = ["/path/to/image1.jpg", "/path/to/image2.jpg"]
+        models = ["gpt-4o", "claude-3-haiku"]
+        api_keys = {"openai_key": "sk-test", "claude_key": "sk-ant-test"}
+
+        # バッチアノテーション開始
+        worker_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=image_paths, models=models, batch_size=50, api_keys=api_keys
+        )
+
+        # AnnotationWorkerが正しいパラメータで初期化されたことを確認
+        mock_worker_class.assert_called_once_with(
+            image_paths=image_paths,
+            models=models,
+            batch_size=50,
+            operation_mode="batch",
+            api_keys=api_keys,
+        )
+
+        # ワーカーマネージャーにワーカーが登録されたことを確認
+        worker_service.worker_manager.start_worker.assert_called_once()
+
+        # worker_idが正しい形式で返されることを確認
+        assert worker_id.startswith("enhanced_batch_")
+
+        # 進捗シグナル接続確認
+        mock_worker.progress_updated.connect.assert_called()
+
+    @patch("lorairo.gui.services.worker_service.AnnotationWorker")
+    def test_start_enhanced_batch_annotation_without_api_keys(
+        self, mock_worker_class, worker_service
+    ):
+        """Enhancedバッチアノテーション開始テスト（APIキーなし）"""
+        mock_worker = Mock()
+        mock_worker_class.return_value = mock_worker
+        worker_service.worker_manager.start_worker.return_value = True
+
+        image_paths = ["/path/to/image.jpg"]
+        models = ["gpt-4o"]
+
+        # APIキーなしでバッチアノテーション開始
+        worker_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=image_paths, models=models
+        )
+
+        # api_keys=Noneで初期化されたことを確認
+        mock_worker_class.assert_called_once_with(
+            image_paths=image_paths,
+            models=models,
+            batch_size=100,  # デフォルト値
+            operation_mode="batch",
+            api_keys=None,
+        )
+
+        assert worker_id.startswith("enhanced_batch_")
+
+    def test_modern_progress_manager_integration(self, worker_service):
+        """ModernProgressManager統合検証
+
+        WorkerServiceがModernProgressManagerと正しく連携し、
+        進捗更新・バッチ進捗更新・キャンセル要求が正しく処理されることを検証
+        """
+        from lorairo.gui.workers.base import WorkerProgress
+
+        # 1. _on_progress_updated() の転送処理検証
+        mock_progress = WorkerProgress(
+            percentage=50, status_message="処理中...", processed_count=5, total_count=10
+        )
+
+        # ModernProgressManagerのupdate_worker_progressがモック化されていることを確認
+        with patch.object(
+            worker_service.progress_manager, "update_worker_progress"
+        ) as mock_update:
+            worker_service._on_progress_updated("test_worker_001", mock_progress)
+
+            # ModernProgressManagerに転送されたことを確認
+            mock_update.assert_called_once_with("test_worker_001", mock_progress)
+
+        # 2. _on_batch_progress_updated() の転送処理検証
+        with patch.object(
+            worker_service.progress_manager, "update_batch_progress"
+        ) as mock_batch_update:
+            worker_service._on_batch_progress_updated(
+                "test_worker_002", current=7, total=20, filename="test_image.jpg"
+            )
+
+            # ModernProgressManagerに転送されたことを確認
+            mock_batch_update.assert_called_once_with(
+                "test_worker_002", 7, 20, "test_image.jpg"
+            )
+
+        # 3. _on_progress_cancellation_requested() のキャンセル処理検証
+        # WorkerManagerのcancel_workerをモック化
+        worker_service.worker_manager.cancel_worker.return_value = True
+
+        worker_service._on_progress_cancellation_requested("test_worker_003")
+
+        # WorkerManagerにキャンセルが要求されたことを確認
+        worker_service.worker_manager.cancel_worker.assert_called_with("test_worker_003")
