@@ -111,11 +111,11 @@ google_key = ""
             assert masked_openai == "sk-1***ghij"
             assert masked_claude == "clau***mnop"
 
-            # 利用可能プロバイダがGUIで適切に判定されること
-            available_providers = config_service.get_available_providers()
-            assert "openai" in available_providers
-            assert "anthropic" in available_providers  # ConfigurationServiceは"anthropic"を返す
-            assert "google" not in available_providers  # 空キーは除外
+            # 利用可能なAPIキーがGUIで適切に取得されること
+            api_keys = config_service.get_api_keys()
+            assert "openai_key" in api_keys
+            assert "claude_key" in api_keys
+            assert "google_key" not in api_keys  # 空キーは除外
 
     def test_directory_path_gui_integration(self, tmp_path):
         """ディレクトリパスとGUIファイル選択の統合テスト"""
@@ -260,7 +260,7 @@ target_resolution = 1024
 
             for _ in range(100):
                 config_service.get_setting("api", "openai_key")
-                config_service.get_available_providers()
+                config_service.get_api_keys()
                 config_service.get_setting("image_processing", "target_resolution")
                 config_service.get_database_directory()
 

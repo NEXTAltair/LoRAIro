@@ -52,9 +52,7 @@ def sample_annotation_result():
 class TestPhase4Integration:
     """Phase 4統合テスト: argument-based API key flow"""
 
-    def test_api_key_argument_flow_end_to_end(
-        self, mock_config_with_api_keys, sample_annotation_result
-    ):
+    def test_api_key_argument_flow_end_to_end(self, mock_config_with_api_keys, sample_annotation_result):
         """APIキー引数フロー完全検証
 
         ConfigurationService → AnnotatorLibraryAdapter → image-annotator-lib
@@ -98,9 +96,7 @@ class TestPhase4Integration:
             # 5. 結果が正しく返されること
             assert result == sample_annotation_result
 
-    def test_annotation_service_integration(
-        self, mock_config_with_api_keys, sample_annotation_result
-    ):
+    def test_annotation_service_integration(self, mock_config_with_api_keys, sample_annotation_result):
         """AnnotationService統合検証
 
         ServiceContainer → AnnotationService → AnnotatorLibraryAdapter
@@ -112,14 +108,10 @@ class TestPhase4Integration:
         with patch("image_annotator_lib.annotate") as mock_annotate:
             mock_annotate.return_value = sample_annotation_result
 
-            with patch(
-                "lorairo.services.annotation_service.get_service_container"
-            ) as mock_get_container:
+            with patch("lorairo.services.annotation_service.get_service_container") as mock_get_container:
                 # ServiceContainerモック
                 mock_container = MagicMock()
-                mock_container.annotator_library = AnnotatorLibraryAdapter(
-                    mock_config_with_api_keys
-                )
+                mock_container.annotator_library = AnnotatorLibraryAdapter(mock_config_with_api_keys)
                 mock_get_container.return_value = mock_container
 
                 # Act
@@ -139,9 +131,7 @@ class TestPhase4Integration:
                 assert "api_keys" in call_kwargs
                 assert isinstance(call_kwargs["api_keys"], dict)
 
-    def test_annotation_worker_integration(
-        self, mock_config_with_api_keys, sample_annotation_result
-    ):
+    def test_annotation_worker_integration(self, mock_config_with_api_keys, sample_annotation_result):
         """AnnotationWorker統合検証
 
         AnnotationWorker → AnnotationService → AnnotatorLibraryAdapter
@@ -153,13 +143,9 @@ class TestPhase4Integration:
         with patch("image_annotator_lib.annotate") as mock_annotate:
             mock_annotate.return_value = sample_annotation_result
 
-            with patch(
-                "lorairo.services.annotation_service.get_service_container"
-            ) as mock_get_container:
+            with patch("lorairo.services.annotation_service.get_service_container") as mock_get_container:
                 mock_container = MagicMock()
-                mock_container.annotator_library = AnnotatorLibraryAdapter(
-                    mock_config_with_api_keys
-                )
+                mock_container.annotator_library = AnnotatorLibraryAdapter(mock_config_with_api_keys)
                 mock_get_container.return_value = mock_container
 
                 # Act
@@ -322,9 +308,7 @@ class TestPhase4Integration:
             assert "anthropic" not in api_keys
             assert "google" not in api_keys
 
-    def test_multiple_models_annotation(
-        self, mock_config_with_api_keys
-    ):
+    def test_multiple_models_annotation(self, mock_config_with_api_keys):
         """複数モデルアノテーション検証
 
         複数モデルでの同時アノテーションが正しく動作することを検証

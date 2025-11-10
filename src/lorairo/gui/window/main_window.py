@@ -34,6 +34,19 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     データベース中心の設計で、画像の管理・検索・処理を統合的に提供。
     """
 
+    # TODO: [MainWindowリファクタリング] 別ブランチで実施予定
+    # 現状: 1,645行、6つの責任を持つGod Object
+    # 問題: LoRAIro設計原則違反（ビジネスロジックがGUI内に混在）
+    # 分離対象:
+    #   - ビジネスロジック (~500行): データ検証・変換、パイプライン制御
+    #     例: _on_search_completed_start_thumbnail(), _resolve_optimal_thumbnail_data()
+    #   - UIアクション (~400行): ワークフロー制御、設定処理
+    #     例: select_and_process_dataset(), open_settings()
+    #   - 状態管理・同期 (~100行): DatasetStateManager連携
+    #     例: get_selected_images(), _verify_state_manager_connections()
+    # 目標: ウィジェット配置とイベント接続・ルーティングのみに責任を絞る
+    # 詳細: .serena/memories/mainwindow_refactoring_todo.md
+
     # シグナル
     dataset_loaded = Signal(str)  # dataset_path
     database_registration_completed = Signal(int)  # registered_count
@@ -1414,7 +1427,21 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # ConfigurationServiceから利用可能なプロバイダーを取得
             if self.config_service:
                 try:
-                    available_providers = self.config_service.get_available_providers()
+                    api_keys = self.config_service.get_api_keys()
+
+                    # APIキー名からプロバイダー名へのマッピング
+                    key_to_provider = {
+                        "openai_key": "openai",
+                        "claude_key": "anthropic",
+                        "google_key": "google",
+                    }
+
+                    available_providers = [
+                        provider
+                        for key, provider in key_to_provider.items()
+                        if key in api_keys
+                    ]
+
                     if available_providers:
                         # 利用可能なプロバイダーに基づいてデフォルトモデルを設定
                         provider_models = {

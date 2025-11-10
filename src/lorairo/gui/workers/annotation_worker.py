@@ -7,7 +7,6 @@ AnnotationServiceとWorkerManagerの統合
 - 進捗レポート統合
 """
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from image_annotator_lib import PHashAnnotationResults
@@ -42,6 +41,7 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
         models: list[str] | None = None,
         batch_size: int = 100,
         operation_mode: str = "single",  # "single" or "batch"
+        api_keys: dict[str, str] | None = None,
     ):
         """AnnotationWorker初期化
 
@@ -52,6 +52,7 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
             models: 使用モデル名リスト
             batch_size: バッチサイズ（バッチモード用）
             operation_mode: 動作モード（"single" or "batch"）
+            api_keys: APIキー辞書（プロバイダー名 → APIキー）
         """
         super().__init__()
 
@@ -68,6 +69,7 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
 
         # 共通パラメータ
         self.models = models or []
+        self.api_keys = api_keys or {}
 
         # AnnotationService初期化
         self.annotation_service = AnnotationService()
@@ -101,11 +103,13 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
             raise
 
     def _execute_single_annotation(self) -> PHashAnnotationResults:
-        """単発アノテーション処理実行
+        """単発アノテーション処理実行（モデルループ + キャンセル対応）
 
         Returns:
             PHashAnnotationResults: アノテーション結果
         """
+        from image_annotator_lib import annotate
+
         # 入力検証
         if not self.images:
             raise ValueError("単発モードで画像が指定されていません")
@@ -113,48 +117,70 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
             raise ValueError("モデルが選択されていません")
 
         # 前処理進捗
-        self._report_progress(10, "Enhanced AIアノテーション処理を開始...", total_count=len(self.images))
+        self._report_progress(10, "AIアノテーション処理を開始...", total_count=len(self.images))
 
         # キャンセルチェック
         self._check_cancellation()
 
-        # メイン処理進捗
-        self._report_progress(
-            30,
-            f"Enhanced AIモデル実行中: {', '.join(self.models)}",
-            processed_count=0,
-            total_count=len(self.images),
-        )
+        # 結果を統合するための辞書
+        merged_results: PHashAnnotationResults = {}
 
-        # AnnotationService経由でアノテーション実行
-        # Protocol-basedアーキテクチャでは、AnnotationServiceの抽象APIを使用
-        self.annotation_service.start_single_annotation(
-            images=self.images, models=self.models, phash_list=self.phash_list
-        )
+        # モデル単位で処理（モデル間キャンセル対応）
+        total_models = len(self.models)
+        for model_idx, model_name in enumerate(self.models):
+            # モデル間キャンセルチェック
+            self._check_cancellation()
 
-        # 結果取得（同期的に処理完了を待機）
-        results = self.annotation_service.get_last_annotation_result()
+            # 進捗報告
+            progress = 10 + int((model_idx / total_models) * 80)  # 10-90%
+            self._report_progress(
+                progress,
+                f"AIモデル実行中: {model_name} ({model_idx + 1}/{total_models})",
+                processed_count=model_idx,
+                total_count=total_models,
+            )
 
-        if results is None:
-            raise RuntimeError("アノテーション結果が取得できませんでした")
+            # 単一モデルでアノテーション実行
+            try:
+                model_results = annotate(
+                    images_list=self.images,
+                    model_name_list=[model_name],
+                    phash_list=self.phash_list,
+                    api_keys=self.api_keys,
+                )
+
+                # 結果をマージ
+                for phash, annotations in model_results.items():
+                    if phash not in merged_results:
+                        merged_results[phash] = {}
+                    merged_results[phash].update(annotations)
+
+                logger.debug(f"モデル {model_name} 完了: {len(model_results)}件の結果")
+
+            except Exception as e:
+                logger.error(f"モデル {model_name} でエラー: {e}", exc_info=True)
+                # エラーでも次のモデルに進む（部分的成功を許容）
 
         # 完了進捗
         self._report_progress(
             100,
-            "Enhanced アノテーション処理が完了しました",
+            "アノテーション処理が完了しました",
             processed_count=len(self.images),
             total_count=len(self.images),
         )
 
-        logger.info(f"Enhanced 単発アノテーション完了: {len(results)}件の結果")
-        return results
+        logger.info(f"単発アノテーション完了: {len(merged_results)}件の結果")
+        return merged_results
 
     def _execute_batch_annotation(self) -> PHashAnnotationResults:
-        """バッチアノテーション処理実行
+        """バッチアノテーション処理実行（モデルループ + キャンセル対応）
 
         Returns:
             PHashAnnotationResults: バッチアノテーション結果
         """
+        from image_annotator_lib import annotate
+        from PIL import Image as PILImage
+
         # 入力検証
         if not self.image_paths:
             raise ValueError("バッチモードで画像パスが指定されていません")
@@ -162,54 +188,67 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
             raise ValueError("モデルが選択されていません")
 
         # 前処理進捗
-        self._report_progress(
-            5, "Enhanced バッチアノテーション処理を開始...", total_count=len(self.image_paths)
-        )
+        self._report_progress(5, "バッチアノテーション処理を開始...", total_count=len(self.image_paths))
 
         # キャンセルチェック
         self._check_cancellation()
 
-        # バッチ処理準備進捗
-        self._report_progress(
-            10,
-            f"Enhanced バッチ処理準備中: {len(self.image_paths)}画像, {len(self.models)}モデル",
-            processed_count=0,
-            total_count=len(self.image_paths),
-        )
+        # 画像読み込み
+        self._report_progress(10, "画像を読み込み中...", total_count=len(self.image_paths))
+        images = []
+        for image_path in self.image_paths:
+            try:
+                img = PILImage.open(image_path)
+                images.append(img)
+            except Exception as e:
+                logger.error(f"画像読み込みエラー: {image_path}, {e}")
 
-        # パスをPathオブジェクトに変換
-        path_objects = [Path(path) for path in self.image_paths]
+        if not images:
+            raise RuntimeError("読み込める画像がありませんでした")
 
-        # 中間進捗
-        self._report_progress(
-            20,
-            "Enhanced バッチアノテーション実行中...",
-            processed_count=0,
-            total_count=len(self.image_paths),
-        )
+        # 結果を統合するための辞書
+        merged_results: PHashAnnotationResults = {}
 
-        # AnnotationService経由でバッチアノテーション実行
-        # Protocol-basedアーキテクチャでは、AnnotationServiceの抽象APIを使用
-        self.annotation_service.start_batch_annotation(
-            image_paths=[str(path) for path in path_objects], models=self.models, batch_size=self.batch_size
-        )
+        # モデル単位で処理（モデル間キャンセル対応）
+        total_models = len(self.models)
+        for model_idx, model_name in enumerate(self.models):
+            # モデル間キャンセルチェック
+            self._check_cancellation()
 
-        # 結果取得（同期的に処理完了を待機）
-        batch_result = self.annotation_service.get_last_batch_result()
+            # 進捗報告
+            progress = 10 + int((model_idx / total_models) * 80)  # 10-90%
+            self._report_progress(
+                progress,
+                f"AIモデル実行中: {model_name} ({model_idx + 1}/{total_models})",
+                processed_count=model_idx,
+                total_count=total_models,
+            )
 
-        if batch_result is None:
-            raise RuntimeError("バッチアノテーション結果が取得できませんでした")
+            # 単一モデルでアノテーション実行
+            try:
+                model_results = annotate(
+                    images_list=images, model_name_list=[model_name], api_keys=self.api_keys
+                )
+
+                # 結果をマージ
+                for phash, annotations in model_results.items():
+                    if phash not in merged_results:
+                        merged_results[phash] = {}
+                    merged_results[phash].update(annotations)
+
+                logger.debug(f"モデル {model_name} 完了: {len(model_results)}件の結果")
+
+            except Exception as e:
+                logger.error(f"モデル {model_name} でエラー: {e}", exc_info=True)
+                # エラーでも次のモデルに進む（部分的成功を許容）
 
         # 完了進捗
         self._report_progress(
-            100,
-            f"Enhanced バッチアノテーション完了: {batch_result.summary}",
-            processed_count=batch_result.processed_images,
-            total_count=batch_result.total_images,
+            100, "バッチアノテーション完了", processed_count=len(images), total_count=len(images)
         )
 
-        logger.info(f"Enhanced バッチアノテーション完了: {batch_result.summary}")
-        return batch_result
+        logger.info(f"バッチアノテーション完了: {len(merged_results)}件の結果")
+        return merged_results
 
     def get_worker_info(self) -> dict[str, Any]:
         """ワーカー情報取得
