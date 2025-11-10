@@ -94,19 +94,19 @@ class TestConfigurationService:
         assert short_key_result == "***"
         assert long_key_result == "sk-1***cdef"
 
-    def test_get_available_providers_empty(self):
-        """APIキーが設定されていない場合のプロバイダー取得テスト"""
+    def test_get_api_keys_empty(self):
+        """APIキーが設定されていない場合のAPIキー取得テスト"""
         # Given: APIキーが設定されていない状態
         config_service = ConfigurationService(shared_config={"api": {}})
 
-        # When: 利用可能プロバイダーを取得
-        providers = config_service.get_available_providers()
+        # When: APIキーを取得
+        api_keys = config_service.get_api_keys()
 
-        # Then: 空のリストが返される
-        assert providers == []
+        # Then: 空の辞書が返される
+        assert api_keys == {}
 
-    def test_get_available_providers_with_keys(self):
-        """APIキーが設定されている場合のプロバイダー取得テスト"""
+    def test_get_api_keys_with_keys(self):
+        """APIキーが設定されている場合のAPIキー取得テスト"""
         # Given: APIキーが設定されている状態
         config = {
             "api": {
@@ -117,13 +117,12 @@ class TestConfigurationService:
         }
         config_service = ConfigurationService(shared_config=config)
 
-        # When: 利用可能プロバイダーを取得
-        providers = config_service.get_available_providers()
+        # When: APIキーを取得
+        api_keys = config_service.get_api_keys()
 
-        # Then: 空でないAPIキーを持つプロバイダーのみ返される
-        assert "openai" in providers
-        assert "google" in providers
-        assert "anthropic" not in providers  # claude_keyが空文字列
+        # Then: 空でないAPIキーのみ返される
+        assert api_keys == {"openai_key": "sk-test", "google_key": "ai-test"}
+        assert "claude_key" not in api_keys  # 空文字列は除外
 
     def test_is_provider_available(self):
         """プロバイダー可用性チェックテスト"""

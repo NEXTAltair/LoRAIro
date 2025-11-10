@@ -142,11 +142,11 @@ google_key = ""
             assert service._mask_api_key("claude_key_abcdef123456") == "clau***3456"
             assert service._mask_api_key("") == "***"
 
-            # 利用可能プロバイダが正しく判定されること
-            available = service.get_available_providers()
-            assert "openai" in available
-            assert "anthropic" in available  # ConfigurationServiceは"anthropic"を返す
-            assert "google" not in available  # 空文字列は除外
+            # 利用可能なAPIキーが正しく取得されること
+            api_keys = service.get_api_keys()
+            assert "openai_key" in api_keys
+            assert "claude_key" in api_keys
+            assert "google_key" not in api_keys  # 空文字列は除外
 
     def test_config_file_creation_integration(self, tmp_path):
         """設定ファイル自動作成と既存設定の統合テスト"""

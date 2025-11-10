@@ -191,16 +191,15 @@ class ConfigurationService:
             return "***"
         return f"{key[:4]}***{key[-4:]}"
 
-    def get_available_providers(self) -> list[str]:
-        """APIキーが設定されているプロバイダーを返します。"""
-        providers = []
-        if self.get_setting("api", "openai_key"):
-            providers.append("openai")
-        if self.get_setting("api", "claude_key"):
-            providers.append("anthropic")
-        if self.get_setting("api", "google_key"):
-            providers.append("google")
-        return providers
+    def get_api_keys(self) -> dict[str, str]:
+        """全APIキーを取得（空文字列は除外）
+
+        Returns:
+            dict[str, str]: プロバイダー名 → APIキーのマッピング
+                           空文字列のキーは除外される
+        """
+        api_config = self._config.get("api", {})
+        return {k: v for k, v in api_config.items() if v and v.strip()}
 
     def is_provider_available(self, provider: str) -> bool:
         """指定されたプロバイダーが利用可能かチェックします。"""
