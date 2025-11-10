@@ -65,7 +65,7 @@
       "Bash(else echo \"No coverage.json found\")",
       "Bash(fi)",
       "Bash(git add:*)",
-      "Bash(git reset:*)"
+      "Bash(pkill:*)"
     ],
     "deny": [],
     "ask": []

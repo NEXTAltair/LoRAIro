@@ -10,6 +10,17 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
+RUN apt-get update && \
+    export DEBIAN_FRONTEND=noninteractive && \
+    apt-get -y install --no-install-recommends sudo && \
+    # 🔽 権限設定を追加 🔽
+    # /etc/sudoers.d/ ディレクトリが存在しない場合は作成
+    mkdir -p /etc/sudoers.d && \
+    # vscode ユーザーがパスワードなしで sudo を実行できるように設定
+    echo "vscode ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/nopasswd && \
+    # 権限ファイルを安全に設定
+    chmod 0440 /etc/sudoers.d/nopasswd
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
