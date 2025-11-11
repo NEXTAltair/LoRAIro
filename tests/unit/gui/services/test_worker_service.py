@@ -1,5 +1,6 @@
 # tests/unit/gui/services/test_worker_service.py
 
+import re
 import time
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -93,9 +94,10 @@ class TestWorkerService:
         assert call_args[0][0] == worker_id  # worker_id
         assert call_args[0][1] == mock_worker  # worker
 
-        # worker_id形式確認
+        # worker_id形式確認（UUID hex 8文字）
         assert worker_id.startswith("batch_reg_")
-        assert worker_id.split("_")[-1].isdigit()
+        suffix = worker_id.split("_")[-1]
+        assert len(suffix) == 8 and bool(re.match(r"^[0-9a-f]{8}$", suffix))
 
     @patch("lorairo.gui.services.worker_service.DatabaseRegistrationWorker")
     def test_start_batch_registration_failure(self, mock_worker_class, worker_service):
@@ -142,9 +144,10 @@ class TestWorkerService:
         # ワーカーマネージャー呼び出し確認
         worker_service.worker_manager.start_worker.assert_called_once()
 
-        # worker_id形式確認
+        # worker_id形式確認（UUID hex 8文字）
         assert worker_id.startswith("annotation_")
-        assert worker_id.split("_")[-1].isdigit()
+        suffix = worker_id.split("_")[-1]
+        assert len(suffix) == 8 and bool(re.match(r"^[0-9a-f]{8}$", suffix))
 
     @patch("lorairo.gui.services.worker_service.AnnotationWorker")
     def test_start_annotation_failure(self, mock_worker_class, worker_service):
@@ -192,9 +195,10 @@ class TestWorkerService:
         # ワーカーマネージャー呼び出し確認
         worker_service.worker_manager.start_worker.assert_called_once()
 
-        # worker_id形式確認
+        # worker_id形式確認（UUID hex 8文字）
         assert worker_id.startswith("search_")
-        assert worker_id.split("_")[-1].isdigit()
+        suffix = worker_id.split("_")[-1]
+        assert len(suffix) == 8 and bool(re.match(r"^[0-9a-f]{8}$", suffix))
 
         # 現在の検索ワーカーID設定確認
         assert worker_service.current_search_worker_id == worker_id
@@ -255,9 +259,10 @@ class TestWorkerService:
         # ワーカーマネージャー呼び出し確認
         worker_service.worker_manager.start_worker.assert_called_once()
 
-        # worker_id形式確認
+        # worker_id形式確認（UUID hex 8文字）
         assert worker_id.startswith("thumbnail_")
-        assert worker_id.split("_")[-1].isdigit()
+        suffix = worker_id.split("_")[-1]
+        assert len(suffix) == 8 and bool(re.match(r"^[0-9a-f]{8}$", suffix))
 
         # 現在のサムネイルワーカーID設定確認
         assert worker_service.current_thumbnail_worker_id == worker_id
