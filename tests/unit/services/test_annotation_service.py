@@ -1,7 +1,6 @@
 """AnnotationServiceユニットテスト
 
-Phase 4-3: start_single_annotation()実装のテスト
-ServiceContainer統合とAnnotatorLibraryAdapter呼び出しを検証
+ServiceContainer統合とAnnotatorLibrary呼び出しを検証
 """
 
 from unittest.mock import MagicMock, patch
@@ -79,13 +78,11 @@ class TestAnnotationService:
 
     def test_start_single_annotation_success(self, annotation_service, mock_container):
         """単発アノテーション成功テスト"""
-        # テストデータ準備
         test_image = Image.new("RGB", (100, 100))
         images = [test_image]
         phash_list = ["test_phash"]
         models = ["gpt-4o"]
 
-        # シグナルスパイ
         signal_results = []
 
         def capture_signal(result):
@@ -93,21 +90,16 @@ class TestAnnotationService:
 
         annotation_service.annotationFinished.connect(capture_signal)
 
-        # 実行
         annotation_service.start_single_annotation(images, phash_list, models)
 
-        # 検証
         mock_container.annotator_library.annotate.assert_called_once_with(
             images=images,
             model_names=models,
             phash_list=phash_list,
         )
 
-        # シグナル発火確認
         assert len(signal_results) == 1
         assert "test_phash" in signal_results[0]
-
-        # 最終結果保存確認
         assert annotation_service.get_last_annotation_result() is not None
 
     def test_start_single_annotation_no_images(self, annotation_service):
@@ -119,10 +111,8 @@ class TestAnnotationService:
 
         annotation_service.annotationError.connect(capture_error)
 
-        # 実行
         annotation_service.start_single_annotation([], [], ["gpt-4o"])
 
-        # 検証
         assert len(error_messages) == 1
         assert "入力画像がありません" in error_messages[0]
 
@@ -135,11 +125,9 @@ class TestAnnotationService:
 
         annotation_service.annotationError.connect(capture_error)
 
-        # 実行
         test_image = Image.new("RGB", (100, 100))
         annotation_service.start_single_annotation([test_image], ["phash"], [])
 
-        # 検証
         assert len(error_messages) == 1
         assert "モデルが選択されていません" in error_messages[0]
 
@@ -152,21 +140,18 @@ class TestAnnotationService:
 
         annotation_service.annotationError.connect(capture_error)
 
-        # 実行
         test_image = Image.new("RGB", (100, 100))
         annotation_service.start_single_annotation(
             [test_image],
             ["phash1", "phash2"],
-            ["gpt-4o"],  # 画像1枚、phash 2個
+            ["gpt-4o"],
         )
 
-        # 検証
         assert len(error_messages) == 1
         assert "画像とpHashの数が一致しません" in error_messages[0]
 
     def test_start_single_annotation_adapter_error(self, annotation_service, mock_container):
         """AnnotatorLibraryAdapterエラーテスト"""
-        # モックでエラー発生
         mock_container.annotator_library.annotate.side_effect = Exception("Annotation error")
 
         error_messages = []
@@ -176,11 +161,9 @@ class TestAnnotationService:
 
         annotation_service.annotationError.connect(capture_error)
 
-        # 実行
         test_image = Image.new("RGB", (100, 100))
         annotation_service.start_single_annotation([test_image], ["phash"], ["gpt-4o"])
 
-        # 検証
         assert len(error_messages) == 1
         assert "Annotation error" in error_messages[0]
 
@@ -194,7 +177,7 @@ class TestAnnotationService:
         assert models[0]["requires_api_key"] is True
 
     def test_fetch_available_annotators(self, annotation_service):
-        """利用可能アノテーター取得テスト（互換性メソッド）"""
+        """利用可能アノテーター取得テスト"""
         signal_results = []
 
         def capture_signal(result):
@@ -202,10 +185,8 @@ class TestAnnotationService:
 
         annotation_service.availableAnnotatorsFetched.connect(capture_signal)
 
-        # 実行
         annotation_service.fetch_available_annotators()
 
-        # 検証
         assert len(signal_results) == 1
         assert "gpt-4o" in signal_results[0]
 
@@ -218,17 +199,14 @@ class TestAnnotationService:
 
         annotation_service.modelSyncCompleted.connect(capture_signal)
 
-        # 実行
         annotation_service.sync_available_models()
 
-        # 検証
         mock_container.model_sync_service.sync_available_models.assert_called_once()
         assert len(signal_results) == 1
         assert signal_results[0].success is True
 
     def test_sync_available_models_error(self, annotation_service, mock_container):
         """モデル同期エラーテスト"""
-        # モックで失敗結果
         mock_container.model_sync_service.sync_available_models.return_value = MagicMock(
             success=False, summary="Failed", errors=["Test error"]
         )
@@ -240,10 +218,8 @@ class TestAnnotationService:
 
         annotation_service.annotationError.connect(capture_error)
 
-        # 実行
         annotation_service.sync_available_models()
 
-        # 検証
         assert len(error_messages) == 1
         assert "Test error" in error_messages[0]
 
