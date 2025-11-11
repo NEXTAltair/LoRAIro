@@ -28,6 +28,7 @@ def qapp():
     # クリーンアップは pytest-qt が自動で行う
 
 
+@pytest.mark.gui
 class TestFilterSearchIntegration:
     """フィルター検索統合テスト"""
 
@@ -320,6 +321,7 @@ class TestFilterSearchIntegration:
         assert filter_panel.search_filter_service.get_current_conditions() is None
 
 
+@pytest.mark.gui
 class TestServiceLayerIntegration:
     """サービス層統合テスト"""
 
@@ -398,6 +400,7 @@ class TestServiceLayerIntegration:
         assert len(filtered_images) <= len(images)
 
 
+@pytest.mark.gui
 class TestWidgetIntegration:
     """ウィジェット統合テスト"""
 
@@ -446,6 +449,7 @@ class TestWidgetIntegration:
         assert min_val <= max_val
 
 
+@pytest.mark.gui
 class TestEndToEndIntegration:
     """エンドツーエンド統合テスト"""
 

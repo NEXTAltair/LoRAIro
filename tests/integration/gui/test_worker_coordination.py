@@ -13,6 +13,7 @@ from lorairo.gui.workers.database_worker import SearchResult, SearchWorker
 from lorairo.services.search_models import SearchConditions
 
 
+@pytest.mark.gui
 class TestWorkerSystemCoordination:
     """ワーカーシステム協調動作の統合テスト"""
 
@@ -249,6 +250,7 @@ class TestWorkerSystemCoordination:
     # ProgressManager は削除済みのため該当テストを削除
 
 
+@pytest.mark.gui
 class TestWorkerSystemPerformance:
     """ワーカーシステムパフォーマンステスト"""
 

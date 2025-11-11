@@ -17,6 +17,7 @@ from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetai
 from lorairo.gui.widgets.thumbnail import ThumbnailSelectorWidget
 
 
+@pytest.mark.gui
 class TestGUIComponentInteractions:
     """GUIコンポーネント間相互作用の統合テスト"""
 

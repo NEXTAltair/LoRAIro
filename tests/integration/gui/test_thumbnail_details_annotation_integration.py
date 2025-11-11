@@ -13,6 +13,7 @@ from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetai
 from lorairo.gui.widgets.thumbnail import ThumbnailSelectorWidget
 
 
+@pytest.mark.gui
 class TestThumbnailDetailsAnnotationIntegration:
     """サムネイル選択→画像詳細表示でのアノテーション統合テスト"""
 

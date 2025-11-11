@@ -55,6 +55,7 @@ def export_widget(qtbot, mock_service_container, sample_image_ids):
     return widget
 
 
+@pytest.mark.gui
 class TestDatasetExportWidgetInitialization:
     """Tests for widget initialization and setup."""
 
@@ -109,6 +110,7 @@ class TestDatasetExportWidgetInitialization:
         assert not export_widget.ui.radioJson.isChecked()
 
 
+@pytest.mark.gui
 class TestUIInteractions:
     """Tests for user interface interactions."""
 
@@ -154,6 +156,7 @@ class TestUIInteractions:
             mock_close.assert_called_once()
 
 
+@pytest.mark.gui
 class TestValidationWorkflow:
     """Tests for validation functionality."""
 
@@ -235,6 +238,7 @@ class TestValidationWorkflow:
             assert "検証処理でエラーが発生しました" in error_msg
 
 
+@pytest.mark.gui
 class TestExportWorkflow:
     """Tests for export functionality."""
 
@@ -291,6 +295,7 @@ class TestExportWorkflow:
                 mock_start_worker.assert_not_called()
 
 
+@pytest.mark.gui
 class TestAsyncExportProcessing:
     """Tests for async export processing with workers."""
 
@@ -421,6 +426,7 @@ class TestAsyncExportProcessing:
         assert "Export failed" in error_signals[0]
 
 
+@pytest.mark.gui
 class TestProgressAndCancellation:
     """Tests for progress tracking and cancellation."""
 
@@ -499,6 +505,7 @@ class TestProgressAndCancellation:
         mock_handle_error.assert_called_once_with("Export error occurred")
 
 
+@pytest.mark.gui
 class TestUtilityMethods:
     """Tests for utility and helper methods."""
 
@@ -544,6 +551,7 @@ class TestUtilityMethods:
             mock_cleanup.assert_called_once()
 
 
+@pytest.mark.gui
 class TestErrorHandling:
     """Tests for error handling and user feedback."""
 
@@ -575,6 +583,7 @@ class TestErrorHandling:
 
 
 # Integration test markers
+@pytest.mark.gui
 @pytest.mark.integration
 class TestDatasetExportIntegration:
     """Integration tests requiring real file operations."""

@@ -63,6 +63,7 @@ def main_window(qtbot, mock_services):
 # =============================================
 
 
+@pytest.mark.gui
 class TestThreePanelLayout:
     """3パネルレイアウトテスト"""
 
@@ -145,6 +146,7 @@ class TestThreePanelLayout:
         assert hasattr(main_window, "show")  # 基本的なQWidget機能
 
 
+@pytest.mark.gui
 class TestLayoutResponsiveness:
     """レスポンシブレイアウトテスト"""
 
@@ -211,6 +213,7 @@ class TestLayoutResponsiveness:
             assert abs(total_new - total_current) <= 50  # 誤差許容
 
 
+@pytest.mark.gui
 class TestWidgetPlacement:
     """ウィジェット配置テスト"""
 
@@ -270,6 +273,7 @@ class TestWidgetPlacement:
             assert preview_widget.parent() == right_frame
 
 
+@pytest.mark.gui
 class TestNavigationIntegration:
     """ナビゲーション統合テスト"""
 
@@ -301,6 +305,7 @@ class TestNavigationIntegration:
         assert main_window.isVisible()
 
 
+@pytest.mark.gui
 class TestMemoryAndPerformance:
     """メモリとパフォーマンステスト"""
 
@@ -335,6 +340,7 @@ class TestMemoryAndPerformance:
         assert layout_time < 1.0, f"Layout processing took {layout_time:.2f}s"
 
 
+@pytest.mark.gui
 class TestErrorHandling:
     """エラーハンドリングテスト"""
 
