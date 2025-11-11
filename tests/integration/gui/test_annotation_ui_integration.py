@@ -151,6 +151,7 @@ def annotation_coordinator(
 # =============================================
 
 
+@pytest.mark.gui
 class TestAnnotationUIIntegration:
     """アノテーションUI統合テスト"""
 
@@ -186,6 +187,7 @@ class TestAnnotationUIIntegration:
         assert annotation_coordinator.thumbnail_selector_widget == thumbnail_selector
 
 
+@pytest.mark.gui
 class TestWidgetInterconnection:
     """ウィジェット間連携テスト"""
 
@@ -259,6 +261,7 @@ class TestWidgetInterconnection:
         assert not new_state.is_running
 
 
+@pytest.mark.gui
 class TestUIStateManagement:
     """UI状態管理テスト"""
 
@@ -308,6 +311,7 @@ class TestUIStateManagement:
         assert True  # 基本テスト - 実装に応じて詳細化
 
 
+@pytest.mark.gui
 class TestPerformanceIntegration:
     """パフォーマンス統合テスト"""
 

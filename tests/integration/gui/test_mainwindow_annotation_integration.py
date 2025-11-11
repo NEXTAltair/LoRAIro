@@ -113,6 +113,7 @@ def main_window_integrated(
 
 @pytest.mark.integration
 @pytest.mark.fast_integration
+@pytest.mark.gui
 class TestMainWindowAnnotationIntegration:
     """MainWindow統合テスト（Phase A-1）"""
 

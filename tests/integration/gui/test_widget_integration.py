@@ -12,6 +12,7 @@ from lorairo.gui.widgets.filter_search_panel import FilterSearchPanel
 from lorairo.services.model_selection_service import ModelSelectionService
 
 
+@pytest.mark.gui
 class TestWidgetServiceIntegration:
     """ウィジェットとサービス層の統合テスト"""
 
@@ -291,6 +292,7 @@ class TestWidgetServiceIntegration:
         assert "重複除外" in preview
 
 
+@pytest.mark.gui
 class TestWidgetSignalIntegration:
     """ウィジェット間シグナル統合テスト"""
 
@@ -437,6 +439,7 @@ class TestWidgetSignalIntegration:
         status_filter.filterChanged.connect.assert_called_with(image_list.apply_status_filter)
 
 
+@pytest.mark.gui
 class TestMainWorkspaceIntegration:
     """MainWorkspace 統合テスト"""
 

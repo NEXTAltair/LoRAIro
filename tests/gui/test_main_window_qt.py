@@ -40,6 +40,7 @@ def setup_module():
             os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
 
+@pytest.mark.gui
 class TestMainWindowStandard:
     """pytest-qt標準仕様に準拠したMainWindowテスト"""
 
@@ -454,6 +455,7 @@ class TestMainWindowStandard:
         assert execution_time < 1.0
 
 
+@pytest.mark.gui
 class TestMainWindowAdvanced:
     """高度なQt機能のテスト"""
 
