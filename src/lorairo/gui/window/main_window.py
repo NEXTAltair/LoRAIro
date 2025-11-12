@@ -8,12 +8,12 @@ from PySide6.QtCore import QTimer, Signal
 from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QWidget
 
-from ...database.db_core import resolve_stored_path
 from ...database.db_manager import ImageDatabaseManager
 from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
 from ...services.annotation_service import AnnotationService
 from ...services.configuration_service import ConfigurationService
+from ...services.data_transform_service import DataTransformService
 from ...services.model_selection_service import ModelSelectionService
 from ...services.selection_state_service import SelectionStateService
 from ...services.service_container import ServiceContainer
@@ -22,6 +22,8 @@ from ...utils.log import logger
 from ..controllers.annotation_workflow_controller import AnnotationWorkflowController
 from ..controllers.dataset_controller import DatasetController
 from ..services.image_db_write_service import ImageDBWriteService
+from ..services.pipeline_control_service import PipelineControlService
+from ..services.result_handler_service import ResultHandlerService
 from ..services.search_filter_service import SearchFilterService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
@@ -67,6 +69,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     dataset_controller: DatasetController | None
     annotation_workflow_controller: AnnotationWorkflowController | None
 
+    # Phase 2.4リファクタリング: Service層属性
+    data_transform_service: DataTransformService | None
+    result_handler_service: ResultHandlerService | None
+    pipeline_control_service: PipelineControlService | None
+
     @property
     def service_container(self) -> ServiceContainer:
         """ServiceContainer singleton instance"""
@@ -102,6 +109,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # Phase 3.5: サービス統合（新規）
             logger.info("Phase 3.5: SearchFilterService統合開始")
             self._setup_search_filter_integration()
+
+            # Phase 3.6: Phase 2.4 Service統合（DataTransform/ResultHandler/PipelineControl）
+            logger.info("Phase 3.6: Phase 2.4 Service層統合開始")
+            self._setup_phase24_services()
 
             # Phase 4: イベント接続（最終段階）
             logger.info("Phase 4: イベント接続開始")
@@ -619,43 +630,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.debug(f"Status bar update failed: {e}")
 
     def _on_batch_registration_finished(self, result: Any) -> None:
-        """Batch registration finished signal handler"""
-        logger.info(f"バッチ登録完了: result={type(result)}")
-
-        # Clear statusbar processing message
-        try:
-            self.statusBar().clearMessage()
-        except Exception as e:
-            logger.debug(f"Status bar clear failed: {e}")
-
-        try:
-            # Extract results from DatabaseRegistrationResult
-            if hasattr(result, "registered_count"):
-                registered = result.registered_count
-                skipped = result.skipped_count
-                errors = result.error_count
-                processing_time = result.total_processing_time
-
-                # Emit completion signal for other components
-                if hasattr(self, "database_registration_completed"):
-                    self.database_registration_completed.emit(registered)
-
-                # 非ブロッキング通知でUIクラッシュを防止
-                status_msg = f"バッチ登録完了: 登録={registered}件, スキップ={skipped}件, エラー={errors}件, 処理時間={processing_time:.1f}秒"
-                self.statusBar().showMessage(status_msg, 8000)  # 8秒表示
-                logger.info(f"バッチ登録統計: 登録={registered}, スキップ={skipped}, エラー={errors}")
-
-            else:
-                # Fallback for unexpected result format
-                logger.warning(f"Unexpected batch registration result format: {result}")
-                # 非ブロッキング通知でUIクラッシュを防止
-                self.statusBar().showMessage("バッチ登録完了（詳細情報取得不可）", 5000)
-
-        except Exception as e:
-            # Proper error logging instead of silent failure
-            logger.error(f"バッチ登録完了処理中にエラー: {e}", exc_info=True)
-            # 非ブロッキング通知でUIクラッシュを防止
-            self.statusBar().showMessage(f"バッチ登録完了（結果表示エラー: {str(e)[:50]}）", 5000)
+        """Batch registration finished signal handler（Phase 2.4 Stage 4-2: ResultHandlerService委譲）"""
+        if self.result_handler_service:
+            self.result_handler_service.handle_batch_registration_finished(
+                result, status_bar=self.statusBar(), completion_signal=self.database_registration_completed
+            )
+        else:
+            # Fallback: Service未初期化時は簡易通知のみ
+            logger.info(f"バッチ登録完了: result={type(result)}")
+            self.statusBar().showMessage("バッチ登録完了", 5000)
 
     def _on_batch_registration_error(self, error_message: str) -> None:
         """Batch registration error signal handler"""
@@ -700,33 +683,20 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     # AnnotationService signal handlers (Phase 5 Stage 3)
     def _on_annotation_finished(self, result: Any) -> None:
-        """単発アノテーション完了ハンドラ"""
-        try:
+        """単発アノテーション完了ハンドラ（Phase 2.4 Stage 4-2: ResultHandlerService委譲）"""
+        if self.result_handler_service:
+            self.result_handler_service.handle_annotation_finished(result, status_bar=self.statusBar())
+        else:
             logger.info(f"アノテーション完了: {result}")
             self.statusBar().showMessage("アノテーション処理が完了しました", 5000)
 
-            # TODO: Stage 4で結果をDBに保存する処理を追加
-            # self._save_annotation_results_to_db(result)
-
-        except Exception as e:
-            logger.error(f"アノテーション完了ハンドラエラー: {e}", exc_info=True)
-
     def _on_annotation_error(self, error_msg: str) -> None:
-        """アノテーションエラーハンドラ"""
-        try:
+        """アノテーションエラーハンドラ（Phase 2.4 Stage 4-2: ResultHandlerService委譲）"""
+        if self.result_handler_service:
+            self.result_handler_service.handle_annotation_error(error_msg, status_bar=self.statusBar())
+        else:
             logger.error(f"アノテーションエラー: {error_msg}")
             self.statusBar().showMessage(f"エラー: {error_msg}", 8000)
-
-            # ユーザーへの詳細エラー通知
-            QMessageBox.warning(
-                self,
-                "アノテーション処理エラー",
-                f"アノテーション処理中にエラーが発生しました:\n\n{error_msg}\n\n"
-                "APIキーの設定やネットワーク接続を確認してください。",
-            )
-
-        except Exception as e:
-            logger.error(f"エラーハンドラで予期しない例外: {e}", exc_info=True)
 
     def _on_batch_annotation_started(self, total_images: int) -> None:
         """バッチアノテーション開始ハンドラ"""
@@ -759,106 +729,27 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.warning(f"進捗ハンドラエラー: {e}")
 
     def _on_batch_annotation_finished(self, result: Any) -> None:
-        """バッチアノテーション完了ハンドラ"""
-        try:
-            # BatchAnnotationResult属性にアクセス
-            total = getattr(result, "total_images", 0)
-            successful = getattr(result, "successful_annotations", 0)
-            failed = getattr(result, "failed_annotations", 0)
-            success_rate = getattr(result, "success_rate", 0.0)
-            summary = getattr(result, "summary", "バッチ処理完了")
-
-            logger.info(f"バッチアノテーション完了: {summary}")
-
-            # ステータスバー表示（成功率を含む）
-            status_msg = f"完了: {successful}件成功, {failed}件失敗 (成功率: {success_rate:.1f}%)"
-            self.statusBar().showMessage(status_msg, 10000)
-
-            # 成功時の通知（完了メッセージ）
-            if failed == 0:
-                # 全て成功
-                QMessageBox.information(
-                    self,
-                    "アノテーション完了",
-                    f"アノテーション処理が正常に完了しました。\n\n"
-                    f"処理画像数: {total}件\n"
-                    f"成功: {successful}件",
-                )
-            else:
-                # 一部失敗
-                QMessageBox.warning(
-                    self,
-                    "アノテーション完了（一部エラー）",
-                    f"アノテーション処理が完了しましたが、一部にエラーがありました。\n\n"
-                    f"処理画像数: {total}件\n"
-                    f"成功: {successful}件\n"
-                    f"失敗: {failed}件\n"
-                    f"成功率: {success_rate:.1f}%\n\n"
-                    "詳細はログを確認してください。",
-                )
-
-            # TODO: Stage 4でDB保存処理を追加
-            # self._save_batch_results_to_db(result)
-
-        except Exception as e:
-            logger.error(f"バッチ完了ハンドラエラー: {e}", exc_info=True)
-            QMessageBox.critical(self, "処理エラー", f"結果処理中にエラーが発生しました:\n{e}")
+        """バッチアノテーション完了ハンドラ（Phase 2.4 Stage 4-2: ResultHandlerService委譲）"""
+        if self.result_handler_service:
+            self.result_handler_service.handle_batch_annotation_finished(result, status_bar=self.statusBar())
+        else:
+            logger.info(f"バッチアノテーション完了: {result}")
+            self.statusBar().showMessage("バッチアノテーション完了", 5000)
 
     def _on_model_sync_completed(self, sync_result: Any) -> None:
-        """モデル同期完了ハンドラ"""
-        try:
+        """モデル同期完了ハンドラ（Phase 2.4 Stage 4-2: ResultHandlerService委譲）"""
+        if self.result_handler_service:
+            self.result_handler_service.handle_model_sync_completed(sync_result, status_bar=self.statusBar())
+        else:
             logger.info(f"モデル同期完了: {sync_result}")
-
-            # 同期成功通知
-            if hasattr(sync_result, "success") and sync_result.success:
-                summary = getattr(sync_result, "summary", "モデル同期完了")
-                self.statusBar().showMessage(f"モデル同期完了: {summary}", 5000)
-            else:
-                # 同期失敗
-                errors = getattr(sync_result, "errors", [])
-                error_msg = ", ".join(errors) if errors else "不明なエラー"
-                self.statusBar().showMessage(f"モデル同期エラー: {error_msg}", 8000)
-                logger.error(f"モデル同期エラー: {error_msg}")
-
-        except Exception as e:
-            logger.error(f"モデル同期完了ハンドラエラー: {e}", exc_info=True)
+            self.statusBar().showMessage("モデル同期完了", 5000)
 
     def cancel_current_pipeline(self) -> None:
-        """現在のPipeline全体をキャンセル"""
-        if not self.worker_service:
-            logger.warning("WorkerService not available - Pipeline cancellation skipped")
-            return
-
-        try:
-            # SearchWorker + ThumbnailWorker の cascade cancellation
-            if (
-                hasattr(self.worker_service, "current_search_worker_id")
-                and self.worker_service.current_search_worker_id
-            ):
-                self.worker_service.cancel_search(self.worker_service.current_search_worker_id)
-                logger.info("Search worker cancelled in pipeline")
-
-            if (
-                hasattr(self.worker_service, "current_thumbnail_worker_id")
-                and self.worker_service.current_thumbnail_worker_id
-            ):
-                self.worker_service.cancel_thumbnail_load(self.worker_service.current_thumbnail_worker_id)
-                logger.info("Thumbnail worker cancelled in pipeline")
-
-            # キャンセル時の結果破棄（要求仕様通り）
-            if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
-                self.thumbnail_selector.clear_thumbnails()
-
-            # キャンセル時もプログレスバーを非表示
-            if hasattr(self, "filterSearchPanel") and hasattr(
-                self.filterSearchPanel, "hide_progress_after_completion"
-            ):
-                self.filterSearchPanel.hide_progress_after_completion()
-
-            logger.info("Pipeline cancellation completed")
-
-        except Exception as e:
-            logger.error(f"Pipeline cancellation failed: {e}", exc_info=True)
+        """現在のPipeline全体をキャンセル（Phase 2.4 Stage 4-3: PipelineControlService委譲）"""
+        if self.pipeline_control_service:
+            self.pipeline_control_service.cancel_current_pipeline()
+        else:
+            logger.warning("PipelineControlService未初期化 - Pipeline cancellation skipped")
 
     # Placeholder methods for UI actions - implement these based on your requirements
     def select_dataset_directory(self) -> Path | None:
@@ -906,10 +797,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _resolve_optimal_thumbnail_data(
         self, image_metadata: list[dict[str, Any]]
     ) -> list[tuple[Path, int]]:
-        """画像メタデータから最適なサムネイル表示用パスを解決
-
-        512px処理済み画像が利用可能な場合はそれを使用し、
-        利用不可能な場合は元画像にフォールバックする
+        """画像メタデータから最適なサムネイル表示用パスを解決（Phase 2.4 Stage 4-1: DataTransformService委譲）
 
         Args:
             image_metadata: 画像メタデータリスト
@@ -917,38 +805,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         Returns:
             list[tuple[Path, int]]: (画像パス, 画像ID) のタプルリスト
         """
-        if not image_metadata:
-            return []
+        if self.data_transform_service:
+            return self.data_transform_service.resolve_optimal_thumbnail_paths(image_metadata)
 
-        result = []
-
-        for metadata in image_metadata:
-            image_id = metadata["id"]
-            original_path = metadata["stored_image_path"]
-
-            try:
-                # 512px処理済み画像の存在を確認
-                if self.db_manager:
-                    processed_image = self.db_manager.check_processed_image_exists(image_id, 512)
-
-                    if processed_image:
-                        # 512px画像のパス解決
-                        resolved_path = resolve_stored_path(processed_image["stored_image_path"])
-
-                        # ファイル存在確認
-                        if resolved_path.exists():
-                            result.append((resolved_path, image_id))
-                            continue
-
-                # フォールバック: 元画像を使用
-                result.append((Path(original_path), image_id))
-
-            except Exception as e:
-                # エラー時もフォールバック: 元画像を使用
-                logger.warning(f"パス解決エラー (image_id={image_id}): {e}")
-                result.append((Path(original_path), image_id))
-
-        return result
+        # Fallback: Service未初期化時は元画像のみ使用
+        return [(Path(metadata["stored_image_path"]), metadata["id"]) for metadata in image_metadata]
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         """ウィンドウリサイズイベント - スプリッターサイズを動的調整"""
@@ -1090,6 +951,43 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except Exception as e:
             logger.error(f"SearchFilterService統合失敗: {e}", exc_info=True)
             logger.warning("検索機能は利用できませんが、その他の機能は正常に動作します")
+
+    def _setup_phase24_services(self) -> None:
+        """Phase 2.4 Service層の初期化と統合
+
+        DataTransformService, ResultHandlerService, PipelineControlServiceを初期化。
+        MainWindowから抽出されたロジックをService層に委譲する。
+
+        Phase 2.4 Stage 4で実装。
+        """
+        try:
+            # DataTransformService初期化（Stage 4-1）
+            logger.info("  - DataTransformService初期化中...")
+            self.data_transform_service = DataTransformService(db_manager=self.db_manager)
+            logger.info("  ✅ DataTransformService初期化成功")
+
+            # ResultHandlerService初期化（Stage 4-2）
+            logger.info("  - ResultHandlerService初期化中...")
+            self.result_handler_service = ResultHandlerService(parent=self)
+            logger.info("  ✅ ResultHandlerService初期化成功")
+
+            # PipelineControlService初期化（Stage 4-3）
+            logger.info("  - PipelineControlService初期化中...")
+            self.pipeline_control_service = PipelineControlService(
+                worker_service=self.worker_service,
+                thumbnail_selector=self.thumbnail_selector,
+                filter_search_panel=self.filterSearchPanel if hasattr(self, "filterSearchPanel") else None,
+            )
+            logger.info("  ✅ PipelineControlService初期化成功")
+
+            logger.info("Phase 2.4 Service層統合完了")
+
+        except Exception as e:
+            logger.error(f"Phase 2.4 Service層統合失敗: {e}", exc_info=True)
+            logger.warning("一部のService機能は利用できませんが、その他の機能は正常に動作します")
+            self.data_transform_service = None
+            self.result_handler_service = None
+            self.pipeline_control_service = None
 
     def open_settings(self) -> None:
         """設定ウィンドウを開く（SettingsControllerに委譲）"""
