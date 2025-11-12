@@ -15,9 +15,11 @@ from ...services import get_service_container
 from ...services.annotation_service import AnnotationService
 from ...services.configuration_service import ConfigurationService
 from ...services.model_selection_service import ModelSelectionService
+from ...services.selection_state_service import SelectionStateService
 from ...services.service_container import ServiceContainer
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
+from ..controllers.annotation_workflow_controller import AnnotationWorkflowController
 from ..controllers.dataset_controller import DatasetController
 from ..services.image_db_write_service import ImageDBWriteService
 from ..services.search_filter_service import SearchFilterService
@@ -60,8 +62,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     annotation_service: AnnotationService | None
     dataset_state_manager: DatasetStateManager | None
 
-    # Phase 2リファクタリング: Controller層属性
+    # Phase 2リファクタリング: Service/Controller層属性
+    selection_state_service: SelectionStateService | None
     dataset_controller: DatasetController | None
+    annotation_workflow_controller: AnnotationWorkflowController | None
 
     @property
     def service_container(self) -> ServiceContainer:
@@ -337,7 +341,21 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # 状態管理接続の検証
         self._verify_state_management_connections()
 
-        # Phase 2リファクタリング: Controller層初期化
+        # Phase 2リファクタリング: Service/Controller層初期化
+
+        # Phase 2.3: SelectionStateService初期化
+        try:
+            logger.info("  - SelectionStateService初期化中...")
+            self.selection_state_service = SelectionStateService(
+                dataset_state_manager=self.dataset_state_manager,
+                db_repository=self.db_manager.repository if self.db_manager else None,
+            )
+            logger.info("  ✅ SelectionStateService初期化成功")
+        except Exception as e:
+            logger.error(f"  ❌ SelectionStateService初期化失敗（継続）: {e}")
+            self.selection_state_service = None
+
+        # Phase 2.2: DatasetController初期化
         try:
             logger.info("  - DatasetController初期化中...")
             self.dataset_controller = DatasetController(
@@ -350,6 +368,20 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except Exception as e:
             logger.error(f"  ❌ DatasetController初期化失敗（継続）: {e}")
             self.dataset_controller = None
+
+        # Phase 2.3: AnnotationWorkflowController初期化
+        try:
+            logger.info("  - AnnotationWorkflowController初期化中...")
+            self.annotation_workflow_controller = AnnotationWorkflowController(
+                annotation_service=self.annotation_service,
+                selection_state_service=self.selection_state_service,
+                config_service=self.config_service,
+                parent=self,
+            )
+            logger.info("  ✅ AnnotationWorkflowController初期化成功")
+        except Exception as e:
+            logger.error(f"  ❌ AnnotationWorkflowController初期化失敗（継続）: {e}")
+            self.annotation_workflow_controller = None
 
         # その他のウィジェット設定...
         logger.debug("その他のカスタムウィジェット設定完了")
@@ -770,9 +802,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         except Exception as e:
             logger.error(f"バッチ完了ハンドラエラー: {e}", exc_info=True)
-            QMessageBox.critical(
-                self, "処理エラー", f"結果処理中にエラーが発生しました:\n{e}"
-            )
+            QMessageBox.critical(self, "処理エラー", f"結果処理中にエラーが発生しました:\n{e}")
 
     def _on_model_sync_completed(self, sync_result: Any) -> None:
         """モデル同期完了ハンドラ"""
@@ -1068,178 +1098,45 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             logger.error("SettingsControllerが初期化されていません")
             QMessageBox.warning(
-                self,
-                "設定エラー",
-                "SettingsControllerが初期化されていないため、設定を開けません。"
+                self, "設定エラー", "SettingsControllerが初期化されていないため、設定を開けません。"
             )
 
     def start_annotation(self) -> None:
-        """アノテーション処理を開始（Phase 5: AnnotationService統合版）"""
-        try:
-            # AnnotationServiceの存在確認
-            if not self.annotation_service:
-                QMessageBox.warning(
-                    self,
-                    "サービス未初期化",
-                    "AnnotationServiceが初期化されていないため、アノテーション処理を開始できません。",
-                )
-                return
-
-            # 選択された画像の取得
-            selected_image_ids: list[int] = []
-            image_paths: list[str] = []
-
-            # DatasetStateManagerから選択画像IDを取得
-            if self.dataset_state_manager and self.dataset_state_manager.selected_image_ids:
-                selected_image_ids = self.dataset_state_manager.selected_image_ids
-                logger.debug(f"DatasetStateManagerから選択画像を取得: {len(selected_image_ids)}件")
-
-            # DatasetStateManagerから取得できない場合、ThumbnailSelectorWidgetから取得
-            elif self.thumbnail_selector and hasattr(self.thumbnail_selector, "get_selected_images"):
-                selected_paths = self.thumbnail_selector.get_selected_images()
-                if selected_paths and self.dataset_state_manager:
-                    # パスから画像IDを逆引き
-                    for path in selected_paths:
-                        for img in self.dataset_state_manager.all_images:
-                            if img.get("stored_image_path") == str(path):
-                                img_id = img.get("id")
-                                if img_id is not None:
-                                    selected_image_ids.append(img_id)
-                                break
-                logger.debug(f"ThumbnailSelectorWidgetから選択画像を取得: {len(selected_image_ids)}件")
-
-            # 画像が選択されていない場合、表示中の画像を使用
-            if (
-                not selected_image_ids
-                and self.dataset_state_manager
-                and self.dataset_state_manager.has_filtered_images()
-            ):
-                filtered_images = self.dataset_state_manager.filtered_images
-                selected_image_ids = [
-                    img_id for img in filtered_images if (img_id := img.get("id")) is not None
-                ]
-                logger.info(f"画像未選択のため、表示中の全画像を使用: {len(selected_image_ids)}件")
-
-            if not selected_image_ids:
-                QMessageBox.information(
-                    self,
-                    "画像未選択",
-                    "アノテーション処理を行う画像を選択してください。\n"
-                    "フィルタリング条件を設定して画像を表示するか、\n"
-                    "サムネイル表示で画像を選択してください。",
-                )
-                return
-
-            # 画像パスの構築
-            for image_id in selected_image_ids:
-                if self.dataset_state_manager:
-                    image_data = self.dataset_state_manager.get_image_by_id(image_id)
-                    if image_data:
-                        image_path = image_data.get("stored_image_path")
-                        if image_path:
-                            image_paths.append(str(image_path))
-
-            if not image_paths:
-                QMessageBox.warning(
-                    self,
-                    "画像データ取得エラー",
-                    "選択された画像のパスを取得できませんでした。\nデータベースの状態を確認してください。",
-                )
-                return
-
-            # モデル選択の取得
-            models: list[str] = []
-
-            # ConfigurationServiceから利用可能なプロバイダーを取得
-            if self.config_service:
-                try:
-                    api_keys = self.config_service.get_api_keys()
-
-                    # APIキー名からプロバイダー名へのマッピング
-                    key_to_provider = {
-                        "openai_key": "openai",
-                        "claude_key": "anthropic",
-                        "google_key": "google",
-                    }
-
-                    available_providers = [
-                        provider
-                        for key, provider in key_to_provider.items()
-                        if key in api_keys
-                    ]
-
-                    if available_providers:
-                        # 利用可能なプロバイダーに基づいてデフォルトモデルを設定
-                        provider_models = {
-                            "openai": "gpt-4o-mini",
-                            "anthropic": "claude-3-haiku-20240307",
-                            "google": "gemini-1.5-flash-latest",
-                        }
-
-                        for provider in available_providers:
-                            if provider in provider_models:
-                                models.append(provider_models[provider])
-                                break
-
-                        logger.info(f"利用可能なプロバイダーに基づいてモデルを選択: {models}")
-
-                except Exception as e:
-                    logger.warning(f"プロバイダー取得中にエラー: {e}")
-
-            # フォールバック: デフォルトモデルを使用
-            if not models:
-                models = ["gpt-4o-mini"]
-                logger.info("デフォルトモデルを使用: gpt-4o-mini")
-
-            # モデル選択確認ダイアログを表示
-            from PySide6.QtWidgets import QInputDialog
-
-            available_models = [
-                "gpt-4o-mini",
-                "gpt-4o",
-                "claude-3-haiku-20240307",
-                "claude-3-sonnet-20240229",
-                "gemini-1.5-flash-latest",
-                "gemini-1.5-pro-latest",
-            ]
-
-            selected_model, ok = QInputDialog.getItem(
+        """アノテーション処理を開始（Phase 2.3: AnnotationWorkflowController統合版）"""
+        if not self.annotation_workflow_controller:
+            QMessageBox.warning(
                 self,
-                "モデル選択",
-                "アノテーションに使用するモデルを選択してください:",
-                available_models,
-                0,  # デフォルト選択
-                False,  # 編集不可
+                "コントローラー未初期化",
+                "AnnotationWorkflowControllerが初期化されていないため、アノテーション処理を開始できません。",
             )
+            return
 
-            if not ok:
-                logger.info("モデル選択がキャンセルされました")
-                return
+        # AnnotationWorkflowControllerに委譲
+        self.annotation_workflow_controller.start_annotation_workflow(
+            model_selection_callback=self._show_model_selection_dialog
+        )
 
-            models = [selected_model]
-            logger.info(f"ユーザー選択モデル: {selected_model}")
+    def _show_model_selection_dialog(self, available_models: list[str]) -> str | None:
+        """モデル選択ダイアログ表示（Callbackパターン）
 
-            # バッチアノテーション処理開始（AnnotationService経由）
-            logger.info(
-                f"バッチアノテーション処理開始: {len(image_paths)}画像, {len(models)}モデル"
-            )
+        Args:
+            available_models: 利用可能なモデル名リスト
 
-            # AnnotationService.start_batch_annotation()を呼び出し
-            # Signal経由で進捗・完了・エラーがハンドラに通知される
-            self.annotation_service.start_batch_annotation(
-                image_paths=image_paths,
-                models=models,
-                batch_size=50
-            )
+        Returns:
+            str | None: 選択されたモデル名、キャンセル時はNone
+        """
+        from PySide6.QtWidgets import QInputDialog
 
-            # 非ブロッキング通知でUIクラッシュを防止
-            status_msg = f"アノテーション処理を開始: {len(image_paths)}画像, モデル: {selected_model}"
-            self.statusBar().showMessage(status_msg, 5000)
+        selected_model, ok = QInputDialog.getItem(
+            self,
+            "モデル選択",
+            "アノテーションに使用するモデルを選択してください:",
+            available_models,
+            0,  # デフォルト選択
+            False,  # 編集不可
+        )
 
-        except Exception as e:
-            error_msg = f"アノテーション処理の開始に失敗しました: {e}"
-            logger.error(error_msg, exc_info=True)
-            QMessageBox.critical(self, "アノテーションエラー", error_msg)
+        return selected_model if ok else None
 
     def export_data(self) -> None:
         """データセットエクスポート機能を開く"""
