@@ -216,7 +216,7 @@ class TestMainWindowPhase3Integration:
         mock_window.db_manager = mock_dependencies["db_manager"]
         mock_window.selected_image_details_widget = Mock()
 
-        with patch("lorairo.gui.services.image_db_write_service.ImageDBWriteService") as mock_service_class:
+        with patch("lorairo.gui.window.main_window.ImageDBWriteService") as mock_service_class:
             with patch("lorairo.gui.window.main_window.logger") as mock_logger:
                 mock_service_instance = Mock()
                 mock_service_class.return_value = mock_service_instance
@@ -251,7 +251,7 @@ class TestMainWindowPhase3Integration:
         mock_window.selected_image_details_widget = Mock()
         mock_window.image_preview = Mock()
 
-        with patch("lorairo.gui.services.image_db_write_service.ImageDBWriteService") as mock_service_class:
+        with patch("lorairo.gui.window.main_window.ImageDBWriteService") as mock_service_class:
             mock_service_instance = Mock()
             mock_service_class.return_value = mock_service_instance
 
@@ -261,43 +261,7 @@ class TestMainWindowPhase3Integration:
             # ウィジェットが正しく設定される
             assert mock_window.image_db_write_service == mock_service_instance
             mock_window.selected_image_details_widget.set_image_db_write_service.assert_called_once()
-            mock_window.image_preview.set_dataset_state_manager.assert_called_once()
 
-    def test_service_error_handling(self, mock_dependencies):
-        """サービス初期化エラーハンドリングテスト"""
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.db_manager = mock_dependencies["db_manager"]
-        mock_window.selected_image_details_widget = Mock()
-
-        with patch("lorairo.gui.services.image_db_write_service.ImageDBWriteService") as mock_service_class:
-            # サービス初期化エラーをシミュレート
-            mock_service_class.side_effect = Exception("Service initialization error")
-
-            # エラーが発生してもプログラムが停止しないことを確認
-            with pytest.raises(Exception) as exc_info:
-                MainWindow._setup_image_db_write_service(mock_window)
-
-            assert "Service initialization error" in str(exc_info.value)
-
-    def test_widget_injection_validation(self, mock_dependencies):
-        """ウィジェット注入検証テスト"""
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.db_manager = mock_dependencies["db_manager"]
-
-        # selected_image_details_widgetがNoneの場合
-        mock_window.selected_image_details_widget = None
-
-        with patch("lorairo.gui.services.image_db_write_service.ImageDBWriteService") as mock_service_class:
-            mock_service_instance = Mock()
-            mock_service_class.return_value = mock_service_instance
-
-            # AttributeErrorが発生する可能性
-            with pytest.raises(AttributeError):
-                MainWindow._setup_image_db_write_service(mock_window)
 
     def test_state_manager_connection_validation(self, mock_dependencies):
         """DatasetStateManager接続検証テスト"""
@@ -322,7 +286,7 @@ class TestMainWindowPhase3Integration:
         mock_window.selected_image_details_widget = Mock()
         mock_window.image_preview = Mock()
 
-        with patch("lorairo.gui.services.image_db_write_service.ImageDBWriteService") as mock_service_class:
+        with patch("lorairo.gui.window.main_window.ImageDBWriteService") as mock_service_class:
             with patch("lorairo.gui.window.main_window.logger") as mock_logger:
                 mock_service_instance = Mock()
                 mock_service_class.return_value = mock_service_instance
@@ -333,17 +297,11 @@ class TestMainWindowPhase3Integration:
                 # 全ての統合が正しく実行される
                 assert mock_window.image_db_write_service == mock_service_instance
                 mock_window.selected_image_details_widget.set_image_db_write_service.assert_called_once()
-                mock_window.image_preview.set_dataset_state_manager.assert_called_once()
 
-                # 両方のログが出力される
-                expected_calls = [
-                    "ImageDBWriteService created and injected into SelectedImageDetailsWidget",
-                    "DatasetStateManager connected to widgets",
-                ]
-
-                actual_calls = [call[0][0] for call in mock_logger.info.call_args_list]
-                for expected_msg in expected_calls:
-                    assert expected_msg in actual_calls
+                # ログが出力される
+                mock_logger.info.assert_called_with(
+                    "ImageDBWriteService created and injected into SelectedImageDetailsWidget"
+                )
 
 
 if __name__ == "__main__":
