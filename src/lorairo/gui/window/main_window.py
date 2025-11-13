@@ -341,6 +341,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             logger.info("✅ SelectedImageDetailsWidget設定完了")
 
+        # スプリッター初期化（Qt標準機能使用）
+        if hasattr(self, "splitterMainWorkArea") and self.splitterMainWorkArea:
+            # 初期サイズ設定（左: 280px, 中央: 770px, 右: 350px）
+            self.splitterMainWorkArea.setSizes([280, 770, 350])
+
+            # ストレッチファクター設定（比率: 20%, 55%, 25%）
+            self.splitterMainWorkArea.setStretchFactor(0, 20)  # 左パネル
+            self.splitterMainWorkArea.setStretchFactor(1, 55)  # 中央パネル（サムネイル）
+            self.splitterMainWorkArea.setStretchFactor(2, 25)  # 右パネル
+
+            logger.info("✅ スプリッター初期化完了（Qt標準機能使用）")
+
         # 状態管理接続の検証
         self._verify_state_management_connections()
 
@@ -400,47 +412,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             logger.error("SelectionStateServiceが初期化されていません - 接続検証をスキップ")
 
-    def _setup_responsive_splitter(self) -> None:
-        """レスポンシブスプリッターサイズ設定"""
-        try:
-            # 現在のウィンドウサイズを取得
-            window_width = self.width()
-            if window_width < 800:  # 最小サイズ保証
-                window_width = 1400  # デフォルト幅
-
-            # 新しい比率: 左20%, 中央55%, 右25%
-            left_ratio = 0.20
-            center_ratio = 0.55  # サムネイルエリアを拡大
-            right_ratio = 0.25
-
-            # 最小・最大サイズ制限
-            min_left = 280
-            max_left = 400
-            min_center = 500  # サムネイル表示に必要な最小幅
-            min_right = 350
-
-            # 計算されたサイズ
-            calc_left = int(window_width * left_ratio)
-            calc_center = int(window_width * center_ratio)
-            calc_right = int(window_width * right_ratio)
-
-            # 制限適用
-            final_left = max(min_left, min(max_left, calc_left))
-            final_center = max(min_center, calc_center)
-            final_right = max(min_right, calc_right)
-
-            # サイズ適用
-            self.splitterMainWorkArea.setSizes([final_left, final_center, final_right])
-
-            logger.debug(
-                f"スプリッターサイズ設定: {final_left}:{final_center}:{final_right} "
-                f"(ウィンドウ幅: {window_width}px)"
-            )
-
-        except Exception as e:
-            # フォールバック: 改善された固定サイズ
-            logger.warning(f"動的サイズ計算失敗、フォールバック使用: {e}")
-            self.splitterMainWorkArea.setSizes([320, 800, 380])  # 改善された比率
 
     def _connect_events(self) -> None:
         """イベント接続を設定（安全な実装）"""
@@ -782,34 +753,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # Fallback: Service未初期化時は元画像のみ使用
         return [(Path(metadata["stored_image_path"]), metadata["id"]) for metadata in image_metadata]
 
-    def resizeEvent(self, event: QResizeEvent) -> None:
-        """ウィンドウリサイズイベント - スプリッターサイズを動的調整"""
-        try:
-            super().resizeEvent(event)
 
-            # スプリッターが存在し、初期化が完了している場合のみ調整
-            if hasattr(self, "splitterMainWorkArea") and self.splitterMainWorkArea is not None:
-                # リサイズ完了後に調整（イベントループで遅延実行）
-                QTimer.singleShot(50, self._adjust_splitter_on_resize)
-
-        except Exception as e:
-            logger.warning(f"リサイズイベント処理エラー: {e}")
-
-    def _adjust_splitter_on_resize(self) -> None:
-        """リサイズ後のスプリッター調整（遅延実行用）"""
-        try:
-            # 現在のサイズが変更されている場合のみ再計算
-            current_width = self.width()
-
-            # 小さすぎる場合はスキップ（初期化中の可能性）
-            if current_width < 600:
-                return
-
-            self._setup_responsive_splitter()
-            logger.debug(f"リサイズ後スプリッター調整完了: {current_width}px")
-
-        except Exception as e:
-            logger.warning(f"リサイズ後の調整エラー: {e}")
 
     def _setup_image_db_write_service(self) -> None:
         """ImageDBWriteServiceを作成してselected_image_details_widgetに注入
