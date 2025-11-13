@@ -6,11 +6,10 @@ alwaysApply: false
 version: "2.0.0"
 # LoRAIro データベース層 設計指針（SQLAlchemyパターン）
 
-## ドキュメント参照
-- 仕様 [database_management.md](mdc:docs/specs/core/database_management.md)
-- 計画 [database_schema_plan.md](mdc:docs/Plan/core/database_schema_plan.md)
-- 現在のアーキテクチャ [architecture.md](mdc:docs/architecture.md)
-- 技術仕様 [technical.md](mdc:docs/technical.md)
+## 参照メモリ
+- 設計概要: `.serena/memories/architecture_structure`（見出し「Data Layer」）
+- 実装ガイドライン: `.serena/memories/development_guidelines`
+- 運用・拡張履歴: `.serena/memories/phase2_completion_comprehensive_record_2025`、`.serena/memories/phase2_task2_3_coverage_configuration_fix_2025_11_06`
 
 ## 1. 設計思想・全体方針
 - 疎結合・単一責任・テスト容易性を最優先。
@@ -60,14 +59,14 @@ version: "2.0.0"
 ### 実装アプローチ
 1. **スキーマ拡張**: ProcessedImageテーブルとProcessedImageDictに`upscaler_used`フィールド追加
 2. **メタデータ追跡**: ImageProcessingManagerの戻り値をタプル形式に変更（Image, metadata dict）
-3. **情報記録**: 
+3. **情報記録**:
    - `was_upscaled=True`の場合のみ`upscaler_used`をメタデータに追加
    - アップスケール実行時は自動的に"upscaled"タグも追加
 4. **設定統合**: ImageDatabaseManagerに依存性注入でConfigurationServiceを追加
 
 ### データフロー
 ```
-設定ファイル → ConfigurationService → ImageDatabaseManager → 
+設定ファイル → ConfigurationService → ImageDatabaseManager →
 ImageProcessingManager → 処理メタデータ → ProcessedImageテーブル
 ```
 
@@ -195,10 +194,10 @@ processed_image, processing_metadata = ipm.process_image(...)
 if processed_image:
     processed_path = self.fsm.save_processed_image(...)
     processed_metadata = self.fsm.get_image_info(processed_path)
-    
+
     # アップスケール情報を追加
     processed_metadata["upscaler_used"] = processing_metadata.get("upscaler_used")
-    
+
     self.idm.register_processed_image(image_id, processed_path, processed_metadata)
 ```
 
@@ -214,8 +213,8 @@ if processed_image:
 3. ImageDatabaseManager更新
 4. 表示機能実装（後回し可）
 
-**決定日**: 2025-07-10  
-**ステータス**: 確定  
+**決定日**: 2025-07-10
+**ステータス**: 確定
 **承認者**: プロジェクト要件に基づく設計決定
 
 ```

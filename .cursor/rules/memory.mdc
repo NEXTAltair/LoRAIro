@@ -1,5 +1,5 @@
 ---
-description: プロジェクト全体コンテキストの索引用（詳細は docs/ と .serena/memories/ を参照）
+description: プロジェクト全体コンテキストの索引用（詳細は .serena/memories/ および Cipher 記憶を参照）
 globs:
 alwaysApply: false
 ---
@@ -7,15 +7,15 @@ alwaysApply: false
 
 このファイルは簡易インデックスです。詳細は以下を参照してください。
 
-- 設計/仕様/技術詳細: `docs/`（例: `docs/architecture.md`, `docs/technical.md`, `docs/specs/`）
-- 開発メモリ（機械）: `.serena/memories/`（serena による要約・差分・計画草案）
-- 人間の計画/進行: `tasks/`（`tasks/tasks_plan.md`, `tasks/active_context.md`）
+- 設計/仕様/技術詳細: `.serena/memories/`（長期的な内容は必要に応じて Cipher 記憶へ移送）
+- 開発メモリ（短期）: `.serena/memories/`（serena による要約・差分・計画草案）
+- 人間の計画/進行: `.serena/memories/`（例: `active-development-tasks`, `current-project-status`）
 
 運用ポリシー要約:
 - serena は `.serena/memories/` にのみ書き込み。
-- cipher は `docs/` と `tasks/` を更新し、必要なときに `.serena/memories/` の要点を鏡像。
-- 参照の優先順位: `.serena/memories/` → `docs/` → `tasks/`。
- - 詳細ルール: `.cursor/rules/mcp-usage-rules.mdc`
+- Cipher 記憶は長期知識の保存と検索に利用する。
+- 参照の優先順位: `.serena/memories/` → Cipher 記憶。
+- 詳細ルール: `.cursor/rules/mcp-usage-rules.mdc`
 
 補足:
-- 旧来の詳細なコンテキスト本文は廃止しました。最新状態は各ディレクトリを直接参照してください。
+- 旧来のファイルベース記録（`docs/`, `tasks/`）は廃止済み。必要な情報は `.serena/memories/` と Cipher 記憶を検索してください。
