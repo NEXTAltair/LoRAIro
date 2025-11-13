@@ -7,9 +7,7 @@ Version "1.0.0"
 
 # Cursorルール:ログを残す指針・ベストプラクティス
 
-
-**ロギングライブラリの仕様**
-- [logging_specification.md](mdc:docs/specs/core/logging_specification.md)
+- **参照メモリ**: `.serena/memories/logging_guidelines`
 
 ## ログ出力の頻度・タイミング
 

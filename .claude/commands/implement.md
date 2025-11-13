@@ -178,9 +178,12 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 #### 実装知識の蓄積
 実装判断と教訓を長期記憶として保存（**mcp-memory-first-development** Skill参照）
 
-## 必読ファイル
+## 参照メモリ / ソース
 
-- `tasks/plans/plan_{plan_purpose}_{YYYYMMDD_HHMMSS}.md` - 実装計画詳細
+- `.serena/memories/active-development-tasks` - 実装対象タスクの詳細
+- `.serena/memories/current-project-status` - 最新状況と依存関係
+- `.serena/memories/development_guidelines` - 共通実装パターン
+- `.serena/memories/architecture_structure` - コンポーネント関係
 - `.claude/commands/implement.md` - 実装ガイドライン(本コマンド文書を一次参照とし、最新手順はここに集約)
 - `src/lorairo/services/` - 既存サービス実装パターン
 - `src/lorairo/database/schema.py` - データベーススキーマ

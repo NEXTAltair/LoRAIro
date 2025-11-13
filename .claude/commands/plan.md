@@ -137,11 +137,13 @@ investigateフェーズで特定された要件と課題を基に、上記実装
 #### 設計知識の蓄積
 設計判断と教訓を長期記憶として保存（**mcp-memory-first-development** Skill参照）
 
-## 必読ファイル
-- `tasks/investigations/investigate_{investigation_target}_{YYYYMMDD_HHMMSS}.md` - 前フェーズの結果
+## 参照メモリ / ソース
+- `.serena/memories/current-project-status` - 最新プロジェクト状況
+- `.serena/memories/active-development-tasks` - 進行中タスクと課題
+- `.serena/memories/architecture_structure` - モジュール構成・アーキテクチャ
+- `.serena/memories/development_guidelines` - 実装パターン・設計指針
+- `.serena/memories/image_annotator_lib_completion_master_plan` など関連フェーズ記録
 - `.claude/commands/plan.md` - プランニングガイドライン(本コマンド文書を一次参照とし、最新手順はここに集約)
-- `docs/architecture.md` - アーキテクチャ仕様
-- `docs/technical.md` - 技術実装パターン
 - `src/lorairo/services/` - 既存サービス実装
 - `src/lorairo/database/schema.py` - データベース構造
 - `config/lorairo.toml` - 現在の設定

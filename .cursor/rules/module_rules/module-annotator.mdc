@@ -6,19 +6,11 @@ alwaysApply: false
 version: "2.0.0"
 # LoRAIro AI Annotation Module Guidelines
 
-## ドキュメント参照
-### 計画・仕様ドキュメント
-- 仕様 [ai_annotation_core_spec.md](mdc:docs/specs/core/ai_annotation_core_spec.md)
-- 計画 [ai_annotation_core_plan.md](mdc:docs/Plan/core/ai_annotation_core_plan.md)
-- アプリケーション仕様 [ai_annotation_application_spec.md](mdc:docs/specs/application/ai_annotation_application_spec.md)
-- アプリケーション計画 [ai_annotation_application_plan.md](mdc:docs/Plan/application/ai_annotation_application_plan.md)
-- インターフェース仕様 [ai_annotation_interface_specs.md](mdc:docs/specs/interfaces/ai_annotation_interface_specs.md)
-- インターフェース計画 [ai_annotation_interface_plan.md](mdc:docs/Plan/interfaces/ai_annotation_interface_plan.md)
-
-### 現在のドキュメント
-- アーキテクチャ [architecture.md](mdc:docs/architecture.md)
-- 技術仕様 [technical.md](mdc:docs/technical.md)
-- 製品要件 [product_requirement_docs.md](mdc:docs/product_requirement_docs.md)
+## 参照メモリ
+- 全体計画: `.serena/memories/image_annotator_lib_completion_master_plan`
+- 設計整理: `.serena/memories/annotator_lib_memory_reorganization_design_2025_10_30`
+- 教訓・ベストプラクティス: `.serena/memories/annotator_lib_lessons_learned`
+- アーキテクチャ/技術スタック: `.serena/memories/architecture_structure`, `.serena/memories/tech_stack`
 
 ## 現在の実装状況
 
