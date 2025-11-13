@@ -441,55 +441,51 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.warning("WorkerService not available - pipeline signals not connected")
             return
 
-        try:
-            # Verify WorkerService has required signals
-            required_signals = [
-                "search_finished",
-                "search_started",
-                "search_error",
-                "thumbnail_finished",
-                "thumbnail_started",
-                "thumbnail_error",
-                "batch_registration_started",
-                "batch_registration_finished",
-                "batch_registration_error",
-                "worker_progress_updated",
-                "worker_batch_progress",
-            ]
+        # Verify WorkerService has required signals
+        required_signals = [
+            "search_finished",
+            "search_started",
+            "search_error",
+            "thumbnail_finished",
+            "thumbnail_started",
+            "thumbnail_error",
+            "batch_registration_started",
+            "batch_registration_finished",
+            "batch_registration_error",
+            "worker_progress_updated",
+            "worker_batch_progress",
+        ]
 
-            missing_signals = [
-                signal for signal in required_signals if not hasattr(self.worker_service, signal)
-            ]
+        missing_signals = [
+            signal for signal in required_signals if not hasattr(self.worker_service, signal)
+        ]
 
-            if missing_signals:
-                logger.error(f"WorkerService missing required signals: {missing_signals}")
-                return
+        if missing_signals:
+            logger.error(f"WorkerService missing required signals: {missing_signals}")
+            return
 
-            # Core pipeline connections
-            self.worker_service.search_finished.connect(self._on_search_completed_start_thumbnail)
-            self.worker_service.thumbnail_finished.connect(self._on_thumbnail_completed_update_display)
+        # Core pipeline connections
+        self.worker_service.search_finished.connect(self._on_search_completed_start_thumbnail)
+        self.worker_service.thumbnail_finished.connect(self._on_thumbnail_completed_update_display)
 
-            # Progress tracking connections
-            self.worker_service.search_started.connect(self._on_pipeline_search_started)
-            self.worker_service.thumbnail_started.connect(self._on_pipeline_thumbnail_started)
+        # Progress tracking connections
+        self.worker_service.search_started.connect(self._on_pipeline_search_started)
+        self.worker_service.thumbnail_started.connect(self._on_pipeline_thumbnail_started)
 
-            # Error handling connections
-            self.worker_service.search_error.connect(self._on_pipeline_search_error)
-            self.worker_service.thumbnail_error.connect(self._on_pipeline_thumbnail_error)
+        # Error handling connections
+        self.worker_service.search_error.connect(self._on_pipeline_search_error)
+        self.worker_service.thumbnail_error.connect(self._on_pipeline_thumbnail_error)
 
-            # Batch registration connections
-            self.worker_service.batch_registration_started.connect(self._on_batch_registration_started)
-            self.worker_service.batch_registration_finished.connect(self._on_batch_registration_finished)
-            self.worker_service.batch_registration_error.connect(self._on_batch_registration_error)
+        # Batch registration connections
+        self.worker_service.batch_registration_started.connect(self._on_batch_registration_started)
+        self.worker_service.batch_registration_finished.connect(self._on_batch_registration_finished)
+        self.worker_service.batch_registration_error.connect(self._on_batch_registration_error)
 
-            # Progress feedback connections
-            self.worker_service.worker_progress_updated.connect(self._on_worker_progress_updated)
-            self.worker_service.worker_batch_progress.connect(self._on_worker_batch_progress)
+        # Progress feedback connections
+        self.worker_service.worker_progress_updated.connect(self._on_worker_progress_updated)
+        self.worker_service.worker_batch_progress.connect(self._on_worker_batch_progress)
 
-            logger.info("WorkerService pipeline signals connected (13 connections)")
-
-        except Exception as e:
-            logger.error(f"Pipeline signals connection failed: {e}", exc_info=True)
+        logger.info("WorkerService pipeline signals connected (13 connections)")
 
     def _connect_annotation_service_signals(self) -> None:
         """AnnotationService signal connections setup"""
