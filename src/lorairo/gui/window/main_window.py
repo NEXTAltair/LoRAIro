@@ -23,6 +23,7 @@ from ..controllers.annotation_workflow_controller import AnnotationWorkflowContr
 from ..controllers.dataset_controller import DatasetController
 from ..services.image_db_write_service import ImageDBWriteService
 from ..services.pipeline_control_service import PipelineControlService
+from ..services.progress_state_service import ProgressStateService
 from ..services.result_handler_service import ResultHandlerService
 from ..services.search_filter_service import SearchFilterService
 from ..services.worker_service import WorkerService
@@ -613,14 +614,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error("PipelineControlService が初期化されていません - エラー処理をスキップ")
 
     def _on_batch_registration_started(self, worker_id: str) -> None:
-        """Batch registration started signal handler"""
-        logger.info(f"バッチ登録開始: worker_id={worker_id}")
+        """Batch registration started signal handler（ProgressStateServiceに委譲）
 
-        # UI feedback - show user that processing has started
-        try:
-            self.statusBar().showMessage("データベース登録処理を開始しています...")
-        except Exception as e:
-            logger.debug(f"Status bar update failed: {e}")
+        Phase 2.6 Stage 2: ProgressStateServiceに完全委譲。
+        """
+        if self.progress_state_service:
+            self.progress_state_service.on_batch_registration_started(worker_id)
+        else:
+            logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
 
     def _on_batch_registration_finished(self, result: Any) -> None:
         """Batch registration finished signal handler（Phase 2.4 Stage 4-2: ResultHandlerService委譲）"""
@@ -634,45 +635,37 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.statusBar().showMessage("バッチ登録完了", 5000)
 
     def _on_batch_registration_error(self, error_message: str) -> None:
-        """Batch registration error signal handler"""
+        """Batch registration error signal handler（ProgressStateServiceに委譲 + QMessageBox）
+
+        Phase 2.6 Stage 2: ProgressStateServiceに委譲（ステータスバー）、QMessageBoxはMainWindowで表示。
+        """
+        if self.progress_state_service:
+            self.progress_state_service.on_batch_registration_error(error_message)
+
+        # QMessageBoxはMainWindowで表示（UI要素のため）
         QMessageBox.critical(
             self, "バッチ登録エラー", f"バッチ登録中にエラーが発生しました:\n\n{error_message}"
         )
 
     def _on_worker_progress_updated(self, worker_id: str, progress: Any) -> None:
-        """Worker progress update signal handler"""
-        try:
-            # Extract progress information
-            if hasattr(progress, "current") and hasattr(progress, "total"):
-                current = progress.current
-                total = progress.total
-                percentage = int((current / total) * 100) if total > 0 else 0
+        """Worker progress update signal handler（ProgressStateServiceに委譲）
 
-                # Update status bar with progress
-                status_message = f"処理中... {current}/{total} ({percentage}%)"
-                self.statusBar().showMessage(status_message)
-
-                logger.debug(f"ワーカー進捗更新: {worker_id} - {current}/{total} ({percentage}%)")
-
-            else:
-                logger.debug(f"ワーカー進捗更新: {worker_id} - {progress}")
-
-        except Exception as e:
-            logger.warning(f"進捗更新処理エラー: {e}")
+        Phase 2.6 Stage 2: ProgressStateServiceに完全委譲。
+        """
+        if self.progress_state_service:
+            self.progress_state_service.on_worker_progress_updated(worker_id, progress)
+        else:
+            logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
 
     def _on_worker_batch_progress(self, worker_id: str, current: int, total: int, filename: str) -> None:
-        """Worker batch progress update signal handler"""
-        try:
-            percentage = int((current / total) * 100) if total > 0 else 0
+        """Worker batch progress update signal handler（ProgressStateServiceに委譲）
 
-            # Update status bar with detailed batch progress
-            status_message = f"バッチ処理中... {current}/{total} ({percentage}%) - {filename}"
-            self.statusBar().showMessage(status_message)
-
-            logger.debug(f"バッチ進捗更新: {worker_id} - {current}/{total} ({percentage}%) - {filename}")
-
-        except Exception as e:
-            logger.warning(f"バッチ進捗更新処理エラー: {e}")
+        Phase 2.6 Stage 2: ProgressStateServiceに完全委譲。
+        """
+        if self.progress_state_service:
+            self.progress_state_service.on_worker_batch_progress(worker_id, current, total, filename)
+        else:
+            logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
 
     # AnnotationService signal handlers (Phase 5 Stage 3)
     def _on_annotation_finished(self, result: Any) -> None:
@@ -692,34 +685,24 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.statusBar().showMessage(f"エラー: {error_msg}", 8000)
 
     def _on_batch_annotation_started(self, total_images: int) -> None:
-        """バッチアノテーション開始ハンドラ"""
-        try:
-            logger.info(f"バッチアノテーション開始: {total_images}画像")
+        """バッチアノテーション開始ハンドラ（ProgressStateServiceに委譲）
 
-            # ステータスバー表示
-            self.statusBar().showMessage(f"アノテーション処理開始: {total_images}画像を処理中...", 10000)
-
-            # TODO: Stage 4でプログレスバー表示を追加
-            # self._show_progress_dialog(total_images)
-
-        except Exception as e:
-            logger.error(f"バッチ開始ハンドラエラー: {e}", exc_info=True)
+        Phase 2.6 Stage 2: ProgressStateServiceに完全委譲。
+        """
+        if self.progress_state_service:
+            self.progress_state_service.on_batch_annotation_started(total_images)
+        else:
+            logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
 
     def _on_batch_annotation_progress(self, processed: int, total: int) -> None:
-        """バッチアノテーション進捗ハンドラ"""
-        try:
-            percentage = int((processed / total) * 100) if total > 0 else 0
+        """バッチアノテーション進捗ハンドラ（ProgressStateServiceに委譲）
 
-            # ステータスバー更新
-            self.statusBar().showMessage(f"アノテーション処理中... {processed}/{total} ({percentage}%)")
-
-            logger.debug(f"バッチ進捗: {processed}/{total} ({percentage}%)")
-
-            # TODO: Stage 4でプログレスバー更新を追加
-            # self._update_progress_dialog(processed, total)
-
-        except Exception as e:
-            logger.warning(f"進捗ハンドラエラー: {e}")
+        Phase 2.6 Stage 2: ProgressStateServiceに完全委譲。
+        """
+        if self.progress_state_service:
+            self.progress_state_service.on_batch_annotation_progress(processed, total)
+        else:
+            logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
 
     def _on_batch_annotation_finished(self, result: Any) -> None:
         """バッチアノテーション完了ハンドラ（Phase 2.4 Stage 4-2: ResultHandlerService委譲）"""
@@ -977,14 +960,20 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             )
             logger.info("  ✅ PipelineControlService初期化成功")
 
-            logger.info("Phase 2.4 Service層統合完了")
+            # ProgressStateService初期化（Phase 2.6 Stage 2）
+            logger.info("  - ProgressStateService初期化中...")
+            self.progress_state_service = ProgressStateService(status_bar=self.statusBar())
+            logger.info("  ✅ ProgressStateService初期化成功")
+
+            logger.info("Phase 2.4-2.6 Service層統合完了")
 
         except Exception as e:
-            logger.error(f"Phase 2.4 Service層統合失敗: {e}", exc_info=True)
+            logger.error(f"Service層統合失敗: {e}", exc_info=True)
             logger.warning("一部のService機能は利用できませんが、その他の機能は正常に動作します")
             self.data_transform_service = None
             self.result_handler_service = None
             self.pipeline_control_service = None
+            self.progress_state_service = None
 
     def open_settings(self) -> None:
         """設定ウィンドウを開く（SettingsControllerに委譲）"""
