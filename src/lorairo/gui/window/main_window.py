@@ -295,60 +295,51 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # ThumbnailSelectorWidget設定
         if hasattr(self, "thumbnailSelectorWidget") and self.thumbnailSelectorWidget:
-            try:
-                # ThumbnailSelectorWidgetの追加設定があればここに実装
-                self.thumbnail_selector = self.thumbnailSelectorWidget
+            # ThumbnailSelectorWidgetの追加設定があればここに実装
+            self.thumbnail_selector = self.thumbnailSelectorWidget
 
-                # DatasetStateManager接続 - 状態管理復旧
-                if self.dataset_state_manager:
-                    self.thumbnail_selector.set_dataset_state(self.dataset_state_manager)
-                    logger.info("✅ ThumbnailSelectorWidget DatasetStateManager接続完了")
-                else:
-                    logger.warning(
-                        "⚠️ DatasetStateManagerが初期化されていません - ThumbnailSelectorWidget接続をスキップ"
-                    )
+            # DatasetStateManager接続 - 状態管理復旧
+            if self.dataset_state_manager:
+                self.thumbnail_selector.set_dataset_state(self.dataset_state_manager)
+                logger.info("✅ ThumbnailSelectorWidget DatasetStateManager接続完了")
+            else:
+                logger.warning(
+                    "⚠️ DatasetStateManagerが初期化されていません - ThumbnailSelectorWidget接続をスキップ"
+                )
 
-                logger.info("✅ ThumbnailSelectorWidget設定完了")
-            except Exception as e:
-                logger.error(f"ThumbnailSelectorWidget設定エラー: {e}")
+            logger.info("✅ ThumbnailSelectorWidget設定完了")
 
         # ImagePreviewWidget設定
         if hasattr(self, "imagePreviewWidget") and self.imagePreviewWidget:
-            try:
-                # ImagePreviewWidgetの追加設定があればここに実装
-                self.image_preview_widget = self.imagePreviewWidget
+            # ImagePreviewWidgetの追加設定があればここに実装
+            self.image_preview_widget = self.imagePreviewWidget
 
-                # DatasetStateManager接続 - Enhanced Event-Driven Pattern
-                if self.dataset_state_manager:
-                    self.image_preview_widget.connect_to_data_signals(self.dataset_state_manager)
-                    logger.info("✅ ImagePreviewWidget データシグナル接続完了")
-                else:
-                    logger.warning(
-                        "⚠️ DatasetStateManagerが初期化されていません - ImagePreviewWidget接続をスキップ"
-                    )
+            # DatasetStateManager接続 - Enhanced Event-Driven Pattern
+            if self.dataset_state_manager:
+                self.image_preview_widget.connect_to_data_signals(self.dataset_state_manager)
+                logger.info("✅ ImagePreviewWidget データシグナル接続完了")
+            else:
+                logger.warning(
+                    "⚠️ DatasetStateManagerが初期化されていません - ImagePreviewWidget接続をスキップ"
+                )
 
-                logger.info("✅ ImagePreviewWidget設定完了")
-            except Exception as e:
-                logger.error(f"ImagePreviewWidget設定エラー: {e}")
+            logger.info("✅ ImagePreviewWidget設定完了")
 
         # SelectedImageDetailsWidget設定
         if hasattr(self, "selectedImageDetailsWidget") and self.selectedImageDetailsWidget:
-            try:
-                # SelectedImageDetailsWidgetの追加設定があればここに実装
-                self.selected_image_details_widget = self.selectedImageDetailsWidget
+            # SelectedImageDetailsWidgetの追加設定があればここに実装
+            self.selected_image_details_widget = self.selectedImageDetailsWidget
 
-                # DatasetStateManager接続 - Enhanced Event-Driven Pattern
-                if self.dataset_state_manager:
-                    self.selected_image_details_widget.connect_to_data_signals(self.dataset_state_manager)
-                    logger.info("✅ SelectedImageDetailsWidget データシグナル接続完了")
-                else:
-                    logger.warning(
-                        "⚠️ DatasetStateManagerが初期化されていません - SelectedImageDetailsWidget接続をスキップ"
-                    )
+            # DatasetStateManager接続 - Enhanced Event-Driven Pattern
+            if self.dataset_state_manager:
+                self.selected_image_details_widget.connect_to_data_signals(self.dataset_state_manager)
+                logger.info("✅ SelectedImageDetailsWidget データシグナル接続完了")
+            else:
+                logger.warning(
+                    "⚠️ DatasetStateManagerが初期化されていません - SelectedImageDetailsWidget接続をスキップ"
+                )
 
-                logger.info("✅ SelectedImageDetailsWidget設定完了")
-            except Exception as e:
-                logger.error(f"SelectedImageDetailsWidget設定エラー: {e}")
+            logger.info("✅ SelectedImageDetailsWidget設定完了")
 
         # 状態管理接続の検証
         self._verify_state_management_connections()
@@ -825,22 +816,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         Phase 3.4: DB操作分離パターンの実装
         """
-        try:
-            if self.db_manager and self.selected_image_details_widget:
-                # ImageDBWriteServiceを作成
-                self.image_db_write_service = ImageDBWriteService(self.db_manager)
+        if self.db_manager and self.selected_image_details_widget:
+            # ImageDBWriteServiceを作成
+            self.image_db_write_service = ImageDBWriteService(self.db_manager)
 
-                # SelectedImageDetailsWidgetに注入
-                self.selected_image_details_widget.set_image_db_write_service(self.image_db_write_service)
+            # SelectedImageDetailsWidgetに注入
+            self.selected_image_details_widget.set_image_db_write_service(self.image_db_write_service)
 
-                logger.info("ImageDBWriteService created and injected into SelectedImageDetailsWidget")
-            else:
-                logger.warning(
-                    "Cannot setup ImageDBWriteService: db_manager or selected_image_details_widget not available"
-                )
-
-        except Exception as e:
-            logger.error(f"ImageDBWriteService setup failed: {e}", exc_info=True)
+            logger.info("ImageDBWriteService created and injected into SelectedImageDetailsWidget")
+        else:
+            logger.warning(
+                "Cannot setup ImageDBWriteService: db_manager or selected_image_details_widget not available"
+            )
 
     def _create_search_filter_service(self) -> SearchFilterService:
         """
