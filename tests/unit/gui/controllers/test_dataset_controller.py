@@ -210,9 +210,7 @@ class TestDatasetController:
         # Arrange
         selected_dir = Path("/test/dataset")
         mock_dialog_callback = Mock(return_value=selected_dir)
-        mock_file_system_manager.initialize_from_dataset_selection.side_effect = Exception(
-            "Test error"
-        )
+        mock_file_system_manager.initialize_from_dataset_selection.side_effect = Exception("Test error")
 
         # Act
         controller.select_and_register_images(mock_dialog_callback)

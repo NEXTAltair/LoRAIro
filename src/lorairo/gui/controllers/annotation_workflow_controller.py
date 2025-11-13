@@ -206,9 +206,7 @@ class AnnotationWorkflowController:
                 "google_key": "google",
             }
 
-            available_providers = [
-                provider for key, provider in key_to_provider.items() if key in api_keys
-            ]
+            available_providers = [provider for key, provider in key_to_provider.items() if key in api_keys]
 
             if available_providers:
                 # 利用可能なプロバイダーに基づいてモデルを追加
@@ -226,9 +224,7 @@ class AnnotationWorkflowController:
                     if provider in provider_models:
                         available_models.extend(provider_models[provider])
 
-                logger.info(
-                    f"利用可能なプロバイダーに基づいてモデルを選択: {available_providers}"
-                )
+                logger.info(f"利用可能なプロバイダーに基づいてモデルを選択: {available_providers}")
                 return available_models
 
         except Exception as e:
@@ -246,9 +242,7 @@ class AnnotationWorkflowController:
             models: モデル名リスト
         """
         try:
-            logger.info(
-                f"バッチアノテーション処理開始: {len(image_paths)}画像, {len(models)}モデル"
-            )
+            logger.info(f"バッチアノテーション処理開始: {len(image_paths)}画像, {len(models)}モデル")
 
             # AnnotationService.start_batch_annotation()を呼び出し
             # Signal経由で進捗・完了・エラーがハンドラに通知される
@@ -257,9 +251,7 @@ class AnnotationWorkflowController:
             )
 
             # 非ブロッキング通知
-            status_msg = (
-                f"アノテーション処理を開始: {len(image_paths)}画像, モデル: {models[0]}"
-            )
+            status_msg = f"アノテーション処理を開始: {len(image_paths)}画像, モデル: {models[0]}"
             logger.info(status_msg)
 
         except Exception as e:
