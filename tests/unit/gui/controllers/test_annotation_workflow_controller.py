@@ -115,14 +115,13 @@ class TestStartAnnotationWorkflow:
         mock_config_service,
     ):
         """正常なアノテーション開始"""
+
         # Setup - モデル選択callback
         def model_selection_callback(available_models: list[str]) -> str:
             return "gpt-4o-mini"
 
         # Execute
-        controller.start_annotation_workflow(
-            model_selection_callback=model_selection_callback
-        )
+        controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
 
         # Assert - SelectionStateService呼び出し確認
         mock_selection_state_service.get_selected_image_paths.assert_called_once()
@@ -160,25 +159,20 @@ class TestStartAnnotationWorkflow:
 
         # Execute & Assert
         # ValueError should be caught and handled gracefully
-        controller.start_annotation_workflow(
-            model_selection_callback=model_selection_callback
-        )
+        controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
 
         # Assert - AnnotationServiceは呼ばれない
         mock_annotation_service.start_batch_annotation.assert_not_called()
 
-    def test_start_annotation_workflow_model_selection_cancelled(
-        self, controller, mock_annotation_service
-    ):
+    def test_start_annotation_workflow_model_selection_cancelled(self, controller, mock_annotation_service):
         """モデル選択キャンセル"""
+
         # Setup - callback returns None (cancelled)
         def model_selection_callback(available_models: list[str]) -> str | None:
             return None
 
         # Execute
-        controller.start_annotation_workflow(
-            model_selection_callback=model_selection_callback
-        )
+        controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
 
         # Assert - AnnotationServiceは呼ばれない
         mock_annotation_service.start_batch_annotation.assert_not_called()
@@ -196,9 +190,7 @@ class TestStartAnnotationWorkflow:
             return "gpt-4o-mini"
 
         # Execute
-        controller.start_annotation_workflow(
-            model_selection_callback=model_selection_callback
-        )
+        controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
 
         # Assert - デフォルトモデルで実行される
         mock_annotation_service.start_batch_annotation.assert_called_once()
@@ -217,17 +209,13 @@ class TestStartAnnotationWorkflow:
             config_service=mock_config_service,
             parent=None,
         )
-        mock_annotation_service.start_batch_annotation.side_effect = RuntimeError(
-            "Annotation failed"
-        )
+        mock_annotation_service.start_batch_annotation.side_effect = RuntimeError("Annotation failed")
 
         def model_selection_callback(available_models: list[str]) -> str:
             return "gpt-4o-mini"
 
         # Execute - Should handle exception gracefully
-        controller.start_annotation_workflow(
-            model_selection_callback=model_selection_callback
-        )
+        controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
 
         # Assert - Exception was caught
         mock_annotation_service.start_batch_annotation.assert_called_once()
@@ -248,9 +236,7 @@ class TestStartAnnotationWorkflow:
             return "gpt-4o-mini"
 
         # Execute & Assert - Should handle gracefully
-        controller.start_annotation_workflow(
-            model_selection_callback=model_selection_callback
-        )
+        controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
 
     def test_start_annotation_workflow_no_selection_service(
         self, mock_annotation_service, mock_config_service
@@ -268,9 +254,7 @@ class TestStartAnnotationWorkflow:
             return "gpt-4o-mini"
 
         # Execute & Assert - Should handle gracefully
-        controller.start_annotation_workflow(
-            model_selection_callback=model_selection_callback
-        )
+        controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
 
         # Assert
         mock_annotation_service.start_batch_annotation.assert_not_called()
@@ -292,16 +276,12 @@ class TestStartAnnotationWorkflow:
             return available_models[0]
 
         # Execute
-        controller.start_annotation_workflow(
-            model_selection_callback=model_selection_callback
-        )
+        controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
 
         # Assert - デフォルトモデルで実行
         mock_annotation_service.start_batch_annotation.assert_called_once()
 
-    def test_start_annotation_workflow_with_available_providers(
-        self, controller, mock_config_service
-    ):
+    def test_start_annotation_workflow_with_available_providers(self, controller, mock_config_service):
         """利用可能なプロバイダーに基づくモデル選択"""
         # Setup
         mock_config_service.get_api_keys.return_value = {
@@ -317,9 +297,7 @@ class TestStartAnnotationWorkflow:
             return available_models[0]
 
         # Execute
-        controller.start_annotation_workflow(
-            model_selection_callback=model_selection_callback
-        )
+        controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
 
         # Assert - 全プロバイダーのモデルが利用可能
         assert len(available_models_captured) >= 3  # OpenAI, Anthropic, Google models

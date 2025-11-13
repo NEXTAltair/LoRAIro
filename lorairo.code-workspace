@@ -122,7 +122,78 @@
         "Pylance",
         "pyproject",
         "qtbot"
-    ]
+    ],
+    "todo-tree.highlights.useColourScheme": false,
+    "todo-tree.general.tags": [
+        "BUG",
+        "HACK",
+        "FIXME",
+        "TODO",
+        "XXX",
+        "[ ]",
+        "[x]",
+        "REFACTOR",
+        "DOCS",
+        "TEST",
+        "RESPONSIBILITY_SEPARATION",
+        "UNCLEAR_STRUCTURE",
+        "MAGIC_NUMBER",
+        "INEFFICIENT_LOOP"
+    ],
+    "todo-tree.highlights.customHighlight": {
+      "BUG": {
+        "foreground": "#FF0000",
+        "icon": "bug"
+      },
+      "REFACTOR": {
+        "foreground": "#00BFFF",
+        "icon": "tools"
+      },
+      "DOCS": {
+        "foreground": "#32CD32",
+        "icon": "book"
+      },
+      "TEST": {
+        "foreground": "#8A2BE2",
+        "icon": "beaker"
+      },
+      "TODO": {
+        "foreground": "#FFD700",
+        "icon": "check"
+      },
+      "FIXME": {
+        "foreground": "#FFA500",
+        "icon": "flame"
+      },
+      "RESPONSIBILITY_SEPARATION": {
+        "foreground": "#FF4500",
+        "icon": "alert"
+      },
+      "UNCLEAR_STRUCTURE": {
+        "foreground": "#DAA520",
+        "icon": "file-directory"
+      },
+      "MAGIC_NUMBER": {
+        "foreground": "#9932CC",
+        "icon": "hash"
+      },
+      "INEFFICIENT_LOOP": {
+        "foreground": "#FF1493",
+        "icon": "zap"
+      },
+      "HACK": {
+        "foreground": "#B22222"
+      },
+      "XXX": {
+        "foreground": "#B22222"
+      },
+      "[ ]": {
+        "icon": "circle-slash"
+      },
+      "[x]": {
+        "icon": "check"
+      }
+    }
   },
   // Extensions managed by devcontainer.json
   "extensions": {

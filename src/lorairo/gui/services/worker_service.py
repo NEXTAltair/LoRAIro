@@ -209,7 +209,11 @@ class WorkerService(QObject):
             raise RuntimeError(f"Enhanced Annotationワーカー開始失敗: {worker_id}")
 
     def start_enhanced_batch_annotation(
-        self, image_paths: list[str], models: list[str], batch_size: int = 100, api_keys: dict[str, str] | None = None
+        self,
+        image_paths: list[str],
+        models: list[str],
+        batch_size: int = 100,
+        api_keys: dict[str, str] | None = None,
     ) -> str:
         """Enhancedバッチアノテーション開始
 

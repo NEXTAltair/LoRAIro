@@ -65,9 +65,7 @@ class SelectionStateService:
         # 第2優先（最終）: filtered_images（表示中の全画像）から取得
         if self.dataset_state_manager.has_filtered_images():
             filtered_images = self.dataset_state_manager.filtered_images
-            logger.info(
-                f"画像未選択のため、表示中の全画像を使用: {len(filtered_images)}件"
-            )
+            logger.info(f"画像未選択のため、表示中の全画像を使用: {len(filtered_images)}件")
             return self._extract_valid_images(filtered_images)
 
         # 画像が見つからない
@@ -111,9 +109,7 @@ class SelectionStateService:
             elif not image_data:
                 logger.warning(f"画像ID {image_id} のデータが取得できませんでした（スキップ）")
             else:
-                logger.warning(
-                    f"画像ID {image_id} に stored_image_path がありません（スキップ）"
-                )
+                logger.warning(f"画像ID {image_id} に stored_image_path がありません（スキップ）")
         return images
 
     def _extract_valid_images(self, images: list[dict]) -> list[dict]:

@@ -67,9 +67,7 @@ class TestSelectionStateServiceInit:
 class TestGetSelectedImagesForAnnotation:
     """get_selected_images_for_annotation()テスト"""
 
-    def test_get_selected_images_success_from_selected_ids(
-        self, service, mock_dataset_state_manager
-    ):
+    def test_get_selected_images_success_from_selected_ids(self, service, mock_dataset_state_manager):
         """第1優先: selected_image_idsから取得成功"""
         # Setup
         mock_dataset_state_manager.selected_image_ids = [1, 2, 3]
@@ -89,9 +87,7 @@ class TestGetSelectedImagesForAnnotation:
         assert result[2]["id"] == 3
         assert mock_dataset_state_manager.get_image_by_id.call_count == 3
 
-    def test_get_selected_images_fallback_to_filtered(
-        self, service, mock_dataset_state_manager
-    ):
+    def test_get_selected_images_fallback_to_filtered(self, service, mock_dataset_state_manager):
         """第2優先（最終）: filtered_imagesから取得"""
         # Setup - No selected_image_ids
         mock_dataset_state_manager.selected_image_ids = []
@@ -109,9 +105,7 @@ class TestGetSelectedImagesForAnnotation:
         assert result[0]["id"] == 10
         assert result[1]["id"] == 11
 
-    def test_get_selected_images_no_selection_error(
-        self, service, mock_dataset_state_manager
-    ):
+    def test_get_selected_images_no_selection_error(self, service, mock_dataset_state_manager):
         """画像未選択エラー"""
         # Setup - No images anywhere
         mock_dataset_state_manager.selected_image_ids = []
@@ -122,9 +116,7 @@ class TestGetSelectedImagesForAnnotation:
         with pytest.raises(ValueError, match="アノテーション対象の画像が選択されていません"):
             service.get_selected_images_for_annotation()
 
-    def test_get_selected_images_with_missing_image_data(
-        self, service, mock_dataset_state_manager
-    ):
+    def test_get_selected_images_with_missing_image_data(self, service, mock_dataset_state_manager):
         """一部の画像データが取得できない場合（スキップして継続）"""
         # Setup
         mock_dataset_state_manager.selected_image_ids = [1, 2, 3]
@@ -142,9 +134,7 @@ class TestGetSelectedImagesForAnnotation:
         assert result[0]["id"] == 1
         assert result[1]["id"] == 3
 
-    def test_get_selected_images_with_missing_path(
-        self, service, mock_dataset_state_manager
-    ):
+    def test_get_selected_images_with_missing_path(self, service, mock_dataset_state_manager):
         """stored_image_pathが欠落している画像をスキップ"""
         # Setup
         mock_dataset_state_manager.selected_image_ids = [1, 2]

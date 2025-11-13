@@ -553,71 +553,64 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"AnnotationService signal connection failed: {e}", exc_info=True)
 
     def _on_search_completed_start_thumbnail(self, search_result: Any) -> None:
-        """SearchWorker完了時にThumbnailWorkerを自動起動（SearchPipelineServiceに委譲）"""
-        if self.search_pipeline_service:
-            self.search_pipeline_service.on_search_completed(search_result)
+        """SearchWorker完了時にThumbnailWorkerを自動起動（PipelineControlServiceに委譲）
+
+        Phase 2.5 Stage 4: PipelineControlServiceに完全委譲。
+        """
+        if self.pipeline_control_service:
+            self.pipeline_control_service.on_search_completed(search_result)
         else:
-            logger.error("SearchPipelineServiceが初期化されていません - サムネイル読み込みをスキップ")
+            logger.error("PipelineControlService が初期化されていません - サムネイル読み込みをスキップ")
 
     def _on_thumbnail_completed_update_display(self, thumbnail_result: Any) -> None:
-        """ThumbnailWorker完了時にThumbnailSelectorWidget更新"""
-        if not self.thumbnail_selector:
-            logger.warning("ThumbnailSelectorWidget not available - thumbnail display update skipped")
-            return
+        """ThumbnailWorker完了時にThumbnailSelectorWidget更新（PipelineControlServiceに委譲）
 
-        try:
-            # ThumbnailSelectorWidget統合（既存メソッド活用）
-            if hasattr(self.thumbnail_selector, "load_thumbnails_from_result"):
-                self.thumbnail_selector.load_thumbnails_from_result(thumbnail_result)
-                logger.info("ThumbnailSelectorWidget updated with results")
-            else:
-                logger.warning("ThumbnailSelectorWidget.load_thumbnails_from_result method not found")
-
-            # パイプライン完了後にプログレスバーを非表示
-            if hasattr(self, "filterSearchPanel") and hasattr(
-                self.filterSearchPanel, "hide_progress_after_completion"
-            ):
-                self.filterSearchPanel.hide_progress_after_completion()
-
-        except Exception as e:
-            logger.error(f"Failed to update ThumbnailSelectorWidget: {e}", exc_info=True)
+        Phase 2.5 Stage 4: PipelineControlServiceに完全委譲。
+        """
+        if self.pipeline_control_service:
+            self.pipeline_control_service.on_thumbnail_completed(thumbnail_result)
+        else:
+            logger.error("PipelineControlService が初期化されていません - サムネイル表示更新をスキップ")
 
     def _on_pipeline_search_started(self, _worker_id: str) -> None:
-        """Pipeline検索フェーズ開始時の進捗表示"""
-        if hasattr(self, "filterSearchPanel") and hasattr(
-            self.filterSearchPanel, "update_pipeline_progress"
-        ):
-            self.filterSearchPanel.update_pipeline_progress("検索中...", 0.0, 0.3)
+        """Pipeline検索フェーズ開始時の進捗表示（PipelineControlServiceに委譲）
+
+        Phase 2.5 Stage 4: PipelineControlServiceに完全委譲。
+        """
+        if self.pipeline_control_service:
+            self.pipeline_control_service.on_search_started(_worker_id)
+        else:
+            logger.warning("PipelineControlService が初期化されていません - 進捗表示をスキップ")
 
     def _on_pipeline_thumbnail_started(self, _worker_id: str) -> None:
-        """Pipelineサムネイル生成フェーズ開始時の進捗表示"""
-        if hasattr(self, "filterSearchPanel") and hasattr(
-            self.filterSearchPanel, "update_pipeline_progress"
-        ):
-            self.filterSearchPanel.update_pipeline_progress("サムネイル読込中...", 0.3, 1.0)
+        """Pipelineサムネイル生成フェーズ開始時の進捗表示（PipelineControlServiceに委譲）
+
+        Phase 2.5 Stage 4: PipelineControlServiceに完全委譲。
+        """
+        if self.pipeline_control_service:
+            self.pipeline_control_service.on_thumbnail_started(_worker_id)
+        else:
+            logger.warning("PipelineControlService が初期化されていません - 進捗表示をスキップ")
 
     def _on_pipeline_search_error(self, error_message: str) -> None:
-        """Pipeline検索エラー時の処理（検索結果破棄）"""
-        logger.error(f"Pipeline search error: {error_message}")
-        if hasattr(self, "filterSearchPanel") and hasattr(self.filterSearchPanel, "handle_pipeline_error"):
-            self.filterSearchPanel.handle_pipeline_error("search", {"message": error_message})
-        # 検索結果破棄（要求仕様通り）
-        if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
-            self.thumbnail_selector.clear_thumbnails()
+        """Pipeline検索エラー時の処理（PipelineControlServiceに委譲）
+
+        Phase 2.5 Stage 4: PipelineControlServiceに完全委譲。
+        """
+        if self.pipeline_control_service:
+            self.pipeline_control_service.on_search_error(error_message)
+        else:
+            logger.error("PipelineControlService が初期化されていません - エラー処理をスキップ")
 
     def _on_pipeline_thumbnail_error(self, error_message: str) -> None:
-        """Pipelineサムネイル生成エラー時の処理（検索結果破棄）"""
-        logger.error(f"Pipeline thumbnail error: {error_message}")
-        if hasattr(self, "filterSearchPanel") and hasattr(self.filterSearchPanel, "handle_pipeline_error"):
-            self.filterSearchPanel.handle_pipeline_error("thumbnail", {"message": error_message})
-        # 検索結果破棄（要求仕様通り）
-        if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
-            self.thumbnail_selector.clear_thumbnails()
-        # エラー時もプログレスバーを非表示
-        if hasattr(self, "filterSearchPanel") and hasattr(
-            self.filterSearchPanel, "hide_progress_after_completion"
-        ):
-            self.filterSearchPanel.hide_progress_after_completion()
+        """Pipelineサムネイル生成エラー時の処理（PipelineControlServiceに委譲）
+
+        Phase 2.5 Stage 4: PipelineControlServiceに完全委譲。
+        """
+        if self.pipeline_control_service:
+            self.pipeline_control_service.on_thumbnail_error(error_message)
+        else:
+            logger.error("PipelineControlService が初期化されていません - エラー処理をスキップ")
 
     def _on_batch_registration_started(self, worker_id: str) -> None:
         """Batch registration started signal handler"""
@@ -731,7 +724,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _on_batch_annotation_finished(self, result: Any) -> None:
         """バッチアノテーション完了ハンドラ（Phase 2.4 Stage 4-2: ResultHandlerService委譲）"""
         if self.result_handler_service:
-            self.result_handler_service.handle_batch_annotation_finished(result, status_bar=self.statusBar())
+            self.result_handler_service.handle_batch_annotation_finished(
+                result, status_bar=self.statusBar()
+            )
         else:
             logger.info(f"バッチアノテーション完了: {result}")
             self.statusBar().showMessage("バッチアノテーション完了", 5000)
@@ -739,7 +734,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _on_model_sync_completed(self, sync_result: Any) -> None:
         """モデル同期完了ハンドラ（Phase 2.4 Stage 4-2: ResultHandlerService委譲）"""
         if self.result_handler_service:
-            self.result_handler_service.handle_model_sync_completed(sync_result, status_bar=self.statusBar())
+            self.result_handler_service.handle_model_sync_completed(
+                sync_result, status_bar=self.statusBar()
+            )
         else:
             logger.info(f"モデル同期完了: {sync_result}")
             self.statusBar().showMessage("モデル同期完了", 5000)
