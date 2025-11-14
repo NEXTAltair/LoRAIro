@@ -41,6 +41,14 @@ def mock_config_service():
         "openai_key": "test-openai-key",
         "claude_key": "test-claude-key",
     }
+    service.get_available_annotation_models.return_value = [
+        "gpt-4o-mini",
+        "gpt-4o",
+        "claude-3-haiku-20240307",
+        "claude-3-sonnet-20240229",
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-pro-latest",
+    ]
     return service
 
 
@@ -262,7 +270,7 @@ class TestStartAnnotationWorkflow:
     def test_start_annotation_workflow_no_config_service(
         self, mock_annotation_service, mock_selection_state_service
     ):
-        """ConfigurationServiceがNoneの場合（デフォルトモデル使用）"""
+        """ConfigurationServiceがNoneの場合（空のモデルリスト）"""
         # Setup - parent=None for consistency
         controller = AnnotationWorkflowController(
             annotation_service=mock_annotation_service,
@@ -271,15 +279,22 @@ class TestStartAnnotationWorkflow:
             parent=None,
         )
 
-        def model_selection_callback(available_models: list[str]) -> str:
-            # デフォルトモデルリストが渡される
-            return available_models[0]
+        callback_called = False
+
+        def model_selection_callback(available_models: list[str]) -> str | None:
+            nonlocal callback_called
+            callback_called = True
+            # ConfigurationServiceがNoneの場合、空リストが渡される
+            assert available_models == []
+            # 空リストの場合、Noneを返す（キャンセル扱い）
+            return None
 
         # Execute
         controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
 
-        # Assert - デフォルトモデルで実行
-        mock_annotation_service.start_batch_annotation.assert_called_once()
+        # Assert - callbackは呼ばれるが、start_batch_annotationは呼ばれない
+        assert callback_called
+        mock_annotation_service.start_batch_annotation.assert_not_called()
 
     def test_start_annotation_workflow_with_available_providers(self, controller, mock_config_service):
         """利用可能なプロバイダーに基づくモデル選択"""

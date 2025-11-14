@@ -175,64 +175,16 @@ class AnnotationWorkflowController:
     def _get_available_models(self) -> list[str]:
         """利用可能なモデルリスト取得
 
-        ConfigurationServiceから利用可能なプロバイダーを取得し、
-        対応するモデルリストを返す。
-        設定がない場合はデフォルトモデルリストを返す。
+        ConfigurationServiceから動的にモデルリストを取得します。
 
         Returns:
             list[str]: 利用可能なモデル名リスト
         """
-        # デフォルトモデルリスト（全プロバイダー）
-        default_models = [
-            "gpt-4o-mini",
-            "gpt-4o",
-            "claude-3-haiku-20240307",
-            "claude-3-sonnet-20240229",
-            "gemini-1.5-flash-latest",
-            "gemini-1.5-pro-latest",
-        ]
-
         if not self.config_service:
-            logger.info("ConfigurationServiceが未設定、デフォルトモデルリストを使用")
-            return default_models
+            logger.warning("ConfigurationServiceが未設定")
+            return []
 
-        try:
-            api_keys = self.config_service.get_api_keys()
-
-            # APIキー名からプロバイダー名へのマッピング
-            key_to_provider = {
-                "openai_key": "openai",
-                "claude_key": "anthropic",
-                "google_key": "google",
-            }
-
-            available_providers = [provider for key, provider in key_to_provider.items() if key in api_keys]
-
-            if available_providers:
-                # 利用可能なプロバイダーに基づいてモデルを追加
-                provider_models = {
-                    "openai": ["gpt-4o-mini", "gpt-4o"],
-                    "anthropic": [
-                        "claude-3-haiku-20240307",
-                        "claude-3-sonnet-20240229",
-                    ],
-                    "google": ["gemini-1.5-flash-latest", "gemini-1.5-pro-latest"],
-                }
-
-                available_models = []
-                for provider in available_providers:
-                    if provider in provider_models:
-                        available_models.extend(provider_models[provider])
-
-                logger.info(f"利用可能なプロバイダーに基づいてモデルを選択: {available_providers}")
-                return available_models
-
-        except Exception as e:
-            logger.warning(f"プロバイダー取得中にエラー、デフォルトを使用: {e}")
-
-        # フォールバック: デフォルトモデルリスト
-        logger.info("デフォルトモデルリストを使用")
-        return default_models
+        return self.config_service.get_available_annotation_models()
 
     def _start_batch_annotation(self, image_paths: list[str], models: list[str]) -> None:
         """バッチアノテーション開始
