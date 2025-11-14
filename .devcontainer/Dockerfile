@@ -153,7 +153,7 @@ RUN NPM_PREFIX=/home/vscode/.npm-global && \
     chown -R vscode:vscode "$NPM_PREFIX" && \
     echo 'export PATH=/home/vscode/.npm-global/bin:$PATH' >> /home/vscode/.bashrc && \
     echo 'export PATH=/home/vscode/.npm-global/bin:$PATH' >> /home/vscode/.zshrc || true && \
-    npm install -g @anthropic-ai/claude-code @google/gemini-cli byterover-cli
+    npm install -g @anthropic-ai/claude-code @google/gemini-cli
 
 # Setup zsh with oh-my-zsh for better development experience
 RUN if [ ! -d "/home/vscode/.oh-my-zsh" ]; then \
