@@ -1,5 +1,5 @@
 # Use an official Python runtime as a parent image
-FROM python:3.12-slim-bookworm
+FROM mcr.microsoft.com/devcontainers/python:dev-3.13-bookworm
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -9,6 +9,13 @@ ENV QT_QPA_PLATFORM=offscreen
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
+ENV NPM_CONFIG_PREFIX=/home/vscode/.npm-global
+ENV PATH=/home/vscode/.npm-global/bin:$PATH
+# Agent execution environment
+ENV CLAUDE_WORKSPACE=/workspaces/LoRAIro
+ENV CLAUDE_CACHE_DIR=/home/vscode/.claude/cache
+ENV CLAUDE_STATE_DIR=/home/vscode/.claude/state
+ENV PYTHONPATH=/workspaces/LoRAIro/src:/workspaces/LoRAIro/local_packages/image-annotator-lib/src:/workspaces/LoRAIro/local_packages/genai-tag-db-tools/src
 
 RUN apt-get update && \
     export DEBIAN_FRONTEND=noninteractive && \
@@ -37,12 +44,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Docker CLI
-RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends docker-ce-cli \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /etc/apt/keyrings && \
+    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends docker-ce-cli && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install Node.js
 RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
@@ -112,8 +120,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Create a non-root user
-RUN useradd -m -s /bin/bash vscode
+# Install agent dependencies: process monitoring, parallel execution
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    parallel \
+    netcat-openbsd \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create workspaces directory and .venv with proper ownership
 RUN mkdir -p /workspaces/LoRAIro/.venv && chown -R vscode:vscode /workspaces
@@ -130,16 +142,24 @@ RUN mkdir -p /home/vscode/.vscode-server/bin \
     && mkdir -p /home/vscode/.vscode-server/data \
     && mkdir -p /home/vscode/.vscode-server/extensions
 
+# Create agent working directories
+RUN mkdir -p /home/vscode/.claude/cache \
+    && mkdir -p /home/vscode/.claude/state
+
 # Configure npm to use user directory for global packages
-RUN mkdir -p ~/.npm-global && \
-    npm config set prefix '~/.npm-global' && \
-    echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc && \
-    npm install -g @anthropic-ai/claude-code && \
-    npm install -g @google/gemini-cli
+RUN NPM_PREFIX=/home/vscode/.npm-global && \
+    mkdir -p "$NPM_PREFIX" && \
+    npm config set prefix "$NPM_PREFIX" && \
+    chown -R vscode:vscode "$NPM_PREFIX" && \
+    echo 'export PATH=/home/vscode/.npm-global/bin:$PATH' >> /home/vscode/.bashrc && \
+    echo 'export PATH=/home/vscode/.npm-global/bin:$PATH' >> /home/vscode/.zshrc || true && \
+    npm install -g @anthropic-ai/claude-code @google/gemini-cli byterover-cli
 
 # Setup zsh with oh-my-zsh for better development experience
-RUN sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \
-    && echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.zshrc
+RUN if [ ! -d "/home/vscode/.oh-my-zsh" ]; then \
+    sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended; \
+    fi && echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.zshrc
+
 
 # Set bash history persistence
 RUN echo 'export HISTFILE=/home/vscode/.bash_history' >> ~/.bashrc \
