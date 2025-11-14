@@ -139,12 +139,12 @@ class ConfigurationService:
         # image_processing.upscaler または最初のモデル名を返す
         default_name = self.get_setting("image_processing", "upscaler", "")
         if default_name:
-            return str(default_name)  # type: ignore
+            return str(default_name)
 
         # フォールバック: 最初のモデル名
         models = self.get_upscaler_models()
         if models:
-            return str(models[0].get("name", ""))  # type: ignore
+            return str(models[0].get("name", ""))
 
         return "RealESRGAN_x4plus"  # 最終フォールバック
 
@@ -239,5 +239,61 @@ class ConfigurationService:
     def get_shared_config(self) -> dict[str, Any]:
         """共有設定オブジェクトを取得します。DI用途で使用。"""
         return self._config
+
+    def get_available_annotation_models(self) -> list[str]:
+        """利用可能なアノテーションモデルリストを取得
+
+        image-annotator-libから利用可能なモデルリストを動的に取得します。
+
+        Returns:
+            list[str]: 利用可能なモデル名のリスト
+        """
+        try:
+            from image_annotator_lib import list_available_annotators
+
+            return list_available_annotators()
+        except ImportError as e:
+            logger.error(f"image-annotator-libのインポートに失敗しました: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"モデルリスト取得中にエラーが発生しました: {e}", exc_info=True)
+            return []
+
+    def get_default_annotation_model(self) -> str | None:
+        """デフォルトアノテーションモデルを取得
+
+        ConfigurationServiceから設定値を取得し、設定がない場合は
+        利用可能なAPIキーに基づいてデフォルトモデルを自動選択します。
+
+        Returns:
+            str | None: デフォルトモデル名、取得できない場合はNone
+        """
+        # 設定ファイルから明示的なデフォルト設定を取得
+        configured_default = self.get_setting("annotation", "default_model")
+        if configured_default:
+            return str(configured_default)
+
+        # APIキーに基づいた自動選択
+        api_keys = self.get_api_keys()
+
+        # プロバイダー優先順位に基づくデフォルトモデルマッピング
+        provider_defaults = {
+            "openai_key": "gpt-4o-mini",
+            "claude_key": "claude-3-haiku-20240307",
+            "google_key": "gemini-1.5-flash-latest",
+        }
+
+        for key_name, default_model in provider_defaults.items():
+            if key_name in api_keys:
+                logger.info(f"利用可能なAPIキーに基づいてデフォルトモデルを選択: {default_model}")
+                return default_model
+
+        # フォールバック: 最初の利用可能なモデル
+        available_models = self.get_available_annotation_models()
+        if available_models:
+            return available_models[0]
+
+        logger.warning("デフォルトモデルを特定できませんでした")
+        return None
 
     # --- 他のウィジェットが必要とするメソッドもここに追加していく ---
