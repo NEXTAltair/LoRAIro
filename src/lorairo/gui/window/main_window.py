@@ -21,6 +21,7 @@ from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
 from ..controllers.annotation_workflow_controller import AnnotationWorkflowController
 from ..controllers.dataset_controller import DatasetController
+from ..controllers.settings_controller import SettingsController
 from ..services.image_db_write_service import ImageDBWriteService
 from ..services.pipeline_control_service import PipelineControlService
 from ..services.progress_state_service import ProgressStateService
@@ -69,6 +70,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     selection_state_service: SelectionStateService | None
     dataset_controller: DatasetController | None
     annotation_workflow_controller: AnnotationWorkflowController | None
+    settings_controller: SettingsController | None
 
     # Phase 2.4リファクタリング: Service層属性
     data_transform_service: DataTransformService | None
@@ -398,6 +400,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"  ❌ AnnotationWorkflowController初期化失敗（継続）: {e}")
             self.annotation_workflow_controller = None
 
+        # Phase 2.7: SettingsController初期化
+        try:
+            logger.info("  - SettingsController初期化中...")
+            self.settings_controller = SettingsController(
+                config_service=self.config_service,
+                parent=self,
+            )
+            logger.info("  ✅ SettingsController初期化成功")
+        except Exception as e:
+            logger.error(f"  ❌ SettingsController初期化失敗（継続）: {e}")
+            self.settings_controller = None
+
         # その他のウィジェット設定...
         logger.debug("その他のカスタムウィジェット設定完了")
 
@@ -702,20 +716,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def select_and_process_dataset(self) -> None:
         """データセット選択と自動処理開始（DatasetControllerに委譲）"""
-        if self.dataset_controller:
-            self.dataset_controller.select_and_register_images(
-                dialog_callback=self.select_dataset_directory
-            )
-        else:
-            logger.error("DatasetControllerが初期化されていません")
-            QMessageBox.warning(
-                self,
-                "エラー",
-                "DatasetControllerが初期化されていないため、データセット選択を開始できません。",
-            )
+        self._execute_dataset_registration()
 
     def register_images_to_db(self) -> None:
         """画像をデータベースに登録（DatasetControllerに委譲）"""
+        self._execute_dataset_registration()
+
+    def _execute_dataset_registration(self) -> None:
+        """データセット登録の実行（共通メソッド）"""
         if self.dataset_controller:
             self.dataset_controller.select_and_register_images(
                 dialog_callback=self.select_dataset_directory
@@ -725,7 +733,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             QMessageBox.warning(
                 self,
                 "エラー",
-                "DatasetControllerが初期化されていないため、バッチ登録を開始できません。",
+                "DatasetControllerが初期化されていないため、データセット登録を開始できません。",
             )
 
     def load_images_from_db(self) -> None:
