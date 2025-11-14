@@ -54,20 +54,19 @@
         "QT_QPA_PLATFORM": "offscreen",
         "DISPLAY": ":99"
     },
-    "postCreateCommand": "bash -c 'grep -q \"LoRAIro venv auto-activation\" ~/.bashrc || cat >> ~/.bashrc << \"EOF\"\n\n# LoRAIro venv auto-activation\nif [ -z \"$VIRTUAL_ENV\" ] && [ -f \"/workspaces/LoRAIro/.venv/bin/activate\" ]; then\n    source /workspaces/LoRAIro/.venv/bin/activate\nfi\nEOF\n'",
-    "postStartCommand": {
-        "hookPermissions": "chmod +x .claude/hooks/*.sh || true",
-        "install": "make install-dev"
-    },
-    "postAttachCommand": {
-        "mcpSerena": "claude mcp add serena -- uvx --from git+https://github.com/oraios/serena serena start-mcp-server --context ide-assistant --project /workspaces/LoRAIro",
-        "mcpCipher": "claude mcp add cipher -t sse http://192.168.11.2:5000/mcp/sse"
-    },
     "mounts": [
         "source=lorairo-bashhistory-${devcontainerId},target=/home/vscode/.bash_history,type=volume",
         "source=lorairo-vscode-extensions-${devcontainerId},target=/home/vscode/.vscode-server/extensions,type=volume",
         "source=lorairo-venv-${devcontainerId},target=/workspaces/LoRAIro/.venv,type=volume"
     ],
+    "postCreateCommand": [
+        "sudo chown -R vscode:vscode /workspaces/LoRAIro/.venv",
+        "make install-dev"
+    ],
+    "postAttachCommand": {
+        "mcpSerena": "claude mcp add serena -- uvx --from git+https://github.com/oraios/serena serena start-mcp-server --context ide-assistant --project /workspaces/LoRAIro",
+        "mcpCipher": "claude mcp add cipher -t http http://192.168.11.2:3000/http"
+    },
     "features": {
         "ghcr.io/devcontainers/features/git:1": {
             "ppa": true,
