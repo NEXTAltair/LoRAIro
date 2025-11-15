@@ -21,12 +21,14 @@ from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
 from ..controllers.annotation_workflow_controller import AnnotationWorkflowController
 from ..controllers.dataset_controller import DatasetController
+from ..controllers.export_controller import ExportController
 from ..controllers.settings_controller import SettingsController
 from ..services.image_db_write_service import ImageDBWriteService
 from ..services.pipeline_control_service import PipelineControlService
 from ..services.progress_state_service import ProgressStateService
 from ..services.result_handler_service import ResultHandlerService
 from ..services.search_filter_service import SearchFilterService
+from ..services.widget_setup_service import WidgetSetupService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
 from ..widgets.filter_search_panel import FilterSearchPanel
@@ -71,6 +73,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     dataset_controller: DatasetController | None
     annotation_workflow_controller: AnnotationWorkflowController | None
     settings_controller: SettingsController | None
+    export_controller: ExportController | None
 
     # Phase 2.4リファクタリング: Service層属性
     data_transform_service: DataTransformService | None
@@ -293,67 +296,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         logger.info("カスタムウィジェット設定完了")
 
     def _setup_other_custom_widgets(self) -> None:
-        """その他のカスタムウィジェット設定"""
-
-        # ThumbnailSelectorWidget設定
-        if hasattr(self, "thumbnailSelectorWidget") and self.thumbnailSelectorWidget:
-            # ThumbnailSelectorWidgetの追加設定があればここに実装
-            self.thumbnail_selector = self.thumbnailSelectorWidget
-
-            # DatasetStateManager接続 - 状態管理復旧
-            if self.dataset_state_manager:
-                self.thumbnail_selector.set_dataset_state(self.dataset_state_manager)
-                logger.info("✅ ThumbnailSelectorWidget DatasetStateManager接続完了")
-            else:
-                logger.warning(
-                    "⚠️ DatasetStateManagerが初期化されていません - ThumbnailSelectorWidget接続をスキップ"
-                )
-
-            logger.info("✅ ThumbnailSelectorWidget設定完了")
-
-        # ImagePreviewWidget設定
-        if hasattr(self, "imagePreviewWidget") and self.imagePreviewWidget:
-            # ImagePreviewWidgetの追加設定があればここに実装
-            self.image_preview_widget = self.imagePreviewWidget
-
-            # DatasetStateManager接続 - Enhanced Event-Driven Pattern
-            if self.dataset_state_manager:
-                self.image_preview_widget.connect_to_data_signals(self.dataset_state_manager)
-                logger.info("✅ ImagePreviewWidget データシグナル接続完了")
-            else:
-                logger.warning(
-                    "⚠️ DatasetStateManagerが初期化されていません - ImagePreviewWidget接続をスキップ"
-                )
-
-            logger.info("✅ ImagePreviewWidget設定完了")
-
-        # SelectedImageDetailsWidget設定
-        if hasattr(self, "selectedImageDetailsWidget") and self.selectedImageDetailsWidget:
-            # SelectedImageDetailsWidgetの追加設定があればここに実装
-            self.selected_image_details_widget = self.selectedImageDetailsWidget
-
-            # DatasetStateManager接続 - Enhanced Event-Driven Pattern
-            if self.dataset_state_manager:
-                self.selected_image_details_widget.connect_to_data_signals(self.dataset_state_manager)
-                logger.info("✅ SelectedImageDetailsWidget データシグナル接続完了")
-            else:
-                logger.warning(
-                    "⚠️ DatasetStateManagerが初期化されていません - SelectedImageDetailsWidget接続をスキップ"
-                )
-
-            logger.info("✅ SelectedImageDetailsWidget設定完了")
-
-        # スプリッター初期化（Qt標準機能使用）
-        if hasattr(self, "splitterMainWorkArea") and self.splitterMainWorkArea:
-            # 初期サイズ設定（左: 280px, 中央: 770px, 右: 350px）
-            self.splitterMainWorkArea.setSizes([280, 770, 350])
-
-            # ストレッチファクター設定（比率: 20%, 55%, 25%）
-            self.splitterMainWorkArea.setStretchFactor(0, 20)  # 左パネル
-            self.splitterMainWorkArea.setStretchFactor(1, 55)  # 中央パネル（サムネイル）
-            self.splitterMainWorkArea.setStretchFactor(2, 25)  # 右パネル
-
-            logger.info("✅ スプリッター初期化完了（Qt標準機能使用）")
+        """その他のカスタムウィジェット設定（WidgetSetupServiceに委譲）"""
+        WidgetSetupService.setup_all_widgets(self, self.dataset_state_manager)
 
         # 状態管理接続の検証
         self._verify_state_management_connections()
@@ -411,6 +355,19 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except Exception as e:
             logger.error(f"  ❌ SettingsController初期化失敗（継続）: {e}")
             self.settings_controller = None
+
+        # Phase 2.9: ExportController初期化
+        try:
+            logger.info("  - ExportController初期化中...")
+            self.export_controller = ExportController(
+                selection_state_service=self.selection_state_service,
+                service_container=self.service_container,
+                parent=self,
+            )
+            logger.info("  ✅ ExportController初期化成功")
+        except Exception as e:
+            logger.error(f"  ❌ ExportController初期化失敗（継続）: {e}")
+            self.export_controller = None
 
         # その他のウィジェット設定...
         logger.debug("その他のカスタムウィジェット設定完了")
@@ -803,65 +760,27 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             raise ValueError("SearchFilterService作成不可") from e
 
     def _setup_search_filter_integration(self) -> None:
-        """SearchFilterService統合処理（シンプル・直接的アプローチ）
+        """SearchFilterService統合処理
 
         filterSearchPanelにSearchFilterServiceを注入して検索機能を有効化
         """
-        # 前提条件チェック
         if not hasattr(self, "filterSearchPanel") or not self.filterSearchPanel:
-            logger.error("❌ filterSearchPanel not available - SearchFilterService integration skipped")
+            logger.error("filterSearchPanel not available - SearchFilterService integration skipped")
             return
 
         if not self.db_manager:
-            logger.error("❌ db_manager not available - SearchFilterService integration skipped")
+            logger.error("db_manager not available - SearchFilterService integration skipped")
             return
 
-        logger.info(f"SearchFilterService注入開始: filterSearchPanel(id={id(self.filterSearchPanel)})")
-
         try:
-            # SearchFilterService作成
-            logger.info("SearchFilterService作成中...")
             search_filter_service = self._create_search_filter_service()
-
-            if not search_filter_service:
-                raise RuntimeError("SearchFilterService作成失敗")
-            logger.info(f"SearchFilterService作成成功: {type(search_filter_service)}")
-
-            # SearchFilterService注入
-            logger.info("SearchFilterService注入実行...")
             self.filterSearchPanel.set_search_filter_service(search_filter_service)
 
-            # 注入検証
-            injected_service = getattr(self.filterSearchPanel, "search_filter_service", None)
-            if injected_service is None:
-                raise RuntimeError("SearchFilterService注入後もNone")
-            if injected_service is not search_filter_service:
-                raise RuntimeError("SearchFilterService注入後のインスタンス不一致")
-
-            logger.info("SearchFilterService注入検証: 成功")
-
-            # WorkerService統合（オプショナル）
             if self.worker_service:
-                logger.info("WorkerService統合中...")
                 self.filterSearchPanel.set_worker_service(self.worker_service)
-
-                worker_service_check = getattr(self.filterSearchPanel, "worker_service", None)
-                if worker_service_check:
-                    logger.info("WorkerService統合成功")
-                else:
-                    logger.warning("WorkerService統合失敗 - 非同期検索は利用できません")
+                logger.info("SearchFilterService統合完了（WorkerService統合済み）")
             else:
-                logger.warning("WorkerService not available - 同期検索モードで動作")
-
-            # 最終確認
-            final_search_service = getattr(self.filterSearchPanel, "search_filter_service", None)
-            final_worker_service = getattr(self.filterSearchPanel, "worker_service", None)
-
-            logger.info(
-                f"SearchFilterService統合完了 - "
-                f"SearchFilterService: {final_search_service is not None}, "
-                f"WorkerService: {final_worker_service is not None}"
-            )
+                logger.info("SearchFilterService統合完了（同期検索モード）")
 
         except Exception as e:
             logger.error(f"SearchFilterService統合失敗: {e}", exc_info=True)
@@ -958,49 +877,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         return selected_model if ok else None
 
     def export_data(self) -> None:
-        """データセットエクスポート機能を開く"""
-        try:
-            # Get current image selection
-            current_image_ids = self._get_current_selected_images()
-
-            if not current_image_ids:
-                QMessageBox.warning(
-                    self,
-                    "エクスポート",
-                    "エクスポートする画像が選択されていません。\n"
-                    "フィルタリング条件を設定して画像を表示するか、\n"
-                    "サムネイル表示で画像を選択してください。",
-                )
-                return
-
-            logger.info(f"データセットエクスポート開始: {len(current_image_ids)}画像")
-
-            # Create and show export dialog
-            from ..widgets.dataset_export_widget import DatasetExportWidget
-
-            export_dialog = DatasetExportWidget(
-                service_container=self.service_container, initial_image_ids=current_image_ids, parent=self
-            )
-
-            # Connect export completion signal
-            export_dialog.export_completed.connect(self._on_export_completed)
-
-            # Show as modal dialog
-            export_dialog.exec()
-
-        except Exception as e:
-            error_msg = f"データセットエクスポート画面の表示に失敗しました: {e!s}"
-            logger.error(error_msg, exc_info=True)
-            QMessageBox.critical(self, "エラー", f"エクスポート機能の起動に失敗しました。\n\n{e!s}")
-
-    def _on_export_completed(self, path: str) -> None:
-        """Export completion handler"""
-        logger.info(f"データセットエクスポート完了: {path}")
-
-    def _get_current_selected_images(self) -> list[int]:
-        """現在表示・選択中の画像IDリストを取得（SelectionStateServiceに委譲）"""
-        if self.selection_state_service:
-            return self.selection_state_service.get_current_selected_images()
+        """データセットエクスポート機能を開く（ExportControllerに委譲）"""
+        if self.export_controller:
+            self.export_controller.open_export_dialog()
         else:
-            logger.error("SelectionStateServiceが初期化されていません")
-            return []
+            logger.error("ExportControllerが初期化されていません")
+            QMessageBox.warning(
+                self, "エラー", "ExportControllerが初期化されていないため、エクスポートを開始できません。"
+            )
