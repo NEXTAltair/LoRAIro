@@ -283,6 +283,48 @@ This project uses a dual-MCP strategy for efficient development:
 - Follow established LoRAIro architectural patterns
 - Update related docs when changing code
 
+### Git Worktree for Parallel Development
+
+**When to use git worktree:**
+- Working on multiple branches simultaneously without switching contexts
+- Long-running tasks that require keeping main branch accessible
+- Testing changes across different branches without stashing
+- Separating unrelated feature development (e.g., MainWindow separation while keeping annotator integration branch ready)
+
+**Creating a worktree:**
+```bash
+# Create new branch in worktree
+git worktree add ../LoRAIro-feature-name -b feature/branch-name
+
+# Use existing branch in worktree
+git worktree add ../LoRAIro-feature-name feature/existing-branch
+
+# List all worktrees
+git worktree list
+
+# Remove worktree
+git worktree remove ../LoRAIro-feature-name
+```
+
+**Setup requirements:**
+Each worktree needs independent environment setup:
+```bash
+cd ../LoRAIro-feature-name
+uv sync --dev              # Install dependencies in worktree
+uv run python scripts/generate_ui.py  # Generate UI files if needed
+```
+
+**Claude Code support:**
+- Claude Code officially supports git worktree sessions
+- Each worktree is treated as an independent workspace
+- Documentation: https://docs.claude.com/en/docs/claude-code/common-workflows#using-git-worktrees
+
+**Best practices:**
+- Keep worktrees in parent directory (e.g., `../LoRAIro-feature-name`)
+- Use descriptive worktree directory names matching branch purpose
+- Clean up worktrees after merging branches (`git worktree remove`)
+- Run `uv sync` in each worktree to maintain consistent dependencies
+
 ### Claude Skills
 
 LoRAIroの開発パターンとMCP操作は **Claude Skills** で自動化されています。

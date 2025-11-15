@@ -1,5 +1,9 @@
 """HybridAnnotationController - アノテーション機能の統合コントローラー
 
+.. deprecated:: Phase 2.3
+   このコントローラーは設計上の問題により非推奨です。
+   代わりにAnnotationWorkflowControllerとSelectionStateServiceを使用してください。
+
 MainWindow内でのアノテーション機能を管理:
 - ModelInfoManagerと連携したモデル選択UI動的生成
 - アノテーション実行制御
@@ -7,6 +11,7 @@ MainWindow内でのアノテーション機能を管理:
 - UI状態管理
 """
 
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -45,6 +50,34 @@ class AnnotationUIState:
 class HybridAnnotationController(QObject):
     """HybridAnnotationController - アノテーション機能の中央制御
 
+    .. deprecated:: Phase 2.3
+        このクラスは設計上の問題により非推奨です（God class、責任不明確、未使用）。
+
+        **設計上の問題**:
+        - God class: 689行、32メソッド（DatasetControllerの5.9倍）
+        - 責任が不明確: UIとビジネスロジックの混在
+        - MainWindowで使用されていない（未統合）
+        - ビジネスロジックがコメントアウト（line 571-572）
+
+        **代替実装**:
+        - `AnnotationWorkflowController`: ワークフロー制御（DI、callbackパターン）
+        - `SelectionStateService`: 画像選択管理（フォールバック戦略）
+
+        **移行ガイド**:
+        ```python
+        # 旧: HybridAnnotationController（非推奨）
+        controller = HybridAnnotationController(...)
+
+        # 新: AnnotationWorkflowController + SelectionStateService
+        selection_service = SelectionStateService(...)
+        controller = AnnotationWorkflowController(
+            annotation_service=annotation_service,
+            selection_state_service=selection_service,
+            config_service=config_service,
+        )
+        controller.start_annotation_workflow(callback)
+        ```
+
     機能:
     - MainWindow_HybridAnnotation.uiの動的ロード
     - ModelInfoManagerと連携したモデル選択UI生成
@@ -66,12 +99,23 @@ class HybridAnnotationController(QObject):
     ):
         """HybridAnnotationController初期化
 
+        .. deprecated:: Phase 2.3
+            このクラスは非推奨です。AnnotationWorkflowControllerを使用してください。
+
         Args:
             db_repository: 画像データベースリポジトリ
             config_service: 設定サービス
             parent: 親QObject
         """
         super().__init__(parent)
+
+        # Deprecation warning
+        warnings.warn(
+            "HybridAnnotationController is deprecated and will be removed in a future version. "
+            "Use AnnotationWorkflowController instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         self.db_repository = db_repository
         self.config_service = config_service
