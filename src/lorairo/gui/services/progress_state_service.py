@@ -3,7 +3,7 @@
 Worker進捗表示とステータスバー更新の統一管理を担当。
 MainWindowから分離し、進捗管理ロジックを集約。
 
-Phase 2.6 Stage 1で作成。
+
 """
 
 from typing import Any
@@ -18,7 +18,7 @@ class ProgressStateService:
     Worker進捗管理、バッチ処理進捗、ステータスバー更新を統一管理。
     MainWindowから進捗管理ロジックを分離。
 
-    Phase 2.6 Stage 1で作成。
+    
     """
 
     def __init__(self, status_bar: QStatusBar | None = None):
@@ -30,7 +30,7 @@ class ProgressStateService:
         self.status_bar = status_bar
 
     # ============================================================
-    # Phase 2.6 Stage 1: バッチ登録進捗管理
+    # バッチ登録進捗管理
     # ============================================================
 
     def on_batch_registration_started(self, worker_id: str) -> None:
@@ -39,7 +39,7 @@ class ProgressStateService:
         Args:
             worker_id: ワーカーID
 
-        Phase 2.6 Stage 1で実装。
+        
         """
         logger.info(f"バッチ登録開始: worker_id={worker_id}")
 
@@ -56,7 +56,7 @@ class ProgressStateService:
         Args:
             error_message: エラーメッセージ
 
-        Phase 2.6 Stage 1で実装。
+        
 
         Note:
             QMessageBoxは呼び出し側（MainWindow）で表示する。
@@ -71,7 +71,7 @@ class ProgressStateService:
                 logger.debug(f"Status bar update failed: {e}")
 
     # ============================================================
-    # Phase 2.6 Stage 1: Worker進捗管理
+    # Worker進捗管理
     # ============================================================
 
     def on_worker_progress_updated(self, worker_id: str, progress: Any) -> None:
@@ -81,7 +81,7 @@ class ProgressStateService:
             worker_id: ワーカーID
             progress: 進捗情報（current, total属性を持つオブジェクト）
 
-        Phase 2.6 Stage 1で実装。
+        
         """
         if not self.status_bar:
             return
@@ -116,7 +116,7 @@ class ProgressStateService:
             total: 総処理数
             filename: 処理中のファイル名
 
-        Phase 2.6 Stage 1で実装。
+        
         """
         if not self.status_bar:
             return
@@ -136,7 +136,7 @@ class ProgressStateService:
             logger.warning(f"バッチ進捗更新処理エラー: {e}")
 
     # ============================================================
-    # Phase 2.6 Stage 1: アノテーション進捗管理
+    # アノテーション進捗管理
     # ============================================================
 
     def on_batch_annotation_started(self, total_images: int) -> None:
@@ -145,7 +145,7 @@ class ProgressStateService:
         Args:
             total_images: 総画像数
 
-        Phase 2.6 Stage 1で実装。
+        
         """
         try:
             logger.info(f"バッチアノテーション開始: {total_images}画像")
@@ -164,7 +164,7 @@ class ProgressStateService:
             processed: 処理済み画像数
             total: 総画像数
 
-        Phase 2.6 Stage 1で実装。
+        
         """
         if not self.status_bar:
             return

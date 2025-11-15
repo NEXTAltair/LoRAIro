@@ -1,6 +1,6 @@
 """HybridAnnotationController - アノテーション機能の統合コントローラー
 
-.. deprecated:: Phase 2.3
+.. deprecated::
    このコントローラーは設計上の問題により非推奨です。
    代わりにAnnotationWorkflowControllerとSelectionStateServiceを使用してください。
 
@@ -50,7 +50,7 @@ class AnnotationUIState:
 class HybridAnnotationController(QObject):
     """HybridAnnotationController - アノテーション機能の中央制御
 
-    .. deprecated:: Phase 2.3
+    .. deprecated::
         このクラスは設計上の問題により非推奨です（God class、責任不明確、未使用）。
 
         **設計上の問題**:
@@ -99,7 +99,7 @@ class HybridAnnotationController(QObject):
     ):
         """HybridAnnotationController初期化
 
-        .. deprecated:: Phase 2.3
+        .. deprecated::
             このクラスは非推奨です。AnnotationWorkflowControllerを使用してください。
 
         Args:

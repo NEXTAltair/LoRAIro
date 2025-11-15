@@ -2,8 +2,6 @@
 
 MainWindow.start_annotation()から抽出したアノテーションワークフロー制御ロジック。
 DatasetControllerパターンに従い、依存性注入とcallbackパターンを使用。
-
-Phase 2.3で作成。MainWindowから161行のロジックを抽出し、約150行に整理。
 """
 
 from collections.abc import Callable

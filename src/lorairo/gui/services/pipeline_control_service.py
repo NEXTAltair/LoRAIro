@@ -6,8 +6,7 @@ Workerパイプライン（Search + Thumbnail）の完全な制御を担当。
 - 進捗表示
 - キャンセル制御
 
-MainWindow.cancel_current_pipeline()から抽出（Phase 2.4 Stage 3）。
-Phase 2.5 Stage 1-3で完全実装。
+MainWindow.cancel_current_pipeline()から抽出。
 """
 
 from typing import Any
@@ -24,8 +23,6 @@ class PipelineControlService:
 
     Search + Thumbnailワーカーのパイプライン制御を担当。
     MainWindowから分離し、パイプライン制御ロジックを集約。
-
-    Phase 2.4 Stage 3で作成。
     """
 
     def __init__(
@@ -46,7 +43,7 @@ class PipelineControlService:
         self.filter_search_panel = filter_search_panel
 
     # ============================================================
-    # Phase 2.5 Stage 1: パイプライン連鎖ロジック
+    # パイプライン連鎖ロジック
     # ============================================================
 
     def on_search_completed(self, search_result: Any) -> None:
@@ -55,7 +52,7 @@ class PipelineControlService:
         Args:
             search_result: SearchResultオブジェクトまたは辞書
 
-        Phase 2.5 Stage 1で実装。
+        
         """
         if not self.worker_service:
             logger.error("WorkerService not initialized - cannot start thumbnail loading")
@@ -80,7 +77,7 @@ class PipelineControlService:
         Args:
             thumbnail_result: サムネイル生成結果
 
-        Phase 2.5 Stage 1で実装。
+        
         """
         if not self.thumbnail_selector:
             logger.warning("ThumbnailSelectorWidget not available - thumbnail display update skipped")
@@ -104,7 +101,7 @@ class PipelineControlService:
             logger.error(f"Failed to update ThumbnailSelectorWidget: {e}", exc_info=True)
 
     # ============================================================
-    # Phase 2.5 Stage 2: エラーハンドリング統合
+    # エラーハンドリング統合
     # ============================================================
 
     def on_search_error(self, error_message: str) -> None:
@@ -113,7 +110,7 @@ class PipelineControlService:
         Args:
             error_message: エラーメッセージ
 
-        Phase 2.5 Stage 2で実装。
+        
         """
         logger.error(f"Pipeline search error: {error_message}")
 
@@ -131,7 +128,7 @@ class PipelineControlService:
         Args:
             error_message: エラーメッセージ
 
-        Phase 2.5 Stage 2で実装。
+        
         """
         logger.error(f"Pipeline thumbnail error: {error_message}")
 
@@ -150,7 +147,7 @@ class PipelineControlService:
             self.filter_search_panel.hide_progress_after_completion()
 
     # ============================================================
-    # Phase 2.5 Stage 3: 進捗状態管理統合
+    # 進捗状態管理統合
     # ============================================================
 
     def on_search_started(self, _worker_id: str) -> None:
@@ -159,7 +156,7 @@ class PipelineControlService:
         Args:
             _worker_id: ワーカーID（未使用）
 
-        Phase 2.5 Stage 3で実装。
+        
         """
         if self.filter_search_panel and hasattr(
             self.filter_search_panel, "update_pipeline_progress"
@@ -172,7 +169,7 @@ class PipelineControlService:
         Args:
             _worker_id: ワーカーID（未使用）
 
-        Phase 2.5 Stage 3で実装。
+        
         """
         if self.filter_search_panel and hasattr(
             self.filter_search_panel, "update_pipeline_progress"
@@ -180,7 +177,7 @@ class PipelineControlService:
             self.filter_search_panel.update_pipeline_progress("サムネイル読込中...", 0.3, 1.0)
 
     # ============================================================
-    # Phase 2.4 Stage 3: キャンセル制御（既存）
+    # キャンセル制御
     # ============================================================
 
     def cancel_current_pipeline(self) -> None:

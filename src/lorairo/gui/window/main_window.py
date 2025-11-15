@@ -43,18 +43,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     データベース中心の設計で、画像の管理・検索・処理を統合的に提供。
     """
 
-    # TODO: [MainWindowリファクタリング] 別ブランチで実施予定
-    # 現状: 1,645行、6つの責任を持つGod Object
-    # 問題: LoRAIro設計原則違反（ビジネスロジックがGUI内に混在）
-    # 分離対象:
-    #   - ビジネスロジック (~500行): データ検証・変換、パイプライン制御
-    #     例: _on_search_completed_start_thumbnail(), _resolve_optimal_thumbnail_data()
-    #   - UIアクション (~400行): ワークフロー制御、設定処理
-    #     例: select_and_process_dataset(), open_settings()
-    #   - 状態管理・同期 (~100行): DatasetStateManager連携
-    #     例: get_selected_images(), _verify_state_manager_connections()
-    # 目標: ウィジェット配置とイベント接続・ルーティングのみに責任を絞る
-    # 詳細: .serena/memories/mainwindow_refactoring_todo.md
 
     # シグナル
     dataset_loaded = Signal(str)  # dataset_path
@@ -68,14 +56,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     annotation_service: AnnotationService | None
     dataset_state_manager: DatasetStateManager | None
 
-    # Phase 2リファクタリング: Service/Controller層属性
+    # Service/Controller層属性
     selection_state_service: SelectionStateService | None
     dataset_controller: DatasetController | None
     annotation_workflow_controller: AnnotationWorkflowController | None
     settings_controller: SettingsController | None
     export_controller: ExportController | None
-
-    # Phase 2.4リファクタリング: Service層属性
     data_transform_service: DataTransformService | None
     result_handler_service: ResultHandlerService | None
     pipeline_control_service: PipelineControlService | None
@@ -104,8 +90,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.setupUi(self)
             logger.info("UI設定完了")
 
-            # Phase 2: サービス初期化（例外を個別にキャッチ）
-            logger.info("Phase 2: サービス初期化開始")
+            # サービス初期化（例外を個別にキャッチ）
+            logger.info("サービス初期化開始")
             self._initialize_services()
 
             # Phase 3: UI カスタマイズ（サービス依存）
@@ -116,8 +102,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("Phase 3.5: SearchFilterService統合開始")
             self._setup_search_filter_integration()
 
-            # Phase 3.6: Phase 2.4 Service統合（DataTransform/ResultHandler/PipelineControl）
-            logger.info("Phase 3.6: Phase 2.4 Service層統合開始")
+            # Service統合（DataTransform/ResultHandler/PipelineControl）
+            logger.info("Service層統合開始")
             self._setup_phase24_services()
 
             # Phase 4: イベント接続（最終段階）
@@ -302,9 +288,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # 状態管理接続の検証
         self._verify_state_management_connections()
 
-        # Phase 2リファクタリング: Service/Controller層初期化
+        # Service/Controller層初期化
 
-        # Phase 2.3: SelectionStateService初期化
+        # SelectionStateService初期化
         try:
             logger.info("  - SelectionStateService初期化中...")
             self.selection_state_service = SelectionStateService(
@@ -316,7 +302,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"  ❌ SelectionStateService初期化失敗（継続）: {e}")
             self.selection_state_service = None
 
-        # Phase 2.2: DatasetController初期化
+        # DatasetController初期化
         try:
             logger.info("  - DatasetController初期化中...")
             self.dataset_controller = DatasetController(
@@ -330,7 +316,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"  ❌ DatasetController初期化失敗（継続）: {e}")
             self.dataset_controller = None
 
-        # Phase 2.3: AnnotationWorkflowController初期化
+        # AnnotationWorkflowController初期化
         try:
             logger.info("  - AnnotationWorkflowController初期化中...")
             self.annotation_workflow_controller = AnnotationWorkflowController(
@@ -344,7 +330,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"  ❌ AnnotationWorkflowController初期化失敗（継続）: {e}")
             self.annotation_workflow_controller = None
 
-        # Phase 2.7: SettingsController初期化
+        # SettingsController初期化
         try:
             logger.info("  - SettingsController初期化中...")
             self.settings_controller = SettingsController(
@@ -356,7 +342,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"  ❌ SettingsController初期化失敗（継続）: {e}")
             self.settings_controller = None
 
-        # Phase 2.9: ExportController初期化
+        # ExportController初期化
         try:
             logger.info("  - ExportController初期化中...")
             self.export_controller = ExportController(
@@ -398,7 +384,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 except Exception as e:
                     logger.error(f"    ❌ サムネイル→プレビュー接続失敗: {e}")
 
-            # Phase 2: Sequential Worker Pipeline 統合シグナル接続
+            # Sequential Worker Pipeline 統合シグナル接続
             self._setup_worker_pipeline_signals()
 
             logger.info("  ✅ イベント接続完了")
@@ -483,77 +469,56 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"AnnotationService signal connection failed: {e}", exc_info=True)
 
     def _on_search_completed_start_thumbnail(self, search_result: Any) -> None:
-        """SearchWorker完了時にThumbnailWorkerを自動起動（PipelineControlServiceに委譲）
-
-        Phase 2.5 Stage 4: PipelineControlServiceに完全委譲。
-        """
+        """SearchWorker完了時にThumbnailWorkerを自動起動（PipelineControlServiceに委譲）"""
         if self.pipeline_control_service:
             self.pipeline_control_service.on_search_completed(search_result)
         else:
             logger.error("PipelineControlService が初期化されていません - サムネイル読み込みをスキップ")
 
     def _on_thumbnail_completed_update_display(self, thumbnail_result: Any) -> None:
-        """ThumbnailWorker完了時にThumbnailSelectorWidget更新（PipelineControlServiceに委譲）
-
-        Phase 2.5 Stage 4: PipelineControlServiceに完全委譲。
-        """
+        """ThumbnailWorker完了時にThumbnailSelectorWidget更新（PipelineControlServiceに委譲）"""
         if self.pipeline_control_service:
             self.pipeline_control_service.on_thumbnail_completed(thumbnail_result)
         else:
             logger.error("PipelineControlService が初期化されていません - サムネイル表示更新をスキップ")
 
     def _on_pipeline_search_started(self, _worker_id: str) -> None:
-        """Pipeline検索フェーズ開始時の進捗表示（PipelineControlServiceに委譲）
-
-        Phase 2.5 Stage 4: PipelineControlServiceに完全委譲。
-        """
+        """Pipeline検索フェーズ開始時の進捗表示（PipelineControlServiceに委譲）"""
         if self.pipeline_control_service:
             self.pipeline_control_service.on_search_started(_worker_id)
         else:
             logger.warning("PipelineControlService が初期化されていません - 進捗表示をスキップ")
 
     def _on_pipeline_thumbnail_started(self, _worker_id: str) -> None:
-        """Pipelineサムネイル生成フェーズ開始時の進捗表示（PipelineControlServiceに委譲）
-
-        Phase 2.5 Stage 4: PipelineControlServiceに完全委譲。
-        """
+        """Pipelineサムネイル生成フェーズ開始時の進捗表示（PipelineControlServiceに委譲）"""
         if self.pipeline_control_service:
             self.pipeline_control_service.on_thumbnail_started(_worker_id)
         else:
             logger.warning("PipelineControlService が初期化されていません - 進捗表示をスキップ")
 
     def _on_pipeline_search_error(self, error_message: str) -> None:
-        """Pipeline検索エラー時の処理（PipelineControlServiceに委譲）
-
-        Phase 2.5 Stage 4: PipelineControlServiceに完全委譲。
-        """
+        """Pipeline検索エラー時の処理（PipelineControlServiceに委譲）"""
         if self.pipeline_control_service:
             self.pipeline_control_service.on_search_error(error_message)
         else:
             logger.error("PipelineControlService が初期化されていません - エラー処理をスキップ")
 
     def _on_pipeline_thumbnail_error(self, error_message: str) -> None:
-        """Pipelineサムネイル生成エラー時の処理（PipelineControlServiceに委譲）
-
-        Phase 2.5 Stage 4: PipelineControlServiceに完全委譲。
-        """
+        """Pipelineサムネイル生成エラー時の処理（PipelineControlServiceに委譲）"""
         if self.pipeline_control_service:
             self.pipeline_control_service.on_thumbnail_error(error_message)
         else:
             logger.error("PipelineControlService が初期化されていません - エラー処理をスキップ")
 
     def _on_batch_registration_started(self, worker_id: str) -> None:
-        """Batch registration started signal handler（ProgressStateServiceに委譲）
-
-        Phase 2.6 Stage 2: ProgressStateServiceに完全委譲。
-        """
+        """Batch registration started signal handler（ProgressStateServiceに委譲）"""
         if self.progress_state_service:
             self.progress_state_service.on_batch_registration_started(worker_id)
         else:
             logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
 
     def _on_batch_registration_finished(self, result: Any) -> None:
-        """Batch registration finished signal handler（Phase 2.4 Stage 4-2: ResultHandlerService委譲）"""
+        """Batch registration finished signal handler（ResultHandlerService委譲）"""
         if self.result_handler_service:
             self.result_handler_service.handle_batch_registration_finished(
                 result, status_bar=self.statusBar(), completion_signal=self.database_registration_completed
@@ -564,10 +529,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.statusBar().showMessage("バッチ登録完了", 5000)
 
     def _on_batch_registration_error(self, error_message: str) -> None:
-        """Batch registration error signal handler（ProgressStateServiceに委譲 + QMessageBox）
-
-        Phase 2.6 Stage 2: ProgressStateServiceに委譲（ステータスバー）、QMessageBoxはMainWindowで表示。
-        """
+        """Batch registration error signal handler（ProgressStateServiceに委譲 + QMessageBox）"""
         if self.progress_state_service:
             self.progress_state_service.on_batch_registration_error(error_message)
 
@@ -577,20 +539,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         )
 
     def _on_worker_progress_updated(self, worker_id: str, progress: Any) -> None:
-        """Worker progress update signal handler（ProgressStateServiceに委譲）
-
-        Phase 2.6 Stage 2: ProgressStateServiceに完全委譲。
-        """
+        """Worker progress update signal handler（ProgressStateServiceに委譲）"""
         if self.progress_state_service:
             self.progress_state_service.on_worker_progress_updated(worker_id, progress)
         else:
             logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
 
     def _on_worker_batch_progress(self, worker_id: str, current: int, total: int, filename: str) -> None:
-        """Worker batch progress update signal handler（ProgressStateServiceに委譲）
-
-        Phase 2.6 Stage 2: ProgressStateServiceに完全委譲。
-        """
+        """Worker batch progress update signal handler（ProgressStateServiceに委譲）"""
         if self.progress_state_service:
             self.progress_state_service.on_worker_batch_progress(worker_id, current, total, filename)
         else:
@@ -598,7 +554,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     # AnnotationService signal handlers (Phase 5 Stage 3)
     def _on_annotation_finished(self, result: Any) -> None:
-        """単発アノテーション完了ハンドラ（Phase 2.4 Stage 4-2: ResultHandlerService委譲）"""
+        """単発アノテーション完了ハンドラ（ResultHandlerService委譲）"""
         if self.result_handler_service:
             self.result_handler_service.handle_annotation_finished(result, status_bar=self.statusBar())
         else:
@@ -606,7 +562,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.statusBar().showMessage("アノテーション処理が完了しました", 5000)
 
     def _on_annotation_error(self, error_msg: str) -> None:
-        """アノテーションエラーハンドラ（Phase 2.4 Stage 4-2: ResultHandlerService委譲）"""
+        """アノテーションエラーハンドラ（ResultHandlerService委譲）"""
         if self.result_handler_service:
             self.result_handler_service.handle_annotation_error(error_msg, status_bar=self.statusBar())
         else:
@@ -614,27 +570,21 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.statusBar().showMessage(f"エラー: {error_msg}", 8000)
 
     def _on_batch_annotation_started(self, total_images: int) -> None:
-        """バッチアノテーション開始ハンドラ（ProgressStateServiceに委譲）
-
-        Phase 2.6 Stage 2: ProgressStateServiceに完全委譲。
-        """
+        """バッチアノテーション開始ハンドラ（ProgressStateServiceに委譲）"""
         if self.progress_state_service:
             self.progress_state_service.on_batch_annotation_started(total_images)
         else:
             logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
 
     def _on_batch_annotation_progress(self, processed: int, total: int) -> None:
-        """バッチアノテーション進捗ハンドラ（ProgressStateServiceに委譲）
-
-        Phase 2.6 Stage 2: ProgressStateServiceに完全委譲。
-        """
+        """バッチアノテーション進捗ハンドラ（ProgressStateServiceに委譲）"""
         if self.progress_state_service:
             self.progress_state_service.on_batch_annotation_progress(processed, total)
         else:
             logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
 
     def _on_batch_annotation_finished(self, result: Any) -> None:
-        """バッチアノテーション完了ハンドラ（Phase 2.4 Stage 4-2: ResultHandlerService委譲）"""
+        """バッチアノテーション完了ハンドラ（ResultHandlerService委譲）"""
         if self.result_handler_service:
             self.result_handler_service.handle_batch_annotation_finished(
                 result, status_bar=self.statusBar()
@@ -644,7 +594,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.statusBar().showMessage("バッチアノテーション完了", 5000)
 
     def _on_model_sync_completed(self, sync_result: Any) -> None:
-        """モデル同期完了ハンドラ（Phase 2.4 Stage 4-2: ResultHandlerService委譲）"""
+        """モデル同期完了ハンドラ（ResultHandlerService委譲）"""
         if self.result_handler_service:
             self.result_handler_service.handle_model_sync_completed(
                 sync_result, status_bar=self.statusBar()
@@ -654,7 +604,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.statusBar().showMessage("モデル同期完了", 5000)
 
     def cancel_current_pipeline(self) -> None:
-        """現在のPipeline全体をキャンセル（Phase 2.4 Stage 4-3: PipelineControlService委譲）"""
+        """現在のPipeline全体をキャンセル（PipelineControlService委譲）"""
         if self.pipeline_control_service:
             self.pipeline_control_service.cancel_current_pipeline()
         else:
@@ -700,7 +650,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _resolve_optimal_thumbnail_data(
         self, image_metadata: list[dict[str, Any]]
     ) -> list[tuple[Path, int]]:
-        """画像メタデータから最適なサムネイル表示用パスを解決（Phase 2.4 Stage 4-1: DataTransformService委譲）
+        """画像メタデータから最適なサムネイル表示用パスを解決（DataTransformService委譲）
 
         Args:
             image_metadata: 画像メタデータリスト
@@ -787,12 +737,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.warning("検索機能は利用できませんが、その他の機能は正常に動作します")
 
     def _setup_phase24_services(self) -> None:
-        """Phase 2.4 Service層の初期化と統合
+        """Service層の初期化と統合
 
         DataTransformService, ResultHandlerService, PipelineControlServiceを初期化。
         MainWindowから抽出されたロジックをService層に委譲する。
-
-        Phase 2.4 Stage 4で実装。
         """
         try:
             # DataTransformService初期化（Stage 4-1）
@@ -814,12 +762,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             )
             logger.info("  ✅ PipelineControlService初期化成功")
 
-            # ProgressStateService初期化（Phase 2.6 Stage 2）
+            # ProgressStateService初期化
             logger.info("  - ProgressStateService初期化中...")
             self.progress_state_service = ProgressStateService(status_bar=self.statusBar())
             logger.info("  ✅ ProgressStateService初期化成功")
 
-            logger.info("Phase 2.4-2.6 Service層統合完了")
+            logger.info("Service層統合完了")
 
         except Exception as e:
             logger.error(f"Service層統合失敗: {e}", exc_info=True)
@@ -840,7 +788,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             )
 
     def start_annotation(self) -> None:
-        """アノテーション処理を開始（Phase 2.3: AnnotationWorkflowController統合版）"""
+        """アノテーション処理を開始（AnnotationWorkflowController統合版）"""
         if not self.annotation_workflow_controller:
             QMessageBox.warning(
                 self,
