@@ -390,9 +390,7 @@ class TestWorkerService:
         assert worker_service.current_thumbnail_worker_id is None
 
     @patch("lorairo.gui.services.worker_service.AnnotationWorker")
-    def test_start_enhanced_batch_annotation_with_api_keys(
-        self, mock_worker_class, worker_service
-    ):
+    def test_start_enhanced_batch_annotation_with_api_keys(self, mock_worker_class, worker_service):
         """Enhancedバッチアノテーション開始テスト（APIキー付き）"""
         mock_worker = Mock()
         mock_worker_class.return_value = mock_worker
@@ -426,9 +424,7 @@ class TestWorkerService:
         mock_worker.progress_updated.connect.assert_called()
 
     @patch("lorairo.gui.services.worker_service.AnnotationWorker")
-    def test_start_enhanced_batch_annotation_without_api_keys(
-        self, mock_worker_class, worker_service
-    ):
+    def test_start_enhanced_batch_annotation_without_api_keys(self, mock_worker_class, worker_service):
         """Enhancedバッチアノテーション開始テスト（APIキーなし）"""
         mock_worker = Mock()
         mock_worker_class.return_value = mock_worker
@@ -438,9 +434,7 @@ class TestWorkerService:
         models = ["gpt-4o"]
 
         # APIキーなしでバッチアノテーション開始
-        worker_id = worker_service.start_enhanced_batch_annotation(
-            image_paths=image_paths, models=models
-        )
+        worker_id = worker_service.start_enhanced_batch_annotation(image_paths=image_paths, models=models)
 
         # api_keys=Noneで初期化されたことを確認
         mock_worker_class.assert_called_once_with(
@@ -467,26 +461,20 @@ class TestWorkerService:
         )
 
         # ModernProgressManagerのupdate_worker_progressがモック化されていることを確認
-        with patch.object(
-            worker_service.progress_manager, "update_worker_progress"
-        ) as mock_update:
+        with patch.object(worker_service.progress_manager, "update_worker_progress") as mock_update:
             worker_service._on_progress_updated("test_worker_001", mock_progress)
 
             # ModernProgressManagerに転送されたことを確認
             mock_update.assert_called_once_with("test_worker_001", mock_progress)
 
         # 2. _on_batch_progress_updated() の転送処理検証
-        with patch.object(
-            worker_service.progress_manager, "update_batch_progress"
-        ) as mock_batch_update:
+        with patch.object(worker_service.progress_manager, "update_batch_progress") as mock_batch_update:
             worker_service._on_batch_progress_updated(
                 "test_worker_002", current=7, total=20, filename="test_image.jpg"
             )
 
             # ModernProgressManagerに転送されたことを確認
-            mock_batch_update.assert_called_once_with(
-                "test_worker_002", 7, 20, "test_image.jpg"
-            )
+            mock_batch_update.assert_called_once_with("test_worker_002", 7, 20, "test_image.jpg")
 
         # 3. _on_progress_cancellation_requested() のキャンセル処理検証
         # WorkerManagerのcancel_workerをモック化

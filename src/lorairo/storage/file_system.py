@@ -79,6 +79,27 @@ class FileSystemManager:
         self.initialized = True
         logger.debug("FileSystemManagerが正常に初期化されました。")
 
+    def initialize_from_dataset_selection(self, selected_dir: Path) -> Path:
+        """データセット選択からoutput_dirを決定・初期化
+
+        GUIとは無関係なビジネスルール（lorairo_output生成）をカプセル化。
+        MainWindowから呼び出されて、選択されたディレクトリの親に
+        lorairo_outputディレクトリを作成し、初期化する。
+
+        Args:
+            selected_dir: ユーザーが選択したデータセットディレクトリ
+
+        Returns:
+            Path: 初期化されたoutput_dirのパス
+
+        Raises:
+            RuntimeError: 初期化失敗時
+        """
+        output_dir = selected_dir.parent / "lorairo_output"
+        self.initialize(output_dir)
+        logger.info(f"データセット選択から初期化完了: {output_dir}")
+        return output_dir
+
     def get_resolution_dir(self, target_resolution: int) -> Path:
         """
         解像度ディレクトリを取得し、存在しなければ作成する

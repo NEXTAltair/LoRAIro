@@ -65,7 +65,9 @@
       "Bash(else echo \"No coverage.json found\")",
       "Bash(fi)",
       "Bash(git add:*)",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "WebFetch(domain:code.claude.com)",
+      "mcp__serena__find_referencing_symbols"
     ],
     "deny": [],
     "ask": []

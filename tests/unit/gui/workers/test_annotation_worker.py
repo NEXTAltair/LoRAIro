@@ -82,9 +82,7 @@ class TestAnnotationWorkerSingleMode:
 
     @patch("image_annotator_lib.annotate")
     @patch("lorairo.gui.workers.annotation_worker.AnnotationService")
-    def test_execute_single_annotation_success(
-        self, mock_service_class, mock_annotate
-    ) -> None:
+    def test_execute_single_annotation_success(self, mock_service_class, mock_annotate) -> None:
         """単発アノテーション実行成功テスト"""
         test_image = Image.new("RGB", (100, 100))
         images = [test_image]
@@ -169,9 +167,7 @@ class TestAnnotationWorkerSingleMode:
 
     @patch("image_annotator_lib.annotate")
     @patch("lorairo.gui.workers.annotation_worker.AnnotationService")
-    def test_execute_single_annotation_model_error_partial_success(
-        self, mock_service_class, mock_annotate
-    ):
+    def test_execute_single_annotation_model_error_partial_success(self, mock_service_class, mock_annotate):
         """モデルエラー時の部分的成功テスト"""
         test_image = Image.new("RGB", (100, 100))
         images = [test_image]
@@ -182,11 +178,7 @@ class TestAnnotationWorkerSingleMode:
             model = kwargs["model_name_list"][0]
             if model == "claude-3-haiku":
                 raise RuntimeError("API Error")
-            return {
-                "phash1": {
-                    model: {"tags": [f"tag_{model}"], "formatted_output": {}, "error": None}
-                }
-            }
+            return {"phash1": {model: {"tags": [f"tag_{model}"], "formatted_output": {}, "error": None}}}
 
         mock_annotate.side_effect = annotate_side_effect
 
@@ -211,9 +203,7 @@ class TestAnnotationWorkerBatchMode:
     @patch("image_annotator_lib.annotate")
     @patch("lorairo.gui.workers.annotation_worker.AnnotationService")
     @patch("PIL.Image.open")
-    def test_execute_batch_annotation_success(
-        self, mock_pil_open, mock_service_class, mock_annotate
-    ):
+    def test_execute_batch_annotation_success(self, mock_pil_open, mock_service_class, mock_annotate):
         """バッチアノテーション実行成功テスト"""
         image_paths = ["/path/to/image1.jpg", "/path/to/image2.jpg"]
         models = ["gpt-4o"]
@@ -254,9 +244,7 @@ class TestAnnotationWorkerBatchMode:
 
     @patch("lorairo.gui.workers.annotation_worker.AnnotationService")
     @patch("PIL.Image.open")
-    def test_execute_batch_annotation_image_load_error(
-        self, mock_pil_open, mock_service_class
-    ):
+    def test_execute_batch_annotation_image_load_error(self, mock_pil_open, mock_service_class):
         """画像読み込みエラーテスト"""
         image_paths = ["/path/to/bad_image.jpg"]
 
@@ -285,11 +273,7 @@ class TestAnnotationWorkerBatchMode:
         # モデルごとの戻り値
         mock_annotate.side_effect = [
             {"phash1": {"gpt-4o": {"tags": ["cat"], "formatted_output": {}, "error": None}}},
-            {
-                "phash1": {
-                    "claude-3-haiku": {"tags": ["feline"], "formatted_output": {}, "error": None}
-                }
-            },
+            {"phash1": {"claude-3-haiku": {"tags": ["feline"], "formatted_output": {}, "error": None}}},
         ]
 
         worker = AnnotationWorker(image_paths=image_paths, models=models, operation_mode="batch")

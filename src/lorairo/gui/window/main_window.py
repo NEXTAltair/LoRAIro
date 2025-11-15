@@ -8,18 +8,27 @@ from PySide6.QtCore import QTimer, Signal
 from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QWidget
 
-from ...database.db_core import resolve_stored_path
 from ...database.db_manager import ImageDatabaseManager
 from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
 from ...services.annotation_service import AnnotationService
 from ...services.configuration_service import ConfigurationService
+from ...services.data_transform_service import DataTransformService
 from ...services.model_selection_service import ModelSelectionService
+from ...services.selection_state_service import SelectionStateService
 from ...services.service_container import ServiceContainer
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
+from ..controllers.annotation_workflow_controller import AnnotationWorkflowController
+from ..controllers.dataset_controller import DatasetController
+from ..controllers.export_controller import ExportController
+from ..controllers.settings_controller import SettingsController
 from ..services.image_db_write_service import ImageDBWriteService
+from ..services.pipeline_control_service import PipelineControlService
+from ..services.progress_state_service import ProgressStateService
+from ..services.result_handler_service import ResultHandlerService
 from ..services.search_filter_service import SearchFilterService
+from ..services.widget_setup_service import WidgetSetupService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
 from ..widgets.filter_search_panel import FilterSearchPanel
@@ -59,6 +68,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     annotation_service: AnnotationService | None
     dataset_state_manager: DatasetStateManager | None
 
+    # Phase 2リファクタリング: Service/Controller層属性
+    selection_state_service: SelectionStateService | None
+    dataset_controller: DatasetController | None
+    annotation_workflow_controller: AnnotationWorkflowController | None
+    settings_controller: SettingsController | None
+    export_controller: ExportController | None
+
+    # Phase 2.4リファクタリング: Service層属性
+    data_transform_service: DataTransformService | None
+    result_handler_service: ResultHandlerService | None
+    pipeline_control_service: PipelineControlService | None
+
     @property
     def service_container(self) -> ServiceContainer:
         """ServiceContainer singleton instance"""
@@ -94,6 +115,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # Phase 3.5: サービス統合（新規）
             logger.info("Phase 3.5: SearchFilterService統合開始")
             self._setup_search_filter_integration()
+
+            # Phase 3.6: Phase 2.4 Service統合（DataTransform/ResultHandler/PipelineControl）
+            logger.info("Phase 3.6: Phase 2.4 Service層統合開始")
+            self._setup_phase24_services()
 
             # Phase 4: イベント接続（最終段階）
             logger.info("Phase 4: イベント接続開始")
@@ -271,176 +296,93 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         logger.info("カスタムウィジェット設定完了")
 
     def _setup_other_custom_widgets(self) -> None:
-        """その他のカスタムウィジェット設定"""
-
-        # ThumbnailSelectorWidget設定
-        if hasattr(self, "thumbnailSelectorWidget") and self.thumbnailSelectorWidget:
-            try:
-                # ThumbnailSelectorWidgetの追加設定があればここに実装
-                self.thumbnail_selector = self.thumbnailSelectorWidget
-
-                # DatasetStateManager接続 - 状態管理復旧
-                if self.dataset_state_manager:
-                    self.thumbnail_selector.set_dataset_state(self.dataset_state_manager)
-                    logger.info("✅ ThumbnailSelectorWidget DatasetStateManager接続完了")
-                else:
-                    logger.warning(
-                        "⚠️ DatasetStateManagerが初期化されていません - ThumbnailSelectorWidget接続をスキップ"
-                    )
-
-                logger.info("✅ ThumbnailSelectorWidget設定完了")
-            except Exception as e:
-                logger.error(f"ThumbnailSelectorWidget設定エラー: {e}")
-
-        # ImagePreviewWidget設定
-        if hasattr(self, "imagePreviewWidget") and self.imagePreviewWidget:
-            try:
-                # ImagePreviewWidgetの追加設定があればここに実装
-                self.image_preview_widget = self.imagePreviewWidget
-
-                # DatasetStateManager接続 - Enhanced Event-Driven Pattern
-                if self.dataset_state_manager:
-                    self.image_preview_widget.connect_to_data_signals(self.dataset_state_manager)
-                    logger.info("✅ ImagePreviewWidget データシグナル接続完了")
-                else:
-                    logger.warning(
-                        "⚠️ DatasetStateManagerが初期化されていません - ImagePreviewWidget接続をスキップ"
-                    )
-
-                logger.info("✅ ImagePreviewWidget設定完了")
-            except Exception as e:
-                logger.error(f"ImagePreviewWidget設定エラー: {e}")
-
-        # SelectedImageDetailsWidget設定
-        if hasattr(self, "selectedImageDetailsWidget") and self.selectedImageDetailsWidget:
-            try:
-                # SelectedImageDetailsWidgetの追加設定があればここに実装
-                self.selected_image_details_widget = self.selectedImageDetailsWidget
-
-                # DatasetStateManager接続 - Enhanced Event-Driven Pattern
-                if self.dataset_state_manager:
-                    self.selected_image_details_widget.connect_to_data_signals(self.dataset_state_manager)
-                    logger.info("✅ SelectedImageDetailsWidget データシグナル接続完了")
-                else:
-                    logger.warning(
-                        "⚠️ DatasetStateManagerが初期化されていません - SelectedImageDetailsWidget接続をスキップ"
-                    )
-
-                logger.info("✅ SelectedImageDetailsWidget設定完了")
-            except Exception as e:
-                logger.error(f"SelectedImageDetailsWidget設定エラー: {e}")
+        """その他のカスタムウィジェット設定（WidgetSetupServiceに委譲）"""
+        WidgetSetupService.setup_all_widgets(self, self.dataset_state_manager)
 
         # 状態管理接続の検証
         self._verify_state_management_connections()
+
+        # Phase 2リファクタリング: Service/Controller層初期化
+
+        # Phase 2.3: SelectionStateService初期化
+        try:
+            logger.info("  - SelectionStateService初期化中...")
+            self.selection_state_service = SelectionStateService(
+                dataset_state_manager=self.dataset_state_manager,
+                db_repository=self.db_manager.repository if self.db_manager else None,
+            )
+            logger.info("  ✅ SelectionStateService初期化成功")
+        except Exception as e:
+            logger.error(f"  ❌ SelectionStateService初期化失敗（継続）: {e}")
+            self.selection_state_service = None
+
+        # Phase 2.2: DatasetController初期化
+        try:
+            logger.info("  - DatasetController初期化中...")
+            self.dataset_controller = DatasetController(
+                db_manager=self.db_manager,
+                file_system_manager=self.file_system_manager,
+                worker_service=self.worker_service,
+                parent=self,
+            )
+            logger.info("  ✅ DatasetController初期化成功")
+        except Exception as e:
+            logger.error(f"  ❌ DatasetController初期化失敗（継続）: {e}")
+            self.dataset_controller = None
+
+        # Phase 2.3: AnnotationWorkflowController初期化
+        try:
+            logger.info("  - AnnotationWorkflowController初期化中...")
+            self.annotation_workflow_controller = AnnotationWorkflowController(
+                annotation_service=self.annotation_service,
+                selection_state_service=self.selection_state_service,
+                config_service=self.config_service,
+                parent=self,
+            )
+            logger.info("  ✅ AnnotationWorkflowController初期化成功")
+        except Exception as e:
+            logger.error(f"  ❌ AnnotationWorkflowController初期化失敗（継続）: {e}")
+            self.annotation_workflow_controller = None
+
+        # Phase 2.7: SettingsController初期化
+        try:
+            logger.info("  - SettingsController初期化中...")
+            self.settings_controller = SettingsController(
+                config_service=self.config_service,
+                parent=self,
+            )
+            logger.info("  ✅ SettingsController初期化成功")
+        except Exception as e:
+            logger.error(f"  ❌ SettingsController初期化失敗（継続）: {e}")
+            self.settings_controller = None
+
+        # Phase 2.9: ExportController初期化
+        try:
+            logger.info("  - ExportController初期化中...")
+            self.export_controller = ExportController(
+                selection_state_service=self.selection_state_service,
+                service_container=self.service_container,
+                parent=self,
+            )
+            logger.info("  ✅ ExportController初期化成功")
+        except Exception as e:
+            logger.error(f"  ❌ ExportController初期化失敗（継続）: {e}")
+            self.export_controller = None
 
         # その他のウィジェット設定...
         logger.debug("その他のカスタムウィジェット設定完了")
 
     def _verify_state_management_connections(self) -> None:
-        """状態管理接続の検証"""
-        try:
-            connection_status = []
-
-            # DatasetStateManager初期化確認
-            if self.dataset_state_manager:
-                connection_status.append("✅ DatasetStateManager: 初期化済み")
-            else:
-                connection_status.append("❌ DatasetStateManager: 未初期化")
-                logger.error("DatasetStateManagerが初期化されていません")
-                return
-
-            # ThumbnailSelectorWidget接続確認
-            if hasattr(self, "thumbnail_selector") and self.thumbnail_selector:
-                if (
-                    hasattr(self.thumbnail_selector, "dataset_state")
-                    and self.thumbnail_selector.dataset_state
-                ):
-                    connection_status.append("✅ ThumbnailSelectorWidget: 状態管理接続済み")
-                else:
-                    connection_status.append("❌ ThumbnailSelectorWidget: 状態管理未接続")
-                    logger.error("ThumbnailSelectorWidgetの状態管理が接続されていません")
-            else:
-                connection_status.append("⚠️ ThumbnailSelectorWidget: ウィジェット未設定")
-
-            # ImagePreviewWidget接続確認
-            if hasattr(self, "image_preview_widget") and self.image_preview_widget:
-                # Enhanced Event-Driven Pattern では connect_to_data_signals で接続するため、
-                # 直接的な属性確認ではなく接続メソッドの存在を確認
-                if hasattr(self.image_preview_widget, "connect_to_data_signals"):
-                    connection_status.append("✅ ImagePreviewWidget: Enhanced Event-Driven Pattern対応済み")
-                else:
-                    connection_status.append("❌ ImagePreviewWidget: Enhanced Event-Driven Pattern未対応")
-                    logger.error("ImagePreviewWidgetのEnhanced Event-Driven Pattern対応が不完全です")
-            else:
-                connection_status.append("⚠️ ImagePreviewWidget: ウィジェット未設定")
-
-            # SelectedImageDetailsWidget接続確認
-            if hasattr(self, "selected_image_details_widget") and self.selected_image_details_widget:
-                # Enhanced Event-Driven Pattern では connect_to_data_signals で接続するため、
-                # 直接的な属性確認ではなく接続メソッドの存在を確認
-                if hasattr(self.selected_image_details_widget, "connect_to_data_signals"):
-                    connection_status.append(
-                        "✅ SelectedImageDetailsWidget: Enhanced Event-Driven Pattern対応済み"
-                    )
-                else:
-                    connection_status.append(
-                        "❌ SelectedImageDetailsWidget: Enhanced Event-Driven Pattern未対応"
-                    )
-                    logger.error(
-                        "SelectedImageDetailsWidgetのEnhanced Event-Driven Pattern対応が不完全です"
-                    )
-            else:
-                connection_status.append("⚠️ SelectedImageDetailsWidget: ウィジェット未設定")
-
-            # 検証結果をログ出力
-            logger.info("📋 状態管理接続検証結果:")
-            for status in connection_status:
-                logger.info(f"  {status}")
-
-        except Exception as e:
-            logger.error(f"状態管理接続検証エラー: {e}")
-
-    def _setup_responsive_splitter(self) -> None:
-        """レスポンシブスプリッターサイズ設定"""
-        try:
-            # 現在のウィンドウサイズを取得
-            window_width = self.width()
-            if window_width < 800:  # 最小サイズ保証
-                window_width = 1400  # デフォルト幅
-
-            # 新しい比率: 左20%, 中央55%, 右25%
-            left_ratio = 0.20
-            center_ratio = 0.55  # サムネイルエリアを拡大
-            right_ratio = 0.25
-
-            # 最小・最大サイズ制限
-            min_left = 280
-            max_left = 400
-            min_center = 500  # サムネイル表示に必要な最小幅
-            min_right = 350
-
-            # 計算されたサイズ
-            calc_left = int(window_width * left_ratio)
-            calc_center = int(window_width * center_ratio)
-            calc_right = int(window_width * right_ratio)
-
-            # 制限適用
-            final_left = max(min_left, min(max_left, calc_left))
-            final_center = max(min_center, calc_center)
-            final_right = max(min_right, calc_right)
-
-            # サイズ適用
-            self.splitterMainWorkArea.setSizes([final_left, final_center, final_right])
-
-            logger.debug(
-                f"スプリッターサイズ設定: {final_left}:{final_center}:{final_right} "
-                f"(ウィンドウ幅: {window_width}px)"
+        """状態管理接続の検証（SelectionStateServiceに委譲）"""
+        if self.selection_state_service:
+            self.selection_state_service.verify_state_management_connections(
+                thumbnail_selector=getattr(self, "thumbnail_selector", None),
+                image_preview_widget=getattr(self, "image_preview_widget", None),
+                selected_image_details_widget=getattr(self, "selected_image_details_widget", None),
             )
+        else:
+            logger.error("SelectionStateServiceが初期化されていません - 接続検証をスキップ")
 
-        except Exception as e:
-            # フォールバック: 改善された固定サイズ
-            logger.warning(f"動的サイズ計算失敗、フォールバック使用: {e}")
-            self.splitterMainWorkArea.setSizes([320, 800, 380])  # 改善された比率
 
     def _connect_events(self) -> None:
         """イベント接続を設定（安全な実装）"""
@@ -470,55 +412,51 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.warning("WorkerService not available - pipeline signals not connected")
             return
 
-        try:
-            # Verify WorkerService has required signals
-            required_signals = [
-                "search_finished",
-                "search_started",
-                "search_error",
-                "thumbnail_finished",
-                "thumbnail_started",
-                "thumbnail_error",
-                "batch_registration_started",
-                "batch_registration_finished",
-                "batch_registration_error",
-                "worker_progress_updated",
-                "worker_batch_progress",
-            ]
+        # Verify WorkerService has required signals
+        required_signals = [
+            "search_finished",
+            "search_started",
+            "search_error",
+            "thumbnail_finished",
+            "thumbnail_started",
+            "thumbnail_error",
+            "batch_registration_started",
+            "batch_registration_finished",
+            "batch_registration_error",
+            "worker_progress_updated",
+            "worker_batch_progress",
+        ]
 
-            missing_signals = [
-                signal for signal in required_signals if not hasattr(self.worker_service, signal)
-            ]
+        missing_signals = [
+            signal for signal in required_signals if not hasattr(self.worker_service, signal)
+        ]
 
-            if missing_signals:
-                logger.error(f"WorkerService missing required signals: {missing_signals}")
-                return
+        if missing_signals:
+            logger.error(f"WorkerService missing required signals: {missing_signals}")
+            return
 
-            # Core pipeline connections
-            self.worker_service.search_finished.connect(self._on_search_completed_start_thumbnail)
-            self.worker_service.thumbnail_finished.connect(self._on_thumbnail_completed_update_display)
+        # Core pipeline connections
+        self.worker_service.search_finished.connect(self._on_search_completed_start_thumbnail)
+        self.worker_service.thumbnail_finished.connect(self._on_thumbnail_completed_update_display)
 
-            # Progress tracking connections
-            self.worker_service.search_started.connect(self._on_pipeline_search_started)
-            self.worker_service.thumbnail_started.connect(self._on_pipeline_thumbnail_started)
+        # Progress tracking connections
+        self.worker_service.search_started.connect(self._on_pipeline_search_started)
+        self.worker_service.thumbnail_started.connect(self._on_pipeline_thumbnail_started)
 
-            # Error handling connections
-            self.worker_service.search_error.connect(self._on_pipeline_search_error)
-            self.worker_service.thumbnail_error.connect(self._on_pipeline_thumbnail_error)
+        # Error handling connections
+        self.worker_service.search_error.connect(self._on_pipeline_search_error)
+        self.worker_service.thumbnail_error.connect(self._on_pipeline_thumbnail_error)
 
-            # Batch registration connections
-            self.worker_service.batch_registration_started.connect(self._on_batch_registration_started)
-            self.worker_service.batch_registration_finished.connect(self._on_batch_registration_finished)
-            self.worker_service.batch_registration_error.connect(self._on_batch_registration_error)
+        # Batch registration connections
+        self.worker_service.batch_registration_started.connect(self._on_batch_registration_started)
+        self.worker_service.batch_registration_finished.connect(self._on_batch_registration_finished)
+        self.worker_service.batch_registration_error.connect(self._on_batch_registration_error)
 
-            # Progress feedback connections
-            self.worker_service.worker_progress_updated.connect(self._on_worker_progress_updated)
-            self.worker_service.worker_batch_progress.connect(self._on_worker_batch_progress)
+        # Progress feedback connections
+        self.worker_service.worker_progress_updated.connect(self._on_worker_progress_updated)
+        self.worker_service.worker_batch_progress.connect(self._on_worker_batch_progress)
 
-            logger.info("WorkerService pipeline signals connected (13 connections)")
-
-        except Exception as e:
-            logger.error(f"Pipeline signals connection failed: {e}", exc_info=True)
+        logger.info("WorkerService pipeline signals connected (13 connections)")
 
     def _connect_annotation_service_signals(self) -> None:
         """AnnotationService signal connections setup"""
@@ -545,372 +483,182 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"AnnotationService signal connection failed: {e}", exc_info=True)
 
     def _on_search_completed_start_thumbnail(self, search_result: Any) -> None:
-        """SearchWorker完了時にThumbnailWorkerを自動起動"""
-        if not search_result or not hasattr(search_result, "image_metadata"):
-            logger.warning("Search completed but no valid results - Thumbnail loading skipped")
-            return
+        """SearchWorker完了時にThumbnailWorkerを自動起動（PipelineControlServiceに委譲）
 
-        if not search_result.image_metadata:
-            logger.info("Search completed with 0 results - Thumbnail loading skipped")
-            # サムネイル領域をクリア（要求仕様通り）
-            if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
-                self.thumbnail_selector.clear_thumbnails()
-            return
-
-        # WorkerService存在チェック（型安全性）
-        if not self.worker_service:
-            logger.error("WorkerService not available - thumbnail loading skipped")
-            return
-
-        # ThumbnailSelector存在チェック
-        if not self.thumbnail_selector:
-            logger.error("ThumbnailSelector not available - thumbnail loading skipped")
-            return
-
-        try:
-            # サムネイルレイアウト用の image_data を事前設定
-            image_data = [
-                (Path(item["stored_image_path"]), item["id"])
-                for item in search_result.image_metadata
-                if "stored_image_path" in item and "id" in item
-            ]
-            self.thumbnail_selector.image_data = image_data
-            logger.info(f"ThumbnailSelectorWidget.image_data set: {len(image_data)} items")
-
-            # サムネイルサイズ取得（フォールバック付き）
-            thumbnail_size = getattr(self.thumbnail_selector, "thumbnail_size", None)
-            if not thumbnail_size or thumbnail_size.isEmpty():
-                from PySide6.QtCore import QSize
-
-                thumbnail_size = QSize(128, 128)
-                logger.info("Using default thumbnail size: 128x128")
-
-            # ThumbnailWorker開始 - 修正されたパラメータで呼び出し
-            worker_id = self.worker_service.start_thumbnail_load(search_result, thumbnail_size)
-            logger.info(
-                f"ThumbnailWorker started automatically after search: {worker_id} "
-                f"({len(search_result.image_metadata)} images, size={thumbnail_size.width()}x{thumbnail_size.height()})"
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to start automatic thumbnail loading: {e}")
-            # エラー発生時もUI状態をクリア
-            if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
-                self.thumbnail_selector.clear_thumbnails()
+        Phase 2.5 Stage 4: PipelineControlServiceに完全委譲。
+        """
+        if self.pipeline_control_service:
+            self.pipeline_control_service.on_search_completed(search_result)
+        else:
+            logger.error("PipelineControlService が初期化されていません - サムネイル読み込みをスキップ")
 
     def _on_thumbnail_completed_update_display(self, thumbnail_result: Any) -> None:
-        """ThumbnailWorker完了時にThumbnailSelectorWidget更新"""
-        if not self.thumbnail_selector:
-            logger.warning("ThumbnailSelectorWidget not available - thumbnail display update skipped")
-            return
+        """ThumbnailWorker完了時にThumbnailSelectorWidget更新（PipelineControlServiceに委譲）
 
-        try:
-            # ThumbnailSelectorWidget統合（既存メソッド活用）
-            if hasattr(self.thumbnail_selector, "load_thumbnails_from_result"):
-                self.thumbnail_selector.load_thumbnails_from_result(thumbnail_result)
-                logger.info("ThumbnailSelectorWidget updated with results")
-            else:
-                logger.warning("ThumbnailSelectorWidget.load_thumbnails_from_result method not found")
-
-            # パイプライン完了後にプログレスバーを非表示
-            if hasattr(self, "filterSearchPanel") and hasattr(
-                self.filterSearchPanel, "hide_progress_after_completion"
-            ):
-                self.filterSearchPanel.hide_progress_after_completion()
-
-        except Exception as e:
-            logger.error(f"Failed to update ThumbnailSelectorWidget: {e}", exc_info=True)
+        Phase 2.5 Stage 4: PipelineControlServiceに完全委譲。
+        """
+        if self.pipeline_control_service:
+            self.pipeline_control_service.on_thumbnail_completed(thumbnail_result)
+        else:
+            logger.error("PipelineControlService が初期化されていません - サムネイル表示更新をスキップ")
 
     def _on_pipeline_search_started(self, _worker_id: str) -> None:
-        """Pipeline検索フェーズ開始時の進捗表示"""
-        if hasattr(self, "filterSearchPanel") and hasattr(
-            self.filterSearchPanel, "update_pipeline_progress"
-        ):
-            self.filterSearchPanel.update_pipeline_progress("検索中...", 0.0, 0.3)
+        """Pipeline検索フェーズ開始時の進捗表示（PipelineControlServiceに委譲）
+
+        Phase 2.5 Stage 4: PipelineControlServiceに完全委譲。
+        """
+        if self.pipeline_control_service:
+            self.pipeline_control_service.on_search_started(_worker_id)
+        else:
+            logger.warning("PipelineControlService が初期化されていません - 進捗表示をスキップ")
 
     def _on_pipeline_thumbnail_started(self, _worker_id: str) -> None:
-        """Pipelineサムネイル生成フェーズ開始時の進捗表示"""
-        if hasattr(self, "filterSearchPanel") and hasattr(
-            self.filterSearchPanel, "update_pipeline_progress"
-        ):
-            self.filterSearchPanel.update_pipeline_progress("サムネイル読込中...", 0.3, 1.0)
+        """Pipelineサムネイル生成フェーズ開始時の進捗表示（PipelineControlServiceに委譲）
+
+        Phase 2.5 Stage 4: PipelineControlServiceに完全委譲。
+        """
+        if self.pipeline_control_service:
+            self.pipeline_control_service.on_thumbnail_started(_worker_id)
+        else:
+            logger.warning("PipelineControlService が初期化されていません - 進捗表示をスキップ")
 
     def _on_pipeline_search_error(self, error_message: str) -> None:
-        """Pipeline検索エラー時の処理（検索結果破棄）"""
-        logger.error(f"Pipeline search error: {error_message}")
-        if hasattr(self, "filterSearchPanel") and hasattr(self.filterSearchPanel, "handle_pipeline_error"):
-            self.filterSearchPanel.handle_pipeline_error("search", {"message": error_message})
-        # 検索結果破棄（要求仕様通り）
-        if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
-            self.thumbnail_selector.clear_thumbnails()
+        """Pipeline検索エラー時の処理（PipelineControlServiceに委譲）
+
+        Phase 2.5 Stage 4: PipelineControlServiceに完全委譲。
+        """
+        if self.pipeline_control_service:
+            self.pipeline_control_service.on_search_error(error_message)
+        else:
+            logger.error("PipelineControlService が初期化されていません - エラー処理をスキップ")
 
     def _on_pipeline_thumbnail_error(self, error_message: str) -> None:
-        """Pipelineサムネイル生成エラー時の処理（検索結果破棄）"""
-        logger.error(f"Pipeline thumbnail error: {error_message}")
-        if hasattr(self, "filterSearchPanel") and hasattr(self.filterSearchPanel, "handle_pipeline_error"):
-            self.filterSearchPanel.handle_pipeline_error("thumbnail", {"message": error_message})
-        # 検索結果破棄（要求仕様通り）
-        if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
-            self.thumbnail_selector.clear_thumbnails()
-        # エラー時もプログレスバーを非表示
-        if hasattr(self, "filterSearchPanel") and hasattr(
-            self.filterSearchPanel, "hide_progress_after_completion"
-        ):
-            self.filterSearchPanel.hide_progress_after_completion()
+        """Pipelineサムネイル生成エラー時の処理（PipelineControlServiceに委譲）
+
+        Phase 2.5 Stage 4: PipelineControlServiceに完全委譲。
+        """
+        if self.pipeline_control_service:
+            self.pipeline_control_service.on_thumbnail_error(error_message)
+        else:
+            logger.error("PipelineControlService が初期化されていません - エラー処理をスキップ")
 
     def _on_batch_registration_started(self, worker_id: str) -> None:
-        """Batch registration started signal handler"""
-        logger.info(f"バッチ登録開始: worker_id={worker_id}")
+        """Batch registration started signal handler（ProgressStateServiceに委譲）
 
-        # UI feedback - show user that processing has started
-        try:
-            self.statusBar().showMessage("データベース登録処理を開始しています...")
-        except Exception as e:
-            logger.debug(f"Status bar update failed: {e}")
+        Phase 2.6 Stage 2: ProgressStateServiceに完全委譲。
+        """
+        if self.progress_state_service:
+            self.progress_state_service.on_batch_registration_started(worker_id)
+        else:
+            logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
 
     def _on_batch_registration_finished(self, result: Any) -> None:
-        """Batch registration finished signal handler"""
-        logger.info(f"バッチ登録完了: result={type(result)}")
-
-        # Clear statusbar processing message
-        try:
-            self.statusBar().clearMessage()
-        except Exception as e:
-            logger.debug(f"Status bar clear failed: {e}")
-
-        try:
-            # Extract results from DatabaseRegistrationResult
-            if hasattr(result, "registered_count"):
-                registered = result.registered_count
-                skipped = result.skipped_count
-                errors = result.error_count
-                processing_time = result.total_processing_time
-
-                # Emit completion signal for other components
-                if hasattr(self, "database_registration_completed"):
-                    self.database_registration_completed.emit(registered)
-
-                # 非ブロッキング通知でUIクラッシュを防止
-                status_msg = f"バッチ登録完了: 登録={registered}件, スキップ={skipped}件, エラー={errors}件, 処理時間={processing_time:.1f}秒"
-                self.statusBar().showMessage(status_msg, 8000)  # 8秒表示
-                logger.info(f"バッチ登録統計: 登録={registered}, スキップ={skipped}, エラー={errors}")
-
-            else:
-                # Fallback for unexpected result format
-                logger.warning(f"Unexpected batch registration result format: {result}")
-                # 非ブロッキング通知でUIクラッシュを防止
-                self.statusBar().showMessage("バッチ登録完了（詳細情報取得不可）", 5000)
-
-        except Exception as e:
-            # Proper error logging instead of silent failure
-            logger.error(f"バッチ登録完了処理中にエラー: {e}", exc_info=True)
-            # 非ブロッキング通知でUIクラッシュを防止
-            self.statusBar().showMessage(f"バッチ登録完了（結果表示エラー: {str(e)[:50]}）", 5000)
+        """Batch registration finished signal handler（Phase 2.4 Stage 4-2: ResultHandlerService委譲）"""
+        if self.result_handler_service:
+            self.result_handler_service.handle_batch_registration_finished(
+                result, status_bar=self.statusBar(), completion_signal=self.database_registration_completed
+            )
+        else:
+            # Fallback: Service未初期化時は簡易通知のみ
+            logger.info(f"バッチ登録完了: result={type(result)}")
+            self.statusBar().showMessage("バッチ登録完了", 5000)
 
     def _on_batch_registration_error(self, error_message: str) -> None:
-        """Batch registration error signal handler"""
+        """Batch registration error signal handler（ProgressStateServiceに委譲 + QMessageBox）
+
+        Phase 2.6 Stage 2: ProgressStateServiceに委譲（ステータスバー）、QMessageBoxはMainWindowで表示。
+        """
+        if self.progress_state_service:
+            self.progress_state_service.on_batch_registration_error(error_message)
+
+        # QMessageBoxはMainWindowで表示（UI要素のため）
         QMessageBox.critical(
             self, "バッチ登録エラー", f"バッチ登録中にエラーが発生しました:\n\n{error_message}"
         )
 
     def _on_worker_progress_updated(self, worker_id: str, progress: Any) -> None:
-        """Worker progress update signal handler"""
-        try:
-            # Extract progress information
-            if hasattr(progress, "current") and hasattr(progress, "total"):
-                current = progress.current
-                total = progress.total
-                percentage = int((current / total) * 100) if total > 0 else 0
+        """Worker progress update signal handler（ProgressStateServiceに委譲）
 
-                # Update status bar with progress
-                status_message = f"処理中... {current}/{total} ({percentage}%)"
-                self.statusBar().showMessage(status_message)
-
-                logger.debug(f"ワーカー進捗更新: {worker_id} - {current}/{total} ({percentage}%)")
-
-            else:
-                logger.debug(f"ワーカー進捗更新: {worker_id} - {progress}")
-
-        except Exception as e:
-            logger.warning(f"進捗更新処理エラー: {e}")
+        Phase 2.6 Stage 2: ProgressStateServiceに完全委譲。
+        """
+        if self.progress_state_service:
+            self.progress_state_service.on_worker_progress_updated(worker_id, progress)
+        else:
+            logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
 
     def _on_worker_batch_progress(self, worker_id: str, current: int, total: int, filename: str) -> None:
-        """Worker batch progress update signal handler"""
-        try:
-            percentage = int((current / total) * 100) if total > 0 else 0
+        """Worker batch progress update signal handler（ProgressStateServiceに委譲）
 
-            # Update status bar with detailed batch progress
-            status_message = f"バッチ処理中... {current}/{total} ({percentage}%) - {filename}"
-            self.statusBar().showMessage(status_message)
-
-            logger.debug(f"バッチ進捗更新: {worker_id} - {current}/{total} ({percentage}%) - {filename}")
-
-        except Exception as e:
-            logger.warning(f"バッチ進捗更新処理エラー: {e}")
+        Phase 2.6 Stage 2: ProgressStateServiceに完全委譲。
+        """
+        if self.progress_state_service:
+            self.progress_state_service.on_worker_batch_progress(worker_id, current, total, filename)
+        else:
+            logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
 
     # AnnotationService signal handlers (Phase 5 Stage 3)
     def _on_annotation_finished(self, result: Any) -> None:
-        """単発アノテーション完了ハンドラ"""
-        try:
+        """単発アノテーション完了ハンドラ（Phase 2.4 Stage 4-2: ResultHandlerService委譲）"""
+        if self.result_handler_service:
+            self.result_handler_service.handle_annotation_finished(result, status_bar=self.statusBar())
+        else:
             logger.info(f"アノテーション完了: {result}")
             self.statusBar().showMessage("アノテーション処理が完了しました", 5000)
 
-            # TODO: Stage 4で結果をDBに保存する処理を追加
-            # self._save_annotation_results_to_db(result)
-
-        except Exception as e:
-            logger.error(f"アノテーション完了ハンドラエラー: {e}", exc_info=True)
-
     def _on_annotation_error(self, error_msg: str) -> None:
-        """アノテーションエラーハンドラ"""
-        try:
+        """アノテーションエラーハンドラ（Phase 2.4 Stage 4-2: ResultHandlerService委譲）"""
+        if self.result_handler_service:
+            self.result_handler_service.handle_annotation_error(error_msg, status_bar=self.statusBar())
+        else:
             logger.error(f"アノテーションエラー: {error_msg}")
             self.statusBar().showMessage(f"エラー: {error_msg}", 8000)
 
-            # ユーザーへの詳細エラー通知
-            QMessageBox.warning(
-                self,
-                "アノテーション処理エラー",
-                f"アノテーション処理中にエラーが発生しました:\n\n{error_msg}\n\n"
-                "APIキーの設定やネットワーク接続を確認してください。",
-            )
-
-        except Exception as e:
-            logger.error(f"エラーハンドラで予期しない例外: {e}", exc_info=True)
-
     def _on_batch_annotation_started(self, total_images: int) -> None:
-        """バッチアノテーション開始ハンドラ"""
-        try:
-            logger.info(f"バッチアノテーション開始: {total_images}画像")
+        """バッチアノテーション開始ハンドラ（ProgressStateServiceに委譲）
 
-            # ステータスバー表示
-            self.statusBar().showMessage(f"アノテーション処理開始: {total_images}画像を処理中...", 10000)
-
-            # TODO: Stage 4でプログレスバー表示を追加
-            # self._show_progress_dialog(total_images)
-
-        except Exception as e:
-            logger.error(f"バッチ開始ハンドラエラー: {e}", exc_info=True)
+        Phase 2.6 Stage 2: ProgressStateServiceに完全委譲。
+        """
+        if self.progress_state_service:
+            self.progress_state_service.on_batch_annotation_started(total_images)
+        else:
+            logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
 
     def _on_batch_annotation_progress(self, processed: int, total: int) -> None:
-        """バッチアノテーション進捗ハンドラ"""
-        try:
-            percentage = int((processed / total) * 100) if total > 0 else 0
+        """バッチアノテーション進捗ハンドラ（ProgressStateServiceに委譲）
 
-            # ステータスバー更新
-            self.statusBar().showMessage(f"アノテーション処理中... {processed}/{total} ({percentage}%)")
-
-            logger.debug(f"バッチ進捗: {processed}/{total} ({percentage}%)")
-
-            # TODO: Stage 4でプログレスバー更新を追加
-            # self._update_progress_dialog(processed, total)
-
-        except Exception as e:
-            logger.warning(f"進捗ハンドラエラー: {e}")
+        Phase 2.6 Stage 2: ProgressStateServiceに完全委譲。
+        """
+        if self.progress_state_service:
+            self.progress_state_service.on_batch_annotation_progress(processed, total)
+        else:
+            logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
 
     def _on_batch_annotation_finished(self, result: Any) -> None:
-        """バッチアノテーション完了ハンドラ"""
-        try:
-            # BatchAnnotationResult属性にアクセス
-            total = getattr(result, "total_images", 0)
-            successful = getattr(result, "successful_annotations", 0)
-            failed = getattr(result, "failed_annotations", 0)
-            success_rate = getattr(result, "success_rate", 0.0)
-            summary = getattr(result, "summary", "バッチ処理完了")
-
-            logger.info(f"バッチアノテーション完了: {summary}")
-
-            # ステータスバー表示（成功率を含む）
-            status_msg = f"完了: {successful}件成功, {failed}件失敗 (成功率: {success_rate:.1f}%)"
-            self.statusBar().showMessage(status_msg, 10000)
-
-            # 成功時の通知（完了メッセージ）
-            if failed == 0:
-                # 全て成功
-                QMessageBox.information(
-                    self,
-                    "アノテーション完了",
-                    f"アノテーション処理が正常に完了しました。\n\n"
-                    f"処理画像数: {total}件\n"
-                    f"成功: {successful}件",
-                )
-            else:
-                # 一部失敗
-                QMessageBox.warning(
-                    self,
-                    "アノテーション完了（一部エラー）",
-                    f"アノテーション処理が完了しましたが、一部にエラーがありました。\n\n"
-                    f"処理画像数: {total}件\n"
-                    f"成功: {successful}件\n"
-                    f"失敗: {failed}件\n"
-                    f"成功率: {success_rate:.1f}%\n\n"
-                    "詳細はログを確認してください。",
-                )
-
-            # TODO: Stage 4でDB保存処理を追加
-            # self._save_batch_results_to_db(result)
-
-        except Exception as e:
-            logger.error(f"バッチ完了ハンドラエラー: {e}", exc_info=True)
-            QMessageBox.critical(
-                self, "処理エラー", f"結果処理中にエラーが発生しました:\n{e}"
+        """バッチアノテーション完了ハンドラ（Phase 2.4 Stage 4-2: ResultHandlerService委譲）"""
+        if self.result_handler_service:
+            self.result_handler_service.handle_batch_annotation_finished(
+                result, status_bar=self.statusBar()
             )
+        else:
+            logger.info(f"バッチアノテーション完了: {result}")
+            self.statusBar().showMessage("バッチアノテーション完了", 5000)
 
     def _on_model_sync_completed(self, sync_result: Any) -> None:
-        """モデル同期完了ハンドラ"""
-        try:
+        """モデル同期完了ハンドラ（Phase 2.4 Stage 4-2: ResultHandlerService委譲）"""
+        if self.result_handler_service:
+            self.result_handler_service.handle_model_sync_completed(
+                sync_result, status_bar=self.statusBar()
+            )
+        else:
             logger.info(f"モデル同期完了: {sync_result}")
-
-            # 同期成功通知
-            if hasattr(sync_result, "success") and sync_result.success:
-                summary = getattr(sync_result, "summary", "モデル同期完了")
-                self.statusBar().showMessage(f"モデル同期完了: {summary}", 5000)
-            else:
-                # 同期失敗
-                errors = getattr(sync_result, "errors", [])
-                error_msg = ", ".join(errors) if errors else "不明なエラー"
-                self.statusBar().showMessage(f"モデル同期エラー: {error_msg}", 8000)
-                logger.error(f"モデル同期エラー: {error_msg}")
-
-        except Exception as e:
-            logger.error(f"モデル同期完了ハンドラエラー: {e}", exc_info=True)
+            self.statusBar().showMessage("モデル同期完了", 5000)
 
     def cancel_current_pipeline(self) -> None:
-        """現在のPipeline全体をキャンセル"""
-        if not self.worker_service:
-            logger.warning("WorkerService not available - Pipeline cancellation skipped")
-            return
-
-        try:
-            # SearchWorker + ThumbnailWorker の cascade cancellation
-            if (
-                hasattr(self.worker_service, "current_search_worker_id")
-                and self.worker_service.current_search_worker_id
-            ):
-                self.worker_service.cancel_search(self.worker_service.current_search_worker_id)
-                logger.info("Search worker cancelled in pipeline")
-
-            if (
-                hasattr(self.worker_service, "current_thumbnail_worker_id")
-                and self.worker_service.current_thumbnail_worker_id
-            ):
-                self.worker_service.cancel_thumbnail_load(self.worker_service.current_thumbnail_worker_id)
-                logger.info("Thumbnail worker cancelled in pipeline")
-
-            # キャンセル時の結果破棄（要求仕様通り）
-            if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
-                self.thumbnail_selector.clear_thumbnails()
-
-            # キャンセル時もプログレスバーを非表示
-            if hasattr(self, "filterSearchPanel") and hasattr(
-                self.filterSearchPanel, "hide_progress_after_completion"
-            ):
-                self.filterSearchPanel.hide_progress_after_completion()
-
-            logger.info("Pipeline cancellation completed")
-
-        except Exception as e:
-            logger.error(f"Pipeline cancellation failed: {e}", exc_info=True)
+        """現在のPipeline全体をキャンセル（Phase 2.4 Stage 4-3: PipelineControlService委譲）"""
+        if self.pipeline_control_service:
+            self.pipeline_control_service.cancel_current_pipeline()
+        else:
+            logger.warning("PipelineControlService未初期化 - Pipeline cancellation skipped")
 
     # Placeholder methods for UI actions - implement these based on your requirements
     def select_dataset_directory(self) -> Path | None:
@@ -924,71 +672,26 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         return Path(directory) if directory else None
 
     def select_and_process_dataset(self) -> None:
-        """データセット選択と自動処理開始（統合ワークフロー）
-
-        ユーザーがpushButtonSelectDatasetをクリックした際に実行される統合ワークフロー。
-        ディレクトリ選択後、自動的にデータベース登録・サムネイル生成処理を開始する。
-
-        処理フロー:
-        1. ディレクトリ選択ダイアログ表示
-        2. 選択後、バッチ登録処理を自動開始
-        3. DatabaseRegistrationWorker起動
-        4. サムネイル生成・検索機能有効化
-        """
-        logger.info("統合ワークフロー: データセット選択と自動処理開始")
-
-        # ディレクトリ選択実行
-        directory = self.select_dataset_directory()
-
-        if directory:
-            logger.info(f"ディレクトリ選択完了: {directory}")
-            logger.info("自動的にバッチ登録処理を開始します...")
-
-            # 既存の成功パターン（register_images_to_db）と同じ処理フローを実行
-            self._start_batch_registration(directory)
-        else:
-            logger.info("ディレクトリ選択がキャンセルされました")
-
-    def _start_batch_registration(self, directory: Path) -> None:
-        """バッチ登録処理を開始（内部メソッド）"""
-        # WorkerServiceが利用可能かチェック
-        if not self.worker_service:
-            QMessageBox.warning(
-                self,
-                "サービス未初期化",
-                "WorkerServiceが初期化されていないため、バッチ登録を開始できません。",
-            )
-            return
-
-        try:
-            # FileSystemManagerの初期化（必須）
-            if not self.file_system_manager:
-                # 致命的エラー - アプリケーション終了
-                error_msg = "FileSystemManagerが初期化されていません。バッチ登録処理を実行できません。"
-                logger.critical(f"Critical error during batch registration: {error_msg}")
-                self._handle_critical_initialization_failure("FileSystemManager", RuntimeError(error_msg))
-                return
-
-            # 選択されたディレクトリの親ディレクトリに出力する
-            output_dir = directory.parent / "lorairo_output"
-            self.file_system_manager.initialize(output_dir)
-
-            # バッチ登録開始（初期化済みFileSystemManagerを渡す）
-            worker_id = self.worker_service.start_batch_registration_with_fsm(
-                directory, self.file_system_manager
-            )
-            if worker_id:
-                logger.info(f"バッチ登録開始: worker_id={worker_id}, directory={directory}")
-            else:
-                logger.error("バッチ登録の開始に失敗しました")
-        except Exception as e:
-            QMessageBox.critical(self, "バッチ登録エラー", f"データセット登録の開始に失敗しました: {e}")
+        """データセット選択と自動処理開始（DatasetControllerに委譲）"""
+        self._execute_dataset_registration()
 
     def register_images_to_db(self) -> None:
-        """画像をデータベースに登録（完全なワークフロー：ディレクトリ選択 + バッチ登録開始）"""
-        directory = self.select_dataset_directory()
-        if directory:
-            self._start_batch_registration(directory)
+        """画像をデータベースに登録（DatasetControllerに委譲）"""
+        self._execute_dataset_registration()
+
+    def _execute_dataset_registration(self) -> None:
+        """データセット登録の実行（共通メソッド）"""
+        if self.dataset_controller:
+            self.dataset_controller.select_and_register_images(
+                dialog_callback=self.select_dataset_directory
+            )
+        else:
+            logger.error("DatasetControllerが初期化されていません")
+            QMessageBox.warning(
+                self,
+                "エラー",
+                "DatasetControllerが初期化されていないため、データセット登録を開始できません。",
+            )
 
     def load_images_from_db(self) -> None:
         """データベースから画像を読み込み、検索パイプラインを開始"""
@@ -997,10 +700,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _resolve_optimal_thumbnail_data(
         self, image_metadata: list[dict[str, Any]]
     ) -> list[tuple[Path, int]]:
-        """画像メタデータから最適なサムネイル表示用パスを解決
-
-        512px処理済み画像が利用可能な場合はそれを使用し、
-        利用不可能な場合は元画像にフォールバックする
+        """画像メタデータから最適なサムネイル表示用パスを解決（Phase 2.4 Stage 4-1: DataTransformService委譲）
 
         Args:
             image_metadata: 画像メタデータリスト
@@ -1008,89 +708,31 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         Returns:
             list[tuple[Path, int]]: (画像パス, 画像ID) のタプルリスト
         """
-        if not image_metadata:
-            return []
+        if self.data_transform_service:
+            return self.data_transform_service.resolve_optimal_thumbnail_paths(image_metadata)
 
-        result = []
+        # Fallback: Service未初期化時は元画像のみ使用
+        return [(Path(metadata["stored_image_path"]), metadata["id"]) for metadata in image_metadata]
 
-        for metadata in image_metadata:
-            image_id = metadata["id"]
-            original_path = metadata["stored_image_path"]
 
-            try:
-                # 512px処理済み画像の存在を確認
-                if self.db_manager:
-                    processed_image = self.db_manager.check_processed_image_exists(image_id, 512)
-
-                    if processed_image:
-                        # 512px画像のパス解決
-                        resolved_path = resolve_stored_path(processed_image["stored_image_path"])
-
-                        # ファイル存在確認
-                        if resolved_path.exists():
-                            result.append((resolved_path, image_id))
-                            continue
-
-                # フォールバック: 元画像を使用
-                result.append((Path(original_path), image_id))
-
-            except Exception as e:
-                # エラー時もフォールバック: 元画像を使用
-                logger.warning(f"パス解決エラー (image_id={image_id}): {e}")
-                result.append((Path(original_path), image_id))
-
-        return result
-
-    def resizeEvent(self, event: QResizeEvent) -> None:
-        """ウィンドウリサイズイベント - スプリッターサイズを動的調整"""
-        try:
-            super().resizeEvent(event)
-
-            # スプリッターが存在し、初期化が完了している場合のみ調整
-            if hasattr(self, "splitterMainWorkArea") and self.splitterMainWorkArea is not None:
-                # リサイズ完了後に調整（イベントループで遅延実行）
-                QTimer.singleShot(50, self._adjust_splitter_on_resize)
-
-        except Exception as e:
-            logger.warning(f"リサイズイベント処理エラー: {e}")
-
-    def _adjust_splitter_on_resize(self) -> None:
-        """リサイズ後のスプリッター調整（遅延実行用）"""
-        try:
-            # 現在のサイズが変更されている場合のみ再計算
-            current_width = self.width()
-
-            # 小さすぎる場合はスキップ（初期化中の可能性）
-            if current_width < 600:
-                return
-
-            self._setup_responsive_splitter()
-            logger.debug(f"リサイズ後スプリッター調整完了: {current_width}px")
-
-        except Exception as e:
-            logger.warning(f"リサイズ後の調整エラー: {e}")
 
     def _setup_image_db_write_service(self) -> None:
         """ImageDBWriteServiceを作成してselected_image_details_widgetに注入
 
         Phase 3.4: DB操作分離パターンの実装
         """
-        try:
-            if self.db_manager and self.selected_image_details_widget:
-                # ImageDBWriteServiceを作成
-                self.image_db_write_service = ImageDBWriteService(self.db_manager)
+        if self.db_manager and self.selected_image_details_widget:
+            # ImageDBWriteServiceを作成
+            self.image_db_write_service = ImageDBWriteService(self.db_manager)
 
-                # SelectedImageDetailsWidgetに注入
-                self.selected_image_details_widget.set_image_db_write_service(self.image_db_write_service)
+            # SelectedImageDetailsWidgetに注入
+            self.selected_image_details_widget.set_image_db_write_service(self.image_db_write_service)
 
-                logger.info("ImageDBWriteService created and injected into SelectedImageDetailsWidget")
-            else:
-                logger.warning(
-                    "Cannot setup ImageDBWriteService: db_manager or selected_image_details_widget not available"
-                )
-
-        except Exception as e:
-            logger.error(f"ImageDBWriteService setup failed: {e}", exc_info=True)
+            logger.info("ImageDBWriteService created and injected into SelectedImageDetailsWidget")
+        else:
+            logger.warning(
+                "Cannot setup ImageDBWriteService: db_manager or selected_image_details_widget not available"
+            )
 
     def _create_search_filter_service(self) -> SearchFilterService:
         """
@@ -1118,541 +760,128 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             raise ValueError("SearchFilterService作成不可") from e
 
     def _setup_search_filter_integration(self) -> None:
-        """SearchFilterService統合処理（シンプル・直接的アプローチ）
+        """SearchFilterService統合処理
 
         filterSearchPanelにSearchFilterServiceを注入して検索機能を有効化
         """
-        # 前提条件チェック
         if not hasattr(self, "filterSearchPanel") or not self.filterSearchPanel:
-            logger.error("❌ filterSearchPanel not available - SearchFilterService integration skipped")
+            logger.error("filterSearchPanel not available - SearchFilterService integration skipped")
             return
 
         if not self.db_manager:
-            logger.error("❌ db_manager not available - SearchFilterService integration skipped")
+            logger.error("db_manager not available - SearchFilterService integration skipped")
             return
 
-        logger.info(f"SearchFilterService注入開始: filterSearchPanel(id={id(self.filterSearchPanel)})")
-
         try:
-            # SearchFilterService作成
-            logger.info("SearchFilterService作成中...")
             search_filter_service = self._create_search_filter_service()
-
-            if not search_filter_service:
-                raise RuntimeError("SearchFilterService作成失敗")
-            logger.info(f"SearchFilterService作成成功: {type(search_filter_service)}")
-
-            # SearchFilterService注入
-            logger.info("SearchFilterService注入実行...")
             self.filterSearchPanel.set_search_filter_service(search_filter_service)
 
-            # 注入検証
-            injected_service = getattr(self.filterSearchPanel, "search_filter_service", None)
-            if injected_service is None:
-                raise RuntimeError("SearchFilterService注入後もNone")
-            if injected_service is not search_filter_service:
-                raise RuntimeError("SearchFilterService注入後のインスタンス不一致")
-
-            logger.info("SearchFilterService注入検証: 成功")
-
-            # WorkerService統合（オプショナル）
             if self.worker_service:
-                logger.info("WorkerService統合中...")
                 self.filterSearchPanel.set_worker_service(self.worker_service)
-
-                worker_service_check = getattr(self.filterSearchPanel, "worker_service", None)
-                if worker_service_check:
-                    logger.info("WorkerService統合成功")
-                else:
-                    logger.warning("WorkerService統合失敗 - 非同期検索は利用できません")
+                logger.info("SearchFilterService統合完了（WorkerService統合済み）")
             else:
-                logger.warning("WorkerService not available - 同期検索モードで動作")
-
-            # 最終確認
-            final_search_service = getattr(self.filterSearchPanel, "search_filter_service", None)
-            final_worker_service = getattr(self.filterSearchPanel, "worker_service", None)
-
-            logger.info(
-                f"SearchFilterService統合完了 - "
-                f"SearchFilterService: {final_search_service is not None}, "
-                f"WorkerService: {final_worker_service is not None}"
-            )
+                logger.info("SearchFilterService統合完了（同期検索モード）")
 
         except Exception as e:
             logger.error(f"SearchFilterService統合失敗: {e}", exc_info=True)
             logger.warning("検索機能は利用できませんが、その他の機能は正常に動作します")
 
-    def open_settings(self) -> None:
-        """設定ウィンドウを開く"""
+    def _setup_phase24_services(self) -> None:
+        """Phase 2.4 Service層の初期化と統合
+
+        DataTransformService, ResultHandlerService, PipelineControlServiceを初期化。
+        MainWindowから抽出されたロジックをService層に委譲する。
+
+        Phase 2.4 Stage 4で実装。
+        """
         try:
-            from PySide6.QtWidgets import QDialog
+            # DataTransformService初期化（Stage 4-1）
+            logger.info("  - DataTransformService初期化中...")
+            self.data_transform_service = DataTransformService(db_manager=self.db_manager)
+            logger.info("  ✅ DataTransformService初期化成功")
 
-            from ...gui.designer.ConfigurationWindow_ui import Ui_ConfigurationWindow
+            # ResultHandlerService初期化（Stage 4-2）
+            logger.info("  - ResultHandlerService初期化中...")
+            self.result_handler_service = ResultHandlerService(parent=self)
+            logger.info("  ✅ ResultHandlerService初期化成功")
 
-            # 設定ダイアログの作成
-            config_dialog = QDialog(self)
-            config_ui = Ui_ConfigurationWindow()
-            config_ui.setupUi(config_dialog)
+            # PipelineControlService初期化（Stage 4-3）
+            logger.info("  - PipelineControlService初期化中...")
+            self.pipeline_control_service = PipelineControlService(
+                worker_service=self.worker_service,
+                thumbnail_selector=self.thumbnail_selector,
+                filter_search_panel=self.filterSearchPanel if hasattr(self, "filterSearchPanel") else None,
+            )
+            logger.info("  ✅ PipelineControlService初期化成功")
 
-            # ダイアログのタイトル設定
-            config_dialog.setWindowTitle("設定")
-            config_dialog.setModal(True)
+            # ProgressStateService初期化（Phase 2.6 Stage 2）
+            logger.info("  - ProgressStateService初期化中...")
+            self.progress_state_service = ProgressStateService(status_bar=self.statusBar())
+            logger.info("  ✅ ProgressStateService初期化成功")
 
-            # 現在の設定値の読み込み（ConfigurationServiceが利用可能な場合）
-            if self.config_service:
-                try:
-                    # 設定値を取得
-                    settings = self.config_service.get_all_settings()
-
-                    # API Keys（マスク表示）
-                    openai_key = settings.get("api", {}).get("openai_key", "")
-                    if openai_key:
-                        config_ui.lineEditOpenAiKey.setText(self.config_service._mask_api_key(openai_key))
-
-                    google_key = settings.get("api", {}).get("google_key", "")
-                    if google_key:
-                        config_ui.lineEditGoogleVisionKey.setText(
-                            self.config_service._mask_api_key(google_key)
-                        )
-
-                    claude_key = settings.get("api", {}).get("claude_key", "")
-                    if claude_key:
-                        config_ui.lineEditAnthropicKey.setText(
-                            self.config_service._mask_api_key(claude_key)
-                        )
-
-                    # HuggingFace設定
-                    hf_username = settings.get("huggingface", {}).get("username", "")
-                    if hf_username:
-                        config_ui.lineEditHfUsername.setText(hf_username)
-
-                    hf_repo_name = settings.get("huggingface", {}).get("repo_name", "")
-                    if hf_repo_name:
-                        config_ui.lineEditHfRepoName.setText(hf_repo_name)
-
-                    # ディレクトリ設定
-                    export_dir = self.config_service.get_export_directory()
-                    if export_dir and hasattr(config_ui.dirPickerExportDir, "set_path"):
-                        config_ui.dirPickerExportDir.set_path(str(export_dir))
-
-                    database_dir = self.config_service.get_database_directory()
-                    if database_dir and hasattr(config_ui.dirPickerDatabaseDir, "set_path"):
-                        config_ui.dirPickerDatabaseDir.set_path(str(database_dir))
-
-                    batch_results_dir = self.config_service.get_batch_results_directory()
-                    if batch_results_dir and hasattr(config_ui.dirPickerBatchResults, "set_path"):
-                        config_ui.dirPickerBatchResults.set_path(str(batch_results_dir))
-
-                    # ログレベル設定
-                    log_level = settings.get("log", {}).get("level", "INFO")
-                    if hasattr(config_ui, "comboBoxLogLevel"):
-                        # ログレベル選択肢を設定
-                        log_levels: list[str] = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-                        config_ui.comboBoxLogLevel.clear()
-                        config_ui.comboBoxLogLevel.addItems(log_levels)
-
-                        # 現在のログレベルを選択
-                        index = config_ui.comboBoxLogLevel.findText(log_level)
-                        if index >= 0:
-                            config_ui.comboBoxLogLevel.setCurrentIndex(index)
-
-                    logger.info("設定ダイアログに現在の設定値を読み込み完了")
-
-                except Exception as e:
-                    logger.error(f"設定値読み込み中にエラー: {e}", exc_info=True)
-                    logger.warning("デフォルト設定で表示します")
-            else:
-                logger.warning("ConfigurationServiceが利用できないため、デフォルト設定で表示")
-
-            # ダイアログを表示
-            result = config_dialog.exec()
-
-            if result == QDialog.DialogCode.Accepted:
-                # OK が押された場合、設定を保存
-                if self.config_service:
-                    try:
-                        # API Keys取得（マスクされていない場合のみ更新）
-                        openai_key = config_ui.lineEditOpenAiKey.text().strip()
-                        if openai_key and not openai_key.startswith("*"):
-                            self.config_service.update_setting("api", "openai_key", openai_key)
-
-                        google_key = config_ui.lineEditGoogleVisionKey.text().strip()
-                        if google_key and not google_key.startswith("*"):
-                            self.config_service.update_setting("api", "google_key", google_key)
-
-                        claude_key = config_ui.lineEditAnthropicKey.text().strip()
-                        if claude_key and not claude_key.startswith("*"):
-                            self.config_service.update_setting("api", "claude_key", claude_key)
-
-                        # HuggingFace設定
-                        hf_username = config_ui.lineEditHfUsername.text().strip()
-                        if hf_username:
-                            self.config_service.update_setting("huggingface", "username", hf_username)
-
-                        hf_repo_name = config_ui.lineEditHfRepoName.text().strip()
-                        if hf_repo_name:
-                            self.config_service.update_setting("huggingface", "repo_name", hf_repo_name)
-
-                        # ディレクトリ設定
-                        if hasattr(config_ui.dirPickerExportDir, "get_selected_path"):
-                            export_dir_path = config_ui.dirPickerExportDir.get_selected_path()
-                            if export_dir_path:
-                                self.config_service.update_setting(
-                                    "directories", "export_dir", str(export_dir_path)
-                                )
-
-                        if hasattr(config_ui.dirPickerDatabaseDir, "get_selected_path"):
-                            database_dir_path = config_ui.dirPickerDatabaseDir.get_selected_path()
-                            if database_dir_path:
-                                self.config_service.update_setting(
-                                    "directories", "database_base_dir", str(database_dir_path)
-                                )
-
-                        if hasattr(config_ui.dirPickerBatchResults, "get_selected_path"):
-                            batch_results_dir_path = config_ui.dirPickerBatchResults.get_selected_path()
-                            if batch_results_dir_path:
-                                self.config_service.update_setting(
-                                    "directories", "batch_results_dir", str(batch_results_dir_path)
-                                )
-
-                        # ログレベル設定
-                        if hasattr(config_ui, "comboBoxLogLevel"):
-                            log_level = config_ui.comboBoxLogLevel.currentText()
-                            if log_level:
-                                self.config_service.update_setting("log", "level", log_level)
-
-                        # 設定保存
-                        self.config_service.save_settings()
-                        logger.info("設定が正常に保存されました")
-
-                        # 保存成功をユーザーに通知
-                        self.statusBar().showMessage("設定を保存しました", 3000)
-
-                    except Exception as e:
-                        error_msg = f"設定の保存に失敗しました: {e}"
-                        logger.error(error_msg, exc_info=True)
-                        QMessageBox.critical(self, "設定保存エラー", error_msg)
-                else:
-                    logger.warning("ConfigurationServiceが利用できないため、設定を保存できませんでした")
-                    QMessageBox.warning(
-                        self,
-                        "設定保存エラー",
-                        "ConfigurationServiceが初期化されていないため、設定を保存できませんでした。",
-                    )
-            else:
-                logger.info("設定ダイアログがキャンセルされました")
+            logger.info("Phase 2.4-2.6 Service層統合完了")
 
         except Exception as e:
-            error_msg = f"設定ウィンドウの表示に失敗しました: {e}"
-            logger.error(error_msg, exc_info=True)
-            QMessageBox.critical(self, "設定エラー", error_msg)
+            logger.error(f"Service層統合失敗: {e}", exc_info=True)
+            logger.warning("一部のService機能は利用できませんが、その他の機能は正常に動作します")
+            self.data_transform_service = None
+            self.result_handler_service = None
+            self.pipeline_control_service = None
+            self.progress_state_service = None
+
+    def open_settings(self) -> None:
+        """設定ウィンドウを開く（SettingsControllerに委譲）"""
+        if self.settings_controller:
+            self.settings_controller.open_settings_dialog()
+        else:
+            logger.error("SettingsControllerが初期化されていません")
+            QMessageBox.warning(
+                self, "設定エラー", "SettingsControllerが初期化されていないため、設定を開けません。"
+            )
 
     def start_annotation(self) -> None:
-        """アノテーション処理を開始（Phase 5: AnnotationService統合版）"""
-        try:
-            # AnnotationServiceの存在確認
-            if not self.annotation_service:
-                QMessageBox.warning(
-                    self,
-                    "サービス未初期化",
-                    "AnnotationServiceが初期化されていないため、アノテーション処理を開始できません。",
-                )
-                return
-
-            # 選択された画像の取得
-            selected_image_ids: list[int] = []
-            image_paths: list[str] = []
-
-            # DatasetStateManagerから選択画像IDを取得
-            if self.dataset_state_manager and self.dataset_state_manager.selected_image_ids:
-                selected_image_ids = self.dataset_state_manager.selected_image_ids
-                logger.debug(f"DatasetStateManagerから選択画像を取得: {len(selected_image_ids)}件")
-
-            # DatasetStateManagerから取得できない場合、ThumbnailSelectorWidgetから取得
-            elif self.thumbnail_selector and hasattr(self.thumbnail_selector, "get_selected_images"):
-                selected_paths = self.thumbnail_selector.get_selected_images()
-                if selected_paths and self.dataset_state_manager:
-                    # パスから画像IDを逆引き
-                    for path in selected_paths:
-                        for img in self.dataset_state_manager.all_images:
-                            if img.get("stored_image_path") == str(path):
-                                img_id = img.get("id")
-                                if img_id is not None:
-                                    selected_image_ids.append(img_id)
-                                break
-                logger.debug(f"ThumbnailSelectorWidgetから選択画像を取得: {len(selected_image_ids)}件")
-
-            # 画像が選択されていない場合、表示中の画像を使用
-            if (
-                not selected_image_ids
-                and self.dataset_state_manager
-                and self.dataset_state_manager.has_filtered_images()
-            ):
-                filtered_images = self.dataset_state_manager.filtered_images
-                selected_image_ids = [
-                    img_id for img in filtered_images if (img_id := img.get("id")) is not None
-                ]
-                logger.info(f"画像未選択のため、表示中の全画像を使用: {len(selected_image_ids)}件")
-
-            if not selected_image_ids:
-                QMessageBox.information(
-                    self,
-                    "画像未選択",
-                    "アノテーション処理を行う画像を選択してください。\n"
-                    "フィルタリング条件を設定して画像を表示するか、\n"
-                    "サムネイル表示で画像を選択してください。",
-                )
-                return
-
-            # 画像パスの構築
-            for image_id in selected_image_ids:
-                if self.dataset_state_manager:
-                    image_data = self.dataset_state_manager.get_image_by_id(image_id)
-                    if image_data:
-                        image_path = image_data.get("stored_image_path")
-                        if image_path:
-                            image_paths.append(str(image_path))
-
-            if not image_paths:
-                QMessageBox.warning(
-                    self,
-                    "画像データ取得エラー",
-                    "選択された画像のパスを取得できませんでした。\nデータベースの状態を確認してください。",
-                )
-                return
-
-            # モデル選択の取得
-            models: list[str] = []
-
-            # ConfigurationServiceから利用可能なプロバイダーを取得
-            if self.config_service:
-                try:
-                    api_keys = self.config_service.get_api_keys()
-
-                    # APIキー名からプロバイダー名へのマッピング
-                    key_to_provider = {
-                        "openai_key": "openai",
-                        "claude_key": "anthropic",
-                        "google_key": "google",
-                    }
-
-                    available_providers = [
-                        provider
-                        for key, provider in key_to_provider.items()
-                        if key in api_keys
-                    ]
-
-                    if available_providers:
-                        # 利用可能なプロバイダーに基づいてデフォルトモデルを設定
-                        provider_models = {
-                            "openai": "gpt-4o-mini",
-                            "anthropic": "claude-3-haiku-20240307",
-                            "google": "gemini-1.5-flash-latest",
-                        }
-
-                        for provider in available_providers:
-                            if provider in provider_models:
-                                models.append(provider_models[provider])
-                                break
-
-                        logger.info(f"利用可能なプロバイダーに基づいてモデルを選択: {models}")
-
-                except Exception as e:
-                    logger.warning(f"プロバイダー取得中にエラー: {e}")
-
-            # フォールバック: デフォルトモデルを使用
-            if not models:
-                models = ["gpt-4o-mini"]
-                logger.info("デフォルトモデルを使用: gpt-4o-mini")
-
-            # モデル選択確認ダイアログを表示
-            from PySide6.QtWidgets import QInputDialog
-
-            available_models = [
-                "gpt-4o-mini",
-                "gpt-4o",
-                "claude-3-haiku-20240307",
-                "claude-3-sonnet-20240229",
-                "gemini-1.5-flash-latest",
-                "gemini-1.5-pro-latest",
-            ]
-
-            selected_model, ok = QInputDialog.getItem(
+        """アノテーション処理を開始（Phase 2.3: AnnotationWorkflowController統合版）"""
+        if not self.annotation_workflow_controller:
+            QMessageBox.warning(
                 self,
-                "モデル選択",
-                "アノテーションに使用するモデルを選択してください:",
-                available_models,
-                0,  # デフォルト選択
-                False,  # 編集不可
+                "コントローラー未初期化",
+                "AnnotationWorkflowControllerが初期化されていないため、アノテーション処理を開始できません。",
             )
+            return
 
-            if not ok:
-                logger.info("モデル選択がキャンセルされました")
-                return
+        # AnnotationWorkflowControllerに委譲
+        self.annotation_workflow_controller.start_annotation_workflow(
+            model_selection_callback=self._show_model_selection_dialog
+        )
 
-            models = [selected_model]
-            logger.info(f"ユーザー選択モデル: {selected_model}")
+    def _show_model_selection_dialog(self, available_models: list[str]) -> str | None:
+        """モデル選択ダイアログ表示（Callbackパターン）
 
-            # バッチアノテーション処理開始（AnnotationService経由）
-            logger.info(
-                f"バッチアノテーション処理開始: {len(image_paths)}画像, {len(models)}モデル"
-            )
+        Args:
+            available_models: 利用可能なモデル名リスト
 
-            # AnnotationService.start_batch_annotation()を呼び出し
-            # Signal経由で進捗・完了・エラーがハンドラに通知される
-            self.annotation_service.start_batch_annotation(
-                image_paths=image_paths,
-                models=models,
-                batch_size=50
-            )
+        Returns:
+            str | None: 選択されたモデル名、キャンセル時はNone
+        """
+        from PySide6.QtWidgets import QInputDialog
 
-            # 非ブロッキング通知でUIクラッシュを防止
-            status_msg = f"アノテーション処理を開始: {len(image_paths)}画像, モデル: {selected_model}"
-            self.statusBar().showMessage(status_msg, 5000)
+        selected_model, ok = QInputDialog.getItem(
+            self,
+            "モデル選択",
+            "アノテーションに使用するモデルを選択してください:",
+            available_models,
+            0,  # デフォルト選択
+            False,  # 編集不可
+        )
 
-        except Exception as e:
-            error_msg = f"アノテーション処理の開始に失敗しました: {e}"
-            logger.error(error_msg, exc_info=True)
-            QMessageBox.critical(self, "アノテーションエラー", error_msg)
+        return selected_model if ok else None
 
     def export_data(self) -> None:
-        """データセットエクスポート機能を開く"""
-        try:
-            # Get current image selection
-            current_image_ids = self._get_current_selected_images()
-
-            if not current_image_ids:
-                QMessageBox.warning(
-                    self,
-                    "エクスポート",
-                    "エクスポートする画像が選択されていません。\n"
-                    "フィルタリング条件を設定して画像を表示するか、\n"
-                    "サムネイル表示で画像を選択してください。",
-                )
-                return
-
-            logger.info(f"データセットエクスポート開始: {len(current_image_ids)}画像")
-
-            # Create and show export dialog
-            from ..widgets.dataset_export_widget import DatasetExportWidget
-
-            export_dialog = DatasetExportWidget(
-                service_container=self.service_container, initial_image_ids=current_image_ids, parent=self
-            )
-
-            # Connect export completion signal
-            export_dialog.export_completed.connect(self._on_export_completed)
-
-            # Show as modal dialog
-            export_dialog.exec()
-
-        except Exception as e:
-            error_msg = f"データセットエクスポート画面の表示に失敗しました: {e!s}"
-            logger.error(error_msg, exc_info=True)
-            QMessageBox.critical(self, "エラー", f"エクスポート機能の起動に失敗しました。\n\n{e!s}")
-
-    def _on_export_completed(self, path: str) -> None:
-        """Export completion handler"""
-        logger.info(f"データセットエクスポート完了: {path}")
-
-    def _get_current_selected_images(self) -> list[int]:
-        """現在表示・選択中の画像IDリストを取得"""
-        try:
-            # First priority: explicitly selected images
-            if self.dataset_state_manager and self.dataset_state_manager.selected_image_ids:
-                selected_ids = self.dataset_state_manager.selected_image_ids
-                logger.debug(f"選択画像を使用: {len(selected_ids)}件")
-                return selected_ids
-
-            # Second priority: all currently filtered/displayed images
-            if self.dataset_state_manager and self.dataset_state_manager.has_filtered_images():
-                filtered_images = self.dataset_state_manager.filtered_images
-                filtered_ids = [img_id for img in filtered_images if (img_id := img.get("id")) is not None]
-                logger.debug(f"表示中の画像を使用: {len(filtered_ids)}件")
-                return filtered_ids
-
-            # No images available
-            logger.warning("エクスポート可能な画像が見つかりません")
-            return []
-
-        except Exception as e:
-            logger.error(f"選択画像の取得に失敗: {e}")
-            return []
-
-
-if __name__ == "__main__":
-    import os
-    import platform
-    import sys
-
-    from PySide6.QtWidgets import QApplication
-
-    from ...utils.config import get_config
-    from ...utils.log import initialize_logging
-
-    def setup_test_environment() -> None:
-        """テスト用Qt環境設定"""
-        system = platform.system()
-        if system == "Windows":
-            os.environ["QT_QPA_PLATFORM"] = "windows"
-            print("Windows環境: ネイティブウィンドウモード")
-        elif system == "Linux":
-            # devcontainer環境ではoffscreenモード
-            if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
-                os.environ["QT_QPA_PLATFORM"] = "offscreen"
-                print("Linux環境: offscreenモード（devcontainer想定）")
-            else:
-                os.environ["QT_QPA_PLATFORM"] = "xcb"
-                print("Linux環境: X11モード")
-        elif system == "Darwin":
-            os.environ["QT_QPA_PLATFORM"] = "cocoa"
-            print("macOS環境: Cocoaモード")
-
-    # 環境設定
-    setup_test_environment()
-
-    # 設定読み込み
-    try:
-        config = get_config()
-        initialize_logging(config.get("log", {}))
-        print("設定とログ初期化完了")
-    except Exception as e:
-        print(f"設定読み込みエラー (継続): {e}")
-        config = {}
-
-    # QApplication作成
-    app = QApplication(sys.argv)
-    app.setApplicationName("MainWindow-Test")
-
-    try:
-        # MainWindow作成
-        print("MainWindow作成中...")
-        window = MainWindow()
-
-        # ウィンドウ表示の確実化
-        print("ウィンドウ表示中...")
-        window.show()
-        window.raise_()
-        window.activateWindow()
-        app.processEvents()
-
-        # 環境情報出力
-        print(f"ウィンドウ表示状態: visible={window.isVisible()}")
-        print(f"ウィンドウサイズ: {window.size()}")
-        print(f"ウィンドウタイトル: {window.windowTitle()}")
-
-        if window.isVisible():
-            print("✅ ウィンドウ表示成功")
+        """データセットエクスポート機能を開く（ExportControllerに委譲）"""
+        if self.export_controller:
+            self.export_controller.open_export_dialog()
         else:
-            print("❌ ウィンドウ表示失敗")
-
-        print("イベントループ開始...")
-        # イベントループ開始
-        sys.exit(app.exec())
-
-    except Exception as e:
-        print(f"エラー: {e}")
-        import traceback
-
-        traceback.print_exc()
-        sys.exit(1)
+            logger.error("ExportControllerが初期化されていません")
+            QMessageBox.warning(
+                self, "エラー", "ExportControllerが初期化されていないため、エクスポートを開始できません。"
+            )
