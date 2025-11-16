@@ -26,26 +26,42 @@ LoRAIroのアノテーション層を3層分離アーキテクチャに再編成
 - `gui/workers/annotation_worker.py` を AnnotationLogic 呼び出しに変更
 - **注意**: 後にインターフェースミスマッチが判明（Phase 6で修正完了）
 
-### Phase 3: 不要ファイル削除 ✅
+### Phase 3: 不要ファイル削除 ✅ (Commit a4b404c)
+**実施内容**:
 - ✅ `services/annotation_service.py` 削除
 - ✅ `services/annotation_batch_processor.py` 削除
 - ✅ `gui/widgets/annotation_coordinator.py` 削除
 - ✅ `annotations/caption_tags.py` 削除
 - ✅ `services/__init__.py` 更新（AnnotationService除去）
 - ✅ `services/service_container.py` 更新（import修正、BatchProcessor除去）
+- ✅ 陳腐化テスト削除（5ファイル）
 
-### Phase 4: AnnotationWorkflowController の WorkerService 化 ✅
-- ✅ WorkerService import追加
-- ✅ `__init__()` 引数変更: `annotation_service` → `worker_service`（必須引数化）
-- ✅ `_validate_services()` に WorkerService NULL チェック追加
-- ✅ `_start_batch_annotation()` を WorkerService.start_enhanced_batch_annotation() 呼び出しに変更
+**注意**: このコミット時点では MainWindow/Controller に AnnotationService 参照が残存。Phase 4-6 で除去。
 
-### Phase 5: MainWindow の WorkerService 化 ✅
-- ✅ `annotation_service` 属性削除（Line 55）
-- ✅ `AnnotationService` 初期化コード削除（Line 167）
-- ✅ AnnotationService Signal接続削除（Line 322, 454, 462, 465）
-- ✅ AnnotationWorkflowController初期化をWorkerService依存に修正
-- ✅ WorkerService初期化をクリティカル化（失敗時アプリ起動中止）
+### Phase 4-5: AnnotationWorkflowController/MainWindow の WorkerService 化 ⚠️ (Commit a4b404c)
+**実施内容**:
+- ✅ AnnotationWorkflowController: WorkerService import追加
+- ✅ AnnotationWorkflowController: `__init__()` 引数変更 (`annotation_service` → `worker_service`)
+- ⚠️ AnnotationWorkflowController: `_validate_services()` 未修正（Phase 6で実施）
+- ⚠️ AnnotationWorkflowController: `_start_batch_annotation()` 未修正（Phase 6で実施）
+- ⚠️ MainWindow: AnnotationService 参照残存（Phase 6で除去）
+
+**注意**: このコミット時点では以下が未完了:
+- MainWindow に `AnnotationService` import/属性/初期化コード残存
+- AnnotationWorkflowController の `_validate_services()` に WorkerService チェックなし
+- 実質的な WorkerService 統合は Phase 6 で完了
+
+### Phase 4-6 完了版: WorkerService 統合完了 ✅ (Commit 71929a5)
+**Phase 4 完了内容**:
+- ✅ AnnotationWorkflowController: `_validate_services()` に WorkerService NULL チェック追加
+- ✅ AnnotationWorkflowController: `_start_batch_annotation()` を WorkerService 呼び出しに変更
+
+**Phase 5 完了内容**:
+- ✅ MainWindow: `annotation_service` 属性削除
+- ✅ MainWindow: `AnnotationService` import/初期化コード削除
+- ✅ MainWindow: AnnotationService Signal接続削除
+- ✅ MainWindow: AnnotationWorkflowController初期化を WorkerService 依存に修正
+- ✅ MainWindow: WorkerService初期化をクリティカル化（失敗時アプリ起動中止）
 
 ### Phase 6: Critical Bug Fix - AnnotationWorker/WorkerService Integration ✅
 
@@ -95,6 +111,25 @@ LoRAIroのアノテーション層を3層分離アーキテクチャに再編成
 - ✅ NameError, TypeError, ImportError 完全解消
 
 ## 3. 残存作業（Phase 7-10）
+
+### 現状分析（2025-11-16 05:45 UTC）
+
+**残存テストファイル**:
+- `tests/unit/gui/controllers/test_annotation_workflow_controller.py` - 11 tests collected
+- `tests/unit/gui/workers/test_annotation_worker.py` - 13 tests collected
+
+**AnnotationService 参照数**: 19箇所（両テストファイルに残存）
+
+**Phase 7-10 作業見積もり**:
+
+| Phase | 作業内容 | 作業量 | 優先度 | 状態 |
+|-------|---------|--------|--------|------|
+| Phase 7 | test_annotation_workflow_controller.py 修正 | Medium | 🟡 High | 未着手 |
+| Phase 8 | test_annotation_worker.py 修正 | Medium | 🟡 High | 未着手 |
+| Phase 9 | 不要テストファイル削除 | Minimal | 🟢 Low | ほぼ完了 |
+| Phase 10 | 統合テストと検証 | Large | 🔴 Critical | 未着手 |
+
+**Phase 9 補足**: Phase 3-5 で主要な不要テストファイル（11ファイル）は削除済み。残存確認のみ。
 
 ### Phase 7: test_annotation_workflow_controller.py 修正 （未着手）
 
@@ -263,6 +298,15 @@ uv run pytest tests/integration/gui/ -xvs -m gui
 - [x] pytest コレクション成功確認
 
 ### Phase 7-10: 未着手
+
+**実際のコミット内容と計画の対応**:
+
+| 計画 Phase | 実際の Commit | 完了状況 | 備考 |
+|-----------|--------------|---------|------|
+| Phase 1-2 | d757bf1 | ✅ 完了 | 3層アーキテクチャ実装 |
+| Phase 3 | a4b404c | ✅ 完了 | ファイル削除のみ |
+| Phase 4-5 | a4b404c | ⚠️ 部分完了 | import/引数変更のみ |
+| Phase 4-6 | 71929a5 | ✅ 完了 | WorkerService統合完了 + Critical Bug Fix |
 
 **Phase 7: test_annotation_workflow_controller.py 修正**
 - [ ] AnnotationService Mock → WorkerService Mock
