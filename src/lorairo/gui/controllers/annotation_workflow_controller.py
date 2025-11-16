@@ -199,7 +199,6 @@ class AnnotationWorkflowController:
             self.worker_service.start_enhanced_batch_annotation(
                 image_paths=image_paths,
                 models=models,
-                batch_size=50,
             )
 
             # 非ブロッキング通知

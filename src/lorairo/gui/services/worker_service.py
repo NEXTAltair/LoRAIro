@@ -238,21 +238,16 @@ class WorkerService(QObject):
         self,
         image_paths: list[str],
         models: list[str],
-        batch_size: int = 100,
-        api_keys: dict[str, str] | None = None,
     ) -> str:
         """Enhancedバッチアノテーション開始
 
         Args:
             image_paths: 画像パスリスト
             models: 使用モデル名リスト
-            batch_size: バッチサイズ（未使用、後方互換性のため保持）
-            api_keys: APIキー辞書（未使用、後方互換性のため保持）
 
         Returns:
             str: ワーカーID
         """
-        # AnnotationWorker の新しいコンストラクタに合わせて修正
         worker = AnnotationWorker(
             annotation_logic=self.annotation_logic,
             image_paths=image_paths,
