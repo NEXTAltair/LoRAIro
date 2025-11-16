@@ -122,49 +122,7 @@ class TestWorkerService:
         assert result is True
         worker_service.worker_manager.cancel_worker.assert_called_once_with("test_worker_id")
 
-    @patch("lorairo.gui.services.worker_service.AnnotationWorker")
-    def test_start_annotation_success(self, mock_worker_class, worker_service):
-        """アノテーション開始成功テスト"""
-        # モックワーカー設定
-        mock_worker = Mock()
-        mock_worker_class.return_value = mock_worker
-        worker_service.worker_manager.start_worker.return_value = True
-
-        # テストデータ
-        images = [Image.new("RGB", (100, 100))]
-        phash_list = ["test_hash"]
-        models = ["test_model"]
-
-        # アノテーション開始
-        worker_id = worker_service.start_annotation(images, phash_list, models)
-
-        # ワーカー作成確認
-        mock_worker_class.assert_called_once_with(images, phash_list, models)
-
-        # ワーカーマネージャー呼び出し確認
-        worker_service.worker_manager.start_worker.assert_called_once()
-
-        # worker_id形式確認（UUID hex 8文字）
-        assert worker_id.startswith("annotation_")
-        suffix = worker_id.split("_")[-1]
-        assert len(suffix) == 8 and bool(re.match(r"^[0-9a-f]{8}$", suffix))
-
-    @patch("lorairo.gui.services.worker_service.AnnotationWorker")
-    def test_start_annotation_failure(self, mock_worker_class, worker_service):
-        """アノテーション開始失敗テスト"""
-        # モックワーカー設定
-        mock_worker = Mock()
-        mock_worker_class.return_value = mock_worker
-        worker_service.worker_manager.start_worker.return_value = False
-
-        # テストデータ
-        images = [Image.new("RGB", (100, 100))]
-        phash_list = ["test_hash"]
-        models = ["test_model"]
-
-        # 例外発生確認
-        with pytest.raises(RuntimeError, match="ワーカー開始失敗"):
-            worker_service.start_annotation(images, phash_list, models)
+    # 注: 旧start_annotation()テストは削除済み（新API: start_enhanced_batch_annotation）
 
     def test_cancel_annotation(self, worker_service):
         """アノテーションキャンセルテスト"""
@@ -359,18 +317,7 @@ class TestWorkerService:
         mock_worker.progress_updated.connect.assert_called()
         mock_worker.batch_progress.connect.assert_called()
 
-    @patch("lorairo.gui.services.worker_service.AnnotationWorker")
-    def test_annotation_progress_signal_connection(self, mock_worker_class, worker_service):
-        """アノテーション進捗シグナル接続テスト"""
-        mock_worker = Mock()
-        mock_worker_class.return_value = mock_worker
-        worker_service.worker_manager.start_worker.return_value = True
-
-        # アノテーション開始
-        worker_service.start_annotation([Image.new("RGB", (100, 100))], ["hash"], ["model"])
-
-        # 進捗シグナル接続確認
-        mock_worker.progress_updated.connect.assert_called()
+    # 注: test_annotation_progress_signal_connection は削除済み（旧APIテスト）
 
     def test_worker_service_inheritance(self, worker_service):
         """WorkerService継承テスト"""
@@ -390,62 +337,40 @@ class TestWorkerService:
         assert worker_service.current_thumbnail_worker_id is None
 
     @patch("lorairo.gui.services.worker_service.AnnotationWorker")
-    def test_start_enhanced_batch_annotation_with_api_keys(self, mock_worker_class, worker_service):
-        """Enhancedバッチアノテーション開始テスト（APIキー付き）"""
+    @patch.object(WorkerService, "annotation_logic", create=True)
+    def test_start_enhanced_batch_annotation_success(
+        self, mock_annotation_logic, mock_worker_class, worker_service
+    ):
+        """バッチアノテーション開始成功テスト（新API）"""
         mock_worker = Mock()
         mock_worker_class.return_value = mock_worker
         worker_service.worker_manager.start_worker.return_value = True
 
         image_paths = ["/path/to/image1.jpg", "/path/to/image2.jpg"]
-        models = ["gpt-4o", "claude-3-haiku"]
-        api_keys = {"openai_key": "sk-test", "claude_key": "sk-ant-test"}
+        models = ["gpt-4o-mini", "claude-3-haiku-20240307"]
 
         # バッチアノテーション開始
         worker_id = worker_service.start_enhanced_batch_annotation(
-            image_paths=image_paths, models=models, batch_size=50, api_keys=api_keys
+            image_paths=image_paths, models=models
         )
 
-        # AnnotationWorkerが正しいパラメータで初期化されたことを確認
+        # AnnotationWorkerが新シグネチャで初期化されたことを確認
         mock_worker_class.assert_called_once_with(
+            annotation_logic=worker_service.annotation_logic,
             image_paths=image_paths,
             models=models,
-            batch_size=50,
-            operation_mode="batch",
-            api_keys=api_keys,
         )
 
         # ワーカーマネージャーにワーカーが登録されたことを確認
         worker_service.worker_manager.start_worker.assert_called_once()
 
         # worker_idが正しい形式で返されることを確認
-        assert worker_id.startswith("enhanced_batch_")
+        assert worker_id.startswith("annotation_")
+        suffix = worker_id.split("_")[-1]
+        assert len(suffix) == 8 and bool(re.match(r"^[0-9a-f]{8}$", suffix))
 
         # 進捗シグナル接続確認
         mock_worker.progress_updated.connect.assert_called()
-
-    @patch("lorairo.gui.services.worker_service.AnnotationWorker")
-    def test_start_enhanced_batch_annotation_without_api_keys(self, mock_worker_class, worker_service):
-        """Enhancedバッチアノテーション開始テスト（APIキーなし）"""
-        mock_worker = Mock()
-        mock_worker_class.return_value = mock_worker
-        worker_service.worker_manager.start_worker.return_value = True
-
-        image_paths = ["/path/to/image.jpg"]
-        models = ["gpt-4o"]
-
-        # APIキーなしでバッチアノテーション開始
-        worker_id = worker_service.start_enhanced_batch_annotation(image_paths=image_paths, models=models)
-
-        # api_keys=Noneで初期化されたことを確認
-        mock_worker_class.assert_called_once_with(
-            image_paths=image_paths,
-            models=models,
-            batch_size=100,  # デフォルト値
-            operation_mode="batch",
-            api_keys=None,
-        )
-
-        assert worker_id.startswith("enhanced_batch_")
 
     def test_modern_progress_manager_integration(self, worker_service):
         """ModernProgressManager統合検証
