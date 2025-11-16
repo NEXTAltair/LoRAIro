@@ -15,10 +15,10 @@ from lorairo.gui.controllers.annotation_workflow_controller import (
 
 
 @pytest.fixture
-def mock_annotation_service():
-    """AnnotationServiceのモック"""
+def mock_worker_service():
+    """WorkerServiceのモック"""
     service = Mock()
-    service.start_batch_annotation = Mock()
+    service.start_enhanced_batch_annotation = Mock(return_value="test_worker_id")
     return service
 
 
@@ -61,14 +61,14 @@ def mock_parent():
 
 @pytest.fixture
 def controller(
-    mock_annotation_service,
+    mock_worker_service,
     mock_selection_state_service,
     mock_config_service,
     mock_parent,
 ):
     """AnnotationWorkflowControllerインスタンス"""
     return AnnotationWorkflowController(
-        annotation_service=mock_annotation_service,
+        worker_service=mock_worker_service,
         selection_state_service=mock_selection_state_service,
         config_service=mock_config_service,
         parent=mock_parent,
@@ -80,30 +80,30 @@ class TestAnnotationWorkflowControllerInit:
 
     def test_init(
         self,
-        mock_annotation_service,
+        mock_worker_service,
         mock_selection_state_service,
         mock_config_service,
         mock_parent,
     ):
         """正常な初期化"""
         controller = AnnotationWorkflowController(
-            annotation_service=mock_annotation_service,
+            worker_service=mock_worker_service,
             selection_state_service=mock_selection_state_service,
             config_service=mock_config_service,
             parent=mock_parent,
         )
 
-        assert controller.annotation_service is mock_annotation_service
+        assert controller.worker_service is mock_worker_service
         assert controller.selection_state_service is mock_selection_state_service
         assert controller.config_service is mock_config_service
         assert controller.parent is mock_parent
 
     def test_init_without_parent(
-        self, mock_annotation_service, mock_selection_state_service, mock_config_service
+        self, mock_worker_service, mock_selection_state_service, mock_config_service
     ):
         """親なしの初期化"""
         controller = AnnotationWorkflowController(
-            annotation_service=mock_annotation_service,
+            worker_service=mock_worker_service,
             selection_state_service=mock_selection_state_service,
             config_service=mock_config_service,
             parent=None,
@@ -118,7 +118,7 @@ class TestStartAnnotationWorkflow:
     def test_start_annotation_workflow_success(
         self,
         controller,
-        mock_annotation_service,
+        mock_worker_service,
         mock_selection_state_service,
         mock_config_service,
     ):
@@ -134,26 +134,25 @@ class TestStartAnnotationWorkflow:
         # Assert - SelectionStateService呼び出し確認
         mock_selection_state_service.get_selected_image_paths.assert_called_once()
 
-        # Assert - AnnotationService呼び出し確認
-        mock_annotation_service.start_batch_annotation.assert_called_once()
-        call_args = mock_annotation_service.start_batch_annotation.call_args
+        # Assert - WorkerService呼び出し確認
+        mock_worker_service.start_enhanced_batch_annotation.assert_called_once()
+        call_args = mock_worker_service.start_enhanced_batch_annotation.call_args
         assert call_args[1]["image_paths"] == [
             "/path/to/image1.jpg",
             "/path/to/image2.jpg",
         ]
         assert call_args[1]["models"] == ["gpt-4o-mini"]
-        assert call_args[1]["batch_size"] == 50
 
     def test_start_annotation_workflow_no_images_selected(
         self,
-        mock_annotation_service,
+        mock_worker_service,
         mock_selection_state_service,
         mock_config_service,
     ):
         """画像未選択エラー"""
         # Setup - parent=None to avoid QMessageBox calls in tests
         controller = AnnotationWorkflowController(
-            annotation_service=mock_annotation_service,
+            worker_service=mock_worker_service,
             selection_state_service=mock_selection_state_service,
             config_service=mock_config_service,
             parent=None,
@@ -169,10 +168,10 @@ class TestStartAnnotationWorkflow:
         # ValueError should be caught and handled gracefully
         controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
 
-        # Assert - AnnotationServiceは呼ばれない
-        mock_annotation_service.start_batch_annotation.assert_not_called()
+        # Assert - WorkerServiceは呼ばれない
+        mock_worker_service.start_enhanced_batch_annotation.assert_not_called()
 
-    def test_start_annotation_workflow_model_selection_cancelled(self, controller, mock_annotation_service):
+    def test_start_annotation_workflow_model_selection_cancelled(self, controller, mock_worker_service):
         """モデル選択キャンセル"""
 
         # Setup - callback returns None (cancelled)
@@ -182,11 +181,11 @@ class TestStartAnnotationWorkflow:
         # Execute
         controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
 
-        # Assert - AnnotationServiceは呼ばれない
-        mock_annotation_service.start_batch_annotation.assert_not_called()
+        # Assert - WorkerServiceは呼ばれない
+        mock_worker_service.start_enhanced_batch_annotation.assert_not_called()
 
     def test_start_annotation_workflow_no_api_keys(
-        self, controller, mock_config_service, mock_annotation_service
+        self, controller, mock_config_service, mock_worker_service
     ):
         """APIキー未設定の場合でもデフォルトモデルで実行"""
         # Setup
@@ -201,23 +200,23 @@ class TestStartAnnotationWorkflow:
         controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
 
         # Assert - デフォルトモデルで実行される
-        mock_annotation_service.start_batch_annotation.assert_called_once()
+        mock_worker_service.start_enhanced_batch_annotation.assert_called_once()
 
-    def test_start_annotation_workflow_annotation_service_failure(
+    def test_start_annotation_workflow_worker_service_failure(
         self,
-        mock_annotation_service,
+        mock_worker_service,
         mock_selection_state_service,
         mock_config_service,
     ):
-        """AnnotationService実行失敗"""
+        """WorkerService実行失敗"""
         # Setup - parent=None to avoid QMessageBox calls in tests
         controller = AnnotationWorkflowController(
-            annotation_service=mock_annotation_service,
+            worker_service=mock_worker_service,
             selection_state_service=mock_selection_state_service,
             config_service=mock_config_service,
             parent=None,
         )
-        mock_annotation_service.start_batch_annotation.side_effect = RuntimeError("Annotation failed")
+        mock_worker_service.start_enhanced_batch_annotation.side_effect = RuntimeError("Annotation failed")
 
         def model_selection_callback(available_models: list[str]) -> str:
             return "gpt-4o-mini"
@@ -226,15 +225,15 @@ class TestStartAnnotationWorkflow:
         controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
 
         # Assert - Exception was caught
-        mock_annotation_service.start_batch_annotation.assert_called_once()
+        mock_worker_service.start_enhanced_batch_annotation.assert_called_once()
 
-    def test_start_annotation_workflow_no_annotation_service(
+    def test_start_annotation_workflow_no_worker_service(
         self, mock_selection_state_service, mock_config_service
     ):
-        """AnnotationServiceがNoneの場合"""
+        """WorkerServiceがNoneの場合"""
         # Setup - parent=None to avoid QMessageBox calls in tests
         controller = AnnotationWorkflowController(
-            annotation_service=None,
+            worker_service=None,
             selection_state_service=mock_selection_state_service,
             config_service=mock_config_service,
             parent=None,
@@ -247,12 +246,12 @@ class TestStartAnnotationWorkflow:
         controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
 
     def test_start_annotation_workflow_no_selection_service(
-        self, mock_annotation_service, mock_config_service
+        self, mock_worker_service, mock_config_service
     ):
         """SelectionStateServiceがNoneの場合"""
         # Setup - parent=None to avoid QMessageBox calls in tests
         controller = AnnotationWorkflowController(
-            annotation_service=mock_annotation_service,
+            worker_service=mock_worker_service,
             selection_state_service=None,
             config_service=mock_config_service,
             parent=None,
@@ -265,15 +264,15 @@ class TestStartAnnotationWorkflow:
         controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
 
         # Assert
-        mock_annotation_service.start_batch_annotation.assert_not_called()
+        mock_worker_service.start_enhanced_batch_annotation.assert_not_called()
 
     def test_start_annotation_workflow_no_config_service(
-        self, mock_annotation_service, mock_selection_state_service
+        self, mock_worker_service, mock_selection_state_service
     ):
         """ConfigurationServiceがNoneの場合（空のモデルリスト）"""
         # Setup - parent=None for consistency
         controller = AnnotationWorkflowController(
-            annotation_service=mock_annotation_service,
+            worker_service=mock_worker_service,
             selection_state_service=mock_selection_state_service,
             config_service=None,
             parent=None,
@@ -292,9 +291,9 @@ class TestStartAnnotationWorkflow:
         # Execute
         controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
 
-        # Assert - callbackは呼ばれるが、start_batch_annotationは呼ばれない
+        # Assert - callbackは呼ばれるが、start_enhanced_batch_annotationは呼ばれない
         assert callback_called
-        mock_annotation_service.start_batch_annotation.assert_not_called()
+        mock_worker_service.start_enhanced_batch_annotation.assert_not_called()
 
     def test_start_annotation_workflow_with_available_providers(self, controller, mock_config_service):
         """利用可能なプロバイダーに基づくモデル選択"""
