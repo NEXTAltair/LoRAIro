@@ -106,16 +106,13 @@ class WorkerService(QObject):
             AnnotationLogic: アノテーションビジネスロジック
         """
         if self._annotation_logic is None:
-            # ServiceContainer 経由で AnnotatorAdapter と ConfigService 取得
+            # ServiceContainer 経由で AnnotatorAdapter 取得
             container = get_service_container()
             annotator_adapter = container.annotator_library
-            config_service = container.config_service
 
-            # AnnotationLogic インスタンス化
+            # AnnotationLogic インスタンス化（annotator_adapterのみ）
             self._annotation_logic = AnnotationLogic(
                 annotator_adapter=annotator_adapter,
-                config_service=config_service,
-                db_manager=self.db_manager,
             )
             logger.debug("AnnotationLogic initialized in WorkerService")
 
@@ -170,76 +167,15 @@ class WorkerService(QObject):
         return self.worker_manager.cancel_worker(worker_id)
 
     # === Annotation ===
-
-    def start_annotation(self, images: list[Image], phash_list: list[str], models: list[str]) -> str:
-        """
-        アノテーション開始
-
-        Args:
-            images: アノテーション対象画像
-            phash_list: pHashリスト
-            models: 使用モデルリスト
-
-        Returns:
-            str: ワーカーID
-        """
-        worker = AnnotationWorker(images, phash_list, models)
-        worker_id = f"annotation_{uuid.uuid4().hex[:8]}"
-
-        # 進捗シグナル接続
-        worker.progress_updated.connect(
-            lambda progress: self.worker_progress_updated.emit(worker_id, progress)
-        )
-
-        if self.worker_manager.start_worker(worker_id, worker):
-            logger.info(f"アノテーション開始: {len(images)}件 (ID: {worker_id})")
-            return worker_id
-        else:
-            raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
-
-    def cancel_annotation(self, worker_id: str) -> bool:
-        """アノテーションキャンセル"""
-        return self.worker_manager.cancel_worker(worker_id)
-
-    # === Enhanced Annotation (Phase 2) ===
-
-    def start_enhanced_single_annotation(
-        self, images: list[Image], phash_list: list[str], models: list[str]
-    ) -> str:
-        """Enhanced単発アノテーション開始
-
-        Args:
-            images: アノテーション対象画像リスト
-            phash_list: pHashリスト
-            models: 使用モデル名リスト
-
-        Returns:
-            str: ワーカーID
-        """
-        worker = AnnotationWorker(
-            images=images, phash_list=phash_list, models=models, operation_mode="single"
-        )
-        worker_id = f"enhanced_annotation_{uuid.uuid4().hex[:8]}"
-
-        # 進捗シグナル接続
-        worker.progress_updated.connect(
-            lambda progress: self.worker_progress_updated.emit(worker_id, progress)
-        )
-
-        if self.worker_manager.start_worker(worker_id, worker):
-            logger.info(
-                f"Enhanced単発アノテーション開始: {len(images)}画像, {len(models)}モデル (ID: {worker_id})"
-            )
-            return worker_id
-        else:
-            raise RuntimeError(f"Enhanced Annotationワーカー開始失敗: {worker_id}")
+    # 注: 旧APIメソッド（start_annotation, start_enhanced_single_annotation）は削除済み
+    # 新API: start_enhanced_batch_annotation() を使用してください
 
     def start_enhanced_batch_annotation(
         self,
         image_paths: list[str],
         models: list[str],
     ) -> str:
-        """Enhancedバッチアノテーション開始
+        """バッチアノテーション開始（新API）
 
         Args:
             image_paths: 画像パスリスト
@@ -253,7 +189,7 @@ class WorkerService(QObject):
             image_paths=image_paths,
             models=models,
         )
-        worker_id = f"enhanced_batch_{uuid.uuid4().hex[:8]}"
+        worker_id = f"annotation_{uuid.uuid4().hex[:8]}"
 
         # 進捗シグナル接続
         worker.progress_updated.connect(
@@ -262,14 +198,14 @@ class WorkerService(QObject):
 
         if self.worker_manager.start_worker(worker_id, worker):
             logger.info(
-                f"Enhancedバッチアノテーション開始: {len(image_paths)}画像, {len(models)}モデル (ID: {worker_id})"
+                f"バッチアノテーション開始: {len(image_paths)}画像, {len(models)}モデル (ID: {worker_id})"
             )
             return worker_id
         else:
-            raise RuntimeError(f"Enhanced Batch Annotationワーカー開始失敗: {worker_id}")
+            raise RuntimeError(f"アノテーションワーカー開始失敗: {worker_id}")
 
-    def cancel_enhanced_annotation(self, worker_id: str) -> bool:
-        """Enhanced Annotationキャンセル"""
+    def cancel_annotation(self, worker_id: str) -> bool:
+        """アノテーションキャンセル"""
         return self.worker_manager.cancel_worker(worker_id)
 
     # === Search ===
@@ -412,9 +348,6 @@ class WorkerService(QObject):
             self.batch_registration_started.emit(worker_id)
         elif worker_id.startswith("annotation_"):
             operation_name = "アノテーション処理"
-            self.annotation_started.emit(worker_id)
-        elif worker_id.startswith("enhanced_"):
-            operation_name = "拡張アノテーション"
             self.enhanced_annotation_started.emit(worker_id)
         elif worker_id.startswith("search_"):
             operation_name = "検索処理"
@@ -440,11 +373,9 @@ class WorkerService(QObject):
             if self.current_registration_worker_id == worker_id:
                 self.current_registration_worker_id = None
         elif worker_id.startswith("annotation_"):
-            self.annotation_finished.emit(result)
+            self.enhanced_annotation_finished.emit(result)
             if self.current_annotation_worker_id == worker_id:
                 self.current_annotation_worker_id = None
-        elif worker_id.startswith("enhanced_"):
-            self.enhanced_annotation_finished.emit(result)
         elif worker_id.startswith("search_"):
             self.search_finished.emit(result)
             if self.current_search_worker_id == worker_id:
@@ -468,11 +399,9 @@ class WorkerService(QObject):
             if self.current_registration_worker_id == worker_id:
                 self.current_registration_worker_id = None
         elif worker_id.startswith("annotation_"):
-            self.annotation_error.emit(error)
+            self.enhanced_annotation_error.emit(error)
             if self.current_annotation_worker_id == worker_id:
                 self.current_annotation_worker_id = None
-        elif worker_id.startswith("enhanced_"):
-            self.enhanced_annotation_error.emit(error)
         elif worker_id.startswith("search_"):
             self.search_error.emit(error)
             if self.current_search_worker_id == worker_id:
