@@ -9,7 +9,7 @@ from collections.abc import Callable
 from loguru import logger
 from PySide6.QtWidgets import QMessageBox, QWidget
 
-from lorairo.services.annotation_service import AnnotationService
+from lorairo.gui.services.worker_service import WorkerService
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.selection_state_service import SelectionStateService
 
@@ -28,20 +28,20 @@ class AnnotationWorkflowController:
 
     def __init__(
         self,
-        annotation_service: AnnotationService | None,
-        selection_state_service: SelectionStateService | None,
-        config_service: ConfigurationService | None,
+        worker_service: WorkerService,
+        selection_state_service: SelectionStateService,
+        config_service: ConfigurationService,
         parent: QWidget | None = None,
     ):
         """初期化
 
         Args:
-            annotation_service: アノテーション実行サービス
+            worker_service: Worker管理サービス（必須）
             selection_state_service: 画像選択状態管理サービス
             config_service: 設定管理サービス
             parent: 親ウィジェット（QMessageBox用、Noneも可）
         """
-        self.annotation_service = annotation_service
+        self.worker_service = worker_service
         self.selection_state_service = selection_state_service
         self.config_service = config_service
         self.parent = parent
@@ -104,13 +104,13 @@ class AnnotationWorkflowController:
         Returns:
             bool: 全サービスが有効な場合True
         """
-        if not self.annotation_service:
-            logger.warning("AnnotationServiceが初期化されていません")
+        if not self.worker_service:
+            logger.warning("WorkerServiceが初期化されていません")
             if self.parent:
                 QMessageBox.warning(
                     self.parent,
                     "サービス未初期化",
-                    "AnnotationServiceが初期化されていないため、アノテーション処理を開始できません。",
+                    "WorkerServiceが初期化されていないため、アノテーション処理を実行できません。",
                 )
             return False
 
@@ -194,10 +194,12 @@ class AnnotationWorkflowController:
         try:
             logger.info(f"バッチアノテーション処理開始: {len(image_paths)}画像, {len(models)}モデル")
 
-            # AnnotationService.start_batch_annotation()を呼び出し
+            # WorkerService.start_enhanced_batch_annotation()を呼び出し
             # Signal経由で進捗・完了・エラーがハンドラに通知される
-            self.annotation_service.start_batch_annotation(
-                image_paths=image_paths, models=models, batch_size=50
+            self.worker_service.start_enhanced_batch_annotation(
+                image_paths=image_paths,
+                models=models,
+                batch_size=50,
             )
 
             # 非ブロッキング通知
