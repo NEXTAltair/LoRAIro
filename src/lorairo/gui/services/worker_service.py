@@ -7,11 +7,15 @@ from typing import Any
 from PIL.Image import Image
 from PySide6.QtCore import QObject, QSize, Signal
 
+from ...annotations.annotation_logic import AnnotationLogic
+from ...annotations.annotator_adapter import AnnotatorLibraryAdapter
 from ...database.db_manager import ImageDatabaseManager
+from ...services.configuration_service import ConfigurationService
 from ...services.search_models import SearchConditions
+from ...services.service_container import get_service_container
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
-from ..workers.annotation_worker import AnnotationWorker, ModelSyncWorker
+from ..workers.annotation_worker import AnnotationWorker
 from ..workers.database_worker import (
     DatabaseRegistrationWorker,
     SearchResult,
@@ -40,10 +44,6 @@ class WorkerService(QObject):
     enhanced_annotation_started = Signal(str)  # worker_id
     enhanced_annotation_finished = Signal(object)  # Enhanced annotation results
     enhanced_annotation_error = Signal(str)  # error_message
-
-    model_sync_started = Signal(str)  # worker_id
-    model_sync_finished = Signal(object)  # ModelSyncResult
-    model_sync_error = Signal(str)  # error_message
 
     search_started = Signal(str)  # worker_id
     search_finished = Signal(object)  # SearchResult
@@ -93,7 +93,33 @@ class WorkerService(QObject):
         self.worker_progress_updated.connect(self._on_progress_updated)
         self.worker_batch_progress.connect(self._on_batch_progress_updated)
 
+        # AnnotationLogic 遅延初期化（依存関係: AnnotatorAdapter, ConfigService, DBManager）
+        self._annotation_logic: AnnotationLogic | None = None
+
         logger.debug("WorkerService initialized")
+
+    @property
+    def annotation_logic(self) -> AnnotationLogic:
+        """AnnotationLogic 取得（遅延初期化）
+
+        Returns:
+            AnnotationLogic: アノテーションビジネスロジック
+        """
+        if self._annotation_logic is None:
+            # ServiceContainer 経由で AnnotatorAdapter と ConfigService 取得
+            container = get_service_container()
+            annotator_adapter = container.annotator_library
+            config_service = container.config_service
+
+            # AnnotationLogic インスタンス化
+            self._annotation_logic = AnnotationLogic(
+                annotator_adapter=annotator_adapter,
+                config_service=config_service,
+                db_manager=self.db_manager,
+            )
+            logger.debug("AnnotationLogic initialized in WorkerService")
+
+        return self._annotation_logic
 
     # === Database Registration ===
 
@@ -220,18 +246,17 @@ class WorkerService(QObject):
         Args:
             image_paths: 画像パスリスト
             models: 使用モデル名リスト
-            batch_size: バッチサイズ
-            api_keys: APIキー辞書（プロバイダー名 → APIキー）
+            batch_size: バッチサイズ（未使用、後方互換性のため保持）
+            api_keys: APIキー辞書（未使用、後方互換性のため保持）
 
         Returns:
             str: ワーカーID
         """
+        # AnnotationWorker の新しいコンストラクタに合わせて修正
         worker = AnnotationWorker(
+            annotation_logic=self.annotation_logic,
             image_paths=image_paths,
             models=models,
-            batch_size=batch_size,
-            operation_mode="batch",
-            api_keys=api_keys,
         )
         worker_id = f"enhanced_batch_{uuid.uuid4().hex[:8]}"
 
@@ -247,26 +272,6 @@ class WorkerService(QObject):
             return worker_id
         else:
             raise RuntimeError(f"Enhanced Batch Annotationワーカー開始失敗: {worker_id}")
-
-    def start_model_sync(self) -> str:
-        """モデル同期開始
-
-        Returns:
-            str: ワーカーID
-        """
-        worker = ModelSyncWorker()
-        worker_id = f"model_sync_{uuid.uuid4().hex[:8]}"
-
-        # 進捗シグナル接続
-        worker.progress_updated.connect(
-            lambda progress: self.worker_progress_updated.emit(worker_id, progress)
-        )
-
-        if self.worker_manager.start_worker(worker_id, worker):
-            logger.info(f"モデル同期開始 (ID: {worker_id})")
-            return worker_id
-        else:
-            raise RuntimeError(f"Model Syncワーカー開始失敗: {worker_id}")
 
     def cancel_enhanced_annotation(self, worker_id: str) -> bool:
         """Enhanced Annotationキャンセル"""
@@ -416,9 +421,6 @@ class WorkerService(QObject):
         elif worker_id.startswith("enhanced_"):
             operation_name = "拡張アノテーション"
             self.enhanced_annotation_started.emit(worker_id)
-        elif worker_id.startswith("model_sync_"):
-            operation_name = "モデル同期"
-            self.model_sync_started.emit(worker_id)
         elif worker_id.startswith("search_"):
             operation_name = "検索処理"
             self.search_started.emit(worker_id)
@@ -448,8 +450,6 @@ class WorkerService(QObject):
                 self.current_annotation_worker_id = None
         elif worker_id.startswith("enhanced_"):
             self.enhanced_annotation_finished.emit(result)
-        elif worker_id.startswith("model_sync_"):
-            self.model_sync_finished.emit(result)
         elif worker_id.startswith("search_"):
             self.search_finished.emit(result)
             if self.current_search_worker_id == worker_id:
@@ -478,8 +478,6 @@ class WorkerService(QObject):
                 self.current_annotation_worker_id = None
         elif worker_id.startswith("enhanced_"):
             self.enhanced_annotation_error.emit(error)
-        elif worker_id.startswith("model_sync_"):
-            self.model_sync_error.emit(error)
         elif worker_id.startswith("search_"):
             self.search_error.emit(error)
             if self.current_search_worker_id == worker_id:

@@ -11,7 +11,6 @@ from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QWidget
 from ...database.db_manager import ImageDatabaseManager
 from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
-from ...services.annotation_service import AnnotationService
 from ...services.configuration_service import ConfigurationService
 from ...services.data_transform_service import DataTransformService
 from ...services.model_selection_service import ModelSelectionService
@@ -53,7 +52,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     file_system_manager: FileSystemManager | None
     db_manager: ImageDatabaseManager | None
     worker_service: WorkerService | None
-    annotation_service: AnnotationService | None
     dataset_state_manager: DatasetStateManager | None
 
     # Service/Controller層属性
@@ -150,6 +148,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"  ❌ FileSystemManager初期化失敗（継続）: {e}")
             self.file_system_manager = None
 
+        # WorkerService初期化（クリティカル化）
         try:
             logger.info("  - WorkerService初期化中...")
             if self.db_manager and self.file_system_manager:
@@ -160,17 +159,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     "db_manager または file_system_manager が未初期化のため WorkerService を作成できません"
                 )
         except Exception as e:
-            logger.error(f"  ❌ WorkerService初期化失敗（継続）: {e}")
-            self.worker_service = None
-
-        try:
-            logger.info("  - AnnotationService初期化中...")
-            self.annotation_service = AnnotationService(parent=self)
-            self._connect_annotation_service_signals()
-            logger.info("  ✅ AnnotationService初期化成功")
-        except Exception as e:
-            logger.error(f"  ❌ AnnotationService初期化失敗（継続）: {e}")
-            self.annotation_service = None
+            logger.critical(f"  ❌ WorkerService初期化失敗（致命的）: {e}")
+            self._handle_critical_initialization_failure("WorkerService", e)
+            return
 
         try:
             logger.info("  - DatasetStateManager初期化中...")
@@ -189,7 +180,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             ("ImageDatabaseManager", self.db_manager),
             ("FileSystemManager", self.file_system_manager),
             ("WorkerService", self.worker_service),
-            ("AnnotationService", self.annotation_service),
             ("DatasetStateManager", self.dataset_state_manager),
         ]
 
@@ -320,7 +310,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         try:
             logger.info("  - AnnotationWorkflowController初期化中...")
             self.annotation_workflow_controller = AnnotationWorkflowController(
-                annotation_service=self.annotation_service,
+                worker_service=self.worker_service,
                 selection_state_service=self.selection_state_service,
                 config_service=self.config_service,
                 parent=self,
@@ -444,29 +434,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         logger.info("WorkerService pipeline signals connected (13 connections)")
 
-    def _connect_annotation_service_signals(self) -> None:
-        """AnnotationService signal connections setup"""
-        if not self.annotation_service:
-            logger.warning("AnnotationService not available - signals not connected")
-            return
-
-        try:
-            # Annotation completion/error signals
-            self.annotation_service.annotationFinished.connect(self._on_annotation_finished)
-            self.annotation_service.annotationError.connect(self._on_annotation_error)
-
-            # Batch processing signals
-            self.annotation_service.batchProcessingStarted.connect(self._on_batch_annotation_started)
-            self.annotation_service.batchProcessingProgress.connect(self._on_batch_annotation_progress)
-            self.annotation_service.batchProcessingFinished.connect(self._on_batch_annotation_finished)
-
-            # Model sync signals
-            self.annotation_service.modelSyncCompleted.connect(self._on_model_sync_completed)
-
-            logger.info("AnnotationService signals connected (6 connections)")
-
-        except Exception as e:
-            logger.error(f"AnnotationService signal connection failed: {e}", exc_info=True)
 
     def _on_search_completed_start_thumbnail(self, search_result: Any) -> None:
         """SearchWorker完了時にThumbnailWorkerを自動起動（PipelineControlServiceに委譲）"""
