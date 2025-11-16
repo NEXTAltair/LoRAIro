@@ -33,6 +33,26 @@ class SettingsController:
         self.config_service = config_service
         self.parent = parent
 
+    def _validate_services(self) -> bool:
+        """必須サービスの検証
+
+        Returns:
+            bool: 全サービスが有効な場合True
+        """
+        if not self.config_service:
+            logger.warning("ConfigurationServiceが初期化されていません")
+            if self.parent:
+                from PySide6.QtWidgets import QMessageBox
+
+                QMessageBox.warning(
+                    self.parent,
+                    "サービス未初期化",
+                    "ConfigurationServiceが初期化されていないため、設定を開けません。",
+                )
+            return False
+
+        return True
+
     def open_settings_dialog(self) -> None:
         """設定ダイアログを開く
 
@@ -40,15 +60,8 @@ class SettingsController:
         """
         logger.info("設定ダイアログを開きます")
 
-        if not self.config_service:
-            logger.error("ConfigurationServiceが初期化されていません")
-            from PySide6.QtWidgets import QMessageBox
-
-            QMessageBox.warning(
-                self.parent,
-                "設定エラー",
-                "ConfigurationServiceが初期化されていないため、設定を開けません。",
-            )
+        # Step 1: サービス検証
+        if not self._validate_services():
             return
 
         try:
@@ -85,7 +98,6 @@ class SettingsController:
         QMessageBox.information(
             self.parent,
             "設定",
-            "設定画面は開発中です。\n"
-            "現在は config/lorairo.toml ファイルを直接編集してください。",
+            "設定画面は開発中です。\n現在は config/lorairo.toml ファイルを直接編集してください。",
         )
         logger.info("シンプルな設定ダイアログを表示しました")

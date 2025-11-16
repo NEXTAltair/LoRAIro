@@ -69,33 +69,45 @@ class DatasetController:
         # 2. バッチ登録処理開始
         self._start_batch_registration(directory)
 
+    def _validate_services(self) -> bool:
+        """必須サービスの検証
+
+        Returns:
+            bool: 全サービスが有効な場合True
+        """
+        if not self.worker_service:
+            logger.warning("WorkerServiceが初期化されていません")
+            if self.parent:
+                QMessageBox.warning(
+                    self.parent,
+                    "サービス未初期化",
+                    "WorkerServiceが初期化されていないため、バッチ登録を開始できません。",
+                )
+            return False
+
+        if not self.file_system_manager:
+            logger.warning("FileSystemManagerが初期化されていません")
+            if self.parent:
+                QMessageBox.warning(
+                    self.parent,
+                    "サービス未初期化",
+                    "FileSystemManagerが初期化されていないため、バッチ登録処理を実行できません。",
+                )
+            return False
+
+        return True
+
     def _start_batch_registration(self, directory: Path) -> None:
         """バッチ登録処理を開始（内部メソッド）
 
         Args:
             directory: 選択されたデータセットディレクトリ
         """
-        # WorkerServiceが利用可能かチェック
-        if not self.worker_service:
-            error_msg = "WorkerServiceが初期化されていないため、バッチ登録を開始できません。"
-            logger.error(error_msg)
-            if self.parent:
-                QMessageBox.warning(self.parent, "サービス未初期化", error_msg)
+        # Step 1: サービス検証
+        if not self._validate_services():
             return
 
         try:
-            # FileSystemManagerの初期化（必須）
-            if not self.file_system_manager:
-                error_msg = "FileSystemManagerが初期化されていません。バッチ登録処理を実行できません。"
-                logger.critical(f"Critical error during batch registration: {error_msg}")
-                if self.parent:
-                    QMessageBox.critical(
-                        self.parent,
-                        "致命的エラー",
-                        error_msg,
-                    )
-                return
-
             # FileSystemManagerの初期化（新しいメソッド使用）
             output_dir = self.file_system_manager.initialize_from_dataset_selection(directory)
             logger.info(f"FileSystemManager初期化完了: output_dir={output_dir}")
