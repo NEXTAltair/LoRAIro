@@ -37,6 +37,24 @@ class ExportController:
         self.service_container = service_container
         self.parent = parent
 
+    def _validate_services(self) -> bool:
+        """必須サービスの検証
+
+        Returns:
+            bool: 全サービスが有効な場合True
+        """
+        if not self.selection_state_service:
+            logger.warning("SelectionStateServiceが初期化されていません")
+            if self.parent:
+                QMessageBox.warning(
+                    self.parent,
+                    "サービス未初期化",
+                    "SelectionStateServiceが初期化されていないため、画像選択情報を取得できません。",
+                )
+            return False
+
+        return True
+
     def open_export_dialog(self) -> None:
         """エクスポートダイアログを開く"""
         try:
@@ -84,11 +102,11 @@ class ExportController:
         Returns:
             list[int]: 画像IDリスト
         """
-        if self.selection_state_service:
-            return self.selection_state_service.get_current_selected_images()
+        # Step 1: サービス検証
+        if not self._validate_services():
+            return []
 
-        logger.error("SelectionStateServiceが初期化されていません")
-        return []
+        return self.selection_state_service.get_current_selected_images()
 
     def _on_export_completed(self, path: str) -> None:
         """エクスポート完了ハンドラ
