@@ -7,14 +7,13 @@ Phase 4: 実ライブラリ統合での依存関係解決
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
-    from .annotator_library_adapter import AnnotatorLibraryAdapter
+    from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
 
 from ..database.db_core import DefaultSessionLocal
 from ..database.db_manager import ImageDatabaseManager
 from ..database.db_repository import ImageRepository
 from ..storage.file_system import FileSystemManager
 from ..utils.log import logger
-from .annotation_batch_processor import BatchProcessor
 from .configuration_service import ConfigurationService
 from .dataset_export_service import DatasetExportService
 from .image_processing_service import ImageProcessingService
@@ -61,7 +60,6 @@ class ServiceContainer:
         # Phase 1新サービス初期化
         self._model_sync_service: ModelSyncService | None = None
         self._model_registry: ModelRegistryServiceProtocol | None = None
-        self._batch_processor: BatchProcessor | None = None
 
         # Phase 4: プロダクション統合モード制御
         self._use_production_mode: bool = True
@@ -173,26 +171,13 @@ class ServiceContainer:
         return self._model_registry
 
     @property
-    def batch_processor(self) -> BatchProcessor:
-        """バッチプロセッサー取得（遅延初期化）
-
-        Protocol-based ModelRegistryServiceProtocolと連携
-        """
-        if self._batch_processor is None:
-            from .annotation_batch_processor import BatchProcessor
-
-            self._batch_processor = BatchProcessor(self.model_registry, self.config_service)
-            logger.debug("BatchProcessor初期化完了（Protocol-based統合）")
-        return self._batch_processor
-
-    @property
     def annotator_library(self) -> "AnnotatorLibraryAdapter":
         """AnnotatorLibraryAdapter取得（遅延初期化）
 
         Phase 4: image-annotator-lib統合アダプター
         """
         if self._annotator_library is None:
-            from .annotator_library_adapter import AnnotatorLibraryAdapter
+            from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
 
             self._annotator_library = AnnotatorLibraryAdapter(self.config_service)
             logger.info("AnnotatorLibraryAdapter初期化完了（Phase 4統合）")
@@ -214,7 +199,6 @@ class ServiceContainer:
                 "dataset_export_service": self._dataset_export_service is not None,
                 "model_sync_service": self._model_sync_service is not None,
                 "model_registry": self._model_registry is not None,
-                "batch_processor": self._batch_processor is not None,
                 "annotator_library": self._annotator_library is not None,
             },
             "container_initialized": ServiceContainer._initialized,
@@ -239,7 +223,6 @@ class ServiceContainer:
         self._dataset_export_service = None
         self._model_sync_service = None
         self._model_registry = None
-        self._batch_processor = None
         self._annotator_library = None
 
         # クラスレベルリセット
@@ -267,9 +250,6 @@ class ServiceContainer:
             if self._model_sync_service is not None:
                 logger.info("モード変更によりModelSyncServiceをリセットします")
                 self._model_sync_service = None
-            if self._batch_processor is not None:
-                logger.info("モード変更によりBatchProcessorをリセットします")
-                self._batch_processor = None
 
             self._use_production_mode = enable
 
@@ -304,8 +284,3 @@ def get_model_registry() -> ModelRegistryServiceProtocol:
     Protocol-basedモデルレジストリを返す
     """
     return get_service_container().model_registry
-
-
-def get_batch_processor() -> BatchProcessor:
-    """バッチプロセッサー取得（便利関数）"""
-    return get_service_container().batch_processor
