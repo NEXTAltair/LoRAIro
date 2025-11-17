@@ -42,7 +42,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     データベース中心の設計で、画像の管理・検索・処理を統合的に提供。
     """
 
-
     # シグナル
     dataset_loaded = Signal(str)  # dataset_path
     database_registration_completed = Signal(int)  # registered_count
@@ -359,7 +358,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             logger.error("SelectionStateServiceが初期化されていません - 接続検証をスキップ")
 
-
     def _connect_events(self) -> None:
         """イベント接続を設定（安全な実装）"""
         try:
@@ -433,7 +431,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.worker_service.worker_batch_progress.connect(self._on_worker_batch_progress)
 
         logger.info("WorkerService pipeline signals connected (13 connections)")
-
 
     def _on_search_completed_start_thumbnail(self, search_result: Any) -> None:
         """SearchWorker完了時にThumbnailWorkerを自動起動（PipelineControlServiceに委譲）"""
@@ -519,7 +516,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
 
-    # AnnotationService signal handlers (Phase 5 Stage 3)
+    # WorkerService annotation signal handlers (Phase 5 Stage 3)
     def _on_annotation_finished(self, result: Any) -> None:
         """単発アノテーション完了ハンドラ（ResultHandlerService委譲）"""
         if self.result_handler_service:
@@ -630,8 +627,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # Fallback: Service未初期化時は元画像のみ使用
         return [(Path(metadata["stored_image_path"]), metadata["id"]) for metadata in image_metadata]
-
-
 
     def _setup_image_db_write_service(self) -> None:
         """ImageDBWriteServiceを作成してselected_image_details_widgetに注入

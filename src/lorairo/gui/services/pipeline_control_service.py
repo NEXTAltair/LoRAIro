@@ -52,7 +52,7 @@ class PipelineControlService:
         Args:
             search_result: SearchResultオブジェクトまたは辞書
 
-        
+
         """
         if not self.worker_service:
             logger.error("WorkerService not initialized - cannot start thumbnail loading")
@@ -77,7 +77,7 @@ class PipelineControlService:
         Args:
             thumbnail_result: サムネイル生成結果
 
-        
+
         """
         if not self.thumbnail_selector:
             logger.warning("ThumbnailSelectorWidget not available - thumbnail display update skipped")
@@ -110,7 +110,7 @@ class PipelineControlService:
         Args:
             error_message: エラーメッセージ
 
-        
+
         """
         logger.error(f"Pipeline search error: {error_message}")
 
@@ -128,7 +128,7 @@ class PipelineControlService:
         Args:
             error_message: エラーメッセージ
 
-        
+
         """
         logger.error(f"Pipeline thumbnail error: {error_message}")
 
@@ -141,9 +141,7 @@ class PipelineControlService:
             self.thumbnail_selector.clear_thumbnails()
 
         # エラー時もプログレスバーを非表示
-        if self.filter_search_panel and hasattr(
-            self.filter_search_panel, "hide_progress_after_completion"
-        ):
+        if self.filter_search_panel and hasattr(self.filter_search_panel, "hide_progress_after_completion"):
             self.filter_search_panel.hide_progress_after_completion()
 
     # ============================================================
@@ -156,11 +154,9 @@ class PipelineControlService:
         Args:
             _worker_id: ワーカーID（未使用）
 
-        
+
         """
-        if self.filter_search_panel and hasattr(
-            self.filter_search_panel, "update_pipeline_progress"
-        ):
+        if self.filter_search_panel and hasattr(self.filter_search_panel, "update_pipeline_progress"):
             self.filter_search_panel.update_pipeline_progress("検索中...", 0.0, 0.3)
 
     def on_thumbnail_started(self, _worker_id: str) -> None:
@@ -169,11 +165,9 @@ class PipelineControlService:
         Args:
             _worker_id: ワーカーID（未使用）
 
-        
+
         """
-        if self.filter_search_panel and hasattr(
-            self.filter_search_panel, "update_pipeline_progress"
-        ):
+        if self.filter_search_panel and hasattr(self.filter_search_panel, "update_pipeline_progress"):
             self.filter_search_panel.update_pipeline_progress("サムネイル読込中...", 0.3, 1.0)
 
     # ============================================================

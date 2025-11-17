@@ -54,9 +54,9 @@ class TestWorkerService:
         assert hasattr(worker_service, "batch_registration_finished")
         assert hasattr(worker_service, "batch_registration_error")
 
-        assert hasattr(worker_service, "annotation_started")
-        assert hasattr(worker_service, "annotation_finished")
-        assert hasattr(worker_service, "annotation_error")
+        assert hasattr(worker_service, "enhanced_annotation_started")
+        assert hasattr(worker_service, "enhanced_annotation_finished")
+        assert hasattr(worker_service, "enhanced_annotation_error")
 
         assert hasattr(worker_service, "search_started")
         assert hasattr(worker_service, "search_finished")

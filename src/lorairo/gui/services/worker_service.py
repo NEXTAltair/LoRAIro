@@ -37,10 +37,6 @@ class WorkerService(QObject):
     batch_registration_finished = Signal(object)  # DatabaseRegistrationResult
     batch_registration_error = Signal(str)  # error_message
 
-    annotation_started = Signal(str)  # worker_id
-    annotation_finished = Signal(object)  # PHashAnnotationResults
-    annotation_error = Signal(str)  # error_message
-
     enhanced_annotation_started = Signal(str)  # worker_id
     enhanced_annotation_finished = Signal(object)  # Enhanced annotation results
     enhanced_annotation_error = Signal(str)  # error_message

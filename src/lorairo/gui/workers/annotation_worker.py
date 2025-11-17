@@ -44,11 +44,7 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
         self.image_paths = image_paths
         self.models = models
 
-        logger.info(
-            f"AnnotationWorker初期化 - "
-            f"Images: {len(self.image_paths)}, "
-            f"Models: {len(self.models)}"
-        )
+        logger.info(f"AnnotationWorker初期化 - Images: {len(self.image_paths)}, Models: {len(self.models)}")
 
     def execute(self) -> PHashAnnotationResults:
         """アノテーション処理実行

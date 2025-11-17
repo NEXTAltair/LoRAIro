@@ -40,11 +40,10 @@ src/lorairo/gui/
     - 必要に応じて `progress` シグナルを発行します。
     - 必要に応じて `cancel()` メソッドをオーバーライドし、タスク固有のキャンセルロジックを追加します（例: 実行中プロセスの停止、ループの中断）。オーバーライドする場合は `super().cancel()` を呼び出す必要があります。
 - **サービスとの連携:**
-    - 各サービスクラス（例: `AnnotationService`）は、対応するワーカークラス（例: `AnnotationWorker`）のインスタンスを生成します。
-    - サービスは `QThread` を作成し、ワーカーをそのスレッドに移動 (`moveToThread`) します。
-    - スレッドの `started` シグナルをワーカーの `run` スロットに接続します。
-    - ワーカーの `finished` および `progress` シグナルを、サービス内の適切なスロット（またはUIコンポーネントのスロット）に接続して、結果や進捗を処理します。
-    - サービスはワーカーの `cancel()` メソッドを呼び出して、タスクの中断を要求できます。
+    - `WorkerService` は、対応するワーカークラス（例: `AnnotationWorker`, `SearchWorker`）のインスタンスを生成します。
+    - `WorkerService` は `WorkerManager` 経由で `QThreadPool` でワーカーを実行します。
+    - ワーカーの `finished` および `progress` シグナルを、`WorkerService` 内の適切なスロット（またはUIコンポーネントのスロット）に接続して、結果や進捗を処理します。
+    - `WorkerService` はワーカーの `cancel()` メソッドを呼び出して、タスクの中断を要求できます。
 
 ## 3. 責務
 
