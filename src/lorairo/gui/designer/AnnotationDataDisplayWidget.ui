@@ -36,26 +36,56 @@
      </property>
      <layout class="QVBoxLayout" name="verticalLayoutTags">
       <item>
-       <widget class="QTextEdit" name="textEditTags">
+       <widget class="QTableWidget" name="tableWidgetTags">
         <property name="sizePolicy">
          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
           <horstretch>0</horstretch>
           <verstretch>2</verstretch>
          </sizepolicy>
         </property>
-        <property name="placeholderText">
-         <string>タグが表示されます</string>
+        <property name="editTriggers">
+         <set>QAbstractItemView::EditTrigger::NoEditTriggers</set>
         </property>
-        <property name="styleSheet">
-         <string>QTextEdit {
-    font-size: 10px;
-    background-color: palette(base);
-    border: 1px solid palette(mid);
-    border-radius: 4px;
-    padding: 6px;
-    color: palette(text);
-}</string>
+        <property name="alternatingRowColors">
+         <bool>true</bool>
         </property>
+        <property name="selectionBehavior">
+         <enum>QAbstractItemView::SelectionBehavior::SelectRows</enum>
+        </property>
+        <property name="sortingEnabled">
+         <bool>true</bool>
+        </property>
+        <property name="columnCount">
+         <number>5</number>
+        </property>
+        <attribute name="horizontalHeaderStretchLastSection">
+         <bool>true</bool>
+        </attribute>
+        <column>
+         <property name="text">
+          <string>Tag</string>
+         </property>
+        </column>
+        <column>
+         <property name="text">
+          <string>Model</string>
+         </property>
+        </column>
+        <column>
+         <property name="text">
+          <string>Source</string>
+         </property>
+        </column>
+        <column>
+         <property name="text">
+          <string>Confidence</string>
+         </property>
+        </column>
+        <column>
+         <property name="text">
+          <string>Edited</string>
+         </property>
+        </column>
        </widget>
       </item>
      </layout>
