@@ -6,10 +6,25 @@ DatasetStateManagerのラッパーサービス。
 Phase 2.3で作成。MainWindow.start_annotation()から画像選択ロジック（45行）を抽出。
 """
 
+from typing import Protocol, runtime_checkable
+
 from loguru import logger
 
 from lorairo.database.db_repository import ImageRepository
 from lorairo.gui.state.dataset_state import DatasetStateManager
+
+
+@runtime_checkable
+class StateConnectableWidget(Protocol):
+    """状態管理接続可能なウィジェットのプロトコル
+
+    MainWindowで状態管理接続を検証する際に使用。
+    最低限のインターフェース要件を定義。
+    """
+
+    def __repr__(self) -> str:
+        """ウィジェット名を返す（ログ出力用）"""
+        ...
 
 
 class SelectionStateService:
@@ -128,3 +143,44 @@ class SelectionStateService:
             else:
                 logger.warning(f"無効な画像データをスキップ: {image.get('id', 'N/A')}")
         return valid_images
+
+    def verify_state_management_connections(
+        self,
+        thumbnail_selector: StateConnectableWidget | None,
+        image_preview_widget: StateConnectableWidget | None,
+        selected_image_details_widget: StateConnectableWidget | None,
+    ) -> None:
+        """状態管理接続の検証
+
+        MainWindow初期化時に呼び出され、UI コンポーネントと SelectionStateService の
+        接続状態を検証する。接続が欠けている場合はログで警告を出す。
+
+        Args:
+            thumbnail_selector: ThumbnailSelectorWidget（最重要）
+            image_preview_widget: ImagePreviewWidget
+            selected_image_details_widget: SelectedImageDetailsWidget
+        """
+        if not self.dataset_state_manager:
+            logger.info("DatasetStateManager未初期化 - 状態管理接続検証をスキップ")
+            return
+
+        # 各ウィジェットの接続状態を検証
+        widgets_status = {
+            "thumbnail_selector": thumbnail_selector is not None,
+            "image_preview_widget": image_preview_widget is not None,
+            "selected_image_details_widget": selected_image_details_widget is not None,
+        }
+
+        connected_count = sum(widgets_status.values())
+        logger.info(f"状態管理接続検証: {connected_count}/3 ウィジェット接続済み")
+
+        # 各ウィジェットの状態をログ出力
+        for widget_name, is_connected in widgets_status.items():
+            status = "✅" if is_connected else "⚠️"
+            logger.debug(f"  {status} {widget_name}: {'接続済み' if is_connected else '未接続'}")
+
+        # thumbnail_selector が無い場合は DatasetStateManager 連携が機能しないため警告
+        if not thumbnail_selector:
+            logger.warning(
+                "thumbnail_selector が未設定です。DatasetStateManager との状態同期が機能しません。"
+            )

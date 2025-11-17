@@ -274,12 +274,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """その他のカスタムウィジェット設定（WidgetSetupServiceに委譲）"""
         WidgetSetupService.setup_all_widgets(self, self.dataset_state_manager)
 
-        # 状態管理接続の検証
-        self._verify_state_management_connections()
-
         # Service/Controller層初期化
 
-        # SelectionStateService初期化
+        # SelectionStateService初期化（検証より先に実行）
         try:
             logger.info("  - SelectionStateService初期化中...")
             self.selection_state_service = SelectionStateService(
@@ -290,6 +287,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except Exception as e:
             logger.error(f"  ❌ SelectionStateService初期化失敗（継続）: {e}")
             self.selection_state_service = None
+
+        # 状態管理接続の検証（SelectionStateService初期化後に実行）
+        self._verify_state_management_connections()
 
         # DatasetController初期化
         try:
@@ -672,16 +672,21 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             raise ValueError("SearchFilterService作成不可") from e
 
     def _setup_search_filter_integration(self) -> None:
-        """SearchFilterService統合処理
+        """SearchFilterService統合処理（必須機能）
 
-        filterSearchPanelにSearchFilterServiceを注入して検索機能を有効化
+        filterSearchPanelにSearchFilterServiceを注入して検索機能を有効化。
+        検索機能は必須のため、失敗時はアプリケーション起動を中止する。
         """
         if not hasattr(self, "filterSearchPanel") or not self.filterSearchPanel:
-            logger.error("filterSearchPanel not available - SearchFilterService integration skipped")
+            self._handle_critical_initialization_failure(
+                "SearchFilterService統合", RuntimeError("filterSearchPanel not available")
+            )
             return
 
         if not self.db_manager:
-            logger.error("db_manager not available - SearchFilterService integration skipped")
+            self._handle_critical_initialization_failure(
+                "SearchFilterService統合", RuntimeError("db_manager not available")
+            )
             return
 
         try:
@@ -690,13 +695,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             if self.worker_service:
                 self.filterSearchPanel.set_worker_service(self.worker_service)
-                logger.info("SearchFilterService統合完了（WorkerService統合済み）")
+                logger.info("✅ SearchFilterService統合完了（WorkerService統合済み）")
             else:
-                logger.info("SearchFilterService統合完了（同期検索モード）")
+                logger.info("✅ SearchFilterService統合完了（同期検索モード）")
 
         except Exception as e:
-            logger.error(f"SearchFilterService統合失敗: {e}", exc_info=True)
-            logger.warning("検索機能は利用できませんが、その他の機能は正常に動作します")
+            # 検索機能は必須のため、失敗時はアプリケーション起動を中止
+            self._handle_critical_initialization_failure("SearchFilterService統合", e)
 
     def _setup_phase24_services(self) -> None:
         """Service層の初期化と統合
