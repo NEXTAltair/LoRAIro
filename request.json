@@ -1,0 +1,8 @@
+{
+    "method":  "tools/list",
+    "params":  {
+
+               },
+    "id":  2,
+    "jsonrpc":  "2.0"
+}

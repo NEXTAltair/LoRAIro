@@ -46,9 +46,7 @@ class WidgetSetupService:
             logger.info("✅ ThumbnailSelectorWidget設定完了")
 
     @staticmethod
-    def setup_image_preview(
-        main_window: Any, dataset_state_manager: DatasetStateManager | None
-    ) -> None:
+    def setup_image_preview(main_window: Any, dataset_state_manager: DatasetStateManager | None) -> None:
         """ImagePreviewWidget設定
 
         Args:
@@ -78,10 +76,7 @@ class WidgetSetupService:
             main_window: MainWindowインスタンス
             dataset_state_manager: DatasetStateManager（Noneも可）
         """
-        if (
-            hasattr(main_window, "selectedImageDetailsWidget")
-            and main_window.selectedImageDetailsWidget
-        ):
+        if hasattr(main_window, "selectedImageDetailsWidget") and main_window.selectedImageDetailsWidget:
             main_window.selected_image_details_widget = main_window.selectedImageDetailsWidget
 
             if dataset_state_manager:
@@ -113,9 +108,7 @@ class WidgetSetupService:
             logger.info("✅ スプリッター初期化完了（Qt標準機能使用）")
 
     @classmethod
-    def setup_all_widgets(
-        cls, main_window: Any, dataset_state_manager: DatasetStateManager | None
-    ) -> None:
+    def setup_all_widgets(cls, main_window: Any, dataset_state_manager: DatasetStateManager | None) -> None:
         """全カスタムウィジェット設定（統合メソッド）
 
         Args:

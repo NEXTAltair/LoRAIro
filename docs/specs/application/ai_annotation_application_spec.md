@@ -1,5 +1,9 @@
 # AIアノテーション Application層仕様書（AnnotationService設計）
 
+> **⚠️ DEPRECATED**: このドキュメントは旧アーキテクチャ（AnnotationService）を記述しています。
+> 現在は `WorkerService` (`src/lorairo/gui/services/worker_service.py`) が非同期処理を統一的に管理しています。
+> 最新の仕様は `docs/specs/application/worker_service.md` を参照してください。
+
 ## 1. 目的
 
 画像アノテーション（タグ・キャプション・スコア生成）を外部ライブラリ `image-annotator-lib` に委譲し、結果をDB保存・UI連携するApplication層サービスの設計仕様を定義する。

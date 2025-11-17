@@ -1,0 +1,9 @@
+HTTP/1.1 200 OK
+X-Powered-By: Express
+Content-Type: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+mcp-session-id: 6de1d675-4d78-4a83-8225-3896be5c6032
+Date: Fri, 14 Nov 2025 02:00:04 GMT
+Transfer-Encoding: chunked
+

@@ -46,7 +46,7 @@
 
     // Python インタープリター設定
     "python.defaultInterpreterPath": ".venv/bin/python",
-    "python.languageServer": "Pylance",
+    "python.languageServer": "None",
 
     // Python テスト設定
     "python.testing.pytestEnabled": true,

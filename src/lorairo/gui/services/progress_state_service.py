@@ -18,7 +18,7 @@ class ProgressStateService:
     Worker進捗管理、バッチ処理進捗、ステータスバー更新を統一管理。
     MainWindowから進捗管理ロジックを分離。
 
-    
+
     """
 
     def __init__(self, status_bar: QStatusBar | None = None):
@@ -39,7 +39,7 @@ class ProgressStateService:
         Args:
             worker_id: ワーカーID
 
-        
+
         """
         logger.info(f"バッチ登録開始: worker_id={worker_id}")
 
@@ -56,7 +56,7 @@ class ProgressStateService:
         Args:
             error_message: エラーメッセージ
 
-        
+
 
         Note:
             QMessageBoxは呼び出し側（MainWindow）で表示する。
@@ -81,7 +81,7 @@ class ProgressStateService:
             worker_id: ワーカーID
             progress: 進捗情報（current, total属性を持つオブジェクト）
 
-        
+
         """
         if not self.status_bar:
             return
@@ -105,9 +105,7 @@ class ProgressStateService:
         except Exception as e:
             logger.warning(f"進捗更新処理エラー: {e}")
 
-    def on_worker_batch_progress(
-        self, worker_id: str, current: int, total: int, filename: str
-    ) -> None:
+    def on_worker_batch_progress(self, worker_id: str, current: int, total: int, filename: str) -> None:
         """Workerバッチ進捗更新時のステータスバー表示
 
         Args:
@@ -116,7 +114,7 @@ class ProgressStateService:
             total: 総処理数
             filename: 処理中のファイル名
 
-        
+
         """
         if not self.status_bar:
             return
@@ -128,9 +126,7 @@ class ProgressStateService:
             status_message = f"バッチ処理中... {current}/{total} ({percentage}%) - {filename}"
             self.status_bar.showMessage(status_message)
 
-            logger.debug(
-                f"バッチ進捗更新: {worker_id} - {current}/{total} ({percentage}%) - {filename}"
-            )
+            logger.debug(f"バッチ進捗更新: {worker_id} - {current}/{total} ({percentage}%) - {filename}")
 
         except Exception as e:
             logger.warning(f"バッチ進捗更新処理エラー: {e}")
@@ -145,7 +141,7 @@ class ProgressStateService:
         Args:
             total_images: 総画像数
 
-        
+
         """
         try:
             logger.info(f"バッチアノテーション開始: {total_images}画像")
@@ -164,7 +160,7 @@ class ProgressStateService:
             processed: 処理済み画像数
             total: 総画像数
 
-        
+
         """
         if not self.status_bar:
             return

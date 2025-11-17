@@ -57,7 +57,7 @@ class AnnotationWorkflowController:
         2. 選択画像取得（SelectionStateService経由）
         3. 利用可能モデル取得（ConfigurationService経由）
         4. モデル選択ダイアログ表示（callback）
-        5. バッチアノテーション開始（AnnotationService経由）
+        5. バッチアノテーション開始（WorkerService経由）
 
         Args:
             model_selection_callback: モデル選択ダイアログ表示callback

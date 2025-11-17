@@ -262,7 +262,6 @@ class TestMainWindowPhase3Integration:
             assert mock_window.image_db_write_service == mock_service_instance
             mock_window.selected_image_details_widget.set_image_db_write_service.assert_called_once()
 
-
     def test_state_manager_connection_validation(self, mock_dependencies):
         """DatasetStateManager接続検証テスト"""
         from lorairo.gui.window.main_window import MainWindow

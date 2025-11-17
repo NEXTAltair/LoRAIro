@@ -17,7 +17,7 @@ class ResultHandlerService:
     Worker/Serviceの実行結果を処理し、UIに通知する責務を担当。
     MainWindowから分離し、結果処理ロジックを集約。
 
-    
+
     """
 
     def __init__(self, parent: QWidget | None = None):
