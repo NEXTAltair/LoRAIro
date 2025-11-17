@@ -79,9 +79,11 @@ class WidgetSetupService:
         if hasattr(main_window, "selectedImageDetailsWidget") and main_window.selectedImageDetailsWidget:
             main_window.selected_image_details_widget = main_window.selectedImageDetailsWidget
 
+            logger.info(f"🔍 SelectedImageDetailsWidget instance: {id(main_window.selected_image_details_widget)}")
+
             if dataset_state_manager:
                 main_window.selected_image_details_widget.connect_to_data_signals(dataset_state_manager)
-                logger.info("✅ SelectedImageDetailsWidget データシグナル接続完了")
+                logger.info(f"✅ SelectedImageDetailsWidget データシグナル接続完了 (instance: {id(main_window.selected_image_details_widget)})")
             else:
                 logger.warning(
                     "⚠️ DatasetStateManagerが初期化されていません - SelectedImageDetailsWidget接続をスキップ"

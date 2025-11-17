@@ -89,9 +89,13 @@ class TestFormatAnnotationsForMetadata:
 
         expected = {
             "tags": [],
+            "tags_text": "",
             "captions": [],
+            "caption_text": "",
             "scores": [],
+            "score_value": 0.0,
             "ratings": [],
+            "rating_value": 0,
         }
 
         assert result == expected
@@ -111,6 +115,7 @@ class TestFormatAnnotationsForMetadata:
         assert result["tags"][0]["confidence_score"] == 0.95
         assert isinstance(result["tags"][0]["created_at"], datetime)
         assert isinstance(result["tags"][0]["updated_at"], datetime)
+        assert result["tags_text"] == "test_tag"
 
         # Captions検証
         assert len(result["captions"]) == 1
@@ -121,6 +126,7 @@ class TestFormatAnnotationsForMetadata:
         assert result["captions"][0]["is_edited_manually"] is False
         assert isinstance(result["captions"][0]["created_at"], datetime)
         assert isinstance(result["captions"][0]["updated_at"], datetime)
+        assert result["caption_text"] == "test caption"
 
         # Scores検証
         assert len(result["scores"]) == 1
@@ -130,6 +136,7 @@ class TestFormatAnnotationsForMetadata:
         assert result["scores"][0]["is_edited_manually"] is False
         assert isinstance(result["scores"][0]["created_at"], datetime)
         assert isinstance(result["scores"][0]["updated_at"], datetime)
+        assert result["score_value"] == 0.85
 
         # Ratings検証
         assert len(result["ratings"]) == 1
@@ -140,6 +147,7 @@ class TestFormatAnnotationsForMetadata:
         assert result["ratings"][0]["confidence_score"] == 0.90
         assert isinstance(result["ratings"][0]["created_at"], datetime)
         assert isinstance(result["ratings"][0]["updated_at"], datetime)
+        assert result["rating_value"] == 1.0
 
     def test_format_annotations_partial_data(self, repository):
         """一部のアノテーションのみを持つImageオブジェクトのテスト"""
@@ -165,9 +173,13 @@ class TestFormatAnnotationsForMetadata:
         result = repository._format_annotations_for_metadata(image)
 
         assert len(result["tags"]) == 1
+        assert result["tags_text"] == "test_tag"
         assert len(result["captions"]) == 0
+        assert result["caption_text"] == ""
         assert len(result["scores"]) == 0
+        assert result["score_value"] == 0.0
         assert len(result["ratings"]) == 0
+        assert result["rating_value"] == 0
 
     def test_format_annotations_multiple_items(self, repository):
         """複数の同種アノテーションを持つImageオブジェクトのテスト"""
@@ -208,6 +220,7 @@ class TestFormatAnnotationsForMetadata:
         assert result["tags"][1]["tag"] == "tag2"
         assert result["tags"][0]["confidence_score"] == 0.95
         assert result["tags"][1]["confidence_score"] == 0.85
+        assert result["tags_text"] == "tag1, tag2"
 
 
 class TestFetchFilteredMetadataAnnotations:

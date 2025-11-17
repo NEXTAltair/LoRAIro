@@ -1081,27 +1081,40 @@ class ImageRepository:
 
         return query
 
-    def _format_annotations_for_metadata(self, image: Image) -> dict[str, list[dict[str, Any]]]:
+    def _format_annotations_for_metadata(self, image: Image) -> dict[str, Any]:
         """
-        SQLAlchemyのImageオブジェクトからアノテーション辞書を生成します。
-        get_image_annotations()と同じ構造の辞書を返します。
+        画像のアノテーション情報を辞書形式にフォーマット
 
         Args:
-            image (Image): アノテーション情報を含むSQLAlchemyのImageオブジェクト
+            image: 画像オブジェクト
 
         Returns:
-            dict[str, list[dict[str, Any]]]: アノテーションデータを含む辞書。
-                キー: 'tags', 'captions', 'scores', 'ratings'
-                値: 各アノテーション情報の辞書のリスト。
-        """
-        annotations: dict[str, list[dict[str, Any]]] = {
-            "tags": [],
-            "captions": [],
-            "scores": [],
-            "ratings": [],
-        }
+            dict[str, Any]: フォーマット済みアノテーション情報
+                {
+                    "tags": [{"id", "tag", "model_id", "source", "confidence_score", ...}, ...],
+                    "tags_text": "tag1, tag2, tag3",
+                    "captions": [{"id", "caption", "model_id", ...}, ...],
+                    "caption_text": "最新キャプション",
+                    "scores": [{"id", "score", "model_id", ...}, ...],
+                    "score_value": 平均スコア,
+                    "ratings": [{"id", "raw_rating_value", "normalized_rating", ...}, ...],
+                    "rating_value": 平均Rating
+                }
 
-        # Tags formatting - get_image_annotations() と同じ構造
+        処理:
+        1. Tags: 詳細情報リスト + カンマ区切りテキスト
+        2. Captions: 詳細情報リスト + 最新キャプション
+        3. Scores: 詳細情報リスト + 平均スコア
+        4. Ratings: 詳細情報リスト + 平均Rating
+
+        Notes:
+            - Repository層で型変換を統一的に実施
+            - Widget層で追加処理が不要になる
+            - Single Source of Truth原則に準拠
+        """
+        annotations: dict[str, Any] = {}
+
+        # Tags formatting - 詳細情報 + カンマ区切りテキスト
         if image.tags:
             annotations["tags"] = [
                 {
@@ -1109,6 +1122,8 @@ class ImageRepository:
                     "tag": tag.tag,
                     "tag_id": tag.tag_id,
                     "model_id": tag.model_id,
+                    "model_name": tag.model.name if tag.model else "Unknown",
+                    "source": "Manual" if tag.is_edited_manually else "AI",
                     "existing": tag.existing,
                     "is_edited_manually": tag.is_edited_manually,
                     "confidence_score": tag.confidence_score,
@@ -1117,14 +1132,20 @@ class ImageRepository:
                 }
                 for tag in image.tags
             ]
+            # カンマ区切りテキスト（UIでの簡易表示用）
+            annotations["tags_text"] = ", ".join([tag.tag for tag in image.tags])
+        else:
+            annotations["tags"] = []
+            annotations["tags_text"] = ""
 
-        # Captions formatting - get_image_annotations() と同じ構造
+        # Captions formatting - 詳細情報 + 最新キャプション
         if image.captions:
             annotations["captions"] = [
                 {
                     "id": caption.id,
                     "caption": caption.caption,
                     "model_id": caption.model_id,
+                    "model_name": caption.model.name if caption.model else "Unknown",
                     "existing": caption.existing,
                     "is_edited_manually": caption.is_edited_manually,
                     "created_at": caption.created_at,
@@ -1132,22 +1153,39 @@ class ImageRepository:
                 }
                 for caption in image.captions
             ]
+            # 最新キャプション（created_at降順の最初）
+            from datetime import datetime
 
-        # Scores formatting - get_image_annotations() と同じ構造
+            latest_caption = max(
+                image.captions, key=lambda c: c.created_at if c.created_at else datetime.min
+            )
+            annotations["caption_text"] = latest_caption.caption
+        else:
+            annotations["captions"] = []
+            annotations["caption_text"] = ""
+
+        # Scores formatting - 詳細情報 + 平均スコア
         if image.scores:
             annotations["scores"] = [
                 {
                     "id": score.id,
                     "score": score.score,
                     "model_id": score.model_id,
+                    "model_name": score.model.name if score.model else "Unknown",
                     "is_edited_manually": score.is_edited_manually,
                     "created_at": score.created_at,
                     "updated_at": score.updated_at,
                 }
                 for score in image.scores
             ]
+            # 平均スコア（表示用）
+            avg_score = sum(s.score for s in image.scores) / len(image.scores)
+            annotations["score_value"] = avg_score
+        else:
+            annotations["scores"] = []
+            annotations["score_value"] = 0.0
 
-        # Ratings formatting - get_image_annotations() と同じ構造
+        # Ratings formatting - 詳細情報 + 平均Rating
         if image.ratings:
             annotations["ratings"] = [
                 {
@@ -1161,6 +1199,19 @@ class ImageRepository:
                 }
                 for rating in image.ratings
             ]
+            # 平均Rating（正規化値の平均）
+            avg_rating = sum(r.normalized_rating for r in image.ratings) / len(image.ratings)
+            annotations["rating_value"] = avg_rating
+        else:
+            annotations["ratings"] = []
+            annotations["rating_value"] = 0
+
+        logger.debug(
+            f"Formatted annotations: tags={len(annotations.get('tags', []))}, "
+            f"captions={len(annotations.get('captions', []))}, "
+            f"scores={len(annotations.get('scores', []))}, "
+            f"ratings={len(annotations.get('ratings', []))}"
+        )
 
         return annotations
 
@@ -1180,9 +1231,9 @@ class ImageRepository:
                 select(Image)
                 .where(Image.id.in_(image_ids))
                 .options(
-                    joinedload(Image.tags),
-                    joinedload(Image.captions),
-                    joinedload(Image.scores),
+                    joinedload(Image.tags).joinedload(Tag.model),
+                    joinedload(Image.captions).joinedload(Caption.model),
+                    joinedload(Image.scores).joinedload(Score.model),
                     joinedload(Image.ratings),
                 )
             )
@@ -1204,9 +1255,9 @@ class ImageRepository:
                 select(Image)
                 .where(Image.id.in_(image_ids))
                 .options(
-                    joinedload(Image.tags),
-                    joinedload(Image.captions),
-                    joinedload(Image.scores),
+                    joinedload(Image.tags).joinedload(Tag.model),
+                    joinedload(Image.captions).joinedload(Caption.model),
+                    joinedload(Image.scores).joinedload(Score.model),
                     joinedload(Image.ratings),
                 )
             )

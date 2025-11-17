@@ -6,9 +6,10 @@ Annotation Data Display Widget
 """
 
 from dataclasses import dataclass, field
+from typing import Any
 
-from PySide6.QtCore import Signal, Slot
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtWidgets import QTableWidgetItem, QWidget
 
 from ...gui.designer.AnnotationDataDisplayWidget_ui import Ui_AnnotationDataDisplayWidget
 from ...utils.log import logger
@@ -18,7 +19,7 @@ from ...utils.log import logger
 class AnnotationData:
     """アノテーション表示用データ"""
 
-    tags: list[str] = field(default_factory=list)
+    tags: list[dict[str, Any]] = field(default_factory=list)  # Repository層から提供される詳細情報
     caption: str = ""
     aesthetic_score: float | None = None
     overall_score: int = 0
@@ -74,8 +75,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
 
     def _setup_widget_properties(self) -> None:
         """ウィジェットプロパティ設定"""
+        # tableWidgetTagsは既にNoEditTriggersに設定済み（UIファイルで設定）
         # テキスト編集を読み取り専用に設定
-        self.textEditTags.setReadOnly(True)
         self.textEditCaption.setReadOnly(True)
 
     def update_data(self, data: AnnotationData) -> None:
@@ -98,16 +99,55 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         except Exception as e:
             logger.error(f"Error updating annotation data: {e}", exc_info=True)
 
-    def _update_tags_display(self, tags: list[str]) -> None:
-        """タグ表示を更新"""
+    def _update_tags_display(self, tags: list[dict[str, Any]]) -> None:
+        """タグ表示をテーブルで更新
+
+        Args:
+            tags: タグ詳細情報リスト（Repository層から提供）
+                  [{"tag": "1girl", "model_name": "wd-v1-4", "source": "AI",
+                    "confidence_score": 0.95, "is_edited_manually": False}, ...]
+        """
         try:
-            if tags:
-                # タグをカンマ区切りで表示
-                tags_text = ", ".join(tags)
-                self.textEditTags.setText(tags_text)
-            else:
-                self.textEditTags.setText("")
-                self.textEditTags.setPlaceholderText("タグが表示されます")
+            self.tableWidgetTags.setRowCount(len(tags))
+            self.tableWidgetTags.setSortingEnabled(False)  # 更新中はソート無効
+
+            for row, tag_dict in enumerate(tags):
+                # Tag列
+                tag_item = QTableWidgetItem(tag_dict["tag"])
+                self.tableWidgetTags.setItem(row, 0, tag_item)
+
+                # Model列
+                model_name = tag_dict.get("model_name", "-")
+                model_item = QTableWidgetItem(model_name)
+                self.tableWidgetTags.setItem(row, 1, model_item)
+
+                # Source列
+                source = tag_dict.get("source", "AI")
+                source_item = QTableWidgetItem(source)
+                self.tableWidgetTags.setItem(row, 2, source_item)
+
+                # Confidence列
+                confidence = tag_dict.get("confidence_score")
+                if confidence is not None:
+                    confidence_text = f"{confidence:.2f}"
+                else:
+                    confidence_text = "-"
+                confidence_item = QTableWidgetItem(confidence_text)
+                # 数値ソート用のデータ設定
+                confidence_item.setData(Qt.ItemDataRole.UserRole, confidence if confidence else -1)
+                self.tableWidgetTags.setItem(row, 3, confidence_item)
+
+                # Edited列（チェックボックス）
+                edited = tag_dict.get("is_edited_manually", False)
+                checkbox_item = QTableWidgetItem()
+                checkbox_item.setCheckState(Qt.CheckState.Checked if edited else Qt.CheckState.Unchecked)
+                checkbox_item.setFlags(Qt.ItemFlag.ItemIsEnabled)  # 読み取り専用
+                self.tableWidgetTags.setItem(row, 4, checkbox_item)
+
+            self.tableWidgetTags.setSortingEnabled(True)  # ソート有効化
+            self.tableWidgetTags.resizeColumnsToContents()
+
+            logger.debug(f"Updated tags display: {len(tags)} rows")
 
         except Exception as e:
             logger.error(f"Error updating tags display: {e}")
@@ -152,8 +192,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             self.current_data = AnnotationData()
 
             # UI要素クリア
-            self.textEditTags.clear()
-            self.textEditTags.setPlaceholderText("タグが表示されます")
+            self.tableWidgetTags.setRowCount(0)
 
             self.textEditCaption.clear()
             self.textEditCaption.setPlaceholderText("キャプションが表示されます")
@@ -173,7 +212,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
 
     def set_read_only(self, read_only: bool) -> None:
         """読み取り専用モード設定"""
-        self.textEditTags.setReadOnly(read_only)
+        # tableWidgetTagsは既にNoEditTriggersに設定済み
         self.textEditCaption.setReadOnly(read_only)
 
     def set_group_box_visibility(
@@ -217,7 +256,11 @@ if __name__ == "__main__":
 
     # ダミーデータを流し込み
     dummy = AnnotationData(
-        tags=["1girl", "flower", "solo"],
+        tags=[
+            {"tag": "1girl", "model_name": "wd-v1-4", "source": "AI", "confidence_score": 0.95, "is_edited_manually": False},
+            {"tag": "flower", "model_name": "wd-v1-4", "source": "AI", "confidence_score": 0.88, "is_edited_manually": False},
+            {"tag": "solo", "model_name": "wd-v1-4", "source": "AI", "confidence_score": 0.92, "is_edited_manually": False},
+        ],
         caption="A girl holding flowers in a sunny field.",
         aesthetic_score=0.732,
         overall_score=780,

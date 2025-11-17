@@ -284,12 +284,12 @@ class SelectedImageDetailsWidget(QScrollArea):
             - Phase 3では direct_metadata_received が推奨
         """
         if not image_data:
-            logger.debug("Empty image data received, clearing display")
+            logger.info("SelectedImageDetailsWidget: 空データ受信 - 表示をクリア")
             self._clear_display()
             return
 
         image_id = image_data.get("id")
-        logger.debug(f"Image data received: {image_id}")
+        logger.info(f"📨 SelectedImageDetailsWidget(instance={id(self)}): current_image_data_changed シグナル受信 - image_id: {image_id}")
 
         details = self._build_image_details_from_metadata(image_data)
         self._update_details_display(details)
@@ -300,6 +300,7 @@ class SelectedImageDetailsWidget(QScrollArea):
 
         Args:
             metadata: データベースから取得した画像メタデータ辞書
+                     metadata["annotations"]["tags"] = list[dict] 形式
 
         Returns:
             ImageDetails: 型安全な画像詳細情報構造体
@@ -307,8 +308,9 @@ class SelectedImageDetailsWidget(QScrollArea):
         処理:
         1. 必須フィールドの抽出と型変換
         2. オプショナルフィールドのNone安全な処理
-        3. AnnotationData構造体の構築
-        4. ImageDetails構造体の組み立て
+        3. Repository層で変換済みのアノテーション情報を使用
+        4. AnnotationData構造体の構築
+        5. ImageDetails構造体の組み立て
 
         型安全性:
         - 全フィールドの型チェック
@@ -318,56 +320,72 @@ class SelectedImageDetailsWidget(QScrollArea):
         # 基本情報
         image_id = metadata.get("id")
         file_path_str = metadata.get("file_path", "")
-        file_path = Path(file_path_str) if file_path_str else Path()
+        file_name = Path(file_path_str).name if file_path_str else ""
 
         width = metadata.get("width", 0)
         height = metadata.get("height", 0)
+        image_size = f"{width} x {height}" if width and height else ""
+
         file_size = metadata.get("file_size", 0)
+        if file_size:
+            size_kb = file_size / 1024
+            file_size_str = f"{size_kb / 1024:.2f} MB" if size_kb >= 1024 else f"{size_kb:.2f} KB"
+        else:
+            file_size_str = ""
+
         created_at = metadata.get("created_at")
+        created_date = format_datetime_for_display(created_at) if created_at else ""
 
         # Rating / Score
-        rating = metadata.get("rating", "")
-        score = metadata.get("score", 0)
+        rating_value = metadata.get("rating", "")
+        score_value = metadata.get("score", 0)
 
-        # アノテーション情報
-        tags_text = metadata.get("tags", "")
-        caption_text = metadata.get("caption", "")
+        # アノテーション情報（Repository層で変換済み）
+        annotations = metadata.get("annotations", {})
 
-        # tags_textをlist[str]に変換（カンマ区切り文字列を分割）
-        tags_list = [tag.strip() for tag in tags_text.split(",") if tag.strip()] if tags_text else []
+        # Repository層で変換済みのlist[dict]をそのまま使用
+        tags_list = annotations.get("tags", [])
+
+        # caption: Repository層で提供される caption_text を使用
+        caption_text = annotations.get("caption_text", "")
+
+        # tags_text: Repository層で提供される tags_text を使用
+        tags_text = annotations.get("tags_text", "")
 
         annotation_data = AnnotationData(
-            tags=tags_list,
+            tags=tags_list,  # ← list[dict] をそのまま渡す
             caption=caption_text,
+            aesthetic_score=annotations.get("score_value"),
+            overall_score=int(annotations.get("rating_value", 0)),
         )
 
         details = ImageDetails(
             image_id=image_id,
-            file_path=file_path,
-            width=width,
-            height=height,
-            file_size=file_size,
-            created_at=created_at,
-            rating=rating,
-            score=score,
+            file_name=file_name,
+            file_path=file_path_str,
+            image_size=image_size,
+            file_size=file_size_str,
+            created_date=created_date,
+            rating_value=rating_value,
+            score_value=score_value,
+            caption=caption_text,
+            tags=tags_text,
             annotation_data=annotation_data,
         )
 
-        logger.debug(f"Built ImageDetails: {details.image_id}")
+        logger.debug(
+            f"Built ImageDetails: id={details.image_id}, tags={len(annotation_data.tags)}, "
+            f"caption_len={len(caption_text)}"
+        )
+
         return details
 
     def _update_details_display(self, details: ImageDetails) -> None:
         """
-        ImageDetailsを基にUI表示を更新
+        ImageDetails構造体に基づいてUI表示を更新
 
         Args:
             details: 表示する画像詳細情報
-
-        処理:
-        1. 内部状態の更新
-        2. 画像情報の表示
-        3. Rating/Scoreの設定
-        4. AnnotationDataの表示
 
         UI更新対象:
         - labelFileNameValue: ファイル名
@@ -382,32 +400,29 @@ class SelectedImageDetailsWidget(QScrollArea):
         self.current_image_id = details.image_id
 
         # ファイル名
-        file_name = details.file_path.name if details.file_path else "-"
+        file_name = details.file_name if details.file_name else "-"
         self.ui.labelFileNameValue.setText(file_name)
 
         # 解像度
-        resolution_text = f"{details.width} x {details.height}" if details.width and details.height else "-"
+        resolution_text = details.image_size if details.image_size else "-"
         self.ui.labelImageSizeValue.setText(resolution_text)
 
-        # ファイルサイズ
-        if details.file_size:
-            size_kb = details.file_size / 1024
-            size_text = f"{size_kb / 1024:.2f} MB" if size_kb >= 1024 else f"{size_kb:.2f} KB"
-        else:
-            size_text = "-"
+        # ファイルサイズ (already formatted as string)
+        size_text = details.file_size if details.file_size else "-"
         self.ui.labelFileSizeValue.setText(size_text)
 
         # 作成日時
-        created_date_text = format_datetime_for_display(details.created_at) if details.created_at else "-"
+        created_date_text = details.created_date if details.created_date else "-"
         self.ui.labelCreatedDateValue.setText(created_date_text)
 
         # Rating / Score
         self._update_rating_score_display(details)
 
         # アノテーションデータ
-        self.annotation_display.load_annotation_data(details.annotation_data)
+        if details.annotation_data:
+            self.annotation_display.update_data(details.annotation_data)
 
-        logger.debug(f"Updated details display for image {details.image_id}")
+        logger.info(f"✅ SelectedImageDetailsWidget表示更新完了: image_id={details.image_id}")
         self.image_details_loaded.emit(details)
 
     def _update_rating_score_display(self, details: ImageDetails) -> None:
@@ -427,7 +442,7 @@ class SelectedImageDetailsWidget(QScrollArea):
         """
         # Rating設定（シグナル発火を抑制）
         self.ui.comboBoxRating.blockSignals(True)
-        rating_index = self.ui.comboBoxRating.findText(details.rating)
+        rating_index = self.ui.comboBoxRating.findText(details.rating_value)
         if rating_index >= 0:
             self.ui.comboBoxRating.setCurrentIndex(rating_index)
         else:
@@ -436,10 +451,10 @@ class SelectedImageDetailsWidget(QScrollArea):
 
         # Score設定（シグナル発火を抑制）
         self.ui.sliderScore.blockSignals(True)
-        self.ui.sliderScore.setValue(details.score)
+        self.ui.sliderScore.setValue(details.score_value)
         self.ui.sliderScore.blockSignals(False)
 
-        logger.debug(f"Rating/Score updated: {details.rating}, {details.score}")
+        logger.debug(f"Rating/Score updated: {details.rating_value}, {details.score_value}")
 
     def _clear_display(self) -> None:
         """
@@ -517,7 +532,10 @@ if __name__ == "__main__":
 
         # --- テスト用のダミーデータ ---
         dummy_annotation = AnnotationData(
-            tags=["tag1", "tag2", "1girl", "solo"],
+            tags=[
+                {"tag": "1girl", "model_name": "wd-v1-4", "source": "AI", "confidence_score": 0.95, "is_edited_manually": False},
+                {"tag": "solo", "model_name": "wd-v1-4", "source": "AI", "confidence_score": 0.90, "is_edited_manually": False},
+            ],
             caption="A beautiful illustration of a girl.",
             aesthetic_score=6.5,
             overall_score=850,

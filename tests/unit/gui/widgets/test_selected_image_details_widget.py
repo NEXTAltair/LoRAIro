@@ -24,7 +24,29 @@ class TestSelectedImageDetailsWidget:
     def sample_image_details(self):
         """テスト用ImageDetailsサンプル"""
         annotation_data = AnnotationData(
-            tags=["1girl", "long hair", "blue eyes"],
+            tags=[
+                {
+                    "tag": "1girl",
+                    "model_name": "wd-v1-4",
+                    "source": "AI",
+                    "confidence_score": 0.95,
+                    "is_edited_manually": False,
+                },
+                {
+                    "tag": "long hair",
+                    "model_name": "wd-v1-4",
+                    "source": "AI",
+                    "confidence_score": 0.90,
+                    "is_edited_manually": False,
+                },
+                {
+                    "tag": "blue eyes",
+                    "model_name": "wd-v1-4",
+                    "source": "AI",
+                    "confidence_score": 0.88,
+                    "is_edited_manually": False,
+                },
+            ],
             caption="A beautiful anime girl with long hair",
             aesthetic_score=0.85,
             overall_score=850,
@@ -130,4 +152,4 @@ class TestSelectedImageDetailsWidget:
 
         # 表示がクリアされる
         assert widget.current_image_id is None
-        assert widget.current_details.file_name == ""
+        assert widget.current_details is None
