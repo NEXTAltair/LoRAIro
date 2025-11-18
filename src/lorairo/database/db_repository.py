@@ -1123,7 +1123,7 @@ class ImageRepository:
                     "tag_id": tag.tag_id,
                     "model_id": tag.model_id,
                     "model_name": tag.model.name if tag.model else "Unknown",
-                    "source": "Manual" if tag.is_edited_manually else "AI",
+                    "source": "Manual" if (tag.is_edited_manually or tag.existing) else "AI",
                     "existing": tag.existing,
                     "is_edited_manually": tag.is_edited_manually,
                     "confidence_score": tag.confidence_score,
