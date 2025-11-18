@@ -257,9 +257,27 @@ if __name__ == "__main__":
     # ダミーデータを流し込み
     dummy = AnnotationData(
         tags=[
-            {"tag": "1girl", "model_name": "wd-v1-4", "source": "AI", "confidence_score": 0.95, "is_edited_manually": False},
-            {"tag": "flower", "model_name": "wd-v1-4", "source": "AI", "confidence_score": 0.88, "is_edited_manually": False},
-            {"tag": "solo", "model_name": "wd-v1-4", "source": "AI", "confidence_score": 0.92, "is_edited_manually": False},
+            {
+                "tag": "1girl",
+                "model_name": "wd-v1-4",
+                "source": "AI",
+                "confidence_score": 0.95,
+                "is_edited_manually": False,
+            },
+            {
+                "tag": "flower",
+                "model_name": "wd-v1-4",
+                "source": "AI",
+                "confidence_score": 0.88,
+                "is_edited_manually": False,
+            },
+            {
+                "tag": "solo",
+                "model_name": "wd-v1-4",
+                "source": "AI",
+                "confidence_score": 0.92,
+                "is_edited_manually": False,
+            },
         ],
         caption="A girl holding flowers in a sunny field.",
         aesthetic_score=0.732,

@@ -350,9 +350,7 @@ class TestWorkerService:
         models = ["gpt-4o-mini", "claude-3-haiku-20240307"]
 
         # バッチアノテーション開始
-        worker_id = worker_service.start_enhanced_batch_annotation(
-            image_paths=image_paths, models=models
-        )
+        worker_id = worker_service.start_enhanced_batch_annotation(image_paths=image_paths, models=models)
 
         # AnnotationWorkerが新シグネチャで初期化されたことを確認
         mock_worker_class.assert_called_once_with(
