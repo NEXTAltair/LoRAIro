@@ -228,9 +228,37 @@ class SelectedImageDetailsWidget(QScrollArea):
 
     # Phase 3: Direct Widget Communication Pattern
     def connect_to_data_signals(self, state_manager: "DatasetStateManager") -> None:
-        """データシグナル接続（Phase 2互換）"""
-        state_manager.current_image_data_changed.connect(self._on_image_data_received)
-        logger.debug("SelectedImageDetailsWidget connected to current_image_data_changed signal")
+        """データシグナル接続（Phase 2互換）
+        
+        接続経路の詳細をログに記録し、問題診断を可能にする。
+        connect()の戻り値を検証し、接続失敗を検出する。
+        
+        Args:
+            state_manager: DatasetStateManagerインスタンス
+        """
+        logger.info(
+            f"🔌 connect_to_data_signals() 呼び出し開始 - "
+            f"widget instance: {id(self)}, state_manager: {id(state_manager)}"
+        )
+        
+        if not state_manager:
+            logger.error("❌ DatasetStateManager is None - 接続中止")
+            return
+        
+        # シグナル接続（戻り値を確認）
+        connection = state_manager.current_image_data_changed.connect(self._on_image_data_received)
+        connection_valid = bool(connection)
+        
+        logger.info(f"📊 connect()戻り値: valid={connection_valid}, type={type(connection)}")
+        
+        if not connection_valid:
+            logger.error("❌ Qt接続失敗 - connect()が無効なConnectionを返しました")
+            return
+        
+        logger.info(
+            f"✅ current_image_data_changed シグナル接続完了 - "
+            f"from {id(state_manager)} to {id(self)}"
+        )
 
     def connect_to_thumbnail_widget(self, thumbnail_widget: Any) -> None:
         """
@@ -266,7 +294,7 @@ class SelectedImageDetailsWidget(QScrollArea):
         self._update_details_display(details)
 
     @Slot(dict)
-    def _on_image_data_received(self, image_data: dict[str, Any]) -> None:
+    def _on_image_data_received(self, image_data: dict) -> None:
         """
         DatasetStateManagerからの画像データ受信ハンドラ（Phase 2互換）
 
@@ -289,7 +317,9 @@ class SelectedImageDetailsWidget(QScrollArea):
             return
 
         image_id = image_data.get("id")
-        logger.info(f"📨 SelectedImageDetailsWidget(instance={id(self)}): current_image_data_changed シグナル受信 - image_id: {image_id}")
+        logger.info(
+            f"📨 SelectedImageDetailsWidget(instance={id(self)}): current_image_data_changed シグナル受信 - image_id: {image_id}"
+        )
 
         details = self._build_image_details_from_metadata(image_data)
         self._update_details_display(details)
@@ -340,23 +370,17 @@ class SelectedImageDetailsWidget(QScrollArea):
         rating_value = metadata.get("rating", "")
         score_value = metadata.get("score", 0)
 
-        # アノテーション情報（Repository層で変換済み）
-        annotations = metadata.get("annotations", {})
-
-        # Repository層で変換済みのlist[dict]をそのまま使用
-        tags_list = annotations.get("tags", [])
-
-        # caption: Repository層で提供される caption_text を使用
-        caption_text = annotations.get("caption_text", "")
-
-        # tags_text: Repository層で提供される tags_text を使用
-        tags_text = annotations.get("tags_text", "")
+        # アノテーション情報（Repository層で変換済み・直接キーアクセス）
+        # Repository層は metadata に直接 tags, captions などのキーを追加
+        tags_list = metadata.get("tags", [])
+        caption_text = metadata.get("caption_text", "")
+        tags_text = metadata.get("tags_text", "")
 
         annotation_data = AnnotationData(
             tags=tags_list,  # ← list[dict] をそのまま渡す
             caption=caption_text,
-            aesthetic_score=annotations.get("score_value"),
-            overall_score=int(annotations.get("rating_value", 0)),
+            aesthetic_score=metadata.get("score_value"),
+            overall_score=int(metadata.get("rating_value", 0)),
         )
 
         details = ImageDetails(
@@ -533,8 +557,20 @@ if __name__ == "__main__":
         # --- テスト用のダミーデータ ---
         dummy_annotation = AnnotationData(
             tags=[
-                {"tag": "1girl", "model_name": "wd-v1-4", "source": "AI", "confidence_score": 0.95, "is_edited_manually": False},
-                {"tag": "solo", "model_name": "wd-v1-4", "source": "AI", "confidence_score": 0.90, "is_edited_manually": False},
+                {
+                    "tag": "1girl",
+                    "model_name": "wd-v1-4",
+                    "source": "AI",
+                    "confidence_score": 0.95,
+                    "is_edited_manually": False,
+                },
+                {
+                    "tag": "solo",
+                    "model_name": "wd-v1-4",
+                    "source": "AI",
+                    "confidence_score": 0.90,
+                    "is_edited_manually": False,
+                },
             ],
             caption="A beautiful illustration of a girl.",
             aesthetic_score=6.5,
