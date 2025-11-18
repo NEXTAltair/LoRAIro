@@ -245,9 +245,7 @@ class TestStartAnnotationWorkflow:
         # Execute & Assert - Should handle gracefully
         controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
 
-    def test_start_annotation_workflow_no_selection_service(
-        self, mock_worker_service, mock_config_service
-    ):
+    def test_start_annotation_workflow_no_selection_service(self, mock_worker_service, mock_config_service):
         """SelectionStateServiceがNoneの場合"""
         # Setup - parent=None to avoid QMessageBox calls in tests
         controller = AnnotationWorkflowController(
