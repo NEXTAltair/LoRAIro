@@ -154,12 +154,39 @@ except Exception as e:
 ### 異常系
 4. **注入失敗時**: 致命的エラーダイアログ表示 + アプリケーション終了
 
-## 7. 関連タスク・ブランチ
+## 7. 関連タスク・ブランチ・Worktree戦略
 
-- **本タスク**: MainWindow初期化問題修正
-- **別タスク**: アノテーション層統合（`.serena/memories/annotation_layer_architecture_reorganization_2025_11_15.md`）
-- **修正ブランチ**: `feature/annotator-library-integration`（現在のブランチで修正）
-- **Worktree不要**: 同一ブランチ内で修正（別の関心事だが、PRは分離しない）
+### 実装済みタスク（同一ブランチ）
+- ✅ **MainWindow初期化問題修正** (コミット a9b82a1)
+- ✅ **Repository層アノテーションデータ修正** (コミット 0a82966)
+- ✅ **Widget層データアクセス修正** (コミット 81f528f)
+- ✅ **Repository層source判定修正** (コミット a1dfecb)
+
+### 修正ブランチ
+- **現在**: `feature/annotator-library-integration`
+- **実装**: 同一ブランチ内で完了（4コミット）
+
+### Worktree戦略の再評価
+
+**当初判断（2025-11-17）**:
+「Worktree不要: 同一ブランチ内で修正（別の関心事だが、PRは分離しない）」
+
+**実績から得られた知見（2025-11-18）**:
+初期化問題の修正中に**追加の不具合を3件発見**（Repository層データ構造、Widget層アクセスパターン、source判定ロジック）。
+これらは初期化問題と**密接に関連**しており、同一PRで扱うことが適切だった。
+
+**Worktree使用判断基準（確立）**:
+| 条件 | Worktree使用 | 理由 |
+|------|-------------|------|
+| **関心事が完全に独立** | ✅ 推奨 | 並行開発可能、コンテキストスイッチ削減 |
+| **関心事が部分的に重複** | ⚠️ 慎重判断 | データ競合・マージ競合リスク |
+| **関心事が密接に関連** | ❌ 不要 | 同一ブランチで段階的実装が効率的 |
+
+**本タスクの判断**: ❌ Worktree不要（関心事が密接に関連）
+
+**別タスクでWorktreeが有効な例**:
+- MainWindow分離リファクタリング（feature/mainwindow-separation）を継続しながら、
+  annotator-library-integration での実装を並行する場合
 
 ## 8. リスク評価
 
@@ -170,14 +197,177 @@ except Exception as e:
 
 ## 9. 実装ステータス
 
+- **診断**: 完了 ✅ (2025-11-17)
+- **修正**: 完了 ✅ (2025-11-18)
+  - MainWindow初期化順序修正 (a9b82a1)
+  - Repository層データ修正 (0a82966, a1dfecb)
+  - Widget層アクセスパターン修正 (81f528f)
+- **テスト**: 完了 ✅
+  - GUI起動・検索機能動作確認
+  - 単体テスト 7/7成功
+  - 統合テスト 5/5成功
+- **コミット**: 完了 ✅ (4コミット)
+
+**実装期間**: 2025-11-17 ~ 2025-11-18 (2日間)
+**総変更ファイル**: 3ファイル
+**総コミット数**: 4コミット
+
+## 10. 気になる点・リスク
+
+### リスク1: 自動テスト未整備
+SearchFilterService 統合に失敗した場合に `_handle_critical_initialization_failure` が確実に呼ばれてアプリが終了することを確認する UI/統合テストがまだ無いので、今後の変更で挙動が変わっても気付きづらい状態です。少なくとも `filterSearchPanel` や `db_manager` をモックして失敗させるテストがあると安心です。
+
+### リスク2: 状態検証ロジックの実質ノーチェック
+`verify_state_management_connections()` は現状ウィジェットの存在可否をログに出すだけで、シグナル接続や StateManager 連携の整合性までは検証していません。将来「接続に失敗したら初期化を止める」まで踏み込む際には、ここを拡張する必要があります。
+
+## 11. 推奨フォローアップ
+
+### 11.1 テスト強化（優先度: 高）
+
+#### 11.1.1 SearchFilterService致命エラー化のテスト
+**ファイル**: `tests/integration/gui/test_mainwindow_initialization.py`（新規作成）
+
+**テストケース**:
+1. `test_searchfilterpanel_missing_triggers_critical_error`
+   - filterSearchPanel が存在しない場合
+   - `_handle_critical_initialization_failure` 呼び出し確認
+2. `test_db_manager_missing_triggers_critical_error`
+   - db_manager が存在しない場合
+   - 致命的エラーダイアログ表示確認
+3. `test_create_search_filter_service_exception_handling`
+   - `_create_search_filter_service()` が例外を投げた場合
+   - 適切なエラーハンドリング確認
+
+**期待効果**: 初期化失敗時の確実な異常終了を保証
+
+#### 11.1.2 verify_state_management_connections() の検証強化
+**ファイル**: `src/lorairo/services/selection_state_service.py`
+
+**拡張内容**:
+1. **現状**: ログ出力のみ
+2. **拡張案**:
+   - シグナル接続の実在性検証（`hasattr`, `inspect.ismethod`）
+   - DatasetStateManager との連携状態検証
+   - 失敗時の適切なエラーハンドリング（`ValueError` raise）
+3. **テスト追加**: `tests/unit/services/test_selection_state_service.py`
+
+**期待効果**: Silent failure の完全排除
+
+### 11.2 アーキテクチャ改善（優先度: 中）
+
+#### 11.2.1 初期化フローの5段階パターン文書化
+**ファイル**: `docs/gui_initialization_pattern.md`（新規作成）
+
+**内容**:
+- Phase 1-5 の詳細説明
+- 各Phaseでの失敗ハンドリング戦略
+- 致命的エラー vs 非致命的エラー判断基準
+- コード例とベストプラクティス
+
+**期待効果**: 新規Widget追加時の設計指針
+
+#### 11.2.2 Dependency Injection パターンの統一
+**現状課題**:
+- SearchFilterService: メソッド注入（`_setup_search_filter_integration`）
+- SelectionStateService: コンストラクタ生成（`_setup_other_custom_widgets`）
+- 一貫性なし
+
+**改善案**:
+1. すべてのサービスをコンストラクタ注入に統一
+2. `ServiceContainer` パターンの導入検討
+3. テスタビリティの向上
+
+**期待効果**: コードの予測可能性と保守性向上
+
+### 11.3 モニタリング強化（優先度: 低）
+
+#### 11.3.1 初期化時間の計測
+**実装箇所**: `main_window.py` の各Phase
+
+**内容**:
+```python
+@dataclass
+class InitializationMetrics:
+    phase1_time: float
+    phase2_time: float
+    phase3_time: float
+    phase3_5_time: float
+    phase4_time: float
+    total_time: float
+```
+
+**期待効果**: パフォーマンス劣化の早期検出
+
+### 11.4 関連メモリーの整理（優先度: 低）
+
+**重複・古いメモリー**:
+- `selected_image_details_widget_plan_2025_11_17.md`（古い計画）
+- `selected_image_details_widget_plan_2025_11_18.md`（中間バージョン）
+- `selected_image_details_widget_plan_2025_11_18_updated.md`（中間バージョン）
+
+**統合済みメモリー**:
+- `selected_image_details_widget_plan_2025_11_18_implementation_complete.md`（最終版）
+- `metadata_display_fix_and_test_cleanup_2025_11_18.md`（包括記録）
+
+**推奨アクション**: 中間バージョンの削除、最終版のみ保持
+
+## 12. 実装完了
+
 - **診断**: 完了 ✅
-- **修正**: 未着手
-- **テスト**: 未実施
-- **コミット**: 未実施
+- **修正**: 完了 ✅
+- **テスト**: GUI起動・検索機能動作確認完了 ✅
+- **コミット**: a9b82a1 ✅
 
-## 10. 次のアクション
+## 13. 実装中の発見事項
 
-1. ユーザーによる修正方針の確認
-2. 修正実装
-3. GUI起動テスト実行
-4. コミット作成
+### 13.1 連鎖的バグの発見
+初期化問題の修正中に、以下の関連バグを追加発見:
+
+| 発見順 | 問題 | 原因 | 修正コミット |
+|-------|------|------|-------------|
+| 1 | SelectionStateService初期化順序エラー | 検証メソッドが初期化前に呼ばれる | a9b82a1 |
+| 2 | Repository層データ構造不整合 | `_format_annotations_for_metadata()` のネスト構造 | 0a82966 |
+| 3 | Widget層アクセスパターンミスマッチ | `metadata["annotations"]["tags"]` 期待 | 81f528f |
+| 4 | Source表示ロジックバグ | `existing` フィールド未考慮 | a1dfecb |
+
+**教訓**: 初期化問題はデータフローの上流から下流まで影響する可能性がある
+
+### 13.2 テスト戦略の有効性確認
+**実績**:
+- 単体テスト: 7/7成功（Widget層の動作保証）
+- 統合テスト: 5/5成功（E2Eシグナル接続検証）
+- カバレッジ: 78%（修正ファイル）
+
+**確認事項**:
+- モックを最小限に抑えた統合テストが有効
+- シグナル接続のE2E検証が必須
+- 既存テスト資産（test_mainwindow_signal_connection.py）が活用できた
+
+### 13.3 Worktree戦略の判断基準確立
+**今回のケース**: Worktree不要（正しい判断）
+**理由**: 初期化問題とデータ表示問題は密接に関連
+
+**判断基準**:
+- **関心事の独立性**: 完全独立 → Worktree推奨
+- **データ競合リスク**: 高 → Worktree慎重判断
+- **マージ頻度**: 高頻度 → 同一ブランチ推奨
+
+## 14. まとめと次のステップ
+
+### 実装完了内容
+✅ MainWindow初期化順序問題の修正（4コミット）
+✅ Repository/Widget層のデータ構造整合性確保
+✅ 単体・統合テスト全12テスト成功
+✅ GUI起動・検索機能の正常動作確認
+
+### 残タスク
+⚠️ SearchFilterService致命エラー化のテスト追加（優先度: 高）
+⚠️ verify_state_management_connections() の検証強化（優先度: 高）
+📝 初期化フローパターンの文書化（優先度: 中）
+
+### 次のステップ
+1. **PR作成**: `feature/annotator-library-integration` → `main`
+   - タイトル: "fix: MainWindow初期化問題修正とアノテーション層統合"
+   - 内容: 初期化順序修正 + Repository/Widget層修正
+2. **テスト強化**: セクション11.1の実装（別PR）
+3. **文書化**: 初期化パターンの標準化（別PR）
