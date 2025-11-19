@@ -123,11 +123,36 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
     # === Phase 3.3: Enhanced Event-Driven Pattern ===
 
     def connect_to_data_signals(self, state_manager: "DatasetStateManager") -> None:
-        """データシグナル接続（状態管理なし）"""
-        # 新しいデータシグナルに接続
-        state_manager.current_image_data_changed.connect(self._on_image_data_received)
+        """データシグナル接続（状態管理なし）
 
-        logger.debug("ImagePreviewWidget connected to current_image_data_changed signal")
+        接続経路の詳細をログに記録し、問題診断を可能にする。
+        connect()の戻り値を検証し、接続失敗を検出する。
+
+        Args:
+            state_manager: DatasetStateManagerインスタンス
+        """
+        logger.info(
+            f"🔌 connect_to_data_signals() 呼び出し開始 - "
+            f"widget instance: {id(self)}, state_manager: {id(state_manager)}"
+        )
+
+        if not state_manager:
+            logger.error("❌ DatasetStateManager is None - 接続中止")
+            return
+
+        # シグナル接続（戻り値を確認）
+        connection = state_manager.current_image_data_changed.connect(self._on_image_data_received)
+        connection_valid = bool(connection)
+
+        logger.info(f"📊 connect()戻り値: valid={connection_valid}, type={type(connection)}")
+
+        if not connection_valid:
+            logger.error("❌ Qt接続失敗 - connect()が無効なConnectionを返しました")
+            return
+
+        logger.info(
+            f"✅ current_image_data_changed シグナル接続完了 - from {id(state_manager)} to {id(self)}"
+        )
 
     @Slot(dict)
     def _on_image_data_received(self, image_data: dict) -> None:
