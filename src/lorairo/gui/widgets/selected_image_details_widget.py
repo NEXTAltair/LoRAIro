@@ -229,10 +229,10 @@ class SelectedImageDetailsWidget(QScrollArea):
     # Phase 3: Direct Widget Communication Pattern
     def connect_to_data_signals(self, state_manager: "DatasetStateManager") -> None:
         """データシグナル接続（Phase 2互換）
-        
+
         接続経路の詳細をログに記録し、問題診断を可能にする。
         connect()の戻り値を検証し、接続失敗を検出する。
-        
+
         Args:
             state_manager: DatasetStateManagerインスタンス
         """
@@ -240,24 +240,23 @@ class SelectedImageDetailsWidget(QScrollArea):
             f"🔌 connect_to_data_signals() 呼び出し開始 - "
             f"widget instance: {id(self)}, state_manager: {id(state_manager)}"
         )
-        
+
         if not state_manager:
             logger.error("❌ DatasetStateManager is None - 接続中止")
             return
-        
+
         # シグナル接続（戻り値を確認）
         connection = state_manager.current_image_data_changed.connect(self._on_image_data_received)
         connection_valid = bool(connection)
-        
+
         logger.info(f"📊 connect()戻り値: valid={connection_valid}, type={type(connection)}")
-        
+
         if not connection_valid:
             logger.error("❌ Qt接続失敗 - connect()が無効なConnectionを返しました")
             return
-        
+
         logger.info(
-            f"✅ current_image_data_changed シグナル接続完了 - "
-            f"from {id(state_manager)} to {id(self)}"
+            f"✅ current_image_data_changed シグナル接続完了 - from {id(state_manager)} to {id(self)}"
         )
 
     def connect_to_thumbnail_widget(self, thumbnail_widget: Any) -> None:

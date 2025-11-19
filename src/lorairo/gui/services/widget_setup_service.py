@@ -71,7 +71,7 @@ class WidgetSetupService:
         main_window: Any, dataset_state_manager: DatasetStateManager | None
     ) -> None:
         """SelectedImageDetailsWidget設定
-        
+
         接続経路の詳細をログに記録し、問題診断を可能にする。
         DatasetStateManagerのインスタンス一致を確認する。
 
@@ -80,34 +80,34 @@ class WidgetSetupService:
             dataset_state_manager: DatasetStateManager（Noneも可）
         """
         logger.info("🔧 setup_selected_image_details() 呼び出し開始")
-        
+
         # 属性存在確認
         if not hasattr(main_window, "selectedImageDetailsWidget"):
             logger.error("❌ selectedImageDetailsWidget 属性が存在しません")
             return
-        
+
         if not main_window.selectedImageDetailsWidget:
             logger.error("❌ selectedImageDetailsWidget が None です")
             return
-        
+
         # インスタンス確認
         widget = main_window.selectedImageDetailsWidget
         logger.info(f"🔍 selectedImageDetailsWidget インスタンス確認: {id(widget)}")
-        
+
         # エイリアス設定
         main_window.selected_image_details_widget = widget
         logger.info(f"📝 エイリアス設定完了: selected_image_details_widget = {id(widget)}")
-        
+
         # DatasetStateManager確認とシグナル接続
         if dataset_state_manager:
             logger.info(f"🔌 DatasetStateManager 渡されたインスタンス: {id(dataset_state_manager)}")
             logger.info(f"🔌 DatasetStateManager type: {type(dataset_state_manager)}")
-            
+
             # MainWindow.dataset_state_managerとの一致確認
             if hasattr(main_window, "dataset_state_manager"):
                 main_window_dsm_id = id(main_window.dataset_state_manager)
                 logger.info(f"🔍 MainWindow.dataset_state_manager: {main_window_dsm_id}")
-                
+
                 if dataset_state_manager is not main_window.dataset_state_manager:
                     logger.error(
                         f"❌ DatasetStateManager インスタンス不一致！ "
@@ -116,12 +116,12 @@ class WidgetSetupService:
                     )
                 else:
                     logger.info("✅ DatasetStateManager インスタンス一致確認完了")
-            
+
             widget.connect_to_data_signals(dataset_state_manager)
             logger.info("✅ シグナル接続処理完了")
         else:
             logger.warning("⚠️ DatasetStateManager が None - 接続スキップ")
-        
+
         logger.info("✅ SelectedImageDetailsWidget設定完了")
 
     @staticmethod
