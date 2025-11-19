@@ -117,84 +117,49 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _initialize_services(self) -> None:
         """サービスを段階的に初期化し、致命的コンポーネントは強制終了"""
 
-        # ServiceContainer（必須）
+        # 致命的サービス初期化
         try:
-            logger.info("  - ServiceContainer/ImageDatabaseManager初期化中...")
             service_container = get_service_container()
             self.db_manager = service_container.db_manager
             if not self.db_manager:
-                raise RuntimeError("ServiceContainer経由でImageDatabaseManagerを取得できません")
-            logger.info("  ✅ ImageDatabaseManager初期化成功（ServiceContainer統一）")
+                raise RuntimeError("ImageDatabaseManagerを取得できません")
+            logger.info("✅ ImageDatabaseManager初期化成功")
         except Exception as e:
-            self._handle_critical_initialization_failure("ServiceContainer/ImageDatabaseManager", e)
+            self._handle_critical_initialization_failure("ImageDatabaseManager", e)
             return
 
-        # ConfigurationService（必須）
         try:
-            logger.info("  - ConfigurationService初期化中...")
             self.config_service = ConfigurationService()
-            logger.info("  ✅ ConfigurationService初期化成功")
+            logger.info("✅ ConfigurationService初期化成功")
         except Exception as e:
             self._handle_critical_initialization_failure("ConfigurationService", e)
             return
 
-        # 非致命的サービス（ログして継続）
         try:
-            logger.info("  - FileSystemManager初期化中...")
             self.file_system_manager = FileSystemManager()
-            logger.info("  ✅ FileSystemManager初期化成功")
+            logger.info("✅ FileSystemManager初期化成功")
         except Exception as e:
-            logger.error(f"  ❌ FileSystemManager初期化失敗（継続）: {e}")
+            logger.error(f"❌ FileSystemManager初期化失敗: {e}")
             self.file_system_manager = None
 
-        # WorkerService初期化（クリティカル化）
         try:
-            logger.info("  - WorkerService初期化中...")
             if self.db_manager and self.file_system_manager:
                 self.worker_service = WorkerService(self.db_manager, self.file_system_manager)
-                logger.info("  ✅ WorkerService初期化成功")
+                logger.info("✅ WorkerService初期化成功")
             else:
-                raise RuntimeError(
-                    "db_manager または file_system_manager が未初期化のため WorkerService を作成できません"
-                )
+                raise RuntimeError("WorkerService依存関係が未初期化")
         except Exception as e:
-            logger.critical(f"  ❌ WorkerService初期化失敗（致命的）: {e}")
             self._handle_critical_initialization_failure("WorkerService", e)
             return
 
         try:
-            logger.info("  - DatasetStateManager初期化中...")
             self.dataset_state_manager = DatasetStateManager()
-            logger.info("  ✅ DatasetStateManager初期化成功")
+            logger.info("✅ DatasetStateManager初期化成功")
         except Exception as e:
-            logger.error(f"  ❌ DatasetStateManager初期化失敗（継続）: {e}")
+            logger.error(f"❌ DatasetStateManager初期化失敗: {e}")
             self.dataset_state_manager = None
 
-        # 初期化結果サマリー
-        successful_services = []
-        failed_services = []
-
-        services = [
-            ("ConfigurationService", self.config_service),
-            ("ImageDatabaseManager", self.db_manager),
-            ("FileSystemManager", self.file_system_manager),
-            ("WorkerService", self.worker_service),
-            ("DatasetStateManager", self.dataset_state_manager),
-        ]
-
-        for name, service in services:
-            if service is not None:
-                successful_services.append(name)
-            else:
-                failed_services.append(name)
-
-        logger.info(f"サービス初期化結果: 成功 {len(successful_services)}/6")
-        if successful_services:
-            logger.info(f"  成功: {', '.join(successful_services)}")
-        if failed_services:
-            logger.warning(f"  失敗（非致命的）: {', '.join(failed_services)}")
-
-        logger.info("致命的サービス（ConfigurationService, ImageDatabaseManager）初期化完了")
+        logger.info("サービス初期化完了")
 
     def _handle_critical_initialization_failure(self, component_name: str, error: Exception) -> None:
         """致命的初期化失敗時の処理
@@ -275,77 +240,42 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         WidgetSetupService.setup_all_widgets(self, self.dataset_state_manager)
 
         # Service/Controller層初期化
-
-        # SelectionStateService初期化（検証より先に実行）
         try:
-            logger.info("  - SelectionStateService初期化中...")
             self.selection_state_service = SelectionStateService(
                 dataset_state_manager=self.dataset_state_manager,
                 db_repository=self.db_manager.repository if self.db_manager else None,
             )
-            logger.info("  ✅ SelectionStateService初期化成功")
-        except Exception as e:
-            logger.error(f"  ❌ SelectionStateService初期化失敗（継続）: {e}")
-            self.selection_state_service = None
+            self._verify_state_management_connections()
 
-        # 状態管理接続の検証（SelectionStateService初期化後に実行）
-        self._verify_state_management_connections()
-
-        # DatasetController初期化
-        try:
-            logger.info("  - DatasetController初期化中...")
             self.dataset_controller = DatasetController(
                 db_manager=self.db_manager,
                 file_system_manager=self.file_system_manager,
                 worker_service=self.worker_service,
                 parent=self,
             )
-            logger.info("  ✅ DatasetController初期化成功")
-        except Exception as e:
-            logger.error(f"  ❌ DatasetController初期化失敗（継続）: {e}")
-            self.dataset_controller = None
 
-        # AnnotationWorkflowController初期化
-        try:
-            logger.info("  - AnnotationWorkflowController初期化中...")
             self.annotation_workflow_controller = AnnotationWorkflowController(
                 worker_service=self.worker_service,
                 selection_state_service=self.selection_state_service,
                 config_service=self.config_service,
                 parent=self,
             )
-            logger.info("  ✅ AnnotationWorkflowController初期化成功")
-        except Exception as e:
-            logger.error(f"  ❌ AnnotationWorkflowController初期化失敗（継続）: {e}")
-            self.annotation_workflow_controller = None
 
-        # SettingsController初期化
-        try:
-            logger.info("  - SettingsController初期化中...")
-            self.settings_controller = SettingsController(
-                config_service=self.config_service,
-                parent=self,
-            )
-            logger.info("  ✅ SettingsController初期化成功")
-        except Exception as e:
-            logger.error(f"  ❌ SettingsController初期化失敗（継続）: {e}")
-            self.settings_controller = None
-
-        # ExportController初期化
-        try:
-            logger.info("  - ExportController初期化中...")
+            self.settings_controller = SettingsController(config_service=self.config_service, parent=self)
             self.export_controller = ExportController(
                 selection_state_service=self.selection_state_service,
                 service_container=self.service_container,
                 parent=self,
             )
-            logger.info("  ✅ ExportController初期化成功")
-        except Exception as e:
-            logger.error(f"  ❌ ExportController初期化失敗（継続）: {e}")
-            self.export_controller = None
 
-        # その他のウィジェット設定...
-        logger.debug("その他のカスタムウィジェット設定完了")
+            logger.info("✅ Service/Controller層初期化完了")
+        except Exception as e:
+            logger.error(f"❌ Controller初期化失敗: {e}")
+            self.selection_state_service = None
+            self.dataset_controller = None
+            self.annotation_workflow_controller = None
+            self.settings_controller = None
+            self.export_controller = None
 
     def _verify_state_management_connections(self) -> None:
         """状態管理接続の検証（SelectionStateServiceに委譲）"""
@@ -432,54 +362,40 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         logger.info("WorkerService pipeline signals connected (13 connections)")
 
-    def _on_search_completed_start_thumbnail(self, search_result: Any) -> None:
-        """SearchWorker完了時にThumbnailWorkerを自動起動（PipelineControlServiceに委譲）"""
+    def _delegate_to_pipeline_control(self, method_name: str, *args: Any) -> None:
+        """PipelineControlServiceへのイベント委譲ヘルパー"""
         if self.pipeline_control_service:
-            self.pipeline_control_service.on_search_completed(search_result)
+            getattr(self.pipeline_control_service, method_name)(*args)
         else:
-            logger.error("PipelineControlService が初期化されていません - サムネイル読み込みをスキップ")
+            logger.error(f"PipelineControlService未初期化 - {method_name}スキップ")
+
+    def _on_search_completed_start_thumbnail(self, search_result: Any) -> None:
+        self._delegate_to_pipeline_control("on_search_completed", search_result)
 
     def _on_thumbnail_completed_update_display(self, thumbnail_result: Any) -> None:
-        """ThumbnailWorker完了時にThumbnailSelectorWidget更新（PipelineControlServiceに委譲）"""
-        if self.pipeline_control_service:
-            self.pipeline_control_service.on_thumbnail_completed(thumbnail_result)
-        else:
-            logger.error("PipelineControlService が初期化されていません - サムネイル表示更新をスキップ")
+        self._delegate_to_pipeline_control("on_thumbnail_completed", thumbnail_result)
 
     def _on_pipeline_search_started(self, _worker_id: str) -> None:
-        """Pipeline検索フェーズ開始時の進捗表示（PipelineControlServiceに委譲）"""
-        if self.pipeline_control_service:
-            self.pipeline_control_service.on_search_started(_worker_id)
-        else:
-            logger.warning("PipelineControlService が初期化されていません - 進捗表示をスキップ")
+        self._delegate_to_pipeline_control("on_search_started", _worker_id)
 
     def _on_pipeline_thumbnail_started(self, _worker_id: str) -> None:
-        """Pipelineサムネイル生成フェーズ開始時の進捗表示（PipelineControlServiceに委譲）"""
-        if self.pipeline_control_service:
-            self.pipeline_control_service.on_thumbnail_started(_worker_id)
-        else:
-            logger.warning("PipelineControlService が初期化されていません - 進捗表示をスキップ")
+        self._delegate_to_pipeline_control("on_thumbnail_started", _worker_id)
 
     def _on_pipeline_search_error(self, error_message: str) -> None:
-        """Pipeline検索エラー時の処理（PipelineControlServiceに委譲）"""
-        if self.pipeline_control_service:
-            self.pipeline_control_service.on_search_error(error_message)
-        else:
-            logger.error("PipelineControlService が初期化されていません - エラー処理をスキップ")
+        self._delegate_to_pipeline_control("on_search_error", error_message)
 
     def _on_pipeline_thumbnail_error(self, error_message: str) -> None:
-        """Pipelineサムネイル生成エラー時の処理（PipelineControlServiceに委譲）"""
-        if self.pipeline_control_service:
-            self.pipeline_control_service.on_thumbnail_error(error_message)
+        self._delegate_to_pipeline_control("on_thumbnail_error", error_message)
+
+    def _delegate_to_progress_state(self, method_name: str, *args: Any) -> None:
+        """ProgressStateServiceへのイベント委譲ヘルパー"""
+        if self.progress_state_service:
+            getattr(self.progress_state_service, method_name)(*args)
         else:
-            logger.error("PipelineControlService が初期化されていません - エラー処理をスキップ")
+            logger.warning(f"ProgressStateService未初期化 - {method_name}スキップ")
 
     def _on_batch_registration_started(self, worker_id: str) -> None:
-        """Batch registration started signal handler（ProgressStateServiceに委譲）"""
-        if self.progress_state_service:
-            self.progress_state_service.on_batch_registration_started(worker_id)
-        else:
-            logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
+        self._delegate_to_progress_state("on_batch_registration_started", worker_id)
 
     def _on_batch_registration_finished(self, result: Any) -> None:
         """Batch registration finished signal handler（ResultHandlerService委譲）"""
@@ -503,69 +419,35 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         )
 
     def _on_worker_progress_updated(self, worker_id: str, progress: Any) -> None:
-        """Worker progress update signal handler（ProgressStateServiceに委譲）"""
-        if self.progress_state_service:
-            self.progress_state_service.on_worker_progress_updated(worker_id, progress)
-        else:
-            logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
+        self._delegate_to_progress_state("on_worker_progress_updated", worker_id, progress)
 
     def _on_worker_batch_progress(self, worker_id: str, current: int, total: int, filename: str) -> None:
-        """Worker batch progress update signal handler（ProgressStateServiceに委譲）"""
-        if self.progress_state_service:
-            self.progress_state_service.on_worker_batch_progress(worker_id, current, total, filename)
-        else:
-            logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
-
-    # WorkerService annotation signal handlers (Phase 5 Stage 3)
-    def _on_annotation_finished(self, result: Any) -> None:
-        """単発アノテーション完了ハンドラ（ResultHandlerService委譲）"""
-        if self.result_handler_service:
-            self.result_handler_service.handle_annotation_finished(result, status_bar=self.statusBar())
-        else:
-            logger.info(f"アノテーション完了: {result}")
-            self.statusBar().showMessage("アノテーション処理が完了しました", 5000)
-
-    def _on_annotation_error(self, error_msg: str) -> None:
-        """アノテーションエラーハンドラ（ResultHandlerService委譲）"""
-        if self.result_handler_service:
-            self.result_handler_service.handle_annotation_error(error_msg, status_bar=self.statusBar())
-        else:
-            logger.error(f"アノテーションエラー: {error_msg}")
-            self.statusBar().showMessage(f"エラー: {error_msg}", 8000)
+        self._delegate_to_progress_state("on_worker_batch_progress", worker_id, current, total, filename)
 
     def _on_batch_annotation_started(self, total_images: int) -> None:
-        """バッチアノテーション開始ハンドラ（ProgressStateServiceに委譲）"""
-        if self.progress_state_service:
-            self.progress_state_service.on_batch_annotation_started(total_images)
-        else:
-            logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
+        self._delegate_to_progress_state("on_batch_annotation_started", total_images)
 
     def _on_batch_annotation_progress(self, processed: int, total: int) -> None:
-        """バッチアノテーション進捗ハンドラ（ProgressStateServiceに委譲）"""
-        if self.progress_state_service:
-            self.progress_state_service.on_batch_annotation_progress(processed, total)
+        self._delegate_to_progress_state("on_batch_annotation_progress", processed, total)
+
+    def _delegate_to_result_handler(self, method_name: str, *args: Any, **kwargs: Any) -> None:
+        """ResultHandlerServiceへのイベント委譲ヘルパー"""
+        if self.result_handler_service:
+            getattr(self.result_handler_service, method_name)(*args, **kwargs)
         else:
-            logger.warning("ProgressStateService が初期化されていません - 進捗表示をスキップ")
+            logger.warning(f"ResultHandlerService未初期化 - {method_name}スキップ")
+
+    def _on_annotation_finished(self, result: Any) -> None:
+        self._delegate_to_result_handler("handle_annotation_finished", result, status_bar=self.statusBar())
+
+    def _on_annotation_error(self, error_msg: str) -> None:
+        self._delegate_to_result_handler("handle_annotation_error", error_msg, status_bar=self.statusBar())
 
     def _on_batch_annotation_finished(self, result: Any) -> None:
-        """バッチアノテーション完了ハンドラ（ResultHandlerService委譲）"""
-        if self.result_handler_service:
-            self.result_handler_service.handle_batch_annotation_finished(
-                result, status_bar=self.statusBar()
-            )
-        else:
-            logger.info(f"バッチアノテーション完了: {result}")
-            self.statusBar().showMessage("バッチアノテーション完了", 5000)
+        self._delegate_to_result_handler("handle_batch_annotation_finished", result, status_bar=self.statusBar())
 
     def _on_model_sync_completed(self, sync_result: Any) -> None:
-        """モデル同期完了ハンドラ（ResultHandlerService委譲）"""
-        if self.result_handler_service:
-            self.result_handler_service.handle_model_sync_completed(
-                sync_result, status_bar=self.statusBar()
-            )
-        else:
-            logger.info(f"モデル同期完了: {sync_result}")
-            self.statusBar().showMessage("モデル同期完了", 5000)
+        self._delegate_to_result_handler("handle_model_sync_completed", sync_result, status_bar=self.statusBar())
 
     def cancel_current_pipeline(self) -> None:
         """現在のPipeline全体をキャンセル（PipelineControlService委譲）"""

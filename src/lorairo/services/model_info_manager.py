@@ -1,6 +1,6 @@
 """アノテーション用モデル情報管理サービス
 
-HybridAnnotationController向けのモデル情報取得・フィルタリング機能を提供。
+アノテーション機能向けのモデル情報取得・フィルタリング機能を提供。
 ModelSyncServiceと連携してライブラリとDB間のモデル情報を統合管理。
 """
 
@@ -41,7 +41,7 @@ class ModelFilterCriteria:
 class ModelInfoManager:
     """アノテーション用モデル情報管理サービス
 
-    HybridAnnotationController向けに以下の機能を提供:
+    アノテーション機能向けに以下の機能を提供:
     - ライブラリ + DB統合モデル情報取得
     - モデル利用可能性判定（APIキー設定状況等）
     - フィルタリング機能（プロバイダー、モデルタイプ別）
