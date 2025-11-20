@@ -20,6 +20,16 @@ from ...utils.log import logger
 from ..services.search_filter_service import SearchFilterService
 
 
+# カスタム例外定義
+class CriticalInitializationError(Exception):
+    """致命的初期化エラー（ウィジェット初期化失敗）"""
+
+    def __init__(self, component_name: str, original_error: Exception):
+        self.component_name = component_name
+        self.original_error = original_error
+        super().__init__(f"{component_name} initialization failed: {original_error}")
+
+
 @dataclass
 class AnnotationSettings:
     """アノテーション実行設定"""
@@ -51,8 +61,15 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
         self,
         parent: QWidget | None = None,
     ):
+        """AnnotationControlWidgetの初期化
+
+        Args:
+            parent: 親ウィジェット
+
+        Raises:
+            CriticalInitializationError: 致命的初期化エラー発生時
+        """
         super().__init__(parent)
-        self.setupUi(self)  # type: ignore
 
         # 依存関係（Phase 1パターン継承）
         self.search_filter_service: SearchFilterService | None = None
@@ -64,12 +81,24 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
             selected_models=[],
         )
 
-        # UI初期化
-        self._setup_connections()
-        self._setup_widget_properties()
-        self._setup_model_table_widget()
+        # UI初期化（例外伝播を許可）
+        try:
+            self.setupUi(self)  # type: ignore
+            self._setup_connections()
+            self._setup_widget_properties()
+            self._setup_model_table_widget()  # CriticalInitializationErrorが発生する可能性
 
-        logger.debug("AnnotationControlWidget initialized (ModelSelectionTableWidget integrated)")
+            logger.debug("AnnotationControlWidget initialized (ModelSelectionTableWidget integrated)")
+
+        except CriticalInitializationError:
+            # カスタム例外はそのまま再発生
+            raise
+        except Exception as e:
+            # 予期しない例外はCriticalInitializationErrorに変換
+            logger.critical(
+                f"Unexpected error during AnnotationControlWidget initialization: {e}", exc_info=True
+            )
+            raise CriticalInitializationError("AnnotationControlWidget", e) from e
 
     def _setup_connections(self) -> None:
         """シグナル・スロット接続設定"""
@@ -98,7 +127,11 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
         pass
 
     def _setup_model_table_widget(self) -> None:
-        """ModelSelectionTableWidgetの設定と接続"""
+        """ModelSelectionTableWidgetの設定と接続
+
+        Raises:
+            CriticalInitializationError: ModelSelectionTableWidget設定失敗時
+        """
         try:
             # ModelSelectionTableWidgetのシグナル接続
             self.modelSelectionTable.model_selection_changed.connect(self._on_model_selection_changed)
@@ -108,7 +141,8 @@ class AnnotationControlWidget(QWidget, Ui_AnnotationControlWidget):
             logger.debug("ModelSelectionTableWidget setup completed")
 
         except Exception as e:
-            logger.error(f"Error setting up ModelSelectionTableWidget: {e}", exc_info=True)
+            logger.critical(f"Critical error during ModelSelectionTableWidget setup: {e}", exc_info=True)
+            raise CriticalInitializationError("ModelSelectionTableWidget", e) from e
 
     def set_search_filter_service(self, service: SearchFilterService) -> None:
         """SearchFilterService設定（ModelSelectionTableWidgetに委譲）"""

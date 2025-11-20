@@ -30,6 +30,10 @@ from ..services.search_filter_service import SearchFilterService
 from ..services.widget_setup_service import WidgetSetupService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
+from ..widgets.annotation_control_widget import (
+    AnnotationControlWidget,
+    CriticalInitializationError,
+)
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
@@ -239,6 +243,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """その他のカスタムウィジェット設定（WidgetSetupServiceに委譲）"""
         WidgetSetupService.setup_all_widgets(self, self.dataset_state_manager)
 
+        # AnnotationControlWidget初期化
+        try:
+            self.annotationControlWidget = AnnotationControlWidget(parent=self)
+            logger.info("✅ AnnotationControlWidget初期化完了")
+        except CriticalInitializationError as e:
+            self._handle_critical_initialization_failure("AnnotationControlWidget", e.original_error)
+            return
+
         # Service/Controller層初期化
         try:
             self.selection_state_service = SelectionStateService(
@@ -444,10 +456,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._delegate_to_result_handler("handle_annotation_error", error_msg, status_bar=self.statusBar())
 
     def _on_batch_annotation_finished(self, result: Any) -> None:
-        self._delegate_to_result_handler("handle_batch_annotation_finished", result, status_bar=self.statusBar())
+        self._delegate_to_result_handler(
+            "handle_batch_annotation_finished", result, status_bar=self.statusBar()
+        )
 
     def _on_model_sync_completed(self, sync_result: Any) -> None:
-        self._delegate_to_result_handler("handle_model_sync_completed", sync_result, status_bar=self.statusBar())
+        self._delegate_to_result_handler(
+            "handle_model_sync_completed", sync_result, status_bar=self.statusBar()
+        )
 
     def cancel_current_pipeline(self) -> None:
         """現在のPipeline全体をキャンセル（PipelineControlService委譲）"""

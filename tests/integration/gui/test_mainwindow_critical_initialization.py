@@ -19,58 +19,11 @@ from lorairo.gui.window.main_window import MainWindow
 @pytest.mark.integration
 @pytest.mark.fast_integration
 class TestMainWindowCriticalInitializationFailures:
-    """MainWindow初期化の致命的エラー経路テスト"""
+    """MainWindow初期化の致命的エラー経路テスト
 
-    @pytest.fixture
-    def critical_failure_hooks(self, monkeypatch):
-        """致命的失敗時のhookをモック
-
-        Args:
-            monkeypatch: pytestのmonkeypatchフィクスチャ
-
-        Returns:
-            dict: モック呼び出しを記録する辞書
-                - "sys_exit": sys.exit()の呼び出し記録
-                - "messagebox": QMessageBox関連の呼び出し記録
-                - "logger": モック化されたlogger
-        """
-        calls = {
-            "sys_exit": [],
-            "messagebox_instances": [],
-            "logger": MagicMock(),
-        }
-
-        # sys.exitをモック（SystemExit例外を発生させる）
-        def mock_sys_exit(code):
-            calls["sys_exit"].append(code)
-            # SystemExit例外を発生させる（sys.exitの本来の動作を模倣）
-            raise SystemExit(code)
-
-        # Note: main_window.pyは_handle_critical_initialization_failure内で
-        # "import sys"をローカルインポートしているため、sysモジュール自体をパッチ
-        import sys
-
-        monkeypatch.setattr(sys, "exit", mock_sys_exit)
-
-        # QMessageBoxをモック（ヘッドレス環境対応）
-        def _create_mock_messagebox(*_args, **_kwargs):
-            instance = Mock()
-            calls["messagebox_instances"].append(instance)
-            return instance
-
-        mock_messagebox_class = Mock(side_effect=_create_mock_messagebox)
-
-        # QMessageBox.Iconの列挙型をモック
-        mock_icon = Mock()
-        mock_icon.Critical = Mock()
-        mock_messagebox_class.Icon = mock_icon
-
-        monkeypatch.setattr("lorairo.gui.window.main_window.QMessageBox", mock_messagebox_class)
-
-        # loggerをモック
-        monkeypatch.setattr("lorairo.gui.window.main_window.logger", calls["logger"])
-
-        return calls
+    Note:
+        critical_failure_hooksフィクスチャはtests/conftest.pyから取得します
+    """
 
     @pytest.fixture
     def mock_services(self, monkeypatch):
@@ -480,3 +433,55 @@ class TestMainWindowCriticalInitializationFailures:
         # 検証4: エラーメッセージに"SearchFilterService"が含まれること
         text_args = messagebox.setText.call_args
         assert "SearchFilterService" in str(text_args)
+
+    def test_annotation_control_widget_initialization_failure(
+        self, qtbot, critical_failure_hooks, monkeypatch, mock_services
+    ):
+        """AnnotationControlWidget初期化失敗時の致命的失敗テスト
+
+        検証項目:
+        - AnnotationControlWidgetがCriticalInitializationErrorを投げる
+        - MainWindowが_handle_critical_initialization_failureを呼び出す
+        - sys.exit(1)が呼ばれること
+        - logger.criticalが呼ばれること
+        - QMessageBoxが表示されること
+        - エラーメッセージに"AnnotationControlWidget"が含まれること
+        """
+
+        # AnnotationControlWidgetのコンストラクタをモック（CriticalInitializationError発生）
+        from lorairo.gui.widgets.annotation_control_widget import CriticalInitializationError
+
+        def mock_annotation_control_init(*args, **kwargs):
+            raise CriticalInitializationError(
+                "ModelSelectionTableWidget", RuntimeError("Test initialization failure")
+            )
+
+        monkeypatch.setattr(
+            "lorairo.gui.window.main_window.AnnotationControlWidget",
+            Mock(side_effect=mock_annotation_control_init),
+        )
+
+        # MainWindowの初期化を試みる（致命的エラーが発生する）
+        try:
+            window = MainWindow()
+            qtbot.addWidget(window)
+        except SystemExit:
+            pass
+
+        # 検証1: sys.exit(1)が呼ばれたこと
+        assert len(critical_failure_hooks["sys_exit"]) == 1
+        assert critical_failure_hooks["sys_exit"][0] == 1
+
+        # 検証2: logger.criticalが呼ばれたこと
+        critical_failure_hooks["logger"].critical.assert_called()
+        logger_args = critical_failure_hooks["logger"].critical.call_args
+        assert "AnnotationControlWidget" in str(logger_args)
+
+        # 検証3: QMessageBoxが作成・表示されたこと
+        assert len(critical_failure_hooks["messagebox_instances"]) > 0
+        messagebox = critical_failure_hooks["messagebox_instances"][0]
+        messagebox.exec.assert_called()
+
+        # 検証4: エラーメッセージに"AnnotationControlWidget"が含まれること
+        text_args = messagebox.setText.call_args
+        assert "AnnotationControlWidget" in str(text_args)

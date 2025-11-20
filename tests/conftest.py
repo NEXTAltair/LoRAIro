@@ -6,6 +6,7 @@ import tempfile
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock, Mock
 
 import numpy as np
 import pytest
@@ -521,3 +522,69 @@ def past_timestamp():
 #     app.dependency_overrides[get_session] = get_session_override
 #     yield
 #     app.dependency_overrides.pop(get_session, None)
+
+
+# --- GUI Critical Initialization Test Fixtures ---
+
+
+@pytest.fixture(scope="function")
+def critical_failure_hooks(monkeypatch, request):
+    """致命的失敗時のhookをモック（再利用可能版）
+
+    Args:
+        monkeypatch: pytestのmonkeypatchフィクスチャ
+        request: pytestのrequestフィクスチャ（パラメータ取得用）
+
+    Returns:
+        dict: モック呼び出しを記録する辞書
+            - "sys_exit": sys.exit()の呼び出し記録
+            - "messagebox_instances": QMessageBox関連の呼び出し記録
+            - "logger": モック化されたlogger
+
+    Usage:
+        # デフォルト（main_window用）
+        def test_mainwindow_failure(critical_failure_hooks):
+            # ...
+
+        # パラメータ指定（他のウィジェット用）
+        @pytest.mark.parametrize("critical_failure_hooks", [
+            {"patch_target": "lorairo.gui.widgets.dataset_export_widget"}
+        ], indirect=True)
+        def test_widget_failure(critical_failure_hooks):
+            # ...
+    """
+    # パッチ対象モジュールを取得（デフォルト: main_window）
+    patch_params = getattr(request, "param", {})
+    patch_target = patch_params.get("patch_target", "lorairo.gui.window.main_window")
+
+    calls = {
+        "sys_exit": [],
+        "messagebox_instances": [],
+        "logger": MagicMock(),
+    }
+
+    # sys.exitをモック（SystemExit例外を発生させる）
+    def mock_sys_exit(code):
+        calls["sys_exit"].append(code)
+        raise SystemExit(code)
+
+    import sys
+
+    monkeypatch.setattr(sys, "exit", mock_sys_exit)
+
+    # QMessageBoxをモック（ヘッドレス環境対応）
+    def _create_mock_messagebox(*_args, **_kwargs):
+        instance = Mock()
+        calls["messagebox_instances"].append(instance)
+        return instance
+
+    mock_messagebox_class = Mock(side_effect=_create_mock_messagebox)
+    mock_icon = Mock()
+    mock_icon.Critical = Mock()
+    mock_messagebox_class.Icon = mock_icon
+
+    # パッチ先を引数化
+    monkeypatch.setattr(f"{patch_target}.QMessageBox", mock_messagebox_class)
+    monkeypatch.setattr(f"{patch_target}.logger", calls["logger"])
+
+    return calls
