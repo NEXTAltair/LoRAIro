@@ -94,12 +94,20 @@ class ModelSelectionTableWidget(QWidget, Ui_ModelSelectionTableWidget):
         logger.debug("SearchFilterService set for ModelSelectionTableWidget")
 
     def load_models(self) -> None:
-        """モデル情報をSearchFilterService経由で取得"""
+        """モデル情報をSearchFilterService経由で取得
+
+        Raises:
+            RuntimeError: SearchFilterServiceが設定されていない場合
+            Exception: モデル取得失敗時
+
+        Note:
+            このメソッドは初期化時に呼ばれるため、例外は呼び出し側（AnnotationControlWidget）で
+            CriticalInitializationErrorに変換される。
+        """
         if not self.search_filter_service:
-            logger.warning("SearchFilterService not available for model loading")
-            self.all_models = []
-            self._update_table_display()
-            return
+            error_msg = "SearchFilterService not available for model loading"
+            logger.critical(error_msg)
+            raise RuntimeError(error_msg)
 
         try:
             # SearchFilterService経由でモデル取得
@@ -114,10 +122,8 @@ class ModelSelectionTableWidget(QWidget, Ui_ModelSelectionTableWidget):
             self.models_loaded.emit(len(self.all_models))
 
         except Exception as e:
-            logger.error(f"Failed to load models via SearchFilterService: {e}", exc_info=True)
-            self.all_models = []
-            self.filtered_models = []
-            self._update_table_display()
+            logger.critical(f"Failed to load models via SearchFilterService: {e}", exc_info=True)
+            raise
 
     def apply_filters(
         self, function_types: list[str] | None = None, providers: list[str] | None = None
