@@ -94,8 +94,8 @@ class UIResponsiveConversionService:
             "container_frames": ResponsivePattern(
                 widget_types=["QFrame", "QGroupBox", "QWidget"],
                 target_properties=["sizePolicy"],
-                conversion_rules={"hsizetype": "Expanding", "vsizetype": "Fixed"},
-                validation_criteria={"required_hsizetype": "Expanding", "min_vsizetype": "Fixed"},
+                conversion_rules={"hsizetype": "Expanding", "vsizetype": "Preferred"},
+                validation_criteria={"required_hsizetype": "Expanding", "min_vsizetype": "Preferred"},
             ),
             # 水平レイアウト - マージン最小化
             "horizontal_layouts": ResponsivePattern(
