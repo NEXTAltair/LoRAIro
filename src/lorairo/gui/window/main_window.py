@@ -30,10 +30,6 @@ from ..services.search_filter_service import SearchFilterService
 from ..services.widget_setup_service import WidgetSetupService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
-from ..widgets.annotation_control_widget import (
-    AnnotationControlWidget,
-    CriticalInitializationError,
-)
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
@@ -242,14 +238,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _setup_other_custom_widgets(self) -> None:
         """その他のカスタムウィジェット設定（WidgetSetupServiceに委譲）"""
         WidgetSetupService.setup_all_widgets(self, self.dataset_state_manager)
-
-        # AnnotationControlWidget初期化
-        try:
-            self.annotationControlWidget = AnnotationControlWidget(parent=self)
-            logger.info("✅ AnnotationControlWidget初期化完了")
-        except CriticalInitializationError as e:
-            self._handle_critical_initialization_failure("AnnotationControlWidget", e.original_error)
-            return
 
         # Service/Controller層初期化
         try:
