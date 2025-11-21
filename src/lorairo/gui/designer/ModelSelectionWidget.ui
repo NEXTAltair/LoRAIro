@@ -61,7 +61,7 @@
         <height>198</height>
        </rect>
       </property>
-      <layout class="QVBoxLayout" name="scrollLayout">
+      <layout class="QVBoxLayout" name="dynamicContentLayout">
        <property name="spacing">
         <number>2</number>
        </property>
