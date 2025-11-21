@@ -83,12 +83,12 @@
           <string notr="true" />
          </property>
          <property name="text">
-          <string>📋 推奨AIモデル 
+          <string>[✓] 推奨AIモデル
 
 下記の推奨構成から複数選択できます:
-🎯 高品質Caption生成
-🏷️ 高精度タグ生成
-⭐ 品質評価
+[*] 高品質Caption生成
+[#] 高精度タグ生成
+[★] 品質評価
 
 </string>
          </property>
