@@ -76,9 +76,20 @@
         "timestamp": "2025-11-15T12:30:03.928Z"
       },
       "section": "Project Structure and Dependencies"
+    },
+    "strategies-00008": {
+      "id": "strategies-00008",
+      "metadata": {
+        "relatedFiles": [],
+        "tags": [
+          "manual"
+        ],
+        "timestamp": "2025-11-20T06:26:50.382Z"
+      },
+      "section": "Strategies"
     }
   },
-  "nextId": 8,
+  "nextId": 9,
   "sections": {
     "Project Structure and Dependencies": [
       "project-00001",
@@ -87,7 +98,8 @@
     ],
     "Strategies": [
       "strategies-00002",
-      "strategies-00006"
+      "strategies-00006",
+      "strategies-00008"
     ],
     "Best Practices": [
       "best-00004"
