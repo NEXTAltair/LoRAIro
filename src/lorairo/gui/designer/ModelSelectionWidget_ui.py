@@ -1,3 +1,4 @@
+
 ################################################################################
 ## Form generated from reading UI file 'ModelSelectionWidget.ui'
 ##
@@ -60,10 +61,10 @@ class Ui_ModelSelectionWidget:
         self.scrollContent = QWidget()
         self.scrollContent.setObjectName("scrollContent")
         self.scrollContent.setGeometry(QRect(0, 0, 318, 198))
-        self.scrollLayout = QVBoxLayout(self.scrollContent)
-        self.scrollLayout.setSpacing(2)
-        self.scrollLayout.setObjectName("scrollLayout")
-        self.scrollLayout.setContentsMargins(6, 6, 6, 6)
+        self.dynamicContentLayout = QVBoxLayout(self.scrollContent)
+        self.dynamicContentLayout.setSpacing(2)
+        self.dynamicContentLayout.setObjectName("dynamicContentLayout")
+        self.dynamicContentLayout.setContentsMargins(6, 6, 6, 6)
         self.placeholderLabel = QLabel(self.scrollContent)
         self.placeholderLabel.setObjectName("placeholderLabel")
         self.placeholderLabel.setStyleSheet("")
@@ -75,7 +76,7 @@ class Ui_ModelSelectionWidget:
         sizePolicy.setHeightForWidth(self.placeholderLabel.sizePolicy().hasHeightForWidth())
         self.placeholderLabel.setSizePolicy(sizePolicy)
 
-        self.scrollLayout.addWidget(self.placeholderLabel)
+        self.dynamicContentLayout.addWidget(self.placeholderLabel)
 
         self.scrollArea.setWidget(self.scrollContent)
 
@@ -89,46 +90,26 @@ class Ui_ModelSelectionWidget:
 
         self.mainLayout.addWidget(self.statusLabel)
 
+
         self.retranslateUi(ModelSelectionWidget)
 
         QMetaObject.connectSlotsByName(ModelSelectionWidget)
-
     # setupUi
 
     def retranslateUi(self, ModelSelectionWidget):
-        ModelSelectionWidget.setWindowTitle(
-            QCoreApplication.translate("ModelSelectionWidget", "Model Selection", None)
-        )
-        self.placeholderLabel.setText(
-            QCoreApplication.translate(
-                "ModelSelectionWidget",
-                "[\u2713] \u63a8\u5968AI\u30e2\u30c7\u30eb\n"
-                "\n"
-                "\u4e0b\u8a18\u306e\u63a8\u5968\u69cb\u6210\u304b\u3089\u8907\u6570\u9078\u629e\u3067\u304d\u307e\u3059:\n"
-                "[*] \u9ad8\u54c1\u8ceaCaption\u751f\u6210\n"
-                "[#] \u9ad8\u7cbe\u5ea6\u30bf\u30b0\u751f\u6210\n"
-                "[\u2605] \u54c1\u8cea\u8a55\u4fa1\n"
-                "\n"
-                "",
-                None,
-            )
-        )
-        # if QT_CONFIG(tooltip)
-        self.statusLabel.setToolTip(
-            QCoreApplication.translate(
-                "ModelSelectionWidget",
-                "\u63a8\u5968\u30e2\u30c7\u30eb\u304b\u3089\u9078\u629e\u3055\u308c\u3066\u3044\u308b\u6570",
-                None,
-            )
-        )
-        # endif // QT_CONFIG(tooltip)
-        self.statusLabel.setStyleSheet(
-            QCoreApplication.translate(
-                "ModelSelectionWidget", "color: #333; font-size: 11px; font-weight: bold;", None
-            )
-        )
-        self.statusLabel.setText(
-            QCoreApplication.translate("ModelSelectionWidget", "\u9078\u629e\u6570: 0 (\u63a8\u5968)", None)
-        )
-
+        ModelSelectionWidget.setWindowTitle(QCoreApplication.translate("ModelSelectionWidget", "Model Selection", None))
+        self.placeholderLabel.setText(QCoreApplication.translate("ModelSelectionWidget", "[\u2713] \u63a8\u5968AI\u30e2\u30c7\u30eb\n"
+"\n"
+"\u4e0b\u8a18\u306e\u63a8\u5968\u69cb\u6210\u304b\u3089\u8907\u6570\u9078\u629e\u3067\u304d\u307e\u3059:\n"
+"[*] \u9ad8\u54c1\u8ceaCaption\u751f\u6210\n"
+"[#] \u9ad8\u7cbe\u5ea6\u30bf\u30b0\u751f\u6210\n"
+"[\u2605] \u54c1\u8cea\u8a55\u4fa1\n"
+"\n"
+"", None))
+#if QT_CONFIG(tooltip)
+        self.statusLabel.setToolTip(QCoreApplication.translate("ModelSelectionWidget", "\u63a8\u5968\u30e2\u30c7\u30eb\u304b\u3089\u9078\u629e\u3055\u308c\u3066\u3044\u308b\u6570", None))
+#endif // QT_CONFIG(tooltip)
+        self.statusLabel.setStyleSheet(QCoreApplication.translate("ModelSelectionWidget", "color: #333; font-size: 11px; font-weight: bold;", None))
+        self.statusLabel.setText(QCoreApplication.translate("ModelSelectionWidget", "\u9078\u629e\u6570: 0 (\u63a8\u5968)", None))
     # retranslateUi
+

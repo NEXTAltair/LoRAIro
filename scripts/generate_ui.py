@@ -58,7 +58,6 @@ def generate_python_from_ui(ui_file: Path) -> bool:
     try:
         # Run pyside6-uic to convert .ui to .py
         cmd = [
-            "UV_PROJECT_ENVIRONMENT=.venv_linux",
             "uv", "run", "pyside6-uic",
             str(ui_file),
             "-o", str(py_file)
