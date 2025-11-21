@@ -1,4 +1,4 @@
-<?xml version='1.0' encoding='utf-8'?>
+<?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
  <class>ModelSelectionWidget</class>
  <widget class="QWidget" name="ModelSelectionWidget">
@@ -12,6 +12,16 @@
   </property>
   <property name="windowTitle">
    <string>Model Selection</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">/* Provider Group Label Style */
+.provider-group-label {
+    font-size: 9px;
+    font-weight: bold;
+    color: #666;
+    padding: 2px 0px;
+    margin: 4px 0px 2px 0px;
+}</string>
   </property>
   <layout class="QVBoxLayout" name="mainLayout">
    <property name="spacing">
@@ -30,6 +40,121 @@
     <number>0</number>
    </property>
    <item>
+    <widget class="QFrame" name="controlFrame">
+     <property name="frameShape">
+      <enum>QFrame::Shape::NoFrame</enum>
+     </property>
+     <layout class="QHBoxLayout" name="controlLayout">
+      <property name="spacing">
+       <number>6</number>
+      </property>
+      <property name="leftMargin">
+       <number>0</number>
+      </property>
+      <property name="topMargin">
+       <number>0</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
+      </property>
+      <item>
+       <widget class="QPushButton" name="btnSelectAll">
+        <property name="maximumSize">
+         <size>
+          <width>55</width>
+          <height>24</height>
+         </size>
+        </property>
+        <property name="text">
+         <string>全選択</string>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">QPushButton {
+    font-size: 10px;
+    padding: 3px 6px;
+    border: 1px solid #4CAF50;
+    border-radius: 3px;
+    background-color: #f0f8f0;
+    color: #2E7D32;
+}
+QPushButton:hover { background-color: #e8f5e8; }
+QPushButton:pressed { background-color: #4CAF50; color: white; }</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnDeselectAll">
+        <property name="maximumSize">
+         <size>
+          <width>55</width>
+          <height>24</height>
+         </size>
+        </property>
+        <property name="text">
+         <string>全解除</string>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">QPushButton {
+    font-size: 10px;
+    padding: 3px 6px;
+    border: 1px solid #f44336;
+    border-radius: 3px;
+    background-color: #fff8f8;
+    color: #c62828;
+}
+QPushButton:hover { background-color: #ffebee; }
+QPushButton:pressed { background-color: #f44336; color: white; }</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnSelectRecommended">
+        <property name="maximumSize">
+         <size>
+          <width>65</width>
+          <height>24</height>
+         </size>
+        </property>
+        <property name="toolTip">
+         <string>推奨モデルを自動選択</string>
+        </property>
+        <property name="text">
+         <string>推奨選択</string>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">QPushButton {
+    font-size: 10px;
+    padding: 3px 6px;
+    border: 1px solid #2196F3;
+    border-radius: 3px;
+    background-color: #f0f8ff;
+    color: #1976D2;
+}
+QPushButton:hover { background-color: #e3f2fd; }
+QPushButton:pressed { background-color: #2196F3; color: white; }</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="controlSpacer">
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
     <widget class="QScrollArea" name="scrollArea">
      <property name="minimumSize">
       <size>
@@ -37,11 +162,17 @@
        <height>80</height>
       </size>
      </property>
-     <property name="maximumSize">
-      <size>
-       <width>16777215</width>
-       <height>200</height>
-      </size>
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+       <horstretch>0</horstretch>
+       <verstretch>1</verstretch>
+      </sizepolicy>
+     </property>
+     <property name="frameShape">
+      <enum>QFrame::Shape::StyledPanel</enum>
+     </property>
+     <property name="frameShadow">
+      <enum>QFrame::Shadow::Sunken</enum>
      </property>
      <property name="verticalScrollBarPolicy">
       <enum>Qt::ScrollBarPolicy::ScrollBarAsNeeded</enum>
@@ -52,7 +183,7 @@
      <property name="widgetResizable">
       <bool>true</bool>
      </property>
-     <widget class="QWidget" name="scrollContent">
+     <widget class="QWidget" name="scrollAreaWidgetContents">
       <property name="geometry">
        <rect>
         <x>0</x>
@@ -79,18 +210,17 @@
        </property>
        <item>
         <widget class="QLabel" name="placeholderLabel">
-         <property name="styleSheet">
-          <string notr="true" />
-         </property>
          <property name="text">
-          <string>[✓] 推奨AIモデル
+          <string>■ 推奨AIモデル (DB自動選択)
 
 下記の推奨構成から複数選択できます:
-[*] 高品質Caption生成
-[#] 高精度タグ生成
-[★] 品質評価
+・高品質Caption生成
+・高精度タグ生成
+・品質評価
 
-</string>
+モデル一覧は設定されたAPIキーと
+利用可能なローカルモデルに基づいて
+自動表示されます</string>
          </property>
          <property name="alignment">
           <set>Qt::AlignmentFlag::AlignTop</set>
@@ -104,7 +234,32 @@
            <verstretch>0</verstretch>
           </sizepolicy>
          </property>
+         <property name="styleSheet">
+          <string notr="true">QLabel {
+    color: #666;
+    font-style: italic;
+    padding: 12px;
+    font-size: 10px;
+    line-height: 1.3;
+    background-color: #f0f8ff;
+    border: 1px dashed #2196F3;
+    border-radius: 4px;
+}</string>
+         </property>
         </widget>
+       </item>
+       <item>
+        <spacer name="verticalSpacer">
+         <property name="orientation">
+          <enum>Qt::Orientation::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
        </item>
       </layout>
      </widget>
@@ -134,6 +289,60 @@
    </item>
   </layout>
  </widget>
- <resources />
- <connections />
+ <resources/>
+ <connections>
+  <connection>
+   <sender>btnSelectAll</sender>
+   <signal>clicked()</signal>
+   <receiver>ModelSelectionWidget</receiver>
+   <slot>select_all_models()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>27</x>
+     <y>54</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>160</x>
+     <y>150</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>btnDeselectAll</sender>
+   <signal>clicked()</signal>
+   <receiver>ModelSelectionWidget</receiver>
+   <slot>deselect_all_models()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>82</x>
+     <y>54</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>160</x>
+     <y>150</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>btnSelectRecommended</sender>
+   <signal>clicked()</signal>
+   <receiver>ModelSelectionWidget</receiver>
+   <slot>select_recommended_models()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>147</x>
+     <y>54</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>160</x>
+     <y>150</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+ <slots>
+  <slot>select_all_models()</slot>
+  <slot>deselect_all_models()</slot>
+  <slot>select_recommended_models()</slot>
+ </slots>
 </ui>
