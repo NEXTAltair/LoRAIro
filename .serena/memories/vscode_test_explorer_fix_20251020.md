@@ -47,12 +47,97 @@ VSCode Test Explorerでpytestテスト検出が失敗する問題。
 - **Devコンテナ**: `.venv/` (Dockerボリューム `lorairo-venv-${devcontainerId}`)
 - **分離**: 両者は完全に独立、マウント共有なし
 
-## 検証項目
-- [ ] `.venv` が正しく作成される
+## 検証項目（2025-10-20初回対応）
+- [x] `.venv` が正しく作成される
 - [ ] VSCode Test Explorerがテストを検出
-- [ ] pytest直接実行が成功
-- [ ] coverage動作確認
+- [x] pytest直接実行が成功
+- [x] coverage動作確認
 - [ ] Python拡張機能が正しいインタープリターを認識
+
+---
+
+## 追加修正: ローカルパッケージ.venv問題対応 (2025-11-21)
+
+### 発生した問題
+devcontainer環境でVSCode Test Explorerがテストを検出できない問題が再発。
+
+**根本原因**:
+- `local_packages/image-annotator-lib/.venv/` が存在
+- `which python` が `/workspaces/LoRAIro/local_packages/image-annotator-lib/.venv/bin/python` を参照
+- **CLAUDE.mdの「Virtual Environment Rules」に違反**している状態
+- VSCode Test Explorerが誤ったPython環境を使用
+
+### 実施した修正
+
+#### Phase 1: 環境クリーンアップ
+1. **ローカルパッケージ.venv削除** (手動実行)
+   ```bash
+   rm -rf local_packages/image-annotator-lib/.venv
+   ```
+
+2. **依存関係再インストール**
+   ```bash
+   cd /workspaces/LoRAIro
+   uv sync --dev
+   ```
+
+3. **環境確認** ✅
+   - `which python`: `/workspaces/LoRAIro/.venv/bin/python`
+   - Python version: `3.12.12`
+   - パッケージインポート成功
+   - pytest: 1472個のテスト収集成功
+
+#### Phase 2: lorairo.code-workspace最適化
+**変更内容**:
+- マルチフォルダー構成 → 単一フォルダー構成
+- ローカルパッケージ個別設定を削除
+- Python interpreter設定を統一（`${workspaceFolder}/.venv/bin/python`）
+- pytestArgs統一（`--rootdir=${workspaceFolder}`, `-v`）
+- `python.testing.cwd`: `${workspaceFolder}` 追加
+- `python.testing.promptToConfigure`: `false` 追加
+
+**修正前（マルチフォルダー）**:
+```json
+"folders": [
+  {"path": ".", "name": "LoRAIro"},
+  {"path": "./local_packages/image-annotator-lib", "name": "image-annotator-lib", "settings": {...}},
+  {"path": "./local_packages/genai-tag-db-tools", "name": "genai-tag-db-tools", "settings": {...}}
+]
+```
+
+**修正後（単一フォルダー）**:
+```json
+"folders": [
+  {"path": ".", "name": "LoRAIro"}
+]
+```
+
+#### Phase 3: devcontainer.json自動クリーンアップ
+**変更内容**:
+- `postCreateCommand`にローカルパッケージ.venv自動削除を追加
+- コンテナ再作成時の予防策を実装
+
+**追加コマンド**:
+```json
+"postCreateCommand": [
+  "sudo chown -R vscode:vscode /workspaces/LoRAIro/.venv",
+  "find /workspaces/LoRAIro/local_packages -type d -name '.venv' -exec rm -rf {} + || true",
+  "make install-dev"
+]
+```
+
+### 検証結果（2025-11-21）
+- [x] ローカルパッケージ.venv削除完了
+- [x] プロジェクトルート.venvが正しく参照される
+- [x] pytest: 1472個のテスト収集成功
+- [x] coverage正常動作
+- [ ] VSCode Test Explorer検出確認（要ユーザー確認）
+
+### 期待される効果
+1. **環境の一貫性**: CLAUDE.md「Virtual Environment Rules」完全準拠
+2. **Test Explorer動作**: 正しいPython環境を参照
+3. **再発防止**: コンテナ再作成時に自動クリーンアップ
+4. **設定の簡素化**: 単一フォルダー構成でワークスペース設定が明確化
 
 ---
 

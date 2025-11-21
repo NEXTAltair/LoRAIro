@@ -61,6 +61,7 @@
     ],
     "postCreateCommand": [
         "sudo chown -R vscode:vscode /workspaces/LoRAIro/.venv",
+        "find /workspaces/LoRAIro/local_packages -type d -name '.venv' -exec rm -rf {} + || true",
         "make install-dev"
     ],
     "postAttachCommand": {

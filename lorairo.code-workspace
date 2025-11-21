@@ -2,37 +2,7 @@
   "folders": [
     {
       "path": ".",
-      "name": "LoRAIro", // プロジェクトルート全体
-    },
-    {
-      "path": "./local_packages/image-annotator-lib",
-      "name": "image-annotator-lib",
-      "settings": {
-        "python.defaultInterpreterPath": "${workspaceFolder:LoRAIro}/.venv/bin/python",
-        "python.testing.cwd": "${workspaceFolder:LoRAIro}",
-        "python.testing.pytestEnabled": true,
-        "python.testing.unittestEnabled": false,
-        "python.testing.promptToConfigure": false,
-        "python.testing.pytestArgs": [
-          "--rootdir=${workspaceFolder:LoRAIro}",
-          "local_packages/image-annotator-lib/tests"
-        ]
-      }
-    },
-    {
-      "path": "./local_packages/genai-tag-db-tools",
-      "name": "genai-tag-db-tools",
-      "settings": {
-        "python.defaultInterpreterPath": "${workspaceFolder:LoRAIro}/.venv/bin/python",
-        "python.testing.cwd": "${workspaceFolder:LoRAIro}",
-        "python.testing.pytestEnabled": true,
-        "python.testing.unittestEnabled": false,
-        "python.testing.promptToConfigure": false,
-        "python.testing.pytestArgs": [
-          "--rootdir=${workspaceFolder:LoRAIro}",
-          "local_packages/genai-tag-db-tools/tests"
-        ]
-      }
+      "name": "LoRAIro"
     }
   ],
   "settings": {
@@ -45,14 +15,17 @@
     "python.envFile": "${workspaceFolder}/.env",
 
     // Python インタープリター設定
-    "python.defaultInterpreterPath": ".venv/bin/python",
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
     "python.languageServer": "None",
 
     // Python テスト設定
+    "python.testing.cwd": "${workspaceFolder}",
     "python.testing.pytestEnabled": true,
     "python.testing.unittestEnabled": false,
+    "python.testing.promptToConfigure": false,
     "python.testing.pytestArgs": [
-      "--ignore=.venv"
+      "--rootdir=${workspaceFolder}",
+      "-v"
     ],
 
     // スペルチェック設定

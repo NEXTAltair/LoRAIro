@@ -1,14 +1,32 @@
 # image-annotator-lib Project Status
 
-**最終更新**: 2025-11-15
+**最終更新**: 2025-11-21
 
 ## 現在の状態
+
+### DevContainer環境 Test Explorer修正完了（2025-11-21）
+
+- **問題**: ローカルパッケージ内の独立.venvがVSCode Test Explorerを妨害
+- **原因**: `local_packages/image-annotator-lib/.venv/` の存在がCLAUDE.md「Virtual Environment Rules」に違反
+- **修正内容**:
+  - ローカルパッケージ.venv削除
+  - lorairo.code-workspace: マルチフォルダー → 単一フォルダー構成
+  - devcontainer.json: postCreateCommandに自動クリーンアップ追加
+- **検証結果**: pytest 1472個のテスト収集成功、coverage正常動作
+- **詳細**: `vscode_test_explorer_fix_20251020` メモリ更新済み
+
+### MainWindow Phase 3 完了（2025-11-19）
+
+- MainWindow行数: 1,645行 → 688行（**58.2%削減**）
+- Phase 3削減: 802行 → 688行（114行削減、目標100行超過達成）
+- 完了内容: イベントハンドラー統合 + 初期化ロジック簡素化 + HybridAnnotationController削除
+- テスト: 15/15成功（MainWindow関連統合テスト）
+- 詳細: `mainwindow_phase3_completion_2025_11_19`
 
 ### MainWindow Phase 2 完了（2025-11-15）
 
 - MainWindow行数: 1,645行 → 887行（46.1%削減）
 - 抽出済みコンポーネント: Controller 5件 + Service 6件（詳細: `mainwindow_refactoring_phase2_completion_2025_11_15`）
-- Phase 3（追加削減）は任意としてスキップ。残りの責務はサービス初期化とシグナル配線に集中
 - 統合テスト: 417 pass / 25 fail（いずれも既存のTensorFlow & GUI課題）
 
 ### Phase 5 統合テスト状況（2025-11-09）
@@ -46,8 +64,11 @@
 - `phase5_integration_tests_completion_2025_11_09`：MainWindow/WorkerService の統合テスト計画と結果
 
 ### MainWindow リファクタリング
+- `mainwindow_phase3_completion_2025_11_19`：Phase 3（118行削減、目標達成）完了記録
+- `mainwindow_phase3_analysis_2025_11_19`：Phase 3 分析記録
 - `mainwindow_refactoring_phase2_completion_2025_11_15`：Phase 2（サービス/コントローラー分離）まとめ
 - `mainwindow_customwidgets_investigation_2025`：カスタムウィジェット初期化エラー調査
+- `mainwindow_initialization_issue_2025_11_17`：初期化問題の診断と修正記録
 
 ### テスト戦略 / 個別タスク
 - `test_pydantic_ai_factory_integration_completion_2025_11_07`：PydanticAIファクトリ統合テスト
@@ -55,11 +76,12 @@
 
 ## 次のタスク
 
-### MainWindow後続（任意）
+### MainWindow Phase 4: テスト・ドキュメント強化（推奨）
 
-1. Phase 3再開: 初期化ロジック整理と追加のController/Service分離（推定100行削減余地）
-2. HybridAnnotationControllerの完全削除（未使用God class）
-3. 進捗/状態系Serviceの単体テスト強化（現状75%ラインを維持）
+1. MainWindow初期化パスの包括的テスト追加
+2. Service委譲パターンのカバレッジ向上（目標75%維持）
+3. 5段階初期化パターンの文書化
+4. Service/Controller層の責任分離ガイドライン作成
 
 ### テスト継続
 
@@ -69,11 +91,14 @@
 
 ## アーキテクチャ状態
 
-- Controller/Service層がMainWindowから分離され、依存性注入で疎結合化
-- PipelineControlService + ProgressStateServiceで非同期ワークフローと進捗表示を横断管理
-- ProviderManager + PydanticAI層は安定稼働。agentキャッシュとリソース共有ポリシーは `phase5_integration_tests_completion_2025_11_09` を参照
+- **MainWindow**: 688行（Phase 3完了、58.2%削減）
+- **Controller/Service層**: MainWindowから分離され、依存性注入で疎結合化
+- **イベント委譲**: Service別ヘルパーメソッド（3つ）で統一的に管理
+- **PipelineControlService + ProgressStateService**: 非同期ワークフローと進捗表示を横断管理
+- **ProviderManager + PydanticAI層**: 安定稼働。agentキャッシュとリソース共有ポリシーは `phase5_integration_tests_completion_2025_11_09` を参照
 
 ## 開発方針
 
 - **Memory-First Development**: すべての決定・手順は `.serena/memories/`（短期）と Cipher（長期）に記録。tasks/やad-hocドキュメントには戻さない
 - **Command-Based Workflow**: `/check-existing` → `/plan` → `/implement` → `/test` を維持し、Serenaは整理・記録、Cipherは実装/検証に専念
+- **YAGNI原則**: 過剰な抽象化を避け、必要最小限の実装を維持
