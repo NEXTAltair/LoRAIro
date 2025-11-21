@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 
 ################################################################################
 ## Form generated from reading UI file 'ModelResultTab.ui'
@@ -8,35 +7,72 @@
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
 
-from PySide6.QtCore import (QCoreApplication, QDate, QDateTime, QLocale,
-    QMetaObject, QObject, QPoint, QRect,
-    QSize, QTime, QUrl, Qt)
-from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
-    QFont, QFontDatabase, QGradient, QIcon,
-    QImage, QKeySequence, QLinearGradient, QPainter,
-    QPalette, QPixmap, QRadialGradient, QTransform)
-from PySide6.QtWidgets import (QApplication, QFrame, QGroupBox, QHBoxLayout,
-    QLabel, QProgressBar, QScrollArea, QSizePolicy,
-    QSpacerItem, QStackedWidget, QTextEdit, QVBoxLayout,
-    QWidget)
+from PySide6.QtCore import (
+    QCoreApplication,
+    QDate,
+    QDateTime,
+    QLocale,
+    QMetaObject,
+    QObject,
+    QPoint,
+    QRect,
+    QSize,
+    Qt,
+    QTime,
+    QUrl,
+)
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QConicalGradient,
+    QCursor,
+    QFont,
+    QFontDatabase,
+    QGradient,
+    QIcon,
+    QImage,
+    QKeySequence,
+    QLinearGradient,
+    QPainter,
+    QPalette,
+    QPixmap,
+    QRadialGradient,
+    QTransform,
+)
+from PySide6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QProgressBar,
+    QScrollArea,
+    QSizePolicy,
+    QSpacerItem,
+    QStackedWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
-class Ui_ModelResultTab(object):
+
+class Ui_ModelResultTab:
     def setupUi(self, ModelResultTab):
         if not ModelResultTab.objectName():
-            ModelResultTab.setObjectName(u"ModelResultTab")
+            ModelResultTab.setObjectName("ModelResultTab")
         ModelResultTab.resize(500, 400)
         self.verticalLayout = QVBoxLayout(ModelResultTab)
         self.verticalLayout.setSpacing(10)
-        self.verticalLayout.setObjectName(u"verticalLayout")
+        self.verticalLayout.setObjectName("verticalLayout")
         self.verticalLayout.setContentsMargins(10, 10, 10, 10)
         self.frameModelHeader = QFrame(ModelResultTab)
-        self.frameModelHeader.setObjectName(u"frameModelHeader")
+        self.frameModelHeader.setObjectName("frameModelHeader")
         self.frameModelHeader.setFrameShape(QFrame.StyledPanel)
         self.frameModelHeader.setMaximumSize(QSize(16777215, 60))
         self.horizontalLayoutHeader = QHBoxLayout(self.frameModelHeader)
-        self.horizontalLayoutHeader.setObjectName(u"horizontalLayoutHeader")
+        self.horizontalLayoutHeader.setObjectName("horizontalLayoutHeader")
         self.labelModelName = QLabel(self.frameModelHeader)
-        self.labelModelName.setObjectName(u"labelModelName")
+        self.labelModelName.setObjectName("labelModelName")
         font = QFont()
         font.setPointSize(11)
         font.setBold(True)
@@ -54,7 +90,7 @@ class Ui_ModelResultTab(object):
         self.horizontalLayoutHeader.addItem(self.horizontalSpacer)
 
         self.labelProcessingTime = QLabel(self.frameModelHeader)
-        self.labelProcessingTime.setObjectName(u"labelProcessingTime")
+        self.labelProcessingTime.setObjectName("labelProcessingTime")
         font1 = QFont()
         font1.setPointSize(8)
         self.labelProcessingTime.setFont(font1)
@@ -64,12 +100,12 @@ class Ui_ModelResultTab(object):
         self.horizontalLayoutHeader.addWidget(self.labelProcessingTime)
 
         self.labelStatus = QLabel(self.frameModelHeader)
-        self.labelStatus.setObjectName(u"labelStatus")
+        self.labelStatus.setObjectName("labelStatus")
         font2 = QFont()
         font2.setPointSize(9)
         font2.setBold(True)
         self.labelStatus.setFont(font2)
-        self.labelStatus.setStyleSheet(u"color: green;")
+        self.labelStatus.setStyleSheet("color: green;")
         sizePolicy.setHeightForWidth(self.labelStatus.sizePolicy().hasHeightForWidth())
         self.labelStatus.setSizePolicy(sizePolicy)
 
@@ -79,18 +115,18 @@ class Ui_ModelResultTab(object):
         self.verticalLayout.addWidget(self.frameModelHeader)
 
         self.stackedWidgetContent = QStackedWidget(ModelResultTab)
-        self.stackedWidgetContent.setObjectName(u"stackedWidgetContent")
+        self.stackedWidgetContent.setObjectName("stackedWidgetContent")
         self.pageSuccess = QWidget()
-        self.pageSuccess.setObjectName(u"pageSuccess")
+        self.pageSuccess.setObjectName("pageSuccess")
         self.verticalLayoutSuccess = QVBoxLayout(self.pageSuccess)
-        self.verticalLayoutSuccess.setObjectName(u"verticalLayoutSuccess")
+        self.verticalLayoutSuccess.setObjectName("verticalLayoutSuccess")
         self.groupBoxTags = QGroupBox(self.pageSuccess)
-        self.groupBoxTags.setObjectName(u"groupBoxTags")
+        self.groupBoxTags.setObjectName("groupBoxTags")
         self.groupBoxTags.setMaximumSize(QSize(16777215, 120))
         self.verticalLayoutTags = QVBoxLayout(self.groupBoxTags)
-        self.verticalLayoutTags.setObjectName(u"verticalLayoutTags")
+        self.verticalLayoutTags.setObjectName("verticalLayoutTags")
         self.scrollAreaTags = QScrollArea(self.groupBoxTags)
-        self.scrollAreaTags.setObjectName(u"scrollAreaTags")
+        self.scrollAreaTags.setObjectName("scrollAreaTags")
         self.scrollAreaTags.setWidgetResizable(True)
         self.scrollAreaTags.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         sizePolicy1 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -99,13 +135,13 @@ class Ui_ModelResultTab(object):
         sizePolicy1.setHeightForWidth(self.scrollAreaTags.sizePolicy().hasHeightForWidth())
         self.scrollAreaTags.setSizePolicy(sizePolicy1)
         self.scrollAreaWidgetContentsTags = QWidget()
-        self.scrollAreaWidgetContentsTags.setObjectName(u"scrollAreaWidgetContentsTags")
+        self.scrollAreaWidgetContentsTags.setObjectName("scrollAreaWidgetContentsTags")
         self.scrollAreaWidgetContentsTags.setGeometry(QRect(0, 0, 476, 69))
         self.verticalLayoutTagsContent = QVBoxLayout(self.scrollAreaWidgetContentsTags)
-        self.verticalLayoutTagsContent.setObjectName(u"verticalLayoutTagsContent")
+        self.verticalLayoutTagsContent.setObjectName("verticalLayoutTagsContent")
         self.labelTagsPlaceholder = QLabel(self.scrollAreaWidgetContentsTags)
-        self.labelTagsPlaceholder.setObjectName(u"labelTagsPlaceholder")
-        self.labelTagsPlaceholder.setStyleSheet(u"color: #888;")
+        self.labelTagsPlaceholder.setObjectName("labelTagsPlaceholder")
+        self.labelTagsPlaceholder.setStyleSheet("color: #888;")
         sizePolicy.setHeightForWidth(self.labelTagsPlaceholder.sizePolicy().hasHeightForWidth())
         self.labelTagsPlaceholder.setSizePolicy(sizePolicy)
 
@@ -119,12 +155,12 @@ class Ui_ModelResultTab(object):
         self.verticalLayoutSuccess.addWidget(self.groupBoxTags)
 
         self.groupBoxCaptions = QGroupBox(self.pageSuccess)
-        self.groupBoxCaptions.setObjectName(u"groupBoxCaptions")
+        self.groupBoxCaptions.setObjectName("groupBoxCaptions")
         self.groupBoxCaptions.setMaximumSize(QSize(16777215, 120))
         self.verticalLayoutCaptions = QVBoxLayout(self.groupBoxCaptions)
-        self.verticalLayoutCaptions.setObjectName(u"verticalLayoutCaptions")
+        self.verticalLayoutCaptions.setObjectName("verticalLayoutCaptions")
         self.textEditCaptions = QTextEdit(self.groupBoxCaptions)
-        self.textEditCaptions.setObjectName(u"textEditCaptions")
+        self.textEditCaptions.setObjectName("textEditCaptions")
         self.textEditCaptions.setReadOnly(True)
         self.textEditCaptions.setMaximumSize(QSize(16777215, 90))
 
@@ -134,17 +170,17 @@ class Ui_ModelResultTab(object):
         self.verticalLayoutSuccess.addWidget(self.groupBoxCaptions)
 
         self.groupBoxScores = QGroupBox(self.pageSuccess)
-        self.groupBoxScores.setObjectName(u"groupBoxScores")
+        self.groupBoxScores.setObjectName("groupBoxScores")
         self.groupBoxScores.setMaximumSize(QSize(16777215, 80))
         self.verticalLayoutScores = QVBoxLayout(self.groupBoxScores)
-        self.verticalLayoutScores.setObjectName(u"verticalLayoutScores")
+        self.verticalLayoutScores.setObjectName("verticalLayoutScores")
         self.frameScoreContent = QFrame(self.groupBoxScores)
-        self.frameScoreContent.setObjectName(u"frameScoreContent")
+        self.frameScoreContent.setObjectName("frameScoreContent")
         self.frameScoreContent.setFrameShape(QFrame.NoFrame)
         self.horizontalLayoutScore = QHBoxLayout(self.frameScoreContent)
-        self.horizontalLayoutScore.setObjectName(u"horizontalLayoutScore")
+        self.horizontalLayoutScore.setObjectName("horizontalLayoutScore")
         self.labelScoreValue = QLabel(self.frameScoreContent)
-        self.labelScoreValue.setObjectName(u"labelScoreValue")
+        self.labelScoreValue.setObjectName("labelScoreValue")
         font3 = QFont()
         font3.setPointSize(16)
         font3.setBold(True)
@@ -156,7 +192,7 @@ class Ui_ModelResultTab(object):
         self.horizontalLayoutScore.addWidget(self.labelScoreValue)
 
         self.progressBarScore = QProgressBar(self.frameScoreContent)
-        self.progressBarScore.setObjectName(u"progressBarScore")
+        self.progressBarScore.setObjectName("progressBarScore")
         self.progressBarScore.setMinimum(0)
         self.progressBarScore.setMaximum(100)
         self.progressBarScore.setValue(85)
@@ -182,22 +218,22 @@ class Ui_ModelResultTab(object):
 
         self.stackedWidgetContent.addWidget(self.pageSuccess)
         self.pageError = QWidget()
-        self.pageError.setObjectName(u"pageError")
+        self.pageError.setObjectName("pageError")
         self.verticalLayoutError = QVBoxLayout(self.pageError)
-        self.verticalLayoutError.setObjectName(u"verticalLayoutError")
+        self.verticalLayoutError.setObjectName("verticalLayoutError")
         self.frameErrorHeader = QFrame(self.pageError)
-        self.frameErrorHeader.setObjectName(u"frameErrorHeader")
+        self.frameErrorHeader.setObjectName("frameErrorHeader")
         self.frameErrorHeader.setFrameShape(QFrame.StyledPanel)
-        self.frameErrorHeader.setStyleSheet(u"QFrame {\n"
+        self.frameErrorHeader.setStyleSheet("QFrame {\n"
 "    background-color: #ffe6e6;\n"
 "    border: 2px solid #ff6b6b;\n"
 "    border-radius: 8px;\n"
 "}")
         self.frameErrorHeader.setMaximumSize(QSize(16777215, 50))
         self.horizontalLayoutErrorHeader = QHBoxLayout(self.frameErrorHeader)
-        self.horizontalLayoutErrorHeader.setObjectName(u"horizontalLayoutErrorHeader")
+        self.horizontalLayoutErrorHeader.setObjectName("horizontalLayoutErrorHeader")
         self.labelErrorIcon = QLabel(self.frameErrorHeader)
-        self.labelErrorIcon.setObjectName(u"labelErrorIcon")
+        self.labelErrorIcon.setObjectName("labelErrorIcon")
         font4 = QFont()
         font4.setPointSize(16)
         self.labelErrorIcon.setFont(font4)
@@ -207,12 +243,12 @@ class Ui_ModelResultTab(object):
         self.horizontalLayoutErrorHeader.addWidget(self.labelErrorIcon)
 
         self.labelErrorTitle = QLabel(self.frameErrorHeader)
-        self.labelErrorTitle.setObjectName(u"labelErrorTitle")
+        self.labelErrorTitle.setObjectName("labelErrorTitle")
         font5 = QFont()
         font5.setPointSize(12)
         font5.setBold(True)
         self.labelErrorTitle.setFont(font5)
-        self.labelErrorTitle.setStyleSheet(u"color: #d32f2f;")
+        self.labelErrorTitle.setStyleSheet("color: #d32f2f;")
         sizePolicy.setHeightForWidth(self.labelErrorTitle.sizePolicy().hasHeightForWidth())
         self.labelErrorTitle.setSizePolicy(sizePolicy)
 
@@ -226,13 +262,13 @@ class Ui_ModelResultTab(object):
         self.verticalLayoutError.addWidget(self.frameErrorHeader)
 
         self.groupBoxErrorDetails = QGroupBox(self.pageError)
-        self.groupBoxErrorDetails.setObjectName(u"groupBoxErrorDetails")
+        self.groupBoxErrorDetails.setObjectName("groupBoxErrorDetails")
         self.verticalLayoutErrorDetails = QVBoxLayout(self.groupBoxErrorDetails)
-        self.verticalLayoutErrorDetails.setObjectName(u"verticalLayoutErrorDetails")
+        self.verticalLayoutErrorDetails.setObjectName("verticalLayoutErrorDetails")
         self.textEditErrorMessage = QTextEdit(self.groupBoxErrorDetails)
-        self.textEditErrorMessage.setObjectName(u"textEditErrorMessage")
+        self.textEditErrorMessage.setObjectName("textEditErrorMessage")
         self.textEditErrorMessage.setReadOnly(True)
-        self.textEditErrorMessage.setStyleSheet(u"QTextEdit {\n"
+        self.textEditErrorMessage.setStyleSheet("QTextEdit {\n"
 "    background-color: #fff5f5;\n"
 "    border: 1px solid #ffcccb;\n"
 "    color: #d32f2f;\n"
@@ -264,19 +300,19 @@ class Ui_ModelResultTab(object):
     # setupUi
 
     def retranslateUi(self, ModelResultTab):
-        self.labelModelName.setText(QCoreApplication.translate("ModelResultTab", u"\u30e2\u30c7\u30eb\u540d: GPT-4o", None))
-        self.labelProcessingTime.setText(QCoreApplication.translate("ModelResultTab", u"\u51e6\u7406\u6642\u9593: 2.3s", None))
-        self.labelStatus.setText(QCoreApplication.translate("ModelResultTab", u"\u2713 \u6210\u529f", None))
-        self.groupBoxTags.setTitle(QCoreApplication.translate("ModelResultTab", u"\u30bf\u30b0", None))
-        self.labelTagsPlaceholder.setText(QCoreApplication.translate("ModelResultTab", u"\u30bf\u30b0\u306a\u3057", None))
-        self.groupBoxCaptions.setTitle(QCoreApplication.translate("ModelResultTab", u"\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3", None))
-        self.textEditCaptions.setPlaceholderText(QCoreApplication.translate("ModelResultTab", u"\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3\u306a\u3057", None))
-        self.groupBoxScores.setTitle(QCoreApplication.translate("ModelResultTab", u"\u30b9\u30b3\u30a2", None))
-        self.labelScoreValue.setText(QCoreApplication.translate("ModelResultTab", u"0.85", None))
-        self.labelErrorIcon.setText(QCoreApplication.translate("ModelResultTab", u"\u26a0\ufe0f", None))
-        self.labelErrorTitle.setText(QCoreApplication.translate("ModelResultTab", u"\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u51e6\u7406\u30a8\u30e9\u30fc", None))
-        self.groupBoxErrorDetails.setTitle(QCoreApplication.translate("ModelResultTab", u"\u30a8\u30e9\u30fc\u8a73\u7d30", None))
-        self.textEditErrorMessage.setPlaceholderText(QCoreApplication.translate("ModelResultTab", u"\u30a8\u30e9\u30fc\u60c5\u5831\u304c\u8aad\u307f\u8fbc\u307e\u308c\u307e\u3059...", None))
+        self.labelModelName.setText(QCoreApplication.translate("ModelResultTab", "\u30e2\u30c7\u30eb\u540d: GPT-4o", None))
+        self.labelProcessingTime.setText(QCoreApplication.translate("ModelResultTab", "\u51e6\u7406\u6642\u9593: 2.3s", None))
+        self.labelStatus.setText(QCoreApplication.translate("ModelResultTab", "\u2713 \u6210\u529f", None))
+        self.groupBoxTags.setTitle(QCoreApplication.translate("ModelResultTab", "\u30bf\u30b0", None))
+        self.labelTagsPlaceholder.setText(QCoreApplication.translate("ModelResultTab", "\u30bf\u30b0\u306a\u3057", None))
+        self.groupBoxCaptions.setTitle(QCoreApplication.translate("ModelResultTab", "\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3", None))
+        self.textEditCaptions.setPlaceholderText(QCoreApplication.translate("ModelResultTab", "\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3\u306a\u3057", None))
+        self.groupBoxScores.setTitle(QCoreApplication.translate("ModelResultTab", "\u30b9\u30b3\u30a2", None))
+        self.labelScoreValue.setText(QCoreApplication.translate("ModelResultTab", "0.85", None))
+        self.labelErrorIcon.setText(QCoreApplication.translate("ModelResultTab", "\u26a0\ufe0f", None))
+        self.labelErrorTitle.setText(QCoreApplication.translate("ModelResultTab", "\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u51e6\u7406\u30a8\u30e9\u30fc", None))
+        self.groupBoxErrorDetails.setTitle(QCoreApplication.translate("ModelResultTab", "\u30a8\u30e9\u30fc\u8a73\u7d30", None))
+        self.textEditErrorMessage.setPlaceholderText(QCoreApplication.translate("ModelResultTab", "\u30a8\u30e9\u30fc\u60c5\u5831\u304c\u8aad\u307f\u8fbc\u307e\u308c\u307e\u3059...", None))
         pass
     # retranslateUi
 

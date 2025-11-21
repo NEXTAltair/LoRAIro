@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 
 ################################################################################
 ## Form generated from reading UI file 'ThumbnailSelectorWidget.ui'
@@ -8,25 +7,60 @@
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
 
-from PySide6.QtCore import (QCoreApplication, QDate, QDateTime, QLocale,
-    QMetaObject, QObject, QPoint, QRect,
-    QSize, QTime, QUrl, Qt)
-from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
-    QFont, QFontDatabase, QGradient, QIcon,
-    QImage, QKeySequence, QLinearGradient, QPainter,
-    QPalette, QPixmap, QRadialGradient, QTransform)
-from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel,
-    QScrollArea, QSizePolicy, QSlider, QSpacerItem,
-    QVBoxLayout, QWidget)
+from PySide6.QtCore import (
+    QCoreApplication,
+    QDate,
+    QDateTime,
+    QLocale,
+    QMetaObject,
+    QObject,
+    QPoint,
+    QRect,
+    QSize,
+    Qt,
+    QTime,
+    QUrl,
+)
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QConicalGradient,
+    QCursor,
+    QFont,
+    QFontDatabase,
+    QGradient,
+    QIcon,
+    QImage,
+    QKeySequence,
+    QLinearGradient,
+    QPainter,
+    QPalette,
+    QPixmap,
+    QRadialGradient,
+    QTransform,
+)
+from PySide6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QScrollArea,
+    QSizePolicy,
+    QSlider,
+    QSpacerItem,
+    QVBoxLayout,
+    QWidget,
+)
 
-class Ui_ThumbnailSelectorWidget(object):
+
+class Ui_ThumbnailSelectorWidget:
     def setupUi(self, ThumbnailSelectorWidget):
         if not ThumbnailSelectorWidget.objectName():
-            ThumbnailSelectorWidget.setObjectName(u"ThumbnailSelectorWidget")
+            ThumbnailSelectorWidget.setObjectName("ThumbnailSelectorWidget")
         self.verticalLayout = QVBoxLayout(ThumbnailSelectorWidget)
-        self.verticalLayout.setObjectName(u"verticalLayout")
+        self.verticalLayout.setObjectName("verticalLayout")
         self.frameThumbnailHeader = QFrame(ThumbnailSelectorWidget)
-        self.frameThumbnailHeader.setObjectName(u"frameThumbnailHeader")
+        self.frameThumbnailHeader.setObjectName("frameThumbnailHeader")
         sizePolicy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
@@ -34,10 +68,10 @@ class Ui_ThumbnailSelectorWidget(object):
         self.frameThumbnailHeader.setSizePolicy(sizePolicy)
         self.frameThumbnailHeader.setFrameShape(QFrame.Shape.NoFrame)
         self.horizontalLayoutThumbnailHeader = QHBoxLayout(self.frameThumbnailHeader)
-        self.horizontalLayoutThumbnailHeader.setObjectName(u"horizontalLayoutThumbnailHeader")
+        self.horizontalLayoutThumbnailHeader.setObjectName("horizontalLayoutThumbnailHeader")
         self.horizontalLayoutThumbnailHeader.setContentsMargins(0, 0, 0, 0)
         self.labelThumbnailCount = QLabel(self.frameThumbnailHeader)
-        self.labelThumbnailCount.setObjectName(u"labelThumbnailCount")
+        self.labelThumbnailCount.setObjectName("labelThumbnailCount")
 
         self.horizontalLayoutThumbnailHeader.addWidget(self.labelThumbnailCount)
 
@@ -46,12 +80,12 @@ class Ui_ThumbnailSelectorWidget(object):
         self.horizontalLayoutThumbnailHeader.addItem(self.horizontalSpacerThumbnailHeader)
 
         self.labelThumbnailSize = QLabel(self.frameThumbnailHeader)
-        self.labelThumbnailSize.setObjectName(u"labelThumbnailSize")
+        self.labelThumbnailSize.setObjectName("labelThumbnailSize")
 
         self.horizontalLayoutThumbnailHeader.addWidget(self.labelThumbnailSize)
 
         self.sliderThumbnailSize = QSlider(self.frameThumbnailHeader)
-        self.sliderThumbnailSize.setObjectName(u"sliderThumbnailSize")
+        self.sliderThumbnailSize.setObjectName("sliderThumbnailSize")
         sizePolicy1 = QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         sizePolicy1.setHorizontalStretch(0)
         sizePolicy1.setVerticalStretch(0)
@@ -68,10 +102,10 @@ class Ui_ThumbnailSelectorWidget(object):
         self.verticalLayout.addWidget(self.frameThumbnailHeader)
 
         self.scrollAreaThumbnails = QScrollArea(ThumbnailSelectorWidget)
-        self.scrollAreaThumbnails.setObjectName(u"scrollAreaThumbnails")
+        self.scrollAreaThumbnails.setObjectName("scrollAreaThumbnails")
         self.scrollAreaThumbnails.setWidgetResizable(True)
         self.widgetThumbnailsContent = QWidget()
-        self.widgetThumbnailsContent.setObjectName(u"widgetThumbnailsContent")
+        self.widgetThumbnailsContent.setObjectName("widgetThumbnailsContent")
         sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         sizePolicy2.setHorizontalStretch(0)
         sizePolicy2.setVerticalStretch(0)
@@ -89,8 +123,8 @@ class Ui_ThumbnailSelectorWidget(object):
     # setupUi
 
     def retranslateUi(self, ThumbnailSelectorWidget):
-        self.labelThumbnailCount.setText(QCoreApplication.translate("ThumbnailSelectorWidget", u"\u753b\u50cf: 0\u4ef6", None))
-        self.labelThumbnailSize.setText(QCoreApplication.translate("ThumbnailSelectorWidget", u"\u30b5\u30a4\u30ba:", None))
+        self.labelThumbnailCount.setText(QCoreApplication.translate("ThumbnailSelectorWidget", "\u753b\u50cf: 0\u4ef6", None))
+        self.labelThumbnailSize.setText(QCoreApplication.translate("ThumbnailSelectorWidget", "\u30b5\u30a4\u30ba:", None))
         pass
     # retranslateUi
 

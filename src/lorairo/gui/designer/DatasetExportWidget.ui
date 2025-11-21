@@ -73,52 +73,9 @@
            <widget class="DirectoryPickerWidget" name="exportDirectoryPicker" native="true" />
           </item>
           <item>
-           <widget class="QLabel" name="resolutionLabel">
-            <property name="text">
-             <string>処理済み画像解像度:</string>
-            </property>
-            <property name="sizePolicy">
-             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-              <horstretch>0</horstretch>
-              <verstretch>0</verstretch>
-             </sizepolicy>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QComboBox" name="comboBoxResolution">
-            <property name="sizePolicy">
-             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-              <horstretch>0</horstretch>
-              <verstretch>0</verstretch>
-             </sizepolicy>
-            </property>
-            <item>
-             <property name="text">
-              <string>512px</string>
-             </property>
-            </item>
-            <item>
-             <property name="text">
-              <string>768px</string>
-             </property>
-            </item>
-            <item>
-             <property name="text">
-              <string>1024px</string>
-             </property>
-            </item>
-            <item>
-             <property name="text">
-              <string>1536px</string>
-             </property>
-            </item>
-           </widget>
-          </item>
-          <item>
            <widget class="QLabel" name="exportFormatLabel">
             <property name="text">
-             <string>エクスポート形式:</string>
+             <string>Export Format:</string>
             </property>
             <property name="sizePolicy">
              <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
@@ -129,11 +86,11 @@
            </widget>
           </item>
           <item>
-           <layout class="QVBoxLayout" name="formatSelectionLayout">
+           <layout class="QHBoxLayout" name="exportFormatLayout">
             <item>
-             <widget class="QRadioButton" name="radioTxtSeparate">
+             <widget class="QCheckBox" name="checkBoxTxtCap">
               <property name="text">
-               <string>TXT形式（タグ+キャプション別ファイル）</string>
+               <string>txt/caption</string>
               </property>
               <property name="checked">
                <bool>true</bool>
@@ -141,35 +98,35 @@
              </widget>
             </item>
             <item>
-             <widget class="QRadioButton" name="radioTxtMerged">
+             <widget class="QCheckBox" name="checkBoxJson">
               <property name="text">
-               <string>TXT形式（キャプション統合）</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QRadioButton" name="radioJson">
-              <property name="text">
-               <string>JSON形式（metadata.json）</string>
+               <string>metadata.json</string>
               </property>
              </widget>
             </item>
            </layout>
           </item>
           <item>
-           <widget class="QCheckBox" name="latestOnlyCheckBox">
+           <widget class="QCheckBox" name="latestcheckBox">
             <property name="text">
-             <string>最新のアノテーションのみ使用</string>
+             <string>最後に更新されたアノテーションだけを出力する</string>
             </property>
            </widget>
           </item>
           <item>
-           <widget class="QLabel" name="validationResultsLabel">
+           <widget class="QCheckBox" name="MergeCaptionWithTagscheckBox">
             <property name="text">
-             <string>検証結果:</string>
+             <string>captionとして保存された文字列も ".tag" に保存する</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="exportButton">
+            <property name="text">
+             <string>Export Dataset</string>
             </property>
             <property name="sizePolicy">
-             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
               <horstretch>0</horstretch>
               <verstretch>0</verstretch>
              </sizepolicy>
@@ -177,143 +134,9 @@
            </widget>
           </item>
           <item>
-           <layout class="QHBoxLayout" name="validationStatsLayout">
-            <item>
-             <widget class="QLabel" name="totalImagesLabel">
-              <property name="text">
-               <string>対象画像数: --</string>
-              </property>
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QLabel" name="validImagesLabel">
-              <property name="text">
-               <string>エクスポート可能: --</string>
-              </property>
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QLabel" name="errorCountLabel">
-              <property name="text">
-               <string>エラー: --</string>
-              </property>
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </item>
-          <item>
-           <widget class="QTextEdit" name="validationDetailsText">
-            <property name="sizePolicy">
-             <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-              <horstretch>0</horstretch>
-              <verstretch>1</verstretch>
-             </sizepolicy>
-            </property>
-            <property name="maximumSize">
-             <size>
-              <width>16777215</width>
-              <height>100</height>
-             </size>
-            </property>
-            <property name="readOnly">
-             <bool>true</bool>
-            </property>
-            <property name="placeholderText">
-             <string>検証実行ボタンをクリックして詳細を確認してください。</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="actionButtonsLayout">
-            <item>
-             <widget class="QPushButton" name="validateButton">
-              <property name="text">
-               <string>検証実行</string>
-              </property>
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="exportButton">
-              <property name="text">
-               <string>エクスポート開始</string>
-              </property>
-              <property name="enabled">
-               <bool>false</bool>
-              </property>
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="controlButtonsLayout">
-            <item>
-             <widget class="QPushButton" name="cancelButton">
-              <property name="text">
-               <string>キャンセル</string>
-              </property>
-              <property name="enabled">
-               <bool>false</bool>
-              </property>
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="closeButton">
-              <property name="text">
-               <string>閉じる</string>
-              </property>
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </item>
-          <item>
            <widget class="QProgressBar" name="exportProgressBar">
             <property name="value">
              <number>0</number>
-            </property>
-            <property name="visible">
-             <bool>false</bool>
             </property>
             <property name="sizePolicy">
              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -326,7 +149,7 @@
           <item>
            <widget class="QLabel" name="statusLabel">
             <property name="text">
-             <string>準備完了</string>
+             <string>Status: Ready</string>
             </property>
             <property name="sizePolicy">
              <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
