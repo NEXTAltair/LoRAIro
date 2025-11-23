@@ -4,12 +4,18 @@ GUI Layer: 非同期処理とQt進捗管理のみ担当
 ビジネスロジックはAnnotationLogicに委譲
 """
 
+import traceback
+from typing import TYPE_CHECKING
+
 from image_annotator_lib import PHashAnnotationResults
 
 from lorairo.annotations.annotation_logic import AnnotationLogic
 from lorairo.utils.log import logger
 
 from .base import LoRAIroWorkerBase
+
+if TYPE_CHECKING:
+    from lorairo.database.db_manager import ImageDatabaseManager
 
 
 class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
@@ -30,6 +36,7 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
         annotation_logic: AnnotationLogic,
         image_paths: list[str],
         models: list[str],
+        db_manager: "ImageDatabaseManager | None" = None,
     ):
         """AnnotationWorker初期化
 
@@ -37,12 +44,14 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
             annotation_logic: アノテーション業務ロジック
             image_paths: 画像パスリスト
             models: 使用モデル名リスト
+            db_manager: データベースマネージャ（エラー記録用、Optional）
         """
         super().__init__()
 
         self.annotation_logic = annotation_logic
         self.image_paths = image_paths
         self.models = models
+        self.db_manager = db_manager
 
         logger.info(f"AnnotationWorker初期化 - Images: {len(self.image_paths)}, Models: {len(self.models)}")
 
@@ -99,6 +108,30 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
 
                 except Exception as e:
                     logger.error(f"モデル {model_name} でエラー: {e}", exc_info=True)
+
+                    # エラーレコード保存（二次エラー対策付き）
+                    # バッチ処理のため、各画像に対してエラーレコードを作成
+                    if self.db_manager:
+                        for image_path in self.image_paths:
+                            try:
+                                # 画像パスから image_id を取得
+                                image_id = self.db_manager.get_image_id_by_filepath(image_path)
+
+                                # エラーレコード保存
+                                self.db_manager.save_error_record(
+                                    operation_type="annotation",
+                                    error_type=type(e).__name__,
+                                    error_message=str(e),
+                                    image_id=image_id,  # 画像IDを指定
+                                    stack_trace=traceback.format_exc(),
+                                    file_path=image_path,
+                                    model_name=model_name,
+                                )
+                            except Exception as save_error:
+                                logger.error(
+                                    f"エラーレコード保存失敗（二次エラー）: {image_path}, {save_error}"
+                                )
+
                     # エラーでも次のモデルに進む（部分的成功を許容）
 
             # 完了進捗
@@ -114,4 +147,28 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
 
         except Exception as e:
             logger.error(f"アノテーション処理エラー: {e}", exc_info=True)
+
+            # エラーレコード保存（二次エラー対策付き）
+            # 全体エラーでも各画像に対してエラーレコードを作成
+            if self.db_manager:
+                for image_path in self.image_paths:
+                    try:
+                        # 画像パスから image_id を取得
+                        image_id = self.db_manager.get_image_id_by_filepath(image_path)
+
+                        # エラーレコード保存
+                        self.db_manager.save_error_record(
+                            operation_type="annotation",
+                            error_type=type(e).__name__,
+                            error_message=str(e),
+                            image_id=image_id,  # 画像IDを指定
+                            stack_trace=traceback.format_exc(),
+                            file_path=image_path,
+                            model_name=None,  # 全体エラーのためモデル特定不可
+                        )
+                    except Exception as save_error:
+                        logger.error(
+                            f"エラーレコード保存失敗（二次エラー）: {image_path}, {save_error}"
+                        )
+
             raise

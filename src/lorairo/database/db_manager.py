@@ -411,7 +411,7 @@ class ImageDatabaseManager:
                 path = metadata.get("stored_image_path")
                 if path:
                     logger.debug(f"画像ID {image_id} の低解像度画像パスを取得しました。")
-                    return path  # type: ignore
+                    return path  # type: ignore[no-any-return]
                 else:
                     logger.warning(
                         f"画像ID {image_id} の低解像度画像のパスが見つかりません。 Metadata: {metadata}"
@@ -615,7 +615,7 @@ class ImageDatabaseManager:
             if not self.fsm:
                 from ..storage.file_system import FileSystemManager
 
-                temp_fsm = FileSystemManager()  # type: ignore
+                temp_fsm = FileSystemManager()
                 image_files = temp_fsm.get_image_files(directory_path)
             else:
                 image_files = self.fsm.get_image_files(directory_path)
@@ -676,9 +676,10 @@ class ImageDatabaseManager:
                 result: Result = session.execute(completed_query)
                 completed_images: int = result.scalar() or 0
 
-                # エラー画像数取得 (TODO: エラー記録テーブルが必要)
-                # 現在はプレースホルダー
-                error_images = 0
+                # エラー画像数取得 (未解決のアノテーションエラーのみ)
+                error_images = self.repository.get_error_count_unresolved(
+                    operation_type="annotation"
+                )
 
                 completion_rate = (completed_images / total_images) * 100.0 if total_images > 0 else 0.0
 
@@ -719,8 +720,13 @@ class ImageDatabaseManager:
                         WHERE t.id IS NOT NULL OR c.id IS NOT NULL
                     """)
                 elif error:
-                    # エラー画像（TODO: エラー記録テーブル参照）
-                    query = text("SELECT * FROM images WHERE 1=0")  # 現在は空結果
+                    # エラー画像（未解決のアノテーションエラーのみ）
+                    error_image_ids = self.repository.get_error_image_ids(
+                        operation_type="annotation", resolved=False
+                    )
+                    if not error_image_ids:
+                        return []
+                    return self.repository.get_images_by_ids(error_image_ids)
                 else:
                     # 全ての画像
                     query = text("SELECT * FROM images")
@@ -934,6 +940,71 @@ class ImageDatabaseManager:
         except Exception as e:
             logger.error(f"フィルタリング検索実行エラー: {e}", exc_info=True)
             return [], 0
+
+    def save_error_record(
+        self,
+        operation_type: str,
+        error_type: str,
+        error_message: str,
+        image_id: int | None = None,
+        stack_trace: str | None = None,
+        file_path: str | None = None,
+        model_name: str | None = None,
+    ) -> int:
+        """
+        エラーレコードを保存（Manager層Facade）
+
+        Worker層から呼び出されるFacadeメソッド。
+        二次エラー（エラー保存中のエラー）を防ぐため、try-exceptで保護されています。
+
+        Args:
+            operation_type: 操作種別 ("registration" | "annotation" | "processing")
+            error_type: エラー種別（例: "FileNotFoundError", "APIError"）
+            error_message: エラーメッセージ
+            image_id: 画像ID (Optional)
+            stack_trace: スタックトレース (Optional)
+            file_path: ファイルパス (Optional)
+            model_name: モデル名 (Optional)
+
+        Returns:
+            int: 作成された error_record_id（二次エラー時は -1）
+        """
+        try:
+            error_id = self.repository.save_error_record(
+                operation_type=operation_type,
+                error_type=error_type,
+                error_message=error_message,
+                image_id=image_id,
+                stack_trace=stack_trace,
+                file_path=file_path,
+                model_name=model_name,
+            )
+            logger.debug(
+                f"エラーレコード保存完了: error_id={error_id}, "
+                f"operation_type={operation_type}, error_type={error_type}"
+            )
+            return error_id
+
+        except Exception as e:
+            # 二次エラーは致命的ではないので、ログだけ出力して処理続行
+            logger.error(f"エラーレコード保存中にエラー（二次エラー）: {e}", exc_info=True)
+            return -1
+
+    def get_image_id_by_filepath(self, filepath: str) -> int | None:
+        """
+        ファイルパスから画像IDを取得（Manager層Facade）
+
+        Args:
+            filepath: 画像ファイルパス
+
+        Returns:
+            int | None: 画像ID（見つからない場合は None）
+        """
+        try:
+            return self.repository.get_image_id_by_filepath(filepath)
+        except Exception as e:
+            logger.error(f"ファイルパスからの画像ID取得エラー: {e}", exc_info=True)
+            return None
 
 
 # --- 初期化チェック ---
