@@ -354,9 +354,7 @@ class ErrorRecord(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
     # エラー発生コンテキスト
-    image_id: Mapped[int | None] = mapped_column(
-        ForeignKey("images.id", ondelete="CASCADE"), nullable=True
-    )
+    image_id: Mapped[int | None] = mapped_column(ForeignKey("images.id", ondelete="CASCADE"), nullable=True)
     operation_type: Mapped[str] = mapped_column(String, nullable=False)
     # 'registration', 'annotation', 'processing', 'search', 'thumbnail'
 

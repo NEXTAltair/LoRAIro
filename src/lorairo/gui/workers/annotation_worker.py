@@ -167,8 +167,6 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
                             model_name=None,  # 全体エラーのためモデル特定不可
                         )
                     except Exception as save_error:
-                        logger.error(
-                            f"エラーレコード保存失敗（二次エラー）: {image_path}, {save_error}"
-                        )
+                        logger.error(f"エラーレコード保存失敗（二次エラー）: {image_path}, {save_error}")
 
             raise

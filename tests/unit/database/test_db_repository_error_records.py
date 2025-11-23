@@ -151,9 +151,7 @@ class TestGetErrorImageIds:
         mock_session.execute.return_value.scalars.return_value.all.return_value = [1, 2]
         repository.session_factory.return_value.__enter__.return_value = mock_session
 
-        image_ids = repository.get_error_image_ids(
-            operation_type="annotation", resolved=False
-        )
+        image_ids = repository.get_error_image_ids(operation_type="annotation", resolved=False)
 
         assert image_ids == [1, 2]
 
