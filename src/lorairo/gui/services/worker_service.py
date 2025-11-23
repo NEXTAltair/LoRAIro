@@ -184,6 +184,7 @@ class WorkerService(QObject):
             annotation_logic=self.annotation_logic,
             image_paths=image_paths,
             models=models,
+            db_manager=self.db_manager,
         )
         worker_id = f"annotation_{uuid.uuid4().hex[:8]}"
 

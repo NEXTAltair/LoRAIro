@@ -177,6 +177,9 @@ class Image(Base):
     ratings: Mapped[list[Rating]] = relationship(
         "Rating", back_populates="image", cascade="all, delete-orphan"
     )
+    error_records: Mapped[list[ErrorRecord]] = relationship(
+        "ErrorRecord", back_populates="image", cascade="all, delete-orphan"
+    )
 
     # uuid と phash の組み合わせはユニークであるべき
     # phash が NOT NULL になったため、複合ユニーク制約を追加可能
@@ -343,6 +346,53 @@ class Rating(Base):
         return f"<Rating(id={self.id}, image_id={self.image_id}, rating='{self.normalized_rating}')>"
 
 
+class ErrorRecord(Base):
+    """処理エラー記録テーブル"""
+
+    __tablename__ = "error_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    # エラー発生コンテキスト
+    image_id: Mapped[int | None] = mapped_column(
+        ForeignKey("images.id", ondelete="CASCADE"), nullable=True
+    )
+    operation_type: Mapped[str] = mapped_column(String, nullable=False)
+    # 'registration', 'annotation', 'processing', 'search', 'thumbnail'
+
+    # エラー詳細
+    error_type: Mapped[str] = mapped_column(String, nullable=False)
+    # 'pHash calculation', 'DB constraint', 'File I/O', 'API error', 'Network', etc.
+    error_message: Mapped[str] = mapped_column(String, nullable=False)
+    stack_trace: Mapped[str | None] = mapped_column(String)
+
+    # 追加コンテキスト
+    file_path: Mapped[str | None] = mapped_column(String)
+    model_name: Mapped[str | None] = mapped_column(String)
+
+    # 再試行管理
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    resolved_at: Mapped[datetime.datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+    # タイムスタンプ
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+
+    # Relationships
+    image: Mapped[Image | None] = relationship("Image", back_populates="error_records")
+
+    # Indexes
+    __table_args__ = (
+        Index("ix_error_records_operation_type", "operation_type"),
+        Index("ix_error_records_created_at", "created_at"),
+        Index("ix_error_records_resolved", "resolved_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ErrorRecord(id={self.id}, operation='{self.operation_type}', type='{self.error_type}')>"
+
+
 # --- TypedDicts for data transfer ---
 
 
@@ -433,3 +483,19 @@ class AnnotationsDict(TypedDict):
     captions: NotRequired[list[CaptionAnnotationData]]
     scores: NotRequired[list[ScoreAnnotationData]]
     ratings: NotRequired[list[RatingAnnotationData]]
+
+
+class ErrorRecordData(TypedDict):
+    """エラーレコードデータ型"""
+
+    id: NotRequired[int]
+    image_id: int | None
+    operation_type: str
+    error_type: str
+    error_message: str
+    stack_trace: NotRequired[str | None]
+    file_path: NotRequired[str | None]
+    model_name: NotRequired[str | None]
+    retry_count: NotRequired[int]
+    resolved_at: NotRequired[datetime.datetime | None]
+    created_at: NotRequired[datetime.datetime]

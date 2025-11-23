@@ -9,7 +9,17 @@ from sqlalchemy.orm import Session, selectinload, sessionmaker
 
 from ..utils.log import logger
 from .db_core import DefaultSessionLocal, get_tag_db_path
-from .schema import Caption, Image, Model, ModelType, ProcessedImage, Rating, Score, Tag
+from .schema import (
+    Caption,
+    ErrorRecord,
+    Image,
+    Model,
+    ModelType,
+    ProcessedImage,
+    Rating,
+    Score,
+    Tag,
+)
 
 
 # --- データ構造の型定義 (例) ---
@@ -446,7 +456,7 @@ class ImageRepository:
             confidence = tag_info.get("confidence_score")  # Optional
             is_existing_tag = tag_info.get("existing", False)  # 元ファイル由来か
 
-            # 外部DBから tag_id を取得/作成 (TODO: 実際の連携処理に置き換える)
+            # 外部DBから tag_id を取得/作成 (FIXME: Issue #2参照 - 実際の連携処理に置き換える)
             external_tag_id = self._get_or_create_tag_id_external(session, tag_string)
 
             # 既存レコードを検索
@@ -1304,7 +1314,7 @@ class ImageRepository:
         manual_rating_filter: str | None = None,  # 手動レーティングでフィルタ
         manual_edit_filter: bool
         | None = None,  # 手動編集フラグでフィルタ (True:編集済, False:未編集, None:フィルタ無)
-        # TODO: rating (AIによる評価) でのフィルタも追加検討
+        # FIXME: Issue #3参照 - rating (AIによる評価) でのフィルタも追加検討
     ) -> tuple[list[dict[str, Any]], int]:
         """
         指定された条件に基づいて画像をフィルタリングし、メタデータと件数を返します。
@@ -1608,3 +1618,290 @@ class ImageRepository:
                     exc_info=True,
                 )
                 raise
+
+    # --- Error Record Management Methods ---
+
+    def save_error_record(
+        self,
+        operation_type: str,
+        error_type: str,
+        error_message: str,
+        image_id: int | None = None,
+        stack_trace: str | None = None,
+        file_path: str | None = None,
+        model_name: str | None = None,
+    ) -> int:
+        """
+        エラーレコードを保存
+
+        Args:
+            operation_type: 操作種別 ("registration" | "annotation" | "processing")
+            error_type: エラー種別 ("pHash calculation" | "API error" | "DB constraint")
+            error_message: エラーメッセージ
+            image_id: 画像ID (Optional)
+            stack_trace: スタックトレース (Optional)
+            file_path: ファイルパス (Optional)
+            model_name: モデル名 (Optional)
+
+        Returns:
+            int: 作成された error_record_id
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合
+        """
+        with self.session_factory() as session:
+            try:
+                record = ErrorRecord(
+                    image_id=image_id,
+                    operation_type=operation_type,
+                    error_type=error_type,
+                    error_message=error_message,
+                    stack_trace=stack_trace,
+                    file_path=file_path,
+                    model_name=model_name,
+                    retry_count=0,
+                )
+                session.add(record)
+                session.flush()
+                error_id = record.id
+                session.commit()
+                logger.info(
+                    f"エラーレコードを保存しました: ID={error_id}, "
+                    f"operation={operation_type}, type={error_type}"
+                )
+                return error_id
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"エラーレコードの保存中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    def get_error_count_unresolved(self, operation_type: str | None = None) -> int:
+        """
+        未解決エラー件数を取得（resolved_at IS NULL）
+
+        Args:
+            operation_type: 操作種別（None = 全操作）
+
+        Returns:
+            int: 未解決エラー件数
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合
+        """
+        with self.session_factory() as session:
+            try:
+                query = select(func.count(ErrorRecord.id)).where(ErrorRecord.resolved_at.is_(None))
+                if operation_type:
+                    query = query.where(ErrorRecord.operation_type == operation_type)
+                count = session.execute(query).scalar() or 0
+                logger.debug(
+                    f"未解決エラー件数を取得: {count}件 "
+                    f"(operation_type={operation_type or 'all'})"
+                )
+                return count
+            except SQLAlchemyError as e:
+                logger.error(f"未解決エラー件数の取得中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    def get_error_image_ids(
+        self, operation_type: str | None = None, resolved: bool = False
+    ) -> list[int]:
+        """
+        エラー画像のID一覧を取得
+
+        Args:
+            operation_type: 操作種別フィルタ
+            resolved: True = 解決済み（resolved_at IS NOT NULL）、
+                     False = 未解決（resolved_at IS NULL）
+
+        Returns:
+            list[int]: 画像IDリスト（重複除去済み、Noneを除外）
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合
+        """
+        with self.session_factory() as session:
+            try:
+                query = select(ErrorRecord.image_id).distinct().where(
+                    ErrorRecord.image_id.is_not(None)
+                )
+                if resolved:
+                    query = query.where(ErrorRecord.resolved_at.is_not(None))
+                else:
+                    query = query.where(ErrorRecord.resolved_at.is_(None))
+                if operation_type:
+                    query = query.where(ErrorRecord.operation_type == operation_type)
+
+                results = session.execute(query).scalars().all()
+                image_ids = [id for id in results if id is not None]
+                logger.debug(
+                    f"エラー画像ID一覧を取得: {len(image_ids)}件 "
+                    f"(operation_type={operation_type or 'all'}, resolved={resolved})"
+                )
+                return image_ids
+            except SQLAlchemyError as e:
+                logger.error(f"エラー画像ID一覧の取得中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    def get_images_by_ids(self, image_ids: list[int]) -> list[dict[str, Any]]:
+        """
+        画像IDリストから画像メタデータを取得
+
+        Args:
+            image_ids: 画像IDリスト
+
+        Returns:
+            list[dict]: 画像メタデータリスト（既存フォーマット互換）
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合
+        """
+        if not image_ids:
+            return []
+
+        with self.session_factory() as session:
+            try:
+                # アノテーション情報を含めて取得
+                from sqlalchemy.orm import joinedload
+
+                stmt = (
+                    select(Image)
+                    .where(Image.id.in_(image_ids))
+                    .options(
+                        joinedload(Image.tags).joinedload(Tag.model),
+                        joinedload(Image.captions).joinedload(Caption.model),
+                        joinedload(Image.scores).joinedload(Score.model),
+                        joinedload(Image.ratings),
+                    )
+                )
+                images = session.execute(stmt).unique().scalars().all()
+
+                # 既存の get_images_by_filter と同じフォーマットで返す
+                metadata_list = []
+                for img in images:
+                    metadata = {c.name: getattr(img, c.name) for c in img.__table__.columns}
+                    # アノテーション情報を追加
+                    metadata.update(self._format_annotations_for_metadata(img))
+                    metadata_list.append(metadata)
+
+                logger.debug(f"画像メタデータを取得: {len(metadata_list)}件")
+                return metadata_list
+            except SQLAlchemyError as e:
+                logger.error(f"画像メタデータの取得中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    def get_error_records(
+        self,
+        operation_type: str | None = None,
+        resolved: bool | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[ErrorRecord]:
+        """
+        エラーレコードを取得（ページネーション対応）
+
+        Args:
+            operation_type: 操作種別フィルタ
+            resolved: None = 全て、True = 解決済み、False = 未解決
+            limit: 取得件数上限
+            offset: オフセット
+
+        Returns:
+            list[ErrorRecord]: エラーレコードリスト
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合
+        """
+        with self.session_factory() as session:
+            try:
+                query = select(ErrorRecord).order_by(ErrorRecord.created_at.desc())
+                if operation_type:
+                    query = query.where(ErrorRecord.operation_type == operation_type)
+                if resolved is not None:
+                    if resolved:
+                        query = query.where(ErrorRecord.resolved_at.is_not(None))
+                    else:
+                        query = query.where(ErrorRecord.resolved_at.is_(None))
+                query = query.limit(limit).offset(offset)
+                records = list(session.execute(query).scalars().all())
+                logger.debug(
+                    f"エラーレコードを取得: {len(records)}件 "
+                    f"(operation_type={operation_type or 'all'}, "
+                    f"resolved={resolved}, limit={limit}, offset={offset})"
+                )
+                return records
+            except SQLAlchemyError as e:
+                logger.error(f"エラーレコードの取得中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    def mark_error_resolved(self, error_id: int) -> None:
+        """
+        エラーを解決済みにマーク（resolved_at = 現在時刻）
+
+        Args:
+            error_id: エラーレコードID
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合
+        """
+        from datetime import UTC
+
+        with self.session_factory() as session:
+            try:
+                record = session.get(ErrorRecord, error_id)
+                if record:
+                    record.resolved_at = datetime.datetime.now(UTC)
+                    session.commit()
+                    logger.info(f"エラーレコードを解決済みにマーク: ID={error_id}")
+                else:
+                    logger.warning(f"エラーレコードが見つかりません: ID={error_id}")
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(
+                    f"エラーレコードの解決マーク中にエラーが発生しました: {e}", exc_info=True
+                )
+                raise
+
+    def get_session(self) -> Session:
+        """
+        セッションを取得（Manager層で生SQLを実行する際に使用）
+
+        Returns:
+            Session: SQLAlchemyセッション
+        """
+        return self.session_factory()
+
+    def get_image_id_by_filepath(self, filepath: str) -> int | None:
+        """
+        ファイルパスから画像IDを取得
+
+        Args:
+            filepath: 画像ファイルの絶対パスまたは相対パス
+
+        Returns:
+            int | None: 画像ID（見つからない場合は None）
+        """
+        with self.session_factory() as session:
+            try:
+                from pathlib import Path
+
+                from ..database.db_core import resolve_stored_path
+
+                input_path = Path(filepath).resolve()
+                filename = input_path.name
+
+                # filenameで候補を検索
+                stmt = select(Image).where(Image.filename == filename)
+                results = session.execute(stmt).scalars().all()
+
+                # 候補が見つかった場合、stored_image_pathを正規化して比較
+                for image in results:
+                    resolved_stored_path = resolve_stored_path(image.stored_image_path)
+                    if resolved_stored_path.resolve() == input_path:
+                        return image.id
+
+                return None
+
+            except Exception as e:
+                logger.error(f"ファイルパスからの画像ID取得エラー: {filepath}, {e}")
+                return None
