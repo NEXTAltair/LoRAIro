@@ -677,9 +677,7 @@ class ImageDatabaseManager:
                 completed_images: int = result.scalar() or 0
 
                 # エラー画像数取得 (未解決のアノテーションエラーのみ)
-                error_images = self.repository.get_error_count_unresolved(
-                    operation_type="annotation"
-                )
+                error_images = self.repository.get_error_count_unresolved(operation_type="annotation")
 
                 completion_rate = (completed_images / total_images) * 100.0 if total_images > 0 else 0.0
 

@@ -1695,17 +1695,14 @@ class ImageRepository:
                     query = query.where(ErrorRecord.operation_type == operation_type)
                 count = session.execute(query).scalar() or 0
                 logger.debug(
-                    f"未解決エラー件数を取得: {count}件 "
-                    f"(operation_type={operation_type or 'all'})"
+                    f"未解決エラー件数を取得: {count}件 (operation_type={operation_type or 'all'})"
                 )
                 return count
             except SQLAlchemyError as e:
                 logger.error(f"未解決エラー件数の取得中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
-    def get_error_image_ids(
-        self, operation_type: str | None = None, resolved: bool = False
-    ) -> list[int]:
+    def get_error_image_ids(self, operation_type: str | None = None, resolved: bool = False) -> list[int]:
         """
         エラー画像のID一覧を取得
 
@@ -1722,9 +1719,7 @@ class ImageRepository:
         """
         with self.session_factory() as session:
             try:
-                query = select(ErrorRecord.image_id).distinct().where(
-                    ErrorRecord.image_id.is_not(None)
-                )
+                query = select(ErrorRecord.image_id).distinct().where(ErrorRecord.image_id.is_not(None))
                 if resolved:
                     query = query.where(ErrorRecord.resolved_at.is_not(None))
                 else:
@@ -1857,9 +1852,7 @@ class ImageRepository:
                     logger.warning(f"エラーレコードが見つかりません: ID={error_id}")
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(
-                    f"エラーレコードの解決マーク中にエラーが発生しました: {e}", exc_info=True
-                )
+                logger.error(f"エラーレコードの解決マーク中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
     def get_session(self) -> Session:
