@@ -111,16 +111,18 @@ class ConfigurationService:
 
     def get_image_processing_config(self) -> dict[str, Any]:
         """image_processing セクションの設定を取得します。"""
-        return self._config.get("image_processing", {})  # type: ignore
+        config = self._config.get("image_processing", {})
+        return config if isinstance(config, dict) else {}
 
     def get_preferred_resolutions(self) -> list[tuple[int, int]]:
         """preferred_resolutions の設定を取得します。"""
-        return self._config.get("preferred_resolutions", [])  # type: ignore
+        resolutions = self._config.get("preferred_resolutions", [])
+        return resolutions if isinstance(resolutions, list) else []
 
     def get_upscaler_models(self) -> list[dict[str, Any]]:
         """upscaler_models の設定を取得します。"""
-        # 型安全のため、リスト内の要素が dict であることを期待する
-        return self._config.get("upscaler_models", [])  # type: ignore
+        models = self._config.get("upscaler_models", [])
+        return models if isinstance(models, list) else []
 
     def get_upscaler_model_by_name(self, name: str) -> dict[str, Any] | None:
         """指定された名前のアップスケーラーモデル設定を取得します。"""

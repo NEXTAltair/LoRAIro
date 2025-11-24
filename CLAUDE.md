@@ -126,7 +126,7 @@ This project supports Windows/Linux environments with independent virtual enviro
 - **Business Logic Services** (`src/lorairo/services/`):
   - `ImageProcessingService` - Image processing workflows
   - `ConfigurationService` - Application configuration
-  - `AnnotationService` - AI annotation coordination (deprecated)
+  - `AnnotatorLibraryAdapter` - AI annotation library integration
   - `SearchCriteriaProcessor` - Search and filtering business logic
   - `ModelFilterService` - AI model management and filtering
 - **GUI Services** (`src/lorairo/gui/services/`):
@@ -226,6 +226,8 @@ The local packages are installed in editable mode and automatically linked durin
 - Module-level comments explaining purpose and dependencies
 - Implementation comments in Japanese for clarity
 - Use Todo Tree tags (TODO, FIXME, OPTIMIZE, BUG, HACK, XXX) when changing code
+  - **FIXME**: Issues requiring future implementation (reference GitHub Issue numbers, e.g., `FIXME: Issue #1参照 - description`)
+  - **PENDING**: Issues awaiting external decisions or requirements clarification (include detailed context: reason, trigger condition, related issues)
 - Update related docs when changing code
 
 **Testing:**

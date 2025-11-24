@@ -16,9 +16,8 @@ def main():
     
     logger.info("=== Phase 2変換済みUIファイル PySide6-UIC変換開始 ===")
     
-    # Phase 2で変換済みの16ファイル
+    # Phase 2で変換済みのUIファイル
     phase2_ui_files = [
-        "AnnotationControlWidget.ui",
         "AnnotationDataDisplayWidget.ui", 
         "AnnotationResultsWidget.ui",
         "AnnotationStatusFilterWidget.ui",

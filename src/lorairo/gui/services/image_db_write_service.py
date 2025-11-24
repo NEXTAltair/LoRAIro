@@ -53,7 +53,7 @@ class ImageDBWriteService:
             # アノテーション情報取得
             annotation_data = self.get_annotation_data(image_id)
 
-            # Rating/Score 情報取得 (TODO: 実際のスキーマに合わせて実装)
+            # Rating/Score 情報取得 (FIXME: Issue #4参照 - 実際のスキーマに合わせて実装)
             # 現在はプレースホルダー
             rating_value = ""
             score_value = 0
@@ -132,7 +132,7 @@ class ImageDBWriteService:
             bool: 更新成功/失敗
         """
         try:
-            # TODO: 実際のRating更新機能を実装
+            # FIXME: Issue #4参照 - 実際のRating更新機能を実装
             # 現在はプレースホルダー実装
             logger.info(f"Rating update requested for image_id {image_id}: '{rating}'")
 
@@ -162,7 +162,7 @@ class ImageDBWriteService:
                 logger.warning(f"Invalid score value: {score}. Must be between 0-1000")
                 return False
 
-            # TODO: 実際のScore更新機能を実装
+            # FIXME: Issue #4参照 - 実際のScore更新機能を実装
             # 現在はプレースホルダー実装
             logger.info(f"Score update requested for image_id {image_id}: {score}")
 

@@ -344,7 +344,7 @@ class AutoCrop:
                     x_max, y_max = int(np.max(x_coords)), int(np.max(y_coords))
 
                     # Add margin to trim excess regions
-                    # TODO: This logic should be reviewed for appropriateness
+                    # FIXME: Issue #7参照 - This logic should be reviewed for appropriateness
                     margin = 5  # Number of pixels to trim
                     x_min = max(0, x_min + margin)
                     y_min = max(0, y_min + margin)

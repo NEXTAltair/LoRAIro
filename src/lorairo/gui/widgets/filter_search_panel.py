@@ -185,9 +185,6 @@ class FilterSearchPanel(QScrollArea):
 
         logger.debug("WorkerService set for FilterSearchPanel")
 
-    # TODO: キャンセル機能が必要になった場合は、MainWindow経由でPipelineキャンセルを実装する
-    # 現在はキャンセルボタンを削除して、UI簡素化を優先
-
     def _on_search_finished(self, result: Any) -> None:
         """検索完了イベント処理（SearchResult/dataclass想定）"""
         logger.info("検索完了イベント受信")
@@ -297,18 +294,15 @@ class FilterSearchPanel(QScrollArea):
         """状態に応じたUI更新 (Phase 3)"""
         if state == PipelineState.IDLE:
             self.progress_bar.setVisible(False)
-            # TODO: エラー表示方法を検討（プレビューエリア削除のため）
             pass
 
         elif state == PipelineState.SEARCHING:
             self.progress_bar.setVisible(True)
             self.progress_bar.setValue(10)  # 開始時の進捗
-            # TODO: 検索開始メッセージの表示方法を検討（プレビューエリア削除のため）
 
         elif state == PipelineState.LOADING_THUMBNAILS:
             # 検索完了、サムネイル読み込み開始
             self.progress_bar.setValue(30)  # 0.3 * 100 = 30%
-            # TODO: サムネイル読み込み開始メッセージの表示方法を検討（プレビューエリア削除のため）
 
         elif state == PipelineState.DISPLAYING:
             # プログレスバーは表示継続（サムネイル読み込み中の可能性があるため）
@@ -317,7 +311,6 @@ class FilterSearchPanel(QScrollArea):
 
         elif state in (PipelineState.ERROR, PipelineState.CANCELED):
             self.progress_bar.setVisible(False)
-            # TODO: エラー・キャンセルメッセージの表示方法を検討（プレビューエリア削除のため）
 
     def hide_progress_after_completion(self) -> None:
         """パイプライン完全完了後にプログレスバーを非表示にする - ModernProgressManagerに移行済み"""
@@ -640,7 +633,6 @@ class FilterSearchPanel(QScrollArea):
             self._transition_to_state(PipelineState.ERROR)
 
     def _execute_synchronous_search(self) -> None:
-        # TODO: ワーカーが使えない状況は想定せずメソッドごと消す
         """同期検索実行（WorkerServiceが利用できない場合のフォールバック）"""
         logger.info("フォールバック: 同期検索を実行")
 
@@ -684,7 +676,6 @@ class FilterSearchPanel(QScrollArea):
 
         except Exception as e:
             logger.error(f"同期検索実行エラー: {e}", exc_info=True)
-            # TODO: 同期検索エラーの表示方法を検討（プレビューエリア削除のため）
             self.search_completed.emit({"results": [], "count": 0, "error": str(e)})
 
     def _on_clear_requested(self) -> None:
@@ -745,8 +736,6 @@ class FilterSearchPanel(QScrollArea):
         self.ui.checkboxOnlyUntagged.setChecked(False)
         self.ui.checkboxOnlyUncaptioned.setChecked(False)
         self.ui.checkboxExcludeDuplicates.setChecked(False)
-
-        # TODO: クリア時のメッセージ表示方法を検討（プレビューエリア削除のため）
 
     # === Public Methods ===
 
@@ -811,12 +800,10 @@ class FilterSearchPanel(QScrollArea):
         else:
             preview = "検索結果がありません"
 
-        # TODO: 検索結果プレビューの表示方法を検討（プレビューエリア削除のため）
         logger.debug(f"検索結果プレビュー更新: {result_count}件")
 
     def clear_search_preview(self) -> None:
         """検索結果プレビューをクリア"""
-        # TODO: プレビュークリア機能の代替手段を検討（プレビューエリア削除のため）
         logger.debug("検索結果プレビューをクリア")
 
     def _on_apply_clicked(self) -> None:
