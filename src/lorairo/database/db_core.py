@@ -68,7 +68,7 @@ def get_project_dir(base_dir_name: str, project_name: str) -> Path:
     project_dir = base_dir / f"{safe_name}_{today}_{next_num:03d}"
     project_dir.mkdir(exist_ok=True)
     logger.info(f"新しいプロジェクトディレクトリを作成しました: {project_dir}")
-    return project_dir  # type: ignore
+    return project_dir
 
 
 def sanitize_project_name(name: str) -> str:
@@ -144,7 +144,7 @@ def get_tag_db_path() -> Path:
         tag_db_resource = importlib.resources.files(package_name).joinpath(filename)
         # リソースが存在し、ファイルであることを確認してからパスを返す
         if tag_db_resource.is_file():
-            return Path(str(tag_db_resource))  # type: ignore
+            return Path(str(tag_db_resource))
         else:
             logger.error(f"タグDBリソースが見つからないか、ファイルではありません: {tag_db_resource}")
             raise FileNotFoundError(f"タグDBが見つかりません: {tag_db_resource}")

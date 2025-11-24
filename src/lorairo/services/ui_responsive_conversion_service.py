@@ -187,7 +187,6 @@ class UIResponsiveConversionService:
         # ファイルが見つからない場合のフォールバック（手動リスト）
         if not ui_files:
             ui_files = [
-                "AnnotationControlWidget.ui",
                 "AnnotationDataDisplayWidget.ui",
                 "AnnotationResultsWidget.ui",
                 "AnnotationStatusFilterWidget.ui",

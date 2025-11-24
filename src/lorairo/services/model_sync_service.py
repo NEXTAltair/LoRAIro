@@ -217,7 +217,7 @@ class ModelSyncService:
                     "model_type": model_info.get("model_type", "unknown"),
                     "estimated_size_gb": model_info.get("estimated_size_gb"),
                     "requires_api_key": model_info.get("requires_api_key", False),
-                    "discontinued_at": None,  # TODO: ライブラリ側で廃止日時管理する場合の処理
+                    "discontinued_at": None,  # FIXME: Issue #5参照 - ライブラリ側で廃止日時管理する場合の処理
                 }
                 models_metadata.append(metadata)
 

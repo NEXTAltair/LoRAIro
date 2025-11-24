@@ -130,6 +130,10 @@ tmp/
 *.bak
 *.backup
 
+# バックアップ・レポート
+backups/
+reports/
+
 # システム固有
 *.pid
 *.lock

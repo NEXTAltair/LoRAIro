@@ -95,7 +95,6 @@ def get_phase2_target_files() -> list[str]:
     """
     # 実際の全UIファイルリスト (src/lorairo/gui/designer/ から確認)
     all_ui_files = [
-        "AnnotationControlWidget.ui",
         "AnnotationDataDisplayWidget.ui",
         "AnnotationResultsWidget.ui", 
         "AnnotationStatusFilterWidget.ui",

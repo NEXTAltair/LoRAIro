@@ -227,7 +227,7 @@ class SearchCriteriaProcessor:
 
             # 重複除外フィルター（将来実装用プレースホルダー）
             if conditions.exclude_duplicates:
-                # TODO: 重複除外ロジック実装
+                # FIXME: Issue #6参照 - 重複除外ロジック実装
                 pass
 
             logger.debug(f"フロントエンドフィルター適用完了: {len(images)} -> {len(filtered_images)}件")

@@ -329,54 +329,6 @@ class TestWidgetSignalIntegration:
         # シグナル受信確認
         filter_panel.filterApplied.connect.assert_called_with(model_widget.update_model_list)
 
-    def test_model_selection_table_to_annotation_control_signal_flow(self, parent_widget, qtbot):
-        """ModelSelectionTableWidget から AnnotationControl への信号フロー"""
-        # ModelSelectionTableWidgetのモック
-        model_table_widget = Mock()
-        model_table_widget.model_selection_changed = Mock()
-        model_table_widget.selection_count_changed = Mock()
-        model_table_widget.models_loaded = Mock()
-
-        # AnnotationControlWidgetのモック
-        annotation_control = Mock()
-        annotation_control._on_model_selection_changed = Mock()
-        annotation_control._on_selection_count_changed = Mock()
-        annotation_control._on_models_loaded = Mock()
-
-        # シグナル接続（AnnotationControlWidget内で行われる接続をシミュレート）
-        def connect_model_table_to_annotation():
-            model_table_widget.model_selection_changed.connect(
-                annotation_control._on_model_selection_changed
-            )
-            model_table_widget.selection_count_changed.connect(
-                annotation_control._on_selection_count_changed
-            )
-            model_table_widget.models_loaded.connect(annotation_control._on_models_loaded)
-            return True
-
-        # 接続実行
-        result = connect_model_table_to_annotation()
-        assert result is True
-
-        # シグナル発行テスト1: モデル選択変更
-        selected_models = ["gpt-4o", "claude-3-sonnet", "wd-v1-4"]
-        model_table_widget.model_selection_changed.emit(selected_models)
-
-        # シグナル発行テスト2: 選択数変更
-        model_table_widget.selection_count_changed.emit(3, 10)  # 3/10選択
-
-        # シグナル発行テスト3: モデル読み込み完了
-        model_table_widget.models_loaded.emit(25)  # 25モデル読み込み
-
-        # シグナル受信確認
-        model_table_widget.model_selection_changed.connect.assert_called_with(
-            annotation_control._on_model_selection_changed
-        )
-        model_table_widget.selection_count_changed.connect.assert_called_with(
-            annotation_control._on_selection_count_changed
-        )
-        model_table_widget.models_loaded.connect.assert_called_with(annotation_control._on_models_loaded)
-
     def test_annotation_results_to_data_display_signal_flow(self, parent_widget, qtbot):
         """AnnotationResults から DataDisplay への信号フロー"""
         # アノテーション結果ウィジェットのモック

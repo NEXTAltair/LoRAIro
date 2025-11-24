@@ -293,3 +293,27 @@ class SearchFilterService:
     def validate_annotation_settings(self, settings: dict[str, Any]) -> ValidationResult:
         """後方互換性ラッパー:ModelFilterServiceに委譲"""
         return self.model_filter_service.validate_annotation_settings(settings)
+
+    def get_annotation_status_counts(self) -> AnnotationStatusCounts:
+        """
+        アノテーション状態カウントを取得（GUI用）
+
+        Manager から dict 取得して AnnotationStatusCounts に変換
+
+        Returns:
+            AnnotationStatusCounts: 状態カウント情報
+        """
+        try:
+            # Manager から dict 取得
+            counts_dict = self.db_manager.get_annotation_status_counts()
+
+            # AnnotationStatusCounts に変換
+            return AnnotationStatusCounts(
+                total=counts_dict["total"],
+                completed=counts_dict["completed"],
+                error=counts_dict["error"],
+            )
+
+        except Exception as e:
+            logger.error(f"状態カウント取得エラー: {e}", exc_info=True)
+            return AnnotationStatusCounts()  # デフォルト値（全て0）

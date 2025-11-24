@@ -2,7 +2,7 @@
 Model Selection Table Widget
 
 モデル選択テーブル専用ウィジェット
-AnnotationControlWidgetから分離された機能を提供
+アノテーション実行用のモデル選択機能を提供
 
 機能:
 - 4列テーブルでのモデル表示（選択/モデル名/プロバイダー/機能）
@@ -101,8 +101,7 @@ class ModelSelectionTableWidget(QWidget, Ui_ModelSelectionTableWidget):
             Exception: モデル取得失敗時
 
         Note:
-            このメソッドは初期化時に呼ばれるため、例外は呼び出し側（AnnotationControlWidget）で
-            CriticalInitializationErrorに変換される。
+            このメソッドは初期化時に呼ばれるため、例外は呼び出し側で適切に処理される必要がある。
         """
         if not self.search_filter_service:
             error_msg = "SearchFilterService not available for model loading"

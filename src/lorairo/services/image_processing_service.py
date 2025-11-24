@@ -106,8 +106,11 @@ class ImageProcessingService:
                 self._process_single_image(image_path, upscaler_override, ipm)
             except Exception as e:
                 logger.error(f"{image_path.name} の処理中にエラーが発生しました: {e}", exc_info=True)
-                # TODO: エラーが発生しても処理を継続するか、中断するか?
-                # とりあえずログに残して継続
+                # PENDING: エラーハンドリング戦略の決定
+                # 理由: ユーザー要件次第（バッチ処理の堅牢性 vs 即座なエラー通知）
+                # トリガー条件: ユーザーフィードバック or 本番運用での挙動確認後
+                # 関連Issue: 将来的にエラーハンドリング設定をGUIで選択可能にする検討
+                # 現在の挙動: エラーをログに記録して処理継続（安全側に倒している）
                 if status_callback:
                     status_callback(f"エラー: {image_path.name} の処理に失敗しました。")
 
