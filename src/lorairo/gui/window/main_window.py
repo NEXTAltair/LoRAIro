@@ -30,6 +30,7 @@ from ..services.search_filter_service import SearchFilterService
 from ..services.widget_setup_service import WidgetSetupService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
+from ..widgets.error_log_viewer_widget import ErrorLogViewerWidget
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
@@ -73,6 +74,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     thumbnail_selector: ThumbnailSelectorWidget | None
     image_preview_widget: ImagePreviewWidget | None
     selected_image_details_widget: SelectedImageDetailsWidget | None
+    error_log_viewer_widget: ErrorLogViewerWidget | None
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -277,6 +279,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.settings_controller = None
             self.export_controller = None
 
+        # ErrorLogViewerWidget初期化（Phase 4.5）
+        self._setup_error_log_viewer()
+
     def _verify_state_management_connections(self) -> None:
         """状態管理接続の検証（SelectionStateServiceに委譲）"""
         if self.selection_state_service:
@@ -287,6 +292,23 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             )
         else:
             logger.error("SelectionStateServiceが初期化されていません - 接続検証をスキップ")
+
+    def _setup_error_log_viewer(self) -> None:
+        """ErrorLogViewerWidget設定とdb_manager注入（Phase 4.5）"""
+        try:
+            # ErrorLogViewerWidgetインスタンス作成
+            self.error_log_viewer_widget = ErrorLogViewerWidget(parent=self)
+
+            # ImageDatabaseManager注入
+            if self.db_manager:
+                self.error_log_viewer_widget.set_db_manager(self.db_manager)
+                logger.info("✅ ErrorLogViewerWidget初期化成功")
+            else:
+                raise RuntimeError("ImageDatabaseManager not available for ErrorLogViewerWidget")
+
+        except Exception as e:
+            logger.error(f"❌ ErrorLogViewerWidget初期化失敗: {e}", exc_info=True)
+            self.error_log_viewer_widget = None
 
     def _connect_events(self) -> None:
         """イベント接続を設定（安全な実装）"""
