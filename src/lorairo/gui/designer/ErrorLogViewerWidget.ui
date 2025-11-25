@@ -1,0 +1,314 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ErrorLogViewerWidget</class>
+ <widget class="QWidget" name="ErrorLogViewerWidget">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>800</width>
+    <height>600</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Error Log Viewer</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayoutMain">
+   <property name="spacing">
+    <number>6</number>
+   </property>
+   <property name="leftMargin">
+    <number>6</number>
+   </property>
+   <property name="topMargin">
+    <number>6</number>
+   </property>
+   <property name="rightMargin">
+    <number>6</number>
+   </property>
+   <property name="bottomMargin">
+    <number>6</number>
+   </property>
+   <item>
+    <widget class="QGroupBox" name="groupBoxFilters">
+     <property name="title">
+      <string>フィルタ</string>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayoutFilters">
+      <item>
+       <widget class="QLabel" name="labelOperationType">
+        <property name="text">
+         <string>操作種別:</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="comboOperationType">
+        <item>
+         <property name="text">
+          <string>全て</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>registration</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>annotation</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>processing</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>search</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>thumbnail</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBoxShowResolved">
+        <property name="text">
+         <string>解決済みを表示</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="buttonRefresh">
+        <property name="text">
+         <string>更新</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacerFilters">
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QTableWidget" name="tableWidgetErrors">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+       <horstretch>0</horstretch>
+       <verstretch>1</verstretch>
+      </sizepolicy>
+     </property>
+     <property name="styleSheet">
+      <string>QTableWidget {
+    font-size: 9px;
+    gridline-color: #e0e0e0;
+    selection-background-color: #e3f2fd;
+}
+QTableWidget::item {
+    padding: 4px;
+    color: palette(text);
+}
+QHeaderView::section {
+    font-size: 9px;
+    font-weight: bold;
+    background-color: palette(button);
+    color: palette(buttonText);
+    border: 1px solid palette(mid);
+    padding: 4px;
+}</string>
+     </property>
+     <property name="alternatingRowColors">
+      <bool>true</bool>
+     </property>
+     <property name="selectionMode">
+      <enum>QAbstractItemView::SelectionMode::SingleSelection</enum>
+     </property>
+     <property name="selectionBehavior">
+      <enum>QAbstractItemView::SelectionBehavior::SelectRows</enum>
+     </property>
+     <property name="horizontalScrollMode">
+      <enum>QAbstractItemView::ScrollMode::ScrollPerItem</enum>
+     </property>
+     <property name="sortingEnabled">
+      <bool>true</bool>
+     </property>
+     <property name="wordWrap">
+      <bool>false</bool>
+     </property>
+     <property name="columnCount">
+      <number>8</number>
+     </property>
+     <attribute name="horizontalHeaderVisible">
+      <bool>true</bool>
+     </attribute>
+     <attribute name="horizontalHeaderStretchLastSection">
+      <bool>true</bool>
+     </attribute>
+     <attribute name="verticalHeaderVisible">
+      <bool>false</bool>
+     </attribute>
+     <attribute name="verticalHeaderDefaultSectionSize">
+      <number>24</number>
+     </attribute>
+     <column>
+      <property name="text">
+       <string>ID</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>作成日時</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>操作種別</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>エラー種別</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>エラーメッセージ</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>画像ファイル名</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>モデル名</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>状態</string>
+      </property>
+     </column>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayoutPagination">
+     <item>
+      <widget class="QPushButton" name="buttonPreviousPage">
+       <property name="text">
+        <string>&lt; 前ページ</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="labelPageInfo">
+       <property name="text">
+        <string>Page 1 / 1</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="buttonNextPage">
+       <property name="text">
+        <string>次ページ &gt;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacerPagination">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QLabel" name="labelPageSize">
+       <property name="text">
+        <string>表示件数:</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QSpinBox" name="spinBoxPageSize">
+       <property name="minimum">
+        <number>10</number>
+       </property>
+       <property name="maximum">
+        <number>500</number>
+       </property>
+       <property name="value">
+        <number>100</number>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayoutButtons">
+     <item>
+      <widget class="QPushButton" name="buttonViewDetails">
+       <property name="text">
+        <string>詳細表示</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="buttonMarkResolved">
+       <property name="text">
+        <string>解決済みにマーク</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="buttonExportLog">
+       <property name="text">
+        <string>ログをエクスポート</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacerButtons">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
