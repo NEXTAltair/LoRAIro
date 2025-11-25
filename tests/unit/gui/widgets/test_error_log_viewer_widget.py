@@ -151,9 +151,7 @@ class TestErrorLogViewerWidgetDataLoading:
 class TestErrorLogViewerWidgetPagination:
     """ErrorLogViewerWidgetページネーションテスト"""
 
-    def test_pagination_next_page(
-        self, error_log_viewer_widget, mock_db_manager, sample_error_record
-    ):
+    def test_pagination_next_page(self, error_log_viewer_widget, mock_db_manager, sample_error_record):
         """次ページボタンテスト"""
         # 初期状態：1ページ目
         assert error_log_viewer_widget.current_page == 1
@@ -172,9 +170,7 @@ class TestErrorLogViewerWidgetPagination:
         # 2ページ目に移動
         assert error_log_viewer_widget.current_page == 2
 
-    def test_pagination_previous_page(
-        self, error_log_viewer_widget, mock_db_manager, sample_error_record
-    ):
+    def test_pagination_previous_page(self, error_log_viewer_widget, mock_db_manager, sample_error_record):
         """前ページボタンテスト"""
         # 2ページ目に設定
         error_log_viewer_widget.current_page = 2
@@ -191,9 +187,7 @@ class TestErrorLogViewerWidgetPagination:
         # 1ページ目に移動
         assert error_log_viewer_widget.current_page == 1
 
-    def test_page_size_change(
-        self, error_log_viewer_widget, mock_db_manager, sample_error_record
-    ):
+    def test_page_size_change(self, error_log_viewer_widget, mock_db_manager, sample_error_record):
         """ページサイズ変更テスト"""
         # 初期page_size
         assert error_log_viewer_widget.page_size == 100
@@ -244,9 +238,7 @@ class TestErrorLogViewerWidgetActions:
 class TestErrorLogViewerWidgetTableDisplay:
     """ErrorLogViewerWidgetテーブル表示テスト"""
 
-    def test_update_table_display(
-        self, error_log_viewer_widget, sample_error_record
-    ):
+    def test_update_table_display(self, error_log_viewer_widget, sample_error_record):
         """テーブル表示更新テスト"""
         # 複数レコード
         records = [sample_error_record]
@@ -258,25 +250,12 @@ class TestErrorLogViewerWidgetTableDisplay:
         assert error_log_viewer_widget.tableWidgetErrors.rowCount() == 1
 
         # データ確認（1行目）
-        assert (
-            error_log_viewer_widget.tableWidgetErrors.item(0, 1).text()
-            == "2025-11-24 12:00:00"
-        )
-        assert (
-            error_log_viewer_widget.tableWidgetErrors.item(0, 2).text()
-            == "annotation"
-        )
-        assert (
-            error_log_viewer_widget.tableWidgetErrors.item(0, 3).text() == "APIError"
-        )
-        assert (
-            error_log_viewer_widget.tableWidgetErrors.item(0, 4).text()
-            == "Test error message"
-        )
+        assert error_log_viewer_widget.tableWidgetErrors.item(0, 1).text() == "2025-11-24 12:00:00"
+        assert error_log_viewer_widget.tableWidgetErrors.item(0, 2).text() == "annotation"
+        assert error_log_viewer_widget.tableWidgetErrors.item(0, 3).text() == "APIError"
+        assert error_log_viewer_widget.tableWidgetErrors.item(0, 4).text() == "Test error message"
 
-    def test_update_table_display_with_resolved_error(
-        self, error_log_viewer_widget
-    ):
+    def test_update_table_display_with_resolved_error(self, error_log_viewer_widget):
         """解決済みエラーのテーブル表示テスト"""
         resolved_record = ErrorRecord(
             id=2,
@@ -294,6 +273,4 @@ class TestErrorLogViewerWidgetTableDisplay:
         error_log_viewer_widget._update_table_display([resolved_record])
 
         # 状態カラム確認（解決済み）
-        assert (
-            error_log_viewer_widget.tableWidgetErrors.item(0, 7).text() == "解決済み"
-        )
+        assert error_log_viewer_widget.tableWidgetErrors.item(0, 7).text() == "解決済み"

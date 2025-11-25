@@ -59,14 +59,10 @@ def resolved_error_record():
 class TestErrorDetailDialogInitialization:
     """ErrorDetailDialog初期化テスト"""
 
-    def test_dialog_initialization_with_valid_record(
-        self, qtbot, mock_db_manager, sample_error_record
-    ):
+    def test_dialog_initialization_with_valid_record(self, qtbot, mock_db_manager, sample_error_record):
         """有効なエラーレコードでの初期化テスト"""
         # Mock準備
-        mock_db_manager.repository.get_error_records.return_value = [
-            sample_error_record
-        ]
+        mock_db_manager.repository.get_error_records.return_value = [sample_error_record]
 
         # Dialog作成
         dialog = ErrorDetailDialog(mock_db_manager, error_id=1)
@@ -82,9 +78,7 @@ class TestErrorDetailDialogInitialization:
         assert dialog.lineEditErrorType.text() == "APIError"
         assert "Test error message" in dialog.textEditErrorMessage.toPlainText()
 
-    def test_dialog_initialization_with_nonexistent_record(
-        self, qtbot, mock_db_manager
-    ):
+    def test_dialog_initialization_with_nonexistent_record(self, qtbot, mock_db_manager):
         """存在しないエラーレコードでの初期化テスト"""
         # Mock準備（空リスト）
         mock_db_manager.repository.get_error_records.return_value = []
@@ -105,13 +99,9 @@ class TestErrorDetailDialogInitialization:
 class TestErrorDetailDialogUIUpdate:
     """ErrorDetailDialog UI更新テスト"""
 
-    def test_update_ui_with_unresolved_error(
-        self, qtbot, mock_db_manager, sample_error_record
-    ):
+    def test_update_ui_with_unresolved_error(self, qtbot, mock_db_manager, sample_error_record):
         """未解決エラーのUI更新テスト"""
-        mock_db_manager.repository.get_error_records.return_value = [
-            sample_error_record
-        ]
+        mock_db_manager.repository.get_error_records.return_value = [sample_error_record]
 
         dialog = ErrorDetailDialog(mock_db_manager, error_id=1)
         qtbot.addWidget(dialog)
@@ -130,13 +120,9 @@ class TestErrorDetailDialogUIUpdate:
         # スタックトレース確認
         assert "Traceback" in dialog.textEditStackTrace.toPlainText()
 
-    def test_update_ui_with_resolved_error(
-        self, qtbot, mock_db_manager, resolved_error_record
-    ):
+    def test_update_ui_with_resolved_error(self, qtbot, mock_db_manager, resolved_error_record):
         """解決済みエラーのUI更新テスト"""
-        mock_db_manager.repository.get_error_records.return_value = [
-            resolved_error_record
-        ]
+        mock_db_manager.repository.get_error_records.return_value = [resolved_error_record]
 
         dialog = ErrorDetailDialog(mock_db_manager, error_id=2)
         qtbot.addWidget(dialog)
@@ -157,13 +143,9 @@ class TestErrorDetailDialogUIUpdate:
 class TestErrorDetailDialogActions:
     """ErrorDetailDialogアクションテスト"""
 
-    def test_mark_resolved_button_success(
-        self, qtbot, mock_db_manager, sample_error_record
-    ):
+    def test_mark_resolved_button_success(self, qtbot, mock_db_manager, sample_error_record):
         """解決マークボタン成功テスト"""
-        mock_db_manager.repository.get_error_records.return_value = [
-            sample_error_record
-        ]
+        mock_db_manager.repository.get_error_records.return_value = [sample_error_record]
 
         dialog = ErrorDetailDialog(mock_db_manager, error_id=1)
         qtbot.addWidget(dialog)
@@ -189,21 +171,15 @@ class TestErrorDetailDialogActions:
             # Dialog accept() 呼び出し確認
             mock_accept.assert_called_once()
 
-    def test_mark_resolved_button_cancel(
-        self, qtbot, mock_db_manager, sample_error_record
-    ):
+    def test_mark_resolved_button_cancel(self, qtbot, mock_db_manager, sample_error_record):
         """解決マークボタンキャンセルテスト"""
-        mock_db_manager.repository.get_error_records.return_value = [
-            sample_error_record
-        ]
+        mock_db_manager.repository.get_error_records.return_value = [sample_error_record]
 
         dialog = ErrorDetailDialog(mock_db_manager, error_id=1)
         qtbot.addWidget(dialog)
 
         # QMessageBox.question() で No を返す
-        with patch.object(
-            QMessageBox, "question", return_value=QMessageBox.StandardButton.No
-        ):
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No):
             dialog._on_mark_resolved_clicked()
 
             # Repository API呼び出しなし
@@ -212,21 +188,15 @@ class TestErrorDetailDialogActions:
             # was_resolved フラグ確認（変更なし）
             assert dialog.was_resolved is False
 
-    def test_mark_resolved_button_error(
-        self, qtbot, mock_db_manager, sample_error_record
-    ):
+    def test_mark_resolved_button_error(self, qtbot, mock_db_manager, sample_error_record):
         """解決マークボタンエラーテスト"""
-        mock_db_manager.repository.get_error_records.return_value = [
-            sample_error_record
-        ]
+        mock_db_manager.repository.get_error_records.return_value = [sample_error_record]
 
         dialog = ErrorDetailDialog(mock_db_manager, error_id=1)
         qtbot.addWidget(dialog)
 
         # Repository API でエラー発生
-        mock_db_manager.repository.mark_error_resolved.side_effect = Exception(
-            "Test error"
-        )
+        mock_db_manager.repository.mark_error_resolved.side_effect = Exception("Test error")
 
         # QMessageBox.question() と QMessageBox.critical() をモック
         with (
@@ -249,9 +219,7 @@ class TestErrorDetailDialogActions:
 class TestErrorDetailDialogImagePreview:
     """ErrorDetailDialog画像プレビューテスト"""
 
-    def test_load_image_preview_no_file_path(
-        self, qtbot, mock_db_manager
-    ):
+    def test_load_image_preview_no_file_path(self, qtbot, mock_db_manager):
         """ファイルパスなしの画像プレビューテスト"""
         record_without_path = ErrorRecord(
             id=3,
@@ -265,9 +233,7 @@ class TestErrorDetailDialogImagePreview:
             created_at=datetime.datetime(2025, 11, 24, 12, 0, 0),
         )
 
-        mock_db_manager.repository.get_error_records.return_value = [
-            record_without_path
-        ]
+        mock_db_manager.repository.get_error_records.return_value = [record_without_path]
 
         dialog = ErrorDetailDialog(mock_db_manager, error_id=3)
         qtbot.addWidget(dialog)
@@ -275,13 +241,9 @@ class TestErrorDetailDialogImagePreview:
         # 画像プレビューラベルのテキスト確認
         assert "画像パスが設定されていません" in dialog.labelImagePreview.text()
 
-    def test_load_image_preview_file_not_found(
-        self, qtbot, mock_db_manager, sample_error_record
-    ):
+    def test_load_image_preview_file_not_found(self, qtbot, mock_db_manager, sample_error_record):
         """ファイルが見つからない場合の画像プレビューテスト"""
-        mock_db_manager.repository.get_error_records.return_value = [
-            sample_error_record
-        ]
+        mock_db_manager.repository.get_error_records.return_value = [sample_error_record]
 
         dialog = ErrorDetailDialog(mock_db_manager, error_id=1)
         qtbot.addWidget(dialog)
