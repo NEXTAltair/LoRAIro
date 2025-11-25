@@ -13,7 +13,7 @@ from lorairo.services.configuration_service import ConfigurationService
 from lorairo.utils.log import logger
 
 if TYPE_CHECKING:
-    from image_annotator_lib import PHashAnnotationResults  # type: ignore[attr-defined]
+    from image_annotator_lib import PHashAnnotationResults  # type: ignore[attr-defined]  # Justification: Local package without type stubs
 
 
 class AnnotatorLibraryAdapter:

@@ -14,7 +14,7 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setupUi(self)  # type: ignore
+        self.setupUi(self)  # type: ignore  # Justification: Qt Designer generated method signature
         self.set_label_text("フォルダを選択")  # type: ignore
 
         self.DirectoryPicker.pushButtonPicker.clicked.connect(self.select_folder)
