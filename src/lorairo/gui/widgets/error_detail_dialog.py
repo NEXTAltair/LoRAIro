@@ -68,9 +68,7 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
             # Repository API呼び出し
             # Note: get_error_records()にID指定フィルタがないため、
             # 全レコード取得してPython側でフィルタ
-            all_records = self.db_manager.repository.get_error_records(
-                limit=10000, offset=0
-            )
+            all_records = self.db_manager.repository.get_error_records(limit=10000, offset=0)
 
             # error_idでフィルタ
             matching_records = [r for r in all_records if r.id == self.error_id]
@@ -90,9 +88,7 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
 
         except Exception as e:
             logger.error(f"エラー詳細読み込みエラー: {e}", exc_info=True)
-            QMessageBox.critical(
-                self, "エラー", f"エラー詳細の読み込みに失敗しました:\n{e}"
-            )
+            QMessageBox.critical(self, "エラー", f"エラー詳細の読み込みに失敗しました:\n{e}")
             self.reject()
 
     def _update_ui(self) -> None:
@@ -116,9 +112,7 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
 
         # 解決日時
         if record.resolved_at:
-            self.lineEditResolvedAt.setText(
-                record.resolved_at.strftime("%Y-%m-%d %H:%M:%S")
-            )
+            self.lineEditResolvedAt.setText(record.resolved_at.strftime("%Y-%m-%d %H:%M:%S"))
             # 解決済みの場合はボタン無効化
             self.buttonMarkResolved.setEnabled(False)
         else:
@@ -150,9 +144,7 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
             pixmap = QPixmap(str(file_path))
 
             if pixmap.isNull():
-                self.labelImagePreview.setText(
-                    f"画像の読み込みに失敗しました:\n{file_path.name}"
-                )
+                self.labelImagePreview.setText(f"画像の読み込みに失敗しました:\n{file_path.name}")
                 return
 
             # スケール表示（アスペクト比維持）
@@ -192,6 +184,4 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
 
             except Exception as e:
                 logger.error(f"解決マーク失敗: {e}", exc_info=True)
-                QMessageBox.critical(
-                    self, "エラー", f"解決マークに失敗しました:\n{e}"
-                )
+                QMessageBox.critical(self, "エラー", f"解決マークに失敗しました:\n{e}")

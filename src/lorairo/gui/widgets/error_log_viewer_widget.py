@@ -101,9 +101,7 @@ class ErrorLogViewerWidget(QWidget, Ui_ErrorLogViewerWidget):
         """
         if not self.db_manager:
             logger.error("ImageDatabaseManager not set")
-            QMessageBox.warning(
-                self, "エラー", "データベース接続が設定されていません。"
-            )
+            QMessageBox.warning(self, "エラー", "データベース接続が設定されていません。")
             return
 
         try:
@@ -153,9 +151,7 @@ class ErrorLogViewerWidget(QWidget, Ui_ErrorLogViewerWidget):
 
         except Exception as e:
             logger.error(f"エラーレコード読み込みエラー: {e}", exc_info=True)
-            QMessageBox.critical(
-                self, "エラー", f"エラーログの読み込みに失敗しました:\n{e}"
-            )
+            QMessageBox.critical(self, "エラー", f"エラーログの読み込みに失敗しました:\n{e}")
 
     def _get_selected_operation_type(self) -> str | None:
         """選択された操作種別を取得します
@@ -244,9 +240,7 @@ class ErrorLogViewerWidget(QWidget, Ui_ErrorLogViewerWidget):
             return
 
         # エラーレコードID取得
-        error_id = self.tableWidgetErrors.item(selected_row, 0).data(
-            Qt.ItemDataRole.UserRole
-        )
+        error_id = self.tableWidgetErrors.item(selected_row, 0).data(Qt.ItemDataRole.UserRole)
 
         # Signal発火
         self.error_selected.emit(error_id)
@@ -269,9 +263,7 @@ class ErrorLogViewerWidget(QWidget, Ui_ErrorLogViewerWidget):
             return
 
         # エラーレコードID取得
-        error_id = self.tableWidgetErrors.item(selected_row, 0).data(
-            Qt.ItemDataRole.UserRole
-        )
+        error_id = self.tableWidgetErrors.item(selected_row, 0).data(Qt.ItemDataRole.UserRole)
 
         # 確認ダイアログ
         reply = QMessageBox.question(
@@ -285,16 +277,12 @@ class ErrorLogViewerWidget(QWidget, Ui_ErrorLogViewerWidget):
             try:
                 if self.db_manager:
                     self.db_manager.repository.mark_error_resolved(error_id)
-                    QMessageBox.information(
-                        self, "成功", "エラーを解決済みにマークしました"
-                    )
+                    QMessageBox.information(self, "成功", "エラーを解決済みにマークしました")
                     self.error_resolved.emit(error_id)
                     self.load_error_records()
             except Exception as e:
                 logger.error(f"解決マーク失敗: {e}", exc_info=True)
-                QMessageBox.critical(
-                    self, "エラー", f"解決マークに失敗しました:\n{e}"
-                )
+                QMessageBox.critical(self, "エラー", f"解決マークに失敗しました:\n{e}")
 
     def _on_export_log_clicked(self) -> None:
         """ログエクスポートボタンクリック処理
