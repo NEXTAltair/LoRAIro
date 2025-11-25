@@ -37,7 +37,7 @@ class ErrorLogViewerWidget(QWidget, Ui_ErrorLogViewerWidget):
             parent: 親Widget
         """
         super().__init__(parent)
-        self.setupUi(self)  # type: ignore
+        self.setupUi(self)  # type: ignore  # Justification: Qt Designer generated method signature
 
         # 依存注入
         self.db_manager: ImageDatabaseManager | None = None

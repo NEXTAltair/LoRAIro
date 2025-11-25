@@ -673,7 +673,7 @@ class ImageDatabaseManager:
                     LEFT JOIN captions c ON i.id = c.image_id
                     WHERE t.id IS NOT NULL OR c.id IS NOT NULL
                 """)
-                result: Result = session.execute(completed_query)
+                result: Result[Any] = session.execute(completed_query)
                 completed_images: int = result.scalar() or 0
 
                 # エラー画像数取得 (未解決のアノテーションエラーのみ)
@@ -729,7 +729,7 @@ class ImageDatabaseManager:
                     # 全ての画像
                     query = text("SELECT * FROM images")
 
-                result: Result = session.execute(query)
+                result: Result[Any] = session.execute(query)
                 return [dict(row._mapping) for row in result.fetchall()]
 
         except Exception as e:
@@ -904,7 +904,7 @@ class ImageDatabaseManager:
                     WHERE i.id = :image_id AND (t.id IS NOT NULL OR c.id IS NOT NULL)
                     LIMIT 1
                 """
-                result = session.execute(query, {"image_id": image_id})
+                result = session.execute(text(query), {"image_id": image_id})
                 has_annotation = result.scalar() is not None
 
                 logger.debug(

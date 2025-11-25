@@ -39,7 +39,7 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
             parent: 親Dialog
         """
         super().__init__(parent)
-        self.setupUi(self)  # type: ignore
+        self.setupUi(self)  # type: ignore  # Justification: Qt Designer generated method signature
 
         self.db_manager = db_manager
         self.error_id = error_id

@@ -99,7 +99,7 @@ TAG_DB_FILENAME = db_config.get("tag_db_filename", "tags_v4.db")  # Keep default
 # Ensure DB_DIR exists
 DB_DIR.mkdir(parents=True, exist_ok=True)
 
-IMG_DB_PATH = DB_DIR / IMG_DB_FILENAME
+IMG_DB_PATH: Path = DB_DIR / IMG_DB_FILENAME
 
 # --- Dynamic Project Root Resolution --- #
 

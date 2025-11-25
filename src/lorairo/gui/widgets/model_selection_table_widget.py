@@ -49,7 +49,7 @@ class ModelSelectionTableWidget(QWidget, Ui_ModelSelectionTableWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.setupUi(self)  # type: ignore
+        self.setupUi(self)  # type: ignore  # Justification: Qt Designer generated method signature
 
         # 依存関係
         self.search_filter_service: SearchFilterService | None = None
