@@ -210,6 +210,31 @@ class Ui_FilterSearchPanel(object):
 
         self.ratingLayout.addLayout(self.ratingFilterLayout)
 
+        self.aiRatingFilterLayout = QHBoxLayout()
+        self.aiRatingFilterLayout.setObjectName(u"aiRatingFilterLayout")
+        self.aiRatingLabel = QLabel(self.ratingGroup)
+        self.aiRatingLabel.setObjectName(u"aiRatingLabel")
+
+        self.aiRatingFilterLayout.addWidget(self.aiRatingLabel)
+
+        self.comboAIRating = QComboBox(self.ratingGroup)
+        self.comboAIRating.addItem("")
+        self.comboAIRating.addItem("")
+        self.comboAIRating.addItem("")
+        self.comboAIRating.addItem("")
+        self.comboAIRating.addItem("")
+        self.comboAIRating.addItem("")
+        self.comboAIRating.setObjectName(u"comboAIRating")
+
+        self.aiRatingFilterLayout.addWidget(self.comboAIRating)
+
+        self.aiRatingSpacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+        self.aiRatingFilterLayout.addItem(self.aiRatingSpacer)
+
+
+        self.ratingLayout.addLayout(self.aiRatingFilterLayout)
+
         self.checkboxIncludeUnrated = QCheckBox(self.ratingGroup)
         self.checkboxIncludeUnrated.setObjectName(u"checkboxIncludeUnrated")
         self.checkboxIncludeUnrated.setChecked(True)
@@ -314,6 +339,14 @@ class Ui_FilterSearchPanel(object):
         self.comboRating.setItemText(3, QCoreApplication.translate("FilterSearchPanel", u"R (\u4e2d\u7a0b\u5ea6)", None))
         self.comboRating.setItemText(4, QCoreApplication.translate("FilterSearchPanel", u"X (\u5f37\u3044\u8868\u73fe)", None))
         self.comboRating.setItemText(5, QCoreApplication.translate("FilterSearchPanel", u"XXX (\u904e\u6fc0\u306a\u8868\u73fe)", None))
+
+        self.aiRatingLabel.setText(QCoreApplication.translate("FilterSearchPanel", u"AI\u30ec\u30fc\u30c6\u30a3\u30f3\u30b0:", None))
+        self.comboAIRating.setItemText(0, QCoreApplication.translate("FilterSearchPanel", u"\u5168\u3066", None))
+        self.comboAIRating.setItemText(1, QCoreApplication.translate("FilterSearchPanel", u"PG (\u5168\u5e74\u9f62)", None))
+        self.comboAIRating.setItemText(2, QCoreApplication.translate("FilterSearchPanel", u"PG-13 (\u8efd\u5fae\u306a\u8868\u73fe)", None))
+        self.comboAIRating.setItemText(3, QCoreApplication.translate("FilterSearchPanel", u"R (\u4e2d\u7a0b\u5ea6)", None))
+        self.comboAIRating.setItemText(4, QCoreApplication.translate("FilterSearchPanel", u"X (\u5f37\u3044\u8868\u73fe)", None))
+        self.comboAIRating.setItemText(5, QCoreApplication.translate("FilterSearchPanel", u"XXX (\u904e\u6fc0\u306a\u8868\u73fe)", None))
 
         self.checkboxIncludeUnrated.setText(QCoreApplication.translate("FilterSearchPanel", u"\u672a\u8a55\u4fa1\u753b\u50cf\u3092\u542b\u3080", None))
         self.optionsGroup.setTitle(QCoreApplication.translate("FilterSearchPanel", u"\u30aa\u30d7\u30b7\u30e7\u30f3", None))

@@ -377,6 +377,64 @@
         </layout>
        </item>
        <item>
+        <layout class="QHBoxLayout" name="aiRatingFilterLayout">
+         <item>
+          <widget class="QLabel" name="aiRatingLabel">
+           <property name="text">
+            <string>AIレーティング:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="comboAIRating">
+           <item>
+            <property name="text">
+             <string>全て</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>PG (全年齢)</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>PG-13 (軽微な表現)</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>R (中程度)</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>X (強い表現)</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>XXX (過激な表現)</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <spacer name="aiRatingSpacer">
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item>
         <widget class="QCheckBox" name="checkboxIncludeUnrated">
          <property name="text">
           <string>未評価画像を含む</string>
