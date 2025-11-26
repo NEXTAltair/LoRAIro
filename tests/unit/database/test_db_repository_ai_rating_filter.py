@@ -138,9 +138,7 @@ class TestGetImagesByFilterAIRating:
                 mock_ai.return_value = select(Image.id)
 
                 # 両方のフィルタを指定
-                repository.get_images_by_filter(
-                    manual_rating_filter="PG", ai_rating_filter="R"
-                )
+                repository.get_images_by_filter(manual_rating_filter="PG", ai_rating_filter="R")
 
                 # manual_rating_filter が適用され、ai_rating_filter は無視される
                 mock_manual.assert_called()
@@ -175,15 +173,11 @@ class TestGetImagesByFilterAIRating:
         repository, mock_session = mock_session_and_repository
 
         # NSFW値を ai_rating_filter に指定した場合、NSFW除外は無効化される
-        results1, count1 = repository.get_images_by_filter(
-            ai_rating_filter="R", include_nsfw=False
-        )
+        results1, count1 = repository.get_images_by_filter(ai_rating_filter="R", include_nsfw=False)
         assert mock_session.execute.called
 
         # 非NSFW値を ai_rating_filter に指定した場合、NSFW除外が有効
-        results2, count2 = repository.get_images_by_filter(
-            ai_rating_filter="PG", include_nsfw=False
-        )
+        results2, count2 = repository.get_images_by_filter(ai_rating_filter="PG", include_nsfw=False)
         assert mock_session.execute.called
 
 

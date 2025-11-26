@@ -1064,20 +1064,14 @@ class ImageRepository:
 
         # サブクエリ1: 画像ごとの総AI評価数
         total_ratings_subquery = (
-            select(
-                Rating.image_id,
-                func.count(Rating.id).label("total_count")
-            )
+            select(Rating.image_id, func.count(Rating.id).label("total_count"))
             .group_by(Rating.image_id)
             .subquery()
         )
 
         # サブクエリ2: 画像ごとのマッチング評価数
         matching_ratings_subquery = (
-            select(
-                Rating.image_id,
-                func.count(Rating.id).label("matching_count")
-            )
+            select(Rating.image_id, func.count(Rating.id).label("matching_count"))
             .where(func.lower(Rating.normalized_rating) == ai_rating_filter.lower())
             .group_by(Rating.image_id)
             .subquery()
@@ -1090,12 +1084,12 @@ class ImageRepository:
             .select_from(total_ratings_subquery)
             .outerjoin(
                 matching_ratings_subquery,
-                total_ratings_subquery.c.image_id == matching_ratings_subquery.c.image_id
+                total_ratings_subquery.c.image_id == matching_ratings_subquery.c.image_id,
             )
             .where(
                 total_ratings_subquery.c.image_id == Image.id,
-                func.coalesce(matching_ratings_subquery.c.matching_count, 0) >=
-                    (total_ratings_subquery.c.total_count / 2.0)
+                func.coalesce(matching_ratings_subquery.c.matching_count, 0)
+                >= (total_ratings_subquery.c.total_count / 2.0),
             )
         ).correlate(Image)
 
@@ -1483,7 +1477,10 @@ class ImageRepository:
                 # Apply NSFW filter only if include_nsfw is False and the user is NOT explicitly asking for an NSFW rating
                 nsfw_values_to_exclude = {"r", "x", "xxx"}
                 apply_nsfw_exclusion = not include_nsfw and (
-                    (manual_rating_filter is None or manual_rating_filter.lower() not in nsfw_values_to_exclude)
+                    (
+                        manual_rating_filter is None
+                        or manual_rating_filter.lower() not in nsfw_values_to_exclude
+                    )
                     and (ai_rating_filter is None or ai_rating_filter.lower() not in nsfw_values_to_exclude)
                 )
                 if apply_nsfw_exclusion:
