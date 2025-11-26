@@ -616,6 +616,7 @@ class FilterSearchPanel(QScrollArea):
                 exclude_duplicates=self.ui.checkboxExcludeDuplicates.isChecked(),
                 include_nsfw=self.ui.checkboxIncludeNSFW.isChecked(),
                 rating_filter=self._get_rating_filter_value(),
+                ai_rating_filter=self._get_ai_rating_filter_value(),
                 include_unrated=self.ui.checkboxIncludeUnrated.isChecked(),
             )
 
