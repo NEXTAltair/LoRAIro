@@ -1043,6 +1043,93 @@ class ImageRepository:
             query = query.where(exists_subquery)
         return query
 
+    def _apply_ai_rating_filter(self, query: Select, ai_rating_filter: str) -> Select:
+        """
+        クエリにAI評価レーティングフィルタを適用します (多数決ロジック)。
+
+        1つの画像に複数のAIモデルによる異なる評価がある場合、
+        50%以上のAI評価が指定されたレーティングと一致する画像のみを返します。
+
+        Args:
+            query (Select): 適用対象のクエリ
+            ai_rating_filter (str): フィルタリングするレーティング値 (PG, PG-13, R, X, XXX)
+
+        Returns:
+            Select: AIレーティングフィルタが適用されたクエリ
+        """
+        logger.debug(f"Applying AI rating filter (majority vote) for rating: '{ai_rating_filter}'")
+
+        # 多数決ロジック: 画像ごとに総AI評価数とマッチング数を計算
+        # マッチング数 >= 総評価数 / 2.0 の画像のみを返す
+
+        # サブクエリ1: 画像ごとの総AI評価数
+        total_ratings_subquery = (
+            select(
+                Rating.image_id,
+                func.count(Rating.id).label("total_count")
+            )
+            .group_by(Rating.image_id)
+            .subquery()
+        )
+
+        # サブクエリ2: 画像ごとのマッチング評価数
+        matching_ratings_subquery = (
+            select(
+                Rating.image_id,
+                func.count(Rating.id).label("matching_count")
+            )
+            .where(func.lower(Rating.normalized_rating) == ai_rating_filter.lower())
+            .group_by(Rating.image_id)
+            .subquery()
+        )
+
+        # EXISTS条件: マッチング数 >= 総評価数 / 2.0
+        # COALESCE(matching_count, 0) で、マッチが0件の画像も処理
+        majority_vote_condition = exists(
+            select(1)
+            .select_from(total_ratings_subquery)
+            .outerjoin(
+                matching_ratings_subquery,
+                total_ratings_subquery.c.image_id == matching_ratings_subquery.c.image_id
+            )
+            .where(
+                total_ratings_subquery.c.image_id == Image.id,
+                func.coalesce(matching_ratings_subquery.c.matching_count, 0) >=
+                    (total_ratings_subquery.c.total_count / 2.0)
+            )
+        ).correlate(Image)
+
+        query = query.where(majority_vote_condition)
+        logger.debug("AI rating filter applied with majority vote logic")
+        return query
+
+    def _apply_unrated_filter(self, query: Select, include_unrated: bool) -> Select:
+        """
+        クエリに未評価画像フィルタを適用します (Either-based ロジック)。
+
+        include_unrated=False の場合、手動評価またはAI評価のいずれか1つ以上を持つ画像のみを返します。
+        include_unrated=True の場合、フィルタリングを行いません。
+
+        Args:
+            query (Select): 適用対象のクエリ
+            include_unrated (bool): 未評価画像を含めるかどうか
+
+        Returns:
+            Select: 未評価フィルタが適用されたクエリ
+        """
+        if not include_unrated:
+            logger.debug("Applying unrated filter: excluding images with neither manual nor AI rating")
+
+            # Either-based logic: 手動評価またはAI評価のいずれかが存在する
+            has_manual_rating = Image.manual_rating.is_not(None)
+            has_ai_rating = exists().where(Rating.image_id == Image.id).correlate(Image)
+
+            # 少なくとも1つの評価が存在する画像のみを含める
+            query = query.where(or_(has_manual_rating, has_ai_rating))
+            logger.debug("Unrated filter applied: images must have at least one rating (manual OR AI)")
+
+        return query
+
     def _apply_nsfw_filter(self, query: Select, include_nsfw: bool) -> Select:
         """クエリにNSFWフィルタを適用します。"""
         if not include_nsfw:
@@ -1311,10 +1398,11 @@ class ImageRepository:
         end_date: str | None = None,
         include_untagged: bool = False,
         include_nsfw: bool = False,
+        include_unrated: bool = True,  # 未評価画像を含めるか (True: 含める, False: 除外)
         manual_rating_filter: str | None = None,  # 手動レーティングでフィルタ
+        ai_rating_filter: str | None = None,  # AI評価レーティングでフィルタ (PG, PG-13, R, X, XXX)
         manual_edit_filter: bool
         | None = None,  # 手動編集フラグでフィルタ (True:編集済, False:未編集, None:フィルタ無)
-        # FIXME: Issue #3参照 - rating (AIによる評価) でのフィルタも追加検討
     ) -> tuple[list[dict[str, Any]], int]:
         """
         指定された条件に基づいて画像をフィルタリングし、メタデータと件数を返します。
@@ -1328,7 +1416,12 @@ class ImageRepository:
             end_date (Optional[str]): 検索終了日時 (ISO 8601形式)。
             include_untagged (bool): タグが付いていない画像のみを対象とするか。
             include_nsfw (bool): NSFWコンテンツを含む画像を除外しないか。
+            include_unrated (bool): 未評価画像を含めるか。False の場合、
+                                    手動評価またはAI評価のいずれか1つ以上を持つ画像のみを対象とする。
             manual_rating_filter (Optional[str]): 指定した手動レーティングを持つ画像のみを対象とするか。
+            ai_rating_filter (Optional[str]): 指定したAI評価レーティングを持つ画像のみを対象とするか。
+                                             複数のAI評価がある場合は多数決ロジックを適用。
+                                             注: manual_rating_filter が指定されている場合は無視される (優先順位)。
             manual_edit_filter (Optional[bool]): アノテーションが手動編集されたかでフィルタするか。
                                                  True: 編集済のみ, False: 未編集のみ, None: フィルタしない。
 
@@ -1366,22 +1459,36 @@ class ImageRepository:
                 # タグフィルタ適用
                 query = self._apply_tag_filter(query, tags, use_and, include_untagged)
 
-                # キャプション、NSFW、手動編集フィルタ適用
+                # キャプションフィルタ適用
                 query = self._apply_caption_filter(query, caption)
 
-                # ★★★ フィルター順序変更: Manual Filters を先に適用 ★★★
-                query = self._apply_manual_filters(query, manual_rating_filter, manual_edit_filter)
+                # ★★★ Rating Filters (Priority-based: manual > AI) ★★★
+                # 優先順位: manual_rating_filter が指定されていれば ai_rating_filter は無視
+                if manual_rating_filter:
+                    logger.debug("Applying manual rating filter (priority over AI rating filter)")
+                    query = self._apply_manual_filters(query, manual_rating_filter, manual_edit_filter)
+                elif ai_rating_filter:
+                    logger.debug("Applying AI rating filter (no manual rating filter specified)")
+                    query = self._apply_ai_rating_filter(query, ai_rating_filter)
+                    # manual_edit_filter のみを適用 (manual_rating_filter は None)
+                    query = self._apply_manual_filters(query, None, manual_edit_filter)
+                else:
+                    # どちらのレーティングフィルタも指定されていない場合、manual_edit_filter のみ適用
+                    query = self._apply_manual_filters(query, None, manual_edit_filter)
 
-                # ★★★ NSFW Filter は Manual Filters の後に適用 ★★★
-                # Apply NSFW filter only if include_nsfw is False and the user is NOT explicitly asking for an NSFW manual rating
+                # ★★★ Unrated Filter (Either-based: AI OR manual rating exists) ★★★
+                query = self._apply_unrated_filter(query, include_unrated)
+
+                # ★★★ NSFW Filter (Adjusted for AI rating filter compatibility) ★★★
+                # Apply NSFW filter only if include_nsfw is False and the user is NOT explicitly asking for an NSFW rating
                 nsfw_values_to_exclude = {"r", "x", "xxx"}
                 apply_nsfw_exclusion = not include_nsfw and (
-                    manual_rating_filter is None
-                    or manual_rating_filter.lower() not in nsfw_values_to_exclude
+                    (manual_rating_filter is None or manual_rating_filter.lower() not in nsfw_values_to_exclude)
+                    and (ai_rating_filter is None or ai_rating_filter.lower() not in nsfw_values_to_exclude)
                 )
                 if apply_nsfw_exclusion:
-                    query = self._apply_nsfw_filter(query, include_nsfw=False)  # Pass False explicitly
-                elif include_nsfw:  # If include_nsfw is True, apply the filter logic (which essentially does nothing if include_nsfw=True)
+                    query = self._apply_nsfw_filter(query, include_nsfw=False)
+                elif include_nsfw:
                     query = self._apply_nsfw_filter(query, include_nsfw=True)
 
                 # --- 5. クエリ実行と ID 取得 --- #

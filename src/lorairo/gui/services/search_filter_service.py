@@ -108,6 +108,7 @@ class SearchFilterService:
         annotation_function_filter: list[str] | None = None,
         include_nsfw: bool = True,
         rating_filter: str | None = None,
+        ai_rating_filter: str | None = None,
         include_unrated: bool = True,
     ) -> SearchConditions:
         """
@@ -136,6 +137,7 @@ class SearchFilterService:
             annotation_function_filter=annotation_function_filter,
             include_nsfw=include_nsfw,
             rating_filter=rating_filter,
+            ai_rating_filter=ai_rating_filter,
             include_unrated=include_unrated,
         )
 
@@ -186,11 +188,16 @@ class SearchFilterService:
 
         # Ratingフィルター
         if conditions.rating_filter:
-            preview_parts.append(f"レーティング: {conditions.rating_filter}")
+            preview_parts.append(f"手動レーティング: {conditions.rating_filter}")
+        if conditions.ai_rating_filter:
+            ai_rating_text = f"AIレーティング: {conditions.ai_rating_filter} (多数決)"
+            if conditions.rating_filter:
+                ai_rating_text += " ※手動レーティング優先"
+            preview_parts.append(ai_rating_text)
         if not conditions.include_nsfw:
             preview_parts.append("NSFW除外")
         if not conditions.include_unrated:
-            preview_parts.append("未評価除外")
+            preview_parts.append("未評価除外 (手動/AI両方なし)")
 
         # モデルフィルター
         if conditions.model_criteria:
