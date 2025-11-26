@@ -37,8 +37,9 @@ class SearchConditions:
 
     # Rating Filter Extensions
     include_nsfw: bool = True  # NSFWコンテンツを含むか（デフォルト: True for 後方互換性）
-    rating_filter: str | None = None  # 特定Rating値でフィルタ ('PG', 'PG-13', 'R', 'X', 'XXX')
-    include_unrated: bool = True  # 未評価画像を含むか
+    rating_filter: str | None = None  # 手動Rating値でフィルタ ('PG', 'PG-13', 'R', 'X', 'XXX')
+    ai_rating_filter: str | None = None  # AI評価Rating値でフィルタ (PG, PG-13, R, X, XXX) - 多数決ロジック
+    include_unrated: bool = True  # 未評価画像を含むか (Either: 手動またはAI評価のいずれか1つ以上)
 
     def to_db_filter_args(self) -> dict[str, Any]:
         """DB APIの引数に直接変換"""
@@ -51,7 +52,9 @@ class SearchConditions:
             "start_date": self.date_range_start.isoformat() if self.date_range_start else None,
             "end_date": self.date_range_end.isoformat() if self.date_range_end else None,
             "include_nsfw": self.include_nsfw,
-            "manual_rating_filter": self.rating_filter,  # 既存パラメータを活用
+            "include_unrated": self.include_unrated,  # Either-based: 手動またはAI評価のいずれか1つ以上
+            "manual_rating_filter": self.rating_filter,  # 手動評価フィルタ
+            "ai_rating_filter": self.ai_rating_filter,  # AI評価フィルタ (多数決ロジック)
         }
 
     def _resolve_resolution(self) -> int:

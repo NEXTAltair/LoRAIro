@@ -535,10 +535,31 @@ class ImageDatabaseManager:
         end_date: str | None = None,
         include_untagged: bool = False,
         include_nsfw: bool = False,
+        include_unrated: bool = True,
         manual_rating_filter: str | None = None,
+        ai_rating_filter: str | None = None,
         manual_edit_filter: bool | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
-        """指定された条件に基づいて画像をフィルタリングし、メタデータと件数を返します。"""
+        """
+        指定された条件に基づいて画像をフィルタリングし、メタデータと件数を返します。
+
+        Args:
+            tags: 検索するタグのリスト
+            caption: 検索するキャプション文字列
+            resolution: 検索対象の解像度(長辺)、0の場合はオリジナル画像
+            use_and: 複数タグ指定時の検索方法 (True: AND, False: OR)
+            start_date: 検索開始日時 (ISO 8601形式)
+            end_date: 検索終了日時 (ISO 8601形式)
+            include_untagged: タグが付いていない画像のみを対象とするか
+            include_nsfw: NSFWコンテンツを含む画像を除外しないか
+            include_unrated: 未評価画像を含めるか (False: 手動またはAI評価のいずれか1つ以上を持つ画像のみ)
+            manual_rating_filter: 指定した手動レーティングを持つ画像のみを対象とするか
+            ai_rating_filter: 指定したAI評価レーティングを持つ画像のみを対象とするか (多数決ロジック)
+            manual_edit_filter: アノテーションが手動編集されたかでフィルタするか
+
+        Returns:
+            tuple: (画像メタデータのリスト, 総数)
+        """
         try:
             # 引数をそのままリポジトリに渡す
             return self.repository.get_images_by_filter(
@@ -550,7 +571,9 @@ class ImageDatabaseManager:
                 end_date=end_date,
                 include_untagged=include_untagged,
                 include_nsfw=include_nsfw,
+                include_unrated=include_unrated,
                 manual_rating_filter=manual_rating_filter,
+                ai_rating_filter=ai_rating_filter,
                 manual_edit_filter=manual_edit_filter,
             )
         except Exception as e:
