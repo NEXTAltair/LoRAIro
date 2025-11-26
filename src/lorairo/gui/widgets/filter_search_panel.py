@@ -435,6 +435,22 @@ class FilterSearchPanel(QScrollArea):
         logger.debug(f"Rating filter value: {rating_value}")
         return rating_value
 
+    def _get_ai_rating_filter_value(self) -> str | None:
+        """
+        AIレーティングコンボボックスから選択された値を取得
+
+        Returns:
+            str | None: AI Rating値（'PG', 'PG-13', 'R', 'X', 'XXX'）または None（全て選択時）
+        """
+        text = self.ui.comboAIRating.currentText()
+        if text == "全て":
+            return None
+
+        # "PG (全年齢)" -> "PG" に変換
+        ai_rating_value = text.split()[0] if text else None
+        logger.debug(f"AI rating filter value: {ai_rating_value}")
+        return ai_rating_value
+
     def _on_search_type_changed(self) -> None:
         """検索タイプ変更時の処理（チェックボックス対応）"""
         # 入力フィールドの有効/無効を更新
@@ -659,6 +675,7 @@ class FilterSearchPanel(QScrollArea):
                 exclude_duplicates=self.ui.checkboxExcludeDuplicates.isChecked(),
                 include_nsfw=self.ui.checkboxIncludeNSFW.isChecked(),
                 rating_filter=self._get_rating_filter_value(),
+                ai_rating_filter=self._get_ai_rating_filter_value(),
                 include_unrated=self.ui.checkboxIncludeUnrated.isChecked(),
             )
 
