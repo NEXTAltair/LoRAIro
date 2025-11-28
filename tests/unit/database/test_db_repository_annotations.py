@@ -95,7 +95,7 @@ class TestFormatAnnotationsForMetadata:
             "scores": [],
             "score_value": 0.0,
             "ratings": [],
-            "rating_value": 0,
+            "rating_value": "",  # Issue #4: Rating値は文字列型
         }
 
         assert result == expected
@@ -179,7 +179,7 @@ class TestFormatAnnotationsForMetadata:
         assert len(result["scores"]) == 0
         assert result["score_value"] == 0.0
         assert len(result["ratings"]) == 0
-        assert result["rating_value"] == 0
+        assert result["rating_value"] == ""  # Issue #4: Rating値は文字列型
 
     def test_format_annotations_multiple_items(self, repository):
         """複数の同種アノテーションを持つImageオブジェクトのテスト"""
