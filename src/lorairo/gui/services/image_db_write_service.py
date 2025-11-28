@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from ...database.db_manager import ImageDatabaseManager
+from ...database.schema import RatingAnnotationData, ScoreAnnotationData
 from ...services.date_formatter import format_datetime_for_display
 from ...utils.log import logger
 from ..widgets.annotation_data_display_widget import AnnotationData, ImageDetails
@@ -53,10 +54,11 @@ class ImageDBWriteService:
             # アノテーション情報取得
             annotation_data = self.get_annotation_data(image_id)
 
-            # Rating/Score 情報取得 (FIXME: Issue #4参照 - 実際のスキーマに合わせて実装)
-            # 現在はプレースホルダー
-            rating_value = ""
-            score_value = 0
+            # Rating/Score 情報取得（Repository側で整形済み）
+            rating_value = image_metadata.get("rating_value", "")
+            # Score: DB値（0-10）→ UI値（0-1000）に変換
+            db_score_value = image_metadata.get("score_value", 0)
+            score_value = int(db_score_value * 100) if db_score_value else 0
 
             result = ImageDetails(
                 image_id=image_id,
@@ -126,20 +128,35 @@ class ImageDBWriteService:
 
         Args:
             image_id: 更新対象の画像ID
-            rating: Rating値 ("PG", "R", "X", など)
+            rating: Rating値 ("PG", "PG-13", "R", "X", "XXX")
 
         Returns:
             bool: 更新成功/失敗
         """
         try:
-            # FIXME: Issue #4参照 - 実際のRating更新機能を実装
-            # 現在はプレースホルダー実装
-            logger.info(f"Rating update requested for image_id {image_id}: '{rating}'")
+            # Rating値のバリデーション（Civitai標準）
+            valid_ratings = ["PG", "PG-13", "R", "X", "XXX"]
+            if rating not in valid_ratings:
+                logger.warning(
+                    f"Invalid rating value: '{rating}'. Must be one of {valid_ratings}"
+                )
+                return False
 
-            # ImageRepositoryを通じてDB更新を行う
-            # 例: self.db_manager.repository.save_annotations(image_id, {"ratings": [...]})
+            # RatingAnnotationData を作成（手動編集時はraw_rating_valueとnormalized_ratingは同じ値）
+            rating_data: RatingAnnotationData = {
+                "model_id": self.db_manager.get_manual_edit_model_id(),
+                "raw_rating_value": rating,
+                "normalized_rating": rating,
+                "confidence_score": None,  # 手動編集時は信頼度スコアなし
+            }
 
-            logger.debug(f"Rating updated successfully for image_id {image_id}: '{rating}'")
+            # Repositoryの save_annotations を呼び出し
+            self.db_manager.repository.save_annotations(
+                image_id=image_id,
+                annotations={"ratings": [rating_data]},
+            )
+
+            logger.info(f"Rating updated successfully for image_id {image_id}: '{rating}'")
             return True
 
         except Exception as e:
@@ -162,14 +179,23 @@ class ImageDBWriteService:
                 logger.warning(f"Invalid score value: {score}. Must be between 0-1000")
                 return False
 
-            # FIXME: Issue #4参照 - 実際のScore更新機能を実装
-            # 現在はプレースホルダー実装
-            logger.info(f"Score update requested for image_id {image_id}: {score}")
+            # UI値（0-1000）→ DB値（0-10）に変換
+            db_score = score / 100.0
 
-            # ImageRepositoryを通じてDB更新を行う
-            # 例: self.db_manager.repository.save_annotations(image_id, {"scores": [...]})
+            # ScoreAnnotationData を作成
+            score_data: ScoreAnnotationData = {
+                "model_id": self.db_manager.get_manual_edit_model_id(),
+                "score": db_score,
+                "is_edited_manually": True,  # 手動編集フラグ
+            }
 
-            logger.debug(f"Score updated successfully for image_id {image_id}: {score}")
+            # Repositoryの save_annotations を呼び出し
+            self.db_manager.repository.save_annotations(
+                image_id=image_id,
+                annotations={"scores": [score_data]},
+            )
+
+            logger.info(f"Score updated successfully for image_id {image_id}: UI={score} -> DB={db_score}")
             return True
 
         except Exception as e:

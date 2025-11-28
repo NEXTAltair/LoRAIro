@@ -365,9 +365,9 @@ class SelectedImageDetailsWidget(QScrollArea):
         created_at = metadata.get("created_at")
         created_date = format_datetime_for_display(created_at) if created_at else ""
 
-        # Rating / Score
-        rating_value = metadata.get("rating", "")
-        score_value = metadata.get("score", 0)
+        # Rating / Score（Issue #4: Repository側で整形済みの値を使用）
+        rating_value = metadata.get("rating_value", "")
+        score_value = metadata.get("score_value", 0)
 
         # アノテーション情報（Repository層で変換済み・直接キーアクセス）
         # Repository層は metadata に直接 tags, captions などのキーを追加
@@ -378,8 +378,8 @@ class SelectedImageDetailsWidget(QScrollArea):
         annotation_data = AnnotationData(
             tags=tags_list,  # ← list[dict] をそのまま渡す
             caption=caption_text,
-            aesthetic_score=metadata.get("score_value"),
-            overall_score=int(metadata.get("rating_value", 0)),
+            aesthetic_score=score_value,
+            overall_score=0,  # Rating値は文字列なのでoverall_scoreには使用しない
         )
 
         details = ImageDetails(

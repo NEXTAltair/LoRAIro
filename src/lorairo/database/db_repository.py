@@ -100,6 +100,43 @@ class ImageRepository:
                 logger.error(f"モデルIDの取得中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
+    def _get_or_create_manual_edit_model(self, session: Session) -> int:
+        """
+        手動編集用のモデルIDを取得または作成します。
+
+        MANUAL_EDITという名前のモデルが存在しない場合は新規作成します。
+        model_typesテーブルへの関連付けは行いません（手動編集はAIカテゴリに属さない）。
+
+        Args:
+            session (Session): データベースセッション
+
+        Returns:
+            int: MANUAL_EDITモデルのID
+
+        Raises:
+            SQLAlchemyError: データベース操作中にエラーが発生した場合
+        """
+        try:
+            # 既存のMANUAL_EDITモデルを検索
+            stmt = select(Model).where(Model.name == "MANUAL_EDIT")
+            existing_model = session.execute(stmt).scalar_one_or_none()
+
+            if existing_model:
+                logger.debug(f"既存のMANUAL_EDITモデルを使用: ID={existing_model.id}")
+                return existing_model.id
+
+            # 新規作成
+            manual_edit_model = Model(name="MANUAL_EDIT", provider="user")
+            session.add(manual_edit_model)
+            session.flush()  # IDを取得するためにflush
+
+            logger.info(f"MANUAL_EDITモデルを新規作成: ID={manual_edit_model.id}")
+            return manual_edit_model.id
+
+        except SQLAlchemyError as e:
+            logger.error(f"MANUAL_EDITモデルの取得/作成中にエラーが発生しました: {e}", exc_info=True)
+            raise
+
     def _image_exists(self, image_id: int) -> bool:
         """
         指定された画像IDが images テーブルに存在するかを確認します。
@@ -608,6 +645,8 @@ class ImageRepository:
 
         Returns:
             Optional[dict[str, Any]]: 画像メタデータを含む辞書。画像が見つからない場合はNone。
+                - rating_value: 最新のRating値（ratingsテーブルから取得）
+                - score_value: 最新のScore値（scoresテーブルから取得）
 
         Raises:
             SQLAlchemyError: データベース操作でエラーが発生した場合。
@@ -615,15 +654,28 @@ class ImageRepository:
         with self.session_factory() as session:
             try:
                 # 主キー検索には session.get が効率的
-                image: Image | None = session.get(Image, image_id)
+                # relationshipをeager loadingで取得（ratings, scores）
+                stmt = (
+                    select(Image)
+                    .where(Image.id == image_id)
+                    .options(
+                        selectinload(Image.ratings),
+                        selectinload(Image.scores),
+                    )
+                )
+                image: Image | None = session.execute(stmt).scalar_one_or_none()
+
                 if image is None:
                     logger.warning(f"画像メタデータが見つかりません: image_id={image_id}")
                     return None
 
-                # SQLAlchemy オブジェクトを辞書に変換して返す
-                # (必要に応じて __dict__ 以外の方法も検討)
-                # relationship でロードされたオブジェクトは除外するなど、調整が必要な場合がある
+                # SQLAlchemy オブジェクトを辞書に変換
                 metadata = {c.name: getattr(image, c.name) for c in image.__table__.columns}
+
+                # Rating/Score情報を整形して追加（Issue #4対応）
+                annotations = self._format_annotations_for_metadata(image)
+                metadata.update(annotations)
+
                 logger.debug(f"画像メタデータを取得しました: image_id={image_id}")
                 return metadata
 
@@ -1124,7 +1176,7 @@ class ImageRepository:
 
         return query
 
-    def _apply_nsfw_filter(self, query: Select, include_nsfw: bool) -> Select:
+    def _apply_nsfw_filter(self, query: Select, include_nsfw: bool, session: Session) -> Select:
         """クエリにNSFWフィルタを適用します。"""
         if not include_nsfw:
             # NSFWとみなすレーティング値 (小文字にして比較)
@@ -1140,8 +1192,17 @@ class ImageRepository:
                 .correlate(Image)
             )
 
-            # 手動レーティングに基づく除外条件
-            manual_nsfw_condition = func.lower(func.coalesce(Image.manual_rating, "")).in_(nsfw_ratings)
+            # 手動レーティングに基づく除外条件（ratingsテーブルから最新のMANUAL_EDIT ratingを参照）
+            manual_edit_model_id = self._get_or_create_manual_edit_model(session)
+            manual_nsfw_condition = (
+                exists()
+                .where(
+                    Rating.image_id == Image.id,
+                    Rating.model_id == manual_edit_model_id,
+                    func.lower(Rating.normalized_rating).in_(nsfw_ratings)
+                )
+                .correlate(Image)
+            )
 
             # AIレーティングまたは手動レーティングがNSFWである画像を除外
             query = query.where(not_(or_(ai_nsfw_condition, manual_nsfw_condition)))
@@ -1153,10 +1214,19 @@ class ImageRepository:
         query: Select,
         manual_rating_filter: str | None,
         manual_edit_filter: bool | None,
+        session: Session,
     ) -> Select:
         """クエリに手動評価と手動編集フラグのフィルタを適用します。"""
         if manual_rating_filter:
-            query = query.where(Image.manual_rating == manual_rating_filter)
+            # ratingsテーブルから最新のMANUAL_EDIT ratingを参照
+            manual_edit_model_id = self._get_or_create_manual_edit_model(session)
+            manual_rating_subq = (
+                select(Rating.image_id)
+                .where(Rating.normalized_rating == manual_rating_filter)
+                .where(Rating.model_id == manual_edit_model_id)
+                .distinct()
+            )
+            query = query.where(Image.id.in_(manual_rating_subq))
 
         if manual_edit_filter is not None:
             has_manual_edit = or_(
@@ -1255,7 +1325,7 @@ class ImageRepository:
             annotations["captions"] = []
             annotations["caption_text"] = ""
 
-        # Scores formatting - 詳細情報 + 平均スコア
+        # Scores formatting - 詳細情報 + 最新スコア
         if image.scores:
             annotations["scores"] = [
                 {
@@ -1269,14 +1339,15 @@ class ImageRepository:
                 }
                 for score in image.scores
             ]
-            # 平均スコア（表示用）
-            avg_score = sum(s.score for s in image.scores) / len(image.scores)
-            annotations["score_value"] = avg_score
+            # 最新のScore（created_at降順）を取得
+            # スケールはそのまま（0-10）でUI側で×100変換
+            latest_score = max(image.scores, key=lambda s: s.created_at)
+            annotations["score_value"] = latest_score.score
         else:
             annotations["scores"] = []
             annotations["score_value"] = 0.0
 
-        # Ratings formatting - 詳細情報 + 平均Rating
+        # Ratings formatting - 詳細情報 + 最新Rating
         if image.ratings:
             annotations["ratings"] = [
                 {
@@ -1290,12 +1361,12 @@ class ImageRepository:
                 }
                 for rating in image.ratings
             ]
-            # 平均Rating（正規化値の平均）
-            avg_rating = sum(r.normalized_rating for r in image.ratings) / len(image.ratings)
-            annotations["rating_value"] = avg_rating
+            # 最新のRating（created_at降順）を取得
+            latest_rating = max(image.ratings, key=lambda r: r.created_at)
+            annotations["rating_value"] = latest_rating.normalized_rating
         else:
             annotations["ratings"] = []
-            annotations["rating_value"] = 0
+            annotations["rating_value"] = ""
 
         logger.debug(
             f"Formatted annotations: tags={len(annotations.get('tags', []))}, "
@@ -1460,15 +1531,15 @@ class ImageRepository:
                 # 優先順位: manual_rating_filter が指定されていれば ai_rating_filter は無視
                 if manual_rating_filter:
                     logger.debug("Applying manual rating filter (priority over AI rating filter)")
-                    query = self._apply_manual_filters(query, manual_rating_filter, manual_edit_filter)
+                    query = self._apply_manual_filters(query, manual_rating_filter, manual_edit_filter, session)
                 elif ai_rating_filter:
                     logger.debug("Applying AI rating filter (no manual rating filter specified)")
                     query = self._apply_ai_rating_filter(query, ai_rating_filter)
                     # manual_edit_filter のみを適用 (manual_rating_filter は None)
-                    query = self._apply_manual_filters(query, None, manual_edit_filter)
+                    query = self._apply_manual_filters(query, None, manual_edit_filter, session)
                 else:
                     # どちらのレーティングフィルタも指定されていない場合、manual_edit_filter のみ適用
-                    query = self._apply_manual_filters(query, None, manual_edit_filter)
+                    query = self._apply_manual_filters(query, None, manual_edit_filter, session)
 
                 # ★★★ Unrated Filter (Either-based: AI OR manual rating exists) ★★★
                 query = self._apply_unrated_filter(query, include_unrated)
@@ -1484,9 +1555,9 @@ class ImageRepository:
                     and (ai_rating_filter is None or ai_rating_filter.lower() not in nsfw_values_to_exclude)
                 )
                 if apply_nsfw_exclusion:
-                    query = self._apply_nsfw_filter(query, include_nsfw=False)
+                    query = self._apply_nsfw_filter(query, include_nsfw=False, session=session)
                 elif include_nsfw:
-                    query = self._apply_nsfw_filter(query, include_nsfw=True)
+                    query = self._apply_nsfw_filter(query, include_nsfw=True, session=session)
 
                 # --- 5. クエリ実行と ID 取得 --- #
                 query = query.distinct()
