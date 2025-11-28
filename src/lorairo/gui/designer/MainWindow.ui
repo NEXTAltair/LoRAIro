@@ -725,6 +725,7 @@
     </property>
     <addaction name="actionAnnotation"/>
     <addaction name="actionExport"/>
+    <addaction name="actionErrorLog"/>
     <addaction name="separator"/>
     <addaction name="actionSettings"/>
    </widget>
@@ -817,6 +818,17 @@
    </property>
    <property name="shortcut">
     <string>Ctrl+,</string>
+   </property>
+  </action>
+  <action name="actionErrorLog">
+   <property name="text">
+    <string>エラーログ</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+L</string>
+   </property>
+   <property name="toolTip">
+    <string>エラーログビューアを表示</string>
    </property>
   </action>
   <action name="actionAbout">
