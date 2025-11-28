@@ -540,9 +540,7 @@ class ImageDatabaseManager:
         """
         if not hasattr(self, "_manual_edit_model_id"):
             with self.repository.session_factory() as session:
-                self._manual_edit_model_id = self.repository._get_or_create_manual_edit_model(
-                    session
-                )
+                self._manual_edit_model_id = self.repository._get_or_create_manual_edit_model(session)
                 session.commit()
             logger.debug(f"MANUAL_EDITモデルIDをキャッシュ: {self._manual_edit_model_id}")
         return self._manual_edit_model_id

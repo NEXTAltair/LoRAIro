@@ -1199,7 +1199,7 @@ class ImageRepository:
                 .where(
                     Rating.image_id == Image.id,
                     Rating.model_id == manual_edit_model_id,
-                    func.lower(Rating.normalized_rating).in_(nsfw_ratings)
+                    func.lower(Rating.normalized_rating).in_(nsfw_ratings),
                 )
                 .correlate(Image)
             )
@@ -1531,7 +1531,9 @@ class ImageRepository:
                 # 優先順位: manual_rating_filter が指定されていれば ai_rating_filter は無視
                 if manual_rating_filter:
                     logger.debug("Applying manual rating filter (priority over AI rating filter)")
-                    query = self._apply_manual_filters(query, manual_rating_filter, manual_edit_filter, session)
+                    query = self._apply_manual_filters(
+                        query, manual_rating_filter, manual_edit_filter, session
+                    )
                 elif ai_rating_filter:
                     logger.debug("Applying AI rating filter (no manual rating filter specified)")
                     query = self._apply_ai_rating_filter(query, ai_rating_filter)
