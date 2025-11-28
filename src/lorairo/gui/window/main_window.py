@@ -30,7 +30,8 @@ from ..services.search_filter_service import SearchFilterService
 from ..services.widget_setup_service import WidgetSetupService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
-from ..widgets.error_log_viewer_widget import ErrorLogViewerWidget
+from ..widgets.error_log_viewer_dialog import ErrorLogViewerDialog
+from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
@@ -74,7 +75,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     thumbnail_selector: ThumbnailSelectorWidget | None
     image_preview_widget: ImagePreviewWidget | None
     selected_image_details_widget: SelectedImageDetailsWidget | None
-    error_log_viewer_widget: ErrorLogViewerWidget | None
+
+    # Error handling UI components
+    error_notification_widget: ErrorNotificationWidget | None
+    error_log_dialog: ErrorLogViewerDialog | None
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -88,6 +92,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("MainWindow初期化開始 - Phase 1: UI設定")
             self.setupUi(self)
             logger.info("UI設定完了")
+
+            # エラーログメニューアクション接続（UI生成後に接続）
+            if hasattr(self, "actionErrorLog"):
+                self.actionErrorLog.triggered.connect(self._show_error_log_dialog)
+                logger.debug("Error log menu action connected")
 
             # サービス初期化（例外を個別にキャッチ）
             logger.info("サービス初期化開始")
@@ -279,8 +288,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.settings_controller = None
             self.export_controller = None
 
-        # ErrorLogViewerWidget初期化（Phase 4.5）
-        self._setup_error_log_viewer()
+        # ErrorNotificationWidget初期化（Phase 4.5）
+        self._setup_error_notification()
 
     def _verify_state_management_connections(self) -> None:
         """状態管理接続の検証（SelectionStateServiceに委譲）"""
@@ -293,22 +302,67 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             logger.error("SelectionStateServiceが初期化されていません - 接続検証をスキップ")
 
-    def _setup_error_log_viewer(self) -> None:
-        """ErrorLogViewerWidget設定とdb_manager注入（Phase 4.5）"""
+    def _setup_error_notification(self) -> None:
+        """エラー通知Widget設定（StatusBar統合）"""
         try:
-            # ErrorLogViewerWidgetインスタンス作成
-            self.error_log_viewer_widget = ErrorLogViewerWidget(parent=self)
+            # ErrorNotificationWidget作成
+            self.error_notification_widget = ErrorNotificationWidget(parent=self)
 
             # ImageDatabaseManager注入
             if self.db_manager:
-                self.error_log_viewer_widget.set_db_manager(self.db_manager)
-                logger.info("✅ ErrorLogViewerWidget初期化成功")
+                self.error_notification_widget.set_db_manager(self.db_manager)
+                logger.info("✅ ErrorNotificationWidget初期化成功")
             else:
-                raise RuntimeError("ImageDatabaseManager not available for ErrorLogViewerWidget")
+                logger.warning("⚠️ ImageDatabaseManager未設定")
+
+            # StatusBarに追加（permanent widget = 右端固定）
+            self.statusBar().addPermanentWidget(self.error_notification_widget)
+
+            # クリックでダイアログ表示
+            self.error_notification_widget.clicked.connect(self._show_error_log_dialog)
+
+            # Dialog初期化（遅延生成）
+            self.error_log_dialog = None
 
         except Exception as e:
-            logger.error(f"❌ ErrorLogViewerWidget初期化失敗: {e}", exc_info=True)
-            self.error_log_viewer_widget = None
+            logger.error(f"❌ ErrorNotificationWidget初期化失敗: {e}", exc_info=True)
+            self.error_notification_widget = None
+
+    def _show_error_log_dialog(self) -> None:
+        """エラーログダイアログを表示（オンデマンド）"""
+        try:
+            # Lazy initialization (singleton pattern)
+            if self.error_log_dialog is None:
+                if not self.db_manager:
+                    logger.error("ImageDatabaseManager not available")
+                    QMessageBox.warning(self, "エラー", "データベース接続が確立されていません")
+                    return
+
+                self.error_log_dialog = ErrorLogViewerDialog(
+                    db_manager=self.db_manager,
+                    parent=self,
+                    auto_load=True,
+                )
+
+                # Signal接続（error_resolvedで通知Widget更新）
+                self.error_log_dialog.error_resolved.connect(self._on_error_resolved)
+
+                logger.info("ErrorLogViewerDialog created (lazy initialization)")
+
+            # Dialog表示
+            self.error_log_dialog.show()
+            self.error_log_dialog.raise_()  # 前面表示
+            self.error_log_dialog.activateWindow()  # アクティブ化
+
+        except Exception as e:
+            logger.error(f"Failed to show error log dialog: {e}", exc_info=True)
+            QMessageBox.critical(self, "エラー", f"エラーログの表示に失敗しました:\n{e}")
+
+    def _on_error_resolved(self, error_id: int) -> None:
+        """エラー解決時の処理（通知Widget更新）"""
+        logger.info(f"Error resolved: error_id={error_id}")
+        if self.error_notification_widget:
+            self.error_notification_widget.update_error_count()
 
     def _connect_events(self) -> None:
         """イベント接続を設定（安全な実装）"""
@@ -405,9 +459,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def _on_pipeline_search_error(self, error_message: str) -> None:
         self._delegate_to_pipeline_control("on_search_error", error_message)
+        # エラー通知Widget更新
+        if self.error_notification_widget:
+            self.error_notification_widget.update_error_count()
 
     def _on_pipeline_thumbnail_error(self, error_message: str) -> None:
         self._delegate_to_pipeline_control("on_thumbnail_error", error_message)
+        # エラー通知Widget更新
+        if self.error_notification_widget:
+            self.error_notification_widget.update_error_count()
 
     def _delegate_to_progress_state(self, method_name: str, *args: Any) -> None:
         """ProgressStateServiceへのイベント委譲ヘルパー"""
@@ -440,6 +500,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self, "バッチ登録エラー", f"バッチ登録中にエラーが発生しました:\n\n{error_message}"
         )
 
+        # エラー通知Widget更新
+        if self.error_notification_widget:
+            self.error_notification_widget.update_error_count()
+
     def _on_worker_progress_updated(self, worker_id: str, progress: Any) -> None:
         self._delegate_to_progress_state("on_worker_progress_updated", worker_id, progress)
 
@@ -464,6 +528,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def _on_annotation_error(self, error_msg: str) -> None:
         self._delegate_to_result_handler("handle_annotation_error", error_msg, status_bar=self.statusBar())
+        # エラー通知Widget更新
+        if self.error_notification_widget:
+            self.error_notification_widget.update_error_count()
 
     def _on_batch_annotation_finished(self, result: Any) -> None:
         self._delegate_to_result_handler(
@@ -537,22 +604,93 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         return [(Path(metadata["stored_image_path"]), metadata["id"]) for metadata in image_metadata]
 
     def _setup_image_db_write_service(self) -> None:
-        """ImageDBWriteServiceを作成してselected_image_details_widgetに注入
+        """ImageDBWriteServiceを作成してselected_image_details_widgetのシグナルを接続
 
         Phase 3.4: DB操作分離パターンの実装
+        Issue #4: Rating/Score更新機能統合
         """
         if self.db_manager and self.selected_image_details_widget:
             # ImageDBWriteServiceを作成
             self.image_db_write_service = ImageDBWriteService(self.db_manager)
 
-            # SelectedImageDetailsWidgetに注入
-            self.selected_image_details_widget.set_image_db_write_service(self.image_db_write_service)
+            # SelectedImageDetailsWidgetのシグナルをImageDBWriteServiceに接続
+            self.selected_image_details_widget.rating_updated.connect(
+                self._on_rating_update_requested
+            )
+            self.selected_image_details_widget.score_updated.connect(
+                self._on_score_update_requested
+            )
+            self.selected_image_details_widget.save_requested.connect(
+                self._on_save_requested
+            )
 
-            logger.info("ImageDBWriteService created and injected into SelectedImageDetailsWidget")
+            logger.info("ImageDBWriteService created and signals connected")
         else:
             logger.warning(
                 "Cannot setup ImageDBWriteService: db_manager or selected_image_details_widget not available"
             )
+
+    def _on_rating_update_requested(self, image_id: int, rating: str) -> None:
+        """Rating更新シグナルハンドラ（Issue #4）
+
+        Args:
+            image_id: 画像ID
+            rating: Rating値 ("PG", "R", "X", など)
+        """
+        if not self.image_db_write_service:
+            logger.warning("ImageDBWriteService not initialized")
+            return
+
+        success = self.image_db_write_service.update_rating(image_id, rating)
+        if success:
+            logger.info(f"Rating updated: image_id={image_id}, rating={rating}")
+        else:
+            logger.error(f"Failed to update rating: image_id={image_id}, rating={rating}")
+
+    def _on_score_update_requested(self, image_id: int, score: int) -> None:
+        """Score更新シグナルハンドラ（Issue #4）
+
+        Args:
+            image_id: 画像ID
+            score: Score値 (0-1000範囲)
+        """
+        if not self.image_db_write_service:
+            logger.warning("ImageDBWriteService not initialized")
+            return
+
+        success = self.image_db_write_service.update_score(image_id, score)
+        if success:
+            logger.info(f"Score updated: image_id={image_id}, score={score}")
+        else:
+            logger.error(f"Failed to update score: image_id={image_id}, score={score}")
+
+    def _on_save_requested(self, save_data: dict) -> None:
+        """保存要求シグナルハンドラ（Issue #4）
+
+        Args:
+            save_data: 保存データ {"image_id": int, "rating": str, "score": int}
+        """
+        if not self.image_db_write_service:
+            logger.warning("ImageDBWriteService not initialized")
+            return
+
+        image_id = save_data.get("image_id")
+        rating = save_data.get("rating")
+        score = save_data.get("score")
+
+        if image_id is None:
+            logger.warning("Save requested but image_id is None")
+            return
+
+        # Rating更新
+        if rating:
+            self.image_db_write_service.update_rating(image_id, rating)
+
+        # Score更新
+        if score is not None:
+            self.image_db_write_service.update_score(image_id, score)
+
+        logger.info(f"Save completed: image_id={image_id}, rating={rating}, score={score}")
 
     def _create_search_filter_service(self) -> SearchFilterService:
         """
@@ -641,6 +779,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("  - ProgressStateService初期化中...")
             self.progress_state_service = ProgressStateService(status_bar=self.statusBar())
             logger.info("  ✅ ProgressStateService初期化成功")
+
+            # ImageDBWriteService初期化（Issue #4: Rating/Score更新機能）
+            logger.info("  - ImageDBWriteService初期化中...")
+            self._setup_image_db_write_service()
+            logger.info("  ✅ ImageDBWriteService初期化成功")
 
             logger.info("Service層統合完了")
 

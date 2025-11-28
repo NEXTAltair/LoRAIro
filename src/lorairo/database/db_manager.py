@@ -525,6 +525,28 @@ class ImageDatabaseManager:
             logger.error(f"LLMモデル情報の取得中にエラー: {e}", exc_info=True)
             return []
 
+    def get_manual_edit_model_id(self) -> int:
+        """
+        手動編集用のモデルIDを取得します（キャッシュ機能付き）。
+
+        MANUAL_EDITという名前のモデルが存在しない場合は新規作成します。
+        初回呼び出し時にのみデータベースアクセスを行い、2回目以降はキャッシュされた値を返します。
+
+        Returns:
+            int: MANUAL_EDITモデルのID
+
+        Raises:
+            SQLAlchemyError: データベース操作中にエラーが発生した場合
+        """
+        if not hasattr(self, "_manual_edit_model_id"):
+            with self.repository.session_factory() as session:
+                self._manual_edit_model_id = self.repository._get_or_create_manual_edit_model(
+                    session
+                )
+                session.commit()
+            logger.debug(f"MANUAL_EDITモデルIDをキャッシュ: {self._manual_edit_model_id}")
+        return self._manual_edit_model_id
+
     def get_images_by_filter(
         self,
         tags: list[str] | None = None,
