@@ -614,15 +614,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.image_db_write_service = ImageDBWriteService(self.db_manager)
 
             # SelectedImageDetailsWidgetのシグナルをImageDBWriteServiceに接続
-            self.selected_image_details_widget.rating_updated.connect(
-                self._on_rating_update_requested
-            )
-            self.selected_image_details_widget.score_updated.connect(
-                self._on_score_update_requested
-            )
-            self.selected_image_details_widget.save_requested.connect(
-                self._on_save_requested
-            )
+            self.selected_image_details_widget.rating_updated.connect(self._on_rating_update_requested)
+            self.selected_image_details_widget.score_updated.connect(self._on_score_update_requested)
+            self.selected_image_details_widget.save_requested.connect(self._on_save_requested)
 
             logger.info("ImageDBWriteService created and signals connected")
         else:

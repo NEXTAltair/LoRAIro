@@ -137,9 +137,7 @@ class ImageDBWriteService:
             # Rating値のバリデーション（Civitai標準）
             valid_ratings = ["PG", "PG-13", "R", "X", "XXX"]
             if rating not in valid_ratings:
-                logger.warning(
-                    f"Invalid rating value: '{rating}'. Must be one of {valid_ratings}"
-                )
+                logger.warning(f"Invalid rating value: '{rating}'. Must be one of {valid_ratings}")
                 return False
 
             # RatingAnnotationData を作成（手動編集時はraw_rating_valueとnormalized_ratingは同じ値）
