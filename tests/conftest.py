@@ -306,6 +306,16 @@ def test_repository(db_session_factory) -> ImageRepository:
 
 
 @pytest.fixture(scope="function")
+def temp_db_repository(db_session_factory) -> ImageRepository:
+    """Provides a temporary ImageRepository for model sync service tests.
+
+    This fixture provides an in-memory SQLite database with full schema and initial data.
+    Ideal for testing database operations without side effects.
+    """
+    return ImageRepository(session_factory=db_session_factory)
+
+
+@pytest.fixture(scope="function")
 def mock_config_service():
     """Provides a mock ConfigurationService for tests."""
     from unittest.mock import Mock

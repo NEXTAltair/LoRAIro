@@ -273,7 +273,8 @@ class ModelInfoManager:
             int | None: DB内のモデルID（未登録の場合はNone）
         """
         try:
-            return self.db_repository._get_model_id(model_name)
+            model = self.db_repository.get_model_by_name(model_name)
+            return model.id if model else None
         except Exception as e:
             logger.debug(f"DBモデルID取得エラー ({model_name}): {e}")
             return None
