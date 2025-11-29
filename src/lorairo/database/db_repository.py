@@ -100,6 +100,30 @@ class ImageRepository:
                 logger.error(f"モデルIDの取得中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
+    def get_model_by_name(self, name: str) -> Model | None:
+        """モデル名からModelオブジェクトを取得（公開API）
+
+        Args:
+            name: モデル名
+
+        Returns:
+            Model | None: 見つかった場合はModelオブジェクト（model_types eager load済み）、なければNone
+
+        Raises:
+            SQLAlchemyError: DB操作エラー
+        """
+        with self.session_factory() as session:
+            try:
+                # model_typesを eager loadingで取得（N+1クエリ回避）
+                stmt = select(Model).options(selectinload(Model.model_types)).where(Model.name == name)
+                result = session.execute(stmt).scalar_one_or_none()
+                if result is None:
+                    logger.debug(f"モデル '{name}' は登録されていません")
+                return result
+            except SQLAlchemyError as e:
+                logger.error(f"モデル取得エラー (name={name}): {e}", exc_info=True)
+                raise
+
     def _get_or_create_manual_edit_model(self, session: Session) -> int:
         """
         手動編集用のモデルIDを取得または作成します。
@@ -136,6 +160,170 @@ class ImageRepository:
         except SQLAlchemyError as e:
             logger.error(f"MANUAL_EDITモデルの取得/作成中にエラーが発生しました: {e}", exc_info=True)
             raise
+
+    def insert_model(
+        self,
+        name: str,
+        provider: str | None,
+        model_types: list[str],
+        api_model_id: str | None = None,
+        estimated_size_gb: float | None = None,
+        requires_api_key: bool = False,
+        discontinued_at: datetime.datetime | None = None,
+    ) -> int:
+        """新規モデルをDBに登録
+
+        Args:
+            name: モデル名（一意）
+            provider: プロバイダー名（openai, anthropic, google, None）
+            model_types: LoRAIroのmodel_typeリスト（["captioner"], ["llm", "captioner"], ["score"], ["tagger"]等）
+            api_model_id: API呼び出し時のモデルID
+            estimated_size_gb: ローカルモデルの推定サイズ（GB）
+            requires_api_key: APIキー要否
+            discontinued_at: 廃止日時（該当する場合）
+
+        Returns:
+            int: 登録されたモデルのID
+
+        Raises:
+            IntegrityError: 同名モデルが既に存在する場合
+            ValueError: model_typesが無効な場合（存在しないmodel_type名）
+        """
+        with self.session_factory() as session:
+            try:
+                # ModelTypeオブジェクトを取得
+                model_type_objects = []
+                for type_name in model_types:
+                    stmt = select(ModelType).where(ModelType.name == type_name)
+                    model_type = session.execute(stmt).scalar_one_or_none()
+                    if not model_type:
+                        valid_types = session.execute(select(ModelType.name)).scalars().all()
+                        raise ValueError(
+                            f"Invalid model_type: '{type_name}'. Valid types: {', '.join(valid_types)}"
+                        )
+                    model_type_objects.append(model_type)
+
+                # Model作成
+                new_model = Model(
+                    name=name,
+                    provider=provider,
+                    api_model_id=api_model_id,
+                    estimated_size_gb=estimated_size_gb,
+                    requires_api_key=requires_api_key,
+                    discontinued_at=discontinued_at,
+                )
+                new_model.model_types = model_type_objects
+
+                session.add(new_model)
+                session.commit()
+                session.refresh(new_model)  # IDを取得するためリフレッシュ
+
+                logger.info(f"モデル登録完了: {name} (ID={new_model.id}, types={model_types})")
+                return new_model.id
+
+            except IntegrityError:
+                session.rollback()
+                logger.warning(f"モデル登録失敗（既存モデルの可能性）: {name}")
+                raise
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"モデル登録エラー: {e}", exc_info=True)
+                raise
+
+    def update_model(
+        self,
+        model_id: int,
+        provider: str | None = None,
+        model_types: list[str] | None = None,
+        api_model_id: str | None = None,
+        estimated_size_gb: float | None = None,
+        requires_api_key: bool | None = None,
+        discontinued_at: datetime.datetime | None = None,
+    ) -> bool:
+        """既存モデルのメタデータを更新（差分検出あり）
+
+        NOTE: 引数がNoneの場合は更新しない（明示的にNoneに設定する場合は別途対応が必要）
+
+        Args:
+            model_id: 更新対象モデルのID
+            provider: プロバイダー名（更新する場合のみ指定）
+            model_types: モデルタイプリスト（更新する場合のみ指定）
+            api_model_id: API呼び出し時のモデルID（更新する場合のみ指定）
+            estimated_size_gb: 推定サイズ（更新する場合のみ指定）
+            requires_api_key: APIキー要否（更新する場合のみ指定）
+            discontinued_at: 廃止日時（更新する場合のみ指定）
+
+        Returns:
+            bool: 実際に更新が発生したかどうか
+
+        Raises:
+            ValueError: model_idが存在しない、またはmodel_typesが無効な場合
+        """
+        with self.session_factory() as session:
+            try:
+                # 既存モデル取得（model_typesもeager load）
+                stmt = select(Model).options(selectinload(Model.model_types)).where(Model.id == model_id)
+                model = session.execute(stmt).scalar_one_or_none()
+
+                if not model:
+                    raise ValueError(f"Model not found: id={model_id}")
+
+                # 差分検出
+                has_changes = False
+
+                # 単純フィールドの更新
+                simple_fields = {
+                    "provider": provider,
+                    "api_model_id": api_model_id,
+                    "estimated_size_gb": estimated_size_gb,
+                    "requires_api_key": requires_api_key,
+                    "discontinued_at": discontinued_at,
+                }
+
+                for field_name, new_value in simple_fields.items():
+                    if new_value is not None:  # 引数が指定されている場合のみ
+                        current_value = getattr(model, field_name)
+                        if current_value != new_value:
+                            setattr(model, field_name, new_value)
+                            has_changes = True
+                            logger.debug(f"フィールド更新: {field_name} = {new_value}")
+
+                # model_types の更新
+                if model_types is not None:
+                    current_types = {mt.name for mt in model.model_types}
+                    new_types = set(model_types)
+
+                    if current_types != new_types:
+                        # ModelTypeオブジェクトを取得
+                        model_type_objects = []
+                        for type_name in model_types:
+                            stmt = select(ModelType).where(ModelType.name == type_name)
+                            model_type = session.execute(stmt).scalar_one_or_none()
+                            if not model_type:
+                                valid_types = session.execute(select(ModelType.name)).scalars().all()
+                                raise ValueError(
+                                    f"Invalid model_type: '{type_name}'. "
+                                    f"Valid types: {', '.join(valid_types)}"
+                                )
+                            model_type_objects.append(model_type)
+
+                        model.model_types = model_type_objects
+                        has_changes = True
+                        logger.debug(f"model_types更新: {current_types} → {new_types}")
+
+                # 変更がある場合のみcommit
+                if has_changes:
+                    session.commit()
+                    logger.info(f"モデル更新完了: {model.name} (ID={model_id})")
+                    return True
+                else:
+                    logger.debug(f"モデル更新なし（無変更）: {model.name} (ID={model_id})")
+                    return False
+
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"モデル更新エラー: {e}", exc_info=True)
+                raise
 
     def _image_exists(self, image_id: int) -> bool:
         """

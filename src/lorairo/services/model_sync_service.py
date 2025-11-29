@@ -20,7 +20,8 @@ class ModelMetadata(TypedDict):
     provider: str | None
     class_name: str
     api_model_id: str | None
-    model_type: str  # "vision", "score", "tagger"
+    model_type: str  # "vision", "score", "tagger" (ライブラリから取得)
+    model_types: list[str]  # LoRAIro DBのmodel_types (マッピング後)
     estimated_size_gb: float | None
     requires_api_key: bool
     discontinued_at: datetime.datetime | None
@@ -160,6 +161,48 @@ class ModelSyncService:
         else:
             logger.info(f"ModelSyncService初期化完了（Protocol-based実装 - {adapter_type}）")
 
+    def _map_library_model_type_to_db(
+        self, library_model_type: str, model_name: str, class_name: str
+    ) -> list[str]:
+        """image-annotator-libのmodel_typeをLoRAIro DBのmodel_typesにマッピング
+
+        Args:
+            library_model_type: ライブラリのmodel_type（"vision", "score", "tagger"）
+            model_name: モデル名（判定補助用）
+            class_name: モデルクラス名（判定補助用）
+
+        Returns:
+            list[str]: LoRAIroのmodel_typesリスト
+
+        Mapping Rules:
+            - "vision" → ["captioner"] （デフォルト）
+                - PydanticAI WebAPIモデルの場合 → ["llm", "captioner"]
+                - class_name に "llm" が含まれる場合 → ["llm"]
+            - "score" → ["score"]
+            - "tagger" → ["tagger"]
+        """
+        if library_model_type == "vision":
+            # PydanticAI WebAPIモデル（GPT-4, Claude, Gemini等）はLLMとしても機能
+            if "pydanticai" in class_name.lower() or "webapi" in class_name.lower():
+                return ["llm", "captioner"]
+            # LLM専用モデル
+            elif "llm" in class_name.lower() or "llm" in model_name.lower():
+                return ["llm"]
+            # その他のvisionモデルはcaptionerとして扱う
+            else:
+                return ["captioner"]
+
+        elif library_model_type == "score":
+            return ["score"]
+
+        elif library_model_type == "tagger":
+            return ["tagger"]
+
+        else:
+            # 未知のタイプは警告してcaptionerとして扱う
+            logger.warning(f"Unknown library model_type: {library_model_type}, defaulting to ['captioner']")
+            return ["captioner"]
+
     def sync_available_models(self) -> ModelSyncResult:
         """利用可能モデルの自動同期
 
@@ -208,16 +251,27 @@ class ModelSyncService:
 
             models_metadata: list[ModelMetadata] = []
             for model_info in raw_models:
+                # ライブラリのmodel_typeをLoRAIro DBのmodel_typesにマッピング
+                library_model_type = model_info.get("model_type", "vision")
+                db_model_types = self._map_library_model_type_to_db(
+                    library_model_type,
+                    model_info.get("name", "unknown"),
+                    model_info.get("class", "Unknown"),
+                )
+
                 # ModelMetadata形式に変換
                 metadata: ModelMetadata = {
                     "name": model_info.get("name", "unknown"),
                     "provider": model_info.get("provider"),
                     "class_name": model_info.get("class", "Unknown"),
                     "api_model_id": model_info.get("api_model_id"),
-                    "model_type": model_info.get("model_type", "unknown"),
+                    "model_type": library_model_type,
+                    "model_types": db_model_types,  # マッピング後のリスト
                     "estimated_size_gb": model_info.get("estimated_size_gb"),
                     "requires_api_key": model_info.get("requires_api_key", False),
-                    "discontinued_at": None,  # FIXME: Issue #5参照 - ライブラリ側で廃止日時管理する場合の処理
+                    "discontinued_at": model_info.get(
+                        "discontinued_at"
+                    ),  # Issue #5解決: ライブラリから取得
                 }
                 models_metadata.append(metadata)
 
@@ -245,16 +299,27 @@ class ModelSyncService:
 
         for model_metadata in models:
             try:
-                # 既存モデルチェック
-                existing_model_id = self.db_repository._get_model_id(model_metadata["name"])
+                # 既存モデルチェック（公開APIを使用）
+                existing_model = self.db_repository.get_model_by_name(model_metadata["name"])
 
-                if existing_model_id is None:
+                if existing_model is None:
                     # 新規モデル登録
                     logger.debug(f"新規アノテーションモデルを登録: {model_metadata['name']}")
 
-                    # Phase 1-2: モック段階ではログ出力のみ
-                    # Phase 4: 実際のDB登録実装
-                    logger.info(f"[モック] 新規アノテーションモデル登録: {model_metadata}")
+                    # 実際のDB登録実装（Phase 4完了）
+                    model_id = self.db_repository.insert_model(
+                        name=model_metadata["name"],
+                        provider=model_metadata.get("provider"),
+                        model_types=model_metadata["model_types"],
+                        api_model_id=model_metadata.get("api_model_id"),
+                        estimated_size_gb=model_metadata.get("estimated_size_gb"),
+                        requires_api_key=model_metadata.get("requires_api_key", False),
+                        discontinued_at=model_metadata.get("discontinued_at"),
+                    )
+                    logger.info(
+                        f"新規アノテーションモデル登録成功: {model_metadata['name']} "
+                        f"(ID={model_id}, types={model_metadata['model_types']})"
+                    )
                     new_count += 1
 
             except Exception as e:
@@ -279,17 +344,32 @@ class ModelSyncService:
 
         for model_metadata in models:
             try:
-                # 既存モデルチェック
-                existing_model_id = self.db_repository._get_model_id(model_metadata["name"])
+                # 既存モデルチェック（公開APIを使用）
+                existing_model = self.db_repository.get_model_by_name(model_metadata["name"])
 
-                if existing_model_id is not None:
-                    # 既存モデル更新判定・実行
+                if existing_model is not None:
+                    # 既存モデル更新判定・実行（Phase 4完了）
                     logger.debug(f"既存アノテーションモデルの更新チェック: {model_metadata['name']}")
 
-                    # Phase 1-2: モック段階ではログ出力のみ
-                    # Phase 4: 実際の更新判定・DB更新実装
-                    logger.info(f"[モック] 既存アノテーションモデル更新: {model_metadata}")
-                    update_count += 1
+                    # 実際の更新判定・DB更新実装（差分検出はリポジトリ層で実施）
+                    was_updated = self.db_repository.update_model(
+                        model_id=existing_model.id,
+                        provider=model_metadata.get("provider"),
+                        model_types=model_metadata["model_types"],
+                        api_model_id=model_metadata.get("api_model_id"),
+                        estimated_size_gb=model_metadata.get("estimated_size_gb"),
+                        requires_api_key=model_metadata.get("requires_api_key", False),
+                        discontinued_at=model_metadata.get("discontinued_at"),
+                    )
+
+                    if was_updated:
+                        logger.info(
+                            f"既存アノテーションモデル更新成功: {model_metadata['name']} "
+                            f"(ID={existing_model.id}, types={model_metadata['model_types']})"
+                        )
+                        update_count += 1
+                    else:
+                        logger.debug(f"既存アノテーションモデル変更なし: {model_metadata['name']}")
 
             except Exception as e:
                 logger.error(f"アノテーションモデル更新エラー {model_metadata['name']}: {e}")
