@@ -225,10 +225,9 @@ class SearchCriteriaProcessor:
                     filtered_images, conditions.aspect_ratio_filter
                 )
 
-            # 重複除外フィルター（将来実装用プレースホルダー）
+            # 重複除外フィルター
             if conditions.exclude_duplicates:
-                # FIXME: Issue #6参照 - 重複除外ロジック実装
-                pass
+                filtered_images = self._filter_by_duplicate_exclusion(filtered_images)
 
             logger.debug(f"フロントエンドフィルター適用完了: {len(images)} -> {len(filtered_images)}件")
             return filtered_images
@@ -345,6 +344,40 @@ class SearchCriteriaProcessor:
 
         except Exception as e:
             logger.error(f"日付範囲フィルター中にエラー: {e}", exc_info=True)
+            return images
+
+    def _filter_by_duplicate_exclusion(self, images: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """
+        phashによる重複画像除外
+
+        同一phashを持つ画像グループから最初に遭遇した画像のみを保持します。
+
+        Args:
+            images: 画像データリスト
+
+        Returns:
+            list: フィルター済み画像リスト
+        """
+        try:
+            seen_phashes: dict[str, dict[str, Any]] = {}
+            filtered_images: list[dict[str, Any]] = []
+
+            for image in images:
+                phash = image.get("phash")
+
+                if phash not in seen_phashes:
+                    seen_phashes[phash] = image
+                    filtered_images.append(image)
+                # else: 重複のためスキップ（暗黙的）
+
+            logger.debug(
+                f"重複除外完了: {len(images)} -> {len(filtered_images)}件 "
+                f"(重複除外: {len(images) - len(filtered_images)}件)"
+            )
+            return filtered_images
+
+        except Exception as e:
+            logger.error(f"重複除外フィルター中にエラー: {e}", exc_info=True)
             return images
 
     def filter_images_by_annotation_status(

@@ -397,7 +397,7 @@ class ErrorRecord(Base):
 class ImageDict(TypedDict):
     id: NotRequired[int]  # DBから取得時にのみ存在
     uuid: str
-    phash: str | None  # Nullable in schema, but likely not null after calculation? Check repo.
+    phash: str  # NOT NULL制約（DB登録時に必須計算）
     original_image_path: str
     stored_image_path: str
     width: int
