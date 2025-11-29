@@ -48,15 +48,8 @@ class TestSearchCriteriaProcessor:
         assert results[1]["id"] == 2
 
         # DB呼び出しの引数を厳密に検証
-        mock_db_manager.get_images_by_filter.assert_called_once_with(
-            tags=["test", "tag"],
-            caption=None,
-            resolution=0,
-            use_and=True,
-            include_untagged=False,
-            start_date=None,
-            end_date=None,
-        )
+        expected_db_args = conditions.to_db_filter_args()
+        mock_db_manager.get_images_by_filter.assert_called_once_with(**expected_db_args)
 
     def test_search_conditions_to_db_filter_args(self, processor):
         """SearchConditions.to_db_filter_args() のテスト"""
@@ -181,6 +174,28 @@ class TestSearchCriteriaProcessor:
 
         # フィルター条件がない場合は全画像が残る
         assert len(result) == 2
+
+    def test_apply_simple_frontend_filters_with_duplicate_exclusion(self, processor):
+        """重複除外フィルター統合テスト（Issue #6）"""
+        images = [
+            {"id": 1, "phash": "abc123", "width": 1024, "height": 768},
+            {"id": 2, "phash": "abc123", "width": 1024, "height": 768},  # 重複
+            {"id": 3, "phash": "def456", "width": 512, "height": 512},
+        ]
+
+        conditions = SearchConditions(
+            search_type="tags",
+            keywords=[],
+            tag_logic="and",
+            exclude_duplicates=True,
+        )
+
+        result = processor._apply_simple_frontend_filters(images, conditions)
+
+        # 検証: 重複が除外され、最初の画像のみ保持
+        assert len(result) == 2
+        assert result[0]["id"] == 1
+        assert result[1]["id"] == 3
 
     def test_filter_by_aspect_ratio_square(self, processor):
         """正方形アスペクト比フィルタリングテスト"""
@@ -338,3 +353,121 @@ class TestSearchCriteriaProcessorIntegration:
         assert count == 1  # 正方形のみ
         assert len(results) == 1
         assert results[0]["id"] == 1
+
+
+class TestDuplicateExclusionFilter:
+    """重複除外フィルターのユニットテスト（Issue #6）"""
+
+    @pytest.fixture
+    def mock_db_manager(self):
+        """モックデータベースマネージャー"""
+        return Mock()
+
+    @pytest.fixture
+    def processor(self, mock_db_manager):
+        """テスト用SearchCriteriaProcessor"""
+        return SearchCriteriaProcessor(mock_db_manager)
+
+    def test_filter_by_duplicate_exclusion_basic(self, processor):
+        """基本的な重複除外テスト"""
+        # テストデータ: 重複あり（同じphash）
+        images = [
+            {"id": 1, "phash": "abc123", "width": 1024, "height": 768},
+            {"id": 2, "phash": "abc123", "width": 1024, "height": 768},  # 重複
+            {"id": 3, "phash": "def456", "width": 512, "height": 512},
+        ]
+
+        result = processor._filter_by_duplicate_exclusion(images)
+
+        # 検証: 重複は除外され、最初の画像のみ保持
+        assert len(result) == 2
+        assert result[0]["id"] == 1
+        assert result[1]["id"] == 3
+
+    def test_filter_by_duplicate_exclusion_empty_list(self, processor):
+        """空リスト処理テスト"""
+        images = []
+
+        result = processor._filter_by_duplicate_exclusion(images)
+
+        # 検証: 空リストはそのまま返却
+        assert len(result) == 0
+        assert result == []
+
+    def test_filter_by_duplicate_exclusion_no_duplicates(self, processor):
+        """重複なしケーステスト"""
+        images = [
+            {"id": 1, "phash": "abc123", "width": 1024, "height": 768},
+            {"id": 2, "phash": "def456", "width": 512, "height": 512},
+            {"id": 3, "phash": "ghi789", "width": 800, "height": 600},
+        ]
+
+        result = processor._filter_by_duplicate_exclusion(images)
+
+        # 検証: 全画像保持
+        assert len(result) == 3
+        assert result == images
+
+    def test_filter_by_duplicate_exclusion_all_duplicates(self, processor):
+        """全て重複ケーステスト"""
+        images = [
+            {"id": 1, "phash": "abc123", "width": 1024, "height": 768},
+            {"id": 2, "phash": "abc123", "width": 1024, "height": 768},
+            {"id": 3, "phash": "abc123", "width": 1024, "height": 768},
+        ]
+
+        result = processor._filter_by_duplicate_exclusion(images)
+
+        # 検証: 1枚のみ保持
+        assert len(result) == 1
+        assert result[0]["id"] == 1
+
+    def test_filter_by_duplicate_exclusion_single_image(self, processor):
+        """単一画像テスト"""
+        images = [{"id": 1, "phash": "abc123", "width": 1024, "height": 768}]
+
+        result = processor._filter_by_duplicate_exclusion(images)
+
+        # 検証: そのまま保持
+        assert len(result) == 1
+        assert result[0]["id"] == 1
+
+    def test_filter_by_duplicate_exclusion_partial_duplicates(self, processor):
+        """部分重複テスト"""
+        images = [
+            {"id": 1, "phash": "abc123", "width": 1024, "height": 768},
+            {"id": 2, "phash": "abc123", "width": 1024, "height": 768},  # 重複グループ1
+            {"id": 3, "phash": "def456", "width": 512, "height": 512},
+            {"id": 4, "phash": "def456", "width": 512, "height": 512},  # 重複グループ2
+            {"id": 5, "phash": "ghi789", "width": 800, "height": 600},  # ユニーク
+        ]
+
+        result = processor._filter_by_duplicate_exclusion(images)
+
+        # 検証: 各グループから1枚ずつ保持
+        assert len(result) == 3
+        assert result[0]["id"] == 1
+        assert result[1]["id"] == 3
+        assert result[2]["id"] == 5
+
+    def test_filter_by_duplicate_exclusion_performance(self, processor):
+        """性能テスト（10,000画像で < 500ms）"""
+        import time
+
+        # テストデータ生成: 10,000画像（50%重複）
+        test_images = []
+        for i in range(5000):
+            # 重複ペア
+            phash = f"phash_{i:06d}"
+            test_images.append({"id": i * 2, "phash": phash, "width": 1024, "height": 1024})
+            test_images.append({"id": i * 2 + 1, "phash": phash, "width": 1024, "height": 1024})
+
+        start = time.perf_counter()
+        result = processor._filter_by_duplicate_exclusion(test_images)
+        elapsed = (time.perf_counter() - start) * 1000  # ms
+
+        # 検証: 期待される結果数
+        assert len(result) == 5000, f"Expected 5000, got {len(result)}"
+
+        # 性能要件検証
+        assert elapsed < 500, f"Performance requirement failed: {elapsed:.2f}ms > 500ms"
