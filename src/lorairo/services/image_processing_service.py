@@ -2,13 +2,15 @@
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..database.db_manager import ImageDatabaseManager
-from ..editor.image_processor import ImageProcessingManager  # ImageEditWidget から移動
 from ..storage.file_system import FileSystemManager
 from ..utils.log import logger
 from .configuration_service import ConfigurationService
+
+if TYPE_CHECKING:
+    from ..editor.image_processor import ImageProcessingManager
 
 # ImageAnalyzer はアノテーション関連なので、ここでは直接使わない想定 (必要なら別サービス経由)
 # from ..annotations.caption_tags import ImageAnalyzer
@@ -35,7 +37,7 @@ class ImageProcessingService:
         self.idm = idm
         # ImageProcessingManager は処理時に一時的に作成（永続インスタンスは削除）
 
-    def create_processing_manager(self, target_resolution: int) -> ImageProcessingManager:
+    def create_processing_manager(self, target_resolution: int) -> "ImageProcessingManager":
         """処理時に一時的な ImageProcessingManager インスタンスを作成します。
 
         Args:
@@ -47,6 +49,8 @@ class ImageProcessingService:
         Raises:
             ValueError: ImageProcessingManager の初期化に失敗した場合
         """
+        from ..editor.image_processor import ImageProcessingManager
+
         try:
             preferred_resolutions = self.config_service.get_preferred_resolutions()
 
@@ -123,7 +127,7 @@ class ImageProcessingService:
             status_callback("画像処理が完了しました。")
 
     def _process_single_image(
-        self, image_file: Path, upscaler: str | None = None, ipm: ImageProcessingManager | None = None
+        self, image_file: Path, upscaler: str | None = None, ipm: "ImageProcessingManager | None" = None
     ) -> None:
         """単一の画像ファイルに対して処理を実行します。
            (元 ImageEditWidget.process_image + handle_processing_result)

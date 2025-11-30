@@ -274,6 +274,12 @@ class AutoCrop:
         for letterbox detection. It has been validated as the most effective
         approach for this use case.
 
+        The algorithm applies a dynamic margin based on the detected bounding box size:
+        - Formula: margin_x = max(2, int(bbox_width * 0.005)), margin_y = max(2, int(bbox_height * 0.005))
+        - Minimum margin: 2px to protect small content
+        - Safety check: Each axis applies margin independently (bbox_width > 2 * margin_x, bbox_height > 2 * margin_y)
+        - Axis-specific: Non-square bounding boxes apply margin per axis (e.g., wide bbox skips y-margin only)
+
         Args:
             np_image: Input image as numpy array
 
@@ -343,13 +349,36 @@ class AutoCrop:
                     x_min, y_min = int(np.min(x_coords)), int(np.min(y_coords))
                     x_max, y_max = int(np.max(x_coords)), int(np.max(y_coords))
 
-                    # Add margin to trim excess regions
-                    # FIXME: Issue #7参照 - This logic should be reviewed for appropriateness
-                    margin = 5  # Number of pixels to trim
-                    x_min = max(0, x_min + margin)
-                    y_min = max(0, y_min + margin)
-                    x_max = min(np_image.shape[1], x_max - margin)
-                    y_max = min(np_image.shape[0], y_max - margin)
+                    # Calculate dynamic margin based on detected bounding box size
+                    # Formula: 0.5% of bbox dimension per axis, minimum 2px
+                    # Rationale: Margin should scale with detected content, not canvas size
+                    # Safety check prevents negative crop dimensions for small bboxes
+                    bbox_width = x_max - x_min
+                    bbox_height = y_max - y_min
+
+                    margin_x = max(2, int(bbox_width * 0.005))
+                    margin_y = max(2, int(bbox_height * 0.005))
+
+                    # Apply margin independently per axis
+                    if bbox_width > 2 * margin_x:
+                        x_min = max(0, x_min + margin_x)
+                        x_max = min(width, x_max - margin_x)
+                        logger.debug(f"Applied x-axis margin: {margin_x}px")
+                    else:
+                        logger.debug(
+                            f"Bbox width too small for x-margin ({bbox_width} <= {2 * margin_x}), "
+                            f"skipping x-margin"
+                        )
+
+                    if bbox_height > 2 * margin_y:
+                        y_min = max(0, y_min + margin_y)
+                        y_max = min(height, y_max - margin_y)
+                        logger.debug(f"Applied y-axis margin: {margin_y}px")
+                    else:
+                        logger.debug(
+                            f"Bbox height too small for y-margin ({bbox_height} <= {2 * margin_y}), "
+                            f"skipping y-margin"
+                        )
 
                     return x_min, y_min, x_max - x_min, y_max - y_min
             return None
