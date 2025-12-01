@@ -13,7 +13,7 @@
       "mcp__serena__list_memories",
       "WebSearch",
       "mcp__serena__read_memory",
-      "SlashCommand(/plan)",
+      "SlashCommand(/planning)",
       "mcp__serena__find_symbol",
       "Bash(git config:*)",
       "Bash(uv run mypy:*)",
