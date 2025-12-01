@@ -166,13 +166,22 @@ class TestGetSelectedImagesForAnnotation:
 class TestGetSelectedImagePaths:
     """get_selected_image_paths()テスト（便利メソッド）"""
 
-    def test_get_selected_image_paths_success(self, service, mock_dataset_state_manager):
-        """パスリストのみを取得"""
-        # Setup
+    def test_get_selected_image_paths_success(self, service, mock_dataset_state_manager, monkeypatch):
+        """パスリストのみを取得（相対パスから絶対パスに変換）"""
+
+        # Setup - resolve_stored_path()をモック
+        def mock_resolve_stored_path(stored_path: str) -> Path:
+            return Path("/test/project/path") / stored_path
+
+        monkeypatch.setattr(
+            "lorairo.database.db_core.resolve_stored_path",
+            mock_resolve_stored_path,
+        )
+
         mock_dataset_state_manager.selected_image_ids = [1, 2]
         mock_dataset_state_manager.get_image_by_id.side_effect = [
-            {"id": 1, "stored_image_path": "/path/to/image1.jpg"},
-            {"id": 2, "stored_image_path": "/path/to/image2.jpg"},
+            {"id": 1, "stored_image_path": "image_dataset/original_images/image1.jpg"},
+            {"id": 2, "stored_image_path": "image_dataset/original_images/image2.jpg"},
         ]
 
         # Execute
@@ -180,11 +189,12 @@ class TestGetSelectedImagePaths:
 
         # Assert
         assert len(result) == 2
-        assert result[0] == "/path/to/image1.jpg"
-        assert result[1] == "/path/to/image2.jpg"
+        # resolve_stored_path()で変換された絶対パスが返されることを確認
+        assert result[0] == str(Path("/test/project/path/image_dataset/original_images/image1.jpg"))
+        assert result[1] == str(Path("/test/project/path/image_dataset/original_images/image2.jpg"))
 
     def test_get_selected_image_paths_empty(self, service, mock_dataset_state_manager):
-        """画像未選択時は空リスト"""
+        """画像未選択時はValueError"""
         # Setup
         mock_dataset_state_manager.selected_image_ids = []
         mock_dataset_state_manager.has_filtered_images.return_value = False
