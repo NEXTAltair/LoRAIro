@@ -524,7 +524,35 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.warning(f"ResultHandlerService未初期化 - {method_name}スキップ")
 
     def _on_annotation_finished(self, result: Any) -> None:
-        self._delegate_to_result_handler("handle_annotation_finished", result, status_bar=self.statusBar())
+        """アノテーション完了ハンドラ（キャッシュ更新付き）
+
+        Note:
+            - Phase 1: ResultHandlerService経由で通知処理
+            - Phase 2: DatasetStateManagerキャッシュ更新でGUI反映
+        """
+        # Phase 1: 既存のResultHandlerService処理
+        self._delegate_to_result_handler(
+            "handle_annotation_finished", result, status_bar=self.statusBar()
+        )
+
+        # Phase 2: キャッシュ更新 (NEW)
+        # dataset_state_manager未初期化チェック
+        if not self.dataset_state_manager:
+            logger.warning("DatasetStateManager未初期化 - キャッシュ更新をスキップ")
+            return
+
+        current_image_id = self.dataset_state_manager.current_image_id
+        if current_image_id:
+            try:
+                # DBから最新メタデータ取得
+                fresh_metadata = self.db_manager.repository.get_image_metadata(current_image_id)
+
+                if fresh_metadata:
+                    # キャッシュ更新＋シグナル発行
+                    self.dataset_state_manager.update_image_metadata(current_image_id, fresh_metadata)
+                    logger.info(f"キャッシュ更新完了: image_id={current_image_id}")
+            except Exception as e:
+                logger.error(f"キャッシュ更新失敗: {e}", exc_info=True)
 
     def _on_annotation_error(self, error_msg: str) -> None:
         self._delegate_to_result_handler("handle_annotation_error", error_msg, status_bar=self.statusBar())
