@@ -275,7 +275,7 @@ This project uses a dual-MCP strategy for efficient development:
 
 **Standard workflow pattern:**
 1. **Analysis**: `/check-existing` for understanding current functionality
-2. **Planning**: `/plan` for strategic design and architecture
+2. **Planning**: `/planning` for strategic design and architecture
 3. **Implementation**: `/implement` for code development
 4. **Validation**: `/test` for quality assurance and testing
 
@@ -408,7 +408,7 @@ LoRAIroの開発パターンとMCP操作は **Claude Skills** で自動化され
 
 ### Commands（MCP統合スラッシュコマンド）
 - **`/check-existing`**: 既存機能の詳細分析（serena経由）
-- **`/plan`**: 戦略的設計・計画立案（cipher+serena統合）
+- **`/planning`**: 戦略的設計・計画立案（cipher+serena統合）
 - **`/implement`**: コード開発実装（段階的実行）
 - **`/test`**: 品質保証・テスト実行
 

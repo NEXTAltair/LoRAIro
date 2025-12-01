@@ -5,7 +5,7 @@ description: investigateフェーズの結果を基に、LoRAIro プロジェク
 
 ## 使用方法
 ```bash
-/plan 実装対象の説明
+/planning 実装対象の説明
 ```
 
 ## 重要原則
@@ -143,7 +143,7 @@ investigateフェーズで特定された要件と課題を基に、上記実装
 - `.serena/memories/architecture_structure` - モジュール構成・アーキテクチャ
 - `.serena/memories/development_guidelines` - 実装パターン・設計指針
 - `.serena/memories/image_annotator_lib_completion_master_plan` など関連フェーズ記録
-- `.claude/commands/plan.md` - プランニングガイドライン(本コマンド文書を一次参照とし、最新手順はここに集約)
+- `.claude/commands/planning.md` - プランニングガイドライン(本コマンド文書を一次参照とし、最新手順はここに集約)
 - `src/lorairo/services/` - 既存サービス実装
 - `src/lorairo/database/schema.py` - データベース構造
 - `config/lorairo.toml` - 現在の設定
