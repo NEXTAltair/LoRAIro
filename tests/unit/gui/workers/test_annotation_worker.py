@@ -51,15 +51,23 @@ class TestAnnotationWorkerInitialization:
 class TestAnnotationWorkerExecute:
     """AnnotationWorker execute()テスト"""
 
-    def test_execute_success_single_model(self, mock_annotation_logic):
+    def test_execute_success_single_model(self, mock_annotation_logic, monkeypatch):
         """単一モデルでの正常実行"""
         image_paths = ["/path/to/image1.jpg", "/path/to/image2.jpg"]
         models = ["gpt-4o-mini"]
+
+        # pHash計算とimage_id取得をモック
+        phash_values = iter(["phash1", "phash2"])
+        monkeypatch.setattr("lorairo.utils.tools.calculate_phash", lambda p: next(phash_values))
+        mock_db_manager = Mock()
+        mock_db_manager.get_image_id_by_filepath.side_effect = [1, 2]
+        mock_db_manager.repository.save_annotations = Mock()
 
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=image_paths,
             models=models,
+            db_manager=mock_db_manager,
         )
 
         result = worker.execute()
@@ -68,16 +76,23 @@ class TestAnnotationWorkerExecute:
         mock_annotation_logic.execute_annotation.assert_called_once_with(
             image_paths=image_paths,
             model_names=["gpt-4o-mini"],
+            phash_list=["phash1", "phash2"],
         )
 
         # 結果が正しく返されることを確認
         assert "test_phash" in result
         assert "gpt-4o-mini" in result["test_phash"]
 
-    def test_execute_success_multiple_models(self, mock_annotation_logic):
+    def test_execute_success_multiple_models(self, mock_annotation_logic, monkeypatch):
         """複数モデルでの正常実行（結果マージ確認）"""
         image_paths = ["/path/to/image.jpg"]
         models = ["gpt-4o-mini", "claude-3-haiku-20240307"]
+
+        # pHash計算とimage_id取得をモック
+        monkeypatch.setattr("lorairo.utils.tools.calculate_phash", lambda p: "phash1")
+        mock_db_manager = Mock()
+        mock_db_manager.get_image_id_by_filepath.return_value = 1
+        mock_db_manager.repository.save_annotations = Mock()
 
         # モデルごとの戻り値
         mock_annotation_logic.execute_annotation.side_effect = [
@@ -105,6 +120,7 @@ class TestAnnotationWorkerExecute:
             annotation_logic=mock_annotation_logic,
             image_paths=image_paths,
             models=models,
+            db_manager=mock_db_manager,
         )
 
         result = worker.execute()
@@ -117,10 +133,16 @@ class TestAnnotationWorkerExecute:
         assert "gpt-4o-mini" in result["phash1"]
         assert "claude-3-haiku-20240307" in result["phash1"]
 
-    def test_execute_model_error_partial_success(self, mock_annotation_logic):
+    def test_execute_model_error_partial_success(self, mock_annotation_logic, monkeypatch):
         """モデルエラー時の部分的成功"""
         image_paths = ["/path/to/image.jpg"]
         models = ["gpt-4o-mini", "claude-3-haiku-20240307", "gemini-1.5-flash-latest"]
+
+        # pHash計算とimage_id取得をモック
+        monkeypatch.setattr("lorairo.utils.tools.calculate_phash", lambda p: "phash1")
+        mock_db_manager = Mock()
+        mock_db_manager.get_image_id_by_filepath.return_value = 1
+        mock_db_manager.repository.save_annotations = Mock()
 
         # 2番目のモデルでエラー
         mock_annotation_logic.execute_annotation.side_effect = [
@@ -137,6 +159,7 @@ class TestAnnotationWorkerExecute:
             annotation_logic=mock_annotation_logic,
             image_paths=image_paths,
             models=models,
+            db_manager=mock_db_manager,
         )
 
         # エラーでも処理継続（部分的成功を許容）
@@ -151,10 +174,16 @@ class TestAnnotationWorkerExecute:
         assert "claude-3-haiku-20240307" not in result["phash1"]  # エラーで除外
         assert "gemini-1.5-flash-latest" in result["phash1"]
 
-    def test_execute_all_models_fail(self, mock_annotation_logic):
+    def test_execute_all_models_fail(self, mock_annotation_logic, monkeypatch):
         """全モデルエラー時（空結果）"""
         image_paths = ["/path/to/image.jpg"]
         models = ["gpt-4o-mini", "claude-3-haiku-20240307"]
+
+        # pHash計算とimage_id取得をモック
+        monkeypatch.setattr("lorairo.utils.tools.calculate_phash", lambda p: "phash1")
+        mock_db_manager = Mock()
+        mock_db_manager.get_image_id_by_filepath.return_value = 1
+        mock_db_manager.repository.save_annotations = Mock()
 
         # 全てエラー
         mock_annotation_logic.execute_annotation.side_effect = [
@@ -166,6 +195,7 @@ class TestAnnotationWorkerExecute:
             annotation_logic=mock_annotation_logic,
             image_paths=image_paths,
             models=models,
+            db_manager=mock_db_manager,
         )
 
         # エラーでも例外は発生しない（空結果を返す）

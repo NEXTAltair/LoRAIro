@@ -373,6 +373,53 @@ class DatasetStateManager(QObject):
         )
         return None
 
+    def update_image_metadata(self, image_id: int, new_metadata: dict[str, Any]) -> None:
+        """単一画像のキャッシュメタデータを更新
+
+        _all_images と _filtered_images の両方を更新し、
+        現在選択中の画像ならシグナル発行。
+
+        Args:
+            image_id: 更新対象の画像ID
+            new_metadata: 更新後のメタデータ辞書（"id"フィールド必須）
+
+        Note:
+            - DB書き込み後のキャッシュ整合性維持に使用
+            - 現在選択中の画像なら current_image_data_changed シグナル発行
+        """
+        if "id" not in new_metadata or new_metadata["id"] != image_id:
+            logger.warning(f"メタデータ検証失敗: {image_id}")
+            return
+
+        # _all_imagesを更新
+        found_in_all = False
+        for i, img in enumerate(self._all_images):
+            if img.get("id") == image_id:
+                self._all_images[i] = new_metadata
+                found_in_all = True
+                logger.debug(f"_all_images更新: image_id={image_id}")
+                break
+
+        if not found_in_all:
+            logger.warning(f"画像ID {image_id} が_all_imagesに見つかりません")
+
+        # _filtered_imagesを更新
+        found_in_filtered = False
+        for i, img in enumerate(self._filtered_images):
+            if img.get("id") == image_id:
+                self._filtered_images[i] = new_metadata
+                found_in_filtered = True
+                logger.debug(f"_filtered_images更新: image_id={image_id}")
+                break
+
+        if not found_in_filtered:
+            logger.debug(f"画像ID {image_id} が_filtered_imagesに見つかりません（フィルタ外の可能性）")
+
+        # 現在選択中ならシグナル発行
+        if self._current_image_id == image_id:
+            self.current_image_data_changed.emit(new_metadata)
+            logger.info(f"キャッシュ更新とシグナル発行完了: {image_id}")
+
     def _get_image_from_filtered(self, image_id: int) -> dict[str, Any] | None:
         """フィルター済み画像からの検索（デバッグ用）"""
         for img in self._filtered_images:
