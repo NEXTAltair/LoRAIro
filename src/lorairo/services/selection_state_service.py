@@ -2,10 +2,9 @@
 
 DatasetStateManagerのラッパーサービス。
 複雑な選択ロジック（フォールバック戦略）を隠蔽し、シンプルなAPIを提供。
-
-Phase 2.3で作成。MainWindow.start_annotation()から画像選択ロジック（45行）を抽出。
 """
 
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from loguru import logger
@@ -93,18 +92,27 @@ class SelectionStateService:
     def get_selected_image_paths(self) -> list[str]:
         """選択画像のパスリスト取得（便利メソッド）
 
+        データベースに保存されている相対パスをプロジェクトベースの絶対パスに変換して返す。
+        サムネイル表示と同じ`resolve_stored_path()`を使用。
+
         Returns:
-            画像パスのリスト
+            画像の絶対パスのリスト
 
         Raises:
             ValueError: 画像が選択されていない場合
         """
+        from lorairo.database.db_core import resolve_stored_path
+
         images = self.get_selected_images_for_annotation()
         paths = []
         for image in images:
-            path = image.get("stored_image_path")
-            if path:
-                paths.append(str(path))
+            stored_path = image.get("stored_image_path")
+            if stored_path:
+                # サムネイル表示と同じ方法でパス解決
+                absolute_path = resolve_stored_path(stored_path)
+                paths.append(str(absolute_path))
+
+        logger.debug(f"絶対パス変換完了: {len(paths)}件の画像パス")
         return paths
 
     def _get_images_by_ids(self, image_ids: list[int]) -> list[dict]:
