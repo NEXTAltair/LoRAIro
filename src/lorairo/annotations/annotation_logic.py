@@ -45,6 +45,7 @@ class AnnotationLogic:
         self,
         image_paths: list[str],
         model_names: list[str],
+        phash_list: list[str] | None = None,
     ) -> "PHashAnnotationResults":
         """アノテーション実行
 
@@ -54,6 +55,7 @@ class AnnotationLogic:
         Args:
             image_paths: アノテーション対象画像パスリスト
             model_names: 使用モデル名リスト
+            phash_list: 画像のpHashリスト（省略時はライブラリ側で自動計算）
 
         Returns:
             PHashAnnotationResults: アノテーション結果（pHashをキーとする辞書）
@@ -73,7 +75,7 @@ class AnnotationLogic:
             results = self.annotator_adapter.annotate(
                 images=images,
                 model_names=model_names,
-                phash_list=None,  # ライブラリ側で自動計算
+                phash_list=phash_list,  # NEW: 呼び出し元から渡されたpHashを使用
             )
 
             logger.info(f"アノテーション処理完了: {len(results)}件の結果")

@@ -137,7 +137,10 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
 
             # Phase 2: DB保存（85%）
             self._report_progress(
-                85, "結果をDBに保存中...", processed_count=len(self.image_paths), total_count=len(self.image_paths)
+                85,
+                "結果をDBに保存中...",
+                processed_count=len(self.image_paths),
+                total_count=len(self.image_paths),
             )
             self._check_cancellation()
 
@@ -178,7 +181,6 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
 
             raise
 
-
     def _save_results_to_database(self, results: PHashAnnotationResults) -> None:
         """アノテーション結果をDBに保存
 
@@ -197,7 +199,9 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
                 image_id = self.db_manager.repository.find_duplicate_image_by_phash(phash)
 
                 if image_id is None:
-                    logger.warning(f"pHash {phash[:8]}... に対応する画像がDBに見つかりません。スキップします。")
+                    logger.warning(
+                        f"pHash {phash[:8]}... に対応する画像がDBに見つかりません。スキップします。"
+                    )
                     continue
 
                 # 変換
@@ -242,7 +246,11 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
         }
 
         for model_name, unified_result in annotations.items():
-            if unified_result.error:
+            # 辞書アクセス（image-annotator-libから返される値は辞書またはPydanticモデル）
+            error = (
+                unified_result.get("error") if isinstance(unified_result, dict) else unified_result.error
+            )
+            if error:
                 logger.warning(f"モデル {model_name} エラーをスキップ")
                 continue
 
@@ -252,9 +260,25 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
                 logger.warning(f"モデル '{model_name}' がDB未登録")
                 continue
 
+            # 結果の取得（辞書またはPydanticモデル対応）
+            scores = (
+                unified_result.get("scores") if isinstance(unified_result, dict) else unified_result.scores
+            )
+            tags = unified_result.get("tags") if isinstance(unified_result, dict) else unified_result.tags
+            captions = (
+                unified_result.get("captions")
+                if isinstance(unified_result, dict)
+                else unified_result.captions
+            )
+            ratings = (
+                unified_result.get("ratings")
+                if isinstance(unified_result, dict)
+                else unified_result.ratings
+            )
+
             # Scores
-            if unified_result.scores:
-                for _score_name, score_value in unified_result.scores.items():
+            if scores:
+                for _score_name, score_value in scores.items():
                     result["scores"].append(
                         {
                             "model_id": model.id,
@@ -264,8 +288,8 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
                     )
 
             # Tags (正しいキー: "tag")
-            if unified_result.tags:
-                for tag_content in unified_result.tags:
+            if tags:
+                for tag_content in tags:
                     result["tags"].append(
                         {
                             "model_id": model.id,
@@ -278,8 +302,8 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
                     )
 
             # Captions (正しいキー: "caption")
-            if unified_result.captions:
-                for caption_content in unified_result.captions:
+            if captions:
+                for caption_content in captions:
                     result["captions"].append(
                         {
                             "model_id": model.id,
@@ -290,8 +314,8 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
                     )
 
             # Ratings (正しいキー: "raw_rating_value", "normalized_rating")
-            if unified_result.ratings:
-                rating_value = str(unified_result.ratings)
+            if ratings:
+                rating_value = str(ratings)
                 result["ratings"].append(
                     {
                         "model_id": model.id,

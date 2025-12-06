@@ -165,7 +165,7 @@ class TestTagDatabaseIntegration:
         実際のDB接続でのテスト
         注意: このテストは実際のtag_dbが必要
         """
-        # TODO: 実際のDB接続が必要な統合テスト
+        # TODO: 実際のDB接続が必要な統合テストはPytestBDD
         # CI/CD環境では実行されない可能性がある
         pytest.skip("Requires actual tag database connection")
 
@@ -174,5 +174,5 @@ class TestTagDatabaseIntegration:
         """
         データセット登録フロー全体での重複処理テスト
         """
-        # TODO: 実際のデータセット登録フローでのテスト
+        # TODO: 実際のデータセット登録フローでのテストはPytestBDD
         pytest.skip("Requires full dataset registration setup")
