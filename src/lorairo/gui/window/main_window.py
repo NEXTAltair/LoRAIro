@@ -531,9 +531,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             - Phase 2: DatasetStateManagerキャッシュ更新でGUI反映
         """
         # Phase 1: 既存のResultHandlerService処理
-        self._delegate_to_result_handler(
-            "handle_annotation_finished", result, status_bar=self.statusBar()
-        )
+        self._delegate_to_result_handler("handle_annotation_finished", result, status_bar=self.statusBar())
 
         # Phase 2: キャッシュ更新 (NEW)
         # dataset_state_manager未初期化チェック
