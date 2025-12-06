@@ -72,7 +72,10 @@
       "mcp__serena__check_onboarding_performed",
       "mcp__serena__edit_memory",
       "mcp__serena__insert_after_symbol",
-      "mcp__serena__replace_symbol_body"
+      "mcp__serena__replace_symbol_body",
+      "Bash(git -C /workspaces/LoRAIro/local_packages/image-annotator-lib diff src/image_annotator_lib/core/base/annotator.py)",
+      "Bash(git -C /workspaces/LoRAIro/local_packages/image-annotator-lib diff src/image_annotator_lib/__init__.py)",
+      "Bash(git -C /workspaces/LoRAIro/local_packages/image-annotator-lib diff src/image_annotator_lib/model_class/tagger_tensorflow.py)"
     ],
     "deny": [],
     "ask": []
