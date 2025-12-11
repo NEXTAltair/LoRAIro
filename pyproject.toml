@@ -151,6 +151,9 @@ markers = [
     "fast: Fast unit tests (no external dependencies, <30s)",
     "standard: Standard unit tests (light mocking, <3min)",
     "real_api: Real API tests (for validation)",
+    "bdd: BDD scenarios (pytest-bdd)",
+    "bdd_core: Core BDD scenarios (SimplifiedAgentWrapper, Factory)",
+    "api_model_discovery: API model discovery tests",
 ]
 
 # VS Code settings moved to lorairo.code-workspace
