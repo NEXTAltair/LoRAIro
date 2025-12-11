@@ -22,7 +22,9 @@ from lorairo.database.schema import Image as SchemaImage
 from lorairo.database.schema import Tag
 from lorairo.storage.file_system import FileSystemManager
 
-scenarios("../features/database_management.feature")
+# Use __file__ based path for pytest-bdd compatibility
+_FEATURE_FILE = Path(__file__).parent.parent / "features" / "database_management.feature"
+scenarios(str(_FEATURE_FILE))
 
 # --- Search Context Class --- #
 
