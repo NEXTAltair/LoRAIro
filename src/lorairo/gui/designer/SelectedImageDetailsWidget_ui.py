@@ -227,7 +227,10 @@ class Ui_SelectedImageDetailsWidget(object):
 
 
         self.retranslateUi(SelectedImageDetailsWidget)
-
+        self.comboBoxRating.currentTextChanged.connect(SelectedImageDetailsWidget._on_rating_changed)
+        self.sliderScore.valueChanged.connect(SelectedImageDetailsWidget._on_score_changed)
+        self.pushButtonSaveRating.clicked.connect(SelectedImageDetailsWidget._on_save_clicked)
+        self.pushButtonSaveScore.clicked.connect(SelectedImageDetailsWidget._on_save_clicked)
         QMetaObject.connectSlotsByName(SelectedImageDetailsWidget)
     # setupUi
 
