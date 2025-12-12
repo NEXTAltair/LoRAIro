@@ -379,5 +379,75 @@
   </customwidget>
  </customwidgets>
  <resources />
- <connections />
+ <connections>
+  <connection>
+   <sender>comboBoxRating</sender>
+   <signal>currentTextChanged(QString)</signal>
+   <receiver>SelectedImageDetailsWidget</receiver>
+   <slot>_on_rating_changed(QString)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>149</x>
+     <y>272</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>124</x>
+     <y>200</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>sliderScore</sender>
+   <signal>valueChanged(int)</signal>
+   <receiver>SelectedImageDetailsWidget</receiver>
+   <slot>_on_score_changed(int)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>147</x>
+     <y>299</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>124</x>
+     <y>200</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>pushButtonSaveRating</sender>
+   <signal>clicked()</signal>
+   <receiver>SelectedImageDetailsWidget</receiver>
+   <slot>_on_save_clicked()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>223</x>
+     <y>241</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>124</x>
+     <y>200</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>pushButtonSaveScore</sender>
+   <signal>clicked()</signal>
+   <receiver>SelectedImageDetailsWidget</receiver>
+   <slot>_on_save_clicked()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>223</x>
+     <y>299</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>124</x>
+     <y>200</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+ <slots>
+  <slot>_on_rating_changed(QString)</slot>
+  <slot>_on_score_changed(int)</slot>
+  <slot>_on_save_clicked()</slot>
+ </slots>
 </ui>
