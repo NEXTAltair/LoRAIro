@@ -75,7 +75,9 @@ class TestTagDbIntegration:
 
         # ImageRepositoryで同じタグを検索（元の形式で渡す）
         with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id_retrieved = test_image_repository_with_tag_db._get_or_create_tag_id_external(session, source_tag)
+            tag_id_retrieved = test_image_repository_with_tag_db._get_or_create_tag_id_external(
+                session, source_tag
+            )
 
         # 検証: 同じtag_idが返される
         assert tag_id_retrieved == tag_id_original, "Should return existing tag_id"
@@ -84,7 +86,9 @@ class TestTagDbIntegration:
         all_matching_tags = test_tag_repository.search_tag_ids(normalized_tag, partial=False)
         assert len(all_matching_tags) == 1, "Should not create duplicate tags"
 
-    def test_tag_normalization_consistency(self, test_image_repository_with_tag_db, existing_file_reader, temp_dir):
+    def test_tag_normalization_consistency(
+        self, test_image_repository_with_tag_db, existing_file_reader, temp_dir
+    ):
         """
         タグ正規化の一貫性テスト
 
@@ -178,7 +182,9 @@ class TestTagDbIntegration:
 
         # エラー発生時の動作確認
         with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id = test_image_repository_with_tag_db._get_or_create_tag_id_external(session, "error_test_tag")
+            tag_id = test_image_repository_with_tag_db._get_or_create_tag_id_external(
+                session, "error_test_tag"
+            )
 
         # 検証: クラッシュせずNoneを返す
         assert tag_id is None, "Should return None on error without crashing"
@@ -208,15 +214,21 @@ class TestTagDbIntegration:
 
         # 1回目の呼び出し
         with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id_first = test_image_repository_with_tag_db._get_or_create_tag_id_external(session, test_tag)
+            tag_id_first = test_image_repository_with_tag_db._get_or_create_tag_id_external(
+                session, test_tag
+            )
 
         # 2回目の呼び出し（既存タグとして検索される）
         with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id_second = test_image_repository_with_tag_db._get_or_create_tag_id_external(session, test_tag)
+            tag_id_second = test_image_repository_with_tag_db._get_or_create_tag_id_external(
+                session, test_tag
+            )
 
         # 3回目の呼び出し
         with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id_third = test_image_repository_with_tag_db._get_or_create_tag_id_external(session, test_tag)
+            tag_id_third = test_image_repository_with_tag_db._get_or_create_tag_id_external(
+                session, test_tag
+            )
 
         # 検証: すべて同じtag_idが返される
         assert tag_id_first == tag_id_second == tag_id_third, (
