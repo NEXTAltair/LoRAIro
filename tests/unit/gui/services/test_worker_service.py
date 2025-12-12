@@ -142,7 +142,7 @@ class TestWorkerService:
         worker_service.worker_manager.start_worker.return_value = True
 
         # フィルター条件
-        filter_conditions = SearchConditions(tags=["test"], caption="sample")
+        filter_conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
 
         # 検索開始
         worker_id = worker_service.start_search(filter_conditions)
@@ -175,7 +175,7 @@ class TestWorkerService:
         worker_service.current_search_worker_id = existing_worker_id
 
         # フィルター条件
-        filter_conditions = SearchConditions(tags=["test"], caption="sample")
+        filter_conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
 
         # 検索開始
         new_worker_id = worker_service.start_search(filter_conditions)
@@ -275,8 +275,12 @@ class TestWorkerService:
             with patch("lorairo.gui.services.worker_service.SearchWorker"):
                 worker_service.worker_manager.start_worker.return_value = True
 
-                worker_id1 = worker_service.start_search(SearchConditions(tags=["test1"]))
-                worker_id2 = worker_service.start_search(SearchConditions(tags=["test2"]))
+                worker_id1 = worker_service.start_search(
+                    SearchConditions(search_type="tags", keywords=["test1"], tag_logic="and")
+                )
+                worker_id2 = worker_service.start_search(
+                    SearchConditions(search_type="tags", keywords=["test2"], tag_logic="and")
+                )
 
                 assert worker_id1 != worker_id2
                 assert worker_id1.endswith("1000000")
@@ -298,7 +302,9 @@ class TestWorkerService:
             worker_service.worker_manager.start_worker.return_value = True
 
             # 検索開始
-            worker_service.start_search(SearchConditions(tags=["test"]))
+            worker_service.start_search(
+                SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+            )
 
             # 進捗信号接続の確認（connectメソッドが呼ばれることを確認）
             mock_worker.progress_updated.connect.assert_called()
