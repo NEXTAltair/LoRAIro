@@ -56,7 +56,11 @@ class TestWorkerSystemCoordination:
     def test_worker_service_search_integration(self, worker_service, mock_db_manager):
         """WorkerService検索統合テスト"""
         # 検索開始
-        filter_conditions = {"tags": ["test"], "caption": "sample"}
+        filter_conditions = SearchConditions(
+            search_type="tags",
+            keywords=["test"],
+            tag_logic="and"
+        )
 
         with patch("lorairo.gui.services.worker_service.SearchWorker") as mock_worker_class:
             mock_worker = Mock()
