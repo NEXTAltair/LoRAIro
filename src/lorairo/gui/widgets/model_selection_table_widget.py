@@ -296,12 +296,14 @@ if __name__ == "__main__":
 
     # 選択情報表示ボタン（テスト用）
     def show_selection_info() -> None:
+        from lorairo.utils.log import logger
+
         info = table_widget.get_selection_info()
-        print("\n=== 選択情報 ===")
-        print(f"選択モデル: {info.selected_models}")
-        print(f"全体数: {info.total_available}")
-        print(f"表示数: {info.filtered_count}")
-        print("================\n")
+        logger.debug("\n=== 選択情報 ===")
+        logger.debug(f"選択モデル: {info.selected_models}")
+        logger.debug(f"全体数: {info.total_available}")
+        logger.debug(f"表示数: {info.filtered_count}")
+        logger.debug("================\n")
 
     btn_info = QPushButton("選択情報表示")
     btn_info.clicked.connect(show_selection_info)
@@ -356,15 +358,21 @@ if __name__ == "__main__":
     table_widget.set_search_filter_service(mock_service)
     table_widget.load_models()
 
-    # シグナル接続（テスト用コンソール出力）
+    # シグナル接続（テスト用デバッグログ）
     def on_selection_changed(models: list[str]) -> None:
-        print(f"🔄 Selection changed: {models}")
+        from lorairo.utils.log import logger
+
+        logger.debug(f"🔄 Selection changed: {models}")
 
     def on_count_changed(selected: int, total: int) -> None:
-        print(f"📊 Count changed: {selected}/{total}")
+        from lorairo.utils.log import logger
+
+        logger.debug(f"📊 Count changed: {selected}/{total}")
 
     def on_models_loaded(count: int) -> None:
-        print(f"✅ Models loaded: {count} models")
+        from lorairo.utils.log import logger
+
+        logger.debug(f"✅ Models loaded: {count} models")
 
     table_widget.model_selection_changed.connect(on_selection_changed)
     table_widget.selection_count_changed.connect(on_count_changed)
@@ -374,14 +382,16 @@ if __name__ == "__main__":
     main_window.setCentralWidget(central_widget)
     main_window.show()
 
-    print("🚀 ModelSelectionTableWidget 単体テスト起動")
-    print("📋 テスト項目:")
-    print("   - 4列テーブル表示（選択/モデル名/プロバイダー/機能）")
-    print("   - チェックボックスでの複数選択")
-    print("   - モデル名でのソート機能")
-    print("   - シグナル動作確認（コンソール出力）")
-    print("   - 選択情報表示ボタン")
-    print("💡 操作: チェックボックスをクリックして選択変更を確認してください")
+    from lorairo.utils.log import logger
+
+    logger.info("🚀 ModelSelectionTableWidget 単体テスト起動")
+    logger.info("📋 テスト項目:")
+    logger.info("   - 4列テーブル表示（選択/モデル名/プロバイダー/機能）")
+    logger.info("   - チェックボックスでの複数選択")
+    logger.info("   - モデル名でのソート機能")
+    logger.info("   - シグナル動作確認（デバッグログ出力）")
+    logger.info("   - 選択情報表示ボタン")
+    logger.info("💡 操作: チェックボックスをクリックして選択変更を確認してください")
 
     # アプリケーション実行
     sys.exit(app.exec())

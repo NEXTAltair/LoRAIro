@@ -171,7 +171,9 @@ def write_config_file(config_data: dict[str, Any], file_path: Path = DEFAULT_CON
         with open(file_path, "w", encoding="utf-8") as f:
             toml.dump(config_data, f)
     except Exception as e:
-        print(f"設定ファイルの保存に失敗しました: {e}")
+        from ..utils.log import logger
+
+        logger.error(f"設定ファイルの保存に失敗しました: {e}", exc_info=True)
 
 
 if __name__ == "__main__":

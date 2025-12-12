@@ -41,7 +41,9 @@ class FilePickerWidget(QWidget, Ui_FilePickerWidget):
         self.FilePicker.lineEditPicker.setText(str(path))
 
     def on_path_changed(self, new_path: str) -> None:
-        print(f"Selected file changed: {new_path}")
+        from lorairo.utils.log import logger
+
+        logger.debug(f"Selected file changed: {new_path}")
 
 
 if __name__ == "__main__":

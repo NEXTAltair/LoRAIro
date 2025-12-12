@@ -196,9 +196,10 @@ if __name__ == "__main__":
         from ...utils.log import initialize_logging
     except ImportError:
         # スタンドアローン実行用の代替パス
-        import os
+        from pathlib import Path
 
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        src_root = Path(__file__).parent.parent.parent
+        sys.path.insert(0, str(src_root))
         from lorairo.utils.log import initialize_logging
 
     # ログ設定（コンソール出力）

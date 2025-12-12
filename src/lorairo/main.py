@@ -42,14 +42,16 @@ def setup_qt_environment(config=None):
 
     if system == "Windows":
         # Windowsシステムフォントディレクトリ
+        from pathlib import Path
+
         font_dirs = [
-            "C:/Windows/Fonts",
-            os.path.expanduser("~/AppData/Local/Microsoft/Windows/Fonts"),
+            Path("C:/Windows/Fonts"),
+            Path.home() / "AppData/Local/Microsoft/Windows/Fonts",
         ]
         # 存在するフォントディレクトリを設定
         for font_dir in font_dirs:
-            if os.path.exists(font_dir):
-                os.environ["QT_QPA_FONTDIR"] = font_dir
+            if font_dir.exists():
+                os.environ["QT_QPA_FONTDIR"] = str(font_dir)
                 break
 
         # プラットフォームプラグイン設定
@@ -58,15 +60,17 @@ def setup_qt_environment(config=None):
 
     elif system == "Linux":
         # Linuxシステムフォントディレクトリ
+        from pathlib import Path
+
         font_dirs = [
-            "/usr/share/fonts",
-            "/usr/local/share/fonts",
-            "/system/fonts",  # Android
-            os.path.expanduser("~/.fonts"),
+            Path("/usr/share/fonts"),
+            Path("/usr/local/share/fonts"),
+            Path("/system/fonts"),  # Android
+            Path.home() / ".fonts",
         ]
         for font_dir in font_dirs:
-            if os.path.exists(font_dir):
-                os.environ["QT_QPA_FONTDIR"] = font_dir
+            if font_dir.exists():
+                os.environ["QT_QPA_FONTDIR"] = str(font_dir)
                 break
 
         # Linux環境でのみヘッドレス対応をチェック
@@ -84,14 +88,16 @@ def setup_qt_environment(config=None):
 
     elif system == "Darwin":  # macOS
         # macOSシステムフォントディレクトリ
+        from pathlib import Path
+
         font_dirs = [
-            "/System/Library/Fonts",
-            "/Library/Fonts",
-            os.path.expanduser("~/Library/Fonts"),
+            Path("/System/Library/Fonts"),
+            Path("/Library/Fonts"),
+            Path.home() / "Library/Fonts",
         ]
         for font_dir in font_dirs:
-            if os.path.exists(font_dir):
-                os.environ["QT_QPA_FONTDIR"] = font_dir
+            if font_dir.exists():
+                os.environ["QT_QPA_FONTDIR"] = str(font_dir)
                 break
 
         # macOS環境でのプラットフォーム設定

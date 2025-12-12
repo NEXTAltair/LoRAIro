@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
@@ -86,26 +85,29 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
             # 画像拡張子リスト
             image_extensions = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
 
-            for root, dirs, files in os.walk(path_obj):
+            # pathlibを使用した再帰的探索（max_depth対応）
+            for file_path in path_obj.rglob("*"):
                 # 階層深度チェック
                 try:
-                    current_depth = len(Path(root).relative_to(path_obj).parts)
+                    current_depth = len(file_path.relative_to(path_obj).parts)
                     if current_depth > max_depth:
-                        dirs.clear()  # これ以上深く探索しない
                         continue
                 except ValueError:
                     # relative_to が失敗した場合はスキップ
                     continue
 
-                for file in files:
-                    total_files += 1
-                    if total_files > max_files:
-                        logger.warning(f"ファイル数が上限を超過: {directory_path} ({max_files}+件)")
-                        return False
+                # ファイルのみ処理（ディレクトリはスキップ）
+                if not file_path.is_file():
+                    continue
 
-                    # 画像ファイルチェック
-                    if Path(file).suffix.lower() in image_extensions:
-                        image_count += 1
+                total_files += 1
+                if total_files > max_files:
+                    logger.warning(f"ファイル数が上限を超過: {directory_path} ({max_files}+件)")
+                    return False
+
+                # 画像ファイルチェック
+                if file_path.suffix.lower() in image_extensions:
+                    image_count += 1
 
             # 最終判定
             if image_count == 0:
@@ -131,7 +133,9 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
         self.DirectoryPicker.lineEditPicker.setText(path)
 
     def on_path_changed(self, new_path: str) -> None:
-        print(f"Selected directory changed: {new_path}")
+        from lorairo.utils.log import logger
+
+        logger.debug(f"Selected directory changed: {new_path}")
 
 
 if __name__ == "__main__":
