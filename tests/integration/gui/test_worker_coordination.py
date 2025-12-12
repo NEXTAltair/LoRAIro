@@ -56,11 +56,7 @@ class TestWorkerSystemCoordination:
     def test_worker_service_search_integration(self, worker_service, mock_db_manager):
         """WorkerService検索統合テスト"""
         # 検索開始
-        filter_conditions = SearchConditions(
-            search_type="tags",
-            keywords=["test"],
-            tag_logic="and"
-        )
+        filter_conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
 
         with patch("lorairo.gui.services.worker_service.SearchWorker") as mock_worker_class:
             mock_worker = Mock()
@@ -84,11 +80,15 @@ class TestWorkerSystemCoordination:
         """複数検索ワーカーキャンセルテスト"""
         with patch("lorairo.gui.services.worker_service.SearchWorker"):
             # 最初の検索開始
-            worker_id1 = worker_service.start_search(SearchConditions(tags=["test1"]))
+            worker_id1 = worker_service.start_search(
+                SearchConditions(search_type="tags", keywords=["test1"], tag_logic="and")
+            )
             assert worker_service.current_search_worker_id == worker_id1
 
             # 2番目の検索開始（1番目は自動キャンセル）
-            worker_id2 = worker_service.start_search(SearchConditions(tags=["test2"]))
+            worker_id2 = worker_service.start_search(
+                SearchConditions(search_type="tags", keywords=["test2"], tag_logic="and")
+            )
 
             # 1番目のワーカーがキャンセルされたことを確認
             worker_service.worker_manager.cancel_worker.assert_called_with(worker_id1)
@@ -112,7 +112,9 @@ class TestWorkerSystemCoordination:
             worker_service.search_error.connect(capture_error)
 
             # ワーカー開始
-            worker_id = worker_service.start_search(SearchConditions(tags=["test"]))
+            worker_id = worker_service.start_search(
+                SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+            )
 
             # エラーシグナル発行をシミュレート
             # connect.call_argsがNoneの場合があるので、直接エラーシグナルを発行
@@ -136,7 +138,9 @@ class TestWorkerSystemCoordination:
         ):
             # 複数種類のワーカーを並行実行
             registration_id = worker_service.start_batch_registration(Path("/test"))
-            search_id = worker_service.start_search(SearchConditions(tags=["test"]))
+            search_id = worker_service.start_search(
+                SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+            )
             annotation_id = worker_service.start_annotation([], [], [])
 
             # 各ワーカーが独立して管理されることを確認
@@ -152,7 +156,9 @@ class TestWorkerSystemCoordination:
             mock_worker_class.return_value = mock_worker
 
             # ワーカー開始
-            worker_id = worker_service.start_search(SearchConditions(tags=["test"]))
+            worker_id = worker_service.start_search(
+                SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+            )
 
             # 進捗シグナル接続確認
             assert mock_worker.progress_updated.connect.called
@@ -181,7 +187,9 @@ class TestWorkerSystemCoordination:
             mock_worker_class.return_value = mock_worker
 
             # 検索開始
-            worker_id = worker_service.start_search(SearchConditions(tags=["test"]))
+            worker_id = worker_service.start_search(
+                SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+            )
 
             # 進捗更新シミュレート
             progress_callback = mock_worker.progress_updated.connect.call_args[0][0]
@@ -195,7 +203,7 @@ class TestWorkerSystemCoordination:
     def test_worker_result_processing(self, worker_service, mock_db_manager):
         """ワーカー結果処理テスト"""
         # 実際のSearchWorkerで結果処理をテスト
-        filter_conditions = SearchConditions(tags=["test"], caption="")
+        filter_conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
         worker = SearchWorker(mock_db_manager, filter_conditions)
 
         # 結果受信用
@@ -224,10 +232,14 @@ class TestWorkerSystemCoordination:
 
             # 最初の検索は失敗
             with pytest.raises(RuntimeError):
-                worker_service.start_search(SearchConditions(tags=["test1"]))
+                worker_service.start_search(
+                    SearchConditions(search_type="tags", keywords=["test1"], tag_logic="and")
+                )
 
             # 2回目の検索は成功
-            worker_id = worker_service.start_search(SearchConditions(tags=["test2"]))
+            worker_id = worker_service.start_search(
+                SearchConditions(search_type="tags", keywords=["test2"], tag_logic="and")
+            )
             assert worker_id.startswith("search_")
 
     def test_resource_cleanup_integration(self, worker_service):
@@ -237,11 +249,15 @@ class TestWorkerSystemCoordination:
             mock_worker_class.return_value = mock_worker
 
             # 検索開始
-            worker_id = worker_service.start_search(SearchConditions(tags=["test"]))
+            worker_id = worker_service.start_search(
+                SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+            )
             assert worker_service.current_search_worker_id == worker_id
 
             # 新しい検索開始（自動クリーンアップ）
-            new_worker_id = worker_service.start_search(SearchConditions(tags=["new_test"]))
+            new_worker_id = worker_service.start_search(
+                SearchConditions(search_type="tags", keywords=["new_test"], tag_logic="and")
+            )
 
             # 古いワーカーがキャンセルされ、新しいIDが設定される
             worker_service.worker_manager.cancel_worker.assert_called_with(worker_id)
@@ -262,7 +278,10 @@ class TestWorkerSystemPerformance:
         # 複数ワーカーを連続作成
         workers = []
         for i in range(10):
-            worker = SearchWorker(mock_db_manager, SearchConditions(tags=[f"test_{i}"]))
+            worker = SearchWorker(
+                mock_db_manager,
+                SearchConditions(search_type="tags", keywords=[f"test_{i}"], tag_logic="and"),
+            )
             workers.append(worker)
 
         creation_time = time.time() - start_time
@@ -283,7 +302,10 @@ class TestWorkerSystemPerformance:
         start_time = time.time()
 
         for i in range(5):
-            worker = SearchWorker(mock_db_manager, SearchConditions(tags=[f"test_{i}"]))
+            worker = SearchWorker(
+                mock_db_manager,
+                SearchConditions(search_type="tags", keywords=[f"test_{i}"], tag_logic="and"),
+            )
             worker.finished.connect(lambda result: results.append(result))
             workers.append(worker)
 
@@ -306,7 +328,10 @@ class TestWorkerSystemPerformance:
         import gc
 
         for i in range(50):
-            worker = SearchWorker(mock_db_manager, SearchConditions(tags=[f"test_{i}"]))
+            worker = SearchWorker(
+                mock_db_manager,
+                SearchConditions(search_type="tags", keywords=[f"test_{i}"], tag_logic="and"),
+            )
             worker.run()
             del worker
 
