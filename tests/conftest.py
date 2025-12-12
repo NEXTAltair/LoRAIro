@@ -598,3 +598,109 @@ def critical_failure_hooks(monkeypatch, request):
     monkeypatch.setattr(f"{patch_target}.logger", calls["logger"])
 
     return calls
+
+
+# --- External Tag DB Test Fixtures (Issue #2 Test Quality Improvements) ---
+
+
+@pytest.fixture(scope="function")
+def test_tag_db_path(temp_dir):
+    """外部tag_dbテスト用の一時データベースパスを提供
+
+    環境変数TEST_TAG_DB_PATHが設定されている場合、そのパスをコピー元として使用。
+    未設定の場合はテストをスキップする。
+    常に一時ディレクトリにコピーして使用するため、元DBは汚染されない。
+
+    Returns:
+        Path: テスト用tag_dbのパス（一時ディレクトリ内）
+    """
+    # 環境変数からコピー元DBパスを取得
+    source_db_env = os.getenv("TEST_TAG_DB_PATH")
+    if not source_db_env:
+        # 環境変数未設定の場合はテストスキップ
+        pytest.skip("TEST_TAG_DB_PATH not set. Skipping external tag_db integration tests.")
+
+    # 常に一時ディレクトリにコピーして使用（本番DB汚染防止）
+    test_db_path = temp_dir / "tags_test.db"
+    source_db_path = Path(source_db_env)
+
+    if source_db_path.exists():
+        # 指定されたDBをコピー
+        shutil.copy(source_db_path, test_db_path)
+    else:
+        # 指定DBが存在しない場合は本番DBをコピー
+        prod_tag_db = Path("local_packages/genai-tag-db-tools/src/genai_tag_db_tools/data/tags_v4.db")
+        if prod_tag_db.exists():
+            shutil.copy(prod_tag_db, test_db_path)
+        else:
+            # 本番DBも見つからない場合は空のDBを作成
+            test_db_path.touch()
+
+    return test_db_path
+
+
+@pytest.fixture(scope="function")
+def test_tag_repository(test_tag_db_path):
+    """テスト用TagRepositoryインスタンスを提供
+
+    test_tag_db_pathで指定されたデータベースを使用するTagRepositoryを作成。
+    テスト終了後、作成されたタグをクリーンアップする。
+
+    Yields:
+        TagRepository: テスト用のTagRepositoryインスタンス
+    """
+    from genai_tag_db_tools.data.tag_repository import TagRepository
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    # テスト用エンジンとセッションファクトリを作成
+    test_engine = create_engine(f"sqlite:///{test_tag_db_path}", echo=False)
+    test_session_factory = sessionmaker(bind=test_engine, autoflush=False, autocommit=False)
+
+    # TagRepositoryにカスタムsession_factoryを注入
+    tag_repository = TagRepository(session_factory=test_session_factory)
+
+    # テスト実行前に作成されたタグIDを記録
+    created_tag_ids = []
+
+    # 元のcreate_tagメソッドをラップしてID記録
+    original_create_tag = tag_repository.create_tag
+
+    def tracked_create_tag(source_tag: str, tag: str) -> int:
+        tag_id = original_create_tag(source_tag, tag)
+        created_tag_ids.append(tag_id)
+        return tag_id
+
+    tag_repository.create_tag = tracked_create_tag
+
+    yield tag_repository
+
+    # テスト終了後のクリーンアップ
+    try:
+        with test_session_factory() as session:
+            from genai_tag_db_tools.data.database_schema import Tag
+
+            for tag_id in created_tag_ids:
+                tag = session.query(Tag).filter_by(tag_id=tag_id).first()
+                if tag:
+                    session.delete(tag)
+            session.commit()
+    except Exception as e:
+        print(f"Warning: Failed to cleanup test tags: {e}")
+    finally:
+        test_engine.dispose()
+
+
+@pytest.fixture(scope="function")
+def test_image_repository_with_tag_db(db_session_factory, test_tag_repository):
+    """テスト用TagRepositoryを使用するImageRepositoryを提供
+
+    ImageRepositoryのtag_repositoryをテスト用のものに置き換える。
+
+    Returns:
+        ImageRepository: テスト用TagRepositoryを使用するImageRepository
+    """
+    image_repo = ImageRepository(session_factory=db_session_factory)
+    # tag_repositoryをテスト用のものに差し替え
+    image_repo.tag_repository = test_tag_repository
+    return image_repo
