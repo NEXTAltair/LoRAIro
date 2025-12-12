@@ -3,6 +3,8 @@
 import datetime
 from typing import Any, TypedDict, cast
 
+from genai_tag_db_tools.data.tag_repository import TagRepository
+from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 from sqlalchemy import Select, and_, exists, func, not_, or_, select, text, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload, sessionmaker
@@ -78,6 +80,10 @@ class ImageRepository:
         self.session_factory = session_factory
         logger.info("ImageRepository initialized.")
         self.tag_db_path = get_tag_db_path()
+
+        # 外部tag_db統合ツール初期化（Issue #2実装）
+        self.tag_repository = TagRepository()  # 外部tag_db用の独立セッション管理
+        self.tag_cleaner = TagCleaner()  # ExistingFileReaderと同じ正規化ロジック
 
     def _get_model_id(self, model_name: str) -> int | None:
         """
@@ -614,56 +620,75 @@ class ImageRepository:
 
     def _get_or_create_tag_id_external(self, session: Session, tag_string: str) -> int | None:
         """
-        アタッチされた tag_db から tag 文字列に一致する tag_id を検索して返します。
+        外部 tag_db から tag 文字列に一致する tag_id を検索し、
+        見つからない場合は新規作成して tag_id を返します。
 
-        注意: このメソッドは外部DBへの書き込み（新規タグ登録）は行いません。
-              タグが見つからない場合は None を返します。
-              新規タグ登録は genai-tag-db-tools を直接使用する上位のサービス等で行う想定です。
+        処理フロー:
+        1. タグを正規化（TagCleaner使用、ExistingFileReaderと同一ロジック）
+        2. 外部DBで検索（既存の正規化済みタグ）
+        3. 見つからない場合: TagRepository.create_tag()で新規登録
+        4. tag_idを返す（エラー時はNoneで縮退動作）
 
         Args:
-            session (Session): SQLAlchemy セッション (Raw SQL 実行に使用)。
-            tag_string (str): 検索するタグ文字列。
+            session (Session): SQLAlchemy セッション (LoRAIro DB用、tag_db操作には未使用)
+            tag_string (str): 検索・登録するタグ文字列（AI生成 or ユーザー入力）
 
         Returns:
-            int | None: 見つかったタグの tag_id。見つからない場合は None。
+            int | None: 見つかった/作成された tag_id。エラー時は None。
 
         Raises:
-            SQLAlchemyError: データベース検索中にエラーが発生した場合。
+            Exception: 検索/作成中のエラー（ログ記録後、Noneを返す）
         """
+        # 1. タグの正規化（ExistingFileReaderと同一処理）
+        normalized_tag = TagCleaner.clean_format(tag_string).strip()
 
-        logger.debug(f"Searching for tag_id in tag_db for tag: '{tag_string}'")
-        try:
-            # tag_db.TAGS テーブルを検索
-            stmt = text("SELECT tag_id FROM tag_db.TAGS WHERE tag = :tag_name")
-            result = session.execute(stmt, {"tag_name": tag_string}).first()
-
-            if result:
-                tag_id: int = int(result[0])  # Get the first column (tag_id) from the first row
-                logger.debug(f"Found tag_id {tag_id} for tag '{tag_string}' in tag_db.")
-
-                # Check if there are multiple rows and log a warning
-                count_stmt = text("SELECT COUNT(*) FROM tag_db.TAGS WHERE tag = :tag_name")
-                count_result = session.execute(count_stmt, {"tag_name": tag_string}).scalar()
-
-                if count_result is not None and int(count_result) > 1:
-                    logger.warning(
-                        f"Multiple entries ({int(count_result)}) found for tag '{tag_string}' in tag_db. "
-                        f"Using the first tag_id: {tag_id}. Database cleanup may be needed."
-                    )
-
-                return tag_id
-            else:
-                # 見つからなかった場合 (新規作成はここでは行わない)
-                logger.info(
-                    f"Tag '{tag_string}' not found in tag_db. Returning None. (Registration should be handled elsewhere)"
-                )
-                return None
-
-        except SQLAlchemyError as e:
-            logger.error(f"Error searching tag_id in tag_db for tag '{tag_string}': {e}", exc_info=True)
-            # エラー発生時も None を返す (呼び出し元で処理を継続できるように)
-            # 必要であれば raise するように変更も可能
+        if not normalized_tag:
+            logger.warning(f"Tag normalization resulted in empty string: '{tag_string}'")
             return None
+
+        logger.debug(f"Searching/creating tag in tag_db: '{tag_string}' → '{normalized_tag}'")
+
+        # 2. 既存タグ検索（完全一致）
+        try:
+            tag_id = self.tag_repository.get_tag_id_by_name(normalized_tag, partial=False)
+
+            if tag_id is not None:
+                logger.debug(f"Found existing tag_id {tag_id} for '{normalized_tag}' in tag_db")
+                return tag_id
+
+        except Exception as e:
+            logger.error(f"Error searching tag in tag_db: '{normalized_tag}': {e}", exc_info=True)
+            return None  # 検索失敗時は縮退動作（tag_id=None で保存）
+
+        # 3. 新規タグ作成
+        try:
+            tag_id = self.tag_repository.create_tag(
+                source_tag=tag_string,  # オリジナル（AI出力、ユーザー入力そのまま）
+                tag=normalized_tag,  # 正規化済み（検索・表示用）
+            )
+            logger.info(
+                f"Created new tag in external tag_db: '{normalized_tag}' "
+                f"(source: '{tag_string}', tag_id={tag_id})"
+            )
+            return tag_id
+
+        except IntegrityError as e:
+            # 競合状態: 同時実行で他プロセスが作成した場合
+            logger.warning(f"Tag creation race condition for '{normalized_tag}': {e}. Retrying search...")
+            try:
+                # 再検索
+                tag_id = self.tag_repository.get_tag_id_by_name(normalized_tag, partial=False)
+                if tag_id is not None:
+                    logger.info(f"Retrieved tag_id {tag_id} after race condition retry")
+                    return tag_id
+            except Exception as retry_error:
+                logger.error(f"Retry search failed: {retry_error}", exc_info=True)
+
+            return None  # 最終的に失敗した場合は縮退動作
+
+        except Exception as e:
+            logger.error(f"Unexpected error creating tag '{normalized_tag}' in tag_db: {e}", exc_info=True)
+            return None  # その他のエラーも縮退動作
 
     def _save_tags(self, session: Session, image_id: int, tags_data: list[TagAnnotationData]) -> None:
         """タグ情報を保存・更新 (Upsert)"""
@@ -681,8 +706,14 @@ class ImageRepository:
             confidence = tag_info.get("confidence_score")  # Optional
             is_existing_tag = tag_info.get("existing", False)  # 元ファイル由来か
 
-            # 外部DBから tag_id を取得/作成 (FIXME: Issue #2参照 - 実際の連携処理に置き換える)
+            # 外部DBから tag_id を取得/作成（Issue #2実装完了 - TagRepository統合）
             external_tag_id = self._get_or_create_tag_id_external(session, tag_string)
+
+            if external_tag_id is None and tag_string:
+                logger.warning(
+                    f"Tag '{tag_string}' could not be linked to external tag_db. "
+                    "Saving with tag_id=None (limited taxonomy features)."
+                )
 
             # 既存レコードを検索
             existing_record = existing_tags_map.get((tag_string, model_id))
