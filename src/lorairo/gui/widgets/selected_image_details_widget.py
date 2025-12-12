@@ -110,15 +110,8 @@ class SelectedImageDetailsWidget(QScrollArea):
         UIコンポーネントのシグナル接続設定
 
         Qt Designerで設定されていないシグナルを追加接続。
-        - Rating/Scoreの変更監視
-        - 保存ボタンのクリック処理
+        Rating/Score関連のハンドラは .ui 側の接続定義を使用。
         """
-        # 自動接続されるシグナル（Qt Designerで設定済み）:
-        # - comboBoxRating.currentTextChanged -> _on_rating_changed
-        # - sliderScore.valueChanged -> _on_score_changed
-        # - pushButtonSaveRating.clicked -> _on_save_clicked
-        # - pushButtonSaveScore.clicked -> _on_save_clicked
-
         # AnnotationDataDisplayWidgetからのシグナル接続
         self.annotation_display.data_loaded.connect(self._on_annotation_data_loaded)
 
