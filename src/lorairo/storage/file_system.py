@@ -4,6 +4,7 @@ import os
 import shutil
 from datetime import datetime
 from io import BytesIO
+from itertools import islice
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
@@ -12,7 +13,7 @@ from PIL import Image, ImageCms
 
 from ..utils.log import logger
 
-Image.MAX_IMAGE_PIXELS = 1000000000  # クソデカファイルに対応､ローカルアプリななので攻撃の心配はない
+Image.MAX_IMAGE_PIXELS = 1000000000  # 大きな画像に対応(ローカルアプリ前提)
 
 
 class FileSystemManager:
@@ -34,6 +35,7 @@ class FileSystemManager:
         self.original_images_dir: Path | None = None
         self.resized_images_dir: Path | None = None
         self.batch_request_dir: Path | None = None
+        self._sequence_counters: dict[Path, int] = {}
         logger.debug("初期化")
 
     def __enter__(self) -> "FileSystemManager":
@@ -148,11 +150,14 @@ class FileSystemManager:
         Returns:
             list[Path]: 画像ファイルのパスのリスト
         """
-        image_files = []
-        for ext in FileSystemManager.image_extensions:
-            for image_file in input_dir.rglob(f"*{ext}"):
-                image_files.append(image_file)
-        logger.debug(f"get_image_files \n image_file len:{len(image_files)}")
+        exts = {ext.lower() for ext in FileSystemManager.image_extensions}
+        image_files: list[Path] = []
+        for path in input_dir.rglob("*"):
+            if not path.is_file():
+                continue
+            if path.suffix.lower() in exts:
+                image_files.append(path)
+        logger.debug("get_image_files found=%s dir=%s", len(image_files), input_dir)
         return image_files
 
     @staticmethod
@@ -177,13 +182,13 @@ class FileSystemManager:
                 mode = img.mode
                 # アルファチャンネル画像情報 BOOL
                 has_alpha = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
+                icc_profile = img.info.get("icc_profile")
 
             # 色域情報の詳細な取得
             color_space = mode
-            icc_profile = img.info.get("icc_profile")
             if icc_profile:
                 profile = ImageCms.ImageCmsProfile(BytesIO(icc_profile))
-                color_space = ImageCms.getProfileName(profile).strip()  # type: ignore
+                color_space = str(ImageCms.getProfileName(profile)).strip()
 
             return {
                 "width": width,
@@ -213,16 +218,49 @@ class FileSystemManager:
         Returns:
             int: 次のシーケンス番号
         """
+        save_dir_path = Path(save_dir)
         try:
-            files = list(Path(save_dir).glob(f"{Path(save_dir).name}_*.webp"))
-            return len(files)
+            next_seq = self._sequence_counters.get(save_dir_path)
+            if next_seq is None:
+                next_seq = self._scan_next_sequence_number(save_dir_path)
+
+            # 外部要因(並列処理/手動操作)で衝突しても回避できるように存在チェック
+            candidate = next_seq
+            while (save_dir_path / f"{save_dir_path.name}_{candidate:05d}.webp").exists():
+                candidate += 1
+
+            self._sequence_counters[save_dir_path] = candidate + 1
+            return candidate
         except Exception as e:
             logger.error(
                 "シーケンス番号の取得に失敗: %s. FileSystemManager._get_next_sequence_number: %s",
-                save_dir,
+                save_dir_path,
                 str(e),
             )
             raise
+
+    @staticmethod
+    def _scan_next_sequence_number(save_dir: Path) -> int:
+        """
+        既存ファイル名から次の連番を推定する。
+
+        Args:
+            save_dir: 連番付きファイルが保存されるディレクトリ
+
+        Returns:
+            int: 次に使用可能な連番(0始まり)
+        """
+        prefix = f"{save_dir.name}_"
+        max_seq = -1
+        for file_path in save_dir.glob(f"{save_dir.name}_*.webp"):
+            stem = file_path.stem
+            if not stem.startswith(prefix):
+                continue
+            suffix = stem[len(prefix) :]
+            if not suffix.isdigit():
+                continue
+            max_seq = max(max_seq, int(suffix))
+        return max_seq + 1
 
     def save_processed_image(self, image: Image.Image, original_path: Path, target_resolution: int) -> Path:
         """
@@ -279,7 +317,8 @@ class FileSystemManager:
                     fdst.write(buffer)
 
         # ファイルの更新日時と作成日時を設定
-        os.utime(dst, (os.path.getatime(src), os.path.getmtime(src)))
+        src_stat = src.stat()
+        os.utime(dst, (src_stat.st_atime, src_stat.st_mtime))
         shutil.copystat(src, dst)
 
     def save_original_image(self, image_file: Path) -> Path:
@@ -349,18 +388,33 @@ class FileSystemManager:
             jsonl_size (int): 分割が必要なjsonlineファイルのサイズ
             json_maxsize (int): OpenAI API が受け付ける最大サイズ
         """
-        # jsonl_sizeに基づいてファイルを分割
+        if json_maxsize <= 0:
+            raise ValueError("json_maxsize must be > 0")
+        if jsonl_size <= 0:
+            raise ValueError("jsonl_size must be > 0")
+
         split_size = math.ceil(jsonl_size / json_maxsize)
-        with open(jsonl_path, encoding="utf-8") as f:
-            lines = f.readlines()
-        lines_per_file = math.ceil(len(lines) / split_size)  # 各ファイルに必要な行数
-        split_dir = jsonl_path / "split"
+        if split_size <= 1:
+            return
+
+        # 保存先は元ファイルの親ディレクトリ配下に作成する
+        split_dir = jsonl_path.parent / f"{jsonl_path.stem}_split"
         split_dir.mkdir(parents=True, exist_ok=True)
-        for i in range(split_size):
-            split_filename = f"instructions_{i}.jsonl"
-            split_path = split_dir / split_filename
-            with open(split_path, "w", encoding="utf-8") as f:
-                f.writelines(lines[i * lines_per_file : (i + 1) * lines_per_file])
+
+        # 行数を先に数えて均等配分(巨大ファイルでもメモリを使い切らない)
+        with open(jsonl_path, encoding="utf-8") as f:
+            total_lines = sum(1 for _ in f)
+        lines_per_file = math.ceil(total_lines / split_size)
+
+        with open(jsonl_path, encoding="utf-8") as fsrc:
+            for i in range(split_size):
+                split_filename = f"instructions_{i}.jsonl"
+                split_path = split_dir / split_filename
+                with open(split_path, "w", encoding="utf-8") as fdst:
+                    chunk = list(islice(fsrc, lines_per_file))
+                    if not chunk:
+                        break
+                    fdst.writelines(chunk)
 
     @staticmethod
     def export_dataset_to_txt(

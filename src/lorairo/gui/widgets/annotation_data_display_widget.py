@@ -242,14 +242,18 @@ if __name__ == "__main__":
     window.setCentralWidget(widget)
     window.resize(480, 360)
 
-    # シグナル受信確認（print最小）
+    # シグナル受信確認（デバッグログ）
     def _on_data_loaded(data: AnnotationData) -> None:
-        print(
+        from lorairo.utils.log import logger
+
+        logger.debug(
             f"[Signal] data_loaded: tags={len(data.tags)}, caption={bool(data.caption)}, aesth={data.aesthetic_score}"
         )
 
     def _on_data_cleared() -> None:
-        print("[Signal] data_cleared")
+        from lorairo.utils.log import logger
+
+        logger.debug("[Signal] data_cleared")
 
     widget.data_loaded.connect(_on_data_loaded)
     widget.data_cleared.connect(_on_data_cleared)

@@ -338,12 +338,14 @@ if __name__ == "__main__":
     # 単体実行とテスト表示 - 完全な依存関係をインポート
     import os
     import sys
+
+    # 完全な依存関係を強制インポート（テスト用）
+    from pathlib import Path
     from unittest.mock import Mock
 
     from PySide6.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget
 
-    # 完全な依存関係を強制インポート（テスト用）
-    src_root = os.path.join(os.path.dirname(__file__), "..", "..", "..")
+    src_root = str(Path(__file__).parent.parent.parent)
     if src_root not in sys.path:
         sys.path.insert(0, src_root)
 

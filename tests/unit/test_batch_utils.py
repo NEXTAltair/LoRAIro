@@ -10,7 +10,6 @@ import pytest
 from lorairo.services.batch_utils import (
     _extract_tags_from_content,
     create_batch_jsonl,
-    example_batch_workflow,
     monitor_batch_progress,
     parse_batch_results,
 )
@@ -269,55 +268,6 @@ class TestMonitorBatchProgress:
         assert result == "completed"
 
 
-class TestExampleBatchWorkflow:
-    """example_batch_workflow 関数のテスト"""
-
-    @patch("lorairo.services.batch_utils.create_batch_jsonl")
-    @patch("lorairo.services.batch_utils.monitor_batch_progress")
-    @patch("lorairo.services.batch_utils.parse_batch_results")
-    def test_example_batch_workflow_success(self, mock_parse, mock_monitor, mock_create):
-        """バッチワークフローの成功パスのテスト"""
-        # Arrange
-        mock_processor = Mock()
-        mock_processor.start_batch_processing.return_value = "batch_123"
-        mock_processor.download_batch_results.return_value = Path("results.jsonl")
-        mock_processor.get_batch_results.return_value = {"image1": "result1"}
-
-        mock_create.return_value = Path("batch.jsonl")
-        mock_monitor.return_value = "completed"
-        mock_parse.return_value = {"image1": {"tags": ["tag1"]}}
-
-        with patch(
-            "lorairo.services.openai_batch_processor.OpenAIBatchProcessor", return_value=mock_processor
-        ):
-            result = example_batch_workflow()
-
-        # Assert
-        assert result == {"image1": {"tags": ["tag1"]}}
-        mock_create.assert_called_once()
-        mock_monitor.assert_called_once()
-        mock_parse.assert_called_once()
-
-    @patch("lorairo.services.batch_utils.create_batch_jsonl")
-    @patch("lorairo.services.batch_utils.monitor_batch_progress")
-    def test_example_batch_workflow_failed(self, mock_monitor, mock_create):
-        """バッチワークフローの失敗パスのテスト"""
-        # Arrange
-        mock_processor = Mock()
-        mock_processor.start_batch_processing.return_value = "batch_123"
-
-        mock_create.return_value = Path("batch.jsonl")
-        mock_monitor.return_value = "failed"
-
-        with (
-            patch(
-                "lorairo.services.openai_batch_processor.OpenAIBatchProcessor", return_value=mock_processor
-            ),
-            patch("lorairo.services.batch_utils.logger") as mock_logger,
-        ):
-            result = example_batch_workflow()
-
-        # Assert
-        assert result is None
-        mock_logger.error.assert_called_once()
-        assert "バッチ処理が失敗しました: failed" in str(mock_logger.error.call_args)
+# Note: example_batch_workflow() のテストは削除しました。
+# 使用例は docs/examples/openai_batch_workflow_example.py に移動し、
+# ドキュメントとして管理するため、ユニットテストは不要です。

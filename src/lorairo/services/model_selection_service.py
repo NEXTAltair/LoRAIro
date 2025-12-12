@@ -78,19 +78,10 @@ class ModelSelectionService:
     def filter_models(
         self,
         criteria: ModelSelectionCriteria | None = None,
-        # Legacy parameters for backward compatibility
-        provider: str | None = None,
-        capabilities: list[str] | None = None,
     ) -> list[Model]:
         """指定した条件でモデルをフィルタリング（DB Model直接使用）"""
 
-        # 後方互換性: 旧シグネチャ (provider, capabilities) の処理
-        if criteria is None and (provider is not None or capabilities is not None):
-            criteria = ModelSelectionCriteria(
-                provider=provider,
-                capabilities=capabilities,
-            )
-        elif criteria is None:
+        if criteria is None:
             criteria = ModelSelectionCriteria()
 
         filtered = self._all_models

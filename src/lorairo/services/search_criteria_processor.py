@@ -14,7 +14,7 @@ from typing import Any
 from loguru import logger
 
 from ..database.db_manager import ImageDatabaseManager
-from .search_models import FilterConditions, SearchConditions
+from .search_models import SearchConditions
 
 
 class SearchCriteriaProcessor:
@@ -63,49 +63,24 @@ class SearchCriteriaProcessor:
             images, total_count = self.db_manager.get_images_by_filter(**db_args)
 
             # フロントエンドフィルター適用（必要時のみ）
-            if any(frontend_filters.values()):
+            applied_frontend_filters = any(frontend_filters.values())
+            if applied_frontend_filters:
                 images = self._apply_simple_frontend_filters(images, conditions)
 
-            logger.info(f"検索実行完了: DB引数={len(db_args)}項目, 結果件数={len(images)}")
-            return images, len(images)
+            # DB検索のみの場合はDB総件数を返す。フロントエンドフィルター適用時は件数が変わるためlen(images)を返す。
+            reported_count = len(images) if applied_frontend_filters else total_count
+            logger.info(
+                "検索実行完了: DB引数=%s項目, 結果件数=%s, 総件数=%s, frontend_filter=%s",
+                len(db_args),
+                len(images),
+                total_count,
+                applied_frontend_filters,
+            )
+            return images, reported_count
 
         except Exception as e:
             logger.error(f"検索実行中にエラーが発生しました: {e}", exc_info=True)
             raise
-
-    # === DEPRECATED: 以下のメソッドは変換レイヤー削除により不要 ===
-    # 後方互換性のため一時的に保持、将来的に削除予定
-
-    def separate_search_and_filter_conditions(
-        self, conditions: SearchConditions
-    ) -> tuple[dict[str, Any], FilterConditions]:
-        """
-        DEPRECATED: 検索条件とフィルター条件を分離（廃止予定）
-        """
-        logger.warning(
-            "separate_search_and_filter_conditions は廃止予定です。to_db_filter_args() を使用してください。"
-        )
-
-        # 最小限の実装で後方互換性を維持
-        db_args = conditions.to_db_filter_args()
-        filter_conditions = FilterConditions(
-            aspect_ratio=conditions.aspect_ratio_filter,
-            exclude_duplicates=conditions.exclude_duplicates,
-        )
-
-        return db_args, filter_conditions
-
-    def process_resolution_filter(self, conditions: SearchConditions) -> dict[str, Any]:
-        """
-        DEPRECATED: 解像度フィルター処理（廃止予定）
-        """
-        logger.warning(
-            "process_resolution_filter は廃止予定です。SearchConditions._resolve_resolution() を使用してください。"
-        )
-
-        # 最小限の実装で後方互換性を維持
-        resolution = conditions._resolve_resolution()
-        return {"resolution": resolution} if resolution > 0 else {}
 
     def process_date_filter(self, conditions: SearchConditions) -> dict[str, Any]:
         """
@@ -189,17 +164,6 @@ class SearchCriteriaProcessor:
         except Exception as e:
             logger.error(f"タグフィルターロジック処理中にエラー: {e}", exc_info=True)
             return {}
-
-    def _convert_to_db_query_conditions(self, search_conditions: dict[str, Any]) -> dict[str, Any]:
-        """
-        DEPRECATED: 検索条件をデータベースクエリ形式に変換（廃止予定）
-        """
-        logger.warning(
-            "_convert_to_db_query_conditions は廃止予定です。SearchConditions.to_db_filter_args() を使用してください。"
-        )
-
-        # 最小限の実装で後方互換性を維持
-        return search_conditions.copy() if search_conditions else {}
 
     def _apply_simple_frontend_filters(
         self, images: list[dict[str, Any]], conditions: SearchConditions
@@ -364,6 +328,11 @@ class SearchCriteriaProcessor:
 
             for image in images:
                 phash = image.get("phash")
+
+                if not isinstance(phash, str) or not phash:
+                    # pHashがない場合は重複判定不能のため、そのまま保持する
+                    filtered_images.append(image)
+                    continue
 
                 if phash not in seen_phashes:
                     seen_phashes[phash] = image

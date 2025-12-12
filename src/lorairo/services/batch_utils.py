@@ -3,7 +3,9 @@
 OpenAI Batch APIで使用するJSONLファイルの生成等のヘルパー関数
 """
 
+import base64
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -49,8 +51,6 @@ def create_batch_jsonl(
                 continue
 
             # 画像をbase64エンコード
-            import base64
-
             with open(image_path, "rb") as img_file:
                 base64_image = base64.b64encode(img_file.read()).decode("utf-8")
 
@@ -151,8 +151,6 @@ def _extract_tags_from_content(content: str) -> list[str]:
     tags = []
 
     # "Tags:" などの後にタグが列挙されている場合
-    import re
-
     tag_match = re.search(r"\b(?:tags?|keywords?)\s*[:]\s*([^\n]+)", content, re.IGNORECASE)
     if tag_match:
         tag_text = tag_match.group(1)
@@ -173,9 +171,11 @@ def monitor_batch_progress(processor: Any, batch_id: str, check_interval: int = 
     Returns:
         str: 最終的なバッチステータス
 
-    Note:
+    Warning:
         この関数は同期的に実行されるため、長時間ブロックする可能性があります。
-        実際の使用では非同期処理やバックグラウンドタスクの実装を推奨します。
+        GUIアプリケーションやワーカースレッド内で使用する場合は、非同期処理や
+        バックグラウンドタスクの実装を強く推奨します。
+        `check_interval` が大きい場合（60秒以上）、UIがフリーズする可能性があります。
     """
     import time
 
@@ -203,46 +203,3 @@ def monitor_batch_progress(processor: Any, batch_id: str, check_interval: int = 
         except Exception as e:
             logger.error(f"ステータス確認エラー: {e}")
             time.sleep(check_interval)
-
-
-# 使用例
-def example_batch_workflow() -> dict[str, dict[str, Any]] | None:
-    """
-    OpenAIバッチ処理の使用例
-    OpenAI SDKを使用したより信頼性の高い実装
-    """
-    from lorairo.services.openai_batch_processor import OpenAIBatchProcessor
-
-    try:
-        # 初期化
-        processor = OpenAIBatchProcessor(api_key="your-openai-api-key")
-
-        # 1. JSONLファイル作成
-        image_paths = [Path("image1.jpg"), Path("image2.jpg")]
-        prompt = "この画像を詳しく説明してください。"
-        jsonl_path = create_batch_jsonl(image_paths, prompt)
-
-        # 2. バッチ処理開始
-        batch_id = processor.start_batch_processing(jsonl_path)
-
-        # 3. 進行状況監視(実際にはバックグラウンドで実行)
-        final_status = monitor_batch_progress(processor, batch_id)
-
-        # 4. 結果取得
-        if final_status == "completed":
-            output_dir = Path("batch_results")
-            processor.download_batch_results(batch_id, output_dir)
-
-            # 5. 結果解析
-            raw_results = processor.get_batch_results(output_dir)
-            parsed_results = parse_batch_results(raw_results)
-
-            logger.info(f"バッチ処理が正常に完了しました。結果: {len(parsed_results)}件")
-            return parsed_results
-        else:
-            logger.error(f"バッチ処理が失敗しました: {final_status}")
-            return None
-
-    except Exception as e:
-        logger.error(f"バッチ処理ワークフロー中にエラーが発生しました: {e}")
-        return None

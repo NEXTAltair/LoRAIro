@@ -943,10 +943,14 @@ if __name__ == "__main__":
 
     # シグナル接続（テスト用）
     def on_search_requested(data: dict[str, Any]) -> None:
-        print(f"検索要求: {data}")
+        from lorairo.utils.log import logger
+
+        logger.debug(f"検索要求: {data}")
 
     def on_filter_cleared() -> None:
-        print("フィルタークリア")
+        from lorairo.utils.log import logger
+
+        logger.debug("フィルタークリア")
 
     filter_panel.search_requested.connect(on_search_requested)
     filter_panel.filter_cleared.connect(on_filter_cleared)
