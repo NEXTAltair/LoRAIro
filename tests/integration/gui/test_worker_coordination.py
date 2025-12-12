@@ -53,8 +53,6 @@ class TestWorkerSystemCoordination:
         service.worker_manager = mock_worker_manager
         return service
 
-    # ProgressManager削除により不要となったfixture
-
     def test_worker_service_search_integration(self, worker_service, mock_db_manager):
         """WorkerService検索統合テスト"""
         # 検索開始
@@ -93,8 +91,6 @@ class TestWorkerSystemCoordination:
 
             # 現在のワーカーIDが更新されたことを確認
             assert worker_service.current_search_worker_id == worker_id2
-
-    # ProgressManager は削除済みのため該当テストを削除
 
     def test_worker_error_propagation(self, worker_service):
         """ワーカーエラー伝播テスト"""
@@ -246,8 +242,6 @@ class TestWorkerSystemCoordination:
             # 古いワーカーがキャンセルされ、新しいIDが設定される
             worker_service.worker_manager.cancel_worker.assert_called_with(worker_id)
             assert worker_service.current_search_worker_id == new_worker_id
-
-    # ProgressManager は削除済みのため該当テストを削除
 
 
 @pytest.mark.gui
