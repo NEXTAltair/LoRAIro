@@ -129,6 +129,33 @@ class TestAutoCropMainInterface:
         assert result is not None
         assert isinstance(result, Image.Image)
 
+    def test_auto_crop_image_with_rgba_letterbox(self):
+        """Test auto_crop_image with RGBA image containing letterbox"""
+        # RGBAレターボックス画像を作成
+        test_img = Image.new("RGBA", (800, 600), color=(255, 255, 255, 255))
+        test_array = np.array(test_img)
+        # 黒いレターボックス（不透明）
+        test_array[0:50, :] = [0, 0, 0, 255]  # Top border
+        test_array[-50:, :] = [0, 0, 0, 255]  # Bottom border
+        test_img = Image.fromarray(test_array)
+
+        result = AutoCrop.auto_crop_image(test_img)
+
+        assert result is not None
+        assert isinstance(result, Image.Image)
+        # クロップが実行されるべき
+        assert result.size[1] < test_img.size[1]  # Height reduced
+
+    def test_auto_crop_image_with_rgba_uniform(self):
+        """Test auto_crop_image with uniform RGBA image (no letterbox)"""
+        # 均一なRGBA画像
+        test_img = Image.new("RGBA", (400, 300), color=(100, 150, 200, 200))
+
+        result = AutoCrop.auto_crop_image(test_img)
+
+        # レターボックスがないため元のサイズを維持
+        assert result.size == test_img.size
+
     def test_auto_crop_image_with_grayscale_image(self):
         """Test auto_crop_image with grayscale image"""
         # Create a grayscale test image
