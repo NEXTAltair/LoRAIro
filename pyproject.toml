@@ -189,6 +189,7 @@ packages = ["src/lorairo"] # パッケージディレクトリ指定
 [tool.uv.sources]
 genai-tag-db-tools = { path = "local_packages/genai-tag-db-tools", editable = true }
 image-annotator-lib = { path = "local_packages/image-annotator-lib", editable = true }
+genai-tag-db-dataset-builder = { path = "local_packages/genai-tag-db-dataset-builder", editable = true }
 
 [dependency-groups]
 dev = [
@@ -206,6 +207,7 @@ dev = [
     "types-toml",
     "psutil",
     "matplotlib",
+    "genai-tag-db-dataset-builder",
 ]
 
 [tool.hatch.metadata]

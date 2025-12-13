@@ -4,3 +4,6 @@
 [submodule "local_packages/image-annotator-lib"]
 	path = local_packages/image-annotator-lib
 	url = https://github.com/NEXTAltair/image-annotator-lib.git
+[submodule "local_packages/genai-tag-db-dataset-builder"]
+	path = local_packages/genai-tag-db-dataset-builder
+	url = https://github.com/NEXTAltair/genai-tag-db-dataset-builder.git
