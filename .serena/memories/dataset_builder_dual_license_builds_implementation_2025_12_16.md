@@ -8,9 +8,9 @@
 CC0版とMIT版の2つのライセンス別ビルドを作成するため、以下の機能を実装しました：
 
 1. **HuggingFace翻訳データアダプタ** - CC0ライセンスの日本語翻訳データ取り込み
-2. **tags_v4.dbスキップ機能** - MIT版でtags_v4.dbを除外
-3. **Danbooruスナップショット対応** - 最新のcount値を完全置換
-4. **ライセンス別ソースフィルタ** - include/exclude リストによる柔軟な制御
+2. **ライセンス別ソースフィルタ** - include/exclude リストによる柔軟な制御
+3. **デュアルビルド（1回でCC0+MIT生成）** - CC0 SQLite/Parquet と MIT SQLite/Parquet を同時生成
+4. **Danbooruスナップショット対応** - 最新のcount値を完全置換
 
 ---
 
@@ -61,8 +61,8 @@ class P1atdevDanbooruJaTagPairAdapter:
 **ディレクトリ**: `license_builds/`
 
 #### README.md
-- CC0版/MIT版のビルドコマンド例
-- `--skip-tags-v4` フラグの説明
+- CC0版/MIT版のビルドコマンド例（`tags_v4.db` は常にベースとして取り込む）
+- デュアルビルド（1回でCC0+MIT生成）の実行例
 
 #### include_cc0_sources.txt (5ファイル)
 ```
@@ -91,7 +91,18 @@ TagDB_DataSource_CSV/TagsList-Easter-e5.csv
 TagDB_DataSource_CSV/TagsList-Easter-Final.csv
 ```
 
-**方針**: tags_v4.dbをスキップ、MITライセンスのCSVのみ
+**danbooru_241016.csv の由来（追記）**:
+- 対象: `TagDB_DataSource_CSV/danbooru_241016.csv`
+- 配布元URL（ユーザー提示）: https://civitai.com/models/862893?modelVersionId=965482
+- ライセンス扱い: **CC0-1.0（ユーザー判断）**
+
+**Easter系ソースの由来（追記）**:
+- 対象: `TagsList-Easter-e5.csv` / `TagsList-Easter-Final.csv`
+- ライセンス扱い: **MIT（zip内にMITライセンスファイルが同梱されているため）**
+- 配布/取得元URL: 不明（必要ならユーザーがURLを後で追記）
+- 元リポジトリ（GitHub/HF等）のURLも不明。判明したら追記する。
+
+**方針**: tags_v4.db（=CC0版の基盤）をベースに CC0版SQLite（`genai-image-tag-db-cc0.sqlite`）を作成し、それをベースにMITライセンスのCSV群を追加取り込みしてMIT版を作成する。`tags_v4.db` をスキップする運用はしない（`--skip-tags-v4` は削除済み）。
 
 ---
 
@@ -99,51 +110,13 @@ TagDB_DataSource_CSV/TagsList-Easter-Final.csv
 
 ### 2.1 新規パラメータ
 
-```python
-def build_dataset(
-    output_path: Path | str,
-    sources_dir: Path | str,
-    version: str,
-    report_dir: Path | str | None = None,
-    overrides_path: Path | str | None = None,
-    include_sources_path: Path | str | None = None,
-    exclude_sources_path: Path | str | None = None,
-    skip_tags_v4: bool = False,  # NEW
-    hf_ja_translation_datasets: list[str] | None = None,  # NEW
-    overwrite: bool = False,
-) -> None:
-```
+（更新）`skip_tags_v4 / --skip-tags-v4` は設計変更により削除。
+この時点での追加パラメータは `hf_ja_translation_datasets`（HFのJA翻訳取り込み）と `--parquet-dir`（閲覧用Parquet出力）が中心。
 
-**skip_tags_v4**: tags_v4.db の取り込みをスキップ（MIT版用）
-**hf_ja_translation_datasets**: HF datasets リスト（例: `["p1atdev/danbooru-ja-tag-pair-20241015"]`）
 
-### 2.2 Phase 1の変更（tags_v4.dbスキップ対応）
+### 2.2 Phase 1（tags_v4.db取り込み）
 
-```python
-# tags_v4.db の取り込みを条件分岐
-tags_v4_path = None
-if not skip_tags_v4:
-    tags_v4_path = _first_existing_path([
-        sources_dir / "tags_v4.db",
-        sources_dir / "TagDB_DataSource_CSV" / "tags_v4.db",
-        sources_dir / "local_packages" / "genai-tag-db-tools" / ... / "tags_v4.db",
-    ])
-    
-if tags_v4_path:
-    logger.info(f"[Phase 1] Importing tags_v4.db from {tags_v4_path}")
-    # 通常の取り込み処理
-else:
-    if skip_tags_v4:
-        logger.warning("[Phase 1] tags_v4.db import skipped, starting from empty")
-    else:
-        logger.warning("[Phase 1] tags_v4.db not found, starting from empty")
-    next_tag_id = 1
-    existing_tags = set()
-```
-
-**動作**:
-- `--skip-tags-v4` 指定時は tags_v4.db を探さずスキップ
-- 空のDBから開始（next_tag_id=1, existing_tags=set()）
+tags_v4.db は常に取り込まれます（CC0版とMIT版で tag_id の整合性を維持するため）。
 
 ### 2.3 Phase 1.5の追加（HF翻訳取り込み）
 
@@ -292,42 +265,39 @@ if danbooru_snapshot_counts:
   --overwrite
 ```
 
-### 3.2 MIT版（tags_v4.db をスキップ）
+### 3.2 MIT版（CC0ベースに追加：tags_v4.dbを含める）
 
 ```powershell
-.\.venv\Scripts\python.exe -m genai_tag_db_dataset_builder.builder `
-  --output .\out_db_mit\genai_tag_db.sqlite `
+# MIT版ビルド（CC0版の基盤 + MITライセンスのCSVを追加取り込み）
+.\\.venv\\Scripts\\python.exe -m genai_tag_db_dataset_builder.builder `
+  --output .\\out_db_mit\\genai_tag_db.sqlite `
   --sources . `
-  --report-dir .\out_db_mit `
-  --include-sources .\license_builds\include_mit_sources.txt `
-  --skip-tags-v4 `
+  --report-dir .\\out_db_mit `
+  --include-sources .\\license_builds\\include_mit_sources.txt `
   --overwrite
 ```
 
-**含まれるデータ**:
-- tags_v4.db なし
-- A/ディレクトリ配下のCSV（MIT）
-- rising_v3.csv, TagsList-Easter-*.csv（MIT）
+**方針**:
+- MIT版は **「CC0版（= tags_v4.db を含む基盤）」をベース**にして、MITライセンスのCSV群を追加取り込みする。
+- `--skip-tags-v4` は（この方針では）原則使わない。
 
 ---
 
 ## 4. 設計判断
 
-### 4.1 tags_v4.db の扱い
+### 4.1 tags_v4.db の扱い（方針更新）
 
 **CC0版**:
 - tags_v4.db を含める（自家製DBとして CC0-1.0 でライセンス）
-- Phase 1で通常通り取り込み
+- 生成物（HFに上げるCC0版SQLite）は `NEXTAltair/genai-image-tag-db` の `genai-image-tag-db-cc0.sqlite`
 
 **MIT版**:
-- `--skip-tags-v4` フラグで tags_v4.db をスキップ
-- 空のDBから開始（next_tag_id=1）
+- CC0版SQLite（`genai-image-tag-db-cc0.sqlite`）をベースにして、MITライセンスのCSV群を追加取り込みする。
+- `build_dual_license` ツールを使用して1回の実行でCC0版とMIT版を両方生成する。
 
-### 4.2 Danbooru count の扱い
+- **CC0版の基盤（tags_v4.db由来の tag_id / alias / type/format 等）を維持**したまま、MITライセンスのCSVを追加取り込みする。
+- これにより、CC0版とMIT版で tag_id の整合性が取りやすい。
 
-**問題**: 複数ソースから異なる時期の count が来ると、古い値で上書きされる可能性
-
-**解決策**:
 - 最新スナップショット（`danbooru_241016.csv`）を検出
 - format_id=1 の TAG_USAGE_COUNTS を**完全置換**（max マージではなく）
 - タイムスタンプをファイル名から推定して統一
