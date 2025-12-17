@@ -86,3 +86,15 @@ MIT版ビルドの戦略を以下のように変更します：
 - MIT版の `source_effects.tsv` にはMIT差分のみが記録される
 - READMEのライセンス表記を「実際に影響したMITソース」に絞れる
 - CC0由来のデータ（例: `danbooru_241016.csv`）がMIT版レポートに混入しない
+
+## コミット記録
+
+### Submodule (genai-tag-db-dataset-builder)
+- Commit: cce30a7
+- Message: "feat: Implement MIT differential build strategy with idempotent SQL upserts"
+- Files: builder.py, license_builds/README.md, test_idempotent_upserts.py, test_builder_smoke.py
+
+### Main Repository
+- Commit: 904f57b
+- Message: "feat: Update dataset builder with MIT differential build strategy"
+- Files: submodule reference, memory files (mit_build_strategy, source_effects_idempotent_upserts)
