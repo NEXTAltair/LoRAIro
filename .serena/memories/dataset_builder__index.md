@@ -28,6 +28,7 @@
 - `dataset_builder_parquet_export_completion_2025_12_16.md`
 - `dataset_builder_mit_build_strategy_update_2025_12_16.md`
 - `dataset_builder_source_effects_idempotent_upserts_2025_12_17.md`
+- `dataset_builder_translation_cleanup_2025_12_17.md`
 
 ## 分析・補助資料
 - `dataset_builder_phase2_5_input_normalization_gap_analysis_2025_12_14.md`
