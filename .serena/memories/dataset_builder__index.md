@@ -13,6 +13,8 @@
 ## 実装計画
 - `dataset_builder_phase2_5_implementation_plan_2025_12_14.md`
 - `dataset_builder_phase5_6_implementation_plan_2025_12_15.md`
+- `dataset_builder_phase6_5_cc4_local_build_plan_2025_12_17.md`
+- `dataset_builder_phase7_repository_automation_plan_2025_12_17.md`
 
 ## 完了記録・進捗
 - `dataset_builder_phase0_completion_2025_12_13.md`
@@ -35,3 +37,4 @@
 - `dataset_builder_phase2_5_input_normalization_gap_analysis_2025_12_14.md`
 - `dataset_builder_core_algorithm_fix_2025_12_13.md`
 - `dataset_builder_phase_2_4_completion_summary_2025_12_14.md`
+- `dataset_builder_phase6_5_schema_design_analysis_2025_12_17.md`
