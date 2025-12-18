@@ -76,7 +76,9 @@
       "Bash(git -C /workspaces/LoRAIro/local_packages/image-annotator-lib diff src/image_annotator_lib/core/base/annotator.py)",
       "Bash(git -C /workspaces/LoRAIro/local_packages/image-annotator-lib diff src/image_annotator_lib/__init__.py)",
       "Bash(git -C /workspaces/LoRAIro/local_packages/image-annotator-lib diff src/image_annotator_lib/model_class/tagger_tensorflow.py)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(tree:*)",
+      "WebFetch(domain:docs.pola.rs)"
     ],
     "deny": [],
     "ask": []

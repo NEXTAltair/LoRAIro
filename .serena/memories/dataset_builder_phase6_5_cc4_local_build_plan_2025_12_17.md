@@ -20,7 +20,7 @@
 ### アプローチ2の実装順序
 
 1. **CC0版スキーマ変更**:
-   - 新スキーマ設計（TAG_FORMATS拡張、site_tags対応）
+   - 新スキーマ設計（TAG_STATUS列追加、site_tags対応）
    - マイグレーションスクリプト実装
    - 既存CC0版DBの新スキーマへ移行
 
@@ -72,40 +72,24 @@
 **MIT差分ビルド戦略**（`dataset_builder_mit_build_strategy_update_2025_12_16.md`）:
 - `--base-db`: ベースとなる既存SQLiteファイルを指定
 - `--skip-danbooru-snapshot-replace`: Danbooruスナップショット置換をスキップ
-- Phase 0/1（DB作成・tags_v4.db取り込み）を自動スキップ
+- Phase 0/1（DB作成・Danbooru tags_v3.db取り込み）を自動スキップ
 - CC0版をコピーして差分追記
 
 ---
 
 ## 新スキーマ設計
 
-### TAG_FORMATS テーブルの拡張
+### スキーマ変更（最小）
 
-**現在のスキーマ**:
-```sql
-CREATE TABLE TAG_FORMATS (
-    format_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    format_name TEXT NOT NULL UNIQUE,
-    description TEXT
-);
-```
+方針:
+- `TAG_FORMATS` は拡張しない（`source_url` 等も不要）。
+- ビルド結果の出典/ライセンスは Hugging Face リポジトリ側の README で管理する。
+- DB内に「道案内」が必要になった場合は、format単位ではなく **DB全体のメタデータ**として持つ（任意）。
 
-**拡張後のスキーマ**（案）:
-```sql
-CREATE TABLE TAG_FORMATS (
-    format_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    format_name TEXT NOT NULL UNIQUE,
-    description TEXT,
-    source_url TEXT,              -- 新規: データソースURL
-    license TEXT,                 -- 新規: ライセンス種別
-    last_updated TEXT             -- 新規: 最終更新日時（ISO 8601）
-);
-```
-
-**追加カラムの用途**:
-- `source_url`: deepghs/site_tags のリポジトリURL等
-- `license`: CC0/MIT/CC-BY-4.0 等のライセンス識別
-- `last_updated`: ビルド時のタイムスタンプ
+任意（道案内用）:
+- `DATABASE_METADATA(key TEXT PRIMARY KEY, value TEXT NOT NULL)`
+  - 例: `build.base_db_url`, `build.base_db_revision`, `build.timestamp`, `sources.used`
+  - ローカルパスは保存しない。
 
 ### deepghs/site_tags の format_name マッピング
 
@@ -117,8 +101,8 @@ CREATE TABLE TAG_FORMATS (
 ```python
 SITE_TO_FORMAT_NAME = {
     "anime-pictures.net": "anime-pictures",
-    "booru.allthefallen.moe": "allthefallen",
-    "chan.sankakucomplex.com": "sankaku",
+    "booru.allthefallen.moe": "allthefallen", # 例外
+    "chan.sankakucomplex.com": "sankaku",  # 例外
     "danbooru.donmai.us": "danbooru",
     "e621.net": "e621",
     "en.pixiv.net": "pixiv",  # 例外
@@ -140,21 +124,12 @@ SITE_TO_FORMAT_NAME = {
 ### マイグレーション戦略
 
 **既存CC0版DBの移行**:
-1. ALTER TABLE で新カラムを追加
-2. 既存 format_name に対して source_url/license/last_updated を NULL または既定値で初期化
-3. CC4版ビルド時に deepghs/site_tags のメタデータで更新
+- `TAG_STATUS.deprecated` / `TAG_STATUS.deprecated_at` / `TAG_STATUS.source_created_at` など、site_tags統合で必要な列の追加（Phase 6.6の決定に従う）。
+- （任意）`DATABASE_METADATA` を追加して、DB全体のビルド情報だけ記録する。
 
-**マイグレーションスクリプト**（`migrations/add_tag_formats_metadata.sql`）:
-```sql
--- TAG_FORMATS に新カラム追加
-ALTER TABLE TAG_FORMATS ADD COLUMN source_url TEXT;
-ALTER TABLE TAG_FORMATS ADD COLUMN license TEXT;
-ALTER TABLE TAG_FORMATS ADD COLUMN last_updated TEXT;
-
--- 既存データに既定値を設定
-UPDATE TAG_FORMATS SET license = 'CC0-1.0' WHERE format_name IN ('danbooru', 'e621');
-UPDATE TAG_FORMATS SET last_updated = datetime('now');
-```
+補足（方針）:
+- マイグレーションは基本「1回限りの運用」なので、ビルダーCLI（`builder.py`）に `--migrate-schema` を追加して肥大化させない。
+- 代わりに `tools/migrate_db.py` を「移行専用スクリプト」として使う。
 
 ---
 
@@ -165,23 +140,23 @@ UPDATE TAG_FORMATS SET last_updated = datetime('now');
 **Day 1: スキーマ設計**
 
 **タスク**:
-- [ ] TAG_FORMATS 拡張スキーマの最終確認
-- [ ] マイグレーションスクリプト作成（`migrations/add_tag_formats_metadata.sql`）
+- [x] site_tags統合に必要な列の最終確認（TAG_STATUSの列追加など）
+- [x] マイグレーションスクリプト作成（TAG_STATUS列追加 / 任意でDATABASE_METADATA追加）
 - [ ] Serenaメモリ作成: `dataset_builder_cc4_schema_design_2025_12_17`
 
 **Day 2: マイグレーション実装**
 
 **タスク**:
-- [ ] builder.py にマイグレーション適用機能を追加
-- [ ] `--migrate-schema` オプション実装
-- [ ] ユニットテスト追加
+- [ ] `tools/migrate_db.py` でマイグレーション適用（`builder.py` には組み込まない）
+- [ ] `migrations/*.sql` は「変更履歴の記録」として残しつつ、実行は `tools/migrate_db.py` に一本化（冪等 / 再実行可）
+- [ ] マイグレーション前後の検証コマンドを固定化（`PRAGMA table_info` / `PRAGMA integrity_check`）
 
 **Day 3: マイグレーション検証**
 
 **タスク**:
-- [ ] 既存CC0版DBに対してマイグレーション実行
-- [ ] スキーマ検証（PRAGMA table_info で確認）
-- [ ] データ整合性確認
+- [x] 既存CC0版DBに対してマイグレーション実行
+- [x] スキーマ検証（PRAGMA table_info で確認）
+- [x] データ整合性確認（PRAGMA integrity_check）
 
 ### Phase 6.5.2: CC0版再ビルド（Week 1-2、4日間）
 
@@ -189,7 +164,6 @@ UPDATE TAG_FORMATS SET last_updated = datetime('now');
 
 **タスク**:
 - [ ] 新スキーマでCC0版をフルビルド
-- [ ] source_url/license/last_updated の自動設定
 - [ ] Parquet エクスポート
 
 **Day 6-7: CC0版検証**
@@ -209,19 +183,19 @@ UPDATE TAG_FORMATS SET last_updated = datetime('now');
 
 class SiteTags_Adapter(BaseAdapter):
     """deepghs/site_tags の各サイトSQLiteを統合DBへ変換"""
-    
+
     def __init__(self, site_db_path: Path, site_name: str):
         self.site_db_path = site_db_path
         self.site_name = site_name
         self.format_name = SITE_TO_FORMAT_NAME.get(site_name)
-    
+
     def process(self) -> pd.DataFrame:
         """サイトSQLiteからタグ情報を抽出"""
         conn = sqlite3.connect(self.site_db_path)
-        
+
         # スキーマ署名に応じた処理分岐
         schema_sig = self._get_schema_signature(conn)
-        
+
         if schema_sig == "4f167646818c0e5589fb47027e794c2203632a8d":
             # Danbooru系スキーマ
             df = self._process_danbooru_schema(conn)
@@ -229,10 +203,10 @@ class SiteTags_Adapter(BaseAdapter):
             # anime-pictures.net スキーマ
             df = self._process_anime_pictures_schema(conn)
         # ... 他のスキーマ
-        
+
         conn.close()
         return df
-    
+
     def _process_danbooru_schema(self, conn) -> pd.DataFrame:
         """Danbooru系スキーマの処理"""
         # tags テーブルから取得
@@ -240,12 +214,12 @@ class SiteTags_Adapter(BaseAdapter):
             SELECT name, post_count, category, is_deprecated
             FROM tags
         """, conn)
-        
+
         # tag_aliases テーブルから取得
         df_aliases = pd.read_sql("""
             SELECT alias, tag FROM tag_aliases
         """, conn)
-        
+
         # 統合DB形式に変換
         # ...
         return df
@@ -319,9 +293,9 @@ class SiteTags_Adapter(BaseAdapter):
 
 ### Phase 6.5.1（スキーマ設計）
 
-- [ ] TAG_FORMATS 拡張スキーマ確定
-- [ ] マイグレーションスクリプト実装
-- [ ] 既存CC0版DBへのマイグレーション成功
+- [x] site_tags統合に必要な列追加の確定
+- [x] マイグレーションスクリプト実装
+- [x] 既存CC0版DBへのマイグレーション成功
 
 ### Phase 6.5.2（CC0版再ビルド）
 

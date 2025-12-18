@@ -265,25 +265,34 @@ if danbooru_snapshot_counts:
   --overwrite
 ```
 
-### 3.2 MIT版（CC0ベースに追加：tags_v4.dbを含める）
+### 3.2 MIT版（CC0 SQLiteをベースに差分追記）
 
-```powershell
-# MIT版ビルド（CC0版の基盤 + MITライセンスのCSVを追加取り込み）
-.\\.venv\\Scripts\\python.exe -m genai_tag_db_dataset_builder.builder `
-  --output .\\out_db_mit\\genai_tag_db.sqlite `
-  --sources . `
-  --report-dir .\\out_db_mit `
-  --include-sources .\\license_builds\\include_mit_sources.txt `
-  --overwrite
-```
+方針更新：MIT版はCC0版SQLiteをベースにして、MITソースだけを差分追記する（CC0ソースは再取り込みしない）。
 
-**方針**:
-- MIT版は **「CC0版（= tags_v4.db を含む基盤）」をベース**にして、MITライセンスのCSV群を追加取り込みする。
-- `--skip-tags-v4` は（この方針では）原則使わない。
+- CC0版SQLite: `NEXTAltair/genai-image-tag-db` の `genai-image-tag-db-cc0.sqlite`
+- MIT版SQLite: `genai-image-tag-db-mit.sqlite`
+
+目的：
+- `source_effects.tsv` がMIT差分（MITソース）だけを反映するようにする
+- READMEのライセンス列挙を「影響したMITソースだけ」に絞れるようにする
+
+実装TODO（要対応）：
+- builderに base-db/追記モード（Phase 0/1スキップ、Phase 2のみ実行）を追加
 
 ---
 
-## 4. 設計判断
+## 4. 付随レポート（ライセンス表記の根拠）
+
+MIT版READMEに「実際にDBへ影響したMITソースだけ」を列挙できるよう、各ビルドでソース別の影響をTSV出力する。なお `TAG_STATUS` は『同値なら更新しない』UPSERTに変更済みで、`db_changes` が同値上書きのノイズで膨らみにくい。
+
+- 出力: `<report_dir>/source_effects.tsv`
+- 判定: `db_changes > 0` なら「DBへ影響あり」
+  - 翻訳のみの追加でも `db_changes` が増えるので表記対象にできる
+- 例（MIT版）: `out_db_mit/source_effects.tsv` で `TagDB_DataSource_CSV/A/e621.csv` などが `imported` かつ `db_changes>0` で出力される
+
+---
+
+## 5. 設計判断
 
 ### 4.1 tags_v4.db の扱い（方針更新）
 
