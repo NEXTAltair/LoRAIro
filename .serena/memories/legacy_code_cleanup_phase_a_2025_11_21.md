@@ -117,7 +117,7 @@ uv run pytest tests/integration/gui/test_filter_search_integration.py -v
 - バックアップ作成: `archive/annotation-control-widget-2025-11-21`ブランチ
 
 **Option 2: 保留する場合**
-- メモリーファイル作成: `.serena/memories/annotation_control_widget_future_reuse_plan_2025_11_21.md`
+- メモリーファイル: `.serena/memories/annotation_control_widget_removal_2025_11_21.md`
 - 保留理由記録: 将来的なアノテーション機能拡張
 
 **推奨**: Option 1（削除）

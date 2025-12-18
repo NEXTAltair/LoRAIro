@@ -121,7 +121,7 @@
 ```
 builder.py (1800+ lines)
   ├─ Phase 0: データベース作成
-  ├─ Phase 1: tags_v4.db 取り込み
+  ├─ Phase 1: Danbooru tags_v3.db 取り込み
   │   └─ 言語値正規化（normalize_language_value）
   ├─ Phase 2: CSV 取り込み
   │   ├─ 翻訳クリーンアップ（delete_ja_translations_by_value_list）
@@ -134,7 +134,7 @@ builder.py (1800+ lines)
 
 **問題点**:
 - builder.py に 5つのクリーンアップ関数が混在（約300行）
-- ローカルファイルパス前提（`--tags-v4`, `--sources`, `--csv-dir`）
+- ローカルファイルパス前提（`--sources`, `--csv-dir`）
 - データソースの取得方法が不明確（README に記載なし）
 - GitHub Actions は CI/CD のみ（データビルドなし）
 - Base DB (HuggingFace の genai-image-tag-db) を前提とした「repo取得→ビルド検証」の自動化が未整備
