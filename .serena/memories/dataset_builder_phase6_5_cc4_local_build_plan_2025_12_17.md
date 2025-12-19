@@ -163,15 +163,15 @@ SITE_TO_FORMAT_NAME = {
 **Day 4-5: CC0版フルビルド**
 
 **タスク**:
-- [ ] 新スキーマでCC0版をフルビルド
-- [ ] Parquet エクスポート
+- [x] 新スキーマでCC0版をフルビルド
+- [ ] Parquet エクスポート（データ更新なしのため不要）
 
 **Day 6-7: CC0版検証**
 
 **タスク**:
-- [ ] データ整合性検証（FK/CHECK/UNIQUE制約）
-- [ ] カバレッジ測定（≥75%）
-- [ ] レポート確認（source_effects.tsv等）
+- [x] データ整合性検証（FK/CHECK/UNIQUE制約）
+- [x] カバレッジ測定（≥75%）
+- [x] レポート確認（source_effects.tsv等）
 
 ### Phase 6.5.3: deepghs/site_tags Adapter 実装（Week 2、5日間）
 
@@ -299,9 +299,9 @@ class SiteTags_Adapter(BaseAdapter):
 
 ### Phase 6.5.2（CC0版再ビルド）
 
-- [ ] 新スキーマでCC0版フルビルド成功
-- [ ] データ整合性検証 100%パス
-- [ ] Parquet エクスポート成功
+- [x] 新スキーマでCC0版フルビルド成功
+- [x] データ整合性検証 100%パス
+- [ ] Parquet エクスポート成功（データ更新なしのため不要）
 
 ### Phase 6.5.3（Adapter実装）
 

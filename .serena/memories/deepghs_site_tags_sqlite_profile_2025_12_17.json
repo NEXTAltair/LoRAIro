@@ -1,0 +1,2367 @@
+[
+  {
+    "site_dir": "anime-pictures.net",
+    "db_path": "C:\\LoRAIro\\external_sources\\site_tags\\anime-pictures.net\\tags.sqlite",
+    "tables": {
+      "tags": {
+        "row_count": 149065,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "id",
+            "INTEGER"
+          ],
+          [
+            "tag",
+            "TEXT"
+          ],
+          [
+            "tag_ru",
+            "TEXT"
+          ],
+          [
+            "tag_jp",
+            "TEXT"
+          ],
+          [
+            "num",
+            "INTEGER"
+          ],
+          [
+            "num_pub",
+            "INTEGER"
+          ],
+          [
+            "type",
+            "INTEGER"
+          ],
+          [
+            "description_en",
+            "TEXT"
+          ],
+          [
+            "description_ru",
+            "TEXT"
+          ],
+          [
+            "description_jp",
+            "TEXT"
+          ],
+          [
+            "alias",
+            "INTEGER"
+          ],
+          [
+            "parent",
+            "INTEGER"
+          ],
+          [
+            "views",
+            "INTEGER"
+          ]
+        ]
+      }
+    },
+    "tags_summary": {
+      "columns": [
+        "index",
+        "id",
+        "tag",
+        "tag_ru",
+        "tag_jp",
+        "num",
+        "num_pub",
+        "type",
+        "description_en",
+        "description_ru",
+        "description_jp",
+        "alias",
+        "parent",
+        "views"
+      ],
+      "name_col": "tag",
+      "type_top": [
+        [
+          4,
+          72422
+        ],
+        [
+          1,
+          53450
+        ],
+        [
+          3,
+          5312
+        ],
+        [
+          0,
+          4585
+        ],
+        [
+          5,
+          4460
+        ],
+        [
+          2,
+          4291
+        ],
+        [
+          7,
+          2713
+        ],
+        [
+          6,
+          1832
+        ]
+      ],
+      "num_minmax": [
+        0,
+        705348
+      ],
+      "num_pub_minmax": [
+        0,
+        685117
+      ],
+      "views_minmax": [
+        0,
+        231972
+      ],
+      "num_pub_relation": {
+        "num_lt_num_pub": 311,
+        "both_nonnull": 149065
+      }
+    },
+    "alias_summary": {}
+  },
+  {
+    "site_dir": "booru.allthefallen.moe",
+    "db_path": "C:\\LoRAIro\\external_sources\\site_tags\\booru.allthefallen.moe\\tags.sqlite",
+    "tables": {
+      "tag_aliases": {
+        "row_count": 11386,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "alias",
+            "TEXT"
+          ],
+          [
+            "tag",
+            "TEXT"
+          ]
+        ]
+      },
+      "tags": {
+        "row_count": 296356,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "id",
+            "INTEGER"
+          ],
+          [
+            "name",
+            "TEXT"
+          ],
+          [
+            "post_count",
+            "INTEGER"
+          ],
+          [
+            "category",
+            "INTEGER"
+          ],
+          [
+            "created_at",
+            "TIMESTAMP"
+          ],
+          [
+            "updated_at",
+            "TIMESTAMP"
+          ],
+          [
+            "is_deprecated",
+            "INTEGER"
+          ],
+          [
+            "words",
+            "TEXT"
+          ]
+        ]
+      }
+    },
+    "tags_summary": {
+      "columns": [
+        "index",
+        "id",
+        "name",
+        "post_count",
+        "category",
+        "created_at",
+        "updated_at",
+        "is_deprecated",
+        "words"
+      ],
+      "name_col": "name",
+      "category_top": [
+        [
+          1,
+          142844
+        ],
+        [
+          0,
+          100967
+        ],
+        [
+          4,
+          40550
+        ],
+        [
+          3,
+          10314
+        ],
+        [
+          5,
+          1681
+        ]
+      ],
+      "is_deprecated_top": [
+        [
+          0,
+          296343
+        ],
+        [
+          1,
+          13
+        ]
+      ],
+      "post_count_minmax": [
+        0,
+        628099
+      ]
+    },
+    "alias_summary": {
+      "columns": [
+        "index",
+        "alias",
+        "tag"
+      ],
+      "orphans": {
+        "missing_target_in_tags": 1,
+        "missing_alias_in_tags": 10
+      }
+    }
+  },
+  {
+    "site_dir": "chan.sankakucomplex.com",
+    "db_path": "C:\\LoRAIro\\external_sources\\site_tags\\chan.sankakucomplex.com\\tags.sqlite",
+    "tables": {
+      "children": {
+        "row_count": 93467,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "tag_id",
+            "INTEGER"
+          ],
+          [
+            "child_id",
+            "INTEGER"
+          ]
+        ]
+      },
+      "parents": {
+        "row_count": 97531,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "tag_id",
+            "INTEGER"
+          ],
+          [
+            "parent_id",
+            "INTEGER"
+          ]
+        ]
+      },
+      "relations": {
+        "row_count": 0,
+        "columns": [
+          [
+            "index",
+            "TEXT"
+          ],
+          [
+            "tag_id",
+            "TEXT"
+          ],
+          [
+            "related_id",
+            "TEXT"
+          ]
+        ]
+      },
+      "tags": {
+        "row_count": 1656904,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "id",
+            "INTEGER"
+          ],
+          [
+            "name",
+            "TEXT"
+          ],
+          [
+            "type",
+            "INTEGER"
+          ],
+          [
+            "post_count",
+            "INTEGER"
+          ],
+          [
+            "pool_count",
+            "INTEGER"
+          ],
+          [
+            "series_count",
+            "INTEGER"
+          ],
+          [
+            "rating",
+            "TEXT"
+          ],
+          [
+            "version",
+            "REAL"
+          ],
+          [
+            "parent_ids",
+            "TEXT"
+          ],
+          [
+            "child_ids",
+            "TEXT"
+          ],
+          [
+            "related_ids",
+            "TEXT"
+          ],
+          [
+            "trans_en",
+            "TEXT"
+          ],
+          [
+            "trans_ja",
+            "TEXT"
+          ],
+          [
+            "trans_ru",
+            "TEXT"
+          ],
+          [
+            "trans_pt",
+            "TEXT"
+          ],
+          [
+            "trans_zh-CN",
+            "TEXT"
+          ],
+          [
+            "trans_fr",
+            "TEXT"
+          ],
+          [
+            "trans_it",
+            "TEXT"
+          ],
+          [
+            "trans_ko",
+            "TEXT"
+          ],
+          [
+            "trans_vi",
+            "TEXT"
+          ],
+          [
+            "trans_zh-HK",
+            "TEXT"
+          ],
+          [
+            "trans_de",
+            "TEXT"
+          ],
+          [
+            "trans_es",
+            "TEXT"
+          ],
+          [
+            "trans_th",
+            "TEXT"
+          ]
+        ]
+      }
+    },
+    "tags_summary": {
+      "columns": [
+        "index",
+        "id",
+        "name",
+        "type",
+        "post_count",
+        "pool_count",
+        "series_count",
+        "rating",
+        "version",
+        "parent_ids",
+        "child_ids",
+        "related_ids",
+        "trans_en",
+        "trans_ja",
+        "trans_ru",
+        "trans_pt",
+        "trans_zh-CN",
+        "trans_fr",
+        "trans_it",
+        "trans_ko",
+        "trans_vi",
+        "trans_zh-HK",
+        "trans_de",
+        "trans_es",
+        "trans_th"
+      ],
+      "name_col": "name",
+      "type_top": [
+        [
+          0,
+          975288
+        ],
+        [
+          1,
+          382686
+        ],
+        [
+          4,
+          225313
+        ],
+        [
+          3,
+          45217
+        ],
+        [
+          2,
+          24452
+        ],
+        [
+          8,
+          2176
+        ],
+        [
+          9,
+          1569
+        ],
+        [
+          5,
+          203
+        ]
+      ],
+      "post_count_minmax": [
+        -40,
+        23433211
+      ],
+      "pool_count_minmax": [
+        -25,
+        343555
+      ],
+      "series_count_minmax": [
+        0,
+        4
+      ]
+    },
+    "alias_summary": {}
+  },
+  {
+    "site_dir": "danbooru.donmai.us",
+    "db_path": "C:\\LoRAIro\\external_sources\\site_tags\\danbooru.donmai.us\\tags.sqlite",
+    "tables": {
+      "tag_aliases": {
+        "row_count": 52496,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "alias",
+            "TEXT"
+          ],
+          [
+            "tag",
+            "TEXT"
+          ]
+        ]
+      },
+      "tags": {
+        "row_count": 1593780,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "id",
+            "INTEGER"
+          ],
+          [
+            "name",
+            "TEXT"
+          ],
+          [
+            "post_count",
+            "INTEGER"
+          ],
+          [
+            "category",
+            "INTEGER"
+          ],
+          [
+            "created_at",
+            "TIMESTAMP"
+          ],
+          [
+            "updated_at",
+            "TIMESTAMP"
+          ],
+          [
+            "is_deprecated",
+            "INTEGER"
+          ],
+          [
+            "words",
+            "TEXT"
+          ]
+        ]
+      }
+    },
+    "tags_summary": {
+      "columns": [
+        "index",
+        "id",
+        "name",
+        "post_count",
+        "category",
+        "created_at",
+        "updated_at",
+        "is_deprecated",
+        "words"
+      ],
+      "name_col": "name",
+      "category_top": [
+        [
+          1,
+          620730
+        ],
+        [
+          0,
+          565801
+        ],
+        [
+          4,
+          345077
+        ],
+        [
+          3,
+          60861
+        ],
+        [
+          5,
+          1311
+        ]
+      ],
+      "is_deprecated_top": [
+        [
+          0,
+          1590270
+        ],
+        [
+          1,
+          3510
+        ]
+      ],
+      "post_count_minmax": [
+        0,
+        6947596
+      ]
+    },
+    "alias_summary": {
+      "columns": [
+        "index",
+        "alias",
+        "tag"
+      ],
+      "orphans": {
+        "missing_target_in_tags": 10,
+        "missing_alias_in_tags": 42
+      }
+    }
+  },
+  {
+    "site_dir": "e621.net",
+    "db_path": "C:\\LoRAIro\\external_sources\\site_tags\\e621.net\\tags.sqlite",
+    "tables": {
+      "tag_aliases": {
+        "row_count": 70547,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "alias",
+            "TEXT"
+          ],
+          [
+            "tag",
+            "TEXT"
+          ]
+        ]
+      },
+      "tags": {
+        "row_count": 665127,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "id",
+            "INTEGER"
+          ],
+          [
+            "name",
+            "TEXT"
+          ],
+          [
+            "post_count",
+            "INTEGER"
+          ],
+          [
+            "related_tags",
+            "TEXT"
+          ],
+          [
+            "related_tags_updated_at",
+            "TEXT"
+          ],
+          [
+            "category",
+            "INTEGER"
+          ],
+          [
+            "is_locked",
+            "INTEGER"
+          ],
+          [
+            "created_at",
+            "TIMESTAMP"
+          ],
+          [
+            "updated_at",
+            "TIMESTAMP"
+          ]
+        ]
+      }
+    },
+    "tags_summary": {
+      "columns": [
+        "index",
+        "id",
+        "name",
+        "post_count",
+        "related_tags",
+        "related_tags_updated_at",
+        "category",
+        "is_locked",
+        "created_at",
+        "updated_at"
+      ],
+      "name_col": "name",
+      "category_top": [
+        [
+          4,
+          291651
+        ],
+        [
+          1,
+          192376
+        ],
+        [
+          0,
+          129080
+        ],
+        [
+          3,
+          24798
+        ],
+        [
+          5,
+          24378
+        ],
+        [
+          2,
+          1281
+        ],
+        [
+          7,
+          882
+        ],
+        [
+          6,
+          577
+        ],
+        [
+          8,
+          104
+        ]
+      ],
+      "is_locked_top": [
+        [
+          0,
+          664352
+        ],
+        [
+          1,
+          775
+        ]
+      ],
+      "post_count_minmax": [
+        1,
+        3839443
+      ]
+    },
+    "alias_summary": {
+      "columns": [
+        "index",
+        "alias",
+        "tag"
+      ],
+      "orphans": {
+        "missing_target_in_tags": 12369,
+        "missing_alias_in_tags": 63157
+      }
+    }
+  },
+  {
+    "site_dir": "en.pixiv.net",
+    "db_path": "C:\\LoRAIro\\external_sources\\site_tags\\en.pixiv.net\\tags.sqlite",
+    "tables": {
+      "tags": {
+        "row_count": 14679,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "name",
+            "TEXT"
+          ],
+          [
+            "wiki_url",
+            "TEXT"
+          ],
+          [
+            "updated_at",
+            "TIMESTAMP"
+          ],
+          [
+            "views",
+            "INTEGER"
+          ],
+          [
+            "posts",
+            "INTEGER"
+          ],
+          [
+            "checklists",
+            "INTEGER"
+          ],
+          [
+            "is_anime",
+            "INTEGER"
+          ],
+          [
+            "is_manga",
+            "INTEGER"
+          ],
+          [
+            "is_novel",
+            "INTEGER"
+          ],
+          [
+            "is_game",
+            "INTEGER"
+          ],
+          [
+            "is_figure",
+            "INTEGER"
+          ],
+          [
+            "is_music",
+            "INTEGER"
+          ],
+          [
+            "is_art",
+            "INTEGER"
+          ],
+          [
+            "is_design",
+            "INTEGER"
+          ],
+          [
+            "is_general",
+            "INTEGER"
+          ],
+          [
+            "is_person",
+            "INTEGER"
+          ],
+          [
+            "is_character",
+            "INTEGER"
+          ],
+          [
+            "is_quote",
+            "INTEGER"
+          ],
+          [
+            "is_event",
+            "INTEGER"
+          ],
+          [
+            "is_doujin",
+            "INTEGER"
+          ],
+          [
+            "trans_ja",
+            "TEXT"
+          ],
+          [
+            "trans_ja_wiki_url",
+            "TEXT"
+          ]
+        ]
+      }
+    },
+    "tags_summary": {
+      "columns": [
+        "index",
+        "name",
+        "wiki_url",
+        "updated_at",
+        "views",
+        "posts",
+        "checklists",
+        "is_anime",
+        "is_manga",
+        "is_novel",
+        "is_game",
+        "is_figure",
+        "is_music",
+        "is_art",
+        "is_design",
+        "is_general",
+        "is_person",
+        "is_character",
+        "is_quote",
+        "is_event",
+        "is_doujin",
+        "trans_ja",
+        "trans_ja_wiki_url"
+      ],
+      "name_col": "name",
+      "posts_minmax": [
+        0,
+        18810602
+      ],
+      "views_minmax": [
+        2,
+        274299
+      ]
+    },
+    "alias_summary": {}
+  },
+  {
+    "site_dir": "gelbooru.com",
+    "db_path": "C:\\LoRAIro\\external_sources\\site_tags\\gelbooru.com\\tags.sqlite",
+    "tables": {
+      "tag_aliases": {
+        "row_count": 19090,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "alias",
+            "TEXT"
+          ],
+          [
+            "tag",
+            "TEXT"
+          ]
+        ]
+      },
+      "tags": {
+        "row_count": 19986,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "name",
+            "TEXT"
+          ],
+          [
+            "count",
+            "INTEGER"
+          ],
+          [
+            "type",
+            "TEXT"
+          ],
+          [
+            "is_ambiguous",
+            "INTEGER"
+          ]
+        ]
+      }
+    },
+    "tags_summary": {
+      "columns": [
+        "index",
+        "name",
+        "count",
+        "type",
+        "is_ambiguous"
+      ],
+      "name_col": "name",
+      "type_top": [
+        [
+          "general",
+          11033
+        ],
+        [
+          "character",
+          4202
+        ],
+        [
+          "artist",
+          3169
+        ],
+        [
+          "copyright",
+          1099
+        ],
+        [
+          "deprecated",
+          338
+        ],
+        [
+          "metadata",
+          145
+        ]
+      ],
+      "is_ambiguous_top": [
+        [
+          0,
+          19762
+        ],
+        [
+          1,
+          224
+        ]
+      ],
+      "count_minmax": [
+        0,
+        8210913
+      ]
+    },
+    "alias_summary": {
+      "columns": [
+        "index",
+        "alias",
+        "tag"
+      ],
+      "orphans": {
+        "missing_target_in_tags": 12014,
+        "missing_alias_in_tags": 18672
+      }
+    }
+  },
+  {
+    "site_dir": "hypnohub.net",
+    "db_path": "C:\\LoRAIro\\external_sources\\site_tags\\hypnohub.net\\tags.sqlite",
+    "tables": {
+      "tag_aliases": {
+        "row_count": 631,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "alias",
+            "TEXT"
+          ],
+          [
+            "tag",
+            "TEXT"
+          ]
+        ]
+      },
+      "tags": {
+        "row_count": 58633,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "type",
+            "INTEGER"
+          ],
+          [
+            "count",
+            "INTEGER"
+          ],
+          [
+            "name",
+            "TEXT"
+          ],
+          [
+            "ambiguous",
+            "INTEGER"
+          ],
+          [
+            "id",
+            "INTEGER"
+          ]
+        ]
+      }
+    },
+    "tags_summary": {
+      "columns": [
+        "index",
+        "type",
+        "count",
+        "name",
+        "ambiguous",
+        "id"
+      ],
+      "name_col": "name",
+      "type_top": [
+        [
+          4,
+          25779
+        ],
+        [
+          1,
+          25410
+        ],
+        [
+          3,
+          4517
+        ],
+        [
+          0,
+          2815
+        ],
+        [
+          5,
+          112
+        ]
+      ],
+      "ambiguous_top": [
+        [
+          0,
+          58597
+        ],
+        [
+          1,
+          36
+        ]
+      ],
+      "count_minmax": [
+        0,
+        165314
+      ]
+    },
+    "alias_summary": {
+      "columns": [
+        "index",
+        "alias",
+        "tag"
+      ],
+      "orphans": {
+        "missing_target_in_tags": 36,
+        "missing_alias_in_tags": 555
+      }
+    }
+  },
+  {
+    "site_dir": "konachan.com",
+    "db_path": "C:\\LoRAIro\\external_sources\\site_tags\\konachan.com\\tags.sqlite",
+    "tables": {
+      "tag_aliases": {
+        "row_count": 678,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "alias",
+            "TEXT"
+          ],
+          [
+            "tag",
+            "TEXT"
+          ]
+        ]
+      },
+      "tags": {
+        "row_count": 93713,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "id",
+            "INTEGER"
+          ],
+          [
+            "name",
+            "TEXT"
+          ],
+          [
+            "count",
+            "INTEGER"
+          ],
+          [
+            "type",
+            "INTEGER"
+          ],
+          [
+            "ambiguous",
+            "INTEGER"
+          ]
+        ]
+      }
+    },
+    "tags_summary": {
+      "columns": [
+        "index",
+        "id",
+        "name",
+        "count",
+        "type",
+        "ambiguous"
+      ],
+      "name_col": "name",
+      "type_top": [
+        [
+          1,
+          36812
+        ],
+        [
+          4,
+          35564
+        ],
+        [
+          0,
+          13210
+        ],
+        [
+          3,
+          7497
+        ],
+        [
+          6,
+          410
+        ],
+        [
+          5,
+          220
+        ]
+      ],
+      "ambiguous_top": [
+        [
+          0,
+          93523
+        ],
+        [
+          1,
+          190
+        ]
+      ],
+      "count_minmax": [
+        -10,
+        143314
+      ]
+    },
+    "alias_summary": {
+      "columns": [
+        "index",
+        "alias",
+        "tag"
+      ],
+      "orphans": {
+        "missing_target_in_tags": 0,
+        "missing_alias_in_tags": 297
+      }
+    }
+  },
+  {
+    "site_dir": "konachan.net",
+    "db_path": "C:\\LoRAIro\\external_sources\\site_tags\\konachan.net\\tags.sqlite",
+    "tables": {
+      "tag_aliases": {
+        "row_count": 678,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "alias",
+            "TEXT"
+          ],
+          [
+            "tag",
+            "TEXT"
+          ]
+        ]
+      },
+      "tags": {
+        "row_count": 93713,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "id",
+            "INTEGER"
+          ],
+          [
+            "name",
+            "TEXT"
+          ],
+          [
+            "count",
+            "INTEGER"
+          ],
+          [
+            "type",
+            "INTEGER"
+          ],
+          [
+            "ambiguous",
+            "INTEGER"
+          ]
+        ]
+      }
+    },
+    "tags_summary": {
+      "columns": [
+        "index",
+        "id",
+        "name",
+        "count",
+        "type",
+        "ambiguous"
+      ],
+      "name_col": "name",
+      "type_top": [
+        [
+          1,
+          36812
+        ],
+        [
+          4,
+          35564
+        ],
+        [
+          0,
+          13210
+        ],
+        [
+          3,
+          7497
+        ],
+        [
+          6,
+          410
+        ],
+        [
+          5,
+          220
+        ]
+      ],
+      "ambiguous_top": [
+        [
+          0,
+          93523
+        ],
+        [
+          1,
+          190
+        ]
+      ],
+      "count_minmax": [
+        -10,
+        143314
+      ]
+    },
+    "alias_summary": {
+      "columns": [
+        "index",
+        "alias",
+        "tag"
+      ],
+      "orphans": {
+        "missing_target_in_tags": 0,
+        "missing_alias_in_tags": 297
+      }
+    }
+  },
+  {
+    "site_dir": "lolibooru.moe",
+    "db_path": "C:\\LoRAIro\\external_sources\\site_tags\\lolibooru.moe\\tags.sqlite",
+    "tables": {
+      "tag_aliases": {
+        "row_count": 2907,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "alias",
+            "TEXT"
+          ],
+          [
+            "tag",
+            "TEXT"
+          ]
+        ]
+      },
+      "tags": {
+        "row_count": 157149,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "id",
+            "INTEGER"
+          ],
+          [
+            "name",
+            "TEXT"
+          ],
+          [
+            "post_count",
+            "INTEGER"
+          ],
+          [
+            "cached_related",
+            "TEXT"
+          ],
+          [
+            "cached_related_expires_on",
+            "TEXT"
+          ],
+          [
+            "tag_type",
+            "INTEGER"
+          ],
+          [
+            "is_ambiguous",
+            "INTEGER"
+          ]
+        ]
+      }
+    },
+    "tags_summary": {
+      "columns": [
+        "index",
+        "id",
+        "name",
+        "post_count",
+        "cached_related",
+        "cached_related_expires_on",
+        "tag_type",
+        "is_ambiguous"
+      ],
+      "name_col": "name",
+      "is_ambiguous_top": [
+        [
+          0,
+          157130
+        ],
+        [
+          1,
+          19
+        ]
+      ],
+      "post_count_minmax": [
+        -11,
+        429262
+      ]
+    },
+    "alias_summary": {
+      "columns": [
+        "index",
+        "alias",
+        "tag"
+      ],
+      "orphans": {
+        "missing_target_in_tags": 0,
+        "missing_alias_in_tags": 2686
+      }
+    }
+  },
+  {
+    "site_dir": "pixiv.net",
+    "db_path": "C:\\LoRAIro\\external_sources\\site_tags\\pixiv.net\\tags.sqlite",
+    "tables": {
+      "tags": {
+        "row_count": 103039,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "name",
+            "TEXT"
+          ],
+          [
+            "wiki_url",
+            "TEXT"
+          ],
+          [
+            "updated_at",
+            "TIMESTAMP"
+          ],
+          [
+            "views",
+            "INTEGER"
+          ],
+          [
+            "posts",
+            "INTEGER"
+          ],
+          [
+            "checklists",
+            "INTEGER"
+          ],
+          [
+            "is_anime",
+            "INTEGER"
+          ],
+          [
+            "is_manga",
+            "INTEGER"
+          ],
+          [
+            "is_novel",
+            "INTEGER"
+          ],
+          [
+            "is_game",
+            "INTEGER"
+          ],
+          [
+            "is_figure",
+            "INTEGER"
+          ],
+          [
+            "is_music",
+            "INTEGER"
+          ],
+          [
+            "is_art",
+            "INTEGER"
+          ],
+          [
+            "is_design",
+            "INTEGER"
+          ],
+          [
+            "is_general",
+            "INTEGER"
+          ],
+          [
+            "is_person",
+            "INTEGER"
+          ],
+          [
+            "is_character",
+            "INTEGER"
+          ],
+          [
+            "is_quote",
+            "INTEGER"
+          ],
+          [
+            "is_event",
+            "INTEGER"
+          ],
+          [
+            "is_doujin",
+            "INTEGER"
+          ]
+        ]
+      }
+    },
+    "tags_summary": {
+      "columns": [
+        "index",
+        "name",
+        "wiki_url",
+        "updated_at",
+        "views",
+        "posts",
+        "checklists",
+        "is_anime",
+        "is_manga",
+        "is_novel",
+        "is_game",
+        "is_figure",
+        "is_music",
+        "is_art",
+        "is_design",
+        "is_general",
+        "is_person",
+        "is_character",
+        "is_quote",
+        "is_event",
+        "is_doujin"
+      ],
+      "name_col": "name",
+      "posts_minmax": [
+        0,
+        20090901
+      ],
+      "views_minmax": [
+        4,
+        14582992
+      ]
+    },
+    "alias_summary": {}
+  },
+  {
+    "site_dir": "rule34.xxx",
+    "db_path": "C:\\LoRAIro\\external_sources\\site_tags\\rule34.xxx\\tags.sqlite",
+    "tables": {
+      "tag_aliases": {
+        "row_count": 8836,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "alias",
+            "TEXT"
+          ],
+          [
+            "tag",
+            "TEXT"
+          ]
+        ]
+      },
+      "tags": {
+        "row_count": 1400492,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "type",
+            "INTEGER"
+          ],
+          [
+            "count",
+            "INTEGER"
+          ],
+          [
+            "name",
+            "TEXT"
+          ],
+          [
+            "ambiguous",
+            "INTEGER"
+          ],
+          [
+            "id",
+            "INTEGER"
+          ]
+        ]
+      }
+    },
+    "tags_summary": {
+      "columns": [
+        "index",
+        "type",
+        "count",
+        "name",
+        "ambiguous",
+        "id"
+      ],
+      "name_col": "name",
+      "type_top": [
+        [
+          0,
+          716190
+        ],
+        [
+          4,
+          330583
+        ],
+        [
+          1,
+          303769
+        ],
+        [
+          3,
+          42801
+        ],
+        [
+          5,
+          7149
+        ]
+      ],
+      "ambiguous_top": [
+        [
+          0,
+          1393226
+        ],
+        [
+          1,
+          7266
+        ]
+      ],
+      "count_minmax": [
+        0,
+        8807945
+      ]
+    },
+    "alias_summary": {
+      "columns": [
+        "index",
+        "alias",
+        "tag"
+      ],
+      "orphans": {
+        "missing_target_in_tags": 1145,
+        "missing_alias_in_tags": 1767
+      }
+    }
+  },
+  {
+    "site_dir": "safebooru.donmai.us",
+    "db_path": "C:\\LoRAIro\\external_sources\\site_tags\\safebooru.donmai.us\\tags.sqlite",
+    "tables": {
+      "tag_aliases": {
+        "row_count": 52496,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "alias",
+            "TEXT"
+          ],
+          [
+            "tag",
+            "TEXT"
+          ]
+        ]
+      },
+      "tags": {
+        "row_count": 1593782,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "id",
+            "INTEGER"
+          ],
+          [
+            "name",
+            "TEXT"
+          ],
+          [
+            "post_count",
+            "INTEGER"
+          ],
+          [
+            "category",
+            "INTEGER"
+          ],
+          [
+            "created_at",
+            "TIMESTAMP"
+          ],
+          [
+            "updated_at",
+            "TIMESTAMP"
+          ],
+          [
+            "is_deprecated",
+            "INTEGER"
+          ],
+          [
+            "words",
+            "TEXT"
+          ]
+        ]
+      }
+    },
+    "tags_summary": {
+      "columns": [
+        "index",
+        "id",
+        "name",
+        "post_count",
+        "category",
+        "created_at",
+        "updated_at",
+        "is_deprecated",
+        "words"
+      ],
+      "name_col": "name",
+      "category_top": [
+        [
+          1,
+          620732
+        ],
+        [
+          0,
+          565801
+        ],
+        [
+          4,
+          345077
+        ],
+        [
+          3,
+          60861
+        ],
+        [
+          5,
+          1311
+        ]
+      ],
+      "is_deprecated_top": [
+        [
+          0,
+          1590272
+        ],
+        [
+          1,
+          3510
+        ]
+      ],
+      "post_count_minmax": [
+        0,
+        6947601
+      ]
+    },
+    "alias_summary": {
+      "columns": [
+        "index",
+        "alias",
+        "tag"
+      ],
+      "orphans": {
+        "missing_target_in_tags": 10,
+        "missing_alias_in_tags": 42
+      }
+    }
+  },
+  {
+    "site_dir": "wallhaven.cc",
+    "db_path": "C:\\LoRAIro\\external_sources\\site_tags\\wallhaven.cc\\tags.sqlite",
+    "tables": {
+      "tags": {
+        "row_count": 100446,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "name",
+            "TEXT"
+          ],
+          [
+            "id",
+            "INTEGER"
+          ],
+          [
+            "category_name",
+            "TEXT"
+          ],
+          [
+            "category_id",
+            "INTEGER"
+          ],
+          [
+            "posts",
+            "INTEGER"
+          ],
+          [
+            "views",
+            "INTEGER"
+          ],
+          [
+            "subscriptions",
+            "INTEGER"
+          ]
+        ]
+      }
+    },
+    "tags_summary": {
+      "columns": [
+        "index",
+        "name",
+        "id",
+        "category_name",
+        "category_id",
+        "posts",
+        "views",
+        "subscriptions"
+      ],
+      "name_col": "name",
+      "category_id_top": [
+        [
+          47,
+          21694
+        ],
+        [
+          50,
+          15769
+        ],
+        [
+          20,
+          11967
+        ],
+        [
+          30,
+          5566
+        ],
+        [
+          49,
+          4709
+        ],
+        [
+          66,
+          3157
+        ],
+        [
+          52,
+          2810
+        ],
+        [
+          48,
+          2465
+        ],
+        [
+          54,
+          2298
+        ],
+        [
+          35,
+          1895
+        ],
+        [
+          7,
+          1884
+        ],
+        [
+          22,
+          1800
+        ]
+      ],
+      "category_name_top": [
+        [
+          "Artists",
+          21694
+        ],
+        [
+          "Models",
+          15769
+        ],
+        [
+          "Characters",
+          11967
+        ],
+        [
+          "Games",
+          5566
+        ],
+        [
+          "Fictional Characters",
+          4709
+        ],
+        [
+          "Photographers",
+          3157
+        ],
+        [
+          "Pornstars",
+          2810
+        ],
+        [
+          "Celebrities",
+          2465
+        ],
+        [
+          "Cars & Motorcycles",
+          2298
+        ],
+        [
+          "Clothing",
+          1895
+        ],
+        [
+          "People",
+          1884
+        ],
+        [
+          "Other",
+          1802
+        ]
+      ],
+      "posts_minmax": [
+        0,
+        581565
+      ],
+      "views_minmax": [
+        0,
+        1378593473
+      ],
+      "subscriptions_minmax": [
+        0,
+        3767
+      ]
+    },
+    "alias_summary": {}
+  },
+  {
+    "site_dir": "xbooru.com",
+    "db_path": "C:\\LoRAIro\\external_sources\\site_tags\\xbooru.com\\tags.sqlite",
+    "tables": {
+      "tag_aliases": {
+        "row_count": 100,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "alias",
+            "TEXT"
+          ],
+          [
+            "tag",
+            "TEXT"
+          ]
+        ]
+      },
+      "tags": {
+        "row_count": 25266,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "type",
+            "INTEGER"
+          ],
+          [
+            "count",
+            "INTEGER"
+          ],
+          [
+            "name",
+            "TEXT"
+          ],
+          [
+            "ambiguous",
+            "INTEGER"
+          ],
+          [
+            "id",
+            "INTEGER"
+          ]
+        ]
+      }
+    },
+    "tags_summary": {
+      "columns": [
+        "index",
+        "type",
+        "count",
+        "name",
+        "ambiguous",
+        "id"
+      ],
+      "name_col": "name",
+      "type_top": [
+        [
+          0,
+          10961
+        ],
+        [
+          4,
+          6641
+        ],
+        [
+          1,
+          5661
+        ],
+        [
+          3,
+          1923
+        ],
+        [
+          5,
+          80
+        ]
+      ],
+      "ambiguous_top": [
+        [
+          0,
+          25182
+        ],
+        [
+          1,
+          84
+        ]
+      ],
+      "count_minmax": [
+        0,
+        358708
+      ]
+    },
+    "alias_summary": {
+      "columns": [
+        "index",
+        "alias",
+        "tag"
+      ],
+      "orphans": {
+        "missing_target_in_tags": 90,
+        "missing_alias_in_tags": 93
+      }
+    }
+  },
+  {
+    "site_dir": "yande.re",
+    "db_path": "C:\\LoRAIro\\external_sources\\site_tags\\yande.re\\tags.sqlite",
+    "tables": {
+      "tag_aliases": {
+        "row_count": 6203,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "alias",
+            "TEXT"
+          ],
+          [
+            "tag",
+            "TEXT"
+          ]
+        ]
+      },
+      "tags": {
+        "row_count": 132180,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "id",
+            "INTEGER"
+          ],
+          [
+            "name",
+            "TEXT"
+          ],
+          [
+            "count",
+            "INTEGER"
+          ],
+          [
+            "type",
+            "INTEGER"
+          ],
+          [
+            "ambiguous",
+            "INTEGER"
+          ]
+        ]
+      }
+    },
+    "tags_summary": {
+      "columns": [
+        "index",
+        "id",
+        "name",
+        "count",
+        "type",
+        "ambiguous"
+      ],
+      "name_col": "name",
+      "type_top": [
+        [
+          1,
+          58649
+        ],
+        [
+          4,
+          53507
+        ],
+        [
+          3,
+          12349
+        ],
+        [
+          5,
+          4004
+        ],
+        [
+          0,
+          3639
+        ],
+        [
+          6,
+          32
+        ]
+      ],
+      "ambiguous_top": [
+        [
+          0,
+          132143
+        ],
+        [
+          1,
+          37
+        ]
+      ],
+      "count_minmax": [
+        -10,
+        258668
+      ]
+    },
+    "alias_summary": {
+      "columns": [
+        "index",
+        "alias",
+        "tag"
+      ],
+      "orphans": {
+        "missing_target_in_tags": 0,
+        "missing_alias_in_tags": 5203
+      }
+    }
+  },
+  {
+    "site_dir": "zerochan.net",
+    "db_path": "C:\\LoRAIro\\external_sources\\site_tags\\zerochan.net\\tags.sqlite",
+    "tables": {
+      "tag_aliases": {
+        "row_count": 507454,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "alias",
+            "TEXT"
+          ],
+          [
+            "tag",
+            "TEXT"
+          ]
+        ]
+      },
+      "tags": {
+        "row_count": 459731,
+        "columns": [
+          [
+            "index",
+            "INTEGER"
+          ],
+          [
+            "tag",
+            "TEXT"
+          ],
+          [
+            "type",
+            "TEXT"
+          ],
+          [
+            "parent",
+            "TEXT"
+          ],
+          [
+            "total",
+            "INTEGER"
+          ],
+          [
+            "strict",
+            "INTEGER"
+          ],
+          [
+            "children_count",
+            "INTEGER"
+          ],
+          [
+            "parent_count",
+            "INTEGER"
+          ]
+        ]
+      }
+    },
+    "tags_summary": {
+      "columns": [
+        "index",
+        "tag",
+        "type",
+        "parent",
+        "total",
+        "strict",
+        "children_count",
+        "parent_count"
+      ],
+      "name_col": "tag",
+      "type_top": [
+        [
+          "mangaka",
+          283069
+        ],
+        [
+          "character",
+          124710
+        ],
+        [
+          "theme",
+          12953
+        ],
+        [
+          "series",
+          9689
+        ],
+        [
+          "meta",
+          9229
+        ],
+        [
+          "source",
+          7035
+        ],
+        [
+          "game",
+          4958
+        ],
+        [
+          "artbook",
+          2901
+        ],
+        [
+          "group",
+          2853
+        ],
+        [
+          "studio",
+          1219
+        ],
+        [
+          "vtuber",
+          858
+        ],
+        [
+          "movie",
+          251
+        ]
+      ],
+      "total_minmax": [
+        0,
+        2443745
+      ],
+      "strict_minmax": [
+        0,
+        52708
+      ],
+      "children_count_minmax": [
+        0,
+        289701
+      ],
+      "parent_count_minmax": [
+        0,
+        41
+      ]
+    },
+    "alias_summary": {
+      "columns": [
+        "index",
+        "alias",
+        "tag"
+      ],
+      "orphans": {
+        "missing_target_in_tags": 4774,
+        "missing_alias_in_tags": 506744
+      }
+    }
+  }
+]
