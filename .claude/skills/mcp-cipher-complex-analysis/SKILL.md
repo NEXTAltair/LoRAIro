@@ -1,7 +1,25 @@
 ---
 name: mcp-cipher-complex-analysis
-description: Complex analysis using Cipher MCP (10-30s) for library research via context7, design pattern memory search, and multi-tool integration for LoRAIro strategic planning
-allowed-tools: cipher_memory_search, cipher_store_reasoning_memory, cipher_extract_entities, cipher_query_graph, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, WebSearch, WebFetch
+description: Complex analysis using Cipher MCP (10-30s) for library research via context7, design pattern memory search, and multi-tool integration for strategic planning. Use when researching libraries, analyzing architectural decisions, or comparing multiple approaches.
+allowed-tools:
+  # Memory search
+  - mcp__cipher__cipher_memory_search
+  - mcp__cipher__cipher_workspace_search
+  # Memory operations
+  - mcp__cipher__cipher_extract_and_operate_memory
+  - mcp__cipher__cipher_workspace_store
+  # Library research (Context7 via Cipher)
+  - mcp__cipher__resolve-library-id
+  - mcp__cipher__get-library-docs
+  - mcp__cipher__perplexity_ask
+  # Web search
+  - WebSearch
+  - WebFetch
+  # Serena tools (for code integration)
+  - mcp__serena__find_symbol
+  - mcp__serena__search_for_pattern
+  # Bash operations (if needed)
+  - mcp__cipher__cipher_bash
 ---
 
 # Cipher Complex Analysis Skill

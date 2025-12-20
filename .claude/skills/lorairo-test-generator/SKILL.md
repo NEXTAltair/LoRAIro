@@ -1,7 +1,18 @@
 ---
 name: lorairo-test-generator
-description: Generate pytest unit, integration, and GUI tests for LoRAIro with proper fixtures, mocks, and 75%+ coverage using pytest-qt for PySide6 testing
-allowed-tools: mcp__serena__find_symbol, mcp__serena__get_symbols_overview, Read, Write, Bash
+description: Generates pytest unit, integration, and GUI tests for LoRAIro with proper fixtures, mocks, and 75%+ coverage using pytest-qt for PySide6 testing. Use when creating test suites, implementing test patterns, or ensuring code quality with comprehensive test coverage.
+allowed-tools:
+  # Code exploration
+  - mcp__serena__find_symbol
+  - mcp__serena__search_for_pattern
+  - mcp__serena__get_symbols_overview
+  # Memory (test patterns)
+  - mcp__serena__read_memory
+  - mcp__cipher__cipher_memory_search
+  # Fallback
+  - Read
+  - Write
+  - Bash
 ---
 
 # LoRAIro Test Generator Skill
