@@ -14,303 +14,205 @@ allowed-tools:
   - mcp__cipher__cipher_workspace_store
 ---
 
-# Memory-First Development Skill
+# Memory-First Development
 
-このSkillは、Serena短期メモリとCipher長期メモリを統合した2重メモリ戦略による効率的な開発ワークフローを提供します。
+Integrates Serena short-term project memory and Cipher long-term design knowledge for efficient development workflow.
 
-## 使用タイミング
+## When to Use
 
-Claudeは以下の開発フェーズでこのSkillを自動的に使用すべきです：
+Use this skill to guide development with proper memory management:
+- **Before implementation**: Review past patterns and current project status
+- **During implementation**: Track progress, decisions, and blockers continuously
+- **After completion**: Store implementation knowledge as long-term memory
 
-- **実装前**: 過去の類似実装パターンと現在のプロジェクト状況を確認
-- **実装中**: 進捗、判断、課題を継続的に記録
-- **完了後**: 実装知識と教訓を長期記憶として蓄積
-
-## 2重メモリ戦略
-
-### Serena Memory（短期・プロジェクト固有）
-
-**用途**: 現在の開発進捗と一時的な開発メモ
-
-**保存内容**:
-- 現在の実装状況と次のステップ
-- 進行中の開発判断
-- 一時的な課題と解決策
-- デバッグ情報と検証結果
-- リファクタリング計画
-
-**特性**:
-- **高速アクセス** (0.3-0.5秒)
-- **頻繁な更新**: 実装中に何度も読み書き
-- **一時的**: タスク完了後はアーカイブまたは削除
-- **プロジェクト固有**: LoRAIro専用の状況記録
-
-### Cipher Memory（長期・設計知識）
-
-**用途**: 将来参照可能な設計パターン資産
-
-**保存内容**:
-- 設計アプローチと判断根拠
-- アーキテクチャ設計の意図と背景
-- パフォーマンス・保守性の評価
-- 実装時の課題と解決策
-- ベストプラクティスとアンチパターン
-- 技術選定の基準と結果
-
-**特性**:
-- **永続的**: プロジェクト全体で参照可能
-- **検索可能**: cipher_memory_searchで過去事例を発見
-- **汎用的**: 他プロジェクトでも参照可能な知見
-- **構造化**: タイトル、コンテキスト、判断、根拠、結果、教訓
-
-## Memory-First開発サイクル
-
-### Phase 1: 実装前の事前確認
+## 2-Tier Memory Architecture
 
 ```
-目的: 過去の知見を活用し、重複作業を回避
-
-1. プロジェクト状況確認 (Serena):
-   mcp__serena__list_memories()
-   → 利用可能なメモリ一覧
-
-   mcp__serena__read_memory("current-project-status")
-   → 現在のブランチ、最新の実装変更、次の優先事項
-
-2. 過去の類似実装検索 (Cipher):
-   cipher_memory_search(query="実装対象のキーワード")
-   → 過去の設計パターン、実装アプローチ、教訓
-
-3. 設計要素抽出 (Cipher):
-   cipher_extract_entities(text="実装計画")
-   → 重要な技術要素、アーキテクチャコンポーネント
-
-結果: 既存知識を活用した効率的な実装開始
+┌─────────────────────────────────────────────┐
+│ Serena Memory (Short-Term, Project-Specific)│
+├─────────────────────────────────────────────┤
+│ • Current implementation status             │
+│ • Active development decisions              │
+│ • Temporary issues and solutions            │
+│ • Debug information and validation results  │
+│ • Refactoring plans                         │
+├─────────────────────────────────────────────┤
+│ Characteristics:                            │
+│ • Fast access (0.3-0.5s)                    │
+│ • Frequent updates during implementation    │
+│ • Temporary (archive or delete after task)  │
+│ • Project-specific (LoRAIro only)           │
+└─────────────────────────────────────────────┘
+            ↓ (filter & consolidate)
+┌─────────────────────────────────────────────┐
+│ Cipher Memory (Long-Term, Design Knowledge) │
+├─────────────────────────────────────────────┤
+│ • Design approaches and rationale           │
+│ • Architectural intent and background       │
+│ • Performance and maintainability analysis  │
+│ • Implementation challenges and solutions   │
+│ • Best practices and anti-patterns          │
+│ • Technology selection criteria and results │
+├─────────────────────────────────────────────┤
+│ Characteristics:                            │
+│ • Persistent (project-wide reference)       │
+│ • Searchable (discover past cases)          │
+│ • Reusable (applicable to other projects)   │
+│ • Structured (title, context, decisions)    │
+└─────────────────────────────────────────────┘
 ```
 
-### Phase 2: 実装中の継続記録
+### Serena Memory (Short-Term)
+**Purpose:** Current development progress and temporary notes
+**Access:** 0.3-0.5s (fast)
+**Lifecycle:** Temporary (archive or delete after task completion)
+**Scope:** Project-specific (LoRAIro only)
 
+### Cipher Memory (Long-Term)
+**Purpose:** Reusable design pattern assets
+**Access:** 10-15s (via semantic search)
+**Lifecycle:** Persistent (project-wide, cross-project reference)
+**Scope:** Universal (applicable to future projects)
+
+## Memory-First Development Cycle
+
+### Phase 1: Pre-Implementation (Before)
+
+**Goal:** Leverage past knowledge, avoid duplicate work
+
+**Checklist:**
+1. **Check project status (Serena):**
+   - `mcp__serena__list_memories()` → Available memories
+   - `mcp__serena__read_memory("current-project-status")` → Current branch, latest changes, next priorities
+
+2. **Search past implementations (Cipher):**
+   - `mcp__cipher__cipher_memory_search(query="implementation keywords")` → Past design patterns, approaches, lessons learned
+
+3. **Search workspace context (Cipher):**
+   - `mcp__cipher__cipher_workspace_search(query="project context")` → Team progress, bugs, collaboration history
+
+**Outcome:** Start implementation efficiently with existing knowledge
+
+### Phase 2: During Implementation (During)
+
+**Goal:** Visualize progress and decisions, enable easy restart after interruption
+
+**Continuous Recording (Serena):**
+- **When:** After important decisions, at work breakpoints, before interruptions
+- **Tool:** `mcp__serena__write_memory(memory_name, content)`
+- **Template:** See [memory-templates.md](./memory-templates.md) for Serena template
+
+**Content to Record:**
+- Current task in progress
+- Completed work items
+- Next steps
+- Technical decisions with rationale
+- Issues and blockers
+
+**Update Frequency:** Every 1-2 hours during active development
+
+### Phase 3: Post-Implementation (After)
+
+**Goal:** Persist implementation knowledge as future development asset
+
+**Long-Term Storage (Cipher):**
+- **When:** Feature completion, refactoring completion, after major technical decisions
+- **Tool:** `mcp__cipher__cipher_extract_and_operate_memory(interaction, memoryMetadata)`
+- **Alternative:** `mcp__cipher__cipher_workspace_store(interaction)` for team context
+- **Template:** See [memory-templates.md](./memory-templates.md) for Cipher template
+
+**Content to Store:**
+- Implementation overview and motivation
+- Design approach and technology selection
+- Implementation details and patterns
+- Results and effects (performance, code reduction)
+- Challenges and solutions
+- Lessons learned and best practices
+- Anti-patterns to avoid
+
+## Memory Naming Conventions
+
+### Serena Memory (Short-Term)
+- `current-project-status` - Overall project status
+- `active-development-tasks` - Current development tasks and progress
+- `{feature}_wip_{YYYY_MM_DD}` - Work-in-progress feature implementation
+- `debug_{issue}_{YYYY_MM_DD}` - Debug information and solutions
+- `archived_{name}` - Completed task archive
+
+### Cipher Memory (Long-Term)
+**Title Format:** "LoRAIro [Feature] [Content] Design/Implementation"
+
+**Examples:**
+- "LoRAIro Direct Widget Communication Pattern Adoption"
+- "LoRAIro Repository Pattern Database Design"
+- "LoRAIro QRunnable Async Processing Implementation"
+
+**Tags:** Technical domain, feature area, technology stack
+
+## Workflow Integration
+
+### Decision Tree
 ```
-目的: 進捗と判断を可視化し、中断時の再開を容易に
-
-実装中の定期的記録 (Serena):
-   mcp__serena__write_memory(
-     memory_name="active-development-tasks",
-     content='''
-# 現在の実装状況 - YYYY-MM-DD
-
-## 進行中タスク
-- [現在作業中の内容]
-
-## 完了した作業
-✅ [完了項目1]
-✅ [完了項目2]
-
-## 次のステップ
-1. [次に実装すること]
-2. [その次の作業]
-
-## 技術的判断
-- [実装中に行った重要な判断]
-  理由: [なぜその判断をしたか]
-
-## 課題・ブロッカー
-- [現在の問題点]
-- [解決策候補]
-'''
-   )
-
-更新頻度: 重要な判断後、作業区切り時、中断前
-```
-
-### Phase 3: 完了後の知識蓄積
-
-```
-目的: 実装知識を永続化し、将来の開発資産に
-
-完了時の長期記憶化 (Cipher):
-   cipher_store_reasoning_memory(
-     title="[実装内容の簡潔な要約]",
-     content='''
-# 実装概要
-[何を実装したか]
-
-## 背景・動機
-[なぜこの実装が必要だったか]
-
-## 設計アプローチ
-[どのような設計判断をしたか]
-
-## 技術選定
-[使用した技術とその選定理由]
-
-## 実装詳細
-[重要な実装パターン、コード構造]
-
-## 結果・効果
-[実装による改善、パフォーマンス向上、コード削減等]
-
-## 課題と解決策
-[実装中に直面した課題とその解決方法]
-
-## 教訓・ベストプラクティス
-[将来の実装で活用できる知見]
-
-## アンチパターン
-[避けるべき実装方法、失敗から学んだこと]
-''',
-     tags=["実装分野", "技術タグ"],
-     context="LoRAIro [feature名] 実装"
-   )
-
-実施タイミング: 機能完了時、リファクタリング完了時、重要な技術判断後
-```
-
-## Memory命名規則
-
-### Serena Memory（短期）
-- **current-project-status**: プロジェクト全体の状況
-- **active-development-tasks**: 現在の開発タスクと進捗
-- **{feature}_wip_{YYYY_MM_DD}**: 作業中の機能実装メモ
-- **debug_{issue}_{YYYY_MM_DD}**: デバッグ情報と解決策
-- **archived_{name}**: 完了タスクのアーカイブ
-
-### Cipher Memory（長期）
-- **Title形式**: "LoRAIro [機能名] [実装内容] 設計/実装"
-- 例: "LoRAIro Direct Widget Communication パターン採用"
-- 例: "LoRAIro Repository Pattern データベース設計"
-- 例: "LoRAIro QRunnable非同期処理実装"
-
-## 実装例: 新機能開発の完全フロー
-
-### シナリオ: 新しいGUIウィジェット実装
-
-```
-=== Phase 1: 実装前 ===
-
-1. 現在状況確認:
-   mcp__serena__list_memories()
-   mcp__serena__read_memory("current-project-status")
-
-2. 過去の類似実装検索:
-   cipher_memory_search(query="widget implementation pattern signal slot")
-
-3. 設計要素抽出:
-   cipher_extract_entities(text="新ウィジェット実装計画")
-
-結果: 既存のWidget実装パターンを発見、重複実装を回避
-
-=== Phase 2: 実装中 ===
-
-実装開始時:
-   mcp__serena__write_memory(
-     "active-development-tasks",
-     "## 進行中: NewWidget実装
-     - Signal/Slot定義
-     - UI layout構築
-     - イベントハンドリング実装"
-   )
-
-重要な判断時:
-   mcp__serena__write_memory(
-     "active-development-tasks",
-     "## 技術的判断
-     - Direct Widget Communication採用
-       理由: パフォーマンス向上、コード簡素化"
-   )
-
-=== Phase 3: 完了後 ===
-
-長期記憶化:
-   cipher_store_reasoning_memory(
-     title="LoRAIro NewWidget PySide6実装パターン",
-     content='''
-# NewWidget実装
-
-## 設計アプローチ
-- Direct Signal/Slot接続
-- PySide6 Designerによる UI定義
-- 型安全なシグナル定義
-
-## 実装パターン
-```python
-class NewWidget(QWidget):
-    data_changed = Signal(str)  # 型安全なシグナル
-
-    def __init__(self):
-        super().__init__()
-        self._setup_ui()
-        self._connect_signals()
-
-    def _setup_ui(self):
-        # Qt Designer generated UI
-        pass
-
-    def _connect_signals(self):
-        # Signal/Slot接続
-        pass
+Development Task
+├─ Before starting?
+│  ├─ list_memories → check available memories
+│  ├─ read_memory → review current status
+│  └─ cipher_memory_search → find past patterns
+├─ During implementation?
+│  ├─ write_memory → record progress (Serena)
+│  ├─ write_memory → record decisions (Serena)
+│  └─ edit_memory → update existing notes (Serena)
+└─ After completion?
+   ├─ cipher_extract_and_operate_memory → store knowledge
+   ├─ cipher_workspace_store → store team context
+   └─ write_memory → update project status (Serena)
 ```
 
-## 教訓
-- Qt Designerで効率的なUI構築
-- 型ヒント付きSignal定義で安全性確保
-- Direct Widget Communication で高速化
-''',
-     tags=["gui", "pyside6", "widget-pattern"],
-     context="LoRAIro GUI feature development"
-   )
+### Memory-First Best Practices
 
-Serenaメモリ更新:
-   mcp__serena__write_memory(
-     "current-project-status",
-     "✅ NewWidget実装完了 → 次: 単体テスト作成"
-   )
-```
+**Efficient Memory Usage:**
+1. **Always check memory before implementation** - Leverage past knowledge
+2. **Record regularly during implementation** - Easy restart after interruption
+3. **Always persist after completion** - Build future development assets
 
-## ベストプラクティス
+**Recording Timing:**
+- **Serena write:** After important decisions, work breakpoints, before interruptions
+- **Cipher store:** Feature completion, refactoring completion, major technical decisions
 
-### 効率的なMemory使用
-1. **実装前は必ずMemory確認**: 過去の知見を活用
-2. **実装中は定期的に記録**: 中断からの再開を容易に
-3. **完了後は必ず長期記憶化**: 将来の開発資産として蓄積
+**Content Guidelines:**
 
-### 記録のタイミング
-- **Serena write**: 重要な判断後、作業区切り、中断前
-- **Cipher store**: 機能完了時、リファクタリング完了時、重要な技術判断後
+**Serena (Short-Term):**
+- What are you working on now?
+- What will you do next?
+- What issues exist?
+- What decisions were made? (temporary)
 
-### 記録すべき内容
-#### Serena（短期）
-- 今何をしているか
-- 次に何をするか
-- どんな課題があるか
-- どんな判断をしたか（一時的）
+**Cipher (Long-Term):**
+- Why was this design chosen?
+- What technology selection was made?
+- What results were obtained?
+- What lessons were learned?
 
-#### Cipher（長期）
-- なぜその設計をしたか
-- どのような技術選定をしたか
-- どんな結果が得られたか
-- 何を学んだか（教訓）
+## LoRAIro-Specific Strategy
 
-## LoRAIro固有のMemory戦略
+### Serena Memory Usage
+- **current-project-status**: Check at start of each development session
+- **active-development-tasks**: Update every 1-2 hours during implementation
+- **Feature implementation notes**: Continuous recording for multi-day implementations
 
-### Serena Memoryの活用
-- **current-project-status**: 毎日の開発開始時に確認
-- **active-development-tasks**: 実装中は1-2時間ごとに更新
-- **feature実装メモ**: 複数日にまたがる実装の継続記録
+### Cipher Memory Usage
+- **Architectural decisions**: Repository Pattern, Service Layer, Direct Widget Communication
+- **Technology selection**: SQLAlchemy, PySide6, pytest rationale
+- **Performance improvements**: Cache unification, async processing, approach
+- **Refactoring**: Large-scale change intent, effects, lessons learned
 
-### Cipher Memoryの活用
-- **アーキテクチャ判断**: Repository Pattern、Service Layer、Direct Widget Communication
-- **技術選定**: SQLAlchemy、PySide6、pytest の選定根拠
-- **パフォーマンス改善**: キャッシュ統一、非同期処理、最適化アプローチ
-- **リファクタリング**: 大規模変更の意図、効果、教訓
+### Search Keywords
+- **Cipher search:** Specific pattern names ("repository pattern", "widget communication")
+- **Technology + Purpose:** "sqlalchemy transaction", "pyside6 threading"
+- **LoRAIro terms:** "direct widget communication", "memory-first development"
 
-### 検索キーワード
-- **Cipher検索**: 具体的パターン名（"repository pattern", "widget communication"）
-- **技術名 + 用途**: "sqlalchemy transaction", "pyside6 threading"
-- **LoRAIro固有用語**: "direct widget communication", "memory-first development"
+## Reference Files
 
-## Examples
-詳細な使用例は [examples.md](./examples.md) を参照してください。
-
-## Reference
-Memory操作の完全なワークフローとパターンは [reference.md](./reference.md) を参照してください。
+- [memory-templates.md](./memory-templates.md) - Serena and Cipher memory templates
+- [examples.md](./examples.md) - Complete implementation workflow examples
+- [reference.md](./reference.md) - Full memory operation patterns and workflows
