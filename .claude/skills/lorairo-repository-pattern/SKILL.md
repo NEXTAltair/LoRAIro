@@ -15,224 +15,303 @@ allowed-tools:
   - Edit
 ---
 
-# LoRAIro Repository Pattern Skill
+# LoRAIro Repository Pattern
 
-このSkillは、LoRAIroプロジェクトにおけるSQLAlchemyリポジトリパターンの実装ガイドを提供します。
+SQLAlchemy repository pattern implementation guide for type-safe database operations in LoRAIro.
 
-## 使用タイミング
+## When to Use
 
-- 新しいデータベースアクセス層の実装
-- 既存リポジトリの拡張・リファクタリング
-- データベーストランザクション処理の実装
-- ORM クエリの最適化
+Use this skill when:
+- Creating new database access layers
+- Extending or refactoring existing repositories
+- Implementing database transaction processing
+- Query patterns and performance tuning
 
-## LoRAIroのRepository Pattern
+## Core Repository Pattern
 
-### 基本構造
+### Basic Structure
 
 ```python
 from typing import Optional
 from sqlalchemy.orm import Session
-from src.lorairo.database.schema import Image
+from src.lorairo.database.schema import Entity
 
-class ImageRepository:
-    """画像データアクセスリポジトリ"""
+class EntityRepository:
+    """Data access repository for Entity"""
 
     def __init__(self, session_factory):
-        """
-        Args:
-            session_factory: SQLAlchemy session factory（scoped_session）
-        """
+        """Args: session_factory - SQLAlchemy scoped_session"""
         self.session_factory = session_factory
 
-    def get_by_id(self, image_id: int) -> Optional[Image]:
-        """IDで画像を取得"""
+    def get_by_id(self, entity_id: int) -> Optional[Entity]:
+        """Retrieve entity by ID"""
         with self.session_factory() as session:
-            return session.query(Image).filter(Image.id == image_id).first()
+            return session.query(Entity).filter(Entity.id == entity_id).first()
 
-    def get_all(self) -> list[Image]:
-        """全画像を取得"""
+    def add(self, entity: Entity) -> Entity:
+        """Add new entity"""
         with self.session_factory() as session:
-            return session.query(Image).all()
-
-    def add(self, image: Image) -> Image:
-        """新規画像を追加"""
-        with self.session_factory() as session:
-            session.add(image)
+            session.add(entity)
             session.commit()
-            session.refresh(image)  # IDなどを更新
-            return image
-
-    def update(self, image: Image) -> Image:
-        """画像を更新"""
-        with self.session_factory() as session:
-            session.merge(image)
-            session.commit()
-            return image
-
-    def delete(self, image_id: int) -> bool:
-        """画像を削除"""
-        with self.session_factory() as session:
-            image = session.query(Image).filter(Image.id == image_id).first()
-            if image:
-                session.delete(image)
-                session.commit()
-                return True
-            return False
+            session.refresh(entity)
+            return entity
 ```
 
-## 重要な実装パターン
+**Key Principles:**
+- Session management via `with` statement (automatic commit/rollback)
+- Type hints for all parameters and returns
+- Single responsibility (one repository per entity)
+- Transaction safety (related operations in single transaction)
 
-### 1. Session管理
+## Implementation Patterns
+
+### 1. Session Management
+
+**Pattern:** Context manager for automatic session lifecycle
 
 ```python
-# ✅ Good: with文による自動管理
+# ✅ Good: with statement (auto-managed)
 with self.session_factory() as session:
-    result = session.query(Image).all()
-    return result  # with終了時に自動commit/rollback
+    result = session.query(Entity).all()
+    return result  # Auto commit/rollback on exit
 
-# ❌ Bad: 手動Session管理
+# ❌ Bad: Manual session management
 session = self.session_factory()
 try:
-    result = session.query(Image).all()
+    result = session.query(Entity).all()
     session.commit()
-    return result
 finally:
-    session.close()  # 冗長で エラープローン
+    session.close()  # Verbose and error-prone
 ```
 
-### 2. トランザクション管理
+**Why:** Context manager ensures proper cleanup even on exceptions.
+
+### 2. Transaction Management
+
+**Pattern:** Single transaction for related operations
 
 ```python
-def batch_add_images(self, images: list[Image]) -> list[Image]:
-    """複数画像を一括追加（単一トランザクション）"""
+def batch_add(self, entities: list[Entity]) -> list[Entity]:
+    """Batch add entities in single transaction"""
     with self.session_factory() as session:
-        session.add_all(images)
+        session.add_all(entities)
         session.commit()
-        # 全てのimagesにIDが設定される
-        return images
+        return entities
 
 def complex_operation(self, data: dict) -> bool:
-    """複雑な複数テーブル操作"""
+    """Multi-table operation in single transaction"""
     with self.session_factory() as session:
-        # 複数の操作を1トランザクションで
-        image = Image(**data['image'])
-        session.add(image)
+        entity1 = Entity(**data['entity1'])
+        session.add(entity1)
 
-        annotation = Annotation(image_id=image.id, **data['annotation'])
-        session.add(annotation)
+        entity2 = RelatedEntity(parent_id=entity1.id, **data['entity2'])
+        session.add(entity2)
 
-        session.commit()  # 全て成功時のみcommit
+        session.commit()  # Atomic: all or nothing
         return True
 ```
 
-### 3. 型安全なクエリ
+**Why:** ACID compliance, data consistency, automatic rollback on error.
+
+### 3. Type-Safe Queries
+
+**Pattern:** Use dataclass for search criteria
 
 ```python
-from typing import Optional
 from dataclasses import dataclass
 
 @dataclass
 class SearchCriteria:
-    """検索条件（型安全）"""
+    """Type-safe search criteria"""
     tags: Optional[list[str]] = None
     min_score: Optional[float] = None
     max_score: Optional[float] = None
 
-class ImageRepository:
-    def search(self, criteria: SearchCriteria) -> list[Image]:
-        """型安全な検索"""
-        with self.session_factory() as session:
-            query = session.query(Image)
+def search(self, criteria: SearchCriteria) -> list[Entity]:
+    """Type-safe search with criteria"""
+    with self.session_factory() as session:
+        query = session.query(Entity)
 
-            if criteria.tags:
-                # タグ条件
-                query = query.filter(Image.tags.contains(criteria.tags))
+        if criteria.tags:
+            query = query.filter(Entity.tags.contains(criteria.tags))
+        if criteria.min_score is not None:
+            query = query.filter(Entity.score >= criteria.min_score)
 
-            if criteria.min_score is not None:
-                query = query.filter(Image.score >= criteria.min_score)
-
-            if criteria.max_score is not None:
-                query = query.filter(Image.score <= criteria.max_score)
-
-            return query.all()
+        return query.all()
 ```
 
-### 4. エラーハンドリング
+**Why:** Compile-time type checking, IDE autocomplete, self-documenting API.
+
+### 4. Error Handling
+
+**Pattern:** Catch specific SQLAlchemy exceptions
 
 ```python
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from loguru import logger
 
-def add_image_safe(self, image: Image) -> Optional[Image]:
-    """安全な画像追加（エラーハンドリング付き）"""
+def add_safe(self, entity: Entity) -> Optional[Entity]:
+    """Safe add with error handling"""
     try:
         with self.session_factory() as session:
-            session.add(image)
+            session.add(entity)
             session.commit()
-            session.refresh(image)
-            return image
+            session.refresh(entity)
+            return entity
     except IntegrityError as e:
-        logger.error(f"Integrity error adding image: {e}")
+        logger.error(f"Integrity error: {e}")
         return None
     except SQLAlchemyError as e:
-        logger.error(f"Database error adding image: {e}")
+        logger.error(f"Database error: {e}")
         return None
 ```
 
-## LoRAIro固有のガイドライン
+**Why:** Specific error handling, proper logging, graceful degradation.
 
-### ファイル配置
-- **Repository**: `src/lorairo/database/db_repository.py`
-- **Schema**: `src/lorairo/database/schema.py`
-- **Manager**: `src/lorairo/database/db_manager.py`
-- **Core**: `src/lorairo/database/db_core.py`
+## LoRAIro-Specific Guidelines
 
-### 命名規則
-- Repository class: `{Entity}Repository`（例: `ImageRepository`）
-- Methods: CRUD操作 → `get_*`, `add`, `update`, `delete`
-- Methods: 検索操作 → `search`, `find_*`, `filter_*`
-
-### テスト戦略
-```python
-import pytest
-from src.lorairo.database.db_core import create_test_engine
-from src.lorairo.database.db_repository import ImageRepository
-
-@pytest.fixture
-def test_repository():
-    """テスト用リポジトリ"""
-    engine = create_test_engine()
-    session_factory = scoped_session(sessionmaker(bind=engine))
-    yield ImageRepository(session_factory)
-    session_factory.remove()
-
-def test_add_image(test_repository):
-    """画像追加テスト"""
-    image = Image(path="/test/image.jpg", phash="abc123")
-    result = test_repository.add(image)
-
-    assert result.id is not None
-    assert result.path == "/test/image.jpg"
+### File Structure
+```
+src/lorairo/database/
+├── db_repository.py    # Repository implementations
+├── schema.py           # SQLAlchemy models
+├── db_manager.py       # High-level database operations
+└── db_core.py          # Session factory, engine initialization
 ```
 
-## ベストプラクティス
+### Naming Conventions
+- **Repository class:** `{Entity}Repository` (e.g., `ImageRepository`, `TagRepository`)
+- **CRUD methods:** `get_by_id`, `get_all`, `add`, `update`, `delete`
+- **Search methods:** `search`, `find_by_{field}`, `filter_by_{condition}`
+
+### Integration with Services
+```
+Service Layer (business logic)
+      ↓ uses
+Repository Layer (data access)
+      ↓ uses
+SQLAlchemy ORM (database abstraction)
+      ↓
+SQLite Database
+```
+
+**Separation of Concerns:**
+- **Repository:** Pure data access (CRUD, queries)
+- **Service:** Business logic (validation, workflows, coordination)
+- **Manager:** High-level operations (migrations, initialization)
+
+## Memory-First Workflow
+
+### Before Implementation
+1. **Search past patterns (Cipher):**
+   - `mcp__cipher__cipher_memory_search(query="repository pattern sqlalchemy")` → Past repository implementations
+2. **Check project status (Serena):**
+   - `mcp__serena__read_memory("current-project-status")` → Current database schema
+3. **Explore existing repositories (Serena):**
+   - `mcp__serena__find_symbol(name_path="Repository", relative_path="src/lorairo/database/")` → Existing patterns
+
+### During Implementation
+**Track progress (Serena):**
+```markdown
+mcp__serena__write_memory(
+  memory_name="active-development-tasks",
+  content="## Implementing {Entity}Repository
+  - [x] Basic CRUD operations
+  - [ ] Complex queries
+  - [ ] Error handling
+  - [ ] Unit tests"
+)
+```
+
+### After Implementation
+**Store knowledge (Cipher):**
+```markdown
+mcp__cipher__cipher_extract_and_operate_memory(
+  interaction="Implemented {Entity}Repository with:
+  - Session management via context manager
+  - Type-safe search criteria using dataclass
+  - Transaction safety for batch operations
+  - Comprehensive error handling with logging",
+  memoryMetadata={"projectId": "lorairo", "domain": "backend"}
+)
+```
+
+See [mcp-memory-first-development](../mcp-memory-first-development/SKILL.md) for complete workflow.
+
+## Best Practices Checklist
 
 ### DO ✅
-- **with文使用**: Session管理を自動化
-- **型ヒント**: 全メソッドに型ヒント
-- **単一責任**: 1 Repositoryは1 Entity
-- **トランザクション統一**: 関連操作は1トランザクション
-- **ロギング**: エラー時は必ずログ
+- Use `with` statement for session management
+- Add type hints to all methods
+- Keep single responsibility (1 repository = 1 entity)
+- Group related operations in single transaction
+- Log all database errors with context
+- Use eager loading (`joinedload`) to avoid N+1 queries
+- Write unit tests for all repository methods
 
 ### DON'T ❌
-- **Session手動管理**: try-finally は避ける
-- **ビジネスロジック混入**: Repositoryは純粋なデータアクセスのみ
-- **N+1 クエリ**: eager loading（`joinedload`）を使用
-- **文字列SQL**: ORM メソッドを使用
-- **グローバルSession**: 常にsession_factoryから取得
+- Manual session management with try-finally
+- Mix business logic into repository layer
+- Use raw SQL strings (use ORM methods)
+- Create global session objects
+- Ignore transaction boundaries
+- Return detached objects without refresh
 
-## 参考リソース
-- 既存実装: `src/lorairo/database/db_repository.py`
-- スキーマ定義: `src/lorairo/database/schema.py`
-- テスト例: `tests/database/test_db_repository.py`
+## Performance Patterns
+
+### Eager Loading (Avoid N+1)
+```python
+from sqlalchemy.orm import joinedload
+
+def get_with_relations(self, entity_id: int) -> Optional[Entity]:
+    """Load entity with related data (single query)"""
+    with self.session_factory() as session:
+        return session.query(Entity)\
+            .options(joinedload(Entity.related_items))\
+            .filter(Entity.id == entity_id)\
+            .first()
+```
+
+### Batch Operations
+```python
+def bulk_update_scores(self, score_updates: dict[int, float]) -> int:
+    """Bulk update scores efficiently"""
+    with self.session_factory() as session:
+        session.bulk_update_mappings(
+            Entity,
+            [{"id": id, "score": score} for id, score in score_updates.items()]
+        )
+        session.commit()
+        return len(score_updates)
+```
+
+### Query Caching
+```python
+from functools import lru_cache
+
+@lru_cache(maxsize=128)
+def get_cached_config(self) -> dict:
+    """Cache static configuration data"""
+    with self.session_factory() as session:
+        return session.query(Config).first().to_dict()
+```
+
+## Reference Files
+
+- [examples.md](./examples.md) - Complete repository implementation examples
+- [reference.md](./reference.md) - Full API patterns and method signatures
+- [testing-patterns.md](./testing-patterns.md) - Test strategies and pytest patterns
+
+## Quick Reference
+
+**Essential Patterns:**
+- Session: `with self.session_factory() as session:`
+- Query: `session.query(Entity).filter(Entity.field == value).first()`
+- Add: `session.add(entity); session.commit(); session.refresh(entity)`
+- Update: `session.merge(entity); session.commit()`
+- Delete: `session.delete(entity); session.commit()`
+
+**File Locations:**
+- Implementation: `src/lorairo/database/db_repository.py`
+- Schema: `src/lorairo/database/schema.py`
+- Tests: `tests/database/test_db_repository.py`
