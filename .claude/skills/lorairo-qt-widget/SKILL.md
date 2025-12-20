@@ -1,7 +1,17 @@
 ---
 name: lorairo-qt-widget
-description: PySide6 widget implementation for LoRAIro GUI with Signal/Slot pattern, Direct Widget Communication, and Qt Designer integration best practices
-allowed-tools: mcp__serena__find_symbol, mcp__serena__get_symbols_overview, mcp__serena__read_memory, Read, Edit, Write, Bash
+description: PySide6 widget implementation guide for LoRAIro GUI with Signal/Slot pattern, Direct Widget Communication, and Qt Designer integration best practices. Use when creating new widgets, implementing GUI components, or working with PySide6 Signal/Slot communication.
+allowed-tools:
+  # Code exploration
+  - mcp__serena__find_symbol
+  - mcp__serena__get_symbols_overview
+  # Memory (widget patterns)
+  - mcp__serena__read_memory
+  - mcp__cipher__cipher_memory_search
+  # Fallback
+  - Read
+  - Write
+  - Edit
 ---
 
 # LoRAIro Qt Widget Skill

@@ -1,7 +1,17 @@
 ---
 name: mcp-memory-first-development
-description: Memory-First development workflow integrating Serena short-term project memory and Cipher long-term design knowledge for efficient LoRAIro development
-allowed-tools: mcp__serena__list_memories, mcp__serena__read_memory, mcp__serena__write_memory, cipher_memory_search, cipher_store_reasoning_memory, cipher_extract_entities
+description: Memory-First development workflow integrating Serena short-term project memory and Cipher long-term design knowledge for efficient development. Use this skill to guide the 3-phase workflow (Before → During → After implementation) with proper memory management.
+allowed-tools:
+  # Serena memory (short-term)
+  - mcp__serena__read_memory
+  - mcp__serena__write_memory
+  - mcp__serena__list_memories
+  - mcp__serena__edit_memory
+  # Cipher memory (long-term)
+  - mcp__cipher__cipher_memory_search
+  - mcp__cipher__cipher_extract_and_operate_memory
+  - mcp__cipher__cipher_workspace_search
+  - mcp__cipher__cipher_workspace_store
 ---
 
 # Memory-First Development Skill

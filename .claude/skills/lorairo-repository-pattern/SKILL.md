@@ -1,7 +1,18 @@
 ---
 name: lorairo-repository-pattern
-description: SQLAlchemy repository pattern implementation for LoRAIro database operations with type-safe transactions, session management, and ORM best practices
-allowed-tools: mcp__serena__find_symbol, mcp__serena__get_symbols_overview, mcp__serena__read_memory, Read, Edit, Write
+description: SQLAlchemy repository pattern implementation guide for LoRAIro database operations with type-safe transactions, session management, and ORM best practices. Use when creating new repositories, implementing database access layers, or following LoRAIro's data persistence patterns.
+allowed-tools:
+  # Code exploration (recommended)
+  - mcp__serena__find_symbol
+  - mcp__serena__get_symbols_overview
+  - mcp__serena__find_referencing_symbols
+  # Memory (design patterns)
+  - mcp__serena__read_memory
+  - mcp__cipher__cipher_memory_search
+  # Fallback
+  - Read
+  - Write
+  - Edit
 ---
 
 # LoRAIro Repository Pattern Skill

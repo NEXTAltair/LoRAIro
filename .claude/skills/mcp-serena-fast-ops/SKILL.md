@@ -1,7 +1,25 @@
 ---
 name: mcp-serena-fast-ops
-description: Fast code operations using Serena MCP (1-3s) for symbol search, memory read/write, and basic code editing in LoRAIro project
-allowed-tools: mcp__serena__find_symbol, mcp__serena__get_symbols_overview, mcp__serena__search_for_pattern, mcp__serena__list_dir, mcp__serena__read_memory, mcp__serena__write_memory, mcp__serena__list_memories, mcp__serena__find_referencing_symbols, mcp__serena__replace_symbol_body, mcp__serena__insert_after_symbol, mcp__serena__insert_before_symbol
+description: Fast code operations using Serena MCP (1-3s) for symbol search, memory read/write, and basic code editing in LoRAIro project. Use when exploring code, managing project memory, or performing quick edits.
+allowed-tools:
+  # Symbol operations
+  - mcp__serena__find_symbol
+  - mcp__serena__get_symbols_overview
+  - mcp__serena__find_referencing_symbols
+  # Editing operations
+  - mcp__serena__replace_symbol_body
+  - mcp__serena__insert_after_symbol
+  - mcp__serena__insert_before_symbol
+  # Pattern search
+  - mcp__serena__search_for_pattern
+  # File operations
+  - mcp__serena__list_dir
+  - mcp__serena__find_file
+  # Memory operations
+  - mcp__serena__read_memory
+  - mcp__serena__write_memory
+  - mcp__serena__list_memories
+  - mcp__serena__edit_memory
 ---
 
 # Serena Fast Operations Skill
