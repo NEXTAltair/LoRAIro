@@ -411,6 +411,37 @@ LoRAIroの開発パターンとMCP操作は **Claude Skills** で自動化され
 - **`/planning`**: 戦略的設計・計画立案（cipher+serena統合）
 - **`/implement`**: コード開発実装（段階的実行）
 - **`/test`**: 品質保証・テスト実行
+- **`/sync-plan`**: Plan Mode の計画を手動で Serena Memory に同期
+
+### Plan Mode vs /planning Command
+
+Claude Code のネイティブ Plan Mode と custom `/planning` コマンドの使い分け：
+
+**Plan Mode** (Quick Task Planning):
+- **用途**: 単一機能の実装、即座の実行タスク
+- **所要時間**: 5-10分
+- **出力**: `.claude/plans/` → Serena Memory（自動同期）
+- **Memory**: Serena のみ（プロジェクト固有）
+- **特徴**:
+  - Claude Code UI でネイティブサポート
+  - PostToolUse hook で自動的に Serena Memory に同期
+  - 他の Agent から `.serena/memories/plan_*` として参照可能
+
+**/planning Command** (Comprehensive Design):
+- **用途**: 複雑なアーキテクチャ決定、複数フェーズ機能
+- **所要時間**: 20-40分
+- **出力**: Cipher Memory（設計パターン） + Serena Memory（現在状況）
+- **Memory**: Serena + Cipher（クロスプロジェクト知識）
+- **特徴**:
+  - Investigation + Library Research + Solutions agents 統合
+  - 複数アプローチ検討とトレードオフ分析
+  - 設計知識を Cipher に永続化（再利用可能）
+
+**選択ガイドライン**:
+- シンプルな機能追加 → **Plan Mode**
+- アーキテクチャ変更を伴う実装 → **/planning**
+- 過去に似た実装がある → まず `/check-existing`、その後 Plan Mode
+- 技術選定が必要 → **/planning** (Library Research を含む)
 
 ### Agents（コマンド内で自動使用）
 - **investigation**: コードベース調査・分析（serena semantic search活用）

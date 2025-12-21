@@ -180,6 +180,57 @@ This file provides ready-to-use templates for Serena short-term memory and Ciphe
 - [Important reminders or context for next session]
 ```
 
+### Template 5: plan_{topic}_{YYYY_MM_DD} (Plan Mode Sync)
+
+```markdown
+# Plan: {topic}
+
+**Created**: YYYY-MM-DD HH:MM:SS
+**Source**: plan_mode | manual_sync
+**Original File**: {plan-file}.md
+**Status**: planning | implementing | completed
+
+---
+
+{original plan content from .claude/plans/}
+
+## Implementation Notes
+[Updates made during implementation - add as work progresses]
+
+**Progress**:
+- [ ] Phase 1: [Name]
+- [ ] Phase 2: [Name]
+- [ ] Phase 3: [Name]
+
+**Deviations from Plan**:
+- [Any changes made from original plan and rationale]
+
+**Challenges Encountered**:
+- [Challenge 1]: [How it was addressed]
+- [Challenge 2]: [Current status]
+
+## Outcome
+[To be filled after implementation completion]
+
+**Results**:
+- [Result 1]
+- [Result 2]
+
+**Success Criteria Met**:
+- ✅ [Criterion 1]
+- ✅ [Criterion 2]
+- ⚠️ [Criterion 3 - partially met]: [Explanation]
+
+**Next Steps**:
+- [Follow-up task 1]
+- [Follow-up task 2]
+
+**Extract to Cipher**:
+- [ ] Important design decisions extracted to Cipher Memory
+- [ ] Reusable patterns documented
+- [ ] Lessons learned captured
+```
+
 ## Cipher Memory Templates (Long-Term)
 
 ### Template 1: Feature Implementation Knowledge
@@ -484,6 +535,7 @@ class NewImplementation:
 - **{feature}_wip_{YYYY_MM_DD}**: Multi-day feature implementation
 - **debug_{issue}_{YYYY_MM_DD}**: Bug investigation and resolution
 - **current-project-status**: Overall project state tracking
+- **plan_{topic}_{YYYY_MM_DD}**: Plan Mode sync (auto/manual from `.claude/plans/`)
 
 **Cipher Templates** (use after completion):
 - **Feature Implementation**: After completing a feature or component

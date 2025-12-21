@@ -211,6 +211,134 @@ Development Task
 - **Technology + Purpose:** "sqlalchemy transaction", "pyside6 threading"
 - **LoRAIro terms:** "direct widget communication", "memory-first development"
 
+## Plan Mode Integration
+
+### Overview
+
+Claude Code's Plan Mode is now integrated with the Memory-First workflow through automatic synchronization to Serena Memory.
+
+**Key Features:**
+- **Auto-sync:** Plan Mode plans automatically sync to `.serena/memories/` via PostToolUse hook
+- **Manual sync:** `/sync-plan` command for manual synchronization or historical plans
+- **Template:** Dedicated `plan_{topic}_{YYYY_MM_DD}` template in memory-templates.md
+
+### Plan Mode vs /planning Command
+
+**Plan Mode** (Quick Task Planning):
+- **Use for:** Single-feature implementation, immediate execution tasks
+- **Duration:** 5-10 minutes
+- **Output:** `.claude/plans/` → Auto-sync to Serena Memory
+- **Memory:** Serena only (project-specific)
+- **Workflow:** Claude Code native planning → Auto-sync on exit
+
+**/planning Command** (Comprehensive Design):
+- **Use for:** Complex architecture decisions, multi-phase features
+- **Duration:** 20-40 minutes
+- **Output:** Cipher Memory (design patterns) + Serena Memory (current status)
+- **Memory:** Serena + Cipher (cross-project knowledge)
+- **Workflow:** Investigation + Library Research + Solutions agents
+
+### Plan Mode Workflow
+
+```
+┌──────────────────┐
+│   Plan Mode      │ User creates plan in Claude Code
+│  (Native UI)     │
+└────────┬─────────┘
+         │
+         ↓ Exit Plan Mode (trigger PostToolUse hook)
+┌──────────────────┐
+│   Auto-Sync      │ hook_post_plan_mode.py executes
+│  .claude/plans/  │ → .serena/memories/plan_{topic}_{date}.md
+│  → Serena Memory │
+└────────┬─────────┘
+         │
+         ↓ Implementation phase
+┌──────────────────┐
+│  Update Memory   │ Add implementation notes, progress, challenges
+│  During Dev      │ Use mcp__serena__edit_memory to update plan
+└────────┬─────────┘
+         │
+         ↓ After completion
+┌──────────────────┐
+│ Extract to       │ Important design decisions → Cipher Memory
+│ Cipher Memory    │ Use cipher_extract_and_operate_memory
+└──────────────────┘
+```
+
+### Memory Naming Convention
+
+Plan Mode files are synced with this naming pattern:
+
+**File name:** `plan_{sanitized_topic}_{YYYY_MM_DD}.md`
+
+**Sanitization rules:**
+- Hyphens (-) → Underscores (_)
+- Special characters → Removed
+- Lowercase conversion
+
+**Examples:**
+- Input: `moonlit-munching-yeti.md` (Plan Mode file)
+- Output: `plan_moonlit_munching_yeti_2025_12_21.md` (Serena Memory)
+
+### Using Synced Plans
+
+**Reading a plan:**
+```javascript
+mcp__serena__read_memory("plan_moonlit_munching_yeti_2025_12_21")
+```
+
+**Updating during implementation:**
+```javascript
+mcp__serena__edit_memory(
+  "plan_moonlit_munching_yeti_2025_12_21",
+  "## Implementation Notes\n- Completed Phase 1\n- Issue encountered in Phase 2: [description]",
+  "regex"
+)
+```
+
+**Listing all plans:**
+```javascript
+mcp__serena__list_memories() // Look for files starting with "plan_"
+```
+
+### Manual Sync with /sync-plan
+
+Use `/sync-plan` command when:
+- Auto-sync hook is disabled
+- Syncing historical plans from `.claude/plans/`
+- Auto-sync failed and needs manual retry
+
+**Usage:**
+```bash
+/sync-plan                    # Sync latest plan
+/sync-plan my-feature.md     # Sync specific plan
+```
+
+### Integration with Memory-First Cycle
+
+**Phase 1 (Before):**
+- Check for existing plans: `mcp__serena__list_memories()` → Look for `plan_*` files
+- Review past plans if similar feature was planned before
+
+**Phase 2 (During):**
+- Update plan memory with implementation notes
+- Record deviations from original plan and rationale
+- Track progress against plan phases
+
+**Phase 3 (After):**
+- Extract important design decisions to Cipher
+- Update plan status to "completed"
+- Record lessons learned vs original plan
+
+### Best Practices
+
+1. **Use Plan Mode for quick planning**, use `/planning` for comprehensive design
+2. **Update plan memories during implementation** to track deviations and challenges
+3. **Extract to Cipher after completion** if plan contains reusable design patterns
+4. **Reference plans from other agents** by reading Serena memory files
+5. **Archive completed plans** by prefixing with `archived_` or deleting after Cipher extraction
+
 ## Reference Files
 
 - [memory-templates.md](./memory-templates.md) - Serena and Cipher memory templates

@@ -78,7 +78,9 @@
       "Bash(git -C /workspaces/LoRAIro/local_packages/image-annotator-lib diff src/image_annotator_lib/model_class/tagger_tensorflow.py)",
       "Bash(ls:*)",
       "Bash(tree:*)",
-      "WebFetch(domain:docs.pola.rs)"
+      "WebFetch(domain:docs.pola.rs)",
+      "Bash(done)",
+      "Bash(chmod:*)"
     ],
     "deny": [],
     "ask": []
@@ -121,6 +123,15 @@
           {
             "type": "command",
             "command": "/workspaces/LoRAIro/.claude/hooks/hook_stop_words.py"
+          }
+        ]
+      },
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_post_plan_mode.py"
           }
         ]
       }
