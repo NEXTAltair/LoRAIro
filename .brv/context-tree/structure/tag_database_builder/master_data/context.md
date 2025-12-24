@@ -1,0 +1,2 @@
+
+The `genai_tag_db_dataset_builder.core.master_data` module is responsible for initializing and managing master data such as tag formats and types. For the `site_tags` integration, `format_id` values from 4 to 18 are reserved. The `TAG_TYPE_FORMAT_MAPPING` table stores the mapping between a site's native category/type values and the unified `type_id`. If a type is unknown or cannot be mapped, it is assigned a `type_id` of -1, which can be reported on later.

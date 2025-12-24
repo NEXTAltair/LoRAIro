@@ -73,6 +73,7 @@
 - 翻訳は全言語を結合。**同一languageで異なる翻訳はリスト保持**（優先順位は付けない）。
 - alias の推奨先が複数ある場合は **count が取れるなら最大**、取れないなら先勝ち＋レポート。
 - invalid_tag / bad_tag は **redirectしない**（deprecated情報として記録のみ）。
+- **ベースDBは常に読み取り専用**（書き込みはユーザーDBのみ許可）。
 
 ## 13) 進捗（2025-12-21）
 - 文字化けした既存ファイルをUTF-8で再生成（db/・services/の主要ファイル）。GUI系は対象外。
@@ -85,3 +86,36 @@
 - 統合ビュー/ユーザーDB運用: 検索は統合ビュー、登録はUserDB（Repository層で統合）。
 - TagRegisterResult/TagRecord外部モデルはtag_id非公開、TagSearchRequestはformat/typeを文字列で受ける。
 - HF取得は repo_id/filename 指定で固定（ファイル名指定方式で運用）。
+
+## 14) GUI起動とDB初期化（2025-12-23 dev整備）
+
+- `gui/services/db_initialization.py` を導入。`DbInitializationService`＋`DbInitWorker` で HF ダウンロード＋ runtime 初期化を非同期化し、進捗/エラーを Signal で通知。
+- `MainWindow` 起動時に同期 UI 設定→`DbInitializationService`開始→`DbInitWorker`で `ensure_databases`/`init_engine`/`init_user_engine`→完了後に各サービス・ウィジェットを初期化するシーケンスを明確化。
+- HF更新チェックは1回に限定し、失敗時はキャッシュフォールバック＋ステータスバーでオンライン/オフライン状態を提示する。進捗ダイアログ（`QProgressDialog`）でユーザーにフィードバック。
+- Signal/Slot で `Service.progress_updated`/`initialization_complete`/`error_occurred` を MainWindow へ流し、サービスエラー時はステータスorダイアログで通知。
+- 既存 Widget は引き続き DI 受け（`set_service`系）、`DbInitializationService`は Repository を注入して `MergedTagReader`/`TagRepository` などを使い分け。
+
+## 15) GUI今後の ToDo
+
+### 完了項目 (2025-12-23)
+
+- ✅ **Service Layer を core_api 呼び出しベースに統合** (TagSearchService, TagStatisticsService)
+- ✅ **Service層で TagSearchRequest 構築と Pydantic バリデーション実施**
+- ✅ **Service → core_api → Repository の境界を明確化**
+- ✅ **DataFrame変換レイヤー (converters.py) で GUI/ロジック分離**
+- ✅ **MergedTagReader の Lazy Initialization + DI パターン実装**
+- ✅ **DbInitWorker** は `runtime.init_user_db(cache_dir)` を使い、`cache_dir/base_dbs/<filename>` からのフォールバックとベースDB準備の成否しか報告しない（MainWindow は Cancel/オンライン状態非表示）。
+- ✅ **DbInitializationService** のデフォルトソースに CC4/MIT/CC0 を含めた。
+- ✅ **TagSearchService** は UI/Presenter から渡される limit/offset を core_api に渡し、1000固定を排除した。
+
+詳細: `.serena/memories/genai_tag_db_tools_service_layer_core_api_integration_2025_12_23.md`
+
+### 残タスク
+
+- `DbInitializationService` と `MainWindow` の非同期フローをカバーする pytest-qt ベースの GUI テストを整備（オンライン/オフライン/進捗）。
+- 設定 UI を追加し、キャッシュディレクトリ・HFトークン・取得DBソースの切り替えを GUI で指定可能にする。
+- README/ドキュメントに GUI の起動+DB初期化フロー（進捗表示/オフラインフォールバック）を追記。
+- コード品質強化: 文字化けコメント/docstringの整理、未使用 import/`__main__` デモの整理、lint整合。
+- Presenter/サービスの単体テストを追加し、検索/登録/統計のデータ整形をUIから分離したまま検証できるようにする。
+- Widget層の Presenter 経由を Service 直接呼び出しに簡素化（必要に応じて）。
+- 途中停止したダウンロードは再実行またはクリーンアップで回収（UIの進捗表示は最小限）。

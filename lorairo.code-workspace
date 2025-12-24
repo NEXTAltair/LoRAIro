@@ -3,10 +3,6 @@
     {
       "path": ".",
       "name": "LoRAIro"
-    },
-    {
-      "path": "local_packages/genai-tag-db-dataset-builder",
-      "name": "genai-tag-db-dataset-builder"
     }
   ],
   "settings": {

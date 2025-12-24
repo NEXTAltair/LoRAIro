@@ -17,7 +17,6 @@ Date: 2025-09-04
 import subprocess
 import sys
 from pathlib import Path
-from typing import List
 
 # Define project paths
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
