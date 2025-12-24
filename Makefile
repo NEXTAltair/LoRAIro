@@ -1,7 +1,7 @@
 # LoRAIro Project Makefile
 # Documentation and development task automation
 
-.PHONY: help docs docs-clean docs-publish docs-serve test mypy format install install-dev clean run-gui
+.PHONY: help docs docs-clean docs-publish docs-serve test mypy format install install-dev clean run-gui generate-ui
 
 # Default target
 help:
@@ -17,6 +17,7 @@ help:
 	@echo "  install      Install project dependencies"
 	@echo "  install-dev  Install development dependencies"
 	@echo "  run-gui      Run LoRAIro GUI application"
+	@echo "  generate-ui  Generate Python files from Qt Designer .ui files"
 	@echo "  test         Run tests"
 	@echo "  mypy         Run code check (mypy)"
 	@echo "  format       Format code (ruff format)"
@@ -87,21 +88,35 @@ run-gui:
 	@echo "Running LoRAIro GUI..."
 	./scripts/run_gui.sh
 
+gene-ui:
+	@echo "Generating Python files from Qt Designer UI files..."
+	uv run python scripts/generate_ui.py
+
 test:
-	@echo "src/ and tests/..."
+	@echo "src/ and tests..."
 	uv run pytest
 
 clean:
-	@echo "Cleaning build artifacts..."
+	@echo "Cleaning build artifacts and caches..."
+	# Remove Python bytecode and cache dirs
 	@find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	@find . -type f -name "*.pyc" -delete 2>/dev/null || true
+	# Remove packaging/build artifacts
 	@find . -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null || true
+	@find . -type d -name ".eggs" -exec rm -rf {} + 2>/dev/null || true
+	# Remove test/tool caches
 	@find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null || true
 	@find . -type d -name ".ruff_cache" -exec rm -rf {} + 2>/dev/null || true
 	@find . -type d -name ".mypy_cache" -exec rm -rf {} + 2>/dev/null || true
-	@rm -rf build/ dist/ docs/build/
-	@rm -rf logs/*
-	@rm -rf .claude/logs
-	@echo "Build artifacts cleaned."
+	# Remove other common caches and tooling dirs
+	@find . -type d -name ".cache" -exec rm -rf {} + 2>/dev/null || true
+	@find . -type d -name ".tox" -exec rm -rf {} + 2>/dev/null || true
+	@find . -type d -name ".ipynb_checkpoints" -exec rm -rf {} + 2>/dev/null || true
+	# Remove build outputs, coverage and logs
+	@rm -rf build/ dist/ docs/build/ .coverage coverage.xml
+	@rm -rf logs/* .claude/logs
+	@echo "Build artifacts and caches cleaned."
+
 
 # Windows compatibility (optional .bat targets)
 docs-publish-win:

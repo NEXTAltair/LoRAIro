@@ -1,0 +1,62 @@
+{
+  "createdAt": "2025-12-24T02:57:41.056Z",
+  "files": {
+    "design\\error_handling\\context.md": {
+      "hash": "0e7f877c98112ef7401bb12e560eff656a35135fad101368f1647b8f422f9b00",
+      "size": 165
+    },
+    "code_style\\ruff\\context.md": {
+      "hash": "6774c27f062d57b8868b76197a1131f730ca4934be19e6a2c5dd4bfd57cedcc1",
+      "size": 43
+    },
+    "testing\\test_coverage\\context.md": {
+      "hash": "ff647ebee3c895d925db9d2f72148f559d9030dd431db7b820cc0df82119dd2c",
+      "size": 44
+    },
+    "structure\\authentication\\context.md": {
+      "hash": "9904caa8a110032d9d25f9240262c51fc5c1815661bd5880d2c37e7ed4644e59",
+      "size": 71
+    },
+    "structure\\async_processing\\context.md": {
+      "hash": "72ab7fe4286959c96db53b0c133b3f6002bc0f0cb13fbd7d6b9428b25bd948d0",
+      "size": 101
+    },
+    "structure\\gui_lifecycle\\context.md": {
+      "hash": "6509d2c72a772edb8ec9f74dfd7a61c0d887b268d894fef0da946ac00c716821",
+      "size": 165
+    },
+    "structure\\core_api_integration\\context.md": {
+      "hash": "017d49bcbc066314e4cb2e53e4725957fe133e83c547ff8cdfbf3b78aa995641",
+      "size": 233
+    },
+    "structure\\tag_database_builder\\context.md": {
+      "hash": "ab3e8c6cf13d824a0a896bb33b2846d14d21d052a65a0c43d883e674aa34d3bf",
+      "size": 775
+    },
+    "structure\\tag_database_builder\\database_schema\\context.md": {
+      "hash": "84542f7576bda718d36209f17e1ef579263e28e2a3cd020a89eb9bef3090b725",
+      "size": 708
+    },
+    "structure\\tag_database_builder\\data_integrity\\context.md": {
+      "hash": "be0e9ad798273bbad81ccc42f9f300786cb5ba49aaec974c4a69cc5ad91892b5",
+      "size": 3837
+    },
+    "structure\\tag_database_builder\\master_data\\context.md": {
+      "hash": "1e6369e73de656b7d629adcd50022a0cb4752f9b0ba7e7d9a8c960be04b8da93",
+      "size": 462
+    },
+    "structure\\tag_database_builder\\site_tags_adapter\\context.md": {
+      "hash": "771db2a53e7053cc697c02b1466055f8ccc4a245a448fe13981cec4948ccada0",
+      "size": 488
+    },
+    "structure\\tag_database_builder\\migration\\context.md": {
+      "hash": "1a02a177eb1bd976a7d1363062deef51a00b99834cfa6ac29c0512276049859c",
+      "size": 398
+    },
+    "structure\\tag_database_builder\\overview\\context.md": {
+      "hash": "4fe639d00f8abf98e9eedc1714669ef7de695dc17321fd2555d159b83f203f71",
+      "size": 576
+    }
+  },
+  "version": 1
+}

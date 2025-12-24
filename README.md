@@ -55,7 +55,7 @@ uv run lorairo
 lorairo/
 ├── .vscode/                # VS Code設定
 ├── local_packages/         # ローカルパッケージ（サブモジュール）
-│   ├── genai-tag-db-tools/ # タグデータベース管理ツール
+│   ├── genai-tag-db-tools/  # タグデータベース管理ツール
 │   └── image-annotator-lib/ # 画像アノテーションライブラリ
 ├── src/                    # ソースコード
 │   └── lorairo/            # メインパッケージ

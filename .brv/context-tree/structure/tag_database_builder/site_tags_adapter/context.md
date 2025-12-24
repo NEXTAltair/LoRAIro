@@ -1,0 +1,2 @@
+
+The `SiteTagsAdapter` is responsible for reading `tags.sqlite` files from different sites, each with its own schema. It normalizes the data into a common format that the builder can process. For sites like Sankaku, which have column names containing hyphens (e.g., `trans_zh-CN`), the adapter ensures that these column names are properly quoted in SQL SELECT statements to avoid syntax errors. It also handles the mapping of site-specific category and type values to a common `type_id`.

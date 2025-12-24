@@ -60,9 +60,9 @@
         "source=lorairo-venv-${devcontainerId},target=/workspaces/LoRAIro/.venv,type=volume"
     ],
     "postCreateCommand": [
-        "sudo chown -R vscode:vscode /workspaces/LoRAIro/.venv",
-        "find /workspaces/LoRAIro/local_packages -type d -name '.venv' -exec rm -rf {} + || true",
-        "make install-dev"
+        "bash -lc 'sudo chown -R vscode:vscode /workspaces/LoRAIro/.venv || true'",
+        "bash -lc \"find /workspaces/LoRAIro/local_packages -type d -name '.venv' -exec rm -rf {} + || true\"",
+        "bash -lc 'make install-dev'"
     ],
     "postAttachCommand": {
         "mcpSerena": "claude mcp add serena -- uvx --from git+https://github.com/oraios/serena serena start-mcp-server --context ide-assistant --project /workspaces/LoRAIro",

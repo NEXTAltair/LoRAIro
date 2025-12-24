@@ -331,7 +331,7 @@ uv run python scripts/generate_ui.py  # Generate UI files if needed
 
 LoRAIroの開発パターンとMCP操作は **Claude Skills** で自動化されています。
 
-**MCP Operations Skills** (`.claude/skills/`):
+**MCP Operations Skills** (`.github/skills/`):
 - `mcp-serena-fast-ops`: 高速コード操作（1-3秒）- Symbol検索、Memory操作、基本編集
 - `mcp-cipher-complex-analysis`: 複雑分析（10-30秒）- ライブラリ研究、設計パターン検索
 - `mcp-memory-first-development`: 2重メモリ戦略 - Serena短期 + Cipher長期記憶
@@ -450,7 +450,7 @@ Claude Code のネイティブ Plan Mode と custom `/planning` コマンドの�
 - **code-formatter**: コード品質管理（Ruff統合）
 
 ### Skills
-- **`.claude/skills/`**: 6つのSkills（MCP操作 + LoRAIro開発パターン）
+- **`.github/skills/`**: 6つのSkills（MCP操作 + LoRAIro開発パターン）
 - 詳細は各SkillのSKILL.mdを参照
 
 ### Documentation

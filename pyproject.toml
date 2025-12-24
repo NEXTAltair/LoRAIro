@@ -126,8 +126,6 @@ addopts = [
     "-ra",
     "--tb=short",
     "--showlocals",
-    "--cov=src",
-    "--cov-report=xml",
 ]
 qt_api = "pyside6"
 norecursedirs = [
@@ -160,7 +158,11 @@ markers = [
 
 
 [tool.coverage.run]
-source = ["src"]
+source = [
+    "src",
+    "local_packages/genai-tag-db-tools/src/genai_tag_db_tools",
+    "local_packages/image-annotator-lib/src/image_annotator_lib",
+]
 omit = [
     "*/shibokensupport/*",
     "*/site-packages/*",
@@ -172,6 +174,7 @@ omit = [
 [tool.coverage.report]
 fail_under = 75 # カバレッジが75%未満なら失敗
 show_missing = true
+skip_covered = true
 exclude_lines = [
     "pragma: no cover",
     "raise NotImplementedError",
@@ -189,7 +192,6 @@ packages = ["src/lorairo"] # パッケージディレクトリ指定
 [tool.uv.sources]
 genai-tag-db-tools = { path = "local_packages/genai-tag-db-tools", editable = true }
 image-annotator-lib = { path = "local_packages/image-annotator-lib", editable = true }
-genai-tag-db-dataset-builder = { path = "local_packages/genai-tag-db-dataset-builder", editable = true }
 
 [dependency-groups]
 dev = [
@@ -207,7 +209,6 @@ dev = [
     "types-toml",
     "psutil",
     "matplotlib",
-    "genai-tag-db-dataset-builder",
 ]
 
 [tool.hatch.metadata]

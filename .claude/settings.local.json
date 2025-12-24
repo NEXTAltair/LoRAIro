@@ -80,7 +80,11 @@
       "Bash(tree:*)",
       "WebFetch(domain:docs.pola.rs)",
       "Bash(done)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(git rev-parse:*)",
+      "WebFetch(domain:agentskills.io)",
+      "Bash(git worktree:*)",
+      "Bash(git stash:*)"
     ],
     "deny": [],
     "ask": []

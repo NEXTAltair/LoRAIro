@@ -229,7 +229,7 @@ def main() -> None:
             violations_text = "\n".join(violations)
             block_response = {
                 "decision": "block",
-                "reason": f"""🚫 NGワード規則違反が検出されました:
+                "reason": f"""🚫 NGワード規則違反が検出されました｡ファイルやブランチの名前に含まれている場合以外は:
 
 {violations_text}
 
