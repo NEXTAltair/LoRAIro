@@ -1,17 +1,41 @@
 {
-  "createdAt": "2025-12-24T02:57:41.056Z",
+  "createdAt": "2025-12-25T06:45:09.743Z",
   "files": {
+    "bug_fixes\\tag-search-request-limit\\context.md": {
+      "hash": "aefe42b304ccbf1095601995e502699ba94c58c711ae9a0b45d4f257ca46c361",
+      "size": 198
+    },
+    "bug_fixes\\format_filtering\\context.md": {
+      "hash": "4c7cddd1f328cfcf9bf793deac1e4c7a8b69e7c87c453c74eade4ebf34412d77",
+      "size": 221
+    },
+    "bug_fixes\\worker_service_partial_search\\context.md": {
+      "hash": "8b488b346ed2cfe03d7e44f583f90c760b6e5dab86c70b9dab3e37a0a42edce7",
+      "size": 1045
+    },
+    "bug_fixes\\format_statuses_preferred_tags\\context.md": {
+      "hash": "7729e87c5841f3f9fe81b01c17c361075462c6c2becb018aa8a0547e1e5e1b21",
+      "size": 213
+    },
+    "design\\tag_search_results_layout\\context.md": {
+      "hash": "8d74a2699fe9022951645eee7c1e131c65f12d7e1cfcdb7c1f5916717a17b26e",
+      "size": 1844
+    },
     "design\\error_handling\\context.md": {
       "hash": "0e7f877c98112ef7401bb12e560eff656a35135fad101368f1647b8f422f9b00",
       "size": 165
     },
+    "design\\tag_search_ui_refactor\\context.md": {
+      "hash": "82b17bad1bde181f0bbf45b9224b6e69f796b05d0b7a41c744861b10dfd0add9",
+      "size": 328
+    },
+    "design\\search_filter_bar\\context.md": {
+      "hash": "5cd3032a05a9d6231218c17e74aa163f785e27944356cc081f5268de57fe7016",
+      "size": 351
+    },
     "code_style\\ruff\\context.md": {
       "hash": "6774c27f062d57b8868b76197a1131f730ca4934be19e6a2c5dd4bfd57cedcc1",
       "size": 43
-    },
-    "testing\\test_coverage\\context.md": {
-      "hash": "ff647ebee3c895d925db9d2f72148f559d9030dd431db7b820cc0df82119dd2c",
-      "size": 44
     },
     "structure\\authentication\\context.md": {
       "hash": "9904caa8a110032d9d25f9240262c51fc5c1815661bd5880d2c37e7ed4644e59",
@@ -21,41 +45,89 @@
       "hash": "72ab7fe4286959c96db53b0c133b3f6002bc0f0cb13fbd7d6b9428b25bd948d0",
       "size": 101
     },
+    "structure\\core_api_integration\\context.md": {
+      "hash": "017d49bcbc066314e4cb2e53e4725957fe133e83c547ff8cdfbf3b78aa995641",
+      "size": 233
+    },
+    "structure\\architectural_refactoring\\context.md": {
+      "hash": "94edb54e0fe4e449a60910ea78278bb4489216f7e157fb7afa4329172d707e15",
+      "size": 836
+    },
     "structure\\gui_lifecycle\\context.md": {
       "hash": "6509d2c72a772edb8ec9f74dfd7a61c0d887b268d894fef0da946ac00c716821",
       "size": 165
     },
-    "structure\\core_api_integration\\context.md": {
-      "hash": "017d49bcbc066314e4cb2e53e4725957fe133e83c547ff8cdfbf3b78aa995641",
-      "size": 233
+    "structure\\search_result_filtering\\context.md": {
+      "hash": "a4cda6b805eeecf351eaa5a79e641a6f9052e1c2a1216df56558a3ad8ea262b6",
+      "size": 110
     },
     "structure\\tag_database_builder\\context.md": {
       "hash": "ab3e8c6cf13d824a0a896bb33b2846d14d21d052a65a0c43d883e674aa34d3bf",
       "size": 775
     },
-    "structure\\tag_database_builder\\database_schema\\context.md": {
-      "hash": "84542f7576bda718d36209f17e1ef579263e28e2a3cd020a89eb9bef3090b725",
-      "size": 708
+    "structure\\tag_search_data_model\\context.md": {
+      "hash": "22c2790ea8a88e7fb8443819f1d6362d435f213429b1392a0bb20edf25e9455d",
+      "size": 1395
     },
-    "structure\\tag_database_builder\\data_integrity\\context.md": {
-      "hash": "be0e9ad798273bbad81ccc42f9f300786cb5ba49aaec974c4a69cc5ad91892b5",
-      "size": 3837
+    "structure\\tag_search_data_flow\\context.md": {
+      "hash": "1edf87fbe95f915a5af70d15a740439f38f7f87fbc0095df753a25298984e122",
+      "size": 333
     },
-    "structure\\tag_database_builder\\master_data\\context.md": {
-      "hash": "1e6369e73de656b7d629adcd50022a0cb4752f9b0ba7e7d9a8c960be04b8da93",
-      "size": 462
+    "testing\\test_coverage\\context.md": {
+      "hash": "ff647ebee3c895d925db9d2f72148f559d9030dd431db7b820cc0df82119dd2c",
+      "size": 44
     },
-    "structure\\tag_database_builder\\site_tags_adapter\\context.md": {
-      "hash": "771db2a53e7053cc697c02b1466055f8ccc4a245a448fe13981cec4948ccada0",
-      "size": 488
+    "testing\\tag_search_widget_tests\\context.md": {
+      "hash": "ce83f02d695ab665b96c4904f7e5d9b6d35dbe8e606ca4f5eb880a9d8006cce3",
+      "size": 764
+    },
+    "testing\\qobject_testing\\context.md": {
+      "hash": "35c9d796048e00bbab7c6e495040a0f36d27d75af06d93c23f4233cb7e8bece9",
+      "size": 541
+    },
+    "structure\\application_architecture\\tag_search\\context.md": {
+      "hash": "e1fe3081409fbd462c0aa2d22c9f5de94e72e4136b60b202ca35c8d12923ba74",
+      "size": 464
+    },
+    "design\\ui_components\\tag_search\\context.md": {
+      "hash": "42647576e3a9f955427c9b4a215cf4b5f5cda069597b1b5927f2fc3c1cff8018",
+      "size": 345
+    },
+    "design\\ui_components\\tag_search_results\\context.md": {
+      "hash": "ae635dda7db7ec7449cd661d706b84da79f2b49cfec952c2794d965262e3903c",
+      "size": 487
+    },
+    "structure\\gui\\dataframe_table_model\\context.md": {
+      "hash": "a59413632f375e53eb2b2c24f23f383a30948196d882e5d49f5bacea2f05404d",
+      "size": 429
+    },
+    "structure\\data_models\\tag_record_public\\context.md": {
+      "hash": "bdd7380d13f57577e0d2fc1e4cdad5cbbcfb203dac2cde492efb315faf294c4c",
+      "size": 367
     },
     "structure\\tag_database_builder\\migration\\context.md": {
       "hash": "1a02a177eb1bd976a7d1363062deef51a00b99834cfa6ac29c0512276049859c",
       "size": 398
     },
+    "structure\\tag_database_builder\\master_data\\context.md": {
+      "hash": "1e6369e73de656b7d629adcd50022a0cb4752f9b0ba7e7d9a8c960be04b8da93",
+      "size": 462
+    },
+    "structure\\tag_database_builder\\data_integrity\\context.md": {
+      "hash": "be0e9ad798273bbad81ccc42f9f300786cb5ba49aaec974c4a69cc5ad91892b5",
+      "size": 3837
+    },
     "structure\\tag_database_builder\\overview\\context.md": {
       "hash": "4fe639d00f8abf98e9eedc1714669ef7de695dc17321fd2555d159b83f203f71",
       "size": 576
+    },
+    "structure\\tag_database_builder\\site_tags_adapter\\context.md": {
+      "hash": "771db2a53e7053cc697c02b1466055f8ccc4a245a448fe13981cec4948ccada0",
+      "size": 488
+    },
+    "structure\\tag_database_builder\\database_schema\\context.md": {
+      "hash": "84542f7576bda718d36209f17e1ef579263e28e2a3cd020a89eb9bef3090b725",
+      "size": 708
     }
   },
   "version": 1
