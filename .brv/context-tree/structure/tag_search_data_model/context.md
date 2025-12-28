@@ -1,34 +1,31 @@
 
-## Relations
-@@design/tag_search_results_layout
-@@testing/tag_search_widget_tests
+class TagSearchRow(TypedDict):
+    """Internal repository row for tag search results.
 
-TagRecordPublic now carries deprecated; converters output alias/deprecated;
+    Keys:
+        tag_id: Tag id.
+        tag: Normalized tag string.
+        source_tag: Source tag if present.
+        usage_count: Usage count for the active format.
+        alias: True if alias.
+        deprecated: True if deprecated.
+        type_id: Type id if known.
+        type_name: Type name for the active format.
+        translations: Language to translations mapping.
+        format_statuses: Per-format status mapping.
+    """
+
+    tag_id: int
+    tag: str
+    source_tag: str | None
+    usage_count: int
+    alias: bool
+    deprecated: bool
+    type_id: int | None
+    type_name: str
+    translations: dict[str, list[str]]
+    format_statuses: dict[str, dict[str, object]]
 
 ---
 
-class TagRecordPublic(BaseModel):
-    """検索結果の1行（外部向け / IDなし）。
-
-    Args:
-        tag: 表示用の正規タグ。
-        source_tag: ソースタグ（あれば）。
-        format_name: フォーマット名。
-        type_name: タイプ名。
-        alias: エイリアスかどうか。
-    """
-
-    tag: str = Field(..., description="表示用の正規タグ")
-    source_tag: str | None = Field(default=None, description="ソースタグ")
-    format_name: str | None = Field(default=None, description="フォーマット名")
-    type_id: int | None = Field(default=None, description="タイプID")
-    type_name: str | None = Field(default=None, description="タイプ名")
-    alias: bool | None = Field(default=None, description="エイリアスかどうか")
-    deprecated: bool | None = Field(default=None, description="非推奨かどうか")
-    usage_count: int | None = Field(default=None, description="????")
-    translations: dict[str, list[str]] | None = Field(
-        default=None, description="言語別の翻訳一覧"
-    )
-    format_statuses: dict[str, dict[str, object]] | None = Field(
-        default=None, description="フォーマット別の状態一覧"
-    )
+The `TagSearchRow` TypedDict was introduced in `models.py` to provide a stricter, more defined structure for tag search results. This change improves type safety and code clarity within the data access layer. Previously, search results were handled as more generic dictionaries, which made it difficult to ensure data consistency and led to potential runtime errors. By defining the precise keys and their expected types, `TagSearchRow` helps catch data-related issues early and makes the search result data model easier to understand and maintain.

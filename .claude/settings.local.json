@@ -84,7 +84,11 @@
       "Bash(git rev-parse:*)",
       "WebFetch(domain:agentskills.io)",
       "Bash(git worktree:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(git -C local_packages/genai-tag-db-tools status)",
+      "Bash(git -C local_packages/genai-tag-db-tools diff src/genai_tag_db_tools/core_api.py)",
+      "Skill(planning)",
+      "Skill(planning:*)"
     ],
     "deny": [],
     "ask": []
