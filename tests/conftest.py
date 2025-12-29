@@ -641,15 +641,17 @@ def test_tag_db_path(temp_dir):
 
 @pytest.fixture(scope="function")
 def test_tag_repository(test_tag_db_path):
-    """テスト用TagRepositoryインスタンスを提供
+    """テスト用TagRepository互換オブジェクトを提供
 
-    test_tag_db_pathで指定されたデータベースを使用するTagRepositoryを作成。
-    テスト終了後、作成されたタグをクリーンアップする。
+    公開API（MergedTagReader + register_tags）を使用したテストヘルパー。
+    旧TagRepositoryと互換性のあるインターフェースを提供。
 
     Yields:
-        TagRepository: テスト用のTagRepositoryインスタンス
+        TestTagRepositoryHelper: テスト用のTagRepository互換オブジェクト
     """
-    from genai_tag_db_tools.data.tag_repository import TagRepository
+    from genai_tag_db_tools import search_tags
+    from genai_tag_db_tools.db.repository import MergedTagReader
+    from genai_tag_db_tools.models import TagSearchRequest
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
@@ -657,23 +659,55 @@ def test_tag_repository(test_tag_db_path):
     test_engine = create_engine(f"sqlite:///{test_tag_db_path}", echo=False)
     test_session_factory = sessionmaker(bind=test_engine, autoflush=False, autocommit=False)
 
-    # TagRepositoryにカスタムsession_factoryを注入
-    tag_repository = TagRepository(session_factory=test_session_factory)
+    # MergedTagReaderを作成（テスト用DBをベースDBとして使用）
+    merged_reader = MergedTagReader(
+        base_session_factory=test_session_factory,
+        user_session_factory=None  # テストではユーザーDBは使用しない
+    )
 
-    # テスト実行前に作成されたタグIDを記録
+    # 作成されたタグIDを記録（クリーンアップ用）
     created_tag_ids = []
 
-    # 元のcreate_tagメソッドをラップしてID記録
-    original_create_tag = tag_repository.create_tag
+    class TestTagRepositoryHelper:
+        """TagRepository互換インターフェースを提供するテストヘルパー"""
 
-    def tracked_create_tag(source_tag: str, tag: str) -> int:
-        tag_id = original_create_tag(source_tag, tag)
-        created_tag_ids.append(tag_id)
-        return tag_id
+        def __init__(self, reader: MergedTagReader, session_factory):
+            self.merged_reader = reader
+            self.session_factory = session_factory
 
-    tag_repository.create_tag = tracked_create_tag
+        def create_tag(self, source_tag: str, tag: str) -> int:
+            """新規タグを作成してtag_idを返す（Phase 2実装待ちのため、直接DB書き込み）"""
+            from genai_tag_db_tools.data.database_schema import Tag
 
-    yield tag_repository
+            with self.session_factory() as session:
+                new_tag = Tag(source_tag=source_tag, tag=tag)
+                session.add(new_tag)
+                session.commit()
+                tag_id = new_tag.tag_id
+                created_tag_ids.append(tag_id)
+                return tag_id
+
+        def get_tag_by_id(self, tag_id: int):
+            """tag_idでタグを取得"""
+            from genai_tag_db_tools.data.database_schema import Tag
+
+            with self.session_factory() as session:
+                return session.query(Tag).filter_by(tag_id=tag_id).first()
+
+        def search_tag_ids(self, query: str, partial: bool = False) -> list[int]:
+            """タグを検索してtag_idのリストを返す"""
+            request = TagSearchRequest(
+                query=query,
+                partial=partial,
+                resolve_preferred=False,
+                include_aliases=True,
+                include_deprecated=False,
+            )
+            result = search_tags(self.merged_reader, request)
+            return [item.tag_id for item in result.items]
+
+    helper = TestTagRepositoryHelper(merged_reader, test_session_factory)
+    yield helper
 
     # テスト終了後のクリーンアップ
     try:
@@ -693,14 +727,14 @@ def test_tag_repository(test_tag_db_path):
 
 @pytest.fixture(scope="function")
 def test_image_repository_with_tag_db(db_session_factory, test_tag_repository):
-    """テスト用TagRepositoryを使用するImageRepositoryを提供
+    """テスト用MergedTagReaderを使用するImageRepositoryを提供
 
-    ImageRepositoryのtag_repositoryをテスト用のものに置き換える。
+    ImageRepositoryのmerged_readerをテスト用のものに置き換える。
 
     Returns:
-        ImageRepository: テスト用TagRepositoryを使用するImageRepository
+        ImageRepository: テスト用MergedTagReaderを使用するImageRepository
     """
     image_repo = ImageRepository(session_factory=db_session_factory)
-    # tag_repositoryをテスト用のものに差し替え
-    image_repo.tag_repository = test_tag_repository
+    # merged_readerをテスト用のものに差し替え
+    image_repo.merged_reader = test_tag_repository.merged_reader
     return image_repo
