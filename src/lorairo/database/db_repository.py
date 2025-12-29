@@ -693,7 +693,7 @@ class ImageRepository:
             result = search_tags(self.merged_reader, request)
 
             if result.items and len(result.items) > 0:
-                tag_id = result.items[0].tag_id
+                tag_id: int = result.items[0].tag_id
                 logger.debug(f"Found existing tag_id {tag_id} for '{normalized_tag}' in external tag_db")
                 return tag_id
 
