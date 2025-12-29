@@ -171,14 +171,15 @@ class TestTagDbIntegration:
         """
         エラー時の縮退動作テスト
 
-        目的: TagRepository.create_tag()でエラーが発生した場合、Noneを返すことを確認
+        目的: search_tags()でエラーが発生した場合、Noneを返すことを確認
         """
+        from genai_tag_db_tools import search_tags
 
-        # TagRepository.create_tag()をモックしてエラーを発生させる
-        def mock_create_tag(*args, **kwargs):
+        # search_tags()をモックしてエラーを発生させる
+        def mock_search_tags(*args, **kwargs):
             raise Exception("Simulated tag_db error")
 
-        monkeypatch.setattr(test_image_repository_with_tag_db.tag_repository, "create_tag", mock_create_tag)
+        monkeypatch.setattr("lorairo.database.db_repository.search_tags", mock_search_tags)
 
         # エラー発生時の動作確認
         with test_image_repository_with_tag_db.session_factory() as session:

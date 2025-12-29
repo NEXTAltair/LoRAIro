@@ -160,7 +160,8 @@ def get_tag_db_path() -> Path:
 
 # --- SQLAlchemy エンジンとセッション設定 ---
 
-TAG_DB_PATH = get_tag_db_path()
+# TAG_DB_PATH = get_tag_db_path()  # Deprecated: 外部tag_dbは公開API経由で取得
+TAG_DB_PATH = None  # 互換性のため残すがNoneで初期化
 TAG_DATABASE_ALIAS = "tag_db"
 
 # Construct the database URL from config
@@ -196,6 +197,11 @@ def create_db_engine(database_url: str = DATABASE_URL) -> Engine:
     @event.listens_for(engine, "connect")
     def attach_tag_db_listener(dbapi_connection: Any, connection_record: Any) -> None:
         """メインDB接続時にタグデータベースをアタッチします (インメモリDBを除く)。"""
+        # Deprecated: タグDBは公開API経由で管理されるため、アタッチ不要
+        if TAG_DB_PATH is None:
+            logger.debug("Tag DB managed via public API, skipping database attachment.")
+            return
+
         # インメモリDBの場合はアタッチしない
         if database_url == "sqlite:///:memory:":
             logger.debug("In-memory database detected, skipping tag DB attachment.")
@@ -225,7 +231,7 @@ def create_session_factory(engine: Engine) -> sessionmaker[Session]:
 # 通常のアプリケーション実行時に使用される
 default_engine = create_db_engine(DATABASE_URL)
 DefaultSessionLocal = create_session_factory(default_engine)
-logger.info(f"Default database core initialized. Image DB: {IMG_DB_PATH}, Tag DB: {TAG_DB_PATH}")
+logger.info(f"Default database core initialized. Image DB: {IMG_DB_PATH} (Tag DB managed via public API)")
 
 
 # --- セッションコンテキストマネージャ (ファクトリを受け取るように変更) --- #
@@ -260,4 +266,4 @@ def get_db_session(
 
 # --- 初期化ログ ---
 
-logger.info(f"データベースコアが初期化されました。画像DB: {IMG_DB_PATH}, タグDB: {TAG_DB_PATH}")
+logger.info(f"データベースコアが初期化されました。画像DB: {IMG_DB_PATH} (タグDBは公開API経由で管理)")
