@@ -662,7 +662,7 @@ def test_tag_repository(test_tag_db_path):
     # MergedTagReaderを作成（テスト用DBをベースDBとして使用）
     merged_reader = MergedTagReader(
         base_session_factory=test_session_factory,
-        user_session_factory=None  # テストではユーザーDBは使用しない
+        user_session_factory=None,  # テストではユーザーDBは使用しない
     )
 
     # 作成されたタグIDを記録（クリーンアップ用）
