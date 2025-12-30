@@ -1,80 +1,33 @@
-# genai-tag-db-tools CI Workflow Update (2025-12-27)
+# genai-tag-db-tools CI Workflow Update
 
-## 変更概要
+## 変更日時
+2025-12-27
 
-リファクタリング後のプロジェクト構造に合わせて GitHub Actions CI ワークフローを更新。
+## 対象ファイル
+`.github/workflows/python-package.yml`
 
-## 主な変更点
+## 変更内容
+pytest実行ステップに `CI: true` 環境変数を追加:
 
-### 1. Python対応バージョン拡張
-- **pyproject.toml**: `requires-python = ">=3.10,<3.14"`
-- **CI matrix**: Python 3.10, 3.11, 3.12, 3.13 で継続テスト
-- 理由: ユーザー環境の多様性に対応
-
-### 2. 不要なジョブ削除
-- **削除**: `docs` ジョブ（Sphinx設定が存在しないため）
-- **削除**: GitHub Pages デプロイ
-- 理由: 現在docs/ディレクトリが存在せず、ドキュメント生成の設定がない
-
-### 3. HuggingFace オフラインモード対応
-- **追加環境変数**: `HF_HUB_OFFLINE=1`
-- **pytest引数**: `-m "not slow"`（遅いテストをスキップ）
-- 理由: CI環境でHFダウンロードを回避し、テスト高速化
-
-### 4. CI設定最適化
-- **`--all-extras` 削除**: プロジェクトにextra dependenciesなし
-- **`--unsafe-fixes` 削除**: ruff checkから削除（安全性優先）
-- **Codecov token追加**: `${{ secrets.CODECOV_TOKEN }}`（推奨設定）
-
-### 5. 権限スコープ縮小
 ```yaml
-permissions:
-  contents: read  # 最小権限（write/pages不要）
+- name: Test with pytest
+  env:
+    CI: true  # 追加
+    QT_QPA_PLATFORM: offscreen
+    QTWEBENGINE_DISABLE_SANDBOX: 1
+    HF_HUB_OFFLINE: 1
+  run: uv run pytest --cov=src/genai_tag_db_tools --cov-report=xml --cov-report=term -m "not slow and not network"
 ```
 
-## 実行ステップ
+## 目的
+`requires_real_db` マーカーが付いたテストをCI環境でスキップするため。
 
-### Lint & Format
-```bash
-uv run ruff check src/genai_tag_db_tools
-uv run ruff format --check src/genai_tag_db_tools
-```
+conftest.py の `reset_runtime_for_real_db` フィクスチャが `os.environ.get("CI") == "true"` をチェックし、CI環境では `pytest.skip()` を実行する。
 
-### Type Check
-```bash
-uv run mypy src/genai_tag_db_tools
-```
+## 動作
+- **CI環境** (`CI=true`): `requires_real_db` マーカー付きテストをスキップ（DBダウンロード不要）
+- **ローカル環境** (CI環境変数なし): `requires_real_db` マーカー付きテストを実行（実際のDBダウンロード + 統合テスト）
 
-### Test
-```bash
-QT_QPA_PLATFORM=offscreen HF_HUB_OFFLINE=1 \
-  uv run pytest --cov=src/genai_tag_db_tools --cov-report=xml -m "not slow"
-```
-
-## テスト構成
-
-- **総テスト数**: 210個
-- **構造**: 
-  - `tests/unit/`: 基本ロジックテスト
-  - `tests/gui/unit/`: GUIコンポーネント単体テスト
-  - `tests/gui/integration/`: GUI統合テスト
-
-## 確認済み項目
-
-✅ Ruff lint: All checks passed  
-✅ Ruff format: 2 files reformatted (cli.py, core_api.py)  
-✅ Test collection: 210 tests collected  
-✅ Python version support: 3.10-3.13  
-
-## 残タスク
-
-- [ ] Codecov シークレット設定（リポジトリ側）
-- [ ] 初回CI実行での動作確認
-- [ ] slow markerの適切な適用確認
-
-## ファイル変更
-
-1. `pyproject.toml`: Python version constraint緩和
-2. `.github/workflows/python-package.yml`: CI設定最適化
-3. `src/genai_tag_db_tools/cli.py`: Ruff format適用
-4. `src/genai_tag_db_tools/core_api.py`: Ruff format適用
+## 関連ファイル
+- `/workspaces/LoRAIro/local_packages/genai-tag-db-tools/tests/conftest.py`
+- `.serena/memories/genai_tag_db_tools_test_quality_fix_completion_2025_12_28`

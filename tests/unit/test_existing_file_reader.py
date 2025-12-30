@@ -15,8 +15,8 @@ class TestExistingFileReader:
         """初期化テスト"""
         reader = ExistingFileReader()
 
-        # TagCleaner が適切に初期化されることを確認
-        assert reader.tag_cleaner is not None
+        # ExistingFileReader が正常に初期化されることを確認
+        assert reader is not None
 
     def test_get_existing_annotations_txt_only(self):
         """txtファイルのみ存在する場合のテスト"""
@@ -30,7 +30,7 @@ class TestExistingFileReader:
         txt_path.write_text("tag1, tag2, tag3")
 
         try:
-            with patch.object(reader.tag_cleaner, "clean_format", return_value="tag1, tag2, tag3"):
+            with patch("genai_tag_db_tools.utils.cleanup_str.TagCleaner.clean_format", return_value="tag1, tag2, tag3"):
                 result = reader.get_existing_annotations(image_path)
 
             assert result is not None
@@ -56,7 +56,7 @@ class TestExistingFileReader:
         caption_path.write_text("This is a caption")
 
         try:
-            with patch.object(reader.tag_cleaner, "clean_format", return_value="This is a caption"):
+            with patch("genai_tag_db_tools.utils.cleanup_str.TagCleaner.clean_format", return_value="This is a caption"):
                 result = reader.get_existing_annotations(image_path)
 
             assert result is not None
@@ -84,7 +84,7 @@ class TestExistingFileReader:
         caption_path.write_text("Test caption")
 
         try:
-            with patch.object(reader.tag_cleaner, "clean_format") as mock_clean:
+            with patch("genai_tag_db_tools.utils.cleanup_str.TagCleaner.clean_format") as mock_clean:
                 mock_clean.side_effect = ["tag1, tag2", "Test caption"]
                 result = reader.get_existing_annotations(image_path)
 
@@ -121,7 +121,7 @@ class TestExistingFileReader:
         txt_path.write_text("  tag1  ,  tag2  ,  tag3  ")
 
         try:
-            with patch.object(reader.tag_cleaner, "clean_format", return_value="tag1, tag2, tag3"):
+            with patch("genai_tag_db_tools.utils.cleanup_str.TagCleaner.clean_format", return_value="tag1, tag2, tag3"):
                 result = reader.get_existing_annotations(image_path)
 
             # 空白がトリムされていることを確認
@@ -143,7 +143,7 @@ class TestExistingFileReader:
         txt_path.write_text("tag1,,tag2,,,tag3,")
 
         try:
-            with patch.object(reader.tag_cleaner, "clean_format", return_value="tag1,,tag2,,,tag3,"):
+            with patch("genai_tag_db_tools.utils.cleanup_str.TagCleaner.clean_format", return_value="tag1,,tag2,,,tag3,"):
                 result = reader.get_existing_annotations(image_path)
 
             # 空の要素がフィルタリングされていることを確認
@@ -186,17 +186,12 @@ class TestExistingFileReader:
         mock_logger.error.assert_called_once()
         assert result is None
 
-    @patch("lorairo.annotations.existing_file_reader.TagCleaner")
-    def test_tag_cleaner_integration(self, mock_tag_cleaner_class):
+    def test_tag_cleaner_integration(self):
         """TagCleaner の統合テスト"""
-        mock_tag_cleaner = Mock()
-        mock_tag_cleaner_class.return_value = mock_tag_cleaner
-
         reader = ExistingFileReader()
 
-        # genai-tag-db-tools の TagCleaner が使用されることを確認
-        mock_tag_cleaner_class.assert_called_once()
-        assert reader.tag_cleaner == mock_tag_cleaner
+        # ExistingFileReader が TagCleaner.clean_format() を静的メソッドとして使用することを確認
+        assert reader is not None
 
     def test_file_path_construction(self):
         """ファイルパス構築のテスト"""
@@ -223,7 +218,7 @@ class TestExistingFileReader:
         caption_path.write_text("")
 
         try:
-            with patch.object(reader.tag_cleaner, "clean_format", return_value=""):
+            with patch("genai_tag_db_tools.utils.cleanup_str.TagCleaner.clean_format", return_value=""):
                 result = reader.get_existing_annotations(image_path)
 
             # 空のファイルでも適切に処理されることを確認

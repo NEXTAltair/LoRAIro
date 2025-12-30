@@ -13,7 +13,7 @@ class ExistingFileReader:
 
     def __init__(self) -> None:
         """ExistingFileReader を初期化します。"""
-        self.tag_cleaner = TagCleaner()
+        # TagCleaner.clean_format() is a static method, no instance needed
 
     def get_existing_annotations(self, image_path: Path) -> dict[str, Any] | None:
         """

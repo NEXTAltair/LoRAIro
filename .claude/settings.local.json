@@ -88,7 +88,8 @@
       "Bash(git -C local_packages/genai-tag-db-tools status)",
       "Bash(git -C local_packages/genai-tag-db-tools diff src/genai_tag_db_tools/core_api.py)",
       "Skill(planning)",
-      "Skill(planning:*)"
+      "Skill(planning:*)",
+      "Bash(git check-ignore:*)"
     ],
     "deny": [],
     "ask": []
