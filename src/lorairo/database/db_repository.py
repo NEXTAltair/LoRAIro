@@ -5,9 +5,10 @@ from typing import Any, TypedDict, cast
 
 from genai_tag_db_tools import search_tags
 from genai_tag_db_tools.db.repository import MergedTagReader, get_default_reader
-from genai_tag_db_tools.models import TagSearchRequest, TagSearchResult
+from genai_tag_db_tools.models import TagRegisterRequest, TagSearchRequest
+from genai_tag_db_tools.services.tag_register import TagRegisterService
 from genai_tag_db_tools.utils.cleanup_str import TagCleaner
-from sqlalchemy import Select, and_, exists, func, not_, or_, select, text, update
+from sqlalchemy import Select, and_, exists, func, not_, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 
@@ -85,6 +86,8 @@ class ImageRepository:
         # 外部tag_db統合（公開API経由、グレースフルデグラデーション対応）
         # TagCleaner.clean_format()は静的メソッドなのでインスタンス化不要
         self.merged_reader = self._initialize_merged_reader()  # 失敗時はNoneで継続
+        # TagRegisterServiceは遅延初期化（登録時のみ必要）
+        self.tag_register_service: TagRegisterService | None = None
 
     def _initialize_merged_reader(self) -> MergedTagReader | None:
         """
@@ -107,6 +110,29 @@ class ImageRepository:
                 "Tag operations will continue without external tag_id."
             )
             return None
+
+    def _initialize_tag_register_service(self) -> TagRegisterService | None:
+        """
+        タグ登録サービスを初期化（遅延初期化、Qt非依存）。
+
+        Returns:
+            TagRegisterService | None: 初期化成功時はTagRegisterService、失敗時はNone。
+                                      Noneの場合、タグ登録機能は無効化され、検索のみ動作。
+
+        Note:
+            - MergedTagReaderが利用可能な場合のみ初期化
+            - TagRegisterServiceはQt非依存で、CLI/ライブラリ/GUIで使用可能
+            - 初期化失敗時はグレースフルデグラデーション（警告ログのみ、システム継続）
+        """
+        if self.merged_reader is None:
+            logger.warning("MergedTagReader unavailable, cannot initialize TagRegisterService")
+            return None
+
+        try:
+            return TagRegisterService(reader=self.merged_reader)
+        except Exception as e:
+            logger.warning(f"Failed to initialize TagRegisterService: {e}", exc_info=True)
+            return None  # エラー時はNoneで継続
 
     def _get_model_id(self, model_name: str) -> int | None:
         """
@@ -650,19 +676,21 @@ class ImageRepository:
         1. タグを正規化（TagCleaner使用、ExistingFileReaderと同一ロジック）
         2. MergedTagReaderが利用可能か確認（Noneなら即座にスキップ）
         3. 外部DBで検索（公開API search_tags()使用、完全一致）
-        4. 見つからない場合: 新規登録は未実装（Phase 2で対応予定）
-        5. tag_idを返す（エラー時はNoneで縮退動作）
+        4. 見つからない場合: 新規登録（TagRegisterService使用、format_name="lorairo"）
+        5. 競合検出時: リトライ検索でtag_idを取得
+        6. tag_idを返す（エラー時はNoneで縮退動作）
 
         Args:
             session (Session): SQLAlchemy セッション (LoRAIro DB用、tag_db操作には未使用)
             tag_string (str): 検索・登録するタグ文字列（AI生成 or ユーザー入力）
 
         Returns:
-            int | None: 見つかった tag_id。見つからない場合や検索失敗時は None。
+            int | None: 見つかった/登録したtag_id。エラー時はNone。
 
         Note:
-            - 新規タグ登録機能は Phase 2 で実装予定
-            - 現在は検索のみ対応（既存タグのみ tag_id を取得可能）
+            - Phase 2実装完了: タグ登録機能追加
+            - TagRegisterServiceを使用（Qt非依存、format_name="lorairo", type_name="general"）
+            - 競合検出時はリトライ検索を実行
             - エラー時はグレースフルデグラデーション（tag_id=None で動作継続）
         """
         # 1. タグの正規化（ExistingFileReaderと同一処理）
@@ -697,12 +725,45 @@ class ImageRepository:
                 logger.debug(f"Found existing tag_id {tag_id} for '{normalized_tag}' in external tag_db")
                 return tag_id
 
-            # 検索結果なし（新規タグ登録は Phase 2 で実装予定）
-            logger.debug(
-                f"Tag '{normalized_tag}' not found in external tag_db. "
-                "Tag registration will be implemented in Phase 2."
+            # 検索結果なし → 新規タグ登録（Phase 2実装）
+            logger.debug(f"Tag '{normalized_tag}' not found in external tag_db. Attempting registration...")
+
+            # TagRegisterService遅延初期化
+            if self.tag_register_service is None:
+                self.tag_register_service = self._initialize_tag_register_service()
+                if self.tag_register_service is None:
+                    logger.debug("TagRegisterService initialization failed, skipping tag registration")
+                    return None
+
+            # タグ登録リクエスト作成
+            register_request = TagRegisterRequest(
+                tag=normalized_tag, source_tag=tag_string, format_name="Lorairo", type_name="unknown"
             )
-            return None
+
+            try:
+                register_result = self.tag_register_service.register_tag(register_request)
+                tag_id = register_result.tag_id
+                logger.debug(f"Registered new tag_id {tag_id} for '{normalized_tag}'")
+                return tag_id
+            except ValueError as ve:
+                # format_name/type_name解決失敗
+                logger.error(f"Tag registration failed (invalid format/type): {ve}")
+                return None
+            except IntegrityError:
+                # 競合検出（他のプロセスが同時に登録）→ リトライ
+                logger.warning("Race condition detected during tag registration, retrying search...")
+                try:
+                    retry_result = search_tags(self.merged_reader, request)
+                    if retry_result.items and len(retry_result.items) > 0:
+                        tag_id = retry_result.items[0].tag_id
+                        logger.debug(f"Found tag_id {tag_id} on retry for '{normalized_tag}'")
+                        return tag_id
+                except Exception as retry_error:
+                    logger.error(f"Retry search failed: {retry_error}", exc_info=True)
+                return None
+            except Exception as reg_error:
+                logger.error(f"Unexpected error during tag registration: {reg_error}", exc_info=True)
+                return None
 
         except Exception as e:
             logger.error(
