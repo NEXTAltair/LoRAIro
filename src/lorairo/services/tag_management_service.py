@@ -9,7 +9,8 @@ from genai_tag_db_tools import (
     get_unknown_type_tags,
     update_tags_type_batch,
 )
-from genai_tag_db_tools.db.repository import get_default_reader, get_default_repository
+from genai_tag_db_tools.db.repository import TagReader, get_default_repository
+from genai_tag_db_tools.db.runtime import get_user_session_factory
 from genai_tag_db_tools.models import TagRecordPublic, TagTypeUpdate
 
 from ..utils.log import logger
@@ -20,21 +21,35 @@ class TagManagementService:
 
     genai-tag-db-tools の公開APIを使用して、unknown typeタグの検索、
     type_name一覧取得、一括type更新を提供します。
+
+    Note:
+        user DBのみを対象とします（base DBは対象外）。
+        ユーザーが登録したタグのみが管理対象です。
     """
 
     LORAIRO_FORMAT_ID = 1000  # LoRAIro専用format_id（ユーザーDB範囲: 1000-）
 
     def __init__(self) -> None:
-        """TagManagementServiceを初期化します。"""
-        self.reader = get_default_reader()
+        """TagManagementServiceを初期化します。
+
+        user DBのみを対象とするTagReaderを使用します。
+        """
+        # user DBのみを対象とするreader（base DBは含まない）
+        self.reader = TagReader(session_factory=get_user_session_factory())
         self.repository = get_default_repository()
-        logger.info("TagManagementService initialized with format_id=%d", self.LORAIRO_FORMAT_ID)
+        logger.info(
+            "TagManagementService initialized (user DB only) with format_id=%d",
+            self.LORAIRO_FORMAT_ID,
+        )
 
     def get_unknown_tags(self) -> list[TagRecordPublic]:
-        """unknown typeタグ一覧を取得します。
+        """user DBからunknown typeタグ一覧を取得します。
+
+        Note:
+            base DBのタグは含まれません。ユーザーが登録したタグのみが対象です。
 
         Returns:
-            list[TagRecordPublic]: type_name="unknown"のタグリスト
+            list[TagRecordPublic]: type_name="unknown"のタグリスト（user DBのみ）
 
         Raises:
             Exception: タグ検索中にエラーが発生した場合
@@ -48,10 +63,13 @@ class TagManagementService:
             raise
 
     def get_all_available_types(self) -> list[str]:
-        """利用可能な全type_nameを取得します。
+        """user DBで利用可能な全type_nameを取得します。
+
+        Note:
+            user DBに登録されているtype_nameのみが返されます。
 
         Returns:
-            list[str]: すべてのtype_name一覧（例: ["character", "general", "meta", "unknown"]）
+            list[str]: user DBのtype_name一覧（例: ["character", "general", "meta", "unknown"]）
 
         Raises:
             Exception: type_name一覧取得中にエラーが発生した場合
@@ -65,10 +83,13 @@ class TagManagementService:
             raise
 
     def get_format_specific_types(self) -> list[str]:
-        """LoRAIro format固有のtype_nameを取得します。
+        """user DBからLoRAIro format固有のtype_nameを取得します。
+
+        Note:
+            format_id=1000でuser DBに登録されているtype_nameのみが返されます。
 
         Returns:
-            list[str]: format_id=1000で使用中のtype_name一覧
+            list[str]: format_id=1000で使用中のtype_name一覧（user DBのみ）
 
         Raises:
             Exception: format固有type_name取得中にエラーが発生した場合
