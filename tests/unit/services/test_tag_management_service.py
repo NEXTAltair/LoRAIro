@@ -15,9 +15,10 @@ class TestTagManagementService:
     @pytest.fixture
     def service(self) -> TagManagementService:
         """TagManagementService インスタンスを提供"""
-        with patch("lorairo.services.tag_management_service.get_default_reader"):
-            with patch("lorairo.services.tag_management_service.get_default_repository"):
-                return TagManagementService()
+        with patch("lorairo.services.tag_management_service.TagReader"):
+            with patch("lorairo.services.tag_management_service.get_user_session_factory"):
+                with patch("lorairo.services.tag_management_service.get_default_repository"):
+                    return TagManagementService()
 
     def test_lorairo_format_id_constant(self, service: TagManagementService) -> None:
         """LoRAIro format_id が 1000 であることを確認"""

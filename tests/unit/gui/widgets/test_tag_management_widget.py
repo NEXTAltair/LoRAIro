@@ -38,18 +38,24 @@ class TestTagManagementWidget:
         assert widget.tableWidgetTags.rowCount() == 0
         assert not widget.buttonUpdate.isEnabled()
 
-    def test_load_unknown_tags_empty(self, widget: TagManagementWidget, mock_service: Mock) -> None:
+    def test_load_unknown_tags_empty(
+        self, widget: TagManagementWidget, qtbot, mock_service: Mock
+    ) -> None:
         """unknown type タグが0件の場合"""
         mock_service.get_unknown_tags.return_value = []
         mock_service.get_all_available_types.return_value = ["character", "general"]
 
         widget.load_unknown_tags()
 
+        # テーブル更新を待機
+        qtbot.waitUntil(lambda: widget.tableWidgetTags.rowCount() == 0, timeout=1000)
+
         assert len(widget.unknown_tags) == 0
-        assert widget.tableWidgetTags.rowCount() == 0
         assert "0 unknown type tags found" in widget.labelStatus.text()
 
-    def test_load_unknown_tags_with_data(self, widget: TagManagementWidget, mock_service: Mock) -> None:
+    def test_load_unknown_tags_with_data(
+        self, widget: TagManagementWidget, qtbot, mock_service: Mock
+    ) -> None:
         """unknown type タグが複数ある場合"""
         mock_tags = [
             TagRecordPublic(
@@ -72,8 +78,10 @@ class TestTagManagementWidget:
 
         widget.load_unknown_tags()
 
+        # テーブルが2行になるまで待機
+        qtbot.waitUntil(lambda: widget.tableWidgetTags.rowCount() == 2, timeout=1000)
+
         assert len(widget.unknown_tags) == 2
-        assert widget.tableWidgetTags.rowCount() == 2
         assert "2 unknown type tags found" in widget.labelStatus.text()
 
         # 各行のUI要素確認
@@ -88,7 +96,9 @@ class TestTagManagementWidget:
             assert isinstance(combobox, QComboBox)
             assert combobox.count() == 4  # "(選択してください)" + 3 types
 
-    def test_checkbox_enables_button(self, widget: TagManagementWidget, mock_service: Mock) -> None:
+    def test_checkbox_enables_button(
+        self, widget: TagManagementWidget, qtbot, mock_service: Mock
+    ) -> None:
         """Checkbox選択でボタン有効化"""
         mock_tags = [
             TagRecordPublic(
@@ -107,26 +117,45 @@ class TestTagManagementWidget:
         # 初期状態: ボタン無効
         assert not widget.buttonUpdate.isEnabled()
 
-        # Checkbox選択 + type選択
+        # UI要素取得
         checkbox = widget.tableWidgetTags.cellWidget(0, 0)
         combobox = widget.tableWidgetTags.cellWidget(0, 4)
         assert isinstance(checkbox, QCheckBox)
         assert isinstance(combobox, QComboBox)
 
+        # UI操作をエミュレート
         combobox.setCurrentIndex(1)  # "character" を選択
         checkbox.setChecked(True)
 
-        # ボタンが有効化されること
-        assert widget.buttonUpdate.isEnabled()
+        # ボタンが有効化されるまで待機
+        qtbot.waitUntil(lambda: widget.buttonUpdate.isEnabled(), timeout=1000)
 
-    def test_update_completed_signal(self, widget: TagManagementWidget, qtbot) -> None:
+    def test_update_completed_signal(
+        self, widget: TagManagementWidget, qtbot, monkeypatch
+    ) -> None:
         """update_completed Signal 発火確認"""
-        with qtbot.waitSignal(widget.update_completed, timeout=1000):
+        # QMessageBoxをmockしてモーダルブロックを回避
+        mock_msgbox = Mock(return_value=None)
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.tag_management_widget.QMessageBox.information", mock_msgbox
+        )
+
+        # waitSignalでシグナル発火を待機（timeout付き）
+        with qtbot.waitSignal(widget.update_completed, timeout=2000):
             widget.update_completed.emit()
 
-    def test_update_failed_signal(self, widget: TagManagementWidget, qtbot) -> None:
+    def test_update_failed_signal(
+        self, widget: TagManagementWidget, qtbot, monkeypatch
+    ) -> None:
         """update_failed Signal 発火確認"""
-        with qtbot.waitSignal(widget.update_failed, timeout=1000):
+        # QMessageBoxをmockしてモーダルブロックを回避
+        mock_msgbox = Mock(return_value=None)
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.tag_management_widget.QMessageBox.critical", mock_msgbox
+        )
+
+        # waitSignalでシグナル発火を待機（引数検証も可能）
+        with qtbot.waitSignal(widget.update_failed, timeout=2000):
             widget.update_failed.emit("Test error")
 
     def test_type_selection_tracking(self, widget: TagManagementWidget, mock_service: Mock) -> None:
