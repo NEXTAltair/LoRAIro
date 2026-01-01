@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
+    from lorairo.services.tag_management_service import TagManagementService
 
 from ..database.db_core import DefaultSessionLocal
 from ..database.db_manager import ImageDatabaseManager
@@ -69,6 +70,9 @@ class ServiceContainer:
 
         # Phase 4: AnnotatorLibraryAdapter統合
         self._annotator_library: AnnotatorLibraryAdapter | None = None
+
+        # Tag management service
+        self._tag_management_service: TagManagementService | None = None
 
     @property
     def config_service(self) -> ConfigurationService:
@@ -183,6 +187,16 @@ class ServiceContainer:
             logger.info("AnnotatorLibraryAdapter初期化完了（Phase 4統合）")
         return self._annotator_library
 
+    @property
+    def tag_management_service(self) -> "TagManagementService":
+        """TagManagementService取得（遅延初期化）"""
+        if self._tag_management_service is None:
+            from .tag_management_service import TagManagementService
+
+            self._tag_management_service = TagManagementService()
+            logger.info("TagManagementService初期化完了")
+        return self._tag_management_service
+
     def get_service_summary(self) -> dict[str, Any]:
         """サービス初期化状況のサマリー取得
 
@@ -200,6 +214,7 @@ class ServiceContainer:
                 "model_sync_service": self._model_sync_service is not None,
                 "model_registry": self._model_registry is not None,
                 "annotator_library": self._annotator_library is not None,
+                "tag_management_service": self._tag_management_service is not None,
             },
             "container_initialized": ServiceContainer._initialized,
             "phase": "Phase 4 (Production Integration)"

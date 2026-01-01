@@ -35,6 +35,7 @@ from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
+from ..widgets.tag_management_dialog import TagManagementDialog
 from ..widgets.thumbnail import ThumbnailSelectorWidget
 
 
@@ -80,6 +81,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     error_notification_widget: ErrorNotificationWidget | None
     error_log_dialog: ErrorLogViewerDialog | None
 
+    # Tag management UI components
+    tag_management_dialog: TagManagementDialog | None
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
@@ -97,6 +101,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             if hasattr(self, "actionErrorLog"):
                 self.actionErrorLog.triggered.connect(self._show_error_log_dialog)
                 logger.debug("Error log menu action connected")
+
+            # タグ管理メニューアクション追加（プログラム的に追加）
+            if hasattr(self, "menuView"):
+                from PySide6.QtGui import QAction
+
+                self.actionTagManagement = QAction("タグタイプ管理", self)
+                self.actionTagManagement.setShortcut("Ctrl+T")
+                self.actionTagManagement.triggered.connect(self._show_tag_management_dialog)
+                self.menuView.addAction(self.actionTagManagement)
+                logger.debug("Tag management menu action added")
 
             # サービス初期化（例外を個別にキャッチ）
             logger.info("サービス初期化開始")
@@ -323,6 +337,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             # Dialog初期化（遅延生成）
             self.error_log_dialog = None
+            self.tag_management_dialog = None
 
         except Exception as e:
             logger.error(f"❌ ErrorNotificationWidget初期化失敗: {e}", exc_info=True)
@@ -363,6 +378,32 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         logger.info(f"Error resolved: error_id={error_id}")
         if self.error_notification_widget:
             self.error_notification_widget.update_error_count()
+
+    def _show_tag_management_dialog(self) -> None:
+        """タグ管理ダイアログを表示（オンデマンド）"""
+        try:
+            # Lazy initialization (singleton pattern)
+            if self.tag_management_dialog is None:
+                if not self.service_container:
+                    logger.error("ServiceContainer not available")
+                    QMessageBox.warning(self, "エラー", "サービス接続が確立されていません")
+                    return
+
+                self.tag_management_dialog = TagManagementDialog(
+                    tag_service=self.service_container.tag_management_service,
+                    parent=self,
+                )
+
+                logger.info("TagManagementDialog created (lazy initialization)")
+
+            # Dialog表示
+            self.tag_management_dialog.show()
+            self.tag_management_dialog.raise_()  # 前面表示
+            self.tag_management_dialog.activateWindow()  # アクティブ化
+
+        except Exception as e:
+            logger.error(f"Failed to show tag management dialog: {e}", exc_info=True)
+            QMessageBox.critical(self, "エラー", f"タグ管理の表示に失敗しました:\n{e}")
 
     def _connect_events(self) -> None:
         """イベント接続を設定（安全な実装）"""
