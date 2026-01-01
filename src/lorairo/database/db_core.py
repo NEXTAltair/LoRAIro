@@ -163,13 +163,11 @@ def _initialize_lorairo_format_mappings() -> None:
 
     format_id=1000（LoRAIro専用）に対して、以下のマッピングを作成します：
     - type_id=0: "unknown" (デフォルト)
-    - type_id=1: "unknown" (TagRegisterServiceのハードコード回避用)
 
     Note:
         - この関数はinit_user_db()の後に1回だけ呼び出されます
         - 既に存在する場合はスキップされます（冪等性）
-        - type_id=1も"unknown"にマッピングするのは、TagRegisterServiceが
-          新規type_name作成時にtype_id=1をハードコードしているためです
+        - type_id=0 のみを unknown にマッピングします
     """
     try:
         from genai_tag_db_tools.db.repository import get_default_repository
@@ -188,14 +186,6 @@ def _initialize_lorairo_format_mappings() -> None:
             type_name_id=unknown_type_name_id,
         )
         logger.info(f"LoRAIro mapping created: format_id={LORAIRO_FORMAT_ID}, type_id=0, type_name=unknown")
-
-        # type_id=1: unknownのマッピング（TagRegisterServiceのハードコード回避用）
-        repo.create_type_format_mapping_if_not_exists(
-            format_id=LORAIRO_FORMAT_ID,
-            type_id=1,
-            type_name_id=unknown_type_name_id,
-        )
-        logger.info(f"LoRAIro mapping created: format_id={LORAIRO_FORMAT_ID}, type_id=1, type_name=unknown")
 
     except Exception as e:
         logger.warning(f"Failed to initialize LoRAIro format mappings: {e}. Tag registration may fail.")
@@ -241,11 +231,8 @@ try:
     runtime.init_engine(base_paths[0])
 
     # 4. ユーザーDBをプロジェクトディレクトリに作成
-    USER_TAG_DB_PATH = runtime.init_user_db(user_db_dir=DB_DIR)
+    USER_TAG_DB_PATH = runtime.init_user_db(user_db_dir=DB_DIR, format_name="Lorairo")
     logger.info(f"User tag database initialized: {USER_TAG_DB_PATH}")
-
-    # 5. LoRAIro用のデフォルトtype_nameマッピングを作成
-    _initialize_lorairo_format_mappings()
 
     logger.info("Tag database initialization complete (GUI起動準備完了)")
 
