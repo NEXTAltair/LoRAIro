@@ -36,9 +36,7 @@ class TestImageRepositoryTagRegistration:
         register_result = TagRegisterResult(tag_id=456, created=True)
 
         with patch("lorairo.database.db_repository.search_tags", return_value=search_result):
-            with patch.object(
-                repository, "_initialize_tag_register_service"
-            ) as mock_init_service:
+            with patch.object(repository, "_initialize_tag_register_service") as mock_init_service:
                 mock_service = Mock()
                 mock_service.register_tag.return_value = register_result
                 mock_init_service.return_value = mock_service
@@ -69,13 +67,9 @@ class TestImageRepositoryTagRegistration:
                 search_result_empty,  # 初回検索: なし
                 search_result_retry,  # リトライ検索: 見つかる
             ]
-            with patch.object(
-                repository, "_initialize_tag_register_service"
-            ) as mock_init_service:
+            with patch.object(repository, "_initialize_tag_register_service") as mock_init_service:
                 mock_service = Mock()
-                mock_service.register_tag.side_effect = IntegrityError(
-                    "duplicate", "params", "orig"
-                )
+                mock_service.register_tag.side_effect = IntegrityError("duplicate", "params", "orig")
                 mock_init_service.return_value = mock_service
                 repository.tag_register_service = None
 
@@ -89,17 +83,13 @@ class TestImageRepositoryTagRegistration:
         search_result = TagSearchResult(items=[])
 
         with patch("lorairo.database.db_repository.search_tags", return_value=search_result):
-            with patch.object(
-                repository, "_initialize_tag_register_service"
-            ) as mock_init_service:
+            with patch.object(repository, "_initialize_tag_register_service") as mock_init_service:
                 mock_service = Mock()
                 mock_service.register_tag.side_effect = ValueError("Invalid format_name")
                 mock_init_service.return_value = mock_service
                 repository.tag_register_service = None
 
-                tag_id = repository._get_or_create_tag_id_external(
-                    mock_session, "invalid_format_tag"
-                )
+                tag_id = repository._get_or_create_tag_id_external(mock_session, "invalid_format_tag")
 
                 assert tag_id is None
 
@@ -108,25 +98,19 @@ class TestImageRepositoryTagRegistration:
         search_result = TagSearchResult(items=[])
 
         with patch("lorairo.database.db_repository.search_tags", return_value=search_result):
-            with patch.object(
-                repository, "_initialize_tag_register_service", return_value=None
-            ):
+            with patch.object(repository, "_initialize_tag_register_service", return_value=None):
                 repository.tag_register_service = None
 
                 tag_id = repository._get_or_create_tag_id_external(mock_session, "tag")
 
                 assert tag_id is None
 
-    def test_tag_registration_unexpected_error_graceful_degradation(
-        self, repository, mock_session
-    ):
+    def test_tag_registration_unexpected_error_graceful_degradation(self, repository, mock_session):
         """予期しないエラー時のグレースフルデグラデーション"""
         search_result = TagSearchResult(items=[])
 
         with patch("lorairo.database.db_repository.search_tags", return_value=search_result):
-            with patch.object(
-                repository, "_initialize_tag_register_service"
-            ) as mock_init_service:
+            with patch.object(repository, "_initialize_tag_register_service") as mock_init_service:
                 mock_service = Mock()
                 mock_service.register_tag.side_effect = RuntimeError("Unexpected error")
                 mock_init_service.return_value = mock_service
@@ -144,9 +128,7 @@ class TestImageRepositoryTagRegistration:
         )
 
         with patch("lorairo.database.db_repository.search_tags", return_value=search_result):
-            with patch.object(
-                repository, "_initialize_tag_register_service"
-            ) as mock_init_service:
+            with patch.object(repository, "_initialize_tag_register_service") as mock_init_service:
                 repository.tag_register_service = None
 
                 tag_id = repository._get_or_create_tag_id_external(mock_session, "existing_tag")
