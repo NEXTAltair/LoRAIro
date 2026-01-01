@@ -1,4 +1,51 @@
 # tests/conftest.py
+
+# --- External Tag DB Initialization Mock (MUST BE FIRST) ---
+# Mock genai-tag-db-tools initialization BEFORE any lorairo imports
+# to prevent RuntimeError during db_core module-level initialization
+
+import unittest.mock
+from pathlib import Path as _MockPath
+from sqlalchemy.orm import sessionmaker as _sessionmaker
+
+# Mock ensure_databases to return successful result
+_mock_ensure_result = unittest.mock.Mock()
+_mock_ensure_result.db_path = str(_MockPath("/tmp/test_tag_db.db"))
+
+# Create mock session factory for user DB
+_mock_user_db_engine = unittest.mock.Mock()
+_mock_user_session_factory = _sessionmaker(bind=_mock_user_db_engine)
+
+# Mock runtime functions
+_runtime_patches = [
+    unittest.mock.patch(
+        "genai_tag_db_tools.ensure_databases",
+        return_value=[_mock_ensure_result],
+    ),
+    unittest.mock.patch(
+        "genai_tag_db_tools.db.runtime.set_base_database_paths",
+        return_value=None,
+    ),
+    unittest.mock.patch(
+        "genai_tag_db_tools.db.runtime.init_engine",
+        return_value=None,
+    ),
+    unittest.mock.patch(
+        "genai_tag_db_tools.db.runtime.init_user_db",
+        return_value=_MockPath("/tmp/test_user_tag_db.db"),
+    ),
+    unittest.mock.patch(
+        "genai_tag_db_tools.db.runtime.get_user_session_factory",
+        return_value=_mock_user_session_factory,
+    ),
+]
+
+# Start all patches at module level (before any lorairo imports)
+for _patch in _runtime_patches:
+    _patch.start()
+
+
+# --- Standard Library Imports ---
 import os
 import shutil
 import sys
@@ -15,12 +62,34 @@ from sqlalchemy import create_engine
 from sqlalchemy import inspect as sql_inspect
 from sqlalchemy.orm import sessionmaker
 
+# --- LoRAIro Imports (after patches are active) ---
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.db_repository import ImageRepository
 from lorairo.database.schema import AnnotationsDict, Base, ImageDict, Model, ModelType, ProcessedImageDict
 from lorairo.storage.file_system import FileSystemManager
 
 # --- pytest-qt Configuration ---
+
+
+@pytest.fixture(scope="session", autouse=True)
+def mock_genai_tag_db_tools():
+    """
+    外部タグDB初期化のモックを管理（全テストで自動実行）
+    
+    genai-tag-db-toolsの初期化処理をモックし、テスト環境で
+    RuntimeErrorが発生しないようにします。
+    
+    Note:
+        - session スコープでパッチを管理
+        - テストセッション終了時に自動的にパッチを停止
+        - モジュールレベルで既にパッチは開始されている
+    """
+    # パッチは既にモジュールレベルで開始されている
+    yield
+    
+    # テストセッション終了時にすべてのパッチを停止
+    for patch in _runtime_patches:
+        patch.stop()
 
 
 @pytest.fixture(scope="session")
