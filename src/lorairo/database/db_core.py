@@ -99,7 +99,7 @@ TAG_DB_FILENAME = db_config.get("tag_db_filename", "tags_v4.db")  # Keep default
 # Ensure DB_DIR exists
 DB_DIR.mkdir(parents=True, exist_ok=True)
 
-IMG_DB_PATH: Path = DB_DIR / IMG_DB_FILENAME
+IMG_DB_FILENAME_VAR: str = IMG_DB_FILENAME  # 一時保存（後で使用）
 
 # --- Dynamic Project Root Resolution --- #
 
@@ -158,6 +158,49 @@ def get_tag_db_path() -> Path:
         raise
 
 
+def _initialize_lorairo_format_mappings() -> None:
+    """LoRAIro用のデフォルトtype_nameマッピングを初期化します。
+
+    format_id=1000（LoRAIro専用）に対して、以下のマッピングを作成します：
+    - type_id=0: "unknown" (デフォルト)
+    - type_id=1: "unknown" (TagRegisterServiceのハードコード回避用)
+
+    Note:
+        - この関数はinit_user_db()の後に1回だけ呼び出されます
+        - 既に存在する場合はスキップされます（冪等性）
+        - type_id=1も"unknown"にマッピングするのは、TagRegisterServiceが
+          新規type_name作成時にtype_id=1をハードコードしているためです
+    """
+    try:
+        from genai_tag_db_tools.db.repository import get_default_repository
+
+        repo = get_default_repository()
+        LORAIRO_FORMAT_ID = 1000
+
+        # type_name="unknown"を作成（存在しない場合）
+        unknown_type_name_id = repo.create_type_name_if_not_exists("unknown")
+        logger.info(f'type_name="unknown" initialized (type_name_id={unknown_type_name_id})')
+
+        # type_id=0: unknownのマッピング（LoRAIroのデフォルト）
+        repo.create_type_format_mapping_if_not_exists(
+            format_id=LORAIRO_FORMAT_ID,
+            type_id=0,
+            type_name_id=unknown_type_name_id,
+        )
+        logger.info(f"LoRAIro mapping created: format_id={LORAIRO_FORMAT_ID}, type_id=0, type_name=unknown")
+
+        # type_id=1: unknownのマッピング（TagRegisterServiceのハードコード回避用）
+        repo.create_type_format_mapping_if_not_exists(
+            format_id=LORAIRO_FORMAT_ID,
+            type_id=1,
+            type_name_id=unknown_type_name_id,
+        )
+        logger.info(f"LoRAIro mapping created: format_id={LORAIRO_FORMAT_ID}, type_id=1, type_name=unknown")
+
+    except Exception as e:
+        logger.warning(f"Failed to initialize LoRAIro format mappings: {e}. Tag registration may fail.")
+
+
 # --- SQLAlchemy エンジンとセッション設定 ---
 
 # TAG_DB_PATH = get_tag_db_path()  # Deprecated: 外部tag_dbは公開API経由で取得
@@ -166,6 +209,50 @@ TAG_DATABASE_ALIAS = "tag_db"
 
 # Construct the database URL from config
 IMG_DB_PATH = DB_DIR / IMG_DB_FILENAME
+
+# --- genai-tag-db-tools Database Initialization --- #
+# GUI起動前にベースDB + ユーザーDBを初期化
+try:
+    from genai_tag_db_tools import ensure_databases
+    from genai_tag_db_tools.db import runtime
+    from genai_tag_db_tools.models import DbCacheConfig, DbSourceRef, EnsureDbRequest
+
+    logger.info("Initializing genai-tag-db-tools databases...")
+
+    # 1. ベースDBをHuggingFaceからダウンロード
+    requests = [
+        EnsureDbRequest(
+            source=DbSourceRef(
+                repo_id="NEXTAltair/genai-image-tag-db",
+                filename="genai-image-tag-db-cc0.sqlite",
+                revision=None,
+            ),
+            cache=DbCacheConfig(cache_dir=str(DB_DIR), token=None),
+        )
+    ]
+    results = ensure_databases(requests)
+    base_paths = [Path(result.db_path) for result in results]
+
+    # 2. ベースDBパスを設定
+    runtime.set_base_database_paths(base_paths)
+    logger.info(f"Base tag database configured: {base_paths[0]}")
+
+    # 3. SQLAlchemyエンジン初期化
+    runtime.init_engine(base_paths[0])
+
+    # 4. ユーザーDBをプロジェクトディレクトリに作成
+    USER_TAG_DB_PATH = runtime.init_user_db(user_db_dir=DB_DIR)
+    logger.info(f"User tag database initialized: {USER_TAG_DB_PATH}")
+
+    # 5. LoRAIro用のデフォルトtype_nameマッピングを作成
+    _initialize_lorairo_format_mappings()
+
+    logger.info("Tag database initialization complete (GUI起動準備完了)")
+
+except Exception as e:
+    USER_TAG_DB_PATH = None
+    logger.warning(f"Failed to initialize tag databases: {e}. Tag management features will be disabled.")
+
 DATABASE_URL = f"sqlite:///{IMG_DB_PATH.resolve()}?check_same_thread=False"
 
 
