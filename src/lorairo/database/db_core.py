@@ -251,7 +251,10 @@ try:
 
 except Exception as e:
     USER_TAG_DB_PATH = None
-    logger.warning(f"Failed to initialize tag databases: {e}. Tag management features will be disabled.")
+    logger.error(
+        f"Failed to initialize tag databases: {e}. LoRAIro cannot start without external tag DB access."
+    )
+    raise RuntimeError("Tag database initialization failed") from e
 
 DATABASE_URL = f"sqlite:///{IMG_DB_PATH.resolve()}?check_same_thread=False"
 

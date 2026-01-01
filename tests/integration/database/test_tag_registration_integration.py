@@ -99,9 +99,9 @@ class TestTagRegistrationIntegration:
         目的: 新規タグ登録時にTagRegisterServiceが正しく初期化されることを確認
         """
         # 初期状態: TagRegisterServiceはNone
-        assert (
-            test_image_repository_with_tag_db.tag_register_service is None
-        ), "TagRegisterService should be None initially"
+        assert test_image_repository_with_tag_db.tag_register_service is None, (
+            "TagRegisterService should be None initially"
+        )
 
         # 新規タグ登録（遅延初期化をトリガー）
         new_tag = f"test_service_init_{uuid.uuid4().hex[:8]}"
@@ -112,9 +112,9 @@ class TestTagRegistrationIntegration:
         assert tag_id is not None, "Tag ID should be returned"
 
         # TagRegisterServiceが初期化されたことを確認
-        assert (
-            test_image_repository_with_tag_db.tag_register_service is not None
-        ), "TagRegisterService should be initialized after registration"
+        assert test_image_repository_with_tag_db.tag_register_service is not None, (
+            "TagRegisterService should be initialized after registration"
+        )
 
     def test_race_condition_retry_logic(self, test_image_repository_with_tag_db, monkeypatch):
         """
@@ -142,9 +142,7 @@ class TestTagRegistrationIntegration:
             else:
                 # リトライ検索: 見つかる
                 return TagSearchResult(
-                    items=[
-                        TagRecordPublic(tag=normalized_tag, tag_id=expected_tag_id, source_tag=test_tag)
-                    ]
+                    items=[TagRecordPublic(tag=normalized_tag, tag_id=expected_tag_id, source_tag=test_tag)]
                 )
 
         def mock_register_tag(self, request):
@@ -229,9 +227,7 @@ class TestTagRegistrationIntegration:
             f"Tag ID should be consistent across calls: {tag_id_first}, {tag_id_second}, {tag_id_third}"
         )
 
-    def test_value_error_handling_on_invalid_format(
-        self, test_image_repository_with_tag_db, monkeypatch
-    ):
+    def test_value_error_handling_on_invalid_format(self, test_image_repository_with_tag_db, monkeypatch):
         """
         無効なformat_name/type_name時のエラーハンドリングテスト
 

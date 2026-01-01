@@ -38,9 +38,7 @@ class TestTagManagementWidget:
         assert widget.tableWidgetTags.rowCount() == 0
         assert not widget.buttonUpdate.isEnabled()
 
-    def test_load_unknown_tags_empty(
-        self, widget: TagManagementWidget, qtbot, mock_service: Mock
-    ) -> None:
+    def test_load_unknown_tags_empty(self, widget: TagManagementWidget, qtbot, mock_service: Mock) -> None:
         """unknown type タグが0件の場合"""
         mock_service.get_unknown_tags.return_value = []
         mock_service.get_all_available_types.return_value = ["character", "general"]
@@ -96,9 +94,7 @@ class TestTagManagementWidget:
             assert isinstance(combobox, QComboBox)
             assert combobox.count() == 4  # "(選択してください)" + 3 types
 
-    def test_checkbox_enables_button(
-        self, widget: TagManagementWidget, qtbot, mock_service: Mock
-    ) -> None:
+    def test_checkbox_enables_button(self, widget: TagManagementWidget, qtbot, mock_service: Mock) -> None:
         """Checkbox選択でボタン有効化"""
         mock_tags = [
             TagRecordPublic(
@@ -130,9 +126,7 @@ class TestTagManagementWidget:
         # ボタンが有効化されるまで待機
         qtbot.waitUntil(lambda: widget.buttonUpdate.isEnabled(), timeout=1000)
 
-    def test_update_completed_signal(
-        self, widget: TagManagementWidget, qtbot, monkeypatch
-    ) -> None:
+    def test_update_completed_signal(self, widget: TagManagementWidget, qtbot, monkeypatch) -> None:
         """update_completed Signal 発火確認"""
         # QMessageBoxをmockしてモーダルブロックを回避
         mock_msgbox = Mock(return_value=None)
@@ -144,15 +138,11 @@ class TestTagManagementWidget:
         with qtbot.waitSignal(widget.update_completed, timeout=2000):
             widget.update_completed.emit()
 
-    def test_update_failed_signal(
-        self, widget: TagManagementWidget, qtbot, monkeypatch
-    ) -> None:
+    def test_update_failed_signal(self, widget: TagManagementWidget, qtbot, monkeypatch) -> None:
         """update_failed Signal 発火確認"""
         # QMessageBoxをmockしてモーダルブロックを回避
         mock_msgbox = Mock(return_value=None)
-        monkeypatch.setattr(
-            "lorairo.gui.widgets.tag_management_widget.QMessageBox.critical", mock_msgbox
-        )
+        monkeypatch.setattr("lorairo.gui.widgets.tag_management_widget.QMessageBox.critical", mock_msgbox)
 
         # waitSignalでシグナル発火を待機（引数検証も可能）
         with qtbot.waitSignal(widget.update_failed, timeout=2000):

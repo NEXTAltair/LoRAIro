@@ -30,7 +30,10 @@ class TestExistingFileReader:
         txt_path.write_text("tag1, tag2, tag3")
 
         try:
-            with patch("genai_tag_db_tools.utils.cleanup_str.TagCleaner.clean_format", return_value="tag1, tag2, tag3"):
+            with patch(
+                "genai_tag_db_tools.utils.cleanup_str.TagCleaner.clean_format",
+                return_value="tag1, tag2, tag3",
+            ):
                 result = reader.get_existing_annotations(image_path)
 
             assert result is not None
@@ -56,7 +59,10 @@ class TestExistingFileReader:
         caption_path.write_text("This is a caption")
 
         try:
-            with patch("genai_tag_db_tools.utils.cleanup_str.TagCleaner.clean_format", return_value="This is a caption"):
+            with patch(
+                "genai_tag_db_tools.utils.cleanup_str.TagCleaner.clean_format",
+                return_value="This is a caption",
+            ):
                 result = reader.get_existing_annotations(image_path)
 
             assert result is not None
@@ -121,7 +127,10 @@ class TestExistingFileReader:
         txt_path.write_text("  tag1  ,  tag2  ,  tag3  ")
 
         try:
-            with patch("genai_tag_db_tools.utils.cleanup_str.TagCleaner.clean_format", return_value="tag1, tag2, tag3"):
+            with patch(
+                "genai_tag_db_tools.utils.cleanup_str.TagCleaner.clean_format",
+                return_value="tag1, tag2, tag3",
+            ):
                 result = reader.get_existing_annotations(image_path)
 
             # 空白がトリムされていることを確認
@@ -143,7 +152,10 @@ class TestExistingFileReader:
         txt_path.write_text("tag1,,tag2,,,tag3,")
 
         try:
-            with patch("genai_tag_db_tools.utils.cleanup_str.TagCleaner.clean_format", return_value="tag1,,tag2,,,tag3,"):
+            with patch(
+                "genai_tag_db_tools.utils.cleanup_str.TagCleaner.clean_format",
+                return_value="tag1,,tag2,,,tag3,",
+            ):
                 result = reader.get_existing_annotations(image_path)
 
             # 空の要素がフィルタリングされていることを確認
