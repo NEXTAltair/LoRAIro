@@ -6,6 +6,7 @@
 
 import unittest.mock
 from pathlib import Path as _MockPath
+
 from sqlalchemy.orm import sessionmaker as _sessionmaker
 
 # Mock ensure_databases to return successful result
@@ -75,10 +76,10 @@ from lorairo.storage.file_system import FileSystemManager
 def mock_genai_tag_db_tools():
     """
     外部タグDB初期化のモックを管理（全テストで自動実行）
-    
+
     genai-tag-db-toolsの初期化処理をモックし、テスト環境で
     RuntimeErrorが発生しないようにします。
-    
+
     Note:
         - session スコープでパッチを管理
         - テストセッション終了時に自動的にパッチを停止
@@ -86,7 +87,7 @@ def mock_genai_tag_db_tools():
     """
     # パッチは既にモジュールレベルで開始されている
     yield
-    
+
     # テストセッション終了時にすべてのパッチを停止
     for patch in _runtime_patches:
         patch.stop()

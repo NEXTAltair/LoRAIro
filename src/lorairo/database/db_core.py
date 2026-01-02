@@ -5,7 +5,6 @@
 `config/lorairo.toml` から読み込まれます。
 """
 
-import importlib.resources
 import logging
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -91,10 +90,8 @@ else:
 IMG_DB_FILENAME = db_config.get(
     "image_db_filename", "image_database.db"
 )  # Keep default if not in db_config
-TAG_DB_PACKAGE = db_config.get(
-    "tag_db_package", "genai_tag_db_tools.data"
-)  # Keep default if not in db_config
-TAG_DB_FILENAME = db_config.get("tag_db_filename", "tags_v4.db")  # Keep default if not in db_config
+# Note: TAG_DB_PACKAGE and TAG_DB_FILENAME were removed (2026-01-02)
+# Tag databases are now managed via genai-tag-db-tools public API (ensure_databases + init_user_db)
 
 # Ensure DB_DIR exists
 DB_DIR.mkdir(parents=True, exist_ok=True)
@@ -133,29 +130,10 @@ def resolve_stored_path(stored_path: str) -> Path:
 
 
 # --- Tag DB Path --- #
-
-
-def get_tag_db_path() -> Path:
-    """インストールされたパッケージからタグデータベースファイルへのフルパスを取得します。"""
-    try:
-        # Use configuration values for package and filename
-        package_name = TAG_DB_PACKAGE
-        filename = TAG_DB_FILENAME
-        tag_db_resource = importlib.resources.files(package_name).joinpath(filename)
-        # リソースが存在し、ファイルであることを確認してからパスを返す
-        if tag_db_resource.is_file():
-            return Path(str(tag_db_resource))
-        else:
-            logger.error(f"タグDBリソースが見つからないか、ファイルではありません: {tag_db_resource}")
-            raise FileNotFoundError(f"タグDBが見つかりません: {tag_db_resource}")
-
-    except (FileNotFoundError, TypeError) as e:
-        # .files() が特定のエッジケースで発生させる可能性があるため、TypeError も捕捉
-        logger.exception(
-            f"importlib.resources.files を使用したタグDBパス ({package_name}/{filename}) の取得に失敗しました。エラー: {e}",
-            exc_info=True,
-        )
-        raise
+# Note: get_tag_db_path() was removed (2026-01-02)
+# Tag databases are now managed via genai-tag-db-tools public API:
+# - Base DBs: ensure_databases() downloads from HuggingFace
+# - User DB: init_user_db() creates user_tags.sqlite in project directory
 
 
 def _initialize_lorairo_format_mappings() -> None:
@@ -192,13 +170,11 @@ def _initialize_lorairo_format_mappings() -> None:
 
 
 # --- SQLAlchemy エンジンとセッション設定 ---
-
-# TAG_DB_PATH = get_tag_db_path()  # Deprecated: 外部tag_dbは公開API経由で取得
-TAG_DB_PATH = None  # 互換性のため残すがNoneで初期化
-TAG_DATABASE_ALIAS = "tag_db"
+# Note: TAG_DB_PATH and TAG_DATABASE_ALIAS were removed (2026-01-02)
+# Tag databases no longer use ATTACH DATABASE; managed via genai-tag-db-tools repository pattern
 
 # Construct the database URL from config
-IMG_DB_PATH = DB_DIR / IMG_DB_FILENAME
+IMG_DB_PATH: Path = DB_DIR / IMG_DB_FILENAME
 
 # --- genai-tag-db-tools Database Initialization --- #
 # GUI起動前にベースDB + ユーザーDBを初期化
@@ -271,29 +247,9 @@ def create_db_engine(database_url: str = DATABASE_URL) -> Engine:
         finally:
             cursor.close()
 
-    @event.listens_for(engine, "connect")
-    def attach_tag_db_listener(dbapi_connection: Any, connection_record: Any) -> None:
-        """メインDB接続時にタグデータベースをアタッチします (インメモリDBを除く)。"""
-        # Deprecated: タグDBは公開API経由で管理されるため、アタッチ不要
-        if TAG_DB_PATH is None:
-            logger.debug("Tag DB managed via public API, skipping database attachment.")
-            return
-
-        # インメモリDBの場合はアタッチしない
-        if database_url == "sqlite:///:memory:":
-            logger.debug("In-memory database detected, skipping tag DB attachment.")
-            return
-
-        tag_db_path_str = str(TAG_DB_PATH)
-        cursor = dbapi_connection.cursor()
-        try:
-            # パスを安全にSQL文に渡すためにパラメータを使用
-            cursor.execute(f"ATTACH DATABASE ? AS {TAG_DATABASE_ALIAS}", (tag_db_path_str,))
-            logger.info(f"Attached tag database '{tag_db_path_str}' as {TAG_DATABASE_ALIAS}.")
-        except Exception:
-            logger.error(f"Failed to attach tag database '{tag_db_path_str}'", exc_info=True)
-        finally:
-            cursor.close()
+    # Note: attach_tag_db_listener was removed (2026-01-02)
+    # Tag databases no longer use ATTACH DATABASE; managed via genai-tag-db-tools repository pattern
+    # Base DBs + User DB are accessed through public API (search_tags, register_tag, MergedTagReader)
 
     return engine
 
