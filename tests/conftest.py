@@ -9,9 +9,13 @@ from pathlib import Path as _MockPath
 
 from sqlalchemy.orm import sessionmaker as _sessionmaker
 
-# Mock ensure_databases to return successful result
-_mock_ensure_result = unittest.mock.Mock()
-_mock_ensure_result.db_path = str(_MockPath("/tmp/test_tag_db.db"))
+# Mock initialize_databases to return successful results for 3 DBs
+_mock_result_1 = unittest.mock.Mock()
+_mock_result_1.db_path = str(_MockPath("/tmp/test_tag_db_cc4.db"))
+_mock_result_2 = unittest.mock.Mock()
+_mock_result_2.db_path = str(_MockPath("/tmp/test_tag_db_mit.db"))
+_mock_result_3 = unittest.mock.Mock()
+_mock_result_3.db_path = str(_MockPath("/tmp/test_tag_db_cc0.db"))
 
 # Create mock session factory for user DB
 _mock_user_db_engine = unittest.mock.Mock()
@@ -20,20 +24,8 @@ _mock_user_session_factory = _sessionmaker(bind=_mock_user_db_engine)
 # Mock runtime functions
 _runtime_patches = [
     unittest.mock.patch(
-        "genai_tag_db_tools.ensure_databases",
-        return_value=[_mock_ensure_result],
-    ),
-    unittest.mock.patch(
-        "genai_tag_db_tools.db.runtime.set_base_database_paths",
-        return_value=None,
-    ),
-    unittest.mock.patch(
-        "genai_tag_db_tools.db.runtime.init_engine",
-        return_value=None,
-    ),
-    unittest.mock.patch(
-        "genai_tag_db_tools.db.runtime.init_user_db",
-        return_value=_MockPath("/tmp/test_user_tag_db.db"),
+        "genai_tag_db_tools.initialize_databases",
+        return_value=[_mock_result_1, _mock_result_2, _mock_result_3],
     ),
     unittest.mock.patch(
         "genai_tag_db_tools.db.runtime.get_user_session_factory",
