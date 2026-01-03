@@ -109,8 +109,8 @@ DEFAULT_CONFIG = {
     ],
     "database": {
         "image_db_filename": "image_database.db",  # 画像データベースのファイル名
-        "tag_db_package": "genai_tag_db_tools.data",  # タグDBのインポート元パッケージ名
-        "tag_db_filename": "tags_v4.db",  # タグDBのファイル名
+        # Note: tag_db_package and tag_db_filename were removed (2026-01-02)
+        # Tag databases are now managed via genai-tag-db-tools public API (initialize_databases)
     },
     "log": {"level": "INFO", "file_path": str(DEFAULT_LOG_PATH), "rotation": "25 MB", "levels": {}},
 }

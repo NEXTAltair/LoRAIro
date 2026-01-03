@@ -91,7 +91,7 @@ IMG_DB_FILENAME = db_config.get(
     "image_db_filename", "image_database.db"
 )  # Keep default if not in db_config
 # Note: TAG_DB_PACKAGE and TAG_DB_FILENAME were removed (2026-01-02)
-# Tag databases are now managed via genai-tag-db-tools public API (ensure_databases + init_user_db)
+# Tag databases are now managed via genai-tag-db-tools public API (initialize_databases)
 
 # Ensure DB_DIR exists
 DB_DIR.mkdir(parents=True, exist_ok=True)
@@ -177,40 +177,20 @@ def _initialize_lorairo_format_mappings() -> None:
 IMG_DB_PATH: Path = DB_DIR / IMG_DB_FILENAME
 
 # --- genai-tag-db-tools Database Initialization --- #
-# GUI起動前にベースDB + ユーザーDBを初期化
+# GUI起動前にベースDB（3つ: CC4, MIT, CC0）+ ユーザーDBを初期化
 try:
-    from genai_tag_db_tools import ensure_databases
-    from genai_tag_db_tools.db import runtime
-    from genai_tag_db_tools.models import DbCacheConfig, DbSourceRef, EnsureDbRequest
+    from genai_tag_db_tools import initialize_databases
 
     logger.info("Initializing genai-tag-db-tools databases...")
 
-    # 1. ベースDBをHuggingFaceからダウンロード
-    requests = [
-        EnsureDbRequest(
-            source=DbSourceRef(
-                repo_id="NEXTAltair/genai-image-tag-db",
-                filename="genai-image-tag-db-cc0.sqlite",
-                revision=None,
-            ),
-            cache=DbCacheConfig(cache_dir=str(DB_DIR), token=None),
-        )
-    ]
-    results = ensure_databases(requests)
-    base_paths = [Path(result.db_path) for result in results]
+    # ワンストップ初期化（デフォルトで3つすべてのDBをダウンロード）
+    results = initialize_databases(
+        user_db_dir=DB_DIR,
+        format_name="Lorairo",
+    )
 
-    # 2. ベースDBパスを設定
-    runtime.set_base_database_paths(base_paths)
-    logger.info(f"Base tag database configured: {base_paths[0]}")
-
-    # 3. SQLAlchemyエンジン初期化
-    runtime.init_engine(base_paths[0])
-
-    # 4. ユーザーDBをプロジェクトディレクトリに作成
-    USER_TAG_DB_PATH = runtime.init_user_db(user_db_dir=DB_DIR, format_name="Lorairo")
-    logger.info(f"User tag database initialized: {USER_TAG_DB_PATH}")
-
-    logger.info("Tag database initialization complete (GUI起動準備完了)")
+    USER_TAG_DB_PATH = DB_DIR / "user_tags.sqlite"
+    logger.info(f"Tag databases initialized: {len(results)} base DB(s) + user DB at {USER_TAG_DB_PATH}")
 
 except Exception as e:
     USER_TAG_DB_PATH = None
