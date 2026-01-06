@@ -74,6 +74,9 @@ class ServiceContainer:
         # Tag management service
         self._tag_management_service: TagManagementService | None = None
 
+        # Phase 4: FavoriteFiltersService統合
+        self._favorite_filters_service: Any = None
+
     @property
     def config_service(self) -> ConfigurationService:
         """設定サービス取得（遅延初期化）"""
@@ -197,6 +200,16 @@ class ServiceContainer:
             logger.info("TagManagementService初期化完了")
         return self._tag_management_service
 
+    @property
+    def favorite_filters_service(self) -> Any:  # type: ignore[misc]
+        """FavoriteFiltersService取得（遅延初期化） - Phase 4"""
+        if self._favorite_filters_service is None:
+            from .favorite_filters_service import FavoriteFiltersService
+
+            self._favorite_filters_service = FavoriteFiltersService()
+            logger.info("FavoriteFiltersService初期化完了")
+        return self._favorite_filters_service
+
     def get_service_summary(self) -> dict[str, Any]:
         """サービス初期化状況のサマリー取得
 
@@ -215,6 +228,7 @@ class ServiceContainer:
                 "model_registry": self._model_registry is not None,
                 "annotator_library": self._annotator_library is not None,
                 "tag_management_service": self._tag_management_service is not None,
+                "favorite_filters_service": self._favorite_filters_service is not None,
             },
             "container_initialized": ServiceContainer._initialized,
             "phase": "Phase 4 (Production Integration)"
@@ -239,6 +253,8 @@ class ServiceContainer:
         self._model_sync_service = None
         self._model_registry = None
         self._annotator_library = None
+        self._tag_management_service = None
+        self._favorite_filters_service = None
 
         # クラスレベルリセット
         ServiceContainer._instance = None

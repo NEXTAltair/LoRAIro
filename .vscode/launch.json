@@ -10,7 +10,8 @@
       "module": "lorairo.main",
       "console": "integratedTerminal",
       "justMyCode": false,
-      "cwd": "${workspaceFolder}"
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe"
     },
     {
       "name": "Python: Current File",
@@ -18,7 +19,8 @@
       "request": "launch",
       "program": "${file}",
       "console": "integratedTerminal",
-      "justMyCode": false
+      "justMyCode": false,
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe"
     },
     {
       "name": "Python: Debug Tests",
@@ -27,7 +29,8 @@
       "program": "${file}",
       "purpose": ["debug-test"],
       "console": "integratedTerminal",
-      "justMyCode": false
+      "justMyCode": false,
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe"
     },
     {
       "name": "Windows Environment - File",

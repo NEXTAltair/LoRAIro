@@ -130,8 +130,16 @@ class TestFilterSearchPanel:
 
     @pytest.fixture
     @patch("lorairo.gui.widgets.filter_search_panel.FilterSearchPanel.setup_custom_widgets")
+    @patch("lorairo.gui.widgets.filter_search_panel.FilterSearchPanel.setup_favorite_filters_ui")
     @patch("lorairo.gui.widgets.filter_search_panel.FilterSearchPanel.connect_signals")
-    def filter_panel(self, mock_connect_signals, mock_setup_custom_widgets, parent_widget, qtbot):
+    def filter_panel(
+        self,
+        mock_connect_signals,
+        mock_setup_favorite_filters,
+        mock_setup_custom_widgets,
+        parent_widget,
+        qtbot,
+    ):
         """テスト用FilterSearchPanel（UI初期化をモック）"""
         panel = FilterSearchPanel(parent_widget)
         qtbot.addWidget(panel)

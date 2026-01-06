@@ -275,7 +275,9 @@ class TestBatchTagAddIntegration:
         # 6. tag_add_requested シグナルが発行されなかったことを確認
         assert signal_emitted is False
 
-    def test_individual_item_removal(self, batch_tag_widget, dataset_state_manager, test_images_data, qtbot):
+    def test_individual_item_removal(
+        self, batch_tag_widget, dataset_state_manager, test_images_data, qtbot
+    ):
         """
         個別アイテム削除のテスト
 

@@ -53,6 +53,9 @@ class FilterSearchPanel(QScrollArea):
         # WorkerService（依存注入）
         self.worker_service: WorkerService | None = None
 
+        # FavoriteFiltersService（依存注入） - Phase 4
+        self.favorite_filters_service: Any = None  # type: ignore[assignment]
+
         # 現在のSearchWorkerのID
         self._current_search_worker_id: str | None = None
 
@@ -71,6 +74,7 @@ class FilterSearchPanel(QScrollArea):
         self.ui = Ui_FilterSearchPanel()
         self.ui.setupUi(self)
         self.setup_custom_widgets()
+        self.setup_favorite_filters_ui()  # Phase 4
         self.connect_signals()
 
         logger.debug("FilterSearchPanel initialized")
@@ -114,6 +118,227 @@ class FilterSearchPanel(QScrollArea):
         main_layout = self.ui.searchGroup.layout()
         if main_layout:
             main_layout.addLayout(self.progress_layout)
+
+    def setup_favorite_filters_ui(self) -> None:
+        """お気に入りフィルターUIを作成してメインレイアウトに追加 (Phase 4)"""
+        from PySide6.QtWidgets import (
+            QGroupBox,
+            QHBoxLayout,
+            QListWidget,
+            QPushButton,
+            QVBoxLayout,
+        )
+
+        # グループボックス作成
+        self.favorite_filters_group = QGroupBox("お気に入りフィルター")
+        self.favorite_filters_group.setCheckable(True)
+        self.favorite_filters_group.setChecked(False)  # 初期状態は折りたたみ
+
+        # リストウィジェット作成
+        self.favorite_filters_list = QListWidget()
+        self.favorite_filters_list.setMaximumHeight(150)
+
+        # ボタン作成
+        self.button_save_filter = QPushButton("保存")
+        self.button_load_filter = QPushButton("読込")
+        self.button_delete_filter = QPushButton("削除")
+
+        # ボタンレイアウト
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.button_save_filter)
+        button_layout.addWidget(self.button_load_filter)
+        button_layout.addWidget(self.button_delete_filter)
+
+        # グループボックスレイアウト
+        group_layout = QVBoxLayout()
+        group_layout.addWidget(self.favorite_filters_list)
+        group_layout.addLayout(button_layout)
+        self.favorite_filters_group.setLayout(group_layout)
+
+        # メインレイアウトに追加（buttonApply/buttonClearの前に追加）
+        main_layout = self.ui.scrollAreaWidgetContents.layout()
+        if main_layout:
+            # 最後から2番目に挿入（Apply/Clearボタンの前）
+            insert_index = main_layout.count() - 1
+            main_layout.insertWidget(insert_index, self.favorite_filters_group)
+
+        # シグナル接続
+        self.button_save_filter.clicked.connect(self._on_save_filter_clicked)
+        self.button_load_filter.clicked.connect(self._on_load_filter_clicked)
+        self.button_delete_filter.clicked.connect(self._on_delete_filter_clicked)
+        self.favorite_filters_list.itemDoubleClicked.connect(self._on_filter_double_clicked)
+
+        logger.debug("Favorite filters UI initialized")
+
+    def set_favorite_filters_service(self, service: Any) -> None:  # type: ignore[misc]
+        """FavoriteFiltersServiceを設定 (Phase 4)
+
+        Args:
+            service: FavoriteFiltersServiceインスタンス
+        """
+        if service is None:
+            raise ValueError("FavoriteFiltersService cannot be None")
+
+        self.favorite_filters_service = service
+        self._refresh_favorite_filters_list()
+        logger.info("FavoriteFiltersService set successfully")
+
+    def _refresh_favorite_filters_list(self) -> None:
+        """お気に入りフィルター一覧を更新 (Phase 4)"""
+        if not self.favorite_filters_service:
+            return
+
+        self.favorite_filters_list.clear()
+
+        try:
+            filter_names = self.favorite_filters_service.list_filters()
+            for name in filter_names:
+                self.favorite_filters_list.addItem(name)
+
+            logger.debug("Refreshed favorite filters list: %d items", len(filter_names))
+        except Exception as e:
+            logger.error("Failed to refresh favorite filters list: %s", e, exc_info=True)
+
+    def _on_save_filter_clicked(self) -> None:
+        """保存ボタンクリックハンドラ (Phase 4)"""
+        from PySide6.QtWidgets import QInputDialog, QMessageBox
+
+        if not self.favorite_filters_service:
+            QMessageBox.warning(self, "エラー", "お気に入りフィルターサービスが利用できません。")
+            return
+
+        # 現在の条件を取得
+        conditions = self.get_current_conditions()
+        if not conditions:
+            QMessageBox.warning(self, "保存失敗", "保存する条件がありません。")
+            return
+
+        # フィルター名を入力
+        filter_name, ok = QInputDialog.getText(
+            self,
+            "フィルター保存",
+            "フィルター名を入力してください:",
+        )
+
+        if not ok or not filter_name.strip():
+            return
+
+        filter_name = filter_name.strip()
+
+        # 重複チェック
+        if self.favorite_filters_service.filter_exists(filter_name):
+            reply = QMessageBox.question(
+                self,
+                "上書き確認",
+                f"フィルター '{filter_name}' は既に存在します。上書きしますか?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        # 保存実行
+        try:
+            success = self.favorite_filters_service.save_filter(filter_name, conditions)
+            if success:
+                QMessageBox.information(self, "保存完了", f"フィルター '{filter_name}' を保存しました。")
+                self._refresh_favorite_filters_list()
+            else:
+                QMessageBox.warning(self, "保存失敗", "フィルターの保存に失敗しました。")
+        except Exception as e:
+            logger.error("Failed to save filter: %s", e, exc_info=True)
+            QMessageBox.critical(self, "エラー", f"フィルターの保存中にエラーが発生しました:\n{e}")
+
+    def _on_load_filter_clicked(self) -> None:
+        """読込ボタンクリックハンドラ (Phase 4)"""
+        from PySide6.QtWidgets import QMessageBox
+
+        if not self.favorite_filters_service:
+            QMessageBox.warning(self, "エラー", "お気に入りフィルターサービスが利用できません。")
+            return
+
+        # 選択されたアイテムを取得
+        selected_items = self.favorite_filters_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "読込失敗", "読み込むフィルターを選択してください。")
+            return
+
+        filter_name = selected_items[0].text()
+        self._load_filter_by_name(filter_name)
+
+    def _on_filter_double_clicked(self, item: Any) -> None:  # type: ignore[misc]
+        """フィルターダブルクリックハンドラ (Phase 4)
+
+        Args:
+            item: クリックされたQListWidgetItem
+        """
+        filter_name = item.text()
+        self._load_filter_by_name(filter_name)
+
+    def _load_filter_by_name(self, filter_name: str) -> None:
+        """フィルター名からフィルターを読み込んで適用 (Phase 4)
+
+        Args:
+            filter_name: フィルター名
+        """
+        from PySide6.QtWidgets import QMessageBox
+
+        if not self.favorite_filters_service:
+            return
+
+        try:
+            conditions = self.favorite_filters_service.load_filter(filter_name)
+            if conditions:
+                self.apply_conditions(conditions)
+                QMessageBox.information(self, "読込完了", f"フィルター '{filter_name}' を適用しました。")
+                logger.info("Loaded and applied favorite filter: %s", filter_name)
+            else:
+                QMessageBox.warning(
+                    self, "読込失敗", f"フィルター '{filter_name}' の読み込みに失敗しました。"
+                )
+        except Exception as e:
+            logger.error("Failed to load filter '%s': %s", filter_name, e, exc_info=True)
+            QMessageBox.critical(self, "エラー", f"フィルターの読み込み中にエラーが発生しました:\n{e}")
+
+    def _on_delete_filter_clicked(self) -> None:
+        """削除ボタンクリックハンドラ (Phase 4)"""
+        from PySide6.QtWidgets import QMessageBox
+
+        if not self.favorite_filters_service:
+            QMessageBox.warning(self, "エラー", "お気に入りフィルターサービスが利用できません。")
+            return
+
+        # 選択されたアイテムを取得
+        selected_items = self.favorite_filters_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "削除失敗", "削除するフィルターを選択してください。")
+            return
+
+        filter_name = selected_items[0].text()
+
+        # 確認ダイアログ
+        reply = QMessageBox.question(
+            self,
+            "削除確認",
+            f"フィルター '{filter_name}' を削除しますか?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # 削除実行
+        try:
+            success = self.favorite_filters_service.delete_filter(filter_name)
+            if success:
+                QMessageBox.information(self, "削除完了", f"フィルター '{filter_name}' を削除しました。")
+                self._refresh_favorite_filters_list()
+            else:
+                QMessageBox.warning(self, "削除失敗", "フィルターの削除に失敗しました。")
+        except Exception as e:
+            logger.error("Failed to delete filter '%s': %s", filter_name, e, exc_info=True)
+            QMessageBox.critical(self, "エラー", f"フィルターの削除中にエラーが発生しました:\n{e}")
 
     def connect_signals(self) -> None:
         """Qt DesignerのUIコンポーネントにシグナルを接続"""

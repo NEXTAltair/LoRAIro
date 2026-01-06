@@ -1,7 +1,7 @@
 # src/lorairo/gui/controllers/dataset_controller.py
 """データセット選択・登録制御Controller
 
-MainWindowの`register_images_to_db`および`select_and_process_dataset`メソッドから分離。
+MainWindowの`select_and_process_dataset`メソッドから分離。
 データセット選択→登録処理のビジネスロジックを担当。
 """
 
@@ -49,8 +49,7 @@ class DatasetController:
     ) -> None:
         """データセット選択→登録処理（統合メソッド）
 
-        MainWindowのregister_images_to_db()とselect_and_process_dataset()
-        両方から呼ばれる統合メソッド。
+        MainWindowのselect_and_process_dataset()から呼ばれる統合メソッド。
 
         Args:
             dialog_callback: MainWindowでQFileDialogを実行するcallback関数

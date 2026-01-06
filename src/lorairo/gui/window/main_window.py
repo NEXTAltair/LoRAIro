@@ -39,7 +39,6 @@ from ..state.dataset_state import DatasetStateManager
 from ..widgets.error_log_viewer_dialog import ErrorLogViewerDialog
 from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.filter_search_panel import FilterSearchPanel
-from ..widgets.image_edit_panel_widget import ImageEditPanelWidget
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from ..widgets.tag_management_dialog import TagManagementDialog
@@ -83,7 +82,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     thumbnail_selector: ThumbnailSelectorWidget | None
     image_preview_widget: ImagePreviewWidget | None
     selected_image_details_widget: SelectedImageDetailsWidget | None
-    image_edit_panel: ImageEditPanelWidget | None
 
     # Error handling UI components
     error_notification_widget: ErrorNotificationWidget | None

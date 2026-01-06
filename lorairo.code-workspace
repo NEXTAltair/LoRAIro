@@ -7,7 +7,12 @@
   ],
   "settings": {
     // ターミナル設定
-    "terminal.integrated.defaultProfile.windows": "PowerShell",
+    "terminal.integrated.profiles.windows": {
+      "PowerShell 7": {
+        "path": "${env:ProgramFiles}/PowerShell/7/pwsh.exe"
+      }
+    },
+    "terminal.integrated.defaultProfile.windows": "PowerShell 7",
     "terminal.integrated.cwd": "${workspaceFolder:LoRAIro}",
 
     // Python 基本設定 (テスト設定はpyproject.tomlに移動)

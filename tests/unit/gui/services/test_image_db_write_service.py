@@ -219,9 +219,7 @@ class TestImageDBWriteService:
         tag = "landscape"
 
         # 既存タグに同じタグが含まれている
-        mock_db_manager.repository.get_image_annotations.return_value = {
-            "tags": [{"content": "landscape"}]
-        }
+        mock_db_manager.repository.get_image_annotations.return_value = {"tags": [{"content": "landscape"}]}
 
         # 実行
         result = service.add_tag_batch(image_ids, tag)

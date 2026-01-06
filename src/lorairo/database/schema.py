@@ -231,7 +231,7 @@ class Tag(Base):
     __tablename__ = "tags"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    # tag_id は genai-tag-db-tools の tags_v4.db 内の ID を参照するが、
+    # tag_id は genai-tag-db-tools の内の ID を参照するが、
     # 外部 DB のため ForeignKey 制約は設定しない。NULL も許容。
     tag_id: Mapped[int | None] = mapped_column(Integer)
     image_id: Mapped[int | None] = mapped_column(ForeignKey("images.id", ondelete="CASCADE"))
