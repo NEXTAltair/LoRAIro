@@ -667,6 +667,101 @@ class ImageRepository:
                 )
                 raise
 
+    def add_tag_to_images_batch(
+        self, image_ids: list[int], tag: str, model_id: int | None
+    ) -> tuple[bool, int]:
+        """
+        複数画像に1つのタグを原子的に追加（既存タグに追加、重複スキップ）
+
+        単一トランザクションで全画像を処理。全件成功 or 全件ロールバック。
+
+        Args:
+            image_ids: 対象画像のIDリスト
+            tag: 追加するタグ（正規化済み前提: lower + strip）
+            model_id: モデルID（手動編集の場合はマニュアルモデルID）
+
+        Returns:
+            tuple[bool, int]: (成功フラグ, 追加件数)
+                成功: (True, added_count)
+                失敗: (False, 0)
+
+        Raises:
+            SQLAlchemyError: データベースエラー時（ロールバック後に再送出）
+        """
+        if not image_ids:
+            logger.warning("Empty image_ids list for batch tag add")
+            return (False, 0)
+
+        if not tag.strip():
+            logger.warning("Empty tag for batch add")
+            return (False, 0)
+
+        normalized_tag = tag.strip().lower()
+        added_count = 0
+
+        with self.session_factory() as session:
+            try:
+                # 全画像について既存タグを事前に取得（1回のクエリで効率化）
+                existing_tags_stmt = select(Tag).where(Tag.image_id.in_(image_ids))
+                all_existing_tags = session.execute(existing_tags_stmt).scalars().all()
+
+                # image_id ごとに既存タグをマッピング
+                existing_tags_by_image: dict[int, set[str]] = {}
+                for tag_obj in all_existing_tags:
+                    if tag_obj.image_id not in existing_tags_by_image:
+                        existing_tags_by_image[tag_obj.image_id] = set()
+                    existing_tags_by_image[tag_obj.image_id].add(tag_obj.tag.lower())
+
+                # 各画像について重複チェック & タグ追加
+                for image_id in image_ids:
+                    existing_tags = existing_tags_by_image.get(image_id, set())
+
+                    # 重複チェック
+                    if normalized_tag in existing_tags:
+                        logger.debug(
+                            f"Tag '{normalized_tag}' already exists for image_id {image_id}, skipping"
+                        )
+                        continue
+
+                    # 外部DBから tag_id を取得/作成
+                    external_tag_id = self._get_or_create_tag_id_external(session, normalized_tag)
+
+                    if external_tag_id is None and normalized_tag:
+                        logger.warning(
+                            f"Tag '{normalized_tag}' could not be linked to external tag_db. "
+                            "Saving with tag_id=None."
+                        )
+
+                    # 新規タグレコード作成
+                    new_tag = Tag(
+                        image_id=image_id,
+                        model_id=model_id,
+                        tag=normalized_tag,
+                        tag_id=external_tag_id,
+                        confidence_score=None,  # 手動編集時はNone
+                        existing=False,  # バッチ追加は新規扱い
+                        is_edited_manually=True,  # 手動バッチ編集
+                    )
+                    session.add(new_tag)
+                    added_count += 1
+
+                # 全件一括コミット
+                session.commit()
+
+                logger.info(
+                    f"Atomic batch tag add completed: tag='{normalized_tag}', "
+                    f"processed={len(image_ids)}, added={added_count}"
+                )
+                return (True, added_count)
+
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(
+                    f"Atomic batch tag add failed, rolled back: {e}",
+                    exc_info=True,
+                )
+                raise
+
     def _get_or_create_tag_id_external(self, session: Session, tag_string: str) -> int | None:
         """
         外部 tag_db から tag 文字列に一致する tag_id を検索し、

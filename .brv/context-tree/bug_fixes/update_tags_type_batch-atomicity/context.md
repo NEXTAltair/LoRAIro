@@ -1,0 +1,2 @@
+
+The `update_tags_type_batch` function in `repository.py` is not atomic. It calls `create_type_name_if_not_exists`, `create_type_format_mapping_if_not_exists`, and `update_tag_status`, each of which opens and commits its own session. This means that a rollback of the entire batch operation is not possible. Additionally, the function forces `alias=False` and `preferred_tag_id=tag_id`, which can unintentionally override existing alias tags.
