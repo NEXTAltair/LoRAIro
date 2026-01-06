@@ -943,7 +943,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         payload = {
             "id": data.get("id"),
             "rating": data.get("rating_value") or "PG",
-            "score": int(data.get("score_value") or 0),
+            # DBスコア(0-10) → UI内部値(0-1000)へ変換
+            "score": int((data.get("score_value") or 0) * 100),
             "tags": data.get("tags_text") or "",
             "caption": data.get("caption_text") or "",
         }
