@@ -304,7 +304,7 @@ class ImageDBWriteService:
 
         バッチ操作で複数画像に同じタグを一括追加。
         既存タグに追加（append mode）、重複は自動的にスキップ。
-        全件一括コミット、エラー時は自動ロールバック。
+        全件一括コミット、エラー時は自動ロールバック（原子的処理）。
 
         Args:
             image_ids: 対象画像のIDリスト
@@ -312,13 +312,12 @@ class ImageDBWriteService:
                  Service側では防御的に strip().lower() を再適用
 
         Returns:
-            bool: 成功した場合 True
+            bool: 成功した場合 True、失敗した場合 False
 
         処理:
-            1. 各画像の既存タグを取得
-            2. 重複チェック（set 操作、小文字比較）
-            3. 新規タグ追加（TagAnnotationData）
-            4. 全件一括コミット
+            1. Repository層の add_tag_to_images_batch() を呼び出し
+            2. 単一トランザクションで全画像を処理
+            3. 全件成功 or 全件ロールバック（原子性保証）
 
         Note:
             タグ正規化は主に呼び出し元（BatchTagAddWidget）で実施。
@@ -333,43 +332,23 @@ class ImageDBWriteService:
                 logger.warning("Empty tag for batch add")
                 return False
 
-            normalized_tag = tag.strip().lower()
-            success_count = 0
-
-            # 各画像にタグを追加
-            for image_id in image_ids:
-                # 既存タグを取得
-                annotations = self.db_manager.repository.get_image_annotations(image_id)
-                tags_data = annotations.get("tags", [])
-                existing_tags = {tag_item.get("content", "").lower() for tag_item in tags_data}
-
-                # 重複チェック
-                if normalized_tag in existing_tags:
-                    logger.debug(f"Tag '{normalized_tag}' already exists for image_id {image_id}, skipping")
-                    continue
-
-                # 新規タグデータ作成
-                tag_data: TagAnnotationData = {
-                    "tag_id": None,  # 手動編集時はNone（自動生成）
-                    "model_id": self.db_manager.get_manual_edit_model_id(),
-                    "tag": normalized_tag,
-                    "source": "manual_batch",  # バッチ編集ソース
-                    "confidence_score": None,  # 手動編集時は信頼度スコアなし
-                }
-
-                # タグを追加（既存タグに追加）
-                self.db_manager.repository.save_annotations(
-                    image_id=image_id,
-                    annotations={"tags": [tag_data]},
-                )
-
-                success_count += 1
-
-            logger.info(
-                f"Batch tag add completed: tag='{normalized_tag}', "
-                f"processed={len(image_ids)}, added={success_count}"
+            # Repository層の原子的バッチ追加メソッドを使用
+            model_id = self.db_manager.get_manual_edit_model_id()
+            success, added_count = self.db_manager.repository.add_tag_to_images_batch(
+                image_ids=image_ids,
+                tag=tag,
+                model_id=model_id,
             )
-            return True
+
+            if success:
+                logger.info(
+                    f"Batch tag add succeeded: tag='{tag}', "
+                    f"processed={len(image_ids)}, added={added_count}"
+                )
+            else:
+                logger.warning(f"Batch tag add returned failure for tag='{tag}'")
+
+            return success
 
         except Exception as e:
             logger.error(f"Error in batch tag add: {e}", exc_info=True)
