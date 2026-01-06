@@ -3,7 +3,12 @@
 from pathlib import Path
 
 from ...database.db_manager import ImageDatabaseManager
-from ...database.schema import RatingAnnotationData, ScoreAnnotationData
+from ...database.schema import (
+    CaptionAnnotationData,
+    RatingAnnotationData,
+    ScoreAnnotationData,
+    TagAnnotationData,
+)
 from ...services.date_formatter import format_datetime_for_display
 from ...utils.log import logger
 from ..widgets.annotation_data_display_widget import AnnotationData, ImageDetails
@@ -15,12 +20,20 @@ class ImageDBWriteService:
 
     責任:
     - 単一画像の詳細情報取得
-    - 画像Rating/Score情報のデータベース更新
+    - 画像Rating/Score/Tags/Caption情報のデータベース更新
     - アノテーション情報の取得
     - GUI層でのDB書き込み操作専門化
 
     Phase 1-2で確立されたSearchFilterServiceパターンを継承し、
     Read/Write分離による美しい対称性を実現
+
+    提供メソッド:
+    - get_image_details: 画像詳細情報取得
+    - get_annotation_data: アノテーション情報取得
+    - update_rating: Rating更新
+    - update_score: Score更新
+    - update_tags: Tags更新（カンマ区切り文字列）
+    - update_caption: Caption更新
     """
 
     def __init__(self, db_manager: ImageDatabaseManager):
@@ -198,4 +211,166 @@ class ImageDBWriteService:
 
         except Exception as e:
             logger.error(f"Error updating score for image_id {image_id}: {e}", exc_info=True)
+            return False
+
+    def update_tags(self, image_id: int, tags_text: str) -> bool:
+        """
+        Tags情報をデータベースに書き込み
+
+        Args:
+            image_id: 更新対象の画像ID
+            tags_text: タグ文字列（カンマ区切り）
+
+        Returns:
+            bool: 更新成功/失敗
+
+        処理:
+            1. タグ文字列をカンマで分割
+            2. 各タグをTagAnnotationDataに変換
+            3. save_annotationsで一括保存
+        """
+        try:
+            # タグ文字列をパース（カンマ区切り、前後の空白削除）
+            tag_list = [tag.strip() for tag in tags_text.split(",") if tag.strip()]
+
+            if not tag_list:
+                logger.warning(f"Empty tags list for image_id {image_id}")
+                return False
+
+            # TagAnnotationData のリストを作成
+            tags_data: list[TagAnnotationData] = []
+            for tag in tag_list:
+                tag_data: TagAnnotationData = {
+                    "tag_id": None,  # 手動編集時はNone（自動生成）
+                    "model_id": self.db_manager.get_manual_edit_model_id(),
+                    "tag": tag,
+                    "source": "manual",  # 手動編集ソース
+                    "confidence_score": None,  # 手動編集時は信頼度スコアなし
+                }
+                tags_data.append(tag_data)
+
+            # Repositoryの save_annotations を呼び出し
+            self.db_manager.repository.save_annotations(
+                image_id=image_id,
+                annotations={"tags": tags_data},
+            )
+
+            logger.info(f"Tags updated successfully for image_id {image_id}: {len(tag_list)} tags")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error updating tags for image_id {image_id}: {e}", exc_info=True)
+            return False
+
+    def update_caption(self, image_id: int, caption: str) -> bool:
+        """
+        Caption情報をデータベースに書き込み
+
+        Args:
+            image_id: 更新対象の画像ID
+            caption: キャプション文字列
+
+        Returns:
+            bool: 更新成功/失敗
+        """
+        try:
+            if not caption.strip():
+                logger.warning(f"Empty caption for image_id {image_id}")
+                return False
+
+            # CaptionAnnotationData を作成
+            caption_data: CaptionAnnotationData = {
+                "model_id": self.db_manager.get_manual_edit_model_id(),
+                "caption": caption.strip(),
+                "existing": False,  # 手動編集時は新規作成
+            }
+
+            # Repositoryの save_annotations を呼び出し
+            self.db_manager.repository.save_annotations(
+                image_id=image_id,
+                annotations={"captions": [caption_data]},
+            )
+
+            logger.info(f"Caption updated successfully for image_id {image_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error updating caption for image_id {image_id}: {e}", exc_info=True)
+            return False
+
+    def add_tag_batch(self, image_ids: list[int], tag: str) -> bool:
+        """
+        複数画像に1つのタグを追加（既存タグに追加、重複は許可しない）
+
+        バッチ操作で複数画像に同じタグを一括追加。
+        既存タグに追加（append mode）、重複は自動的にスキップ。
+        全件一括コミット、エラー時は自動ロールバック。
+
+        Args:
+            image_ids: 対象画像のIDリスト
+            tag: 追加するタグ（Widget側で TagCleaner.clean_format() + lower + strip 済み前提）
+                 Service側では防御的に strip().lower() を再適用
+
+        Returns:
+            bool: 成功した場合 True
+
+        処理:
+            1. 各画像の既存タグを取得
+            2. 重複チェック（set 操作、小文字比較）
+            3. 新規タグ追加（TagAnnotationData）
+            4. 全件一括コミット
+
+        Note:
+            タグ正規化は主に呼び出し元（BatchTagAddWidget）で実施。
+            Service側は防御的に追加の strip().lower() を適用。
+        """
+        try:
+            if not image_ids:
+                logger.warning("Empty image_ids list for batch tag add")
+                return False
+
+            if not tag.strip():
+                logger.warning("Empty tag for batch add")
+                return False
+
+            normalized_tag = tag.strip().lower()
+            success_count = 0
+
+            # 各画像にタグを追加
+            for image_id in image_ids:
+                # 既存タグを取得
+                annotations = self.db_manager.repository.get_image_annotations(image_id)
+                tags_data = annotations.get("tags", [])
+                existing_tags = {tag_item.get("content", "").lower() for tag_item in tags_data}
+
+                # 重複チェック
+                if normalized_tag in existing_tags:
+                    logger.debug(f"Tag '{normalized_tag}' already exists for image_id {image_id}, skipping")
+                    continue
+
+                # 新規タグデータ作成
+                tag_data: TagAnnotationData = {
+                    "tag_id": None,  # 手動編集時はNone（自動生成）
+                    "model_id": self.db_manager.get_manual_edit_model_id(),
+                    "tag": normalized_tag,
+                    "source": "manual_batch",  # バッチ編集ソース
+                    "confidence_score": None,  # 手動編集時は信頼度スコアなし
+                }
+
+                # タグを追加（既存タグに追加）
+                self.db_manager.repository.save_annotations(
+                    image_id=image_id,
+                    annotations={"tags": [tag_data]},
+                )
+
+                success_count += 1
+
+            logger.info(
+                f"Batch tag add completed: tag='{normalized_tag}', "
+                f"processed={len(image_ids)}, added={success_count}"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"Error in batch tag add: {e}", exc_info=True)
             return False

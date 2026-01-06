@@ -391,5 +391,92 @@ class TestThumbnailSelectorWidgetWorkflow:
         # pytest-qtがqtbot.addWidget()を使用している場合、自動クリーンアップされる
 
 
+class TestThumbnailSelectorWidgetSelectionSync:
+    """ThumbnailSelectorWidget 選択状態同期テスト"""
+
+    @pytest.fixture
+    def widget_with_state(self, qtbot):
+        """DatasetStateManager付きウィジェット"""
+        from lorairo.gui.state.dataset_state import DatasetStateManager
+
+        widget = ThumbnailSelectorWidget()
+        qtbot.addWidget(widget)
+
+        state_manager = DatasetStateManager()
+        widget.dataset_state = state_manager
+
+        return widget, state_manager
+
+    def test_sync_selection_to_state_basic(self, widget_with_state, qtbot):
+        """基本的な選択同期テスト"""
+        widget, state_manager = widget_with_state
+
+        # ThumbnailItemをモック
+        from lorairo.gui.widgets.thumbnail import ThumbnailItem
+
+        mock_item1 = Mock(spec=ThumbnailItem)
+        mock_item1.image_id = 1
+        mock_item2 = Mock(spec=ThumbnailItem)
+        mock_item2.image_id = 2
+
+        # scene.selectedItems() をモック
+        widget.scene.selectedItems = Mock(return_value=[mock_item1, mock_item2])
+
+        # 実行
+        widget._sync_selection_to_state()
+
+        # 検証
+        assert state_manager.selected_image_ids == [1, 2]
+
+    def test_sync_selection_to_state_empty(self, widget_with_state, qtbot):
+        """空の選択状態の同期テスト"""
+        widget, state_manager = widget_with_state
+
+        # scene.selectedItems() が空リストを返す
+        widget.scene.selectedItems = Mock(return_value=[])
+
+        # 実行
+        widget._sync_selection_to_state()
+
+        # 検証
+        assert state_manager.selected_image_ids == []
+
+    def test_sync_selection_to_state_without_dataset_state(self, qtbot):
+        """DatasetStateManager未設定時のテスト"""
+        widget = ThumbnailSelectorWidget()
+        qtbot.addWidget(widget)
+
+        # dataset_state が None の場合
+        widget.dataset_state = None
+
+        # 実行（例外が発生しないことを確認）
+        widget._sync_selection_to_state()
+
+        # 検証: 何も起こらない
+        assert widget.dataset_state is None
+
+    def test_sync_selection_to_state_signal_blocking(self, widget_with_state, qtbot):
+        """シグナルブロッキング動作の確認"""
+        widget, state_manager = widget_with_state
+
+        from lorairo.gui.widgets.thumbnail import ThumbnailItem
+
+        mock_item = Mock(spec=ThumbnailItem)
+        mock_item.image_id = 5
+        widget.scene.selectedItems = Mock(return_value=[mock_item])
+
+        # blockSignals が呼ばれることを確認するためのスパイ
+        with patch.object(state_manager, "blockSignals", wraps=state_manager.blockSignals) as mock_block:
+            widget._sync_selection_to_state()
+
+            # blockSignals(True) と blockSignals(False) が呼ばれたことを確認
+            assert mock_block.call_count == 2
+            assert mock_block.call_args_list[0][0][0] is True  # blockSignals(True)
+            assert mock_block.call_args_list[1][0][0] is False  # blockSignals(False)
+
+        # 最終的に選択状態が正しく反映されている
+        assert state_manager.selected_image_ids == [5]
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

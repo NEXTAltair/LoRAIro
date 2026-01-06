@@ -132,15 +132,23 @@ class WidgetSetupService:
             main_window: MainWindowインスタンス
         """
         if hasattr(main_window, "splitterMainWorkArea") and main_window.splitterMainWorkArea:
-            # 初期サイズ設定（左: 280px, 中央: 770px, 右: 350px）
-            main_window.splitterMainWorkArea.setSizes([280, 770, 350])
+            # 初期サイズ設定（左: 216px, 中央: 504px, 右: 480px）- 右パネル（詳細）を広めに
+            main_window.splitterMainWorkArea.setSizes([216, 504, 480])
 
-            # ストレッチファクター設定（比率: 20%, 55%, 25%）
-            main_window.splitterMainWorkArea.setStretchFactor(0, 20)  # 左パネル
-            main_window.splitterMainWorkArea.setStretchFactor(1, 55)  # 中央パネル（サムネイル）
-            main_window.splitterMainWorkArea.setStretchFactor(2, 25)  # 右パネル
+            # ストレッチファクター設定（左:18%, 中央:42%, 右:40%）
+            main_window.splitterMainWorkArea.setStretchFactor(0, 18)  # 左パネル
+            main_window.splitterMainWorkArea.setStretchFactor(1, 42)  # 中央パネル（サムネイル）
+            main_window.splitterMainWorkArea.setStretchFactor(2, 40)  # 右パネル（プレビュー＋詳細）
 
             logger.info("✅ スプリッター初期化完了（Qt標準機能使用）")
+
+        # 右カラム内のプレビュー/詳細スプリッター
+        if hasattr(main_window, "splitterPreviewDetails") and main_window.splitterPreviewDetails:
+            # 上:プレビュー、下:詳細（初期55/45）編集パネルのスペースを広めに確保
+            main_window.splitterPreviewDetails.setSizes([550, 450])
+            main_window.splitterPreviewDetails.setStretchFactor(0, 1)
+            main_window.splitterPreviewDetails.setStretchFactor(1, 1)
+            logger.info("✅ splitterPreviewDetails 初期化完了（プレビュー/詳細比率55/45）")
 
     @classmethod
     def setup_all_widgets(cls, main_window: Any, dataset_state_manager: DatasetStateManager | None) -> None:

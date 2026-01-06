@@ -1,0 +1,226 @@
+<?xml version='1.0' encoding='utf-8'?>
+<ui version="4.0">
+ <class>BatchTagAddWidget</class>
+ <widget class="QWidget" name="BatchTagAddWidget">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>250</width>
+    <height>500</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Batch Tag Add</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayoutMain">
+   <property name="spacing">
+    <number>8</number>
+   </property>
+   <property name="leftMargin">
+    <number>8</number>
+   </property>
+   <property name="topMargin">
+    <number>8</number>
+   </property>
+   <property name="rightMargin">
+    <number>8</number>
+   </property>
+   <property name="bottomMargin">
+    <number>8</number>
+   </property>
+   <item>
+    <widget class="QGroupBox" name="groupBoxStagingList">
+     <property name="title">
+      <string>ステージング画像</string>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayoutStaging">
+      <item>
+       <widget class="QLabel" name="labelStagingCount">
+        <property name="text">
+         <string>0 / 500 枚</string>
+        </property>
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QListWidget" name="listWidgetStaging">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+          <horstretch>0</horstretch>
+          <verstretch>1</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="minimumHeight">
+         <number>150</number>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayoutStagingButtons">
+        <item>
+         <widget class="QPushButton" name="pushButtonAddSelected">
+          <property name="text">
+           <string>選択中の画像を追加</string>
+          </property>
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="pushButtonClearStaging">
+          <property name="text">
+           <string>クリア</string>
+          </property>
+          <property name="minimumWidth">
+           <number>60</number>
+          </property>
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBoxTagInput">
+     <property name="title">
+      <string>タグ追加</string>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayoutTag">
+      <item>
+       <widget class="QLabel" name="labelTagInstruction">
+        <property name="text">
+         <string>追加するタグを入力してください:</string>
+        </property>
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLineEdit" name="lineEditTag">
+        <property name="placeholderText">
+         <string>例: landscape</string>
+        </property>
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayoutTagButtons">
+        <item>
+         <spacer name="horizontalSpacer">
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QPushButton" name="pushButtonAddTag">
+          <property name="text">
+           <string>追加</string>
+          </property>
+          <property name="minimumWidth">
+           <number>80</number>
+          </property>
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources />
+ <connections>
+  <connection>
+   <sender>pushButtonAddSelected</sender>
+   <signal>clicked()</signal>
+   <receiver>BatchTagAddWidget</receiver>
+   <slot>_on_add_selected_clicked()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>125</x>
+     <y>200</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>125</x>
+     <y>250</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>pushButtonClearStaging</sender>
+   <signal>clicked()</signal>
+   <receiver>BatchTagAddWidget</receiver>
+   <slot>_on_clear_staging_clicked()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>220</x>
+     <y>200</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>125</x>
+     <y>250</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>pushButtonAddTag</sender>
+   <signal>clicked()</signal>
+   <receiver>BatchTagAddWidget</receiver>
+   <slot>_on_add_tag_clicked()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>200</x>
+     <y>450</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>125</x>
+     <y>250</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+ <slots>
+  <slot>_on_add_selected_clicked()</slot>
+  <slot>_on_clear_staging_clicked()</slot>
+  <slot>_on_add_tag_clicked()</slot>
+ </slots>
+</ui>

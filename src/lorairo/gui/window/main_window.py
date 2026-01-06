@@ -1,13 +1,19 @@
 # src/lorairo/gui/window/main_window.py
 
-import os
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QTimer, Signal
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QTimer, Signal
 from PySide6.QtGui import QResizeEvent
-from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QWidget
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QGraphicsOpacityEffect,
+    QMainWindow,
+    QMessageBox,
+    QWidget,
+)
 
+from ...database.db_core import IMG_DB_PATH, USER_TAG_DB_PATH, get_current_project_root
 from ...database.db_manager import ImageDatabaseManager
 from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
@@ -33,6 +39,7 @@ from ..state.dataset_state import DatasetStateManager
 from ..widgets.error_log_viewer_dialog import ErrorLogViewerDialog
 from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.filter_search_panel import FilterSearchPanel
+from ..widgets.image_edit_panel_widget import ImageEditPanelWidget
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from ..widgets.tag_management_dialog import TagManagementDialog
@@ -76,6 +83,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     thumbnail_selector: ThumbnailSelectorWidget | None
     image_preview_widget: ImagePreviewWidget | None
     selected_image_details_widget: SelectedImageDetailsWidget | None
+    image_edit_panel: ImageEditPanelWidget | None
 
     # Error handling UI components
     error_notification_widget: ErrorNotificationWidget | None
@@ -179,12 +187,37 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         try:
             self.dataset_state_manager = DatasetStateManager()
+            # DatasetStateManagerにDB Manager参照を設定（バッチ操作後のリフレッシュに使用）
+            if self.db_manager:
+                self.dataset_state_manager.set_db_manager(self.db_manager)
+                logger.info("✅ DatasetStateManager DB Manager参照設定完了")
             logger.info("✅ DatasetStateManager初期化成功")
         except Exception as e:
             logger.error(f"❌ DatasetStateManager初期化失敗: {e}")
             self.dataset_state_manager = None
 
+        # DBステータス表示を現在のプロジェクトディレクトリに更新
+        self._update_database_status_label()
+
         logger.info("サービス初期化完了")
+
+    def _update_database_status_label(self) -> None:
+        """ステータスバーのDB表示を現在のプロジェクトディレクトリに合わせる"""
+        if not hasattr(self, "labelDbInfo") or self.labelDbInfo is None:
+            return
+
+        try:
+            project_root = get_current_project_root().resolve()
+            image_db_path = IMG_DB_PATH.resolve()
+            tooltip_lines = [f"画像DB: {image_db_path}"]
+
+            if USER_TAG_DB_PATH:
+                tooltip_lines.append(f"タグDB: {USER_TAG_DB_PATH.resolve()}")
+
+            self.labelDbInfo.setText(f"データベース: {project_root}")
+            self.labelDbInfo.setToolTip("\n".join(tooltip_lines))
+        except Exception as e:
+            logger.warning(f"データベース表示の更新に失敗: {e}")
 
     def _handle_critical_initialization_failure(self, component_name: str, error: Exception) -> None:
         """致命的初期化失敗時の処理
@@ -304,6 +337,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # ErrorNotificationWidget初期化（Phase 4.5）
         self._setup_error_notification()
+        # QTabWidget初期化（タブ切り替え用）
+        self._setup_tab_widget()
 
     def _verify_state_management_connections(self) -> None:
         """状態管理接続の検証（SelectionStateServiceに委譲）"""
@@ -342,6 +377,19 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except Exception as e:
             logger.error(f"❌ ErrorNotificationWidget初期化失敗: {e}", exc_info=True)
             self.error_notification_widget = None
+
+    def _setup_tab_widget(self) -> None:
+        """QTabWidget（右パネル）の初期設定"""
+        # QTabWidget (画像詳細 / Rating/Score編集 / バッチタグ追加)
+        self.tab_widget_right_panel = getattr(self, "tabWidgetRightPanel", None)
+
+        if not self.tab_widget_right_panel:
+            logger.warning("tabWidgetRightPanel not found - tab widget integration skipped")
+            return
+
+        # 初期表示は画像詳細タブ（インデックス0）
+        self.tab_widget_right_panel.setCurrentIndex(0)
+        logger.info("QTabWidget initialized with 3 tabs: 画像詳細, Rating/Score編集, バッチタグ追加")
 
     def _show_error_log_dialog(self) -> None:
         """エラーログダイアログを表示（オンデマンド）"""
@@ -421,6 +469,31 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             # Sequential Worker Pipeline 統合シグナル接続
             self._setup_worker_pipeline_signals()
+
+            # Editアクション（Ctrl+E で Rating/Score編集タブに切り替え）
+            if hasattr(self, "actionEditImage"):
+                self.actionEditImage.triggered.connect(self._switch_to_edit_tab)
+
+            # RatingScoreEditWidget シグナル接続（Phase 3.1）
+            if hasattr(self, "ratingScoreEditWidget"):
+                try:
+                    self.ratingScoreEditWidget.rating_changed.connect(self._handle_rating_changed)
+                    self.ratingScoreEditWidget.score_changed.connect(self._handle_score_changed)
+                    logger.info("    ✅ RatingScoreEditWidget シグナル接続完了")
+                except Exception as e:
+                    logger.error(f"    ❌ RatingScoreEditWidget シグナル接続失敗: {e}")
+
+            # BatchTagAddWidget シグナル接続（Phase 3.1）
+            if hasattr(self, "batchTagAddWidget"):
+                try:
+                    # DatasetStateManager 参照を設定
+                    self.batchTagAddWidget.set_dataset_state_manager(self.dataset_state_manager)
+                    # シグナル接続
+                    self.batchTagAddWidget.tag_add_requested.connect(self._handle_batch_tag_add)
+                    self.batchTagAddWidget.staging_cleared.connect(self._handle_staging_cleared)
+                    logger.info("    ✅ BatchTagAddWidget シグナル接続完了")
+                except Exception as e:
+                    logger.error(f"    ❌ BatchTagAddWidget シグナル接続失敗: {e}")
 
             logger.info("  ✅ イベント接続完了")
 
@@ -631,10 +704,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """データセット選択と自動処理開始（DatasetControllerに委譲）"""
         self._execute_dataset_registration()
 
-    def register_images_to_db(self) -> None:
-        """画像をデータベースに登録（DatasetControllerに委譲）"""
-        self._execute_dataset_registration()
-
     def _execute_dataset_registration(self) -> None:
         """データセット登録の実行（共通メソッド）"""
         if self.dataset_controller:
@@ -680,12 +749,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # ImageDBWriteServiceを作成
             self.image_db_write_service = ImageDBWriteService(self.db_manager)
 
-            # SelectedImageDetailsWidgetのシグナルをImageDBWriteServiceに接続
-            self.selected_image_details_widget.rating_updated.connect(self._on_rating_update_requested)
-            self.selected_image_details_widget.score_updated.connect(self._on_score_update_requested)
-            self.selected_image_details_widget.save_requested.connect(self._on_save_requested)
-
-            logger.info("ImageDBWriteService created and signals connected")
+            # SelectedImageDetailsWidgetが編集シグナルを持たない場合はスキップ（閲覧専用化対応）
+            if (
+                hasattr(self.selected_image_details_widget, "rating_updated")
+                and hasattr(self.selected_image_details_widget, "score_updated")
+                and hasattr(self.selected_image_details_widget, "save_requested")
+            ):
+                self.selected_image_details_widget.rating_updated.connect(self._on_rating_update_requested)
+                self.selected_image_details_widget.score_updated.connect(self._on_score_update_requested)
+                self.selected_image_details_widget.save_requested.connect(self._on_save_requested)
+                logger.info("ImageDBWriteService created and signals connected")
+            else:
+                logger.info("SelectedImageDetailsWidget is view-only; edit signals not connected")
         else:
             logger.warning(
                 "Cannot setup ImageDBWriteService: db_manager or selected_image_details_widget not available"
@@ -725,6 +800,108 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             logger.error(f"Failed to update score: image_id={image_id}, score={score}")
 
+    def _handle_rating_changed(self, image_id: int, rating: str) -> None:
+        """
+        RatingScoreEditWidget からの Rating 変更シグナルハンドラ（Phase 3.1）
+
+        Args:
+            image_id: 画像ID
+            rating: Rating値 ("PG", "PG-13", "R", "X", "XXX")
+
+        Side Effects:
+            - ImageDBWriteService.update_rating() を呼び出し
+            - 成功時: DatasetStateManager.refresh_image() でキャッシュ更新
+            - 失敗時: エラーログ出力
+        """
+        if not self.image_db_write_service:
+            logger.warning("ImageDBWriteService not initialized")
+            return
+
+        success = self.image_db_write_service.update_rating(image_id, rating)
+        if success:
+            # キャッシュを更新
+            if self.dataset_state_manager:
+                self.dataset_state_manager.refresh_image(image_id)
+            logger.info(f"Rating updated successfully: image_id={image_id}, rating={rating}")
+        else:
+            logger.error(f"Failed to update rating: image_id={image_id}, rating={rating}")
+
+    def _handle_score_changed(self, image_id: int, score: int) -> None:
+        """
+        RatingScoreEditWidget からの Score 変更シグナルハンドラ（Phase 3.1）
+
+        Args:
+            image_id: 画像ID
+            score: Score値 (0-1000範囲)
+
+        Side Effects:
+            - ImageDBWriteService.update_score() を呼び出し
+            - 成功時: DatasetStateManager.refresh_image() でキャッシュ更新
+            - 失敗時: エラーログ出力
+        """
+        if not self.image_db_write_service:
+            logger.warning("ImageDBWriteService not initialized")
+            return
+
+        success = self.image_db_write_service.update_score(image_id, score)
+        if success:
+            # キャッシュを更新
+            if self.dataset_state_manager:
+                self.dataset_state_manager.refresh_image(image_id)
+            logger.info(f"Score updated successfully: image_id={image_id}, score={score}")
+        else:
+            logger.error(f"Failed to update score: image_id={image_id}, score={score}")
+
+    def _handle_batch_tag_add(self, image_ids: list[int], tag: str) -> None:
+        """
+        BatchTagAddWidget からのバッチタグ追加シグナルハンドラ（Phase 3.1）
+
+        複数画像に対して1つのタグを一括追加します。
+
+        Args:
+            image_ids: 対象画像のIDリスト
+            tag: 追加するタグ（正規化済み）
+
+        Side Effects:
+            - ImageDBWriteService.add_tag_batch() を呼び出し
+            - 成功時: DatasetStateManager.refresh_images() でキャッシュ一括更新
+            - 成功時: BatchTagAddWidget のステージングリストをクリア
+            - 失敗時: エラーログ出力
+        """
+        if not self.image_db_write_service:
+            logger.warning("ImageDBWriteService not initialized")
+            return
+
+        if not image_ids:
+            logger.warning("Batch tag add requested with empty image list")
+            return
+
+        logger.info(f"Batch tag add requested: tag='{tag}' for {len(image_ids)} images")
+
+        success = self.image_db_write_service.add_tag_batch(image_ids, tag)
+        if success:
+            # キャッシュを一括更新
+            if self.dataset_state_manager:
+                self.dataset_state_manager.refresh_images(image_ids)
+
+            # ステージングリストをクリア
+            if hasattr(self, "batchTagAddWidget"):
+                self.batchTagAddWidget._on_clear_staging_clicked()
+
+            logger.info(
+                f"Batch tag add completed successfully: tag='{tag}', {len(image_ids)} images updated"
+            )
+        else:
+            logger.error(f"Failed to add tag in batch: tag='{tag}', image_count={len(image_ids)}")
+
+    def _handle_staging_cleared(self) -> None:
+        """
+        BatchTagAddWidget からのステージングクリアシグナルハンドラ（Phase 3.1）
+
+        現在は何もしない（将来的にUI状態をリセットする場合に使用）
+        """
+        logger.debug("Batch staging cleared")
+
     def _on_save_requested(self, save_data: dict) -> None:
         """保存要求シグナルハンドラ（Issue #4）
 
@@ -752,6 +929,49 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.image_db_write_service.update_score(image_id, score)
 
         logger.info(f"Save completed: image_id={image_id}, rating={rating}, score={score}")
+
+    # === Edit/View モード切替（Side Panel） ===
+    def _get_current_image_payload(self) -> dict[str, Any] | None:
+        """現在選択中の画像データを編集パネル用に取得"""
+        if not self.dataset_state_manager:
+            logger.warning("DatasetStateManager not available")
+            return None
+
+        data = self.dataset_state_manager.get_current_image_data()
+        if not data:
+            logger.warning("No current image selected")
+            return None
+
+        payload = {
+            "id": data.get("id"),
+            "rating": data.get("rating_value") or "PG",
+            "score": int(data.get("score_value") or 0),
+            "tags": data.get("tags_text") or "",
+            "caption": data.get("caption_text") or "",
+        }
+        return payload
+
+    def _switch_to_edit_tab(self) -> None:
+        """Rating/Score編集タブに切り替え（Ctrl+E）"""
+        if not getattr(self, "tab_widget_right_panel", None):
+            logger.warning("QTabWidget not initialized")
+            return
+
+        # 画像が選択されているか確認
+        payload = self._get_current_image_payload()
+        if not payload:
+            QMessageBox.warning(self, "編集不可", "編集する画像が選択されていません。")
+            return
+
+        # Rating/Score編集タブ（インデックス1）に切り替え
+        self.tab_widget_right_panel.setCurrentIndex(1)
+
+        # RatingScoreEditWidget にデータを設定
+        if hasattr(self, "ratingScoreEditWidget"):
+            self.ratingScoreEditWidget.populate_from_image_data(payload)
+            logger.info(f"Switched to Rating/Score edit tab for image_id={payload.get('id')}")
+        else:
+            logger.warning("RatingScoreEditWidget not found")
 
     def _create_search_filter_service(self) -> SearchFilterService:
         """
@@ -805,6 +1025,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 logger.info("✅ SearchFilterService統合完了（WorkerService統合済み）")
             else:
                 logger.info("✅ SearchFilterService統合完了（同期検索モード）")
+
+            # Phase 4: FavoriteFiltersService統合
+            service_container = get_service_container()
+            favorite_filters_service = service_container.favorite_filters_service
+            self.filterSearchPanel.set_favorite_filters_service(favorite_filters_service)
+            logger.info("✅ FavoriteFiltersService統合完了")
 
         except Exception as e:
             # 検索機能は必須のため、失敗時はアプリケーション起動を中止

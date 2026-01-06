@@ -164,7 +164,7 @@
          <property name="text">
           <string>データベース: 未接続</string>
          </property>
-        </widget>
+       </widget>
        </item>
        <item>
         <spacer name="horizontalSpacer_dbStatus">
@@ -172,41 +172,12 @@
           <enum>Qt::Orientation::Horizontal</enum>
          </property>
          <property name="sizeHint" stdset="0">
-          <size>
-           <width>40</width>
+           <size>
+            <width>40</width>
            <height>20</height>
           </size>
          </property>
         </spacer>
-       </item>
-       <item>
-        <widget class="QPushButton" name="pushButtonRegisterImages">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
-           <horstretch>0</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
-         </property>
-         <property name="text">
-          <string>画像をDB登録</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QProgressBar" name="progressBarRegistration">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
-           <horstretch>0</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
-         </property>
-         <property name="visible">
-          <bool>false</bool>
-         </property>
-         <property name="value">
-          <number>0</number>
-         </property>
-        </widget>
        </item>
       </layout>
      </widget>
@@ -250,53 +221,13 @@
          </widget>
         </item>
         <item>
-         <widget class="QSplitter" name="splitter">
-          <property name="orientation">
-           <enum>Qt::Orientation::Vertical</enum>
+         <widget class="FilterSearchPanel" name="filterSearchPanel" native="true">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+            <horstretch>0</horstretch>
+            <verstretch>1</verstretch>
+           </sizepolicy>
           </property>
-          <widget class="QFrame" name="frameFilterSearchContent">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-             <horstretch>0</horstretch>
-             <verstretch>3</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="minimumSize">
-            <size>
-             <width>200</width>
-             <height>150</height>
-            </size>
-           </property>
-           <property name="frameShape">
-            <enum>QFrame::Shape::NoFrame</enum>
-           </property>
-           <layout class="QVBoxLayout" name="verticalLayout_2">
-            <item>
-             <widget class="FilterSearchPanel" name="filterSearchPanel" native="true">
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-                <horstretch>0</horstretch>
-                <verstretch>1</verstretch>
-               </sizepolicy>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </widget>
-          <widget class="SelectedImageDetailsWidget" name="selectedImageDetailsWidget">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-             <horstretch>0</horstretch>
-             <verstretch>1</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="minimumSize">
-            <size>
-             <width>200</width>
-             <height>100</height>
-            </size>
-           </property>
-          </widget>
          </widget>
         </item>
        </layout>
@@ -338,96 +269,6 @@
             <verstretch>0</verstretch>
            </sizepolicy>
           </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QFrame" name="frameThumbnailStatusIndicator">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="styleSheet">
-           <string notr="true"/>
-          </property>
-          <property name="frameShape">
-           <enum>QFrame::Shape::Box</enum>
-          </property>
-          <layout class="QHBoxLayout" name="horizontalLayout_thumbnailStatusIndicator">
-           <property name="spacing">
-            <number>8</number>
-           </property>
-           <property name="leftMargin">
-            <number>8</number>
-           </property>
-           <property name="rightMargin">
-            <number>8</number>
-           </property>
-           <item>
-            <widget class="QLabel" name="labelStatusIndicatorTitle">
-             <property name="styleSheet">
-              <string>font-size: 10px; font-weight: bold; color: #1976D2;</string>
-             </property>
-             <property name="text">
-              <string>アノテーション状態:</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QLabel" name="labelStatusCompleted">
-             <property name="styleSheet">
-              <string>font-size: 9px; color: #4CAF50; font-weight: bold;</string>
-             </property>
-             <property name="text">
-              <string>✓ 完了: 0</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QLabel" name="labelStatusPartial">
-             <property name="styleSheet">
-              <string>font-size: 9px; color: #FF9800; font-weight: bold;</string>
-             </property>
-             <property name="text">
-              <string>⚠ 部分: 0</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QLabel" name="labelStatusError">
-             <property name="styleSheet">
-              <string>font-size: 9px; color: #f44336; font-weight: bold;</string>
-             </property>
-             <property name="text">
-              <string>✗ エラー: 0</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QLabel" name="labelStatusProcessing">
-             <property name="styleSheet">
-              <string>font-size: 9px; color: #2196F3; font-weight: bold;</string>
-             </property>
-             <property name="text">
-              <string>● 処理中: 0</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <spacer name="horizontalSpacerStatusIndicator">
-             <property name="orientation">
-              <enum>Qt::Orientation::Horizontal</enum>
-             </property>
-             <property name="sizeHint" stdset="0">
-              <size>
-               <width>40</width>
-               <height>20</height>
-              </size>
-             </property>
-            </spacer>
-           </item>
-          </layout>
          </widget>
         </item>
        </layout>
@@ -491,7 +332,7 @@
           <property name="frameShape">
            <enum>QFrame::Shape::NoFrame</enum>
           </property>
-          <layout class="QVBoxLayout" name="verticalLayout_previewDetailContent">
+          <layout class="QVBoxLayout" name="verticalLayout_previewDetailContent" stretch="3,1,2">
            <property name="spacing">
             <number>8</number>
            </property>
@@ -508,16 +349,113 @@
             <number>5</number>
            </property>
            <item>
-            <widget class="ImagePreviewWidget" name="imagePreviewWidget" native="true">
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-               <horstretch>0</horstretch>
-               <verstretch>2</verstretch>
-              </sizepolicy>
-             </property>
+          <widget class="QSplitter" name="splitterPreviewDetails">
+           <property name="orientation">
+            <enum>Qt::Orientation::Vertical</enum>
+           </property>
+           <widget class="ImagePreviewWidget" name="imagePreviewWidget" native="true">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                <horstretch>0</horstretch>
+                <verstretch>2</verstretch>
+               </sizepolicy>
+              </property>
+           </widget>
+           <widget class="QTabWidget" name="tabWidgetRightPanel">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+              <horstretch>0</horstretch>
+              <verstretch>2</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>200</width>
+              <height>220</height>
+             </size>
+            </property>
+            <property name="currentIndex">
+             <number>0</number>
+            </property>
+            <widget class="QWidget" name="tabImageDetails">
+             <attribute name="title">
+              <string>画像詳細</string>
+             </attribute>
+             <layout class="QVBoxLayout" name="verticalLayoutTabDetails">
+              <property name="spacing">
+               <number>0</number>
+              </property>
+              <property name="leftMargin">
+               <number>0</number>
+              </property>
+              <property name="topMargin">
+               <number>0</number>
+              </property>
+              <property name="rightMargin">
+               <number>0</number>
+              </property>
+              <property name="bottomMargin">
+               <number>0</number>
+              </property>
+              <item>
+               <widget class="SelectedImageDetailsWidget" name="selectedImageDetailsWidget" native="true"/>
+              </item>
+             </layout>
             </widget>
-           </item>
-           <item>
+            <widget class="QWidget" name="tabRatingScoreEdit">
+             <attribute name="title">
+              <string>Rating/Score編集</string>
+             </attribute>
+             <layout class="QVBoxLayout" name="verticalLayoutTabRatingScore">
+              <property name="spacing">
+               <number>0</number>
+              </property>
+              <property name="leftMargin">
+               <number>0</number>
+              </property>
+              <property name="topMargin">
+               <number>0</number>
+              </property>
+              <property name="rightMargin">
+               <number>0</number>
+              </property>
+              <property name="bottomMargin">
+               <number>0</number>
+              </property>
+              <item>
+               <widget class="RatingScoreEditWidget" name="ratingScoreEditWidget" native="true"/>
+              </item>
+             </layout>
+            </widget>
+            <widget class="QWidget" name="tabBatchTagAdd">
+             <attribute name="title">
+              <string>バッチタグ追加</string>
+             </attribute>
+             <layout class="QVBoxLayout" name="verticalLayoutTabBatchTag">
+              <property name="spacing">
+               <number>0</number>
+              </property>
+              <property name="leftMargin">
+               <number>0</number>
+              </property>
+              <property name="topMargin">
+               <number>0</number>
+              </property>
+              <property name="rightMargin">
+               <number>0</number>
+              </property>
+              <property name="bottomMargin">
+               <number>0</number>
+              </property>
+              <item>
+               <widget class="BatchTagAddWidget" name="batchTagAddWidget" native="true"/>
+              </item>
+             </layout>
+            </widget>
+           </widget>
+          </widget>
+        </item>
+        <item>
             <widget class="QGroupBox" name="groupBoxAnnotationControl">
              <property name="sizePolicy">
               <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
@@ -537,67 +475,6 @@
                   <verstretch>0</verstretch>
                  </sizepolicy>
                 </property>
-               </widget>
-              </item>
-             </layout>
-            </widget>
-           </item>
-           <item>
-            <widget class="QGroupBox" name="groupBoxAnnotationResults">
-             <property name="title">
-              <string>アノテーション結果</string>
-             </property>
-             <layout class="QVBoxLayout" name="verticalLayout_annotationResults">
-              <item>
-               <widget class="QTabWidget" name="tabWidgetAnnotationResults">
-                <property name="currentIndex">
-                 <number>0</number>
-                </property>
-                <widget class="QWidget" name="tabCaption">
-                 <attribute name="title">
-                  <string>キャプション</string>
-                 </attribute>
-                 <layout class="QVBoxLayout" name="verticalLayout_tabCaption">
-                  <item>
-                   <widget class="QTextEdit" name="textEditCaption">
-                    <property name="placeholderText">
-                     <string>キャプションがここに表示されます</string>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </widget>
-                <widget class="QWidget" name="tabTags">
-                 <attribute name="title">
-                  <string>タグ</string>
-                 </attribute>
-                 <layout class="QVBoxLayout" name="verticalLayout_tabTags">
-                  <item>
-                   <widget class="QTextEdit" name="textEditTags">
-                    <property name="placeholderText">
-                     <string>タグがここに表示されます</string>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </widget>
-                <widget class="QWidget" name="tabMetadata">
-                 <attribute name="title">
-                  <string>メタデータ</string>
-                 </attribute>
-                 <layout class="QVBoxLayout" name="verticalLayout_tabMetadata">
-                  <item>
-                   <widget class="QTextEdit" name="textEditMetadata">
-                    <property name="readOnly">
-                     <bool>true</bool>
-                    </property>
-                    <property name="placeholderText">
-                     <string>メタデータがここに表示されます</string>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </widget>
                </widget>
               </item>
              </layout>
@@ -726,6 +603,7 @@
     <addaction name="actionAnnotation"/>
     <addaction name="actionExport"/>
     <addaction name="actionErrorLog"/>
+    <addaction name="actionEditImage"/>
     <addaction name="separator"/>
     <addaction name="actionSettings"/>
    </widget>
@@ -756,6 +634,17 @@
    </property>
    <property name="shortcut">
     <string>Ctrl+Q</string>
+   </property>
+  </action>
+  <action name="actionEditImage">
+   <property name="text">
+    <string>画像を編集</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+E</string>
+   </property>
+   <property name="toolTip">
+    <string>選択画像のタグ・キャプション・評価を編集</string>
    </property>
   </action>
   <action name="actionSelectAll">
@@ -846,7 +735,7 @@
   </customwidget>
   <customwidget>
    <class>SelectedImageDetailsWidget</class>
-   <extends>QScrollArea</extends>
+   <extends>QWidget</extends>
    <header>..widgets.selected_image_details_widget</header>
    <container>1</container>
   </customwidget>
@@ -862,10 +751,22 @@
    <header>..widgets.image_preview</header>
    <container>1</container>
   </customwidget>
+ <customwidget>
+  <class>ModelSelectionWidget</class>
+  <extends>QWidget</extends>
+  <header>..widgets.model_selection_widget</header>
+  <container>1</container>
+ </customwidget>
   <customwidget>
-   <class>ModelSelectionWidget</class>
+   <class>RatingScoreEditWidget</class>
    <extends>QWidget</extends>
-   <header>..widgets.model_selection_widget</header>
+   <header>..widgets.rating_score_edit_widget</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>BatchTagAddWidget</class>
+   <extends>QWidget</extends>
+   <header>..widgets.batch_tag_add_widget</header>
    <container>1</container>
   </customwidget>
  </customwidgets>
@@ -880,22 +781,6 @@
     <hint type="sourcelabel">
      <x>94</x>
      <y>30</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>701</x>
-     <y>457</y>
-    </hint>
-   </hints>
-  </connection>
-  <connection>
-   <sender>pushButtonRegisterImages</sender>
-   <signal>clicked()</signal>
-   <receiver>MainWindow</receiver>
-   <slot>register_images_to_db()</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>261</x>
-     <y>70</y>
     </hint>
     <hint type="destinationlabel">
      <x>701</x>
@@ -935,11 +820,11 @@
     </hint>
    </hints>
   </connection>
-  <connection>
-   <sender>pushButtonExport</sender>
-   <signal>clicked()</signal>
-   <receiver>MainWindow</receiver>
-   <slot>export_data()</slot>
+ <connection>
+  <sender>pushButtonExport</sender>
+  <signal>clicked()</signal>
+  <receiver>MainWindow</receiver>
+  <slot>export_data()</slot>
    <hints>
     <hint type="sourcelabel">
      <x>200</x>
@@ -953,8 +838,7 @@
   </connection>
  </connections>
  <slots>
-  <slot>select_dataset_directory()</slot>
-  <slot>register_images_to_db()</slot>
+ <slot>select_dataset_directory()</slot>
   <slot>open_settings()</slot>
   <slot>start_annotation()</slot>
   <slot>export_data()</slot>

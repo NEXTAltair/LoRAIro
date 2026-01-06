@@ -6,9 +6,8 @@ Enhanced Event-Driven Patternによる直接データ受信とUI更新を実装�
 
 主要機能:
 - 画像メタデータの詳細表示（ファイル名、サイズ、作成日時等）
-- Rating/Scoreのインライン編集（コンボボックス・スライダー）
-- アノテーションデータ（タグ・キャプション）の表示
-- データベース保存操作の中継
+- Rating/Score の読み取り専用表示
+- アノテーションデータ（タグ・キャプション）の読み取り専用表示
 
 アーキテクチャ:
 - Direct Widget Communication Pattern準拠
@@ -21,7 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Signal, Slot
-from PySide6.QtWidgets import QScrollArea, QWidget
+from PySide6.QtWidgets import QWidget
 
 from ...gui.designer.SelectedImageDetailsWidget_ui import Ui_SelectedImageDetailsWidget
 from ...services.date_formatter import format_datetime_for_display
@@ -36,7 +35,7 @@ if TYPE_CHECKING:
     from ..state.dataset_state import DatasetStateManager
 
 
-class SelectedImageDetailsWidget(QScrollArea):
+class SelectedImageDetailsWidget(QWidget):
     """
     選択画像詳細情報表示ウィジェット
 
@@ -47,14 +46,15 @@ class SelectedImageDetailsWidget(QScrollArea):
     1. DatasetStateManager.current_image_data_changed -> _on_image_data_received()
     2. メタデータ解析 -> _build_image_details_from_metadata()
     3. UI更新 -> _update_details_display()
-    4. ユーザー編集 -> Rating/Score変更シグナル発行
-    5. 保存要求 -> save_requested シグナル発行
+
+    View-only mode:
+    - 編集機能なし（read-only ラベルのみ）
+    - データ表示のみ
 
     UI構成:
     - groupBoxImageInfo: ファイル名、サイズ、作成日時表示
-    - groupBoxRatingScore: Rating選択、Score調整スライダー
+    - groupBoxRatingScore: Rating/Score 表示（read-only ラベル）
     - annotationDataDisplay: タグ・キャプション表示（AnnotationDataDisplayWidget）
-    - pushButtonSave: 変更内容の保存ボタン
 
     型安全性:
     - ImageDetails dataclassによる構造化データ管理
@@ -64,9 +64,6 @@ class SelectedImageDetailsWidget(QScrollArea):
 
     # シグナル
     image_details_loaded = Signal(ImageDetails)  # 画像詳細読み込み完了
-    rating_updated = Signal(int, str)  # Rating 更新 (image_id, rating_value)
-    score_updated = Signal(int, int)  # Score 更新 (image_id, score_value)
-    save_requested = Signal(dict)  # 保存要求 {image_id, rating, score}
 
     def __init__(
         self,
@@ -98,7 +95,7 @@ class SelectedImageDetailsWidget(QScrollArea):
 
         # UI設定
         self.ui = Ui_SelectedImageDetailsWidget()
-        self.ui.setupUi(self)
+        self.ui.setupUi(self)  # type: ignore[no-untyped-call]
         self.annotation_display: AnnotationDataDisplayWidget = self.ui.annotationDataDisplay
         self._setup_connections()
         self._clear_display()
@@ -116,98 +113,6 @@ class SelectedImageDetailsWidget(QScrollArea):
         self.annotation_display.data_loaded.connect(self._on_annotation_data_loaded)
 
         logger.debug("SelectedImageDetailsWidget signals connected")
-
-    @Slot(str)
-    def _on_rating_changed(self, rating_value: str) -> None:
-        """
-        Ratingコンボボックス変更ハンドラ
-
-        Args:
-            rating_value: 選択されたRating値（PG, PG-13, R, X, XXX）
-
-        処理:
-        1. 現在の画像IDチェック
-        2. rating_updated シグナル発行
-        3. ログ記録
-
-        Notes:
-            - Qt Designerで自動接続
-            - 保存は別途保存ボタンクリックで実行
-        """
-        if self.current_image_id is None:
-            logger.warning("Rating changed but no image selected")
-            return
-
-        logger.debug(f"Rating changed: image_id={self.current_image_id}, rating={rating_value}")
-        self.rating_updated.emit(self.current_image_id, rating_value)
-
-    @Slot(int)
-    def _on_score_changed(self, score_value: int) -> None:
-        """
-        Scoreスライダー変更ハンドラ
-
-        Args:
-            score_value: スライダー値（0-1000）
-
-        処理:
-        1. 現在の画像IDチェック
-        2. 表示値の更新（0.1単位で表示）
-        3. score_updated シグナル発行
-        4. ログ記録
-
-        Notes:
-            - Qt Designerで自動接続
-            - 保存は別途保存ボタンクリックで実行
-            - スライダー値を10で割って小数点1桁表示
-        """
-        if self.current_image_id is None:
-            logger.warning("Score changed but no image selected")
-            return
-
-        # スライダー値を0.1単位に変換して表示
-        display_value = score_value / 10.0
-        logger.debug(f"Score changed: image_id={self.current_image_id}, score={display_value}")
-
-        self.score_updated.emit(self.current_image_id, score_value)
-
-    @Slot()
-    def _on_save_clicked(self) -> None:
-        """
-        保存ボタンクリックハンドラ
-
-        処理:
-        1. 現在の画像IDチェック
-        2. Rating/Scoreの現在値を取得
-        3. save_requested シグナル発行
-        4. ログ記録
-
-        シグナルデータ形式:
-            {
-                "image_id": int,
-                "rating": str,
-                "score": int
-            }
-
-        Notes:
-            - Qt Designerで自動接続
-            - pushButtonSaveRating/pushButtonSaveScore両方から接続
-            - 実際の保存処理はMainWindowで実行
-        """
-        if self.current_image_id is None:
-            logger.warning("Save requested but no image selected")
-            return
-
-        current_rating = self.ui.comboBoxRating.currentText()
-        current_score = self.ui.sliderScore.value()
-
-        save_data = {
-            "image_id": self.current_image_id,
-            "rating": current_rating,
-            "score": current_score,
-        }
-
-        logger.debug(f"Save requested: {save_data}")
-        self.save_requested.emit(save_data)
 
     @Slot()
     def _on_annotation_data_loaded(self) -> None:
@@ -286,7 +191,7 @@ class SelectedImageDetailsWidget(QScrollArea):
         self._update_details_display(details)
 
     @Slot(dict)
-    def _on_image_data_received(self, image_data: dict) -> None:
+    def _on_image_data_received(self, image_data: dict[str, Any]) -> None:
         """
         DatasetStateManagerからの画像データ受信ハンドラ（Phase 2互換）
 
@@ -434,7 +339,14 @@ class SelectedImageDetailsWidget(QScrollArea):
         # Rating / Score
         self._update_rating_score_display(details)
 
-        # アノテーションデータ
+        # タグ/キャプション（プレーン表示用）
+        tags_text = details.tags if details.tags else "-"
+        self.ui.labelTagsContent.setText(tags_text)
+
+        caption_text = details.caption if details.caption else ""
+        self.ui.textEditCaptionsContent.setPlainText(caption_text)
+
+        # アノテーションデータ（リッチ表示用）
         if details.annotation_data:
             self.annotation_display.update_data(details.annotation_data)
 
@@ -443,32 +355,21 @@ class SelectedImageDetailsWidget(QScrollArea):
 
     def _update_rating_score_display(self, details: ImageDetails) -> None:
         """
-        Rating/Scoreの表示更新
+        Rating/Scoreの表示更新（read-only ラベル）
 
         Args:
             details: 画像詳細情報
 
         処理:
-        1. Rating コンボボックスの選択
-        2. Score スライダーの値設定
+        1. Rating ラベルの設定
+        2. Score ラベルの設定
 
         Notes:
-            - シグナル発火を抑制して内部更新のみ実行
-            - blockSignals() で一時的にシグナルを無効化
+            - View-only mode: ラベル表示のみ
         """
-        # Rating設定（シグナル発火を抑制）
-        self.ui.comboBoxRating.blockSignals(True)
-        rating_index = self.ui.comboBoxRating.findText(details.rating_value)
-        if rating_index >= 0:
-            self.ui.comboBoxRating.setCurrentIndex(rating_index)
-        else:
-            self.ui.comboBoxRating.setCurrentIndex(0)  # 空の選択肢
-        self.ui.comboBoxRating.blockSignals(False)
-
-        # Score設定（シグナル発火を抑制）
-        self.ui.sliderScore.blockSignals(True)
-        self.ui.sliderScore.setValue(details.score_value)
-        self.ui.sliderScore.blockSignals(False)
+        # Rating/Score表示（read-only ラベル）
+        self.ui.labelRatingValue.setText(details.rating_value if details.rating_value else "-")
+        self.ui.labelScoreValue.setText(str(details.score_value) if details.score_value else "-")
 
         logger.debug(f"Rating/Score updated: {details.rating_value}, {details.score_value}")
 
@@ -485,8 +386,8 @@ class SelectedImageDetailsWidget(QScrollArea):
         - labelImageSizeValue: "-"
         - labelFileSizeValue: "-"
         - labelCreatedDateValue: "-"
-        - comboBoxRating: 空選択
-        - sliderScore: 0
+        - labelRatingValue: "-"
+        - labelScoreValue: "-"
         - annotationDataDisplay: クリア
         """
         self.current_details = None
@@ -496,15 +397,12 @@ class SelectedImageDetailsWidget(QScrollArea):
         self.ui.labelImageSizeValue.setText("-")
         self.ui.labelFileSizeValue.setText("-")
         self.ui.labelCreatedDateValue.setText("-")
+        self.ui.labelTagsContent.setText("-")
+        self.ui.textEditCaptionsContent.clear()
 
-        # Rating/Scoreをリセット（シグナル発火抑制）
-        self.ui.comboBoxRating.blockSignals(True)
-        self.ui.comboBoxRating.setCurrentIndex(0)
-        self.ui.comboBoxRating.blockSignals(False)
-
-        self.ui.sliderScore.blockSignals(True)
-        self.ui.sliderScore.setValue(0)
-        self.ui.sliderScore.blockSignals(False)
+        # Rating/Scoreをリセット（read-only ラベル）
+        self.ui.labelRatingValue.setText("-")
+        self.ui.labelScoreValue.setText("-")
 
         # AnnotationDataDisplayWidgetのクリア
         self.annotation_display.clear_data()
@@ -517,20 +415,16 @@ class SelectedImageDetailsWidget(QScrollArea):
 
     def set_enabled_state(self, enabled: bool) -> None:
         """
-        ウィジェット全体の有効/無効状態を設定
+        ウィジェット全体の有効/無効状態を設定（read-only モードでは何もしない）
 
         Args:
             enabled: True=有効, False=無効
 
-        処理:
-        - Rating/Score編集の有効/無効切り替え
-        - 保存ボタンの有効/無効切り替え
+        Notes:
+            - View-only mode のため、編集コントロールがない
+            - 互換性のためメソッドは保持
         """
-        self.ui.comboBoxRating.setEnabled(enabled)
-        self.ui.sliderScore.setEnabled(enabled)
-        self.ui.pushButtonSaveRating.setEnabled(enabled)
-        self.ui.pushButtonSaveScore.setEnabled(enabled)
-        logger.debug(f"SelectedImageDetailsWidget enabled state set to {enabled}")
+        logger.debug(f"SelectedImageDetailsWidget enabled state (no-op in read-only mode): {enabled}")
 
 
 if __name__ == "__main__":
@@ -539,7 +433,7 @@ if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
 
     # アプリケーションのエントリポイント
-    def main():
+    def main() -> None:
         """アプリケーションのメイン実行関数"""
         app = QApplication(sys.argv)
 
@@ -587,7 +481,7 @@ if __name__ == "__main__":
         # 単体テストのため、内部メソッドを直接呼び出してUIを更新する
         widget.current_image_id = dummy_details.image_id
         widget.current_details = dummy_details
-        widget._update_details_display(dummy_details)  # type: ignore
+        widget._update_details_display(dummy_details)
         widget.set_enabled_state(True)  # 最初から操作可能にする
 
         # ウィジェットを表示

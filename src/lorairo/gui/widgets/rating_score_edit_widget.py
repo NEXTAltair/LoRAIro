@@ -1,0 +1,156 @@
+"""
+Rating/Score Edit Widget - Rating/Score編集ウィジェット
+
+選択画像のRating/Scoreを編集するための専用ウィジェット。
+MainWindow右パネルのタブとして配置され、単一画像の評価編集を担当。
+
+主要機能:
+- Rating (PG, PG-13, R, X, XXX) の選択
+- Score (0-1000) の数値入力
+- 保存ボタンによる即時更新
+
+アーキテクチャ:
+- QTabWidget の タブ2 (Rating/Score編集) に配置
+- DatasetStateManager から画像データを受信
+- 保存時に rating_changed/score_changed シグナルを発行
+- MainWindow が ImageDBWriteService 経由で保存処理を実行
+"""
+
+from typing import Any
+
+from PySide6.QtCore import Signal, Slot
+from PySide6.QtWidgets import QWidget
+
+from ...gui.designer.RatingScoreEditWidget_ui import Ui_RatingScoreEditWidget
+from ...utils.log import logger
+
+
+class RatingScoreEditWidget(QWidget):
+    """
+    Rating/Score編集ウィジェット
+
+    選択画像の Rating/Score を専用フォームで編集。
+    SelectedImageDetailsWidget から分離された編集専用コンポーネント。
+
+    データフロー:
+    1. populate_from_image_data() でフォームフィールドを入力
+    2. ユーザーが編集
+    3. Save クリック -> rating_changed/score_changed シグナル発行
+    4. MainWindow が ImageDBWriteService 経由で DB 更新
+
+    UI構成:
+    - groupBoxRatingScore: Rating combobox + Score spinbox
+    - pushButtonSave: 保存ボタン
+
+    型安全性:
+    - int | None による画像ID管理
+    - シグナルは (image_id, value) の型安全なペイロード
+    """
+
+    # シグナル
+    rating_changed = Signal(int, str)  # (image_id, rating)
+    score_changed = Signal(int, int)  # (image_id, score)
+
+    def __init__(self, parent: QWidget | None = None):
+        """
+        RatingScoreEditWidget 初期化
+
+        UIコンポーネントの初期化、内部状態の設定。
+
+        Args:
+            parent: 親ウィジェット
+
+        初期状態:
+            - _current_image_id: None
+            - UI: 空表示状態
+        """
+        super().__init__(parent)
+        logger.debug("RatingScoreEditWidget.__init__() called")
+
+        # 内部状態
+        self._current_image_id: int | None = None
+
+        # UI設定
+        self.ui = Ui_RatingScoreEditWidget()
+        self.ui.setupUi(self)  # type: ignore[no-untyped-call]
+
+        # スライダーと値ラベルの連動
+        self.ui.sliderScore.valueChanged.connect(self._on_slider_value_changed)
+
+        logger.info("RatingScoreEditWidget initialized")
+
+    @Slot(int)
+    def _on_slider_value_changed(self, value: int) -> None:
+        """
+        スライダー値変更ハンドラー
+
+        スライダーの値が変更されたときに、値表示ラベルを更新。
+
+        Args:
+            value: 新しいスコア値（内部値 0-1000）
+        """
+        self.ui.labelScoreValue.setText(f"{value / 100.0:.2f}")
+
+    @Slot(dict)
+    def populate_from_image_data(self, image_data: dict[str, Any]) -> None:
+        """
+        画像データからフォームフィールドを入力
+
+        指定された画像データをフォームに反映し、編集開始状態にする。
+
+        Args:
+            image_data: 画像メタデータ辞書
+                - id: 画像ID (int)
+                - rating: Rating 値 (str, optional)
+                - score: Score 値 (int 0-1000, optional, UI内部値)
+
+        処理:
+            1. image_id の保存
+            2. UI フィールドへの値設定
+        """
+        logger.debug(f"populate_from_image_data called with image_id={image_data.get('id')}")
+
+        # image_id を保存
+        self._current_image_id = image_data.get("id")
+
+        # シグナルをブロックして UI を更新 (自動発火を防ぐ)
+        self.ui.comboBoxRating.blockSignals(True)
+        self.ui.sliderScore.blockSignals(True)
+
+        # UI フィールドに値を設定
+        rating = image_data.get("rating", "PG-13")
+        if rating in ["PG", "PG-13", "R", "X", "XXX"]:
+            index = self.ui.comboBoxRating.findText(rating)
+            if index >= 0:
+                self.ui.comboBoxRating.setCurrentIndex(index)
+
+        score = image_data.get("score", 500)
+        self.ui.sliderScore.setValue(score)
+        self.ui.labelScoreValue.setText(f"{score / 100.0:.2f}")
+
+        # シグナルのブロックを解除
+        self.ui.comboBoxRating.blockSignals(False)
+        self.ui.sliderScore.blockSignals(False)
+
+        logger.info(f"Form populated for image_id={self._current_image_id}")
+
+    @Slot()
+    def _on_save_clicked(self) -> None:
+        """
+        Save ボタンクリックハンドラ (Qt Designer 自動接続スロット)
+
+        現在のフォーム値を取得し、rating_changed/score_changed シグナルを発行。
+        親ウィジェット (MainWindow) が ImageDBWriteService 経由で保存処理を実行。
+        """
+        if self._current_image_id is None:
+            logger.warning("Save clicked but no image is loaded")
+            return
+
+        rating = self.ui.comboBoxRating.currentText()
+        score = self.ui.sliderScore.value()
+
+        logger.info(f"Save requested for image_id={self._current_image_id}, rating={rating}, score={score}")
+
+        # 両方のシグナルを発行
+        self.rating_changed.emit(self._current_image_id, rating)
+        self.score_changed.emit(self._current_image_id, score)
