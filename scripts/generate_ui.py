@@ -27,7 +27,7 @@ def check_pyside6_uic() -> bool:
     """Check if pyside6-uic is available in the environment."""
     try:
         result = subprocess.run(
-            ["UV_PROJECT_ENVIRONMENT=.venv_linux", "uv", "run", "which", "pyside6-uic"],
+            "uv run which pyside6-uic",
             capture_output=True,
             text=True,
             shell=True
@@ -89,7 +89,7 @@ def main():
     # Check if pyside6-uic is available
     if not check_pyside6_uic():
         print("❌ pyside6-uic not found. Please install PySide6 tools:")
-        print("   UV_PROJECT_ENVIRONMENT=.venv_linux uv add pyside6[tools]")
+        print("   uv add pyside6[tools]")
         sys.exit(1)
 
     print("✅ pyside6-uic is available")

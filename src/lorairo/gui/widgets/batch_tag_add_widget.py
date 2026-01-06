@@ -158,9 +158,7 @@ class BatchTagAddWidget(QWidget):
         for image_id in selected_ids:
             # 上限チェック
             if len(self._staged_images) >= self.MAX_STAGING_IMAGES:
-                logger.warning(
-                    f"Staging limit reached ({self.MAX_STAGING_IMAGES}), cannot add more images"
-                )
+                logger.warning(f"Staging limit reached ({self.MAX_STAGING_IMAGES}), cannot add more images")
                 break
 
             # 重複チェック（OrderedDict のキー存在確認）

@@ -123,15 +123,22 @@ This project supports Windows/Linux environments with independent virtual enviro
 - Core: `src/lorairo/database/db_core.py` - Database initialization and core utilities
 
 **Service Layer (2-Tier Architecture):**
-- **Business Logic Services** (`src/lorairo/services/`):
-  - `ImageProcessingService` - Image processing workflows
-  - `ConfigurationService` - Application configuration
-  - `AnnotatorLibraryAdapter` - AI annotation library integration
-  - `SearchCriteriaProcessor` - Search and filtering business logic
-  - `ModelFilterService` - AI model management and filtering
-- **GUI Services** (`src/lorairo/gui/services/`):
-  - `WorkerService` - Qt-based asynchronous task coordination
-  - `SearchFilterService` - GUI-focused search and filter operations (MainWindow統合完了)
+
+Two-tier service architecture separating Qt-free business logic from Qt-dependent GUI services:
+
+- **Business Logic Services** (`src/lorairo/services/`, 22 services):
+  - Core services: `ServiceContainer` (DI), `ConfigurationService`, `TagManagementService`
+  - Processing: `ImageProcessingService`, `DataTransformService`, `BatchProcessor`
+  - Model management: `ModelFilterService`, `ModelSelectionService`, `ModelSyncService`
+  - **Pattern**: Qt-free, reusable across CLI/GUI/API contexts
+
+- **GUI Services** (`src/lorairo/gui/services/`, 7 services):
+  - Coordination: `WorkerService`, `SearchFilterService`, `PipelineControlService`
+  - State: `ProgressStateService`, `ResultHandlerService`
+  - **Pattern**: Qt-dependent, Signal-based communication with widgets
+
+- **Qt-Free Core Pattern**: Core services have no Qt dependencies; GUI wrappers use composition pattern
+- **Complete catalog**: See [docs/services.md](docs/services.md) for all 29 services with responsibilities
 
 **Workers & Async Processing:**
 - `WorkerManager` (`src/lorairo/gui/workers/manager.py`) - QThreadPool-based worker execution
@@ -139,17 +146,17 @@ This project supports Windows/Linux environments with independent virtual enviro
 
 **AI Integration (Local Packages):**
 - **image-annotator-lib**: Multi-provider AI annotation (OpenAI, Anthropic, Google, Local models)
-  - Integration: `src/lorairo/annotations/ai_annotator.py`
-  - Functions: `get_available_annotator_models()`, `call_annotate_library()`
+  - Integration: `src/lorairo/annotations/annotator_adapter.py`, `src/lorairo/annotations/annotation_logic.py`
+  - Service: `src/lorairo/services/annotator_library_adapter.py`
   - Returns: `PHashAnnotationResults` with structured data
 - **genai-tag-db-tools**: Tag database management and cleaning utilities
-  - Integration: `src/lorairo/annotations/cleanup_txt.py`
-  - Database: Tag taxonomy (tags_v3.db)
-  - Function: `initialize_tag_searcher()` for tag normalization
+  - Integration: `src/lorairo/database/db_repository.py` (primary), `src/lorairo/services/tag_management_service.py`
+  - Database: User DB (auto-created) + Base DB (3 DB files from HuggingFace)
+  - Public APIs: `search_tags()`, `register_tag()`, `MergedTagReader`
 
 **GUI Architecture:**
 - Built with PySide6 (Qt for Python)
-- **Main Window**: `src/lorairo/gui/window/main_workspace_window.py` - Workflow-centered 3-panel design
+- **Main Window**: `src/lorairo/gui/window/main_window.py` - Primary GUI orchestrator (688 lines, 5-stage initialization)
 - Designer files in `src/lorairo/gui/designer/` (auto-generated UI code)
 - Widget implementations in `src/lorairo/gui/widgets/`
 - State management in `src/lorairo/gui/state/` (DatasetStateManager)
@@ -179,13 +186,14 @@ This project supports Windows/Linux environments with independent virtual enviro
 ### Local Dependencies
 This project uses two local submodules managed via uv.sources:
 - `local_packages/genai-tag-db-tools` - Tag database management utilities
-  - **Integration**: Direct Python import in `src/lorairo/annotations/cleanup_txt.py`
-  - **Function**: `initialize_tag_searcher()` for tag cleaning and normalization
-  - **Database**: Contains tags_v3.db with tag taxonomy
-  - **Usage**: Database path resolved via `src/lorairo/database/db_core.py`
+  - **Integration**: `src/lorairo/database/db_repository.py` (primary entry point)
+  - **Public APIs**: `search_tags()`, `register_tag()` for external tag DB
+  - **Database**: User DB (auto-created) + Base DB (3 DB files from HuggingFace)
+  - **Services**: `TagManagementService` for user DB operations (user tags only)
+  - **User DB Strategy**: format_id 1000+ reservation, auto-init at startup
 - `local_packages/image-annotator-lib` - Core AI annotation functionality
-  - **Integration**: Direct Python import in `src/lorairo/annotations/ai_annotator.py`
-  - **Functions**: `annotate()`, `list_available_annotators()`
+  - **Integration**: `src/lorairo/annotations/annotator_adapter.py`, `annotation_logic.py`
+  - **Service Adapter**: `src/lorairo/services/annotator_library_adapter.py`
   - **Data Types**: `PHashAnnotationResults` for structured results
   - **Providers**: OpenAI, Anthropic, Google, Local ML models
 
@@ -237,6 +245,13 @@ The local packages are installed in editable mode and automatically linked durin
 - GUI tests run headless in Linux/container using QT_QPA_PLATFORM=offscreen
 - Windows environment supports native GUI windows
 - Avoid mocks in unit tests; use only for external dependencies (filesystem, network, APIs)
+- **pytest-qt Best Practices**:
+  - Use `qtbot.waitSignal(timeout=XXX)` for signal-based assertions
+  - Use `qtbot.waitUntil(lambda, timeout=XXX)` for UI state changes
+  - Always mock `QMessageBox` with `monkeypatch`
+  - Avoid `QCoreApplication.processEvents()` direct calls
+  - Avoid `qtbot.wait(fixed_time)` without condition checks
+  - See [docs/testing.md](docs/testing.md) for comprehensive patterns
 
 **Database:**
 - Uses Alembic for migrations
@@ -257,6 +272,32 @@ The local packages are installed in editable mode and automatically linked durin
 
 **Project Structure:** `lorairo_data/project_name_YYYYMMDD_NNN/` with SQLite database and organized image directories. Supports Unicode project names and subset extraction workflows.
 
+### Key Architecture Features (Recent Updates)
+
+**Tag Management System (Phase 2 & 2.5, Dec 2025):**
+- **External Tag DB Integration**: Public API integration (`search_tags()`, `register_tag()`)
+- **User DB Strategy**: Auto-created user database with format_id 1000+ reservation (collision avoidance)
+- **Tag Registration**: Search → Register → Retry pattern with format_name="Lorairo", type_name="unknown"
+- **Incomplete Tag Management**: Batch update of unknown type tags via `update_tags_type_batch()`
+- **User DB Only Policy**: `TagManagementService` operates on user DB exclusively (not merged with base DB)
+- **Coverage**: 97% on Phase 2.5 code, 75%+ overall
+
+**Qt-Free Core Pattern (Dec 2025):**
+- **Design**: Composition over inheritance for service wrappers
+- **Core Services**: Qt-free business logic (e.g., `TagRegisterService`)
+- **GUI Wrappers**: Qt-dependent wrappers with Signal support (e.g., `GuiTagRegisterService`)
+- **Benefit**: Enables CLI tools without Qt dependencies while GUI has full Signal integration
+
+**MainWindow 5-Stage Initialization (Nov 2025):**
+- **Size Reduction**: 1,645 lines → 688 lines (58.2% reduction)
+- **Pattern**: Phase-based initialization with event delegation via Service helpers
+- **Integration**: SearchFilterService fully integrated, HybridAnnotationController removed
+
+**Database Architecture:**
+- **User DB**: Auto-initialized at startup (`init_user_db()`), format_id 1000+
+- **Base DB**: Optional 3 DB files from HuggingFace with curated tag taxonomy
+- **Design**: User DB works standalone; base DB is enhancement, not requirement
+
 ## Development Workflow
 
 ### MCP-Based Development Approach
@@ -268,8 +309,9 @@ This project uses a dual-MCP strategy for efficient development:
 
 **Memory Strategy:**
 - Machine memory: `.serena/memories/` (managed by Serena)
-- Human planning: `tasks/` (managed by Cipher)
-- Design/specs: `docs/` (managed by Cipher)
+- Plan Mode plans: `.claude/plans/` → Auto-synced to Serena Memory via PostToolUse hook
+- Design/specs: `docs/` (architecture, services, integrations, testing)
+- **Obsolete**: `tasks/` directory (removed 2025-11-06, use Plan Mode + Serena Memory instead)
 
 ### Command-Based Development Process
 
@@ -361,7 +403,6 @@ LoRAIroの開発パターンとMCP操作は **Claude Skills** で自動化され
 - Use Ruff formatting (line length: 108)
 - Maintain 75%+ test coverage
 - Apply modern Python types (list/dict over typing.List/Dict)
-
 
 ## Problem-Solving Approach
 
@@ -473,3 +514,121 @@ database_base_dir = "lorairo_data"
 level = "INFO"
 ```
 
+## Documentation Maintenance
+
+### Layered Documentation Strategy
+
+LoRAIroは3層ドキュメント構造を採用し、設計変更への耐性を確保しています：
+
+**Layer 1: CLAUDE.md** (このファイル)
+- **Purpose**: AI agent orientation + workflow guidance
+- **Update frequency**: Quarterly or on major architecture changes
+- **Contents**: Core principles, workflows, architecture patterns overview
+- **Stable**: 設計原則、開発ワークフロー、問題解決アプローチ
+
+**Layer 2: docs/*.md** (Technical Specifications)
+- **Purpose**: Detailed architecture and API documentation
+- **Update frequency**: On feature completion or pattern changes
+- **Contents**:
+  - [docs/services.md](docs/services.md) - Complete service catalog (29 services)
+  - [docs/integrations.md](docs/integrations.md) - External package integration patterns
+  - [docs/testing.md](docs/testing.md) - Testing strategies and best practices
+  - [docs/architecture.md](docs/architecture.md) - System design principles
+  - [docs/technical.md](docs/technical.md) - Implementation specifications
+- **Volatile**: サービスリスト、統合詳細、APIシグネチャ
+
+**Layer 3: Code** (Source of Truth)
+- **Purpose**: Always accurate implementation details
+- **Update frequency**: Real-time (on every commit)
+- **Contents**: Python docstrings, type hints, module comments
+- **Always current**: コードそのものが真実の情報源
+
+### When to Update
+
+**CLAUDE.md (this file):**
+- Quarterly review for obsolete patterns
+- Major architecture changes (e.g., new design patterns)
+- Workflow updates (e.g., new commands, hooks)
+- Critical path changes (entry points, main components)
+
+**docs/*.md files:**
+- Feature completion: Update services.md if new service added
+- Integration changes: Update integrations.md if external package API changed
+- Testing strategy: Update testing.md if new patterns adopted
+- Architecture evolution: Update architecture.md for design decisions
+
+**Code docstrings:**
+- Every function/method implementation
+- Every class definition
+- Every module creation
+
+### Update Checklist
+
+**On Feature Completion:**
+- [ ] Memory files auto-updated (Plan Mode PostToolUse hook)
+- [ ] Update docs/services.md if new service added
+- [ ] Update docs/integrations.md if integration changed
+- [ ] Update docs/testing.md if new test pattern used
+- [ ] Run validation script (if available): `python scripts/validate_docs.py`
+
+**Quarterly Review:**
+- [ ] Read through CLAUDE.md for obsolete sections
+- [ ] Verify docs/*.md files still accurate
+- [ ] Check file paths and service counts
+- [ ] Update recent architecture changes section
+- [ ] Run full validation
+
+**On Major Architecture Change:**
+- [ ] Update affected docs/*.md files first
+- [ ] Update CLAUDE.md references if structure changed
+- [ ] Create Serena memory file documenting change
+- [ ] Run validation to ensure consistency
+
+### Validation
+
+**Automated Validation (planned):**
+```bash
+# Validate all referenced file paths exist
+python scripts/validate_docs.py
+
+# Check service count matches actual files
+python scripts/validate_docs.py --check-services
+
+# Verify integration points are valid
+python scripts/validate_docs.py --check-integrations
+```
+
+**Manual Validation:**
+- Verify all file paths in CLAUDE.md exist
+- Check that docs/*.md links work
+- Ensure service count (29) matches actual: `ls src/lorairo/services/*.py src/lorairo/gui/services/*.py | grep -v __init__ | wc -l`
+- Test that AI agents can find referenced documentation
+
+### Design Decisions
+
+**Why 3-layer structure?**
+- **Maintainability**: Separates stable principles from volatile details
+- **Efficiency**: Updates take <10 minutes instead of 1+ hour
+- **Accuracy**: Layer 2 docs updated on feature completion, not quarterly
+- **Scalability**: Easy to add new docs/*.md files for new domains
+
+**Why not auto-generation?**
+- **Context**: Human-written explanations provide valuable context
+- **Flexibility**: Can highlight important patterns vs listing everything
+- **Stability**: Auto-gen would change frequently, causing churn
+
+**Why reference docs/*.md instead of inline?**
+- **Single source of truth**: No duplication = no drift
+- **Focused content**: CLAUDE.md stays scannable for AI agents
+- **Easy updates**: Change one place instead of many
+
+### Maintenance History
+
+**Major Updates:**
+- 2026-01-01: Implemented 3-layer architecture (this update)
+  - Fixed 30+ path errors and missing services
+  - Created docs/services.md, docs/integrations.md, docs/testing.md
+  - Added Qt-Free Core Pattern, Tag Management System documentation
+  - Documented tasks/ directory obsolescence
+
+**Next Review:** 2026-04-01 (quarterly)

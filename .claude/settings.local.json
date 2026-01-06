@@ -89,7 +89,15 @@
       "Bash(git -C local_packages/genai-tag-db-tools diff src/genai_tag_db_tools/core_api.py)",
       "Skill(planning)",
       "Skill(planning:*)",
-      "Bash(git check-ignore:*)"
+      "Bash(git check-ignore:*)",
+      "Bash(git commit:*)",
+      "Bash(git diff:*)",
+      "Bash(timeout 10 uv run python:*)",
+      "Bash(timeout 30 uv run python:*)",
+      "Bash(timeout 60 uv run python:*)",
+      "Bash(sqlite3:*)",
+      "Bash(timeout 120 uv run pytest:*)",
+      "Bash(for db in ~/.cache/genai-tag-db-tools/genai-image-tag-db-*.sqlite)"
     ],
     "deny": [],
     "ask": []

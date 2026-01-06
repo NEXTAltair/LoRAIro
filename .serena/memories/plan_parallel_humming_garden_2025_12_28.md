@@ -42,7 +42,7 @@ LoRAIroの外部タグデータベース統合を、`genai_tag_db_tools`の非�
 - **format/type マスタは起動時に user DB へ必ず追加（LoRAIro/他アプリ共通）**
 - **format_name はアプリ名（例: "Lorairo" / "tag-db"）を使用**
 - **type_name は不足時に "unknown" を仮置きし、マスタ未登録なら自動追加**
-- **不完全判定は `type_name == "unknown"` かつ `format_name` がユーザー登録のもの**
+- **unknown type判定は `type_name == "unknown"` のみ**
 - **`unknown` 仮置き/不足補完はタグDBツール（core）側で実装**
 - **ライブラリ利用時は `user_db_dir` 未指定なら初期化前にエラー**
 - **CLI/アプリ起動時はデフォルトパスで自動作成を許可**
@@ -91,7 +91,7 @@ tag_id = self.tag_repository.create_tag(source_tag=tag_string, tag=normalized_ta
 **format_name / type_name**: アプリごとに決定
 - format_name はインストール/起動しているプロジェクト名を使用（例: "Lorairo", 単体起動なら "tag-db"）
 - type_name は不足時に "unknown" を仮置きし、ユーザーが後で再解決
-- 不完全レコード判定: `type_name == "unknown"` かつ `format_name` がユーザー登録のもの
+- unknown typeレコード判定: `type_name == "unknown"` のみ
 
 ### アプローチ選択理由
 
@@ -177,7 +177,7 @@ def _get_or_create_tag_id_external(self, session: Session, tag_string: str) -> i
             tag=normalized_tag,
             source_tag=tag_string,
             format_name="Lorairo",  # app name
-            type_name="unknown"  # incomplete until user resolves
+            type_name="unknown"  # type unresolved until user resolves
         )
 
         result = self.tag_register_service.register_tag(register_request)
@@ -268,7 +268,7 @@ def _initialize_tag_register_service(self) -> TagRegisterService:
 - 起動時に user DB へ format/type マスタを追加（存在しなければ作成）
 - format_name はアプリ名（例: "Lorairo" / "tag-db"）を使用
 - type_name は不足時に "unknown" を仮置きし、ユーザーが後で再解決
-- 不完全判定は `type_name == "unknown"` かつ `format_name` がユーザー登録のもの
+- unknown type判定は `type_name == "unknown"` のみ
 - **✅ ID衝突回避**: ユーザーDB format_id は1000番台以降を使用（ベースDB: 1-999、ユーザーDB: 1000-）
 - **注意**: 既存ユーザーDBに1000未満のformat_idがある場合は補正せず、新規format作成時のみ1000番台を使用
 
@@ -365,18 +365,18 @@ class TestImageRepositoryTagIntegration:
 
 ---
 
-## Phase 2.5: 不完全タグ管理機能（新規）
+## Phase 2.5: unknown typeタグ管理機能（新規）
 
 **日付**: 2025-12-30  
 **状態**: 🔄 仕様策定完了
 
 ### 背景と目的
 
-LoRAIroからの一括タグ登録時、都度type判定を行うと作業フローが悪化するため、一時的に不完全なデータ（`type_name="unknown"`）を蓄積し、後で一括修正できる機能を実装する。
+LoRAIroからの一括タグ登録時、都度type判定を行うと作業フローが悪化するため、一時的にtype不明のデータ（`type_name="unknown"`）を蓄積し、後で一括修正できる機能を実装する。
 
 ### 仕様決定事項
 
-#### 不完全判定基準
+#### unknown type判定基準
 - **`type_name == "unknown"` のみで判定**
 - format_nameフィルタ不要（format_idでスコープ分離済み）
 
@@ -399,7 +399,7 @@ LoRAIroからの一括タグ登録時、都度type判定を行うと作業フロ
   - 現在のformat_idで使用中のtype_idからmax+1を返す
   - 既存マッピングがなければ0を返す
 
-- [ ] **P2.5-2**: 不完全タグ一括更新API実装
+- [ ] **P2.5-2**: unknown typeタグ一括更新API実装
   - `update_tags_type_batch(tag_updates: List[TagTypeUpdate], format_id: int)`
   - type_nameからtype_name_id取得/作成
   - TagTypeFormatMappingの自動作成（type_id自動採番）
@@ -417,7 +417,7 @@ LoRAIroからの一括タグ登録時、都度type判定を行うと作業フロ
 
 ### 既存API活用
 
-- `search_tags(type_name="unknown")` - 不完全タグ検索 ([repository.py:169-224](local_packages/genai-tag-db-tools/src/genai_tag_db_tools/db/repository.py#L169-L224))
+- `get_unknown_type_tags(format_id)` - unknown typeタグ検索
 - `update_tag_status(type_id=...)` - 単一タグ更新 ([repository.py:461-537](local_packages/genai-tag-db-tools/src/genai_tag_db_tools/db/repository.py#L461-L537))
 - `create_type_name_if_not_exists()` - type_name自動作成 ([repository.py:655-679](local_packages/genai-tag-db-tools/src/genai_tag_db_tools/db/repository.py#L655-L679))
 - `create_type_format_mapping_if_not_exists()` - マッピング作成 ([repository.py:681-714](local_packages/genai-tag-db-tools/src/genai_tag_db_tools/db/repository.py#L681-L714))
@@ -504,7 +504,7 @@ LoRAIroからの一括タグ登録時、都度type判定を行うと作業フロ
 - 起動時に user DB へ format/type マスタを自動追加する
 - format_name はアプリ名（例: "Lorairo" / "tag-db"）を使用
 - type_name は不足時に "unknown" を仮置きし、ユーザーが後で再解決
-- 不完全判定は `type_name == "unknown"` かつ `format_name` がユーザー登録のもの
+- unknown type判定は `type_name == "unknown"` のみ
 - `unknown` 仮置き/不足補完はタグDBツール（core）側で実装
 
 
