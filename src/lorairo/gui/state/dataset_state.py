@@ -53,7 +53,22 @@ class DatasetStateManager(QObject):
         self._layout_mode: str = "grid"  # "grid" | "list"
         self._ui_state: dict[str, Any] = {}
 
+        # === DB Manager 参照（バッチ操作後のリフレッシュに使用） ===
+        self._db_manager: Any = None
+
         logger.debug("DatasetStateManager initialized")
+
+    def set_db_manager(self, db_manager: Any) -> None:
+        """
+        ImageDatabaseManager への参照を設定
+
+        バッチ操作後のメタデータ再読み込みに使用します。
+
+        Args:
+            db_manager: ImageDatabaseManager インスタンス
+        """
+        self._db_manager = db_manager
+        logger.debug("ImageDatabaseManager reference set in DatasetStateManager")
 
     # === Public Properties (Read-Only) ===
 
@@ -419,6 +434,90 @@ class DatasetStateManager(QObject):
         if self._current_image_id == image_id:
             self.current_image_data_changed.emit(new_metadata)
             logger.info(f"キャッシュ更新とシグナル発行完了: {image_id}")
+
+    def refresh_image(self, image_id: int) -> None:
+        """
+        単一画像のメタデータをDBから再読み込み
+
+        バッチ編集後などに呼び出し、キャッシュされたメタデータを最新状態に更新します。
+
+        Args:
+            image_id: 再読み込み対象の画像ID
+
+        Side Effects:
+            - DB から最新メタデータを取得
+            - _all_images と _filtered_images のキャッシュを更新
+            - 現在選択中の画像なら current_image_data_changed シグナル発行
+
+        Note:
+            - _db_manager が未設定の場合は警告ログを出して何もしない
+            - DB から取得できない場合は警告ログを出す
+        """
+        if not self._db_manager:
+            logger.warning("DB Manager not set, cannot refresh image metadata")
+            return
+
+        try:
+            # DB から最新メタデータを取得
+            image_metadata = self._db_manager.repository.get_image_metadata(image_id)
+
+            if not image_metadata:
+                logger.warning(f"Failed to fetch metadata from DB for image_id {image_id}")
+                return
+
+            # キャッシュを更新（既存の update_image_metadata を利用）
+            self.update_image_metadata(image_id, image_metadata)
+            logger.debug(f"Successfully refreshed metadata for image_id {image_id}")
+
+        except Exception as e:
+            logger.error(f"Error refreshing image metadata for image_id {image_id}: {e}", exc_info=True)
+
+    def refresh_images(self, image_ids: list[int]) -> None:
+        """
+        複数画像のメタデータをDBから再読み込み
+
+        バッチタグ追加などのバッチ操作後に呼び出し、影響を受けた画像の
+        キャッシュを一括で最新状態に更新します。
+
+        Args:
+            image_ids: 再読み込み対象の画像IDリスト
+
+        Side Effects:
+            - 各画像について refresh_image() を呼び出し
+            - 全画像のキャッシュ更新とシグナル発行
+
+        Note:
+            - 空リストの場合は何もせずリターン
+            - _db_manager が未設定の場合は警告ログを出して何もしない
+            - 個別の画像で失敗しても処理を継続（ログに記録）
+
+        Example:
+            >>> # バッチタグ追加後のリフレッシュ
+            >>> success = image_db_write_service.add_tag_batch([1, 2, 3], "landscape")
+            >>> if success:
+            >>>     dataset_state_manager.refresh_images([1, 2, 3])
+        """
+        if not image_ids:
+            logger.debug("refresh_images called with empty list, nothing to do")
+            return
+
+        if not self._db_manager:
+            logger.warning("DB Manager not set, cannot refresh image metadata")
+            return
+
+        logger.info(f"Refreshing metadata for {len(image_ids)} images")
+
+        # 各画像を個別にリフレッシュ
+        success_count = 0
+        for image_id in image_ids:
+            try:
+                self.refresh_image(image_id)
+                success_count += 1
+            except Exception as e:
+                logger.error(f"Failed to refresh image_id {image_id}: {e}", exc_info=True)
+                # 個別の失敗は継続（他の画像も処理）
+
+        logger.info(f"Metadata refresh completed: {success_count}/{len(image_ids)} successful")
 
     def _get_image_from_filtered(self, image_id: int) -> dict[str, Any] | None:
         """フィルター済み画像からの検索（デバッグ用）"""

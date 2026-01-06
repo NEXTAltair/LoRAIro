@@ -194,6 +194,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         # 状態管理との連携
         if self.dataset_state:
             self._connect_dataset_state()
+            # ドラッグ選択の同期（scene → DatasetStateManager）
+            self.scene.selectionChanged.connect(self._sync_selection_to_state)
 
     def _setup_header_connections(self):
         """
@@ -478,6 +480,38 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         # 選択状態は動的取得されるため、再描画のみトリガー
         for item in self.thumbnail_items:
             item.update()  # 再描画トリガー
+
+    @Slot()
+    def _sync_selection_to_state(self) -> None:
+        """
+        QGraphicsScene 選択状態を DatasetStateManager に同期
+
+        ドラッグ選択（RubberBandDrag）による複数選択時に、
+        選択された image_ids を DatasetStateManager に反映。
+
+        循環参照防止:
+            scene.selectionChanged → blockSignals(True) → dataset_state.set_selected_images()
+            → blockSignals(False) により、selection_changed シグナルの再発火を防ぐ。
+
+        DatasetStateManager を真の状態として扱う:
+            この同期により、GUI選択とデータモデルの整合性を保つ。
+        """
+        if not self.dataset_state:
+            return
+
+        # 選択中のアイテムから image_id を抽出
+        selected_items = self.scene.selectedItems()
+        selected_image_ids = []
+        for item in selected_items:
+            if isinstance(item, ThumbnailItem):
+                selected_image_ids.append(item.image_id)
+
+        # 循環参照防止: DatasetStateManager への更新時、シグナルをブロック
+        self.dataset_state.blockSignals(True)
+        self.dataset_state.set_selected_images(selected_image_ids)
+        self.dataset_state.blockSignals(False)
+
+        logger.debug(f"Selection synced to state: {len(selected_image_ids)} images selected")
 
     @Slot(int)
     def _on_state_current_image_changed(self, current_image_id: int) -> None:

@@ -30,342 +30,278 @@
     <number>6</number>
    </property>
    <item>
-    <widget class="QGroupBox" name="groupBoxImageInfo">
-     <property name="title">
-      <string>画像情報</string>
+    <widget class="QTabWidget" name="tabWidgetDetails">
+     <property name="currentIndex">
+      <number>0</number>
      </property>
-     <layout class="QGridLayout" name="gridLayoutImageInfo">
-      <property name="spacing">
-       <number>3</number>
-      </property>
-      <item row="0" column="0">
-       <widget class="QLabel" name="labelFileName">
-        <property name="text">
-         <string>ファイル名:</string>
-        </property>
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-       </widget>
-      </item>
-      <item row="2" column="0">
-       <widget class="QLabel" name="labelFileSize">
-        <property name="text">
-         <string>ファイルサイズ:</string>
-        </property>
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-       </widget>
-      </item>
-      <item row="0" column="1">
-       <widget class="QLabel" name="labelFileNameValue">
-        <property name="text">
-         <string>-</string>
-        </property>
-        <property name="wordWrap">
-         <bool>true</bool>
-        </property>
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-       </widget>
-      </item>
-      <item row="2" column="1">
-       <widget class="QLabel" name="labelFileSizeValue">
-        <property name="text">
-         <string>-</string>
-        </property>
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-       </widget>
-      </item>
-      <item row="3" column="0">
-       <widget class="QLabel" name="labelCreatedDate">
-        <property name="text">
-         <string>登録日:</string>
-        </property>
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-       </widget>
-      </item>
-      <item row="3" column="1">
-       <widget class="QLabel" name="labelCreatedDateValue">
-        <property name="text">
-         <string>-</string>
-        </property>
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="1">
-       <widget class="QLabel" name="labelImageSizeValue">
-        <property name="text">
-         <string>-</string>
-        </property>
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="0">
-       <widget class="QLabel" name="labelImageSize">
-        <property name="text">
-         <string>解像度:</string>
-        </property>
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
-    <widget class="QGroupBox" name="groupBoxAnnotationSummary">
-     <property name="title">
-      <string>アノテーション概要</string>
-     </property>
-     <layout class="QVBoxLayout" name="verticalLayoutAnnotationSummary">
-      <item>
-       <widget class="QGroupBox" name="groupBoxTags">
-        <property name="title">
-         <string>タグ</string>
-        </property>
-        <layout class="QVBoxLayout" name="verticalLayoutTags">
-         <item>
-          <widget class="QLabel" name="labelTagsContent">
-           <property name="text">
-            <string>cat, sitting, outdoor, wooden</string>
-           </property>
-           <property name="wordWrap">
-            <bool>true</bool>
-           </property>
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-      </item>
-      <item>
-       <widget class="QGroupBox" name="groupBoxCaptions">
-        <property name="title">
-         <string>キャプション</string>
-        </property>
-        <layout class="QVBoxLayout" name="verticalLayoutCaptions">
-         <item>
-          <widget class="QTextEdit" name="textEditCaptionsContent">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-             <horstretch>0</horstretch>
-             <verstretch>1</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="readOnly">
-            <bool>true</bool>
-           </property>
-           <property name="placeholderText">
-            <string>キャプションが表示されます</string>
-           </property>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-      </item>
-      <item>
-       <layout class="QGridLayout" name="gridLayoutRatingScore">
-        <item row="0" column="0">
-         <widget class="QLabel" name="labelRating">
-          <property name="text">
-           <string>Rating:</string>
+     <widget class="QWidget" name="tabOverview">
+      <attribute name="title">
+       <string>概要</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayoutOverview">
+       <item>
+        <widget class="QGroupBox" name="groupBoxImageInfo">
+         <property name="title">
+          <string>画像情報</string>
+         </property>
+         <layout class="QGridLayout" name="gridLayoutImageInfo">
+          <property name="spacing">
+           <number>3</number>
           </property>
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-         </widget>
-        </item>
-        <item row="0" column="1">
-         <widget class="QLabel" name="labelRatingValue">
-          <property name="text">
-           <string>PG-13</string>
-          </property>
-          <property name="visible">
-           <bool>false</bool>
-          </property>
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-         </widget>
-        </item>
-        <item row="0" column="1">
-         <widget class="QComboBox" name="comboBoxRating">
-          <property name="visible">
-           <bool>true</bool>
-          </property>
-          <item>
-           <property name="text">
-            <string>PG</string>
-           </property>
+          <item row="0" column="0">
+           <widget class="QLabel" name="labelFileName">
+            <property name="text">
+             <string>ファイル名:</string>
+            </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
           </item>
-          <item>
-           <property name="text">
-            <string>PG-13</string>
-           </property>
+          <item row="2" column="0">
+           <widget class="QLabel" name="labelFileSize">
+            <property name="text">
+             <string>ファイルサイズ:</string>
+            </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
           </item>
-          <item>
-           <property name="text">
-            <string>R</string>
-           </property>
+          <item row="0" column="1">
+           <widget class="QLabel" name="labelFileNameValue">
+            <property name="text">
+             <string>-</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
           </item>
-          <item>
-           <property name="text">
-            <string>X</string>
-           </property>
+          <item row="2" column="1">
+           <widget class="QLabel" name="labelFileSizeValue">
+            <property name="text">
+             <string>-</string>
+            </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
           </item>
-          <item>
-           <property name="text">
-            <string>XXX</string>
-           </property>
+          <item row="3" column="0">
+           <widget class="QLabel" name="labelCreatedDate">
+            <property name="text">
+             <string>登録日:</string>
+            </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
           </item>
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-         </widget>
-        </item>
-        <item row="0" column="2">
-         <widget class="QPushButton" name="pushButtonSaveRating">
-          <property name="text">
-           <string>保存</string>
-          </property>
-          <property name="visible">
-           <bool>true</bool>
-          </property>
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-         </widget>
-        </item>
-        <item row="1" column="0">
-         <widget class="QLabel" name="labelScore">
-          <property name="text">
-           <string>スコア:</string>
-          </property>
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-         </widget>
-        </item>
-        <item row="1" column="1">
-         <widget class="QLabel" name="labelScoreValue">
-          <property name="text">
-           <string>75.4</string>
-          </property>
-          <property name="visible">
-           <bool>false</bool>
-          </property>
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-         </widget>
-        </item>
-        <item row="1" column="1">
-         <widget class="QSlider" name="sliderScore">
-          <property name="minimum">
-           <number>0</number>
-          </property>
-          <property name="maximum">
-           <number>1000</number>
-          </property>
-          <property name="value">
-           <number>500</number>
-          </property>
-          <property name="orientation">
-           <enum>Qt::Orientation::Horizontal</enum>
-          </property>
-          <property name="visible">
-           <bool>true</bool>
-          </property>
-         </widget>
-        </item>
-        <item row="1" column="2">
-         <widget class="QPushButton" name="pushButtonSaveScore">
-          <property name="text">
-           <string>保存</string>
-          </property>
-          <property name="visible">
-           <bool>true</bool>
-          </property>
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
-    <widget class="AnnotationDataDisplayWidget" name="annotationDataDisplay" native="true">
-     <property name="sizePolicy">
-      <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-       <horstretch>0</horstretch>
-       <verstretch>1</verstretch>
-      </sizepolicy>
-     </property>
+          <item row="3" column="1">
+           <widget class="QLabel" name="labelCreatedDateValue">
+            <property name="text">
+             <string>-</string>
+            </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QLabel" name="labelImageSizeValue">
+            <property name="text">
+             <string>-</string>
+            </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="labelImageSize">
+            <property name="text">
+             <string>解像度:</string>
+            </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupBoxRatingScore">
+         <property name="title">
+          <string>評価・スコア</string>
+         </property>
+         <layout class="QGridLayout" name="gridLayoutRatingScore">
+          <item row="0" column="0">
+           <widget class="QLabel" name="labelRating">
+            <property name="text">
+             <string>Rating:</string>
+            </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLabel" name="labelRatingValue">
+            <property name="text">
+             <string>-</string>
+            </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="labelScore">
+            <property name="text">
+             <string>スコア:</string>
+            </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QLabel" name="labelScoreValue">
+            <property name="text">
+             <string>-</string>
+            </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="tabTags">
+      <attribute name="title">
+       <string>タグ</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayoutTagsTab">
+       <item>
+        <widget class="QGroupBox" name="groupBoxTags">
+         <property name="title">
+          <string>タグ</string>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayoutTags">
+          <item>
+           <widget class="QLabel" name="labelTagsContent">
+            <property name="text">
+             <string>cat, sitting, outdoor, wooden</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="tabCaptions">
+      <attribute name="title">
+       <string>キャプション</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayoutCaptionsTab">
+       <item>
+        <widget class="QGroupBox" name="groupBoxCaptions">
+         <property name="title">
+          <string>キャプション</string>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayoutCaptions">
+          <item>
+           <widget class="QTextEdit" name="textEditCaptionsContent">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+              <horstretch>0</horstretch>
+              <verstretch>1</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="readOnly">
+             <bool>true</bool>
+            </property>
+            <property name="placeholderText">
+             <string>キャプションが表示されます</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="tabMetadata">
+      <attribute name="title">
+       <string>メタデータ</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayoutMetadata">
+       <item>
+        <widget class="AnnotationDataDisplayWidget" name="annotationDataDisplay" native="true">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>1</verstretch>
+          </sizepolicy>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
     </widget>
    </item>
   </layout>
@@ -379,75 +315,6 @@
   </customwidget>
  </customwidgets>
  <resources />
- <connections>
-  <connection>
-   <sender>comboBoxRating</sender>
-   <signal>currentTextChanged(QString)</signal>
-   <receiver>SelectedImageDetailsWidget</receiver>
-   <slot>_on_rating_changed(QString)</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>149</x>
-     <y>272</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>124</x>
-     <y>200</y>
-    </hint>
-   </hints>
-  </connection>
-  <connection>
-   <sender>sliderScore</sender>
-   <signal>valueChanged(int)</signal>
-   <receiver>SelectedImageDetailsWidget</receiver>
-   <slot>_on_score_changed(int)</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>147</x>
-     <y>299</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>124</x>
-     <y>200</y>
-    </hint>
-   </hints>
-  </connection>
-  <connection>
-   <sender>pushButtonSaveRating</sender>
-   <signal>clicked()</signal>
-   <receiver>SelectedImageDetailsWidget</receiver>
-   <slot>_on_save_clicked()</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>223</x>
-     <y>241</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>124</x>
-     <y>200</y>
-    </hint>
-   </hints>
-  </connection>
-  <connection>
-   <sender>pushButtonSaveScore</sender>
-   <signal>clicked()</signal>
-   <receiver>SelectedImageDetailsWidget</receiver>
-   <slot>_on_save_clicked()</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>223</x>
-     <y>299</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>124</x>
-     <y>200</y>
-    </hint>
-   </hints>
-  </connection>
- </connections>
- <slots>
-  <slot>_on_rating_changed(QString)</slot>
-  <slot>_on_score_changed(int)</slot>
-  <slot>_on_save_clicked()</slot>
- </slots>
+ <connections />
+ <slots />
 </ui>

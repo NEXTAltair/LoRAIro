@@ -194,6 +194,72 @@ class TestImageDBWriteService:
                 f"Error fetching image details for ID {image_id}: Database connection error", exc_info=True
             )
 
+    def test_add_tag_batch_success(self, service, mock_db_manager):
+        """バッチタグ追加成功ケース"""
+        image_ids = [1, 2, 3]
+        tag = "landscape"
+
+        # 既存タグのモック設定（重複チェック用）
+        mock_db_manager.repository.get_image_annotations.return_value = {
+            "tags": [{"content": "existing_tag"}]
+        }
+        mock_db_manager.get_manual_edit_model_id.return_value = "manual_edit"
+
+        # 実行
+        result = service.add_tag_batch(image_ids, tag)
+
+        # 検証
+        assert result is True
+        assert mock_db_manager.repository.get_image_annotations.call_count == 3
+        assert mock_db_manager.repository.save_annotations.call_count == 3
+
+    def test_add_tag_batch_duplicate_skip(self, service, mock_db_manager):
+        """重複タグのスキップテスト"""
+        image_ids = [1, 2]
+        tag = "landscape"
+
+        # 既存タグに同じタグが含まれている
+        mock_db_manager.repository.get_image_annotations.return_value = {
+            "tags": [{"content": "landscape"}]
+        }
+
+        # 実行
+        result = service.add_tag_batch(image_ids, tag)
+
+        # 検証: 重複のため save_annotations は呼ばれない
+        assert result is True
+        assert mock_db_manager.repository.save_annotations.call_count == 0
+
+    def test_add_tag_batch_empty_image_ids(self, service, mock_db_manager):
+        """空の画像IDリストでの呼び出し"""
+        result = service.add_tag_batch([], "landscape")
+
+        # 検証
+        assert result is False
+        mock_db_manager.repository.save_annotations.assert_not_called()
+
+    def test_add_tag_batch_empty_tag(self, service, mock_db_manager):
+        """空タグでの呼び出し"""
+        result = service.add_tag_batch([1, 2], "")
+
+        # 検証
+        assert result is False
+        mock_db_manager.repository.save_annotations.assert_not_called()
+
+    def test_add_tag_batch_exception_handling(self, service, mock_db_manager):
+        """例外ハンドリングテスト"""
+        image_ids = [1, 2]
+        tag = "landscape"
+
+        # 例外を発生させる
+        mock_db_manager.repository.get_image_annotations.side_effect = Exception("DB Error")
+
+        # 実行
+        result = service.add_tag_batch(image_ids, tag)
+
+        # 検証
+        assert result is False
+
 
 class TestImageDBWriteServiceIntegration:
     """ImageDBWriteService統合テスト（Phase 1-2パターン継承）"""
