@@ -1,5 +1,6 @@
 ---
 name: mcp-memory-first-development
+version: "1.0.0"
 description: Memory-First development workflow integrating Serena short-term project memory and Cipher long-term design knowledge for efficient development. Use this skill to guide the 3-phase workflow (Before → During → After implementation) with proper memory management.
 allowed-tools:
   # Serena memory (short-term)
@@ -12,6 +13,7 @@ allowed-tools:
   - mcp__cipher__cipher_extract_and_operate_memory
   - mcp__cipher__cipher_workspace_search
   - mcp__cipher__cipher_workspace_store
+dependencies: []
 ---
 
 # Memory-First Development

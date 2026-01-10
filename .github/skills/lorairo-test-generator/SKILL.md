@@ -1,5 +1,6 @@
 ---
 name: lorairo-test-generator
+version: "1.0.0"
 description: Generates pytest unit, integration, and GUI tests for LoRAIro with proper fixtures, mocks, and 75%+ coverage using pytest-qt for PySide6 testing. Use when creating test suites, implementing test patterns, or ensuring code quality with comprehensive test coverage.
 allowed-tools:
   # Code exploration
@@ -13,6 +14,7 @@ allowed-tools:
   - Read
   - Write
   - Bash
+dependencies: []
 ---
 
 # Test Generation for LoRAIro

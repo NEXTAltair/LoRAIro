@@ -1,6 +1,8 @@
 ---
 name: code-formatter
 description: コードフォーマット・整形・品質改善を行う専門エージェント。Ruffを使用したPythonコードの自動フォーマット、リント修正、コード品質向上を実行します。
+context: main
+parallel-safe: false
 color: orange
 allowed-tools: mcp__serena__find_symbol, mcp__serena__replace_symbol_body, mcp__serena__replace_regex, Read, Edit, MultiEdit, Bash, TodoWrite
 ---

@@ -1,5 +1,6 @@
 ---
 name: mcp-cipher-complex-analysis
+version: "1.0.0"
 description: Complex analysis using Cipher MCP (10-30s) for library research via context7, design pattern memory search, and multi-tool integration for strategic planning. Use when researching libraries, analyzing architectural decisions, or comparing multiple approaches.
 allowed-tools:
   # Memory search
@@ -20,6 +21,7 @@ allowed-tools:
   - mcp__serena__search_for_pattern
   # Bash operations (if needed)
   - mcp__cipher__cipher_bash
+dependencies: []
 ---
 
 # Cipher Complex Analysis
