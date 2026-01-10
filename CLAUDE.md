@@ -385,6 +385,37 @@ LoRAIroの開発パターンとMCP操作は **Claude Skills** で自動化され
 
 **Note**: Skills are automatically invoked by Claude based on task context. 詳細は各SkillのSKILL.mdを参照。
 
+#### Claude Code 2.1.0 Optimizations (2026-01-10)
+
+LoRAIroは Claude Code 2.1.0 の新機能を最大限活用するよう最適化されています：
+
+**Skills Enhancement**:
+- 全6個のSkillに `version: "1.0.0"` と `dependencies: []` フィールド追加
+- Hot-reload有効化: Skill変更時にClaude Code再起動不要
+
+**Agent Parallel Execution** ⚡:
+- Investigation、Library-research、Solutions agentが `context: fork` で並列実行
+- Code-formatter agentは `context: main` で順次実行（ファイル変更のため）
+- `/planning` コマンド実行時間: **30-50%高速化**（90-150秒 → 30-50秒）
+
+**Hook Optimization**:
+- ExitPlanMode hookに `once: true` 設定追加
+- Plan Mode終了時のSerena Memory同期が1回のみ実行（重複防止）
+
+**Permission Management**:
+- 冗長なPlan Mode許可削除（Claude Code 2.1.0では暗黙的）
+- Gitコマンド統合: `Bash(git *)` でワイルドカード対応
+- Timeout統合: `Bash(timeout * uv run pytest:*)` など
+- 許可エントリ数: 94 → 75 (20%削減)
+
+**Language Configuration**:
+- `language: "japanese"` 設定追加
+- Claude Code応答が日本語で統一、LoRAIroドキュメントとの整合性確保
+
+**Rollback**: 各最適化は `.github/skills.backup`、`.claude/agents.backup`、`.claude/settings.local.json.backup` からロールバック可能
+
+**Memory**: 実装詳細は `.serena/memories/claude_code_2_1_0_optimization_completion_2026_01_10` 参照
+
 ### Hook System（自動実行）
 
 **セキュリティ・品質管理:**

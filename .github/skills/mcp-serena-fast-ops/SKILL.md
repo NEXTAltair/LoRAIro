@@ -1,5 +1,6 @@
 ---
 name: mcp-serena-fast-ops
+version: "1.0.0"
 description: Fast code operations using Serena MCP (1-3s) for symbol search, memory read/write, and basic code editing in LoRAIro project. Use when exploring code, managing project memory, or performing quick edits.
 allowed-tools:
   # Symbol operations
@@ -20,6 +21,7 @@ allowed-tools:
   - mcp__serena__write_memory
   - mcp__serena__list_memories
   - mcp__serena__edit_memory
+dependencies: []
 ---
 
 # Serena Fast Operations

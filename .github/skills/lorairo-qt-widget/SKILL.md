@@ -1,5 +1,6 @@
 ---
 name: lorairo-qt-widget
+version: "1.0.0"
 description: PySide6 widget implementation guide for LoRAIro GUI with Signal/Slot pattern, Direct Widget Communication, and Qt Designer integration best practices. Use when creating new widgets, implementing GUI components, or working with PySide6 Signal/Slot communication.
 allowed-tools:
   # Code exploration
@@ -12,6 +13,7 @@ allowed-tools:
   - Read
   - Write
   - Edit
+dependencies: []
 ---
 
 # PySide6 Widget Implementation for LoRAIro

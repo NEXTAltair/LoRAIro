@@ -1,6 +1,8 @@
 ---
 name: investigation
 description: コードベース調査・分析・アーキテクチャ理解を行う専門エージェント。MCP Serenaのセマンティック検索機能を活用して、シンボル検索、依存関係分析、プロジェクト構造把握を高速・高精度で実行します。
+context: fork
+parallel-safe: true
 color: purple
 allowed-tools: mcp__serena__get_symbols_overview, mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__search_for_pattern, mcp__serena__list_dir, mcp__serena__find_file, mcp__serena__read_memory, mcp__serena__write_memory, mcp__serena__think_about_collected_information, cipher_memory_search, cipher_store_reasoning_memory, cipher_extract_entities, cipher_query_graph, Read, TodoWrite, Grep, Glob, Bash
 ---

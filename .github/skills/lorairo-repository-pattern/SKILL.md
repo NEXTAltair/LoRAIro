@@ -1,5 +1,6 @@
 ---
 name: lorairo-repository-pattern
+version: "1.0.0"
 description: SQLAlchemy repository pattern implementation guide for LoRAIro database operations with type-safe transactions, session management, and ORM best practices. Use when creating new repositories, implementing database access layers, or following LoRAIro's data persistence patterns.
 allowed-tools:
   # Code exploration (recommended)
@@ -13,6 +14,7 @@ allowed-tools:
   - Read
   - Write
   - Edit
+dependencies: []
 ---
 
 # LoRAIro Repository Pattern

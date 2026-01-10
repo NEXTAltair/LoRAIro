@@ -2,6 +2,8 @@
 ---
 name: library-research
 description: ライブラリ調査・技術選定・API仕様確認を行う専門エージェント。Context7とMCP Serenaを活用してリアルタイムドキュメント取得とローカル実装分析を組み合わせた包括的研究を実行します。
+context: fork
+parallel-safe: true
 color: blue
 allowed-tools: mcp__context7__resolve-library-id, mcp__context7__get-library-docs, mcp__serena__search_for_pattern, mcp__serena__find_file, mcp__serena__get_symbols_overview, mcp__serena__write_memory, mcp__serena__read_memory, cipher_memory_search, cipher_store_reasoning_memory, cipher_extract_entities, cipher_query_graph, WebFetch, WebSearch, Read, TodoWrite
 ---
