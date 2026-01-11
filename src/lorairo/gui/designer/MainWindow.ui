@@ -332,7 +332,7 @@
           <property name="frameShape">
            <enum>QFrame::Shape::NoFrame</enum>
           </property>
-          <layout class="QVBoxLayout" name="verticalLayout_previewDetailContent" stretch="3,1,2">
+          <layout class="QVBoxLayout" name="verticalLayout_previewDetailContent" stretch="3,1">
            <property name="spacing">
             <number>8</number>
            </property>
@@ -402,32 +402,7 @@
               </item>
              </layout>
             </widget>
-            <widget class="QWidget" name="tabRatingScoreEdit">
-             <attribute name="title">
-              <string>Rating/Score編集</string>
-             </attribute>
-             <layout class="QVBoxLayout" name="verticalLayoutTabRatingScore">
-              <property name="spacing">
-               <number>0</number>
-              </property>
-              <property name="leftMargin">
-               <number>0</number>
-              </property>
-              <property name="topMargin">
-               <number>0</number>
-              </property>
-              <property name="rightMargin">
-               <number>0</number>
-              </property>
-              <property name="bottomMargin">
-               <number>0</number>
-              </property>
-              <item>
-               <widget class="RatingScoreEditWidget" name="ratingScoreEditWidget" native="true"/>
-              </item>
-             </layout>
-            </widget>
-            <widget class="QWidget" name="tabBatchTagAdd">
+<widget class="QWidget" name="tabBatchTagAdd">
              <attribute name="title">
               <string>バッチタグ追加</string>
              </attribute>

@@ -296,18 +296,6 @@ class Ui_MainWindow:
         self.verticalLayoutTabDetails.addWidget(self.selectedImageDetailsWidget)
 
         self.tabWidgetRightPanel.addTab(self.tabImageDetails, "")
-        self.tabRatingScoreEdit = QWidget()
-        self.tabRatingScoreEdit.setObjectName("tabRatingScoreEdit")
-        self.verticalLayoutTabRatingScore = QVBoxLayout(self.tabRatingScoreEdit)
-        self.verticalLayoutTabRatingScore.setSpacing(0)
-        self.verticalLayoutTabRatingScore.setObjectName("verticalLayoutTabRatingScore")
-        self.verticalLayoutTabRatingScore.setContentsMargins(0, 0, 0, 0)
-        self.ratingScoreEditWidget = RatingScoreEditWidget(self.tabRatingScoreEdit)
-        self.ratingScoreEditWidget.setObjectName("ratingScoreEditWidget")
-
-        self.verticalLayoutTabRatingScore.addWidget(self.ratingScoreEditWidget)
-
-        self.tabWidgetRightPanel.addTab(self.tabRatingScoreEdit, "")
         self.tabBatchTagAdd = QWidget()
         self.tabBatchTagAdd.setObjectName("tabBatchTagAdd")
         self.verticalLayoutTabBatchTag = QVBoxLayout(self.tabBatchTagAdd)
@@ -344,7 +332,6 @@ class Ui_MainWindow:
 
         self.verticalLayout_previewDetailContent.setStretch(0, 3)
         self.verticalLayout_previewDetailContent.setStretch(1, 1)
-        self.verticalLayout_previewDetailContent.setStretch(2, 2)
 
         self.verticalLayout_previewDetail.addWidget(self.framePreviewDetailContent)
 
@@ -572,10 +559,6 @@ class Ui_MainWindow:
         self.tabWidgetRightPanel.setTabText(
             self.tabWidgetRightPanel.indexOf(self.tabImageDetails),
             QCoreApplication.translate("MainWindow", "\u753b\u50cf\u8a73\u7d30", None),
-        )
-        self.tabWidgetRightPanel.setTabText(
-            self.tabWidgetRightPanel.indexOf(self.tabRatingScoreEdit),
-            QCoreApplication.translate("MainWindow", "Rating/Score\u7de8\u96c6", None),
         )
         self.tabWidgetRightPanel.setTabText(
             self.tabWidgetRightPanel.indexOf(self.tabBatchTagAdd),

@@ -342,8 +342,7 @@ class ImageDBWriteService:
 
             if success:
                 logger.info(
-                    f"Batch tag add succeeded: tag='{tag}', "
-                    f"processed={len(image_ids)}, added={added_count}"
+                    f"Batch tag add succeeded: tag='{tag}', processed={len(image_ids)}, added={added_count}"
                 )
             else:
                 logger.warning(f"Batch tag add returned failure for tag='{tag}'")

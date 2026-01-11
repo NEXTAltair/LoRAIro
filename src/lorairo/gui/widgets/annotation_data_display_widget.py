@@ -9,7 +9,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtWidgets import QTableWidgetItem, QWidget
+from PySide6.QtWidgets import (
+    QAbstractScrollArea,
+    QLabel,
+    QSizePolicy,
+    QTableWidgetItem,
+    QWidget,
+)
 
 from ...gui.designer.AnnotationDataDisplayWidget_ui import Ui_AnnotationDataDisplayWidget
 from ...utils.log import logger
@@ -70,6 +76,9 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
 
         # UI初期化
         self._setup_widget_properties()
+        self._setup_tags_compact_view()
+        self._setup_caption_compact_view()
+        self._adjust_content_heights()
 
         logger.debug("AnnotationDataDisplayWidget initialized")
 
@@ -78,6 +87,26 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         # tableWidgetTagsは既にNoEditTriggersに設定済み（UIファイルで設定）
         # テキスト編集を読み取り専用に設定
         self.textEditCaption.setReadOnly(True)
+        self.tableWidgetTags.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
+        self.tableWidgetTags.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.textEditCaption.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+    def _setup_tags_compact_view(self) -> None:
+        self._tags_compact_label = QLabel(self.groupBoxTags)
+        self._tags_compact_label.setWordWrap(True)
+        self._tags_compact_label.setText("-")
+        self._tags_compact_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.verticalLayoutTags.insertWidget(0, self._tags_compact_label)
+
+        self.tableWidgetTags.setVisible(False)
+
+    def _setup_caption_compact_view(self) -> None:
+        self._caption_compact_label = QLabel(self.groupBoxCaption)
+        self._caption_compact_label.setWordWrap(True)
+        self._caption_compact_label.setText("キャプションが表示されます")
+        self._caption_compact_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.verticalLayoutCaption.insertWidget(0, self._caption_compact_label)
+        self.textEditCaption.setVisible(False)
 
     def update_data(self, data: AnnotationData) -> None:
         """アノテーションデータで表示を更新"""
@@ -92,6 +121,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
 
             # スコア表示更新
             self._update_scores_display(data.aesthetic_score, data.overall_score, data.score_type)
+
+            self._adjust_content_heights()
 
             self.data_loaded.emit(data)
             logger.debug(f"Annotation data updated - tags: {len(data.tags)}, caption: {bool(data.caption)}")
@@ -111,7 +142,9 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             self.tableWidgetTags.setRowCount(len(tags))
             self.tableWidgetTags.setSortingEnabled(False)  # 更新中はソート無効
 
+            tag_names = []
             for row, tag_dict in enumerate(tags):
+                tag_names.append(tag_dict.get("tag", ""))
                 # Tag列
                 tag_item = QTableWidgetItem(tag_dict["tag"])
                 self.tableWidgetTags.setItem(row, 0, tag_item)
@@ -147,6 +180,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             self.tableWidgetTags.setSortingEnabled(True)  # ソート有効化
             self.tableWidgetTags.resizeColumnsToContents()
 
+            self._tags_compact_label.setText(", ".join([name for name in tag_names if name]) or "-")
+
             logger.debug(f"Updated tags display: {len(tags)} rows")
 
         except Exception as e:
@@ -156,10 +191,13 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         """キャプション表示を更新"""
         try:
             if caption:
+                self._caption_compact_label.setText(caption)
                 self.textEditCaption.setText(caption)
             else:
+                placeholder = "キャプションが表示されます"
+                self._caption_compact_label.setText(placeholder)
                 self.textEditCaption.setText("")
-                self.textEditCaption.setPlaceholderText("キャプションが表示されます")
+                self.textEditCaption.setPlaceholderText(placeholder)
 
         except Exception as e:
             logger.error(f"Error updating caption display: {e}")
@@ -196,9 +234,13 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
 
             self.textEditCaption.clear()
             self.textEditCaption.setPlaceholderText("キャプションが表示されます")
+            self._caption_compact_label.setText("キャプションが表示されます")
 
             self.labelScoreTypeValue.setText("-")
             self.labelOverallValue.setText("0")
+
+            self._tags_compact_label.setText("-")
+            self._adjust_content_heights()
 
             self.data_cleared.emit()
             logger.debug("Annotation data display cleared")
@@ -222,6 +264,60 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self.groupBoxTags.setVisible(tags)
         self.groupBoxCaption.setVisible(caption)
         self.groupBoxScores.setVisible(scores)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        self._adjust_caption_height()
+
+    def _adjust_content_heights(self) -> None:
+        self._adjust_tags_height()
+        self._adjust_caption_height()
+
+    def _adjust_tags_height(self) -> None:
+        if not self.tableWidgetTags.isVisible():
+            return
+        self.tableWidgetTags.resizeRowsToContents()
+        header_height = self.tableWidgetTags.horizontalHeader().height()
+        rows_height = sum(
+            self.tableWidgetTags.rowHeight(row) for row in range(self.tableWidgetTags.rowCount())
+        )
+        frame = self.tableWidgetTags.frameWidth() * 2
+        padding = 6
+        target = header_height + rows_height + frame + padding
+        min_height = header_height + frame + padding
+        if target < min_height:
+            target = min_height
+        self.tableWidgetTags.setFixedHeight(target)
+
+    def _adjust_caption_height(self) -> None:
+        if not self.textEditCaption.isVisible():
+            text = self._caption_compact_label.text()
+            if not text:
+                text = "キャプションが表示されます"
+            width = self._caption_compact_label.width()
+            if width <= 0:
+                return
+            rect = self._caption_compact_label.fontMetrics().boundingRect(
+                0, 0, width, 10000, Qt.TextFlag.TextWordWrap, text
+            )
+            padding = 10
+            min_height = int(self._caption_compact_label.fontMetrics().lineSpacing() * 2 + padding)
+            target = int(rect.height() + padding + 0.5)
+            if target < min_height:
+                target = min_height
+            self._caption_compact_label.setFixedHeight(target)
+            return
+
+        document = self.textEditCaption.document()
+        document.setTextWidth(self.textEditCaption.viewport().width())
+        doc_height = document.size().height()
+        frame = self.textEditCaption.frameWidth() * 2
+        padding = 10
+        min_height = int(self.textEditCaption.fontMetrics().lineSpacing() * 3 + frame + padding)
+        target = int(doc_height + frame + padding + 0.5)
+        if target < min_height:
+            target = min_height
+        self.textEditCaption.setFixedHeight(target)
 
 
 if __name__ == "__main__":
