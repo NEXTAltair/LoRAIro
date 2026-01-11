@@ -19,8 +19,8 @@ Enhanced Event-Driven Patternによる直接データ受信とUI更新を実装�
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Signal, Slot
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtWidgets import QFrame, QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 
 from ...gui.designer.SelectedImageDetailsWidget_ui import Ui_SelectedImageDetailsWidget
 from ...services.date_formatter import format_datetime_for_display
@@ -30,6 +30,7 @@ from .annotation_data_display_widget import (
     AnnotationDataDisplayWidget,
     ImageDetails,
 )
+from .rating_score_edit_widget import RatingScoreEditWidget
 
 if TYPE_CHECKING:
     from ..state.dataset_state import DatasetStateManager
@@ -64,6 +65,8 @@ class SelectedImageDetailsWidget(QWidget):
 
     # シグナル
     image_details_loaded = Signal(ImageDetails)  # 画像詳細読み込み完了
+    rating_changed = Signal(int, str)  # (image_id, rating)
+    score_changed = Signal(int, int)  # (image_id, score)
 
     def __init__(
         self,
@@ -92,15 +95,127 @@ class SelectedImageDetailsWidget(QWidget):
         # 内部状態
         self.current_details: ImageDetails | None = None
         self.current_image_id: int | None = None
+        self._summary_layout: QVBoxLayout | None = None
+        self._image_info_toggle: QToolButton | None = None
 
         # UI設定
         self.ui = Ui_SelectedImageDetailsWidget()
         self.ui.setupUi(self)  # type: ignore[no-untyped-call]
         self.annotation_display: AnnotationDataDisplayWidget = self.ui.annotationDataDisplay
+        self.annotation_display.set_group_box_visibility(scores=False)
+
+        # RatingScoreEditWidget統合（モックアップの実装パターン）
+        self._rating_score_widget = RatingScoreEditWidget()
+        self._integrate_rating_score_widget()
+
         self._setup_connections()
+        self._remove_duplicate_detail_tabs()
+        self._apply_readable_layout()
         self._clear_display()
 
         logger.debug("SelectedImageDetailsWidget initialized")
+
+    def _remove_duplicate_detail_tabs(self) -> None:
+        """重複表示になるタブを削除する。"""
+        tab_widget = self.ui.tabWidgetDetails
+        for tab in (self.ui.tabTags, self.ui.tabCaptions):
+            index = tab_widget.indexOf(tab)
+            if index != -1:
+                tab_widget.removeTab(index)
+
+    def _integrate_rating_score_widget(self) -> None:
+        """RatingScoreEditWidgetをAnnotationDataDisplayの直後に配置（モックアップパターン）
+
+        Note: 実際のレイアウト配置は _apply_readable_layout() で行われます
+        """
+        logger.debug("RatingScoreEditWidget will be integrated in _apply_readable_layout()")
+
+    def _apply_readable_layout(self) -> None:
+        """読みやすさ優先のレイアウトに調整する。"""
+        self._align_summary_labels()
+
+        container = QWidget(self)
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(10, 6, 10, 8)
+        layout.setSpacing(4)
+
+        self._image_info_toggle = QToolButton(container)
+        self._image_info_toggle.setText("画像情報")
+        self._image_info_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self._image_info_toggle.setArrowType(Qt.ArrowType.RightArrow)
+        self._image_info_toggle.setCheckable(True)
+        self._image_info_toggle.setChecked(False)
+        self._image_info_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._image_info_toggle.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._image_info_toggle.setStyleSheet("text-align: left;")
+        self._image_info_toggle.toggled.connect(self._toggle_image_info_section)
+
+        self.ui.groupBoxImageInfo.setTitle("")
+        self.ui.groupBoxImageInfo.setVisible(False)
+
+        layout.addWidget(self._image_info_toggle)
+        layout.addWidget(self.ui.groupBoxImageInfo)
+        layout.addWidget(self.ui.annotationDataDisplay)
+        layout.addWidget(self._rating_score_widget)
+        layout.setStretch(0, 0)  # _image_info_toggle
+        layout.setStretch(1, 0)  # groupBoxImageInfo
+        layout.setStretch(2, 1)  # annotationDataDisplay
+        layout.setStretch(3, 0)  # _rating_score_widget
+
+        scroll_area = QScrollArea(self)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidget(container)
+
+        self.ui.verticalLayoutMain.removeWidget(self.ui.tabWidgetDetails)
+        self.ui.tabWidgetDetails.setVisible(False)
+        self.ui.verticalLayoutMain.addWidget(scroll_area)
+        self._summary_layout = layout
+
+    def _align_summary_labels(self) -> None:
+        """概要表示のラベル位置を揃えて視認性を上げる。"""
+        align = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        for label in (
+            self.ui.labelFileName,
+            self.ui.labelImageSize,
+            self.ui.labelFileSize,
+            self.ui.labelCreatedDate,
+        ):
+            label.setAlignment(align)
+
+        label_width = max(
+            label.fontMetrics().horizontalAdvance(label.text())
+            for label in (
+                self.ui.labelFileName,
+                self.ui.labelImageSize,
+                self.ui.labelFileSize,
+                self.ui.labelCreatedDate,
+            )
+        )
+        label_width += 8
+
+        for label in (
+            self.ui.labelFileName,
+            self.ui.labelImageSize,
+            self.ui.labelFileSize,
+            self.ui.labelCreatedDate,
+        ):
+            label.setMinimumWidth(label_width)
+
+        self.ui.gridLayoutImageInfo.setColumnStretch(0, 0)
+        self.ui.gridLayoutImageInfo.setColumnStretch(1, 1)
+        self.ui.gridLayoutImageInfo.setHorizontalSpacing(12)
+        self.ui.gridLayoutImageInfo.setVerticalSpacing(6)
+
+        if hasattr(self.annotation_display, "verticalLayoutMain"):
+            self.annotation_display.verticalLayoutMain.setContentsMargins(0, 0, 0, 0)
+            self.annotation_display.verticalLayoutMain.setSpacing(4)
+
+    def _toggle_image_info_section(self, expanded: bool) -> None:
+        if self._image_info_toggle:
+            arrow = Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
+            self._image_info_toggle.setArrowType(arrow)
+        self.ui.groupBoxImageInfo.setVisible(expanded)
 
     def _setup_connections(self) -> None:
         """
@@ -111,6 +226,10 @@ class SelectedImageDetailsWidget(QWidget):
         """
         # AnnotationDataDisplayWidgetからのシグナル接続
         self.annotation_display.data_loaded.connect(self._on_annotation_data_loaded)
+
+        # RatingScoreEditWidgetのシグナルを外部に転送
+        self._rating_score_widget.rating_changed.connect(self.rating_changed.emit)
+        self._rating_score_widget.score_changed.connect(self.score_changed.emit)
 
         logger.debug("SelectedImageDetailsWidget signals connected")
 
@@ -341,10 +460,12 @@ class SelectedImageDetailsWidget(QWidget):
 
         # タグ/キャプション（プレーン表示用）
         tags_text = details.tags if details.tags else "-"
-        self.ui.labelTagsContent.setText(tags_text)
+        if self.ui.tabWidgetDetails.indexOf(self.ui.tabTags) != -1:
+            self.ui.labelTagsContent.setText(tags_text)
 
         caption_text = details.caption if details.caption else ""
-        self.ui.textEditCaptionsContent.setPlainText(caption_text)
+        if self.ui.tabWidgetDetails.indexOf(self.ui.tabCaptions) != -1:
+            self.ui.textEditCaptionsContent.setPlainText(caption_text)
 
         # アノテーションデータ（リッチ表示用）
         if details.annotation_data:
@@ -355,21 +476,25 @@ class SelectedImageDetailsWidget(QWidget):
 
     def _update_rating_score_display(self, details: ImageDetails) -> None:
         """
-        Rating/Scoreの表示更新（read-only ラベル）
+        Rating/Scoreの表示更新（RatingScoreEditWidget使用）
 
         Args:
             details: 画像詳細情報
 
         処理:
-        1. Rating ラベルの設定
-        2. Score ラベルの設定
+        1. RatingScoreEditWidgetのデータ更新
 
         Notes:
-            - View-only mode: ラベル表示のみ
+            - モックアップパターン: RatingScoreEditWidgetで編集可能
         """
-        # Rating/Score表示（read-only ラベル）
-        self.ui.labelRatingValue.setText(details.rating_value if details.rating_value else "-")
-        self.ui.labelScoreValue.setText(str(details.score_value) if details.score_value else "-")
+        # RatingScoreEditWidgetにデータを設定
+        self._rating_score_widget.populate_from_image_data(
+            {
+                "id": details.image_id,
+                "rating": details.rating_value or "PG-13",
+                "score": details.score_value,
+            }
+        )
 
         logger.debug(f"Rating/Score updated: {details.rating_value}, {details.score_value}")
 
@@ -386,8 +511,7 @@ class SelectedImageDetailsWidget(QWidget):
         - labelImageSizeValue: "-"
         - labelFileSizeValue: "-"
         - labelCreatedDateValue: "-"
-        - labelRatingValue: "-"
-        - labelScoreValue: "-"
+        - RatingScoreEditWidget: クリア
         - annotationDataDisplay: クリア
         """
         self.current_details = None
@@ -397,12 +521,19 @@ class SelectedImageDetailsWidget(QWidget):
         self.ui.labelImageSizeValue.setText("-")
         self.ui.labelFileSizeValue.setText("-")
         self.ui.labelCreatedDateValue.setText("-")
-        self.ui.labelTagsContent.setText("-")
-        self.ui.textEditCaptionsContent.clear()
+        if self.ui.tabWidgetDetails.indexOf(self.ui.tabTags) != -1:
+            self.ui.labelTagsContent.setText("-")
+        if self.ui.tabWidgetDetails.indexOf(self.ui.tabCaptions) != -1:
+            self.ui.textEditCaptionsContent.clear()
 
-        # Rating/Scoreをリセット（read-only ラベル）
-        self.ui.labelRatingValue.setText("-")
-        self.ui.labelScoreValue.setText("-")
+        # RatingScoreEditWidgetをリセット
+        self._rating_score_widget.populate_from_image_data(
+            {
+                "id": None,
+                "rating": "PG-13",
+                "score": 0,
+            }
+        )
 
         # AnnotationDataDisplayWidgetのクリア
         self.annotation_display.clear_data()

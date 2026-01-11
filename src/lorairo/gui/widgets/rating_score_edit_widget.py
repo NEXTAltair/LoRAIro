@@ -18,8 +18,8 @@ MainWindow右パネルのタブとして配置され、単一画像の評価編�
 
 from typing import Any
 
-from PySide6.QtCore import Signal, Slot
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from ...gui.designer.RatingScoreEditWidget_ui import Ui_RatingScoreEditWidget
 from ...utils.log import logger
@@ -73,6 +73,7 @@ class RatingScoreEditWidget(QWidget):
         # UI設定
         self.ui = Ui_RatingScoreEditWidget()
         self.ui.setupUi(self)  # type: ignore[no-untyped-call]
+        self._apply_compact_layout()
 
         # スライダーと値ラベルの連動
         self.ui.sliderScore.valueChanged.connect(self._on_slider_value_changed)
@@ -90,6 +91,39 @@ class RatingScoreEditWidget(QWidget):
             value: 新しいスコア値（内部値 0-1000）
         """
         self.ui.labelScoreValue.setText(f"{value / 100.0:.2f}")
+
+    def _apply_compact_layout(self) -> None:
+        """コンパクトで揃った配置に調整する。"""
+        self.ui.verticalLayoutMain.setContentsMargins(0, 0, 0, 0)
+        self.ui.verticalLayoutMain.setSpacing(6)
+        self.ui.groupBoxRatingScore.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.ui.groupBoxRatingScore.setMinimumWidth(0)
+
+        align = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        self.ui.labelRating.setAlignment(align)
+        self.ui.labelScore.setAlignment(align)
+
+        label_width = max(
+            self.ui.labelRating.fontMetrics().horizontalAdvance(self.ui.labelRating.text()),
+            self.ui.labelScore.fontMetrics().horizontalAdvance(self.ui.labelScore.text()),
+        )
+        label_width += 8
+        self.ui.labelRating.setMinimumWidth(label_width)
+        self.ui.labelScore.setMinimumWidth(label_width)
+
+        if hasattr(self.ui, "horizontalLayoutButtons"):
+            self.ui.horizontalLayoutButtons.removeWidget(self.ui.pushButtonSave)
+            if hasattr(self.ui, "horizontalSpacer"):
+                self.ui.horizontalLayoutButtons.removeItem(self.ui.horizontalSpacer)
+            self.ui.verticalLayoutMain.removeItem(self.ui.horizontalLayoutButtons)
+
+        self.ui.gridLayoutRatingScore.addWidget(
+            self.ui.pushButtonSave, 2, 1, 1, 1, alignment=Qt.AlignmentFlag.AlignRight
+        )
+
+        if hasattr(self.ui, "verticalSpacer"):
+            self.ui.verticalLayoutMain.removeItem(self.ui.verticalSpacer)
+            self.ui.verticalSpacer.changeSize(0, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
 
     @Slot(dict)
     def populate_from_image_data(self, image_data: dict[str, Any]) -> None:

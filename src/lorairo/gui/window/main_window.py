@@ -378,7 +378,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def _setup_tab_widget(self) -> None:
         """QTabWidget（右パネル）の初期設定"""
-        # QTabWidget (画像詳細 / Rating/Score編集 / バッチタグ追加)
+        # QTabWidget (画像詳細 / バッチタグ追加)
         self.tab_widget_right_panel = getattr(self, "tabWidgetRightPanel", None)
 
         if not self.tab_widget_right_panel:
@@ -387,7 +387,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # 初期表示は画像詳細タブ（インデックス0）
         self.tab_widget_right_panel.setCurrentIndex(0)
-        logger.info("QTabWidget initialized with 3 tabs: 画像詳細, Rating/Score編集, バッチタグ追加")
+        logger.info("QTabWidget initialized with 2 tabs: 画像詳細, バッチタグ追加")
 
     def _show_error_log_dialog(self) -> None:
         """エラーログダイアログを表示（オンデマンド）"""
@@ -468,18 +468,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # Sequential Worker Pipeline 統合シグナル接続
             self._setup_worker_pipeline_signals()
 
-            # Editアクション（Ctrl+E で Rating/Score編集タブに切り替え）
-            if hasattr(self, "actionEditImage"):
-                self.actionEditImage.triggered.connect(self._switch_to_edit_tab)
-
-            # RatingScoreEditWidget シグナル接続（Phase 3.1）
-            if hasattr(self, "ratingScoreEditWidget"):
+            # SelectedImageDetailsWidget から転送される Rating/Score シグナル接続
+            if hasattr(self.ui, "selectedImageDetailsWidget"):
                 try:
-                    self.ratingScoreEditWidget.rating_changed.connect(self._handle_rating_changed)
-                    self.ratingScoreEditWidget.score_changed.connect(self._handle_score_changed)
-                    logger.info("    ✅ RatingScoreEditWidget シグナル接続完了")
+                    self.ui.selectedImageDetailsWidget.rating_changed.connect(self._handle_rating_changed)
+                    self.ui.selectedImageDetailsWidget.score_changed.connect(self._handle_score_changed)
+                    logger.info("    ✅ SelectedImageDetailsWidget シグナル接続完了")
                 except Exception as e:
-                    logger.error(f"    ❌ RatingScoreEditWidget シグナル接続失敗: {e}")
+                    logger.error(f"    ❌ SelectedImageDetailsWidget シグナル接続失敗: {e}")
 
             # BatchTagAddWidget シグナル接続（Phase 3.1）
             if hasattr(self, "batchTagAddWidget"):
@@ -949,28 +945,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             "caption": data.get("caption_text") or "",
         }
         return payload
-
-    def _switch_to_edit_tab(self) -> None:
-        """Rating/Score編集タブに切り替え（Ctrl+E）"""
-        if not getattr(self, "tab_widget_right_panel", None):
-            logger.warning("QTabWidget not initialized")
-            return
-
-        # 画像が選択されているか確認
-        payload = self._get_current_image_payload()
-        if not payload:
-            QMessageBox.warning(self, "編集不可", "編集する画像が選択されていません。")
-            return
-
-        # Rating/Score編集タブ（インデックス1）に切り替え
-        self.tab_widget_right_panel.setCurrentIndex(1)
-
-        # RatingScoreEditWidget にデータを設定
-        if hasattr(self, "ratingScoreEditWidget"):
-            self.ratingScoreEditWidget.populate_from_image_data(payload)
-            logger.info(f"Switched to Rating/Score edit tab for image_id={payload.get('id')}")
-        else:
-            logger.warning("RatingScoreEditWidget not found")
 
     def _create_search_filter_service(self) -> SearchFilterService:
         """

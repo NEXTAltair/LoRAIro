@@ -135,40 +135,6 @@ class Ui_SelectedImageDetailsWidget:
 
         self.verticalLayoutOverview.addWidget(self.groupBoxImageInfo)
 
-        self.groupBoxRatingScore = QGroupBox(self.tabOverview)
-        self.groupBoxRatingScore.setObjectName("groupBoxRatingScore")
-        self.gridLayoutRatingScore = QGridLayout(self.groupBoxRatingScore)
-        self.gridLayoutRatingScore.setObjectName("gridLayoutRatingScore")
-        self.labelRating = QLabel(self.groupBoxRatingScore)
-        self.labelRating.setObjectName("labelRating")
-        sizePolicy.setHeightForWidth(self.labelRating.sizePolicy().hasHeightForWidth())
-        self.labelRating.setSizePolicy(sizePolicy)
-
-        self.gridLayoutRatingScore.addWidget(self.labelRating, 0, 0, 1, 1)
-
-        self.labelRatingValue = QLabel(self.groupBoxRatingScore)
-        self.labelRatingValue.setObjectName("labelRatingValue")
-        sizePolicy.setHeightForWidth(self.labelRatingValue.sizePolicy().hasHeightForWidth())
-        self.labelRatingValue.setSizePolicy(sizePolicy)
-
-        self.gridLayoutRatingScore.addWidget(self.labelRatingValue, 0, 1, 1, 1)
-
-        self.labelScore = QLabel(self.groupBoxRatingScore)
-        self.labelScore.setObjectName("labelScore")
-        sizePolicy.setHeightForWidth(self.labelScore.sizePolicy().hasHeightForWidth())
-        self.labelScore.setSizePolicy(sizePolicy)
-
-        self.gridLayoutRatingScore.addWidget(self.labelScore, 1, 0, 1, 1)
-
-        self.labelScoreValue = QLabel(self.groupBoxRatingScore)
-        self.labelScoreValue.setObjectName("labelScoreValue")
-        sizePolicy.setHeightForWidth(self.labelScoreValue.sizePolicy().hasHeightForWidth())
-        self.labelScoreValue.setSizePolicy(sizePolicy)
-
-        self.gridLayoutRatingScore.addWidget(self.labelScoreValue, 1, 1, 1, 1)
-
-        self.verticalLayoutOverview.addWidget(self.groupBoxRatingScore)
-
         self.tabWidgetDetails.addTab(self.tabOverview, "")
         self.tabTags = QWidget()
         self.tabTags.setObjectName("tabTags")
@@ -265,17 +231,6 @@ class Ui_SelectedImageDetailsWidget:
         self.labelImageSize.setText(
             QCoreApplication.translate("SelectedImageDetailsWidget", "\u89e3\u50cf\u5ea6:", None)
         )
-        self.groupBoxRatingScore.setTitle(
-            QCoreApplication.translate(
-                "SelectedImageDetailsWidget", "\u8a55\u4fa1\u30fb\u30b9\u30b3\u30a2", None
-            )
-        )
-        self.labelRating.setText(QCoreApplication.translate("SelectedImageDetailsWidget", "Rating:", None))
-        self.labelRatingValue.setText(QCoreApplication.translate("SelectedImageDetailsWidget", "-", None))
-        self.labelScore.setText(
-            QCoreApplication.translate("SelectedImageDetailsWidget", "\u30b9\u30b3\u30a2:", None)
-        )
-        self.labelScoreValue.setText(QCoreApplication.translate("SelectedImageDetailsWidget", "-", None))
         self.tabWidgetDetails.setTabText(
             self.tabWidgetDetails.indexOf(self.tabOverview),
             QCoreApplication.translate("SelectedImageDetailsWidget", "\u6982\u8981", None),
