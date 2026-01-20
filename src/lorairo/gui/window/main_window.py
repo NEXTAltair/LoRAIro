@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QGraphicsOpacityEffect,
     QMainWindow,
     QMessageBox,
+    QTabWidget,
     QWidget,
 )
 
@@ -33,6 +34,7 @@ from ..services.pipeline_control_service import PipelineControlService
 from ..services.progress_state_service import ProgressStateService
 from ..services.result_handler_service import ResultHandlerService
 from ..services.search_filter_service import SearchFilterService
+from ..services.tab_reorganization_service import TabReorganizationService
 from ..services.widget_setup_service import WidgetSetupService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
@@ -83,6 +85,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     image_preview_widget: ImagePreviewWidget | None
     selected_image_details_widget: SelectedImageDetailsWidget | None
 
+    # Tab widget (programmatically created)
+    tabWidgetMainMode: QTabWidget | None
+
     # Error handling UI components
     error_notification_widget: ErrorNotificationWidget | None
     error_log_dialog: ErrorLogViewerDialog | None
@@ -121,6 +126,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # サービス初期化（例外を個別にキャッチ）
             logger.info("サービス初期化開始")
             self._initialize_services()
+
+            # Phase 2.5: トップレベルタブ作成（新規）
+            logger.info("Phase 2.5: トップレベルタブ作成開始")
+            self._create_main_tab_widget()
 
             # Phase 3: UI カスタマイズ（サービス依存）
             logger.info("Phase 3: UI カスタマイズ開始")
@@ -335,6 +344,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # ErrorNotificationWidget初期化（Phase 4.5）
         self._setup_error_notification()
+
+        # BatchTagAddWidget再配置（Phase 2.5統合、Day 2）
+        WidgetSetupService.setup_batch_tag_tab_widgets(self)
+
         # QTabWidget初期化（タブ切り替え用）
         self._setup_tab_widget()
 
@@ -469,10 +482,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self._setup_worker_pipeline_signals()
 
             # SelectedImageDetailsWidget から転送される Rating/Score シグナル接続
-            if hasattr(self.ui, "selectedImageDetailsWidget"):
+            if hasattr(self, "selectedImageDetailsWidget"):
                 try:
-                    self.ui.selectedImageDetailsWidget.rating_changed.connect(self._handle_rating_changed)
-                    self.ui.selectedImageDetailsWidget.score_changed.connect(self._handle_score_changed)
+                    self.selectedImageDetailsWidget.rating_changed.connect(self._handle_rating_changed)
+                    self.selectedImageDetailsWidget.score_changed.connect(self._handle_score_changed)
                     logger.info("    ✅ SelectedImageDetailsWidget シグナル接続完了")
                 except Exception as e:
                     logger.error(f"    ❌ SelectedImageDetailsWidget シグナル接続失敗: {e}")
@@ -1111,3 +1124,63 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             QMessageBox.warning(
                 self, "エラー", "ExportControllerが初期化されていないため、エクスポートを開始できません。"
             )
+
+    def _create_main_tab_widget(self) -> None:
+        """
+        トップレベルタブウィジェット作成（Phase 2.5）
+
+        重要:
+            setup_custom_widgets()より前に呼び出す必要がある。
+            既存のcentralwidgetレイアウトをトップレベルタブに再構成する。
+
+        Raises:
+            RuntimeError: タブ作成に失敗した場合
+        """
+        try:
+            self.tabWidgetMainMode = TabReorganizationService.create_main_tab_widget()
+            self.tabWidgetMainMode.setParent(self)
+            TabReorganizationService.reorganize_main_window_layout(self)
+            self.tabWidgetMainMode.currentChanged.connect(self._on_main_tab_changed)
+            logger.info("Main tab widget created successfully")
+        except Exception as e:
+            logger.error(f"Failed to create main tab widget: {e}", exc_info=True)
+            self._handle_critical_initialization_failure(
+                "Main tab widget creation failed", RuntimeError(f"Tab widget creation error: {e}")
+            )
+
+    def _on_main_tab_changed(self, index: int) -> None:
+        """
+        メインタブ切り替えハンドラ
+
+        Args:
+            index: 切り替え先のタブインデックス（0=ワークスペース、1=バッチタグ）
+        """
+        if index == 0:  # ワークスペース
+            logger.info("Switched to Workspace tab")
+            # ワークスペースタブに切り替え時の処理（必要に応じて実装）
+        elif index == 1:  # バッチタグ
+            logger.info("Switched to Batch Tag tab")
+            self._refresh_batch_tag_staging()
+        else:
+            logger.warning(f"Unknown tab index: {index}")
+
+    def _refresh_batch_tag_staging(self) -> None:
+        """
+        バッチタグタブのステージングリスト更新
+
+        Note:
+            BatchTagAddWidget._staged_imagesはprivate属性なので直接アクセスしない。
+            代わりに_refresh_staging_list_ui()を呼び出してUI更新を委譲する。
+        """
+        # BatchTagAddWidgetを取得（Ui_MainWindowを多重継承しているため、selfの直接の属性）
+        batch_tag_widget = getattr(self, "batchTagAddWidget", None)
+        if not batch_tag_widget:
+            logger.warning("BatchTagAddWidget not found, skipping staging refresh")
+            return
+
+        # BatchTagAddWidgetのUI更新メソッドを呼び出し
+        if hasattr(batch_tag_widget, "_refresh_staging_list_ui"):
+            batch_tag_widget._refresh_staging_list_ui()
+            logger.debug("Batch tag staging list refreshed")
+        else:
+            logger.error("_refresh_staging_list_ui method not found on BatchTagAddWidget")

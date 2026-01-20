@@ -206,6 +206,35 @@ Qt依存のGUIサービス群。Signal/Slotによるウィジェット間通信�
 - **Path**: `src/lorairo/gui/services/widget_setup_service.py`
 - **Class**: `WidgetSetupService`
 - **Purpose**: ウィジェット初期化とセットアップのヘルパー
+- **Methods**:
+  - `setup_thumbnail_selector()` - サムネイルセレクター設定
+  - `setup_image_preview()` - 画像プレビュー設定
+  - `setup_selected_image_details()` - 画像詳細ウィジェット設定
+  - `setup_splitter()` - スプリッター初期化
+  - `setup_batch_tag_tab_widgets()` - バッチタグタブウィジェット統合（Phase 2.5）
+  - `setup_all_widgets()` - 全ウィジェット一括設定
+
+#### TabReorganizationService
+- **Path**: `src/lorairo/gui/services/tab_reorganization_service.py`
+- **Class**: `TabReorganizationService`
+- **Purpose**: MainWindowのプログラム的UI再構成
+- **Phase**: 2.5（Phase 2とPhase 3の間で実行）
+- **Pattern**: 静的メソッド、.uiファイル無変更でレイアウト変更
+- **Architecture**:
+  - トップレベルタブ構造導入（ワークスペース / バッチタグ）
+  - 既存ウィジェットの再親子化（3ステップ: removeWidget → setParent → addWidget）
+  - Qt Designer定義ウィジェットをプログラム的に再配置
+- **Methods**:
+  - `create_main_tab_widget()` - トップレベルQTabWidget生成
+  - `extract_existing_widgets()` - MainWindowから既存ウィジェット抽出
+  - `build_workspace_tab()` - ワークスペースタブ構築
+  - `build_batch_tag_tab()` - バッチタグタブスケルトン構築
+  - `reorganize_main_window_layout()` - レイアウト再構成オーケストレーター
+- **Integration**: MainWindow.__init__() Phase 2.5で呼び出し
+- **Benefits**:
+  - 作業モードの明確な視覚的分離（閲覧 vs 一括編集）
+  - バッチタグ機能の全画面活用
+  - .uiファイル無変更による安全性確保
 
 ### GUI Widgets
 
