@@ -170,3 +170,53 @@ class TestStatePreservation:
         assert workspace_state is dataset_state
         assert batch_tag_state is dataset_state
         assert workspace_state is batch_tag_state
+
+
+class TestAnnotationControlVisibility:
+    """アノテーション制御表示テスト"""
+
+    def test_annotation_control_hidden_in_workspace(self, main_window_with_tabs):
+        """ワークスペースタブでgroupBoxAnnotationControlが非表示"""
+        # groupBoxAnnotationControlが存在する場合、hide()が呼ばれたことを確認
+        # Note: isVisible()はウィンドウ未表示時に常にFalseを返すため、
+        #       isHidden()を使用してhide()が明示的に呼ばれたことを検証
+        if hasattr(main_window_with_tabs, "groupBoxAnnotationControl"):
+            annotation_control = main_window_with_tabs.groupBoxAnnotationControl
+            assert annotation_control.isHidden(), (
+                "groupBoxAnnotationControl should be explicitly hidden via hide()"
+            )
+
+    def test_hide_annotation_control_method_exists(self, main_window_with_tabs):
+        """_hide_annotation_control_in_workspaceメソッドが存在する"""
+        assert hasattr(main_window_with_tabs, "_hide_annotation_control_in_workspace")
+
+
+class TestAnnotationDataDisplayWidget:
+    """AnnotationDataDisplayWidget統合テスト"""
+
+    def test_annotation_display_exists_in_batch_tag(self, main_window_with_tabs):
+        """バッチタグタブにAnnotationDataDisplayWidgetが存在する"""
+        assert hasattr(main_window_with_tabs, "batchTagAnnotationDisplay")
+        assert main_window_with_tabs.batchTagAnnotationDisplay is not None
+
+    def test_annotation_display_in_batch_tag_tab(self, main_window_with_tabs):
+        """AnnotationDataDisplayWidgetがバッチタグタブ内に配置されている"""
+        batch_tag_tab = main_window_with_tabs.tabWidgetMainMode.widget(1)
+        annotation_display = main_window_with_tabs.batchTagAnnotationDisplay
+
+        # AnnotationDataDisplayWidgetの親を辿ってbatch_tag_tabに到達できる
+        parent = annotation_display.parent()
+        found = False
+        while parent is not None:
+            if parent == batch_tag_tab:
+                found = True
+                break
+            parent = parent.parent()
+        assert found, "AnnotationDataDisplayWidget should be a descendant of batch tag tab"
+
+    def test_annotation_display_placeholder_removed(self, main_window_with_tabs):
+        """AnnotationDataDisplayWidgetプレースホルダーが削除されている"""
+        batch_tag_tab = main_window_with_tabs.tabWidgetMainMode.widget(1)
+        placeholder = batch_tag_tab.findChild(object, "annotationDisplayPlaceholder")
+        # プレースホルダーは削除されているはず
+        assert placeholder is None

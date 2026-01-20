@@ -154,17 +154,20 @@ class WidgetSetupService:
     def setup_batch_tag_tab_widgets(main_window: Any) -> None:
         """バッチタグタブウィジェット統合
 
-        既存のBatchTagAddWidgetを新しいバッチタグタブに再配置する。
-        Qt Designer定義のBatchTagAddWidgetを、Phase 2.5で作成した
-        トップレベルタブのバッチタグタブに移動する。
+        既存のBatchTagAddWidgetを新しいバッチタグタブに再配置し、
+        AnnotationDataDisplayWidgetを追加する。
 
         Args:
             main_window: MainWindowインスタンス
 
         重要:
             - BatchTagAddWidgetは新規作成せず、既存インスタンスを移動
+            - AnnotationDataDisplayWidgetは新規作成してバッチタグタブに追加
             - 3ステップ再親子化: removeWidget → setParent → addWidget
+            - 再呼び出し時は既存ウィジェットを再利用（重複作成防止）
         """
+        from ..widgets.annotation_data_display_widget import AnnotationDataDisplayWidget
+
         logger.info("🔧 setup_batch_tag_tab_widgets() 開始")
 
         # tabWidgetMainMode存在確認
@@ -184,33 +187,60 @@ class WidgetSetupService:
             logger.error("❌ groupBoxBatchOperations が見つかりません")
             return
 
-        # BatchTagAddWidget取得
-        if not hasattr(main_window, "batchTagAddWidget") or not main_window.batchTagAddWidget:
+        # BatchTagAddWidget取得と再配置
+        if hasattr(main_window, "batchTagAddWidget") and main_window.batchTagAddWidget:
+            batch_tag_widget = main_window.batchTagAddWidget
+
+            # 既にバッチタグタブに配置済みの場合はスキップ
+            current_parent = batch_tag_widget.parent()
+            if current_parent == right_column:
+                logger.debug("BatchTagAddWidget は既にバッチタグタブに配置済み、スキップ")
+            else:
+                logger.info(f"🔍 BatchTagAddWidget インスタンス: {id(batch_tag_widget)}")
+
+                # 元の親から取り外し
+                if current_parent and hasattr(current_parent, "layout") and current_parent.layout():
+                    old_layout = current_parent.layout()
+                    old_layout.removeWidget(batch_tag_widget)
+                    logger.debug(f"📤 BatchTagAddWidget を元の親 {current_parent.objectName()} から取り外し")
+
+                # プレースホルダーを削除
+                placeholder = right_column.findChild(object, "batchTagWidgetPlaceholder")
+                if placeholder:
+                    right_column.layout().removeWidget(placeholder)
+                    placeholder.setParent(None)
+                    placeholder.deleteLater()
+                    logger.debug("🗑️ batchTagWidgetPlaceholder を削除")
+
+                # 新しい親に再配置（3ステップ）
+                batch_tag_widget.setParent(right_column)
+                right_column.layout().insertWidget(0, batch_tag_widget)  # 最上部に配置
+                logger.info("✅ BatchTagAddWidget を新しいバッチタグタブに再配置完了")
+        else:
             logger.warning("⚠️ batchTagAddWidget が存在しません")
-            return
 
-        batch_tag_widget = main_window.batchTagAddWidget
-        logger.info(f"🔍 BatchTagAddWidget インスタンス: {id(batch_tag_widget)}")
+        # AnnotationDataDisplayWidget追加（タグテーブル）
+        # 既に作成済みの場合はスキップ（重複作成防止）
+        # Note: 早期returnではなく条件分岐で制御（BatchTagAddWidget処理に影響を与えないため）
+        if hasattr(main_window, "batchTagAnnotationDisplay") and main_window.batchTagAnnotationDisplay:
+            logger.debug("AnnotationDataDisplayWidget は既に作成済み、スキップ")
+        else:
+            annotation_placeholder = right_column.findChild(object, "annotationDisplayPlaceholder")
+            if annotation_placeholder:
+                right_column.layout().removeWidget(annotation_placeholder)
+                annotation_placeholder.setParent(None)
+                annotation_placeholder.deleteLater()
+                logger.debug("🗑️ annotationDisplayPlaceholder を削除")
 
-        # 元の親から取り外し
-        old_parent = batch_tag_widget.parent()
-        if old_parent and hasattr(old_parent, "layout") and old_parent.layout():
-            old_layout = old_parent.layout()
-            old_layout.removeWidget(batch_tag_widget)
-            logger.debug(f"📤 BatchTagAddWidget を元の親 {old_parent.objectName()} から取り外し")
+            # AnnotationDataDisplayWidget新規作成
+            annotation_display = AnnotationDataDisplayWidget()
+            annotation_display.setObjectName("batchTagAnnotationDisplay")
+            annotation_display.setParent(right_column)
+            right_column.layout().addWidget(annotation_display)
 
-        # プレースホルダーを削除
-        placeholder = right_column.findChild(object, "batchTagWidgetPlaceholder")
-        if placeholder:
-            right_column.layout().removeWidget(placeholder)
-            placeholder.setParent(None)
-            placeholder.deleteLater()
-            logger.debug("🗑️ batchTagWidgetPlaceholder を削除")
-
-        # 新しい親に再配置（3ステップ）
-        batch_tag_widget.setParent(right_column)
-        right_column.layout().insertWidget(0, batch_tag_widget)  # 最上部に配置
-        logger.info("✅ BatchTagAddWidget を新しいバッチタグタブに再配置完了")
+            # MainWindowに参照を保持
+            main_window.batchTagAnnotationDisplay = annotation_display
+            logger.info("✅ AnnotationDataDisplayWidget を新しいバッチタグタブに追加完了")
 
         logger.info("✅ setup_batch_tag_tab_widgets() 完了")
 
