@@ -150,6 +150,70 @@ class WidgetSetupService:
             main_window.splitterPreviewDetails.setStretchFactor(1, 1)
             logger.info("✅ splitterPreviewDetails 初期化完了（プレビュー/詳細比率55/45）")
 
+    @staticmethod
+    def setup_batch_tag_tab_widgets(main_window: Any) -> None:
+        """バッチタグタブウィジェット統合
+
+        既存のBatchTagAddWidgetを新しいバッチタグタブに再配置する。
+        Qt Designer定義のBatchTagAddWidgetを、Phase 2.5で作成した
+        トップレベルタブのバッチタグタブに移動する。
+
+        Args:
+            main_window: MainWindowインスタンス
+
+        重要:
+            - BatchTagAddWidgetは新規作成せず、既存インスタンスを移動
+            - 3ステップ再親子化: removeWidget → setParent → addWidget
+        """
+        logger.info("🔧 setup_batch_tag_tab_widgets() 開始")
+
+        # tabWidgetMainMode存在確認
+        if not hasattr(main_window, "tabWidgetMainMode") or not main_window.tabWidgetMainMode:
+            logger.error("❌ tabWidgetMainMode が存在しません")
+            return
+
+        # バッチタグタブ取得（タブインデックス1）
+        batch_tag_tab = main_window.tabWidgetMainMode.widget(1)
+        if not batch_tag_tab:
+            logger.error("❌ バッチタグタブ（インデックス1）が存在しません")
+            return
+
+        # 右カラム（操作パネル）取得
+        right_column = batch_tag_tab.findChild(object, "groupBoxBatchOperations")
+        if not right_column:
+            logger.error("❌ groupBoxBatchOperations が見つかりません")
+            return
+
+        # BatchTagAddWidget取得
+        if not hasattr(main_window, "batchTagAddWidget") or not main_window.batchTagAddWidget:
+            logger.warning("⚠️ batchTagAddWidget が存在しません")
+            return
+
+        batch_tag_widget = main_window.batchTagAddWidget
+        logger.info(f"🔍 BatchTagAddWidget インスタンス: {id(batch_tag_widget)}")
+
+        # 元の親から取り外し
+        old_parent = batch_tag_widget.parent()
+        if old_parent and hasattr(old_parent, "layout") and old_parent.layout():
+            old_layout = old_parent.layout()
+            old_layout.removeWidget(batch_tag_widget)
+            logger.debug(f"📤 BatchTagAddWidget を元の親 {old_parent.objectName()} から取り外し")
+
+        # プレースホルダーを削除
+        placeholder = right_column.findChild(object, "batchTagWidgetPlaceholder")
+        if placeholder:
+            right_column.layout().removeWidget(placeholder)
+            placeholder.setParent(None)
+            placeholder.deleteLater()
+            logger.debug("🗑️ batchTagWidgetPlaceholder を削除")
+
+        # 新しい親に再配置（3ステップ）
+        batch_tag_widget.setParent(right_column)
+        right_column.layout().insertWidget(0, batch_tag_widget)  # 最上部に配置
+        logger.info("✅ BatchTagAddWidget を新しいバッチタグタブに再配置完了")
+
+        logger.info("✅ setup_batch_tag_tab_widgets() 完了")
+
     @classmethod
     def setup_all_widgets(cls, main_window: Any, dataset_state_manager: DatasetStateManager | None) -> None:
         """全カスタムウィジェット設定（統合メソッド）
