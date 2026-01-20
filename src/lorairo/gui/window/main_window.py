@@ -1133,6 +1133,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             setup_custom_widgets()より前に呼び出す必要がある。
             既存のcentralwidgetレイアウトをトップレベルタブに再構成する。
 
+        Note:
+            ワークスペースタブでは右カラムのアノテーション制御（groupBoxAnnotationControl）を
+            非表示にする。バッチタグ機能はバッチタグタブに移動したため。
+
         Raises:
             RuntimeError: タブ作成に失敗した場合
         """
@@ -1141,12 +1145,35 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.tabWidgetMainMode.setParent(self)
             TabReorganizationService.reorganize_main_window_layout(self)
             self.tabWidgetMainMode.currentChanged.connect(self._on_main_tab_changed)
+
+            # ワークスペースタブでアノテーション制御を非表示にする
+            # バッチタグ機能はバッチタグタブに移動したため
+            self._hide_annotation_control_in_workspace()
+
             logger.info("Main tab widget created successfully")
         except Exception as e:
             logger.error(f"Failed to create main tab widget: {e}", exc_info=True)
             self._handle_critical_initialization_failure(
                 "Main tab widget creation failed", RuntimeError(f"Tab widget creation error: {e}")
             )
+
+    def _hide_annotation_control_in_workspace(self) -> None:
+        """
+        ワークスペースタブでアノテーション制御を非表示にする
+
+        右パネル（framePreviewDetailPanel）内のgroupBoxAnnotationControlを非表示にする。
+        バッチタグ機能はトップレベルのバッチタグタブに移動したため、
+        ワークスペースタブでは不要。
+
+        Note:
+            groupBoxAnnotationControlはMainWindow.uiで定義されている。
+            hide()で非表示にし、ウィジェットは削除しない（将来の復元可能性のため）。
+        """
+        if hasattr(self, "groupBoxAnnotationControl") and self.groupBoxAnnotationControl:
+            self.groupBoxAnnotationControl.hide()
+            logger.info("Hidden groupBoxAnnotationControl in workspace tab")
+        else:
+            logger.debug("groupBoxAnnotationControl not found, skipping hide")
 
     def _on_main_tab_changed(self, index: int) -> None:
         """
