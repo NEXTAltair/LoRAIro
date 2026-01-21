@@ -90,6 +90,7 @@ if not __name__ == "__main__":
             # フィルタ状態
             self.current_provider_filter: str | None = None
             self.current_capability_filters: list[str] = []
+            self.current_exclude_local: bool = False
 
             # UI初期化
             self.load_models()
@@ -115,10 +116,22 @@ if not __name__ == "__main__":
                 self.all_models = []
                 self.update_model_display()
 
-        def apply_filters(self, provider: str | None = None, capabilities: list[str] | None = None) -> None:
-            """フィルタリング適用"""
+        def apply_filters(
+            self,
+            provider: str | None = None,
+            capabilities: list[str] | None = None,
+            exclude_local: bool = False,
+        ) -> None:
+            """フィルタリング適用
+
+            Args:
+                provider: プロバイダーフィルタ（"local", "openai" など）
+                capabilities: 機能フィルタ（["caption", "tags", "scores"]）
+                exclude_local: True の場合、ローカルモデルを除外（API モデルのみ表示）
+            """
             self.current_provider_filter = provider
             self.current_capability_filters = capabilities or []
+            self.current_exclude_local = exclude_local
             self.update_model_display()
 
         def update_model_display(self) -> None:
@@ -166,6 +179,7 @@ if not __name__ == "__main__":
                     if self.current_capability_filters
                     else None,
                     only_available=True,
+                    exclude_local=self.current_exclude_local,
                 )
 
                 filtered = self.model_selection_service.filter_models(criteria)

@@ -248,6 +248,43 @@ class TabReorganizationService:
         placeholder_layout2.addWidget(QLabel("AnnotationDataDisplayWidget (配置予定)"))
         right_layout.addWidget(annotation_display_placeholder)
 
+        # アノテーショングループ（フィルター + モデル選択）
+        annotation_group = QGroupBox("アノテーション")
+        annotation_group.setObjectName("groupBoxAnnotation")
+        annotation_layout = QVBoxLayout(annotation_group)
+        annotation_layout.setContentsMargins(8, 8, 8, 8)
+        annotation_layout.setSpacing(6)
+
+        # ターゲットラベル
+        target_label = QLabel("対象: ステージング済み画像")
+        target_label.setObjectName("labelAnnotationTarget")
+        annotation_layout.addWidget(target_label)
+
+        # AnnotationFilterWidget配置用プレースホルダー
+        filter_placeholder = QWidget()
+        filter_placeholder.setObjectName("annotationFilterPlaceholder")
+        filter_placeholder_layout = QVBoxLayout(filter_placeholder)
+        filter_placeholder_layout.setContentsMargins(0, 0, 0, 0)
+        filter_placeholder_layout.addWidget(QLabel("AnnotationFilterWidget (配置予定)"))
+        annotation_layout.addWidget(filter_placeholder)
+
+        # ModelSelectionWidget配置用プレースホルダー
+        model_placeholder = QWidget()
+        model_placeholder.setObjectName("modelSelectionPlaceholder")
+        model_placeholder_layout = QVBoxLayout(model_placeholder)
+        model_placeholder_layout.setContentsMargins(0, 0, 0, 0)
+        model_placeholder_layout.addWidget(QLabel("ModelSelectionWidget (配置予定)"))
+        annotation_layout.addWidget(model_placeholder)
+
+        # アノテーション実行ボタン
+        from PySide6.QtWidgets import QPushButton
+
+        btn_execute = QPushButton("アノテーション実行")
+        btn_execute.setObjectName("btnAnnotationExecute")
+        annotation_layout.addWidget(btn_execute)
+
+        right_layout.addWidget(annotation_group)
+
         # カラムを追加（1:1の比率）
         columns_layout.addWidget(left_column, 1)
         columns_layout.addWidget(right_column, 1)
