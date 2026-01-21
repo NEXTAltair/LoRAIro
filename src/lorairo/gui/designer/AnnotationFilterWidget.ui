@@ -1,0 +1,121 @@
+<?xml version='1.0' encoding='utf-8'?>
+<ui version="4.0">
+ <class>AnnotationFilterWidget</class>
+ <widget class="QWidget" name="AnnotationFilterWidget">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>300</width>
+    <height>120</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Annotation Filter</string>
+  </property>
+  <layout class="QVBoxLayout" name="mainLayout">
+   <property name="spacing">
+    <number>6</number>
+   </property>
+   <property name="leftMargin">
+    <number>0</number>
+   </property>
+   <property name="topMargin">
+    <number>0</number>
+   </property>
+   <property name="rightMargin">
+    <number>0</number>
+   </property>
+   <property name="bottomMargin">
+    <number>0</number>
+   </property>
+   <item>
+    <widget class="QGroupBox" name="groupBoxFunctionType">
+     <property name="title">
+      <string>機能タイプ</string>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayoutFunctionType">
+      <property name="spacing">
+       <number>6</number>
+      </property>
+      <item>
+       <widget class="QCheckBox" name="checkBoxCaption">
+        <property name="text">
+         <string>Caption生成</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBoxTags">
+        <property name="text">
+         <string>Tag生成</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBoxScore">
+        <property name="text">
+         <string>品質スコア</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacerFunctionType">
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBoxEnvironment">
+     <property name="title">
+      <string>実行環境選択</string>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayoutEnvironment">
+      <property name="spacing">
+       <number>6</number>
+      </property>
+      <item>
+       <widget class="QCheckBox" name="checkBoxWebAPI">
+        <property name="text">
+         <string>Web API</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBoxLocal">
+        <property name="text">
+         <string>ローカルモデル</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacerEnvironment">
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

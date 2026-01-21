@@ -242,6 +242,76 @@ class WidgetSetupService:
             main_window.batchTagAnnotationDisplay = annotation_display
             logger.info("✅ AnnotationDataDisplayWidget を新しいバッチタグタブに追加完了")
 
+        # アノテーショングループ取得
+        annotation_group = batch_tag_tab.findChild(object, "groupBoxAnnotation")
+        if not annotation_group:
+            logger.warning("⚠️ groupBoxAnnotation が見つかりません")
+        else:
+            # AnnotationFilterWidget 統合
+            if hasattr(main_window, "batchAnnotationFilter") and main_window.batchAnnotationFilter:
+                logger.debug("AnnotationFilterWidget は既に作成済み、スキップ")
+            else:
+                from ..widgets.annotation_filter_widget import AnnotationFilterWidget
+
+                filter_placeholder = annotation_group.findChild(object, "annotationFilterPlaceholder")
+                if filter_placeholder:
+                    annotation_group.layout().removeWidget(filter_placeholder)
+                    filter_placeholder.setParent(None)
+                    filter_placeholder.deleteLater()
+                    logger.debug("🗑️ annotationFilterPlaceholder を削除")
+
+                annotation_filter = AnnotationFilterWidget()
+                annotation_filter.setObjectName("batchAnnotationFilter")
+                annotation_filter.setParent(annotation_group)
+                # ターゲットラベルの後に挿入 (index 1)
+                annotation_group.layout().insertWidget(1, annotation_filter)
+
+                main_window.batchAnnotationFilter = annotation_filter
+                logger.info("✅ AnnotationFilterWidget を追加完了")
+
+            # ModelSelectionWidget 統合 (mode="advanced" でフィルタ有効化)
+            if hasattr(main_window, "batchModelSelection") and main_window.batchModelSelection:
+                logger.debug("ModelSelectionWidget は既に作成済み、スキップ")
+            else:
+                from ..widgets.model_selection_widget import ModelSelectionWidget
+
+                model_placeholder = annotation_group.findChild(object, "modelSelectionPlaceholder")
+                if model_placeholder:
+                    annotation_group.layout().removeWidget(model_placeholder)
+                    model_placeholder.setParent(None)
+                    model_placeholder.deleteLater()
+                    logger.debug("🗑️ modelSelectionPlaceholder を削除")
+
+                model_selection = ModelSelectionWidget(mode="advanced")
+                model_selection.setObjectName("batchModelSelection")
+                model_selection.setParent(annotation_group)
+                # フィルタウィジェットの後に挿入 (index 2)
+                annotation_group.layout().insertWidget(2, model_selection)
+
+                main_window.batchModelSelection = model_selection
+                logger.info("✅ ModelSelectionWidget を追加完了 (mode=advanced)")
+
+            # Signal接続: フィルター変更 → モデル一覧更新
+            # 再接続ガード: 複数回呼び出し時の重複接続を防止
+            if (
+                hasattr(main_window, "batchAnnotationFilter")
+                and hasattr(main_window, "batchModelSelection")
+                and main_window.batchAnnotationFilter
+                and main_window.batchModelSelection
+            ):
+                if not getattr(main_window, "_annotation_filter_connected", False):
+                    main_window.batchAnnotationFilter.filter_changed.connect(
+                        lambda filters: main_window.batchModelSelection.apply_filters(
+                            provider="local" if filters.get("environment") == "local" else None,
+                            capabilities=filters.get("capabilities", []),
+                            exclude_local=filters.get("environment") == "api",
+                        )
+                    )
+                    main_window._annotation_filter_connected = True
+                    logger.info("✅ フィルター → モデル選択 Signal接続完了")
+                else:
+                    logger.debug("フィルター Signal 既に接続済み、スキップ")
+
         logger.info("✅ setup_batch_tag_tab_widgets() 完了")
 
     @classmethod

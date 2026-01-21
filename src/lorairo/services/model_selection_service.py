@@ -17,6 +17,7 @@ class ModelSelectionCriteria:
     capabilities: list[str] | None = None
     only_recommended: bool = False
     only_available: bool = True
+    exclude_local: bool = False  # True の場合、provider="local" を除外（API モデルのみ表示）
 
 
 class ModelSelectionService:
@@ -91,6 +92,10 @@ class ModelSelectionService:
             filtered = [
                 m for m in filtered if m.provider and m.provider.lower() == criteria.provider.lower()
             ]
+
+        # ローカルモデル除外フィルタ（API モデルのみ表示）
+        if criteria.exclude_local:
+            filtered = [m for m in filtered if m.provider and m.provider.lower() != "local"]
 
         # 機能フィルタ
         if criteria.capabilities:
