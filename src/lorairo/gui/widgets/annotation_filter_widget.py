@@ -28,6 +28,9 @@ from ..designer.AnnotationFilterWidget_ui import Ui_AnnotationFilterWidget
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QCheckBox
 
+# センチネル値: 引数が明示的に渡されたかどうかを判断するため
+_UNSET: object = object()
+
 
 class AnnotationFilterWidget(QWidget, Ui_AnnotationFilterWidget):
     """
@@ -44,7 +47,7 @@ class AnnotationFilterWidget(QWidget, Ui_AnnotationFilterWidget):
         >>> filter_widget = AnnotationFilterWidget()
         >>> filter_widget.filter_changed.connect(on_filter_changed)
         >>> filters = filter_widget.get_current_filters()
-        >>> # {"capabilities": ["caption", "tag"], "environment": "local"}
+        >>> # {"capabilities": ["caption", "tags"], "environment": "local"}
     """
 
     # Signal: フィルター変更時に emit
@@ -126,34 +129,39 @@ class AnnotationFilterWidget(QWidget, Ui_AnnotationFilterWidget):
 
     def set_filters(
         self,
-        capabilities: list[str] | None = None,
-        environment: str | None = None,
+        capabilities: list[str] | None | object = _UNSET,
+        environment: str | None | object = _UNSET,
     ) -> None:
         """
         フィルター状態を設定
 
         Args:
-            capabilities: 機能タイプリスト ('caption', 'tags', 'scores')
-            environment: 実行環境 ('local', 'api', None)
+            capabilities: 機能タイプリスト ('caption', 'tags', 'scores')、None でクリア
+            environment: 実行環境 ('local', 'api')、None でクリア
+
+        Note:
+            引数を省略した場合は現状維持、明示的に None を渡した場合はクリア
         """
         # シグナル発火を一時的にブロック
         self.blockSignals(True)
 
         try:
             # 機能タイプ設定 (DB ModelType.name 値と一致: 'caption', 'tags', 'scores')
-            if capabilities is not None:
-                self.checkBoxCaption.setChecked("caption" in capabilities)
-                self.checkBoxTags.setChecked("tags" in capabilities)
-                self.checkBoxScore.setChecked("scores" in capabilities)
+            if capabilities is not _UNSET:
+                caps = capabilities if capabilities is not None else []
+                self.checkBoxCaption.setChecked("caption" in caps)
+                self.checkBoxTags.setChecked("tags" in caps)
+                self.checkBoxScore.setChecked("scores" in caps)
 
             # 実行環境設定
-            if environment is not None:
-                self.checkBoxWebAPI.setChecked(environment == "api")
-                self.checkBoxLocal.setChecked(environment == "local")
-            elif environment is None and capabilities is not None:
-                # capabilities のみ指定時は環境をクリア
-                self.checkBoxWebAPI.setChecked(False)
-                self.checkBoxLocal.setChecked(False)
+            if environment is not _UNSET:
+                if environment is None:
+                    # 明示的に None を渡した場合はクリア
+                    self.checkBoxWebAPI.setChecked(False)
+                    self.checkBoxLocal.setChecked(False)
+                else:
+                    self.checkBoxWebAPI.setChecked(environment == "api")
+                    self.checkBoxLocal.setChecked(environment == "local")
 
         finally:
             self.blockSignals(False)
