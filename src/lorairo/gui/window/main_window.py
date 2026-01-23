@@ -127,9 +127,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("サービス初期化開始")
             self._initialize_services()
 
-            # Phase 2.5: トップレベルタブ作成（新規）
-            logger.info("Phase 2.5: トップレベルタブ作成開始")
-            self._create_main_tab_widget()
+            # タブ構造のSignal接続（UIで定義済みのタブを使用）
+            logger.info("タブ構造のSignal接続開始")
+            self._setup_main_tab_connections()
 
             # Phase 3: UI カスタマイズ（サービス依存）
             logger.info("Phase 3: UI カスタマイズ開始")
@@ -391,7 +391,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def _setup_tab_widget(self) -> None:
         """QTabWidget（右パネル）の初期設定"""
-        # QTabWidget (画像詳細 / バッチタグ追加)
+        # QTabWidget (画像詳細)
         self.tab_widget_right_panel = getattr(self, "tabWidgetRightPanel", None)
 
         if not self.tab_widget_right_panel:
@@ -400,7 +400,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # 初期表示は画像詳細タブ（インデックス0）
         self.tab_widget_right_panel.setCurrentIndex(0)
-        logger.info("QTabWidget initialized with 2 tabs: 画像詳細, バッチタグ追加")
+        logger.info("tabWidgetRightPanel initialized with 1 tab: 画像詳細")
 
     def _show_error_log_dialog(self) -> None:
         """エラーログダイアログを表示（オンデマンド）"""
@@ -1125,55 +1125,30 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self, "エラー", "ExportControllerが初期化されていないため、エクスポートを開始できません。"
             )
 
-    def _create_main_tab_widget(self) -> None:
+    def _setup_main_tab_connections(self) -> None:
         """
-        トップレベルタブウィジェット作成（Phase 2.5）
+        タブウィジェットのSignal接続（UIで定義済みのタブを使用）
 
-        重要:
-            setup_custom_widgets()より前に呼び出す必要がある。
-            既存のcentralwidgetレイアウトをトップレベルタブに再構成する。
+        MainWindow.ui で定義された tabWidgetMainMode の Signal 接続を設定し、
+        タブ構造の検証を行う。
 
         Note:
             ワークスペースタブでは右カラムのアノテーション制御（groupBoxAnnotationControl）を
             非表示にする。バッチタグ機能はバッチタグタブに移動したため。
-
-        Raises:
-            RuntimeError: タブ作成に失敗した場合
         """
-        try:
-            self.tabWidgetMainMode = TabReorganizationService.create_main_tab_widget()
-            self.tabWidgetMainMode.setParent(self)
-            TabReorganizationService.reorganize_main_window_layout(self)
-            self.tabWidgetMainMode.currentChanged.connect(self._on_main_tab_changed)
+        # UIで定義されたtabWidgetMainModeの存在確認
+        if not hasattr(self, "tabWidgetMainMode") or not self.tabWidgetMainMode:
+            logger.error("tabWidgetMainMode not found in UI - check MainWindow.ui")
+            return
 
-            # ワークスペースタブでアノテーション制御を非表示にする
-            # バッチタグ機能はバッチタグタブに移動したため
-            self._hide_annotation_control_in_workspace()
+        # タブ構造の検証
+        if not TabReorganizationService.validate_tab_structure(self):
+            logger.warning("Tab structure validation failed - some widgets may be missing")
 
-            logger.info("Main tab widget created successfully")
-        except Exception as e:
-            logger.error(f"Failed to create main tab widget: {e}", exc_info=True)
-            self._handle_critical_initialization_failure(
-                "Main tab widget creation failed", RuntimeError(f"Tab widget creation error: {e}")
-            )
+        # タブ切り替えSignal接続
+        self.tabWidgetMainMode.currentChanged.connect(self._on_main_tab_changed)
 
-    def _hide_annotation_control_in_workspace(self) -> None:
-        """
-        ワークスペースタブでアノテーション制御を非表示にする
-
-        右パネル（framePreviewDetailPanel）内のgroupBoxAnnotationControlを非表示にする。
-        バッチタグ機能はトップレベルのバッチタグタブに移動したため、
-        ワークスペースタブでは不要。
-
-        Note:
-            groupBoxAnnotationControlはMainWindow.uiで定義されている。
-            hide()で非表示にし、ウィジェットは削除しない（将来の復元可能性のため）。
-        """
-        if hasattr(self, "groupBoxAnnotationControl") and self.groupBoxAnnotationControl:
-            self.groupBoxAnnotationControl.hide()
-            logger.info("Hidden groupBoxAnnotationControl in workspace tab")
-        else:
-            logger.debug("groupBoxAnnotationControl not found, skipping hide")
+        logger.info("Main tab connections setup completed")
 
     def _on_main_tab_changed(self, index: int) -> None:
         """
