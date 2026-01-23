@@ -1,243 +1,191 @@
 """TabReorganizationService ユニットテスト
 
-Phase 2.5で導入されたプログラム的UI再構成サービスのテスト。
-トップレベルタブ構造（ワークスペース/バッチタグ）の作成とレイアウト再構成をテスト。
+MainWindow.uiで定義されたタブ構造の検証ユーティリティのテスト。
 """
 
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
-from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGroupBox, QTabWidget, QWidget
 
 from lorairo.gui.services.tab_reorganization_service import TabReorganizationService
 
 
-class TestCreateMainTabWidget:
-    """create_main_tab_widget() テスト"""
+class TestRequiredConstants:
+    """定数テスト"""
 
-    def test_creates_qtabwidget_with_correct_objectname(self, qapp):
-        """QTabWidgetが正しいobjectNameで作成される"""
-        tab_widget = TabReorganizationService.create_main_tab_widget()
+    def test_required_widgets_contains_tab_structure(self):
+        """REQUIRED_WIDGETSがタブ構造の必須要素を含む"""
+        required = TabReorganizationService.REQUIRED_WIDGETS
 
-        assert isinstance(tab_widget, QTabWidget)
-        assert tab_widget.objectName() == "tabWidgetMainMode"
+        assert "tabWidgetMainMode" in required
+        assert "tabWorkspace" in required
+        assert "tabBatchTag" in required
+        assert "groupBoxStagingImages" in required
+        assert "groupBoxBatchOperations" in required
+        assert "groupBoxAnnotation" in required
 
-    def test_returns_qtabwidget_instance(self, qapp):
-        """QTabWidgetインスタンスが返される"""
-        tab_widget = TabReorganizationService.create_main_tab_widget()
+    def test_required_placeholders_contains_widget_setup_targets(self):
+        """REQUIRED_PLACEHOLDERSがwidget_setup_serviceの置換対象を含む"""
+        placeholders = TabReorganizationService.REQUIRED_PLACEHOLDERS
 
-        assert tab_widget is not None
-        assert isinstance(tab_widget, QTabWidget)
-
-
-class TestExtractExistingWidgets:
-    """extract_existing_widgets() テスト"""
-
-    def test_extracts_all_four_widgets_from_mainwindow(self):
-        """MainWindowから4つのウィジェットを抽出"""
-        mock_window = Mock()
-        mock_window.frameDatasetSelector = Mock()
-        mock_window.frameDatasetSelector.objectName.return_value = "frameDatasetSelector"
-        mock_window.frameDbStatus = Mock()
-        mock_window.frameDbStatus.objectName.return_value = "frameDbStatus"
-        mock_window.splitterMainWorkArea = Mock()
-        mock_window.splitterMainWorkArea.objectName.return_value = "splitterMainWorkArea"
-        mock_window.frameActionToolbar = Mock()
-        mock_window.frameActionToolbar.objectName.return_value = "frameActionToolbar"
-
-        widgets = TabReorganizationService.extract_existing_widgets(mock_window)
-
-        assert len(widgets) == 4
-        assert "dataset_selector" in widgets
-        assert "db_status" in widgets
-        assert "splitter" in widgets
-        assert "action_toolbar" in widgets
-
-    def test_handles_missing_widgets_gracefully(self):
-        """ウィジェットが存在しない場合も正常に処理"""
-        mock_window = Mock()
-        # frameDatasetSelectorのみ存在
-        mock_window.frameDatasetSelector = Mock()
-        mock_window.frameDatasetSelector.objectName.return_value = "frameDatasetSelector"
-        # 他の属性は存在しない
-        del mock_window.frameDbStatus
-        del mock_window.splitterMainWorkArea
-        del mock_window.frameActionToolbar
-
-        widgets = TabReorganizationService.extract_existing_widgets(mock_window)
-
-        assert len(widgets) == 1
-        assert "dataset_selector" in widgets
+        assert "batchTagWidgetPlaceholder" in placeholders
+        assert "annotationDisplayPlaceholder" in placeholders
+        assert "annotationFilterPlaceholder" in placeholders
+        assert "modelSelectionPlaceholder" in placeholders
 
 
-class TestBuildWorkspaceTab:
-    """build_workspace_tab() テスト"""
+class TestValidateTabStructure:
+    """validate_tab_structure() テスト"""
 
-    def test_creates_workspace_tab_widget(self, qapp):
-        """ワークスペースタブウィジェットが作成される"""
-        existing_widgets = {
-            "dataset_selector": QWidget(),
-            "db_status": QWidget(),
-            "splitter": QWidget(),
-            "action_toolbar": QWidget(),
-        }
+    def test_returns_true_when_all_widgets_exist(self, qapp):
+        """全必須ウィジェットが存在する場合Trueを返す"""
+        mock_window = MagicMock()
 
-        workspace_tab = TabReorganizationService.build_workspace_tab(existing_widgets)
+        # findChildが全ウィジェットに対してMockを返す
+        def find_child_mock(cls, name):
+            return Mock()
 
-        assert isinstance(workspace_tab, QWidget)
-        assert workspace_tab.objectName() == "tabWorkspace"
+        mock_window.findChild = find_child_mock
 
-    def test_workspace_tab_has_vertical_layout(self, qapp):
-        """ワークスペースタブがQVBoxLayoutを持つ"""
-        existing_widgets = {
-            "dataset_selector": QWidget(),
-            "db_status": QWidget(),
-            "splitter": QWidget(),
-            "action_toolbar": QWidget(),
-        }
+        result = TabReorganizationService.validate_tab_structure(mock_window)
 
-        workspace_tab = TabReorganizationService.build_workspace_tab(existing_widgets)
+        assert result is True
 
-        assert workspace_tab.layout() is not None
-        assert isinstance(workspace_tab.layout(), QVBoxLayout)
+    def test_returns_false_when_required_widget_missing(self, qapp):
+        """必須ウィジェットが不足している場合Falseを返す"""
+        mock_window = MagicMock()
 
-    def test_workspace_tab_contains_all_widgets(self, qapp):
-        """ワークスペースタブに全ウィジェットが含まれる"""
-        existing_widgets = {
-            "dataset_selector": QWidget(),
-            "db_status": QWidget(),
-            "splitter": QWidget(),
-            "action_toolbar": QWidget(),
-        }
+        # 一部のウィジェットのみ存在
+        existing_widgets = {"tabWidgetMainMode", "tabWorkspace"}
 
-        workspace_tab = TabReorganizationService.build_workspace_tab(existing_widgets)
-        layout = workspace_tab.layout()
+        def find_child_mock(cls, name):
+            if name in existing_widgets:
+                return Mock()
+            return None
 
-        assert layout.count() == 4
-        # 各ウィジェットが適切に親に設定されている
-        for widget in existing_widgets.values():
-            assert widget.parent() == workspace_tab
+        mock_window.findChild = find_child_mock
 
+        result = TabReorganizationService.validate_tab_structure(mock_window)
 
-class TestBuildBatchTagTab:
-    """build_batch_tag_tab() テスト"""
+        assert result is False
 
-    def test_creates_batch_tag_tab_widget(self, qapp):
-        """バッチタグタブウィジェットが作成される"""
-        batch_tag_tab = TabReorganizationService.build_batch_tag_tab()
+    def test_warns_but_passes_when_only_placeholders_missing(self, qapp):
+        """プレースホルダーのみ不足の場合は警告するがTrueを返す"""
+        mock_window = MagicMock()
 
-        assert isinstance(batch_tag_tab, QWidget)
-        assert batch_tag_tab.objectName() == "tabBatchTag"
+        # 必須ウィジェットは全て存在、プレースホルダーは存在しない
+        required_widgets = set(TabReorganizationService.REQUIRED_WIDGETS)
 
-    def test_batch_tag_tab_has_two_columns(self, qapp):
-        """バッチタグタブが2カラムレイアウトを持つ"""
-        batch_tag_tab = TabReorganizationService.build_batch_tag_tab()
+        def find_child_mock(cls, name):
+            if name in required_widgets:
+                return Mock()
+            return None
 
-        # メインレイアウトはQVBoxLayout
-        main_layout = batch_tag_tab.layout()
-        assert isinstance(main_layout, QVBoxLayout)
+        mock_window.findChild = find_child_mock
 
-        # 最初の子がQHBoxLayout（2カラム）
-        columns_layout = main_layout.itemAt(0).layout()
-        assert isinstance(columns_layout, QHBoxLayout)
-        assert columns_layout.count() == 2
+        result = TabReorganizationService.validate_tab_structure(mock_window)
 
-    def test_batch_tag_tab_has_staging_and_operations_groups(self, qapp):
-        """バッチタグタブにステージング画像グループと操作グループが存在"""
-        batch_tag_tab = TabReorganizationService.build_batch_tag_tab()
-
-        # groupBoxStagingImages（左カラム）
-        staging_group = batch_tag_tab.findChild(QGroupBox, "groupBoxStagingImages")
-        assert staging_group is not None
-        assert staging_group.title() == "ステージング画像"
-
-        # groupBoxBatchOperations（右カラム）
-        operations_group = batch_tag_tab.findChild(QGroupBox, "groupBoxBatchOperations")
-        assert operations_group is not None
-        assert operations_group.title() == "操作"
-
-    def test_batch_tag_tab_has_placeholders(self, qapp):
-        """バッチタグタブにプレースホルダーが存在"""
-        batch_tag_tab = TabReorganizationService.build_batch_tag_tab()
-
-        # stagingPlaceholder
-        staging_placeholder = batch_tag_tab.findChild(QLabel, "stagingPlaceholder")
-        assert staging_placeholder is not None
-        assert staging_placeholder.text() == "ステージング画像がありません"
-
-        # batchTagWidgetPlaceholder
-        batch_tag_placeholder = batch_tag_tab.findChild(QWidget, "batchTagWidgetPlaceholder")
-        assert batch_tag_placeholder is not None
+        # プレースホルダーが無くても必須ウィジェットがあればTrueを返す
+        assert result is True
 
 
-class TestReorganizeMainWindowLayout:
-    """reorganize_main_window_layout() テスト"""
+class TestGetTabWidgetCount:
+    """get_tab_widget_count() テスト"""
 
-    def test_requires_tabwidgetmainmode_attribute(self):
-        """tabWidgetMainMode属性が必須"""
-        mock_window = Mock()
-        # tabWidgetMainMode属性を削除
-        if hasattr(mock_window, "tabWidgetMainMode"):
-            del mock_window.tabWidgetMainMode
+    def test_returns_tab_count_when_tabwidgetmainmode_exists(self, qapp):
+        """tabWidgetMainModeが存在する場合タブ数を返す"""
+        mock_window = MagicMock()
+        mock_tab_widget = QTabWidget()
+        mock_tab_widget.addTab(QWidget(), "Tab 1")
+        mock_tab_widget.addTab(QWidget(), "Tab 2")
+        mock_window.tabWidgetMainMode = mock_tab_widget
 
-        with pytest.raises(RuntimeError, match="tabWidgetMainMode must be created"):
-            TabReorganizationService.reorganize_main_window_layout(mock_window)
+        result = TabReorganizationService.get_tab_widget_count(mock_window)
 
-    def test_requires_centralwidget(self, qapp):
-        """centralWidget()が必須"""
-        mock_window = Mock()
-        mock_window.tabWidgetMainMode = QTabWidget()
-        mock_window.centralWidget.return_value = None
+        assert result == 2
 
-        with pytest.raises(RuntimeError, match="centralWidget not found"):
-            TabReorganizationService.reorganize_main_window_layout(mock_window)
+    def test_returns_zero_when_tabwidgetmainmode_not_exists(self, qapp):
+        """tabWidgetMainModeが存在しない場合0を返す"""
+        mock_window = MagicMock()
+        del mock_window.tabWidgetMainMode
+
+        result = TabReorganizationService.get_tab_widget_count(mock_window)
+
+        assert result == 0
+
+    def test_returns_zero_when_tabwidgetmainmode_is_none(self, qapp):
+        """tabWidgetMainModeがNoneの場合0を返す"""
+        mock_window = MagicMock()
+        mock_window.tabWidgetMainMode = None
+
+        result = TabReorganizationService.get_tab_widget_count(mock_window)
+
+        assert result == 0
 
 
-class TestIntegration:
-    """統合テスト"""
+class TestIntegrationWithRealWidgets:
+    """実際のQtウィジェットを使用した統合テスト"""
 
-    def test_complete_tab_reorganization_workflow(self, qapp):
-        """完全なタブ再構成ワークフローをテスト"""
-        # MainWindowモック作成
-        mock_window = Mock()
-        mock_window.tabWidgetMainMode = TabReorganizationService.create_main_tab_widget()
+    def test_validate_with_complete_widget_hierarchy(self, qapp):
+        """完全なウィジェット階層での検証"""
+        # 親ウィンドウ
+        parent = QWidget()
+        parent.setObjectName("MainWindow")
 
-        # centralwidget作成
-        central_widget = QWidget()
-        central_layout = QVBoxLayout(central_widget)
-        mock_window.centralWidget.return_value = central_widget
+        # タブウィジェット
+        tab_widget = QTabWidget(parent)
+        tab_widget.setObjectName("tabWidgetMainMode")
 
-        # 既存ウィジェット作成（MainWindowの属性として）
-        mock_window.frameDatasetSelector = QWidget()
-        mock_window.frameDatasetSelector.setObjectName("frameDatasetSelector")
-        mock_window.frameDbStatus = QWidget()
-        mock_window.frameDbStatus.setObjectName("frameDbStatus")
-        mock_window.splitterMainWorkArea = QWidget()
-        mock_window.splitterMainWorkArea.setObjectName("splitterMainWorkArea")
-        mock_window.frameActionToolbar = QWidget()
-        mock_window.frameActionToolbar.setObjectName("frameActionToolbar")
+        # ワークスペースタブ
+        workspace_tab = QWidget()
+        workspace_tab.setObjectName("tabWorkspace")
+        tab_widget.addTab(workspace_tab, "ワークスペース")
 
-        # 既存レイアウトにウィジェット追加
-        central_layout.addWidget(mock_window.frameDatasetSelector)
-        central_layout.addWidget(mock_window.frameDbStatus)
-        central_layout.addWidget(mock_window.splitterMainWorkArea)
-        central_layout.addWidget(mock_window.frameActionToolbar)
+        # バッチタグタブ
+        batch_tag_tab = QWidget()
+        batch_tag_tab.setObjectName("tabBatchTag")
+        tab_widget.addTab(batch_tag_tab, "バッチタグ")
 
-        # レイアウト再構成実行
-        TabReorganizationService.reorganize_main_window_layout(mock_window)
+        # バッチタグタブ内のグループボックス
+        staging_group = QGroupBox("ステージング画像", batch_tag_tab)
+        staging_group.setObjectName("groupBoxStagingImages")
 
-        # 検証: tabWidgetMainModeが2つのタブを持つ
-        assert mock_window.tabWidgetMainMode.count() == 2
-        assert mock_window.tabWidgetMainMode.tabText(0) == "ワークスペース"
-        assert mock_window.tabWidgetMainMode.tabText(1) == "バッチタグ"
+        operations_group = QGroupBox("操作", batch_tag_tab)
+        operations_group.setObjectName("groupBoxBatchOperations")
 
-        # 検証: ワークスペースタブに既存ウィジェットが含まれる
-        workspace_tab = mock_window.tabWidgetMainMode.widget(0)
-        assert workspace_tab.objectName() == "tabWorkspace"
+        annotation_group = QGroupBox("アノテーション", operations_group)
+        annotation_group.setObjectName("groupBoxAnnotation")
 
-        # 検証: バッチタグタブが存在
-        batch_tag_tab = mock_window.tabWidgetMainMode.widget(1)
-        assert batch_tag_tab.objectName() == "tabBatchTag"
+        # プレースホルダー
+        placeholder1 = QWidget(operations_group)
+        placeholder1.setObjectName("batchTagWidgetPlaceholder")
 
-        # 検証: tabWidgetMainModeがcentralwidgetに追加されている
-        assert central_layout.indexOf(mock_window.tabWidgetMainMode) >= 0
+        placeholder2 = QWidget(operations_group)
+        placeholder2.setObjectName("annotationDisplayPlaceholder")
+
+        placeholder3 = QWidget(annotation_group)
+        placeholder3.setObjectName("annotationFilterPlaceholder")
+
+        placeholder4 = QWidget(annotation_group)
+        placeholder4.setObjectName("modelSelectionPlaceholder")
+
+        # 検証実行
+        result = TabReorganizationService.validate_tab_structure(parent)
+
+        assert result is True
+        assert TabReorganizationService.get_tab_widget_count(parent) == 0  # 親にはtabWidgetMainMode属性なし
+
+    def test_validate_fails_with_incomplete_hierarchy(self, qapp):
+        """不完全なウィジェット階層での検証失敗"""
+        parent = QWidget()
+        parent.setObjectName("MainWindow")
+
+        # tabWidgetMainModeのみ作成
+        tab_widget = QTabWidget(parent)
+        tab_widget.setObjectName("tabWidgetMainMode")
+
+        # 検証実行（他の必須ウィジェットがない）
+        result = TabReorganizationService.validate_tab_structure(parent)
+
+        assert result is False
