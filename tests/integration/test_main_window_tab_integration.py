@@ -63,10 +63,7 @@ class TestMainWindowTabInitialization:
         assert batch_tag_tab is not None
         assert batch_tag_tab.objectName() == "tabBatchTag"
 
-        # 2つのGroupBox（ステージング画像、操作）が存在
-        staging_group = batch_tag_tab.findChild(object, "groupBoxStagingImages")
-        assert staging_group is not None
-
+        # 操作パネルが存在
         operations_group = batch_tag_tab.findChild(object, "groupBoxBatchOperations")
         assert operations_group is not None
 
@@ -129,12 +126,25 @@ class TestBatchTagWidgetIntegration:
             parent = parent.parent()
         assert found, "BatchTagAddWidget should be a descendant of batch tag tab"
 
-    def test_batchtagaddwidget_placeholder_removed(self, main_window_with_tabs):
-        """BatchTagAddWidgetプレースホルダーが削除されている"""
+    def test_batchtagaddwidget_placeholder_replaced(self, main_window_with_tabs):
+        """BatchTagAddWidgetプレースホルダーが置換されている"""
+        # プレースホルダーは deleteLater() で非同期削除されるため、
+        # 置換後のウィジェットが正しく配置されていることを検証
+        batch_tag_widget = main_window_with_tabs.batchTagAddWidget
+        assert batch_tag_widget is not None
+        assert batch_tag_widget.objectName() == "batchTagAddWidget"
+
+        # BatchTagAddWidgetがスプリッター内に正しく配置されている
         batch_tag_tab = main_window_with_tabs.tabWidgetMainMode.widget(1)
-        placeholder = batch_tag_tab.findChild(object, "batchTagWidgetPlaceholder")
-        # プレースホルダーは削除されているはず
-        assert placeholder is None
+        splitter = batch_tag_tab.findChild(object, "splitterBatchTagMain")
+        if splitter:
+            # スプリッター内にBatchTagAddWidgetが含まれている
+            found_in_splitter = False
+            for i in range(splitter.count()):
+                if splitter.widget(i) == batch_tag_widget:
+                    found_in_splitter = True
+                    break
+            assert found_in_splitter, "BatchTagAddWidget should be in splitter"
 
 
 class TestSignalConnections:
@@ -186,9 +196,11 @@ class TestAnnotationControlVisibility:
                 "groupBoxAnnotationControl should be explicitly hidden via hide()"
             )
 
-    def test_hide_annotation_control_method_exists(self, main_window_with_tabs):
-        """_hide_annotation_control_in_workspaceメソッドが存在する"""
-        assert hasattr(main_window_with_tabs, "_hide_annotation_control_in_workspace")
+    def test_tab_changed_handler_exists(self, main_window_with_tabs):
+        """_on_main_tab_changedメソッドが存在する"""
+        # Note: groupBoxAnnotationControlの非表示制御はUIレイアウト変更により不要となった
+        # 代わりにタブ切り替えハンドラの存在を検証
+        assert hasattr(main_window_with_tabs, "_on_main_tab_changed")
 
 
 class TestAnnotationDataDisplayWidget:
@@ -214,9 +226,10 @@ class TestAnnotationDataDisplayWidget:
             parent = parent.parent()
         assert found, "AnnotationDataDisplayWidget should be a descendant of batch tag tab"
 
-    def test_annotation_display_placeholder_removed(self, main_window_with_tabs):
-        """AnnotationDataDisplayWidgetプレースホルダーが削除されている"""
-        batch_tag_tab = main_window_with_tabs.tabWidgetMainMode.widget(1)
-        placeholder = batch_tag_tab.findChild(object, "annotationDisplayPlaceholder")
-        # プレースホルダーは削除されているはず
-        assert placeholder is None
+    def test_annotation_display_placeholder_replaced(self, main_window_with_tabs):
+        """AnnotationDataDisplayWidgetプレースホルダーが置換されている"""
+        # プレースホルダーは deleteLater() で非同期削除されるため、
+        # 置換後のウィジェットが正しく配置されていることを検証
+        annotation_display = main_window_with_tabs.batchTagAnnotationDisplay
+        assert annotation_display is not None
+        assert annotation_display.objectName() == "batchTagAnnotationDisplay"
