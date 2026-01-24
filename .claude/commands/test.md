@@ -1,6 +1,6 @@
 ---
 allowed-tools: mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, mcp__serena__search_for_pattern, mcp__serena__read_memory, mcp__serena__write_memory, cipher_memory_search, cipher_store_reasoning_memory, cipher_extract_entities, cipher_query_graph, Read, Edit, Write, Bash, TodoWrite, Task
-description: implement フェーズで実装されたコードについて、包括的なテスト・検証を実行します。
+description: 実装コードのテスト・検証を実行します。クイックチェック（Ruff/mypy/pytest）から包括的テストまで対応。
 
 ---
 # テスト・検証フェーズ
@@ -8,8 +8,63 @@ description: implement フェーズで実装されたコードについて、包
 ## 使用方法
 
 ```bash
-/test テスト対象の説明
+/test              # クイック品質チェック（Ruff/mypy/pytest）
+/test 対象の説明   # 包括的テスト実行
 ```
+
+**例:**
+- `/test` - Ruff/mypy/pytest のクイックチェックのみ
+- `/test src/lorairo/services/` - 指定パスの包括的テスト
+- `/test 新しいタグ管理機能` - 機能全体の包括的テスト
+
+## クイック品質チェック（引数なしの場合）
+
+引数なしで `/test` を実行した場合、以下のクイックチェックのみを実行します：
+
+### Step 1: Ruff Lint検証
+```bash
+echo "=== Ruff Lint Check ==="
+uv run ruff check src/ tests/ --output-format=grouped
+```
+**期待結果**: エラー0件
+
+### Step 2: mypy 型チェック
+```bash
+echo "=== mypy Type Check ==="
+uv run mypy -p lorairo --pretty
+```
+**期待結果**: エラー0件
+
+### Step 3: pytest テスト実行
+```bash
+echo "=== pytest Test Execution ==="
+uv run pytest --cov=src --cov-report=term-missing -v
+```
+**期待結果**: 全テストパス、カバレッジ75%以上
+
+### 出力形式（クイックチェック）
+```markdown
+# Quick Verification Report
+
+| Check | Status | Details |
+|-------|--------|---------|
+| Ruff  | ✅/❌ | X errors |
+| mypy  | ✅/❌ | X errors |
+| pytest | ✅/❌ | X passed, Y failed |
+| Coverage | ✅/❌ | XX.X% (target: 75%) |
+
+## Overall Status
+✅ All checks passed - Ready for commit
+❌ Checks failed - See details above
+```
+
+**エラー時**: `/build-fix` で修正案を取得
+
+---
+
+## 包括的テスト（引数ありの場合）
+
+以下は引数を指定した場合の包括的テスト実行内容です。
 
 ## 重要原則
 

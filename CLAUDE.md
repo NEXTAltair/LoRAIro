@@ -482,7 +482,7 @@ LoRAIroは Claude Code 2.1.0 の新機能を最大限活用するよう最適化
 - **`/check-existing`**: 既存機能の詳細分析（serena経由）
 - **`/planning`**: 戦略的設計・計画立案（cipher+serena統合）
 - **`/implement`**: コード開発実装（段階的実行）
-- **`/test`**: 品質保証・テスト実行
+- **`/test`**: 品質保証・テスト実行（引数なし: クイックチェック、引数あり: 包括的テスト）
 - **`/sync-plan`**: Plan Mode の計画を手動で Serena Memory に同期
 
 ### Plan Mode vs /planning Command
