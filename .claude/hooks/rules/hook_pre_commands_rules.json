@@ -1,103 +1,74 @@
 {
-  "documentation_first_commands": [
-    {
-      "pattern": "^(find|ls)\\b.*\\.(py|toml|md)$",
-      "reason": "use serena でプロジェクト構造と関連ドキュメントを参照してから検索を行う",
-      "suggestion": "use serena を実行してコンポーネント位置のコンテキストを取得した後に必要なら検索する"
-    },
-    {
-      "pattern": "^find\\b.*\\bsrc/",
-      "reason": "src/配下を検索する前に use serena でコンポーネント位置のコンテキストを確認する",
-      "suggestion": "use serena: Entry point (src/lorairo/main.py), Services (src/lorairo/services/), GUI (src/lorairo/gui/), Database (src/lorairo/database/), AI Integration (src/lorairo/annotations/)"
-    },
-    {
-      "pattern": "^find\\b.*\\bconfig/",
-      "reason": "設定構成の確認は use serena で関連情報を参照する",
-      "suggestion": "use serena: config/lorairo.toml (main config), config/annotator_config.toml (AI settings)"
-    }
-  ],
-  "library_investigation_suggestions": [
-    {
-      "pattern": "(ImportError|ModuleNotFoundError|No module named)",
-      "reason": "Library import error detected",
-      "suggestion": "Use SubAgent library-research to investigate library installation, documentation, and usage patterns"
-    },
-    {
-      "pattern": "(AttributeError.*module|TypeError.*library|API.*error)",
-      "reason": "Library API usage error detected",
-      "suggestion": "Use SubAgent library-research to check library specifications, API changes, and implementation examples"
-    },
-    {
-      "pattern": "(site-packages|lib/python|dist-info)",
-      "reason": "Direct library investigation detected",
-      "suggestion": "Consider using SubAgent library-research for comprehensive library analysis instead of manual exploration"
-    }
-  ],
   "blocked_commands": [
     {
       "pattern": "^pip ",
-      "reason": "Use 'uv' instead of pip in this project",
+      "reason": "Use 'uv' instead of pip",
       "suggestion": "uv add <package>"
     },
     {
       "pattern": "^npm ",
-      "reason": "This is a Python project, npm should not be used",
-      "suggestion": "Use uv for Python package management"
-    },
-    {
-      "pattern": "^curl.*api\\.openai\\.com",
-      "reason": "Direct API calls should go through the image-annotator-lib",
-      "suggestion": "Use src/lorairo/annotations/ai_annotator.py for AI integration"
+      "reason": "Python project",
+      "suggestion": "uv for Python"
     },
     {
       "pattern": "^git push.*origin.*main",
-      "reason": "Direct push to main branch is restricted",
-      "suggestion": "Create feature branch and use pull request"
+      "reason": "Direct push to main restricted",
+      "suggestion": "Create feature branch and PR"
     },
     {
       "pattern": "^rm\\s+-rf\\s+.+",
-      "reason": "Destructive operations require explicit user confirmation",
-      "suggestion": "Confirm with the user before running rm -rf. Prefer safe tasks like: make clean, or remove only approved paths: logs/, __pycache__, .pytest_cache, .ruff_cache"
+      "reason": "Destructive operation",
+      "suggestion": "make clean or confirm with user"
     },
     {
       "pattern": "cd.*local_packages/[^/]+.*[;&].*uv run",
-      "reason": "ローカルパッケージディレクトリで uv run を実行すると、そのディレクトリに .venv が作成され、プロジェクトルートの .venv を使用しなくなります",
-      "suggestion": "プロジェクトルートから実行: uv run pytest local_packages/<package-name>/tests/"
+      "reason": "Creates separate .venv in local package",
+      "suggestion": "Run from project root: uv run pytest local_packages/<pkg>/tests/"
     }
   ],
-  "auto_format_commands": [
+  "makefile_transforms": [
     {
-      "pattern": "^git add.*\\.(py)$",
-      "pre_hook": "uv run ruff check --fix $FILES && uv run ruff format $FILES",
-      "description": "Auto-format and fix Python files before staging"
+      "pattern": "^pytest\\b",
+      "transform": "make test",
+      "description": "Use Makefile test target"
     },
     {
-      "pattern": "^git commit",
-      "pre_hook": "uv run ruff format src/ tests/ && uv run ruff check src/ tests/ --fix",
-      "description": "Auto-format all code before git commit"
+      "pattern": "^uv run pytest\\b(?!.*local_packages)",
+      "transform": "make test",
+      "description": "Use Makefile test target"
+    },
+    {
+      "pattern": "^(uv run )?ruff (format|check).*src/.*tests/",
+      "transform": "make format",
+      "description": "Use Makefile format target"
+    },
+    {
+      "pattern": "^(uv run )?mypy -p lorairo",
+      "transform": "make mypy",
+      "description": "Use Makefile mypy target"
     }
   ],
-  "lorairo_environment_transforms": [
+  "uv_transforms": [
     {
-      "pattern": "^pytest",
+      "pattern": "^pytest\\s+local_packages/",
       "transform": "s/^pytest/uv run pytest/",
-      "description": "Transform pytest commands to use LoRAIro Linux environment"
-    },
-    {
-      "pattern": "^ruff\\s+(check|format)",
-      "transform": "s/^ruff/uv run ruff/",
-      "description": "Transform ruff commands to use LoRAIro Linux environment"
-    },
-    {
-      "pattern": "^mypy",
-      "transform": "s/^mypy/uv run mypy/",
-      "description": "Transform mypy commands to use LoRAIro Linux environment"
+      "description": "Local package tests need uv run"
     },
     {
       "pattern": "^python\\s+",
       "transform": "s/^python/uv run python/",
-      "description": "Transform python commands to use LoRAIro Linux environment"
+      "description": "Use uv run for python"
+    },
+    {
+      "pattern": "^ruff\\s+(check|format)(?!.*src/.*tests/)",
+      "transform": "s/^ruff/uv run ruff/",
+      "description": "Single file ruff needs uv run"
+    },
+    {
+      "pattern": "^mypy(?! -p lorairo)",
+      "transform": "s/^mypy/uv run mypy/",
+      "description": "Custom mypy needs uv run"
     }
   ],
-  "description": "LoRAIroプロジェクト用コマンド制御 - use serena 優先検索・自動フォーマット・危険コマンドブロック。ライブラリ調査は SubAgent library-research を推奨。"
+  "description": "LoRAIro command control - Makefile優先、uv run変換、危険コマンドブロック"
 }

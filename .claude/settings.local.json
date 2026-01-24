@@ -16,6 +16,7 @@
       "mcp__serena__find_symbol",
       "Bash(git *)",
       "Bash(uv run mypy:*)",
+      "Bash(uv run ruff:*)",
       "Bash(timeout * uv run mypy:*)",
       "Bash(code --list-extensions)",
       "Bash(find:*)",
@@ -66,31 +67,47 @@
       "mcp__serena__edit_memory",
       "mcp__serena__insert_after_symbol",
       "mcp__serena__replace_symbol_body",
-      "Bash(git -C /workspaces/LoRAIro/local_packages/image-annotator-lib diff src/image_annotator_lib/core/base/annotator.py)",
-      "Bash(git -C /workspaces/LoRAIro/local_packages/image-annotator-lib diff src/image_annotator_lib/__init__.py)",
-      "Bash(git -C /workspaces/LoRAIro/local_packages/image-annotator-lib diff src/image_annotator_lib/model_class/tagger_tensorflow.py)",
       "Bash(ls:*)",
       "Bash(tree:*)",
       "WebFetch(domain:docs.pola.rs)",
       "Bash(done)",
       "Bash(chmod:*)",
       "WebFetch(domain:agentskills.io)",
-      "Bash(git -C local_packages/genai-tag-db-tools status)",
-      "Bash(git -C local_packages/genai-tag-db-tools diff src/genai_tag_db_tools/core_api.py)",
       "Bash(sqlite3:*)",
       "Bash(for db in ~/.cache/genai-tag-db-tools/genai-image-tag-db-*.sqlite)",
-      "Bash(gh auth status:*)",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nrefactor: Integrate Rating/Score editing into Image Details tab\n\n統合右パネルレイアウトを実装し、タブ数を削減しました。\n\n変更内容:\n- タブ数: 3タブ → 2タブ（Rating/Score編集タブを画像詳細タブに統合）\n- Stretch比率: 3:1:2 → 3:1\n- RatingScoreEditWidgetを画像詳細タブ内に配置\n\n主要変更:\n- MainWindow.ui: tabRatingScoreEdit削除、stretch属性変更\n- SelectedImageDetailsWidget.ui: groupBoxRatingScore削除\n- SelectedImageDetailsWidget: RatingScoreEditWidget統合、シグナル転送実装\n- MainWindow: イベント接続をSelectedImageDetailsWidget経由に変更\n\n機能維持:\n- すべてのRating/Score編集機能は保持\n- シグナル転送により既存のイベントハンドラと互換性維持\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(head:*)",
-      "Bash(git commit:*)",
       "mcp__serena__think_about_whether_you_are_done",
-      "Bash(make:*)"
+      "Bash(make:*)",
+      "Bash(mkdir:*)",
+      "Bash(gh pr view:*)"
     ],
     "deny": [],
     "ask": []
   },
   "enableAllProjectMcpServers": true,
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_session_start.py"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_session_end.py"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "*",
