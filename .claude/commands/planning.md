@@ -1,5 +1,5 @@
 ---
-allowed-tools: mcp__serena__get_symbols_overview, mcp__serena__find_symbol, mcp__serena__search_for_pattern, mcp__serena__read_memory, mcp__serena__write_memory, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, Read, Bash, TodoWrite, Task
+allowed-tools: mcp__serena__get_symbols_overview, mcp__serena__find_symbol, mcp__serena__search_for_pattern, mcp__serena__read_memory, mcp__serena__write_memory, Read, Bash, TodoWrite, Task
 description: investigateフェーズの結果を基に、LoRAIro プロジェクトの実装戦略と詳細設計を策定します。
 ---
 
@@ -112,7 +112,7 @@ investigateフェーズで特定された要件と課題を基に、上記実装
 - investigateフェーズ結果の詳細分析
 - **🔍 Investigation Agent活用**: 既存実装の詳細調査とアーキテクチャ理解
 - **📚 Library Research Agent活用**: 技術選定と設計パターン調査
-- **Context7 設計パターン取得**: 関連ライブラリの設計ガイド・ベストプラクティス取得
+- **Web検索 + Moltbot補強による設計パターン取得**: 関連ライブラリの設計ガイド・ベストプラクティス取得
 - 問題定義と成功基準の明確化
 - 制約・依存関係の特定
 

@@ -1,5 +1,5 @@
 ---
-allowed-tools: mcp__serena__search_for_pattern, mcp__serena__find_file, mcp__serena__list_dir, mcp__serena__read_memory, mcp__serena__write_memory, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, Read, Bash, TodoWrite, WebSearch, WebFetch, Task
+allowed-tools: mcp__serena__search_for_pattern, mcp__serena__find_file, mcp__serena__list_dir, mcp__serena__read_memory, mcp__serena__write_memory, Read, Bash, TodoWrite, WebSearch, WebFetch, Task
 description: 実装予定機能に対する既存ライブラリ・ツールの徹底調査コマンド(要件明確化ヒアリング付き)
 ---
 # Check Existing Solutions
@@ -80,7 +80,7 @@ description: 実装予定機能に対する既存ライブラリ・ツールの�
 
 ### Phase 4: Web検索中心の包括的調査
 
-**戦略的Web検索とContext7 + Moltbot LTM統合による徹底的な既存解決策発見:**
+**戦略的Web検索 + Moltbot LTM統合による徹底的な既存解決策発見:**
 
 #### 4.1 段階的Web検索戦略
 ##### 第1段階: 基本キーワード検索
@@ -98,14 +98,14 @@ description: 実装予定機能に対する既存ライブラリ・ツールの�
 - **GitHubトレンド**: `WebSearch` で "trending [機能名] python repositories"
 - **技術ブログ**: `WebSearch` で "[機能名] python tutorial blog 2024"
 
-#### 4.2 Context7 + Moltbot LTM統合による多角的分析
-- **包括的技術調査**: Context7経由でライブラリドキュメント + WebSearchを統合活用
+#### 4.2 Web検索 + Moltbot LTM統合による多角的分析
+- **包括的技術調査**: WebSearchでライブラリドキュメント + 既存情報を統合活用
 - **過去の調査参照**: Moltbot LTM で類似調査の履歴を確認
 - **クロス検証**: 複数ソースからの情報を統合して信頼性確認
 
 #### 4.3 専門エージェント活用
 - **🔍 Investigation Agent**: 既存コードベース内の類似機能調査
-- **📚 Library Research Agent**: Context7活用による技術ドキュメント詳細調査
+- **📚 Library Research Agent**: web検索 + Moltbot補強による技術ドキュメント調査
 - **🎯 Solutions Agent**: 発見された選択肢の比較評価・実装可能性分析
 
 #### 4.4 LoRAIro統合性調査

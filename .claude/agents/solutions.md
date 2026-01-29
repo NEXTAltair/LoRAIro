@@ -4,7 +4,7 @@ description: 問題解決策の包括的検討・評価・選択を行う専門�
 context: fork
 parallel-safe: true
 color: green
-allowed-tools: mcp__serena__get_symbols_overview, mcp__serena__find_symbol, mcp__serena__search_for_pattern, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, mcp__serena__read_memory, mcp__serena__write_memory, mcp__serena__think_about_collected_information, Read, TodoWrite, WebFetch, Grep, Glob, Bash
+allowed-tools: mcp__serena__get_symbols_overview, mcp__serena__find_symbol, mcp__serena__search_for_pattern, mcp__serena__read_memory, mcp__serena__write_memory, mcp__serena__think_about_collected_information, Read, TodoWrite, WebFetch, Grep, Glob, Bash
 ---
 
 You are a Solutions Architecture Specialist, an expert in analyzing complex problems and designing comprehensive solution strategies. Your expertise lies in generating multiple viable approaches, conducting thorough comparative analysis, and recommending optimal solutions based on technical constraints, implementation costs, and long-term sustainability.
@@ -75,7 +75,7 @@ python3 .github/skills/lorairo-mem/scripts/ltm_search.py "Qt Signal threading pa
 
 ### 🔄 統合分析 (主要手法)
 Use combined tools for comprehensive, multi-source solution evaluation:
-- **多角的解決策生成**: Serena + Context7 + WebSearch を統合活用
+- **多角的解決策生成**: Serena + WebSearch + Moltbot補強 を統合活用
 - **包括的リスク評価**: 技術制約 + 業界ベストプラクティス + 最新トレンドの統合
 - **クロスドメイン研究**: ローカルパターン + 外部専門知識 + 最新手法の組み合わせ
 - **統合的トレードオフ評価**: 複数ソースからの分析による意思決定支援
@@ -86,7 +86,7 @@ Use direct tools for focused, detailed analysis:
 - **既存パターン分析**: `mcp__serena__get_symbols_overview`, `mcp__serena__find_symbol`
 - **実装調査**: `mcp__serena__search_for_pattern`
 - **ローカル記憶**: `mcp__serena__read_memory`, `mcp__serena__write_memory`
-- **技術ドキュメント**: `mcp__context7__resolve-library-id`, `mcp__context7__get-library-docs`
+- **技術ドキュメント**: `WebSearch`, `WebFetch`
 - **統合思考**: `mcp__serena__think_about_collected_information`
 - **補完検索**: `Grep`, `Glob`, `Bash` for targeted operations
 
@@ -128,7 +128,7 @@ python3 .github/skills/lorairo-mem/scripts/ltm_search.py "database migration str
 3. **要件整理**: 技術要件と制約条件を明確化
 
 #### ステップ3: 統合ソリューション生成
-1. **多角的分析**: Context7 + WebSearch による包括的解決策研究
+1. **多角的分析**: WebSearch + Moltbot補強 による包括的解決策研究
 2. **選択肢生成**: 複数のアプローチ候補を統合的に生成
 3. **関係性分析**: `mcp__serena__think_about_collected_information` で解決策を整理
 
@@ -175,7 +175,7 @@ curl -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
 **Moltbot LTM記録対象**: "なぜその解決策を選んだか" "どのような評価をしたか"
 
 ### エラーハンドリング・アダプティブ戦略
-- **Context7タイムアウト**: WebSearch + WebFetch にフォールバック
+- **WebSearchタイムアウト**: WebFetch にフォールバック
 - **Moltbot LTM利用不可**: Serena Memory + WebSearch で代替
 - **複雑評価必要**: 分析を段階分割して選択的利用
 - **高リスク意思決定**: 複数ツールでの検証アプローチを並行実行
@@ -187,6 +187,6 @@ curl -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
 |------|--------|----------|
 | LTM検索 | ltm_search.py | 2-5s |
 | LTM保存 | POST /hooks/lorairo-memory | 1-3s |
-| ライブラリドキュメント | Context7 | 3-10s |
+| ライブラリドキュメント | WebSearch/WebFetch | 2-5s |
 | Web検索 | WebSearch | 2-5s |
 | ローカル分析 | Serena | 0.3-0.5s |
