@@ -104,7 +104,7 @@ class TestBatchTagAddIntegration:
 
         # 3. "選択中の画像を追加" ボタンをクリック
         with qtbot.waitSignal(batch_tag_widget.staged_images_changed, timeout=1000) as blocker:
-            batch_tag_widget.ui.pushButtonAddSelected.click()
+            batch_tag_widget.add_selected_images_to_staging()
 
         # 4. ステージングリストに画像が追加されたことを確認
         assert len(batch_tag_widget._staged_images) == 3
@@ -159,7 +159,7 @@ class TestBatchTagAddIntegration:
         dataset_state_manager.set_selected_images([1, 2])
 
         with qtbot.waitSignal(batch_tag_widget.staged_images_changed, timeout=1000):
-            batch_tag_widget.ui.pushButtonAddSelected.click()
+            batch_tag_widget.add_selected_images_to_staging()
 
         # 3. ステージングリストに追加されたことを確認
         assert len(batch_tag_widget._staged_images) == 2
@@ -198,7 +198,7 @@ class TestBatchTagAddIntegration:
         dataset_state_manager.set_selected_images([1, 2])
 
         with qtbot.waitSignal(batch_tag_widget.staged_images_changed, timeout=1000):
-            batch_tag_widget.ui.pushButtonAddSelected.click()
+            batch_tag_widget.add_selected_images_to_staging()
 
         # 3. ステージングリストに2枚追加されたことを確認
         assert len(batch_tag_widget._staged_images) == 2
@@ -207,7 +207,7 @@ class TestBatchTagAddIntegration:
         dataset_state_manager.set_selected_images([1, 3])
 
         with qtbot.waitSignal(batch_tag_widget.staged_images_changed, timeout=1000):
-            batch_tag_widget.ui.pushButtonAddSelected.click()
+            batch_tag_widget.add_selected_images_to_staging()
 
         # 5. 重複が防止され、ID 3のみが追加されたことを確認
         assert len(batch_tag_widget._staged_images) == 3
@@ -234,7 +234,7 @@ class TestBatchTagAddIntegration:
         dataset_state_manager.set_selected_images(all_ids)
 
         # 3. ステージングに追加を試みる
-        batch_tag_widget.ui.pushButtonAddSelected.click()
+        batch_tag_widget.add_selected_images_to_staging()
 
         # 4. 500枚でストップしていることを確認（上限まで）
         assert len(batch_tag_widget._staged_images) == 500
@@ -255,7 +255,7 @@ class TestBatchTagAddIntegration:
         dataset_state_manager.set_selected_images([1, 2])
 
         with qtbot.waitSignal(batch_tag_widget.staged_images_changed, timeout=1000):
-            batch_tag_widget.ui.pushButtonAddSelected.click()
+            batch_tag_widget.add_selected_images_to_staging()
 
         # 3. タグ入力フィールドを空にする（デフォルトで空だが明示的に設定）
         batch_tag_widget.ui.lineEditTag.clear()
@@ -290,7 +290,7 @@ class TestBatchTagAddIntegration:
         dataset_state_manager.set_selected_images([1, 2, 3])
 
         with qtbot.waitSignal(batch_tag_widget.staged_images_changed, timeout=1000):
-            batch_tag_widget.ui.pushButtonAddSelected.click()
+            batch_tag_widget.add_selected_images_to_staging()
 
         # 3. ステージングリストに3枚追加されたことを確認
         assert len(batch_tag_widget._staged_images) == 3
@@ -328,7 +328,7 @@ class TestBatchTagAddIntegration:
         dataset_state_manager.set_selected_images([1, 2])
 
         with qtbot.waitSignal(batch_tag_widget.staged_images_changed, timeout=1000):
-            batch_tag_widget.ui.pushButtonAddSelected.click()
+            batch_tag_widget.add_selected_images_to_staging()
 
         # 3. タグ入力（正規化前: "Test_LANDSCAPE" → 正規化後: "test landscape"）
         batch_tag_widget.ui.lineEditTag.setText("Test_LANDSCAPE")
@@ -370,7 +370,7 @@ class TestBatchTagAddIntegration:
         dataset_state_manager.set_selected_images([1, 2, 3])
 
         with qtbot.waitSignal(batch_tag_widget.staged_images_changed, timeout=1000):
-            batch_tag_widget.ui.pushButtonAddSelected.click()
+            batch_tag_widget.add_selected_images_to_staging()
 
         # 3. MainWindow のハンドラーをシミュレート
         def mock_mainwindow_handler(image_ids, tag):
@@ -419,7 +419,7 @@ class TestBatchTagAddIntegration:
         dataset_state_manager.set_selected_images([1, 2])
 
         with qtbot.waitSignal(batch_tag_widget.staged_images_changed, timeout=1000):
-            batch_tag_widget.ui.pushButtonAddSelected.click()
+            batch_tag_widget.add_selected_images_to_staging()
 
         # 3. タグ入力
         batch_tag_widget.ui.lineEditTag.setText("sunset")
@@ -488,7 +488,7 @@ class TestBatchTagAddIntegration:
         dataset_state_manager.set_selected_images([1, 2])
 
         with qtbot.waitSignal(batch_tag_widget.staged_images_changed, timeout=1000):
-            batch_tag_widget.ui.pushButtonAddSelected.click()
+            batch_tag_widget.add_selected_images_to_staging()
 
         assert len(batch_tag_widget._staged_images) == 2
 
@@ -496,7 +496,7 @@ class TestBatchTagAddIntegration:
         dataset_state_manager.set_selected_images([3, 4])
 
         with qtbot.waitSignal(batch_tag_widget.staged_images_changed, timeout=1000):
-            batch_tag_widget.ui.pushButtonAddSelected.click()
+            batch_tag_widget.add_selected_images_to_staging()
 
         assert len(batch_tag_widget._staged_images) == 4
 
