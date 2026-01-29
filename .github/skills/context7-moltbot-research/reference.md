@@ -1,30 +1,16 @@
-# Context7 + Moltbot LTM - APIリファレンス
+# Moltbot LTM + Web Research - APIリファレンス
 
 ## 利用可能なツール
 
-### Context7 (ライブラリドキュメント)
+### Web Research (web.run)
 
-#### mcp__context7__resolve_library_id
-ライブラリ名からContext7対応IDを解決
+Codex では Context7 MCP を直接使いません。ライブラリ調査は web.run で公式ドキュメントを確認します。
 
-```python
-mcp__context7__resolve_library_id(libraryName="pyside6")
-# Returns: /pyside/pyside6
+```json
+{"search_query":[{"q":"PySide6 Signal Slot QThread official docs"}]}
 ```
 
-**応答時間**: 1-3秒
-
-#### mcp__context7__get_library_docs
-ライブラリドキュメントを取得
-
-```python
-mcp__context7__get_library_docs(
-    context7CompatibleLibraryID="/pyside/pyside6",
-    topic="Signal Slot threading"
-)
-```
-
-**応答時間**: 3-10秒
+**応答時間**: 2-5秒
 
 ### Moltbot LTM (長期記憶)
 
@@ -70,11 +56,10 @@ curl -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
 | ローカル分析 | Serena | 0.3-0.5s |
 | LTM検索 | ltm_search.py | 2-5s |
 | LTM保存 | POST /hooks/lorairo-memory | 1-3s |
-| ライブラリドキュメント | Context7 | 3-10s |
-| Web検索 | WebSearch | 2-5s |
+| Web検索 | web.run | 2-5s |
 
 ## 使い分け
 
 - **Serena**: 即座の構造理解とコード操作（高速）
 - **Moltbot LTM**: 設計知識の永続化と再利用（長期記憶）
-- **Context7**: ライブラリドキュメント取得（外部・リアルタイム）
+- **Web検索**: ライブラリドキュメント取得（外部・リアルタイム）

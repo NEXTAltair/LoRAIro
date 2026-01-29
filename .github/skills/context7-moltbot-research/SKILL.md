@@ -1,16 +1,12 @@
 ---
 name: context7-moltbot-research
 version: "2.0.0"
-description: Library research via Context7 and long-term memory via Moltbot LTM. Use when researching libraries, analyzing architectural decisions, or comparing multiple approaches.
+description: Library research via web search (Codex) and long-term memory via Moltbot LTM. Moltbot may enrich stored content using Context7/Perplexity.
 metadata:
-  short-description: ライブラリ調査（Context7）と長期記憶（Moltbot LTM）。
+  short-description: ライブラリ調査（web検索 + Moltbot委譲）と長期記憶（Moltbot LTM）。
 allowed-tools:
-  # Library research (Context7 direct)
-  - mcp__context7__resolve-library-id
-  - mcp__context7__get-library-docs
-  # Web search
-  - WebSearch
-  - WebFetch
+  # Web research (Codex)
+  - web.run
   # Serena tools (for code integration)
   - mcp__serena__find_symbol
   - mcp__serena__search_for_pattern
@@ -24,13 +20,15 @@ dependencies:
 
 # Complex Analysis (Library Research + Long-Term Memory)
 
-Complex analysis using Context7 for library research and Moltbot LTM for design pattern memory and strategic decisions.
+Complex analysis using web research and Moltbot LTM for design pattern memory and strategic decisions.
+
+Note: Codex には Context7 MCP は入っていません。ライブラリ調査は web.run で実施し、LTM 保存時に Moltbot が Context7/Perplexity を使って内容をブラッシュアップして保存します。
 
 ## When to Use
 
 Use this skill when:
 - **Design pattern search**: Researching past similar designs (Moltbot LTM)
-- **Library research**: Getting technical docs via Context7
+- **Library research**: web.run で公式ドキュメント/仕様を確認し、保存時に Moltbot が補強
 - **Long-term memory**: Storing design decisions and rationale (Moltbot LTM)
 - **Dependency analysis**: Understanding architectural relationships
 - **Strategic decisions**: Evaluating approaches and trade-offs
@@ -79,52 +77,34 @@ curl -sS -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
   }'
 ```
 
-### 3. Library Research (Context7)
+### 3. Library Research (Web + Moltbot)
 
-**resolve-library-id** - Library ID resolution
-- Resolves library name to Context7 ID
-- Example: `"pyside6"` → `/qt/pyside6`
+Codex では Context7 MCP を直接使いません。ライブラリ調査は web.run で公式ドキュメントを確認し、要点をまとめて LTM 保存時に Moltbot が補強します。
 
-```
-mcp__context7__resolve-library-id(libraryName="pyside6")
-```
-
-**get-library-docs** - Library documentation
-- Retrieves official docs, API reference, guides
-- Params: `context7CompatibleLibraryID`, `topic`, `mode` (code/info)
-- Mode: `code` for API/examples, `info` for concepts/guides
-
-```
-mcp__context7__get-library-docs(
-  context7CompatibleLibraryID="/qt/pyside6",
-  topic="signal slot connection",
-  mode="code"
-)
+Example (web search):
+```json
+{"search_query":[{"q":"PySide6 Signal Slot QThread official docs"}]}
 ```
 
-### 4. Web Integration
+### 4. Web Research (Codex)
 
-**WebSearch** - Latest information
-- Searches blogs, case studies, recent updates
-- Use: When Context7 lacks information
-
-**WebFetch** - Specific URL content
-- Fetches detailed content from URLs
-- Use: Deep-diving into search results
+**web.run** - Latest information
+- Searches official docs, blogs, case studies, recent updates
+- Use: When you need up-to-date or external sources
 
 ## Workflow Guidelines
 
 ### Design Phase
 ```
 1. LTM search (ltm_search.py) - Past designs
-2. Library research (Context7) - Technical details
+2. Library research (web.run) - Technical details
 3. Store decision (POST /hooks/lorairo-memory) - For future
 ```
 
 ### Implementation Phase
 ```
 1. LTM search - Implementation patterns
-2. Library docs - API details
+2. Web docs - API details
 3. Code integration (Serena tools)
 4. Store knowledge - After completion
 ```
@@ -147,7 +127,7 @@ mcp__context7__get-library-docs(
 ```
 1. Serena: Check status (read_memory)
 2. Moltbot: Search past designs (ltm_search.py)
-3. Context7: Research library (get-library-docs)
+3. Web: Research library (web.run)
 4. Serena: Implement (find_symbol, replace_symbol_body)
 5. Serena: Track progress (write_memory)
 6. Moltbot: Store knowledge (POST /hooks/lorairo-memory)
@@ -191,8 +171,7 @@ JSON
 |-----------|------|------|
 | LTM search | ltm_search.py | 2-5s |
 | LTM write | POST /hooks/lorairo-memory | 1-3s |
-| Library docs | Context7 | 3-10s |
-| Web search | WebSearch | 2-5s |
+| Web search | web.run | 2-5s |
 | Serena ops | mcp__serena__* | 0.3-0.5s |
 
 ## Examples
@@ -201,4 +180,4 @@ See [examples.md](./examples.md) for detailed scenarios.
 
 ## Reference
 
-See [reference.md](./reference.md) for complete Context7 and Moltbot LTM API reference.
+See [reference.md](./reference.md) for Moltbot LTM + web.run reference.
