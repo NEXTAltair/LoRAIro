@@ -1,7 +1,8 @@
 # src/lorairo/gui/window/main_window.py
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QTimer, Signal
 from PySide6.QtGui import QResizeEvent
@@ -73,6 +74,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     data_transform_service: DataTransformService | None
     result_handler_service: ResultHandlerService | None
     pipeline_control_service: PipelineControlService | None
+    progress_state_service: ProgressStateService | None
 
     @property
     def service_container(self) -> ServiceContainer:
@@ -86,7 +88,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     selected_image_details_widget: SelectedImageDetailsWidget | None
 
     # Tab widget (programmatically created)
-    tabWidgetMainMode: QTabWidget | None
+    tabWidgetMainMode: QTabWidget
 
     # Error handling UI components
     error_notification_widget: ErrorNotificationWidget | None
@@ -105,7 +107,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         try:
             # Phase 1: 基本UI設定（最優先）
             logger.info("MainWindow初期化開始 - Phase 1: UI設定")
-            self.setupUi(self)
+            setup_ui = cast(Callable[[QWidget], None], self.setupUi)
+            setup_ui(self)
             logger.info("UI設定完了")
 
             # エラーログメニューアクション接続（UI生成後に接続）
@@ -319,10 +322,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 parent=self,
             )
 
+            if not self.worker_service or not self.config_service:
+                raise RuntimeError("WorkerService/ConfigurationServiceが未初期化です")
+
+            worker_service = self.worker_service
+            config_service = self.config_service
             self.annotation_workflow_controller = AnnotationWorkflowController(
-                worker_service=self.worker_service,
+                worker_service=worker_service,
                 selection_state_service=self.selection_state_service,
-                config_service=self.config_service,
+                config_service=config_service,
                 parent=self,
             )
 
@@ -474,6 +482,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 try:
                     # サムネイル選択をプレビューに反映
                     self.thumbnail_selector.image_selected.connect(self.image_preview_widget.load_image)
+                    # サムネイル右クリックからバッチタグへ送る
+                    if hasattr(self.thumbnail_selector, "stage_selected_requested"):
+                        self.thumbnail_selector.stage_selected_requested.connect(
+                            self.send_selected_to_batch_tag
+                        )
                     logger.info("    ✅ サムネイル→プレビュー接続完了")
                 except Exception as e:
                     logger.error(f"    ❌ サムネイル→プレビュー接続失敗: {e}")
@@ -661,6 +674,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return
 
         current_image_id = self.dataset_state_manager.current_image_id
+        if not self.db_manager:
+            logger.warning("ImageDatabaseManager未初期化 - キャッシュ更新をスキップ")
+            return
+
         if current_image_id:
             try:
                 # DBから最新メタデータ取得
@@ -909,7 +926,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """
         logger.debug("Batch staging cleared")
 
-    def _on_save_requested(self, save_data: dict) -> None:
+    def _on_save_requested(self, save_data: dict[str, Any]) -> None:
         """保存要求シグナルハンドラ（Issue #4）
 
         Args:
@@ -1124,6 +1141,37 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             QMessageBox.warning(
                 self, "エラー", "ExportControllerが初期化されていないため、エクスポートを開始できません。"
             )
+
+    def send_selected_to_batch_tag(self) -> None:
+        """ワークスペースの選択画像をバッチタグのステージングに追加"""
+        if not self.dataset_state_manager:
+            logger.warning("DatasetStateManager not available")
+            QMessageBox.warning(self, "エラー", "データセットが初期化されていません。")
+            return
+
+        batch_tag_widget = getattr(self, "batchTagAddWidget", None)
+        if not batch_tag_widget:
+            logger.warning("BatchTagAddWidget not found")
+            QMessageBox.warning(self, "エラー", "バッチタグ機能が初期化されていません。")
+            return
+
+        selected_ids = self.dataset_state_manager.selected_image_ids
+        if not selected_ids:
+            QMessageBox.information(self, "選択なし", "バッチタグに追加する画像が選択されていません。")
+            return
+
+        # バッチタグタブへ移動してステージングタブを表示
+        if hasattr(self, "tabWidgetMainMode") and self.tabWidgetMainMode:
+            self.tabWidgetMainMode.setCurrentIndex(1)
+        if hasattr(self, "tabWidgetBatchTagWorkflow") and self.tabWidgetBatchTagWorkflow:
+            self.tabWidgetBatchTagWorkflow.setCurrentIndex(0)
+
+        # ステージングに追加
+        if hasattr(batch_tag_widget, "add_selected_images_to_staging"):
+            batch_tag_widget.add_selected_images_to_staging()
+        else:
+            # 互換: 旧実装のクリックハンドラを直接呼び出す
+            batch_tag_widget._on_add_selected_clicked()
 
     def _setup_main_tab_connections(self) -> None:
         """

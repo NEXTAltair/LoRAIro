@@ -152,20 +152,19 @@ class WidgetSetupService:
 
         # バッチタグタブのスプリッター（左:ステージング画像、右:操作パネル）
         if hasattr(main_window, "splitterBatchTag") and main_window.splitterBatchTag:
-            # 初期サイズ設定（左: 60%, 右: 40%）- ステージング画像を広めに
-            main_window.splitterBatchTag.setSizes([600, 400])
-            main_window.splitterBatchTag.setStretchFactor(0, 6)  # 左: ステージング画像
-            main_window.splitterBatchTag.setStretchFactor(1, 4)  # 右: 操作パネル
-            logger.info("✅ splitterBatchTag 初期化完了（ステージング/操作比率60/40）")
+            # 初期サイズ設定（左: 50%, 右: 50%）- 右カラムの詰まりを軽減
+            main_window.splitterBatchTag.setSizes([560, 560])
+            main_window.splitterBatchTag.setStretchFactor(0, 5)  # 左: ステージング画像
+            main_window.splitterBatchTag.setStretchFactor(1, 5)  # 右: 操作パネル
+            logger.info("✅ splitterBatchTag 初期化完了（ステージング/操作比率50/50）")
 
         # バッチタグ操作パネル内のスプリッター（タグ追加/表示/アノテーション）
         if hasattr(main_window, "splitterBatchTagOperations") and main_window.splitterBatchTagOperations:
-            # 初期サイズ設定（上: 30%, 中: 40%, 下: 30%）
-            main_window.splitterBatchTagOperations.setSizes([150, 200, 150])
-            main_window.splitterBatchTagOperations.setStretchFactor(0, 3)  # BatchTagAddWidget
-            main_window.splitterBatchTagOperations.setStretchFactor(1, 4)  # AnnotationDisplay
-            main_window.splitterBatchTagOperations.setStretchFactor(2, 3)  # Annotation group
-            logger.info("✅ splitterBatchTagOperations 初期化完了（タグ追加/表示/アノテーション比率3/4/3）")
+            # 初期サイズ設定（上: 40%, 下: 60%）- タブ(操作) + 表示
+            main_window.splitterBatchTagOperations.setSizes([280, 420])
+            main_window.splitterBatchTagOperations.setStretchFactor(0, 4)  # 操作タブ
+            main_window.splitterBatchTagOperations.setStretchFactor(1, 6)  # AnnotationDisplay
+            logger.info("✅ splitterBatchTagOperations 初期化完了（操作タブ/表示比率4/6）")
 
     @staticmethod
     def setup_batch_tag_tab_widgets(main_window: Any) -> None:
@@ -229,7 +228,18 @@ class WidgetSetupService:
         # BatchTagAddWidget新規作成してプレースホルダーを置換
         widget = BatchTagAddWidget()
         widget.setObjectName("batchTagAddWidget")
-        splitter.replaceWidget(splitter.indexOf(placeholder), widget)
+        index = splitter.indexOf(placeholder)
+        if index != -1:
+            splitter.replaceWidget(index, widget)
+        else:
+            parent = placeholder.parentWidget()
+            if parent and parent.layout():
+                parent.layout().replaceWidget(placeholder, widget)
+                widget.setParent(parent)
+            else:
+                logger.warning("⚠️ batchTagWidgetPlaceholder の置換に失敗しました")
+                return
+
         placeholder.deleteLater()
         logger.debug("🗑️ batchTagWidgetPlaceholder を置換")
 
@@ -254,7 +264,18 @@ class WidgetSetupService:
         # AnnotationDataDisplayWidget新規作成してプレースホルダーを置換
         widget = AnnotationDataDisplayWidget()
         widget.setObjectName("batchTagAnnotationDisplay")
-        splitter.replaceWidget(splitter.indexOf(placeholder), widget)
+        index = splitter.indexOf(placeholder)
+        if index != -1:
+            splitter.replaceWidget(index, widget)
+        else:
+            parent = placeholder.parentWidget()
+            if parent and parent.layout():
+                parent.layout().replaceWidget(placeholder, widget)
+                widget.setParent(parent)
+            else:
+                logger.warning("⚠️ annotationDisplayPlaceholder の置換に失敗しました")
+                return
+
         placeholder.deleteLater()
         logger.debug("🗑️ annotationDisplayPlaceholder を置換")
 
@@ -319,6 +340,7 @@ class WidgetSetupService:
             )
             main_window._annotation_filter_connected = True
             logger.info("✅ フィルター → モデル選択 Signal接続完了")
+
 
     @classmethod
     def setup_all_widgets(cls, main_window: Any, dataset_state_manager: DatasetStateManager | None) -> None:

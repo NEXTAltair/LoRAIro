@@ -7,7 +7,7 @@ MainWindowの結果ハンドラメソッドから抽出（Phase 2.4 Stage 2）�
 from typing import Any
 
 from loguru import logger
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, SignalInstance
 from PySide6.QtWidgets import QMessageBox, QWidget
 
 
@@ -29,7 +29,10 @@ class ResultHandlerService:
         self.parent = parent
 
     def handle_batch_registration_finished(
-        self, result: Any, status_bar: Any | None = None, completion_signal: Signal | None = None
+        self,
+        result: Any,
+        status_bar: Any | None = None,
+        completion_signal: Signal | SignalInstance | None = None,
     ) -> None:
         """バッチ登録完了処理
 

@@ -14,11 +14,14 @@ UI構造 (MainWindow.ui で定義):
         │   ├── splitterMainWorkArea (3分割)
         │   └── frameActionToolbar
         └── Tab 1: tabBatchTag (バッチタグ)
-            ├── groupBoxStagingImages (左カラム)
-            └── groupBoxBatchOperations (右カラム)
-                ├── batchTagWidgetPlaceholder
-                ├── annotationDisplayPlaceholder
-                └── groupBoxAnnotation
+            └── groupBoxBatchOperations (操作パネル)
+                └── splitterBatchTagOperations (垂直)
+                    ├── tabWidgetBatchTagWorkflow
+                    │   ├── tabBatchTagStaging
+                    │   │   └── batchTagWidgetPlaceholder
+                    │   └── tabBatchTagAnnotation
+                    │       └── groupBoxAnnotation
+                    └── annotationDisplayPlaceholder
 
 Note:
     プログラム的なレイアウト構築は廃止され、
@@ -28,6 +31,8 @@ Note:
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
+
+from PySide6.QtCore import QObject
 
 from ...utils.log import logger
 
@@ -48,7 +53,6 @@ class TabReorganizationService:
         "tabWidgetMainMode",
         "tabWorkspace",
         "tabBatchTag",
-        "groupBoxStagingImages",
         "groupBoxBatchOperations",
         "groupBoxAnnotation",
     ]
@@ -79,12 +83,12 @@ class TabReorganizationService:
 
         # 必須ウィジェットの存在確認
         for name in TabReorganizationService.REQUIRED_WIDGETS:
-            if not main_window.findChild(object, name):
+            if not main_window.findChild(QObject, name):
                 missing_widgets.append(name)
 
         # プレースホルダーの存在確認
         for name in TabReorganizationService.REQUIRED_PLACEHOLDERS:
-            if not main_window.findChild(object, name):
+            if not main_window.findChild(QObject, name):
                 missing_placeholders.append(name)
 
         # 結果ログ出力
