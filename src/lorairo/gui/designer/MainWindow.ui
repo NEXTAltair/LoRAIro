@@ -465,28 +465,21 @@
             <number>5</number>
            </property>
            <item>
-            <widget class="QPushButton" name="pushButtonAnnotate">
+            <widget class="QPushButton" name="pushButtonStageToBatchTag">
              <property name="sizePolicy">
               <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
                <horstretch>0</horstretch>
                <verstretch>0</verstretch>
               </sizepolicy>
              </property>
-             <property name="text">
-              <string>アノテーション</string>
+             <property name="minimumWidth">
+              <number>140</number>
              </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QPushButton" name="pushButtonExport">
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
-               <horstretch>0</horstretch>
-               <verstretch>0</verstretch>
-              </sizepolicy>
+             <property name="toolTip">
+              <string>選択中の画像をバッチタグのステージングに追加します</string>
              </property>
              <property name="text">
-              <string>エクスポート</string>
+              <string>選択をステージングへ</string>
              </property>
             </widget>
            </item>
@@ -536,83 +529,98 @@
          <number>8</number>
         </property>
         <item>
-         <widget class="QSplitter" name="splitterBatchTag">
-          <property name="orientation">
-           <enum>Qt::Orientation::Horizontal</enum>
-          </property>
-          <property name="childrenCollapsible">
-           <bool>false</bool>
-          </property>
-          <widget class="QGroupBox" name="groupBoxStagingImages">
-           <property name="title">
-            <string>ステージング画像</string>
-           </property>
-           <layout class="QVBoxLayout" name="verticalLayout_staging">
-            <item>
-             <layout class="QGridLayout" name="gridLayout_staging">
-              <property name="spacing">
-               <number>6</number>
-              </property>
-              <item row="0" column="0">
-               <widget class="QLabel" name="stagingPlaceholder">
-                <property name="text">
-                 <string>ステージング画像がありません</string>
-                </property>
-                <property name="alignment">
-                 <set>Qt::AlignmentFlag::AlignCenter</set>
-                </property>
-               </widget>
-              </item>
-             </layout>
-            </item>
-           </layout>
-          </widget>
-          <widget class="QGroupBox" name="groupBoxBatchOperations">
+         <widget class="QGroupBox" name="groupBoxBatchOperations">
            <property name="title">
             <string>操作</string>
            </property>
            <layout class="QVBoxLayout" name="verticalLayout_operations">
-            <item>
-             <widget class="QSplitter" name="splitterBatchTagOperations">
-              <property name="orientation">
-               <enum>Qt::Orientation::Vertical</enum>
+           <item>
+            <widget class="QSplitter" name="splitterBatchTagOperations">
+             <property name="orientation">
+              <enum>Qt::Orientation::Vertical</enum>
+             </property>
+             <property name="childrenCollapsible">
+              <bool>false</bool>
+             </property>
+             <widget class="QTabWidget" name="tabWidgetBatchTagWorkflow">
+              <property name="currentIndex">
+               <number>0</number>
               </property>
-              <property name="childrenCollapsible">
-               <bool>false</bool>
-              </property>
-              <widget class="QWidget" name="batchTagWidgetPlaceholder" native="true"/>
-              <widget class="QWidget" name="annotationDisplayPlaceholder" native="true"/>
-              <widget class="QGroupBox" name="groupBoxAnnotation">
-               <property name="title">
-                <string>アノテーション</string>
-               </property>
-               <layout class="QVBoxLayout" name="verticalLayout_annotation">
+              <widget class="QWidget" name="tabBatchTagStaging">
+               <attribute name="title">
+                <string>ステージング/タグ追加</string>
+               </attribute>
+               <layout class="QVBoxLayout" name="verticalLayout_batchTagStaging">
+                <property name="leftMargin">
+                 <number>0</number>
+                </property>
+                <property name="topMargin">
+                 <number>0</number>
+                </property>
+                <property name="rightMargin">
+                 <number>0</number>
+                </property>
+                <property name="bottomMargin">
+                 <number>0</number>
+                </property>
                 <item>
-                 <widget class="QLabel" name="labelAnnotationTarget">
-                  <property name="text">
-                   <string>対象: ステージング済み画像</string>
+                 <widget class="QWidget" name="batchTagWidgetPlaceholder" native="true"/>
+                </item>
+               </layout>
+              </widget>
+              <widget class="QWidget" name="tabBatchTagAnnotation">
+               <attribute name="title">
+                <string>アノテーション設定</string>
+               </attribute>
+               <layout class="QVBoxLayout" name="verticalLayout_batchTagAnnotation">
+                <property name="leftMargin">
+                 <number>0</number>
+                </property>
+                <property name="topMargin">
+                 <number>0</number>
+                </property>
+                <property name="rightMargin">
+                 <number>0</number>
+                </property>
+                <property name="bottomMargin">
+                 <number>0</number>
+                </property>
+                <item>
+                 <widget class="QGroupBox" name="groupBoxAnnotation">
+                  <property name="title">
+                   <string>アノテーション</string>
                   </property>
-                 </widget>
-                </item>
-                <item>
-                 <widget class="QWidget" name="annotationFilterPlaceholder" native="true"/>
-                </item>
-                <item>
-                 <widget class="QWidget" name="modelSelectionPlaceholder" native="true"/>
-                </item>
-                <item>
-                 <widget class="QPushButton" name="btnAnnotationExecute">
-                  <property name="text">
-                   <string>アノテーション実行</string>
-                  </property>
+                  <layout class="QVBoxLayout" name="verticalLayout_annotation">
+                   <item>
+                    <widget class="QLabel" name="labelAnnotationTarget">
+                     <property name="text">
+                      <string>対象: ステージング済み画像</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QWidget" name="annotationFilterPlaceholder" native="true"/>
+                   </item>
+                   <item>
+                    <widget class="QWidget" name="modelSelectionPlaceholder" native="true"/>
+                   </item>
+                   <item>
+                    <widget class="QPushButton" name="btnAnnotationExecute">
+                     <property name="text">
+                      <string>アノテーション実行</string>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
                  </widget>
                 </item>
                </layout>
               </widget>
              </widget>
-            </item>
-           </layout>
-          </widget>
+             <widget class="QWidget" name="annotationDisplayPlaceholder" native="true"/>
+            </widget>
+           </item>
+          </layout>
          </widget>
         </item>
        </layout>
@@ -843,26 +851,10 @@
    </hints>
   </connection>
   <connection>
-   <sender>pushButtonAnnotate</sender>
+   <sender>pushButtonStageToBatchTag</sender>
    <signal>clicked()</signal>
    <receiver>MainWindow</receiver>
-   <slot>start_annotation()</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>100</x>
-     <y>764</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>701</x>
-     <y>457</y>
-    </hint>
-   </hints>
-  </connection>
-  <connection>
-   <sender>pushButtonExport</sender>
-   <signal>clicked()</signal>
-   <receiver>MainWindow</receiver>
-   <slot>export_data()</slot>
+   <slot>send_selected_to_batch_tag()</slot>
    <hints>
     <hint type="sourcelabel">
      <x>200</x>
@@ -896,5 +888,6 @@
   <slot>open_settings()</slot>
   <slot>start_annotation()</slot>
   <slot>export_data()</slot>
+  <slot>send_selected_to_batch_tag()</slot>
  </slots>
 </ui>
