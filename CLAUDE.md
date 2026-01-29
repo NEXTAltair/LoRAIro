@@ -517,7 +517,7 @@ Claude Code のネイティブ Plan Mode と custom `/planning` コマンドの�
 
 ### Agents（コマンド内で自動使用）
 - **investigation**: コードベース調査・分析（serena semantic search活用）
-- **library-research**: 技術研究（Context7/公式ドキュメント経由）
+- **library-research**: 技術研究（web検索 + Moltbot補強。保存時にContext7/Perplexityでブラッシュアップ）
 - **solutions**: 多角的問題解決・アプローチ評価
 - **code-formatter**: コード品質管理（Ruff統合）
 
