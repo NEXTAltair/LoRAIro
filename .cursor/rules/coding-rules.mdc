@@ -14,15 +14,15 @@ AI はコードを生成・編集する際、以下のルールに**厳守**す�
 - **可読性:** 常に読みやすく、理解しやすいコードを記述すること。
 - **YAGNI原則:** 「後で使うかもしれない」機能は実装せず、現時点で必要な最小限の機能のみを実装すること。
 - **半角文字:** コード、コメント、ドキュメント内では、**絶対に全角英数字や全角記号を使用しないこと**。記号は原則として半角を使用すること。
-- **参照:** コーディング時は `.serena/memories/`（例: `architecture_structure`, `development_guidelines`, `project_overview`）や Cipher 長期記憶を検索して最新情報を取得すること。
-- **変更の記録** 既存の設計を変更した場合は `.serena/memories/`（必要に応じて Cipher 記憶）を更新し、理由と影響範囲を明記すること。
+- **参照:** コーディング時は `.serena/memories/`（例: `architecture_structure`, `development_guidelines`, `project_overview`）や Moltbot LTM を検索して最新情報を取得すること。
+- **変更の記録** 既存の設計を変更した場合は `.serena/memories/`（必要に応じて Moltbot LTM）を更新し、理由と影響範囲を明記すること。
 
 ## ライブラリ情報: lorairo
 
 - **目的:** 画像評価、タグ付け、関連処理を行う統合ライブラリとして機能させること。
 - **管理:** `pyproject.toml` で管理し、`uv sync` でインストール可能とすること。
-- **参照:** コーディング時は `.serena/memories/`（`image_annotator_lib_completion_master_plan`、`architecture_structure` 等）および Cipher 長期記憶を参照して既存情報を取得すること。
-- **更新:** 処理システムの変更時は該当する `.serena/memories/` と Cipher 記憶に変更内容を反映すること｡
+- **参照:** コーディング時は `.serena/memories/`（`image_annotator_lib_completion_master_plan`、`architecture_structure` 等）および Moltbot LTM を参照して既存情報を取得すること。
+- **更新:** 処理システムの変更時は該当する `.serena/memories/` と Moltbot LTM に変更内容を反映すること｡
 
 ## 開発環境
 
@@ -78,7 +78,7 @@ AI はコードを生成・編集する際、以下のルールに**厳守**す�
     - `XXX`: 特別な注意や再考が必要な箇所
     - `[ ]`: 未完了のタスク
     - `[x]`: 完了したタスク
-- **ドキュメント更新:** コード変更時は、関連する docstring や `.serena/memories/`（必要に応じて Cipher 記憶）を適切に**更新すること**。
+- **ドキュメント更新:** コード変更時は、関連する docstring や `.serena/memories/`（必要に応じて Moltbot LTM）を適切に**更新すること**。
 
 ## 開発プロセス
 

@@ -23,7 +23,7 @@
    - Identify common patterns to follow
 
    **Phase 2: Check Memory for Patterns**
-   - `mcp__cipher__cipher_memory_search` for "repository pattern"
+   - `lorairo-mem ltm_search.py` for "repository pattern"
    - Look for past repository implementations
    - Review design decisions
 
@@ -72,7 +72,7 @@ After running this scenario:
    - Used `find_symbol` to examine ImageRepository or TagRepository
    - Analyzed existing patterns before implementing
 3. Check memory integration:
-   - Searched Cipher for repository patterns
+   - Searched Moltbot for repository patterns
    - Applied past knowledge to new implementation
 4. Verify repository structure:
    ```python

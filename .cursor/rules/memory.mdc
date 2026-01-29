@@ -1,5 +1,5 @@
 ---
-description: プロジェクト全体コンテキストの索引用（詳細は .serena/memories/ および Cipher 記憶を参照）
+description: プロジェクト全体コンテキストの索引用（詳細は .serena/memories/ および Moltbot LTM を参照）
 globs:
 alwaysApply: false
 ---
@@ -7,15 +7,15 @@ alwaysApply: false
 
 このファイルは簡易インデックスです。詳細は以下を参照してください。
 
-- 設計/仕様/技術詳細: `.serena/memories/`（長期的な内容は必要に応じて Cipher 記憶へ移送）
+- 設計/仕様/技術詳細: `.serena/memories/`（長期的な内容は必要に応じて Moltbot LTM へ移送）
 - 開発メモリ（短期）: `.serena/memories/`（serena による要約・差分・計画草案）
 - 人間の計画/進行: `.serena/memories/`（例: `active-development-tasks`, `current-project-status`）
 
 運用ポリシー要約:
 - serena は `.serena/memories/` にのみ書き込み。
-- Cipher 記憶は長期知識の保存と検索に利用する。
-- 参照の優先順位: `.serena/memories/` → Cipher 記憶。
+- Moltbot LTM は長期知識の保存と検索に利用する。
+- 参照の優先順位: `.serena/memories/` → Moltbot LTM。
 - 詳細ルール: `.cursor/rules/mcp-usage-rules.mdc`
 
 補足:
-- 旧来のファイルベース記録（`docs/`, `tasks/`）は廃止済み。必要な情報は `.serena/memories/` と Cipher 記憶を検索してください。
+- 旧来のファイルベース記録（`docs/`, `tasks/`）は廃止済み。必要な情報は `.serena/memories/` と Moltbot LTM を検索してください。

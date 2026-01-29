@@ -12,11 +12,10 @@
 ## Expected Behavior
 1. Skill `context7-moltbot-research` should be invoked automatically
 2. Should use tools (complex multi-tool workflow):
-   - `mcp__cipher__resolve-library-id` for both Pydantic AI and LangChain
-   - `mcp__cipher__get-library-docs` for each library (multiple calls)
-   - `mcp__cipher__perplexity_ask` for comparisons and trade-offs
-   - `mcp__cipher__cipher_memory_search` to check if we've evaluated these before
+   - `web.run search_query` for official docs and comparisons
+   - `lorairo-mem ltm_search.py` to check if we've evaluated these before
    - Optional: `mcp__serena__find_symbol` to understand current annotation implementation
+   - Optional: store decision summary to Moltbot LTM (Moltbot will refine)
 3. Should produce:
    - Detailed comparison table (features, pros/cons)
    - Integration complexity assessment for each option
@@ -46,10 +45,9 @@
 After running this scenario:
 1. Verify skill invoked: Check `context7-moltbot-research` in metadata
 2. Check tool usage sequence (complex workflow):
-   - Library resolution: `resolve-library-id` for both libraries
-   - Documentation fetch: `get-library-docs` (multiple calls)
-   - Comparison research: `perplexity_ask` for trade-offs
-   - Memory check: `cipher_memory_search` for past evaluations
+   - Documentation fetch: `web.run search_query` (multiple queries)
+   - Comparison research: `web.run search_query` for trade-offs
+   - Memory check: `ltm_search.py` for past evaluations
    - Code exploration: `mcp__serena__find_symbol` (optional)
 3. Verify output completeness:
    - Comparison covers key dimensions (API, complexity, performance)
@@ -62,11 +60,11 @@ After running this scenario:
    - Acknowledges trade-offs
    - Actionable for implementation
 5. Check timeout handling:
-   - If Cipher times out, should fallback gracefully
+   - If Moltbot times out, should fallback gracefully
    - Should still provide partial results if possible
 
 ## Edge Cases to Test
-- One library has no Context7 documentation (should use perplexity or web search)
+- One library has no official docs found (should use web.run search_query)
 - Memory search returns conflicting past decisions (should acknowledge and explain)
 - Both libraries are equally viable (should present trade-offs clearly)
 - Current implementation uses neither library (should consider migration cost)
