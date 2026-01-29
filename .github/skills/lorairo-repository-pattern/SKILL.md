@@ -2,6 +2,8 @@
 name: lorairo-repository-pattern
 version: "1.0.0"
 description: SQLAlchemy repository pattern implementation guide for LoRAIro database operations with type-safe transactions, session management, and ORM best practices. Use when creating new repositories, implementing database access layers, or following LoRAIro's data persistence patterns.
+metadata:
+  short-description: LoRAIro向けSQLAlchemyリポジトリ実装（トランザクション、セッション、ORM）。
 allowed-tools:
   # Code exploration (recommended)
   - mcp__serena__find_symbol
@@ -9,12 +11,13 @@ allowed-tools:
   - mcp__serena__find_referencing_symbols
   # Memory (design patterns)
   - mcp__serena__read_memory
-  - mcp__cipher__cipher_memory_search
   # Fallback
   - Read
   - Write
   - Edit
-dependencies: []
+  - Bash
+dependencies:
+  - lorairo-mem
 ---
 
 # LoRAIro Repository Pattern
@@ -205,8 +208,8 @@ SQLite Database
 ## Memory-First Workflow
 
 ### Before Implementation
-1. **Search past patterns (Cipher):**
-   - `mcp__cipher__cipher_memory_search(query="repository pattern sqlalchemy")` → Past repository implementations
+1. **Search past patterns (Moltbot LTM):**
+   - `python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<< '{"filters":{"tags":["repository-pattern","sqlalchemy"]}}'` → Past repository implementations
 2. **Check project status (Serena):**
    - `mcp__serena__read_memory("current-project-status")` → Current database schema
 3. **Explore existing repositories (Serena):**
@@ -226,16 +229,20 @@ mcp__serena__write_memory(
 ```
 
 ### After Implementation
-**Store knowledge (Cipher):**
-```markdown
-mcp__cipher__cipher_extract_and_operate_memory(
-  interaction="Implemented {Entity}Repository with:
-  - Session management via context manager
-  - Type-safe search criteria using dataclass
-  - Transaction safety for batch operations
-  - Comprehensive error handling with logging",
-  memoryMetadata={"projectId": "lorairo", "domain": "backend"}
-)
+**Store knowledge (Moltbot LTM):**
+```bash
+curl -sS -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
+  -H "Authorization: Bearer $HOOK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "LoRAIro {Entity}Repository Implementation",
+    "summary": "Session management via context manager, type-safe search criteria using dataclass",
+    "body": "# Implementation Details\n\n- Session management via context manager\n- Type-safe search criteria using dataclass\n- Transaction safety for batch operations\n- Comprehensive error handling with logging",
+    "type": "decision",
+    "importance": "Medium",
+    "tags": ["repository-pattern", "sqlalchemy", "database"],
+    "source": "Container"
+  }'
 ```
 
 See [mcp-memory-first-development](../mcp-memory-first-development/SKILL.md) for complete workflow.
