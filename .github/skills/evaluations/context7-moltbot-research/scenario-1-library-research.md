@@ -10,7 +10,7 @@
 - Expected research time: 10-30 seconds
 
 ## Expected Behavior
-1. Skill `mcp-cipher-complex-analysis` should be invoked automatically
+1. Skill `context7-moltbot-research` should be invoked automatically
 2. Should use tools (in sequence):
    - `mcp__cipher__resolve-library-id` to find Polars library ID (e.g., `/pola-rs/polars`)
    - `mcp__cipher__get-library-docs` with appropriate topic (e.g., "parquet", "dataframe")
@@ -25,7 +25,7 @@
    - Guess API without verification
 
 ## Success Criteria
-- [x] Correct skill invoked (mcp-cipher-complex-analysis)
+- [x] Correct skill invoked (context7-moltbot-research)
 - [x] Tools used efficiently (resolve-library-id → get-library-docs)
 - [x] Output meets requirements (accurate Polars API docs)
 - [x] Completes without errors
@@ -39,7 +39,7 @@
 
 ## Test Validation
 After running this scenario:
-1. Verify skill invoked: Check `mcp-cipher-complex-analysis` in metadata
+1. Verify skill invoked: Check `context7-moltbot-research` in metadata
 2. Check tool usage sequence:
    - `mcp__cipher__resolve-library-id` with query like "polars" or "pola-rs"
    - `mcp__cipher__get-library-docs` with library ID and topic

@@ -10,7 +10,7 @@
 - Requires both library docs research AND memory search for past decisions
 
 ## Expected Behavior
-1. Skill `mcp-cipher-complex-analysis` should be invoked automatically
+1. Skill `context7-moltbot-research` should be invoked automatically
 2. Should use tools (complex multi-tool workflow):
    - `mcp__cipher__resolve-library-id` for both Pydantic AI and LangChain
    - `mcp__cipher__get-library-docs` for each library (multiple calls)
@@ -29,7 +29,7 @@
    - Provide outdated comparison (should use current library versions)
 
 ## Success Criteria
-- [x] Correct skill invoked (mcp-cipher-complex-analysis)
+- [x] Correct skill invoked (context7-moltbot-research)
 - [x] Tools used efficiently (multi-tool integration)
 - [x] Output meets requirements (comprehensive comparison)
 - [x] Completes without errors (even with multiple tool calls)
@@ -44,7 +44,7 @@
 
 ## Test Validation
 After running this scenario:
-1. Verify skill invoked: Check `mcp-cipher-complex-analysis` in metadata
+1. Verify skill invoked: Check `context7-moltbot-research` in metadata
 2. Check tool usage sequence (complex workflow):
    - Library resolution: `resolve-library-id` for both libraries
    - Documentation fetch: `get-library-docs` (multiple calls)
