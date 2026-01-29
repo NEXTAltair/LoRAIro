@@ -80,6 +80,11 @@
     // 検索設定
     "search.useIgnoreFiles": false,
 
+    // WSL UNC アクセス許可
+    "security.allowedUNCHosts": [
+      "wsl.localhost"
+    ],
+
     // Git 設定
     "git.autofetch": true,
     "makefile.configureOnOpen": false,
@@ -176,5 +181,8 @@
   // Extensions managed by devcontainer.json
   "extensions": {
     "recommendations": []
-  }
+  },
+  "security.allowedUNCHosts": [
+    "wsl.localhost"
+  ],
 }
