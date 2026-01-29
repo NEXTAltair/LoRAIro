@@ -17,7 +17,8 @@
 - **MCPエージェントの役割分担**:
   - **Serena**: コード/ドキュメントの読解、シンボル検索、要約、差分把握（高速・1秒未満）
   - **Moltbot LTM**: 長期記憶、設計知識の永続化、過去の判断結果参照（Notion DB経由）
-  - **Context7**: ライブラリドキュメント取得（直接アクセス）
+  - **Web検索 + Moltbot補強**: ライブラリドキュメント取得（WebSearch/web.run → LTM保存時にMoltbotがContext7/Perplexityで補強）
+  - **Note**: Context7 MCPは直接使用しない（Claude Code/Codex共通）
 
 - **メモリ管理**:
   - 短期メモリ: `.serena/memories/`（Serenaが管理、プロジェクト固有）
