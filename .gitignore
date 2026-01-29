@@ -140,8 +140,6 @@ reports/
 .serena/cache/python/document_symbols_cache_v23-06-25.pkl
 
 # 開発用ツール（サブモジュールではないため除外）
-cipher/
-data/cipher*
 data/
 .clinerules/byterover-rules.md
 .kilocode/rules/byterover-rules.md
