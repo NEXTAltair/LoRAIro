@@ -12,7 +12,7 @@
     "message": "ドキュメント優先ルールを無視してない？"
   },
   "MCP統合環境ルール": {
-    "keywords": ["use context7", "直接context7"],
-    "message": "Context7はCipher経由で使用"
+    "keywords": [],
+    "message": "Context7は直接使用可能"
   }
 }
