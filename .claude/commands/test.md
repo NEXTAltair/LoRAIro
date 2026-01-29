@@ -1,5 +1,5 @@
 ---
-allowed-tools: mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, mcp__serena__search_for_pattern, mcp__serena__read_memory, mcp__serena__write_memory, cipher_memory_search, cipher_store_reasoning_memory, cipher_extract_entities, cipher_query_graph, Read, Edit, Write, Bash, TodoWrite, Task
+allowed-tools: mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, mcp__serena__search_for_pattern, mcp__serena__read_memory, mcp__serena__write_memory, Read, Edit, Write, Bash, TodoWrite, Task
 description: 実装コードのテスト・検証を実行します。クイックチェック（Ruff/mypy/pytest）から包括的テストまで対応。
 
 ---
@@ -93,7 +93,7 @@ implement フェーズで実装された上記機能について、ユニット�
 過去のテストパターンと現在のプロジェクト状況を確認：
 - 詳細なMemory-Firstワークフローは **mcp-memory-first-development** Skill参照
 - 高速Memory操作は **mcp-serena-fast-ops** Skill参照
-- 複雑な分析は **mcp-cipher-complex-analysis** Skill参照
+- ライブラリ調査とMoltbot LTM活用は **context7-moltbot-research** Skill参照
 
 テスト準備タスク:
 1. implement フェーズの実装結果確認
@@ -238,7 +238,8 @@ implement フェーズで実装された上記機能について、ユニット�
 ## 必読ファイル
 
 - **Serena Memory**: `mcp__serena__read_memory` でプロジェクト固有の実装結果確認
-- **Cipher Memory**: `cipher_memory_search` で類似実装のテスト履歴参照- `.cursor/rules/test_rules/testing-rules.mdc` - テスト方針・基準
+- **Moltbot LTM**: `ltm_search.py` で類似実装のテスト履歴参照
+- `.cursor/rules/test_rules/testing-rules.mdc` - テスト方針・基準
 - `pyproject.toml` - テスト設定・カバレッジ設定
 - `tests/` - 既存テスト構造・パターン
 - `tests/resources/` - テストリソース・データ
@@ -308,6 +309,6 @@ implement フェーズで実装された上記機能について、ユニット�
 このコマンドでは以下のSkillsを活用してメモリー管理を効率化します：
 - **mcp-memory-first-development**: Memory-First開発ワークフロー
 - **mcp-serena-fast-ops**: 高速テスト分析とMemory操作
-- **mcp-cipher-complex-analysis**: テスト知識の長期記憶化
+- **context7-moltbot-research**: ライブラリ調査とMoltbot LTM（長期記憶）
 
 詳細な使い方は各SkillのSKILL.mdを参照してください。

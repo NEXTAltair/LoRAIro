@@ -52,7 +52,7 @@ PostToolUse hook による自動同期が既に設定されていますが、以
 ### 6. 確認と次ステップ提示
 15. 同期されたメモリファイル名を表示
 16. 他の Agent からの参照方法を説明
-17. （オプション）Cipher Memory への抽出を提案
+17. （オプション）Moltbot LTM への抽出を提案
 
 ## 出力フォーマット
 
@@ -84,7 +84,7 @@ PostToolUse hook による自動同期が既に設定されていますが、以
 
 📋 Next steps:
 - 他のAgentから参照: mcp__serena__read_memory("plan_moonlit_munching_yeti_2025_12_21")
-- 実装後、重要な設計決定を Cipher Memory に抽出することを推奨
+- 実装後、重要な設計決定を Moltbot LTM に抽出することを推奨
 ```
 
 ### 例2: 特定のplanを同期
@@ -121,7 +121,7 @@ Please check:
 
 1. **Serena Memory のみ**:
    - このコマンドは Serena Memory（短期、プロジェクト固有）にのみ保存
-   - Cipher Memory（長期、クロスプロジェクト）への保存は手動で実行
+   - Moltbot LTM（長期、クロスプロジェクト）への保存は手動で実行
 
 2. **上書き動作**:
    - 同じ日付・トピックの Memory が存在する場合、確認後に上書き
@@ -134,7 +134,7 @@ Please check:
 
 ## 関連コマンド
 
-- `/planning`: 包括的な設計フェーズ（Cipher Memory に直接保存）
+- `/planning`: 包括的な設計フェーズ（Moltbot LTM に直接保存）
 - Plan Mode: Claude Code ネイティブ機能（このコマンドで同期可能）
 
 ## 技術仕様
@@ -158,5 +158,5 @@ plan_{sanitized_topic}_{YYYY_MM_DD}.md
 1. Plan Mode または `/planning` で計画策定
 2. （Auto-sync または手動で）Serena Memory に同期
 3. 実装中、Memory を参照しながら開発
-4. 実装完了後、重要な設計決定を Cipher Memory に抽出
+4. 実装完了後、重要な設計決定を Moltbot LTM に抽出
 5. Memory-First workflow の Phase 3 として知識を永続化

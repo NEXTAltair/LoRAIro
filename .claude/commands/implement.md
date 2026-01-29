@@ -1,5 +1,5 @@
 ---
-allowed-tools: mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__replace_symbol_body, mcp__serena__insert_after_symbol, mcp__serena__insert_before_symbol, mcp__serena__replace_regex, mcp__serena__get_symbols_overview, mcp__serena__think_about_task_adherence, mcp__serena__think_about_whether_you_are_done, mcp__serena__read_memory, mcp__serena__write_memory, cipher_memory_search, cipher_store_reasoning_memory, cipher_extract_entities, cipher_query_graph, Read, Edit, MultiEdit, Write, Bash, TodoWrite, Task
+allowed-tools: mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__replace_symbol_body, mcp__serena__insert_after_symbol, mcp__serena__insert_before_symbol, mcp__serena__replace_regex, mcp__serena__get_symbols_overview, mcp__serena__think_about_task_adherence, mcp__serena__think_about_whether_you_are_done, mcp__serena__read_memory, mcp__serena__write_memory, Read, Edit, MultiEdit, Write, Bash, TodoWrite, Task
 description: plan フェーズで策定された実装計画に基づき、LoRAIro プロジェクトの実際のコード実装を行います。
 ---
 
@@ -36,7 +36,7 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 過去の実装パターンと現在のプロジェクト状況を確認：
 - 詳細なMemory-Firstワークフローは **mcp-memory-first-development** Skill参照
 - 高速Memory操作は **mcp-serena-fast-ops** Skill参照
-- 複雑な分析は **mcp-cipher-complex-analysis** Skill参照
+- 複雑な分析は **context7-moltbot-research** Skill参照
 
 実装前タスク:
 1. plan フェーズの実装計画を詳細確認
@@ -242,6 +242,6 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 このコマンドでは以下のSkillsを活用してメモリー管理を効率化します：
 - **mcp-memory-first-development**: Memory-First開発ワークフロー
 - **mcp-serena-fast-ops**: 高速コード編集とMemory操作
-- **mcp-cipher-complex-analysis**: 実装知識の長期記憶化
+- **context7-moltbot-research**: ライブラリ調査とMoltbot LTM（長期記憶）
 
 詳細な使い方は各SkillのSKILL.mdを参照してください。

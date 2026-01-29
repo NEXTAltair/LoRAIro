@@ -1,5 +1,5 @@
 ---
-allowed-tools: mcp__serena__search_for_pattern, mcp__serena__find_file, mcp__serena__list_dir, mcp__serena__read_memory, mcp__serena__write_memory, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, cipher_memory_search, cipher_store_reasoning_memory, cipher_extract_entities, cipher_query_graph, Read, Bash, TodoWrite, WebSearch, WebFetch, Task
+allowed-tools: mcp__serena__search_for_pattern, mcp__serena__find_file, mcp__serena__list_dir, mcp__serena__read_memory, mcp__serena__write_memory, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, Read, Bash, TodoWrite, WebSearch, WebFetch, Task
 description: 実装予定機能に対する既存ライブラリ・ツールの徹底調査コマンド(要件明確化ヒアリング付き)
 ---
 # Check Existing Solutions
@@ -21,7 +21,7 @@ description: 実装予定機能に対する既存ライブラリ・ツールの�
 過去の類似調査結果を確認し、効率的な調査を開始します：
 - 詳細なMemory-Firstワークフローは **mcp-memory-first-development** Skill参照
 - 高速Memory操作は **mcp-serena-fast-ops** Skill参照
-- 複雑な分析は **mcp-cipher-complex-analysis** Skill参照
+- ライブラリ調査とMoltbot LTM活用は **context7-moltbot-research** Skill参照
 
 ### Phase 2: 戦略的要件明確化ヒアリング
 
@@ -80,7 +80,7 @@ description: 実装予定機能に対する既存ライブラリ・ツールの�
 
 ### Phase 4: Web検索中心の包括的調査
 
-**戦略的Web検索とCipher統合による徹底的な既存解決策発見:**
+**戦略的Web検索とContext7 + Moltbot LTM統合による徹底的な既存解決策発見:**
 
 #### 4.1 段階的Web検索戦略
 ##### 第1段階: 基本キーワード検索
@@ -98,9 +98,9 @@ description: 実装予定機能に対する既存ライブラリ・ツールの�
 - **GitHubトレンド**: `WebSearch` で "trending [機能名] python repositories"
 - **技術ブログ**: `WebSearch` で "[機能名] python tutorial blog 2024"
 
-#### 4.2 Cipher統合による多角的分析
-- **包括的技術調査**: Cipher経由でWebSearch + context7 + perplexity-askを統合活用
-- **リアルタイム情報**: 最新のライブラリ動向と技術トレンドの把握
+#### 4.2 Context7 + Moltbot LTM統合による多角的分析
+- **包括的技術調査**: Context7経由でライブラリドキュメント + WebSearchを統合活用
+- **過去の調査参照**: Moltbot LTM で類似調査の履歴を確認
 - **クロス検証**: 複数ソースからの情報を統合して信頼性確認
 
 #### 4.3 専門エージェント活用
@@ -162,7 +162,7 @@ description: 実装予定機能に対する既存ライブラリ・ツールの�
 - **既存活用**: [部分的に使える機能・ライブラリ]
 
 ## 知識蓄積完了
-- **Cipher記憶**: 長期参照用のライブラリ評価知識として保存済み
+- **Moltbot LTM**: 長期参照用のライブラリ評価知識として保存済み
 - **Serena記憶**: プロジェクト固有の要件・結論として保存済み
 ```
 
@@ -189,6 +189,6 @@ AI: AI画像解析について詳しく確認させてください...
 このコマンドでは以下のSkillsを活用してメモリー管理を効率化します：
 - **mcp-memory-first-development**: Memory-First開発ワークフロー
 - **mcp-serena-fast-ops**: 高速Memory操作とコード検索
-- **mcp-cipher-complex-analysis**: ライブラリ研究と長期記憶化
+- **context7-moltbot-research**: ライブラリ研究とMoltbot LTM（長期記憶）
 
 詳細な使い方は各SkillのSKILL.mdを参照してください。

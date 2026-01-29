@@ -1,24 +1,24 @@
 ---
 name: mcp-memory-first-development
-version: "1.0.0"
-description: Memory-First development workflow integrating Serena short-term project memory and Cipher long-term design knowledge for efficient development. Use this skill to guide the 3-phase workflow (Before → During → After implementation) with proper memory management.
+version: "2.0.0"
+description: Memory-First development workflow integrating Serena short-term project memory and Moltbot long-term design knowledge (Notion DB) for efficient development. Use this skill to guide the 3-phase workflow (Before → During → After implementation) with proper memory management.
+metadata:
+  short-description: メモリファースト開発（Serena短期＋Moltbot長期LTM）で効率化。
 allowed-tools:
   # Serena memory (short-term)
   - mcp__serena__read_memory
   - mcp__serena__write_memory
   - mcp__serena__list_memories
   - mcp__serena__edit_memory
-  # Cipher memory (long-term)
-  - mcp__cipher__cipher_memory_search
-  - mcp__cipher__cipher_extract_and_operate_memory
-  - mcp__cipher__cipher_workspace_search
-  - mcp__cipher__cipher_workspace_store
-dependencies: []
+  # Moltbot LTM (long-term, via lorairo-mem skill)
+  - Bash
+dependencies:
+  - lorairo-mem
 ---
 
 # Memory-First Development
 
-Integrates Serena short-term project memory and Cipher long-term design knowledge for efficient development workflow.
+Integrates Serena short-term project memory and Moltbot long-term design knowledge (Notion DB) for efficient development workflow.
 
 ## When to Use
 
@@ -47,7 +47,7 @@ Use this skill to guide development with proper memory management:
 └─────────────────────────────────────────────┘
             ↓ (filter & consolidate)
 ┌─────────────────────────────────────────────┐
-│ Cipher Memory (Long-Term, Design Knowledge) │
+│ Moltbot LTM (Long-Term, Notion DB)         │
 ├─────────────────────────────────────────────┤
 │ • Design approaches and rationale           │
 │ • Architectural intent and background       │
@@ -57,10 +57,10 @@ Use this skill to guide development with proper memory management:
 │ • Technology selection criteria and results │
 ├─────────────────────────────────────────────┤
 │ Characteristics:                            │
-│ • Persistent (project-wide reference)       │
-│ • Searchable (discover past cases)          │
-│ • Reusable (applicable to other projects)   │
-│ • Structured (title, context, decisions)    │
+│ • Persistent (Notion DB, hash de-duped)     │
+│ • Searchable (filter + free-text query)     │
+│ • Structured (title, summary, body, type)   │
+│ • Shared (accessible from any environment)  │
 └─────────────────────────────────────────────┘
 ```
 
@@ -70,11 +70,11 @@ Use this skill to guide development with proper memory management:
 **Lifecycle:** Temporary (archive or delete after task completion)
 **Scope:** Project-specific (LoRAIro only)
 
-### Cipher Memory (Long-Term)
-**Purpose:** Reusable design pattern assets
-**Access:** 10-15s (via semantic search)
-**Lifecycle:** Persistent (project-wide, cross-project reference)
-**Scope:** Universal (applicable to future projects)
+### Moltbot LTM (Long-Term)
+**Purpose:** Reusable design pattern assets stored in Notion
+**Access:** 1-3s (HTTP webhook)
+**Lifecycle:** Persistent (Notion DB, hash-based de-duplication)
+**Scope:** Shared across environments (Container, WSL, CI)
 
 ## Memory-First Development Cycle
 
@@ -87,11 +87,19 @@ Use this skill to guide development with proper memory management:
    - `mcp__serena__list_memories()` → Available memories
    - `mcp__serena__read_memory("current-project-status")` → Current branch, latest changes, next priorities
 
-2. **Search past implementations (Cipher):**
-   - `mcp__cipher__cipher_memory_search(query="implementation keywords")` → Past design patterns, approaches, lessons learned
+2. **Search past implementations (Moltbot LTM):**
+   ```bash
+   python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
+   {"limit": 10, "filters": {"type": ["decision", "howto"], "tags": ["implementation-keyword"]}}
+   JSON
+   ```
 
-3. **Search workspace context (Cipher):**
-   - `mcp__cipher__cipher_workspace_search(query="project context")` → Team progress, bugs, collaboration history
+3. **Check latest LTM entries:**
+   ```bash
+   python3 .github/skills/lorairo-mem/scripts/ltm_latest.py <<'JSON'
+   {"limit": 5}
+   JSON
+   ```
 
 **Outcome:** Start implementation efficiently with existing knowledge
 
@@ -117,11 +125,26 @@ Use this skill to guide development with proper memory management:
 
 **Goal:** Persist implementation knowledge as future development asset
 
-**Long-Term Storage (Cipher):**
+**Long-Term Storage (Moltbot LTM):**
 - **When:** Feature completion, refactoring completion, after major technical decisions
-- **Tool:** `mcp__cipher__cipher_extract_and_operate_memory(interaction, memoryMetadata)`
-- **Alternative:** `mcp__cipher__cipher_workspace_store(interaction)` for team context
-- **Template:** See [memory-templates.md](./memory-templates.md) for Cipher template
+- **Tool:** `POST /hooks/lorairo-memory` via curl (see lorairo-mem skill)
+- **Template:** See [memory-templates.md](./memory-templates.md) for LTM template
+
+**Write example:**
+```bash
+curl -sS -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
+  -H "Authorization: Bearer $HOOK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "LoRAIro [Feature] Implementation",
+    "summary": "Design approach and lessons learned",
+    "body": "# Implementation Overview\n\n## Design Approach\n...",
+    "type": "decision",
+    "importance": "High",
+    "tags": ["architecture", "pattern-name"],
+    "source": "Container"
+  }'
+```
 
 **Content to Store:**
 - Implementation overview and motivation
@@ -141,7 +164,7 @@ Use this skill to guide development with proper memory management:
 - `debug_{issue}_{YYYY_MM_DD}` - Debug information and solutions
 - `archived_{name}` - Completed task archive
 
-### Cipher Memory (Long-Term)
+### Moltbot LTM (Long-Term)
 **Title Format:** "LoRAIro [Feature] [Content] Design/Implementation"
 
 **Examples:**
@@ -149,7 +172,14 @@ Use this skill to guide development with proper memory management:
 - "LoRAIro Repository Pattern Database Design"
 - "LoRAIro QRunnable Async Processing Implementation"
 
-**Tags:** Technical domain, feature area, technology stack
+**Type mapping:**
+- `decision` - Architectural decisions, technology selection
+- `howto` - Implementation patterns, best practices
+- `note` - Implementation records, progress milestones
+- `reference` - Technical specifications, API documentation
+- `bug` - Issue resolutions, debugging lessons
+
+**Tags:** Technical domain, feature area, technology stack (free-form, lowercased)
 
 ## Workflow Integration
 
@@ -157,16 +187,15 @@ Use this skill to guide development with proper memory management:
 ```
 Development Task
 ├─ Before starting?
-│  ├─ list_memories → check available memories
-│  ├─ read_memory → review current status
-│  └─ cipher_memory_search → find past patterns
+│  ├─ list_memories → check available memories (Serena)
+│  ├─ read_memory → review current status (Serena)
+│  └─ ltm_search.py → find past patterns (Moltbot)
 ├─ During implementation?
 │  ├─ write_memory → record progress (Serena)
 │  ├─ write_memory → record decisions (Serena)
 │  └─ edit_memory → update existing notes (Serena)
 └─ After completion?
-   ├─ cipher_extract_and_operate_memory → store knowledge
-   ├─ cipher_workspace_store → store team context
+   ├─ POST /hooks/lorairo-memory → store knowledge (Moltbot)
    └─ write_memory → update project status (Serena)
 ```
 
@@ -179,7 +208,7 @@ Development Task
 
 **Recording Timing:**
 - **Serena write:** After important decisions, work breakpoints, before interruptions
-- **Cipher store:** Feature completion, refactoring completion, major technical decisions
+- **Moltbot store:** Feature completion, refactoring completion, major technical decisions
 
 **Content Guidelines:**
 
@@ -189,7 +218,7 @@ Development Task
 - What issues exist?
 - What decisions were made? (temporary)
 
-**Cipher (Long-Term):**
+**Moltbot LTM (Long-Term):**
 - Why was this design chosen?
 - What technology selection was made?
 - What results were obtained?
@@ -202,22 +231,35 @@ Development Task
 - **active-development-tasks**: Update every 1-2 hours during implementation
 - **Feature implementation notes**: Continuous recording for multi-day implementations
 
-### Cipher Memory Usage
+### Moltbot LTM Usage
 - **Architectural decisions**: Repository Pattern, Service Layer, Direct Widget Communication
 - **Technology selection**: SQLAlchemy, PySide6, pytest rationale
 - **Performance improvements**: Cache unification, async processing, approach
 - **Refactoring**: Large-scale change intent, effects, lessons learned
 
-### Search Keywords
-- **Cipher search:** Specific pattern names ("repository pattern", "widget communication")
-- **Technology + Purpose:** "sqlalchemy transaction", "pyside6 threading"
-- **LoRAIro terms:** "direct widget communication", "memory-first development"
+### Search Examples
+```bash
+# Search by type and tags
+python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
+{"limit": 10, "filters": {"type": ["decision", "howto"], "tags": ["repository-pattern"]}}
+JSON
+
+# Search by importance
+python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
+{"limit": 5, "filters": {"importance": ["High"]}}
+JSON
+
+# Latest entries
+python3 .github/skills/lorairo-mem/scripts/ltm_latest.py <<'JSON'
+{"limit": 10}
+JSON
+```
 
 ## Plan Mode Integration
 
 ### Overview
 
-Claude Code's Plan Mode is now integrated with the Memory-First workflow through automatic synchronization to Serena Memory.
+Claude Code's Plan Mode is integrated with the Memory-First workflow through automatic synchronization to Serena Memory.
 
 **Key Features:**
 - **Auto-sync:** Plan Mode plans automatically sync to `.serena/memories/` via PostToolUse hook
@@ -236,8 +278,8 @@ Claude Code's Plan Mode is now integrated with the Memory-First workflow through
 **/planning Command** (Comprehensive Design):
 - **Use for:** Complex architecture decisions, multi-phase features
 - **Duration:** 20-40 minutes
-- **Output:** Cipher Memory (design patterns) + Serena Memory (current status)
-- **Memory:** Serena + Cipher (cross-project knowledge)
+- **Output:** Moltbot LTM (design patterns) + Serena Memory (current status)
+- **Memory:** Serena + Moltbot (shared knowledge)
 - **Workflow:** Investigation + Library Research + Solutions agents
 
 ### Plan Mode Workflow
@@ -263,8 +305,8 @@ Claude Code's Plan Mode is now integrated with the Memory-First workflow through
          │
          ↓ After completion
 ┌──────────────────┐
-│ Extract to       │ Important design decisions → Cipher Memory
-│ Cipher Memory    │ Use cipher_extract_and_operate_memory
+│ Extract to       │ Important design decisions → Moltbot LTM
+│ Moltbot LTM      │ POST /hooks/lorairo-memory
 └──────────────────┘
 ```
 
@@ -329,7 +371,7 @@ Use `/sync-plan` command when:
 - Track progress against plan phases
 
 **Phase 3 (After):**
-- Extract important design decisions to Cipher
+- Extract important design decisions to Moltbot LTM
 - Update plan status to "completed"
 - Record lessons learned vs original plan
 
@@ -337,12 +379,12 @@ Use `/sync-plan` command when:
 
 1. **Use Plan Mode for quick planning**, use `/planning` for comprehensive design
 2. **Update plan memories during implementation** to track deviations and challenges
-3. **Extract to Cipher after completion** if plan contains reusable design patterns
+3. **Extract to Moltbot LTM after completion** if plan contains reusable design patterns
 4. **Reference plans from other agents** by reading Serena memory files
-5. **Archive completed plans** by prefixing with `archived_` or deleting after Cipher extraction
+5. **Archive completed plans** by prefixing with `archived_` or deleting after LTM extraction
 
 ## Reference Files
 
-- [memory-templates.md](./memory-templates.md) - Serena and Cipher memory templates
+- [memory-templates.md](./memory-templates.md) - Serena and Moltbot LTM memory templates
 - [examples.md](./examples.md) - Complete implementation workflow examples
 - [reference.md](./reference.md) - Full memory operation patterns and workflows

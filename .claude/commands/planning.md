@@ -1,5 +1,5 @@
 ---
-allowed-tools: mcp__serena__get_symbols_overview, mcp__serena__find_symbol, mcp__serena__search_for_pattern, mcp__serena__read_memory, mcp__serena__write_memory, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, cipher_memory_search, cipher_store_reasoning_memory, cipher_extract_entities, cipher_query_graph, Read, Bash, TodoWrite, Task
+allowed-tools: mcp__serena__get_symbols_overview, mcp__serena__find_symbol, mcp__serena__search_for_pattern, mcp__serena__read_memory, mcp__serena__write_memory, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, Read, Bash, TodoWrite, Task
 description: investigateフェーズの結果を基に、LoRAIro プロジェクトの実装戦略と詳細設計を策定します。
 ---
 
@@ -32,7 +32,7 @@ investigateフェーズで特定された要件と課題を基に、上記実装
 過去の設計パターンと現在のプロジェクト状況を確認：
 - 詳細なMemory-Firstワークフローは **mcp-memory-first-development** Skill参照
 - 高速Memory操作は **mcp-serena-fast-ops** Skill参照
-- 複雑な分析は **mcp-cipher-complex-analysis** Skill参照
+- 複雑な分析は **context7-moltbot-research** Skill参照
 
 要件明確化タスク:
 1. investigateフェーズの結果を確認・分析
@@ -168,6 +168,6 @@ investigateフェーズで特定された要件と課題を基に、上記実装
 このコマンドでは以下のSkillsを活用してメモリー管理を効率化します：
 - **mcp-memory-first-development**: Memory-First開発ワークフロー
 - **mcp-serena-fast-ops**: 高速Memory操作とコード検索
-- **mcp-cipher-complex-analysis**: 設計知識検索と長期記憶化
+- **context7-moltbot-research**: ライブラリ調査とMoltbot LTM（長期記憶）
 
 詳細な使い方は各SkillのSKILL.mdを参照してください。

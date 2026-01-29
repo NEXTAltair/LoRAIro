@@ -6,13 +6,12 @@
 開発フロー:
 
 1. 実装前 ─┬─ [Serena] current-project-status 確認
-          ├─ [Cipher] 過去の類似実装検索
-          └─ [Cipher] 設計要素抽出
+          └─ [Moltbot] 過去の類似実装検索（ltm_search.py）
 
 2. 実装中 ─┬─ [Serena] active-development-tasks 継続更新
           └─ [Serena] 一時的判断・デバッグ情報記録
 
-3. 完了後 ─┬─ [Cipher] 実装知識の長期記憶化
+3. 完了後 ─┬─ [Moltbot] 実装知識の長期記憶化（POST /hooks/lorairo-memory）
           └─ [Serena] プロジェクト状況更新
 ```
 
@@ -113,7 +112,7 @@
 - [将来のための知見]
 ```
 
-**削除タイミング**: 解決後、Cipher記憶化してから削除
+**削除タイミング**: 解決後、Moltbot LTMに記録してから削除
 
 ---
 
@@ -142,7 +141,7 @@ mcp__serena__write_memory(
 
 ---
 
-## Cipher Memory（長期・設計知識）
+## Moltbot LTM（長期・Notion DB）
 
 ### 記憶形式
 
@@ -156,7 +155,7 @@ LoRAIro [機能名] [内容] [種別]
 - "LoRAIro 画像フィルタリング機能実装"
 ```
 
-#### 内容構造
+#### 内容構造（bodyフィールド）
 ```markdown
 # [実装概要]
 
@@ -187,43 +186,68 @@ LoRAIro [機能名] [内容] [種別]
 
 ---
 
-### Cipher Memory操作
+### Moltbot LTM操作
 
-#### cipher_memory_search
-```python
-cipher_memory_search(
-  query="repository pattern transaction management",
-  limit=5
-)
-→ 過去の関連設計・実装の記憶
+#### 書き込み（POST /hooks/lorairo-memory）
+```bash
+HOOK_TOKEN="<hooks.token>"
+
+curl -sS -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
+  -H "Authorization: Bearer $HOOK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "LoRAIro [機能名] [内容]",
+    "summary": "[1-2行の要約]",
+    "body": "[Markdown形式の詳細内容]",
+    "type": "decision",
+    "importance": "High",
+    "tags": ["技術分野", "パターン名"],
+    "source": "Container"
+  }'
 ```
 
-**効果的な検索クエリ**:
-- 具体的なパターン名: "repository pattern", "direct widget communication"
-- 技術 + 用途: "sqlalchemy transaction", "pyside6 signal slot"
-- LoRAIro固有用語: "memory-first development", "service layer"
-
-#### cipher_store_reasoning_memory
-```python
-cipher_store_reasoning_memory(
-  title="LoRAIro [機能名] [内容]",
-  content="[Markdown形式の詳細内容]",
-  tags=["技術分野", "パターン名"],
-  context="LoRAIro [プロジェクト/機能] 実装"
-)
-```
+**type選択ガイド**:
+- `decision` - アーキテクチャ決定、技術選定理由
+- `howto` - 実装パターン、ベストプラクティス
+- `note` - 実装記録、進捗マイルストーン
+- `reference` - 技術仕様、API仕様
+- `bug` - バグ解決記録、デバッグ教訓
 
 **推奨タグ**:
 - `architecture`, `design-pattern`, `performance`
 - `database`, `gui`, `testing`, `ai-integration`
 - `refactoring`, `optimization`, `best-practice`
 
-#### cipher_extract_entities
-```python
-cipher_extract_entities(
-  text="[実装計画や設計ドキュメント]"
-)
-→ 重要な技術要素、コンポーネント、パターンを抽出
+#### 検索（ltm_search.py）
+```bash
+python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
+{
+  "limit": 10,
+  "filters": {
+    "type": ["decision", "howto"],
+    "tags": ["repository-pattern", "sqlalchemy"]
+  }
+}
+JSON
+```
+
+**効果的な検索フィルタ**:
+- タグでパターン検索: `"tags": ["repository-pattern"]`
+- タイプで絞り込み: `"type": ["decision"]`
+- 重要度で絞り込み: `"importance": ["High"]`
+
+#### 最新取得（ltm_latest.py）
+```bash
+python3 .github/skills/lorairo-mem/scripts/ltm_latest.py <<'JSON'
+{"limit": 5}
+JSON
+```
+
+#### ハッシュで取得（ltm_get.py）
+```bash
+python3 .github/skills/lorairo-mem/scripts/ltm_get.py <<'JSON'
+{"hash": "<sha256>"}
+JSON
 ```
 
 ---
@@ -236,32 +260,30 @@ cipher_extract_entities(
 Phase 1: 実装前（5-10分）
 ├─ [S] list_memories() → 利用可能なメモリ確認
 ├─ [S] read_memory("current-project-status") → 現在状況確認
-├─ [C] cipher_memory_search("関連キーワード") → 過去事例検索
-└─ [C] cipher_extract_entities(実装計画) → 設計要素特定
+└─ [M] ltm_search.py → 過去事例検索
 
 Phase 2: 実装中（1-2時間ごと）
 └─ [S] write_memory("active-development-tasks") → 進捗記録
 
 Phase 3: 完了後（10-15分）
-├─ [C] cipher_store_reasoning_memory() → 知識永続化
+├─ [M] POST /hooks/lorairo-memory → 知識永続化
 └─ [S] write_memory("current-project-status") → 状況更新
 
-[S] = Serena, [C] = Cipher
+[S] = Serena, [M] = Moltbot
 ```
 
 ### ワークフロー2: リファクタリング
 
 ```
 Phase 1: リファクタリング前
-├─ [C] cipher_memory_search("refactoring 関連") → 過去事例
-├─ [S] write_memory("refactoring_plan") → 計画記録
-└─ [C] cipher_query_graph() → 影響範囲分析（オプション）
+├─ [M] ltm_search.py → 過去のリファクタリング事例
+└─ [S] write_memory("refactoring_plan") → 計画記録
 
 Phase 2: リファクタリング中
 └─ [S] write_memory("active-development-tasks") → 段階的進捗
 
 Phase 3: リファクタリング完了
-├─ [C] cipher_store_reasoning_memory() → アプローチ・効果記録
+├─ [M] POST /hooks/lorairo-memory → アプローチ・効果記録
 └─ [S] write_memory("current-project-status") → 状況更新
 ```
 
@@ -272,8 +294,8 @@ Phase 3: リファクタリング完了
 └─ [S] write_memory("debug_issue_YYYYMMDD") → 調査結果記録
 
 解決後:
-├─ [C] cipher_store_reasoning_memory() → 解決策・教訓記録
-└─ [S] delete debug memory（Serenaから削除、Cipherに移行済み）
+├─ [M] POST /hooks/lorairo-memory → 解決策・教訓記録
+└─ [S] delete debug memory（Serenaから削除、Moltbot LTMに移行済み）
 ```
 
 ---
@@ -282,14 +304,14 @@ Phase 3: リファクタリング完了
 
 ### 実行時間
 - **Serena read/write**: 0.3-0.5秒（高速）
-- **Cipher search**: 10-20秒（複雑）
-- **Cipher store**: 5-15秒（複雑）
+- **Moltbot write**: 1-3秒（HTTP webhook）
+- **Moltbot search**: 2-5秒（Notion DB query）
 
 ### 推奨使用パターン
 ```
-実装前: Cipher優先（過去知見の活用）
+実装前: Moltbot検索（過去知見の活用）
 実装中: Serena優先（高速な記録）
-完了後: Cipher必須（知識永続化）
+完了後: Moltbot必須（知識永続化）
 ```
 
 ---
@@ -302,11 +324,11 @@ Phase 3: リファクタリング完了
 - **パフォーマンス改善**: キャッシュ統一、非同期処理
 - **リファクタリング**: 大規模変更の意図と効果
 
-### Cipher検索キーワード例
-- "widget signal slot direct communication"
-- "repository pattern sqlalchemy transaction"
-- "pytest fixture setup teardown"
-- "pyside6 qthread worker async"
+### Moltbot検索キーワード例（タグ）
+- `widget`, `signal-slot`, `direct-communication`
+- `repository-pattern`, `sqlalchemy`, `transaction`
+- `pytest`, `fixture`, `coverage`
+- `pyside6`, `qthread`, `worker`, `async`
 
 ### Memory命名例
 #### Serena
@@ -315,7 +337,7 @@ Phase 3: リファクタリング完了
 - `filtering_wip_2025_10_20`
 - `debug_thumbnail_click_2025_10_20`
 
-#### Cipher（title）
+#### Moltbot LTM（title）
 - "LoRAIro Direct Widget Communication パターン採用"
 - "LoRAIro Repository Pattern データベース設計"
 - "LoRAIro DatasetStateManager リファクタリング"
@@ -326,7 +348,7 @@ Phase 3: リファクタリング完了
 
 ### 実装前
 1. **必ずMemory確認**: 過去の知見を活用
-2. **Cipher検索**: 類似実装の発見
+2. **Moltbot検索**: 類似実装の発見
 3. **計画記録**: Serenaに実装計画を記録
 
 ### 実装中
@@ -335,6 +357,6 @@ Phase 3: リファクタリング完了
 3. **デバッグメモ**: 複雑な問題は専用メモリに記録
 
 ### 完了後
-1. **必ずCipher記憶**: 実装知識の永続化
+1. **必ずMoltbot LTM記録**: 実装知識の永続化
 2. **Serena更新**: プロジェクト状況の更新
 3. **不要なメモリ削除**: 完了したwip/debugメモリ削除
