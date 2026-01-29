@@ -10,14 +10,14 @@
   - Why pooling was added (rationale)
   - How it's implemented (design)
   - Migration guide for existing repositories
-- Should create both Serena (progress) and Cipher (knowledge) memories
+- Should create both Serena (progress) and Moltbot (knowledge) memories
 
 ## Expected Behavior
 1. Skill `mcp-memory-first-development` should be invoked automatically
 2. Should execute memory workflow:
 
    **Before Refactoring:**
-   - Search Cipher for past refactoring patterns
+   - Search Moltbot for past refactoring patterns
    - Check if connection pooling was discussed before
    - Read current DatabaseRepository implementation
 
@@ -29,7 +29,7 @@
      - Issues encountered
 
    **After Refactoring:**
-   - Store in Cipher:
+   - Store in Moltbot:
      - Design decision: Why pooling was needed
      - Implementation pattern: How to add pooling to repository
      - Migration guide: Steps for other repositories
@@ -49,7 +49,7 @@
 - [x] Correct skill invoked (mcp-memory-first-development)
 - [x] Memory search finds relevant past patterns
 - [x] Serena memory tracks refactoring progress
-- [x] Cipher memory stores reusable knowledge
+- [x] Moltbot LTM stores reusable knowledge
 - [x] Documentation includes WHY, HOW, and MIGRATION
 - [x] Completes without errors
 - [x] Memory is useful for future reference
@@ -71,8 +71,8 @@ After running this scenario:
      - Progress tracking (which files updated)
      - Decisions made during refactoring
      - Issues encountered and solutions
-4. Verify Cipher memory (permanent):
-   - Stored via `cipher_extract_and_operate_memory`
+4. Verify Moltbot LTM (permanent):
+   - Stored via `lorairo-mem webhook`
    - Content includes:
      - Rationale (why pooling was needed)
      - Design pattern (how pooling is implemented)

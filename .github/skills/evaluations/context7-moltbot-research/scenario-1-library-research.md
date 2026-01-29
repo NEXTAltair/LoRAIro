@@ -6,27 +6,25 @@
 **Context:**
 - User is working on data export feature
 - Needs library documentation for `/polars`
-- Should use Context7 via Cipher MCP
+- Should use web research + Moltbot LTM (保存時に Moltbot が Context7/Perplexity で補強)
 - Expected research time: 10-30 seconds
 
 ## Expected Behavior
 1. Skill `context7-moltbot-research` should be invoked automatically
 2. Should use tools (in sequence):
-   - `mcp__cipher__resolve-library-id` to find Polars library ID (e.g., `/pola-rs/polars`)
-   - `mcp__cipher__get-library-docs` with appropriate topic (e.g., "parquet", "dataframe")
-   - Optional: `mcp__cipher__perplexity_ask` for clarifications or comparisons
+   - `web.run search_query` for official docs and API references
+   - Optional: store a summary to Moltbot LTM (Moltbot will refine)
 3. Should produce:
    - Relevant Polars API documentation for Parquet operations
    - Code examples showing how to read/write Parquet files
    - Best practices for DataFrame operations
 4. Should NOT:
-   - Use WebSearch for official library docs (Context7 is better)
+   - Guess API without checking sources
    - Return outdated documentation
-   - Guess API without verification
 
 ## Success Criteria
 - [x] Correct skill invoked (context7-moltbot-research)
-- [x] Tools used efficiently (resolve-library-id → get-library-docs)
+- [x] Tools used efficiently (web.run search_query)
 - [x] Output meets requirements (accurate Polars API docs)
 - [x] Completes without errors
 - [x] Response time: 10-30 seconds (acceptable for complex analysis)
@@ -34,15 +32,14 @@
 
 ## Model Variations
 - **Haiku:** Should handle basic library lookup; may need guidance on which topic to query
-- **Sonnet:** Should handle full workflow; resolves library ID, fetches relevant docs with appropriate topic
+- **Sonnet:** Should handle full workflow; uses web.run to find official docs with appropriate queries
 - **Opus:** May provide additional context about Polars vs Pandas trade-offs; may proactively suggest related APIs
 
 ## Test Validation
 After running this scenario:
 1. Verify skill invoked: Check `context7-moltbot-research` in metadata
 2. Check tool usage sequence:
-   - `mcp__cipher__resolve-library-id` with query like "polars" or "pola-rs"
-   - `mcp__cipher__get-library-docs` with library ID and topic
+   - `web.run search_query` with query like "polars parquet read"
 3. Verify output contains:
    - Polars API methods for Parquet I/O
    - Code examples (preferably with syntax highlighting)

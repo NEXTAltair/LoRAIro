@@ -34,7 +34,7 @@
 ## Model Variations
 - **Haiku:** Should handle basic memory write; may need guidance on memory file naming conventions
 - **Sonnet:** Should handle memory workflow correctly; good naming and structure
-- **Opus:** May proactively suggest related memories to update (e.g., repository pattern knowledge); may recommend Cipher memory for long-term knowledge
+- **Opus:** May proactively suggest related memories to update (e.g., repository pattern knowledge); may recommend Moltbot LTM for long-term knowledge
 
 ## Test Validation
 After running this scenario:

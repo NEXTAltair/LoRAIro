@@ -32,8 +32,8 @@
      - Solution implemented
      - Verification results
 
-   **Knowledge Storage (Cipher):**
-   - Extract to Cipher: `mcp__cipher__cipher_extract_and_operate_memory`
+   **Knowledge Storage (Moltbot LTM):**
+   - Extract to Moltbot: `lorairo-mem webhook`
    - Create reusable knowledge:
      - Problem pattern: Race condition in async workers
      - Root cause: Specific threading issue
@@ -49,7 +49,7 @@
 4. Should NOT:
    - Only record final solution (lose investigation context)
    - Skip failed attempts (they're valuable!)
-   - Store temporary debugging notes in Cipher
+   - Store temporary debugging notes in Moltbot
    - Forget to generalize for reuse
 
 ## Success Criteria
@@ -57,7 +57,7 @@
 - [x] Serena memory captures complete investigation
 - [x] Failed attempts are documented (not hidden)
 - [x] Root cause is clearly identified
-- [x] Cipher memory generalizes for reuse
+- [x] Moltbot LTM generalizes for reuse
 - [x] Completes without errors
 - [x] Knowledge is actionable for future debugging
 
@@ -79,8 +79,8 @@ After running this scenario:
      - **Root Cause:** What was actually wrong
      - **Solution:** How it was fixed
      - **Verification:** How fix was validated
-3. Check Cipher memory (knowledge):
-   - Stored via `cipher_extract_and_operate_memory`
+3. Check Moltbot LTM (knowledge):
+   - Stored via `lorairo-mem webhook`
    - Generalized pattern:
      - Problem category (race conditions in async workers)
      - Symptoms to look for
