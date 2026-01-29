@@ -49,34 +49,32 @@
             ]
         }
     },
+    "overrideCommand":true,
     "remoteUser": "vscode",
     "remoteEnv": {
         "QT_QPA_PLATFORM": "offscreen",
-        "DISPLAY": ":99"
+        "DISPLAY": ":99",
+        "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
     },
     "mounts": [
-        "source=lorairo-bashhistory-${devcontainerId},target=/home/vscode/.bash_history,type=volume",
-        "source=lorairo-vscode-extensions-${devcontainerId},target=/home/vscode/.vscode-server/extensions,type=volume",
-        "source=lorairo-venv-${devcontainerId},target=/workspaces/LoRAIro/.venv,type=volume"
+        "source=lorairo-bashhistory,target=/home/vscode/.bash_history,type=volume",
+        "source=lorairo-vscode-extensions,target=/home/vscode/.vscode-server/extensions,type=volume",
+        "source=lorairo-venv,target=/workspaces/LoRAIro/.venv,type=volume",
+        "source=lorairo-claude-config,target=/home/vscode/.claude,type=volume"
     ],
-    "postCreateCommand": [
-        "bash -lc 'sudo chown -R vscode:vscode /workspaces/LoRAIro/.venv || true'",
-        "bash -lc \"find /workspaces/LoRAIro/local_packages -type d -name '.venv' -exec rm -rf {} + || true\"",
-        "bash -lc 'make install-dev'"
-    ],
+    "postCreateCommand": "bash .devcontainer/postCreateCommand.sh",
     "postAttachCommand": {
-        "mcpSerena": "claude mcp add serena -- uvx --from git+https://github.com/oraios/serena serena start-mcp-server --context ide-assistant --project /workspaces/LoRAIro",
-        "mcpCipher": "claude mcp add cipher -t http http://192.168.11.2:3000/http"
+        "mcpSerena": "claude mcp add serena -- uvx --from git+https://github.com/oraios/serena serena start-mcp-server --context ide-assistant --project /workspaces/LoRAIro"
     },
     "features": {
-        "ghcr.io/devcontainers/features/git:1": {
-            "ppa": true,
-            "version": "latest"
-        },
         "ghcr.io/devcontainers/features/sshd:1": {
-            "version": "latest",
-            "ports": "22",
-            "passwordAccess": "disabled" // 公開鍵認証のみを強制
+        "version": "latest",
+        "ports": "22",
+        "passwordAccess": "disabled"
+        },
+        "ghcr.io/devcontainers/features/node:1": {
+        "version": "20",
+        "installYarnUsingApt": false
         }
     }
 }
