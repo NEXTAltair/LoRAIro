@@ -158,7 +158,7 @@ def generate_warning_response(violations: list[str]) -> dict[str, Any]:
 
 以下の手順で確実に実装してください:
 1. MCP Serenaで既存実装を検索・確認
-2. Context7経由でライブラリ公式ドキュメント確認
+2. web検索でライブラリ公式ドキュメント確認（保存時はMoltbotが補強）
 3. 具体的なコード調査・検証を実施
 4. テスト実行で動作確認
 

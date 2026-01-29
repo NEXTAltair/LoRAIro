@@ -130,7 +130,7 @@ def generate_guidance_message(file_path: str, file_category: str) -> str:
         "• 構造理解・現在状況・タスク進捗 → **Serena** (高速)\n"
         "• 設計思想・変更履歴・複合判断 → **Moltbot LTM** (長期記憶)\n"
         "• 具体的コード変更 → **Serena** + 通常Read\n"
-        "• ライブラリドキュメント → **Context7** (直接)"
+        "• ライブラリドキュメント → **web検索** + **Moltbot補強**"
     )
 
     return base_message + serena_guidance + ltm_guidance + efficiency_note

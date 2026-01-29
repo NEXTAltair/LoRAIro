@@ -148,7 +148,7 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
   - Architecture consistency verification
   ```
 - **📚 Library Research Agent活用**: 実装時の技術情報取得
-- **Context7 実装ガイド取得**: 実装対象ライブラリの詳細ドキュメント・パターン取得
+- **Web検索 + Moltbot補強による実装ガイド取得**: 実装対象ライブラリの詳細ドキュメント・パターン取得
 
 #### 実装環境準備
 - plan フェーズ結果の詳細分析

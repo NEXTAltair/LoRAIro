@@ -13,6 +13,6 @@
   },
   "MCP統合環境ルール": {
     "keywords": [],
-    "message": "Context7は直接使用可能"
+    "message": "Context7はCodexでは直接使用しない（Moltbot側で使用）"
   }
 }
