@@ -380,8 +380,11 @@ LoRAIroの開発パターンとMCP操作は **Claude Skills** で自動化され
 
 **LoRAIro Development Skills**:
 - `lorairo-repository-pattern`: SQLAlchemyリポジトリパターン実装ガイド
-- `lorairo-qt-widget`: PySide6ウィジェット実装（Signal/Slot、Direct Widget Communication）
+- `interface-design`: UIデザイン原則（意図、ドメイン探索、クラフト）- 技術実装前のデザイン決定
+- `lorairo-qt-widget`: PySide6ウィジェット技術実装（Signal/Slot、Qt Designer）- interface-designと連携
 - `lorairo-test-generator`: pytest+pytest-qtテスト生成（75%+ カバレッジ）
+
+**Design Workflow**: `interface-design`（デザイン意図）→ `lorairo-qt-widget`（技術実装）の順で使用
 
 **Note**: Skills are automatically invoked by Claude based on task context. 詳細は各SkillのSKILL.mdを参照。
 
@@ -390,7 +393,7 @@ LoRAIroの開発パターンとMCP操作は **Claude Skills** で自動化され
 LoRAIroは Claude Code 2.1.0 の新機能を最大限活用するよう最適化されています：
 
 **Skills Enhancement**:
-- 全6個のSkillに `version: "1.0.0"` と `dependencies: []` フィールド追加
+- 全7個のSkillに `version: "1.0.0"` と `dependencies: []` フィールド追加
 - Hot-reload有効化: Skill変更時にClaude Code再起動不要
 
 **Agent Parallel Execution** ⚡:

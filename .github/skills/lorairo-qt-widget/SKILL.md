@@ -1,9 +1,9 @@
 ---
 name: lorairo-qt-widget
-version: "1.0.0"
-description: PySide6 widget implementation guide for LoRAIro GUI with Signal/Slot pattern, Direct Widget Communication, and Qt Designer integration best practices. Use when creating new widgets, implementing GUI components, or working with PySide6 Signal/Slot communication.
+version: "1.1.0"
+description: PySide6 widget technical implementation for LoRAIro GUI. Covers Signal/Slot patterns, Direct Widget Communication, Qt Designer integration, and async workers. For design intent and aesthetics, use interface-design skill first.
 metadata:
-  short-description: LoRAIro向けPySide6ウィジェット実装（Signal/Slot、直接通信、Qt Designer）。
+  short-description: PySide6技術実装（Signal/Slot、Qt Designer）。デザイン意図はinterface-design参照。
 allowed-tools:
   # Code exploration
   - mcp__serena__find_symbol
@@ -16,12 +16,29 @@ allowed-tools:
   - Edit
   - Bash
 dependencies:
-  - lorairo-mem
+  - interface-design
 ---
 
 # PySide6 Widget Implementation for LoRAIro
 
-PySide6 widget implementation patterns for LoRAIro GUI with Signal/Slot, Direct Widget Communication, and Qt Designer integration.
+Technical implementation patterns for PySide6 widgets with Signal/Slot, Direct Widget Communication, and Qt Designer integration.
+
+## Skill Coordination
+
+This skill focuses on **technical implementation**. For design decisions, use `interface-design` first.
+
+| Question | Use This Skill | Use interface-design |
+|----------|----------------|---------------------|
+| How to emit a signal? | Yes | No |
+| What color should this be? | No | Yes |
+| How to structure widget class? | Yes | No |
+| What should this feel like? | No | Yes |
+| How to connect widgets? | Yes | No |
+| What's the signature element? | No | Yes |
+
+**Recommended workflow:**
+1. **interface-design**: Define intent, domain, signature, aesthetics
+2. **lorairo-qt-widget**: Implement the technical structure
 
 ## When to Use
 
@@ -30,6 +47,7 @@ Use this skill when:
 - **Refactoring widgets**: Improving existing widget architecture
 - **Signal/Slot setup**: Connecting widget communication
 - **Qt Designer integration**: Working with .ui files
+- **Worker integration**: Async operations in widgets
 
 ## Core Patterns
 
@@ -194,6 +212,52 @@ class AsyncWidget(QWidget):
 3. **connect_to_* pattern**: Provide `connect_to_{widget}()` methods
 4. **Type safety**: All signals/slots must specify types
 
+## Styling with QSS
+
+Apply design decisions from `interface-design` skill using Qt Style Sheets:
+
+```python
+class StyledWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._apply_style()
+
+    def _apply_style(self) -> None:
+        """Apply QSS styling based on interface-design decisions."""
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #1a1a1a;
+                color: #e0e0e0;
+            }
+            QLabel#titleLabel {
+                font-size: 14px;
+                font-weight: bold;
+                color: #ffffff;
+            }
+            QPushButton {
+                background-color: #2d2d2d;
+                border: 1px solid rgba(255,255,255,0.08);
+                border-radius: 4px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background-color: #3d3d3d;
+            }
+        """)
+```
+
+**Token naming (from interface-design):**
+```css
+/* Domain-specific naming reflects product world */
+QWidget {
+    /* Archive/curation domain tokens */
+    --surface-archive: #1a1a1a;
+    --surface-lightbox: #242424;
+    --border-specimen: rgba(255,255,255,0.08);
+    --text-catalog: #e0e0e0;
+}
+```
+
 ## Best Practices
 
 **DO:**
@@ -202,6 +266,7 @@ class AsyncWidget(QWidget):
 - Separate public/private with `_` prefix
 - Provide `connect_to_*` methods for connections
 - Log important events with loguru
+- Apply styling from interface-design decisions
 
 **DON'T:**
 - Access `widget._ui.button` from outside
@@ -209,6 +274,7 @@ class AsyncWidget(QWidget):
 - Mix business logic into widgets
 - Run long operations on UI thread (use workers)
 - Rely on auto-connection (explicit `connect()` only)
+- Make design decisions here (use interface-design)
 
 ## Testing
 
@@ -232,13 +298,12 @@ def test_signal_emission(qtbot, widget):
 ```
 1. mcp__serena__read_memory("current-project-status")
 2. Check for existing widget patterns
-3. Review related widget implementations
+3. Review interface-design system.md if exists
 ```
 
 **After implementation:**
 ```
 1. mcp__serena__write_memory - Record widget structure
-2. Moltbot LTM - Store design patterns (POST /hooks/lorairo-memory)
 ```
 
 ## Examples
