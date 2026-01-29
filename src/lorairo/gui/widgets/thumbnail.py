@@ -1,15 +1,18 @@
 # src/lorairo/gui/widgets/thumbnail.py
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QColor, QPen, QPixmap
+from PySide6.QtCore import QPoint, QRectF, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPen, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsObject,
     QGraphicsScene,
     QGraphicsView,
+    QMenu,
+    QStyleOptionGraphicsItem,
     QVBoxLayout,
     QWidget,
 )
@@ -83,7 +86,12 @@ class ThumbnailItem(QGraphicsObject):
         """
         return QRectF(self.pixmap.rect())
 
-    def paint(self, painter, option, widget):
+    def paint(
+        self,
+        painter: QPainter,
+        option: QStyleOptionGraphicsItem,
+        widget: QWidget | None = None,
+    ) -> None:
         painter.drawPixmap(self.boundingRect().toRect(), self.pixmap)
         if self.isSelected():
             pen = QPen(QColor(0, 120, 215), 3)
@@ -98,7 +106,7 @@ class CustomGraphicsView(QGraphicsView):
 
     itemClicked = Signal(ThumbnailItem, Qt.KeyboardModifier)
 
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, event: QMouseEvent) -> None:
         """
         アイテムがクリックされたときに信号を発行します。
         Args:
@@ -137,8 +145,13 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     image_selected = Signal(Path)  # 単一画像選択時
     multiple_images_selected = Signal(list)  # 複数画像選択時
     selection_cleared = Signal()  # 選択クリア時
+    stage_selected_requested = Signal()  # バッチタグのステージング追加要求
 
-    def __init__(self, parent=None, dataset_state: DatasetStateManager | None = None):
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        dataset_state: DatasetStateManager | None = None,
+    ) -> None:
         """
         ThumbnailSelectorWidgetを初期化する。
 
@@ -151,7 +164,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
                 画像選択状態、フィルタ状態などの中央管理を行う。Noneの場合は状態管理なしで動作。
         """
         super().__init__(parent)
-        self.setupUi(self)
+        setup_ui = cast(Callable[[QWidget], None], self.setupUi)
+        setup_ui(self)
 
         # 状態管理
         self.dataset_state = dataset_state
@@ -165,6 +179,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.graphics_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.graphics_view.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self.graphics_view.itemClicked.connect(self.handle_item_selection)
+        self.graphics_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.graphics_view.customContextMenuRequested.connect(self._on_context_menu_requested)
 
         layout = QVBoxLayout(self.widgetThumbnailsContent)
         layout.addWidget(self.graphics_view)
@@ -197,7 +213,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             # ドラッグ選択の同期（scene → DatasetStateManager）
             self.scene.selectionChanged.connect(self._sync_selection_to_state)
 
-    def _setup_header_connections(self):
+    def _setup_header_connections(self) -> None:
         """
         ヘッダー部分のUI接続を設定する。
 
@@ -210,7 +226,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         # 画像件数表示の初期化
         self._update_image_count_display()
 
-    def _on_thumbnail_size_slider_changed(self, value: int):
+    def _on_thumbnail_size_slider_changed(self, value: int) -> None:
         """
         サムネイルサイズスライダーの値変更を処理する（高速キャッシュ版）。
 
@@ -246,7 +262,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             # 大量データの場合は何もしない（Worker再実行待ち）
         # 大量データの場合、既存のWorkerワークフローに依存（何もしない）
 
-    def _update_image_count_display(self):
+    def _update_image_count_display(self) -> None:
         """
         画像件数表示を更新する。
 
@@ -255,6 +271,25 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         if hasattr(self, "labelThumbnailCount"):
             count = len(self.image_data)
             self.labelThumbnailCount.setText(f"画像: {count}件")
+
+    def _on_context_menu_requested(self, pos: QPoint) -> None:
+        """サムネイル一覧の右クリックメニューを表示"""
+        # 右クリックしたアイテムが未選択なら単一選択に切替
+        item = self.graphics_view.itemAt(pos)
+        if isinstance(item, ThumbnailItem) and self.dataset_state:
+            if not self.dataset_state.is_image_selected(item.image_id):
+                self.dataset_state.set_selected_images([item.image_id])
+                self.dataset_state.set_current_image(item.image_id)
+
+        selected_ids = self.dataset_state.selected_image_ids if self.dataset_state else []
+
+        menu = QMenu(self)
+        action_stage = menu.addAction("バッチタグへ追加")
+        action_stage.setEnabled(bool(selected_ids))
+
+        action = menu.exec(self.graphics_view.mapToGlobal(pos))
+        if action == action_stage:
+            self.stage_selected_requested.emit()
 
     def cache_thumbnail(self, image_id: int, pixmap: QPixmap, metadata: dict[str, Any]) -> None:
         """
@@ -555,7 +590,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             return
 
         # **クリーンアーキテクチャ**: DatasetStateManagerに統一データ管理を委譲
-        if self.dataset_state and hasattr(thumbnail_result, "image_metadata"):
+        if self.dataset_state and hasattr(thumbnail_result, "image_metadata") and thumbnail_result.image_metadata:
             self.dataset_state.update_from_search_results(thumbnail_result.image_metadata)
             logger.debug("検索結果をDatasetStateManagerに同期完了")
 
@@ -583,7 +618,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self._update_image_count_display()
 
         # レガシー互換性（段階的削除予定）
-        if hasattr(thumbnail_result, "image_metadata"):
+        if hasattr(thumbnail_result, "image_metadata") and thumbnail_result.image_metadata:
             self.image_data = [
                 (Path(item["stored_image_path"]), item["id"])
                 for item in thumbnail_result.image_metadata
@@ -650,7 +685,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     # === UI Event Handlers ===
 
-    def resizeEvent(self, event: Any) -> None:
+    def resizeEvent(self, event: QResizeEvent) -> None:
         """
         ウィジェットがリサイズされたときにタイマーをリセット
         """

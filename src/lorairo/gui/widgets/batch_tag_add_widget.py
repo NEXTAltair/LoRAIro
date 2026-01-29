@@ -20,7 +20,8 @@ from collections import OrderedDict
 from typing import TYPE_CHECKING
 
 from genai_tag_db_tools.utils.cleanup_str import TagCleaner
-from PySide6.QtCore import Signal, Slot
+from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import QListWidgetItem, QWidget
 
 from ...gui.designer.BatchTagAddWidget_ui import Ui_BatchTagAddWidget
@@ -47,7 +48,6 @@ class BatchTagAddWidget(QWidget):
     UI構成:
     - listWidgetStaging: ステージング画像リスト
     - lineEditTag: タグ入力フィールド
-    - pushButtonAddSelected: 選択画像をステージングに追加
     - pushButtonClearStaging: ステージングリストをクリア
     - pushButtonAddTag: タグを追加
 
@@ -84,7 +84,11 @@ class BatchTagAddWidget(QWidget):
         logger.debug("BatchTagAddWidget.__init__() called")
 
         # 内部状態: ステージング画像管理（OrderedDict で順序保持 + 重複排除）
-        self._staged_images: OrderedDict[int, str] = OrderedDict()  # {image_id: filename}
+        # {image_id: (filename, stored_path)}
+        self._staged_images: OrderedDict[int, tuple[str, str]] = OrderedDict()
+
+        # サムネイルキャッシュ（表示用の縮小Pixmap）
+        self._thumbnail_cache: dict[int, QPixmap] = {}
 
         # DatasetStateManagerへの参照（後でset_dataset_state_managerで設定）
         self._dataset_state_manager: DatasetStateManager | None = None
@@ -135,7 +139,10 @@ class BatchTagAddWidget(QWidget):
             ExistingFileReader や ImageDatabaseRepository と同一のロジック。
             小文字変換を追加して重複チェックの一貫性を保証。
         """
-        return TagCleaner.clean_format(tag).strip().lower()
+        cleaned: str | None = TagCleaner.clean_format(tag)
+        if cleaned is None:
+            return ""
+        return cleaned.strip().lower()
 
     @Slot()
     def _on_add_selected_clicked(self) -> None:
@@ -171,9 +178,9 @@ class BatchTagAddWidget(QWidget):
                 # stored_image_path からファイル名を抽出、またはIDをフォールバック
                 from pathlib import Path
 
-                stored_path = image_metadata.get("stored_image_path", "")
+                stored_path = image_metadata.get("stored_image_path", "") if image_metadata else ""
                 filename = Path(stored_path).name if stored_path else f"ID:{image_id}"
-                self._staged_images[image_id] = filename
+                self._staged_images[image_id] = (filename, stored_path)
                 added_count += 1
 
         # UI 更新
@@ -183,6 +190,10 @@ class BatchTagAddWidget(QWidget):
         # シグナル発行
         self.staged_images_changed.emit(list(self._staged_images.keys()))
 
+    def add_selected_images_to_staging(self) -> None:
+        """外部から選択画像をステージングに追加するための公開API"""
+        self._on_add_selected_clicked()
+
     @Slot()
     def _on_clear_staging_clicked(self) -> None:
         """
@@ -191,6 +202,7 @@ class BatchTagAddWidget(QWidget):
         ステージングリストを全削除。
         """
         self._staged_images.clear()
+        self._thumbnail_cache.clear()
         self._refresh_staging_list_ui()
         logger.info("Staging list cleared")
 
@@ -248,9 +260,15 @@ class BatchTagAddWidget(QWidget):
         """
         self.ui.listWidgetStaging.clear()
 
-        for image_id, filename in self._staged_images.items():
-            item = QListWidgetItem(f"{filename} (ID: {image_id})")
+        for image_id, (filename, stored_path) in self._staged_images.items():
+            pixmap = self._get_thumbnail_pixmap(image_id, stored_path)
+            icon = QIcon(pixmap) if not pixmap.isNull() else QIcon()
+            item = QListWidgetItem(icon, filename)
             item.setData(1, image_id)  # Qt::UserRole + 1 に image_id を保存
+            if stored_path:
+                item.setToolTip(f"{stored_path}\nID: {image_id}")
+            else:
+                item.setToolTip(f"ID: {image_id}")
             self.ui.listWidgetStaging.addItem(item)
 
         self._update_staging_count_label()
@@ -272,6 +290,8 @@ class BatchTagAddWidget(QWidget):
                 image_id = current_item.data(1)  # Qt::UserRole + 1 から image_id 取得
                 if image_id in self._staged_images:
                     del self._staged_images[image_id]
+                    if image_id in self._thumbnail_cache:
+                        del self._thumbnail_cache[image_id]
                     self._refresh_staging_list_ui()
                     logger.info(f"Removed image_id {image_id} from staging")
 
@@ -280,3 +300,44 @@ class BatchTagAddWidget(QWidget):
         else:
             # デフォルトのキー処理に委譲
             QWidget.keyPressEvent(self.ui.listWidgetStaging, event)
+
+    def _get_thumbnail_pixmap(self, image_id: int, stored_path: str) -> QPixmap:
+        """
+        ステージング用サムネイルPixmapを取得（キャッシュ優先）
+
+        Args:
+            image_id: 画像ID
+            stored_path: 画像パス
+
+        Returns:
+            QPixmap: 表示用に縮小済みのPixmap
+        """
+        if image_id in self._thumbnail_cache:
+            return self._thumbnail_cache[image_id]
+
+        pixmap = QPixmap()
+        path = stored_path
+
+        if not path and self._dataset_state_manager:
+            metadata = self._dataset_state_manager.get_image_by_id(image_id)
+            if metadata:
+                path = metadata.get("stored_image_path", "") or ""
+
+        if path:
+            pixmap = QPixmap(path)
+
+        if pixmap.isNull():
+            # プレースホルダー
+            size = self.ui.listWidgetStaging.iconSize()
+            pixmap = QPixmap(size)
+            pixmap.fill(Qt.GlobalColor.lightGray)
+        else:
+            size = self.ui.listWidgetStaging.iconSize()
+            pixmap = pixmap.scaled(
+                size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+
+        self._thumbnail_cache[image_id] = pixmap
+        return pixmap
