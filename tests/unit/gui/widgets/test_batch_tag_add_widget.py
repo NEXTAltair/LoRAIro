@@ -42,7 +42,6 @@ class TestBatchTagAddWidgetInitialization:
 
         assert hasattr(widget.ui, "listWidgetStaging")
         assert hasattr(widget.ui, "lineEditTag")
-        assert hasattr(widget.ui, "pushButtonAddSelected")
         assert hasattr(widget.ui, "pushButtonClearStaging")
         assert hasattr(widget.ui, "pushButtonAddTag")
         assert hasattr(widget.ui, "labelStagingCount")
@@ -119,7 +118,7 @@ class TestStagingListManagement:
 
     def test_add_selected_images_to_staging(self, qtbot, widget_with_state):
         """Test adding selected images to staging list"""
-        widget, state_manager = widget_with_state
+        widget, _ = widget_with_state
 
         with qtbot.waitSignal(widget.staged_images_changed, timeout=1000) as blocker:
             widget._on_add_selected_clicked()
@@ -138,7 +137,7 @@ class TestStagingListManagement:
 
     def test_add_duplicate_images_skipped(self, qtbot, widget_with_state):
         """Test duplicate images are skipped when adding to staging"""
-        widget, state_manager = widget_with_state
+        widget, _ = widget_with_state
 
         # Add images first time
         widget._on_add_selected_clicked()
@@ -171,7 +170,7 @@ class TestStagingListManagement:
 
     def test_clear_staging_list(self, qtbot, widget_with_state):
         """Test clearing staging list"""
-        widget, state_manager = widget_with_state
+        widget, _ = widget_with_state
 
         # Add images first
         widget._on_add_selected_clicked()
@@ -194,7 +193,7 @@ class TestStagingListManagement:
 
     def test_remove_individual_item_with_delete_key(self, qtbot, widget_with_state):
         """Test removing individual item from staging with Delete key"""
-        widget, state_manager = widget_with_state
+        widget, _ = widget_with_state
 
         # Add images
         widget._on_add_selected_clicked()

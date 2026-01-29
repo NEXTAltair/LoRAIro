@@ -21,7 +21,6 @@ class TestRequiredConstants:
         assert "tabWidgetMainMode" in required
         assert "tabWorkspace" in required
         assert "tabBatchTag" in required
-        assert "groupBoxStagingImages" in required
         assert "groupBoxBatchOperations" in required
         assert "groupBoxAnnotation" in required
 
@@ -148,9 +147,6 @@ class TestIntegrationWithRealWidgets:
         tab_widget.addTab(batch_tag_tab, "バッチタグ")
 
         # バッチタグタブ内のグループボックス
-        staging_group = QGroupBox("ステージング画像", batch_tag_tab)
-        staging_group.setObjectName("groupBoxStagingImages")
-
         operations_group = QGroupBox("操作", batch_tag_tab)
         operations_group.setObjectName("groupBoxBatchOperations")
 

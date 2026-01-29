@@ -189,7 +189,7 @@ class TestThumbnailSelectorWidgetQPixmapConversion:
             # QPixmap.fromImage が各QImageに対して呼び出されることを確認
             assert mock_pixmap_class.fromImage.call_count == 3
             for call in mock_pixmap_class.fromImage.call_args_list:
-                args, kwargs = call
+                args, _ = call
                 assert len(args) == 1
                 # QImageが渡されていることを確認（モックなので型チェックのみ）
                 assert hasattr(args[0], "format")  # QImageの特徴的メソッド
@@ -218,18 +218,23 @@ class TestThumbnailSelectorWidgetQPixmapConversion:
     def test_load_thumbnails_from_result_failed_qimage_conversion(
         self, mock_pixmap_class, widget, mock_thumbnail_result
     ):
-        """QImage変換に失敗した場合のテスト"""
+        """QImage変換に失敗した場合、キャッシュには保存されずプレースホルダーで表示される"""
         # fromImageが失敗する場合をシミュレート（null pixmapを返す）
         null_pixmap = Mock()
         null_pixmap.isNull.return_value = True
         mock_pixmap_class.fromImage.return_value = null_pixmap
+
+        # プレースホルダー用のモックPixmap
+        placeholder_pixmap = Mock()
+        placeholder_pixmap.fill = Mock()
+        mock_pixmap_class.return_value = placeholder_pixmap
 
         # テスト用の画像データを設定
         widget.image_data = [(Path("image1.jpg"), 1), (Path("image2.jpg"), 2), (Path("image3.jpg"), 3)]
 
         with (
             patch("lorairo.gui.widgets.thumbnail.ThumbnailItem"),
-            patch.object(widget.scene, "addItem") as mock_add_item,
+            patch.object(widget.scene, "addItem"),
             patch.object(widget.scene, "clear"),
             patch.object(widget.scene, "setSceneRect"),
         ):
@@ -239,8 +244,9 @@ class TestThumbnailSelectorWidgetQPixmapConversion:
             # fromImageが3回呼び出されることを確認
             assert mock_pixmap_class.fromImage.call_count == 3
 
-            # null pixmapの場合、ThumbnailItemは作成されない（isNull チェックが実装されているため）
-            assert mock_add_item.call_count == 0  # null pixmapは除外される
+            # null pixmapはキャッシュに保存されない
+            cache_info = widget.cache_usage_info()
+            assert cache_info["original_cache_count"] == 0
 
 
 class TestThumbnailSelectorWidgetResponsibilitySeparation:
@@ -304,19 +310,9 @@ class TestThumbnailSelectorWidgetSelection:
         assert selected == []
 
     def test_get_current_image_data(self, widget):
-        """現在の画像データ取得テスト（責任分離で追加されたメソッド）"""
-        # メタデータを直接設定（load_images_from_metadataでメタデータ設定）
-        test_metadata = [
-            {"id": 101, "stored_image_path": "image1.jpg"},
-            {"id": 102, "stored_image_path": "image2.jpg"},
-        ]
-        widget.current_image_metadata = test_metadata
-
-        # メタデータ形式での取得
+        """get_current_image_data は deprecated で空リストを返す"""
         current_data = widget.get_current_image_data()
-        assert len(current_data) == 2
-        assert current_data[0]["id"] == 101
-        assert current_data[1]["id"] == 102
+        assert current_data == []
 
 
 class TestThumbnailSelectorWidgetLayout:
