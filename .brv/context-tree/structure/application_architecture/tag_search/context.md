@@ -1,2 +1,0 @@
-
-The tag search feature's data flow starts with the `TagSearchWidget`, which captures user input. The `TagSearchService` in `app_services.py` orchestrates the search. The `search_result_to_dataframe` function in `converters.py` transforms the raw search results into a Polars DataFrame for the UI, including a 'translations' object for the detail view. The `TagSearchService` also determines whether to display the `usage_count` based on the active format filter.
