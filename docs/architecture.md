@@ -239,9 +239,10 @@ graph TD
 
 ## AI Assistance Tooling (MCP)
 
-**Development Agents**: cipher (orchestrator), serena (repository/memory management)
+**Development Agents**: Moltbot (long-term memory via Notion), serena (repository/memory management)
 
 **Working Memory**: `.serena/memories/` for current project knowledge
+**Long-Term Memory**: Notion LTM via Moltbot
 
 **Development-only tools that do not affect runtime application.**
 
