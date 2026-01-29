@@ -49,9 +49,10 @@
 
 **MCP Integration Details**: `mcp__serena__read_memory mcp-integration`
 
-**Development Agents**: cipher (orchestrator), serena (codebase/memory management)
+**Development Agents**: Moltbot (long-term memory via Notion), serena (codebase/memory management)
 
 **Working Memory**: `.serena/memories/` for development knowledge management
+**Long-Term Memory**: Notion LTM via Moltbot
 
 **Development-only tools that enhance the coding workflow.**
 
