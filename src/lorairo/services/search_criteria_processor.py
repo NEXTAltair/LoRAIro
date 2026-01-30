@@ -368,17 +368,15 @@ class SearchCriteriaProcessor:
             if not annotation_status or annotation_status == "all":
                 return images
 
-            filtered_images = []
+            # 全画像IDを収集して一括チェック（N+1回避）
+            image_ids = [img["id"] for img in images if img.get("id")]
+            annotated_ids = self.db_manager.get_annotated_image_ids(image_ids)
 
-            for image in images:
-                image_id = image.get("id")
-                if image_id:
-                    has_annotation = self.db_manager.check_image_has_annotation(image_id)
-
-                    if annotation_status == "annotated" and has_annotation:
-                        filtered_images.append(image)
-                    elif annotation_status == "not_annotated" and not has_annotation:
-                        filtered_images.append(image)
+            # メモリ内フィルタリング
+            if annotation_status == "annotated":
+                filtered_images = [img for img in images if img.get("id") in annotated_ids]
+            else:  # "not_annotated"
+                filtered_images = [img for img in images if img.get("id") not in annotated_ids]
 
             logger.debug(f"アノテーション状態フィルター完了: {len(images)} -> {len(filtered_images)}件")
             return filtered_images

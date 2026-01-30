@@ -1,7 +1,7 @@
 # tests/unit/gui/state/test_dataset_state.py
 
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -222,3 +222,48 @@ class TestDatasetStateManager:
         assert state_manager.current_image_id is None
 
         filter_cleared_mock.assert_called_once()
+
+    def test_refresh_images_uses_batch_query(self, state_manager, sample_image_metadata):
+        """refresh_images が get_images_metadata_batch を1回呼ぶこと"""
+        state_manager.set_dataset_images(sample_image_metadata)
+
+        mock_db_manager = Mock()
+        mock_repository = Mock()
+        mock_db_manager.repository = mock_repository
+        mock_repository.get_images_metadata_batch.return_value = [
+            {"id": 1, "stored_image_path": "/test/image1_updated.jpg", "width": 2048, "height": 1536},
+            {"id": 2, "stored_image_path": "/test/image2_updated.jpg", "width": 1600, "height": 1200},
+        ]
+        state_manager._db_manager = mock_db_manager
+
+        state_manager.refresh_images([1, 2])
+
+        # バッチメソッドが1回だけ呼ばれること
+        mock_repository.get_images_metadata_batch.assert_called_once_with([1, 2])
+        # 個別メソッドは呼ばれないこと
+        mock_repository.get_image_metadata.assert_not_called()
+
+    def test_refresh_images_updates_cache(self, state_manager, sample_image_metadata):
+        """refresh_images がキャッシュを更新すること"""
+        state_manager.set_dataset_images(sample_image_metadata)
+
+        mock_db_manager = Mock()
+        mock_repository = Mock()
+        mock_db_manager.repository = mock_repository
+        updated_metadata = {"id": 1, "stored_image_path": "/updated.jpg", "width": 2048, "height": 1536}
+        mock_repository.get_images_metadata_batch.return_value = [updated_metadata]
+        state_manager._db_manager = mock_db_manager
+
+        state_manager.refresh_images([1])
+
+        # キャッシュが更新されていること
+        image = state_manager.get_image_by_id(1)
+        assert image["width"] == 2048
+
+    def test_refresh_images_empty_list(self, state_manager):
+        """空リストでは何も呼ばれない"""
+        mock_db_manager = Mock()
+        state_manager._db_manager = mock_db_manager
+
+        state_manager.refresh_images([])
+        mock_db_manager.repository.get_images_metadata_batch.assert_not_called()

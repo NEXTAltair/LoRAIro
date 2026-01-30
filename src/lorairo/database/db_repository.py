@@ -71,6 +71,10 @@ class ImageRepository:
     CRUD操作と基本的な検索機能を提供します。
     """
 
+    # SQLite バインド変数上限の安全マージン（32,766の約半分）
+    # IN句以外にもクエリ内で変数を使うため余裕を持たせる
+    BATCH_CHUNK_SIZE = 15000
+
     def __init__(self, session_factory: sessionmaker[Session] = DefaultSessionLocal):
         """
         ImageRepositoryのコンストラクタ。
@@ -177,6 +181,32 @@ class ImageRepository:
                 return result
             except SQLAlchemyError as e:
                 logger.error(f"モデル取得エラー (name={name}): {e}", exc_info=True)
+                raise
+
+    def get_models_by_names(self, names: set[str]) -> dict[str, Model]:
+        """複数モデル名からModelオブジェクトを一括取得する。
+
+        Args:
+            names: 取得するモデル名のセット。
+
+        Returns:
+            モデル名 → Model のマッピング。見つからなかった名前は含まれない。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+        """
+        if not names:
+            return {}
+
+        with self.session_factory() as session:
+            try:
+                stmt = select(Model).options(selectinload(Model.model_types)).where(Model.name.in_(names))
+                results = session.execute(stmt).scalars().all()
+                models_map = {model.name: model for model in results}
+                logger.debug(f"モデル一括取得: {len(models_map)}/{len(names)}件見つかりました")
+                return models_map
+            except SQLAlchemyError as e:
+                logger.error(f"モデル一括取得エラー: {e}", exc_info=True)
                 raise
 
     def _get_or_create_manual_edit_model(self, session: Session) -> int:
@@ -425,6 +455,87 @@ class ImageRepository:
                 return image_id
             except SQLAlchemyError as e:
                 logger.error(f"pHashによる重複画像の検索中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    def find_image_ids_by_phashes(self, phashes: set[str]) -> dict[str, int]:
+        """複数pHashに対応する画像IDを一括取得する。
+
+        BATCH_CHUNK_SIZE を超える場合はチャンク分割してクエリを実行する。
+
+        Args:
+            phashes: 検索するpHashのセット。
+
+        Returns:
+            pHash → image_id のマッピング。見つからなかったpHashは含まれない。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+        """
+        if not phashes:
+            return {}
+
+        phash_list = list(phashes)
+
+        with self.session_factory() as session:
+            try:
+                phash_to_id: dict[str, int] = {}
+                for i in range(0, len(phash_list), self.BATCH_CHUNK_SIZE):
+                    chunk = phash_list[i : i + self.BATCH_CHUNK_SIZE]
+                    stmt = select(Image.phash, Image.id).where(Image.phash.in_(chunk))
+                    results = session.execute(stmt).all()
+                    phash_to_id.update({row.phash: row.id for row in results})
+                logger.debug(f"pHash一括検索: {len(phash_to_id)}/{len(phashes)}件見つかりました")
+                return phash_to_id
+            except SQLAlchemyError as e:
+                logger.error(f"pHash一括検索中にエラー: {e}", exc_info=True)
+                raise
+
+    def get_annotated_image_ids(self, image_ids: list[int]) -> set[int]:
+        """指定IDリストからアノテーション済み画像IDを一括取得する。
+
+        タグまたはキャプションが存在する画像IDのセットを返す。
+        BATCH_CHUNK_SIZE を超える場合はチャンク分割してクエリを実行する。
+
+        Args:
+            image_ids: 検査対象の画像IDリスト。
+
+        Returns:
+            アノテーションが存在する画像IDのセット。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+        """
+        if not image_ids:
+            return set()
+
+        with self.session_factory() as session:
+            try:
+                annotated_ids: set[int] = set()
+                for i in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+                    chunk = image_ids[i : i + self.BATCH_CHUNK_SIZE]
+                    # EXISTS サブクエリでタグまたはキャプションの存在を判定
+                    stmt = (
+                        select(Image.id)
+                        .where(Image.id.in_(chunk))
+                        .where(
+                            or_(
+                                exists().where(Tag.image_id == Image.id),
+                                exists().where(Caption.image_id == Image.id),
+                            )
+                        )
+                    )
+                    result = session.execute(stmt).scalars().all()
+                    annotated_ids.update(result)
+                logger.debug(
+                    f"アノテーション存在一括チェック: "
+                    f"{len(annotated_ids)}/{len(image_ids)}件にアノテーションあり"
+                )
+                return annotated_ids
+            except SQLAlchemyError as e:
+                logger.error(
+                    f"アノテーション存在一括チェック中にエラー: {e}",
+                    exc_info=True,
+                )
                 raise
 
     def add_original_image(self, info: dict[str, Any]) -> int:
@@ -1078,6 +1189,39 @@ class ImageRepository:
             except SQLAlchemyError as e:
                 logger.error(
                     f"画像メタデータの取得中にエラーが発生しました (ID: {image_id}): {e}", exc_info=True
+                )
+                raise
+
+    def get_images_metadata_batch(self, image_ids: list[int]) -> list[dict[str, Any]]:
+        """指定された複数IDのオリジナル画像メタデータを一括取得する。
+
+        内部的に _fetch_filtered_metadata() を使用し、joinedloadで取得する。
+        BATCH_CHUNK_SIZE を超える場合はチャンク分割してクエリを実行する。
+
+        Args:
+            image_ids: 取得する画像IDのリスト。
+
+        Returns:
+            画像メタデータ辞書のリスト。見つからなかったIDは結果に含まれない。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+        """
+        if not image_ids:
+            return []
+
+        with self.session_factory() as session:
+            try:
+                # チャンク分割でSQLiteバインド変数上限を回避
+                result: list[dict[str, Any]] = []
+                for i in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+                    chunk = image_ids[i : i + self.BATCH_CHUNK_SIZE]
+                    result.extend(self._fetch_filtered_metadata(session, chunk, resolution=0))
+                return result
+            except SQLAlchemyError as e:
+                logger.error(
+                    f"画像メタデータの一括取得中にエラーが発生しました: {e}",
+                    exc_info=True,
                 )
                 raise
 

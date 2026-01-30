@@ -483,13 +483,14 @@ class DatasetStateManager(QObject):
             image_ids: 再読み込み対象の画像IDリスト
 
         Side Effects:
-            - 各画像について refresh_image() を呼び出し
-            - 全画像のキャッシュ更新とシグナル発行
+            - DB から最新メタデータを一括取得（1クエリ）
+            - _all_images と _filtered_images のキャッシュを更新
+            - 現在選択中の画像が含まれれば current_image_data_changed シグナル発行
 
         Note:
             - 空リストの場合は何もせずリターン
             - _db_manager が未設定の場合は警告ログを出して何もしない
-            - 個別の画像で失敗しても処理を継続（ログに記録）
+            - DB取得できなかったIDは警告ログを出す
 
         Example:
             >>> # バッチタグ追加後のリフレッシュ
@@ -507,17 +508,27 @@ class DatasetStateManager(QObject):
 
         logger.info(f"Refreshing metadata for {len(image_ids)} images")
 
-        # 各画像を個別にリフレッシュ
-        success_count = 0
-        for image_id in image_ids:
-            try:
-                self.refresh_image(image_id)
-                success_count += 1
-            except Exception as e:
-                logger.error(f"Failed to refresh image_id {image_id}: {e}", exc_info=True)
-                # 個別の失敗は継続（他の画像も処理）
+        try:
+            # 一括取得（N+1回避: 1クエリで全画像取得）
+            metadata_list = self._db_manager.repository.get_images_metadata_batch(image_ids)
 
-        logger.info(f"Metadata refresh completed: {success_count}/{len(image_ids)} successful")
+            # image_id → metadata のマップ作成
+            metadata_by_id: dict[int, dict[str, Any]] = {m["id"]: m for m in metadata_list}
+
+            # キャッシュ一括更新
+            success_count = 0
+            for image_id in image_ids:
+                new_metadata = metadata_by_id.get(image_id)
+                if new_metadata:
+                    self.update_image_metadata(image_id, new_metadata)
+                    success_count += 1
+                else:
+                    logger.warning(f"Failed to fetch metadata from DB for image_id {image_id}")
+
+            logger.info(f"Metadata refresh completed: {success_count}/{len(image_ids)} successful")
+
+        except Exception as e:
+            logger.error(f"Error during batch metadata refresh: {e}", exc_info=True)
 
     def _get_image_from_filtered(self, image_id: int) -> dict[str, Any] | None:
         """フィルター済み画像からの検索（デバッグ用）"""

@@ -247,20 +247,22 @@ class TestSearchCriteriaProcessor:
         images = [{"id": 1}, {"id": 2}, {"id": 3}]
 
         # id=1,3はアノテーション済み、id=2は未アノテーション
-        mock_db_manager.check_image_has_annotation.side_effect = lambda img_id: img_id in [1, 3]
+        mock_db_manager.get_annotated_image_ids.return_value = {1, 3}
 
         result = processor.filter_images_by_annotation_status(images, "annotated")
 
         assert len(result) == 2
         assert result[0]["id"] == 1
         assert result[1]["id"] == 3
+        # バッチメソッドが1回だけ呼ばれること
+        mock_db_manager.get_annotated_image_ids.assert_called_once_with([1, 2, 3])
 
     def test_filter_images_by_annotation_status_not_annotated(self, processor, mock_db_manager):
         """未アノテーション画像フィルタリングテスト"""
         images = [{"id": 1}, {"id": 2}, {"id": 3}]
 
-        # id=2のみ未アノテーション
-        mock_db_manager.check_image_has_annotation.side_effect = lambda img_id: img_id != 2
+        # id=1,3はアノテーション済み → id=2のみ未アノテーション
+        mock_db_manager.get_annotated_image_ids.return_value = {1, 3}
 
         result = processor.filter_images_by_annotation_status(images, "not_annotated")
 
@@ -274,8 +276,8 @@ class TestSearchCriteriaProcessor:
         result = processor.filter_images_by_annotation_status(images, "all")
 
         assert len(result) == 3
-        # check_image_has_annotationは呼ばれない
-        mock_db_manager.check_image_has_annotation.assert_not_called()
+        # get_annotated_image_idsは呼ばれない
+        mock_db_manager.get_annotated_image_ids.assert_not_called()
 
     def test_parse_resolution_value_valid(self, processor):
         """有効な解像度文字列解析テスト"""
