@@ -15,8 +15,6 @@ Target: 80%+ coverage
 """
 
 import pytest
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QListWidgetItem
 
 from lorairo.gui.state.dataset_state import DatasetStateManager
 from lorairo.gui.widgets.batch_tag_add_widget import BatchTagAddWidget
@@ -40,7 +38,6 @@ class TestBatchTagAddWidgetInitialization:
         widget = BatchTagAddWidget()
         qtbot.addWidget(widget)
 
-        assert hasattr(widget.ui, "listWidgetStaging")
         assert hasattr(widget.ui, "lineEditTag")
         assert hasattr(widget.ui, "pushButtonClearStaging")
         assert hasattr(widget.ui, "pushButtonAddTag")
@@ -132,7 +129,6 @@ class TestStagingListManagement:
         assert 2 in widget._staged_images
 
         # Verify UI update
-        assert widget.ui.listWidgetStaging.count() == 2
         assert widget.ui.labelStagingCount.text() == f"2 / {widget.MAX_STAGING_IMAGES} 枚"
 
     def test_add_duplicate_images_skipped(self, qtbot, widget_with_state):
@@ -188,31 +184,7 @@ class TestStagingListManagement:
         assert len(widget._staged_images) == 0
 
         # Verify UI updated
-        assert widget.ui.listWidgetStaging.count() == 0
         assert widget.ui.labelStagingCount.text() == f"0 / {widget.MAX_STAGING_IMAGES} 枚"
-
-    def test_remove_individual_item_with_delete_key(self, qtbot, widget_with_state):
-        """Test removing individual item from staging with Delete key"""
-        widget, _ = widget_with_state
-
-        # Add images
-        widget._on_add_selected_clicked()
-        assert len(widget._staged_images) == 2
-
-        # Select first item
-        widget.ui.listWidgetStaging.setCurrentRow(0)
-
-        # Simulate Delete key press
-        from PySide6.QtGui import QKeyEvent
-
-        key_event = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier)
-
-        with qtbot.waitSignal(widget.staged_images_changed, timeout=1000):
-            widget._on_list_key_press(key_event)
-
-        # Should have 1 image left
-        assert len(widget._staged_images) == 1
-        assert widget.ui.listWidgetStaging.count() == 1
 
 
 class TestTagNormalization:

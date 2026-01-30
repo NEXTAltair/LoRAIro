@@ -150,13 +150,13 @@ class WidgetSetupService:
             main_window.splitterPreviewDetails.setStretchFactor(1, 1)
             logger.info("✅ splitterPreviewDetails 初期化完了（プレビュー/詳細比率55/45）")
 
-        # バッチタグタブのスプリッター（左:ステージング画像、右:操作パネル）
-        if hasattr(main_window, "splitterBatchTag") and main_window.splitterBatchTag:
-            # 初期サイズ設定（左: 50%, 右: 50%）- 右カラムの詰まりを軽減
-            main_window.splitterBatchTag.setSizes([560, 560])
-            main_window.splitterBatchTag.setStretchFactor(0, 5)  # 左: ステージング画像
-            main_window.splitterBatchTag.setStretchFactor(1, 5)  # 右: 操作パネル
-            logger.info("✅ splitterBatchTag 初期化完了（ステージング/操作比率50/50）")
+        # バッチタグタブのメインスプリッター（左:ステージング一覧、右:操作パネル）
+        if hasattr(main_window, "splitterBatchTagMain") and main_window.splitterBatchTagMain:
+            # 初期サイズ設定（左: 50%, 右: 50%）
+            main_window.splitterBatchTagMain.setSizes([560, 560])
+            main_window.splitterBatchTagMain.setStretchFactor(0, 5)  # 左: ステージング一覧
+            main_window.splitterBatchTagMain.setStretchFactor(1, 5)  # 右: 操作パネル
+            logger.info("✅ splitterBatchTagMain 初期化完了（ステージング/操作比率50/50）")
 
         # バッチタグ操作パネル内のスプリッター（タグ追加/表示/アノテーション）
         if hasattr(main_window, "splitterBatchTagOperations") and main_window.splitterBatchTagOperations:
@@ -189,14 +189,31 @@ class WidgetSetupService:
             logger.error("❌ バッチタグタブ（インデックス1）が存在しません")
             return
 
-        # 操作パネル内のスプリッター取得
+        # バッチタグタブのメインスプリッター取得（左右2カラム）
+        main_splitter = batch_tag_tab.findChild(object, "splitterBatchTagMain")
+        if not main_splitter:
+            logger.error("❌ splitterBatchTagMain が見つかりません")
+            return
+
+        # BatchTagAddWidget（左カラムのプレースホルダーを置換）
+        WidgetSetupService._setup_batch_tag_add_widget(main_window, main_splitter)
+
+        # タグ追加入力を右カラムのタブへ移動
+        tag_input_placeholder = batch_tag_tab.findChild(object, "batchTagInputPlaceholder")
+        if not tag_input_placeholder:
+            logger.warning("⚠️ batchTagInputPlaceholder が見つかりません")
+        else:
+            batch_tag_widget = getattr(main_window, "batchTagAddWidget", None)
+            if batch_tag_widget:
+                batch_tag_widget.attach_tag_input_to(tag_input_placeholder)
+            else:
+                logger.warning("⚠️ BatchTagAddWidget が見つかりません")
+
+        # 操作パネル内のスプリッター取得（右カラム）
         operations_splitter = batch_tag_tab.findChild(object, "splitterBatchTagOperations")
         if not operations_splitter:
             logger.error("❌ splitterBatchTagOperations が見つかりません")
             return
-
-        # BatchTagAddWidget
-        WidgetSetupService._setup_batch_tag_add_widget(main_window, operations_splitter)
 
         # AnnotationDataDisplayWidget
         WidgetSetupService._setup_annotation_display_widget(main_window, operations_splitter)
@@ -340,7 +357,6 @@ class WidgetSetupService:
             )
             main_window._annotation_filter_connected = True
             logger.info("✅ フィルター → モデル選択 Signal接続完了")
-
 
     @classmethod
     def setup_all_widgets(cls, main_window: Any, dataset_state_manager: DatasetStateManager | None) -> None:

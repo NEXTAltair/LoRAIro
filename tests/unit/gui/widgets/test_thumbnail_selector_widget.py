@@ -153,8 +153,18 @@ class TestThumbnailSelectorWidgetQPixmapConversion:
 
         loaded_thumbnails = [(1, test_qimage), (2, test_qimage), (3, test_qimage)]
 
+        image_metadata = [
+            {"id": 1, "stored_image_path": "image1.jpg"},
+            {"id": 2, "stored_image_path": "image2.jpg"},
+            {"id": 3, "stored_image_path": "image3.jpg"},
+        ]
+
         return ThumbnailLoadResult(
-            loaded_thumbnails=loaded_thumbnails, failed_count=0, total_count=3, processing_time=1.0
+            loaded_thumbnails=loaded_thumbnails,
+            failed_count=0,
+            total_count=3,
+            processing_time=1.0,
+            image_metadata=image_metadata,
         )
 
     @patch("lorairo.gui.widgets.thumbnail.QPixmap")
@@ -166,9 +176,6 @@ class TestThumbnailSelectorWidgetQPixmapConversion:
         mock_pixmap = Mock()
         mock_pixmap.isNull.return_value = False
         mock_pixmap_class.fromImage.return_value = mock_pixmap
-
-        # テスト用の画像データを設定（add_thumbnail_item_with_pixmapが呼び出されるため）
-        widget.image_data = [(Path("image1.jpg"), 1), (Path("image2.jpg"), 2), (Path("image3.jpg"), 3)]
 
         # GUI処理をモック化してテストを高速化
         with (
@@ -228,9 +235,6 @@ class TestThumbnailSelectorWidgetQPixmapConversion:
         placeholder_pixmap = Mock()
         placeholder_pixmap.fill = Mock()
         mock_pixmap_class.return_value = placeholder_pixmap
-
-        # テスト用の画像データを設定
-        widget.image_data = [(Path("image1.jpg"), 1), (Path("image2.jpg"), 2), (Path("image3.jpg"), 3)]
 
         with (
             patch("lorairo.gui.widgets.thumbnail.ThumbnailItem"),

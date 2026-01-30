@@ -20,15 +20,31 @@ from collections import OrderedDict
 from typing import TYPE_CHECKING
 
 from genai_tag_db_tools.utils.cleanup_str import TagCleaner
-from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtGui import QIcon, QPixmap
-from PySide6.QtWidgets import QListWidgetItem, QWidget
+from PySide6.QtCore import QSize, Qt, Signal, Slot
+from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import QFrame, QGraphicsView, QVBoxLayout, QWidget
 
 from ...gui.designer.BatchTagAddWidget_ui import Ui_BatchTagAddWidget
 from ...utils.log import logger
 
 if TYPE_CHECKING:
     from ..state.dataset_state import DatasetStateManager
+    from .thumbnail import ThumbnailSelectorWidget
+
+
+def normalize_tag(tag: str) -> str:
+    """タグを正規化する（TagCleaner.clean_format() + lower + strip）。
+
+    Args:
+        tag: 入力タグ文字列
+
+    Returns:
+        正規化されたタグ。TagCleaner.clean_format() が None を返す場合は空文字列。
+    """
+    cleaned: str | None = TagCleaner.clean_format(tag)
+    if cleaned is None:
+        return ""
+    return cleaned.strip().lower()
 
 
 class BatchTagAddWidget(QWidget):
@@ -46,7 +62,7 @@ class BatchTagAddWidget(QWidget):
     5. MainWindow が ImageDBWriteService.add_tag_batch() で DB 更新
 
     UI構成:
-    - listWidgetStaging: ステージング画像リスト
+    - stagingThumbnailWidget: ステージング画像サムネイル（ThumbnailSelectorWidget）
     - lineEditTag: タグ入力フィールド
     - pushButtonClearStaging: ステージングリストをクリア
     - pushButtonAddTag: タグを追加
@@ -97,8 +113,8 @@ class BatchTagAddWidget(QWidget):
         self.ui = Ui_BatchTagAddWidget()
         self.ui.setupUi(self)  # type: ignore[no-untyped-call]
 
-        # キー入力ハンドリング
-        self.ui.listWidgetStaging.keyPressEvent = self._on_list_key_press  # type: ignore[method-assign]
+        self._staging_thumbnail_widget: ThumbnailSelectorWidget | None = None
+        self._setup_staging_thumbnail_widget()
 
         # 初期状態更新
         self._update_staging_count_label()
@@ -115,6 +131,36 @@ class BatchTagAddWidget(QWidget):
         self._dataset_state_manager = dataset_state_manager
         logger.debug("DatasetStateManager reference set in BatchTagAddWidget")
 
+    def _setup_staging_thumbnail_widget(self) -> None:
+        """ステージング一覧をThumbnailSelectorWidgetで表示する。"""
+        from .thumbnail import ThumbnailSelectorWidget
+
+        layout = self.ui.verticalLayoutStaging
+        list_widget = self.ui.listWidgetStaging
+
+        widget = ThumbnailSelectorWidget(parent=self.ui.groupBoxStagingList, dataset_state=None)
+        widget.setObjectName("stagingThumbnailWidget")
+        widget.thumbnail_size = QSize(96, 96)
+        widget.sliderThumbnailSize.setValue(96)
+        widget.sliderThumbnailSize.hide()
+        widget.frameThumbnailHeader.hide()
+        widget.graphics_view.setDragMode(QGraphicsView.DragMode.NoDrag)
+        widget.graphics_view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        widget.scrollAreaThumbnails.setFrameShape(QFrame.Shape.NoFrame)
+        widget.setMinimumHeight(150)
+
+        insert_index = layout.indexOf(list_widget)
+        if insert_index != -1:
+            layout.insertWidget(insert_index, widget)
+        else:
+            layout.addWidget(widget)
+
+        layout.removeWidget(list_widget)
+        list_widget.setParent(self)
+        list_widget.hide()
+
+        self._staging_thumbnail_widget = widget
+
     def _update_staging_count_label(self) -> None:
         """
         ステージング数ラベルを更新
@@ -125,24 +171,15 @@ class BatchTagAddWidget(QWidget):
         self.ui.labelStagingCount.setText(f"{count} / {self.MAX_STAGING_IMAGES} 枚")
 
     def _normalize_tag(self, tag: str) -> str:
-        """
-        タグを正規化（TagDBtools 統合）
+        """タグを正規化する（モジュールレベル normalize_tag() に委譲）。
 
         Args:
             tag: 入力タグ文字列
 
         Returns:
-            str: 正規化されたタグ（TagCleaner.clean_format() + lower + strip）
-
-        Note:
-            TagCleaner.clean_format() は genai-tag-db-tools の標準正規化処理を使用。
-            ExistingFileReader や ImageDatabaseRepository と同一のロジック。
-            小文字変換を追加して重複チェックの一貫性を保証。
+            正規化されたタグ（TagCleaner.clean_format() + lower + strip）
         """
-        cleaned: str | None = TagCleaner.clean_format(tag)
-        if cleaned is None:
-            return ""
-        return cleaned.strip().lower()
+        return normalize_tag(tag)
 
     @Slot()
     def _on_add_selected_clicked(self) -> None:
@@ -193,6 +230,24 @@ class BatchTagAddWidget(QWidget):
     def add_selected_images_to_staging(self) -> None:
         """外部から選択画像をステージングに追加するための公開API"""
         self._on_add_selected_clicked()
+
+    def attach_tag_input_to(self, container: QWidget) -> None:
+        """タグ入力UIを外部コンテナへ移動してステージング一覧と分離する。"""
+        tag_input = self.ui.groupBoxTagInput
+        if tag_input.parent() is not container:
+            tag_input.setParent(container)
+            if container.layout() is None:
+                layout = QVBoxLayout(container)
+                layout.setContentsMargins(0, 0, 0, 0)
+            container.layout().addWidget(tag_input)
+
+        splitter = getattr(self.ui, "splitterBatchTagStaging", None)
+        if splitter:
+            idx = splitter.indexOf(tag_input)
+            if idx != -1:
+                splitter.widget(idx).hide()
+            splitter.setStretchFactor(0, 1)
+            splitter.setStretchFactor(1, 0)
 
     @Slot()
     def _on_clear_staging_clicked(self) -> None:
@@ -258,48 +313,21 @@ class BatchTagAddWidget(QWidget):
 
         OrderedDict の内容をリストウィジェットに反映。
         """
-        self.ui.listWidgetStaging.clear()
+        staging_paths: list[tuple[str, int]] = []
 
-        for image_id, (filename, stored_path) in self._staged_images.items():
-            pixmap = self._get_thumbnail_pixmap(image_id, stored_path)
-            icon = QIcon(pixmap) if not pixmap.isNull() else QIcon()
-            item = QListWidgetItem(icon, filename)
-            item.setData(1, image_id)  # Qt::UserRole + 1 に image_id を保存
-            if stored_path:
-                item.setToolTip(f"{stored_path}\nID: {image_id}")
-            else:
-                item.setToolTip(f"ID: {image_id}")
-            self.ui.listWidgetStaging.addItem(item)
+        for image_id, (_, stored_path) in self._staged_images.items():
+            path = stored_path
+            if not path and self._dataset_state_manager:
+                metadata = self._dataset_state_manager.get_image_by_id(image_id)
+                if metadata:
+                    path = metadata.get("stored_image_path", "") or ""
+
+            staging_paths.append((path, image_id))
+
+        if self._staging_thumbnail_widget:
+            self._staging_thumbnail_widget.load_thumbnails_from_paths(staging_paths)
 
         self._update_staging_count_label()
-
-    def _on_list_key_press(self, event) -> None:  # type: ignore[no-untyped-def]
-        """
-        リストウィジェットのキー入力ハンドラ
-
-        Delete/Backspace キーで選択項目を削除。
-
-        Args:
-            event: QKeyEvent
-        """
-        from PySide6.QtCore import Qt
-
-        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
-            current_item = self.ui.listWidgetStaging.currentItem()
-            if current_item:
-                image_id = current_item.data(1)  # Qt::UserRole + 1 から image_id 取得
-                if image_id in self._staged_images:
-                    del self._staged_images[image_id]
-                    if image_id in self._thumbnail_cache:
-                        del self._thumbnail_cache[image_id]
-                    self._refresh_staging_list_ui()
-                    logger.info(f"Removed image_id {image_id} from staging")
-
-                    # シグナル発行
-                    self.staged_images_changed.emit(list(self._staged_images.keys()))
-        else:
-            # デフォルトのキー処理に委譲
-            QWidget.keyPressEvent(self.ui.listWidgetStaging, event)
 
     def _get_thumbnail_pixmap(self, image_id: int, stored_path: str) -> QPixmap:
         """
@@ -326,13 +354,17 @@ class BatchTagAddWidget(QWidget):
         if path:
             pixmap = QPixmap(path)
 
+        size = QSize(96, 96)
+        if self._staging_thumbnail_widget:
+            size = self._staging_thumbnail_widget.thumbnail_size
+        if size.width() <= 0 or size.height() <= 0:
+            size = QSize(96, 96)
+
         if pixmap.isNull():
             # プレースホルダー
-            size = self.ui.listWidgetStaging.iconSize()
             pixmap = QPixmap(size)
             pixmap.fill(Qt.GlobalColor.lightGray)
         else:
-            size = self.ui.listWidgetStaging.iconSize()
             pixmap = pixmap.scaled(
                 size,
                 Qt.AspectRatioMode.KeepAspectRatio,

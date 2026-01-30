@@ -529,7 +529,15 @@
          <number>8</number>
         </property>
         <item>
-         <widget class="QGroupBox" name="groupBoxBatchOperations">
+         <widget class="QSplitter" name="splitterBatchTagMain">
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
+          </property>
+          <property name="childrenCollapsible">
+           <bool>false</bool>
+          </property>
+          <widget class="QWidget" name="batchTagWidgetPlaceholder" native="true"/>
+          <widget class="QGroupBox" name="groupBoxBatchOperations">
            <property name="title">
             <string>操作</string>
            </property>
@@ -543,35 +551,35 @@
               <bool>false</bool>
              </property>
              <widget class="QTabWidget" name="tabWidgetBatchTagWorkflow">
-              <property name="currentIndex">
-               <number>0</number>
-              </property>
-              <widget class="QWidget" name="tabBatchTagStaging">
-               <attribute name="title">
-                <string>ステージング/タグ追加</string>
-               </attribute>
-               <layout class="QVBoxLayout" name="verticalLayout_batchTagStaging">
-                <property name="leftMargin">
-                 <number>0</number>
-                </property>
-                <property name="topMargin">
-                 <number>0</number>
-                </property>
-                <property name="rightMargin">
-                 <number>0</number>
-                </property>
-                <property name="bottomMargin">
-                 <number>0</number>
-                </property>
-                <item>
-                 <widget class="QWidget" name="batchTagWidgetPlaceholder" native="true"/>
-                </item>
-               </layout>
-              </widget>
-              <widget class="QWidget" name="tabBatchTagAnnotation">
-               <attribute name="title">
-                <string>アノテーション設定</string>
-               </attribute>
+             <property name="currentIndex">
+              <number>0</number>
+             </property>
+             <widget class="QWidget" name="tabBatchTagTagAdd">
+              <attribute name="title">
+               <string>タグ追加</string>
+              </attribute>
+              <layout class="QVBoxLayout" name="verticalLayout_batchTagTagAdd">
+               <property name="leftMargin">
+                <number>0</number>
+               </property>
+               <property name="topMargin">
+                <number>0</number>
+               </property>
+               <property name="rightMargin">
+                <number>0</number>
+               </property>
+               <property name="bottomMargin">
+                <number>0</number>
+               </property>
+               <item>
+                <widget class="QWidget" name="batchTagInputPlaceholder" native="true"/>
+               </item>
+              </layout>
+             </widget>
+             <widget class="QWidget" name="tabBatchTagAnnotation">
+              <attribute name="title">
+               <string>アノテーション設定</string>
+              </attribute>
                <layout class="QVBoxLayout" name="verticalLayout_batchTagAnnotation">
                 <property name="leftMargin">
                  <number>0</number>
@@ -621,6 +629,7 @@
             </widget>
            </item>
           </layout>
+          </widget>
          </widget>
         </item>
        </layout>
@@ -762,7 +771,7 @@
     <string>エクスポート</string>
    </property>
    <property name="shortcut">
-    <string>Ctrl+E</string>
+    <string>Ctrl+Shift+E</string>
    </property>
   </action>
   <action name="actionSettings">

@@ -146,6 +146,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     multiple_images_selected = Signal(list)  # 複数画像選択時
     selection_cleared = Signal()  # 選択クリア時
     stage_selected_requested = Signal()  # バッチタグのステージング追加要求
+    quick_tag_requested = Signal(list)  # クイックタグ追加要求（image_ids）
 
     def __init__(
         self,
@@ -284,12 +285,51 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         selected_ids = self.dataset_state.selected_image_ids if self.dataset_state else []
 
         menu = QMenu(self)
+
+        # バッチタグへ追加
         action_stage = menu.addAction("バッチタグへ追加")
         action_stage.setEnabled(bool(selected_ids))
+
+        # クイックタグ追加
+        action_quick_tag = menu.addAction("クイックタグ追加...")
+        action_quick_tag.setEnabled(bool(selected_ids))
+
+        menu.addSeparator()
+
+        # すべて選択
+        action_select_all = menu.addAction("すべて選択")
+        action_select_all.setEnabled(bool(self.thumbnail_items))
+
+        # 選択解除
+        action_deselect = menu.addAction("選択解除")
+        action_deselect.setEnabled(bool(selected_ids))
 
         action = menu.exec(self.graphics_view.mapToGlobal(pos))
         if action == action_stage:
             self.stage_selected_requested.emit()
+        elif action == action_quick_tag:
+            self.quick_tag_requested.emit(selected_ids)
+        elif action == action_select_all:
+            self._select_all_items()
+        elif action == action_deselect:
+            self._deselect_all_items()
+
+    def _select_all_items(self) -> None:
+        """すべてのサムネイルアイテムを選択する。"""
+        if not self.dataset_state or not self.thumbnail_items:
+            return
+
+        all_image_ids = [item.image_id for item in self.thumbnail_items]
+        self.dataset_state.set_selected_images(all_image_ids)
+        logger.debug(f"Selected all {len(all_image_ids)} items")
+
+    def _deselect_all_items(self) -> None:
+        """すべてのサムネイルアイテムの選択を解除する。"""
+        if not self.dataset_state:
+            return
+
+        self.dataset_state.clear_selection()
+        logger.debug("Deselected all items")
 
     def cache_thumbnail(self, image_id: int, pixmap: QPixmap, metadata: dict[str, Any]) -> None:
         """
@@ -382,7 +422,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             return
 
         button_width = self.thumbnail_size.width()
-        grid_width = self.scrollAreaThumbnails.viewport().width()
+        grid_width = max(self.scrollAreaThumbnails.viewport().width(), self.thumbnail_size.width())
         column_count = max(grid_width // button_width, 1)
 
         displayed_count = 0
@@ -584,15 +624,31 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.scene.clear()
         self.thumbnail_items.clear()
         self.clear_cache()
+        self.image_data.clear()
 
         if not thumbnail_result.loaded_thumbnails:
             logger.info("表示する画像がありません")
+            self._update_image_count_display()
+            if hasattr(self, "graphics_view"):
+                self.graphics_view.viewport().update()
             return
 
         # **クリーンアーキテクチャ**: DatasetStateManagerに統一データ管理を委譲
-        if self.dataset_state and hasattr(thumbnail_result, "image_metadata") and thumbnail_result.image_metadata:
+        if (
+            self.dataset_state
+            and hasattr(thumbnail_result, "image_metadata")
+            and thumbnail_result.image_metadata
+        ):
             self.dataset_state.update_from_search_results(thumbnail_result.image_metadata)
             logger.debug("検索結果をDatasetStateManagerに同期完了")
+
+        # 表示順序を先に確定（_display_cached_thumbnails が image_data を参照するため）
+        if hasattr(thumbnail_result, "image_metadata") and thumbnail_result.image_metadata:
+            self.image_data = [
+                (Path(item["stored_image_path"]), item["id"])
+                for item in thumbnail_result.image_metadata
+                if "stored_image_path" in item and "id" in item
+            ]
 
         # **表示専念**: UI表示のみに集中
         valid_thumbnails = 0
@@ -616,14 +672,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         # UI表示を構築
         self._display_cached_thumbnails()
         self._update_image_count_display()
-
-        # レガシー互換性（段階的削除予定）
-        if hasattr(thumbnail_result, "image_metadata") and thumbnail_result.image_metadata:
-            self.image_data = [
-                (Path(item["stored_image_path"]), item["id"])
-                for item in thumbnail_result.image_metadata
-                if "stored_image_path" in item and "id" in item
-            ]
+        if hasattr(self, "graphics_view"):
+            self.graphics_view.viewport().update()
 
         cache_info = self.cache_usage_info()
         logger.info(
@@ -632,6 +682,27 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         )
 
         # 選択状態はThumbnailItem.isSelected()で動的取得
+
+    def load_thumbnails_from_paths(self, items: list[tuple[str, int]]) -> None:
+        """
+        ファイルパスとIDの一覧からサムネイルをロードする（簡易表示用）。
+
+        Args:
+            items: [(stored_path, image_id), ...]
+        """
+        self.scene.clear()
+        self.thumbnail_items.clear()
+        self.clear_cache()
+        self.image_data.clear()
+
+        for path_str, image_id in items:
+            path = Path(path_str) if path_str else Path()
+            self.image_data.append((path, image_id))
+
+        self.update_thumbnail_layout()
+        self._update_image_count_display()
+        if hasattr(self, "graphics_view"):
+            self.graphics_view.viewport().update()
 
     def clear_thumbnails(self) -> None:
         """
@@ -783,7 +854,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         後方互換性確保のため一時的に維持。
         """
         button_width = self.thumbnail_size.width()
-        grid_width = self.scrollAreaThumbnails.viewport().width()
+        grid_width = max(self.scrollAreaThumbnails.viewport().width(), self.thumbnail_size.width())
         column_count = max(grid_width // button_width, 1)
 
         for i, (image_path, image_id) in enumerate(self.image_data):

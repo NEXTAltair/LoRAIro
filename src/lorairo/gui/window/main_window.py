@@ -4,8 +4,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QTimer, Signal
-from PySide6.QtGui import QResizeEvent
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSettings, QTimer, Signal
+from PySide6.QtGui import QCloseEvent, QResizeEvent
 from PySide6.QtWidgets import (
     QFileDialog,
     QGraphicsOpacityEffect,
@@ -43,6 +43,7 @@ from ..widgets.error_log_viewer_dialog import ErrorLogViewerDialog
 from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
+from ..widgets.quick_tag_dialog import QuickTagDialog
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from ..widgets.tag_management_dialog import TagManagementDialog
 from ..widgets.thumbnail import ThumbnailSelectorWidget
@@ -53,6 +54,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     メインワークスペースウィンドウ。
     データベース中心の設計で、画像の管理・検索・処理を統合的に提供。
     """
+
+    # QSettings バージョン（UI構造変更時にインクリメント）
+    SETTINGS_VERSION = 1
 
     # シグナル
     dataset_loaded = Signal(str)  # dataset_path
@@ -121,7 +125,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 from PySide6.QtGui import QAction
 
                 self.actionTagManagement = QAction("タグタイプ管理", self)
-                self.actionTagManagement.setShortcut("Ctrl+T")
+                self.actionTagManagement.setShortcut("Ctrl+Shift+T")
                 self.actionTagManagement.triggered.connect(self._show_tag_management_dialog)
                 self.menuView.addAction(self.actionTagManagement)
                 logger.debug("Tag management menu action added")
@@ -149,6 +153,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # Phase 4: イベント接続（最終段階）
             logger.info("Phase 4: イベント接続開始")
             self._connect_events()
+
+            # Phase 5: ウィンドウ状態の復元（QSettings）
+            logger.info("Phase 5: ウィンドウ状態復元開始")
+            self._restore_window_state()
 
             logger.info("MainWindow初期化完了")
 
@@ -487,6 +495,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                         self.thumbnail_selector.stage_selected_requested.connect(
                             self.send_selected_to_batch_tag
                         )
+                    # クイックタグ追加要求
+                    if hasattr(self.thumbnail_selector, "quick_tag_requested"):
+                        self.thumbnail_selector.quick_tag_requested.connect(self._show_quick_tag_dialog)
                     logger.info("    ✅ サムネイル→プレビュー接続完了")
                 except Exception as e:
                     logger.error(f"    ❌ サムネイル→プレビュー接続失敗: {e}")
@@ -515,10 +526,73 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 except Exception as e:
                     logger.error(f"    ❌ BatchTagAddWidget シグナル接続失敗: {e}")
 
+            # パネル表示切替アクション接続
+            self._connect_panel_toggle_actions()
+
             logger.info("  ✅ イベント接続完了")
 
         except Exception as e:
             logger.error(f"イベント接続で予期しないエラー: {e}", exc_info=True)
+
+    def _connect_panel_toggle_actions(self) -> None:
+        """パネル表示切替アクションを接続する。
+
+        actionToggleFilterPanel と actionTogglePreviewPanel を
+        対応するパネルの表示/非表示切替に接続する。
+        """
+        try:
+            # フィルターパネル表示切替
+            if hasattr(self, "actionToggleFilterPanel"):
+                self.actionToggleFilterPanel.toggled.connect(self._toggle_filter_panel)
+                logger.info("    ✅ actionToggleFilterPanel 接続完了")
+
+            # プレビューパネル表示切替
+            if hasattr(self, "actionTogglePreviewPanel"):
+                self.actionTogglePreviewPanel.toggled.connect(self._toggle_preview_panel)
+                logger.info("    ✅ actionTogglePreviewPanel 接続完了")
+
+        except Exception as e:
+            logger.error(f"    ❌ パネル表示切替接続失敗: {e}")
+
+    def _toggle_filter_panel(self, checked: bool) -> None:
+        """フィルターパネルの表示/非表示を切り替える。
+
+        Args:
+            checked: True で表示、False で非表示
+        """
+        panel = getattr(self, "frameFilterSearchPanel", None)
+        splitter = getattr(self, "splitterMainWorkArea", None)
+        if not panel or not splitter:
+            return
+
+        if not checked:
+            # 非表示前にスプリッターサイズを退避
+            self._main_splitter_sizes_before_filter_hide = splitter.sizes()
+        panel.setVisible(checked)
+        if checked and hasattr(self, "_main_splitter_sizes_before_filter_hide"):
+            # 再表示時にサイズを復元
+            splitter.setSizes(self._main_splitter_sizes_before_filter_hide)
+        logger.debug(f"Filter panel visibility: {checked}")
+
+    def _toggle_preview_panel(self, checked: bool) -> None:
+        """プレビューパネルの表示/非表示を切り替える。
+
+        Args:
+            checked: True で表示、False で非表示
+        """
+        panel = getattr(self, "framePreviewDetailPanel", None)
+        splitter = getattr(self, "splitterMainWorkArea", None)
+        if not panel or not splitter:
+            return
+
+        if not checked:
+            # 非表示前にスプリッターサイズを退避
+            self._main_splitter_sizes_before_preview_hide = splitter.sizes()
+        panel.setVisible(checked)
+        if checked and hasattr(self, "_main_splitter_sizes_before_preview_hide"):
+            # 再表示時にサイズを復元
+            splitter.setSizes(self._main_splitter_sizes_before_preview_hide)
+        logger.debug(f"Preview panel visibility: {checked}")
 
     def _setup_worker_pipeline_signals(self) -> None:
         """WorkerService pipeline signal connections setup"""
@@ -876,38 +950,40 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             logger.error(f"Failed to update score: image_id={image_id}, score={score}")
 
-    def _handle_batch_tag_add(self, image_ids: list[int], tag: str) -> None:
-        """
-        BatchTagAddWidget からのバッチタグ追加シグナルハンドラ（Phase 3.1）
-
-        複数画像に対して1つのタグを一括追加します。
+    def _execute_batch_tag_write(self, image_ids: list[int], tag: str) -> bool:
+        """バッチタグ書き込みとキャッシュ更新を実行する。
 
         Args:
             image_ids: 対象画像のIDリスト
             tag: 追加するタグ（正規化済み）
 
-        Side Effects:
-            - ImageDBWriteService.add_tag_batch() を呼び出し
-            - 成功時: DatasetStateManager.refresh_images() でキャッシュ一括更新
-            - 成功時: BatchTagAddWidget のステージングリストをクリア
-            - 失敗時: エラーログ出力
+        Returns:
+            成功した場合True
         """
         if not self.image_db_write_service:
             logger.warning("ImageDBWriteService not initialized")
-            return
+            return False
 
+        success = self.image_db_write_service.add_tag_batch(image_ids, tag)
+        if success and self.dataset_state_manager:
+            self.dataset_state_manager.refresh_images(image_ids)
+        return success
+
+    def _handle_batch_tag_add(self, image_ids: list[int], tag: str) -> None:
+        """BatchTagAddWidget からのバッチタグ追加シグナルハンドラ。
+
+        Args:
+            image_ids: 対象画像のIDリスト
+            tag: 追加するタグ（正規化済み）
+        """
         if not image_ids:
             logger.warning("Batch tag add requested with empty image list")
             return
 
         logger.info(f"Batch tag add requested: tag='{tag}' for {len(image_ids)} images")
 
-        success = self.image_db_write_service.add_tag_batch(image_ids, tag)
+        success = self._execute_batch_tag_write(image_ids, tag)
         if success:
-            # キャッシュを一括更新
-            if self.dataset_state_manager:
-                self.dataset_state_manager.refresh_images(image_ids)
-
             # ステージングリストをクリア
             if hasattr(self, "batchTagAddWidget"):
                 self.batchTagAddWidget._on_clear_staging_clicked()
@@ -925,6 +1001,38 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         現在は何もしない（将来的にUI状態をリセットする場合に使用）
         """
         logger.debug("Batch staging cleared")
+
+    def _show_quick_tag_dialog(self, image_ids: list[int]) -> None:
+        """クイックタグダイアログを表示する。
+
+        サムネイル右クリックメニューから呼び出され、
+        選択された画像に素早くタグを追加する。
+
+        Args:
+            image_ids: タグを追加する画像IDのリスト
+        """
+        if not image_ids:
+            logger.warning("Quick tag dialog requested with empty image list")
+            return
+
+        dialog = QuickTagDialog(image_ids, parent=self)
+        dialog.tag_add_requested.connect(self._handle_quick_tag_add)
+        dialog.exec()
+
+    def _handle_quick_tag_add(self, image_ids: list[int], tag: str) -> None:
+        """クイックタグダイアログからのタグ追加要求を処理する。
+
+        Args:
+            image_ids: 対象画像のIDリスト
+            tag: 追加するタグ（正規化済み）
+        """
+        logger.info(f"Quick tag add: tag='{tag}' for {len(image_ids)} images")
+
+        success = self._execute_batch_tag_write(image_ids, tag)
+        if success:
+            logger.info(f"Quick tag add completed: tag='{tag}', {len(image_ids)} images updated")
+        else:
+            logger.error(f"Failed quick tag add: tag='{tag}', image_count={len(image_ids)}")
 
     def _on_save_requested(self, save_data: dict[str, Any]) -> None:
         """保存要求シグナルハンドラ（Issue #4）
@@ -1234,3 +1342,150 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.debug("Batch tag staging list refreshed")
         else:
             logger.error("_refresh_staging_list_ui method not found on BatchTagAddWidget")
+
+    # -------------------------------------------------------------------------
+    # QSettings: ウィンドウ/スプリッター状態の保存・復元
+    # -------------------------------------------------------------------------
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """ウィンドウ閉鎖時にレイアウト状態を保存する。
+
+        Args:
+            event: クローズイベント
+        """
+        self._save_window_state()
+        super().closeEvent(event)
+
+    def _save_window_state(self) -> None:
+        """QSettingsにウィンドウ/スプリッター状態を保存する。"""
+        settings = QSettings()
+
+        # バージョン記録
+        settings.setValue("main_window/settings_version", self.SETTINGS_VERSION)
+
+        # ウィンドウジオメトリ
+        settings.setValue("main_window/geometry", self.saveGeometry())
+
+        # ウィンドウ状態（最大化等）
+        settings.setValue("main_window/state", self.saveState())
+
+        # スプリッター状態
+        self._save_splitter_states(settings)
+
+        # パネル表示状態
+        if hasattr(self, "actionToggleFilterPanel"):
+            settings.setValue("panel_visible/filter", self.actionToggleFilterPanel.isChecked())
+        if hasattr(self, "actionTogglePreviewPanel"):
+            settings.setValue("panel_visible/preview", self.actionTogglePreviewPanel.isChecked())
+
+        settings.sync()
+        logger.info("Window state saved to QSettings")
+
+    def _save_splitter_states(self, settings: QSettings) -> None:
+        """スプリッター状態を保存する。
+
+        Args:
+            settings: QSettingsインスタンス
+        """
+        splitters = [
+            ("splitterMainWorkArea", "splitter/main_work_area"),
+            ("splitterPreviewDetails", "splitter/preview_details"),
+            ("splitterBatchTagMain", "splitter/batch_tag_main"),
+            ("splitterBatchTagOperations", "splitter/batch_tag_operations"),
+        ]
+
+        for attr_name, settings_key in splitters:
+            splitter = getattr(self, attr_name, None)
+            if splitter:
+                settings.setValue(settings_key, splitter.saveState())
+
+    def _restore_window_state(self) -> None:
+        """QSettingsからウィンドウ/スプリッター状態を復元する。"""
+        settings = QSettings()
+
+        # バージョンチェック
+        saved_version = cast(int, settings.value("main_window/settings_version", 0, type=int))
+        if saved_version != self.SETTINGS_VERSION:
+            logger.info(
+                f"Settings version mismatch (saved={saved_version}, "
+                f"current={self.SETTINGS_VERSION}) - using defaults"
+            )
+            return
+
+        # ウィンドウジオメトリ
+        geometry = settings.value("main_window/geometry")
+        if geometry:
+            self.restoreGeometry(geometry)
+            logger.debug("Window geometry restored")
+
+        # ウィンドウ状態（最大化等）
+        state = settings.value("main_window/state")
+        if state:
+            self.restoreState(state)
+            logger.debug("Window state restored")
+
+        # スプリッター状態
+        restored = self._restore_splitter_states(settings)
+
+        # パネル表示状態
+        self._restore_panel_visibility(settings)
+
+        if restored:
+            logger.info("Window state restored from QSettings")
+
+    def _restore_splitter_states(self, settings: QSettings) -> bool:
+        """スプリッター状態を復元する。
+
+        Args:
+            settings: QSettingsインスタンス
+
+        Returns:
+            少なくとも1つのスプリッターが復元された場合True
+        """
+        splitters = [
+            ("splitterMainWorkArea", "splitter/main_work_area"),
+            ("splitterPreviewDetails", "splitter/preview_details"),
+            ("splitterBatchTagMain", "splitter/batch_tag_main"),
+            ("splitterBatchTagOperations", "splitter/batch_tag_operations"),
+        ]
+
+        restored_any = False
+        for attr_name, settings_key in splitters:
+            splitter = getattr(self, attr_name, None)
+            if splitter:
+                state = settings.value(settings_key)
+                if state:
+                    splitter.restoreState(state)
+                    restored_any = True
+                    logger.debug(f"{attr_name} state restored")
+
+        return restored_any
+
+    def _restore_panel_visibility(self, settings: QSettings) -> None:
+        """パネル表示状態を復元する。
+
+        blockSignals で toggled シグナルを抑制し、
+        パネルの可視状態を直接設定することで race condition を回避する。
+
+        Args:
+            settings: QSettingsインスタンス
+        """
+        # フィルターパネル
+        filter_visible = bool(settings.value("panel_visible/filter", True, type=bool))
+        if hasattr(self, "actionToggleFilterPanel"):
+            self.actionToggleFilterPanel.blockSignals(True)
+            self.actionToggleFilterPanel.setChecked(filter_visible)
+            self.actionToggleFilterPanel.blockSignals(False)
+            panel = getattr(self, "frameFilterSearchPanel", None)
+            if panel:
+                panel.setVisible(filter_visible)
+
+        # プレビューパネル
+        preview_visible = bool(settings.value("panel_visible/preview", True, type=bool))
+        if hasattr(self, "actionTogglePreviewPanel"):
+            self.actionTogglePreviewPanel.blockSignals(True)
+            self.actionTogglePreviewPanel.setChecked(preview_visible)
+            self.actionTogglePreviewPanel.blockSignals(False)
+            panel = getattr(self, "framePreviewDetailPanel", None)
+            if panel:
+                panel.setVisible(preview_visible)
