@@ -959,6 +959,17 @@ class ImageDatabaseManager:
             logger.error(f"アノテーション存在確認エラー: image_id={image_id}, error={e}", exc_info=True)
             return False
 
+    def get_annotated_image_ids(self, image_ids: list[int]) -> set[int]:
+        """指定IDリストからアノテーション済み画像IDを一括取得する。
+
+        Args:
+            image_ids: 検査対象の画像IDリスト。
+
+        Returns:
+            アノテーションが存在する画像IDのセット。
+        """
+        return self.repository.get_annotated_image_ids(image_ids)
+
     def execute_filtered_search(self, conditions: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
         """
         フィルタリング検索実行（データ層の適切な責任）

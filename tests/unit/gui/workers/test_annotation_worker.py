@@ -59,11 +59,11 @@ class TestAnnotationWorkerExecute:
         image_paths = ["/path/to/image1.jpg", "/path/to/image2.jpg"]
         models = ["gpt-4o-mini"]
 
-        # DB manager モック
+        # DB manager モック（バッチAPI対応）
         mock_db_manager = Mock()
-        mock_db_manager.repository.find_duplicate_image_by_phash.return_value = 1
+        mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"test_phash": 1}
+        mock_db_manager.repository.get_models_by_names.return_value = {"gpt-4o-mini": Mock(id=1)}
         mock_db_manager.repository.save_annotations = Mock()
-        mock_db_manager.repository.get_model_by_name.return_value = Mock(id=1)
 
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
@@ -90,11 +90,14 @@ class TestAnnotationWorkerExecute:
         image_paths = ["/path/to/image.jpg"]
         models = ["gpt-4o-mini", "claude-3-haiku-20240307"]
 
-        # DB manager モック
+        # DB manager モック（バッチAPI対応）
         mock_db_manager = Mock()
-        mock_db_manager.repository.find_duplicate_image_by_phash.return_value = 1
+        mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"phash1": 1}
+        mock_db_manager.repository.get_models_by_names.return_value = {
+            "gpt-4o-mini": Mock(id=1),
+            "claude-3-haiku-20240307": Mock(id=2),
+        }
         mock_db_manager.repository.save_annotations = Mock()
-        mock_db_manager.repository.get_model_by_name.return_value = Mock(id=1)
 
         # モデルごとの戻り値
         mock_annotation_logic.execute_annotation.side_effect = [
@@ -140,11 +143,14 @@ class TestAnnotationWorkerExecute:
         image_paths = ["/path/to/image.jpg"]
         models = ["gpt-4o-mini", "claude-3-haiku-20240307", "gemini-1.5-flash-latest"]
 
-        # DB manager モック
+        # DB manager モック（バッチAPI対応）
         mock_db_manager = Mock()
-        mock_db_manager.repository.find_duplicate_image_by_phash.return_value = 1
+        mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"phash1": 1}
+        mock_db_manager.repository.get_models_by_names.return_value = {
+            "gpt-4o-mini": Mock(id=1),
+            "gemini-1.5-flash-latest": Mock(id=3),
+        }
         mock_db_manager.repository.save_annotations = Mock()
-        mock_db_manager.repository.get_model_by_name.return_value = Mock(id=1)
         mock_db_manager.get_image_id_by_filepath.return_value = 1
 
         # 2番目のモデルでエラー
@@ -182,9 +188,10 @@ class TestAnnotationWorkerExecute:
         image_paths = ["/path/to/image.jpg"]
         models = ["gpt-4o-mini", "claude-3-haiku-20240307"]
 
-        # DB manager モック
+        # DB manager モック（バッチAPI対応）
         mock_db_manager = Mock()
-        mock_db_manager.repository.find_duplicate_image_by_phash.return_value = 1
+        mock_db_manager.repository.find_image_ids_by_phashes.return_value = {}
+        mock_db_manager.repository.get_models_by_names.return_value = {}
         mock_db_manager.repository.save_annotations = Mock()
         mock_db_manager.get_image_id_by_filepath.return_value = 1
 
@@ -206,3 +213,30 @@ class TestAnnotationWorkerExecute:
 
         # 空の結果が返される
         assert result == {}
+
+    def test_save_uses_batch_queries(self, mock_annotation_logic):
+        """DB保存がバッチクエリを使用すること"""
+        image_paths = ["/path/to/image.jpg"]
+        models = ["gpt-4o-mini"]
+
+        mock_model = Mock(id=1)
+        mock_db_manager = Mock()
+        mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"test_phash": 1}
+        mock_db_manager.repository.get_models_by_names.return_value = {"gpt-4o-mini": mock_model}
+        mock_db_manager.repository.save_annotations = Mock()
+
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=image_paths,
+            models=models,
+            db_manager=mock_db_manager,
+        )
+
+        worker.execute()
+
+        # バッチメソッドが各1回だけ呼ばれること
+        mock_db_manager.repository.find_image_ids_by_phashes.assert_called_once()
+        mock_db_manager.repository.get_models_by_names.assert_called_once()
+        # 旧個別メソッドは呼ばれないこと
+        mock_db_manager.repository.find_duplicate_image_by_phash.assert_not_called()
+        mock_db_manager.repository.get_model_by_name.assert_not_called()

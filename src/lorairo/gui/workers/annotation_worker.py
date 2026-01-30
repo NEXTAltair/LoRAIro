@@ -191,21 +191,34 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
             ライブラリが返したpHashを使ってfind_duplicate_image_by_phash()でDB照会。
             保存失敗時は個別にログを記録し、処理を継続する。
         """
-        success_count = 0
+        # 事前一括取得: pHash → image_id（N+1回避）
+        phash_to_image_id = self.db_manager.repository.find_image_ids_by_phashes(set(results.keys()))
 
+        # 事前一括取得: 全ユニークモデル名を収集してモデルオブジェクト取得
+        all_model_names: set[str] = set()
+        for annotations in results.values():
+            for model_name, unified_result in annotations.items():
+                error = (
+                    unified_result.get("error")
+                    if isinstance(unified_result, dict)
+                    else unified_result.error
+                )
+                if not error:
+                    all_model_names.add(model_name)
+        models_cache = self.db_manager.repository.get_models_by_names(all_model_names)
+
+        success_count = 0
         for phash, annotations in results.items():
             try:
-                # pHash → image_id 変換（DB照会）
-                image_id = self.db_manager.repository.find_duplicate_image_by_phash(phash)
-
+                image_id = phash_to_image_id.get(phash)
                 if image_id is None:
                     logger.warning(
                         f"pHash {phash[:8]}... に対応する画像がDBに見つかりません。スキップします。"
                     )
                     continue
 
-                # 変換
-                annotations_dict = self._convert_to_annotations_dict(annotations)
+                # 変換（キャッシュ済みモデルを使用）
+                annotations_dict = self._convert_to_annotations_dict(annotations, models_cache)
 
                 if not annotations_dict or not any(annotations_dict.values()):
                     logger.debug(f"画像ID {image_id} に保存するアノテーションがありません")
@@ -222,18 +235,21 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
 
         logger.info(f"DB保存完了: {success_count}/{len(results)}件成功")
 
-    def _convert_to_annotations_dict(self, annotations: dict[str, Any]) -> "AnnotationsDict":
+    def _convert_to_annotations_dict(
+        self, annotations: dict[str, Any], models_cache: dict[str, Any]
+    ) -> "AnnotationsDict":
         """PHashAnnotationResults→AnnotationsDictへ変換
 
         Args:
             annotations: model_name → UnifiedResult マッピング
+            models_cache: model_name → Model の事前取得キャッシュ
 
         Returns:
             AnnotationsDict: DB保存用の型付き辞書
 
         Note:
             - TypedDictは db_repository.py からimport
-            - model_id解決は get_model_by_name() 使用（公開API）
+            - model_id解決はmodels_cacheから取得（N+1回避）
             - 正しいキー名: "tag", "caption", "raw_rating_value", "normalized_rating"
         """
         from lorairo.database.db_repository import AnnotationsDict
@@ -254,8 +270,8 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
                 logger.warning(f"モデル {model_name} エラーをスキップ")
                 continue
 
-            # 公開API使用
-            model = self.db_manager.repository.get_model_by_name(model_name)
+            # キャッシュからモデル取得（DBクエリ不要）
+            model = models_cache.get(model_name)
             if not model:
                 logger.warning(f"モデル '{model_name}' がDB未登録")
                 continue

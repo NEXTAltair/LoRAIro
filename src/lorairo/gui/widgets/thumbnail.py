@@ -308,7 +308,10 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         if action == action_stage:
             self.stage_selected_requested.emit()
         elif action == action_quick_tag:
-            self.quick_tag_requested.emit(selected_ids)
+            # 表示中のサムネイルに存在するIDのみに制限
+            visible_ids = {item.image_id for item in self.thumbnail_items}
+            filtered_ids = [id_ for id_ in selected_ids if id_ in visible_ids]
+            self.quick_tag_requested.emit(filtered_ids)
         elif action == action_select_all:
             self._select_all_items()
         elif action == action_deselect:
