@@ -188,7 +188,7 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
             results: PHashAnnotationResults (phash → model_name → UnifiedResult)
 
         Note:
-            ライブラリが返したpHashを使ってfind_duplicate_image_by_phash()でDB照会。
+            ライブラリが返したpHashをfind_image_ids_by_phashesで一括DB照会。
             保存失敗時は個別にログを記録し、処理を継続する。
         """
         # 事前一括取得: pHash → image_id（N+1回避）
