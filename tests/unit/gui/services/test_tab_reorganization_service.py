@@ -21,6 +21,7 @@ class TestRequiredConstants:
         assert "tabWidgetMainMode" in required
         assert "tabWorkspace" in required
         assert "tabBatchTag" in required
+        assert "splitterBatchTagMain" in required
         assert "groupBoxBatchOperations" in required
         assert "groupBoxAnnotation" in required
 
@@ -29,6 +30,7 @@ class TestRequiredConstants:
         placeholders = TabReorganizationService.REQUIRED_PLACEHOLDERS
 
         assert "batchTagWidgetPlaceholder" in placeholders
+        assert "batchTagInputPlaceholder" in placeholders
         assert "annotationDisplayPlaceholder" in placeholders
         assert "annotationFilterPlaceholder" in placeholders
         assert "modelSelectionPlaceholder" in placeholders

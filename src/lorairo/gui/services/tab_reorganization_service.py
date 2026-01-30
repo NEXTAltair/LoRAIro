@@ -13,15 +13,17 @@ UI構造 (MainWindow.ui で定義):
         │   ├── frameDbStatus
         │   ├── splitterMainWorkArea (3分割)
         │   └── frameActionToolbar
-        └── Tab 1: tabBatchTag (バッチタグ)
-            └── groupBoxBatchOperations (操作パネル)
-                └── splitterBatchTagOperations (垂直)
-                    ├── tabWidgetBatchTagWorkflow
-                    │   ├── tabBatchTagStaging
-                    │   │   └── batchTagWidgetPlaceholder
-                    │   └── tabBatchTagAnnotation
-                    │       └── groupBoxAnnotation
-                    └── annotationDisplayPlaceholder
+    └── Tab 1: tabBatchTag (バッチタグ)
+            └── splitterBatchTagMain (左右2カラム)
+                ├── batchTagWidgetPlaceholder (左: ステージング)
+                └── groupBoxBatchOperations (右: 操作パネル)
+                    └── splitterBatchTagOperations (垂直)
+                        ├── tabWidgetBatchTagWorkflow
+                        │   ├── tabBatchTagTagAdd
+                        │   │   └── batchTagInputPlaceholder
+                        │   └── tabBatchTagAnnotation
+                        │       └── groupBoxAnnotation
+                        └── annotationDisplayPlaceholder
 
 Note:
     プログラム的なレイアウト構築は廃止され、
@@ -53,6 +55,7 @@ class TabReorganizationService:
         "tabWidgetMainMode",
         "tabWorkspace",
         "tabBatchTag",
+        "splitterBatchTagMain",
         "groupBoxBatchOperations",
         "groupBoxAnnotation",
     ]
@@ -60,6 +63,7 @@ class TabReorganizationService:
     # widget_setup_service が期待するプレースホルダー objectName リスト
     REQUIRED_PLACEHOLDERS: ClassVar[list[str]] = [
         "batchTagWidgetPlaceholder",
+        "batchTagInputPlaceholder",
         "annotationDisplayPlaceholder",
         "annotationFilterPlaceholder",
         "modelSelectionPlaceholder",

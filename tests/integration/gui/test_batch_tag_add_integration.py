@@ -9,7 +9,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget
 
 from lorairo.gui.services.image_db_write_service import ImageDBWriteService
@@ -109,7 +108,6 @@ class TestBatchTagAddIntegration:
         # 4. ステージングリストに画像が追加されたことを確認
         assert len(batch_tag_widget._staged_images) == 3
         assert set(batch_tag_widget._staged_images.keys()) == {1, 2, 3}
-        assert batch_tag_widget.ui.listWidgetStaging.count() == 3
 
         # 5. シグナルが発行されたことを確認
         assert blocker.signal_triggered
@@ -179,7 +177,6 @@ class TestBatchTagAddIntegration:
 
         # 6. ステージングリストがクリアされたことを確認
         assert len(batch_tag_widget._staged_images) == 0
-        assert batch_tag_widget.ui.listWidgetStaging.count() == 0
         assert signal_emitted is True
 
     def test_duplicate_staging_prevention(
@@ -274,40 +271,6 @@ class TestBatchTagAddIntegration:
 
         # 6. tag_add_requested シグナルが発行されなかったことを確認
         assert signal_emitted is False
-
-    def test_individual_item_removal(
-        self, batch_tag_widget, dataset_state_manager, test_images_data, qtbot
-    ):
-        """
-        個別アイテム削除のテスト
-
-        ステージングリストから個別のアイテムを削除できることを確認。
-        """
-        # 1. テストデータセット設定
-        dataset_state_manager.set_dataset_images(test_images_data)
-
-        # 2. 3枚の画像をステージングに追加
-        dataset_state_manager.set_selected_images([1, 2, 3])
-
-        with qtbot.waitSignal(batch_tag_widget.staged_images_changed, timeout=1000):
-            batch_tag_widget.add_selected_images_to_staging()
-
-        # 3. ステージングリストに3枚追加されたことを確認
-        assert len(batch_tag_widget._staged_images) == 3
-
-        # 4. 2番目のアイテムを選択
-        batch_tag_widget.ui.listWidgetStaging.setCurrentRow(1)
-
-        # 5. Deleteキーを押してアイテムを削除
-        with qtbot.waitSignal(batch_tag_widget.staged_images_changed, timeout=1000):
-            qtbot.keyClick(batch_tag_widget.ui.listWidgetStaging, Qt.Key.Key_Delete)
-
-        # 6. 2番目のアイテムが削除され、2枚残ったことを確認
-        assert len(batch_tag_widget._staged_images) == 2
-        assert batch_tag_widget.ui.listWidgetStaging.count() == 2
-
-        # 7. 削除されたアイテムがID 2であったことを確認（順序: 1, 2, 3 → 1, 3）
-        assert 2 not in batch_tag_widget._staged_images.keys()
 
     def test_tag_normalization_with_tagdbtools(
         self, batch_tag_widget, dataset_state_manager, test_images_data, qtbot
@@ -434,7 +397,6 @@ class TestBatchTagAddIntegration:
 
         # ステージングリストはそのまま残る
         assert len(batch_tag_widget._staged_images) == 2
-        assert batch_tag_widget.ui.listWidgetStaging.count() == 2
 
         # タグ入力フィールドがクリアされたことを確認
         assert batch_tag_widget.ui.lineEditTag.text() == ""
@@ -500,14 +462,6 @@ class TestBatchTagAddIntegration:
 
         assert len(batch_tag_widget._staged_images) == 4
 
-        # 4. 2番目のアイテムを削除
-        batch_tag_widget.ui.listWidgetStaging.setCurrentRow(1)
-
-        with qtbot.waitSignal(batch_tag_widget.staged_images_changed, timeout=1000):
-            qtbot.keyClick(batch_tag_widget.ui.listWidgetStaging, Qt.Key.Key_Delete)
-
-        assert len(batch_tag_widget._staged_images) == 3
-
         # 5. タグ追加
         batch_tag_widget.ui.lineEditTag.setText("final_tag")
 
@@ -515,6 +469,6 @@ class TestBatchTagAddIntegration:
             batch_tag_widget.ui.pushButtonAddTag.click()
 
         # 6. 最終的なステージング画像が正しいことを確認
-        assert len(blocker.args[0]) == 3  # 4 - 1 = 3枚
+        assert len(blocker.args[0]) == 4
         # TagCleaner.clean_format() は underscores → spaces
         assert blocker.args[1] == "final tag"

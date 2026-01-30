@@ -204,6 +204,7 @@ def main() -> None:
 
     # Qt Application作成
     app = QApplication(sys.argv)
+    app.setOrganizationName("LoRAIro")
     app.setApplicationName("LoRAIro")
     app.setApplicationVersion("2.0.0")
 
