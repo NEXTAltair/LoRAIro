@@ -8,6 +8,7 @@ import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 from image_annotator_lib import PHashAnnotationResults
 
 from lorairo.annotations.annotation_logic import AnnotationLogic
@@ -189,23 +190,18 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
 
         Note:
             ライブラリが返したpHashをfind_image_ids_by_phashesで一括DB照会。
+            タグIDもbatch_resolve_tag_ids()で一括解決しN+1を回避。
             保存失敗時は個別にログを記録し、処理を継続する。
         """
         # 事前一括取得: pHash → image_id（N+1回避）
         phash_to_image_id = self.db_manager.repository.find_image_ids_by_phashes(set(results.keys()))
 
-        # 事前一括取得: 全ユニークモデル名を収集してモデルオブジェクト取得
-        all_model_names: set[str] = set()
-        for annotations in results.values():
-            for model_name, unified_result in annotations.items():
-                error = (
-                    unified_result.get("error")
-                    if isinstance(unified_result, dict)
-                    else unified_result.error
-                )
-                if not error:
-                    all_model_names.add(model_name)
+        # 事前一括取得: モデル名・タグ文字列を収集
+        all_model_names, all_raw_tags = self._collect_model_names_and_tags(results)
         models_cache = self.db_manager.repository.get_models_by_names(all_model_names)
+
+        # 事前一括取得: タグID一括解決（N+1回避）
+        tag_id_cache = self._resolve_tag_ids_batch(all_raw_tags)
 
         success_count = 0
         for phash, annotations in results.items():
@@ -224,8 +220,13 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
                     logger.debug(f"画像ID {image_id} に保存するアノテーションがありません")
                     continue
 
-                # DB保存
-                self.db_manager.repository.save_annotations(image_id, annotations_dict)
+                # DB保存（annotation_worker経路: 存在チェックスキップ + タグIDキャッシュ使用）
+                self.db_manager.repository.save_annotations(
+                    image_id,
+                    annotations_dict,
+                    skip_existence_check=True,
+                    tag_id_cache=tag_id_cache if tag_id_cache else None,
+                )
                 success_count += 1
 
                 logger.info(f"画像ID {image_id} のアノテーション保存成功")
@@ -234,6 +235,64 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
                 logger.error(f"保存失敗 phash={phash[:8]}...: {e}", exc_info=True)
 
         logger.info(f"DB保存完了: {success_count}/{len(results)}件成功")
+
+    @staticmethod
+    def _collect_model_names_and_tags(
+        results: PHashAnnotationResults,
+    ) -> tuple[set[str], set[str]]:
+        """全結果からユニークなモデル名とタグ文字列を収集する。
+
+        Args:
+            results: PHashAnnotationResults (phash → model_name → UnifiedResult)
+
+        Returns:
+            (モデル名セット, タグ文字列セット) のタプル。
+        """
+        all_model_names: set[str] = set()
+        all_raw_tags: set[str] = set()
+        for annotations in results.values():
+            for model_name, unified_result in annotations.items():
+                error = (
+                    unified_result.get("error")
+                    if isinstance(unified_result, dict)
+                    else unified_result.error
+                )
+                if error:
+                    continue
+                all_model_names.add(model_name)
+                # タグ文字列を収集（バッチ解決用）
+                tags = (
+                    unified_result.get("tags") if isinstance(unified_result, dict) else unified_result.tags
+                )
+                if tags:
+                    all_raw_tags.update(tags)
+        return all_model_names, all_raw_tags
+
+    def _resolve_tag_ids_batch(self, all_raw_tags: set[str]) -> dict[str, int | None]:
+        """タグ文字列を正規化し、外部タグDBのtag_idを一括解決する。
+
+        TagCleaner.clean_format() + strip で正規化後、
+        batch_resolve_tag_ids()で一括検索する。
+
+        Args:
+            all_raw_tags: 生のタグ文字列セット。
+
+        Returns:
+            正規化済みタグ文字列→tag_idのキャッシュ辞書。タグがない場合は空辞書。
+        """
+        if not all_raw_tags:
+            return {}
+
+        normalized_tags: set[str] = set()
+        for raw_tag in all_raw_tags:
+            normalized = TagCleaner.clean_format(raw_tag).strip()
+            if normalized:
+                normalized_tags.add(normalized)
+
+        if not normalized_tags:
+            return {}
+
+        return self.db_manager.repository.batch_resolve_tag_ids(normalized_tags)
 
     def _convert_to_annotations_dict(
         self, annotations: dict[str, Any], models_cache: dict[str, Any]
