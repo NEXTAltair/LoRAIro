@@ -74,7 +74,12 @@
       "Bash(wc:*)",
       "Bash(.venv/bin/pytest tests/unit/gui/widgets/test_batch_tag_add_widget.py tests/unit/gui/widgets/test_thumbnail.py tests/unit/gui/services/test_tab_reorganization_service.py -v)",
       "Bash(.venv/bin/pytest tests/unit/gui/widgets/test_batch_tag_add_widget.py tests/unit/gui/widgets/test_thumbnail_selector_widget.py tests/unit/gui/services/test_tab_reorganization_service.py -v)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "WebFetch(domain:claude.com)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(QT_QPA_PLATFORM=offscreen uv run pytest:*)",
+      "mcp__serena__think_about_task_adherence"
     ],
     "deny": [],
     "ask": []

@@ -1,19 +1,48 @@
 #!/usr/bin/env python3
 """Common utilities for LoRAIro LTM scripts.
 
-認証情報は ~/.clawdbot/clawdbot.json から取得。
+認証情報はスキルディレクトリの .env ファイルから自動読み込みし、
+環境変数にセットします。既に環境変数が設定されている場合はそちらが優先されます。
 Moltbot Gateway経由でNotion APIにアクセス（プロキシモード）。
 フォールバックとして直接Notion APIアクセスも可能。
 """
 
 import json
 import os
+from pathlib import Path
 import sys
 import urllib.request
 
+
+def _load_dotenv() -> None:
+    """スキルディレクトリの .env ファイルから環境変数を読み込む。
+
+    既に環境変数が設定されている場合は上書きしない。
+    .env ファイルが存在しない場合は何もしない。
+    """
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if not env_path.is_file():
+        return
+    with open(env_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip("'\"")
+            # 既存の環境変数を上書きしない
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+_load_dotenv()
+
 NOTION_VERSION = "2025-09-03"
 NOTION_API = "https://api.notion.com/v1"
-GATEWAY_URL = "http://host.docker.internal:18789"
+GATEWAY_URL = os.environ.get("LORAIRO_MEM_GATEWAY_URL", "http://host.docker.internal:18789")
 
 # LoRAIro-Long-Term Memory (Shared)
 DATA_SOURCE_ID = "2f544994-92c3-80d4-a975-000b5fcf09e9"
@@ -22,50 +51,19 @@ DATABASE_ID = "2f544994-92c3-8040-9666-ea28223daac6"
 DEFAULT_PAGE_SIZE = 10
 
 
-def read_clawdbot_config() -> dict:
-    """~/.clawdbot/clawdbot.json から設定を読み込む"""
-    path = os.path.expanduser("~/.clawdbot/clawdbot.json")
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        raise SystemExit(f"clawdbot config not found: {path}")
-    except json.JSONDecodeError as e:
-        raise SystemExit(f"Invalid JSON in clawdbot config: {e}")
-
-
 def get_gateway_token() -> str:
-    """Gateway認証トークンを取得（hooks.token優先、gateway.auth.tokenフォールバック）"""
-    config = read_clawdbot_config()
-    token = config.get("hooks", {}).get("token")
+    """Gateway認証トークンを取得（GW_TOKEN 優先、HOOK_TOKEN フォールバック）"""
+    token = os.environ.get("GW_TOKEN") or os.environ.get("HOOK_TOKEN")
     if not token:
-        token = config.get("gateway", {}).get("auth", {}).get("token")
-    if not token:
-        raise SystemExit("No token found in clawdbot config (hooks.token or gateway.auth.token)")
+        raise SystemExit("Missing token: set GW_TOKEN (preferred) or HOOK_TOKEN in the environment.")
     return token
 
 
 def get_notion_key() -> str | None:
     """Notion API Key を取得（オプション、直接アクセス用）"""
-    # まず clawdbot.json から
-    try:
-        config = read_clawdbot_config()
-        key = config.get("notion", {}).get("api_key")
-        if key:
-            return key
-    except SystemExit:
-        pass
-
-    # フォールバック: 旧形式の設定ファイル
-    path = os.path.expanduser("~/.config/notion/api_key")
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            key = f.read().strip()
-            if key:
-                return key
-    except FileNotFoundError:
-        pass
-
+    key = os.environ.get("NOTION_API_KEY")
+    if key:
+        return key
     return None
 
 

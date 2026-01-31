@@ -18,6 +18,7 @@ allowed-tools:
   - Bash
 dependencies:
   - lorairo-mem
+  - sqlalchemy-query-patterns
 ---
 
 # LoRAIro Repository Pattern
