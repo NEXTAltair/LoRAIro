@@ -738,29 +738,41 @@ class ImageRepository:
 
     # --- Annotation Saving Methods ---
 
-    def save_annotations(self, image_id: int, annotations: AnnotationsDict) -> None:
-        """
-        指定された画像IDに対して、複数のアノテーションを一括で保存・更新します。
+    def save_annotations(
+        self,
+        image_id: int,
+        annotations: AnnotationsDict,
+        *,
+        skip_existence_check: bool = False,
+        tag_id_cache: dict[str, int | None] | None = None,
+    ) -> None:
+        """指定された画像IDに対して、複数のアノテーションを一括で保存・更新します。
+
         各アノテーションタイプごとにUpsert処理を行います。
 
         Args:
-            image_id (int): アノテーションを追加/更新する画像のID。
-            annotations (AnnotationsDict): 保存するアノテーションデータを含む辞書。
-                                           キー: 'tags', 'captions', 'scores', 'ratings'
-                                           値: 各アノテーションデータのリスト。
+            image_id: アノテーションを追加/更新する画像のID。
+            annotations: 保存するアノテーションデータを含む辞書。
+                キー: 'tags', 'captions', 'scores', 'ratings'
+                値: 各アノテーションデータのリスト。
+            skip_existence_check: Trueの場合、画像存在チェックをスキップする。
+                バッチ処理等で事前に存在確認済みの場合に使用。
+            tag_id_cache: 正規化済みタグ文字列→tag_idのキャッシュ辞書。
+                バッチ処理で事前に一括解決済みのキャッシュを渡す。
+                Noneの場合は従来通り個別に外部DB照会する。
 
         Raises:
             ValueError: 指定された image_id が存在しない場合。
             SQLAlchemyError: データベース操作でエラーが発生した場合。
         """
-        if not self._image_exists(image_id):
+        if not skip_existence_check and not self._image_exists(image_id):
             raise ValueError(f"指定された画像ID {image_id} は存在しません。")
 
         with self.session_factory() as session:
             try:
                 # 各アノテーションタイプを処理
                 if annotations.get("tags"):
-                    self._save_tags(session, image_id, annotations["tags"])
+                    self._save_tags(session, image_id, annotations["tags"], tag_id_cache=tag_id_cache)
                 if annotations.get("captions"):
                     self._save_captions(session, image_id, annotations["captions"])
                 if annotations.get("scores"):
@@ -978,8 +990,152 @@ class ImageRepository:
             )
             return None  # 検索失敗時は縮退動作（tag_id=None で保存）  # その他のエラーも縮退動作
 
-    def _save_tags(self, session: Session, image_id: int, tags_data: list[TagAnnotationData]) -> None:
-        """タグ情報を保存・更新 (Upsert)"""
+    def batch_resolve_tag_ids(self, normalized_tags: set[str]) -> dict[str, int | None]:
+        """正規化済みタグ文字列の集合に対して外部タグDBのtag_idを一括解決する。
+
+        search_tags_bulk()で一括検索し、見つからなかったタグのみ個別登録する。
+        deprecated=Trueのタグは除外し、現行の単発検索(include_deprecated=False)と同等の動作を保証する。
+
+        Args:
+            normalized_tags: TagCleaner.clean_format().strip()で正規化済みのタグ文字列セット。
+
+        Returns:
+            正規化済みタグ文字列→tag_id(またはNone)のマッピング辞書。
+        """
+        if not normalized_tags:
+            return {}
+
+        # MergedTagReaderが利用不可の場合は全てNone
+        if self.merged_reader is None:
+            logger.debug("MergedTagReader unavailable, skipping batch tag resolution")
+            return dict.fromkeys(normalized_tags)
+
+        # 一括検索
+        try:
+            bulk_results = self.merged_reader.search_tags_bulk(
+                list(normalized_tags), format_name=None, resolve_preferred=False
+            )
+        except Exception as e:
+            logger.error(f"search_tags_bulk failed: {e}", exc_info=True)
+            return dict.fromkeys(normalized_tags)
+
+        # deprecated除外フィルタ適用（現行 include_deprecated=False と同等）
+        result: dict[str, int | None] = {}
+        for tag_str, row in bulk_results.items():
+            if row.get("deprecated", False):
+                logger.debug(f"Excluding deprecated tag from bulk result: '{tag_str}'")
+                continue
+            result[tag_str] = row["tag_id"]
+
+        # 見つからなかったタグを個別登録
+        missing_tags = normalized_tags - set(result.keys())
+        if missing_tags:
+            self._register_missing_tags(missing_tags, result)
+
+        logger.info(
+            f"Batch tag resolution complete: {len(result)} tags resolved, "
+            f"{sum(1 for v in result.values() if v is not None)} with tag_id"
+        )
+        return result
+
+    def _register_missing_tags(self, missing_tags: set[str], result: dict[str, int | None]) -> None:
+        """バッチ検索で見つからなかったタグを個別登録する。
+
+        Args:
+            missing_tags: 登録が必要なタグ文字列のセット。
+            result: 結果を格納する辞書（副作用で更新）。
+        """
+        logger.debug(f"Batch resolve: {len(missing_tags)} tags not found, attempting registration")
+
+        # TagRegisterService遅延初期化
+        if self.tag_register_service is None:
+            self.tag_register_service = self._initialize_tag_register_service()
+
+        if self.tag_register_service is None:
+            # 初期化失敗 → 全てNone
+            for tag_str in missing_tags:
+                result[tag_str] = None
+            return
+
+        for tag_str in missing_tags:
+            result[tag_str] = self._register_single_tag(tag_str)
+
+    def _register_single_tag(self, tag_str: str) -> int | None:
+        """単一タグを外部DBに登録し、tag_idを返す。
+
+        競合検出時はリトライ検索を実行する。
+        呼び出し元で self.tag_register_service is not None が保証されていること。
+
+        Args:
+            tag_str: 正規化済みタグ文字列。
+
+        Returns:
+            登録されたtag_id。失敗時はNone。
+        """
+        assert self.tag_register_service is not None
+        try:
+            register_request = TagRegisterRequest(
+                tag=tag_str,
+                source_tag=tag_str,
+                format_name="Lorairo",
+                type_name="unknown",
+            )
+            register_result = self.tag_register_service.register_tag(register_request)
+            tag_id: int = register_result.tag_id
+            logger.debug(f"Registered new tag_id {tag_id} for '{tag_str}'")
+            return tag_id
+        except IntegrityError:
+            # 競合検出 → リトライ検索
+            logger.warning(f"Race condition for '{tag_str}', retrying search...")
+            return self._retry_tag_search(tag_str)
+        except Exception as reg_error:
+            logger.error(f"Tag registration failed for '{tag_str}': {reg_error}")
+            return None
+
+    def _retry_tag_search(self, tag_str: str) -> int | None:
+        """競合検出後のリトライ検索。
+
+        Args:
+            tag_str: 検索するタグ文字列。
+
+        Returns:
+            見つかったtag_id。失敗時はNone。
+        """
+        try:
+            retry_request = TagSearchRequest(
+                query=tag_str,
+                partial=False,
+                resolve_preferred=False,
+                include_aliases=True,
+                include_deprecated=False,
+            )
+            retry_result = search_tags(self.merged_reader, retry_request)
+            if retry_result.items:
+                tag_id: int = retry_result.items[0].tag_id
+                return tag_id
+            return None
+        except Exception as retry_error:
+            logger.error(f"Retry search failed for '{tag_str}': {retry_error}")
+            return None
+
+    def _save_tags(
+        self,
+        session: Session,
+        image_id: int,
+        tags_data: list[TagAnnotationData],
+        *,
+        tag_id_cache: dict[str, int | None] | None = None,
+    ) -> None:
+        """タグ情報を保存・更新 (Upsert)
+
+        Args:
+            session: SQLAlchemyセッション。
+            image_id: 対象画像のID。
+            tags_data: 保存するタグデータのリスト。
+            tag_id_cache: 正規化済みタグ文字列→tag_idのキャッシュ。
+                バッチ処理で事前解決済みの場合に渡す。キャッシュミス時は
+                従来通り_get_or_create_tag_id_external()にフォールバック。
+        """
         logger.debug(f"Saving/Updating {len(tags_data)} tags for image_id {image_id}")
 
         # 既存のタグを image_id と tag 文字列で取得 (効率化のため)
@@ -994,8 +1150,18 @@ class ImageRepository:
             confidence = tag_info.get("confidence_score")  # Optional
             is_existing_tag = tag_info.get("existing", False)  # 元ファイル由来か
 
-            # 外部DBから tag_id を取得/作成（Issue #2実装完了 - TagRepository統合）
-            external_tag_id = self._get_or_create_tag_id_external(session, tag_string)
+            # 外部DBから tag_id を取得/作成
+            # キャッシュがある場合は正規化後のタグで検索し、ミス時はフォールバック
+            external_tag_id: int | None = None
+            if tag_id_cache is not None:
+                normalized_key = TagCleaner.clean_format(tag_string).strip()
+                if normalized_key in tag_id_cache:
+                    external_tag_id = tag_id_cache[normalized_key]
+                else:
+                    # キャッシュミス: 従来の個別照会にフォールバック
+                    external_tag_id = self._get_or_create_tag_id_external(session, tag_string)
+            else:
+                external_tag_id = self._get_or_create_tag_id_external(session, tag_string)
 
             if external_tag_id is None and tag_string:
                 logger.warning(
