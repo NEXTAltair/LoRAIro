@@ -17,15 +17,21 @@ This skill documents the **LoRAIro long-term memory pipeline**:
 
 ## Authentication
 
-All authentication is centralized in `~/.clawdbot/clawdbot.json`:
+Scripts automatically load tokens from `.github/skills/lorairo-mem/.env` on import.
+Environment variables already set in the shell take precedence over `.env` values.
 
-```json
-{
-  "hooks": {
-    "token": "<your-hooks-token>"
-  }
-}
-```
+Setup:
+1. Copy `.env.example` to `.env` in this skill directory
+2. Fill in your token values
+3. `.env` is gitignored — secrets will not be committed
+
+Required:
+- `HOOK_TOKEN` (used for `/hooks/lorairo-memory`)
+
+Optional:
+- `GW_TOKEN` (used for `/v1/responses` if you enable the gateway responses endpoint)
+- `NOTION_API_KEY` (direct Notion fallback; optional)
+- `LORAIRO_MEM_GATEWAY_URL` (override gateway base URL; optional)
 
 The scripts use Moltbot Gateway as a proxy for Notion API access. No separate Notion API key is required.
 
@@ -37,7 +43,7 @@ Notion DB:
 
 Webhook:
 - Endpoint: `http://host.docker.internal:18789/hooks/lorairo-memory`
-- Auth header: `Authorization: Bearer <hooks.token>`
+- Auth header: `Authorization: Bearer $HOOK_TOKEN`
 - `match.path` (config): `lorairo-memory`
 
 ## Payload spec (v1)
@@ -75,7 +81,7 @@ Server-side rules:
 ## Write a memory (curl)
 
 ```bash
-HOOK_TOKEN=$(jq -r '.hooks.token' ~/.clawdbot/clawdbot.json)
+# Ensure HOOK_TOKEN is set in the environment (do not store secrets in this repo)
 
 curl -sS -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
   -H "Authorization: Bearer $HOOK_TOKEN" \
@@ -92,6 +98,25 @@ curl -sS -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
     "tags":["Deps","NPM","Build"],
     "link":"https://..."
   }'
+```
+
+## Write a memory (script)
+
+```bash
+python3 {baseDir}/scripts/ltm_write.py <<'JSON'
+{
+  "title":"Build failure: peer dependency conflict",
+  "summary":"npm install fails due to peer dependency mismatch.",
+  "body":"- Symptom: ...\n- Fix: ...",
+  "type":"bug",
+  "status":"inbox",
+  "importance":"High",
+  "source":"Container",
+  "environment":["Container","CI"],
+  "tags":["Deps","NPM","Build"],
+  "link":"https://..."
+}
+JSON
 ```
 
 Notes:
@@ -188,27 +213,13 @@ If you want **free-text search with a synchronous response**, use the gateway `P
 
 0) Prerequisite: enable responses endpoint
 
-Add to `~/.clawdbot/clawdbot.json` and restart (config.apply/patch is fine):
-
-```json
-{
-  "gateway": {
-    "http": {
-      "endpoints": {
-        "responses": { "enabled": true }
-      }
-    }
-  }
-}
-```
+Enable the gateway responses endpoint in your gateway config (outside of this skill).
 
 1) Call (sync response)
 
-Auth uses the gateway token (`gateway.auth.token`):
+Auth uses the gateway token (`GW_TOKEN` from the environment):
 
 ```bash
-GW_TOKEN=$(jq -r '.gateway.auth.token' ~/.clawdbot/clawdbot.json)
-
 curl -sS http://host.docker.internal:18789/v1/responses \
   -H "Authorization: Bearer $GW_TOKEN" \
   -H "Content-Type: application/json" \

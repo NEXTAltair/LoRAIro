@@ -321,6 +321,7 @@ This project uses Serena for fast code operations and Moltbot+Notion for long-te
 2. **Planning**: `/planning` for strategic design and architecture
 3. **Implementation**: `/implement` for code development
 4. **Validation**: `/test` for quality assurance and testing
+5. **Session Save**: `/save-session` for persisting design decisions to LTM
 
 **Process Rules:**
 - Always read related code before making changes
@@ -487,6 +488,7 @@ LoRAIroは Claude Code 2.1.0 の新機能を最大限活用するよう最適化
 - **`/implement`**: コード開発実装（段階的実行）
 - **`/test`**: 品質保証・テスト実行（引数なし: クイックチェック、引数あり: 包括的テスト）
 - **`/sync-plan`**: Plan Mode の計画を手動で Serena Memory に同期
+- **`/save-session`**: セッション終了前に実装結果・設計意図をSerena Memory + Moltbot LTMに保存
 
 ### Plan Mode vs /planning Command
 
