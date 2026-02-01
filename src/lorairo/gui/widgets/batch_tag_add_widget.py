@@ -312,7 +312,10 @@ class BatchTagAddWidget(QWidget):
         ステージングリストUIを再描画
 
         OrderedDict の内容をリストウィジェットに反映。
+        stored_image_path は相対パスの場合があるため、resolve_stored_path で解決する。
         """
+        from lorairo.database.db_core import resolve_stored_path
+
         staging_paths: list[tuple[str, int]] = []
 
         for image_id, (_, stored_path) in self._staged_images.items():
@@ -321,6 +324,10 @@ class BatchTagAddWidget(QWidget):
                 metadata = self._dataset_state_manager.get_image_by_id(image_id)
                 if metadata:
                     path = metadata.get("stored_image_path", "") or ""
+
+            # 相対パスを絶対パスに解決
+            if path:
+                path = str(resolve_stored_path(path))
 
             staging_paths.append((path, image_id))
 

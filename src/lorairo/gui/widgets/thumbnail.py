@@ -790,7 +790,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         """
         # DatasetStateManagerを使用した統一選択処理
         if not self.dataset_state:
-            logger.warning("状態管理が未設定です")
+            # ステージング等の表示専用ウィジェットでは状態管理なしで動作する
+            logger.debug("状態管理が未設定のため選択操作をスキップ")
             return
 
         if modifiers & Qt.KeyboardModifier.ControlModifier:
