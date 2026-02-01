@@ -886,30 +886,14 @@ class ImageRepository:
                 raise
 
     def _get_or_create_tag_id_external(self, session: Session, tag_string: str) -> int | None:
-        """
-        外部 tag_db から tag 文字列に一致する tag_id を検索し、
-        見つからない場合は新規作成して tag_id を返します。
-
-        処理フロー:
-        1. タグを正規化（TagCleaner使用、ExistingFileReaderと同一ロジック）
-        2. MergedTagReaderが利用可能か確認（Noneなら即座にスキップ）
-        3. 外部DBで検索（公開API search_tags()使用、完全一致）
-        4. 見つからない場合: 新規登録（TagRegisterService使用、format_name="lorairo"）
-        5. 競合検出時: リトライ検索でtag_idを取得
-        6. tag_idを返す（エラー時はNoneで縮退動作）
+        """外部 tag_db から tag 文字列に一致する tag_id を検索し、見つからない場合は新規作成する。
 
         Args:
-            session (Session): SQLAlchemy セッション (LoRAIro DB用、tag_db操作には未使用)
-            tag_string (str): 検索・登録するタグ文字列（AI生成 or ユーザー入力）
+            session: SQLAlchemy セッション (LoRAIro DB用、tag_db操作には未使用)。
+            tag_string: 検索・登録するタグ文字列。
 
         Returns:
-            int | None: 見つかった/登録したtag_id。エラー時はNone。
-
-        Note:
-            - Phase 2実装完了: タグ登録機能追加
-            - TagRegisterServiceを使用（Qt非依存、format_name="lorairo", type_name="general"）
-            - 競合検出時はリトライ検索を実行
-            - エラー時はグレースフルデグラデーション（tag_id=None で動作継続）
+            見つかった/登録したtag_id。エラー時はNone。
         """
         # 1. タグの正規化（ExistingFileReaderと同一処理）
         normalized_tag = TagCleaner.clean_format(tag_string).strip()
@@ -931,7 +915,7 @@ class ImageRepository:
         try:
             request = TagSearchRequest(
                 query=normalized_tag,
-                partial=False,  # 完全一致検索
+                partial=False,
                 resolve_preferred=False,
                 include_aliases=True,
                 include_deprecated=False,
@@ -943,45 +927,8 @@ class ImageRepository:
                 logger.debug(f"Found existing tag_id {tag_id} for '{normalized_tag}' in external tag_db")
                 return tag_id
 
-            # 検索結果なし → 新規タグ登録（Phase 2実装）
-            logger.debug(f"Tag '{normalized_tag}' not found in external tag_db. Attempting registration...")
-
-            # TagRegisterService遅延初期化
-            if self.tag_register_service is None:
-                self.tag_register_service = self._initialize_tag_register_service()
-                if self.tag_register_service is None:
-                    logger.debug("TagRegisterService initialization failed, skipping tag registration")
-                    return None
-
-            # タグ登録リクエスト作成
-            register_request = TagRegisterRequest(
-                tag=normalized_tag, source_tag=tag_string, format_name="Lorairo", type_name="unknown"
-            )
-
-            try:
-                register_result = self.tag_register_service.register_tag(register_request)
-                tag_id = register_result.tag_id
-                logger.debug(f"Registered new tag_id {tag_id} for '{normalized_tag}'")
-                return tag_id
-            except ValueError as ve:
-                # format_name/type_name解決失敗
-                logger.error(f"Tag registration failed (invalid format/type): {ve}")
-                return None
-            except IntegrityError:
-                # 競合検出（他のプロセスが同時に登録）→ リトライ
-                logger.warning("Race condition detected during tag registration, retrying search...")
-                try:
-                    retry_result = search_tags(self.merged_reader, request)
-                    if retry_result.items and len(retry_result.items) > 0:
-                        tag_id = retry_result.items[0].tag_id
-                        logger.debug(f"Found tag_id {tag_id} on retry for '{normalized_tag}'")
-                        return tag_id
-                except Exception as retry_error:
-                    logger.error(f"Retry search failed: {retry_error}", exc_info=True)
-                return None
-            except Exception as reg_error:
-                logger.error(f"Unexpected error during tag registration: {reg_error}", exc_info=True)
-                return None
+            # 検索結果なし → 新規タグ登録
+            return self._register_new_tag(normalized_tag, tag_string, request)
 
         except Exception as e:
             logger.error(
@@ -989,6 +936,59 @@ class ImageRepository:
                 exc_info=True,
             )
             return None  # 検索失敗時は縮退動作（tag_id=None で保存）  # その他のエラーも縮退動作
+
+    def _register_new_tag(
+        self,
+        normalized_tag: str,
+        source_tag: str,
+        search_request: "TagSearchRequest",
+    ) -> int | None:
+        """外部tag_dbに新規タグを登録する。競合時はリトライ検索を行う。
+
+        Args:
+            normalized_tag: 正規化済みタグ文字列。
+            source_tag: 元のタグ文字列。
+            search_request: リトライ検索用のリクエストオブジェクト。
+
+        Returns:
+            登録されたtag_id。エラー時はNone。
+        """
+        logger.debug(f"Tag '{normalized_tag}' not found in external tag_db. Attempting registration...")
+
+        # TagRegisterService遅延初期化
+        if self.tag_register_service is None:
+            self.tag_register_service = self._initialize_tag_register_service()
+            if self.tag_register_service is None:
+                logger.debug("TagRegisterService initialization failed, skipping tag registration")
+                return None
+
+        register_request = TagRegisterRequest(
+            tag=normalized_tag, source_tag=source_tag, format_name="Lorairo", type_name="unknown"
+        )
+
+        try:
+            register_result = self.tag_register_service.register_tag(register_request)
+            tag_id = register_result.tag_id
+            logger.debug(f"Registered new tag_id {tag_id} for '{normalized_tag}'")
+            return tag_id
+        except ValueError as ve:
+            logger.error(f"Tag registration failed (invalid format/type): {ve}")
+            return None
+        except IntegrityError:
+            # 競合検出（他のプロセスが同時に登録）→ リトライ
+            logger.warning("Race condition detected during tag registration, retrying search...")
+            try:
+                retry_result = search_tags(self.merged_reader, search_request)
+                if retry_result.items and len(retry_result.items) > 0:
+                    tag_id = retry_result.items[0].tag_id
+                    logger.debug(f"Found tag_id {tag_id} on retry for '{normalized_tag}'")
+                    return tag_id
+            except Exception as retry_error:
+                logger.error(f"Retry search failed: {retry_error}", exc_info=True)
+            return None
+        except Exception as reg_error:
+            logger.error(f"Unexpected error during tag registration: {reg_error}", exc_info=True)
+            return None
 
     def batch_resolve_tag_ids(self, normalized_tags: set[str]) -> dict[str, int | None]:
         """正規化済みタグ文字列の集合に対して外部タグDBのtag_idを一括解決する。
@@ -1948,40 +1948,13 @@ class ImageRepository:
 
         return query
 
-    def _format_annotations_for_metadata(self, image: Image) -> dict[str, Any]:
-        """
-        画像のアノテーション情報を辞書形式にフォーマット
+    def _format_tags(self, image: Image, annotations: dict[str, Any]) -> None:
+        """タグアノテーション情報をフォーマットする。
 
         Args:
-            image: 画像オブジェクト
-
-        Returns:
-            dict[str, Any]: フォーマット済みアノテーション情報
-                {
-                    "tags": [{"id", "tag", "model_id", "source", "confidence_score", ...}, ...],
-                    "tags_text": "tag1, tag2, tag3",
-                    "captions": [{"id", "caption", "model_id", ...}, ...],
-                    "caption_text": "最新キャプション",
-                    "scores": [{"id", "score", "model_id", ...}, ...],
-                    "score_value": 平均スコア,
-                    "ratings": [{"id", "raw_rating_value", "normalized_rating", ...}, ...],
-                    "rating_value": 平均Rating
-                }
-
-        処理:
-        1. Tags: 詳細情報リスト + カンマ区切りテキスト
-        2. Captions: 詳細情報リスト + 最新キャプション
-        3. Scores: 詳細情報リスト + 平均スコア
-        4. Ratings: 詳細情報リスト + 平均Rating
-
-        Notes:
-            - Repository層で型変換を統一的に実施
-            - Widget層で追加処理が不要になる
-            - Single Source of Truth原則に準拠
+            image: 画像オブジェクト。
+            annotations: フォーマット結果を格納する辞書（直接更新される）。
         """
-        annotations: dict[str, Any] = {}
-
-        # Tags formatting - 詳細情報 + カンマ区切りテキスト
         if image.tags:
             annotations["tags"] = [
                 {
@@ -1999,13 +1972,18 @@ class ImageRepository:
                 }
                 for tag in image.tags
             ]
-            # カンマ区切りテキスト（UIでの簡易表示用）
             annotations["tags_text"] = ", ".join([tag.tag for tag in image.tags])
         else:
             annotations["tags"] = []
             annotations["tags_text"] = ""
 
-        # Captions formatting - 詳細情報 + 最新キャプション
+    def _format_captions(self, image: Image, annotations: dict[str, Any]) -> None:
+        """キャプションアノテーション情報をフォーマットする。
+
+        Args:
+            image: 画像オブジェクト。
+            annotations: フォーマット結果を格納する辞書（直接更新される）。
+        """
         if image.captions:
             annotations["captions"] = [
                 {
@@ -2020,7 +1998,6 @@ class ImageRepository:
                 }
                 for caption in image.captions
             ]
-            # 最新キャプション（created_at降順の最初）
             from datetime import datetime
 
             latest_caption = max(
@@ -2031,7 +2008,13 @@ class ImageRepository:
             annotations["captions"] = []
             annotations["caption_text"] = ""
 
-        # Scores formatting - 詳細情報 + 最新スコア
+    def _format_scores(self, image: Image, annotations: dict[str, Any]) -> None:
+        """スコアアノテーション情報をフォーマットする。
+
+        Args:
+            image: 画像オブジェクト。
+            annotations: フォーマット結果を格納する辞書（直接更新される）。
+        """
         if image.scores:
             annotations["scores"] = [
                 {
@@ -2045,15 +2028,19 @@ class ImageRepository:
                 }
                 for score in image.scores
             ]
-            # 最新のScore（created_at降順）を取得
-            # スケールはそのまま（0-10）でUI側で×100変換
             latest_score = max(image.scores, key=lambda s: s.created_at)
             annotations["score_value"] = latest_score.score
         else:
             annotations["scores"] = []
             annotations["score_value"] = 0.0
 
-        # Ratings formatting - 詳細情報 + 最新Rating
+    def _format_ratings(self, image: Image, annotations: dict[str, Any]) -> None:
+        """レーティングアノテーション情報をフォーマットする。
+
+        Args:
+            image: 画像オブジェクト。
+            annotations: フォーマット結果を格納する辞書（直接更新される）。
+        """
         if image.ratings:
             annotations["ratings"] = [
                 {
@@ -2067,12 +2054,27 @@ class ImageRepository:
                 }
                 for rating in image.ratings
             ]
-            # 最新のRating（created_at降順）を取得
             latest_rating = max(image.ratings, key=lambda r: r.created_at)
             annotations["rating_value"] = latest_rating.normalized_rating
         else:
             annotations["ratings"] = []
             annotations["rating_value"] = ""
+
+    def _format_annotations_for_metadata(self, image: Image) -> dict[str, Any]:
+        """画像のアノテーション情報を辞書形式にフォーマット。
+
+        Args:
+            image: 画像オブジェクト。
+
+        Returns:
+            フォーマット済みアノテーション情報辞書。
+        """
+        annotations: dict[str, Any] = {}
+
+        self._format_tags(image, annotations)
+        self._format_captions(image, annotations)
+        self._format_scores(image, annotations)
+        self._format_ratings(image, annotations)
 
         logger.debug(
             f"Formatted annotations: tags={len(annotations.get('tags', []))}, "

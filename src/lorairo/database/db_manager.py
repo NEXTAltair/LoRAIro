@@ -66,21 +66,18 @@ class ImageDatabaseManager:
     def register_original_image(
         self, image_path: Path, fsm: FileSystemManager
     ) -> tuple[int, dict[str, Any]] | None:
-        """
-        オリジナル画像をストレージに保存し、メタデータをデータベースに登録します。
-        重複チェック (pHash) を行い、重複があれば既存IDを返します。
+        """オリジナル画像をストレージに保存し、メタデータをデータベースに登録する。
+
+        重複チェック (pHash) を行い、重複があれば既存IDを返す。
 
         Args:
-            image_path (Path): オリジナル画像のパス。
-            fsm (FileSystemManager): ファイルシステム操作用マネージャー。
+            image_path: オリジナル画像のパス。
+            fsm: ファイルシステム操作用マネージャー。
 
         Returns:
-            tuple[int, dict[str, Any]] | None: 登録成功時は (image_id, original_metadata)、
-                                                 重複時は (existing_image_id, existing_metadata)、
-                                                 失敗時は None。
-
-                                                 新規登録・重複時共に一貫したフォーマットで
-                                                 (id, metadata) のタプルを返します。
+            登録成功時は (image_id, original_metadata)、
+            重複時は (existing_image_id, existing_metadata)、
+            失敗時は None。
         """
         try:
             # 1. 画像情報を取得
@@ -94,40 +91,12 @@ class ImageDatabaseManager:
                 phash = calculate_phash(image_path)
             except Exception as e:
                 logger.error(f"pHash の計算中にエラーが発生しました: {image_path}, Error: {e}")
-                # pHash が計算できない場合は登録を中止する(あるいは phash=None で登録するかは要件次第)
                 return None
 
             # 3. 重複チェック (pHash)
             existing_id = self.repository.find_duplicate_image_by_phash(phash)
             if existing_id is not None:
-                logger.warning(f"重複画像を検出 (pHash): 既存ID={existing_id}, Path={image_path}")
-                # 重複画像の場合、既存の512px画像があるかチェックし、なければ生成
-                try:
-                    existing_512px = self.check_processed_image_exists(existing_id, 512)
-                    if not existing_512px:
-                        logger.info(
-                            f"重複画像に512px画像が存在しないため、生成を試行します: ID={existing_id}"
-                        )
-                        # 既存のメタデータを取得
-                        existing_metadata = self.repository.get_image_metadata(existing_id)
-                        if existing_metadata:
-                            stored_path = Path(existing_metadata["stored_image_path"])
-                            self._generate_thumbnail_512px(existing_id, stored_path, existing_metadata, fsm)
-                    else:
-                        logger.debug(f"重複画像に512px画像が既に存在します: ID={existing_id}")
-                except Exception as e:
-                    logger.warning(
-                        f"重複画像の512px生成チェック中にエラー (処理続行): ID={existing_id}, Error: {e}"
-                    )
-
-                # 重複した場合、既存のメタデータを取得して返す
-                existing_metadata = self.repository.get_image_metadata(existing_id)
-                if existing_metadata is None:
-                    logger.warning(f"既存画像のメタデータが取得できませんでした: ID={existing_id}")
-                    existing_metadata = {}
-
-                logger.debug(f"重複画像のメタデータを返します: ID={existing_id}")
-                return existing_id, existing_metadata
+                return self._handle_duplicate_image(existing_id, image_path, fsm)
 
             # 4. 画像をストレージに保存
             db_stored_original_path = fsm.save_original_image(image_path)
@@ -157,7 +126,6 @@ class ImageDatabaseManager:
                 logger.warning(
                     f"512px サムネイル生成に失敗しましたが、処理を続行します: {image_path}, Error: {e}"
                 )
-                # サムネイル生成の失敗はオリジナル画像登録の成功を妨げない
 
             return image_id, original_metadata
 
@@ -167,6 +135,46 @@ class ImageDatabaseManager:
                 exc_info=True,
             )
             return None
+
+    def _handle_duplicate_image(
+        self, existing_id: int, image_path: Path, fsm: FileSystemManager
+    ) -> tuple[int, dict[str, Any]]:
+        """重複検出時の処理。512pxサムネイル生成と既存メタデータ返却を行う。
+
+        Args:
+            existing_id: 既存画像のID。
+            image_path: 重複元の画像パス。
+            fsm: ファイルシステム操作用マネージャー。
+
+        Returns:
+            (existing_image_id, existing_metadata) のタプル。
+        """
+        logger.warning(f"重複画像を検出 (pHash): 既存ID={existing_id}, Path={image_path}")
+
+        # 重複画像の512px画像がなければ生成
+        try:
+            existing_512px = self.check_processed_image_exists(existing_id, 512)
+            if not existing_512px:
+                logger.info(f"重複画像に512px画像が存在しないため、生成を試行します: ID={existing_id}")
+                existing_metadata = self.repository.get_image_metadata(existing_id)
+                if existing_metadata:
+                    stored_path = Path(existing_metadata["stored_image_path"])
+                    self._generate_thumbnail_512px(existing_id, stored_path, existing_metadata, fsm)
+            else:
+                logger.debug(f"重複画像に512px画像が既に存在します: ID={existing_id}")
+        except Exception as e:
+            logger.warning(
+                f"重複画像の512px生成チェック中にエラー (処理続行): ID={existing_id}, Error: {e}"
+            )
+
+        # 既存のメタデータを取得して返す
+        existing_metadata = self.repository.get_image_metadata(existing_id)
+        if existing_metadata is None:
+            logger.warning(f"既存画像のメタデータが取得できませんでした: ID={existing_id}")
+            existing_metadata = {}
+
+        logger.debug(f"重複画像のメタデータを返します: ID={existing_id}")
+        return existing_id, existing_metadata
 
     def _generate_thumbnail_512px(
         self, image_id: int, original_path: Path, original_metadata: dict[str, Any], fsm: FileSystemManager

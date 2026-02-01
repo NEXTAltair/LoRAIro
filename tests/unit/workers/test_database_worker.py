@@ -20,6 +20,7 @@ from lorairo.gui.workers.database_worker import (
     SearchWorker,
 )
 from lorairo.services.configuration_service import ConfigurationService
+from lorairo.services.search_models import SearchConditions
 from lorairo.storage.file_system import FileSystemManager
 
 
@@ -204,14 +205,11 @@ class TestSearchWorker:
     @pytest.fixture
     def search_conditions(self):
         """テスト用検索条件"""
-        return {
-            "tags": ["test", "sample"],
-            "caption": "test image",
-            "resolution": "1024x768",
-            "use_and": True,
-            "date_range": (None, None),
-            "include_untagged": False,
-        }
+        return SearchConditions(
+            search_type="tags",
+            keywords=["test", "sample"],
+            tag_logic="and",
+        )
 
     def test_search_worker_api_method_names(self, real_db_manager, search_conditions):
         """
@@ -226,7 +224,7 @@ class TestSearchWorker:
 
         # Workerが正しく初期化されることを確認
         assert worker.db_manager is real_db_manager
-        assert worker.filter_conditions == search_conditions
+        assert worker.search_conditions == search_conditions
 
     def test_search_with_real_objects(self, real_db_manager, search_conditions):
         """
@@ -255,8 +253,8 @@ class TestSearchWorker:
             # 実際のAPIに正しいパラメータが渡されたことを確認
             mock_search.assert_called_once_with(
                 tags=["test", "sample"],
-                caption="test image",
-                resolution="1024x768",
+                caption=None,
+                resolution=0,
                 use_and=True,
                 start_date=None,
                 end_date=None,
@@ -266,16 +264,19 @@ class TestSearchWorker:
     def test_search_conditions_processing(self, real_db_manager):
         """
         検索条件の処理が正しいことをテスト
-        - 日付範囲やinclude_untaggedの処理を確認
+        - 日付範囲やonly_untaggedの処理を確認
         """
-        conditions = {
-            "tags": [],
-            "caption": "",
-            "resolution": "",
-            "use_and": True,
-            "date_range": ("2023-01-01", "2023-12-31"),
-            "include_untagged": True,
-        }
+        from datetime import date
+
+        conditions = SearchConditions(
+            search_type="caption",
+            keywords=["test caption"],
+            tag_logic="and",
+            date_filter_enabled=True,
+            date_range_start=date(2023, 1, 1),
+            date_range_end=date(2023, 12, 31),
+            only_untagged=True,
+        )
 
         with patch.object(real_db_manager, "get_images_by_filter") as mock_search:
             mock_search.return_value = ([], 0)
@@ -285,9 +286,9 @@ class TestSearchWorker:
 
             # 日付範囲が正しく処理されることを確認
             mock_search.assert_called_once_with(
-                tags=[],
-                caption="",
-                resolution="",
+                tags=None,
+                caption="test caption",
+                resolution=0,
                 use_and=True,
                 start_date="2023-01-01",
                 end_date="2023-12-31",
