@@ -4,7 +4,6 @@ MainWindow 統合テスト
 
 責任分離後のMainWindowとThumbnailSelectorWidgetの実際の統合をテスト
 - 実際のコンポーネントを使用した統合テスト
-- MainWindowの_resolve_optimal_thumbnail_data()の実際の動作
 - 責任分離の検証
 - 最小限のモックのみ使用（外部依存のみ）
 """
@@ -13,7 +12,7 @@ import tempfile
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 from PySide6.QtCore import QSize
@@ -70,40 +69,6 @@ class TestMainWindowThumbnailIntegration:
         widget = ThumbnailSelectorWidget(dataset_state=dataset_state)
 
         return widget
-
-    def test_thumbnail_path_resolution_integration(self, real_main_window: MainWindow) -> None:
-        """
-        MainWindowの実際のパス解決と統合テスト
-        """
-        window = real_main_window
-
-        # テスト用画像メタデータ
-        image_metadata: list[dict[str, Any]] = [
-            {"id": 1, "stored_image_path": "/original/image1.jpg"},
-            {"id": 2, "stored_image_path": "/original/image2.jpg"},
-        ]
-
-        # 512px画像の存在をモック（外部依存）
-        def mock_check_processed(image_id: int, size: int) -> dict[str, str] | None:
-            if image_id == 1 and size == 512:
-                return {"stored_image_path": "/processed/512/image1.jpg"}
-            return None
-
-        window.db_manager.check_processed_image_exists.side_effect = mock_check_processed
-
-        # resolve_stored_pathのモック（外部依存）
-        with patch("lorairo.database.db_core.resolve_stored_path") as mock_resolve:
-            mock_resolve.side_effect = lambda path: Path(path)
-
-            # Path.exists()のモック（ファイルシステム依存）
-            with patch.object(Path, "exists", return_value=True):
-                # 実際のメソッドを呼び出し
-                result = window._resolve_optimal_thumbnail_data(image_metadata)
-
-        # 実際の統合結果を検証
-        assert len(result) == 2
-        assert result[0] == (Path("/processed/512/image1.jpg"), 1)  # 512px画像を使用
-        assert result[1] == (Path("/original/image2.jpg"), 2)  # 元画像を使用
 
     def test_thumbnail_widget_integration(self, real_main_window, real_thumbnail_widget):
         """
@@ -165,12 +130,7 @@ class TestMainWindowThumbnailIntegration:
         """
         責任分離が実際に機能していることを統合テスト
         """
-        window = real_main_window
         thumbnail_widget = real_thumbnail_widget
-
-        # MainWindowの責任：パス解決
-        assert hasattr(window, "_resolve_optimal_thumbnail_data")
-        assert callable(window._resolve_optimal_thumbnail_data)
 
         # ThumbnailSelectorWidgetの責任：表示のみ
         display_methods = [
@@ -188,25 +148,6 @@ class TestMainWindowThumbnailIntegration:
 
         for method in forbidden_methods:
             assert not hasattr(thumbnail_widget, method)
-
-    def test_error_handling_integration(self, real_main_window):
-        """
-        実際のエラーハンドリング統合テスト
-        """
-        window = real_main_window
-
-        # パス解決でエラーが発生する場合
-        image_metadata = [{"id": 1, "stored_image_path": "/original/image1.jpg"}]
-
-        # データベースアクセスでエラーを発生させる
-        window.db_manager.check_processed_image_exists.side_effect = Exception("DB Error")
-
-        # 実際のエラーハンドリングをテスト
-        result = window._resolve_optimal_thumbnail_data(image_metadata)
-
-        # エラーが発生しても元画像にフォールバックすることを確認
-        assert len(result) == 1
-        assert result[0] == (Path("/original/image1.jpg"), 1)
 
     def test_thumbnail_size_integration(self, real_thumbnail_widget):
         """
@@ -240,44 +181,23 @@ class TestMainWindowThumbnailIntegration:
         # 統合：MainWindowとThumbnailWidgetを接続
         window.thumbnail_selector = thumbnail_widget
 
-        # 1. パス解決（MainWindowの責任）
-        image_metadata = [
+        # テスト用の画像メタデータ
+        image_metadata: list[dict[str, Any]] = [
             {"id": 1, "stored_image_path": "/original/image1.jpg"},
             {"id": 2, "stored_image_path": "/original/image2.jpg"},
         ]
 
-        # DB操作をモック（外部依存）
-        window.db_manager.check_processed_image_exists.return_value = None
+        # サムネイルパスの解決はThumbnailWorkerの責務
+        # ここではメタデータから直接パスを使用
+        optimal_paths = [(Path(m["stored_image_path"]), m["id"]) for m in image_metadata]
 
-        # 実際のパス解決処理
-        optimal_paths = window._resolve_optimal_thumbnail_data(image_metadata)
-
-        # optimal_pathsをメタデータ形式に変換
-        optimal_metadata = [
-            {"stored_image_path": str(path), "id": image_id} for path, image_id in optimal_paths
-        ]
-
-        # 2. サムネイル表示（ThumbnailWidgetの責任）
-        # load_images_from_metadataが削除されたため、直接データを設定
+        # サムネイル表示（ThumbnailWidgetの責任）
         thumbnail_widget.image_data = optimal_paths
-        thumbnail_widget.current_image_metadata = optimal_metadata
+        thumbnail_widget.current_image_metadata = image_metadata
 
-        # 3. 統合結果の検証
+        # 統合結果の検証
         assert len(thumbnail_widget.image_data) == 2
         assert thumbnail_widget.image_data == optimal_paths
-
-        # 4. メタデータ取得（責任分離で追加されたメソッド）
-        # メタデータを直接設定してテスト
-        test_metadata = [
-            {"id": 1, "stored_image_path": "/original/image1.jpg"},
-            {"id": 2, "stored_image_path": "/original/image2.jpg"},
-        ]
-        thumbnail_widget.current_image_metadata = test_metadata
-
-        current_data = thumbnail_widget.get_current_image_data()
-        assert len(current_data) == 2
-        assert current_data[0]["id"] == 1
-        assert current_data[1]["id"] == 2
 
 
 if __name__ == "__main__":

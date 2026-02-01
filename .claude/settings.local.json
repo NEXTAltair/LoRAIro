@@ -79,7 +79,8 @@
       "WebFetch(domain:api.github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(QT_QPA_PLATFORM=offscreen uv run pytest:*)",
-      "mcp__serena__think_about_task_adherence"
+      "mcp__serena__think_about_task_adherence",
+      "mcp__serena__insert_before_symbol"
     ],
     "deny": [],
     "ask": []

@@ -37,22 +37,38 @@ PostToolUse hook による自動同期が既に設定されていますが、以
 9. Memory ファイル名を生成: `plan_{topic}_{date}.md`
 10. 既に同じ名前のメモリが存在する場合は上書き確認
 
-### 4. Metadata 追加
+### 4. Metadata 追加 + 全内容転記
 11. Plan content に以下の metadata を追加:
     - Created: 作成日時
     - Source: plan_mode（手動同期の場合は manual_sync）
     - Original File: 元のファイル名
     - Status: planning（初期状態）
+12. **計画書の全内容をMemoryに転記する（`.claude/plans/` へのリンクは含めない）**
+    - コード例、リスク表、テスト戦略、ファイルリスト等すべて含める
+    - Memory単体で計画の全貌を把握できる状態にする
+    - 「詳細は .claude/plans/xxx.md を参照」のようなリンクは**禁止**
 
 ### 5. Memory 書き込み
-12. `.serena/memories/` ディレクトリの存在確認
-13. `mcp__serena__write_memory` を使用して保存
-14. 成功メッセージを表示
+13. `.serena/memories/` ディレクトリの存在確認
+14. `mcp__serena__write_memory` を使用して保存
+15. 成功メッセージを表示
 
 ### 6. 確認と次ステップ提示
-15. 同期されたメモリファイル名を表示
-16. 他の Agent からの参照方法を説明
-17. （オプション）Moltbot LTM への抽出を提案
+16. 同期されたメモリファイル名を表示
+17. 他の Agent からの参照方法を説明
+18. （オプション）Moltbot LTM への抽出を提案
+
+## 重要: 自己完結性ルール
+
+**Serena Memory は `.claude/plans/` ファイルへのリンク・参照を含めてはならない。**
+
+理由: `.claude/plans/` は Claude Code セッション内でのみアクセス可能であり、他のコーディングエージェントや Serena の `read_memory` からは参照できない。
+
+### 同期時の必須要件
+- 計画書の**全内容**（コード例、リスク表、テスト戦略、ファイルリスト等）を Memory に転記する
+- 「詳細は .claude/plans/xxx.md を参照」のような**リンクは禁止**
+- Memory 単体で計画の全貌を把握できる状態にする
+- 文字数制限で収まらない場合は、コード例を要約形式にしつつ設計意図は維持する
 
 ## 出力フォーマット
 
@@ -68,7 +84,9 @@ PostToolUse hook による自動同期が既に設定されていますが、以
 
 ---
 
-{original plan content}
+{計画書の全内容をここに転記する。.claude/plans/ へのリンクは含めない。
+ コード例、リスク表、テスト戦略、ファイルリスト等すべて含める。
+ Memory単体で計画の全貌を把握できる状態にすること。}
 ```
 
 ## 使用例
@@ -80,9 +98,9 @@ PostToolUse hook による自動同期が既に設定されていますが、以
 
 出力:
 ```
-✅ Plan synced to Serena Memory: plan_moonlit_munching_yeti_2025_12_21.md
+Plan synced to Serena Memory: plan_moonlit_munching_yeti_2025_12_21.md
 
-📋 Next steps:
+Next steps:
 - 他のAgentから参照: mcp__serena__read_memory("plan_moonlit_munching_yeti_2025_12_21")
 - 実装後、重要な設計決定を Moltbot LTM に抽出することを推奨
 ```
@@ -96,7 +114,7 @@ PostToolUse hook による自動同期が既に設定されていますが、以
 
 ### ケース1: Plan file が見つからない
 ```
-❌ Plan file not found: my-feature-plan.md
+Plan file not found: my-feature-plan.md
 Available files in .claude/plans/:
   - moonlit-munching-yeti.md (2025-12-21)
   - previous-feature.md (2025-12-20)
@@ -104,13 +122,13 @@ Available files in .claude/plans/:
 
 ### ケース2: Memory が既に存在する
 ```
-⚠️ Memory file already exists: plan_my_feature_2025_12_21.md
+Memory file already exists: plan_my_feature_2025_12_21.md
 Overwrite? (y/n)
 ```
 
 ### ケース3: 書き込みエラー
 ```
-❌ Failed to write to Serena Memory: [error details]
+Failed to write to Serena Memory: [error details]
 Please check:
 - .serena/memories/ directory exists
 - Serena MCP is running

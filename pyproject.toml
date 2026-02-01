@@ -48,6 +48,7 @@ dependencies = [
     "genai-tag-db-tools",
     "image-annotator-lib",
     "rembg>=2.0.67",
+    "pymatting>=1.1.15",
 ]
 
 

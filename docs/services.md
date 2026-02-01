@@ -72,11 +72,6 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 - **Class**: `ImageProcessingService`
 - **Purpose**: 画像処理ワークフロー（リサイズ、変換、品質評価）
 
-#### DataTransformService
-- **Path**: `src/lorairo/services/data_transform_service.py`
-- **Class**: `DataTransformService`
-- **Purpose**: データ変換とフォーマット処理
-
 #### DatasetExportService
 - **Path**: `src/lorairo/services/dataset_export_service.py`
 - **Class**: `DatasetExportService`

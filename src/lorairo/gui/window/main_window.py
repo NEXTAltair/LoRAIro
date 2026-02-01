@@ -20,7 +20,6 @@ from ...database.db_manager import ImageDatabaseManager
 from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
 from ...services.configuration_service import ConfigurationService
-from ...services.data_transform_service import DataTransformService
 from ...services.model_selection_service import ModelSelectionService
 from ...services.selection_state_service import SelectionStateService
 from ...services.service_container import ServiceContainer
@@ -75,7 +74,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     annotation_workflow_controller: AnnotationWorkflowController | None
     settings_controller: SettingsController | None
     export_controller: ExportController | None
-    data_transform_service: DataTransformService | None
     result_handler_service: ResultHandlerService | None
     pipeline_control_service: PipelineControlService | None
     progress_state_service: ProgressStateService | None
@@ -820,23 +818,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """データベースから画像を読み込み、検索パイプラインを開始"""
         self._on_search_completed_start_thumbnail(True)
 
-    def _resolve_optimal_thumbnail_data(
-        self, image_metadata: list[dict[str, Any]]
-    ) -> list[tuple[Path, int]]:
-        """画像メタデータから最適なサムネイル表示用パスを解決（DataTransformService委譲）
-
-        Args:
-            image_metadata: 画像メタデータリスト
-
-        Returns:
-            list[tuple[Path, int]]: (画像パス, 画像ID) のタプルリスト
-        """
-        if self.data_transform_service:
-            return self.data_transform_service.resolve_optimal_thumbnail_paths(image_metadata)
-
-        # Fallback: Service未初期化時は元画像のみ使用
-        return [(Path(metadata["stored_image_path"]), metadata["id"]) for metadata in image_metadata]
-
     def _setup_image_db_write_service(self) -> None:
         """ImageDBWriteServiceを作成してselected_image_details_widgetのシグナルを接続
 
@@ -1150,21 +1131,17 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _setup_phase24_services(self) -> None:
         """Service層の初期化と統合
 
-        DataTransformService, ResultHandlerService, PipelineControlServiceを初期化。
+        ResultHandlerService, PipelineControlServiceを初期化。
         MainWindowから抽出されたロジックをService層に委譲する。
         """
         try:
-            # DataTransformService初期化（Stage 4-1）
-            logger.info("  - DataTransformService初期化中...")
-            self.data_transform_service = DataTransformService(db_manager=self.db_manager)
-            logger.info("  ✅ DataTransformService初期化成功")
 
-            # ResultHandlerService初期化（Stage 4-2）
+            # ResultHandlerService初期化（Stage 4-1）
             logger.info("  - ResultHandlerService初期化中...")
             self.result_handler_service = ResultHandlerService(parent=self)
             logger.info("  ✅ ResultHandlerService初期化成功")
 
-            # PipelineControlService初期化（Stage 4-3）
+            # PipelineControlService初期化（Stage 4-2）
             logger.info("  - PipelineControlService初期化中...")
             self.pipeline_control_service = PipelineControlService(
                 worker_service=self.worker_service,
@@ -1188,7 +1165,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except Exception as e:
             logger.error(f"Service層統合失敗: {e}", exc_info=True)
             logger.warning("一部のService機能は利用できませんが、その他の機能は正常に動作します")
-            self.data_transform_service = None
             self.result_handler_service = None
             self.pipeline_control_service = None
             self.progress_state_service = None
