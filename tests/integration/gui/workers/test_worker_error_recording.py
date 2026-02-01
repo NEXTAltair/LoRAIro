@@ -145,7 +145,7 @@ class TestAnnotationWorkerErrorRecording:
         )
 
         # Worker実行（エラーが発生するが部分的成功を許容）
-        result = worker.execute()
+        worker.execute()
 
         # error_recordsテーブルにエラーが記録されていることを確認
         error_count = db_manager.repository.get_error_count_unresolved(operation_type="annotation")
@@ -174,7 +174,7 @@ class TestAnnotationWorkerErrorRecording:
         )
 
         # Worker実行（モデルレベルエラーは部分的成功として扱われる）
-        result = worker.execute()
+        worker.execute()
 
         # error_recordsテーブルにエラーが記録されていることを確認
         error_count = db_manager.repository.get_error_count_unresolved(operation_type="annotation")
@@ -194,7 +194,7 @@ class TestThumbnailWorkerErrorRecording:
         # 画像を登録
         result = db_manager.register_original_image(test_image_path, fsm)
         assert result is not None
-        image_id, _ = result
+        _image_id, _ = result
 
         # 画像メタデータを取得
         image_metadata = db_manager.get_directory_images_metadata(
@@ -220,7 +220,7 @@ class TestThumbnailWorkerErrorRecording:
             db_manager=db_manager,
         )
 
-        with patch("lorairo.gui.workers.database_worker.QImage") as mock_qimage:
+        with patch("lorairo.gui.workers.thumbnail_worker.QImage") as mock_qimage:
             # QImageがNullを返すようにモック
             mock_instance = Mock()
             mock_instance.isNull.return_value = True
@@ -268,7 +268,7 @@ class TestThumbnailWorkerErrorRecording:
         )
 
         # QImage例外をシミュレート
-        with patch("lorairo.gui.workers.database_worker.QImage", side_effect=Exception("QImage Error")):
+        with patch("lorairo.gui.workers.thumbnail_worker.QImage", side_effect=Exception("QImage Error")):
             result = worker.execute()
 
         # エラーカウントが増加していることを確認

@@ -10,6 +10,7 @@ from PIL import Image
 from PySide6.QtCore import QSize
 
 from lorairo.gui.services.worker_service import WorkerService
+from lorairo.gui.workers.search_worker import SearchResult
 from lorairo.services.search_models import SearchConditions
 
 
@@ -205,14 +206,19 @@ class TestWorkerService:
         worker_service.worker_manager.start_worker.return_value = True
 
         # テストデータ
-        image_metadata = [{"id": 1, "path": "/test/image1.jpg"}]
+        search_result = SearchResult(
+            image_metadata=[{"id": 1, "path": "/test/image1.jpg"}],
+            total_count=1,
+            search_time=0.1,
+            filter_conditions=SearchConditions(search_type="tags", keywords=[], tag_logic="and"),
+        )
         thumbnail_size = QSize(150, 150)
 
         # サムネイル読み込み開始
-        worker_id = worker_service.start_thumbnail_loading(image_metadata, thumbnail_size)
+        worker_id = worker_service.start_thumbnail_load(search_result, thumbnail_size)
 
         # ワーカー作成確認
-        mock_worker_class.assert_called_once_with(image_metadata, thumbnail_size, worker_service.db_manager)
+        mock_worker_class.assert_called_once_with(search_result, thumbnail_size, worker_service.db_manager)
 
         # ワーカーマネージャー呼び出し確認
         worker_service.worker_manager.start_worker.assert_called_once()
@@ -222,35 +228,30 @@ class TestWorkerService:
         suffix = worker_id.split("_")[-1]
         assert len(suffix) == 8 and bool(re.match(r"^[0-9a-f]{8}$", suffix))
 
-        # 現在のサムネイルワーカーID設定確認
-        assert worker_service.current_thumbnail_worker_id == worker_id
-
     @patch("lorairo.gui.services.worker_service.ThumbnailWorker")
-    def test_start_thumbnail_loading_cancels_existing(self, mock_worker_class, worker_service):
-        """既存サムネイル読み込みキャンセル付き開始テスト"""
+    def test_start_thumbnail_loading_returns_new_worker_id(self, mock_worker_class, worker_service):
+        """複数回サムネイル読み込みで異なるworker_idが返されることをテスト"""
         # モックワーカー設定
         mock_worker = Mock()
         mock_worker_class.return_value = mock_worker
         worker_service.worker_manager.start_worker.return_value = True
-        worker_service.worker_manager.cancel_worker.return_value = True
-
-        # 既存のサムネイルワーカーIDを設定
-        existing_worker_id = "thumbnail_123456789"
-        worker_service.current_thumbnail_worker_id = existing_worker_id
 
         # テストデータ
-        image_metadata = [{"id": 1, "path": "/test/image1.jpg"}]
+        search_result = SearchResult(
+            image_metadata=[{"id": 1, "path": "/test/image1.jpg"}],
+            total_count=1,
+            search_time=0.1,
+            filter_conditions=SearchConditions(search_type="tags", keywords=[], tag_logic="and"),
+        )
         thumbnail_size = QSize(150, 150)
 
-        # サムネイル読み込み開始
-        new_worker_id = worker_service.start_thumbnail_loading(image_metadata, thumbnail_size)
+        # 2回呼び出して異なるIDが返されることを確認
+        worker_id_1 = worker_service.start_thumbnail_load(search_result, thumbnail_size)
+        worker_id_2 = worker_service.start_thumbnail_load(search_result, thumbnail_size)
 
-        # 既存ワーカーのキャンセル確認
-        worker_service.worker_manager.cancel_worker.assert_called_once_with(existing_worker_id)
-
-        # 新しいワーカーID設定確認
-        assert worker_service.current_thumbnail_worker_id == new_worker_id
-        assert new_worker_id != existing_worker_id
+        assert worker_id_1 != worker_id_2
+        assert worker_id_1.startswith("thumbnail_")
+        assert worker_id_2.startswith("thumbnail_")
 
     def test_worker_manager_signal_connections(self, worker_service):
         """ワーカーマネージャーシグナル接続テスト"""
@@ -268,23 +269,20 @@ class TestWorkerService:
 
     def test_worker_id_uniqueness(self, worker_service):
         """ワーカーID一意性テスト"""
-        # 時間ベースのIDが異なる時間に生成された場合に一意であることを確認
-        with patch("lorairo.gui.services.worker_service.time.time") as mock_time:
-            mock_time.side_effect = [1000000, 1000001]  # 異なる時刻を返す
+        with patch("lorairo.gui.services.worker_service.SearchWorker"):
+            worker_service.worker_manager.start_worker.return_value = True
 
-            with patch("lorairo.gui.services.worker_service.SearchWorker"):
-                worker_service.worker_manager.start_worker.return_value = True
+            worker_id1 = worker_service.start_search(
+                SearchConditions(search_type="tags", keywords=["test1"], tag_logic="and")
+            )
+            worker_id2 = worker_service.start_search(
+                SearchConditions(search_type="tags", keywords=["test2"], tag_logic="and")
+            )
 
-                worker_id1 = worker_service.start_search(
-                    SearchConditions(search_type="tags", keywords=["test1"], tag_logic="and")
-                )
-                worker_id2 = worker_service.start_search(
-                    SearchConditions(search_type="tags", keywords=["test2"], tag_logic="and")
-                )
-
-                assert worker_id1 != worker_id2
-                assert worker_id1.endswith("1000000")
-                assert worker_id2.endswith("1000001")
+            # uuid ベースのため、異なるIDが生成されること
+            assert worker_id1 != worker_id2
+            assert worker_id1.startswith("search_")
+            assert worker_id2.startswith("search_")
 
     def test_progress_signal_forwarding(self, worker_service):
         """進捗シグナル転送テスト"""
@@ -363,6 +361,7 @@ class TestWorkerService:
             annotation_logic=worker_service.annotation_logic,
             image_paths=image_paths,
             models=models,
+            db_manager=worker_service.db_manager,
         )
 
         # ワーカーマネージャーにワーカーが登録されたことを確認

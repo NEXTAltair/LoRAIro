@@ -155,9 +155,9 @@ class TestDatasetController:
         # Act
         controller.select_and_register_images(mock_dialog_callback)
 
-        # Assert: クリティカルエラーメッセージが表示される
-        mock_msgbox.critical.assert_called_once()
-        call_args = mock_msgbox.critical.call_args
+        # Assert: 警告メッセージが表示される
+        mock_msgbox.warning.assert_called_once()
+        call_args = mock_msgbox.warning.call_args
         assert call_args[0][0] == mock_parent
         assert "FileSystemManager" in call_args[0][2]
 
