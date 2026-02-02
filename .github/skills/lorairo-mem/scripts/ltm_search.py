@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""Search/query the LoRAIro LTM data source.
-
-This is a deterministic Notion query helper; it does NOT use the Notion /search endpoint.
+"""Search/query the LoRAIro LTM via Open Response API.
 
 Input JSON (stdin):
 {
@@ -16,39 +14,20 @@ Input JSON (stdin):
     "environment": ["WSL","CI"],
     "tags": ["build","ci"],
     "project": ["lorairo"]
-  }
+  },
+  "query": "free text search"
 }
 
 Notes:
-- For multi_select filters (tags/environment) Notion supports "contains"; we OR within the list.
-- If you want AND semantics (must contain all tags), call this multiple times or extend.
+- Uses Open Response API (/v1/responses) to query via LLM.
+- filters and query are combined into a structured prompt.
 """
 
-from ltm_common import DATA_SOURCE_ID, DEFAULT_PAGE_SIZE, http_json, read_stdin_json, out
+from ltm_common import DATA_SOURCE_ID, DEFAULT_PAGE_SIZE, query_via_responses, read_stdin_json, out_text
 
 
-def _or(filters):
-    # drop empty
-    flt = [f for f in filters if f]
-    if not flt:
-        return None
-    if len(flt) == 1:
-        return flt[0]
-    return {"or": flt}
-
-
-def _select_any(prop, values):
-    vals = [v for v in (values or []) if isinstance(v, str) and v.strip()]
-    return _or([{"property": prop, "select": {"equals": v}} for v in vals])
-
-
-def _multi_contains_any(prop, values):
-    vals = [v for v in (values or []) if isinstance(v, str) and v.strip()]
-    return _or([{"property": prop, "multi_select": {"contains": v}} for v in vals])
-
-
-def main():
-    inp = read_stdin_json()
+def _build_prompt(inp: dict) -> str:
+    """入力パラメータから検索プロンプトを構築する。"""
     limit = int(inp.get("limit") or DEFAULT_PAGE_SIZE)
     limit = max(1, min(limit, 50))
 
@@ -60,32 +39,38 @@ def main():
     if direction not in ("descending", "ascending"):
         direction = "descending"
 
-    f = (inp.get("filters") or {})
+    query = (inp.get("query") or "").strip()
+    filters = inp.get("filters") or {}
 
+    # プロンプト構築
     parts = [
-        _select_any("Type", f.get("type")),
-        _select_any("Status", f.get("status")),
-        _select_any("Importance", f.get("importance")),
-        _select_any("Source", f.get("source")),
-        _select_any("Project", f.get("project")),
-        _multi_contains_any("Environment", f.get("environment")),
-        _multi_contains_any("Tags", f.get("tags")),
+        f"OP: lorairo-memory-query",
+        f"LIMIT: {limit}",
+        f"SORT: {sort_prop} {direction}",
+        f"OUTPUT: json_only",
+        f"FIELDS: title,summary,url,hash,created,type,status,tags,environment",
     ]
 
-    and_parts = [p for p in parts if p]
-    notion_filter = None
-    if and_parts:
-        notion_filter = {"and": and_parts} if len(and_parts) > 1 else and_parts[0]
+    if query:
+        parts.insert(1, f"QUERY: {query}")
 
-    payload = {
-        "page_size": limit,
-        "sorts": [{"property": sort_prop, "direction": direction}],
-    }
-    if notion_filter:
-        payload["filter"] = notion_filter
+    # フィルタ条件を追加
+    filter_lines = []
+    for key, values in filters.items():
+        if values and isinstance(values, list):
+            filter_lines.append(f"  {key}: {', '.join(str(v) for v in values)}")
+    if filter_lines:
+        parts.append("FILTERS:")
+        parts.extend(filter_lines)
 
-    res = http_json("POST", f"/data_sources/{DATA_SOURCE_ID}/query", payload)
-    out({"items": res.get("results", []), "next_cursor": res.get("next_cursor"), "has_more": res.get("has_more")})
+    return "\n".join(parts)
+
+
+def main():
+    inp = read_stdin_json()
+    prompt = _build_prompt(inp)
+    result = query_via_responses(prompt)
+    out_text(result)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Return latest N memories (by Created desc)."""
-from ltm_common import DATA_SOURCE_ID, DEFAULT_PAGE_SIZE, http_json, read_stdin_json, out
+"""Return latest N memories (by Created desc) via Open Response API."""
+from ltm_common import DEFAULT_PAGE_SIZE, query_via_responses, read_stdin_json, out_text
 
 
 def main():
@@ -8,15 +8,15 @@ def main():
     limit = int(inp.get("limit") or DEFAULT_PAGE_SIZE)
     limit = max(1, min(limit, 50))
 
-    res = http_json(
-        "POST",
-        f"/data_sources/{DATA_SOURCE_ID}/query",
-        {
-            "page_size": limit,
-            "sorts": [{"property": "Created", "direction": "descending"}],
-        },
+    prompt = (
+        f"OP: lorairo-memory-query\n"
+        f"LIMIT: {limit}\n"
+        f"SORT: Created descending\n"
+        f"OUTPUT: json_only\n"
+        f"FIELDS: title,summary,url,hash,created,type,status,tags,environment"
     )
-    out({"items": res.get("results", []), "next_cursor": res.get("next_cursor"), "has_more": res.get("has_more")})
+    result = query_via_responses(prompt)
+    out_text(result)
 
 
 if __name__ == "__main__":
