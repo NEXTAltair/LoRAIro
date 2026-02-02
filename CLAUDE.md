@@ -263,6 +263,10 @@ The local packages are installed in editable mode and automatically linked durin
 - Configuration in `config/lorairo.toml` [log] section
 - Log level configurable (DEBUG, INFO, WARNING, ERROR)
 - Logs stored in `logs/` directory
+- **Level rules**: See `.claude/rules/logging.md` for detailed guidelines
+  - INFO: batch summaries and one-time operations only (never per-item)
+  - DEBUG: individual item processing details
+  - No duplicate logging across layers (Repository/Manager/Worker)
 
 **AI Models:**
 - Supports GPT-4, Claude, Gemini for annotation

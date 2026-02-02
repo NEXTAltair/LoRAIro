@@ -451,7 +451,7 @@ class ImageRepository:
                 stmt_id = select(Image.id).where(Image.phash == phash).limit(1)
                 image_id = session.execute(stmt_id).scalar_one_or_none()
                 if image_id:
-                    logger.info(f"pHashによる重複画像が見つかりました: ID {image_id}, pHash {phash}")
+                    logger.debug(f"pHashによる重複画像が見つかりました: ID {image_id}, pHash {phash}")
                 return image_id
             except SQLAlchemyError as e:
                 logger.error(f"pHashによる重複画像の検索中にエラーが発生しました: {e}", exc_info=True)
@@ -605,7 +605,7 @@ class ImageRepository:
                 session.flush()  # ID を取得するために flush
                 image_id = new_image.id
                 session.commit()  # コミットは flush 後でもOK
-                logger.info(f"オリジナル画像をDBに追加しました: ID={image_id}, UUID={new_image.uuid}")
+                logger.debug(f"オリジナル画像をDBに追加しました: ID={image_id}, UUID={new_image.uuid}")
                 return image_id
             except IntegrityError as e:
                 # uuid の UNIQUE 制約違反など
@@ -708,7 +708,7 @@ class ImageRepository:
                 session.flush()  # ID を取得するために flush
                 processed_image_id = new_processed_image.id
                 session.commit()
-                logger.info(f"処理済み画像をDBに追加しました: ID={processed_image_id}, 親画像ID={image_id}")
+                logger.debug(f"処理済み画像をDBに追加しました: ID={processed_image_id}, 親画像ID={image_id}")
                 return processed_image_id
             except IntegrityError:
                 # UNIQUE 制約違反 (image_id, width, height, filename)
@@ -721,7 +721,7 @@ class ImageRepository:
                 # 既存のIDを検索して返す
                 existing_id = self._find_existing_processed_image_id(image_id, width, height, filename)
                 if existing_id:
-                    logger.info(f"既存の処理済み画像IDが見つかりました: {existing_id}")
+                    logger.debug(f"既存の処理済み画像IDが見つかりました: {existing_id}")
                 else:
                     # 通常ここには来ないはずだが、もし検索でも見つからなければ警告
                     logger.error(
@@ -781,7 +781,7 @@ class ImageRepository:
                     self._save_ratings(session, image_id, annotations["ratings"])
 
                 session.commit()
-                logger.info(f"画像ID {image_id} のアノテーションを保存・更新しました。")
+                logger.debug(f"画像ID {image_id} のアノテーションを保存・更新しました。")
 
             except SQLAlchemyError as e:
                 session.rollback()

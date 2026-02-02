@@ -287,7 +287,7 @@ class FileSystemManager:
             output_path = parent_dir / new_filename
 
             image.save(output_path)
-            logger.info("処理済み画像を保存: {}", output_path)
+            logger.debug("処理済み画像を保存: {}", output_path)
             return output_path
         except Exception as e:
             logger.error(
