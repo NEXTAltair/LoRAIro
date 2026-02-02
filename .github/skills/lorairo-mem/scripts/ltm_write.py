@@ -9,14 +9,14 @@ import sys
 import urllib.request
 
 # ltm_common をインポートすることで .env の自動読み込みが行われる
-from ltm_common import get_gateway_token, read_stdin_json, GATEWAY_URL
+from ltm_common import get_hook_token, read_stdin_json, GATEWAY_URL
 
 
 def main() -> None:
     payload = read_stdin_json()
     if not payload:
         raise SystemExit("Provide JSON on stdin.")
-    token = get_gateway_token()
+    token = get_hook_token()
 
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(

@@ -52,10 +52,26 @@ DEFAULT_PAGE_SIZE = 10
 
 
 def get_gateway_token() -> str:
-    """Gateway認証トークンを取得（GW_TOKEN 優先、HOOK_TOKEN フォールバック）"""
-    token = os.environ.get("GW_TOKEN") or os.environ.get("HOOK_TOKEN")
+    """Gateway API認証トークンを取得（GW_TOKEN 専用）。
+
+    /v1/responses や /notion/v1 プロキシエンドポイント用。
+    Webhook (/hooks/*) には get_hook_token() を使用すること。
+    """
+    token = os.environ.get("GW_TOKEN")
     if not token:
-        raise SystemExit("Missing token: set GW_TOKEN (preferred) or HOOK_TOKEN in the environment.")
+        raise SystemExit("Missing token: set GW_TOKEN in the environment.")
+    return token
+
+
+def get_hook_token() -> str:
+    """Webhook認証トークンを取得（HOOK_TOKEN 専用）。
+
+    /hooks/lorairo-memory エンドポイント用。
+    GW_TOKEN とは認証スコープが異なるため、必ず HOOK_TOKEN を使用する。
+    """
+    token = os.environ.get("HOOK_TOKEN")
+    if not token:
+        raise SystemExit("Missing token: set HOOK_TOKEN in the environment.")
     return token
 
 
