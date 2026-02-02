@@ -33,7 +33,7 @@
       "description": "Use Makefile test target"
     },
     {
-      "pattern": "^uv run pytest\\b(?!.*local_packages)",
+      "pattern": "^uv run pytest\\s*$",
       "transform": "make test",
       "description": "Use Makefile test target"
     },
