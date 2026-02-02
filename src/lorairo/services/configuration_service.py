@@ -28,10 +28,10 @@ class ConfigurationService:
             self._config = {}  # Initialize _config here
             try:
                 self._config = get_config(self._config_path)
-                logger.info("設定ファイルを読み込みました: %s", self._config_path)
+                logger.info("設定ファイルを読み込みました: {}", self._config_path)
             except FileNotFoundError:
                 logger.warning(
-                    "設定ファイルが見つかりません。デフォルト設定で新規作成します: %s", self._config_path
+                    "設定ファイルが見つかりません。デフォルト設定で新規作成します: {}", self._config_path
                 )
                 self._config = self._create_default_config_file()
             except Exception:
@@ -76,12 +76,12 @@ class ConfigurationService:
         # APIキーの場合はマスキングしてログ出力
         if section == "api" and "key" in key.lower():
             masked_value = self._mask_api_key(str(value))
-            logger.debug("設定値を更新しました: [%s] %s = %s", section, key, masked_value)
+            logger.debug("設定値を更新しました: [{}] {} = {}", section, key, masked_value)
         elif section == "huggingface" and key == "token":
             masked_value = self._mask_api_key(str(value))
-            logger.debug("設定値を更新しました: [%s] %s = %s", section, key, masked_value)
+            logger.debug("設定値を更新しました: [{}] {} = {}", section, key, masked_value)
         else:
-            logger.debug("設定値を更新しました: [%s] %s = %s", section, key, value)
+            logger.debug("設定値を更新しました: [{}] {} = {}", section, key, value)
 
     def save_settings(self, target_path: Path | None = None) -> bool:
         """現在の設定を指定されたファイルに保存します。
@@ -100,10 +100,10 @@ class ConfigurationService:
         try:
             # FileSystemManager.save_toml_config(self._config, save_path) # FileSystemManager経由にするか検討
             write_config_file(self._config, save_path)
-            logger.info("設定をファイルに保存しました: %s", save_path)
+            logger.info("設定をファイルに保存しました: {}", save_path)
             return True
         except OSError:
-            logger.error("設定ファイルの保存中にIOエラーが発生しました: %s", save_path, exc_info=True)
+            logger.error("設定ファイルの保存中にIOエラーが発生しました: {}", save_path, exc_info=True)
             return False
         except Exception:
             logger.error("設定ファイルの保存中に予期せぬエラーが発生しました。", exc_info=True)
@@ -228,11 +228,11 @@ class ConfigurationService:
             self._config_path.parent.mkdir(parents=True, exist_ok=True)
             write_config_file(default_config, self._config_path)
 
-            logger.info("デフォルト設定ファイルを作成しました: %s", self._config_path)
+            logger.info("デフォルト設定ファイルを作成しました: {}", self._config_path)
             return default_config
 
         except Exception as e:
-            logger.error("デフォルト設定ファイルの作成に失敗しました: %s", e, exc_info=True)
+            logger.error("デフォルト設定ファイルの作成に失敗しました: {}", e, exc_info=True)
             # 作成に失敗した場合はメモリ上のみでデフォルト設定を使用
             from copy import deepcopy
 

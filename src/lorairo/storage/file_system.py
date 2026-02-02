@@ -46,7 +46,7 @@ class FileSystemManager:
     def __exit__(self, exc_type: Any, exc_val: Any, traceback: Any) -> Literal[False]:
         if exc_type is not None:
             # 例外が発生した場合のログ記録
-            logger.error("FileSystemManager使用中にエラーが発生: %s", exc_val)
+            logger.error("FileSystemManager使用中にエラーが発生: {}", exc_val)
         return False  # 例外を伝播させる
 
     def initialize(self, output_dir: Path) -> None:
@@ -135,10 +135,10 @@ class FileSystemManager:
         path = Path(path)
         try:
             path.mkdir(parents=True, exist_ok=True)
-            logger.debug("ディレクトリを作成: %s", path)
+            logger.debug("ディレクトリを作成: {}", path)
         except Exception as e:
             logger.error(
-                "ディレクトリの作成に失敗: %s. FileSystemManager._create_directory: %s", path, str(e)
+                "ディレクトリの作成に失敗: {}. FileSystemManager._create_directory: {}", path, str(e)
             )
             raise
 
@@ -157,7 +157,7 @@ class FileSystemManager:
                 continue
             if path.suffix.lower() in exts:
                 image_files.append(path)
-        logger.debug("get_image_files found=%s dir=%s", len(image_files), input_dir)
+        logger.debug("get_image_files found={} dir={}", len(image_files), input_dir)
         return image_files
 
     @staticmethod
@@ -233,7 +233,7 @@ class FileSystemManager:
             return candidate
         except Exception as e:
             logger.error(
-                "シーケンス番号の取得に失敗: %s. FileSystemManager._get_next_sequence_number: %s",
+                "シーケンス番号の取得に失敗: {}. FileSystemManager._get_next_sequence_number: {}",
                 save_dir_path,
                 str(e),
             )
@@ -287,11 +287,11 @@ class FileSystemManager:
             output_path = parent_dir / new_filename
 
             image.save(output_path)
-            logger.info("処理済み画像を保存: %s", output_path)
+            logger.info("処理済み画像を保存: {}", output_path)
             return output_path
         except Exception as e:
             logger.error(
-                "処理済み画像の保存に失敗: %s. FileSystemManager.save_original_image: %s",
+                "処理済み画像の保存に失敗: {}. FileSystemManager.save_original_image: {}",
                 new_filename,
                 str(e),
             )

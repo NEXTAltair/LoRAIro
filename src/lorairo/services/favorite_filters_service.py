@@ -25,7 +25,7 @@ class FavoriteFiltersService:
         """
         self._settings = QSettings(organization, application)
         self._filters_group = "FavoriteFilters"
-        logger.debug("FavoriteFiltersService initialized (org=%s, app=%s)", organization, application)
+        logger.debug("FavoriteFiltersService initialized (org={}, app={})", organization, application)
 
     def save_filter(self, name: str, filter_dict: dict[str, Any]) -> bool:
         """フィルター条件を保存します。
@@ -53,14 +53,14 @@ class FavoriteFiltersService:
             self._settings.endGroup()
             self._settings.sync()
 
-            logger.info("Saved favorite filter: %s", name)
+            logger.info("Saved favorite filter: {}", name)
             return True
 
         except (TypeError, ValueError) as e:
-            logger.error("Failed to serialize filter '%s': %s", name, e, exc_info=True)
+            logger.error("Failed to serialize filter '{}': {}", name, e, exc_info=True)
             return False
         except Exception as e:
-            logger.error("Failed to save filter '%s': %s", name, e, exc_info=True)
+            logger.error("Failed to save filter '{}': {}", name, e, exc_info=True)
             return False
 
     def load_filter(self, name: str) -> dict[str, Any] | None:
@@ -82,24 +82,24 @@ class FavoriteFiltersService:
             self._settings.endGroup()
 
             if filter_json is None:
-                logger.debug("Filter not found: %s", name)
+                logger.debug("Filter not found: {}", name)
                 return None
 
             # JSON形式でデシリアライズ
             filter_dict = json.loads(filter_json)
 
             if not isinstance(filter_dict, dict):
-                logger.error("Invalid filter data for '%s': expected dict, got %s", name, type(filter_dict))
+                logger.error("Invalid filter data for '{}': expected dict, got {}", name, type(filter_dict))
                 return None
 
-            logger.info("Loaded favorite filter: %s", name)
+            logger.info("Loaded favorite filter: {}", name)
             return filter_dict
 
         except (TypeError, ValueError, json.JSONDecodeError) as e:
-            logger.error("Failed to deserialize filter '%s': %s", name, e, exc_info=True)
+            logger.error("Failed to deserialize filter '{}': {}", name, e, exc_info=True)
             return None
         except Exception as e:
-            logger.error("Failed to load filter '%s': %s", name, e, exc_info=True)
+            logger.error("Failed to load filter '{}': {}", name, e, exc_info=True)
             return None
 
     def list_filters(self) -> list[str]:
@@ -116,11 +116,11 @@ class FavoriteFiltersService:
             # アルファベット順にソート
             sorted_names = sorted(filter_names)
 
-            logger.debug("Listed %d favorite filters", len(sorted_names))
+            logger.debug("Listed {} favorite filters", len(sorted_names))
             return sorted_names
 
         except Exception as e:
-            logger.error("Failed to list filters: %s", e, exc_info=True)
+            logger.error("Failed to list filters: {}", e, exc_info=True)
             return []
 
     def delete_filter(self, name: str) -> bool:
@@ -141,7 +141,7 @@ class FavoriteFiltersService:
 
             # 存在確認
             if not self._settings.contains(name):
-                logger.warning("Filter not found for deletion: %s", name)
+                logger.warning("Filter not found for deletion: {}", name)
                 self._settings.endGroup()
                 return False
 
@@ -150,11 +150,11 @@ class FavoriteFiltersService:
             self._settings.endGroup()
             self._settings.sync()
 
-            logger.info("Deleted favorite filter: %s", name)
+            logger.info("Deleted favorite filter: {}", name)
             return True
 
         except Exception as e:
-            logger.error("Failed to delete filter '%s': %s", name, e, exc_info=True)
+            logger.error("Failed to delete filter '{}': {}", name, e, exc_info=True)
             return False
 
     def filter_exists(self, name: str) -> bool:
@@ -175,7 +175,7 @@ class FavoriteFiltersService:
             self._settings.endGroup()
             return exists
         except Exception as e:
-            logger.error("Failed to check filter existence '%s': %s", name, e, exc_info=True)
+            logger.error("Failed to check filter existence '{}': {}", name, e, exc_info=True)
             return False
 
     def clear_all_filters(self) -> bool:
@@ -194,5 +194,5 @@ class FavoriteFiltersService:
             return True
 
         except Exception as e:
-            logger.error("Failed to clear all filters: %s", e, exc_info=True)
+            logger.error("Failed to clear all filters: {}", e, exc_info=True)
             return False

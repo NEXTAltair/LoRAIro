@@ -195,9 +195,9 @@ class FilterSearchPanel(QScrollArea):
             for name in filter_names:
                 self.favorite_filters_list.addItem(name)
 
-            logger.debug("Refreshed favorite filters list: %d items", len(filter_names))
+            logger.debug("Refreshed favorite filters list: {} items", len(filter_names))
         except Exception as e:
-            logger.error("Failed to refresh favorite filters list: %s", e, exc_info=True)
+            logger.error("Failed to refresh favorite filters list: {}", e, exc_info=True)
 
     def _on_save_filter_clicked(self) -> None:
         """保存ボタンクリックハンドラ (Phase 4)"""
@@ -246,7 +246,7 @@ class FilterSearchPanel(QScrollArea):
             else:
                 QMessageBox.warning(self, "保存失敗", "フィルターの保存に失敗しました。")
         except Exception as e:
-            logger.error("Failed to save filter: %s", e, exc_info=True)
+            logger.error("Failed to save filter: {}", e, exc_info=True)
             QMessageBox.critical(self, "エラー", f"フィルターの保存中にエラーが発生しました:\n{e}")
 
     def _on_load_filter_clicked(self) -> None:
@@ -291,13 +291,13 @@ class FilterSearchPanel(QScrollArea):
             if conditions:
                 self.apply_conditions(conditions)
                 QMessageBox.information(self, "読込完了", f"フィルター '{filter_name}' を適用しました。")
-                logger.info("Loaded and applied favorite filter: %s", filter_name)
+                logger.info("Loaded and applied favorite filter: {}", filter_name)
             else:
                 QMessageBox.warning(
                     self, "読込失敗", f"フィルター '{filter_name}' の読み込みに失敗しました。"
                 )
         except Exception as e:
-            logger.error("Failed to load filter '%s': %s", filter_name, e, exc_info=True)
+            logger.error("Failed to load filter '{}': {}", filter_name, e, exc_info=True)
             QMessageBox.critical(self, "エラー", f"フィルターの読み込み中にエラーが発生しました:\n{e}")
 
     def _on_delete_filter_clicked(self) -> None:
@@ -337,7 +337,7 @@ class FilterSearchPanel(QScrollArea):
             else:
                 QMessageBox.warning(self, "削除失敗", "フィルターの削除に失敗しました。")
         except Exception as e:
-            logger.error("Failed to delete filter '%s': %s", filter_name, e, exc_info=True)
+            logger.error("Failed to delete filter '{}': {}", filter_name, e, exc_info=True)
             QMessageBox.critical(self, "エラー", f"フィルターの削除中にエラーが発生しました:\n{e}")
 
     def connect_signals(self) -> None:

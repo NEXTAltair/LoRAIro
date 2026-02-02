@@ -220,7 +220,7 @@ class TestConfigurationService:
 
         # Then: ログにマスキングされた値が記録される
         mock_logger.debug.assert_called_with(
-            "設定値を更新しました: [%s] %s = %s", "api", "openai_key", "sk-1***cdef"
+            "設定値を更新しました: [{}] {} = {}", "api", "openai_key", "sk-1***cdef"
         )
 
     @patch("lorairo.services.configuration_service.logger")
@@ -234,7 +234,7 @@ class TestConfigurationService:
 
         # Then: ログにマスキングされた値が記録される
         mock_logger.debug.assert_called_with(
-            "設定値を更新しました: [%s] %s = %s", "huggingface", "token", "hf_1***cdef"
+            "設定値を更新しました: [{}] {} = {}", "huggingface", "token", "hf_1***cdef"
         )
 
     def test_get_database_directory_relative_path(self):
