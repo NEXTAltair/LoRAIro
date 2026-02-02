@@ -202,6 +202,10 @@ JSON
 
 ## Recommended workflow (agent)
 
+0) **Preflight**: verify which gateway endpoint is reachable from the current agent environment.
+   - Try `http://localhost:18789/health` first (local host).
+   - If that fails, try `http://host.docker.internal:18789/health` (container/VM).
+   - Set `LORAIRO_MEM_GATEWAY_URL` to the reachable base URL before writing.
 1) When you need to remember something, **write** it via `/hooks/lorairo-memory`.
 2) When asked a question, use `ltm_search.py` / `ltm_latest.py` to fetch **5–15 candidates**.
 3) Only inspect the **Body** of the top candidates.

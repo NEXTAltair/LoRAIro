@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Get a single memory by hash (preferred) or by page_id."""
-from ltm_common import DATA_SOURCE_ID, http_json, read_stdin_json, out
+"""Get a single memory by hash (preferred) or by page_id via Open Response API."""
+from ltm_common import query_via_responses, read_stdin_json, out_text
 
 
 def main():
@@ -9,25 +9,28 @@ def main():
     page_id = (inp.get("page_id") or "").strip()
 
     if h:
-        res = http_json(
-            "POST",
-            f"/data_sources/{DATA_SOURCE_ID}/query",
-            {
-                "page_size": 1,
-                "filter": {"property": "Hash", "rich_text": {"equals": h}},
-            },
+        prompt = (
+            f"OP: lorairo-memory-get\n"
+            f"HASH: {h}\n"
+            f"OUTPUT: json_only\n"
+            f"FIELDS: title,summary,body,url,hash,created,type,status,tags,environment"
         )
-        items = res.get("results", [])
-        out({"item": items[0] if items else None})
+        result = query_via_responses(prompt)
+        out_text(result)
         return
 
     if page_id:
-        page = http_json("GET", f"/pages/{page_id}")
-        blocks = http_json("GET", f"/blocks/{page_id}/children?page_size=50")
-        out({"page": page, "blocks": blocks})
+        prompt = (
+            f"OP: lorairo-memory-get\n"
+            f"PAGE_ID: {page_id}\n"
+            f"OUTPUT: json_only\n"
+            f"FIELDS: title,summary,body,url,hash,created,type,status,tags,environment"
+        )
+        result = query_via_responses(prompt)
+        out_text(result)
         return
 
-    raise SystemExit("Provide either {\"hash\": ...} or {\"page_id\": ...} on stdin")
+    raise SystemExit('Provide either {"hash": ...} or {"page_id": ...} on stdin')
 
 
 if __name__ == "__main__":

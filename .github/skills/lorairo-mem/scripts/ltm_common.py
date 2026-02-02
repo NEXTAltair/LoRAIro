@@ -128,6 +128,52 @@ def _http_json_direct(method: str, path: str, payload=None, api_key: str = None)
         raise SystemExit(f"Notion HTTP {e.code}: {msg}")
 
 
+def query_via_responses(prompt: str, model: str = "openai-codex/gpt-4.1") -> str:
+    """Open Response API経由でNotion LTMを検索する。
+
+    GatewayのLLMがNotionデータソースを参照して回答を返す。
+
+    Args:
+        prompt: 検索プロンプト（自然言語）。
+        model: 使用するモデルID。
+
+    Returns:
+        レスポンスのテキスト内容。
+    """
+    token = get_gateway_token()
+    url = f"{GATEWAY_URL}/v1/responses"
+    payload = {
+        "model": model,
+        "input": prompt,
+    }
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            body = resp.read().decode("utf-8")
+            result = json.loads(body) if body else {}
+            # Open Response APIの応答からテキストを抽出
+            # 形式: {"output": [{"type": "message", "content": [{"type": "output_text", "text": "..."}]}]}
+            output = result.get("output", [])
+            for item in output:
+                if item.get("type") == "message":
+                    for content in item.get("content", []):
+                        if content.get("type") == "output_text":
+                            return content.get("text", "")
+                # フラット形式のフォールバック
+                if item.get("type") == "output_text":
+                    return item.get("text", "")
+            # 構造が不明な場合はraw JSONを返す
+            return json.dumps(result, ensure_ascii=False, indent=2)
+    except urllib.error.HTTPError as e:
+        msg = e.read().decode("utf-8", errors="replace")
+        raise SystemExit(f"Response API error (HTTP {e.code}): {msg}")
+
+
 def read_stdin_json():
     raw = sys.stdin.read().strip()
     if not raw:
@@ -140,4 +186,10 @@ def read_stdin_json():
 
 def out(obj):
     sys.stdout.write(json.dumps(obj, ensure_ascii=False, indent=2))
+    sys.stdout.write("\n")
+
+
+def out_text(text: str):
+    """テキスト応答をそのまま出力する。"""
+    sys.stdout.write(text)
     sys.stdout.write("\n")
