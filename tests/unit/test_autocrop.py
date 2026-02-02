@@ -364,6 +364,31 @@ class TestAutoCropGetCropAreaColorConversion:
         debug_calls = [str(call) for call in mock_logger.debug.call_args_list]
         assert any("グレースケール画像検出" in call for call in debug_calls)
 
+    def test_get_crop_area_converts_la_to_rgb(self):
+        """Test _get_crop_area correctly converts LA (grayscale+alpha) input to RGB"""
+        # LA画像（2チャンネル: グレースケール+アルファ）でエラーにならないことを確認
+        la_array = np.full((600, 800, 2), 200, dtype=np.uint8)
+        # レターボックス追加（輝度チャンネルのみ）
+        la_array[0:50, :, 0] = 0
+        la_array[-50:, :, 0] = 0
+
+        result = self.autocrop._get_crop_area(la_array)
+
+        # クロップ領域が検出されるべき
+        assert result is not None
+        _x, _y, _w, h = result
+        assert h < 600  # レターボックスが除去される
+
+    @patch("lorairo.editor.autocrop.logger")
+    def test_get_crop_area_logs_la_conversion(self, mock_logger):
+        """Test _get_crop_area logs debug message for LA image conversion"""
+        la_array = np.full((100, 100, 2), 128, dtype=np.uint8)
+
+        self.autocrop._get_crop_area(la_array)
+
+        debug_calls = [str(call) for call in mock_logger.debug.call_args_list]
+        assert any("LA画像検出" in call for call in debug_calls)
+
 
 class TestAutoCropErrorHandling:
     """Test cases for AutoCrop error handling scenarios"""
