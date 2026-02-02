@@ -144,7 +144,7 @@ class ImageProcessor:
         Args:
             img (Image.Image): 処理する画像
             has_alpha (bool): 透過情報(アルファチャンネル)の有無
-            mode (str): 画像のモード (例: 'RGB', 'CMYK', 'P')
+            mode (str): 画像のモード (例: 'RGB', 'CMYK', 'P', 'L', 'LA')
 
         Returns:
             Image.Image: 色空間が正規化された画像
@@ -155,6 +155,9 @@ class ImageProcessor:
             elif mode == "CMYK":
                 # CMYKからRGBに変換
                 return img.convert("RGB")
+            elif mode in ["L", "LA"]:
+                # グレースケール/グレースケール+アルファをRGB系に変換
+                return img.convert("RGBA") if has_alpha else img.convert("RGB")
             elif mode == "P":
                 # パレットモードはRGBに変換してから処理
                 return ImageProcessor.normalize_color_profile(img.convert("RGB"), has_alpha, "RGB")

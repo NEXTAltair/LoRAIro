@@ -141,6 +141,24 @@ class TestImageProcessor:
         assert result.mode == "RGB"
         assert result.size == (100, 100)
 
+    def test_normalize_color_profile_grayscale(self):
+        """Test color profile normalization for grayscale (L) images"""
+        test_img = Image.new("L", (100, 100), color=128)
+
+        result = ImageProcessor.normalize_color_profile(test_img, has_alpha=False, mode="L")
+
+        assert result.mode == "RGB"
+        assert result.size == (100, 100)
+
+    def test_normalize_color_profile_grayscale_with_alpha(self):
+        """Test color profile normalization for grayscale+alpha (LA) images"""
+        test_img = Image.new("LA", (100, 100), color=(128, 200))
+
+        result = ImageProcessor.normalize_color_profile(test_img, has_alpha=True, mode="LA")
+
+        assert result.mode == "RGBA"
+        assert result.size == (100, 100)
+
 
 class TestImageProcessingManager:
     """Test cases for ImageProcessingManager class"""
