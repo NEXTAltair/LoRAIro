@@ -274,8 +274,8 @@ class AutoCrop:
         for letterbox detection. It has been validated as the most effective
         approach for this use case.
 
-        Supports both RGB and RGBA images. RGBA images are converted to RGB
-        before processing by discarding the alpha channel.
+        Supports RGB, RGBA, and grayscale images. Non-RGB images are converted
+        to RGB before processing (RGBA discards alpha, grayscale expands to 3ch).
 
         The algorithm applies a dynamic margin based on the detected bounding box size:
         - Formula: margin_x = max(2, int(bbox_width * 0.005)), margin_y = max(2, int(bbox_height * 0.005))
@@ -284,12 +284,17 @@ class AutoCrop:
         - Axis-specific: Non-square bounding boxes apply margin per axis (e.g., wide bbox skips y-margin only)
 
         Args:
-            np_image: Input image as numpy array (RGB or RGBA)
+            np_image: Input image as numpy array (RGB, RGBA, or grayscale)
 
         Returns:
             Crop area as (x, y, width, height) tuple, or None if no crop detected
         """
         try:
+            # グレースケール対応: RGB変換
+            if np_image.ndim == 2:
+                logger.debug("グレースケール画像検出: RGB変換を実行")
+                np_image = cv2.cvtColor(np_image, cv2.COLOR_GRAY2RGB)
+
             # RGBA対応: アルファチャンネルを破棄してRGB変換
             if np_image.ndim == 3 and np_image.shape[2] == 4:
                 logger.debug("RGBA画像検出: RGB変換を実行")
