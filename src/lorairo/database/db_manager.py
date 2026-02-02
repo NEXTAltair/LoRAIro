@@ -117,7 +117,7 @@ class ImageDatabaseManager:
 
             # 6. データベースに挿入
             image_id = self.repository.add_original_image(original_metadata)
-            logger.info(f"オリジナル画像を登録しました: ID={image_id}, Path={image_path}")
+            logger.debug(f"オリジナル画像を登録しました: ID={image_id}, Path={image_path}")
 
             # 7. 512px サムネイル画像の自動生成
             try:
@@ -233,7 +233,7 @@ class ImageDatabaseManager:
                 processed_id = self.register_processed_image(image_id, processed_path, processed_metadata)
 
                 if processed_id:
-                    logger.info(
+                    logger.debug(
                         f"512px サムネイル画像を生成・登録しました: 元画像ID={image_id}, 処理済みID={processed_id}, Path={processed_path.name}"
                     )
                 else:
@@ -286,7 +286,7 @@ class ImageDatabaseManager:
             # データベースに挿入 (Repository が重複チェックを行う)
             processed_image_id = self.repository.add_processed_image(info)
             if processed_image_id is not None:
-                logger.info(
+                logger.debug(
                     f"処理済み画像を登録/確認しました: ID={processed_image_id}, 元画像ID={image_id}"
                 )
             # None が返るケースは Repository のエラーログで記録されるはず
@@ -309,7 +309,7 @@ class ImageDatabaseManager:
                 "ratings": [],
             }
             self.repository.save_annotations(image_id, annotations_to_save)
-            logger.info(f"画像 ID {image_id} のタグ {len(tags_data)} 件を保存しました。")
+            logger.debug(f"画像 ID {image_id} のタグ {len(tags_data)} 件を保存しました。")
         except Exception as e:
             logger.error(f"画像 ID {image_id} のタグ保存中にエラー: {e}", exc_info=True)
             raise
@@ -631,7 +631,7 @@ class ImageDatabaseManager:
 
             image_id = self.repository.find_duplicate_image_by_phash(phash)
             if image_id is not None:
-                logger.info(f"重複検出: pHash 一致 ID={image_id}, Name={image_name}, pHash={phash}")
+                logger.debug(f"重複検出: pHash 一致 ID={image_id}, Name={image_name}, pHash={phash}")
             else:
                 logger.debug(f"重複なし: Name={image_name}, pHash={phash}")
             return image_id

@@ -50,7 +50,7 @@ class ImageProcessingManager:
             # Upscaler インスタンス作成（設定駆動型）
             self.upscaler = Upscaler(config_service)
 
-            logger.info(f"ImageProcessingManagerが正常に初期化。target_resolution={target_resolution}")
+            logger.debug(f"ImageProcessingManagerが正常に初期化。target_resolution={target_resolution}")
 
         except Exception as e:
             message = f"ImageProcessingManagerの初期化中エラー: {e}"

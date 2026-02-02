@@ -167,7 +167,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
                 for tag in tags
             ]
             self.db_manager.save_tags(image_id, tags_data)
-            logger.info(f"タグを追加: {image_path.name} - {len(tags)}個のタグ")
+            logger.debug(f"タグを追加: {image_path.name} - {len(tags)}個のタグ")
 
         captions = annotations.get("captions", [])
         if captions:
@@ -183,4 +183,4 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
                 for caption in captions
             ]
             self.db_manager.save_captions(image_id, captions_data)
-            logger.info(f"キャプションを追加: {image_path.name}")
+            logger.debug(f"キャプションを追加: {image_path.name}")

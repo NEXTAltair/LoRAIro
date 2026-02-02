@@ -61,7 +61,7 @@ def _import_tag_file(base_path: Path, filename: str, image_id: int, idm: ImageDa
             for tag_string in tag_strings
         ]
         idm.save_tags(image_id, tags_data)
-        logger.info(f"タグを追加: {filename} - {len(tag_strings)}個のタグ")
+        logger.debug(f"タグを追加: {filename} - {len(tag_strings)}個のタグ")
     except Exception as e:
         logger.error(f"タグファイル読み込みエラー: {txt_file.name} - {e}")
 
@@ -92,7 +92,7 @@ def _import_caption_file(base_path: Path, filename: str, image_id: int, idm: Ima
             "is_edited_manually": False,
         }
         idm.save_captions(image_id, [caption_data])
-        logger.info(f"キャプションを追加: {filename}")
+        logger.debug(f"キャプションを追加: {filename}")
     except Exception as e:
         logger.error(f"キャプションファイル読み込みエラー: {caption_file.name} - {e}")
 
@@ -162,7 +162,7 @@ def _process_single_image(
     registration_result = idm.register_original_image(image_file, fsm)
     if registration_result is not None:
         image_id, _metadata = registration_result
-        logger.info(f"画像登録成功: {filename} (ID: {image_id})")
+        logger.debug(f"画像登録成功: {filename} (ID: {image_id})")
         _process_associated_files(image_file, image_id, idm)
         results["processed"] += 1
     else:
