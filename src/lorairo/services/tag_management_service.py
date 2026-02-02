@@ -38,7 +38,7 @@ class TagManagementService:
         self.reader = TagReader(session_factory=get_user_session_factory())
         self.repository = get_default_repository()
         logger.info(
-            "TagManagementService initialized (user DB only) with format_id=%d",
+            "TagManagementService initialized (user DB only) with format_id={}",
             self.LORAIRO_FORMAT_ID,
         )
 
@@ -56,10 +56,10 @@ class TagManagementService:
         """
         try:
             tags = get_unknown_type_tags(self.reader, format_id=self.LORAIRO_FORMAT_ID)
-            logger.info("Found %d unknown type tags for format_id=%d", len(tags), self.LORAIRO_FORMAT_ID)
+            logger.info("Found {} unknown type tags for format_id={}", len(tags), self.LORAIRO_FORMAT_ID)
             return tags
         except Exception as e:
-            logger.error("Error getting unknown type tags: %s", e, exc_info=True)
+            logger.error("Error getting unknown type tags: {}", e, exc_info=True)
             raise
 
     def get_all_available_types(self) -> list[str]:
@@ -76,10 +76,10 @@ class TagManagementService:
         """
         try:
             types = get_all_type_names(self.reader)
-            logger.debug("Retrieved %d type names", len(types))
+            logger.debug("Retrieved {} type names", len(types))
             return types
         except Exception as e:
-            logger.error("Error getting all type names: %s", e, exc_info=True)
+            logger.error("Error getting all type names: {}", e, exc_info=True)
             raise
 
     def get_format_specific_types(self) -> list[str]:
@@ -97,13 +97,13 @@ class TagManagementService:
         try:
             types = get_format_type_names(self.reader, format_id=self.LORAIRO_FORMAT_ID)
             logger.debug(
-                "Retrieved %d format-specific type names for format_id=%d",
+                "Retrieved {} format-specific type names for format_id={}",
                 len(types),
                 self.LORAIRO_FORMAT_ID,
             )
             return types
         except Exception as e:
-            logger.error("Error getting format-specific type names: %s", e, exc_info=True)
+            logger.error("Error getting format-specific type names: {}", e, exc_info=True)
             raise
 
     def update_tag_types(self, updates: list[TagTypeUpdate]) -> None:
@@ -123,13 +123,13 @@ class TagManagementService:
         try:
             update_tags_type_batch(self.repository, updates, format_id=self.LORAIRO_FORMAT_ID)
             logger.info(
-                "Successfully updated %d tags for format_id=%d", len(updates), self.LORAIRO_FORMAT_ID
+                "Successfully updated {} tags for format_id={}", len(updates), self.LORAIRO_FORMAT_ID
             )
         except ValueError as e:
-            logger.error("Invalid tag update request: %s", e)
+            logger.error("Invalid tag update request: {}", e)
             raise
         except Exception as e:
-            logger.error("Error updating tag types: %s", e, exc_info=True)
+            logger.error("Error updating tag types: {}", e, exc_info=True)
             raise
 
     def update_single_tag_type(self, tag_id: int, type_name: str) -> None:
