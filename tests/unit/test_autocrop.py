@@ -167,6 +167,23 @@ class TestAutoCropMainInterface:
         assert result is not None
         assert isinstance(result, Image.Image)
 
+    def test_auto_crop_image_with_grayscale_letterbox(self):
+        """Test auto_crop_image with grayscale image containing letterbox"""
+        # グレースケールのレターボックス画像を作成
+        test_img = Image.new("L", (800, 600), color=200)
+        test_array = np.array(test_img)
+        # 黒いレターボックス
+        test_array[0:50, :] = 0  # Top border
+        test_array[-50:, :] = 0  # Bottom border
+        test_img = Image.fromarray(test_array)
+
+        result = AutoCrop.auto_crop_image(test_img)
+
+        assert result is not None
+        assert isinstance(result, Image.Image)
+        # クロップが実行されるべき
+        assert result.size[1] < test_img.size[1]  # Height reduced
+
 
 class TestAutoCropHelperMethods:
     """Test cases for AutoCrop helper methods"""
@@ -312,6 +329,40 @@ class TestAutoCropHelperMethods:
 
         assert isinstance(result, list)
         assert all(isinstance(border, str) for border in result)
+
+
+class TestAutoCropGetCropAreaColorConversion:
+    """Test cases for _get_crop_area color space conversion"""
+
+    def setup_method(self):
+        """Set up test fixtures"""
+        AutoCrop._instance = None
+        self.autocrop = AutoCrop()
+
+    def test_get_crop_area_converts_grayscale_to_rgb(self):
+        """Test _get_crop_area correctly converts grayscale input to RGB"""
+        # グレースケール配列（2次元）で呼び出してもエラーにならないことを確認
+        gray_array = np.full((600, 800), 200, dtype=np.uint8)
+        # レターボックス追加
+        gray_array[0:50, :] = 0
+        gray_array[-50:, :] = 0
+
+        result = self.autocrop._get_crop_area(gray_array)
+
+        # クロップ領域が検出されるべき
+        assert result is not None
+        _x, _y, _w, h = result
+        assert h < 600  # レターボックスが除去される
+
+    @patch("lorairo.editor.autocrop.logger")
+    def test_get_crop_area_logs_grayscale_conversion(self, mock_logger):
+        """Test _get_crop_area logs debug message for grayscale conversion"""
+        gray_array = np.full((100, 100), 128, dtype=np.uint8)
+
+        self.autocrop._get_crop_area(gray_array)
+
+        debug_calls = [str(call) for call in mock_logger.debug.call_args_list]
+        assert any("グレースケール画像検出" in call for call in debug_calls)
 
 
 class TestAutoCropErrorHandling:
