@@ -15,7 +15,20 @@ class ToolsStatic:
 
 
 def calculate_phash(image_path: Path) -> str:
-    """指定された画像パスのpHashを計算します。"""
+    """指定された画像パスのpHashを計算します。
+
+    Args:
+        image_path: 画像ファイルのパス。
+
+    Returns:
+        pHashの文字列表現。
+
+    Raises:
+        FileNotFoundError: ファイルが存在しない場合。
+        ValueError: ファイルが破損または空で画像として読み込めない場合。
+    """
+    if image_path.stat().st_size == 0:
+        raise ValueError(f"画像ファイルが破損しています（0バイト）: {image_path}")
     try:
         with Image.open(image_path) as img:
             # アルファチャネルがある場合、またはグレースケールの場合、画像をRGBに変換します
@@ -24,11 +37,9 @@ def calculate_phash(image_path: Path) -> str:
             hash_val = imagehash.phash(img)
             return str(hash_val)
     except FileNotFoundError:
-        logger.error(f"pHash計算エラー: ファイルが見つかりません - {image_path}")
         raise
     except Exception as e:
-        logger.error(f"pHash計算中に予期せぬエラーが発生しました: {image_path}, Error: {e}", exc_info=True)
-        raise  # 計算失敗時は例外を再発生させる
+        raise ValueError(f"画像ファイルが破損しているか非対応の形式です: {image_path}") from e  # 計算失敗時は例外を再発生させる  # 計算失敗時は例外を再発生させる
 
 
 _FALLBACK_ENCODINGS = ("utf-8", "shift_jis", "euc-jp", "latin-1")
