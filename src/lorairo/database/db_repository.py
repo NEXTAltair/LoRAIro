@@ -315,6 +315,82 @@ class ImageRepository:
                 logger.error(f"モデル登録エラー: {e}", exc_info=True)
                 raise
 
+    @staticmethod
+    def _apply_simple_field_updates(
+        model: Any,
+        provider: str | None,
+        api_model_id: str | None,
+        estimated_size_gb: float | None,
+        requires_api_key: bool | None,
+        discontinued_at: datetime.datetime | None,
+    ) -> bool:
+        """モデルの単純フィールドを差分更新する。
+
+        Args:
+            model: ModelのORMオブジェクト。
+            provider: プロバイダー名。
+            api_model_id: APIモデルID。
+            estimated_size_gb: 推定サイズ。
+            requires_api_key: APIキー要否。
+            discontinued_at: 廃止日時。
+
+        Returns:
+            変更があった場合True。
+        """
+        has_changes = False
+        simple_fields = {
+            "provider": provider,
+            "api_model_id": api_model_id,
+            "estimated_size_gb": estimated_size_gb,
+            "requires_api_key": requires_api_key,
+            "discontinued_at": discontinued_at,
+        }
+        for field_name, new_value in simple_fields.items():
+            if new_value is not None:
+                current_value = getattr(model, field_name)
+                if current_value != new_value:
+                    setattr(model, field_name, new_value)
+                    has_changes = True
+                    logger.debug(f"フィールド更新: {field_name} = {new_value}")
+        return has_changes
+
+    @staticmethod
+    def _update_model_types(session: Session, model: Any, model_types: list[str]) -> bool:
+        """モデルタイプの関連を差分更新する。
+
+        Args:
+            session: SQLAlchemyセッション。
+            model: ModelのORMオブジェクト。
+            model_types: 新しいモデルタイプ名リスト。
+
+        Returns:
+            変更があった場合True。
+
+        Raises:
+            ValueError: 無効なモデルタイプが指定された場合。
+        """
+        current_types = {mt.name for mt in model.model_types}
+        new_types = set(model_types)
+
+        if current_types == new_types:
+            return False
+
+        model_type_objects = []
+        for type_name in model_types:
+            stmt = select(ModelType).where(ModelType.name == type_name)
+            model_type = session.execute(stmt).scalar_one_or_none()
+            if not model_type:
+                valid_types = session.execute(select(ModelType.name)).scalars().all()
+                raise ValueError(
+                    f"Invalid model_type: '{type_name}'. "
+                    f"Valid types: {', '.join(valid_types)}"
+                )
+            model_type_objects.append(model_type)
+
+        model.model_types = model_type_objects
+        logger.debug(f"model_types更新: {current_types} -> {new_types}")
+        return True
+
     def update_model(
         self,
         model_id: int,
@@ -325,84 +401,47 @@ class ImageRepository:
         requires_api_key: bool | None = None,
         discontinued_at: datetime.datetime | None = None,
     ) -> bool:
-        """既存モデルのメタデータを更新（差分検出あり）
+        """既存モデルのメタデータを更新(差分検出あり)
 
-        NOTE: 引数がNoneの場合は更新しない（明示的にNoneに設定する場合は別途対応が必要）
+        NOTE: 引数がNoneの場合は更新しない
 
         Args:
             model_id: 更新対象モデルのID
-            provider: プロバイダー名（更新する場合のみ指定）
-            model_types: モデルタイプリスト（更新する場合のみ指定）
-            api_model_id: API呼び出し時のモデルID（更新する場合のみ指定）
-            estimated_size_gb: 推定サイズ（更新する場合のみ指定）
-            requires_api_key: APIキー要否（更新する場合のみ指定）
-            discontinued_at: 廃止日時（更新する場合のみ指定）
+            provider: プロバイダー名
+            model_types: モデルタイプリスト
+            api_model_id: API呼び出し時のモデルID
+            estimated_size_gb: 推定サイズ
+            requires_api_key: APIキー要否
+            discontinued_at: 廃止日時
 
         Returns:
-            bool: 実際に更新が発生したかどうか
+            実際に更新が発生したかどうか
 
         Raises:
             ValueError: model_idが存在しない、またはmodel_typesが無効な場合
         """
         with self.session_factory() as session:
             try:
-                # 既存モデル取得（model_typesもeager load）
                 stmt = select(Model).options(selectinload(Model.model_types)).where(Model.id == model_id)
                 model = session.execute(stmt).scalar_one_or_none()
 
                 if not model:
                     raise ValueError(f"Model not found: id={model_id}")
 
-                # 差分検出
-                has_changes = False
+                has_changes = self._apply_simple_field_updates(
+                    model, provider, api_model_id, estimated_size_gb, requires_api_key, discontinued_at
+                )
 
-                # 単純フィールドの更新
-                simple_fields = {
-                    "provider": provider,
-                    "api_model_id": api_model_id,
-                    "estimated_size_gb": estimated_size_gb,
-                    "requires_api_key": requires_api_key,
-                    "discontinued_at": discontinued_at,
-                }
-
-                for field_name, new_value in simple_fields.items():
-                    if new_value is not None:  # 引数が指定されている場合のみ
-                        current_value = getattr(model, field_name)
-                        if current_value != new_value:
-                            setattr(model, field_name, new_value)
-                            has_changes = True
-                            logger.debug(f"フィールド更新: {field_name} = {new_value}")
-
-                # model_types の更新
                 if model_types is not None:
-                    current_types = {mt.name for mt in model.model_types}
-                    new_types = set(model_types)
-
-                    if current_types != new_types:
-                        # ModelTypeオブジェクトを取得
-                        model_type_objects = []
-                        for type_name in model_types:
-                            stmt = select(ModelType).where(ModelType.name == type_name)
-                            model_type = session.execute(stmt).scalar_one_or_none()
-                            if not model_type:
-                                valid_types = session.execute(select(ModelType.name)).scalars().all()
-                                raise ValueError(
-                                    f"Invalid model_type: '{type_name}'. "
-                                    f"Valid types: {', '.join(valid_types)}"
-                                )
-                            model_type_objects.append(model_type)
-
-                        model.model_types = model_type_objects
+                    if self._update_model_types(session, model, model_types):
                         has_changes = True
-                        logger.debug(f"model_types更新: {current_types} → {new_types}")
 
-                # 変更がある場合のみcommit
                 if has_changes:
                     session.commit()
                     logger.info(f"モデル更新完了: {model.name} (ID={model_id})")
                     return True
                 else:
-                    logger.debug(f"モデル更新なし（無変更）: {model.name} (ID={model_id})")
+                    logger.debug(f"モデル更新なし: {model.name} (ID={model_id})")
                     return False
 
             except SQLAlchemyError as e:
@@ -790,26 +829,44 @@ class ImageRepository:
                 )
                 raise
 
+    @staticmethod
+    def _build_existing_tags_map(session: Session, image_ids: list[int]) -> dict[int, set[str]]:
+        """画像IDごとの既存タグマップを構築する。
+
+        Args:
+            session: SQLAlchemyセッション。
+            image_ids: 対象画像IDリスト。
+
+        Returns:
+            image_id -> タグ名(小文字)のセットのマッピング。
+        """
+        existing_tags_stmt = select(Tag).where(Tag.image_id.in_(image_ids))
+        all_existing_tags = session.execute(existing_tags_stmt).scalars().all()
+
+        existing_tags_by_image: dict[int, set[str]] = {}
+        for tag_obj in all_existing_tags:
+            if tag_obj.image_id not in existing_tags_by_image:
+                existing_tags_by_image[tag_obj.image_id] = set()
+            existing_tags_by_image[tag_obj.image_id].add(tag_obj.tag.lower())
+        return existing_tags_by_image
+
     def add_tag_to_images_batch(
         self, image_ids: list[int], tag: str, model_id: int | None
     ) -> tuple[bool, int]:
-        """
-        複数画像に1つのタグを原子的に追加（既存タグに追加、重複スキップ）
+        """複数画像に1つのタグを原子的に追加(既存タグに追加、重複スキップ)
 
         単一トランザクションで全画像を処理。全件成功 or 全件ロールバック。
 
         Args:
             image_ids: 対象画像のIDリスト
-            tag: 追加するタグ（正規化済み前提: lower + strip）
-            model_id: モデルID（手動編集の場合はマニュアルモデルID）
+            tag: 追加するタグ(正規化済み前提: lower + strip)
+            model_id: モデルID(手動編集の場合はマニュアルモデルID)
 
         Returns:
-            tuple[bool, int]: (成功フラグ, 追加件数)
-                成功: (True, added_count)
-                失敗: (False, 0)
+            (成功フラグ, 追加件数)
 
         Raises:
-            SQLAlchemyError: データベースエラー時（ロールバック後に再送出）
+            SQLAlchemyError: データベースエラー時(ロールバック後に再送出)
         """
         if not image_ids:
             logger.warning("Empty image_ids list for batch tag add")
@@ -824,51 +881,36 @@ class ImageRepository:
 
         with self.session_factory() as session:
             try:
-                # 全画像について既存タグを事前に取得（1回のクエリで効率化）
-                existing_tags_stmt = select(Tag).where(Tag.image_id.in_(image_ids))
-                all_existing_tags = session.execute(existing_tags_stmt).scalars().all()
+                existing_tags_by_image = self._build_existing_tags_map(session, image_ids)
 
-                # image_id ごとに既存タグをマッピング
-                existing_tags_by_image: dict[int, set[str]] = {}
-                for tag_obj in all_existing_tags:
-                    if tag_obj.image_id not in existing_tags_by_image:
-                        existing_tags_by_image[tag_obj.image_id] = set()
-                    existing_tags_by_image[tag_obj.image_id].add(tag_obj.tag.lower())
-
-                # 各画像について重複チェック & タグ追加
                 for image_id in image_ids:
                     existing_tags = existing_tags_by_image.get(image_id, set())
 
-                    # 重複チェック
                     if normalized_tag in existing_tags:
                         logger.debug(
                             f"Tag '{normalized_tag}' already exists for image_id {image_id}, skipping"
                         )
                         continue
 
-                    # 外部DBから tag_id を取得/作成
                     external_tag_id = self._get_or_create_tag_id_external(session, normalized_tag)
-
                     if external_tag_id is None and normalized_tag:
                         logger.warning(
                             f"Tag '{normalized_tag}' could not be linked to external tag_db. "
                             "Saving with tag_id=None."
                         )
 
-                    # 新規タグレコード作成
                     new_tag = Tag(
                         image_id=image_id,
                         model_id=model_id,
                         tag=normalized_tag,
                         tag_id=external_tag_id,
-                        confidence_score=None,  # 手動編集時はNone
-                        existing=False,  # バッチ追加は新規扱い
-                        is_edited_manually=True,  # 手動バッチ編集
+                        confidence_score=None,
+                        existing=False,
+                        is_edited_manually=True,
                     )
                     session.add(new_tag)
                     added_count += 1
 
-                # 全件一括コミット
                 session.commit()
 
                 logger.info(
@@ -879,10 +921,7 @@ class ImageRepository:
 
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(
-                    f"Atomic batch tag add failed, rolled back: {e}",
-                    exc_info=True,
-                )
+                logger.error(f"Atomic batch tag add failed, rolled back: {e}", exc_info=True)
                 raise
 
     def _get_or_create_tag_id_external(self, session: Session, tag_string: str) -> int | None:
@@ -1531,19 +1570,99 @@ class ImageRepository:
 
         return best_match  # Return the best match found within tolerance, or None
 
-    def get_image_annotations(self, image_id: int) -> dict[str, list[dict[str, Any]]]:
-        """
-        指定された画像IDのアノテーション(タグ、キャプション、スコア、レーティング)を取得します。
-        Eager Loading を使用して関連データを効率的に取得します。
+    @staticmethod
+    def _format_tag_annotation(tag: Any) -> dict[str, Any]:
+        """タグアノテーションをdict形式にフォーマットする。
 
         Args:
-            image_id (int): アノテーションを取得する画像のID。
+            tag: タグORMオブジェクト。
 
         Returns:
-            dict[str, list[dict[str, Any]]]: アノテーションデータを含む辞書。
-                キー: 'tags', 'captions', 'scores', 'ratings'
-                値: 各アノテーション情報の辞書のリスト。
-                画像が存在しない場合は空のリストを持つ辞書を返します。
+            フォーマット済み辞書。
+        """
+        return {
+            "id": tag.id,
+            "tag": tag.tag,
+            "tag_id": tag.tag_id,
+            "model_id": tag.model_id,
+            "existing": tag.existing,
+            "is_edited_manually": tag.is_edited_manually,
+            "confidence_score": tag.confidence_score,
+            "created_at": tag.created_at,
+            "updated_at": tag.updated_at,
+        }
+
+    @staticmethod
+    def _format_caption_annotation(caption: Any) -> dict[str, Any]:
+        """キャプションアノテーションをdict形式にフォーマットする。
+
+        Args:
+            caption: キャプションORMオブジェクト。
+
+        Returns:
+            フォーマット済み辞書。
+        """
+        return {
+            "id": caption.id,
+            "caption": caption.caption,
+            "model_id": caption.model_id,
+            "existing": caption.existing,
+            "is_edited_manually": caption.is_edited_manually,
+            "created_at": caption.created_at,
+            "updated_at": caption.updated_at,
+        }
+
+    @staticmethod
+    def _format_score_annotation(score: Any) -> dict[str, Any]:
+        """スコアアノテーションをdict形式にフォーマットする。
+
+        Args:
+            score: スコアORMオブジェクト。
+
+        Returns:
+            フォーマット済み辞書。
+        """
+        return {
+            "id": score.id,
+            "score": score.score,
+            "model_id": score.model_id,
+            "is_edited_manually": score.is_edited_manually,
+            "created_at": score.created_at,
+            "updated_at": score.updated_at,
+        }
+
+    @staticmethod
+    def _format_rating_annotation(rating: Any) -> dict[str, Any]:
+        """レーティングアノテーションをdict形式にフォーマットする。
+
+        Args:
+            rating: レーティングORMオブジェクト。
+
+        Returns:
+            フォーマット済み辞書。
+        """
+        return {
+            "id": rating.id,
+            "raw_rating_value": rating.raw_rating_value,
+            "normalized_rating": rating.normalized_rating,
+            "model_id": rating.model_id,
+            "confidence_score": rating.confidence_score,
+            "created_at": rating.created_at,
+            "updated_at": rating.updated_at,
+        }
+
+    def get_image_annotations(self, image_id: int) -> dict[str, list[dict[str, Any]]]:
+        """指定された画像IDのアノテーション(タグ、キャプション、スコア、レーティング)を取得する。
+
+        Eager Loadingを使用して関連データを効率的に取得する。
+
+        Args:
+            image_id: アノテーションを取得する画像のID。
+
+        Returns:
+            アノテーションデータを含む辞書。
+            キー: 'tags', 'captions', 'scores', 'ratings'
+            画像が存在しない場合は空のリストを持つ辞書を返す。
 
         Raises:
             SQLAlchemyError: データベース操作でエラーが発生した場合。
@@ -1575,65 +1694,21 @@ class ImageRepository:
 
                 if image is None:
                     logger.warning(f"画像が見つかりません: image_id={image_id}")
-                    return annotations  # Return empty structure
+                    return annotations
 
-                # Extract and format annotations
                 if image.tags:
-                    annotations["tags"] = [
-                        {
-                            "id": tag.id,
-                            "tag": tag.tag,
-                            "tag_id": tag.tag_id,
-                            "model_id": tag.model_id,
-                            "existing": tag.existing,
-                            "is_edited_manually": tag.is_edited_manually,
-                            "confidence_score": tag.confidence_score,
-                            "created_at": tag.created_at,
-                            "updated_at": tag.updated_at,
-                        }
-                        for tag in image.tags
-                    ]
+                    annotations["tags"] = [self._format_tag_annotation(t) for t in image.tags]
                 if image.captions:
-                    annotations["captions"] = [
-                        {
-                            "id": caption.id,
-                            "caption": caption.caption,
-                            "model_id": caption.model_id,
-                            "existing": caption.existing,
-                            "is_edited_manually": caption.is_edited_manually,
-                            "created_at": caption.created_at,
-                            "updated_at": caption.updated_at,
-                        }
-                        for caption in image.captions
-                    ]
+                    annotations["captions"] = [self._format_caption_annotation(c) for c in image.captions]
                 if image.scores:
-                    annotations["scores"] = [
-                        {
-                            "id": score.id,
-                            "score": score.score,
-                            "model_id": score.model_id,
-                            "is_edited_manually": score.is_edited_manually,
-                            "created_at": score.created_at,
-                            "updated_at": score.updated_at,
-                        }
-                        for score in image.scores
-                    ]
+                    annotations["scores"] = [self._format_score_annotation(s) for s in image.scores]
                 if image.ratings:
-                    annotations["ratings"] = [
-                        {
-                            "id": rating.id,
-                            "raw_rating_value": rating.raw_rating_value,
-                            "normalized_rating": rating.normalized_rating,
-                            "model_id": rating.model_id,
-                            "confidence_score": rating.confidence_score,
-                            "created_at": rating.created_at,
-                            "updated_at": rating.updated_at,
-                        }
-                        for rating in image.ratings
-                    ]
+                    annotations["ratings"] = [self._format_rating_annotation(r) for r in image.ratings]
 
                 logger.info(
-                    f"取得したアノテーション数: tags={len(annotations['tags'])}, captions={len(annotations['captions'])}, scores={len(annotations['scores'])}, ratings={len(annotations['ratings'])} for image_id={image_id}"
+                    f"取得したアノテーション数: tags={len(annotations['tags'])}, "
+                    f"captions={len(annotations['captions'])}, scores={len(annotations['scores'])}, "
+                    f"ratings={len(annotations['ratings'])} for image_id={image_id}"
                 )
                 return annotations
 
@@ -2085,81 +2160,187 @@ class ImageRepository:
 
         return annotations
 
+    def _fetch_original_image_metadata(
+        self, session: Session, image_ids: list[int]
+    ) -> list[dict[str, Any]]:
+        """オリジナル画像のメタデータをアノテーション付きで取得する。
+
+        Args:
+            session: SQLAlchemyセッション。
+            image_ids: 画像IDリスト。
+
+        Returns:
+            メタデータ辞書のリスト。
+        """
+        from sqlalchemy.orm import joinedload
+
+        orig_stmt = (
+            select(Image)
+            .where(Image.id.in_(image_ids))
+            .options(
+                joinedload(Image.tags).joinedload(Tag.model),
+                joinedload(Image.captions).joinedload(Caption.model),
+                joinedload(Image.scores).joinedload(Score.model),
+                joinedload(Image.ratings),
+            )
+        )
+        orig_results: list[Image] = list(session.execute(orig_stmt).unique().scalars().all())
+
+        result = []
+        for img in orig_results:
+            metadata = {c.name: getattr(img, c.name) for c in img.__table__.columns}
+            metadata.update(self._format_annotations_for_metadata(img))
+            result.append(metadata)
+        return result
+
+    def _fetch_processed_image_metadata(
+        self, session: Session, image_ids: list[int], resolution: int
+    ) -> list[dict[str, Any]]:
+        """処理済み画像のメタデータをアノテーション付きで取得する。
+
+        Args:
+            session: SQLAlchemyセッション。
+            image_ids: 画像IDリスト。
+            resolution: 対象解像度。
+
+        Returns:
+            メタデータ辞書のリスト。
+        """
+        from sqlalchemy.orm import joinedload
+
+        proc_stmt = select(ProcessedImage).where(ProcessedImage.image_id.in_(image_ids))
+        all_proc_images = session.execute(proc_stmt).scalars().all()
+
+        # Original Imageのアノテーション情報を一括取得
+        orig_annotations_stmt = (
+            select(Image)
+            .where(Image.id.in_(image_ids))
+            .options(
+                joinedload(Image.tags).joinedload(Tag.model),
+                joinedload(Image.captions).joinedload(Caption.model),
+                joinedload(Image.scores).joinedload(Score.model),
+                joinedload(Image.ratings),
+            )
+        )
+        orig_images = session.execute(orig_annotations_stmt).unique().scalars().all()
+        annotations_by_image_id = {
+            img.id: self._format_annotations_for_metadata(img) for img in orig_images
+        }
+
+        # image_id ごとにグループ化
+        proc_images_by_id: dict[int, list[dict[str, Any]]] = {}
+        for img in all_proc_images:
+            if img.image_id not in proc_images_by_id:
+                proc_images_by_id[img.image_id] = []
+            proc_metadata = {c.name: getattr(img, c.name) for c in img.__table__.columns}
+            if img.image_id in annotations_by_image_id:
+                proc_metadata.update(annotations_by_image_id[img.image_id])
+            proc_images_by_id[img.image_id].append(proc_metadata)
+
+        result = []
+        for image_id in image_ids:
+            metadata_list = proc_images_by_id.get(image_id, [])
+            if metadata_list:
+                selected = self._filter_by_resolution(metadata_list, resolution)
+                if selected:
+                    result.append(selected)
+        return result
+
     def _fetch_filtered_metadata(
         self, session: Session, image_ids: list[int], resolution: int
     ) -> list[dict[str, Any]]:
-        """フィルタリングされたIDリストに基づき、指定解像度のメタデータを取得します。"""
-        from sqlalchemy.orm import joinedload
+        """フィルタリングされたIDリストに基づき、指定解像度のメタデータを取得する。
 
-        final_metadata_list = []
+        Args:
+            session: SQLAlchemyセッション。
+            image_ids: 画像IDリスト。
+            resolution: 対象解像度(0はオリジナル)。
+
+        Returns:
+            メタデータ辞書のリスト。
+        """
         if not image_ids:
             return []
 
         if resolution == 0:
-            # Original Images - アノテーション情報を含めて取得
-            orig_stmt = (
-                select(Image)
-                .where(Image.id.in_(image_ids))
-                .options(
-                    joinedload(Image.tags).joinedload(Tag.model),
-                    joinedload(Image.captions).joinedload(Caption.model),
-                    joinedload(Image.scores).joinedload(Score.model),
-                    joinedload(Image.ratings),
-                )
-            )
-            orig_results: list[Image] = list(session.execute(orig_stmt).unique().scalars().all())
-
-            # メタデータ構築 - 基本カラム + アノテーション情報
-            for img in orig_results:
-                metadata = {c.name: getattr(img, c.name) for c in img.__table__.columns}
-                # アノテーション情報を追加
-                metadata.update(self._format_annotations_for_metadata(img))
-                final_metadata_list.append(metadata)
+            return self._fetch_original_image_metadata(session, image_ids)
         else:
-            # ProcessedImage を image_id で一括ロード
-            proc_stmt = select(ProcessedImage).where(ProcessedImage.image_id.in_(image_ids))
-            all_proc_images = session.execute(proc_stmt).scalars().all()
-
-            # 対応するOriginal Imageのアノテーション情報を一括取得
-            orig_annotations_stmt = (
-                select(Image)
-                .where(Image.id.in_(image_ids))
-                .options(
-                    joinedload(Image.tags).joinedload(Tag.model),
-                    joinedload(Image.captions).joinedload(Caption.model),
-                    joinedload(Image.scores).joinedload(Score.model),
-                    joinedload(Image.ratings),
-                )
-            )
-            orig_images_with_annotations = session.execute(orig_annotations_stmt).unique().scalars().all()
-
-            # image_id → annotations のマッピング作成
-            annotations_by_image_id: dict[int, dict[str, list[dict[str, Any]]]] = {}
-            for img in orig_images_with_annotations:
-                annotations_by_image_id[img.id] = self._format_annotations_for_metadata(img)
-
-            # image_id ごとにグループ化
-            proc_images_by_id: dict[int, list[dict[str, Any]]] = {}
-            for img in all_proc_images:
-                if img.image_id not in proc_images_by_id:
-                    proc_images_by_id[img.image_id] = []
-                proc_metadata = {c.name: getattr(img, c.name) for c in img.__table__.columns}
-                # Original Imageのアノテーション情報を追加
-                if img.image_id in annotations_by_image_id:
-                    proc_metadata.update(annotations_by_image_id[img.image_id])
-                proc_images_by_id[img.image_id].append(proc_metadata)
-
-            # 各 image_id グループ内で解像度フィルタを適用
-            for image_id in image_ids:
-                metadata_list = proc_images_by_id.get(image_id, [])
-                if metadata_list:
-                    selected_metadata = self._filter_by_resolution(metadata_list, resolution)
-                    if selected_metadata:
-                        final_metadata_list.append(selected_metadata)
-
-        return final_metadata_list
+            return self._fetch_processed_image_metadata(session, image_ids, resolution)
 
     # --- Main Filter Method ---
+
+    def _build_image_filter_query(
+        self,
+        session: Session,
+        tags: list[str] | None,
+        caption: str | None,
+        use_and: bool,
+        start_date: str | None,
+        end_date: str | None,
+        include_untagged: bool,
+        include_nsfw: bool,
+        include_unrated: bool,
+        manual_rating_filter: str | None,
+        ai_rating_filter: str | None,
+        manual_edit_filter: bool | None,
+    ) -> Select:
+        """画像フィルタ条件を適用したクエリを構築する。
+
+        Args:
+            session: SQLAlchemyセッション。
+            tags: 検索タグリスト。
+            caption: 検索キャプション文字列。
+            use_and: 複数タグのAND/OR指定。
+            start_date: 検索開始日時(ISO 8601)。
+            end_date: 検索終了日時(ISO 8601)。
+            include_untagged: タグなし画像のみ対象とするか。
+            include_nsfw: NSFWコンテンツを含むか。
+            include_unrated: 未評価画像を含むか。
+            manual_rating_filter: 手動レーティングフィルタ。
+            ai_rating_filter: AI評価フィルタ。
+            manual_edit_filter: 手動編集フラグフィルタ。
+
+        Returns:
+            フィルタ適用済みのSelectクエリ。
+        """
+        query = select(Image.id)
+
+        start_dt = self._parse_datetime_str(start_date)
+        end_dt = self._parse_datetime_str(end_date)
+        query = self._apply_date_filter(query, start_dt, end_dt)
+
+        if include_untagged and (tags or caption):
+            logger.warning("検索語句と include_untagged が同時に指定されたため、検索語句は無視されます。")
+
+        query = self._apply_tag_filter(query, tags, use_and, include_untagged)
+        query = self._apply_caption_filter(query, caption)
+
+        # Rating Filters (Priority-based: manual > AI)
+        if manual_rating_filter:
+            logger.debug("Applying manual rating filter (priority over AI rating filter)")
+            query = self._apply_manual_filters(query, manual_rating_filter, manual_edit_filter, session)
+        elif ai_rating_filter:
+            logger.debug("Applying AI rating filter (no manual rating filter specified)")
+            query = self._apply_ai_rating_filter(query, ai_rating_filter)
+            query = self._apply_manual_filters(query, None, manual_edit_filter, session)
+        else:
+            query = self._apply_manual_filters(query, None, manual_edit_filter, session)
+
+        # Unrated Filter
+        query = self._apply_unrated_filter(query, include_unrated)
+
+        # NSFW Filter
+        nsfw_values_to_exclude = {"r", "x", "xxx"}
+        apply_nsfw_exclusion = not include_nsfw and (
+            (manual_rating_filter is None or manual_rating_filter.lower() not in nsfw_values_to_exclude)
+            and (ai_rating_filter is None or ai_rating_filter.lower() not in nsfw_values_to_exclude)
+        )
+        if apply_nsfw_exclusion:
+            query = self._apply_nsfw_filter(query, include_nsfw=False, session=session)
+        elif include_nsfw:
+            query = self._apply_nsfw_filter(query, include_nsfw=True, session=session)
+
+        return query.distinct()
 
     def get_images_by_filter(
         self,
@@ -2171,106 +2352,55 @@ class ImageRepository:
         end_date: str | None = None,
         include_untagged: bool = False,
         include_nsfw: bool = False,
-        include_unrated: bool = True,  # 未評価画像を含めるか (True: 含める, False: 除外)
-        manual_rating_filter: str | None = None,  # 手動レーティングでフィルタ
-        ai_rating_filter: str | None = None,  # AI評価レーティングでフィルタ (PG, PG-13, R, X, XXX)
-        manual_edit_filter: bool
-        | None = None,  # 手動編集フラグでフィルタ (True:編集済, False:未編集, None:フィルタ無)
+        include_unrated: bool = True,
+        manual_rating_filter: str | None = None,
+        ai_rating_filter: str | None = None,
+        manual_edit_filter: bool | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
-        """
-        指定された条件に基づいて画像をフィルタリングし、メタデータと件数を返します。
+        """指定された条件に基づいて画像をフィルタリングし、メタデータと件数を返す。
 
         Args:
-            tags (Optional[list[str]]): 検索するタグのリスト。
-            caption (Optional[str]): 検索するキャプション文字列。
-            resolution (int): 検索対象の解像度(長辺)。0の場合はオリジナル画像。
-            use_and (bool): 複数タグ指定時の検索方法 (True: AND, False: OR)。
-            start_date (Optional[str]): 検索開始日時 (ISO 8601形式)。
-            end_date (Optional[str]): 検索終了日時 (ISO 8601形式)。
-            include_untagged (bool): タグが付いていない画像のみを対象とするか。
-            include_nsfw (bool): NSFWコンテンツを含む画像を除外しないか。
-            include_unrated (bool): 未評価画像を含めるか。False の場合、
-                                    手動評価またはAI評価のいずれか1つ以上を持つ画像のみを対象とする。
-            manual_rating_filter (Optional[str]): 指定した手動レーティングを持つ画像のみを対象とするか。
-            ai_rating_filter (Optional[str]): 指定したAI評価レーティングを持つ画像のみを対象とするか。
-                                             複数のAI評価がある場合は多数決ロジックを適用。
-                                             注: manual_rating_filter が指定されている場合は無視される (優先順位)。
-            manual_edit_filter (Optional[bool]): アノテーションが手動編集されたかでフィルタするか。
-                                                 True: 編集済のみ, False: 未編集のみ, None: フィルタしない。
+            tags: 検索するタグのリスト。
+            caption: 検索するキャプション文字列。
+            resolution: 検索対象の解像度(長辺)。0の場合はオリジナル画像。
+            use_and: 複数タグ指定時の検索方法 (True: AND, False: OR)。
+            start_date: 検索開始日時 (ISO 8601形式)。
+            end_date: 検索終了日時 (ISO 8601形式)。
+            include_untagged: タグが付いていない画像のみを対象とするか。
+            include_nsfw: NSFWコンテンツを含む画像を除外しないか。
+            include_unrated: 未評価画像を含めるか。
+            manual_rating_filter: 指定した手動レーティングを持つ画像のみを対象とするか。
+            ai_rating_filter: 指定したAI評価レーティングフィルタ。
+            manual_edit_filter: アノテーションが手動編集されたかでフィルタするか。
 
         Returns:
-            tuple[list[dict[str, Any]], int]:
-                条件にマッチした画像メタデータのリストとその総数。
+            条件にマッチした画像メタデータのリストとその総数。
         """
         # 型安全性チェック: resolution が文字列の場合は int に変換
         if isinstance(resolution, str):
             try:
                 resolution = int(resolution)
-                logger.warning(
-                    f"解像度パラメータが文字列として渡されました: '{resolution}' -> {resolution}"
-                )
+                logger.warning(f"解像度パラメータが文字列として渡されました: '{resolution}' -> {resolution}")
             except ValueError:
                 logger.error(f"解像度パラメータの変換に失敗しました: '{resolution}'")
                 return [], 0
 
         with self.session_factory() as session:
             try:
-                # --- 1. 基本クエリと日付フィルタ ---
-                query = select(Image.id)  # まずは ID のみ取得
-
-                start_dt = self._parse_datetime_str(start_date)
-                end_dt = self._parse_datetime_str(end_date)
-
-                # --- フィルタ適用 --- (ヘルパーメソッド呼び出し)
-                query = self._apply_date_filter(query, start_dt, end_dt)  # 日付フィルタを最初に適用
-
-                if include_untagged and (tags or caption):
-                    logger.warning(
-                        "検索語句と include_untagged が同時に指定されたため、検索語句は無視されます。"
-                    )
-
-                # タグフィルタ適用
-                query = self._apply_tag_filter(query, tags, use_and, include_untagged)
-
-                # キャプションフィルタ適用
-                query = self._apply_caption_filter(query, caption)
-
-                # ★★★ Rating Filters (Priority-based: manual > AI) ★★★
-                # 優先順位: manual_rating_filter が指定されていれば ai_rating_filter は無視
-                if manual_rating_filter:
-                    logger.debug("Applying manual rating filter (priority over AI rating filter)")
-                    query = self._apply_manual_filters(
-                        query, manual_rating_filter, manual_edit_filter, session
-                    )
-                elif ai_rating_filter:
-                    logger.debug("Applying AI rating filter (no manual rating filter specified)")
-                    query = self._apply_ai_rating_filter(query, ai_rating_filter)
-                    # manual_edit_filter のみを適用 (manual_rating_filter は None)
-                    query = self._apply_manual_filters(query, None, manual_edit_filter, session)
-                else:
-                    # どちらのレーティングフィルタも指定されていない場合、manual_edit_filter のみ適用
-                    query = self._apply_manual_filters(query, None, manual_edit_filter, session)
-
-                # ★★★ Unrated Filter (Either-based: AI OR manual rating exists) ★★★
-                query = self._apply_unrated_filter(query, include_unrated)
-
-                # ★★★ NSFW Filter (Adjusted for AI rating filter compatibility) ★★★
-                # Apply NSFW filter only if include_nsfw is False and the user is NOT explicitly asking for an NSFW rating
-                nsfw_values_to_exclude = {"r", "x", "xxx"}
-                apply_nsfw_exclusion = not include_nsfw and (
-                    (
-                        manual_rating_filter is None
-                        or manual_rating_filter.lower() not in nsfw_values_to_exclude
-                    )
-                    and (ai_rating_filter is None or ai_rating_filter.lower() not in nsfw_values_to_exclude)
+                query = self._build_image_filter_query(
+                    session=session,
+                    tags=tags,
+                    caption=caption,
+                    use_and=use_and,
+                    start_date=start_date,
+                    end_date=end_date,
+                    include_untagged=include_untagged,
+                    include_nsfw=include_nsfw,
+                    include_unrated=include_unrated,
+                    manual_rating_filter=manual_rating_filter,
+                    ai_rating_filter=ai_rating_filter,
+                    manual_edit_filter=manual_edit_filter,
                 )
-                if apply_nsfw_exclusion:
-                    query = self._apply_nsfw_filter(query, include_nsfw=False, session=session)
-                elif include_nsfw:
-                    query = self._apply_nsfw_filter(query, include_nsfw=True, session=session)
-
-                # --- 5. クエリ実行と ID 取得 --- #
-                query = query.distinct()
 
                 filtered_image_ids: list[int] = list(session.execute(query).scalars().all())
 
@@ -2280,9 +2410,7 @@ class ImageRepository:
 
                 logger.info(f"フィルタリングで {len(filtered_image_ids)} 件の候補画像IDを取得しました。")
 
-                # --- 6. メタデータ取得 --- (ヘルパーメソッド呼び出し)
                 final_metadata_list = self._fetch_filtered_metadata(session, filtered_image_ids, resolution)
-
                 list_count = len(final_metadata_list)
                 logger.info(f"最終的な検索結果: {list_count} 件")
 

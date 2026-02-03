@@ -6,6 +6,7 @@ Phase 7で再設計された3層アーキテクチャに対応:
 - 進捗報告・キャンセル処理
 """
 
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -240,3 +241,105 @@ class TestAnnotationWorkerExecute:
         # 旧個別メソッドは呼ばれないこと
         mock_db_manager.repository.find_duplicate_image_by_phash.assert_not_called()
         mock_db_manager.repository.get_model_by_name.assert_not_called()
+
+
+# ==============================================================================
+# Test _extract_field
+# ==============================================================================
+
+
+class TestExtractField:
+    """_extract_fieldの辞書/Pydanticモデル両対応テスト"""
+
+    def test_extract_field_from_dict(self, mock_annotation_logic):
+        """辞書からフィールドを取得できる。"""
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=[],
+            models=[],
+            db_manager=Mock(),
+        )
+        data = {"tags": ["cat", "dog"], "error": None}
+        assert worker._extract_field(data, "tags") == ["cat", "dog"]
+        assert worker._extract_field(data, "error") is None
+        assert worker._extract_field(data, "nonexistent") is None
+
+    def test_extract_field_from_object(self, mock_annotation_logic):
+        """オブジェクトからフィールドを取得できる。"""
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=[],
+            models=[],
+            db_manager=Mock(),
+        )
+        obj = SimpleNamespace(tags=["cat"], scores={"aesthetic": 0.9}, error=None)
+        assert worker._extract_field(obj, "tags") == ["cat"]
+        assert worker._extract_field(obj, "scores") == {"aesthetic": 0.9}
+        assert worker._extract_field(obj, "nonexistent") is None
+
+
+# ==============================================================================
+# Test _save_error_records
+# ==============================================================================
+
+
+class TestSaveErrorRecords:
+    """_save_error_recordsのエッジケーステスト"""
+
+    def test_save_error_records_empty_paths(self, mock_annotation_logic):
+        """空のimage_pathsでは何も保存されない。"""
+        mock_db = Mock()
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=[],
+            models=[],
+            db_manager=mock_db,
+        )
+        worker._save_error_records(Exception("test"), [], model_name="test-model")
+        mock_db.save_error_record.assert_not_called()
+
+    def test_save_error_records_with_none_image_id(self, mock_annotation_logic):
+        """image_idがNoneでもエラーレコードは保存される。"""
+        mock_db = Mock()
+        mock_db.get_image_id_by_filepath.return_value = None
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=["/test/img.jpg"],
+            models=[],
+            db_manager=mock_db,
+        )
+        worker._save_error_records(ValueError("err"), ["/test/img.jpg"], model_name="m1")
+        mock_db.save_error_record.assert_called_once()
+        call_kwargs = mock_db.save_error_record.call_args.kwargs
+        assert call_kwargs["image_id"] is None
+        assert call_kwargs["model_name"] == "m1"
+        assert call_kwargs["error_type"] == "ValueError"
+
+    def test_save_error_records_secondary_error_continues(self, mock_annotation_logic):
+        """二次エラーが発生しても残りのパスの処理が続行される。"""
+        mock_db = Mock()
+        mock_db.get_image_id_by_filepath.side_effect = [RuntimeError("db error"), 42]
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=["/img1.jpg", "/img2.jpg"],
+            models=[],
+            db_manager=mock_db,
+        )
+        # 例外が発生しないことを確認
+        worker._save_error_records(Exception("test"), ["/img1.jpg", "/img2.jpg"])
+        # 2回目のパスではsave_error_recordが呼ばれる
+        assert mock_db.save_error_record.call_count == 1
+
+    def test_save_error_records_model_name_none_for_overall_error(self, mock_annotation_logic):
+        """全体エラー時にmodel_name=Noneで保存される。"""
+        mock_db = Mock()
+        mock_db.get_image_id_by_filepath.return_value = 1
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=["/test/img.jpg"],
+            models=[],
+            db_manager=mock_db,
+        )
+        worker._save_error_records(Exception("overall"), ["/test/img.jpg"], model_name=None)
+        call_kwargs = mock_db.save_error_record.call_args.kwargs
+        assert call_kwargs["model_name"] is None
