@@ -344,3 +344,118 @@ class TestFetchFilteredMetadataAnnotations:
             assert "tags" in result[0]
             assert result[0]["tags"] == [{"id": 1, "tag": "test"}]
             mock_format.assert_called_once_with(mock_orig_image)
+
+
+# ==============================================================================
+# Test annotation formatter helpers
+# ==============================================================================
+
+
+class TestAnnotationFormatters:
+    """_format_*_annotation staticメソッドのテスト"""
+
+    def test_format_tag_annotation(self):
+        """タグアノテーションのフォーマット。"""
+        tag = Mock()
+        tag.id = 1
+        tag.tag = "cat"
+        tag.tag_id = 100
+        tag.model_id = 5
+        tag.existing = False
+        tag.is_edited_manually = True
+        tag.confidence_score = 0.95
+        tag.created_at = datetime(2025, 1, 1)
+        tag.updated_at = datetime(2025, 1, 2)
+
+        result = ImageRepository._format_tag_annotation(tag)
+        assert result["id"] == 1
+        assert result["tag"] == "cat"
+        assert result["tag_id"] == 100
+        assert result["confidence_score"] == 0.95
+
+    def test_format_caption_annotation(self):
+        """キャプションアノテーションのフォーマット。"""
+        caption = Mock()
+        caption.id = 2
+        caption.caption = "A cute cat"
+        caption.model_id = 5
+        caption.existing = False
+        caption.is_edited_manually = False
+        caption.created_at = datetime(2025, 1, 1)
+        caption.updated_at = datetime(2025, 1, 2)
+
+        result = ImageRepository._format_caption_annotation(caption)
+        assert result["id"] == 2
+        assert result["caption"] == "A cute cat"
+        assert result["is_edited_manually"] is False
+
+    def test_format_score_annotation(self):
+        """スコアアノテーションのフォーマット。"""
+        score = Mock()
+        score.id = 3
+        score.score = 0.87
+        score.model_id = 5
+        score.is_edited_manually = False
+        score.created_at = datetime(2025, 1, 1)
+        score.updated_at = datetime(2025, 1, 2)
+
+        result = ImageRepository._format_score_annotation(score)
+        assert result["score"] == 0.87
+
+    def test_format_rating_annotation(self):
+        """レーティングアノテーションのフォーマット。"""
+        rating = Mock()
+        rating.id = 4
+        rating.raw_rating_value = "PG"
+        rating.normalized_rating = "pg"
+        rating.model_id = 5
+        rating.confidence_score = 0.92
+        rating.created_at = datetime(2025, 1, 1)
+        rating.updated_at = datetime(2025, 1, 2)
+
+        result = ImageRepository._format_rating_annotation(rating)
+        assert result["raw_rating_value"] == "PG"
+        assert result["normalized_rating"] == "pg"
+        assert result["confidence_score"] == 0.92
+
+
+# ==============================================================================
+# Test _apply_simple_field_updates
+# ==============================================================================
+
+
+class TestApplySimpleFieldUpdates:
+    """update_modelから抽出された_apply_simple_field_updatesのテスト"""
+
+    def test_no_changes_when_all_none(self):
+        """全引数Noneの場合は変更なし。"""
+        model = Mock()
+        result = ImageRepository._apply_simple_field_updates(
+            model, None, None, None, None, None
+        )
+        assert result is False
+
+    def test_updates_changed_field(self):
+        """値が異なるフィールドのみ更新される。"""
+        model = Mock()
+        model.provider = "old_provider"
+        model.api_model_id = "old-id"
+        model.estimated_size_gb = None
+        model.requires_api_key = None
+        model.discontinued_at = None
+
+        result = ImageRepository._apply_simple_field_updates(
+            model, "new_provider", None, None, None, None
+        )
+        assert result is True
+        assert model.provider == "new_provider"
+
+    def test_no_changes_when_same_value(self):
+        """値が同じ場合は変更なし。"""
+        model = Mock()
+        model.provider = "same_provider"
+
+        result = ImageRepository._apply_simple_field_updates(
+            model, "same_provider", None, None, None, None
+        )
+        assert result is False
