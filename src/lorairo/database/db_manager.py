@@ -89,8 +89,8 @@ class ImageDatabaseManager:
             # 2. pHash を計算
             try:
                 phash = calculate_phash(image_path)
-            except Exception as e:
-                logger.error(f"pHash の計算中にエラーが発生しました: {image_path}, Error: {e}")
+            except (ValueError, FileNotFoundError) as e:
+                logger.warning(f"画像をスキップ: {e}")
                 return None
 
             # 3. 重複チェック (pHash)
@@ -625,8 +625,8 @@ class ImageDatabaseManager:
             # pHash で視覚的重複検出
             try:
                 phash = calculate_phash(image_path)
-            except Exception as e:
-                logger.error(f"重複検出のための pHash 計算中にエラー: {image_path}, Error: {e}")
+            except (ValueError, FileNotFoundError) as e:
+                logger.warning(f"画像をスキップ: {e}")
                 return None  # pHash 計算失敗時は重複なしとして扱う
 
             image_id = self.repository.find_duplicate_image_by_phash(phash)
