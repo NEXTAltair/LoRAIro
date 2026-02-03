@@ -6,6 +6,7 @@ from typing import Any
 from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 
 from lorairo.utils.log import logger
+from lorairo.utils.tools import read_text_with_fallback
 
 
 class ExistingFileReader:
@@ -72,11 +73,10 @@ class ExistingFileReader:
         Returns:
             list[str]: アノテーションのリスト
         """
-        with open(file_path, encoding="utf-8") as f:
-            clean_data = TagCleaner.clean_format(f.read())
-            items = clean_data.strip().split(",")
-            # 空文字列を除去
-            return [item.strip() for item in items if item.strip()]
+        clean_data = TagCleaner.clean_format(read_text_with_fallback(file_path))
+        items = clean_data.strip().split(",")
+        # 空文字列を除去
+        return [item.strip() for item in items if item.strip()]
 
     def _read_captions(self, file_path: Path) -> list[str]:
         """
@@ -88,11 +88,10 @@ class ExistingFileReader:
         Returns:
             list[str]: キャプションのリスト
         """
-        with open(file_path, encoding="utf-8") as f:
-            clean_data = TagCleaner.clean_format(f.read())
-            if clean_data.strip():
-                return [clean_data.strip()]
-            return []
+        clean_data = TagCleaner.clean_format(read_text_with_fallback(file_path))
+        if clean_data.strip():
+            return [clean_data.strip()]
+        return []
 
     def get_tag_file_path(self, image_path: Path) -> Path:
         """
