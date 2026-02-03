@@ -29,3 +29,36 @@ def calculate_phash(image_path: Path) -> str:
     except Exception as e:
         logger.error(f"pHash計算中に予期せぬエラーが発生しました: {image_path}, Error: {e}", exc_info=True)
         raise  # 計算失敗時は例外を再発生させる
+
+
+_FALLBACK_ENCODINGS = ("utf-8", "shift_jis", "euc-jp", "latin-1")
+
+
+def read_text_with_fallback(file_path: Path, encodings: tuple[str, ...] = _FALLBACK_ENCODINGS) -> str:
+    """テキストファイルを複数エンコーディングでフォールバック読み込みする。
+
+    UTF-8 を優先し、失敗した場合は順に別のエンコーディングを試行する。
+    latin-1 は全バイト値を受け付けるため、最終フォールバックとして機能する。
+
+    Args:
+        file_path: 読み込むファイルのパス。
+        encodings: 試行するエンコーディングのタプル（先頭が最優先）。
+
+    Returns:
+        ファイルの内容文字列。
+
+    Raises:
+        FileNotFoundError: ファイルが存在しない場合。
+        UnicodeDecodeError: すべてのエンコーディングで読み込みに失敗した場合。
+    """
+    last_error: UnicodeDecodeError | None = None
+    for encoding in encodings:
+        try:
+            text = file_path.read_text(encoding=encoding)
+            if encoding != "utf-8":
+                logger.debug(f"UTF-8以外のエンコーディングで読み込み: {file_path} ({encoding})")
+            return text
+        except UnicodeDecodeError as e:
+            last_error = e
+            continue
+    raise last_error  # type: ignore[misc]  # latin-1が最終フォールバックのため到達しないが安全策
