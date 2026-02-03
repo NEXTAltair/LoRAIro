@@ -112,6 +112,15 @@
             "command": "/workspaces/LoRAIro/.claude/hooks/hook_pre_commands.py"
           }
         ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_plan_read_redirect.py"
+          }
+        ]
       }
     ],
     "PostToolUse": [
