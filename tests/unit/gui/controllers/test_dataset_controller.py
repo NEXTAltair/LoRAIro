@@ -19,7 +19,7 @@ def mock_db_manager():
 def mock_file_system_manager():
     """FileSystemManagerのモック"""
     manager = Mock()
-    manager.initialize_from_dataset_selection.return_value = Path("/test/lorairo_output")
+    manager.initialize_from_dataset_selection.return_value = Path("/test/lorairo_data/project_001")
     return manager
 
 
@@ -254,7 +254,7 @@ class TestDatasetController:
         """FileSystemManagerの新しいメソッドが正しく呼ばれる"""
         # Arrange
         selected_dir = Path("/test/dataset")
-        expected_output_dir = Path("/test/lorairo_output")
+        expected_output_dir = Path("/test/lorairo_data/project_001")
         mock_dialog_callback = Mock(return_value=selected_dir)
         mock_file_system_manager.initialize_from_dataset_selection.return_value = expected_output_dir
 
