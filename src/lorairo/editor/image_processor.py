@@ -65,22 +65,24 @@ class ImageProcessingManager:
         upscaler: str | None = None,
     ) -> tuple[Image.Image | None, dict[str, Any]]:
         """
-        画像を処理し、処理後の画像オブジェクトと処理メタデータを返す
+        画像を処理し、処理後の画像オブジェクトと処理メタデータを返す。
+
+        サイズが target_resolution 未満の場合でも必ず resize_image で処理を行う。
+        アップスケーラーが利用可能なら品質向上のために適用するが、
+        アップスケール不可・失敗時もそのまま resize に進む。
 
         Args:
-            db_stored_original_path (Path): 処理する画像ファイルのパス
-            original_has_alpha (bool): 元画像がアルファチャンネルを持つかどうか
-            original_mode (str): 元画像のモード (例: 'RGB', 'CMYK', 'P')
-            upscaler (str): アップスケーラーの名前
+            db_stored_original_path: 処理する画像ファイルのパス。
+            original_has_alpha: 元画像がアルファチャンネルを持つかどうか。
+            original_mode: 元画像のモード (例: 'RGB', 'CMYK', 'P')。
+            upscaler: アップスケーラーの名前。
 
         Returns:
-            tuple[Image.Image | None, dict[str, Any]]: (処理済み画像オブジェクト, 処理メタデータ)
-                処理メタデータには以下が含まれる:
-                - was_upscaled (bool): アップスケールが実行されたかどうか
-                - upscaler_used (str | None): 使用されたアップスケーラー名
-
+            (処理済み画像オブジェクト, 処理メタデータ) のタプル。
+            処理メタデータには以下が含まれる:
+            - was_upscaled (bool): アップスケールが実行されたかどうか
+            - upscaler_used (str | None): 使用されたアップスケーラー名
         """
-        # 処理メタデータを初期化
         processing_metadata: dict[str, Any] = {"was_upscaled": False, "upscaler_used": None}
 
         try:
@@ -91,38 +93,61 @@ class ImageProcessingManager:
                     cropped_img, original_has_alpha, original_mode
                 )
 
+                # サイズ不足の場合、可能ならアップスケールを試みる
                 if max(cropped_img.width, cropped_img.height) < self.target_resolution:
-                    if upscaler:
-                        if converted_img.mode == "RGBA":
-                            logger.info(
-                                f"RGBA 画像のためアップスケールをスキップ: {db_stored_original_path}"
-                            )
-                        else:
-                            logger.debug(
-                                f"長編が指定解像度未満のため{db_stored_original_path}をアップスケールします: {upscaler}"
-                            )
-                            converted_img = self.upscaler.upscale_image(converted_img, upscaler)
+                    converted_img = self._try_upscale(
+                        converted_img, db_stored_original_path, upscaler, processing_metadata
+                    )
 
-                            # アップスケール実行をメタデータに記録
-                            processing_metadata["was_upscaled"] = True
-                            processing_metadata["upscaler_used"] = upscaler
-
-                            if max(converted_img.width, converted_img.height) < self.target_resolution:
-                                logger.info(
-                                    f"画像サイズが小さすぎるため処理をスキップ: {db_stored_original_path}"
-                                )
-                                return None, processing_metadata
                 resized_img = self.image_processor.resize_image(converted_img)
-
                 return resized_img, processing_metadata
 
         except Exception as e:
-            logger.error(f"画像処理中にエラーが発生しました: {e}")
-            logger.error(f"エラー詳細 - ファイル: {db_stored_original_path}, タイプ: {type(e).__name__}")
-            import traceback
-
-            logger.error(f"スタックトレース: {traceback.format_exc()}")
+            logger.error(
+                f"画像処理中にエラーが発生しました: {db_stored_original_path}, "
+                f"タイプ: {type(e).__name__}, 詳細: {e}",
+                exc_info=True,
+            )
             return None, processing_metadata
+
+    def _try_upscale(
+        self,
+        img: Image.Image,
+        image_path: Path,
+        upscaler: str | None,
+        metadata: dict[str, Any],
+    ) -> Image.Image:
+        """可能であればアップスケールを試み、結果に関わらず画像を返す。
+
+        アップスケーラー未指定、RGBA画像、アップスケール失敗時はスキップし、
+        元の画像をそのまま返す。
+
+        Args:
+            img: 処理対象の画像。
+            image_path: ログ用の画像パス。
+            upscaler: アップスケーラー名（Noneならスキップ）。
+            metadata: 処理メタデータ（更新される）。
+
+        Returns:
+            アップスケール後の画像、またはスキップ時は元の画像。
+        """
+        if not upscaler:
+            logger.debug(f"アップスケーラー未指定のためそのまま処理: {image_path}")
+            return img
+
+        if img.mode == "RGBA":
+            logger.debug(f"RGBA画像のためアップスケールをスキップ: {image_path}")
+            return img
+
+        try:
+            logger.debug(f"アップスケール実行: {image_path} ({upscaler})")
+            upscaled = self.upscaler.upscale_image(img, upscaler)
+            metadata["was_upscaled"] = True
+            metadata["upscaler_used"] = upscaler
+            return upscaled
+        except Exception as e:
+            logger.warning(f"アップスケール失敗、元サイズのまま処理を続行: {image_path}, Error: {e}")
+            return img
 
 
 class ImageProcessor:

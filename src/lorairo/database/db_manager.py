@@ -215,34 +215,35 @@ class ImageDatabaseManager:
                 original_path, has_alpha, mode, upscaler=upscaler
             )
 
-            if processed_image:
-                # 512px画像を保存
-                processed_path = fsm.save_processed_image(processed_image, original_path, target_resolution)
+            if not processed_image:
+                # アップスケール後もサイズ不足等で処理できなかった場合はスキップ扱い
+                logger.debug(f"512pxサムネイル生成をスキップ: 元画像ID={image_id} (画像が小さすぎるか処理不可)")
+                return
 
-                # 処理済み画像のメタデータを取得
-                processed_metadata = fsm.get_image_info(processed_path)
+            # 512px画像を保存
+            processed_path = fsm.save_processed_image(processed_image, original_path, target_resolution)
 
-                # アップスケール情報をメタデータに追加
-                if processing_metadata.get("was_upscaled", False):
-                    processed_metadata["upscaler_used"] = processing_metadata.get("upscaler_used")
-                    logger.info(
-                        f"512px生成時にアップスケールを実行: {processing_metadata.get('upscaler_used')}"
-                    )
+            # 処理済み画像のメタデータを取得
+            processed_metadata = fsm.get_image_info(processed_path)
 
-                # データベースに512px画像を登録
-                processed_id = self.register_processed_image(image_id, processed_path, processed_metadata)
+            # アップスケール情報をメタデータに追加
+            if processing_metadata.get("was_upscaled", False):
+                processed_metadata["upscaler_used"] = processing_metadata.get("upscaler_used")
+                logger.info(
+                    f"512px生成時にアップスケールを実行: {processing_metadata.get('upscaler_used')}"
+                )
 
-                if processed_id:
-                    logger.debug(
-                        f"512px サムネイル画像を生成・登録しました: 元画像ID={image_id}, 処理済みID={processed_id}, Path={processed_path.name}"
-                    )
-                else:
-                    logger.warning(
-                        f"512px サムネイル画像の生成は成功しましたが、DB登録に失敗しました: 元画像ID={image_id}"
-                    )
+            # データベースに512px画像を登録
+            processed_id = self.register_processed_image(image_id, processed_path, processed_metadata)
+
+            if processed_id:
+                logger.debug(
+                    f"512px サムネイル画像を生成・登録しました: 元画像ID={image_id}, 処理済みID={processed_id}, Path={processed_path.name}"
+                )
             else:
-                logger.warning(f"512px画像の処理が失敗しました: 元画像ID={image_id}")
-                raise RuntimeError(f"ImageProcessingManager returned None for image ID: {image_id}")
+                logger.warning(
+                    f"512px サムネイル画像の生成は成功しましたが、DB登録に失敗しました: 元画像ID={image_id}"
+                )
 
         except Exception as e:
             logger.error(
