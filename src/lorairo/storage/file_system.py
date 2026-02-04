@@ -84,20 +84,21 @@ class FileSystemManager:
     def initialize_from_dataset_selection(self, selected_dir: Path) -> Path:
         """データセット選択からoutput_dirを決定・初期化
 
-        GUIとは無関係なビジネスルール（lorairo_output生成）をカプセル化。
-        MainWindowから呼び出されて、選択されたディレクトリの親に
-        lorairo_outputディレクトリを作成し、初期化する。
+        現在のプロジェクトディレクトリをoutput_dirとして使用し初期化する。
+        画像はプロジェクトディレクトリ内の image_dataset/ に保存される。
 
         Args:
             selected_dir: ユーザーが選択したデータセットディレクトリ
 
         Returns:
-            Path: 初期化されたoutput_dirのパス
+            Path: 初期化されたoutput_dirのパス（プロジェクトルート）
 
         Raises:
             RuntimeError: 初期化失敗時
         """
-        output_dir = selected_dir.parent / "lorairo_output"
+        from ..database.db_core import get_current_project_root
+
+        output_dir = get_current_project_root()
         self.initialize(output_dir)
         logger.info(f"データセット選択から初期化完了: {output_dir}")
         return output_dir
