@@ -306,3 +306,95 @@ class TestSearchFilterServiceIntegration:
 
         # プレビューに優先順位の注記が含まれることを確認
         assert "手動レーティング優先" in preview or "※手動レーティング優先" in preview
+
+
+class TestUnratedFilter:
+    """UNRATEDフィルター（レーティング未設定画像のみ）のテスト"""
+
+    @pytest.fixture
+    def repository(self):
+        """テスト用ImageRepository"""
+        mock_session_factory = Mock()
+        return ImageRepository(session_factory=mock_session_factory)
+
+    def test_apply_ai_rating_filter_unrated(self, repository):
+        """AIレーティングフィルタでUNRATED指定が正しく動作することを確認"""
+        base_query = select(Image.id)
+
+        # UNRATEDフィルタ適用
+        result_query = repository._apply_ai_rating_filter(base_query, "UNRATED")
+
+        # クエリが変更されたことを確認
+        assert result_query is not None
+        assert result_query != base_query
+
+    def test_apply_manual_filters_unrated(self, repository):
+        """手動レーティングフィルタでUNRATED指定が正しく動作することを確認"""
+        base_query = select(Image.id)
+        mock_session = Mock(spec=Session)
+
+        # _get_or_create_manual_edit_modelをモック
+        with patch.object(repository, "_get_or_create_manual_edit_model", return_value=1):
+            result_query = repository._apply_manual_filters(
+                base_query, "UNRATED", None, mock_session
+            )
+
+        # クエリが変更されたことを確認
+        assert result_query is not None
+        assert result_query != base_query
+
+
+class TestUnratedPreviewDisplay:
+    """UNRATEDフィルターのプレビュー表示テスト"""
+
+    def test_create_search_preview_shows_unrated_manual_rating(self):
+        """create_search_preview()が手動レーティングUNRATEDを「未設定のみ」と表示することを確認"""
+        from lorairo.gui.services.search_filter_service import SearchFilterService
+        from lorairo.services.search_models import SearchConditions
+
+        mock_db_manager = Mock()
+        mock_model_selection_service = Mock()
+
+        service = SearchFilterService(
+            db_manager=mock_db_manager,
+            model_selection_service=mock_model_selection_service,
+        )
+
+        conditions = SearchConditions(
+            search_type="tags",
+            keywords=["test"],
+            tag_logic="and",
+            rating_filter="UNRATED",
+        )
+
+        preview = service.create_search_preview(conditions)
+
+        # プレビューに「未設定のみ」が含まれることを確認
+        assert "手動レーティング" in preview
+        assert "未設定のみ" in preview
+
+    def test_create_search_preview_shows_unrated_ai_rating(self):
+        """create_search_preview()がAIレーティングUNRATEDを「未設定のみ」と表示することを確認"""
+        from lorairo.gui.services.search_filter_service import SearchFilterService
+        from lorairo.services.search_models import SearchConditions
+
+        mock_db_manager = Mock()
+        mock_model_selection_service = Mock()
+
+        service = SearchFilterService(
+            db_manager=mock_db_manager,
+            model_selection_service=mock_model_selection_service,
+        )
+
+        conditions = SearchConditions(
+            search_type="tags",
+            keywords=["test"],
+            tag_logic="and",
+            ai_rating_filter="UNRATED",
+        )
+
+        preview = service.create_search_preview(conditions)
+
+        # プレビューに「未設定のみ」が含まれることを確認
+        assert "AIレーティング" in preview
+        assert "未設定のみ" in preview

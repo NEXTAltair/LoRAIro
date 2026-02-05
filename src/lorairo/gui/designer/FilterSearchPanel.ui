@@ -336,6 +336,11 @@
            </item>
            <item>
             <property name="text">
+             <string>未設定のみ</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
              <string>PG (全年齢)</string>
             </property>
            </item>
@@ -394,6 +399,11 @@
            </item>
            <item>
             <property name="text">
+             <string>未設定のみ</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
              <string>PG (全年齢)</string>
             </property>
            </item>
@@ -436,8 +446,11 @@
        </item>
        <item>
         <widget class="QCheckBox" name="checkboxIncludeUnrated">
+         <property name="toolTip">
+          <string>PG/R等のレーティング選択時、未設定の画像も結果に含めるかどうか</string>
+         </property>
          <property name="text">
-          <string>未評価画像を含む</string>
+          <string>レーティング選択時も未設定を含める</string>
          </property>
          <property name="checked">
           <bool>true</bool>
