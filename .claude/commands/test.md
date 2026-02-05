@@ -1,6 +1,6 @@
 ---
-allowed-tools: mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, mcp__serena__search_for_pattern, mcp__serena__read_memory, mcp__serena__write_memory, Read, Edit, Write, Bash, TodoWrite, Task
-description: 実装コードのテスト・検証を実行します。クイックチェック（Ruff/mypy/pytest）から包括的テストまで対応。
+allowed-tools: mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, mcp__serena__search_for_pattern, mcp__serena__read_memory, mcp__serena__write_memory, Read, Edit, Write, Bash, TodoWrite, Task, Glob, Grep
+description: テスト実行・同期・品質チェック。クイックチェック、包括的テスト、テスト同期（追加・修正・削除）に対応。
 
 ---
 # テスト・検証フェーズ
@@ -8,41 +8,40 @@ description: 実装コードのテスト・検証を実行します。クイッ�
 ## 使用方法
 
 ```bash
-/test              # クイック品質チェック（Ruff/mypy/pytest）
-/test 対象の説明   # 包括的テスト実行
+/test                    # クイック品質チェック（Ruff/mypy/pytest）
+/test sync               # テスト同期（追加・修正・削除）
+/test sync <パス>        # 指定パスのテスト同期
+/test <対象の説明>       # 包括的テスト実行
 ```
 
 **例:**
 - `/test` - Ruff/mypy/pytest のクイックチェックのみ
-- `/test src/lorairo/services/` - 指定パスの包括的テスト
+- `/test sync` - 変更されたコードに対するテスト同期
+- `/test sync src/lorairo/services/tag_management_service.py` - 特定ファイルのテスト同期
 - `/test 新しいタグ管理機能` - 機能全体の包括的テスト
 
-## クイック品質チェック（引数なしの場合）
+---
+
+## モード1: クイック品質チェック（引数なし）
 
 引数なしで `/test` を実行した場合、以下のクイックチェックのみを実行します：
 
 ### Step 1: Ruff Lint検証
 ```bash
-echo "=== Ruff Lint Check ==="
 uv run ruff check src/ tests/ --output-format=grouped
 ```
-**期待結果**: エラー0件
 
 ### Step 2: mypy 型チェック
 ```bash
-echo "=== mypy Type Check ==="
 uv run mypy -p lorairo --pretty
 ```
-**期待結果**: エラー0件
 
 ### Step 3: pytest テスト実行
 ```bash
-echo "=== pytest Test Execution ==="
 uv run pytest --cov=src --cov-report=term-missing -v
 ```
-**期待結果**: 全テストパス、カバレッジ75%以上
 
-### 出力形式（クイックチェック）
+### 出力形式
 ```markdown
 # Quick Verification Report
 
@@ -62,253 +61,238 @@ uv run pytest --cov=src --cov-report=term-missing -v
 
 ---
 
-## 包括的テスト（引数ありの場合）
+## モード2: テスト同期（`sync` 引数）
 
-以下は引数を指定した場合の包括的テスト実行内容です。
+コード修正後に、テストの追加・修正・削除を自動判定・実行します。
 
-## 重要原則
+### 実行手順
 
-### LoRAIro品質方針
-- **コード品質第一**: シンプルさ、可読性、テスタビリティ、保守性を最優先
-- **Memory-First**: 過去のテスト知識とパターンを活用した効率的テスト実行
-- **段階的検証**: 小さな単位でのインクリメンタルテストを徹底
+#### Step 1: 変更検出
+```bash
+# git diffで変更ファイルを特定
+git diff --name-only HEAD~1..HEAD -- 'src/**/*.py'
+git diff --name-status HEAD~1..HEAD -- 'src/**/*.py'
+```
 
-### テスト基本原則
-- 関連するコードは全て読むこと use serena
-- 全ての処理において ultrathink でしっかりと考えて作業を行うこと
-- 過去のテスト経験を必ず確認してからテスト開始すること
-- `.cursor/rules/test_rules/testing-rules.mdc`のテスト方針に完全準拠すること
-- 75%以上のテストカバレッジを維持すること
+変更種別を分類:
+- **A (Added)**: 新規ファイル → テスト追加が必要
+- **M (Modified)**: 変更ファイル → テスト修正が必要な可能性
+- **D (Deleted)**: 削除ファイル → テスト削除が必要
 
-## 説明
+#### Step 2: 影響分析
+
+**Serena活用**: 変更されたシンボルと参照関係を解析
+```
+1. get_symbols_overview で変更ファイルの構造把握
+2. find_symbol で変更されたクラス・関数を特定
+3. find_referencing_symbols で影響範囲を特定
+```
+
+**テストファイル対応表作成**:
+- `src/lorairo/services/foo.py` → `tests/unit/services/test_foo.py`
+- `src/lorairo/gui/widgets/bar.py` → `tests/unit/gui/widgets/test_bar.py`
+
+#### Step 3: テスト同期アクション
+
+| 変更種別 | アクション |
+|---------|-----------|
+| 新規クラス/関数追加 | 対応するテストを追加 |
+| 既存関数のシグネチャ変更 | テストを修正 |
+| 関数/クラス削除 | 対応テストを削除 |
+| 内部実装のみ変更 | テスト実行で確認（変更不要の場合多） |
+| 依存関係変更 | 統合テストの確認・修正 |
+
+#### Step 4: テスト追加
+
+新規コードに対するテストを生成:
+
+```python
+# テスト生成の原則
+# 1. 正常系: 基本的な動作確認
+# 2. 境界値: 空リスト、None、最大値等
+# 3. 異常系: 例外発生ケース
+# 4. 統合: 他コンポーネントとの連携（必要な場合）
+```
+
+**テスト配置規則**:
+- Unit: `tests/unit/<module_path>/test_<filename>.py`
+- Integration: `tests/integration/test_<feature>.py`
+- GUI: `tests/unit/gui/<widget_path>/test_<widget>.py`
+
+#### Step 5: テスト修正
+
+既存テストの修正が必要な場合:
+1. 失敗するテストを特定
+2. 変更されたAPIに合わせてテストを更新
+3. 新しい動作に対するアサーションを追加/修正
+
+#### Step 6: テスト削除
+
+削除されたコードに対応するテストを処理:
+1. 対応するテストファイル/テスト関数を特定
+2. **ユーザーに確認**: 削除前に確認を取る
+3. 削除実行（またはスキップマーク付与）
+
+### 出力形式（テスト同期）
+
+```markdown
+# Test Sync Report
+
+## 変更検出結果
+| ファイル | 変更種別 | 影響テスト |
+|---------|---------|-----------|
+| src/lorairo/services/foo.py | Modified | tests/unit/services/test_foo.py |
+| src/lorairo/gui/widgets/bar.py | Added | (新規作成必要) |
+| src/lorairo/utils/old.py | Deleted | tests/unit/utils/test_old.py |
+
+## 実行アクション
+### 追加したテスト
+- `tests/unit/gui/widgets/test_bar.py` - BarWidgetのユニットテスト
+
+### 修正したテスト
+- `tests/unit/services/test_foo.py::test_process_data` - シグネチャ変更に対応
+
+### 削除提案（要確認）
+- `tests/unit/utils/test_old.py` - old.py削除に伴う不要テスト
+
+## 検証結果
+| Check | Status |
+|-------|--------|
+| 新規テスト | ✅ 全パス |
+| 修正テスト | ✅ 全パス |
+| 回帰テスト | ✅ 影響なし |
+```
+
+---
+
+## モード3: 包括的テスト（対象説明を指定）
 
 テスト対象: $ARGUMENTS
 
-implement フェーズで実装された上記機能について、ユニット・統合・BDD(E2E)テストを包括的に実行し、品質とユーザー要件の充足を検証します。異常系テストも含めた堅牢性確認を行います。
+### 実行フロー
 
-## タスクに含まれるべき TODO
+#### Phase 1: テスト準備
+1. 実装結果確認（Serena Memory参照）
+2. 既存テストスイート実行（基線確認）
+3. テスト対象の特定（investigation agent活用）
 
-### 1. Memory-First事前分析・テスト準備
+#### Phase 2: 段階的テスト実行
 
-過去のテストパターンと現在のプロジェクト状況を確認：
-- 詳細なMemory-Firstワークフローは **mcp-memory-first-development** Skill参照
-- 高速Memory操作は **mcp-serena-fast-ops** Skill参照
-- ライブラリ調査とMoltbot LTM活用は **context7-moltbot-research** Skill参照
+```bash
+# Unit Tests
+uv run pytest -m unit -v
 
-テスト準備タスク:
-1. implement フェーズの実装結果確認
-2. 既存テストスイートの実行と基線確認
-3. 新規実装部分のテスト対象特定
-4. テストデータ・リソース準備
+# Integration Tests
+uv run pytest -m integration -v
 
-### 2. ユニットテスト実行・拡充(tests/unit/)
+# GUI Tests (headless)
+QT_QPA_PLATFORM=offscreen uv run pytest -m gui -v
 
-6. 単一クラス・関数の振る舞いテスト実行
-7. 新規実装コンポーネントのユニットテスト作成
-8. 外部依存関係の最小限モック化
-9. 境界値・エッジケーステスト実装
-10. `uv run pytest -m unit` による単体テスト全実行
+# Full Coverage
+uv run pytest --cov=src --cov-report=html -v
+```
 
-### 3. 統合テスト実行・拡充(tests/integration/)
+#### Phase 3: 品質確認
 
-11. LoRAIro 内部モジュール間連携テスト実行
-12. サービス層統合テスト実装
-13. データベース操作統合テスト実行
-14. AI 統合(local packages)インターフェーステスト実行(Mockを使用)
-15. `uv run pytest -m integration` による統合テスト全実行
+```bash
+# Lint
+uv run ruff check src/ tests/
 
-### 4. GUI テスト実行・拡充(tests/gui/)
+# Type Check
+uv run mypy -p lorairo
 
-16. PySide6 コンポーネントテスト実行
-17. ユーザーインタラクションシナリオテスト実装
-18. Signal/Slot 連携テスト実行
-19. 非同期処理(QThread)テスト実行
-20. `uv run pytest -m gui` による GUI テスト全実行(ヘッドレス環境対応)
+# Coverage Threshold
+uv run pytest --cov=src --cov-fail-under=75
+```
 
-### 5. BDD(E2E)テスト実行・拡充(tests/bdd/)
+### テスト種別と責務
 
-21. 実際のユーザーシナリオ完全実行テスト
-22. Feature/Scenario/Given-When-Then パターン実装
-23. 実際のAI API(OpenAI、Claude、Gemini等)を使用した完全統合テスト
-24. 実際のMLモデル(CLIP、DeepDanbooru等)を使用したアノテーションテスト
-25. データ永続化・復旧シナリオテスト(実際の外部依存関係含む)
-26. AI アノテーション完全ワークフローテスト(実コスト発生あり)
+| 種別 | 場所 | 責務 | モック |
+|-----|------|------|-------|
+| Unit | tests/unit/ | 単一クラス・関数 | 外部依存のみ |
+| Integration | tests/integration/ | モジュール間連携 | 外部API |
+| GUI | tests/unit/gui/ | Widget動作 | QMessageBox等 |
+| BDD | tests/bdd/ | E2Eシナリオ | 最小限 |
 
-### 6. 異常系・エラーハンドリングテスト
+### 異常系テスト観点
 
-27. 主要正常系パス確認後の異常系計画
-28. エラーハンドリング・不正入力テスト実装
-29. ファイルシステムエラーシナリオテスト
-30. AI API エラー・タイムアウトシナリオテスト
-31. データベース接続・整合性エラーテスト
+- エラーハンドリング・不正入力
+- ファイルシステムエラー
+- AI API エラー・タイムアウト
+- データベース接続・整合性エラー
 
-### 7. パフォーマンス・負荷テスト
+### 出力形式（包括的テスト）
 
-32. バッチ処理パフォーマンステスト(1000 画像/5 分目標)
-33. メモリ使用量監視テスト
-34. 大容量データセット処理テスト
-35. 並行処理・リソース競合テスト
-36. AI API レート制限対応テスト
+```markdown
+# Comprehensive Test Report
 
-### 8. 品質指標・カバレッジ確認
+## Test Results
+| Category | Passed | Failed | Skipped |
+|----------|--------|--------|---------|
+| Unit | XX | X | X |
+| Integration | XX | X | X |
+| GUI | XX | X | X |
 
-37. `uv run pytest --cov=src --cov-report=html` によるカバレッジ測定
-38. テストカバレッジ >75% 確認・必要時追加テスト実装
-39. `uv run ruff check` による最終コード品質チェック
-40. `uv run mypy src/` による型安全性最終確認
-41. コード複雑度・可読性チェック
+## Coverage
+- Overall: XX.X%
+- New Code: XX.X%
+- Target: 75% ✅/❌
 
-### 9. 回帰テスト・互換性確認
+## Quality Checks
+| Check | Status |
+|-------|--------|
+| Ruff | ✅/❌ |
+| mypy | ✅/❌ |
 
-42. 既存機能への影響確認(回帰テスト)
-43. 設定ファイル互換性テスト
-44. データベースマイグレーション前後整合性テスト
-45. 異なる AI プロバイダー間互換性テスト
-46. クロスプラットフォーム動作確認(Linux/Windows)
+## Issues Found
+1. [issue description]
 
-### 10. ユーザー受け入れテスト計画
+## Recommendations
+1. [recommendation]
+```
 
-47. 実際のユーザーワークフロー検証
-48. UI/UX 使いやすさ確認
-49. エラーメッセージ・ログの分かりやすさ確認
-50. ドキュメント・ヘルプとの整合性確認
-51. パフォーマンス体感確認
+---
 
-### 11. セキュリティ・安定性テスト
+## テスト作成ガイドライン
 
-52. API キー・機密情報漏洩防止テスト
-53. ファイルアクセス権限・パス検証テスト
-54. 入力値検証・インジェクション対策テスト
-55. リソース枯渇・メモリリークテスト
-56. 長時間稼働安定性テスト
+### pytest-qt ベストプラクティス
 
-### 12. 知識蓄積・完了処理
+```python
+# シグナル待機
+with qtbot.waitSignal(widget.completed, timeout=5000):
+    widget.start_operation()
 
-テスト知識を長期記憶として保存（**mcp-memory-first-development** Skill参照）
+# UI状態待機
+qtbot.waitUntil(lambda: widget.isEnabled(), timeout=5000)
 
-完了処理タスク:
-57. テスト結果の包括的分析・レポート作成
-58. 発見された問題・改善点の文書化
-59. カバレッジレポートの保存(@coverage.xml)
-60. テスト完了をコンソール出力で通知(echo "✅ テスト検証完了")
-61. 次ステップ(修正・改善・リリース)への推奨事項提示
+# ダイアログモック
+monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.Yes)
+```
 
-## 実行内容
+### モック戦略
 
-### テスト準備フェーズ
+**モック対象**: 外部API、ファイルシステム（大量）、ネットワーク
+**モック非対象**: 内部サービス連携、DB操作（テストDB使用）、Qt Signal/Slot
 
-#### Memory-Firstテスト準備
-過去のテスト知識を確認（**mcp-memory-first-development** Skill参照）
+### 命名規則
 
-#### 詳細テスト分析
-- **🔍 Investigation Agent活用**: テスト対象コードの詳細分析
-  ```
-  Use the investigation agent for test preparation:
-  - Symbol-level test target identification
-  - Reference tracking for integration test planning
-  - Code complexity assessment for test strategy
-  ```
-- 実装結果確認と基線設定
-- テスト環境・データ準備
-- テスト計画詳細化
+```python
+# ファイル: test_<module_name>.py
+# 関数: test_<機能>_<条件>_<期待結果>
+def test_search_with_empty_query_returns_all_items():
+    ...
+```
 
-### 包括的テスト実行フェーズ
-
-- **🔧 Code Formatter Agent活用**: テストコード品質管理
-  ```
-  Use the code-formatter agent for test code quality:
-  - Test code formatting and linting
-  - Test structure optimization
-  - Code quality verification
-  ```
-- 段階的テスト実行(Unit → Integration → GUI → BDD)
-- 異常系・パフォーマンステスト
-- 品質指標・カバレッジ確認
-
-### 検証・分析・知識蓄積フェーズ
-
-#### テスト結果検証
-- テスト結果総合分析
-- 問題・改善点特定
-- 受け入れ基準適合確認
-
-#### テスト知識の蓄積
-テスト判断と教訓を長期記憶として保存（**mcp-memory-first-development** Skill参照）
+---
 
 ## 必読ファイル
 
-- **Serena Memory**: `mcp__serena__read_memory` でプロジェクト固有の実装結果確認
-- **Moltbot LTM**: `ltm_search.py` で類似実装のテスト履歴参照
-- `.cursor/rules/test_rules/testing-rules.mdc` - テスト方針・基準
-- `pyproject.toml` - テスト設定・カバレッジ設定
-- `tests/` - 既存テスト構造・パターン
-- `tests/resources/` - テストリソース・データ
-- `tests/conftest.py` - テスト共通設定・フィクスチャ
-
-## テスト実行チェックリスト
-
-### テスト開始前
-
-- [ ] 実装完了・機能動作確認
-- [ ] テスト環境セットアップ確認
-- [ ] 既存テストスイート正常実行確認
-- [ ] テストデータ・リソース準備確認
-- [ ] テスト計画・対象範囲確認
-
-### ユニットテスト
-
-- [ ] `uv run pytest -m unit` 実行・全パス確認
-- [ ] 新規コンポーネントテスト網羅確認
-- [ ] モック戦略適切性確認
-- [ ] 境界値・エッジケース網羅確認
-- [ ] テストカバレッジ貢献確認
-
-### 統合テスト
-
-- [ ] `uv run pytest -m integration` 実行・全パス確認
-- [ ] モジュール間連携正常性確認
-- [ ] データベース操作整合性確認
-- [ ] AI 統合インターフェース正常性確認(Mock使用)
-- [ ] サービス層統合確認
-
-### GUI テスト
-
-- [ ] `uv run pytest -m gui` 実行・全パス確認(ヘッドレス)
-- [ ] ユーザーインタラクション正常性確認
-- [ ] 非同期処理・応答性確認
-- [ ] Signal/Slot 連携確認
-- [ ] エラー表示・ハンドリング確認
-
-### 品質・カバレッジ確認
-
-- [ ] `uv run pytest --cov=src --cov-report=html` 実行
-- [ ] テストカバレッジ >75% 確認
-- [ ] `uv run ruff check` クリア確認
-- [ ] `uv run mypy src/` クリア確認
-- [ ] パフォーマンス基準クリア確認
-
-## 出力形式
-
-1. **ultrathink テストプロセス**: テスト戦略と実行思考過程
-2. **テスト実行結果サマリー**: 各テストレベルの実行結果
-3. **カバレッジ分析**: テストカバレッジ詳細・不足箇所
-4. **品質指標**: コード品質・型安全性・パフォーマンス評価
-5. **異常系テスト結果**: エラーハンドリング・堅牢性評価
-6. **回帰テスト結果**: 既存機能への影響確認結果
-7. **パフォーマンステスト結果**: 処理速度・リソース使用量評価
-8. **発見された問題**: バグ・改善点・リスク
-9. **受け入れ基準適合状況**: ユーザー要件充足度評価
-10. **推奨事項**: 修正・改善・次ステップへの提言
+- `.claude/rules/testing.md` - テスト規約
+- `tests/conftest.py` - 共通フィクスチャ
+- `pyproject.toml` - pytest設定
 
 ## 次のコマンド
 
-テスト完了後、問題があれば `/investigate` で原因調査、または改善実装のため `/planning` で計画策定を行います。
-
-## Memory管理とSkills
-
-このコマンドでは以下のSkillsを活用してメモリー管理を効率化します：
-- **mcp-memory-first-development**: Memory-First開発ワークフロー
-- **mcp-serena-fast-ops**: 高速テスト分析とMemory操作
-- **context7-moltbot-research**: ライブラリ調査とMoltbot LTM（長期記憶）
-
-詳細な使い方は各SkillのSKILL.mdを参照してください。
+- テスト失敗時: `/build-fix` で修正案取得
+- 問題調査: `/check-existing` で原因調査
+- 改善実装: `/planning` で計画策定
