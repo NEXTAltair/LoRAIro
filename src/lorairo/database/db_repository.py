@@ -382,8 +382,7 @@ class ImageRepository:
             if not model_type:
                 valid_types = session.execute(select(ModelType.name)).scalars().all()
                 raise ValueError(
-                    f"Invalid model_type: '{type_name}'. "
-                    f"Valid types: {', '.join(valid_types)}"
+                    f"Invalid model_type: '{type_name}'. Valid types: {', '.join(valid_types)}"
                 )
             model_type_objects.append(model_type)
 
@@ -747,7 +746,9 @@ class ImageRepository:
                 session.flush()  # ID を取得するために flush
                 processed_image_id = new_processed_image.id
                 session.commit()
-                logger.debug(f"処理済み画像をDBに追加しました: ID={processed_image_id}, 親画像ID={image_id}")
+                logger.debug(
+                    f"処理済み画像をDBに追加しました: ID={processed_image_id}, 親画像ID={image_id}"
+                )
                 return processed_image_id
             except IntegrityError:
                 # UNIQUE 制約違反 (image_id, width, height, filename)
@@ -1885,12 +1886,19 @@ class ImageRepository:
 
         Args:
             query (Select): 適用対象のクエリ
-            ai_rating_filter (str): フィルタリングするレーティング値 (PG, PG-13, R, X, XXX)
+            ai_rating_filter (str): フィルタリングするレーティング値 (PG, PG-13, R, X, XXX, UNRATED)
 
         Returns:
             Select: AIレーティングフィルタが適用されたクエリ
         """
         logger.debug(f"Applying AI rating filter (majority vote) for rating: '{ai_rating_filter}'")
+
+        # UNRATED: レーティングが存在しない画像をフィルタ
+        if ai_rating_filter == "UNRATED":
+            has_any_rating = exists(select(Rating.id).where(Rating.image_id == Image.id)).correlate(Image)
+            query = query.where(not_(has_any_rating))
+            logger.debug("AI rating filter applied: UNRATED (no ratings)")
+            return query
 
         # 多数決ロジック: 画像ごとに総AI評価数とマッチング数を計算
         # マッチング数 >= 総評価数 / 2.0 の画像のみを返す
@@ -1999,15 +2007,23 @@ class ImageRepository:
     ) -> Select:
         """クエリに手動評価と手動編集フラグのフィルタを適用します。"""
         if manual_rating_filter:
-            # ratingsテーブルから最新のMANUAL_EDIT ratingを参照
             manual_edit_model_id = self._get_or_create_manual_edit_model(session)
-            manual_rating_subq = (
-                select(Rating.image_id)
-                .where(Rating.normalized_rating == manual_rating_filter)
-                .where(Rating.model_id == manual_edit_model_id)
-                .distinct()
-            )
-            query = query.where(Image.id.in_(manual_rating_subq))
+
+            if manual_rating_filter == "UNRATED":
+                # 手動レーティングが設定されていない画像をフィルタ
+                has_manual_rating_subq = (
+                    select(Rating.image_id).where(Rating.model_id == manual_edit_model_id).distinct()
+                )
+                query = query.where(Image.id.notin_(has_manual_rating_subq))
+            else:
+                # 特定の手動レーティングを持つ画像をフィルタ
+                manual_rating_subq = (
+                    select(Rating.image_id)
+                    .where(Rating.normalized_rating == manual_rating_filter)
+                    .where(Rating.model_id == manual_edit_model_id)
+                    .distinct()
+                )
+                query = query.where(Image.id.in_(manual_rating_subq))
 
         if manual_edit_filter is not None:
             has_manual_edit = or_(
@@ -2380,7 +2396,9 @@ class ImageRepository:
         if isinstance(resolution, str):
             try:
                 resolution = int(resolution)
-                logger.warning(f"解像度パラメータが文字列として渡されました: '{resolution}' -> {resolution}")
+                logger.warning(
+                    f"解像度パラメータが文字列として渡されました: '{resolution}' -> {resolution}"
+                )
             except ValueError:
                 logger.error(f"解像度パラメータの変換に失敗しました: '{resolution}'")
                 return [], 0

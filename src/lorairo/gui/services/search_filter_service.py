@@ -188,9 +188,15 @@ class SearchFilterService:
 
         # Ratingフィルター
         if conditions.rating_filter:
-            preview_parts.append(f"手動レーティング: {conditions.rating_filter}")
+            rating_display = (
+                "未設定のみ" if conditions.rating_filter == "UNRATED" else conditions.rating_filter
+            )
+            preview_parts.append(f"手動レーティング: {rating_display}")
         if conditions.ai_rating_filter:
-            ai_rating_text = f"AIレーティング: {conditions.ai_rating_filter} (多数決)"
+            ai_rating_display = (
+                "未設定のみ" if conditions.ai_rating_filter == "UNRATED" else conditions.ai_rating_filter
+            )
+            ai_rating_text = f"AIレーティング: {ai_rating_display} (多数決)"
             if conditions.rating_filter:
                 ai_rating_text += " ※手動レーティング優先"
             preview_parts.append(ai_rating_text)

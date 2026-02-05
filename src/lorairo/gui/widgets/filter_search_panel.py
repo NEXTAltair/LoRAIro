@@ -649,11 +649,13 @@ class FilterSearchPanel(QScrollArea):
         Ratingコンボボックスから選択された値を取得
 
         Returns:
-            str | None: Rating値（'PG', 'PG-13', 'R', 'X', 'XXX'）または None（全て選択時）
+            str | None: Rating値（'PG', 'PG-13', 'R', 'X', 'XXX', 'UNRATED'）または None（全て選択時）
         """
         text = self.ui.comboRating.currentText()
         if text == "全て":
             return None
+        if text == "未設定のみ":
+            return "UNRATED"
 
         # "PG (全年齢)" -> "PG" に変換
         rating_value = text.split()[0] if text else None
@@ -665,11 +667,13 @@ class FilterSearchPanel(QScrollArea):
         AIレーティングコンボボックスから選択された値を取得
 
         Returns:
-            str | None: AI Rating値（'PG', 'PG-13', 'R', 'X', 'XXX'）または None（全て選択時）
+            str | None: AI Rating値（'PG', 'PG-13', 'R', 'X', 'XXX', 'UNRATED'）または None（全て選択時）
         """
         text = self.ui.comboAIRating.currentText()
         if text == "全て":
             return None
+        if text == "未設定のみ":
+            return "UNRATED"
 
         # "PG (全年齢)" -> "PG" に変換
         ai_rating_value = text.split()[0] if text else None
@@ -811,6 +815,8 @@ class FilterSearchPanel(QScrollArea):
                     self.ui.checkboxDateFilter.isChecked(),
                     self.ui.comboResolution.currentText() != "全て",
                     self.ui.comboAspectRatio.currentText() != "全て",
+                    self.ui.comboRating.currentText() != "全て",
+                    self.ui.comboAIRating.currentText() != "全て",
                 ]
             ):
                 logger.info("検索条件が未指定のため検索をスキップ")
