@@ -227,6 +227,7 @@ class TestWorkerService:
         assert worker_id.startswith("thumbnail_")
         suffix = worker_id.split("_")[-1]
         assert len(suffix) == 8 and bool(re.match(r"^[0-9a-f]{8}$", suffix))
+        assert worker_service.current_thumbnail_worker_id == worker_id
 
     @patch("lorairo.gui.services.worker_service.ThumbnailWorker")
     def test_start_thumbnail_loading_returns_new_worker_id(self, mock_worker_class, worker_service):
@@ -252,6 +253,71 @@ class TestWorkerService:
         assert worker_id_1 != worker_id_2
         assert worker_id_1.startswith("thumbnail_")
         assert worker_id_2.startswith("thumbnail_")
+
+    @patch("lorairo.gui.services.worker_service.ThumbnailWorker")
+    def test_start_thumbnail_page_load_success(self, mock_worker_class, worker_service):
+        """ページ単位サムネイル読み込み開始テスト"""
+        mock_worker = Mock()
+        mock_worker_class.return_value = mock_worker
+        worker_service.worker_manager.start_worker.return_value = True
+
+        search_result = SearchResult(
+            image_metadata=[
+                {"id": 1, "path": "/test/image1.jpg"},
+                {"id": 2, "path": "/test/image2.jpg"},
+            ],
+            total_count=2,
+            search_time=0.1,
+            filter_conditions=SearchConditions(search_type="tags", keywords=[], tag_logic="and"),
+        )
+
+        worker_id = worker_service.start_thumbnail_page_load(
+            search_result=search_result,
+            thumbnail_size=QSize(128, 128),
+            image_ids=[1, 2],
+            page_num=1,
+            request_id="req_001",
+            cancel_previous=False,
+        )
+
+        mock_worker_class.assert_called_once_with(
+            search_result=search_result,
+            thumbnail_size=QSize(128, 128),
+            db_manager=worker_service.db_manager,
+            image_id_filter=[1, 2],
+            request_id="req_001",
+            page_num=1,
+        )
+        assert worker_id.startswith("thumbnail_")
+        assert worker_service.current_thumbnail_worker_id == worker_id
+
+    @patch("lorairo.gui.services.worker_service.ThumbnailWorker")
+    def test_start_thumbnail_page_load_cancels_existing_worker(
+        self, mock_worker_class, worker_service
+    ):
+        """ページ単位読み込みで既存ワーカーをキャンセルできる"""
+        mock_worker = Mock()
+        mock_worker_class.return_value = mock_worker
+        worker_service.worker_manager.start_worker.return_value = True
+        worker_service.current_thumbnail_worker_id = "thumbnail_existing"
+
+        search_result = SearchResult(
+            image_metadata=[{"id": 1, "path": "/test/image1.jpg"}],
+            total_count=1,
+            search_time=0.1,
+            filter_conditions=SearchConditions(search_type="tags", keywords=[], tag_logic="and"),
+        )
+
+        worker_service.start_thumbnail_page_load(
+            search_result=search_result,
+            thumbnail_size=QSize(128, 128),
+            image_ids=[1],
+            page_num=1,
+            request_id="req_002",
+            cancel_previous=True,
+        )
+
+        worker_service.worker_manager.cancel_worker.assert_called_with("thumbnail_existing")
 
     def test_worker_manager_signal_connections(self, worker_service):
         """ワーカーマネージャーシグナル接続テスト"""

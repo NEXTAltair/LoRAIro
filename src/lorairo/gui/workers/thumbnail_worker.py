@@ -1,6 +1,5 @@
 """サムネイル読み込み専用ワーカー"""
 
-import traceback
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -26,6 +25,9 @@ class ThumbnailLoadResult:
     total_count: int
     processing_time: float
     image_metadata: list[dict[str, Any]] = None  # 検索結果メタデータ（DatasetStateManager同期用）
+    request_id: str | None = None  # リクエスト識別子（古い結果の破棄用）
+    page_num: int | None = None  # ページ番号（ページネーション用）
+    image_ids: list[int] | None = None  # 処理対象画像ID（ページ単位表示用）
 
 
 class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
@@ -36,24 +38,61 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
         search_result: "SearchResult",
         thumbnail_size: QSize,
         db_manager: "ImageDatabaseManager",
+        image_id_filter: list[int] | None = None,
+        request_id: str | None = None,
+        page_num: int | None = None,
     ):
         super().__init__()
         self.search_result = search_result
         self.thumbnail_size = thumbnail_size
         self.db_manager = db_manager
+        self.image_id_filter = image_id_filter
+        self.request_id = request_id
+        self.page_num = page_num
 
     def execute(self) -> ThumbnailLoadResult:
         """サムネイル読み込み処理を実行（バッチ処理最適化版）"""
         import time
 
         start_time = time.time()
-        total_count = len(self.search_result.image_metadata)
+        source_metadata = self.search_result.image_metadata
+        target_metadata = source_metadata
+
+        if self.image_id_filter:
+            metadata_by_id = {
+                item.get("id"): item for item in source_metadata if item.get("id") is not None
+            }
+            target_metadata = [
+                metadata_by_id[image_id]
+                for image_id in self.image_id_filter
+                if image_id in metadata_by_id
+            ]
+
+        total_count = len(target_metadata)
 
         if total_count == 0:
-            logger.warning("サムネイル読み込み対象がありません")
-            return ThumbnailLoadResult([], 0, 0, 0.0, [])
+            logger.warning(
+                f"サムネイル読み込み対象がありません: page={self.page_num}, "
+                f"filter_count={len(self.image_id_filter) if self.image_id_filter else 0}, "
+                f"source_count={len(source_metadata)}"
+            )
+            return ThumbnailLoadResult(
+                loaded_thumbnails=[],
+                failed_count=0,
+                total_count=0,
+                processing_time=0.0,
+                image_metadata=target_metadata,
+                request_id=self.request_id,
+                page_num=self.page_num,
+                image_ids=[],
+            )
 
-        logger.info(f"サムネイル読み込み開始: {total_count}件")
+        if self.page_num is not None:
+            logger.info(
+                f"サムネイル読み込み開始: page={self.page_num}, 件数={total_count}, request_id={self.request_id}"
+            )
+        else:
+            logger.info(f"サムネイル読み込み開始: {total_count}件")
 
         # 進捗初期化
         loaded_thumbnails = []
@@ -67,7 +106,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
         batch_boundaries = ProgressHelper.get_batch_boundaries(total_count, BATCH_SIZE)
         total_batches = len(batch_boundaries)
 
-        logger.info(f"バッチ処理開始: {total_batches}バッチ（バッチサイズ: {BATCH_SIZE}）")
+        logger.debug(f"バッチ処理開始: {total_batches}バッチ（バッチサイズ: {BATCH_SIZE}）")
 
         # バッチ単位で処理
         for batch_idx, (start_idx, end_idx) in enumerate(batch_boundaries):
@@ -75,7 +114,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
             self._check_cancellation()
 
             # 現在のバッチを取得
-            batch_items = self.search_result.image_metadata[start_idx:end_idx]
+            batch_items = target_metadata[start_idx:end_idx]
             batch_loaded, batch_failed = self._process_batch(batch_items, loaded_thumbnails)
 
             # バッチ統計更新
@@ -109,12 +148,19 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
             failed_count=failed_count,
             total_count=total_count,
             processing_time=processing_time,
-            image_metadata=self.search_result.image_metadata,
+            image_metadata=target_metadata,
+            request_id=self.request_id,
+            page_num=self.page_num,
+            image_ids=[
+                item_id
+                for item_id in (item.get("id") for item in target_metadata)
+                if item_id is not None
+            ],
         )
 
         logger.info(
-            f"サムネイル読み込み完了: 成功={len(loaded_thumbnails)}, 失敗={failed_count}, "
-            f"処理時間={processing_time:.3f}秒, バッチ数={total_batches}"
+            f"サムネイル読み込み完了: page={self.page_num}, 成功={len(loaded_thumbnails)}, "
+            f"失敗={failed_count}, 処理時間={processing_time:.3f}秒"
         )
 
         return result
@@ -147,7 +193,11 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
                 # サムネイル用の最適な画像パスを取得
                 thumbnail_path = self._get_thumbnail_path(image_data, image_id)
 
-                if not thumbnail_path or not thumbnail_path.exists():
+                if not thumbnail_path:
+                    batch_failed += 1
+                    continue
+
+                if not thumbnail_path.exists():
                     batch_failed += 1
                     continue
 
@@ -169,21 +219,11 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
 
             except Exception as e:
                 batch_failed += 1
-                logger.error(f"サムネイル読み込みエラー: {e}")
-
-                # エラーレコード保存（二次エラー対策付き）
-                try:
-                    self.db_manager.save_error_record(
-                        operation_type="thumbnail",
-                        error_type=type(e).__name__,
-                        error_message=str(e),
-                        image_id=image_id,
-                        stack_trace=traceback.format_exc(),
-                        file_path=str(thumbnail_path) if thumbnail_path else None,
-                        model_name=None,
-                    )
-                except Exception as save_error:
-                    logger.error(f"エラーレコード保存失敗（二次エラー）: {save_error}")
+                # ワーカースレッドではDB保存不可（スレッドセーフティ）、ログのみ
+                logger.error(
+                    f"サムネイル読み込みエラー: image_id={image_id}, "
+                    f"path={thumbnail_path}, error={e}"
+                )
 
         return batch_loaded, batch_failed
 
@@ -196,18 +236,14 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
 
         Returns:
             サムネイル画像のPathオブジェクト。取得できない場合はNone。
+
+        Note:
+            ワーカースレッドで実行されるため、db_managerへのアクセスは禁止。
+            SQLite接続はスレッド間で共有できない (sqlite3.InterfaceError回避)。
+            メタデータ内の stored_image_path を直接使用する。
         """
         try:
-            # 512px画像が利用可能な場合はそれを使用
-            existing_512px = self.db_manager.check_processed_image_exists(image_id, 512)
-            if existing_512px and "stored_image_path" in existing_512px:
-                from ...database.db_core import resolve_stored_path
-
-                path = resolve_stored_path(existing_512px["stored_image_path"])
-                if path.exists():
-                    return path
-
-            # フォールバック: 元画像を使用
+            # メタデータから直接パスを取得（DB呼び出しはスレッドセーフでないため禁止）
             stored_path = image_data.get("stored_image_path")
             if stored_path:
                 from ...database.db_core import resolve_stored_path
@@ -215,6 +251,6 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
                 return resolve_stored_path(stored_path)
 
         except Exception as e:
-            logger.warning(f"サムネイルパス取得エラー: {e}")
+            logger.warning(f"サムネイルパス取得エラー: image_id={image_id}, error={e}")
 
         return None

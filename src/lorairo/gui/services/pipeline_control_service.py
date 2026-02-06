@@ -12,7 +12,6 @@ MainWindow.cancel_current_pipeline()から抽出。
 from typing import Any
 
 from loguru import logger
-from PySide6.QtCore import QSize
 
 from lorairo.gui.services.worker_service import WorkerService
 from lorairo.gui.workers.database_worker import SearchResult
@@ -47,7 +46,7 @@ class PipelineControlService:
     # ============================================================
 
     def on_search_completed(self, search_result: Any) -> None:
-        """SearchWorker完了時にThumbnailWorkerを自動起動
+        """SearchWorker完了時にページネーション初期化を実行
 
         Args:
             search_result: SearchResultオブジェクトまたは辞書
@@ -61,10 +60,18 @@ class PipelineControlService:
         try:
             # SearchResultの検証
             if isinstance(search_result, SearchResult):
-                # 直接ThumbnailWorkerを起動
-                thumbnail_size = QSize(128, 128)
-                worker_id = self.worker_service.start_thumbnail_load(search_result, thumbnail_size)
-                logger.info(f"Thumbnail worker started after search completion: {worker_id}")
+                if self.thumbnail_selector and hasattr(
+                    self.thumbnail_selector, "initialize_pagination_search"
+                ):
+                    self.thumbnail_selector.initialize_pagination_search(
+                        search_result=search_result,
+                        worker_service=self.worker_service,
+                    )
+                    logger.info("Thumbnail pagination initialized after search completion")
+                else:
+                    logger.warning(
+                        "ThumbnailSelectorWidget.initialize_pagination_search method not found"
+                    )
             else:
                 logger.warning(f"Invalid search_result type: {type(search_result)}")
 
@@ -84,12 +91,14 @@ class PipelineControlService:
             return
 
         try:
-            # ThumbnailSelectorWidget統合（既存メソッド活用）
-            if hasattr(self.thumbnail_selector, "load_thumbnails_from_result"):
+            if hasattr(self.thumbnail_selector, "handle_thumbnail_page_result"):
+                self.thumbnail_selector.handle_thumbnail_page_result(thumbnail_result)
+                logger.info("ThumbnailSelectorWidget handled paged thumbnail result")
+            elif hasattr(self.thumbnail_selector, "load_thumbnails_from_result"):
                 self.thumbnail_selector.load_thumbnails_from_result(thumbnail_result)
-                logger.info("ThumbnailSelectorWidget updated with results")
+                logger.info("ThumbnailSelectorWidget updated with legacy thumbnail result")
             else:
-                logger.warning("ThumbnailSelectorWidget.load_thumbnails_from_result method not found")
+                logger.warning("ThumbnailSelectorWidget result handler method not found")
 
             # パイプライン完了後にプログレスバーを非表示
             if self.filter_search_panel and hasattr(

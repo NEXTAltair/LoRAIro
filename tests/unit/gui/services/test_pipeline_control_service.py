@@ -8,6 +8,8 @@ from unittest.mock import Mock
 import pytest
 
 from lorairo.gui.services.pipeline_control_service import PipelineControlService
+from lorairo.gui.workers.search_worker import SearchResult
+from lorairo.services.search_models import SearchConditions
 
 
 @pytest.fixture
@@ -151,3 +153,35 @@ class TestCancelCurrentPipeline:
 
         # Execute - エラーログ出力されるが、クラッシュしない
         service.cancel_current_pipeline()
+
+
+@pytest.mark.gui
+class TestPipelineFlow:
+    """検索完了・サムネイル完了のフローテスト"""
+
+    def test_on_search_completed_initializes_pagination(
+        self, service, mock_worker_service, mock_thumbnail_selector
+    ):
+        search_result = SearchResult(
+            image_metadata=[{"id": 1, "stored_image_path": "/tmp/1.png"}],
+            total_count=1,
+            search_time=0.1,
+            filter_conditions=SearchConditions(search_type="tags", keywords=[], tag_logic="and"),
+        )
+
+        service.on_search_completed(search_result)
+
+        mock_thumbnail_selector.initialize_pagination_search.assert_called_once_with(
+            search_result=search_result,
+            worker_service=mock_worker_service,
+        )
+
+    def test_on_thumbnail_completed_forwards_to_paged_handler(
+        self, service, mock_thumbnail_selector, mock_filter_panel
+    ):
+        thumbnail_result = Mock()
+
+        service.on_thumbnail_completed(thumbnail_result)
+
+        mock_thumbnail_selector.handle_thumbnail_page_result.assert_called_once_with(thumbnail_result)
+        mock_filter_panel.hide_progress_after_completion.assert_called_once()

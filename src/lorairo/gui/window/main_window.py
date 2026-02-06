@@ -1135,7 +1135,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         MainWindowから抽出されたロジックをService層に委譲する。
         """
         try:
-
             # ResultHandlerService初期化（Stage 4-1）
             logger.info("  - ResultHandlerService初期化中...")
             self.result_handler_service = ResultHandlerService(parent=self)
@@ -1226,7 +1225,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self, "エラー", "ExportControllerが初期化されていないため、エクスポートを開始できません。"
             )
 
-    def send_selected_to_batch_tag(self) -> None:
+    def send_selected_to_batch_tag(self, selected_ids: list[int] | None = None) -> None:
         """ワークスペースの選択画像をバッチタグのステージングに追加"""
         if not self.dataset_state_manager:
             logger.warning("DatasetStateManager not available")
@@ -1239,8 +1238,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             QMessageBox.warning(self, "エラー", "バッチタグ機能が初期化されていません。")
             return
 
-        selected_ids = self.dataset_state_manager.selected_image_ids
-        if not selected_ids:
+        target_ids = selected_ids if selected_ids is not None else self.dataset_state_manager.selected_image_ids
+        if not target_ids:
             QMessageBox.information(self, "選択なし", "バッチタグに追加する画像が選択されていません。")
             return
 
@@ -1251,7 +1250,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.tabWidgetBatchTagWorkflow.setCurrentIndex(0)
 
         # ステージングに追加
-        if hasattr(batch_tag_widget, "add_selected_images_to_staging"):
+        if hasattr(batch_tag_widget, "add_image_ids_to_staging"):
+            batch_tag_widget.add_image_ids_to_staging(target_ids)
+        elif hasattr(batch_tag_widget, "add_selected_images_to_staging"):
             batch_tag_widget.add_selected_images_to_staging()
         else:
             # 互換: 旧実装のクリックハンドラを直接呼び出す

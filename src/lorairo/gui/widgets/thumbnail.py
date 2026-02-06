@@ -1,8 +1,11 @@
 # src/lorairo/gui/widgets/thumbnail.py
 
+from __future__ import annotations
+
+import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from PySide6.QtCore import QPoint, QRectF, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPen, QPixmap, QResizeEvent
@@ -11,6 +14,7 @@ from PySide6.QtWidgets import (
     QGraphicsObject,
     QGraphicsScene,
     QGraphicsView,
+    QLabel,
     QMenu,
     QStyleOptionGraphicsItem,
     QVBoxLayout,
@@ -19,7 +23,15 @@ from PySide6.QtWidgets import (
 
 from ...gui.designer.ThumbnailSelectorWidget_ui import Ui_ThumbnailSelectorWidget
 from ...utils.log import logger
+from ..cache.thumbnail_page_cache import ThumbnailPageCache
+from ..state.pagination_state import PaginationStateManager
+from ..workers.thumbnail_worker import ThumbnailLoadResult
+from .pagination_nav_widget import PaginationNavWidget
 from ..state.dataset_state import DatasetStateManager
+
+if TYPE_CHECKING:
+    from ..services.worker_service import WorkerService
+    from ..workers.search_worker import SearchResult
 
 
 class ThumbnailItem(QGraphicsObject):
@@ -145,7 +157,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     image_selected = Signal(Path)  # 単一画像選択時
     multiple_images_selected = Signal(list)  # 複数画像選択時
     selection_cleared = Signal()  # 選択クリア時
-    stage_selected_requested = Signal()  # バッチタグのステージング追加要求
+    stage_selected_requested = Signal(list)  # バッチタグのステージング追加要求（visible image_ids）
     quick_tag_requested = Signal(list)  # クイックタグ追加要求（image_ids）
 
     def __init__(
@@ -187,18 +199,36 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         layout.addWidget(self.graphics_view)
         self.widgetThumbnailsContent.setLayout(layout)
 
-        # キャッシュ機構（新設計）
-        self.image_cache: dict[int, QPixmap] = {}  # image_id -> 元QPixmap
-        self.scaled_cache: dict[
-            tuple[int, int, int], QPixmap
-        ] = {}  # (image_id, width, height) -> スケールされたQPixmap
+        # キャッシュ機構
+        self.image_cache: dict[int, QPixmap] = {}  # legacy互換（平坦キャッシュ）
+        self.page_cache = ThumbnailPageCache(max_pages=5)  # ページ単位キャッシュ
         self.image_metadata: dict[int, dict[str, Any]] = {}  # image_id -> メタデータ
+
+        # ページネーション状態
+        self.pagination_state: PaginationStateManager | None = None
+        self.pagination_nav: PaginationNavWidget | None = None
+        self._worker_service: WorkerService | None = None
+        self._active_search_result: SearchResult | None = None
+        self._current_display_page: int = 1
+        self._display_request_id: str | None = None
+        self._prefetch_request_ids: set[str] = set()
+        self._request_id_to_page: dict[str, int] = {}
+        self._prefetch_queue: list[int] = []
+        self._suspend_page_change: bool = False
 
         # レガシー互換（段階的廃止予定）
         self.image_data: list[tuple[Path, int]] = []  # (image_path, image_id)
         self.current_image_metadata: list[dict[str, Any]] = []  # フィルタリング用の画像メタデータ
         self.thumbnail_items: list[ThumbnailItem] = []  # ThumbnailItem のリスト
         self.last_selected_item: ThumbnailItem | None = None
+
+        # ページロード中オーバーレイ（新ページ確定まで旧ページ表示維持）
+        self.loading_overlay = QLabel("読み込み中...", self.graphics_view.viewport())
+        self.loading_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.loading_overlay.setStyleSheet(
+            "background-color: rgba(0, 0, 0, 120); color: white; font-weight: bold;"
+        )
+        self.loading_overlay.hide()
 
         # リサイズ用のタイマーを初期化
         self.resize_timer = QTimer(self)
@@ -207,12 +237,14 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         # ヘッダー部分の接続設定
         self._setup_header_connections()
+        self._setup_pagination_ui()
 
         # 状態管理との連携
         if self.dataset_state:
             self._connect_dataset_state()
             # ドラッグ選択の同期（scene → DatasetStateManager）
             self.scene.selectionChanged.connect(self._sync_selection_to_state)
+            self._ensure_pagination_state()
 
     def _setup_header_connections(self) -> None:
         """
@@ -226,6 +258,325 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         # 画像件数表示の初期化
         self._update_image_count_display()
+
+    def _setup_pagination_ui(self) -> None:
+        """固定フッターのページネーションUIを初期化する。"""
+        if not hasattr(self, "verticalLayout"):
+            return
+
+        self.pagination_nav = PaginationNavWidget(self)
+        self.pagination_nav.setVisible(False)
+        self.pagination_nav.page_requested.connect(self._on_page_requested)
+        self.verticalLayout.addWidget(self.pagination_nav)
+
+    def _ensure_pagination_state(self) -> None:
+        """DatasetStateManagerに紐づくPaginationStateManagerを初期化する。"""
+        if not self.dataset_state:
+            return
+
+        if self.pagination_state is None:
+            self.pagination_state = PaginationStateManager(
+                dataset_state=self.dataset_state,
+                page_size=100,
+                max_cached_pages=5,
+                parent=self,
+            )
+            self.pagination_state.page_changed.connect(self._on_page_changed)
+
+    def initialize_pagination_search(
+        self,
+        search_result: SearchResult,
+        worker_service: WorkerService | None,
+    ) -> None:
+        """検索完了時にページネーション表示を初期化する。"""
+        if not self.dataset_state:
+            logger.warning("DatasetStateManager not available, pagination disabled")
+            return
+
+        self._worker_service = worker_service
+        self._active_search_result = search_result
+        self._ensure_pagination_state()
+        if not self.pagination_state:
+            return
+
+        self.page_cache.clear()
+        self.image_cache.clear()
+        self.image_metadata.clear()
+        self.image_data.clear()
+        self._prefetch_queue.clear()
+        self._prefetch_request_ids.clear()
+        self._request_id_to_page.clear()
+        self._display_request_id = None
+        self._current_display_page = 1
+
+        self._suspend_page_change = True
+        self.dataset_state.update_from_search_results(search_result.image_metadata)
+        self._suspend_page_change = False
+
+        if self.pagination_nav:
+            self.pagination_nav.setVisible(True)
+            self.pagination_nav.update_state(
+                current=1,
+                total=self.pagination_state.total_pages,
+                is_loading=False,
+            )
+
+        self._suspend_page_change = True
+        self.pagination_state.reset_to_first_page()
+        self._suspend_page_change = False
+        self._display_or_request_page(1, cancel_previous=True)
+
+    def handle_thumbnail_page_result(self, thumbnail_result: ThumbnailLoadResult) -> None:
+        """ページ単位サムネイル読み込み結果を処理する。"""
+        page_num = getattr(thumbnail_result, "page_num", None)
+        request_id = getattr(thumbnail_result, "request_id", None)
+
+        # 旧経路との互換: ページ識別がない結果は既存処理に委譲
+        if page_num is None or request_id is None:
+            self.load_thumbnails_from_result(thumbnail_result)
+            return
+
+        if request_id not in self._request_id_to_page:
+            logger.debug(f"Stale thumbnail result ignored: request_id={request_id}")
+            return
+
+        self._request_id_to_page.pop(request_id, None)
+
+        # デバッグ: ワーカーからの結果を詳細ログ
+        loaded_count = len(thumbnail_result.loaded_thumbnails)
+        failed_count = getattr(thumbnail_result, "failed_count", 0)
+        total_count = getattr(thumbnail_result, "total_count", 0)
+        logger.debug(
+            f"ページ {page_num} サムネイル結果: loaded={loaded_count}, failed={failed_count}, "
+            f"total={total_count}, request_id={request_id}"
+        )
+
+        thumbnails: list[tuple[int, QPixmap]] = []
+        null_pixmap_count = 0
+        for image_id, qimage in thumbnail_result.loaded_thumbnails:
+            qpixmap = QPixmap.fromImage(qimage)
+            if not qpixmap.isNull():
+                thumbnails.append((image_id, qpixmap))
+            else:
+                null_pixmap_count += 1
+                logger.warning(f"QPixmap変換失敗: image_id={image_id}, page={page_num}")
+
+        if null_pixmap_count > 0:
+            logger.warning(f"ページ {page_num}: {null_pixmap_count}件のQPixmap変換失敗")
+
+        self.page_cache.set_page(page_num, thumbnails)
+
+        if request_id == self._display_request_id:
+            self._display_request_id = None
+            self._display_page(page_num)
+            self._hide_loading_overlay()
+            self._start_prefetch_if_needed(page_num)
+        elif request_id in self._prefetch_request_ids:
+            self._prefetch_request_ids.discard(request_id)
+            self._start_next_prefetch()
+
+        if self.pagination_nav and self.pagination_state:
+            is_loading = self._display_request_id is not None
+            self.pagination_nav.update_state(
+                current=self.pagination_state.current_page,
+                total=self.pagination_state.total_pages,
+                is_loading=is_loading,
+            )
+
+    @Slot(int)
+    def _on_page_requested(self, page: int) -> None:
+        """ページナビゲーションUIからのページ要求を処理する。"""
+        if not self.pagination_state:
+            return
+        self.pagination_state.set_page(page)
+
+    @Slot(int)
+    def _on_page_changed(self, page: int) -> None:
+        """ページ変更時の表示更新を処理する。"""
+        if self._suspend_page_change:
+            return
+        self._display_or_request_page(page, cancel_previous=True)
+
+    def _display_or_request_page(self, page: int, cancel_previous: bool) -> None:
+        """対象ページを表示し、未キャッシュなら読み込みを要求する。"""
+        if self._display_request_id:
+            self._request_id_to_page.pop(self._display_request_id, None)
+            self._display_request_id = None
+
+        for request_id in self._prefetch_request_ids:
+            self._request_id_to_page.pop(request_id, None)
+        self._prefetch_queue.clear()
+        self._prefetch_request_ids.clear()
+
+        cached = self.page_cache.get_page(page)
+        if cached is not None:
+            self._display_page(page)
+            self._hide_loading_overlay()
+            self._start_prefetch_if_needed(page)
+            return
+
+        self._show_loading_overlay()
+        self._request_page_load(page, cancel_previous=cancel_previous, mark_as_display=True)
+
+    def _request_page_load(
+        self,
+        page: int,
+        cancel_previous: bool,
+        mark_as_display: bool,
+    ) -> None:
+        """ページ単位サムネイル読み込みをWorkerServiceへ要求する。"""
+        if (
+            not self.pagination_state
+            or not self._worker_service
+            or not self._active_search_result
+        ):
+            return
+
+        image_ids = self.pagination_state.get_page_image_ids(page)
+        if not image_ids:
+            self.scene.clear()
+            self.thumbnail_items.clear()
+            self.image_data.clear()
+            self._update_image_count_display()
+            self._hide_loading_overlay()
+            return
+
+        # デバッグ: データ整合性チェック
+        search_result_count = (
+            len(self._active_search_result.image_metadata)
+            if self._active_search_result else 0
+        )
+        dataset_count = (
+            len(self.dataset_state.filtered_images) if self.dataset_state else 0
+        )
+        logger.debug(
+            f"ページ {page} 読み込み要求: image_ids={len(image_ids)}件, "
+            f"search_result={search_result_count}件, dataset_state={dataset_count}件"
+        )
+        if search_result_count != dataset_count:
+            logger.warning(
+                f"データ不整合検出: search_result ({search_result_count}件) != "
+                f"dataset_state ({dataset_count}件)"
+            )
+
+        request_id = uuid.uuid4().hex[:12]
+        self._request_id_to_page[request_id] = page
+        if mark_as_display:
+            self._display_request_id = request_id
+        else:
+            self._prefetch_request_ids.add(request_id)
+
+        try:
+            self._worker_service.start_thumbnail_page_load(
+                search_result=self._active_search_result,
+                thumbnail_size=self.thumbnail_size,
+                image_ids=image_ids,
+                page_num=page,
+                request_id=request_id,
+                cancel_previous=cancel_previous,
+            )
+        except Exception:
+            self._request_id_to_page.pop(request_id, None)
+            self._prefetch_request_ids.discard(request_id)
+            if self._display_request_id == request_id:
+                self._display_request_id = None
+                self._hide_loading_overlay()
+            logger.exception(f"Failed to request thumbnail page load: page={page}, request_id={request_id}")
+            return
+
+        if self.pagination_nav and self.pagination_state:
+            self.pagination_nav.update_state(
+                current=self.pagination_state.current_page,
+                total=self.pagination_state.total_pages,
+                is_loading=self._display_request_id is not None,
+            )
+
+    def _start_prefetch_if_needed(self, current_page: int) -> None:
+        """現在ページを基準に先読みキューを作成する。"""
+        if not self.pagination_state:
+            return
+
+        pages_to_load = self.pagination_state.get_pages_to_load(
+            target_page=current_page,
+            cached_pages=self.page_cache.cached_pages,
+        )
+        self._prefetch_queue = [page for page in pages_to_load if page != current_page]
+        self._start_next_prefetch()
+
+    def _start_next_prefetch(self) -> None:
+        """先読みキューの次ページを読み込む。"""
+        if not self._prefetch_queue or self._display_request_id is not None:
+            return
+
+        next_page = self._prefetch_queue.pop(0)
+        self._request_page_load(next_page, cancel_previous=False, mark_as_display=False)
+
+    def _display_page(self, page: int) -> None:
+        """キャッシュ済みページをUIへ表示する。"""
+        if not self.pagination_state:
+            return
+
+        cached = self.page_cache.get_page(page)
+        if cached is None:
+            logger.warning(f"ページ {page} のキャッシュが見つかりません")
+            return
+
+        self._current_display_page = page
+        page_pixmap_map = {image_id: pixmap for image_id, pixmap in cached}
+        page_image_ids = self.pagination_state.get_page_image_ids(page)
+
+        self.scene.clear()
+        self.thumbnail_items.clear()
+        self.image_data.clear()
+
+        button_width = self.thumbnail_size.width()
+        grid_width = max(self.scrollAreaThumbnails.viewport().width(), self.thumbnail_size.width())
+        column_count = max(grid_width // button_width, 1)
+
+        for index, image_id in enumerate(page_image_ids):
+            metadata = self.dataset_state.get_image_by_id(image_id) if self.dataset_state else None
+            stored_path = metadata.get("stored_image_path") if metadata else ""
+            image_path = Path(stored_path) if stored_path else Path()
+            self.image_data.append((image_path, image_id))
+
+            pixmap = page_pixmap_map.get(image_id)
+            if pixmap is None:
+                pixmap = QPixmap(self.thumbnail_size)
+                pixmap.fill(Qt.GlobalColor.lightGray)
+
+            scaled_pixmap = pixmap.scaled(
+                self.thumbnail_size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self._add_thumbnail_item_from_cache(
+                image_path=image_path,
+                image_id=image_id,
+                index=index,
+                column_count=column_count,
+                pixmap=scaled_pixmap,
+            )
+
+        row_count = (len(page_image_ids) + column_count - 1) // column_count
+        self.scene.setSceneRect(0, 0, grid_width, row_count * self.thumbnail_size.height())
+        self._update_image_count_display()
+        self.graphics_view.viewport().update()
+        if self.pagination_nav and self.pagination_state:
+            self.pagination_nav.update_state(
+                current=page,
+                total=self.pagination_state.total_pages,
+                is_loading=self._display_request_id is not None,
+            )
+
+    def _show_loading_overlay(self) -> None:
+        """ページ読み込み中のオーバーレイを表示する。"""
+        self.loading_overlay.setGeometry(self.graphics_view.viewport().rect())
+        self.loading_overlay.show()
+        self.loading_overlay.raise_()
+
+    def _hide_loading_overlay(self) -> None:
+        """ページ読み込み中のオーバーレイを非表示にする。"""
+        self.loading_overlay.hide()
 
     def _on_thumbnail_size_slider_changed(self, value: int) -> None:
         """
@@ -243,8 +594,11 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         # 画像件数表示を更新
         self._update_image_count_display()
 
-        # キャッシュから高速再表示（ファイルI/O完全回避）
-        if self.image_cache:
+        # ページキャッシュから再表示
+        if self.pagination_state and self.page_cache.has_page(self._current_display_page):
+            self._display_page(self._current_display_page)
+        # レガシーキャッシュから高速再表示（ファイルI/O完全回避）
+        elif self.image_cache:
             logger.debug(f"サムネイルサイズ変更: {old_size.width()}x{old_size.height()} → {value}x{value}")
             # UI要素クリア（古い画像残存問題の修正）
             self.scene.clear()
@@ -283,16 +637,18 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
                 self.dataset_state.set_current_image(item.image_id)
 
         selected_ids = self.dataset_state.selected_image_ids if self.dataset_state else []
+        visible_ids = {thumb.image_id for thumb in self.thumbnail_items}
+        visible_selected_ids = [id_ for id_ in selected_ids if id_ in visible_ids]
 
         menu = QMenu(self)
 
         # バッチタグへ追加
         action_stage = menu.addAction("バッチタグへ追加")
-        action_stage.setEnabled(bool(selected_ids))
+        action_stage.setEnabled(bool(visible_selected_ids))
 
         # クイックタグ追加
         action_quick_tag = menu.addAction("クイックタグ追加...")
-        action_quick_tag.setEnabled(bool(selected_ids))
+        action_quick_tag.setEnabled(bool(visible_selected_ids))
 
         menu.addSeparator()
 
@@ -306,12 +662,9 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         action = menu.exec(self.graphics_view.mapToGlobal(pos))
         if action == action_stage:
-            self.stage_selected_requested.emit()
+            self.stage_selected_requested.emit(visible_selected_ids)
         elif action == action_quick_tag:
-            # 表示中のサムネイルに存在するIDのみに制限
-            visible_ids = {item.image_id for item in self.thumbnail_items}
-            filtered_ids = [id_ for id_ in selected_ids if id_ in visible_ids]
-            self.quick_tag_requested.emit(filtered_ids)
+            self.quick_tag_requested.emit(visible_selected_ids)
         elif action == action_select_all:
             self._select_all_items()
         elif action == action_deselect:
@@ -354,8 +707,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         """
         指定サイズのサムネイルをキャッシュから取得する。
 
-        スケール済みキャッシュに存在すればそれを返し、なければ元画像から
-        スケールして新しいキャッシュエントリを作成する。
+        元画像キャッシュからその都度スケールして返す。
 
         Args:
             image_id (int): 画像ID
@@ -364,24 +716,13 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         Returns:
             QPixmap | None: スケール済みQPixmap、またはキャッシュにない場合None
         """
-        cache_key = (image_id, target_size.width(), target_size.height())
-
-        # スケール済みキャッシュをチェック
-        if cache_key in self.scaled_cache:
-            return self.scaled_cache[cache_key]
-
-        # 元画像からスケール
         if image_id in self.image_cache:
             original_pixmap = self.image_cache[image_id]
-            scaled_pixmap = original_pixmap.scaled(
+            return original_pixmap.scaled(
                 target_size,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
-
-            # スケール済みキャッシュに保存
-            self.scaled_cache[cache_key] = scaled_pixmap
-            return scaled_pixmap
 
         return None
 
@@ -393,8 +734,12 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         大きな状態変更時に呼び出される。
         """
         self.image_cache.clear()
-        self.scaled_cache.clear()
+        self.page_cache.clear()
         self.image_metadata.clear()
+        self._prefetch_queue.clear()
+        self._prefetch_request_ids.clear()
+        self._request_id_to_page.clear()
+        self._display_request_id = None
         logger.debug("サムネイルキャッシュをクリアしました")
 
     def cache_usage_info(self) -> dict[str, int]:
@@ -406,7 +751,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         """
         return {
             "original_cache_count": len(self.image_cache),
-            "scaled_cache_count": len(self.scaled_cache),
+            "page_cache_count": self.page_cache.cache_size,
             "metadata_count": len(self.image_metadata),
         }
 
@@ -497,6 +842,14 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         self.dataset_state = dataset_state
         self._connect_dataset_state()
+        self._ensure_pagination_state()
+
+        # scene.selectionChanged は多重接続を避けて再接続
+        try:
+            self.scene.selectionChanged.disconnect(self._sync_selection_to_state)
+        except Exception:
+            pass
+        self.scene.selectionChanged.connect(self._sync_selection_to_state)
 
     def _connect_dataset_state(self) -> None:
         """
@@ -628,6 +981,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.thumbnail_items.clear()
         self.clear_cache()
         self.image_data.clear()
+        if self.pagination_nav:
+            self.pagination_nav.setVisible(False)
 
         if not thumbnail_result.loaded_thumbnails:
             logger.info("表示する画像がありません")
@@ -697,6 +1052,9 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.thumbnail_items.clear()
         self.clear_cache()
         self.image_data.clear()
+        self._active_search_result = None
+        if self.pagination_nav:
+            self.pagination_nav.setVisible(False)
 
         for path_str, image_id in items:
             path = Path(path_str) if path_str else Path()
@@ -725,9 +1083,14 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.scene.clear()
         self.thumbnail_items.clear()
         self.image_data.clear()
+        self._current_display_page = 1
 
         # 新しいキャッシュもクリア（メモリ効率化）
         self.clear_cache()
+        self._hide_loading_overlay()
+        self._active_search_result = None
+        if self.pagination_nav:
+            self.pagination_nav.setVisible(False)
 
         logger.debug("サムネイル表示とキャッシュをクリアしました")
 
@@ -764,6 +1127,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         ウィジェットがリサイズされたときにタイマーをリセット
         """
         super().resizeEvent(event)
+        if self.loading_overlay.isVisible():
+            self.loading_overlay.setGeometry(self.graphics_view.viewport().rect())
         self.resize_timer.start(250)
 
     def handle_item_selection(self, item: ThumbnailItem, modifiers: Qt.KeyboardModifier) -> None:
@@ -842,8 +1207,12 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         if not self.image_data:
             return
 
-        # キャッシュが利用可能かチェック
-        if self.image_cache:
+        # ページキャッシュが利用可能かチェック
+        if self.pagination_state and self.page_cache.has_page(self._current_display_page):
+            logger.debug(f"ページキャッシュからレイアウト更新: page={self._current_display_page}")
+            self._display_page(self._current_display_page)
+        # レガシーキャッシュが利用可能かチェック
+        elif self.image_cache:
             logger.debug("キャッシュからレイアウト更新を実行")
             self._display_cached_thumbnails()
         else:
