@@ -282,6 +282,7 @@ class WorkerService(QObject):
         # ThumbnailWorker作成 - 正しいパラメータで初期化
         worker = ThumbnailWorker(search_result, thumbnail_size, self.db_manager)
         worker_id = f"thumbnail_{uuid.uuid4().hex[:8]}"
+        self.current_thumbnail_worker_id = worker_id
 
         # 進捗シグナル接続
         worker.progress_updated.connect(
@@ -300,6 +301,68 @@ class WorkerService(QObject):
     def cancel_thumbnail_load(self, worker_id: str) -> bool:
         """サムネイル読み込みキャンセル"""
         return self.worker_manager.cancel_worker(worker_id)
+
+    def start_thumbnail_page_load(
+        self,
+        search_result: SearchResult,
+        thumbnail_size: QSize,
+        image_ids: list[int],
+        page_num: int,
+        request_id: str,
+        cancel_previous: bool = True,
+    ) -> str:
+        """
+        ページ単位のサムネイル読み込み開始。
+
+        Args:
+            search_result: 検索結果オブジェクト
+            thumbnail_size: サムネイルサイズ
+            image_ids: 読み込み対象の画像IDリスト
+            page_num: 対象ページ番号
+            request_id: リクエスト識別子
+            cancel_previous: 既存サムネイルワーカーをキャンセルするか
+
+        Returns:
+            ワーカーID
+        """
+        if not isinstance(search_result, SearchResult):
+            raise TypeError(f"Expected SearchResult, got {type(search_result)}")
+
+        if not image_ids:
+            raise ValueError("image_ids is empty")
+
+        if not isinstance(thumbnail_size, QSize) or thumbnail_size.isEmpty():
+            logger.warning(f"Invalid thumbnail_size: {thumbnail_size}, using default QSize(128, 128)")
+            thumbnail_size = QSize(128, 128)
+
+        if cancel_previous and self.current_thumbnail_worker_id:
+            logger.debug(f"既存のサムネイル読み込みをキャンセル: {self.current_thumbnail_worker_id}")
+            self.worker_manager.cancel_worker(self.current_thumbnail_worker_id)
+            self.current_thumbnail_worker_id = None
+
+        worker = ThumbnailWorker(
+            search_result=search_result,
+            thumbnail_size=thumbnail_size,
+            db_manager=self.db_manager,
+            image_id_filter=image_ids,
+            request_id=request_id,
+            page_num=page_num,
+        )
+        worker_id = f"thumbnail_{uuid.uuid4().hex[:8]}"
+        self.current_thumbnail_worker_id = worker_id
+
+        worker.progress_updated.connect(
+            lambda progress: self.worker_progress_updated.emit(worker_id, progress)
+        )
+
+        if self.worker_manager.start_worker(worker_id, worker):
+            logger.info(
+                f"ページサムネイル読み込み開始: page={page_num}, count={len(image_ids)}, "
+                f"request_id={request_id}, cancel_previous={cancel_previous} (ID: {worker_id})"
+            )
+            return worker_id
+
+        raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
 
     # === 全般管理 ===
 

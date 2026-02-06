@@ -11,8 +11,13 @@ from unittest.mock import Mock, patch
 
 import pytest
 from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QImage
 
+from lorairo.gui.state.dataset_state import DatasetStateManager
+from lorairo.gui.workers.search_worker import SearchResult
+from lorairo.gui.workers.thumbnail_worker import ThumbnailLoadResult
 from lorairo.gui.widgets.thumbnail import ThumbnailSelectorWidget
+from lorairo.services.search_models import SearchConditions
 
 
 class TestThumbnailSelectorWidgetBasic:
@@ -476,6 +481,73 @@ class TestThumbnailSelectorWidgetSelectionSync:
 
         # 最終的に選択状態が正しく反映されている
         assert state_manager.selected_image_ids == [5]
+
+
+class TestThumbnailSelectorWidgetPagination:
+    """ページネーション統合テスト"""
+
+    @pytest.fixture
+    def widget_with_state(self, qtbot):
+        state = DatasetStateManager()
+        widget = ThumbnailSelectorWidget(dataset_state=state)
+        qtbot.addWidget(widget)
+        return widget, state
+
+    @staticmethod
+    def _build_search_result(image_count: int) -> SearchResult:
+        metadata = [
+            {"id": i, "stored_image_path": f"/tmp/image_{i}.png"}
+            for i in range(1, image_count + 1)
+        ]
+        return SearchResult(
+            image_metadata=metadata,
+            total_count=image_count,
+            search_time=0.1,
+            filter_conditions=SearchConditions(search_type="tags", keywords=[], tag_logic="and"),
+        )
+
+    def test_initialize_pagination_search_requests_first_page(self, widget_with_state):
+        widget, _ = widget_with_state
+        worker_service = Mock()
+        worker_service.start_thumbnail_page_load.return_value = "thumbnail_page_1"
+
+        search_result = self._build_search_result(120)
+        widget.initialize_pagination_search(search_result=search_result, worker_service=worker_service)
+
+        assert widget.pagination_state is not None
+        assert widget.pagination_state.total_pages == 2
+        assert widget.pagination_nav is not None
+        assert widget.pagination_nav.isHidden() is False
+        worker_service.start_thumbnail_page_load.assert_called_once()
+
+    def test_handle_thumbnail_page_result_displays_page(self, widget_with_state):
+        widget, _ = widget_with_state
+        worker_service = Mock()
+        worker_service.start_thumbnail_page_load.return_value = "thumbnail_page_1"
+        search_result = self._build_search_result(1)
+        widget.initialize_pagination_search(search_result=search_result, worker_service=worker_service)
+
+        request_id = widget._display_request_id
+        assert request_id is not None
+
+        qimage = QImage(64, 64, QImage.Format.Format_RGB32)
+        qimage.fill(0x00FF00)
+        result = ThumbnailLoadResult(
+            loaded_thumbnails=[(1, qimage)],
+            failed_count=0,
+            total_count=1,
+            processing_time=0.01,
+            image_metadata=[{"id": 1, "stored_image_path": "/tmp/image_1.png"}],
+            request_id=request_id,
+            page_num=1,
+            image_ids=[1],
+        )
+
+        widget.handle_thumbnail_page_result(result)
+
+        assert widget.page_cache.has_page(1)
+        assert len(widget.thumbnail_items) == 1
+        assert widget.image_data[0][1] == 1
 
 
 if __name__ == "__main__":

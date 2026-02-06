@@ -115,6 +115,14 @@ def get_current_project_root() -> Path:
 
 
 def resolve_stored_path(stored_path: str) -> Path:
+    """DB内の stored_image_path を実際のファイルパスに解決する。
+
+    Args:
+        stored_path: DB内のパス（相対パスまたは絶対パス）
+
+    Returns:
+        解決済みの絶対パス
+    """
     path = Path(stored_path)
 
     # 既に絶対パスの場合はそのまま返す
@@ -124,7 +132,6 @@ def resolve_stored_path(stored_path: str) -> Path:
     # 相対パスの場合、現在のプロジェクトルートと結合
     project_root = get_current_project_root()
     resolved = project_root / stored_path
-
     logger.debug(f"パス解決: {stored_path} -> {resolved}")
     return resolved
 
