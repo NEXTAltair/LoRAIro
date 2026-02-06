@@ -213,6 +213,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self._display_request_id: str | None = None
         self._prefetch_request_ids: set[str] = set()
         self._request_id_to_page: dict[str, int] = {}
+        self._request_id_to_worker_id: dict[str, str] = {}
         self._prefetch_queue: list[int] = []
         self._suspend_page_change: bool = False
 
@@ -274,14 +275,28 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         if not self.dataset_state:
             return
 
-        if self.pagination_state is None:
-            self.pagination_state = PaginationStateManager(
-                dataset_state=self.dataset_state,
-                page_size=100,
-                max_cached_pages=5,
-                parent=self,
-            )
-            self.pagination_state.page_changed.connect(self._on_page_changed)
+        current_dataset_state = (
+            getattr(self.pagination_state, "_dataset_state", None)
+            if self.pagination_state is not None
+            else None
+        )
+        if self.pagination_state is not None and current_dataset_state is self.dataset_state:
+            return
+
+        if self.pagination_state is not None:
+            try:
+                self.pagination_state.page_changed.disconnect(self._on_page_changed)
+            except Exception:
+                pass
+            self.pagination_state.deleteLater()
+
+        self.pagination_state = PaginationStateManager(
+            dataset_state=self.dataset_state,
+            page_size=100,
+            max_cached_pages=5,
+            parent=self,
+        )
+        self.pagination_state.page_changed.connect(self._on_page_changed)
 
     def initialize_pagination_search(
         self,
@@ -299,6 +314,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         if not self.pagination_state:
             return
 
+        self._cancel_pending_thumbnail_requests()
         self.page_cache.clear()
         self.image_cache.clear()
         self.image_metadata.clear()
@@ -306,6 +322,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self._prefetch_queue.clear()
         self._prefetch_request_ids.clear()
         self._request_id_to_page.clear()
+        self._request_id_to_worker_id.clear()
         self._display_request_id = None
         self._current_display_page = 1
 
@@ -341,6 +358,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             return
 
         self._request_id_to_page.pop(request_id, None)
+        self._request_id_to_worker_id.pop(request_id, None)
 
         # デバッグ: ワーカーからの結果を詳細ログ
         loaded_count = len(thumbnail_result.loaded_thumbnails)
@@ -399,12 +417,16 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     def _display_or_request_page(self, page: int, cancel_previous: bool) -> None:
         """対象ページを表示し、未キャッシュなら読み込みを要求する。"""
+        self._cancel_pending_thumbnail_requests()
+
         if self._display_request_id:
             self._request_id_to_page.pop(self._display_request_id, None)
+            self._request_id_to_worker_id.pop(self._display_request_id, None)
             self._display_request_id = None
 
         for request_id in self._prefetch_request_ids:
             self._request_id_to_page.pop(request_id, None)
+            self._request_id_to_worker_id.pop(request_id, None)
         self._prefetch_queue.clear()
         self._prefetch_request_ids.clear()
 
@@ -417,6 +439,38 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         self._show_loading_overlay()
         self._request_page_load(page, cancel_previous=cancel_previous, mark_as_display=True)
+
+    def _cancel_pending_thumbnail_requests(self) -> None:
+        """未完了のサムネイル読み込み要求をキャンセルする。"""
+        if not self._worker_service or not hasattr(self._worker_service, "cancel_thumbnail_load"):
+            return
+
+        pending_request_ids: list[str] = []
+        if self._display_request_id is not None:
+            pending_request_ids.append(self._display_request_id)
+        pending_request_ids.extend(self._prefetch_request_ids)
+
+        canceled_any = False
+        for request_id in pending_request_ids:
+            worker_id = self._request_id_to_worker_id.get(request_id)
+            if not worker_id:
+                continue
+            try:
+                self._worker_service.cancel_thumbnail_load(worker_id)
+                canceled_any = True
+            except Exception:
+                logger.exception(f"Failed to cancel thumbnail worker: worker_id={worker_id}")
+
+        # 念のためのフォールバック（旧状態のマッピング欠落に対応）
+        if not canceled_any and pending_request_ids:
+            current_worker_id = getattr(self._worker_service, "current_thumbnail_worker_id", None)
+            if current_worker_id:
+                try:
+                    self._worker_service.cancel_thumbnail_load(current_worker_id)
+                except Exception:
+                    logger.exception(
+                        f"Failed to cancel current thumbnail worker: worker_id={current_worker_id}"
+                    )
 
     def _request_page_load(
         self,
@@ -467,7 +521,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             self._prefetch_request_ids.add(request_id)
 
         try:
-            self._worker_service.start_thumbnail_page_load(
+            worker_id = self._worker_service.start_thumbnail_page_load(
                 search_result=self._active_search_result,
                 thumbnail_size=self.thumbnail_size,
                 image_ids=image_ids,
@@ -475,9 +529,11 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
                 request_id=request_id,
                 cancel_previous=cancel_previous,
             )
+            self._request_id_to_worker_id[request_id] = worker_id
         except Exception:
             self._request_id_to_page.pop(request_id, None)
             self._prefetch_request_ids.discard(request_id)
+            self._request_id_to_worker_id.pop(request_id, None)
             if self._display_request_id == request_id:
                 self._display_request_id = None
                 self._hide_loading_overlay()
@@ -736,9 +792,11 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.image_cache.clear()
         self.page_cache.clear()
         self.image_metadata.clear()
+        self._cancel_pending_thumbnail_requests()
         self._prefetch_queue.clear()
         self._prefetch_request_ids.clear()
         self._request_id_to_page.clear()
+        self._request_id_to_worker_id.clear()
         self._display_request_id = None
         logger.debug("サムネイルキャッシュをクリアしました")
 
