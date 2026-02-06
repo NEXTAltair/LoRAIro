@@ -549,6 +549,34 @@ class TestThumbnailSelectorWidgetPagination:
         assert len(widget.thumbnail_items) == 1
         assert widget.image_data[0][1] == 1
 
+    def test_set_dataset_state_rebinds_pagination_state(self, widget_with_state):
+        widget, _ = widget_with_state
+        old_pagination_state = widget.pagination_state
+
+        new_state = DatasetStateManager()
+        widget.set_dataset_state(new_state)
+
+        assert widget.pagination_state is not None
+        assert widget.pagination_state is not old_pagination_state
+        assert getattr(widget.pagination_state, "_dataset_state", None) is new_state
+
+    def test_display_or_request_page_cancels_pending_request(self, widget_with_state):
+        widget, _ = widget_with_state
+        worker_service = Mock()
+        worker_service.start_thumbnail_page_load.return_value = "thumbnail_req_1"
+
+        search_result = self._build_search_result(1)
+        widget.initialize_pagination_search(search_result=search_result, worker_service=worker_service)
+
+        assert widget._display_request_id is not None
+        widget.page_cache.set_page(1, [])
+        widget._display_or_request_page(1, cancel_previous=True)
+
+        worker_service.cancel_thumbnail_load.assert_called_with("thumbnail_req_1")
+        assert widget._display_request_id is None
+        assert widget._request_id_to_page == {}
+        assert widget._request_id_to_worker_id == {}
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

@@ -282,7 +282,6 @@ class WorkerService(QObject):
         # ThumbnailWorker作成 - 正しいパラメータで初期化
         worker = ThumbnailWorker(search_result, thumbnail_size, self.db_manager)
         worker_id = f"thumbnail_{uuid.uuid4().hex[:8]}"
-        self.current_thumbnail_worker_id = worker_id
 
         # 進捗シグナル接続
         worker.progress_updated.connect(
@@ -290,6 +289,7 @@ class WorkerService(QObject):
         )
 
         if self.worker_manager.start_worker(worker_id, worker):
+            self.current_thumbnail_worker_id = worker_id
             logger.info(
                 f"サムネイル読み込み開始: {len(search_result.image_metadata)}件, "
                 f"サイズ={thumbnail_size.width()}x{thumbnail_size.height()} (ID: {worker_id})"
@@ -349,13 +349,13 @@ class WorkerService(QObject):
             page_num=page_num,
         )
         worker_id = f"thumbnail_{uuid.uuid4().hex[:8]}"
-        self.current_thumbnail_worker_id = worker_id
 
         worker.progress_updated.connect(
             lambda progress: self.worker_progress_updated.emit(worker_id, progress)
         )
 
         if self.worker_manager.start_worker(worker_id, worker):
+            self.current_thumbnail_worker_id = worker_id
             logger.info(
                 f"ページサムネイル読み込み開始: page={page_num}, count={len(image_ids)}, "
                 f"request_id={request_id}, cancel_previous={cancel_previous} (ID: {worker_id})"

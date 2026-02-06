@@ -255,6 +255,27 @@ class TestWorkerService:
         assert worker_id_2.startswith("thumbnail_")
 
     @patch("lorairo.gui.services.worker_service.ThumbnailWorker")
+    def test_start_thumbnail_loading_failure_keeps_current_worker_id(
+        self, mock_worker_class, worker_service
+    ):
+        """サムネイル開始失敗時に current_thumbnail_worker_id を上書きしない"""
+        mock_worker_class.return_value = Mock()
+        worker_service.worker_manager.start_worker.return_value = False
+        worker_service.current_thumbnail_worker_id = "thumbnail_existing"
+
+        search_result = SearchResult(
+            image_metadata=[{"id": 1, "path": "/test/image1.jpg"}],
+            total_count=1,
+            search_time=0.1,
+            filter_conditions=SearchConditions(search_type="tags", keywords=[], tag_logic="and"),
+        )
+
+        with pytest.raises(RuntimeError, match="ワーカー開始失敗"):
+            worker_service.start_thumbnail_load(search_result, QSize(128, 128))
+
+        assert worker_service.current_thumbnail_worker_id == "thumbnail_existing"
+
+    @patch("lorairo.gui.services.worker_service.ThumbnailWorker")
     def test_start_thumbnail_page_load_success(self, mock_worker_class, worker_service):
         """ページ単位サムネイル読み込み開始テスト"""
         mock_worker = Mock()
@@ -318,6 +339,34 @@ class TestWorkerService:
         )
 
         worker_service.worker_manager.cancel_worker.assert_called_with("thumbnail_existing")
+
+    @patch("lorairo.gui.services.worker_service.ThumbnailWorker")
+    def test_start_thumbnail_page_load_failure_keeps_current_worker_id(
+        self, mock_worker_class, worker_service
+    ):
+        """ページ読み込み開始失敗時に current_thumbnail_worker_id を上書きしない"""
+        mock_worker_class.return_value = Mock()
+        worker_service.worker_manager.start_worker.return_value = False
+        worker_service.current_thumbnail_worker_id = "thumbnail_existing"
+
+        search_result = SearchResult(
+            image_metadata=[{"id": 1, "path": "/test/image1.jpg"}],
+            total_count=1,
+            search_time=0.1,
+            filter_conditions=SearchConditions(search_type="tags", keywords=[], tag_logic="and"),
+        )
+
+        with pytest.raises(RuntimeError, match="ワーカー開始失敗"):
+            worker_service.start_thumbnail_page_load(
+                search_result=search_result,
+                thumbnail_size=QSize(128, 128),
+                image_ids=[1],
+                page_num=1,
+                request_id="req_failure",
+                cancel_previous=False,
+            )
+
+        assert worker_service.current_thumbnail_worker_id == "thumbnail_existing"
 
     def test_worker_manager_signal_connections(self, worker_service):
         """ワーカーマネージャーシグナル接続テスト"""
