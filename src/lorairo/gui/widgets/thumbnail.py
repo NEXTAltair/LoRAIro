@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast, overload
 
 from PySide6.QtCore import QPoint, QRectF, QSize, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPainter, QPen, QPixmap, QResizeEvent
+from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPainter, QPen, QPixmap, QResizeEvent, QShortcut
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsObject,
@@ -145,6 +145,8 @@ class CustomGraphicsView(QGraphicsView):
         """
         super().__init__(*args, **kwargs)
         self._drag_modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier
+        # キーボードフォーカスを受け取れるように設定（Ctrl+A等のキー操作に必要）
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """
@@ -328,6 +330,13 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             # ドラッグ選択の同期（scene → DatasetStateManager）
             self.scene.selectionChanged.connect(self._sync_selection_to_state)
             self._ensure_pagination_state()
+
+        # キーボードフォーカスを受け取れるように設定（Ctrl+A等のキー操作に必要）
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        # Ctrl+A ショートカット（フォーカス位置に関わらず確実に動作）
+        self.select_all_shortcut = QShortcut("Ctrl+A", self)
+        self.select_all_shortcut.activated.connect(self._select_all_items)
 
     def _setup_header_connections(self) -> None:
         """
@@ -1275,6 +1284,25 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         if self.loading_overlay.isVisible():
             self.loading_overlay.setGeometry(self.graphics_view.viewport().rect())
         self.resize_timer.start(250)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """
+        キープレスイベントを処理する。
+
+        Ctrl+A（全選択）を処理し、_select_all_itemsを呼び出す。
+        これによりビューにフォーカスがなくてもCtrl+Aが機能する。
+
+        Args:
+            event: キーイベント
+        """
+        # Ctrl+A: 全選択
+        if event.key() == Qt.Key.Key_A and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+            self._select_all_items()
+            event.accept()
+            return
+
+        # その他のキーイベントは親クラスに委譲
+        super().keyPressEvent(event)
 
     def _on_empty_space_clicked(self) -> None:
         """空スペースクリック時の選択解除処理"""
