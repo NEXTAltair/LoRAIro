@@ -4,6 +4,7 @@ import traceback
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from ...services.search_criteria_processor import SearchCriteriaProcessor
 from ...utils.log import logger
 from .base import LoRAIroWorkerBase
 
@@ -28,6 +29,7 @@ class SearchWorker(LoRAIroWorkerBase[SearchResult]):
     def __init__(self, db_manager: "ImageDatabaseManager", search_conditions: "SearchConditions"):
         super().__init__()
         self.db_manager = db_manager
+        self.criteria_processor = SearchCriteriaProcessor(db_manager)
         self.search_conditions = search_conditions
 
     def execute(self) -> SearchResult:
@@ -40,45 +42,16 @@ class SearchWorker(LoRAIroWorkerBase[SearchResult]):
             # 検索開始
             self._report_progress(20, "データベース検索を開始...")
 
-            # SearchConditionsから条件を抽出
-            if self.search_conditions.search_type == "tags":
-                tags = self.search_conditions.keywords
-                caption = None
-            elif self.search_conditions.search_type == "caption":
-                tags = None
-                caption = self.search_conditions.keywords[0] if self.search_conditions.keywords else ""
-            else:
-                tags = None
-                caption = None
-
-            # 解像度フィルター
-            resolution = self.search_conditions._resolve_resolution()
-
-            # タグロジック
-            use_and = self.search_conditions.tag_logic == "and"
-
-            # 日付範囲
-            date_range_start = self.search_conditions.date_range_start
-            date_range_end = self.search_conditions.date_range_end
-
-            # その他のオプション
-            include_untagged = self.search_conditions.only_untagged
-
             # 検索実行
             self._report_progress(60, "フィルター条件を適用中...")
 
             # キャンセルチェック
             self._check_cancellation()
 
-            image_metadata, total_count = self.db_manager.get_images_by_filter(
-                tags=tags,
-                caption=caption,
-                resolution=resolution,
-                use_and=use_and,
-                start_date=date_range_start.isoformat() if date_range_start else None,
-                end_date=date_range_end.isoformat() if date_range_end else None,
-                include_untagged=include_untagged,
+            image_metadata, total_count = self.criteria_processor.execute_search_with_filters(
+                self.search_conditions
             )
+            self._check_cancellation()
 
             # バッチ進捗報告（検索結果処理）
             if total_count > 0:
