@@ -416,17 +416,19 @@ class WorkerService(QObject):
             operation_name = "サムネイル読み込み"
             self.thumbnail_started.emit(worker_id)
 
-        # プログレスダイアログ自動開始
-        self.progress_manager.start_worker_progress(
-            worker_id, operation_name, f"{operation_name}を開始しています...", parent=self.parent()
-        )
+        # サムネイル先読みはバックグラウンド処理のためプログレスダイアログ不要
+        if not worker_id.startswith("thumbnail_"):
+            self.progress_manager.start_worker_progress(
+                worker_id, operation_name, f"{operation_name}を開始しています...", parent=self.parent()
+            )
 
-        logger.info(f"ワーカー開始とプログレス表示: {operation_name} (ID: {worker_id})")
+        logger.info(f"ワーカー開始: {operation_name} (ID: {worker_id})")
 
     def _on_worker_finished(self, worker_id: str, result: Any) -> None:
         """ワーカー完了ハンドラ - プログレスダイアログ終了処理"""
-        # プログレスダイアログ完了処理
-        self.progress_manager.finish_worker_progress(worker_id, success=True)
+        # サムネイルワーカーはプログレスダイアログを使用しないためスキップ
+        if not worker_id.startswith("thumbnail_"):
+            self.progress_manager.finish_worker_progress(worker_id, success=True)
 
         if worker_id.startswith("batch_reg_"):
             self.batch_registration_finished.emit(result)
@@ -445,14 +447,15 @@ class WorkerService(QObject):
             if self.current_thumbnail_worker_id == worker_id:
                 self.current_thumbnail_worker_id = None
 
-        logger.info(f"ワーカー完了とプログレス終了: {worker_id}")
+        logger.info(f"ワーカー完了: {worker_id}")
 
     def _on_worker_error(self, worker_id: str, error: str) -> None:
         """ワーカーエラーハンドラ - プログレスダイアログエラー処理"""
         logger.error(f"ワーカーエラー {worker_id}: {error}")
 
-        # プログレスダイアログエラー完了処理
-        self.progress_manager.finish_worker_progress(worker_id, success=False)
+        # サムネイルワーカーはプログレスダイアログを使用しないためスキップ
+        if not worker_id.startswith("thumbnail_"):
+            self.progress_manager.finish_worker_progress(worker_id, success=False)
 
         if worker_id.startswith("batch_reg_"):
             self.batch_registration_error.emit(error)
