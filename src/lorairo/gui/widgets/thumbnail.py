@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast, overload
 
 from PySide6.QtCore import QPoint, QRectF, QSize, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPen, QPixmap, QResizeEvent
+from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPainter, QPen, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsObject,
@@ -122,10 +122,12 @@ class CustomGraphicsView(QGraphicsView):
     - Ctrl+Shift+Click: 範囲追加選択
     - ドラッグ: ラバーバンド矩形選択
     - Ctrl+ドラッグ / Shift+ドラッグ: 既存選択に矩形選択を追加
+    - Ctrl+A: 全選択
     """
 
     itemClicked = Signal(ThumbnailItem, Qt.KeyboardModifier)
     emptySpaceClicked = Signal()
+    selectAllRequested = Signal()  # Ctrl+A押下時に発火
 
     @overload
     def __init__(self, parent: QWidget | None = None) -> None: ...
@@ -188,6 +190,24 @@ class CustomGraphicsView(QGraphicsView):
         """
         super().mouseReleaseEvent(event)
         self._drag_modifiers = Qt.KeyboardModifier.NoModifier
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """
+        キープレスイベントを処理する。
+
+        Ctrl+A（全選択）を処理し、selectAllRequestedシグナルを発火する。
+
+        Args:
+            event: キーイベント
+        """
+        # Ctrl+A: 全選択
+        if event.key() == Qt.Key.Key_A and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+            self.selectAllRequested.emit()
+            event.accept()
+            return
+
+        # その他のキーイベントは親クラスに委譲
+        super().keyPressEvent(event)
 
 
 class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
@@ -253,6 +273,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.graphics_view.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self.graphics_view.itemClicked.connect(self.handle_item_selection)
         self.graphics_view.emptySpaceClicked.connect(self._on_empty_space_clicked)
+        self.graphics_view.selectAllRequested.connect(self._select_all_items)
         self.graphics_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.graphics_view.customContextMenuRequested.connect(self._on_context_menu_requested)
 
