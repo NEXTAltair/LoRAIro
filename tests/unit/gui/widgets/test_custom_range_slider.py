@@ -160,6 +160,9 @@ class TestFilterSearchPanel:
         panel.checkboxOnlyUncaptioned = Mock()
         panel.checkboxExcludeDuplicates = Mock()
         panel.checkboxIncludeNSFW = Mock()
+        panel.comboRating = Mock()
+        panel.comboAIRating = Mock()
+        panel.checkboxIncludeUnrated = Mock()
         # textEditPreview は削除されたため除外
         panel.buttonApply = Mock()
         panel.buttonClear = Mock()
@@ -194,7 +197,14 @@ class TestFilterSearchPanel:
         panel.ui.checkboxOnlyUncaptioned = panel.checkboxOnlyUncaptioned
         panel.ui.checkboxExcludeDuplicates = panel.checkboxExcludeDuplicates
         panel.ui.checkboxIncludeNSFW = panel.checkboxIncludeNSFW
+        panel.ui.comboRating = panel.comboRating
+        panel.ui.comboAIRating = panel.comboAIRating
+        panel.ui.checkboxIncludeUnrated = panel.checkboxIncludeUnrated
         # textEditPreview は削除
+
+        panel.comboRating.currentText.return_value = "全て"
+        panel.comboAIRating.currentText.return_value = "全て"
+        panel.checkboxIncludeUnrated.isChecked.return_value = True
 
         # SearchFilterService モック
         panel.search_filter_service = Mock()
@@ -453,8 +463,14 @@ class TestFilterSearchPanel:
         filter_panel.ui.checkboxOnlyUntagged = filter_panel.checkboxOnlyUntagged
         filter_panel.ui.checkboxOnlyUncaptioned = filter_panel.checkboxOnlyUncaptioned
         filter_panel.ui.checkboxExcludeDuplicates = filter_panel.checkboxExcludeDuplicates
+        filter_panel.ui.comboRating = filter_panel.comboRating
+        filter_panel.ui.comboAIRating = filter_panel.comboAIRating
+        filter_panel.ui.checkboxIncludeUnrated = filter_panel.checkboxIncludeUnrated
         filter_panel.ui.lineEditWidth = filter_panel.lineEditWidth
         filter_panel.ui.lineEditHeight = filter_panel.lineEditHeight
+        filter_panel.ui.comboRating.currentText.return_value = "全て"
+        filter_panel.ui.comboAIRating.currentText.return_value = "全て"
+        filter_panel.ui.checkboxIncludeUnrated.isChecked.return_value = True
         # textEditPreview は削除されたため除外
 
         # search_requestedシグナルをモック
