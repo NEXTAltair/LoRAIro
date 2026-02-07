@@ -210,6 +210,32 @@ class TestSearchCriteriaProcessor:
         assert len(result) == 2
         assert all(img["width"] == img["height"] for img in result)
 
+    def test_filter_by_aspect_ratio_landscape_16_9(self, processor):
+        """16:9フィルターで16:9画像のみ残ることを確認"""
+        images = [
+            {"id": 1, "width": 1920, "height": 1080},  # 16:9
+            {"id": 2, "width": 1600, "height": 1200},  # 4:3
+            {"id": 3, "width": 1080, "height": 1920},  # 9:16
+        ]
+
+        result = processor._filter_by_aspect_ratio(images, "風景 (16:9)")
+
+        assert len(result) == 1
+        assert result[0]["id"] == 1
+
+    def test_filter_by_aspect_ratio_landscape_4_3(self, processor):
+        """4:3フィルターで16:9を混在させないことを確認"""
+        images = [
+            {"id": 1, "width": 1920, "height": 1080},  # 16:9
+            {"id": 2, "width": 1600, "height": 1200},  # 4:3
+            {"id": 3, "width": 1080, "height": 1920},  # 9:16
+        ]
+
+        result = processor._filter_by_aspect_ratio(images, "風景 (4:3)")
+
+        assert len(result) == 1
+        assert result[0]["id"] == 2
+
     def test_filter_by_aspect_ratio_no_filter(self, processor):
         """アスペクト比フィルターなしテスト"""
         images = [{"width": 1024, "height": 1024}, {"width": 1920, "height": 1080}]
