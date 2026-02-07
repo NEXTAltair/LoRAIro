@@ -225,16 +225,19 @@ class SearchCriteriaProcessor:
             target_ratio = 1.0  # デフォルト
             tolerance = 0.1
 
-            if "正方形" in aspect_ratio_filter or "1:1" in aspect_ratio_filter:
+            # UIラベルから比率値を優先抽出（例: "風景 (4:3)" -> 4/3）
+            ratio_match = re.search(r"(\d+)\s*:\s*(\d+)", aspect_ratio_filter)
+            if ratio_match:
+                numerator = int(ratio_match.group(1))
+                denominator = int(ratio_match.group(2))
+                if denominator != 0:
+                    target_ratio = numerator / denominator
+            elif "正方形" in aspect_ratio_filter:
                 target_ratio = 1.0
-            elif "風景" in aspect_ratio_filter or "16:9" in aspect_ratio_filter:
+            elif "風景" in aspect_ratio_filter:
                 target_ratio = 16 / 9
-            elif "4:3" in aspect_ratio_filter:
-                target_ratio = 4 / 3
-            elif "9:16" in aspect_ratio_filter:
+            elif "縦長" in aspect_ratio_filter:
                 target_ratio = 9 / 16
-            elif "3:4" in aspect_ratio_filter:
-                target_ratio = 3 / 4
 
             for image in images:
                 width = image.get("width", 0)
