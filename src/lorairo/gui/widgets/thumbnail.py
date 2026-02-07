@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, cast, overload
 
 from PySide6.QtCore import QPoint, QRectF, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPen, QPixmap, QResizeEvent
@@ -24,10 +24,10 @@ from PySide6.QtWidgets import (
 from ...gui.designer.ThumbnailSelectorWidget_ui import Ui_ThumbnailSelectorWidget
 from ...utils.log import logger
 from ..cache.thumbnail_page_cache import ThumbnailPageCache
+from ..state.dataset_state import DatasetStateManager
 from ..state.pagination_state import PaginationStateManager
 from ..workers.thumbnail_worker import ThumbnailLoadResult
 from .pagination_nav_widget import PaginationNavWidget
-from ..state.dataset_state import DatasetStateManager
 
 if TYPE_CHECKING:
     from ..services.worker_service import WorkerService
@@ -48,7 +48,7 @@ class ThumbnailItem(QGraphicsObject):
         parent_widget (ThumbnailSelectorWidget): 親ウィジェット
     """
 
-    def __init__(self, pixmap: QPixmap, image_path: Path, image_id: int, parent: "ThumbnailSelectorWidget"):
+    def __init__(self, pixmap: QPixmap, image_path: Path, image_id: int, parent: ThumbnailSelectorWidget):
         """
         ThumbnailItemを初期化する。
 
@@ -114,20 +114,74 @@ class ThumbnailItem(QGraphicsObject):
 class CustomGraphicsView(QGraphicsView):
     """
     アイテムのクリックを処理し、信号を発行するカスタムQGraphicsView。
+
+    標準OS準拠の選択動作:
+    - Click: 単一選択
+    - Ctrl+Click: トグル選択
+    - Shift+Click: 範囲選択
+    - Ctrl+Shift+Click: 範囲追加選択
+    - ドラッグ: ラバーバンド矩形選択
+    - Ctrl+ドラッグ / Shift+ドラッグ: 既存選択に矩形選択を追加
     """
 
     itemClicked = Signal(ThumbnailItem, Qt.KeyboardModifier)
+    emptySpaceClicked = Signal()
+
+    @overload
+    def __init__(self, parent: QWidget | None = None) -> None: ...
+
+    @overload
+    def __init__(self, scene: QGraphicsScene, parent: QWidget | None = None) -> None: ...
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """
+        CustomGraphicsViewを初期化する。
+
+        QGraphicsViewの複数の初期化形式をサポート:
+        - CustomGraphicsView(parent)
+        - CustomGraphicsView(scene, parent)
+        """
+        super().__init__(*args, **kwargs)
+        self._drag_modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """
-        アイテムがクリックされたときに信号を発行します。
+        マウスプレスイベントを処理する。
+
+        アイテムクリック時はitemClickedシグナルを発行し、super()を呼ばない。
+        これによりQtのシーン選択が独自の選択ロジックを上書きするのを防止する。
+        空スペースクリック時のみsuper()を呼び、ラバーバンドドラッグを有効にする。
+
         Args:
-            event (QMouseEvent): マウスイベント
+            event: マウスイベント
         """
         item = self.itemAt(event.position().toPoint())
         if isinstance(item, ThumbnailItem):
+            # アイテム上のクリック: 独自の選択ロジックで処理
+            # super()を呼ばないことで、Qtのシーン選択による上書きを防止
             self.itemClicked.emit(item, event.modifiers())
-        super().mousePressEvent(event)
+        else:
+            # 空スペース: ドラッグ修飾子を記録してラバーバンド開始
+            self._drag_modifiers = event.modifiers()
+            if not (
+                event.modifiers()
+                & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
+            ):
+                # 修飾子なしの空スペースクリック → 選択解除用シグナル
+                self.emptySpaceClicked.emit()
+            super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        """
+        マウスリリースイベント処理。
+
+        ラバーバンドドラッグ終了後にドラッグ修飾子をリセットする。
+
+        Args:
+            event: マウスイベント
+        """
+        super().mouseReleaseEvent(event)
+        self._drag_modifiers = Qt.KeyboardModifier.NoModifier
 
 
 class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
@@ -192,6 +246,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.graphics_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.graphics_view.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self.graphics_view.itemClicked.connect(self.handle_item_selection)
+        self.graphics_view.emptySpaceClicked.connect(self._on_empty_space_clicked)
         self.graphics_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.graphics_view.customContextMenuRequested.connect(self._on_context_menu_requested)
 
@@ -479,11 +534,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         mark_as_display: bool,
     ) -> None:
         """ページ単位サムネイル読み込みをWorkerServiceへ要求する。"""
-        if (
-            not self.pagination_state
-            or not self._worker_service
-            or not self._active_search_result
-        ):
+        if not self.pagination_state or not self._worker_service or not self._active_search_result:
             return
 
         image_ids = self.pagination_state.get_page_image_ids(page)
@@ -497,12 +548,9 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         # デバッグ: データ整合性チェック
         search_result_count = (
-            len(self._active_search_result.image_metadata)
-            if self._active_search_result else 0
+            len(self._active_search_result.image_metadata) if self._active_search_result else 0
         )
-        dataset_count = (
-            len(self.dataset_state.filtered_images) if self.dataset_state else 0
-        )
+        dataset_count = len(self.dataset_state.filtered_images) if self.dataset_state else 0
         logger.debug(
             f"ページ {page} 読み込み要求: image_ids={len(image_ids)}件, "
             f"search_result={search_result_count}件, dataset_state={dataset_count}件"
@@ -978,6 +1026,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         ドラッグ選択（RubberBandDrag）による複数選択時に、
         選択された image_ids を DatasetStateManager に反映。
 
+        Ctrl/Shift修飾子付きドラッグの場合、既存選択を維持して追加する。
+
         循環参照防止:
             scene.selectionChanged → blockSignals(True) → dataset_state.set_selected_images()
             → blockSignals(False) により、selection_changed シグナルの再発火を防ぐ。
@@ -990,17 +1040,27 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         # 選択中のアイテムから image_id を抽出
         selected_items = self.scene.selectedItems()
-        selected_image_ids = []
-        for item in selected_items:
-            if isinstance(item, ThumbnailItem):
-                selected_image_ids.append(item.image_id)
+        selected_image_ids = [item.image_id for item in selected_items if isinstance(item, ThumbnailItem)]
 
-        # 循環参照防止: DatasetStateManager への更新時、シグナルをブロック
-        self.dataset_state.blockSignals(True)
-        self.dataset_state.set_selected_images(selected_image_ids)
-        self.dataset_state.blockSignals(False)
+        # ドラッグ開始時の修飾子を取得
+        drag_modifiers = self.graphics_view._drag_modifiers
 
-        logger.debug(f"Selection synced to state: {len(selected_image_ids)} images selected")
+        if drag_modifiers & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier):
+            # Ctrl/Shift+ドラッグ: 既存選択を維持して追加（重複排除、順序維持）
+            current_ids = self.dataset_state.selected_image_ids
+            merged = list(dict.fromkeys(current_ids + selected_image_ids))
+            self.dataset_state.blockSignals(True)
+            self.dataset_state.set_selected_images(merged)
+            self.dataset_state.blockSignals(False)
+        else:
+            # 通常ドラッグ: 選択を置換
+            self.dataset_state.blockSignals(True)
+            self.dataset_state.set_selected_images(selected_image_ids)
+            self.dataset_state.blockSignals(False)
+
+        logger.debug(
+            f"Selection synced to state: {len(self.dataset_state.selected_image_ids)} images selected"
+        )
 
     @Slot(int)
     def _on_state_current_image_changed(self, current_image_id: int) -> None:
@@ -1189,11 +1249,16 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             self.loading_overlay.setGeometry(self.graphics_view.viewport().rect())
         self.resize_timer.start(250)
 
+    def _on_empty_space_clicked(self) -> None:
+        """空スペースクリック時の選択解除処理"""
+        if self.dataset_state:
+            self.dataset_state.clear_selection()
+
     def handle_item_selection(self, item: ThumbnailItem, modifiers: Qt.KeyboardModifier) -> None:
         """
-        アイテムの選択を処理（状態管理統合版）
+        アイテムの選択を処理（標準OS準拠の選択動作）
 
-        **呼び出し箇所**: CustomGraphicsView.itemClicked Signal (thumbnail.py:168)
+        **呼び出し箇所**: CustomGraphicsView.itemClicked Signal (thumbnail.py)
         **使用意図**: ユーザーのクリック操作を選択状態に変換し、DatasetStateManagerに伝達
         **アーキテクチャ連携**:
         - UI入力 → DatasetStateManager → 全UIコンポーネント への状態伝播
@@ -1201,28 +1266,32 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         - Signal/Slotパターンによる疎結合なコンポーネント間通信
 
         マウスクリックとキーボード修飾子（Ctrl/Shift）の組み合わせにより、
-        単一選択・複数選択・範囲選択を統一的に処理。選択状態はDatasetStateManagerで
-        一元管理され、他のUIコンポーネント（プレビュー、詳細表示）にも自動的に反映される。
+        単一選択・複数選択・範囲選択・範囲追加選択を統一的に処理。
 
         Args:
-            item (ThumbnailItem): クリックされたサムネイルアイテム
-            modifiers (Qt.KeyboardModifier): キーボード修飾子
-                - None: 単一選択
+            item: クリックされたサムネイルアイテム
+            modifiers: キーボード修飾子
+                - None: 単一選択（他を解除）
                 - Ctrl: トグル選択（現在の選択状態を切り替え）
-                - Shift: 範囲選択（前回選択から現在まで）
+                - Shift: 範囲選択（前回選択から現在まで、既存選択を置換）
+                - Ctrl+Shift: 範囲追加選択（既存選択を維持して範囲を追加）
         """
-        # DatasetStateManagerを使用した統一選択処理
         if not self.dataset_state:
-            # ステージング等の表示専用ウィジェットでは状態管理なしで動作する
             logger.debug("状態管理が未設定のため選択操作をスキップ")
             return
 
-        if modifiers & Qt.KeyboardModifier.ControlModifier:
+        has_ctrl = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
+        has_shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+
+        if has_ctrl and has_shift and self.last_selected_item:
+            # Ctrl+Shift選択: 既存選択を維持して範囲を追加
+            self.select_range(self.last_selected_item, item, add_to_existing=True)
+        elif has_ctrl:
             # Ctrl選択: 選択状態をトグル
             self.dataset_state.toggle_selection(item.image_id)
-        elif modifiers & Qt.KeyboardModifier.ShiftModifier and self.last_selected_item:
-            # Shift選択: 範囲選択
-            self.select_range(self.last_selected_item, item)
+        elif has_shift and self.last_selected_item:
+            # Shift選択: 範囲選択（既存選択を置換）
+            self.select_range(self.last_selected_item, item, add_to_existing=False)
         else:
             # 通常選択: 単一選択
             self.dataset_state.set_selected_images([item.image_id])
@@ -1230,8 +1299,20 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         self.last_selected_item = item
 
-    def select_range(self, start_item: ThumbnailItem, end_item: ThumbnailItem) -> None:
-        """範囲選択処理（DatasetStateManager経由）"""
+    def select_range(
+        self,
+        start_item: ThumbnailItem,
+        end_item: ThumbnailItem,
+        *,
+        add_to_existing: bool = False,
+    ) -> None:
+        """範囲選択処理（DatasetStateManager経由）
+
+        Args:
+            start_item: 範囲選択の開始アイテム
+            end_item: 範囲選択の終了アイテム
+            add_to_existing: Trueの場合、既存の選択を維持して範囲を追加（Ctrl+Shift+Click用）
+        """
         if start_item is None or end_item is None or not self.dataset_state:
             return
 
@@ -1239,10 +1320,17 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         end_index = self.thumbnail_items.index(end_item)
         start_index, end_index = min(start_index, end_index), max(start_index, end_index)
 
-        selected_ids = [
+        range_ids = [
             item.image_id for i, item in enumerate(self.thumbnail_items) if start_index <= i <= end_index
         ]
-        self.dataset_state.set_selected_images(selected_ids)
+
+        if add_to_existing:
+            # 既存選択を維持して範囲を追加（重複排除、順序維持）
+            current_ids = list(self.dataset_state.selected_image_ids)
+            merged = list(dict.fromkeys(current_ids + range_ids))
+            self.dataset_state.set_selected_images(merged)
+        else:
+            self.dataset_state.set_selected_images(range_ids)
 
     # === Layout Management ===
 

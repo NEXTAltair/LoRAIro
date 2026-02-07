@@ -14,9 +14,9 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QImage
 
 from lorairo.gui.state.dataset_state import DatasetStateManager
+from lorairo.gui.widgets.thumbnail import ThumbnailSelectorWidget
 from lorairo.gui.workers.search_worker import SearchResult
 from lorairo.gui.workers.thumbnail_worker import ThumbnailLoadResult
-from lorairo.gui.widgets.thumbnail import ThumbnailSelectorWidget
 from lorairo.services.search_models import SearchConditions
 
 
@@ -483,6 +483,164 @@ class TestThumbnailSelectorWidgetSelectionSync:
         assert state_manager.selected_image_ids == [5]
 
 
+class TestThumbnailSelectorWidgetClickSelection:
+    """クリック選択動作テスト（標準OS準拠の選択動作）"""
+
+    @pytest.fixture
+    def widget_with_items(self, qtbot):
+        """DatasetStateManager + ThumbnailItemsを持つウィジェット"""
+        from lorairo.gui.state.dataset_state import DatasetStateManager
+        from lorairo.gui.widgets.thumbnail import ThumbnailItem
+
+        state = DatasetStateManager()
+        widget = ThumbnailSelectorWidget(dataset_state=state)
+        qtbot.addWidget(widget)
+
+        # モックThumbnailItemを5つ作成
+        items = []
+        for i in range(1, 6):
+            mock_item = Mock(spec=ThumbnailItem)
+            mock_item.image_id = i
+            items.append(mock_item)
+        widget.thumbnail_items = items
+        return widget, state, items
+
+    def test_normal_click_single_selection(self, widget_with_items):
+        """通常クリック: 単一選択（他を解除）"""
+        widget, state, items = widget_with_items
+
+        widget.handle_item_selection(items[0], Qt.KeyboardModifier.NoModifier)
+        assert state.selected_image_ids == [1]
+
+        # 別アイテムをクリック → 前の選択が解除される
+        widget.handle_item_selection(items[2], Qt.KeyboardModifier.NoModifier)
+        assert state.selected_image_ids == [3]
+
+    def test_ctrl_click_toggle_selection(self, widget_with_items):
+        """Ctrl+Click: 個別トグル選択"""
+        widget, state, items = widget_with_items
+
+        # 1つ目を通常選択
+        widget.handle_item_selection(items[0], Qt.KeyboardModifier.NoModifier)
+        assert state.selected_image_ids == [1]
+
+        # Ctrlクリックで追加
+        widget.handle_item_selection(items[2], Qt.KeyboardModifier.ControlModifier)
+        assert sorted(state.selected_image_ids) == [1, 3]
+
+        # 同じアイテムをCtrlクリックで解除
+        widget.handle_item_selection(items[0], Qt.KeyboardModifier.ControlModifier)
+        assert state.selected_image_ids == [3]
+
+    def test_shift_click_range_selection(self, widget_with_items):
+        """Shift+Click: 範囲選択（既存選択を置換）"""
+        widget, state, items = widget_with_items
+
+        # まず1つ目を選択（last_selected_itemを設定）
+        widget.handle_item_selection(items[0], Qt.KeyboardModifier.NoModifier)
+        assert state.selected_image_ids == [1]
+
+        # Shiftクリックで範囲選択（1〜4）
+        widget.handle_item_selection(items[3], Qt.KeyboardModifier.ShiftModifier)
+        assert state.selected_image_ids == [1, 2, 3, 4]
+
+    def test_ctrl_shift_click_range_add_selection(self, widget_with_items):
+        """Ctrl+Shift+Click: 範囲追加選択（既存選択を維持）"""
+        widget, state, items = widget_with_items
+
+        # まず1つ目を選択
+        widget.handle_item_selection(items[0], Qt.KeyboardModifier.NoModifier)
+        assert state.selected_image_ids == [1]
+
+        # Ctrlクリックで3つ目を追加
+        widget.handle_item_selection(items[2], Qt.KeyboardModifier.ControlModifier)
+        assert sorted(state.selected_image_ids) == [1, 3]
+
+        # Ctrl+Shiftクリックで4〜5を追加（last_selected_itemは3つ目）
+        ctrl_shift = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier
+        widget.handle_item_selection(items[4], ctrl_shift)
+        assert sorted(state.selected_image_ids) == [1, 3, 4, 5]
+
+    def test_shift_click_without_previous_selection_does_single_select(self, widget_with_items):
+        """Shift+Click（前回選択なし）: 単一選択になる"""
+        widget, state, items = widget_with_items
+
+        # last_selected_item が None の状態でShiftクリック
+        widget.handle_item_selection(items[2], Qt.KeyboardModifier.ShiftModifier)
+        assert state.selected_image_ids == [3]
+
+    def test_empty_space_click_clears_selection(self, widget_with_items):
+        """空スペースクリック: 選択解除"""
+        widget, state, items = widget_with_items
+
+        # まず複数選択
+        widget.handle_item_selection(items[0], Qt.KeyboardModifier.NoModifier)
+        widget.handle_item_selection(items[1], Qt.KeyboardModifier.ControlModifier)
+        assert len(state.selected_image_ids) == 2
+
+        # 空スペースクリック
+        widget._on_empty_space_clicked()
+        assert state.selected_image_ids == []
+
+    def test_last_selected_item_tracked(self, widget_with_items):
+        """last_selected_item が毎クリック後に更新される"""
+        widget, _state, items = widget_with_items
+
+        widget.handle_item_selection(items[0], Qt.KeyboardModifier.NoModifier)
+        assert widget.last_selected_item is items[0]
+
+        widget.handle_item_selection(items[3], Qt.KeyboardModifier.ControlModifier)
+        assert widget.last_selected_item is items[3]
+
+    def test_handle_item_selection_without_dataset_state(self, qtbot):
+        """DatasetState未設定時はスキップされる"""
+        widget = ThumbnailSelectorWidget()
+        qtbot.addWidget(widget)
+        widget.dataset_state = None
+
+        mock_item = Mock()
+        mock_item.image_id = 1
+        # 例外が発生しないことを確認
+        widget.handle_item_selection(mock_item, Qt.KeyboardModifier.NoModifier)
+
+    def test_sync_selection_with_ctrl_drag(self, widget_with_items):
+        """Ctrl+ドラッグ: 既存選択に追加"""
+        widget, state, _items = widget_with_items
+        from lorairo.gui.widgets.thumbnail import ThumbnailItem
+
+        # まず通常選択
+        state.set_selected_images([1, 2])
+
+        # ドラッグ修飾子をCtrlに設定
+        widget.graphics_view._drag_modifiers = Qt.KeyboardModifier.ControlModifier
+
+        # scene.selectedItems() をモック（ドラッグで4,5を選択）
+        mock_item4 = Mock(spec=ThumbnailItem)
+        mock_item4.image_id = 4
+        mock_item5 = Mock(spec=ThumbnailItem)
+        mock_item5.image_id = 5
+        widget.scene.selectedItems = Mock(return_value=[mock_item4, mock_item5])
+
+        widget._sync_selection_to_state()
+        assert sorted(state.selected_image_ids) == [1, 2, 4, 5]
+
+    def test_sync_selection_with_shift_drag(self, widget_with_items):
+        """Shift+ドラッグ: 既存選択に追加"""
+        widget, state, _items = widget_with_items
+        from lorairo.gui.widgets.thumbnail import ThumbnailItem
+
+        state.set_selected_images([1])
+
+        widget.graphics_view._drag_modifiers = Qt.KeyboardModifier.ShiftModifier
+
+        mock_item3 = Mock(spec=ThumbnailItem)
+        mock_item3.image_id = 3
+        widget.scene.selectedItems = Mock(return_value=[mock_item3])
+
+        widget._sync_selection_to_state()
+        assert sorted(state.selected_image_ids) == [1, 3]
+
+
 class TestThumbnailSelectorWidgetPagination:
     """ページネーション統合テスト"""
 
@@ -496,8 +654,7 @@ class TestThumbnailSelectorWidgetPagination:
     @staticmethod
     def _build_search_result(image_count: int) -> SearchResult:
         metadata = [
-            {"id": i, "stored_image_path": f"/tmp/image_{i}.png"}
-            for i in range(1, image_count + 1)
+            {"id": i, "stored_image_path": f"/tmp/image_{i}.png"} for i in range(1, image_count + 1)
         ]
         return SearchResult(
             image_metadata=metadata,
