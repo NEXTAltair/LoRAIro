@@ -148,6 +148,7 @@ class CustomGraphicsView(QGraphicsView):
         """
         マウスプレスイベントを処理する。
 
+        左クリック時のみ選択ロジックを処理し、右クリックは無視してコンテキストメニューに委譲する。
         アイテムクリック時はitemClickedシグナルを発行し、super()を呼ばない。
         これによりQtのシーン選択が独自の選択ロジックを上書きするのを防止する。
         空スペースクリック時のみsuper()を呼び、ラバーバンドドラッグを有効にする。
@@ -155,6 +156,11 @@ class CustomGraphicsView(QGraphicsView):
         Args:
             event: マウスイベント
         """
+        # 右クリックは無視（コンテキストメニューで処理）
+        if event.button() != Qt.MouseButton.LeftButton:
+            super().mousePressEvent(event)
+            return
+
         item = self.itemAt(event.position().toPoint())
         if isinstance(item, ThumbnailItem):
             # アイテム上のクリック: 独自の選択ロジックで処理

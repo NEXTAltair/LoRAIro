@@ -640,6 +640,81 @@ class TestThumbnailSelectorWidgetClickSelection:
         widget._sync_selection_to_state()
         assert sorted(state.selected_image_ids) == [1, 3]
 
+    def test_right_click_preserves_selection(self, widget_with_items):
+        """右クリック: 選択状態を維持（コンテキストメニュー用）"""
+        widget, state, items = widget_with_items
+        from PySide6.QtCore import QPoint, Qt
+        from PySide6.QtGui import QMouseEvent
+
+        # まず通常選択（ID: 1, 3を選択）
+        widget.handle_item_selection(items[0], Qt.KeyboardModifier.NoModifier)
+        widget.handle_item_selection(items[2], Qt.KeyboardModifier.ControlModifier)
+        assert sorted(state.selected_image_ids) == [1, 3]
+
+        # 選択済みアイテムを右クリック（itemClickedシグナルが発火しないことを確認）
+        signal_emitted = False
+
+        def on_item_clicked(_item, _modifiers):
+            nonlocal signal_emitted
+            signal_emitted = True
+
+        widget.graphics_view.itemClicked.connect(on_item_clicked)
+
+        # 右クリックイベントを作成（itemAt()がitemsを返すようモック）
+        widget.graphics_view.itemAt = Mock(return_value=items[0])
+        pos = QPoint(0, 0)
+        event = QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            pos,
+            Qt.MouseButton.RightButton,
+            Qt.MouseButton.RightButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        widget.graphics_view.mousePressEvent(event)
+
+        # itemClickedシグナルが発火していないことを確認
+        assert signal_emitted is False
+
+        # 選択状態が変わっていないことを確認
+        assert sorted(state.selected_image_ids) == [1, 3]
+
+    def test_right_click_on_empty_space_preserves_selection(self, widget_with_items):
+        """右クリック（空スペース）: 選択状態を維持"""
+        widget, state, items = widget_with_items
+        from PySide6.QtCore import QPoint, Qt
+        from PySide6.QtGui import QMouseEvent
+
+        # まず選択
+        widget.handle_item_selection(items[0], Qt.KeyboardModifier.NoModifier)
+        assert state.selected_image_ids == [1]
+
+        # 空スペースを右クリック（emptySpaceClickedシグナルが発火しないことを確認）
+        signal_emitted = False
+
+        def on_empty_space_clicked():
+            nonlocal signal_emitted
+            signal_emitted = True
+
+        widget.graphics_view.emptySpaceClicked.connect(on_empty_space_clicked)
+
+        # 空スペースの右クリックイベントを作成
+        widget.graphics_view.itemAt = Mock(return_value=None)
+        pos = QPoint(0, 0)
+        event = QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            pos,
+            Qt.MouseButton.RightButton,
+            Qt.MouseButton.RightButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        widget.graphics_view.mousePressEvent(event)
+
+        # emptySpaceClickedシグナルが発火していないことを確認
+        assert signal_emitted is False
+
+        # 選択状態が変わっていないことを確認
+        assert state.selected_image_ids == [1]
+
 
 class TestThumbnailSelectorWidgetPagination:
     """ページネーション統合テスト"""
