@@ -715,43 +715,30 @@ class TestThumbnailSelectorWidgetClickSelection:
         # 選択状態が変わっていないことを確認
         assert state.selected_image_ids == [1]
 
-    def test_ctrl_a_selects_all_items(self, widget_with_items):
-        """Ctrl+A: すべてのサムネイルアイテムを選択"""
-        widget, state, items = widget_with_items
-        from PySide6.QtCore import Qt
-        from PySide6.QtGui import QKeyEvent
+    def test_select_all_items(self, widget_with_items):
+        """_select_all_items: すべてのサムネイルアイテムを選択"""
+        widget, state, _items = widget_with_items
 
         # 初期状態: 何も選択されていない
         assert state.selected_image_ids == []
 
-        # Ctrl+Aイベントを送信
-        event = QKeyEvent(
-            QKeyEvent.Type.KeyPress,
-            Qt.Key.Key_A,
-            Qt.KeyboardModifier.ControlModifier,
-        )
-        widget.graphics_view.keyPressEvent(event)
+        # _select_all_itemsを直接呼び出し（MainWindow.actionSelectAllから呼ばれる）
+        widget._select_all_items()
 
         # すべてのアイテム（5つ）が選択されていることを確認
         assert sorted(state.selected_image_ids) == [1, 2, 3, 4, 5]
 
-    def test_ctrl_a_with_existing_selection(self, widget_with_items):
-        """Ctrl+A: 既存の選択状態から全選択に変更"""
+    def test_select_all_with_existing_selection(self, widget_with_items):
+        """_select_all_items: 既存の選択状態から全選択に変更"""
         widget, state, items = widget_with_items
         from PySide6.QtCore import Qt
-        from PySide6.QtGui import QKeyEvent
 
         # 一部を選択
         widget.handle_item_selection(items[0], Qt.KeyboardModifier.NoModifier)
         assert state.selected_image_ids == [1]
 
-        # Ctrl+Aで全選択
-        event = QKeyEvent(
-            QKeyEvent.Type.KeyPress,
-            Qt.Key.Key_A,
-            Qt.KeyboardModifier.ControlModifier,
-        )
-        widget.graphics_view.keyPressEvent(event)
+        # _select_all_itemsで全選択
+        widget._select_all_items()
 
         # すべてのアイテム（5つ）が選択されていることを確認
         assert sorted(state.selected_image_ids) == [1, 2, 3, 4, 5]

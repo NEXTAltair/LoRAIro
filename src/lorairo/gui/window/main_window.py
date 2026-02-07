@@ -500,6 +500,19 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 except Exception as e:
                     logger.error(f"    ❌ サムネイル→プレビュー接続失敗: {e}")
 
+            # 編集メニューの全選択/選択解除アクション接続
+            if self.thumbnail_selector:
+                try:
+                    if hasattr(self, "actionSelectAll"):
+                        self.actionSelectAll.triggered.connect(self.thumbnail_selector._select_all_items)
+                    if hasattr(self, "actionDeselectAll"):
+                        self.actionDeselectAll.triggered.connect(
+                            self.thumbnail_selector._deselect_all_items
+                        )
+                    logger.info("    ✅ 編集メニュー（全選択/選択解除）接続完了")
+                except Exception as e:
+                    logger.error(f"    ❌ 編集メニュー接続失敗: {e}")
+
             # Sequential Worker Pipeline 統合シグナル接続
             self._setup_worker_pipeline_signals()
 
@@ -1238,7 +1251,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             QMessageBox.warning(self, "エラー", "バッチタグ機能が初期化されていません。")
             return
 
-        target_ids = selected_ids if selected_ids is not None else self.dataset_state_manager.selected_image_ids
+        target_ids = (
+            selected_ids if selected_ids is not None else self.dataset_state_manager.selected_image_ids
+        )
         if not target_ids:
             QMessageBox.information(self, "選択なし", "バッチタグに追加する画像が選択されていません。")
             return
