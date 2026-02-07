@@ -119,6 +119,14 @@ class FilterSearchPanel(QScrollArea):
         if main_layout:
             main_layout.addLayout(self.progress_layout)
 
+        # 重複除外トグルは廃止: 登録時のpHash重複防止により検索UI上では不要
+        self.ui.checkboxExcludeDuplicates.setChecked(False)
+        self.ui.checkboxExcludeDuplicates.setVisible(False)
+
+        # NSFWトグルは廃止: レーティング選択から自動判定する
+        self.ui.checkboxIncludeNSFW.setChecked(False)
+        self.ui.checkboxIncludeNSFW.setVisible(False)
+
     def setup_favorite_filters_ui(self) -> None:
         """お気に入りフィルターUIを作成してメインレイアウトに追加 (Phase 4)"""
         from PySide6.QtWidgets import (
@@ -680,6 +688,22 @@ class FilterSearchPanel(QScrollArea):
         logger.debug(f"AI rating filter value: {ai_rating_value}")
         return ai_rating_value
 
+    @staticmethod
+    def _is_nsfw_rating(rating_value: str | None) -> bool:
+        """NSFWレーティング値かどうか判定する。"""
+        return rating_value in {"R", "X", "XXX"}
+
+    def _resolve_include_nsfw(
+        self, rating_filter: str | None, ai_rating_filter: str | None
+    ) -> bool:
+        """レーティング選択からNSFW含有フラグを決定する。"""
+        include_nsfw = self._is_nsfw_rating(rating_filter) or self._is_nsfw_rating(ai_rating_filter)
+        logger.debug(
+            f"NSFW include resolved from ratings: manual={rating_filter}, "
+            f"ai={ai_rating_filter}, include_nsfw={include_nsfw}"
+        )
+        return include_nsfw
+
     def _on_search_type_changed(self) -> None:
         """検索タイプ変更時の処理（チェックボックス対応）"""
         # 入力フィールドの有効/無効を更新
@@ -832,6 +856,10 @@ class FilterSearchPanel(QScrollArea):
                 logger.warning("日付範囲フィルターエラー: 有効だが範囲が無効")
                 return
 
+            rating_filter = self._get_rating_filter_value()
+            ai_rating_filter = self._get_ai_rating_filter_value()
+            include_nsfw = self._resolve_include_nsfw(rating_filter, ai_rating_filter)
+
             # SearchFilterServiceを使用して検索条件を作成
             conditions = self.search_filter_service.create_search_conditions(
                 search_type=self._get_primary_search_type(),
@@ -844,10 +872,10 @@ class FilterSearchPanel(QScrollArea):
                 date_range_end=date_range_end,
                 only_untagged=self.ui.checkboxOnlyUntagged.isChecked(),
                 only_uncaptioned=self.ui.checkboxOnlyUncaptioned.isChecked(),
-                exclude_duplicates=self.ui.checkboxExcludeDuplicates.isChecked(),
-                include_nsfw=self.ui.checkboxIncludeNSFW.isChecked(),
-                rating_filter=self._get_rating_filter_value(),
-                ai_rating_filter=self._get_ai_rating_filter_value(),
+                exclude_duplicates=False,
+                include_nsfw=include_nsfw,
+                rating_filter=rating_filter,
+                ai_rating_filter=ai_rating_filter,
                 include_unrated=self.ui.checkboxIncludeUnrated.isChecked(),
             )
 
@@ -892,6 +920,10 @@ class FilterSearchPanel(QScrollArea):
             # 日付範囲を取得
             date_range_start, date_range_end = self.get_date_range_from_slider()
 
+            rating_filter = self._get_rating_filter_value()
+            ai_rating_filter = self._get_ai_rating_filter_value()
+            include_nsfw = self._resolve_include_nsfw(rating_filter, ai_rating_filter)
+
             # SearchFilterServiceを使用して検索条件を作成
             conditions = self.search_filter_service.create_search_conditions(
                 search_type=self._get_primary_search_type(),
@@ -904,10 +936,10 @@ class FilterSearchPanel(QScrollArea):
                 date_range_end=date_range_end,
                 only_untagged=self.ui.checkboxOnlyUntagged.isChecked(),
                 only_uncaptioned=self.ui.checkboxOnlyUncaptioned.isChecked(),
-                exclude_duplicates=self.ui.checkboxExcludeDuplicates.isChecked(),
-                include_nsfw=self.ui.checkboxIncludeNSFW.isChecked(),
-                rating_filter=self._get_rating_filter_value(),
-                ai_rating_filter=self._get_ai_rating_filter_value(),
+                exclude_duplicates=False,
+                include_nsfw=include_nsfw,
+                rating_filter=rating_filter,
+                ai_rating_filter=ai_rating_filter,
                 include_unrated=self.ui.checkboxIncludeUnrated.isChecked(),
             )
 
