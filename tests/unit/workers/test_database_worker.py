@@ -251,15 +251,7 @@ class TestSearchWorker:
             assert result.search_time > 0
 
             # 実際のAPIに正しいパラメータが渡されたことを確認
-            mock_search.assert_called_once_with(
-                tags=["test", "sample"],
-                caption=None,
-                resolution=0,
-                use_and=True,
-                start_date=None,
-                end_date=None,
-                include_untagged=False,
-            )
+            mock_search.assert_called_once_with(**search_conditions.to_db_filter_args())
 
     def test_search_conditions_processing(self, real_db_manager):
         """
@@ -285,15 +277,34 @@ class TestSearchWorker:
             worker.execute()
 
             # 日付範囲が正しく処理されることを確認
-            mock_search.assert_called_once_with(
-                tags=None,
-                caption="test caption",
-                resolution=0,
-                use_and=True,
-                start_date="2023-01-01",
-                end_date="2023-12-31",
-                include_untagged=True,
+            mock_search.assert_called_once_with(**conditions.to_db_filter_args())
+
+    def test_search_applies_aspect_ratio_filter(self, real_db_manager):
+        """SearchWorker経由でアスペクト比フィルターが適用されることを確認"""
+        conditions = SearchConditions(
+            search_type="tags",
+            keywords=["test"],
+            tag_logic="and",
+            aspect_ratio_filter="正方形 (1:1)",
+        )
+
+        with patch.object(real_db_manager, "get_images_by_filter") as mock_search:
+            mock_search.return_value = (
+                [
+                    {"id": 1, "width": 1024, "height": 1024},
+                    {"id": 2, "width": 1920, "height": 1080},
+                ],
+                2,
             )
+
+            worker = SearchWorker(real_db_manager, conditions)
+            result = worker.execute()
+
+            # 正方形画像のみ残ることを確認
+            assert result.total_count == 1
+            assert len(result.image_metadata) == 1
+            assert result.image_metadata[0]["id"] == 1
+            mock_search.assert_called_once_with(**conditions.to_db_filter_args())
 
     def test_cancellation_behavior(self, real_db_manager, search_conditions):
         """キャンセル動作テスト"""
