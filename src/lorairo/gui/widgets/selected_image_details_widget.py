@@ -486,13 +486,15 @@ class SelectedImageDetailsWidget(QWidget):
 
         Notes:
             - モックアップパターン: RatingScoreEditWidgetで編集可能
+            - score_value: DB値（0.0-10.0）をそのまま渡す
         """
         # RatingScoreEditWidgetにデータを設定
+        # score_value: DB値（0.0-10.0）→ RatingScoreEditWidget内でUI値（0-1000）に変換
         self._rating_score_widget.populate_from_image_data(
             {
                 "id": details.image_id,
                 "rating": details.rating_value or "PG-13",
-                "score": details.score_value,
+                "score_value": details.score_value,
             }
         )
 

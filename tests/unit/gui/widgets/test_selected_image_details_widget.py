@@ -75,9 +75,11 @@ class TestSelectedImageDetailsWidget:
 
         # UIコンポーネントの存在確認（Phase 2: Read-only conversion）
         assert hasattr(widget.ui, "groupBoxImageInfo")
-        assert hasattr(widget.ui, "groupBoxRatingScore")
         assert hasattr(widget.ui, "groupBoxTags")
         assert hasattr(widget.ui, "groupBoxCaptions")
+
+        # RatingScoreEditWidget が統合されていることを確認
+        assert widget._rating_score_widget is not None
 
     def test_clear_display(self, widget, sample_image_details):
         """表示クリアテスト"""

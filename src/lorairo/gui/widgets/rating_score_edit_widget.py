@@ -136,11 +136,13 @@ class RatingScoreEditWidget(QWidget):
             image_data: 画像メタデータ辞書
                 - id: 画像ID (int)
                 - rating: Rating 値 (str, optional)
-                - score: Score 値 (int 0-1000, optional, UI内部値)
+                - score: Score 値 (DB値 0.0-10.0 または UI値 0-1000)
+                - score_value: Score 値 (DB値 0.0-10.0、優先的に使用)
 
         処理:
             1. image_id の保存
-            2. UI フィールドへの値設定
+            2. DB値（0.0-10.0）→ UI値（0-1000）の変換
+            3. UI フィールドへの値設定
         """
         logger.debug(f"populate_from_image_data called with image_id={image_data.get('id')}")
 
@@ -158,15 +160,32 @@ class RatingScoreEditWidget(QWidget):
             if index >= 0:
                 self.ui.comboBoxRating.setCurrentIndex(index)
 
-        score = image_data.get("score", 500)
-        self.ui.sliderScore.setValue(score)
-        self.ui.labelScoreValue.setText(f"{score / 100.0:.2f}")
+        # Score値の変換処理
+        # Repository層からは "score_value" (DB値 0.0-10.0) が返される
+        # UI層では 0-1000 の整数値で扱う
+        score_db = image_data.get("score_value", image_data.get("score", 5.0))
+        if isinstance(score_db, (int, float)):
+            # DB値（0.0-10.0）→ UI値（0-1000）に変換
+            if score_db <= 10.0:
+                # DB値と判断（0.0-10.0範囲）
+                score_ui = int(score_db * 100)
+            else:
+                # すでにUI値（0-1000範囲）
+                score_ui = int(score_db)
+        else:
+            score_ui = 500  # デフォルト値
+
+        self.ui.sliderScore.setValue(score_ui)
+        self.ui.labelScoreValue.setText(f"{score_ui / 100.0:.2f}")
 
         # シグナルのブロックを解除
         self.ui.comboBoxRating.blockSignals(False)
         self.ui.sliderScore.blockSignals(False)
 
-        logger.info(f"Form populated for image_id={self._current_image_id}")
+        logger.debug(
+            f"Form populated for image_id={self._current_image_id}: "
+            f"DB score={score_db:.2f}, UI score={score_ui}"
+        )
 
     @Slot()
     def _on_save_clicked(self) -> None:
