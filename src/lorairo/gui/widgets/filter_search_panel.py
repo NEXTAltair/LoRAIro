@@ -325,7 +325,9 @@ class FilterSearchPanel(QScrollArea):
                 logger.info("Loaded and applied favorite filter: {}", filter_name)
             else:
                 QMessageBox.warning(
-                    self, "読込失敗", f"フィルター '{filter_name}' の読み込みに失敗しました。",
+                    self,
+                    "読込失敗",
+                    f"フィルター '{filter_name}' の読み込みに失敗しました。",
                 )
         except Exception as e:
             logger.error("Failed to load filter '{}': {}", filter_name, e, exc_info=True)
@@ -513,7 +515,9 @@ class FilterSearchPanel(QScrollArea):
                     thumbnail_progress = current / total
                     overall_progress = 0.3 + (thumbnail_progress * 0.7)  # 30% + 70%
                     self.update_pipeline_progress(
-                        f"サムネイル読み込み中... ({current}/{total}) {filename}", overall_progress, 1.0,
+                        f"サムネイル読み込み中... ({current}/{total}) {filename}",
+                        overall_progress,
+                        1.0,
                     )
                     logger.debug(f"Thumbnail batch progress: {current}/{total} -> {overall_progress:.1%}")
 
@@ -709,6 +713,22 @@ class FilterSearchPanel(QScrollArea):
         logger.debug(f"AI rating filter value: {ai_rating_value}")
         return ai_rating_value
 
+    def _get_score_filter_values(self) -> tuple[float | None, float | None]:
+        """スコアスライダーからフィルター値を取得
+
+        全範囲（0-1000）の場合はNoneを返してフィルターを無効化する。
+        スコアレコードがない画像を不要に除外することを防止。
+
+        Returns:
+            tuple[float | None, float | None]: (score_min, score_max) DB値(0.0-10.0)
+                全範囲の場合は (None, None)
+
+        """
+        score_min_internal, score_max_internal = self.score_range_slider.get_range()
+        if score_min_internal == 0 and score_max_internal == 1000:
+            return None, None
+        return score_min_internal / 100.0, score_max_internal / 100.0
+
     @staticmethod
     def _is_nsfw_rating(rating_value: str | None) -> bool:
         """NSFWレーティング値かどうか判定する。"""
@@ -884,10 +904,8 @@ class FilterSearchPanel(QScrollArea):
             ai_rating_filter = self._get_ai_rating_filter_value()
             include_nsfw = self._resolve_include_nsfw(rating_filter, ai_rating_filter)
 
-            # スコア範囲を取得（内部値0-1000を0.0-10.0に変換）
-            score_min_internal, score_max_internal = self.score_range_slider.get_range()
-            score_min = score_min_internal / 100.0
-            score_max = score_max_internal / 100.0
+            # スコア範囲を取得（全範囲の場合はNoneでフィルター無効化）
+            score_min, score_max = self._get_score_filter_values()
 
             # SearchFilterServiceを使用して検索条件を作成
             conditions = self.search_filter_service.create_search_conditions(
@@ -955,10 +973,8 @@ class FilterSearchPanel(QScrollArea):
             ai_rating_filter = self._get_ai_rating_filter_value()
             include_nsfw = self._resolve_include_nsfw(rating_filter, ai_rating_filter)
 
-            # スコア範囲を取得（内部値0-1000を0.0-10.0に変換）
-            score_min_internal, score_max_internal = self.score_range_slider.get_range()
-            score_min = score_min_internal / 100.0
-            score_max = score_max_internal / 100.0
+            # スコア範囲を取得（全範囲の場合はNoneでフィルター無効化）
+            score_min, score_max = self._get_score_filter_values()
 
             # SearchFilterServiceを使用して検索条件を作成
             conditions = self.search_filter_service.create_search_conditions(

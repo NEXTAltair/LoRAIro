@@ -352,3 +352,89 @@ class ImageDBWriteService:
         except Exception as e:
             logger.error(f"Error in batch tag add: {e}", exc_info=True)
             return False
+
+    def update_rating_batch(self, image_ids: list[int], rating: str) -> bool:
+        """複数画像のRatingを一括更新
+
+        Args:
+            image_ids: 更新対象の画像IDリスト
+            rating: Rating値 ("PG", "PG-13", "R", "X", "XXX")
+
+        Returns:
+            bool: 更新成功/失敗
+        """
+        if not image_ids:
+            logger.warning("Empty image_ids for batch rating update")
+            return False
+
+        # バリデーション
+        valid_ratings = ["PG", "PG-13", "R", "X", "XXX"]
+        if rating not in valid_ratings:
+            logger.warning(f"Invalid rating value for batch update: '{rating}'")
+            return False
+
+        try:
+            model_id = self.db_manager.get_manual_edit_model_id()
+            success, updated_count = self.db_manager.repository.update_rating_batch(
+                image_ids=image_ids,
+                rating=rating,
+                model_id=model_id,
+            )
+
+            if success:
+                logger.info(
+                    f"Batch rating update succeeded: rating='{rating}', "
+                    f"processed={len(image_ids)}, updated={updated_count}",
+                )
+            else:
+                logger.warning(f"Batch rating update returned failure for rating='{rating}'")
+
+            return success
+
+        except Exception as e:
+            logger.error(f"Error in batch rating update: {e}", exc_info=True)
+            return False
+
+    def update_score_batch(self, image_ids: list[int], score: int) -> bool:
+        """複数画像のScoreを一括更新
+
+        Args:
+            image_ids: 更新対象の画像IDリスト
+            score: Score値 (0-1000範囲のUI値)
+
+        Returns:
+            bool: 更新成功/失敗
+        """
+        if not image_ids:
+            logger.warning("Empty image_ids for batch score update")
+            return False
+
+        # バリデーション: Score値範囲チェック（UI値）
+        if not (0 <= score <= 1000):
+            logger.warning(f"Invalid score value for batch update: {score}")
+            return False
+
+        try:
+            # UI値（0-1000）→ DB値（0.0-10.0）に変換
+            db_score = score / 100.0
+
+            model_id = self.db_manager.get_manual_edit_model_id()
+            success, updated_count = self.db_manager.repository.update_score_batch(
+                image_ids=image_ids,
+                score=db_score,
+                model_id=model_id,
+            )
+
+            if success:
+                logger.info(
+                    f"Batch score update succeeded: UI={score} -> DB={db_score:.2f}, "
+                    f"processed={len(image_ids)}, updated={updated_count}",
+                )
+            else:
+                logger.warning(f"Batch score update returned failure for score={score}")
+
+            return success
+
+        except Exception as e:
+            logger.error(f"Error in batch score update: {e}", exc_info=True)
+            return False

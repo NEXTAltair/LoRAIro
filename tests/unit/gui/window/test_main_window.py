@@ -73,9 +73,7 @@ class TestMainWindowPhase3Integration:
                 mock_widget.save_requested.connect.assert_called_once()
 
                 # ログが出力される
-                mock_logger.info.assert_called_with(
-                    "ImageDBWriteService created and signals connected"
-                )
+                mock_logger.info.assert_called_with("ImageDBWriteService created and signals connected")
 
     def test_setup_image_db_write_service_view_only(self, mock_dependencies):
         """ImageDBWriteService: 閲覧専用ウィジェット（シグナルなし）"""
@@ -132,6 +130,80 @@ class TestMainWindowPhase3Integration:
 
         with pytest.raises(AttributeError):
             MainWindow._setup_state_integration(mock_window)
+
+
+class TestMainWindowBatchRatingScore:
+    """MainWindow バッチRating/Score更新テスト"""
+
+    @pytest.fixture
+    def mock_window(self):
+        """バッチ処理テスト用のモックMainWindow"""
+        window = Mock()
+        window.image_db_write_service = Mock()
+        window.dataset_state_manager = Mock()
+        return window
+
+    def test_execute_batch_rating_write_success(self, mock_window):
+        """バッチRating書き込みが成功する"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window.image_db_write_service.update_rating_batch.return_value = True
+
+        result = MainWindow._execute_batch_rating_write(mock_window, [1, 2, 3], "PG-13")
+
+        assert result is True
+        mock_window.image_db_write_service.update_rating_batch.assert_called_once_with([1, 2, 3], "PG-13")
+
+    def test_execute_batch_rating_write_no_service(self, mock_window):
+        """ImageDBWriteService 未初期化時に False を返す"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window.image_db_write_service = None
+
+        result = MainWindow._execute_batch_rating_write(mock_window, [1, 2, 3], "R")
+
+        assert result is False
+
+    def test_execute_batch_score_write_success(self, mock_window):
+        """バッチScore書き込みが成功する"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window.image_db_write_service.update_score_batch.return_value = True
+
+        result = MainWindow._execute_batch_score_write(mock_window, [1, 2, 3], 750)
+
+        assert result is True
+        mock_window.image_db_write_service.update_score_batch.assert_called_once_with([1, 2, 3], 750)
+
+    def test_execute_batch_score_write_no_service(self, mock_window):
+        """ImageDBWriteService 未初期化時に False を返す"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window.image_db_write_service = None
+
+        result = MainWindow._execute_batch_score_write(mock_window, [1, 2, 3], 500)
+
+        assert result is False
+
+    def test_handle_batch_rating_changed_refreshes_cache(self, mock_window):
+        """バッチRating変更後にキャッシュが更新される"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window.image_db_write_service.update_rating_batch.return_value = True
+
+        MainWindow._handle_batch_rating_changed(mock_window, [1, 2, 3], "X")
+
+        mock_window.dataset_state_manager.refresh_images.assert_called_once_with([1, 2, 3])
+
+    def test_handle_batch_score_changed_refreshes_cache(self, mock_window):
+        """バッチScore変更後にキャッシュが更新される"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window.image_db_write_service.update_score_batch.return_value = True
+
+        MainWindow._handle_batch_score_changed(mock_window, [1, 2, 3], 850)
+
+        mock_window.dataset_state_manager.refresh_images.assert_called_once_with([1, 2, 3])
 
 
 if __name__ == "__main__":

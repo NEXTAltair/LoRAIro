@@ -433,7 +433,12 @@ class ImageRepository:
                     raise ValueError(f"Model not found: id={model_id}")
 
                 has_changes = self._apply_simple_field_updates(
-                    model, provider, api_model_id, estimated_size_gb, requires_api_key, discontinued_at,
+                    model,
+                    provider,
+                    api_model_id,
+                    estimated_size_gb,
+                    requires_api_key,
+                    discontinued_at,
                 )
 
                 if model_types is not None:
@@ -470,7 +475,8 @@ class ImageRepository:
                 return result is not None
             except SQLAlchemyError as e:
                 logger.error(
-                    f"画像存在チェック中にエラーが発生しました (ID: {image_id}): {e}", exc_info=True,
+                    f"画像存在チェック中にエラーが発生しました (ID: {image_id}): {e}",
+                    exc_info=True,
                 )
                 raise
 
@@ -661,12 +667,17 @@ class ImageRepository:
             except SQLAlchemyError as e:
                 session.rollback()
                 logger.error(
-                    f"オリジナル画像の追加中にデータベースエラーが発生しました: {e}", exc_info=True,
+                    f"オリジナル画像の追加中にデータベースエラーが発生しました: {e}",
+                    exc_info=True,
                 )
                 raise
 
     def _find_existing_processed_image_id(
-        self, image_id: int, width: int, height: int, filename: str | None,
+        self,
+        image_id: int,
+        width: int,
+        height: int,
+        filename: str | None,
     ) -> int | None:
         """指定された条件に一致する既存の processed_image の ID を検索します。
         add_processed_image で IntegrityError が発生した場合に使用します。
@@ -778,7 +789,8 @@ class ImageRepository:
             except SQLAlchemyError as e:
                 session.rollback()
                 logger.error(
-                    f"処理済み画像の追加中に予期せぬデータベースエラーが発生しました: {e}", exc_info=True,
+                    f"処理済み画像の追加中に予期せぬデータベースエラーが発生しました: {e}",
+                    exc_info=True,
                 )
                 raise  # IntegrityError 以外の DB エラーは再発生させる
 
@@ -833,7 +845,8 @@ class ImageRepository:
             except SQLAlchemyError as e:
                 session.rollback()
                 logger.error(
-                    f"画像ID {image_id} のアノテーション保存中にエラーが発生しました: {e}", exc_info=True,
+                    f"画像ID {image_id} のアノテーション保存中にエラーが発生しました: {e}",
+                    exc_info=True,
                 )
                 raise
 
@@ -860,7 +873,10 @@ class ImageRepository:
         return existing_tags_by_image
 
     def add_tag_to_images_batch(
-        self, image_ids: list[int], tag: str, model_id: int | None,
+        self,
+        image_ids: list[int],
+        tag: str,
+        model_id: int | None,
     ) -> tuple[bool, int]:
         """複数画像に1つのタグを原子的に追加(既存タグに追加、重複スキップ)
 
@@ -1014,7 +1030,10 @@ class ImageRepository:
                 return None
 
         register_request = TagRegisterRequest(
-            tag=normalized_tag, source_tag=source_tag, format_name="Lorairo", type_name="unknown",
+            tag=normalized_tag,
+            source_tag=source_tag,
+            format_name="Lorairo",
+            type_name="unknown",
         )
 
         try:
@@ -1065,7 +1084,9 @@ class ImageRepository:
         # 一括検索
         try:
             bulk_results = self.merged_reader.search_tags_bulk(
-                list(normalized_tags), format_name=None, resolve_preferred=False,
+                list(normalized_tags),
+                format_name=None,
+                resolve_preferred=False,
             )
         except Exception as e:
             logger.error(f"search_tags_bulk failed: {e}", exc_info=True)
@@ -1251,7 +1272,10 @@ class ImageRepository:
                 existing_tags_map[(tag_string, model_id)] = new_tag
 
     def _save_captions(
-        self, session: Session, image_id: int, captions_data: list[CaptionAnnotationData],
+        self,
+        session: Session,
+        image_id: int,
+        captions_data: list[CaptionAnnotationData],
     ) -> None:
         """キャプション情報を保存・更新 (Upsert)"""
         logger.debug(f"Saving/Updating {len(captions_data)} captions for image_id {image_id}")
@@ -1324,7 +1348,10 @@ class ImageRepository:
                 existing_scores_map[model_id] = new_score
 
     def _save_ratings(
-        self, session: Session, image_id: int, ratings_data: list[RatingAnnotationData],
+        self,
+        session: Session,
+        image_id: int,
+        ratings_data: list[RatingAnnotationData],
     ) -> None:
         """レーティング情報を保存・更新 (Upsert)"""
         logger.debug(f"Saving/Updating {len(ratings_data)} ratings for image_id {image_id}")
@@ -1410,7 +1437,8 @@ class ImageRepository:
 
             except SQLAlchemyError as e:
                 logger.error(
-                    f"画像メタデータの取得中にエラーが発生しました (ID: {image_id}): {e}", exc_info=True,
+                    f"画像メタデータの取得中にエラーが発生しました (ID: {image_id}): {e}",
+                    exc_info=True,
                 )
                 raise
 
@@ -1449,7 +1477,10 @@ class ImageRepository:
                 raise
 
     def get_processed_image(
-        self, image_id: int, resolution: int = 0, all_data: bool = False,
+        self,
+        image_id: int,
+        resolution: int = 0,
+        all_data: bool = False,
     ) -> dict[str, Any] | list[dict[str, Any]] | None:  # 戻り値の型を調整
         """指定された image_id に関連する処理済み画像のメタデータを取得します。
         resolution に基づいてフィルタリングするか、all_data=True で全て取得します。
@@ -1517,12 +1548,15 @@ class ImageRepository:
 
             except SQLAlchemyError as e:
                 logger.error(
-                    f"処理済み画像の取得中にエラーが発生しました (ID: {image_id}): {e}", exc_info=True,
+                    f"処理済み画像の取得中にエラーが発生しました (ID: {image_id}): {e}",
+                    exc_info=True,
                 )
                 raise
 
     def _filter_by_resolution(
-        self, metadata_list: list[dict[str, Any]], resolution: int,
+        self,
+        metadata_list: list[dict[str, Any]],
+        resolution: int,
     ) -> dict[str, Any] | None:
         """解像度に基づいてメタデータをフィルタリングします。
         指定された解像度に最も近いもの (面積比で許容誤差20%以内) を返します。
@@ -2021,7 +2055,10 @@ class ImageRepository:
         return query
 
     def _apply_score_filter(
-        self, query: Select, score_min: float | None, score_max: float | None,
+        self,
+        query: Select,
+        score_min: float | None,
+        score_max: float | None,
     ) -> Select:
         """クエリにスコア範囲フィルタを適用します。
 
@@ -2039,20 +2076,24 @@ class ImageRepository:
 
         from lorairo.database.schema import Score
 
-        # スコアを内部値に変換（0.0-10.0 → 0-1000）
-        internal_min = int(score_min * 100) if score_min is not None else 0
-        internal_max = int(score_max * 100) if score_max is not None else 1000
+        # DB値（0.0-10.0）で直接比較
+        db_min = score_min if score_min is not None else 0.0
+        db_max = score_max if score_max is not None else 10.0
 
         # 指定範囲内のスコアを持つ画像のみを含める
-        score_condition = exists().where(
-            Score.image_id == Image.id, Score.score >= internal_min, Score.score <= internal_max,
-        ).correlate(Image)
+        score_condition = (
+            exists()
+            .where(
+                Score.image_id == Image.id,
+                Score.score >= db_min,
+                Score.score <= db_max,
+            )
+            .correlate(Image)
+        )
 
         query = query.where(score_condition)
         logger.debug(
-            f"Score filter applied: {score_min if score_min is not None else 0.0:.2f} - "
-            f"{score_max if score_max is not None else 10.0:.2f} "
-            f"(internal: {internal_min} - {internal_max})",
+            f"Score filter applied: {db_min:.2f} - {db_max:.2f}",
         )
 
         return query
@@ -2153,7 +2194,8 @@ class ImageRepository:
             from datetime import datetime
 
             latest_caption = max(
-                image.captions, key=lambda c: c.created_at if c.created_at else datetime.min,
+                image.captions,
+                key=lambda c: c.created_at if c.created_at else datetime.min,
             )
             annotations["caption_text"] = latest_caption.caption
         else:
@@ -2241,7 +2283,9 @@ class ImageRepository:
         return annotations
 
     def _fetch_original_image_metadata(
-        self, session: Session, image_ids: list[int],
+        self,
+        session: Session,
+        image_ids: list[int],
     ) -> list[dict[str, Any]]:
         """オリジナル画像のメタデータをアノテーション付きで取得する。
 
@@ -2275,7 +2319,10 @@ class ImageRepository:
         return result
 
     def _fetch_processed_image_metadata(
-        self, session: Session, image_ids: list[int], resolution: int,
+        self,
+        session: Session,
+        image_ids: list[int],
+        resolution: int,
     ) -> list[dict[str, Any]]:
         """処理済み画像のメタデータをアノテーション付きで取得する。
 
@@ -2329,7 +2376,10 @@ class ImageRepository:
         return result
 
     def _fetch_filtered_metadata(
-        self, session: Session, image_ids: list[int], resolution: int,
+        self,
+        session: Session,
+        image_ids: list[int],
+        resolution: int,
     ) -> list[dict[str, Any]]:
         """フィルタリングされたIDリストに基づき、指定解像度のメタデータを取得する。
 
@@ -2676,12 +2726,16 @@ class ImageRepository:
             except SQLAlchemyError as e:
                 session.rollback()
                 logger.error(
-                    f"Manual rating の更新中にエラーが発生しました (ID: {image_id}): {e}", exc_info=True,
+                    f"Manual rating の更新中にエラーが発生しました (ID: {image_id}): {e}",
+                    exc_info=True,
                 )
                 raise
 
     def update_annotation_manual_edit_flag(
-        self, annotation_type: str, annotation_id: int, is_edited: bool,
+        self,
+        annotation_type: str,
+        annotation_id: int,
+        is_edited: bool,
     ) -> bool:
         """指定されたアノテーションの is_edited_manually フラグを更新します。
 
@@ -3010,3 +3064,159 @@ class ImageRepository:
             except Exception as e:
                 logger.error(f"ファイルパスからの画像ID取得エラー: {filepath}, {e}")
                 return None
+
+    def update_rating_batch(
+        self,
+        image_ids: list[int],
+        rating: str,
+        model_id: int,
+    ) -> tuple[bool, int]:
+        """複数画像のRatingを原子的に更新（既存レコードは更新、なければ挿入）
+
+        単一トランザクションで全画像を処理。全件成功 or 全件ロールバック。
+
+        Args:
+            image_ids: 対象画像のIDリスト
+            rating: Rating値（正規化済み: "PG", "PG-13", "R", "X", "XXX"）
+            model_id: モデルID（手動編集の場合はマニュアルモデルID）
+
+        Returns:
+            (成功フラグ, 更新件数)
+
+        Raises:
+            SQLAlchemyError: データベースエラー時（ロールバック後に再送出）
+        """
+        if not image_ids:
+            logger.warning("Empty image_ids list for batch rating update")
+            return (False, 0)
+
+        if not rating.strip():
+            logger.warning("Empty rating for batch update")
+            return (False, 0)
+
+        normalized_rating = rating.strip()
+        updated_count = 0
+
+        with self.session_factory() as session:
+            try:
+                # 既存の Rating レコードを一括取得（N+1回避）
+                existing_ratings_stmt = select(Rating).where(Rating.image_id.in_(image_ids))
+                existing_ratings = session.execute(existing_ratings_stmt).scalars().all()
+                existing_rating_map = {r.image_id: r for r in existing_ratings}
+
+                for image_id in image_ids:
+                    if image_id in existing_rating_map:
+                        # 既存レコードを UPDATE
+                        existing_rating = existing_rating_map[image_id]
+                        existing_rating.normalized_rating = normalized_rating
+                        existing_rating.raw_rating_value = normalized_rating
+                        existing_rating.model_id = model_id
+                        existing_rating.confidence_score = None  # 手動編集時は信頼度なし
+                        existing_rating.updated_at = func.now()
+                        logger.debug(f"Updated rating for image_id {image_id}")
+                    else:
+                        # 新規レコードを INSERT
+                        new_rating = Rating(
+                            image_id=image_id,
+                            model_id=model_id,
+                            raw_rating_value=normalized_rating,
+                            normalized_rating=normalized_rating,
+                            confidence_score=None,
+                        )
+                        session.add(new_rating)
+                        logger.debug(f"Inserted new rating for image_id {image_id}")
+
+                    updated_count += 1
+
+                session.commit()
+
+                logger.info(
+                    f"Atomic batch rating update completed: rating='{normalized_rating}', "
+                    f"processed={len(image_ids)}, updated={updated_count}",
+                )
+                return (True, updated_count)
+
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(
+                    f"Batch rating update failed: rating='{normalized_rating}', "
+                    f"image_ids={len(image_ids)}, error={e}",
+                    exc_info=True,
+                )
+                raise
+
+    def update_score_batch(
+        self,
+        image_ids: list[int],
+        score: float,
+        model_id: int | None,
+    ) -> tuple[bool, int]:
+        """複数画像のScoreを原子的に更新（既存レコードは更新、なければ挿入）
+
+        単一トランザクションで全画像を処理。全件成功 or 全件ロールバック。
+
+        Args:
+            image_ids: 対象画像のIDリスト
+            score: Score値（DB値 0.0-10.0）
+            model_id: モデルID（手動編集の場合はマニュアルモデルID、Noneも許容）
+
+        Returns:
+            (成功フラグ, 更新件数)
+
+        Raises:
+            SQLAlchemyError: データベースエラー時（ロールバック後に再送出）
+        """
+        if not image_ids:
+            logger.warning("Empty image_ids list for batch score update")
+            return (False, 0)
+
+        if not (0.0 <= score <= 10.0):
+            logger.warning(f"Invalid score value for batch update: {score}")
+            return (False, 0)
+
+        updated_count = 0
+
+        with self.session_factory() as session:
+            try:
+                # 既存の Score レコードを一括取得（N+1回避）
+                existing_scores_stmt = select(Score).where(Score.image_id.in_(image_ids))
+                existing_scores = session.execute(existing_scores_stmt).scalars().all()
+                existing_score_map = {s.image_id: s for s in existing_scores}
+
+                for image_id in image_ids:
+                    if image_id in existing_score_map:
+                        # 既存レコードを UPDATE
+                        existing_score = existing_score_map[image_id]
+                        existing_score.score = score
+                        existing_score.model_id = model_id
+                        existing_score.is_edited_manually = True
+                        existing_score.updated_at = func.now()
+                        logger.debug(f"Updated score for image_id {image_id}")
+                    else:
+                        # 新規レコードを INSERT
+                        new_score = Score(
+                            image_id=image_id,
+                            model_id=model_id,
+                            score=score,
+                            is_edited_manually=True,
+                        )
+                        session.add(new_score)
+                        logger.debug(f"Inserted new score for image_id {image_id}")
+
+                    updated_count += 1
+
+                session.commit()
+
+                logger.info(
+                    f"Atomic batch score update completed: score={score:.2f}, "
+                    f"processed={len(image_ids)}, updated={updated_count}",
+                )
+                return (True, updated_count)
+
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(
+                    f"Batch score update failed: score={score:.2f}, image_ids={len(image_ids)}, error={e}",
+                    exc_info=True,
+                )
+                raise

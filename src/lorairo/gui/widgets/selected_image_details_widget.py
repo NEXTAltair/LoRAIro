@@ -65,8 +65,10 @@ class SelectedImageDetailsWidget(QWidget):
 
     # シグナル
     image_details_loaded = Signal(ImageDetails)  # 画像詳細読み込み完了
-    rating_changed = Signal(int, str)  # (image_id, rating)
-    score_changed = Signal(int, int)  # (image_id, score)
+    rating_changed = Signal(int, str)  # (image_id, rating) - 単一選択時
+    score_changed = Signal(int, int)  # (image_id, score) - 単一選択時
+    batch_rating_changed = Signal(list, str)  # (image_ids, rating) - 複数選択時
+    batch_score_changed = Signal(list, int)  # (image_ids, score) - 複数選択時
 
     def __init__(
         self,
@@ -230,6 +232,8 @@ class SelectedImageDetailsWidget(QWidget):
         # RatingScoreEditWidgetのシグナルを外部に転送
         self._rating_score_widget.rating_changed.connect(self.rating_changed.emit)
         self._rating_score_widget.score_changed.connect(self.score_changed.emit)
+        self._rating_score_widget.batch_rating_changed.connect(self.batch_rating_changed.emit)
+        self._rating_score_widget.batch_score_changed.connect(self.batch_score_changed.emit)
 
         logger.debug("SelectedImageDetailsWidget signals connected")
 

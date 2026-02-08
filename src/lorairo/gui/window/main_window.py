@@ -521,9 +521,25 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 try:
                     self.selectedImageDetailsWidget.rating_changed.connect(self._handle_rating_changed)
                     self.selectedImageDetailsWidget.score_changed.connect(self._handle_score_changed)
+                    self.selectedImageDetailsWidget.batch_rating_changed.connect(
+                        self._handle_batch_rating_changed
+                    )
+                    self.selectedImageDetailsWidget.batch_score_changed.connect(
+                        self._handle_batch_score_changed
+                    )
                     logger.info("    ✅ SelectedImageDetailsWidget シグナル接続完了")
                 except Exception as e:
                     logger.error(f"    ❌ SelectedImageDetailsWidget シグナル接続失敗: {e}")
+
+            # DatasetStateManager シグナル接続 - 選択変更時のRating/Score更新
+            if self.dataset_state_manager:
+                try:
+                    self.dataset_state_manager.selection_changed.connect(
+                        self._handle_selection_changed_for_rating
+                    )
+                    logger.info("    ✅ DatasetStateManager selection_changed シグナル接続完了")
+                except Exception as e:
+                    logger.error(f"    ❌ DatasetStateManager selection_changed 接続失敗: {e}")
 
             # BatchTagAddWidget シグナル接続（Phase 3.1）
             if hasattr(self, "batchTagAddWidget"):
@@ -943,6 +959,122 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info(f"Score updated successfully: image_id={image_id}, score={score}")
         else:
             logger.error(f"Failed to update score: image_id={image_id}, score={score}")
+
+    def _handle_selection_changed_for_rating(self, image_ids: list[int]) -> None:
+        """
+        DatasetStateManager からの選択変更シグナルハンドラ（バッチレーティング/スコア機能）
+
+        選択画像数に応じて RatingScoreEditWidget を更新:
+        - 0件: クリア（未実装）
+        - 1件: 単一選択モード（populate_from_image_data）
+        - 2件以上: バッチモード（populate_from_selection）
+
+        Args:
+            image_ids: 選択画像IDリスト
+        """
+        if not hasattr(self, "selectedImageDetailsWidget"):
+            return
+
+        if not hasattr(self.selectedImageDetailsWidget, "_rating_score_widget"):
+            return
+
+        rating_widget = self.selectedImageDetailsWidget._rating_score_widget
+
+        if len(image_ids) == 0:
+            # 選択なし: クリア（未実装）
+            logger.debug("No images selected for rating/score")
+
+        elif len(image_ids) == 1:
+            # 単一選択: 従来の populate_from_image_data()
+            if self.dataset_state_manager:
+                image_data = self.dataset_state_manager.get_image_by_id(image_ids[0])
+                if image_data:
+                    rating_widget.populate_from_image_data(image_data)
+                    logger.debug(f"Single selection: populated rating widget for image_id={image_ids[0]}")
+
+        else:
+            # 複数選択: 新規 populate_from_selection()
+            if self.db_manager:
+                rating_widget.populate_from_selection(image_ids, self.db_manager)
+                logger.info(f"Batch mode activated for {len(image_ids)} images")
+
+    def _handle_batch_rating_changed(self, image_ids: list[int], rating: str) -> None:
+        """
+        RatingScoreEditWidget からのバッチRating変更シグナルハンドラ
+
+        Args:
+            image_ids: 画像IDリスト
+            rating: Rating値 ("PG", "PG-13", "R", "X", "XXX")
+
+        Side Effects:
+            - ImageDBWriteService.update_rating_batch() を呼び出し
+            - 成功時: DatasetStateManager.refresh_images() でキャッシュ一括更新
+            - 失敗時: エラーログ出力
+        """
+        logger.info(f"Batch rating change requested: {len(image_ids)} images, rating='{rating}'")
+
+        success = self._execute_batch_rating_write(image_ids, rating)
+        if success:
+            # キャッシュを一括更新
+            if self.dataset_state_manager:
+                self.dataset_state_manager.refresh_images(image_ids)
+            logger.info("Batch rating update completed successfully")
+
+    def _execute_batch_rating_write(self, image_ids: list[int], rating: str) -> bool:
+        """バッチレーティング書き込みとキャッシュ更新を実行する。
+
+        Args:
+            image_ids: 対象画像のIDリスト
+            rating: Rating値
+
+        Returns:
+            成功した場合True
+        """
+        if not self.image_db_write_service:
+            logger.warning("ImageDBWriteService not initialized")
+            return False
+
+        success = self.image_db_write_service.update_rating_batch(image_ids, rating)
+        return success
+
+    def _handle_batch_score_changed(self, image_ids: list[int], score: int) -> None:
+        """
+        RatingScoreEditWidget からのバッチScore変更シグナルハンドラ
+
+        Args:
+            image_ids: 画像IDリスト
+            score: Score値 (0-1000範囲)
+
+        Side Effects:
+            - ImageDBWriteService.update_score_batch() を呼び出し
+            - 成功時: DatasetStateManager.refresh_images() でキャッシュ一括更新
+            - 失敗時: エラーログ出力
+        """
+        logger.info(f"Batch score change requested: {len(image_ids)} images, score={score}")
+
+        success = self._execute_batch_score_write(image_ids, score)
+        if success:
+            # キャッシュを一括更新
+            if self.dataset_state_manager:
+                self.dataset_state_manager.refresh_images(image_ids)
+            logger.info("Batch score update completed successfully")
+
+    def _execute_batch_score_write(self, image_ids: list[int], score: int) -> bool:
+        """バッチスコア書き込みとキャッシュ更新を実行する。
+
+        Args:
+            image_ids: 対象画像のIDリスト
+            score: Score値 (0-1000範囲のUI値)
+
+        Returns:
+            成功した場合True
+        """
+        if not self.image_db_write_service:
+            logger.warning("ImageDBWriteService not initialized")
+            return False
+
+        success = self.image_db_write_service.update_score_batch(image_ids, score)
+        return success
 
     def _execute_batch_tag_write(self, image_ids: list[int], tag: str) -> bool:
         """バッチタグ書き込みとキャッシュ更新を実行する。
