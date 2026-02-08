@@ -2507,7 +2507,7 @@ class ImageRepository:
                     logger.info("指定された条件に一致する画像が見つかりませんでした。")
                     return [], 0
 
-                logger.info(f"フィルタリングで {len(filtered_image_ids)} 件の候補画像IDを取得しました。")
+                logger.debug(f"フィルタリングで {len(filtered_image_ids)} 件の候補画像IDを取得しました。")
 
                 final_metadata_list = self._fetch_filtered_metadata(session, filtered_image_ids, resolution)
                 list_count = len(final_metadata_list)

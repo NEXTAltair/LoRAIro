@@ -443,7 +443,7 @@ class FilterSearchPanel(QScrollArea):
 
     def _on_search_finished(self, result: Any) -> None:
         """検索完了イベント処理（SearchResult/dataclass想定）"""
-        logger.info("検索完了イベント受信")
+        logger.debug("検索完了イベント受信")
 
         try:
             # SearchWorkerの標準結果（SearchResult dataclass）
@@ -867,7 +867,7 @@ class FilterSearchPanel(QScrollArea):
                     has_score_filter,
                 ],
             ):
-                logger.info("検索条件が未指定のため検索をスキップ")
+                logger.debug("検索条件が未指定のため検索をスキップ")
                 return
 
             # 日付範囲を取得
@@ -917,7 +917,7 @@ class FilterSearchPanel(QScrollArea):
             worker_id = self.worker_service.start_search(conditions)
             if worker_id:
                 self._current_search_worker_id = worker_id
-                logger.info(f"非同期検索開始: {worker_id}")
+                logger.debug(f"非同期検索開始: {worker_id}")
 
                 # 旧形式のシグナルも発行（後方互換性）
                 self.search_requested.emit({"conditions": conditions, "worker_id": worker_id})
@@ -941,7 +941,7 @@ class FilterSearchPanel(QScrollArea):
 
     def _execute_synchronous_search(self) -> None:
         """同期検索実行（WorkerServiceが利用できない場合のフォールバック）"""
-        logger.info("フォールバック: 同期検索を実行")
+        logger.warning("フォールバック: 同期検索を実行")
 
         try:
             # 検索テキストをキーワードリストに変換
