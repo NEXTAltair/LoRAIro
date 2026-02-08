@@ -315,7 +315,7 @@ class DatasetStateManager(QObject):
                 # フィルター済み画像からも検索を試行
                 filtered_image_data = self._get_image_from_filtered(image_id)
                 if filtered_image_data:
-                    logger.info(f"フィルター済み画像で発見: ID {image_id} - データを送信")
+                    logger.debug(f"フィルター済み画像で発見: ID {image_id} - データを送信")
                     self.current_image_data_changed.emit(filtered_image_data)
                 else:
                     # 空のデータでもシグナルを送信して一貫性を保つ
