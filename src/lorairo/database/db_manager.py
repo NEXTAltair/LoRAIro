@@ -26,8 +26,7 @@ if TYPE_CHECKING:
 
 
 class ImageDatabaseManager:
-    """
-    画像データベース操作の高レベルインターフェースを提供するクラス。
+    """画像データベース操作の高レベルインターフェースを提供するクラス。
     ImageRepositoryを使用して、画像メタデータとアノテーションの
     保存、取得、更新などの操作を行います。
     """
@@ -38,13 +37,13 @@ class ImageDatabaseManager:
         config_service: "ConfigurationService",
         fsm: FileSystemManager | None = None,
     ):
-        """
-        ImageDatabaseManagerのコンストラクタ。
+        """ImageDatabaseManagerのコンストラクタ。
 
         Args:
             repository (ImageRepository): 使用するImageRepositoryインスタンス。
             config_service (ConfigurationService): 設定サービスインスタンス。
             fsm (FileSystemManager): ファイルシステムマネージャー（オプション）。
+
         """
         self.repository = repository
         self.config_service = config_service
@@ -64,7 +63,7 @@ class ImageDatabaseManager:
     # 必要であれば、リポジトリのセッションファクトリを使う処理を追加できる
 
     def register_original_image(
-        self, image_path: Path, fsm: FileSystemManager
+        self, image_path: Path, fsm: FileSystemManager,
     ) -> tuple[int, dict[str, Any]] | None:
         """オリジナル画像をストレージに保存し、メタデータをデータベースに登録する。
 
@@ -78,6 +77,7 @@ class ImageDatabaseManager:
             登録成功時は (image_id, original_metadata)、
             重複時は (existing_image_id, existing_metadata)、
             失敗時は None。
+
         """
         try:
             # 1. 画像情報を取得
@@ -112,7 +112,7 @@ class ImageDatabaseManager:
                     "phash": phash,
                     "original_image_path": str(image_path),
                     "stored_image_path": str(db_stored_original_path),
-                }
+                },
             )
 
             # 6. データベースに挿入
@@ -124,7 +124,7 @@ class ImageDatabaseManager:
                 self._generate_thumbnail_512px(image_id, db_stored_original_path, original_metadata, fsm)
             except Exception as e:
                 logger.warning(
-                    f"512px サムネイル生成に失敗しましたが、処理を続行します: {image_path}, Error: {e}"
+                    f"512px サムネイル生成に失敗しましたが、処理を続行します: {image_path}, Error: {e}",
                 )
 
             return image_id, original_metadata
@@ -137,7 +137,7 @@ class ImageDatabaseManager:
             return None
 
     def _handle_duplicate_image(
-        self, existing_id: int, image_path: Path, fsm: FileSystemManager
+        self, existing_id: int, image_path: Path, fsm: FileSystemManager,
     ) -> tuple[int, dict[str, Any]]:
         """重複検出時の処理。512pxサムネイル生成と既存メタデータ返却を行う。
 
@@ -148,6 +148,7 @@ class ImageDatabaseManager:
 
         Returns:
             (existing_image_id, existing_metadata) のタプル。
+
         """
         logger.warning(f"重複画像を検出 (pHash): 既存ID={existing_id}, Path={image_path}")
 
@@ -164,7 +165,7 @@ class ImageDatabaseManager:
                 logger.debug(f"重複画像に512px画像が既に存在します: ID={existing_id}")
         except Exception as e:
             logger.warning(
-                f"重複画像の512px生成チェック中にエラー (処理続行): ID={existing_id}, Error: {e}"
+                f"重複画像の512px生成チェック中にエラー (処理続行): ID={existing_id}, Error: {e}",
             )
 
         # 既存のメタデータを取得して返す
@@ -177,18 +178,17 @@ class ImageDatabaseManager:
         return existing_id, existing_metadata
 
     def _generate_thumbnail_512px(
-        self, image_id: int, original_path: Path, original_metadata: dict[str, Any], fsm: FileSystemManager
+        self, image_id: int, original_path: Path, original_metadata: dict[str, Any], fsm: FileSystemManager,
     ) -> None:
-        """
-        512px サムネイル画像を生成し、データベースに登録します。
+        """512px サムネイル画像を生成し、データベースに登録します。
 
         Args:
             image_id (int): 元画像のID
             original_path (Path): 保存されたオリジナル画像のパス
             original_metadata (dict[str, Any]): 元画像のメタデータ
             fsm (FileSystemManager): ファイルシステムマネージャー
-        """
 
+        """
         # 元画像サイズを確認（アップスケール対応のため512px以下もスキップしない）
         original_width = original_metadata.get("width", 0)
         original_height = original_metadata.get("height", 0)
@@ -212,12 +212,14 @@ class ImageDatabaseManager:
             has_alpha = original_metadata.get("has_alpha", False)
             mode = original_metadata.get("mode", "RGB")
             processed_image, processing_metadata = ipm.process_image(
-                original_path, has_alpha, mode, upscaler=upscaler
+                original_path, has_alpha, mode, upscaler=upscaler,
             )
 
             if not processed_image:
                 # アップスケール後もサイズ不足等で処理できなかった場合はスキップ扱い
-                logger.debug(f"512pxサムネイル生成をスキップ: 元画像ID={image_id} (画像が小さすぎるか処理不可)")
+                logger.debug(
+                    f"512pxサムネイル生成をスキップ: 元画像ID={image_id} (画像が小さすぎるか処理不可)",
+                )
                 return
 
             # 512px画像を保存
@@ -230,7 +232,7 @@ class ImageDatabaseManager:
             if processing_metadata.get("was_upscaled", False):
                 processed_metadata["upscaler_used"] = processing_metadata.get("upscaler_used")
                 logger.info(
-                    f"512px生成時にアップスケールを実行: {processing_metadata.get('upscaler_used')}"
+                    f"512px生成時にアップスケールを実行: {processing_metadata.get('upscaler_used')}",
                 )
 
             # データベースに512px画像を登録
@@ -238,11 +240,11 @@ class ImageDatabaseManager:
 
             if processed_id:
                 logger.debug(
-                    f"512px サムネイル画像を生成・登録しました: 元画像ID={image_id}, 処理済みID={processed_id}, Path={processed_path.name}"
+                    f"512px サムネイル画像を生成・登録しました: 元画像ID={image_id}, 処理済みID={processed_id}, Path={processed_path.name}",
                 )
             else:
                 logger.warning(
-                    f"512px サムネイル画像の生成は成功しましたが、DB登録に失敗しました: 元画像ID={image_id}"
+                    f"512px サムネイル画像の生成は成功しましたが、DB登録に失敗しました: 元画像ID={image_id}",
                 )
 
         except Exception as e:
@@ -253,10 +255,9 @@ class ImageDatabaseManager:
             raise
 
     def register_processed_image(
-        self, image_id: int, processed_path: Path, info: dict[str, Any]
+        self, image_id: int, processed_path: Path, info: dict[str, Any],
     ) -> int | None:
-        """
-        処理済み画像を保存し、メタデータをデータベースに登録します。
+        """処理済み画像を保存し、メタデータをデータベースに登録します。
 
         Args:
             image_id (int): 元画像のID。
@@ -265,6 +266,7 @@ class ImageDatabaseManager:
 
         Returns:
             int | None: 保存された処理済み画像のID。重複時も既存IDを返す。失敗時は None。
+
         """
         try:
             # ファイルシステムの保存は呼び出し元で行う想定(パスを渡すため)
@@ -281,14 +283,14 @@ class ImageDatabaseManager:
                 {
                     "image_id": image_id,
                     "stored_image_path": str(processed_path),  # Path を文字列に
-                }
+                },
             )
 
             # データベースに挿入 (Repository が重複チェックを行う)
             processed_image_id = self.repository.add_processed_image(info)
             if processed_image_id is not None:
                 logger.debug(
-                    f"処理済み画像を登録/確認しました: ID={processed_image_id}, 元画像ID={image_id}"
+                    f"処理済み画像を登録/確認しました: ID={processed_image_id}, 元画像ID={image_id}",
                 )
             # None が返るケースは Repository のエラーログで記録されるはず
             return processed_image_id
@@ -404,14 +406,14 @@ class ImageDatabaseManager:
             logger.warning(f"画像 ID {image_id} のスコア保存に失敗: {e}")
 
     def get_low_res_image_path(self, image_id: int) -> str | None:
-        """
-        指定されたIDで最も解像度が低い処理済み画像のパスを取得します。
+        """指定されたIDで最も解像度が低い処理済み画像のパスを取得します。
 
         Args:
             image_id (int): 取得する元画像のID。
 
         Returns:
             str | None: 最も解像度が低い処理済み画像のパス。見つからない場合はNone。
+
         """
         try:
             # resolution=0 で最低解像度を取得
@@ -421,10 +423,9 @@ class ImageDatabaseManager:
                 if path:
                     logger.debug(f"画像ID {image_id} の低解像度画像パスを取得しました。")
                     return path  # type: ignore[no-any-return]
-                else:
-                    logger.warning(
-                        f"画像ID {image_id} の低解像度画像のパスが見つかりません。 Metadata: {metadata}"
-                    )
+                logger.warning(
+                    f"画像ID {image_id} の低解像度画像のパスが見つかりません。 Metadata: {metadata}",
+                )
             else:
                 logger.warning(f"画像ID {image_id} の低解像度画像メタデータが見つかりません。")
             return None
@@ -433,14 +434,14 @@ class ImageDatabaseManager:
             return None
 
     def get_image_metadata(self, image_id: int) -> dict[str, Any] | None:
-        """
-        指定されたIDのオリジナル画像メタデータを取得します。
+        """指定されたIDのオリジナル画像メタデータを取得します。
 
         Args:
             image_id (int): 取得する画像のID。
 
         Returns:
             dict[str, Any] | None: 画像メタデータを含む辞書。画像が見つからない場合はNone。
+
         """
         try:
             metadata = self.repository.get_image_metadata(image_id)
@@ -452,14 +453,14 @@ class ImageDatabaseManager:
             raise  # Repositoryでエラーが発生したら上に伝える
 
     def get_processed_metadata(self, image_id: int) -> list[dict[str, Any]] | None:
-        """
-        指定された元画像IDに関連する全ての処理済み画像のメタデータを取得します。
+        """指定された元画像IDに関連する全ての処理済み画像のメタデータを取得します。
 
         Args:
             image_id (int): 元画像のID。
 
         Returns:
             list[dict[str, Any]] | None: 処理済み画像のメタデータのリスト。見つからない場合は空リスト。
+
         """
         try:
             # all_data=True でリストが返る
@@ -468,12 +469,11 @@ class ImageDatabaseManager:
                 if not metadata_list:
                     logger.info(f"ID {image_id} の元画像に関連する処理済み画像が見つかりません。")
                 return metadata_list
-            else:
-                # Repository が予期せず None や dict を返した場合 (通常はないはず)
-                logger.error(
-                    f"get_processed_image(all_data=True) がリストを返しませんでした: {type(metadata_list)}"
-                )
-                return []
+            # Repository が予期せず None や dict を返した場合 (通常はないはず)
+            logger.error(
+                f"get_processed_image(all_data=True) がリストを返しませんでした: {type(metadata_list)}",
+            )
+            return []
         except Exception as e:
             logger.error(f"処理済み画像メタデータ取得中にエラーが発生しました: {e}", exc_info=True)
             raise
@@ -535,8 +535,7 @@ class ImageDatabaseManager:
             return []
 
     def get_manual_edit_model_id(self) -> int:
-        """
-        手動編集用のモデルIDを取得します（キャッシュ機能付き）。
+        """手動編集用のモデルIDを取得します（キャッシュ機能付き）。
 
         MANUAL_EDITという名前のモデルが存在しない場合は新規作成します。
         初回呼び出し時にのみデータベースアクセスを行い、2回目以降はキャッシュされた値を返します。
@@ -546,6 +545,7 @@ class ImageDatabaseManager:
 
         Raises:
             SQLAlchemyError: データベース操作中にエラーが発生した場合
+
         """
         if not hasattr(self, "_manual_edit_model_id"):
             with self.repository.session_factory() as session:
@@ -568,9 +568,10 @@ class ImageDatabaseManager:
         manual_rating_filter: str | None = None,
         ai_rating_filter: str | None = None,
         manual_edit_filter: bool | None = None,
+        score_min: float | None = None,
+        score_max: float | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
-        """
-        指定された条件に基づいて画像をフィルタリングし、メタデータと件数を返します。
+        """指定された条件に基づいて画像をフィルタリングし、メタデータと件数を返します。
 
         Args:
             tags: 検索するタグのリスト
@@ -585,9 +586,12 @@ class ImageDatabaseManager:
             manual_rating_filter: 指定した手動レーティングを持つ画像のみを対象とするか
             ai_rating_filter: 指定したAI評価レーティングを持つ画像のみを対象とするか (多数決ロジック)
             manual_edit_filter: アノテーションが手動編集されたかでフィルタするか
+            score_min: 最小スコア値（0.0-10.0）
+            score_max: 最大スコア値（0.0-10.0）
 
         Returns:
             tuple: (画像メタデータのリスト, 総数)
+
         """
         try:
             # 引数をそのままリポジトリに渡す
@@ -604,14 +608,15 @@ class ImageDatabaseManager:
                 manual_rating_filter=manual_rating_filter,
                 ai_rating_filter=ai_rating_filter,
                 manual_edit_filter=manual_edit_filter,
+                score_min=score_min,
+                score_max=score_max,
             )
         except Exception as e:
             logger.error(f"画像フィルタリング検索中にエラーが発生しました: {e}", exc_info=True)
             raise
 
     def detect_duplicate_image(self, image_path: Path) -> int | None:
-        """
-        画像の重複を検出し、重複する場合はその画像のIDを返す。
+        """画像の重複を検出し、重複する場合はその画像のIDを返す。
         pHashベースの視覚的重複検出を使用します。
 
         Args:
@@ -619,6 +624,7 @@ class ImageDatabaseManager:
 
         Returns:
             int | None: 重複する画像が見つかった場合はそのimage_id、見つからない場合はNone
+
         """
         image_name = image_path.name
 
@@ -639,7 +645,7 @@ class ImageDatabaseManager:
 
         except Exception as e:
             logger.error(
-                f"重複画像検出プロセス中にエラーが発生しました: {image_path}, Error: {e}", exc_info=True
+                f"重複画像検出プロセス中にエラーが発生しました: {image_path}, Error: {e}", exc_info=True,
             )
             return None
 
@@ -653,14 +659,14 @@ class ImageDatabaseManager:
             return 0  # エラー時は0を返す
 
     def get_image_ids_from_directory(self, directory_path: Path) -> list[int]:
-        """
-        指定されたディレクトリに含まれる画像のIDリストを取得します。
+        """指定されたディレクトリに含まれる画像のIDリストを取得します。
 
         Args:
             directory_path (Path): 検索対象のディレクトリパス
 
         Returns:
             list[int]: 該当する画像のIDリスト
+
         """
         try:
             # ディレクトリ内の画像ファイルを取得
@@ -684,16 +690,16 @@ class ImageDatabaseManager:
 
         except Exception as e:
             logger.error(
-                f"ディレクトリからの画像ID取得中にエラー: {directory_path}, Error: {e}", exc_info=True
+                f"ディレクトリからの画像ID取得中にエラー: {directory_path}, Error: {e}", exc_info=True,
             )
             return []
 
     def get_dataset_status(self) -> dict[str, Any]:
-        """
-        データセット状態の取得（軽量な読み取り操作）
+        """データセット状態の取得（軽量な読み取り操作）
 
         Returns:
             dict: データセット状態情報 {"total_images": int, "status": str}
+
         """
         try:
             total_count = self.get_total_image_count()
@@ -703,11 +709,11 @@ class ImageDatabaseManager:
             return {"total_images": 0, "status": "error"}
 
     def get_annotation_status_counts(self) -> dict[str, int | float]:
-        """
-        アノテーション状態カウントを取得
+        """アノテーション状態カウントを取得
 
         Returns:
             dict: アノテーション状態統計 {"total": int, "completed": int, "error": int, "completion_rate": float}
+
         """
         try:
             # 総画像数取得
@@ -745,10 +751,9 @@ class ImageDatabaseManager:
             return {"total": 0, "completed": 0, "error": 0, "completion_rate": 0.0}
 
     def filter_by_annotation_status(
-        self, completed: bool = False, error: bool = False
+        self, completed: bool = False, error: bool = False,
     ) -> list[dict[str, Any]]:
-        """
-        アノテーション状態でフィルタリング
+        """アノテーション状態でフィルタリング
 
         Args:
             completed: 完了画像のみ
@@ -756,6 +761,7 @@ class ImageDatabaseManager:
 
         Returns:
             list: フィルター後の画像リスト
+
         """
         try:
             session: Session = self.repository.get_session()
@@ -772,7 +778,7 @@ class ImageDatabaseManager:
                 elif error:
                     # エラー画像（未解決のアノテーションエラーのみ）
                     error_image_ids = self.repository.get_error_image_ids(
-                        operation_type="annotation", resolved=False
+                        operation_type="annotation", resolved=False,
                     )
                     if not error_image_ids:
                         return []
@@ -789,14 +795,14 @@ class ImageDatabaseManager:
             return []
 
     def get_directory_images_metadata(self, directory_path: Path) -> list[dict[str, Any]]:
-        """
-        ディレクトリ内画像のメタデータ取得（軽量な読み取り操作）
+        """ディレクトリ内画像のメタデータ取得（軽量な読み取り操作）
 
         Args:
             directory_path: 検索対象ディレクトリのパス
 
         Returns:
             list: ディレクトリ内の画像メタデータリスト
+
         """
         try:
             image_ids = self.get_image_ids_from_directory(directory_path)
@@ -811,7 +817,7 @@ class ImageDatabaseManager:
                     images.append(metadata)
 
             logger.info(
-                f"ディレクトリ {directory_path} から {len(images)} 件の画像メタデータを取得しました"
+                f"ディレクトリ {directory_path} から {len(images)} 件の画像メタデータを取得しました",
             )
             return images
 
@@ -820,8 +826,7 @@ class ImageDatabaseManager:
             return []
 
     def check_processed_image_exists(self, image_id: int, target_resolution: int) -> dict[str, Any] | None:
-        """
-        指定された画像IDと目標解像度に一致する処理済み画像が存在するかチェックします。
+        """指定された画像IDと目標解像度に一致する処理済み画像が存在するかチェックします。
 
         Args:
             image_id (int): 元画像のID
@@ -829,23 +834,23 @@ class ImageDatabaseManager:
 
         Returns:
             dict[str, Any] | None: 処理済み画像が存在する場合はそのメタデータ、存在しない場合はNone
+
         """
         try:
             # get_processed_image は resolution=0 以外の場合、dict | None を返す
             processed_image_metadata = self.repository.get_processed_image(
-                image_id, resolution=target_resolution, all_data=False
+                image_id, resolution=target_resolution, all_data=False,
             )
 
             if isinstance(processed_image_metadata, dict):
                 logger.debug(
-                    f"解像度 {target_resolution} の処理済み画像が既に存在します: 元画像ID={image_id}, 処理済ID={processed_image_metadata.get('id')}"
+                    f"解像度 {target_resolution} の処理済み画像が既に存在します: 元画像ID={image_id}, 処理済ID={processed_image_metadata.get('id')}",
                 )
                 return processed_image_metadata
-            else:
-                logger.info(
-                    f"解像度 {target_resolution} に一致する処理済み画像は見つかりませんでした: 元画像ID={image_id}"
-                )
-                return None
+            logger.info(
+                f"解像度 {target_resolution} に一致する処理済み画像は見つかりませんでした: 元画像ID={image_id}",
+            )
+            return None
         except Exception as e:
             logger.error(
                 f"処理済み画像の存在チェック中にエラーが発生しました: 元画像ID={image_id}, 解像度={target_resolution}, Error: {e}",
@@ -854,10 +859,9 @@ class ImageDatabaseManager:
             return None
 
     def filter_recent_annotations(
-        self, annotations: dict[str, list[dict[str, Any]]], minutes_threshold: int = 5
+        self, annotations: dict[str, list[dict[str, Any]]], minutes_threshold: int = 5,
     ) -> dict[str, list[dict[str, Any]]]:
-        """
-        与えられたアノテーションデータから、指定時間内に更新されたものだけをフィルタリングします。
+        """与えられたアノテーションデータから、指定時間内に更新されたものだけをフィルタリングします。
         'updated_at' フィールドが存在しないアノテーションは無視されます。
 
         Args:
@@ -867,6 +871,7 @@ class ImageDatabaseManager:
 
         Returns:
             dict: フィルタリングされたアノテーション辞書。
+
         """
         filtered_annotations: dict[str, list[dict[str, Any]]] = {
             "tags": [],
@@ -887,7 +892,7 @@ class ImageDatabaseManager:
                     elif isinstance(update_time, str):  # 文字列の場合も考慮 (念のため)
                         try:
                             dt = datetime.fromisoformat(
-                                update_time.replace("Z", "+00:00")
+                                update_time.replace("Z", "+00:00"),
                             )  # ISO形式をパース
                             all_updates.append(dt)
                         except ValueError:
@@ -895,7 +900,7 @@ class ImageDatabaseManager:
 
         if not all_updates:
             logger.info(
-                "アノテーションに有効な更新日時が見つかりませんでした。フィルタリングをスキップします。"
+                "アノテーションに有効な更新日時が見つかりませんでした。フィルタリングをスキップします。",
             )
             return filtered_annotations  # または元の annotations を返すか
 
@@ -936,14 +941,14 @@ class ImageDatabaseManager:
         return filtered_annotations
 
     def check_image_has_annotation(self, image_id: int) -> bool:
-        """
-        画像にアノテーション（タグまたはキャプション）が存在するかチェック
+        """画像にアノテーション（タグまたはキャプション）が存在するかチェック
 
         Args:
             image_id: 画像ID
 
         Returns:
             bool: アノテーションが存在するかどうか
+
         """
         try:
             session = self.repository.get_session()
@@ -960,7 +965,7 @@ class ImageDatabaseManager:
                 has_annotation = result.scalar() is not None
 
                 logger.debug(
-                    f"アノテーション存在確認: image_id={image_id}, has_annotation={has_annotation}"
+                    f"アノテーション存在確認: image_id={image_id}, has_annotation={has_annotation}",
                 )
                 return has_annotation
 
@@ -976,12 +981,12 @@ class ImageDatabaseManager:
 
         Returns:
             アノテーションが存在する画像IDのセット。
+
         """
         return self.repository.get_annotated_image_ids(image_ids)
 
     def execute_filtered_search(self, conditions: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
-        """
-        フィルタリング検索実行（データ層の適切な責任）
+        """フィルタリング検索実行（データ層の適切な責任）
 
         検索条件に基づいてデータベース検索を実行し、結果を返します。
 
@@ -990,6 +995,7 @@ class ImageDatabaseManager:
 
         Returns:
             tuple: (検索結果リスト, 総件数)
+
         """
         try:
             # 既存のget_images_by_filterメソッドを活用
@@ -1012,8 +1018,7 @@ class ImageDatabaseManager:
         file_path: str | None = None,
         model_name: str | None = None,
     ) -> int:
-        """
-        エラーレコードを保存（Manager層Facade）
+        """エラーレコードを保存（Manager層Facade）
 
         Worker層から呼び出されるFacadeメソッド。
         二次エラー（エラー保存中のエラー）を防ぐため、try-exceptで保護されています。
@@ -1029,6 +1034,7 @@ class ImageDatabaseManager:
 
         Returns:
             int: 作成された error_record_id（二次エラー時は -1）
+
         """
         try:
             error_id = self.repository.save_error_record(
@@ -1042,7 +1048,7 @@ class ImageDatabaseManager:
             )
             logger.debug(
                 f"エラーレコード保存完了: error_id={error_id}, "
-                f"operation_type={operation_type}, error_type={error_type}"
+                f"operation_type={operation_type}, error_type={error_type}",
             )
             return error_id
 
@@ -1052,14 +1058,14 @@ class ImageDatabaseManager:
             return -1
 
     def get_image_id_by_filepath(self, filepath: str) -> int | None:
-        """
-        ファイルパスから画像IDを取得（Manager層Facade）
+        """ファイルパスから画像IDを取得（Manager層Facade）
 
         Args:
             filepath: 画像ファイルパス
 
         Returns:
             int | None: 画像ID（見つからない場合は None）
+
         """
         try:
             return self.repository.get_image_id_by_filepath(filepath)

@@ -1,5 +1,4 @@
-"""
-SearchModels - 検索・フィルタリング用データクラス定義
+"""SearchModels - 検索・フィルタリング用データクラス定義
 
 このモジュールはサービス層で共通利用される検索・フィルタリング関連の
 データクラスを定義します。依存関係の正常化のため、GUI層から分離されました。
@@ -41,6 +40,10 @@ class SearchConditions:
     ai_rating_filter: str | None = None  # AI評価Rating値でフィルタ (PG, PG-13, R, X, XXX) - 多数決ロジック
     include_unrated: bool = True  # 未評価画像を含むか (Either: 手動またはAI評価のいずれか1つ以上)
 
+    # Score Filter Extensions
+    score_min: float | None = None  # 最小スコア値（0.0-10.0）
+    score_max: float | None = None  # 最大スコア値（0.0-10.0）
+
     def to_db_filter_args(self) -> dict[str, Any]:
         """DB APIの引数に直接変換"""
         return {
@@ -55,6 +58,8 @@ class SearchConditions:
             "include_unrated": self.include_unrated,  # Either-based: 手動またはAI評価のいずれか1つ以上
             "manual_rating_filter": self.rating_filter,  # 手動評価フィルタ
             "ai_rating_filter": self.ai_rating_filter,  # AI評価フィルタ (多数決ロジック)
+            "score_min": self.score_min,  # 最小スコア値
+            "score_max": self.score_max,  # 最大スコア値
         }
 
     def _resolve_resolution(self) -> int:

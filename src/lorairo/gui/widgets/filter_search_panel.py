@@ -28,8 +28,7 @@ class PipelineState(Enum):
 
 
 class FilterSearchPanel(QScrollArea):
-    """
-    統合検索・フィルターパネル。
+    """統合検索・フィルターパネル。
     タグ検索、キャプション検索、解像度フィルター、日付範囲フィルターを統合。
     """
 
@@ -80,8 +79,14 @@ class FilterSearchPanel(QScrollArea):
         logger.debug("FilterSearchPanel initialized")
 
     def setup_custom_widgets(self) -> None:
-        """Qt DesignerのUIに日付範囲スライダー、進捗表示、QButtonGroupを追加"""
-        from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QProgressBar, QPushButton
+        """Qt DesignerのUIに日付範囲スライダー、スコア範囲スライダー、進捗表示、QButtonGroupを追加"""
+        from PySide6.QtWidgets import (
+            QButtonGroup,
+            QGroupBox,
+            QHBoxLayout,
+            QProgressBar,
+            QVBoxLayout,
+        )
 
         # 日付範囲スライダーを作成してプレースホルダーと置き換え
         self.date_range_slider = CustomRangeSlider()
@@ -96,6 +101,21 @@ class FilterSearchPanel(QScrollArea):
             layout.removeWidget(placeholder)
             placeholder.deleteLater()
             layout.insertWidget(index, self.date_range_slider)
+
+        # スコア範囲スライダーを作成（0.0-10.0の範囲、内部値0-1000）
+        self.score_range_slider = CustomRangeSlider(min_value=0, max_value=1000)
+        self.score_range_slider.set_score_mode()  # スコアモード有効化（0.00-10.00表示）
+
+        # スコア範囲スライダーをグループボックス化
+        score_group = QGroupBox("スコア範囲")
+        score_layout = QVBoxLayout()
+        score_layout.addWidget(self.score_range_slider)
+        score_group.setLayout(score_layout)
+
+        # フィルターグループの適切な位置にスコアスライダーを追加
+        if hasattr(self.ui, "filterGroup") and self.ui.filterGroup.layout():
+            filter_layout = self.ui.filterGroup.layout()
+            filter_layout.addWidget(score_group)
 
         # QButtonGroup実装（論理演算子の独立化）
         self.logic_button_group = QButtonGroup(self)
@@ -183,6 +203,7 @@ class FilterSearchPanel(QScrollArea):
 
         Args:
             service: FavoriteFiltersServiceインスタンス
+
         """
         if service is None:
             raise ValueError("FavoriteFiltersService cannot be None")
@@ -279,6 +300,7 @@ class FilterSearchPanel(QScrollArea):
 
         Args:
             item: クリックされたQListWidgetItem
+
         """
         filter_name = item.text()
         self._load_filter_by_name(filter_name)
@@ -288,6 +310,7 @@ class FilterSearchPanel(QScrollArea):
 
         Args:
             filter_name: フィルター名
+
         """
         from PySide6.QtWidgets import QMessageBox
 
@@ -302,7 +325,7 @@ class FilterSearchPanel(QScrollArea):
                 logger.info("Loaded and applied favorite filter: {}", filter_name)
             else:
                 QMessageBox.warning(
-                    self, "読込失敗", f"フィルター '{filter_name}' の読み込みに失敗しました。"
+                    self, "読込失敗", f"フィルター '{filter_name}' の読み込みに失敗しました。",
                 )
         except Exception as e:
             logger.error("Failed to load filter '{}': {}", filter_name, e, exc_info=True)
@@ -381,7 +404,7 @@ class FilterSearchPanel(QScrollArea):
         if self.search_filter_service is not None:
             logger.warning(
                 f"SearchFilterService置き換え: "
-                f"old={type(self.search_filter_service)} -> new={type(service)}"
+                f"old={type(self.search_filter_service)} -> new={type(service)}",
             )
 
         self.search_filter_service = service
@@ -444,7 +467,7 @@ class FilterSearchPanel(QScrollArea):
                         "results": result.image_metadata,
                         "count": count,
                         "conditions": getattr(result, "filter_conditions", {}),
-                    }
+                    },
                 )
                 logger.info(f"検索結果: {count}件")
             else:
@@ -490,7 +513,7 @@ class FilterSearchPanel(QScrollArea):
                     thumbnail_progress = current / total
                     overall_progress = 0.3 + (thumbnail_progress * 0.7)  # 30% + 70%
                     self.update_pipeline_progress(
-                        f"サムネイル読み込み中... ({current}/{total}) {filename}", overall_progress, 1.0
+                        f"サムネイル読み込み中... ({current}/{total}) {filename}", overall_progress, 1.0,
                     )
                     logger.debug(f"Thumbnail batch progress: {current}/{total} -> {overall_progress:.1%}")
 
@@ -527,7 +550,6 @@ class FilterSearchPanel(QScrollArea):
         """状態に応じたUI更新 (Phase 3)"""
         if state == PipelineState.IDLE:
             self.progress_bar.setVisible(False)
-            pass
 
         elif state == PipelineState.SEARCHING:
             self.progress_bar.setVisible(True)
@@ -576,12 +598,12 @@ class FilterSearchPanel(QScrollArea):
         # 自動検索は行わず、ユーザーが検索ボタンを押すまで待つ
 
     def get_date_range_from_slider(self) -> tuple[datetime | None, datetime | None]:
-        """
-        CustomRangeSliderから日付範囲を取得してdatetimeオブジェクトに変換
+        """CustomRangeSliderから日付範囲を取得してdatetimeオブジェクトに変換
         # NOTE: CustomRangeSliderがdatetimeオブジェクトを返すようにしたほうがいいかも
 
         Returns:
             tuple: (start_datetime, end_datetime) または (None, None) if not enabled
+
         """
         if not self.ui.checkboxDateFilter.isChecked():
             return None, None
@@ -647,17 +669,16 @@ class FilterSearchPanel(QScrollArea):
         types = self._get_selected_search_types()
         if "tags" in types:
             return "tags"
-        elif "caption" in types:
+        if "caption" in types:
             return "caption"
-        else:
-            return "tags"  # デフォルト
+        return "tags"  # デフォルト
 
     def _get_rating_filter_value(self) -> str | None:
-        """
-        Ratingコンボボックスから選択された値を取得
+        """Ratingコンボボックスから選択された値を取得
 
         Returns:
             str | None: Rating値（'PG', 'PG-13', 'R', 'X', 'XXX', 'UNRATED'）または None（全て選択時）
+
         """
         text = self.ui.comboRating.currentText()
         if text == "全て":
@@ -671,11 +692,11 @@ class FilterSearchPanel(QScrollArea):
         return rating_value
 
     def _get_ai_rating_filter_value(self) -> str | None:
-        """
-        AIレーティングコンボボックスから選択された値を取得
+        """AIレーティングコンボボックスから選択された値を取得
 
         Returns:
             str | None: AI Rating値（'PG', 'PG-13', 'R', 'X', 'XXX', 'UNRATED'）または None（全て選択時）
+
         """
         text = self.ui.comboAIRating.currentText()
         if text == "全て":
@@ -693,14 +714,12 @@ class FilterSearchPanel(QScrollArea):
         """NSFWレーティング値かどうか判定する。"""
         return rating_value in {"R", "X", "XXX"}
 
-    def _resolve_include_nsfw(
-        self, rating_filter: str | None, ai_rating_filter: str | None
-    ) -> bool:
+    def _resolve_include_nsfw(self, rating_filter: str | None, ai_rating_filter: str | None) -> bool:
         """レーティング選択からNSFW含有フラグを決定する。"""
         include_nsfw = self._is_nsfw_rating(rating_filter) or self._is_nsfw_rating(ai_rating_filter)
         logger.debug(
             f"NSFW include resolved from ratings: manual={rating_filter}, "
-            f"ai={ai_rating_filter}, include_nsfw={include_nsfw}"
+            f"ai={ai_rating_filter}, include_nsfw={include_nsfw}",
         )
         return include_nsfw
 
@@ -722,12 +741,12 @@ class FilterSearchPanel(QScrollArea):
                     self.ui.lineEditSearch.setPlaceholderText("未タグ画像検索中（タグ入力無効）")
                 else:
                     self.ui.lineEditSearch.setPlaceholderText(
-                        "検索キーワードを入力（複数タグの場合はカンマ区切り）..."
+                        "検索キーワードを入力（複数タグの場合はカンマ区切り）...",
                     )
             elif "caption" in selected_types:
                 if self.ui.checkboxOnlyUncaptioned.isChecked():
                     self.ui.lineEditSearch.setPlaceholderText(
-                        "未キャプション画像検索中（キャプション入力無効）"
+                        "未キャプション画像検索中（キャプション入力無効）",
                     )
                 else:
                     self.ui.lineEditSearch.setPlaceholderText("キャプション検索キーワードを入力...")
@@ -770,7 +789,7 @@ class FilterSearchPanel(QScrollArea):
                             f"    (same instance: {is_same_instance})",
                             f"  - Parent instance service: {parent_service}",
                             f"    (parent service type: {type(parent_service) if parent_service else 'None'})",
-                        ]
+                        ],
                     )
 
                     # Qt Designer生成インスタンス確認
@@ -783,7 +802,7 @@ class FilterSearchPanel(QScrollArea):
                             [
                                 f"  - Qt Designer filterSearchPanel: {id(qt_designer_instance) if qt_designer_instance else None}",
                                 f"    (same as parent: {qt_same_as_parent}, same as self: {qt_same_as_self})",
-                            ]
+                            ],
                         )
 
                         # Qt Designer Phase 2の影響を確認
@@ -794,15 +813,15 @@ class FilterSearchPanel(QScrollArea):
                     # Phase 3.5統合状況の推測
                     if parent_instance and parent_service and not is_same_instance:
                         error_details.append(
-                            "  - 疑われる問題: Qt Designer Phase 2変更によるインスタンス不整合"
+                            "  - 疑われる問題: Qt Designer Phase 2変更によるインスタンス不整合",
                         )
                     elif parent_instance and not parent_service:
                         error_details.append(
-                            "  - 疑われる問題: MainWindow._setup_search_filter_integration()未実行または失敗"
+                            "  - 疑われる問題: MainWindow._setup_search_filter_integration()未実行または失敗",
                         )
                     elif not parent_instance:
                         error_details.append(
-                            "  - 疑われる問題: MainWindow.setup_custom_widgets()未実行または失敗"
+                            "  - 疑われる問題: MainWindow.setup_custom_widgets()未実行または失敗",
                         )
 
                 else:
@@ -831,6 +850,10 @@ class FilterSearchPanel(QScrollArea):
             search_text = self.ui.lineEditSearch.text().strip()
             keywords = self.search_filter_service.parse_search_input(search_text) if search_text else []
 
+            # スコア範囲を取得して検索条件に含めるか判定
+            score_min_internal, score_max_internal = self.score_range_slider.get_range()
+            has_score_filter = score_min_internal != 0 or score_max_internal != 1000
+
             # 基本的な入力検証
             if not keywords and not any(
                 [
@@ -841,7 +864,8 @@ class FilterSearchPanel(QScrollArea):
                     self.ui.comboAspectRatio.currentText() != "全て",
                     self.ui.comboRating.currentText() != "全て",
                     self.ui.comboAIRating.currentText() != "全て",
-                ]
+                    has_score_filter,
+                ],
             ):
                 logger.info("検索条件が未指定のため検索をスキップ")
                 return
@@ -860,6 +884,11 @@ class FilterSearchPanel(QScrollArea):
             ai_rating_filter = self._get_ai_rating_filter_value()
             include_nsfw = self._resolve_include_nsfw(rating_filter, ai_rating_filter)
 
+            # スコア範囲を取得（内部値0-1000を0.0-10.0に変換）
+            score_min_internal, score_max_internal = self.score_range_slider.get_range()
+            score_min = score_min_internal / 100.0
+            score_max = score_max_internal / 100.0
+
             # SearchFilterServiceを使用して検索条件を作成
             conditions = self.search_filter_service.create_search_conditions(
                 search_type=self._get_primary_search_type(),
@@ -877,6 +906,8 @@ class FilterSearchPanel(QScrollArea):
                 rating_filter=rating_filter,
                 ai_rating_filter=ai_rating_filter,
                 include_unrated=self.ui.checkboxIncludeUnrated.isChecked(),
+                score_min=score_min,
+                score_max=score_max,
             )
 
             # Phase 3: State transition to SEARCHING
@@ -924,6 +955,11 @@ class FilterSearchPanel(QScrollArea):
             ai_rating_filter = self._get_ai_rating_filter_value()
             include_nsfw = self._resolve_include_nsfw(rating_filter, ai_rating_filter)
 
+            # スコア範囲を取得（内部値0-1000を0.0-10.0に変換）
+            score_min_internal, score_max_internal = self.score_range_slider.get_range()
+            score_min = score_min_internal / 100.0
+            score_max = score_max_internal / 100.0
+
             # SearchFilterServiceを使用して検索条件を作成
             conditions = self.search_filter_service.create_search_conditions(
                 search_type=self._get_primary_search_type(),
@@ -941,6 +977,8 @@ class FilterSearchPanel(QScrollArea):
                 rating_filter=rating_filter,
                 ai_rating_filter=ai_rating_filter,
                 include_unrated=self.ui.checkboxIncludeUnrated.isChecked(),
+                score_min=score_min,
+                score_max=score_max,
             )
 
             # 検索実行
@@ -1101,7 +1139,7 @@ class FilterSearchPanel(QScrollArea):
         # WorkerServiceのModernProgressManagerが自動的にポップアップ表示を提供するため、
         # インライン表示は無効化してプログレス表示を統一
         logger.debug(
-            f"Progress update delegated to ModernProgressManager: {message} ({current_progress * 100:.1f}%)"
+            f"Progress update delegated to ModernProgressManager: {message} ({current_progress * 100:.1f}%)",
         )
 
         # 既存のプログレスバーを非表示にして統一
