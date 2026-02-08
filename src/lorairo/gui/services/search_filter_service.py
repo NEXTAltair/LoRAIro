@@ -31,8 +31,7 @@ class AnnotationStatusCounts:
 
 
 class SearchFilterService:
-    """
-    GUI専用検索フィルターサービス(純化版・150行目標)
+    """GUI専用検索フィルターサービス(純化版・150行目標)
 
     責任:
     - UI入力の解析と変換
@@ -47,13 +46,13 @@ class SearchFilterService:
         model_selection_service: ModelSelectionService,
         model_registry: ModelRegistryServiceProtocol | None = None,
     ):
-        """
-        SearchFilterServiceを初期化(純化版)
+        """SearchFilterServiceを初期化(純化版)
 
         Args:
             db_manager: 後方互換性のために保持(将来的に削除予定)
             model_selection_service: モデル選択サービス
             model_registry: モデルレジストリ(オプション)
+
         """
         # 後方互換性のために一時的に保持
         self.db_manager = db_manager
@@ -73,14 +72,14 @@ class SearchFilterService:
         logger.info("SearchFilterService (純化版) initialized with new service layer integration")
 
     def parse_search_input(self, input_text: str) -> list[str]:
-        """
-        UI入力テキストの解析とキーワード抽出
+        """UI入力テキストの解析とキーワード抽出
 
         Args:
             input_text: ユーザー入力テキスト
 
         Returns:
             list: 抽出されたキーワードリスト
+
         """
         if not input_text:
             return []
@@ -110,15 +109,17 @@ class SearchFilterService:
         rating_filter: str | None = None,
         ai_rating_filter: str | None = None,
         include_unrated: bool = True,
+        score_min: float | None = None,
+        score_max: float | None = None,
     ) -> SearchConditions:
-        """
-        UIフォームデータからSearchConditionsオブジェクトを作成
+        """UIフォームデータからSearchConditionsオブジェクトを作成
 
         Args:
             各種UI入力パラメータ
 
         Returns:
             SearchConditions: 検索条件オブジェクト
+
         """
         conditions = SearchConditions(
             search_type=search_type,
@@ -139,6 +140,8 @@ class SearchFilterService:
             rating_filter=rating_filter,
             ai_rating_filter=ai_rating_filter,
             include_unrated=include_unrated,
+            score_min=score_min,
+            score_max=score_max,
         )
 
         self.current_conditions = conditions
@@ -146,14 +149,14 @@ class SearchFilterService:
         return conditions
 
     def create_search_preview(self, conditions: SearchConditions) -> str:
-        """
-        人間が読みやすい検索条件プレビューの生成
+        """人間が読みやすい検索条件プレビューの生成
 
         Args:
             conditions: 検索条件
 
         Returns:
             str: プレビューテキスト
+
         """
         preview_parts = []
 
@@ -217,11 +220,11 @@ class SearchFilterService:
         return preview
 
     def get_available_resolutions(self) -> list[str]:
-        """
-        UI選択肢用の利用可能解像度リストを取得（LoRA最適化版）
+        """UI選択肢用の利用可能解像度リストを取得（LoRA最適化版）
 
         Returns:
             list: 解像度選択肢リスト
+
         """
         return [
             "512x512",  # レガシーSD1.5
@@ -233,11 +236,11 @@ class SearchFilterService:
         ]
 
     def get_available_aspect_ratios(self) -> list[str]:
-        """
-        UI選択肢用の利用可能アスペクト比リストを取得
+        """UI選択肢用の利用可能アスペクト比リストを取得
 
         Returns:
             list: アスペクト比選択肢リスト
+
         """
         return [
             "1:1 (正方形)",
@@ -249,14 +252,14 @@ class SearchFilterService:
         ]
 
     def validate_ui_inputs(self, inputs: dict[str, Any]) -> ValidationResult:
-        """
-        UI入力の妥当性検証
+        """UI入力の妥当性検証
 
         Args:
             inputs: UI入力データ辞書
 
         Returns:
             ValidationResult: 検証結果
+
         """
         errors = []
         warnings = []
@@ -269,7 +272,7 @@ class SearchFilterService:
                 inputs.get("only_uncaptioned"),
                 inputs.get("resolution_filter"),
                 inputs.get("date_filter_enabled"),
-            ]
+            ],
         ):
             warnings.append("検索条件が指定されていません。すべての画像が対象になります。")
 
@@ -308,13 +311,13 @@ class SearchFilterService:
         return self.model_filter_service.validate_annotation_settings(settings)
 
     def get_annotation_status_counts(self) -> AnnotationStatusCounts:
-        """
-        アノテーション状態カウントを取得（GUI用）
+        """アノテーション状態カウントを取得（GUI用）
 
         Manager から dict 取得して AnnotationStatusCounts に変換
 
         Returns:
             AnnotationStatusCounts: 状態カウント情報
+
         """
         try:
             # Manager から dict 取得

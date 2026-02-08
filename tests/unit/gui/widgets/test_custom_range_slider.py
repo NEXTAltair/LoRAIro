@@ -117,6 +117,105 @@ class TestCustomRangeSlider:
         with qtbot.waitSignal(range_slider.valueChanged, timeout=1000):
             range_slider.slider.setValue((30, 70))
 
+    def test_score_mode_initialization(self, range_slider):
+        """スコアモード初期化テスト"""
+        range_slider.set_score_mode()
+
+        assert range_slider.is_score_mode is True
+        assert range_slider.is_date_mode is False
+
+    def test_score_mode_labels_formatting(self, range_slider):
+        """スコアモードのラベル表示フォーマットテスト（0.00-10.00形式）"""
+        # スコアモード設定（内部値0-1000）
+        range_slider.set_range(0, 1000)
+        range_slider.set_score_mode()
+
+        # デフォルト範囲（0-1000 -> 0.00-10.00）
+        min_text = range_slider.min_label.text()
+        max_text = range_slider.max_label.text()
+
+        assert min_text == "0.00"
+        assert max_text == "10.00"
+
+    def test_score_mode_range_conversion(self, range_slider):
+        """スコアモードの値変換テスト（内部値300-750 -> 3.00-7.50）"""
+        range_slider.set_range(0, 1000)
+        range_slider.set_score_mode()
+
+        # 内部値300-750を設定
+        range_slider.slider.setValue((300, 750))
+
+        min_text = range_slider.min_label.text()
+        max_text = range_slider.max_label.text()
+
+        assert min_text == "3.00"
+        assert max_text == "7.50"
+
+    def test_score_mode_get_range_returns_internal_values(self, range_slider):
+        """スコアモードでget_range()が内部値を返すことを確認"""
+        range_slider.set_range(0, 1000)
+        range_slider.set_score_mode()
+        range_slider.slider.setValue((500, 800))
+
+        min_val, max_val = range_slider.get_range()
+
+        # 内部値（0-1000）で返されることを確認
+        assert min_val == 500
+        assert max_val == 800
+
+    def test_score_mode_signal_emission(self, range_slider, qtbot):
+        """スコアモードでvalueChangedシグナルが正しく発火することを確認"""
+        range_slider.set_range(0, 1000)
+        range_slider.set_score_mode()
+
+        with qtbot.waitSignal(range_slider.valueChanged, timeout=1000) as blocker:
+            range_slider.slider.setValue((300, 750))
+
+        # シグナルの引数が内部値であることを確認
+        assert blocker.args[0] == 300
+        assert blocker.args[1] == 750
+
+    def test_score_mode_edge_cases(self, range_slider):
+        """スコアモードの境界値テスト"""
+        range_slider.set_range(0, 1000)
+        range_slider.set_score_mode()
+
+        # 最小値-最大値
+        range_slider.slider.setValue((0, 1000))
+        assert range_slider.min_label.text() == "0.00"
+        assert range_slider.max_label.text() == "10.00"
+
+        # 同じ値
+        range_slider.slider.setValue((500, 500))
+        assert range_slider.min_label.text() == "5.00"
+        assert range_slider.max_label.text() == "5.00"
+
+    def test_mode_switching_numeric_to_score(self, range_slider):
+        """数値モードからスコアモードへの切り替えテスト"""
+        # 初期状態（数値モード）
+        assert not range_slider.is_score_mode
+        assert not range_slider.is_date_mode
+
+        # スコアモードに切り替え
+        range_slider.set_range(0, 1000)
+        range_slider.set_score_mode()
+
+        assert range_slider.is_score_mode is True
+        assert range_slider.is_date_mode is False
+
+    def test_mode_switching_date_to_score(self, range_slider):
+        """日付モードからスコアモードへの切り替えテスト"""
+        # 日付モードに設定
+        range_slider.set_date_range()
+        assert range_slider.is_date_mode is True
+
+        # スコアモードに切り替え
+        range_slider.set_range(0, 1000)
+        range_slider.set_score_mode()
+
+        assert range_slider.is_score_mode is True
+        assert range_slider.is_date_mode is False
+
 
 class TestFilterSearchPanel:
     """FilterSearchPanel のユニットテスト"""

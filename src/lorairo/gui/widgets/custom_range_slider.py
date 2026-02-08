@@ -4,10 +4,10 @@ from superqt import QDoubleRangeSlider
 
 
 class CustomRangeSlider(QWidget):
-    """日付または数値の範囲を選択するためのカスタムレンジスライダーウィジェット。
+    """日付、スコア、または数値の範囲を選択するためのカスタムレンジスライダーウィジェット。
 
     superqt.QDoubleRangeSliderを活用した軽量実装。
-    日付モードと数値モードをサポートし、ラベル表示機能を提供します。
+    日付モード、スコアモード、数値モードをサポートし、ラベル表示機能を提供します。
 
     属性:
         valueChanged (Signal): 範囲変更時に発行されるシグナル (min_value, max_value)
@@ -20,6 +20,7 @@ class CustomRangeSlider(QWidget):
         self.min_value = min_value
         self.max_value = max_value
         self.is_date_mode = False
+        self.is_score_mode = False
         self.setup_ui()
 
     def setup_ui(self) -> None:
@@ -57,6 +58,12 @@ class CustomRangeSlider(QWidget):
             max_date = QDateTime.fromSecsSinceEpoch(max_count, local_tz)
             self.min_label.setText(min_date.toString("yyyy-MM-dd"))
             self.max_label.setText(max_date.toString("yyyy-MM-dd"))
+        elif self.is_score_mode:
+            # スコアモード: 内部値0-1000を0.00-10.00に変換して表示
+            min_score = min_count / 100.0
+            max_score = max_count / 100.0
+            self.min_label.setText(f"{min_score:.2f}")
+            self.max_label.setText(f"{max_score:.2f}")
         else:
             self.min_label.setText(f"{min_count:,}")
             self.max_label.setText(f"{max_count:,}")
@@ -86,6 +93,13 @@ class CustomRangeSlider(QWidget):
         end_timestamp = int(end_date.toSecsSinceEpoch())
 
         self.set_range(start_timestamp, end_timestamp)
+
+    def set_score_mode(self) -> None:
+        """スコアモードを設定（0.00-10.00、内部値0-1000）"""
+        self.is_score_mode = True
+        self.is_date_mode = False
+        # 範囲は既に0-1000で初期化されている
+        self.update_labels()
 
 
 if __name__ == "__main__":
