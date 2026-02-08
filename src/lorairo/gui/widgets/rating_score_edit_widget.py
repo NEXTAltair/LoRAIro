@@ -48,8 +48,10 @@ class RatingScoreEditWidget(QWidget):
     """
 
     # シグナル
-    rating_changed = Signal(int, str)  # (image_id, rating)
-    score_changed = Signal(int, int)  # (image_id, score)
+    rating_changed = Signal(int, str)  # (image_id, rating) - 単一選択時
+    score_changed = Signal(int, int)  # (image_id, score) - 単一選択時
+    batch_rating_changed = Signal(list, str)  # (image_ids, rating) - 複数選択時
+    batch_score_changed = Signal(list, int)  # (image_ids, score) - 複数選択時
 
     def __init__(self, parent: QWidget | None = None):
         """
@@ -69,6 +71,8 @@ class RatingScoreEditWidget(QWidget):
 
         # 内部状態
         self._current_image_id: int | None = None
+        self._selected_image_ids: list[int] = []  # 複数選択時のIDリスト
+        self._is_batch_mode: bool = False  # バッチモードフラグ
 
         # UI設定
         self.ui = Ui_RatingScoreEditWidget()
@@ -182,9 +186,92 @@ class RatingScoreEditWidget(QWidget):
         self.ui.comboBoxRating.blockSignals(False)
         self.ui.sliderScore.blockSignals(False)
 
+        # バッチモードを解除
+        self._is_batch_mode = False
+        self._selected_image_ids = []
+
         logger.debug(
             f"Form populated for image_id={self._current_image_id}: "
             f"DB score={score_db:.2f}, UI score={score_ui}"
+        )
+
+    def populate_from_selection(self, image_ids: list[int], db_manager: Any) -> None:
+        """
+        複数選択時のフォームフィールドを入力（バッチモード）
+
+        全選択画像のRating/Scoreを取得し、共通値のみ表示、異なる場合は「--」。
+
+        Args:
+            image_ids: 選択画像IDリスト
+            db_manager: ImageDatabaseManager インスタンス（メタデータ取得用）
+
+        処理:
+            1. 全画像のメタデータを取得
+            2. Rating/Scoreの共通値を判定
+            3. 共通値があれば表示、なければプレースホルダー「--」
+            4. 「X件選択中」ラベル表示
+            5. バッチモードフラグを有効化
+        """
+        logger.debug(f"populate_from_selection called with {len(image_ids)} images")
+
+        if not image_ids:
+            logger.warning("Empty image_ids for populate_from_selection")
+            return
+
+        self._is_batch_mode = True
+        self._selected_image_ids = image_ids.copy()
+        self._current_image_id = None  # バッチモードでは単一IDなし
+
+        # シグナルをブロックして UI を更新
+        self.ui.comboBoxRating.blockSignals(True)
+        self.ui.sliderScore.blockSignals(True)
+
+        # 全画像のメタデータを取得
+        ratings: set[str] = set()
+        scores: set[float] = set()
+
+        for image_id in image_ids:
+            metadata = db_manager.repository.get_image_metadata(image_id)
+            if metadata:
+                rating = metadata.get("rating")
+                if rating:
+                    ratings.add(rating)
+
+                score_value = metadata.get("score_value")
+                if score_value is not None:
+                    scores.add(float(score_value))
+
+        # 共通値判定: Rating
+        if len(ratings) == 1:
+            # 全画像が同じRating
+            common_rating = next(iter(ratings))
+            index = self.ui.comboBoxRating.findText(common_rating)
+            if index >= 0:
+                self.ui.comboBoxRating.setCurrentIndex(index)
+        else:
+            # 異なるRatingまたは値なし → プレースホルダー
+            self.ui.comboBoxRating.setCurrentIndex(1)  # デフォルト: "PG-13"
+
+        # 共通値判定: Score
+        if len(scores) == 1:
+            # 全画像が同じScore
+            common_score_db = next(iter(scores))
+            score_ui = int(common_score_db * 100)
+            self.ui.sliderScore.setValue(score_ui)
+            self.ui.labelScoreValue.setText(f"{score_ui / 100.0:.2f}")
+        else:
+            # 異なるScoreまたは値なし → デフォルト値
+            self.ui.sliderScore.setValue(500)
+            self.ui.labelScoreValue.setText("5.00")
+
+        # シグナルのブロックを解除
+        self.ui.comboBoxRating.blockSignals(False)
+        self.ui.sliderScore.blockSignals(False)
+
+        logger.info(
+            f"Batch mode activated: {len(image_ids)} images, "
+            f"common_rating={'Yes' if len(ratings) == 1 else 'No'}, "
+            f"common_score={'Yes' if len(scores) == 1 else 'No'}"
         )
 
     @Slot()
@@ -192,18 +279,39 @@ class RatingScoreEditWidget(QWidget):
         """
         Save ボタンクリックハンドラ (Qt Designer 自動接続スロット)
 
-        現在のフォーム値を取得し、rating_changed/score_changed シグナルを発行。
-        親ウィジェット (MainWindow) が ImageDBWriteService 経由で保存処理を実行。
-        """
-        if self._current_image_id is None:
-            logger.warning("Save clicked but no image is loaded")
-            return
+        バッチモードかどうかで分岐し、適切なシグナルを発行。
 
+        単一選択時: rating_changed/score_changed シグナル発行
+        複数選択時: batch_rating_changed/batch_score_changed シグナル発行
+        """
         rating = self.ui.comboBoxRating.currentText()
         score = self.ui.sliderScore.value()
 
-        logger.info(f"Save requested for image_id={self._current_image_id}, rating={rating}, score={score}")
+        if self._is_batch_mode:
+            # バッチモード: 複数画像を一括更新
+            if not self._selected_image_ids:
+                logger.warning("Save clicked in batch mode but no images selected")
+                return
 
-        # 両方のシグナルを発行
-        self.rating_changed.emit(self._current_image_id, rating)
-        self.score_changed.emit(self._current_image_id, score)
+            logger.info(
+                f"Batch save requested: {len(self._selected_image_ids)} images, "
+                f"rating={rating}, score={score}"
+            )
+
+            # バッチシグナルを発行
+            self.batch_rating_changed.emit(self._selected_image_ids, rating)
+            self.batch_score_changed.emit(self._selected_image_ids, score)
+
+        else:
+            # 単一選択モード: 従来の動作
+            if self._current_image_id is None:
+                logger.warning("Save clicked but no image is loaded")
+                return
+
+            logger.info(
+                f"Save requested for image_id={self._current_image_id}, rating={rating}, score={score}"
+            )
+
+            # 単一画像シグナルを発行
+            self.rating_changed.emit(self._current_image_id, rating)
+            self.score_changed.emit(self._current_image_id, score)
