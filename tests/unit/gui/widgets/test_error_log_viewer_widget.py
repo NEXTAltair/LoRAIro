@@ -3,6 +3,7 @@
 このモジュールはErrorLogViewerWidgetの単体テストを提供します。
 """
 
+import csv
 import datetime
 from unittest.mock import Mock, patch
 
@@ -235,8 +236,23 @@ class TestErrorLogViewerWidgetActions:
             mock_warning.assert_called_once()
 
     def test_export_log_success(self, error_log_viewer_widget, sample_error_record, tmp_path):
-        """エクスポート: CSV保存成功"""
-        error_log_viewer_widget.current_error_records = [sample_error_record]
+        """エクスポート: CSV保存成功と内容検証"""
+        # 未解決レコード（resolved_at=None）
+        unresolved_record = sample_error_record
+        # 解決済みレコード（resolved_at設定）
+        resolved_record = ErrorRecord(
+            id=2,
+            operation_type="registration",
+            error_type="FileIOError",
+            error_message="Resolved error",
+            file_path="/path/to/file.jpg",
+            model_name=None,
+            retry_count=0,
+            resolved_at=datetime.datetime(2025, 11, 24, 13, 0, 0),
+            created_at=datetime.datetime(2025, 11, 24, 12, 0, 0),
+        )
+
+        error_log_viewer_widget.current_error_records = [unresolved_record, resolved_record]
         export_path = str(tmp_path / "export.csv")
 
         with (
@@ -248,6 +264,20 @@ class TestErrorLogViewerWidgetActions:
 
         # CSV ファイルが作成されたことを確認
         assert (tmp_path / "export.csv").exists()
+
+        # CSV 内容を検証
+        with open(export_path, encoding="utf-8-sig") as f:
+            reader = csv.reader(f)
+            rows = list(reader)
+
+        # ヘッダー確認
+        assert rows[0] == ["ID", "操作種別", "エラーメッセージ", "発生日時", "解決済み"]
+
+        # 未解決レコード: resolved列がFalse
+        assert rows[1][4] == "False"
+
+        # 解決済みレコード: resolved列がTrue
+        assert rows[2][4] == "True"
 
     def test_export_log_cancel(self, error_log_viewer_widget, sample_error_record):
         """エクスポート: ファイルダイアログキャンセル"""

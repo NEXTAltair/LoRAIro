@@ -314,7 +314,7 @@ class ErrorLogViewerWidget(QWidget, Ui_ErrorLogViewerWidget):
                             getattr(record, "operation_type", ""),
                             getattr(record, "error_message", ""),
                             getattr(record, "created_at", ""),
-                            getattr(record, "resolved", False),
+                            bool(getattr(record, "resolved_at", None)),
                         ]
                     )
             QMessageBox.information(self, "エクスポート完了", f"エラーログを保存しました:\n{file_path}")

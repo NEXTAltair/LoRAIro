@@ -90,7 +90,7 @@ class ConfigurationWindow(QDialog):
 
         # HuggingFace
         hf = config.get("huggingface", {})
-        self._ui.lineEditHfUsername.setText(hf.get("username", ""))
+        self._ui.lineEditHfUsername.setText(hf.get("hf_username", ""))
         self._ui.lineEditHfRepoName.setText(hf.get("repo_name", ""))
         self._ui.lineEditHfToken.setText(hf.get("token", ""))
 
@@ -119,7 +119,7 @@ class ConfigurationWindow(QDialog):
         if idx >= 0:
             self._ui.comboBoxLogLevel.setCurrentIndex(idx)
 
-        log_file = log.get("file", "")
+        log_file = log.get("file_path", "")
         self._ui.filePickerLogFile.set_label_text("ログファイル:")
         if log_file:
             self._ui.filePickerLogFile.set_path(log_file)
@@ -137,7 +137,7 @@ class ConfigurationWindow(QDialog):
                 "claude_key": self._ui.lineEditAnthropicKey.text().strip(),
             },
             "huggingface": {
-                "username": self._ui.lineEditHfUsername.text().strip(),
+                "hf_username": self._ui.lineEditHfUsername.text().strip(),
                 "repo_name": self._ui.lineEditHfRepoName.text().strip(),
                 "token": self._ui.lineEditHfToken.text().strip(),
             },
@@ -148,7 +148,7 @@ class ConfigurationWindow(QDialog):
             },
             "log": {
                 "level": self._ui.comboBoxLogLevel.currentText(),
-                "file": self._ui.filePickerLogFile.get_selected_path() or "",
+                "file_path": self._ui.filePickerLogFile.get_selected_path() or "",
             },
         }
 

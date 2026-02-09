@@ -206,5 +206,82 @@ class TestMainWindowBatchRatingScore:
         mock_window.dataset_state_manager.refresh_images.assert_called_once_with([1, 2, 3])
 
 
+class TestMainWindowSelectionClear:
+    """選択解除時のクリア処理テスト"""
+
+    def test_handle_selection_changed_clears_display_on_empty(self, qtbot):
+        """画像選択なし（0件）時に_clear_display()が呼ばれる"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.selectedImageDetailsWidget = Mock()
+
+        MainWindow._handle_selection_changed_for_rating(mock_window, [])
+
+        mock_window.selectedImageDetailsWidget._clear_display.assert_called_once()
+
+
+class TestMainWindowTagAddFeedback:
+    """タグ追加フィードバックテスト"""
+
+    def test_handle_batch_tag_add_success_shows_status_bar(self, qtbot):
+        """バッチタグ追加成功でstatusBarに通知"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.batchTagAddWidget = Mock()
+        mock_window.statusBar = Mock(return_value=Mock())
+
+        with patch.object(MainWindow, "_execute_batch_tag_write", return_value=True):
+            MainWindow._handle_batch_tag_add(mock_window, [1, 2], "landscape")
+
+            mock_window.statusBar().showMessage.assert_called_once()
+            args = mock_window.statusBar().showMessage.call_args[0]
+            assert "landscape" in args[0]
+            assert "2" in args[0]
+
+    def test_handle_batch_tag_add_failure_shows_critical(self, qtbot):
+        """バッチタグ追加失敗でQMessageBox.critical表示"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window._execute_batch_tag_write = Mock(return_value=False)
+
+        with patch("lorairo.gui.window.main_window.QMessageBox.critical") as mock_critical:
+            MainWindow._handle_batch_tag_add(mock_window, [1, 2], "test")
+
+            mock_critical.assert_called_once()
+            args = mock_critical.call_args[0]
+            assert "失敗" in args[1]
+
+    def test_handle_quick_tag_add_success_shows_status_bar(self, qtbot):
+        """クイックタグ追加成功でstatusBarに通知"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.statusBar = Mock(return_value=Mock())
+
+        with patch.object(MainWindow, "_execute_batch_tag_write", return_value=True):
+            MainWindow._handle_quick_tag_add(mock_window, [1], "portrait")
+
+            mock_window.statusBar().showMessage.assert_called_once()
+            args = mock_window.statusBar().showMessage.call_args[0]
+            assert "portrait" in args[0]
+
+    def test_handle_quick_tag_add_failure_shows_critical(self, qtbot):
+        """クイックタグ追加失敗でQMessageBox.critical表示"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window._execute_batch_tag_write = Mock(return_value=False)
+
+        with patch("lorairo.gui.window.main_window.QMessageBox.critical") as mock_critical:
+            MainWindow._handle_quick_tag_add(mock_window, [1], "test")
+
+            mock_critical.assert_called_once()
+            args = mock_critical.call_args[0]
+            assert "失敗" in args[1]
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
