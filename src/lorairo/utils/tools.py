@@ -39,7 +39,9 @@ def calculate_phash(image_path: Path) -> str:
     except FileNotFoundError:
         raise
     except Exception as e:
-        raise ValueError(f"画像ファイルが破損しているか非対応の形式です: {image_path}") from e  # 計算失敗時は例外を再発生させる  # 計算失敗時は例外を再発生させる
+        raise ValueError(
+            f"画像ファイルが破損しているか非対応の形式です: {image_path}"
+        ) from e  # 計算失敗時は例外を再発生させる  # 計算失敗時は例外を再発生させる
 
 
 _FALLBACK_ENCODINGS = ("utf-8", "shift_jis", "euc-jp", "latin-1")

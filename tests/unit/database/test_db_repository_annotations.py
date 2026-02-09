@@ -430,9 +430,7 @@ class TestApplySimpleFieldUpdates:
     def test_no_changes_when_all_none(self):
         """全引数Noneの場合は変更なし。"""
         model = Mock()
-        result = ImageRepository._apply_simple_field_updates(
-            model, None, None, None, None, None
-        )
+        result = ImageRepository._apply_simple_field_updates(model, None, None, None, None, None)
         assert result is False
 
     def test_updates_changed_field(self):
@@ -444,9 +442,7 @@ class TestApplySimpleFieldUpdates:
         model.requires_api_key = None
         model.discontinued_at = None
 
-        result = ImageRepository._apply_simple_field_updates(
-            model, "new_provider", None, None, None, None
-        )
+        result = ImageRepository._apply_simple_field_updates(model, "new_provider", None, None, None, None)
         assert result is True
         assert model.provider == "new_provider"
 
@@ -455,7 +451,5 @@ class TestApplySimpleFieldUpdates:
         model = Mock()
         model.provider = "same_provider"
 
-        result = ImageRepository._apply_simple_field_updates(
-            model, "same_provider", None, None, None, None
-        )
+        result = ImageRepository._apply_simple_field_updates(model, "same_provider", None, None, None, None)
         assert result is False

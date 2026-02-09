@@ -335,9 +335,7 @@ class TestUnratedFilter:
 
         # _get_or_create_manual_edit_modelをモック
         with patch.object(repository, "_get_or_create_manual_edit_model", return_value=1):
-            result_query = repository._apply_manual_filters(
-                base_query, "UNRATED", None, mock_session
-            )
+            result_query = repository._apply_manual_filters(base_query, "UNRATED", None, mock_session)
 
         # クエリが変更されたことを確認
         assert result_query is not None

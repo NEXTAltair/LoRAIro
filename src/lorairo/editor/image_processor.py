@@ -120,7 +120,7 @@ class ImageProcessingManager:
         """可能であればアップスケールを試み、結果に関わらず画像を返す。
 
         アップスケーラー未指定、RGBA画像、アップスケール失敗時はスキップし、
-        元の画像をそのまま返す。
+        元の画像をそのまま返す。メタデータにスキップ理由を記録する。
 
         Args:
             img: 処理対象の画像。
@@ -132,10 +132,12 @@ class ImageProcessingManager:
             アップスケール後の画像、またはスキップ時は元の画像。
         """
         if not upscaler:
+            metadata["upscale_skipped_reason"] = "upscaler_not_specified"
             logger.debug(f"アップスケーラー未指定のためそのまま処理: {image_path}")
             return img
 
         if img.mode == "RGBA":
+            metadata["upscale_skipped_reason"] = "rgba_image"
             logger.debug(f"RGBA画像のためアップスケールをスキップ: {image_path}")
             return img
 
@@ -146,6 +148,7 @@ class ImageProcessingManager:
             metadata["upscaler_used"] = upscaler
             return upscaled
         except Exception as e:
+            metadata["upscale_skipped_reason"] = "upscale_failed"
             logger.warning(f"アップスケール失敗、元サイズのまま処理を続行: {image_path}, Error: {e}")
             return img
 
