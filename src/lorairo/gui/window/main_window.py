@@ -1338,9 +1338,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             )
             return
 
-        # AnnotationWorkflowControllerに委譲
+        # batchModelSelectionから選択されたモデルを取得
+        selected_models: list[str] = []
+        if hasattr(self, "batchModelSelection") and self.batchModelSelection:
+            selected_models = self.batchModelSelection.get_selected_models()
+            logger.debug(f"batchModelSelectionから選択されたモデル: {selected_models}")
+
+        # AnnotationWorkflowControllerに委譲（チェックボックスから選択されたモデルを優先）
         self.annotation_workflow_controller.start_annotation_workflow(
-            model_selection_callback=self._show_model_selection_dialog
+            selected_models=selected_models if selected_models else None,
+            model_selection_callback=self._show_model_selection_dialog if not selected_models else None,
         )
 
     def _show_model_selection_dialog(self, available_models: list[str]) -> str | None:

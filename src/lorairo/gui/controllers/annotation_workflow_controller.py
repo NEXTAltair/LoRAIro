@@ -48,19 +48,20 @@ class AnnotationWorkflowController:
 
     def start_annotation_workflow(
         self,
-        model_selection_callback: Callable[[list[str]], str | None],
+        selected_models: list[str] | None = None,
+        model_selection_callback: Callable[[list[str]], str | None] | None = None,
     ) -> None:
         """アノテーションワークフロー実行
 
         ワークフロー:
         1. サービス検証
         2. 選択画像取得（SelectionStateService経由）
-        3. 利用可能モデル取得（ConfigurationService経由）
-        4. モデル選択ダイアログ表示（callback）
-        5. バッチアノテーション開始（WorkerService経由）
+        3. モデル選択（selected_models優先、なければcallback呼び出し）
+        4. バッチアノテーション開始（WorkerService経由）
 
         Args:
-            model_selection_callback: モデル選択ダイアログ表示callback
+            selected_models: 事前選択されたモデルリスト（チェックボックスから）
+            model_selection_callback: モデル選択ダイアログ表示callback（フォールバック用）
                 利用可能モデルリストを受け取り、選択されたモデル名を返す。
                 キャンセル時はNone。
         """
@@ -74,19 +75,35 @@ class AnnotationWorkflowController:
             if not image_paths:
                 return
 
-            # Step 3: 利用可能モデル取得
-            available_models = self._get_available_models()
+            # Step 3: モデル選択（selected_models優先）
+            models_to_use: list[str] = []
 
-            # Step 4: モデル選択ダイアログ表示（callback）
-            selected_model = model_selection_callback(available_models)
-            if not selected_model:
-                logger.info("モデル選択がキャンセルされました")
+            if selected_models:
+                # チェックボックスから選択されたモデルを使用
+                models_to_use = selected_models
+                logger.info(f"チェックボックスから選択されたモデル: {models_to_use}")
+            elif model_selection_callback:
+                # フォールバック: ダイアログからモデル選択
+                available_models = self._get_available_models()
+                selected_model = model_selection_callback(available_models)
+                if not selected_model:
+                    logger.info("モデル選択がキャンセルされました")
+                    return
+                models_to_use = [selected_model]
+                logger.info(f"ダイアログから選択されたモデル: {selected_model}")
+            else:
+                # モデル選択手段がない場合はエラー
+                logger.warning("モデルが選択されていません")
+                if self.parent:
+                    QMessageBox.warning(
+                        self.parent,
+                        "モデル未選択",
+                        "アノテーションに使用するモデルを選択してください。",
+                    )
                 return
 
-            logger.info(f"ユーザー選択モデル: {selected_model}")
-
-            # Step 5: バッチアノテーション開始
-            self._start_batch_annotation(image_paths, [selected_model])
+            # Step 4: バッチアノテーション開始
+            self._start_batch_annotation(image_paths, models_to_use)
 
         except Exception as e:
             error_msg = f"アノテーション処理の開始に失敗しました: {e}"
