@@ -50,12 +50,13 @@ class AnnotationWorkflowController:
         self,
         selected_models: list[str] | None = None,
         model_selection_callback: Callable[[list[str]], str | None] | None = None,
+        image_paths: list[str] | None = None,
     ) -> None:
         """アノテーションワークフロー実行
 
         ワークフロー:
         1. サービス検証
-        2. 選択画像取得（SelectionStateService経由）
+        2. 選択画像取得（image_paths指定時はそれを使用、なければSelectionStateService経由）
         3. モデル選択（selected_models優先、なければcallback呼び出し）
         4. バッチアノテーション開始（WorkerService経由）
 
@@ -64,16 +65,23 @@ class AnnotationWorkflowController:
             model_selection_callback: モデル選択ダイアログ表示callback（フォールバック用）
                 利用可能モデルリストを受け取り、選択されたモデル名を返す。
                 キャンセル時はNone。
+            image_paths: 明示的に指定する画像パスリスト（バッチタグタブから使用）
+                指定時はSelectionStateServiceをバイパスしてこのリストを使用。
         """
         try:
-            # Step 1: サービス検証
-            if not self._validate_services():
+            # Step 1: サービス検証（image_paths指定時はSelectionStateService不要）
+            if not image_paths and not self._validate_services():
                 return
 
-            # Step 2: 選択画像取得
-            image_paths = self._get_selected_image_paths()
-            if not image_paths:
-                return
+            # Step 2: 選択画像取得（image_paths指定時はそれを使用）
+            if image_paths:
+                logger.debug(f"明示指定された画像パスを使用: {len(image_paths)}件")
+                paths_to_use = image_paths
+            else:
+                paths_to_use = self._get_selected_image_paths()
+                if not paths_to_use:
+                    return
+            image_paths = paths_to_use
 
             # Step 3: モデル選択（selected_models優先）
             models_to_use: list[str] = []
