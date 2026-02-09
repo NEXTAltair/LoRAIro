@@ -227,6 +227,6 @@ if __name__ == "__main__":
     app = QApplication([])
     widget = ImagePreviewWidget()
     widget.load_image(Path("tests/resources/img/1_img/file01.webp"))  # 画像パスを指定
-    # FIXME: Issue #8参照 - この表示される画像が異常に小さい
+    # FIXME: Issue #8参照 - スタンドアロン実行時のみ画像が異常に小さい（メインアプリ内では正常）
     widget.show()
     app.exec()

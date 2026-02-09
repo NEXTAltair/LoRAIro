@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -91,12 +92,14 @@ class QuickTagDialog(QDialog):
         """追加ボタンクリック時の処理。"""
         tag = self._tag_input.text().strip()
         if not tag:
+            self._tag_input.setPlaceholderText("タグを入力してください")
             return
 
         # タグ正規化（BatchTagAddWidgetと同じロジック）
         normalized_tag = self._normalize_tag(tag)
         if not normalized_tag:
             logger.warning(f"Tag normalization failed for: {tag}")
+            QMessageBox.warning(self, "タグエラー", f"タグ '{tag}' の正規化に失敗しました。")
             return
 
         logger.info(f"Quick tag add: {normalized_tag} to {len(self._image_ids)} images")

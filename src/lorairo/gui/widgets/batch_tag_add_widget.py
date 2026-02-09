@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 from PySide6.QtCore import QSize, Qt, Signal, Slot
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QFrame, QGraphicsView, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QGraphicsView, QMessageBox, QVBoxLayout, QWidget
 
 from ...gui.designer.BatchTagAddWidget_ui import Ui_BatchTagAddWidget
 from ...utils.log import logger
@@ -198,8 +198,16 @@ class BatchTagAddWidget(QWidget):
             logger.info("No images selected")
             return
 
+        self._add_image_ids_to_staging(selected_ids)
+
+    def _add_image_ids_to_staging(self, image_ids: list[int]) -> None:
+        """指定した画像IDリストをステージングに追加する。"""
+        if self._dataset_state_manager is None:
+            logger.warning("DatasetStateManager not set")
+            return
+
         added_count = 0
-        for image_id in selected_ids:
+        for image_id in image_ids:
             # 上限チェック
             if len(self._staged_images) >= self.MAX_STAGING_IMAGES:
                 logger.warning(f"Staging limit reached ({self.MAX_STAGING_IMAGES}), cannot add more images")
@@ -230,6 +238,13 @@ class BatchTagAddWidget(QWidget):
     def add_selected_images_to_staging(self) -> None:
         """外部から選択画像をステージングに追加するための公開API"""
         self._on_add_selected_clicked()
+
+    def add_image_ids_to_staging(self, image_ids: list[int]) -> None:
+        """外部から指定画像IDをステージングに追加する公開API。"""
+        if not image_ids:
+            logger.info("No visible image ids provided for staging")
+            return
+        self._add_image_ids_to_staging(image_ids)
 
     def attach_tag_input_to(self, container: QWidget) -> None:
         """タグ入力UIを外部コンテナへ移動してステージング一覧と分離する。"""
@@ -279,7 +294,11 @@ class BatchTagAddWidget(QWidget):
         # ステージング画像チェック
         if not self._staged_images:
             logger.warning("No images in staging list")
-            # TODO: QMessageBox でエラー表示
+            QMessageBox.warning(
+                self,
+                "タグ追加エラー",
+                "ステージングリストに画像がありません。\n画像を選択してからタグを追加してください。",
+            )
             return
 
         # タグ入力取得
@@ -288,7 +307,7 @@ class BatchTagAddWidget(QWidget):
         # 空タグチェック
         if not tag_input.strip():
             logger.warning("Empty tag input")
-            # TODO: QMessageBox でエラー表示
+            QMessageBox.warning(self, "タグ追加エラー", "タグを入力してください。")
             return
 
         # タグ正規化
@@ -296,7 +315,11 @@ class BatchTagAddWidget(QWidget):
 
         if not normalized_tag:
             logger.warning("Tag normalization resulted in empty string")
-            # TODO: QMessageBox でエラー表示
+            QMessageBox.warning(
+                self,
+                "タグ追加エラー",
+                f"タグ '{tag_input.strip()}' の正規化に失敗しました。",
+            )
             return
 
         # シグナル発行
@@ -335,4 +358,3 @@ class BatchTagAddWidget(QWidget):
             self._staging_thumbnail_widget.load_thumbnails_from_paths(staging_paths)
 
         self._update_staging_count_label()
-

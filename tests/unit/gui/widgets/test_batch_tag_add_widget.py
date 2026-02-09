@@ -131,6 +131,16 @@ class TestStagingListManagement:
         # Verify UI update
         assert widget.ui.labelStagingCount.text() == f"2 / {widget.MAX_STAGING_IMAGES} 枚"
 
+    def test_add_visible_image_ids_to_staging(self, qtbot, widget_with_state):
+        """可視範囲のID指定追加APIをテスト"""
+        widget, _ = widget_with_state
+
+        with qtbot.waitSignal(widget.staged_images_changed, timeout=1000) as blocker:
+            widget.add_image_ids_to_staging([2, 3])
+
+        assert blocker.args == [[2, 3]]
+        assert list(widget._staged_images.keys()) == [2, 3]
+
     def test_add_duplicate_images_skipped(self, qtbot, widget_with_state):
         """Test duplicate images are skipped when adding to staging"""
         widget, _ = widget_with_state
@@ -249,45 +259,63 @@ class TestTagAddRequest:
         # Verify tag input cleared
         assert widget.ui.lineEditTag.text() == ""
 
-    def test_tag_add_request_empty_staging(self, qtbot):
-        """Test tag add request with empty staging list"""
+    def test_tag_add_request_empty_staging(self, qtbot, monkeypatch):
+        """Test tag add request with empty staging list shows warning"""
+        from PySide6.QtWidgets import QMessageBox
+
         widget = BatchTagAddWidget()
         qtbot.addWidget(widget)
 
         widget.ui.lineEditTag.setText("landscape")
 
-        # Try to add tag with empty staging (should not emit signal)
-        # We can't use waitSignal here because signal won't be emitted
+        # QMessageBox.warningをモック
+        warning_called = []
+        monkeypatch.setattr(QMessageBox, "warning", lambda *args: warning_called.append(args))
+
         widget._on_add_tag_clicked()
 
         # Tag input should not be cleared (signal not emitted)
         assert widget.ui.lineEditTag.text() == "landscape"
+        # QMessageBox.warningが呼ばれた
+        assert len(warning_called) == 1
 
-    def test_tag_add_request_empty_tag(self, qtbot, widget_with_staging):
-        """Test tag add request with empty tag"""
+    def test_tag_add_request_empty_tag(self, qtbot, widget_with_staging, monkeypatch):
+        """Test tag add request with empty tag shows warning"""
+        from PySide6.QtWidgets import QMessageBox
+
         widget = widget_with_staging
+
+        # QMessageBox.warningをモック
+        warning_called = []
+        monkeypatch.setattr(QMessageBox, "warning", lambda *args: warning_called.append(args))
 
         # Leave tag input empty
         widget.ui.lineEditTag.setText("")
 
-        # Try to add (should not emit signal)
         widget._on_add_tag_clicked()
 
         # Tag input should remain empty (signal not emitted, so not cleared)
         assert widget.ui.lineEditTag.text() == ""
+        assert len(warning_called) == 1
 
-    def test_tag_add_request_whitespace_only_tag(self, qtbot, widget_with_staging):
-        """Test tag add request with whitespace-only tag"""
+    def test_tag_add_request_whitespace_only_tag(self, qtbot, widget_with_staging, monkeypatch):
+        """Test tag add request with whitespace-only tag shows warning"""
+        from PySide6.QtWidgets import QMessageBox
+
         widget = widget_with_staging
+
+        # QMessageBox.warningをモック
+        warning_called = []
+        monkeypatch.setattr(QMessageBox, "warning", lambda *args: warning_called.append(args))
 
         # Enter whitespace only
         widget.ui.lineEditTag.setText("   ")
 
-        # Try to add (should not emit signal after normalization)
         widget._on_add_tag_clicked()
 
         # Tag input should remain unchanged (signal not emitted, so not cleared)
         assert widget.ui.lineEditTag.text() == "   "
+        assert len(warning_called) == 1
 
 
 class TestStagingCountLabel:

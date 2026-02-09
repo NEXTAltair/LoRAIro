@@ -8,7 +8,7 @@ from pathlib import Path
 
 from loguru import logger
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QMessageBox, QTableWidgetItem, QWidget
+from PySide6.QtWidgets import QFileDialog, QMessageBox, QTableWidgetItem, QWidget
 
 from ...database.db_manager import ImageDatabaseManager
 from ...database.schema import ErrorRecord
@@ -286,14 +286,39 @@ class ErrorLogViewerWidget(QWidget, Ui_ErrorLogViewerWidget):
                 QMessageBox.critical(self, "エラー", f"解決マークに失敗しました:\n{e}")
 
     def _on_export_log_clicked(self) -> None:
-        """ログエクスポートボタンクリック処理
+        """エラーログをCSVファイルにエクスポートする。
 
-        Note:
-            優先度: 低（将来拡張）
-            現在は未実装メッセージを表示
+        現在表示中のエラーレコードをCSV形式で保存する。
         """
-        QMessageBox.information(
-            self,
-            "未実装",
-            "ログエクスポート機能は将来のバージョンで実装予定です。",
+        if not self.current_error_records:
+            QMessageBox.warning(self, "エクスポート", "エクスポートするエラーレコードがありません。")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "エラーログエクスポート", "", "CSV Files (*.csv);;All Files (*)"
         )
+        if not file_path:
+            return
+
+        try:
+            import csv
+
+            with open(file_path, "w", newline="", encoding="utf-8-sig") as f:
+                writer = csv.writer(f)
+                writer.writerow(["ID", "操作種別", "エラーメッセージ", "発生日時", "解決済み"])
+                for record in self.current_error_records:
+                    # ErrorRecord ORM オブジェクトから属性を取得
+                    writer.writerow(
+                        [
+                            getattr(record, "id", ""),
+                            getattr(record, "operation_type", ""),
+                            getattr(record, "error_message", ""),
+                            getattr(record, "created_at", ""),
+                            getattr(record, "resolved", False),
+                        ]
+                    )
+            QMessageBox.information(self, "エクスポート完了", f"エラーログを保存しました:\n{file_path}")
+            logger.info(f"エラーログエクスポート完了: {file_path} ({len(self.current_error_records)}件)")
+        except OSError as e:
+            logger.error(f"エラーログエクスポート失敗: {e}", exc_info=True)
+            QMessageBox.critical(self, "エクスポート失敗", f"ファイルの保存に失敗しました:\n{e}")

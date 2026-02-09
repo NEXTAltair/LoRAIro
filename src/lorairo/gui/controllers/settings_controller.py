@@ -66,9 +66,10 @@ class SettingsController:
 
         try:
             # ConfigurationWindow実装を使用
-            from ..windows.configuration_window import ConfigurationWindow
+            from ..window.configuration_window import ConfigurationWindow
 
-            dialog = ConfigurationWindow(parent=self.parent)
+            assert self.config_service is not None  # _validate_services()で検証済み
+            dialog = ConfigurationWindow(config_service=self.config_service, parent=self.parent)
             dialog.setModal(True)
             result = dialog.exec()
 

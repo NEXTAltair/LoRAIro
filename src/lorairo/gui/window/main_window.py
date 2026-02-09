@@ -981,8 +981,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         rating_widget = self.selectedImageDetailsWidget._rating_score_widget
 
         if len(image_ids) == 0:
-            # 選択なし: クリア（未実装）
-            logger.debug("No images selected for rating/score")
+            # 選択なし: 詳細パネルとRating/Scoreをクリア
+            self.selectedImageDetailsWidget._clear_display()
+            logger.debug("No images selected - display cleared")
 
         elif len(image_ids) == 1:
             # 単一選択: 従来の populate_from_image_data()
@@ -1114,10 +1115,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             if hasattr(self, "batchTagAddWidget"):
                 self.batchTagAddWidget._on_clear_staging_clicked()
 
+            self.statusBar().showMessage(f"タグ '{tag}' を {len(image_ids)} 件の画像に追加しました", 5000)
             logger.info(
                 f"Batch tag add completed successfully: tag='{tag}', {len(image_ids)} images updated"
             )
         else:
+            QMessageBox.critical(self, "タグ追加失敗", f"タグ '{tag}' の追加に失敗しました。")
             logger.error(f"Failed to add tag in batch: tag='{tag}', image_count={len(image_ids)}")
 
     def _handle_staging_cleared(self) -> None:
@@ -1156,8 +1159,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         success = self._execute_batch_tag_write(image_ids, tag)
         if success:
+            self.statusBar().showMessage(f"クイックタグ '{tag}' を追加しました", 5000)
             logger.info(f"Quick tag add completed: tag='{tag}', {len(image_ids)} images updated")
         else:
+            QMessageBox.critical(self, "タグ追加失敗", f"クイックタグ '{tag}' の追加に失敗しました。")
             logger.error(f"Failed quick tag add: tag='{tag}', image_count={len(image_ids)}")
 
     def _on_save_requested(self, save_data: dict[str, Any]) -> None:

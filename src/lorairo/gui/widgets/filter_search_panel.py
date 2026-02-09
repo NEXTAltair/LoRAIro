@@ -84,6 +84,7 @@ class FilterSearchPanel(QScrollArea):
             QButtonGroup,
             QGroupBox,
             QHBoxLayout,
+            QLabel,
             QProgressBar,
             QVBoxLayout,
         )
@@ -129,9 +130,15 @@ class FilterSearchPanel(QScrollArea):
         self.progress_bar.setVisible(False)
         self.progress_bar.setMaximum(100)
 
+        # ステータスラベル（検索エラー・条件不足の通知用）
+        self._status_label = QLabel()
+        self._status_label.setStyleSheet("color: #e74c3c; font-size: 11px;")
+        self._status_label.setVisible(False)
+
         # 進捗表示レイアウト作成（キャンセルボタンなし）
         self.progress_layout = QHBoxLayout()
         self.progress_layout.addWidget(self.progress_bar)
+        self.progress_layout.addWidget(self._status_label)
 
         # 検索グループの最後に進捗UIを追加
         # プレビューエリア削除後は、lineEditSearchの下に追加
@@ -554,10 +561,12 @@ class FilterSearchPanel(QScrollArea):
         """状態に応じたUI更新 (Phase 3)"""
         if state == PipelineState.IDLE:
             self.progress_bar.setVisible(False)
+            self._hide_status_message()
 
         elif state == PipelineState.SEARCHING:
             self.progress_bar.setVisible(True)
             self.progress_bar.setValue(10)  # 開始時の進捗
+            self._hide_status_message()
 
         elif state == PipelineState.LOADING_THUMBNAILS:
             # 検索完了、サムネイル読み込み開始
@@ -570,6 +579,28 @@ class FilterSearchPanel(QScrollArea):
 
         elif state in (PipelineState.ERROR, PipelineState.CANCELED):
             self.progress_bar.setVisible(False)
+            message = self._state_messages.get(state, "")
+            if message:
+                self._show_status_message(message)
+
+    def _show_status_message(self, message: str, auto_hide_ms: int = 0) -> None:
+        """ステータスラベルにメッセージを表示する。
+
+        Args:
+            message: 表示するメッセージ
+            auto_hide_ms: 自動非表示までのミリ秒（0で永続表示）
+        """
+        from PySide6.QtCore import QTimer
+
+        self._status_label.setText(message)
+        self._status_label.setVisible(True)
+        if auto_hide_ms > 0:
+            QTimer.singleShot(auto_hide_ms, self._hide_status_message)
+
+    def _hide_status_message(self) -> None:
+        """ステータスラベルを非表示にする。"""
+        self._status_label.setVisible(False)
+        self._status_label.clear()
 
     def hide_progress_after_completion(self) -> None:
         """パイプライン完全完了後にプログレスバーを非表示にする - ModernProgressManagerに移行済み"""
@@ -888,6 +919,7 @@ class FilterSearchPanel(QScrollArea):
                 ],
             ):
                 logger.debug("検索条件が未指定のため検索をスキップ")
+                self._show_status_message("検索条件が未指定です", auto_hide_ms=3000)
                 return
 
             # 日付範囲を取得
@@ -898,6 +930,7 @@ class FilterSearchPanel(QScrollArea):
                 date_range_start is None or date_range_end is None
             ):
                 logger.warning("日付範囲フィルターエラー: 有効だが範囲が無効")
+                self._show_status_message("日付範囲が無効です", auto_hide_ms=3000)
                 return
 
             rating_filter = self._get_rating_filter_value()

@@ -7,7 +7,7 @@ import datetime
 from unittest.mock import Mock, patch
 
 import pytest
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from lorairo.database.schema import ErrorRecord
 from lorairo.gui.widgets.error_log_viewer_widget import ErrorLogViewerWidget
@@ -227,12 +227,35 @@ class TestErrorLogViewerWidgetActions:
             error_log_viewer_widget._on_view_details_clicked()
             mock_warning.assert_called_once()
 
-    def test_export_log_button(self, error_log_viewer_widget):
-        """ログエクスポートボタンクリックテスト（未実装）"""
-        # QMessageBox.information() をモック
-        with patch.object(QMessageBox, "information") as mock_info:
+    def test_export_log_empty_records_shows_warning(self, error_log_viewer_widget):
+        """エクスポート: レコードなしで警告表示"""
+        error_log_viewer_widget.current_error_records = []
+        with patch.object(QMessageBox, "warning") as mock_warning:
+            error_log_viewer_widget._on_export_log_clicked()
+            mock_warning.assert_called_once()
+
+    def test_export_log_success(self, error_log_viewer_widget, sample_error_record, tmp_path):
+        """エクスポート: CSV保存成功"""
+        error_log_viewer_widget.current_error_records = [sample_error_record]
+        export_path = str(tmp_path / "export.csv")
+
+        with (
+            patch.object(QFileDialog, "getSaveFileName", return_value=(export_path, "")),
+            patch.object(QMessageBox, "information") as mock_info,
+        ):
             error_log_viewer_widget._on_export_log_clicked()
             mock_info.assert_called_once()
+
+        # CSV ファイルが作成されたことを確認
+        assert (tmp_path / "export.csv").exists()
+
+    def test_export_log_cancel(self, error_log_viewer_widget, sample_error_record):
+        """エクスポート: ファイルダイアログキャンセル"""
+        error_log_viewer_widget.current_error_records = [sample_error_record]
+
+        with patch.object(QFileDialog, "getSaveFileName", return_value=("", "")):
+            # キャンセル時はQMessageBoxが呼ばれない
+            error_log_viewer_widget._on_export_log_clicked()
 
 
 class TestErrorLogViewerWidgetTableDisplay:
