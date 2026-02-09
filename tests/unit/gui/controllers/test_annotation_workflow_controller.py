@@ -313,3 +313,67 @@ class TestStartAnnotationWorkflow:
 
         # Assert - 全プロバイダーのモデルが利用可能
         assert len(available_models_captured) >= 3  # OpenAI, Anthropic, Google models
+
+    def test_start_annotation_workflow_with_selected_models(
+        self,
+        controller,
+        mock_worker_service,
+        mock_selection_state_service,
+    ):
+        """selected_modelsパラメータでモデルを直接指定"""
+        # Setup - チェックボックスから選択されたモデルを想定
+        selected_models = ["gpt-4o-mini", "claude-3-haiku-20240307"]
+
+        # Execute - model_selection_callbackなしで実行
+        controller.start_annotation_workflow(selected_models=selected_models)
+
+        # Assert - WorkerServiceが選択されたモデルで呼ばれる
+        mock_worker_service.start_enhanced_batch_annotation.assert_called_once()
+        call_args = mock_worker_service.start_enhanced_batch_annotation.call_args
+        assert call_args[1]["models"] == selected_models
+
+    def test_start_annotation_workflow_with_selected_models_priority(
+        self,
+        controller,
+        mock_worker_service,
+    ):
+        """selected_modelsがある場合、model_selection_callbackは呼ばれない"""
+        # Setup
+        selected_models = ["gpt-4o-mini"]
+        callback_called = False
+
+        def model_selection_callback(available_models: list[str]) -> str:
+            nonlocal callback_called
+            callback_called = True
+            return "claude-3-haiku-20240307"
+
+        # Execute - selected_modelsを優先
+        controller.start_annotation_workflow(
+            selected_models=selected_models,
+            model_selection_callback=model_selection_callback,
+        )
+
+        # Assert - callbackは呼ばれず、selected_modelsが使用される
+        assert not callback_called
+        call_args = mock_worker_service.start_enhanced_batch_annotation.call_args
+        assert call_args[1]["models"] == selected_models
+
+    def test_start_annotation_workflow_no_models_no_callback(
+        self,
+        controller,
+        mock_worker_service,
+        monkeypatch,
+    ):
+        """selected_modelsなし、callbackなしの場合は警告表示"""
+        # Setup - QMessageBoxをモック
+        mock_warning = Mock()
+        monkeypatch.setattr("PySide6.QtWidgets.QMessageBox.warning", mock_warning)
+
+        # Execute - 両方なし
+        controller.start_annotation_workflow()
+
+        # Assert - 警告が表示される
+        mock_warning.assert_called_once()
+
+        # Assert - アノテーションは開始されない
+        mock_worker_service.start_enhanced_batch_annotation.assert_not_called()
