@@ -97,9 +97,7 @@ class ThumbnailPageCache:
         # 容量オーバーの場合、最も古いページを削除
         if len(self._cache) >= self._max_pages:
             evicted_page, evicted_data = self._cache.popitem(last=False)
-            logger.debug(
-                f"Cache evicted: page {evicted_page} ({len(evicted_data)} thumbnails)"
-            )
+            logger.debug(f"Cache evicted: page {evicted_page} ({len(evicted_data)} thumbnails)")
 
         # 新規エントリを追加
         self._cache[page_num] = thumbnails

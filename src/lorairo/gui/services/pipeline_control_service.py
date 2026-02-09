@@ -69,9 +69,7 @@ class PipelineControlService:
                     )
                     logger.info("Thumbnail pagination initialized after search completion")
                 else:
-                    logger.warning(
-                        "ThumbnailSelectorWidget.initialize_pagination_search method not found"
-                    )
+                    logger.warning("ThumbnailSelectorWidget.initialize_pagination_search method not found")
             else:
                 logger.warning(f"Invalid search_result type: {type(search_result)}")
 

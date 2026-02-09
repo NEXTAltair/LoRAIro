@@ -47,9 +47,7 @@ class TestPaginationStateManagerInit:
     def test_init_custom_values(self, mock_dataset_state, sample_images):
         """カスタム値で初期化できる"""
         type(mock_dataset_state).filtered_images = PropertyMock(return_value=sample_images)
-        state = PaginationStateManager(
-            mock_dataset_state, page_size=50, max_cached_pages=3
-        )
+        state = PaginationStateManager(mock_dataset_state, page_size=50, max_cached_pages=3)
 
         assert state.page_size == 50
         assert state.max_cached_pages == 3

@@ -176,7 +176,8 @@
       "[x]": {
         "icon": "check"
       }
-    }
+    },
+    "chatgpt.openOnStartup": true
   },
   // Extensions managed by devcontainer.json
   "extensions": {

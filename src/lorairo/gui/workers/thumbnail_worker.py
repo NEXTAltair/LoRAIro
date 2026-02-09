@@ -63,9 +63,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
                 item.get("id"): item for item in source_metadata if item.get("id") is not None
             }
             target_metadata = [
-                metadata_by_id[image_id]
-                for image_id in self.image_id_filter
-                if image_id in metadata_by_id
+                metadata_by_id[image_id] for image_id in self.image_id_filter if image_id in metadata_by_id
             ]
 
         total_count = len(target_metadata)
@@ -152,9 +150,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
             request_id=self.request_id,
             page_num=self.page_num,
             image_ids=[
-                item_id
-                for item_id in (item.get("id") for item in target_metadata)
-                if item_id is not None
+                item_id for item_id in (item.get("id") for item in target_metadata) if item_id is not None
             ],
         )
 
@@ -221,8 +217,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
                 batch_failed += 1
                 # ワーカースレッドではDB保存不可（スレッドセーフティ）、ログのみ
                 logger.error(
-                    f"サムネイル読み込みエラー: image_id={image_id}, "
-                    f"path={thumbnail_path}, error={e}"
+                    f"サムネイル読み込みエラー: image_id={image_id}, path={thumbnail_path}, error={e}"
                 )
 
         return batch_loaded, batch_failed

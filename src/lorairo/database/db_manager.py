@@ -63,7 +63,9 @@ class ImageDatabaseManager:
     # 必要であれば、リポジトリのセッションファクトリを使う処理を追加できる
 
     def register_original_image(
-        self, image_path: Path, fsm: FileSystemManager,
+        self,
+        image_path: Path,
+        fsm: FileSystemManager,
     ) -> tuple[int, dict[str, Any]] | None:
         """オリジナル画像をストレージに保存し、メタデータをデータベースに登録する。
 
@@ -137,7 +139,10 @@ class ImageDatabaseManager:
             return None
 
     def _handle_duplicate_image(
-        self, existing_id: int, image_path: Path, fsm: FileSystemManager,
+        self,
+        existing_id: int,
+        image_path: Path,
+        fsm: FileSystemManager,
     ) -> tuple[int, dict[str, Any]]:
         """重複検出時の処理。512pxサムネイル生成と既存メタデータ返却を行う。
 
@@ -178,7 +183,11 @@ class ImageDatabaseManager:
         return existing_id, existing_metadata
 
     def _generate_thumbnail_512px(
-        self, image_id: int, original_path: Path, original_metadata: dict[str, Any], fsm: FileSystemManager,
+        self,
+        image_id: int,
+        original_path: Path,
+        original_metadata: dict[str, Any],
+        fsm: FileSystemManager,
     ) -> None:
         """512px サムネイル画像を生成し、データベースに登録します。
 
@@ -212,7 +221,10 @@ class ImageDatabaseManager:
             has_alpha = original_metadata.get("has_alpha", False)
             mode = original_metadata.get("mode", "RGB")
             processed_image, processing_metadata = ipm.process_image(
-                original_path, has_alpha, mode, upscaler=upscaler,
+                original_path,
+                has_alpha,
+                mode,
+                upscaler=upscaler,
             )
 
             if not processed_image:
@@ -255,7 +267,10 @@ class ImageDatabaseManager:
             raise
 
     def register_processed_image(
-        self, image_id: int, processed_path: Path, info: dict[str, Any],
+        self,
+        image_id: int,
+        processed_path: Path,
+        info: dict[str, Any],
     ) -> int | None:
         """処理済み画像を保存し、メタデータをデータベースに登録します。
 
@@ -645,7 +660,8 @@ class ImageDatabaseManager:
 
         except Exception as e:
             logger.error(
-                f"重複画像検出プロセス中にエラーが発生しました: {image_path}, Error: {e}", exc_info=True,
+                f"重複画像検出プロセス中にエラーが発生しました: {image_path}, Error: {e}",
+                exc_info=True,
             )
             return None
 
@@ -690,7 +706,8 @@ class ImageDatabaseManager:
 
         except Exception as e:
             logger.error(
-                f"ディレクトリからの画像ID取得中にエラー: {directory_path}, Error: {e}", exc_info=True,
+                f"ディレクトリからの画像ID取得中にエラー: {directory_path}, Error: {e}",
+                exc_info=True,
             )
             return []
 
@@ -751,7 +768,9 @@ class ImageDatabaseManager:
             return {"total": 0, "completed": 0, "error": 0, "completion_rate": 0.0}
 
     def filter_by_annotation_status(
-        self, completed: bool = False, error: bool = False,
+        self,
+        completed: bool = False,
+        error: bool = False,
     ) -> list[dict[str, Any]]:
         """アノテーション状態でフィルタリング
 
@@ -778,7 +797,8 @@ class ImageDatabaseManager:
                 elif error:
                     # エラー画像（未解決のアノテーションエラーのみ）
                     error_image_ids = self.repository.get_error_image_ids(
-                        operation_type="annotation", resolved=False,
+                        operation_type="annotation",
+                        resolved=False,
                     )
                     if not error_image_ids:
                         return []
@@ -839,7 +859,9 @@ class ImageDatabaseManager:
         try:
             # get_processed_image は resolution=0 以外の場合、dict | None を返す
             processed_image_metadata = self.repository.get_processed_image(
-                image_id, resolution=target_resolution, all_data=False,
+                image_id,
+                resolution=target_resolution,
+                all_data=False,
             )
 
             if isinstance(processed_image_metadata, dict):
@@ -859,7 +881,9 @@ class ImageDatabaseManager:
             return None
 
     def filter_recent_annotations(
-        self, annotations: dict[str, list[dict[str, Any]]], minutes_threshold: int = 5,
+        self,
+        annotations: dict[str, list[dict[str, Any]]],
+        minutes_threshold: int = 5,
     ) -> dict[str, list[dict[str, Any]]]:
         """与えられたアノテーションデータから、指定時間内に更新されたものだけをフィルタリングします。
         'updated_at' フィールドが存在しないアノテーションは無視されます。

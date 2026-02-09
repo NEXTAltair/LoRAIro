@@ -313,9 +313,7 @@ class TestWorkerService:
         assert worker_service.current_thumbnail_worker_id == worker_id
 
     @patch("lorairo.gui.services.worker_service.ThumbnailWorker")
-    def test_start_thumbnail_page_load_cancels_existing_worker(
-        self, mock_worker_class, worker_service
-    ):
+    def test_start_thumbnail_page_load_cancels_existing_worker(self, mock_worker_class, worker_service):
         """ページ単位読み込みで既存ワーカーをキャンセルできる"""
         mock_worker = Mock()
         mock_worker_class.return_value = mock_worker

@@ -54,7 +54,7 @@ class ExistingFileReader:
 
             # Return result even if empty, since files exist
             if not tag_path.exists() and not caption_path.exists():
-                logger.info(f"既存アノテーション無し: {image_path}")
+                logger.debug(f"既存アノテーション無し: {image_path}")
                 return None
 
         except Exception as e:
