@@ -549,6 +549,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     # シグナル接続
                     self.batchTagAddWidget.tag_add_requested.connect(self._handle_batch_tag_add)
                     self.batchTagAddWidget.staging_cleared.connect(self._handle_staging_cleared)
+                    self.batchTagAddWidget.staged_images_changed.connect(
+                        self._on_staged_images_changed
+                    )
+                    # 初期状態: アノテーションボタン無効化（ステージング画像0件）
+                    self._update_annotation_target_ui(0)
                     logger.info("    ✅ BatchTagAddWidget シグナル接続完了")
                 except Exception as e:
                     logger.error(f"    ❌ BatchTagAddWidget シグナル接続失敗: {e}")
@@ -638,6 +643,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             "batch_registration_started",
             "batch_registration_finished",
             "batch_registration_error",
+            "enhanced_annotation_finished",
+            "enhanced_annotation_error",
             "worker_progress_updated",
             "worker_batch_progress",
         ]
@@ -667,11 +674,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.worker_service.batch_registration_finished.connect(self._on_batch_registration_finished)
         self.worker_service.batch_registration_error.connect(self._on_batch_registration_error)
 
+        # Annotation connections
+        self.worker_service.enhanced_annotation_finished.connect(self._on_annotation_finished)
+        self.worker_service.enhanced_annotation_error.connect(self._on_annotation_error)
+
         # Progress feedback connections
         self.worker_service.worker_progress_updated.connect(self._on_worker_progress_updated)
         self.worker_service.worker_batch_progress.connect(self._on_worker_batch_progress)
 
-        logger.info("WorkerService pipeline signals connected (13 connections)")
+        logger.info("WorkerService pipeline signals connected (15 connections)")
 
     def _delegate_to_pipeline_control(self, method_name: str, *args: Any) -> None:
         """PipelineControlServiceへのイベント委譲ヘルパー"""
@@ -761,35 +772,33 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _on_annotation_finished(self, result: Any) -> None:
         """アノテーション完了ハンドラ（キャッシュ更新付き）
 
+        Args:
+            result: PHashAnnotationResults (phash → model_name → UnifiedResult)
+
         Note:
-            - Phase 1: ResultHandlerService経由で通知処理
-            - Phase 2: DatasetStateManagerキャッシュ更新でGUI反映
+            - Phase 1: ResultHandlerService経由でステータスバー通知
+            - Phase 2: 検索結果キャッシュ更新（選択中画像の詳細パネル反映）
         """
-        # Phase 1: 既存のResultHandlerService処理
+        # Phase 1: ステータスバー通知
         self._delegate_to_result_handler("handle_annotation_finished", result, status_bar=self.statusBar())
 
-        # Phase 2: キャッシュ更新 (NEW)
-        # dataset_state_manager未初期化チェック
-        if not self.dataset_state_manager:
-            logger.warning("DatasetStateManager未初期化 - キャッシュ更新をスキップ")
+        # Phase 2: 検索結果キャッシュ更新
+        # ワークスペースタブで選択中の画像がアノテーション対象に含まれていた場合、
+        # 詳細パネル（SelectedImageDetailsWidget）に最新情報が反映される
+        if not self.dataset_state_manager or not self.db_manager:
             return
 
-        current_image_id = self.dataset_state_manager.current_image_id
-        if not self.db_manager:
-            logger.warning("ImageDatabaseManager未初期化 - キャッシュ更新をスキップ")
-            return
-
-        if current_image_id:
+        if result and isinstance(result, dict):
             try:
-                # DBから最新メタデータ取得
-                fresh_metadata = self.db_manager.repository.get_image_metadata(current_image_id)
+                phash_to_image_id = self.db_manager.repository.find_image_ids_by_phashes(set(result.keys()))
+                image_ids = [img_id for img_id in phash_to_image_id.values() if img_id is not None]
 
-                if fresh_metadata:
-                    # キャッシュ更新＋シグナル発行
-                    self.dataset_state_manager.update_image_metadata(current_image_id, fresh_metadata)
-                    logger.info(f"キャッシュ更新完了: image_id={current_image_id}")
+                if image_ids:
+                    self.dataset_state_manager.refresh_images(image_ids)
+                    logger.info(f"アノテーション完了: {len(image_ids)}件の画像キャッシュを更新")
+
             except Exception as e:
-                logger.error(f"キャッシュ更新失敗: {e}", exc_info=True)
+                logger.error(f"アノテーション完了後のキャッシュ更新失敗: {e}", exc_info=True)
 
     def _on_annotation_error(self, error_msg: str) -> None:
         self._delegate_to_result_handler("handle_annotation_error", error_msg, status_bar=self.statusBar())
@@ -1127,9 +1136,40 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """
         BatchTagAddWidget からのステージングクリアシグナルハンドラ（Phase 3.1）
 
-        現在は何もしない（将来的にUI状態をリセットする場合に使用）
+        ステージングクリア時にアノテーションUIを更新する。
         """
         logger.debug("Batch staging cleared")
+        self._update_annotation_target_ui(0)
+
+    def _on_staged_images_changed(self, image_ids: list[int]) -> None:
+        """ステージング画像変更シグナルハンドラ
+
+        ステージング画像数に応じてアノテーション対象ラベルとボタン状態を更新する。
+
+        Args:
+            image_ids: 現在のステージング画像IDリスト
+        """
+        count = len(image_ids) if image_ids else 0
+        self._update_annotation_target_ui(count)
+
+    def _update_annotation_target_ui(self, staging_count: int) -> None:
+        """アノテーション対象UIを更新
+
+        ステージング画像数に応じてラベルテキストとボタンの有効/無効を設定する。
+
+        Args:
+            staging_count: ステージング画像数
+        """
+        # ラベル更新
+        if hasattr(self.ui, "labelAnnotationTarget"):
+            if staging_count > 0:
+                self.ui.labelAnnotationTarget.setText(f"◎ ステージング: {staging_count} 枚")
+            else:
+                self.ui.labelAnnotationTarget.setText("◎ ステージング: 0 枚（画像を追加してください）")
+
+        # ボタン有効/無効
+        if hasattr(self.ui, "btnAnnotationExecute"):
+            self.ui.btnAnnotationExecute.setEnabled(staging_count > 0)
 
     def _show_quick_tag_dialog(self, image_ids: list[int]) -> None:
         """クイックタグダイアログを表示する。
@@ -1344,10 +1384,24 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             selected_models = self.batchModelSelection.get_selected_models()
             logger.debug(f"batchModelSelectionから選択されたモデル: {selected_models}")
 
+        # バッチタグタブの場合はステージング画像を使用
+        override_image_paths: list[str] | None = None
+        if self.ui.tabWidgetMainMode.currentIndex() == 1:  # tabBatchTag
+            override_image_paths = self._get_staged_image_paths_for_annotation()
+            if not override_image_paths:
+                QMessageBox.information(
+                    self,
+                    "ステージング画像なし",
+                    "ステージングリストに画像がありません。\n"
+                    "画像を選択してからアノテーションを実行してください。",
+                )
+                return
+
         # AnnotationWorkflowControllerに委譲（チェックボックスから選択されたモデルを優先）
         self.annotation_workflow_controller.start_annotation_workflow(
             selected_models=selected_models if selected_models else None,
             model_selection_callback=self._show_model_selection_dialog if not selected_models else None,
+            image_paths=override_image_paths,
         )
 
     def _show_model_selection_dialog(self, available_models: list[str]) -> str | None:
@@ -1371,6 +1425,37 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         )
 
         return selected_model if ok else None
+
+    def _get_staged_image_paths_for_annotation(self) -> list[str]:
+        """バッチタグタブのステージング画像パスを取得
+
+        BatchTagAddWidget._staged_imagesから画像IDを取得し、
+        DatasetStateManagerから実際のファイルパスに変換する。
+
+        Returns:
+            list[str]: 画像ファイルパスリスト。エラー時は空リスト。
+        """
+        from lorairo.database.db_core import resolve_stored_path
+
+        batch_widget = getattr(self, "batchTagAddWidget", None)
+        if not batch_widget or not batch_widget._staged_images:
+            return []
+
+        if not self.dataset_state_manager:
+            logger.warning("DatasetStateManager not available for path resolution")
+            return []
+
+        paths: list[str] = []
+        for image_id, (_, stored_path) in batch_widget._staged_images.items():
+            if stored_path:
+                resolved = resolve_stored_path(stored_path)
+                if resolved and resolved.exists():
+                    paths.append(str(resolved))
+                else:
+                    logger.debug(f"画像パスが存在しない: ID={image_id}, path={stored_path}")
+
+        logger.debug(f"ステージング画像パスを取得: {len(paths)}件")
+        return paths
 
     def export_data(self) -> None:
         """データセットエクスポート機能を開く（ExportControllerに委譲）"""

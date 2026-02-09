@@ -221,6 +221,126 @@ class TestMainWindowSelectionClear:
         mock_window.selectedImageDetailsWidget._clear_display.assert_called_once()
 
 
+class TestMainWindowAnnotationCompletion:
+    """アノテーション完了ハンドラーテスト"""
+
+    @pytest.fixture
+    def mock_window_with_annotation(self):
+        """アノテーション完了テスト用のモックMainWindow"""
+        window = Mock()
+        window.dataset_state_manager = Mock()
+        window.db_manager = Mock()
+        window.db_manager.repository = Mock()
+        window.statusBar = Mock(return_value=Mock())
+        return window
+
+    def test_on_annotation_finished_updates_cache(self, mock_window_with_annotation):
+        """アノテーション完了時に画像キャッシュが更新される"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        # PHashAnnotationResults形式のモック結果
+        result = {
+            "abc123def456": {"model1": Mock()},
+            "xyz789ghi012": {"model1": Mock()},
+        }
+
+        # find_image_ids_by_phashes のモック
+        mock_window_with_annotation.db_manager.repository.find_image_ids_by_phashes.return_value = {
+            "abc123def456": 101,
+            "xyz789ghi012": 102,
+        }
+
+        # _delegate_to_result_handlerをモック化
+        mock_window_with_annotation._delegate_to_result_handler = Mock()
+
+        MainWindow._on_annotation_finished(mock_window_with_annotation, result)
+
+        # ResultHandlerServiceに委譲される
+        mock_window_with_annotation._delegate_to_result_handler.assert_called_once()
+
+        # pHashから画像IDを検索
+        mock_window_with_annotation.db_manager.repository.find_image_ids_by_phashes.assert_called_once()
+
+        # キャッシュが更新される
+        mock_window_with_annotation.dataset_state_manager.refresh_images.assert_called_once_with([101, 102])
+
+    def test_on_annotation_finished_handles_empty_result(self, mock_window_with_annotation):
+        """空の結果でもエラーが発生しない"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        result = {}
+        mock_window_with_annotation._delegate_to_result_handler = Mock()
+
+        # エラーが発生しないことを確認
+        MainWindow._on_annotation_finished(mock_window_with_annotation, result)
+
+    def test_on_annotation_finished_handles_missing_dependencies(self):
+        """依存関係なし時は早期リターン"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.dataset_state_manager = None
+        mock_window.db_manager = Mock()
+        mock_window._delegate_to_result_handler = Mock()
+
+        result = {"abc": {"model": Mock()}}
+
+        MainWindow._on_annotation_finished(mock_window, result)
+
+        # find_image_ids_by_phashesは呼ばれない
+        assert not mock_window.db_manager.repository.find_image_ids_by_phashes.called
+
+    def test_on_annotation_finished_handles_phash_lookup_failure(self, mock_window_with_annotation):
+        """pHash検索失敗時にエラーログを出力する"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        result = {"abc123": {"model1": Mock()}}
+        mock_window_with_annotation.db_manager.repository.find_image_ids_by_phashes.side_effect = Exception(
+            "DB error"
+        )
+        mock_window_with_annotation._delegate_to_result_handler = Mock()
+
+        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
+            MainWindow._on_annotation_finished(mock_window_with_annotation, result)
+
+            # エラーログが出力される
+            mock_logger.error.assert_called_once()
+            assert "キャッシュ更新失敗" in mock_logger.error.call_args[0][0]
+
+    def test_setup_worker_pipeline_signals_includes_annotation(self):
+        """WorkerService pipeline シグナル接続にアノテーション完了が含まれる"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.worker_service = Mock()
+        # required_signalsを全て持つようにモック
+        for signal_name in [
+            "search_finished",
+            "search_started",
+            "search_error",
+            "thumbnail_finished",
+            "thumbnail_started",
+            "thumbnail_error",
+            "batch_registration_started",
+            "batch_registration_finished",
+            "batch_registration_error",
+            "enhanced_annotation_finished",
+            "enhanced_annotation_error",
+            "worker_progress_updated",
+            "worker_batch_progress",
+        ]:
+            setattr(mock_window.worker_service, signal_name, Mock())
+
+        with patch("lorairo.gui.window.main_window.logger"):
+            MainWindow._setup_worker_pipeline_signals(mock_window)
+
+            # enhanced_annotation_finished シグナルが接続される
+            mock_window.worker_service.enhanced_annotation_finished.connect.assert_called_once()
+
+            # enhanced_annotation_error シグナルが接続される
+            mock_window.worker_service.enhanced_annotation_error.connect.assert_called_once()
+
+
 class TestMainWindowTagAddFeedback:
     """タグ追加フィードバックテスト"""
 
