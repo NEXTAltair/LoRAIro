@@ -71,4 +71,359 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
             image_paths: エラー対象の画像パスリスト。
             model_name: エラー発生モデル名(全体エラーの場合はNone)。
         """
-        # 例外オブジェクトから直接トレースバックを取得(except外でも確実に動作) stack_trace = "".join(traceback.format_exception(error)) for image_path in image_paths: try: image_id = self.db_manager.get_image_id_by_filepath(image_path) if image_id is None: logger.warning(f"image_id取得失敗(file_pathで記録): {image_path}") self.db_manager.save_error_record( operation_type="annotation", error_type=type(error).__name__, error_message=str(error), image_id=image_id, stack_trace=stack_trace, file_path=image_path, model_name=model_name, ) except Exception as save_error: logger.error(f"エラーレコード保存失敗: {image_path}, {save_error}") def _run_annotation(self) -> PHashAnnotationResults: """モデル単位でアノテーションを実行し、結果をマージする。 Returns: PHashAnnotationResults: マージされたアノテーション結果。 """ merged_results: PHashAnnotationResults = {} total_models = len(self.models) for model_idx, model_name in enumerate(self.models): self._check_cancellation progress = 10 + int((model_idx / total_models) * 70) self._report_progress( progress, f"AIモデル実行中: {model_name} ({model_idx + 1}/{total_models})", processed_count=model_idx, total_count=total_models, ) try: model_results = self.annotation_logic.execute_annotation( image_paths=self.image_paths, model_names=[model_name], phash_list=None, ) for phash, annotations in model_results.items: if phash not in merged_results: merged_results[phash] = {} merged_results[phash].update(annotations) logger.debug(f"モデル {model_name} 完了: {len(model_results)}件の結果") except Exception as e: logger.error(f"モデル {model_name} でエラー: {e}", exc_info=True) self._save_error_records(e, self.image_paths, model_name=model_name) # エラーでも次のモデルに進む(部分的成功を許容) return merged_results def execute(self) -> PHashAnnotationResults: """アノテーション処理実行 AnnotationLogic経由でビジネスロジックを実行し、 進捗管理とキャンセル処理を担当する。 Returns: PHashAnnotationResults: アノテーション結果 Raises: Exception: アノテーション実行エラー """ logger.info(f"アノテーション処理開始 - {len(self.image_paths)}画像, {len(self.models)}モデル") try: # : アノテーション実行(10-80%) self._report_progress(10, "アノテーション処理を開始...", total_count=len(self.image_paths)) self._check_cancellation merged_results = self._run_annotation # : DB保存(85%) self._report_progress( 85, "結果をDBに保存中...", processed_count=len(self.image_paths), total_count=len(self.image_paths), ) self._check_cancellation self._save_results_to_database(merged_results) self._report_progress( 100, "アノテーション処理が完了しました", processed_count=len(self.image_paths), total_count=len(self.image_paths), ) logger.info(f"アノテーション処理完了: {len(merged_results)}件の結果") return merged_results except Exception as e: logger.error(f"アノテーション処理エラー: {e}", exc_info=True) self._save_error_records(e, self.image_paths, model_name=None) raise def _save_results_to_database(self, results: PHashAnnotationResults) -> None: """アノテーション結果をDBに保存 Args: results: PHashAnnotationResults (phash → model_name → UnifiedResult) Note: ライブラリが返したpHashをfind_image_ids_by_phashesで一括DB照会。 タグIDもbatch_resolve_tag_idsで一括解決しN+1を回避。 保存失敗時は個別にログを記録し、処理を継続する。 """ # 事前一括取得: pHash → image_id（N+1回避） phash_to_image_id = self.db_manager.repository.find_image_ids_by_phashes(set(results.keys)) # 事前一括取得: モデル名・タグ文字列を収集 all_model_names, all_raw_tags = self._collect_model_names_and_tags(results) models_cache = self.db_manager.repository.get_models_by_names(all_model_names) # 事前一括取得: タグID一括解決（N+1回避） tag_id_cache = self._resolve_tag_ids_batch(all_raw_tags) success_count = 0 for phash, annotations in results.items: try: image_id = phash_to_image_id.get(phash) if image_id is None: logger.warning( f"pHash {phash[:8]}... に対応する画像がDBに見つかりません。スキップします。" ) continue # 変換（キャッシュ済みモデルを使用） annotations_dict = self._convert_to_annotations_dict(annotations, models_cache) if not annotations_dict or not any(annotations_dict.values): logger.debug(f"画像ID {image_id} に保存するアノテーションがありません") continue # DB保存（annotation_worker経路: 存在チェックスキップ + タグIDキャッシュ使用） self.db_manager.repository.save_annotations( image_id, annotations_dict, skip_existence_check=True, tag_id_cache=tag_id_cache if tag_id_cache else None, ) success_count += 1 logger.info(f"画像ID {image_id} のアノテーション保存成功") except Exception as e: logger.error(f"保存失敗 phash={phash[:8]}...: {e}", exc_info=True) logger.info(f"DB保存完了: {success_count}/{len(results)}件成功") @staticmethod def _collect_model_names_and_tags( results: PHashAnnotationResults, ) -> tuple[set[str], set[str]]: """全結果からユニークなモデル名とタグ文字列を収集する。 Args: results: PHashAnnotationResults (phash → model_name → UnifiedResult) Returns: (モデル名セット, タグ文字列セット) のタプル。 """ all_model_names: set[str] = set all_raw_tags: set[str] = set for annotations in results.values: for model_name, unified_result in annotations.items: error = ( unified_result.get("error") if isinstance(unified_result, dict) else unified_result.error ) if error: continue all_model_names.add(model_name) # タグ文字列を収集（バッチ解決用） tags = ( unified_result.get("tags") if isinstance(unified_result, dict) else unified_result.tags ) if tags: all_raw_tags.update(tags) return all_model_names, all_raw_tags def _resolve_tag_ids_batch(self, all_raw_tags: set[str]) -> dict[str, int | None]: """タグ文字列を正規化し、外部タグDBのtag_idを一括解決する。 TagCleaner.clean_format + strip で正規化後、 batch_resolve_tag_idsで一括検索する。 Args: all_raw_tags: 生のタグ文字列セット。 Returns: 正規化済みタグ文字列→tag_idのキャッシュ辞書。タグがない場合は空辞書。 """ if not all_raw_tags: return {} normalized_tags: set[str] = set for raw_tag in all_raw_tags: normalized = TagCleaner.clean_format(raw_tag).strip if normalized: normalized_tags.add(normalized) if not normalized_tags: return {} return self.db_manager.repository.batch_resolve_tag_ids(normalized_tags) @staticmethod def _extract_field(result: Any, field_name: str) -> Any: """unified_resultから辞書/Pydanticモデル両対応でフィールドを取得する。 Args: result: 辞書またはPydanticモデルオブジェクト。 field_name: 取得するフィールド名。 Returns: フィールドの値、またはNone。 """ if isinstance(result, dict): return result.get(field_name) return getattr(result, field_name, None) def _append_scores( self, scores: dict[str, Any] | None, model_id: int, result: "AnnotationsDict" ) -> None: """スコア結果をAnnotationsDictに追加する。 Args: scores: スコア辞書(name->value)。 model_id: モデルID。 result: 追加先のAnnotationsDict。 """ if not scores: return for _score_name, score_value in scores.items: result["scores"].append( {"model_id": model_id, "score": float(score_value), "is_edited_manually": False} ) def _append_tags(self, tags: list[str] | None, model_id: int, result: "AnnotationsDict") -> None: """タグ結果をAnnotationsDictに追加する。 Args: tags: タグ文字列リスト。 model_id: モデルID。 result: 追加先のAnnotationsDict。 """ if not tags: return for tag_content in tags: result["tags"].append( { "model_id": model_id, "tag": tag_content, "existing": False, "is_edited_manually": False, "confidence_score": None, "tag_id": None, } ) def _append_captions( self, captions: list[str] | None, model_id: int, result: "AnnotationsDict" ) -> None: """キャプション結果をAnnotationsDictに追加する。 Args: captions: キャプション文字列リスト。 model_id: モデルID。 result: 追加先のAnnotationsDict。 """ if not captions: return for caption_content in captions: result["captions"].append( { "model_id": model_id, "caption": caption_content, "existing": False, "is_edited_manually": False, } ) def _append_ratings(self, ratings: Any, model_id: int, result: "AnnotationsDict") -> None: """レーティング結果をAnnotationsDictに追加する。 Args: ratings: レーティング値。 model_id: モデルID。 result: 追加先のAnnotationsDict。 """ if not ratings: return rating_value = str(ratings) result["ratings"].append( { "model_id": model_id, "raw_rating_value": rating_value, "normalized_rating": rating_value, "confidence_score": None, } ) def _convert_to_annotations_dict( self, annotations: dict[str, Any], models_cache: dict[str, Any] ) -> "AnnotationsDict": """PHashAnnotationResults -> AnnotationsDictへ変換 Args: annotations: model_name -> UnifiedResult マッピング models_cache: model_name -> Model の事前取得キャッシュ Returns: AnnotationsDict: DB保存用の型付き辞書 Note: - TypedDictは db_repository.py からimport - model_id解決はmodels_cacheから取得(N+1回避) - 正しいキー名: "tag", "caption", "raw_rating_value", "normalized_rating" """ from lorairo.database.db_repository import AnnotationsDict result: AnnotationsDict = { "scores": [], "tags": [], "captions": [], "ratings": [], } for model_name, unified_result in annotations.items: if self._extract_field(unified_result, "error"): logger.warning(f"モデル {model_name} エラーをスキップ") continue model = models_cache.get(model_name) if not model: logger.warning(f"モデル '{model_name}' がDB未登録") continue self._append_scores(self._extract_field(unified_result, "scores"), model.id, result) self._append_tags(self._extract_field(unified_result, "tags"), model.id, result) self._append_captions(self._extract_field(unified_result, "captions"), model.id, result) self._append_ratings(self._extract_field(unified_result, "ratings"), model.id, result) return result
+        # 例外オブジェクトから直接トレースバックを取得(except外でも確実に動作)
+        stack_trace = "".join(traceback.format_exception(error))
+
+        for image_path in image_paths:
+            try:
+                image_id = self.db_manager.get_image_id_by_filepath(image_path)
+                if image_id is None:
+                    logger.warning(f"image_id取得失敗(file_pathで記録): {image_path}")
+                self.db_manager.save_error_record(
+                    operation_type="annotation",
+                    error_type=type(error).__name__,
+                    error_message=str(error),
+                    image_id=image_id,
+                    stack_trace=stack_trace,
+                    file_path=image_path,
+                    model_name=model_name,
+                )
+            except Exception as save_error:
+                logger.error(f"エラーレコード保存失敗: {image_path}, {save_error}")
+
+    def _run_annotation(self) -> PHashAnnotationResults:
+        """モデル単位でアノテーションを実行し、結果をマージする。
+
+        Returns:
+            PHashAnnotationResults: マージされたアノテーション結果。
+        """
+        merged_results: PHashAnnotationResults = {}
+        total_models = len(self.models)
+
+        for model_idx, model_name in enumerate(self.models):
+            self._check_cancellation()
+
+            progress = 10 + int((model_idx / total_models) * 70)
+            self._report_progress(
+                progress,
+                f"AIモデル実行中: {model_name} ({model_idx + 1}/{total_models})",
+                processed_count=model_idx,
+                total_count=total_models,
+            )
+
+            try:
+                model_results = self.annotation_logic.execute_annotation(
+                    image_paths=self.image_paths,
+                    model_names=[model_name],
+                    phash_list=None,
+                )
+
+                for phash, annotations in model_results.items():
+                    if phash not in merged_results:
+                        merged_results[phash] = {}
+                    merged_results[phash].update(annotations)
+
+                logger.debug(f"モデル {model_name} 完了: {len(model_results)}件の結果")
+
+            except Exception as e:
+                logger.error(f"モデル {model_name} でエラー: {e}", exc_info=True)
+                self._save_error_records(e, self.image_paths, model_name=model_name)
+                # エラーでも次のモデルに進む(部分的成功を許容)
+
+        return merged_results
+
+    def execute(self) -> PHashAnnotationResults:
+        """アノテーション処理実行
+
+        AnnotationLogic経由でビジネスロジックを実行し、
+        進捗管理とキャンセル処理を担当する。
+
+        Returns:
+            PHashAnnotationResults: アノテーション結果
+
+        Raises:
+            Exception: アノテーション実行エラー
+        """
+        logger.info(f"アノテーション処理開始 - {len(self.image_paths)}画像, {len(self.models)}モデル")
+
+        try:
+            # Phase 1: アノテーション実行(10-80%)
+            self._report_progress(10, "アノテーション処理を開始...", total_count=len(self.image_paths))
+            self._check_cancellation()
+
+            merged_results = self._run_annotation()
+
+            # Phase 2: DB保存(85%)
+            self._report_progress(
+                85,
+                "結果をDBに保存中...",
+                processed_count=len(self.image_paths),
+                total_count=len(self.image_paths),
+            )
+            self._check_cancellation()
+
+            self._save_results_to_database(merged_results)
+
+            self._report_progress(
+                100,
+                "アノテーション処理が完了しました",
+                processed_count=len(self.image_paths),
+                total_count=len(self.image_paths),
+            )
+
+            logger.info(f"アノテーション処理完了: {len(merged_results)}件の結果")
+            return merged_results
+
+        except Exception as e:
+            logger.error(f"アノテーション処理エラー: {e}", exc_info=True)
+            self._save_error_records(e, self.image_paths, model_name=None)
+            raise
+
+    def _save_results_to_database(self, results: PHashAnnotationResults) -> None:
+        """アノテーション結果をDBに保存
+
+        Args:
+            results: PHashAnnotationResults (phash → model_name → UnifiedResult)
+
+        Note:
+            ライブラリが返したpHashをfind_image_ids_by_phashesで一括DB照会。
+            タグIDもbatch_resolve_tag_ids()で一括解決しN+1を回避。
+            保存失敗時は個別にログを記録し、処理を継続する。
+        """
+        # 事前一括取得: pHash → image_id（N+1回避）
+        phash_to_image_id = self.db_manager.repository.find_image_ids_by_phashes(set(results.keys()))
+
+        # 事前一括取得: モデル名・タグ文字列を収集
+        all_model_names, all_raw_tags = self._collect_model_names_and_tags(results)
+        models_cache = self.db_manager.repository.get_models_by_names(all_model_names)
+
+        # 事前一括取得: タグID一括解決（N+1回避）
+        tag_id_cache = self._resolve_tag_ids_batch(all_raw_tags)
+
+        success_count = 0
+        for phash, annotations in results.items():
+            try:
+                image_id = phash_to_image_id.get(phash)
+                if image_id is None:
+                    logger.warning(
+                        f"pHash {phash[:8]}... に対応する画像がDBに見つかりません。スキップします。"
+                    )
+                    continue
+
+                # 変換（キャッシュ済みモデルを使用）
+                annotations_dict = self._convert_to_annotations_dict(annotations, models_cache)
+
+                if not annotations_dict or not any(annotations_dict.values()):
+                    logger.debug(f"画像ID {image_id} に保存するアノテーションがありません")
+                    continue
+
+                # DB保存（annotation_worker経路: 存在チェックスキップ + タグIDキャッシュ使用）
+                self.db_manager.repository.save_annotations(
+                    image_id,
+                    annotations_dict,
+                    skip_existence_check=True,
+                    tag_id_cache=tag_id_cache if tag_id_cache else None,
+                )
+                success_count += 1
+
+                logger.info(f"画像ID {image_id} のアノテーション保存成功")
+
+            except Exception as e:
+                logger.error(f"保存失敗 phash={phash[:8]}...: {e}", exc_info=True)
+
+        logger.info(f"DB保存完了: {success_count}/{len(results)}件成功")
+
+    @staticmethod
+    def _collect_model_names_and_tags(
+        results: PHashAnnotationResults,
+    ) -> tuple[set[str], set[str]]:
+        """全結果からユニークなモデル名とタグ文字列を収集する。
+
+        Args:
+            results: PHashAnnotationResults (phash → model_name → UnifiedResult)
+
+        Returns:
+            (モデル名セット, タグ文字列セット) のタプル。
+        """
+        all_model_names: set[str] = set()
+        all_raw_tags: set[str] = set()
+        for annotations in results.values():
+            for model_name, unified_result in annotations.items():
+                error = (
+                    unified_result.get("error")
+                    if isinstance(unified_result, dict)
+                    else unified_result.error
+                )
+                if error:
+                    continue
+                all_model_names.add(model_name)
+                # タグ文字列を収集（バッチ解決用）
+                tags = (
+                    unified_result.get("tags") if isinstance(unified_result, dict) else unified_result.tags
+                )
+                if tags:
+                    all_raw_tags.update(tags)
+        return all_model_names, all_raw_tags
+
+    def _resolve_tag_ids_batch(self, all_raw_tags: set[str]) -> dict[str, int | None]:
+        """タグ文字列を正規化し、外部タグDBのtag_idを一括解決する。
+
+        TagCleaner.clean_format() + strip で正規化後、
+        batch_resolve_tag_ids()で一括検索する。
+
+        Args:
+            all_raw_tags: 生のタグ文字列セット。
+
+        Returns:
+            正規化済みタグ文字列→tag_idのキャッシュ辞書。タグがない場合は空辞書。
+        """
+        if not all_raw_tags:
+            return {}
+
+        normalized_tags: set[str] = set()
+        for raw_tag in all_raw_tags:
+            normalized = TagCleaner.clean_format(raw_tag).strip()
+            if normalized:
+                normalized_tags.add(normalized)
+
+        if not normalized_tags:
+            return {}
+
+        return self.db_manager.repository.batch_resolve_tag_ids(normalized_tags)
+
+    @staticmethod
+    def _extract_field(result: Any, field_name: str) -> Any:
+        """unified_resultから辞書/Pydanticモデル両対応でフィールドを取得する。
+
+        Args:
+            result: 辞書またはPydanticモデルオブジェクト。
+            field_name: 取得するフィールド名。
+
+        Returns:
+            フィールドの値、またはNone。
+        """
+        if isinstance(result, dict):
+            return result.get(field_name)
+        return getattr(result, field_name, None)
+
+    def _append_scores(self, scores: dict[str, Any] | None, model_id: int, result: "AnnotationsDict") -> None:
+        """スコア結果をAnnotationsDictに追加する。
+
+        Args:
+            scores: スコア辞書(name->value)。
+            model_id: モデルID。
+            result: 追加先のAnnotationsDict。
+        """
+        if not scores:
+            return
+        for _score_name, score_value in scores.items():
+            result["scores"].append(
+                {"model_id": model_id, "score": float(score_value), "is_edited_manually": False}
+            )
+
+    def _append_tags(self, tags: list[str] | None, model_id: int, result: "AnnotationsDict") -> None:
+        """タグ結果をAnnotationsDictに追加する。
+
+        Args:
+            tags: タグ文字列リスト。
+            model_id: モデルID。
+            result: 追加先のAnnotationsDict。
+        """
+        if not tags:
+            return
+        for tag_content in tags:
+            result["tags"].append(
+                {
+                    "model_id": model_id,
+                    "tag": tag_content,
+                    "existing": False,
+                    "is_edited_manually": False,
+                    "confidence_score": None,
+                    "tag_id": None,
+                }
+            )
+
+    def _append_captions(
+        self, captions: list[str] | None, model_id: int, result: "AnnotationsDict"
+    ) -> None:
+        """キャプション結果をAnnotationsDictに追加する。
+
+        Args:
+            captions: キャプション文字列リスト。
+            model_id: モデルID。
+            result: 追加先のAnnotationsDict。
+        """
+        if not captions:
+            return
+        for caption_content in captions:
+            result["captions"].append(
+                {
+                    "model_id": model_id,
+                    "caption": caption_content,
+                    "existing": False,
+                    "is_edited_manually": False,
+                }
+            )
+
+    def _append_ratings(self, ratings: Any, model_id: int, result: "AnnotationsDict") -> None:
+        """レーティング結果をAnnotationsDictに追加する。
+
+        Args:
+            ratings: レーティング値。
+            model_id: モデルID。
+            result: 追加先のAnnotationsDict。
+        """
+        if not ratings:
+            return
+        rating_value = str(ratings)
+        result["ratings"].append(
+            {
+                "model_id": model_id,
+                "raw_rating_value": rating_value,
+                "normalized_rating": rating_value,
+                "confidence_score": None,
+            }
+        )
+
+    def _convert_to_annotations_dict(
+        self, annotations: dict[str, Any], models_cache: dict[str, Any]
+    ) -> "AnnotationsDict":
+        """PHashAnnotationResults -> AnnotationsDictへ変換
+
+        Args:
+            annotations: model_name -> UnifiedResult マッピング
+            models_cache: model_name -> Model の事前取得キャッシュ
+
+        Returns:
+            AnnotationsDict: DB保存用の型付き辞書
+
+        Note:
+            - TypedDictは db_repository.py からimport
+            - model_id解決はmodels_cacheから取得(N+1回避)
+            - 正しいキー名: "tag", "caption", "raw_rating_value", "normalized_rating"
+        """
+        from lorairo.database.db_repository import AnnotationsDict
+
+        result: AnnotationsDict = {
+            "scores": [],
+            "tags": [],
+            "captions": [],
+            "ratings": [],
+        }
+
+        for model_name, unified_result in annotations.items():
+            if self._extract_field(unified_result, "error"):
+                logger.warning(f"モデル {model_name} エラーをスキップ")
+                continue
+
+            model = models_cache.get(model_name)
+            if not model:
+                logger.warning(f"モデル '{model_name}' がDB未登録")
+                continue
+
+            self._append_scores(self._extract_field(unified_result, "scores"), model.id, result)
+            self._append_tags(self._extract_field(unified_result, "tags"), model.id, result)
+            self._append_captions(self._extract_field(unified_result, "captions"), model.id, result)
+            self._append_ratings(self._extract_field(unified_result, "ratings"), model.id, result)
+
+        return result
