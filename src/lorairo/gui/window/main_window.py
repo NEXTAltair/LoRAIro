@@ -1161,15 +1161,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             staging_count: ステージング画像数
         """
         # ラベル更新
-        if hasattr(self.ui, "labelAnnotationTarget"):
+        if hasattr(self, "labelAnnotationTarget"):
             if staging_count > 0:
-                self.ui.labelAnnotationTarget.setText(f"◎ ステージング: {staging_count} 枚")
+                self.labelAnnotationTarget.setText(f"◎ ステージング: {staging_count} 枚")
             else:
-                self.ui.labelAnnotationTarget.setText("◎ ステージング: 0 枚（画像を追加してください）")
+                self.labelAnnotationTarget.setText("◎ ステージング: 0 枚（画像を追加してください）")
 
         # ボタン有効/無効
-        if hasattr(self.ui, "btnAnnotationExecute"):
-            self.ui.btnAnnotationExecute.setEnabled(staging_count > 0)
+        if hasattr(self, "btnAnnotationExecute"):
+            self.btnAnnotationExecute.setEnabled(staging_count > 0)
 
     def _show_quick_tag_dialog(self, image_ids: list[int]) -> None:
         """クイックタグダイアログを表示する。
@@ -1386,7 +1386,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # バッチタグタブの場合はステージング画像を使用
         override_image_paths: list[str] | None = None
-        if self.ui.tabWidgetMainMode.currentIndex() == 1:  # tabBatchTag
+        if self.tabWidgetMainMode.currentIndex() == 1:  # tabBatchTag
             override_image_paths = self._get_staged_image_paths_for_annotation()
             if not override_image_paths:
                 QMessageBox.information(
