@@ -218,7 +218,8 @@ class TestModelSelectionService:
         service.load_models()
 
         # 「すべて」指定時は全モデルが返される
-        all_models = service.filter_models(provider="すべて")
+        criteria = ModelSelectionCriteria(provider="すべて")
+        all_models = service.filter_models(criteria)
         assert len(all_models) == 4
 
     def test_group_models_by_provider(self, service):
