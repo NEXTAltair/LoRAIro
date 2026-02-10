@@ -351,7 +351,7 @@ class WidgetSetupService:
             main_window.batchAnnotationFilter.filter_changed.connect(
                 lambda filters: main_window.batchModelSelection.apply_filters(
                     provider="local" if filters.get("environment") == "local" else None,
-                    capabilities=filters.get("capabilities", []),
+                    capabilities=filters.get("capabilities", []) or ["caption", "tags", "scores"],
                     exclude_local=filters.get("environment") == "api",
                 )
             )
