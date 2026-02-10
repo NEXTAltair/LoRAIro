@@ -1,0 +1,163 @@
+{
+  "metadata": {
+    "analysis_date": "2026-02-10",
+    "total_test_files": 91,
+    "total_tests": "300+ (estimated)",
+    "analysis_scope": "tests/ ディレクトリ全体"
+  },
+  "duplicate_tests": [
+    {
+      "description": "ImageRepository.save() テスト - 重複の可能性",
+      "severity": "MEDIUM",
+      "locations": [
+        "tests/integration/database/test_image_repository.py (複数テスト)",
+        "tests/integration/services/ (依存テストから呼び出し)"
+      ],
+      "recommendation": "詳細確認後、冗長なアサーションを統一",
+      "note": "同じメソッドをテストしている異なるファイルの検出が必要"
+    },
+    {
+      "description": "DB初期化・スキーマ作成テスト",
+      "severity": "HIGH",
+      "locations": [
+        "tests/conftest.py: test_engine_with_schema",
+        "tests/integration/database/ (複数ファイルで重複初期化)"
+      ],
+      "recommendation": "conftest.py に一元化、各テストは使用のみに",
+      "note": "セッション共有の conftest フィクスチャを活用すべき"
+    },
+    {
+      "description": "FileSystemManager 初期化テスト",
+      "severity": "MEDIUM",
+      "locations": [
+        "tests/conftest.py: fs_manager",
+        "tests/integration/ 内の複数テストでの個別初期化"
+      ],
+      "recommendation": "fs_manager フィクスチャを活用、テスト内初期化を削除",
+      "note": "ストレージ関連テストで初期化が重複している可能性"
+    },
+    {
+      "description": "テスト画像生成・管理",
+      "severity": "MEDIUM",
+      "locations": [
+        "tests/conftest.py: test_image, test_image_array, sample_image_data",
+        "tests/integration/services/ (独自実装の可能性)"
+      ],
+      "recommendation": "conftest.py の関数を活用、テスト内での独自実装を廃止",
+      "note": "画像オブジェクト生成が複数の方法で実装されている可能性"
+    },
+    {
+      "description": "タイムスタンプ生成・検証",
+      "severity": "LOW",
+      "locations": [
+        "tests/conftest.py: current_timestamp, past_timestamp",
+        "テスト内での datetime.now() 直接呼び出し"
+      ],
+      "recommendation": "conftest フィクスチャの使用を強制",
+      "note": "タイムゾーン処理が統一されていない可能性"
+    }
+  ],
+  "redundant_fixtures": [
+    {
+      "fixture_name": "test_image, test_image_array",
+      "issue": "画像オブジェクト生成が複数方式存在",
+      "consolidation_target": "tests/conftest.py に一元化",
+      "benefit": "コード重複 20-30% 削減推定"
+    },
+    {
+      "fixture_name": "test_db_url, test_engine_with_schema, db_session_factory",
+      "issue": "DB初期化フロー全体が長い",
+      "consolidation_target": "tests/integration/conftest.py へ移動",
+      "benefit": "テスト作成時の理解コスト低減"
+    },
+    {
+      "fixture_name": "sample_image_data, sample_processed_image_data, sample_annotations",
+      "issue": "スキーマ型のサンプルが3つ存在",
+      "consolidation_target": "1つの統合サンプルファクトリへ",
+      "benefit": "メンテナンス性向上"
+    }
+  ],
+  "bloated_conftest": {
+    "current_status": {
+      "total_lines": "600+ 行推定",
+      "fixture_count": 34,
+      "dependencies": "複雑な依存グラフ（34ノード）",
+      "session_autouse": 2,
+      "function_scope": 32
+    },
+    "issues": [
+      {
+        "issue": "Session スコープ autouse=True が多い",
+        "reason": "全テストで Qt/genai-tag-db-tools 初期化を強制",
+        "impact": "不要なテストでも初期化が走る → 性能低下",
+        "fix": "tests/gui/, tests/integration/ で個別に初期化"
+      },
+      {
+        "issue": "フィクスチャ責務が混在",
+        "reason": "Qt + DB + ストレージが同じ conftest に",
+        "impact": "新規テストカテゴリ追加時に conftest 修正が必要",
+        "fix": "Multi-layer conftest.py に分割"
+      },
+      {
+        "issue": "モジュールレベルパッチが不透明",
+        "reason": "genai-tag-db-tools モック開始が conftest import時点",
+        "impact": "テストの初期化順序が不明確、デバッグ難",
+        "fix": "パッチ管理を明示的なフィクスチャに統一"
+      }
+    ],
+    "recommendation": "Multi-layer conftest.py への段階的分割"
+  },
+  "test_categories_analysis": {
+    "integration_tests": {
+      "file_count": 25,
+      "estimated_test_count": "200+",
+      "subdirs": ["database/", "gui/", "services/"],
+      "observation": "LoRAIro のテストの中核。充実度が高い。",
+      "risk": "テスト間の依存関係・重複の可能性あり"
+    },
+    "bdd_tests": {
+      "file_count": 3,
+      "features": "tests/features/ (2 .feature files)",
+      "step_defs": "tests/step_defs/ (1 file, 1468行)",
+      "observation": "BDD シナリオと Step 定義の分離は良好",
+      "risk": "ステップ重複・未使用ステップの確認が必要"
+    },
+    "unit_tests": {
+      "file_count": "0（ディレクトリなし）",
+      "observation": "unit/ ディレクトリが存在しない。integration/ に統合されている可能性",
+      "risk": "テスト粒度が大きい可能性（統合テスト優先アプローチ）"
+    },
+    "gui_tests": {
+      "file_count": "0（gui/ ディレクトリはあるがテストなし）",
+      "observation": "GUIテストが tests/integration/gui/ に統合",
+      "risk": "GUI テストのマーカー @pytest.mark.gui が未適用の可能性"
+    },
+    "manual_and_performance": {
+      "file_count": 0,
+      "observation": "ディレクトリは存在するがファイルなし",
+      "future_plan": "今後の拡張用のプレースホルダー"
+    }
+  },
+  "recommendations_summary": {
+    "high_priority": [
+      "Multi-layer conftest.py 構成への移行（ファイル分割）",
+      "テストマーカー @pytest.mark.* の統一適用",
+      "セッションレベルの autouse フィクスチャの最適化"
+    ],
+    "medium_priority": [
+      "テスト間の依存関係マッピング（詳細分析）",
+      "重複テストの統合・削除",
+      "DB初期化フロー（test_engine_with_schema）の簡素化"
+    ],
+    "low_priority": [
+      "手動テスト・パフォーマンステストの実装",
+      "不使用フィクスチャの削除",
+      "BDD ステップの重複検出"
+    ]
+  },
+  "next_steps": {
+    "agent_2": "Multi-layer conftest.py アーキテクチャ設計",
+    "agent_3": "詳細な重複検出・品質チェック",
+    "agent_4": "実装フェーズ 1～5"
+  }
+}

@@ -1,15 +1,76 @@
 # tests/conftest.py
 
-# --- External Tag DB Initialization Mock (MUST BE FIRST) ---
-# Mock genai-tag-db-tools initialization BEFORE any lorairo imports
-# to prevent RuntimeError during db_core module-level initialization
+# =============================================================================
+# Module-Level Mocks (MUST BE BEFORE any lorairo imports)
+# =============================================================================
+# These mocks prevent heavy ML library loading and external DB initialization
+# that would otherwise hang or fail during test collection.
 
+import os
+import sys
+import types
 import unittest.mock
-from pathlib import Path as _MockPath
 
+# --- 1. image_annotator_lib Mock (prevents torch/tensorflow loading) ---
+# image_annotator_lib の __init__.py は model_class/ 内の全モジュールを動的にインポートし、
+# torch/tensorflow 等の重い ML ライブラリのロードをトリガーする。
+# テスト収集時にこれを防止するため、軽量モックモジュールを sys.modules に注入する。
+
+_ial_mock = types.ModuleType("image_annotator_lib")
+_ial_mock.__path__ = []
+_ial_mock.__package__ = "image_annotator_lib"
+
+# テストコードで参照されるモジュールレベルの公開 API をモック
+_ial_mock.list_available_annotators_with_metadata = unittest.mock.MagicMock(return_value=[])
+_ial_mock.list_available_annotators = unittest.mock.MagicMock(return_value=[])
+_ial_mock.PHashAnnotationResults = dict
+_ial_mock.annotate = unittest.mock.MagicMock(return_value={})
+_ial_mock.AnnotationResult = unittest.mock.MagicMock()
+_ial_mock.AnnotatorError = type("AnnotatorError", (Exception,), {})
+_ial_mock.ModelLoadError = type("ModelLoadError", (Exception,), {})
+_ial_mock.ModelNotFoundError = type("ModelNotFoundError", (Exception,), {})
+_ial_mock.OutOfMemoryError = type("OutOfMemoryError", (Exception,), {})
+_ial_mock.ModelLoad = unittest.mock.MagicMock()
+_ial_mock.create_agent = unittest.mock.MagicMock()
+_ial_mock.get_available_models = unittest.mock.MagicMock(return_value=[])
+_ial_mock.initialize_registry = unittest.mock.MagicMock()
+_ial_mock.config_registry = unittest.mock.MagicMock()
+_ial_mock.init_logger = unittest.mock.MagicMock()
+_ial_mock.discover_available_vision_models = unittest.mock.MagicMock(return_value=[])
+
+# サブモジュールも登録（from image_annotator_lib.xxx import yyy 対策）
+_ial_submodules = [
+    "image_annotator_lib.api",
+    "image_annotator_lib.core",
+    "image_annotator_lib.core.registry",
+    "image_annotator_lib.core.base",
+    "image_annotator_lib.core.config",
+    "image_annotator_lib.core.constants",
+    "image_annotator_lib.core.model_factory",
+    "image_annotator_lib.core.simplified_agent_factory",
+    "image_annotator_lib.core.types",
+    "image_annotator_lib.core.utils",
+    "image_annotator_lib.core.api_model_discovery",
+    "image_annotator_lib.core.pydantic_ai_factory",
+    "image_annotator_lib.core.provider_manager",
+    "image_annotator_lib.exceptions",
+    "image_annotator_lib.exceptions.errors",
+    "image_annotator_lib.model_class",
+]
+
+sys.modules["image_annotator_lib"] = _ial_mock
+for _submod_name in _ial_submodules:
+    _submod = unittest.mock.MagicMock()
+    _submod.__path__ = []
+    _submod.__package__ = _submod_name
+    sys.modules[_submod_name] = _submod
+
+# --- 2. genai-tag-db-tools Initialization Mock ---
+# db_core モジュールレベル初期化での RuntimeError を防止
+
+from pathlib import Path as _MockPath
 from sqlalchemy.orm import sessionmaker as _sessionmaker
 
-# Mock initialize_databases to return successful results for 3 DBs
 _mock_result_1 = unittest.mock.Mock()
 _mock_result_1.db_path = str(_MockPath("/tmp/test_tag_db_cc4.db"))
 _mock_result_2 = unittest.mock.Mock()
@@ -17,11 +78,9 @@ _mock_result_2.db_path = str(_MockPath("/tmp/test_tag_db_mit.db"))
 _mock_result_3 = unittest.mock.Mock()
 _mock_result_3.db_path = str(_MockPath("/tmp/test_tag_db_cc0.db"))
 
-# Create mock session factory for user DB
 _mock_user_db_engine = unittest.mock.Mock()
 _mock_user_session_factory = _sessionmaker(bind=_mock_user_db_engine)
 
-# Mock runtime functions
 _runtime_patches = [
     unittest.mock.patch(
         "genai_tag_db_tools.initialize_databases",
@@ -33,15 +92,19 @@ _runtime_patches = [
     ),
 ]
 
-# Start all patches at module level (before any lorairo imports)
 for _patch in _runtime_patches:
     _patch.start()
 
+# --- 3. Qt Headless Environment Setup (before any Qt import) ---
+# テスト収集時に Qt モジュールがインポートされても安全なようにする
+if sys.platform.startswith("linux") and os.getenv("DISPLAY") is None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.xcb.warning=false")
 
-# --- Standard Library Imports ---
-import os
+# =============================================================================
+# Standard Imports (safe to import after mocks are active)
+# =============================================================================
 import shutil
-import sys
 import tempfile
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
@@ -87,54 +150,13 @@ def mock_genai_tag_db_tools():
 
 @pytest.fixture(scope="session")
 def qapp_args():
+    """pytest-qt用のQApplicationパラメータ設定。
+
+    pytest-qt の組み込み qapp フィクスチャが参照する。
+    QT_QPA_PLATFORM 環境変数は既にモジュールレベルで設定済みのため、
+    ここではアプリケーション名のみ渡す。
     """
-    pytest-qt用のQApplicationパラメータ設定
-    ヘッドレス環境（Linuxコンテナ）向けの設定を含む
-    """
-    # ヘッドレス環境の設定
-    args = ["LoRAIro", "--platform", "offscreen"]
-
-    # 環境変数による追加設定
-    if os.getenv("QT_QPA_PLATFORM") == "offscreen":
-        args.extend(["--platform", "offscreen"])
-
-    return args
-
-
-@pytest.fixture(scope="session")
-def qapp(qapp_args):
-    """
-    pytest-qt用のQApplicationインスタンス
-    """
-    from PySide6.QtWidgets import QApplication
-
-    # 既存のQApplicationインスタンスがある場合は削除
-    app = QApplication.instance()
-    if app is not None:
-        app.quit()
-
-    # 新しいQApplicationインスタンスを作成
-    app = QApplication(qapp_args)
-
-    yield app
-
-    # テスト終了後にクリーンアップ
-    app.quit()
-
-
-@pytest.fixture(scope="session", autouse=True)
-def configure_qt_for_tests():
-    """
-    Qt環境をテスト用に自動設定する（全テストで自動実行）
-    """
-    # Linuxコンテナ環境でのヘッドレス設定
-    if sys.platform.startswith("linux") and os.getenv("DISPLAY") is None:
-        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
-    # その他のQt関連環境変数設定
-    os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.xcb.warning=false")
-
-    return True
+    return ["LoRAIro"]
 
 
 @pytest.fixture(scope="function")

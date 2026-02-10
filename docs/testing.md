@@ -821,6 +821,47 @@ def test_db(tmp_path):
     # ...
 ```
 
+## テストリファクタリング Phase 2: マーカー自動付与（2026-02-10）
+
+### 実装内容
+
+**pytest マーカー自動付与フック** - conftest.py に実装
+
+```python
+# tests/unit/conftest.py の例
+def pytest_collection_modifyitems(config, items):
+    """tests/unit 配下のテストに @pytest.mark.unit を自動付与"""
+    for item in items:
+        if "tests/unit" in str(item.fspath):
+            item.add_marker(pytest.mark.unit)
+```
+
+**マーカー適用結果**:
+- ✅ unit: 1,025 テスト
+- ✅ integration: 226 テスト
+- ✅ gui: 622 テスト
+- ✅ bdd: 0 テスト（将来拡張用）
+
+### 利点
+
+1. **安全性**: テストファイルの直接編集を回避
+2. **保守性**: マーカー定義が conftest.py に一元化
+3. **拡張性**: 新規テストが自動的にマーカーを取得
+4. **層別管理**: 各層（unit/integration/gui/bdd）が独立したフィクスチャを管理
+
+### 次のステップ
+
+**Phase 4 - pytest-qt 改善**:
+- qtbot.wait() → qtbot.waitUntil() への移行
+- 25 箇所の固定待機を条件待機に変更
+- 推定 1-2 秒のテスト実行時間削減
+
+**実行方法**:
+```bash
+python3 scripts/migrate_to_waituntil.py --dir tests/ --analyze
+python3 scripts/migrate_to_waituntil.py --dir tests/ --suggest
+```
+
 ## 関連ドキュメント
 
 - [CLAUDE.md](../CLAUDE.md) - Development overview
