@@ -209,3 +209,48 @@ class TestAnnotationFilterWidgetClearFilters:
         filters = widget.get_current_filters()
         assert filters["capabilities"] == []
         assert filters["environment"] is None
+
+
+class TestAnnotationFilterWidgetEmptyCapabilitiesWithEnvironment:
+    """環境フィルターのみ設定時のテスト（修正内容関連）"""
+
+    def test_web_api_only_empty_capabilities(self, annotation_filter_widget):
+        """Web APIのみチェック時、capabilityは空"""
+        widget = annotation_filter_widget
+
+        widget.checkBoxWebAPI.setChecked(True)
+        filters = widget.get_current_filters()
+
+        # capabilityは未チェックなので空リスト
+        assert filters["capabilities"] == []
+        # 環境はapi
+        assert filters["environment"] == "api"
+
+    def test_local_only_empty_capabilities(self, annotation_filter_widget):
+        """ローカルのみチェック時、capabilityは空"""
+        widget = annotation_filter_widget
+
+        widget.checkBoxLocal.setChecked(True)
+        filters = widget.get_current_filters()
+
+        # capabilityは未チェックなので空リスト
+        assert filters["capabilities"] == []
+        # 環境はlocal
+        assert filters["environment"] == "local"
+
+    def test_mixed_capabilities_and_environment(self, annotation_filter_widget):
+        """Capabilityと環境を混在チェック"""
+        widget = annotation_filter_widget
+
+        # Capabilityはcaption, tagsのみ
+        widget.checkBoxCaption.setChecked(True)
+        widget.checkBoxTags.setChecked(True)
+        # 環境はWeb APIのみ
+        widget.checkBoxWebAPI.setChecked(True)
+
+        filters = widget.get_current_filters()
+
+        # capabilityはcaption, tags
+        assert filters["capabilities"] == ["caption", "tags"]
+        # 環境はapi
+        assert filters["environment"] == "api"

@@ -250,3 +250,51 @@ class TestModelSelectionService:
         models2 = service.refresh_models()
         assert len(models2) == 4
         assert models2 == models1
+
+    def test_filter_models_exclude_local_without_capabilities(self, service):
+        """exclude_local=True で local provider を除外（capability指定なし）"""
+        service.load_models()
+
+        # exclude_local でフィルタ（API プロバイダーのみ）
+        criteria = ModelSelectionCriteria(exclude_local=True)
+        api_models = service.filter_models(criteria)
+
+        # local provider を除外
+        for model in api_models:
+            assert model.provider != "local"
+
+        # OpenAI, Anthropic のみが返される
+        assert len(api_models) == 2
+        provider_names = {m.provider for m in api_models}
+        assert provider_names == {"openai", "anthropic"}
+
+    def test_filter_models_with_user_provider(self, service, mock_db_repository):
+        """provider='user'を持つモデルがフィルタリングされることをテスト"""
+        # user provider を持つモデルを追加（MANUAL_EDIT など）
+        manual_edit_model = Model(
+            name="MANUAL_EDIT",
+            provider="user",
+            api_model_id=None,
+            requires_api_key=False,
+            estimated_size_gb=None,
+        )
+
+        # モックのモデルリストに追加
+        mock_db_repository.get_model_objects.return_value = [
+            Model(name="gpt-4o", provider="openai", api_model_id="gpt-4o-2024", requires_api_key=True, estimated_size_gb=None),
+            Model(name="claude-3-5-sonnet", provider="anthropic", api_model_id="claude-3-5-sonnet-20241022", requires_api_key=True, estimated_size_gb=None),
+            Model(name="wd-v1-4", provider="local", api_model_id=None, requires_api_key=False, estimated_size_gb=2.5),
+            manual_edit_model,
+        ]
+
+        service2 = ModelSelectionService(db_repository=mock_db_repository)
+        service2.load_models()
+
+        # exclude_local でフィルタしても、user provider は残る
+        criteria = ModelSelectionCriteria(exclude_local=True)
+        api_models = service2.filter_models(criteria)
+
+        # local を除外するが、user provider は残る
+        provider_names = {m.provider for m in api_models}
+        assert "local" not in provider_names
+        assert "user" in provider_names  # MANUAL_EDIT はここに含まれる
