@@ -64,7 +64,7 @@ class TestModelSelectionTableWidget:
         widget.load_models()
         models_loaded_spy.wait()
         # イベントを捌いてテーブル状態を安定化
-        qtbot.wait(0)
+        qtbot.waitUntil(lambda: widget.tableWidgetModels.rowCount() > 0, timeout=1000)
 
         assert widget.all_models == sample_models
         assert widget.filtered_models == sample_models

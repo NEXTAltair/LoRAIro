@@ -105,7 +105,7 @@ class TestRatingScoreEditWidget:
         widget.ui.sliderScore.setValue(650)
 
         # ラベルが更新されることを確認
-        qtbot.wait(10)  # UI更新待機
+        qtbot.waitUntil(lambda: widget.ui.labelScoreValue.text() == "6.50", timeout=1000)
         assert widget.ui.labelScoreValue.text() == "6.50"
 
     def test_default_values(self, widget):

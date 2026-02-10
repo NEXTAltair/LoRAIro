@@ -216,12 +216,12 @@ class TestModelCheckboxWidget:
 
         # set_selected()ではシグナルが発火しない
         widget_openai.set_selected(True)
-        qtbot.wait(100)  # 少し待機
+        qtbot.waitUntil(lambda: True, timeout=100)  # 非ブロッキング待機
         assert signal_emitted is False
 
         # 直接チェックボックスを操作するとシグナルが発火
         widget_openai.checkboxModel.setChecked(False)
-        qtbot.wait(100)
+        qtbot.waitUntil(lambda: signal_emitted, timeout=1000)
         assert signal_emitted is True
 
     def test_get_model_name(self, widget_openai):

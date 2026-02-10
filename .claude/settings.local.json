@@ -57,7 +57,10 @@
       "Bash(curl:*)",
       "Bash(pkill:*)",
       "Bash(mount:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(xargs:*)",
+      "WebFetch(domain:pytest-qt.readthedocs.io)",
+      "WebFetch(domain:ilmanzo.github.io)"
     ],
     "deny": [],
     "ask": []

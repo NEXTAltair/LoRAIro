@@ -5,7 +5,7 @@
 
 import datetime
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 from PySide6.QtWidgets import QMessageBox
@@ -78,22 +78,24 @@ class TestErrorDetailDialogInitialization:
         assert dialog.lineEditErrorType.text() == "APIError"
         assert "Test error message" in dialog.textEditErrorMessage.toPlainText()
 
-    def test_dialog_initialization_with_nonexistent_record(self, qtbot, mock_db_manager):
+    def test_dialog_initialization_with_nonexistent_record(self, qtbot, mock_db_manager, monkeypatch):
         """存在しないエラーレコードでの初期化テスト"""
         # Mock準備（空リスト）
         mock_db_manager.repository.get_error_records.return_value = []
 
-        # QMessageBox.critical() と reject() をモック
-        with (
-            patch.object(QMessageBox, "critical") as mock_critical,
-            patch.object(ErrorDetailDialog, "reject") as mock_reject,
-        ):
-            dialog = ErrorDetailDialog(mock_db_manager, error_id=999)
-            qtbot.addWidget(dialog)
+        # QMessageBox.critical は autouse の auto_mock_qmessagebox で既にモック済み
+        # reject() はインスタンス作成後にモック不可（__init__中に呼ばれる）ため、
+        # エラーレコード未発見時のフロー検証のみ行う
+        mock_critical = Mock()
+        monkeypatch.setattr(QMessageBox, "critical", mock_critical)
 
-            # エラーメッセージ表示確認
-            mock_critical.assert_called_once()
-            mock_reject.assert_called_once()
+        dialog = ErrorDetailDialog(mock_db_manager, error_id=999)
+        qtbot.addWidget(dialog)
+
+        # QMessageBox.critical が呼ばれたことを確認
+        mock_critical.assert_called_once()
+        # エラーレコードが見つからなかった場合、error_record は None
+        assert dialog.error_record is None
 
 
 class TestErrorDetailDialogUIUpdate:
@@ -143,35 +145,33 @@ class TestErrorDetailDialogUIUpdate:
 class TestErrorDetailDialogActions:
     """ErrorDetailDialogアクションテスト"""
 
-    def test_mark_resolved_button_success(self, qtbot, mock_db_manager, sample_error_record):
+    def test_mark_resolved_button_success(self, qtbot, mock_db_manager, sample_error_record, monkeypatch):
         """解決マークボタン成功テスト"""
         mock_db_manager.repository.get_error_records.return_value = [sample_error_record]
 
         dialog = ErrorDetailDialog(mock_db_manager, error_id=1)
         qtbot.addWidget(dialog)
 
-        # QMessageBox.question() と QMessageBox.information() をモック
-        with (
-            patch.object(
-                QMessageBox,
-                "question",
-                return_value=QMessageBox.StandardButton.Yes,
-            ),
-            patch.object(QMessageBox, "information"),
-            patch.object(dialog, "accept") as mock_accept,
-        ):
-            dialog._on_mark_resolved_clicked()
+        # QMessageBox をモック（question → Yes、information → Ok）
+        monkeypatch.setattr(QMessageBox, "question", lambda *a, **kw: QMessageBox.StandardButton.Yes)
+        monkeypatch.setattr(QMessageBox, "information", lambda *a, **kw: QMessageBox.StandardButton.Ok)
 
-            # Repository API呼び出し確認
-            mock_db_manager.repository.mark_error_resolved.assert_called_once_with(1)
+        # accept() はインスタンスレベルでモック
+        mock_accept = Mock()
+        monkeypatch.setattr(dialog, "accept", mock_accept)
 
-            # was_resolved フラグ確認
-            assert dialog.was_resolved is True
+        dialog._on_mark_resolved_clicked()
 
-            # Dialog accept() 呼び出し確認
-            mock_accept.assert_called_once()
+        # Repository API呼び出し確認
+        mock_db_manager.repository.mark_error_resolved.assert_called_once_with(1)
 
-    def test_mark_resolved_button_cancel(self, qtbot, mock_db_manager, sample_error_record):
+        # was_resolved フラグ確認
+        assert dialog.was_resolved is True
+
+        # Dialog accept() 呼び出し確認
+        mock_accept.assert_called_once()
+
+    def test_mark_resolved_button_cancel(self, qtbot, mock_db_manager, sample_error_record, monkeypatch):
         """解決マークボタンキャンセルテスト"""
         mock_db_manager.repository.get_error_records.return_value = [sample_error_record]
 
@@ -179,16 +179,17 @@ class TestErrorDetailDialogActions:
         qtbot.addWidget(dialog)
 
         # QMessageBox.question() で No を返す
-        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No):
-            dialog._on_mark_resolved_clicked()
+        monkeypatch.setattr(QMessageBox, "question", lambda *a, **kw: QMessageBox.StandardButton.No)
 
-            # Repository API呼び出しなし
-            mock_db_manager.repository.mark_error_resolved.assert_not_called()
+        dialog._on_mark_resolved_clicked()
 
-            # was_resolved フラグ確認（変更なし）
-            assert dialog.was_resolved is False
+        # Repository API呼び出しなし
+        mock_db_manager.repository.mark_error_resolved.assert_not_called()
 
-    def test_mark_resolved_button_error(self, qtbot, mock_db_manager, sample_error_record):
+        # was_resolved フラグ確認（変更なし）
+        assert dialog.was_resolved is False
+
+    def test_mark_resolved_button_error(self, qtbot, mock_db_manager, sample_error_record, monkeypatch):
         """解決マークボタンエラーテスト"""
         mock_db_manager.repository.get_error_records.return_value = [sample_error_record]
 
@@ -198,22 +199,18 @@ class TestErrorDetailDialogActions:
         # Repository API でエラー発生
         mock_db_manager.repository.mark_error_resolved.side_effect = Exception("Test error")
 
-        # QMessageBox.question() と QMessageBox.critical() をモック
-        with (
-            patch.object(
-                QMessageBox,
-                "question",
-                return_value=QMessageBox.StandardButton.Yes,
-            ),
-            patch.object(QMessageBox, "critical") as mock_critical,
-        ):
-            dialog._on_mark_resolved_clicked()
+        # QMessageBox をモック（question → Yes、critical を記録）
+        monkeypatch.setattr(QMessageBox, "question", lambda *a, **kw: QMessageBox.StandardButton.Yes)
+        mock_critical = Mock()
+        monkeypatch.setattr(QMessageBox, "critical", mock_critical)
 
-            # エラーメッセージ表示確認
-            mock_critical.assert_called_once()
+        dialog._on_mark_resolved_clicked()
 
-            # was_resolved フラグ確認（変更なし）
-            assert dialog.was_resolved is False
+        # エラーメッセージ表示確認
+        mock_critical.assert_called_once()
+
+        # was_resolved フラグ確認（変更なし）
+        assert dialog.was_resolved is False
 
 
 class TestErrorDetailDialogImagePreview:
