@@ -141,13 +141,14 @@ class TestWorkerSystemCoordination:
             search_id = worker_service.start_search(
                 SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
             )
-            annotation_id = worker_service.start_annotation([], [], [])
+            # 注: start_annotationは削除済み。並行ワーカー管理はregistrationとsearchで検証
+            # annotation_id = worker_service.start_annotation([], [], [])
 
             # 各ワーカーが独立して管理されることを確認
-            assert registration_id != search_id != annotation_id
+            assert registration_id != search_id
 
             # ワーカーマネージャーで複数回start_workerが呼ばれることを確認
-            assert worker_service.worker_manager.start_worker.call_count == 3
+            assert worker_service.worker_manager.start_worker.call_count == 2
 
     def test_worker_lifecycle_management(self, worker_service):
         """ワーカーライフサイクル管理テスト"""
