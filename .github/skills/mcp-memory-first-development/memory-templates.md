@@ -1,6 +1,6 @@
 # Memory Templates for Memory-First Development
 
-This file provides ready-to-use templates for Serena short-term memory and Moltbot LTM (long-term memory via Notion) operations.
+This file provides ready-to-use templates for Serena short-term memory and OpenClaw LTM (long-term memory via Notion) operations.
 
 ## Serena Memory Templates (Short-Term)
 
@@ -225,17 +225,17 @@ This file provides ready-to-use templates for Serena short-term memory and Moltb
 - [Follow-up task 1]
 - [Follow-up task 2]
 
-**Extract to Moltbot LTM**:
-- [ ] Important design decisions extracted to Moltbot LTM
+**Extract to OpenClaw LTM**:
+- [ ] Important design decisions extracted to OpenClaw LTM
 - [ ] Reusable patterns documented
 - [ ] Lessons learned captured
 ```
 
-## Moltbot LTM Templates (Long-Term, Notion DB)
+## OpenClaw LTM Templates (Long-Term, Notion DB)
 
 ### Payload Structure
 
-All Moltbot LTM writes use the following JSON structure via `POST /hooks/lorairo-memory`:
+All OpenClaw LTM writes use the following JSON structure via `POST /hooks/lorairo-memory`:
 
 ```json
 {
@@ -400,7 +400,7 @@ class ExampleClass:
 - **current-project-status**: Overall project state tracking
 - **plan_{topic}_{YYYY_MM_DD}**: Plan Mode sync (auto/manual from `.claude/plans/`)
 
-**Moltbot LTM Templates** (use after completion):
+**OpenClaw LTM Templates** (use after completion):
 - **Feature Implementation**: After completing a feature or component
 - **Refactoring Knowledge**: After major code refactoring
 - **Architecture Decision Record**: After making architectural decisions
@@ -411,7 +411,7 @@ class ExampleClass:
 - Maintain consistent structure for searchability
 - Use clear, descriptive titles for LTM search
 
-### Moltbot LTM Metadata
+### OpenClaw LTM Metadata
 
 **Type selection guide**:
 | Scenario | type | importance |

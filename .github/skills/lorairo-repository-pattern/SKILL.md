@@ -209,7 +209,7 @@ SQLite Database
 ## Memory-First Workflow
 
 ### Before Implementation
-1. **Search past patterns (Moltbot LTM):**
+1. **Search past patterns (OpenClaw LTM):**
    - `python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<< '{"filters":{"tags":["repository-pattern","sqlalchemy"]}}'` → Past repository implementations
 2. **Check project status (Serena):**
    - `mcp__serena__read_memory("current-project-status")` → Current database schema
@@ -230,7 +230,7 @@ mcp__serena__write_memory(
 ```
 
 ### After Implementation
-**Store knowledge (Moltbot LTM):**
+**Store knowledge (OpenClaw LTM):**
 ```bash
 curl -sS -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
   -H "Authorization: Bearer $HOOK_TOKEN" \

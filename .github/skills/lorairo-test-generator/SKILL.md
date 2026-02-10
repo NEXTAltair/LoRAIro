@@ -231,7 +231,7 @@ tests/
 **After writing tests:**
 ```
 1. mcp__serena__write_memory - Record test patterns
-2. Moltbot LTM - Store testing strategies (POST /hooks/lorairo-memory)
+2. OpenClaw LTM - Store testing strategies (POST /hooks/lorairo-memory)
 ```
 
 ## Examples

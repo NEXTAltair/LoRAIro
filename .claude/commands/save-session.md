@@ -1,6 +1,6 @@
 ---
 allowed-tools: mcp__serena__read_memory, mcp__serena__list_memories, mcp__serena__write_memory, Read, Glob, Grep, Bash, Task, TodoWrite
-description: セッション終了前に実装結果・テスト結果・設計意図・問題解決方法を要約し、Moltbot LTM（Notion）に永続保存します。
+description: セッション終了前に実装結果・テスト結果・設計意図・問題解決方法を要約し、OpenClaw LTM（Notion）に永続保存します。
 ---
 
 # セッション記録・LTM保存
@@ -18,7 +18,7 @@ description: セッション終了前に実装結果・テスト結果・設計�
 実装完了後・テスト完了後にセッションの成果を要約し、以下の2箇所に保存します：
 
 1. **Serena Memory**（短期・プロジェクト固有）: セッション記録として保存
-2. **Moltbot LTM**（長期・クロスプロジェクト）: 設計意図・問題解決方法を永続保存
+2. **OpenClaw LTM**（長期・クロスプロジェクト）: 設計意図・問題解決方法を永続保存
 
 ## タスクフロー
 
@@ -76,9 +76,9 @@ description: セッション終了前に実装結果・テスト結果・設計�
    - `planning` → `implemented`（実装完了の場合）
    - `planning` → `in_progress`（部分実装の場合）
 
-### Phase 4: Moltbot LTM 保存
+### Phase 4: OpenClaw LTM 保存
 
-7. **設計意図と問題解決方法**を抽出し、Moltbot LTM に保存:
+7. **設計意図と問題解決方法**を抽出し、OpenClaw LTM に保存:
    - LTM に保存すべき内容: 再利用可能な知識（設計判断、問題解決パターン、教訓）
    - LTM に保存しない内容: 一時的な実装詳細、ファイル一覧、テスト数値
 
@@ -112,10 +112,10 @@ description: セッション終了前に実装結果・テスト結果・設計�
 
 10. 保存結果を表示:
     - Serena Memory ファイル名
-    - Moltbot LTM 保存結果（成功/失敗）
+    - OpenClaw LTM 保存結果（成功/失敗）
     - 保存された内容の要約
 
-11. Moltbot LTM が失敗した場合のフォールバック:
+11. OpenClaw LTM が失敗した場合のフォールバック:
     - エラー内容を表示
     - Serena Memory には保存済みであることを確認
     - 手動で curl コマンドを提示（後から再試行可能）
@@ -149,7 +149,7 @@ description: セッション終了前に実装結果・テスト結果・設計�
 {remaining tasks}
 ```
 
-### Moltbot LTM Payload 例
+### OpenClaw LTM Payload 例
 
 ```json
 {
@@ -185,9 +185,9 @@ description: セッション終了前に実装結果・テスト結果・設計�
 
 ## エラーハンドリング
 
-### Moltbot LTM 書き込み失敗
+### OpenClaw LTM 書き込み失敗
 ```
-⚠️ Moltbot LTM への保存に失敗しました: [error details]
+⚠️ OpenClaw LTM への保存に失敗しました: [error details]
 
 ✅ Serena Memory には保存済み: session_search_filter_2026_01_30.md
 
@@ -233,4 +233,4 @@ description: セッション終了前に実装結果・テスト結果・設計�
 ```
 
 セッション終了前の最終ステップとして使用。
-次のセッション開始時に Serena Memory や Moltbot LTM から前回の記録を参照可能。
+次のセッション開始時に Serena Memory や OpenClaw LTM から前回の記録を参照可能。

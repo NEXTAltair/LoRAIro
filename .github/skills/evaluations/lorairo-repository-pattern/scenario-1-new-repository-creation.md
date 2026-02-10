@@ -72,7 +72,7 @@ After running this scenario:
    - Used `find_symbol` to examine ImageRepository or TagRepository
    - Analyzed existing patterns before implementing
 3. Check memory integration:
-   - Searched Moltbot for repository patterns
+   - Searched OpenClaw for repository patterns
    - Applied past knowledge to new implementation
 4. Verify repository structure:
    ```python

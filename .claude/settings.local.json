@@ -56,7 +56,8 @@
       "Bash(chmod:*)",
       "Bash(curl:*)",
       "Bash(pkill:*)",
-      "Bash(mount:*)"
+      "Bash(mount:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

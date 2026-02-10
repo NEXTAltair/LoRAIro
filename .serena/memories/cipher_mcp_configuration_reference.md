@@ -1,7 +1,7 @@
 # Cipher MCP Configuration Reference
 
 **移行元**: Cipher長期記憶 (2026-01-28にSerenaへ移行)
-**目的**: Moltbot移行時の参照用
+**目的**: OpenClaw移行時の参照用
 
 ---
 
@@ -35,7 +35,7 @@
 - 段階的作業: 発見→洞察記録→次ステップ提案
 - 不確実性を明示、隠れた状態を仮定しない
 
-## Moltbot移行時の考慮事項
+## OpenClaw移行時の考慮事項
 - context7相当のライブラリ検索機能が必要
 - 長期記憶の永続化方式を確認
 - System Promptのmemory-first方針を引き継ぐかどうか

@@ -6,12 +6,12 @@
 開発フロー:
 
 1. 実装前 ─┬─ [Serena] current-project-status 確認
-          └─ [Moltbot] 過去の類似実装検索（ltm_search.py）
+          └─ [OpenClaw] 過去の類似実装検索（ltm_search.py）
 
 2. 実装中 ─┬─ [Serena] active-development-tasks 継続更新
           └─ [Serena] 一時的判断・デバッグ情報記録
 
-3. 完了後 ─┬─ [Moltbot] 実装知識の長期記憶化（POST /hooks/lorairo-memory）
+3. 完了後 ─┬─ [OpenClaw] 実装知識の長期記憶化（POST /hooks/lorairo-memory）
           └─ [Serena] プロジェクト状況更新
 ```
 
@@ -112,7 +112,7 @@
 - [将来のための知見]
 ```
 
-**削除タイミング**: 解決後、Moltbot LTMに記録してから削除
+**削除タイミング**: 解決後、OpenClaw LTMに記録してから削除
 
 ---
 
@@ -141,7 +141,7 @@ mcp__serena__write_memory(
 
 ---
 
-## Moltbot LTM（長期・Notion DB）
+## OpenClaw LTM（長期・Notion DB）
 
 ### 記憶形式
 
@@ -186,7 +186,7 @@ LoRAIro [機能名] [内容] [種別]
 
 ---
 
-### Moltbot LTM操作
+### OpenClaw LTM操作
 
 #### 書き込み（POST /hooks/lorairo-memory）
 ```bash
@@ -269,7 +269,7 @@ Phase 3: 完了後（10-15分）
 ├─ [M] POST /hooks/lorairo-memory → 知識永続化
 └─ [S] write_memory("current-project-status") → 状況更新
 
-[S] = Serena, [M] = Moltbot
+[S] = Serena, [M] = OpenClaw
 ```
 
 ### ワークフロー2: リファクタリング
@@ -295,7 +295,7 @@ Phase 3: リファクタリング完了
 
 解決後:
 ├─ [M] POST /hooks/lorairo-memory → 解決策・教訓記録
-└─ [S] delete debug memory（Serenaから削除、Moltbot LTMに移行済み）
+└─ [S] delete debug memory（Serenaから削除、OpenClaw LTMに移行済み）
 ```
 
 ---
@@ -304,14 +304,14 @@ Phase 3: リファクタリング完了
 
 ### 実行時間
 - **Serena read/write**: 0.3-0.5秒（高速）
-- **Moltbot write**: 1-3秒（HTTP webhook）
-- **Moltbot search**: 2-5秒（Notion DB query）
+- **OpenClaw write**: 1-3秒（HTTP webhook）
+- **OpenClaw search**: 2-5秒（Notion DB query）
 
 ### 推奨使用パターン
 ```
-実装前: Moltbot検索（過去知見の活用）
+実装前: OpenClaw検索（過去知見の活用）
 実装中: Serena優先（高速な記録）
-完了後: Moltbot必須（知識永続化）
+完了後: OpenClaw必須（知識永続化）
 ```
 
 ---
@@ -324,7 +324,7 @@ Phase 3: リファクタリング完了
 - **パフォーマンス改善**: キャッシュ統一、非同期処理
 - **リファクタリング**: 大規模変更の意図と効果
 
-### Moltbot検索キーワード例（タグ）
+### OpenClaw検索キーワード例（タグ）
 - `widget`, `signal-slot`, `direct-communication`
 - `repository-pattern`, `sqlalchemy`, `transaction`
 - `pytest`, `fixture`, `coverage`
@@ -337,7 +337,7 @@ Phase 3: リファクタリング完了
 - `filtering_wip_2025_10_20`
 - `debug_thumbnail_click_2025_10_20`
 
-#### Moltbot LTM（title）
+#### OpenClaw LTM（title）
 - "LoRAIro Direct Widget Communication パターン採用"
 - "LoRAIro Repository Pattern データベース設計"
 - "LoRAIro DatasetStateManager リファクタリング"
@@ -348,7 +348,7 @@ Phase 3: リファクタリング完了
 
 ### 実装前
 1. **必ずMemory確認**: 過去の知見を活用
-2. **Moltbot検索**: 類似実装の発見
+2. **OpenClaw検索**: 類似実装の発見
 3. **計画記録**: Serenaに実装計画を記録
 
 ### 実装中
@@ -357,6 +357,6 @@ Phase 3: リファクタリング完了
 3. **デバッグメモ**: 複雑な問題は専用メモリに記録
 
 ### 完了後
-1. **必ずMoltbot LTM記録**: 実装知識の永続化
+1. **必ずOpenClaw LTM記録**: 実装知識の永続化
 2. **Serena更新**: プロジェクト状況の更新
 3. **不要なメモリ削除**: 完了したwip/debugメモリ削除

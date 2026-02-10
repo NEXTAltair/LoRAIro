@@ -1,9 +1,9 @@
 ---
 name: context7-moltbot-research
 version: "2.0.0"
-description: Library research via web search (Codex) and long-term memory via Moltbot LTM. Moltbot may enrich stored content using Context7/Perplexity.
+description: Library research via web search (Codex) and long-term memory via OpenClaw LTM. OpenClaw may enrich stored content using Context7/Perplexity.
 metadata:
-  short-description: ライブラリ調査（web検索 + Moltbot委譲）と長期記憶（Moltbot LTM）。
+  short-description: ライブラリ調査（web検索 + OpenClaw委譲）と長期記憶（OpenClaw LTM）。
 allowed-tools:
   # Web research (Codex)
   - web.run
@@ -12,7 +12,7 @@ allowed-tools:
   - mcp__serena__search_for_pattern
   - mcp__serena__read_memory
   - mcp__serena__write_memory
-  # Bash for Moltbot LTM operations
+  # Bash for OpenClaw LTM operations
   - Bash
 dependencies:
   - lorairo-mem
@@ -20,22 +20,22 @@ dependencies:
 
 # Complex Analysis (Library Research + Long-Term Memory)
 
-Complex analysis using web research and Moltbot LTM for design pattern memory and strategic decisions.
+Complex analysis using web research and OpenClaw LTM for design pattern memory and strategic decisions.
 
-Note: Codex には Context7 MCP は入っていません。ライブラリ調査は web.run で実施し、LTM 保存時に Moltbot が Context7/Perplexity を使って内容をブラッシュアップして保存します。
+Note: Codex には Context7 MCP は入っていません。ライブラリ調査は web.run で実施し、LTM 保存時に OpenClaw が Context7/Perplexity を使って内容をブラッシュアップして保存します。
 
 ## When to Use
 
 Use this skill when:
-- **Design pattern search**: Researching past similar designs (Moltbot LTM)
-- **Library research**: web.run で公式ドキュメント/仕様を確認し、保存時に Moltbot が補強
-- **Long-term memory**: Storing design decisions and rationale (Moltbot LTM)
+- **Design pattern search**: Researching past similar designs (OpenClaw LTM)
+- **Library research**: web.run で公式ドキュメント/仕様を確認し、保存時に OpenClaw が補強
+- **Long-term memory**: Storing design decisions and rationale (OpenClaw LTM)
 - **Dependency analysis**: Understanding architectural relationships
 - **Strategic decisions**: Evaluating approaches and trade-offs
 
 ## Core Patterns
 
-### 1. Design Knowledge Search (Moltbot LTM)
+### 1. Design Knowledge Search (OpenClaw LTM)
 
 **ltm_search.py** - Past design patterns
 - Searches design decisions, implementation patterns, lessons learned
@@ -53,7 +53,7 @@ python3 .github/skills/lorairo-mem/scripts/ltm_latest.py <<'JSON'
 JSON
 ```
 
-### 2. Long-term Memory Storage (Moltbot LTM)
+### 2. Long-term Memory Storage (OpenClaw LTM)
 
 **POST /hooks/lorairo-memory** - Store knowledge
 - Stores design knowledge with proper metadata
@@ -77,9 +77,9 @@ curl -sS -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
   }'
 ```
 
-### 3. Library Research (Web + Moltbot)
+### 3. Library Research (Web + OpenClaw)
 
-Codex では Context7 MCP を直接使いません。ライブラリ調査は web.run で公式ドキュメントを確認し、要点をまとめて LTM 保存時に Moltbot が補強します。
+Codex では Context7 MCP を直接使いません。ライブラリ調査は web.run で公式ドキュメントを確認し、要点をまとめて LTM 保存時に OpenClaw が補強します。
 
 Example (web search):
 ```json
@@ -109,7 +109,7 @@ Example (web search):
 4. Store knowledge - After completion
 ```
 
-## Serena vs Moltbot LTM
+## Serena vs OpenClaw LTM
 
 **Serena (0.3-0.5s)** - Use for:
 - Symbol search (classes, methods)
@@ -117,7 +117,7 @@ Example (web search):
 - Short-term memory (progress)
 - Basic code editing
 
-**Moltbot LTM (1-3s)** - Use for:
+**OpenClaw LTM (1-3s)** - Use for:
 - Design pattern search
 - Long-term memory
 - Strategic decisions
@@ -126,11 +126,11 @@ Example (web search):
 ### Combined Workflow
 ```
 1. Serena: Check status (read_memory)
-2. Moltbot: Search past designs (ltm_search.py)
+2. OpenClaw: Search past designs (ltm_search.py)
 3. Web: Research library (web.run)
 4. Serena: Implement (find_symbol, replace_symbol_body)
 5. Serena: Track progress (write_memory)
-6. Moltbot: Store knowledge (POST /hooks/lorairo-memory)
+6. OpenClaw: Store knowledge (POST /hooks/lorairo-memory)
 ```
 
 ## LoRAIro-Specific Usage
@@ -147,7 +147,7 @@ Example (web search):
 - **pytest**: Fixtures, mocks, parametrization
 - **Pillow**: Image processing, metadata
 
-### Query Examples (Moltbot LTM)
+### Query Examples (OpenClaw LTM)
 ```bash
 # Widget patterns
 python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
@@ -180,4 +180,4 @@ See [examples.md](./examples.md) for detailed scenarios.
 
 ## Reference
 
-See [reference.md](./reference.md) for Moltbot LTM + web.run reference.
+See [reference.md](./reference.md) for OpenClaw LTM + web.run reference.

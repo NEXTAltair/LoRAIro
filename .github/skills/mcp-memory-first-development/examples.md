@@ -17,7 +17,7 @@
       最新の実装: Direct Widget Communication パターン確立
       次の優先事項: テスト整備、パフォーマンス確認
 
-2. 過去の類似実装検索（Moltbot LTM）:
+2. 過去の類似実装検索（OpenClaw LTM）:
    python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
    {"limit": 5, "filters": {"type": ["decision", "howto"], "tags": ["filtering", "search"]}}
    JSON
@@ -85,7 +85,7 @@
 ### Phase 3: 完了後の知識蓄積
 
 ```
-実装完了時（Moltbot LTMに書き込み）:
+実装完了時（OpenClaw LTMに書き込み）:
    curl -sS -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
      -H "Authorization: Bearer $HOOK_TOKEN" \
      -H "Content-Type: application/json" \
@@ -208,7 +208,7 @@ self.selected_image_details.connect_to_thumbnail_widget(
 '''
 )
 
-解決後にMoltbot LTMに記録:
+解決後にOpenClaw LTMに記録:
 curl -sS -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
   -H "Authorization: Bearer $HOOK_TOKEN" \
   -H "Content-Type: application/json" \
@@ -230,7 +230,7 @@ curl -sS -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
 - **実装中**: 1-2時間ごと、重要な判断後
 - **終了時**: 次回のための状況記録
 
-### Moltbot LTM記録タイミング
+### OpenClaw LTM記録タイミング
 - **機能完了時**: 実装パターンと判断を記録
 - **リファクタリング完了時**: アプローチと効果を記録
 - **重要な技術判断時**: 選定理由と根拠を記録
@@ -243,7 +243,7 @@ curl -sS -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
 - 一時的な判断
 - デバッグ情報
 
-#### Moltbot LTM（永続的）
+#### OpenClaw LTM（永続的）
 - 設計アプローチ
 - 技術選定理由
 - 実装結果と効果
@@ -251,6 +251,6 @@ curl -sS -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
 - 教訓とアンチパターン
 
 ### LoRAIro固有
-- **アーキテクチャ変更**: 必ずMoltbot LTMに記録
+- **アーキテクチャ変更**: 必ずOpenClaw LTMに記録
 - **パフォーマンス改善**: 効果測定結果と共に記録
-- **デバッグ**: 複雑な問題はSerena→解決後Moltbot LTMに移行
+- **デバッグ**: 複雑な問題はSerena→解決後OpenClaw LTMに移行

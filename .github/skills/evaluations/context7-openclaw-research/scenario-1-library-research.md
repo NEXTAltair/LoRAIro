@@ -6,14 +6,14 @@
 **Context:**
 - User is working on data export feature
 - Needs library documentation for `/polars`
-- Should use web research + Moltbot LTM (保存時に Moltbot が Context7/Perplexity で補強)
+- Should use web research + OpenClaw LTM (保存時に OpenClaw が Context7/Perplexity で補強)
 - Expected research time: 10-30 seconds
 
 ## Expected Behavior
 1. Skill `context7-moltbot-research` should be invoked automatically
 2. Should use tools (in sequence):
    - `web.run search_query` for official docs and API references
-   - Optional: store a summary to Moltbot LTM (Moltbot will refine)
+   - Optional: store a summary to OpenClaw LTM (OpenClaw will refine)
 3. Should produce:
    - Relevant Polars API documentation for Parquet operations
    - Code examples showing how to read/write Parquet files

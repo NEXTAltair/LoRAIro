@@ -16,13 +16,13 @@
 
 - **MCPエージェントの役割分担**:
   - **Serena**: コード/ドキュメントの読解、シンボル検索、要約、差分把握（高速・1秒未満）
-  - **Moltbot LTM**: 長期記憶、設計知識の永続化、過去の判断結果参照（Notion DB経由）
-  - **Web検索 + Moltbot補強**: ライブラリドキュメント取得（WebSearch/web.run → LTM保存時にMoltbotがContext7/Perplexityで補強）
+  - **OpenClaw LTM**: 長期記憶、設計知識の永続化、過去の判断結果参照（Notion DB経由）
+  - **Web検索 + OpenClaw補強**: ライブラリドキュメント取得（WebSearch/web.run → LTM保存時にOpenClawがContext7/Perplexityで補強）
   - **Note**: Context7 MCPは直接使用しない（Claude Code/Codex共通）
 
 - **メモリ管理**:
   - 短期メモリ: `.serena/memories/`（Serenaが管理、プロジェクト固有）
-  - 長期メモリ: Moltbot LTM（Notion DB経由、クロスプロジェクト知識）
+  - 長期メモリ: OpenClaw LTM（Notion DB経由、クロスプロジェクト知識）
   - tasks/ ディレクトリやad-hocドキュメントは廃止済み。計画・進行も `.serena/memories/` へ記録する
 
 ## エラー処理とロギング

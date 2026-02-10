@@ -1,13 +1,13 @@
-# Timeout Strategies for Web Research + Moltbot LTM
+# Timeout Strategies for Web Research + OpenClaw LTM
 
-This document covers timeouts when using web.run and Moltbot LTM.
+This document covers timeouts when using web.run and OpenClaw LTM.
 
 ## Understanding Operation Timing
 
 ### Normal Operation Times
 - **Serena operations**: 0.3-0.5s (fast)
-- **Moltbot LTM search**: 2-5s (ltm_search.py)
-- **Moltbot LTM write**: 1-3s (POST /hooks/lorairo-memory)
+- **OpenClaw LTM search**: 2-5s (ltm_search.py)
+- **OpenClaw LTM write**: 1-3s (POST /hooks/lorairo-memory)
 - **web.run search_query**: 2-5s
 
 ### Timeout Thresholds
@@ -55,7 +55,7 @@ web.run search_query(...) → TIMEOUT
 → Narrow the query and retry
 ```
 
-#### Pattern 2: Moltbot LTM → Serena + local search
+#### Pattern 2: OpenClaw LTM → Serena + local search
 ```
 ltm_search.py → ERROR
 → mcp__serena__read_memory + mcp__serena__search_for_pattern

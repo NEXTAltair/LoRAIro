@@ -1,9 +1,9 @@
 ---
 name: lorairo-mem
-version: "1.0.0"
-description: LoRAIro long-term memory operations. Use when you need to store structured project memories via the local Moltbot webhook (/hooks/lorairo-memory), de-duplicate by hash, or search/retrieve entries from the Notion database "LoRAIro-Long-Term Memory (Shared)".
+version: "1.1.0"
+description: LoRAIro long-term memory operations. Use when you need to store structured project memories via the local OpenClaw webhook (/hooks/lorairo-memory), de-duplicate by hash, or search/retrieve entries from the Notion database "LoRAIro-Long-Term Memory (Shared)".
 metadata:
-  short-description: LoRAIro長期記憶パイプライン（Moltbot webhook → Notion DB書き込み・検索・重複排除）。
+  short-description: LoRAIro長期記憶パイプライン（OpenClaw webhook → Notion DB書き込み・検索・重複排除）。
   clawdbot:
     emoji: "🧠"
 ---
@@ -33,7 +33,7 @@ Optional:
 - `NOTION_API_KEY` (direct Notion fallback; optional)
 - `LORAIRO_MEM_GATEWAY_URL` (override gateway base URL; optional)
 
-The scripts use Moltbot Gateway as a proxy for Notion API access. No separate Notion API key is required.
+The scripts use OpenClaw Gateway as a proxy for Notion API access. No separate Notion API key is required.
 
 ## Fixed IDs (current)
 

@@ -35,9 +35,9 @@ Your investigations should be thorough yet efficient, focusing on providing acti
 
 When uncertain about code behavior or architecture, clearly indicate areas that need further investigation or clarification from the development team.
 
-## 最適化されたMCP調査戦略 (Serena + Moltbot LTM)
+## 最適化されたMCP調査戦略 (Serena + OpenClaw LTM)
 
-As a specialist in modern MCP environments, you leverage Serena's semantic tools combined with Moltbot LTM for comprehensive investigation workflows.
+As a specialist in modern MCP environments, you leverage Serena's semantic tools combined with OpenClaw LTM for comprehensive investigation workflows.
 
 ### 🚀 高速セマンティック調査 (Serena Direct)
 Use Serena tools for immediate, semantic-driven investigations:
@@ -47,8 +47,8 @@ Use Serena tools for immediate, semantic-driven investigations:
 - **Reference Tracking**: `mcp__serena__find_referencing_symbols`
 - **Response Time**: 0.3-0.5 seconds
 
-### 🧠 長期記憶活用 (Moltbot LTM)
-Use Moltbot LTM for persistent knowledge management via Bash:
+### 🧠 長期記憶活用 (OpenClaw LTM)
+Use OpenClaw LTM for persistent knowledge management via Bash:
 - **Knowledge Search**: Use `ltm_search.py` for past investigation results
 - **Latest Entries**: Use `ltm_latest.py` for recent knowledge
 - **Knowledge Storage**: Use `POST /hooks/lorairo-memory` to save investigation insights
@@ -84,7 +84,7 @@ Use traditional tools for targeted operations:
 #### ステップ4: 知識統合と永続化
 1. **発見統合**: `mcp__serena__think_about_collected_information` で結果を分析
 2. **Serena記憶更新**: `mcp__serena__write_memory` でプロジェクト固有の発見を保存
-3. **Moltbot LTM保存**: 重要な調査結果を長期記憶に永続化
+3. **OpenClaw LTM保存**: 重要な調査結果を長期記憶に永続化
    ```bash
    curl -sS -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
      -H "Authorization: Bearer $HOOK_TOKEN" \
@@ -112,7 +112,7 @@ Use traditional tools for targeted operations:
   - デバッグセッション情報
 - **特徴**: 高速アクセス (0.3-0.5s)、セッション依存、作業完了後は整理対象
 
-#### Moltbot LTM (Notion DB永続化 - 設計資産)
+#### OpenClaw LTM (Notion DB永続化 - 設計資産)
 - **用途**: 長期的に参照する設計知識と意思決定記録
 - **保存内容**:
   - アーキテクチャ設計方針と根拠
@@ -126,10 +126,10 @@ Use traditional tools for targeted operations:
 
 ### 記録判断基準
 **Serena記録対象**: "今何をしているか" "次に何をするか"
-**Moltbot LTM記録対象**: "なぜそう設計したか" "将来の参考になる知見"
+**OpenClaw LTM記録対象**: "なぜそう設計したか" "将来の参考になる知見"
 
 ### パフォーマンス最適化原則
 - **Memory-First**: 常に既存記憶から調査開始
 - **Semantic Priority**: セマンティック理解を優先
 - **Incremental Learning**: 調査結果を段階的に蓄積
-- **Cross-Reference**: Serena + Moltbot LTM の相互参照活用
+- **Cross-Reference**: Serena + OpenClaw LTM の相互参照活用
