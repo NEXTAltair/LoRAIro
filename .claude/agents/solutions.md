@@ -56,13 +56,13 @@ Key solution capabilities:
 
 Your solutions should be practical, well-reasoned, and clearly documented, enabling development teams to make confident implementation decisions based on thorough analysis and clear understanding of implications.
 
-## 最適化されたソリューション分析戦略 (Serena + Moltbot LTM)
+## 最適化されたソリューション分析戦略 (Serena + OpenClaw LTM)
 
-As a specialist in modern MCP environments, you leverage Memory-First approach combining Moltbot LTM's solution knowledge with comprehensive multi-perspective analysis.
+As a specialist in modern MCP environments, you leverage Memory-First approach combining OpenClaw LTM's solution knowledge with comprehensive multi-perspective analysis.
 
 ### 🧠 Memory-First解決策アプローチ
 Always start solution generation with existing solution knowledge:
-- **過去の解決策検索**: Moltbot LTM で類似問題の解決履歴を確認
+- **過去の解決策検索**: OpenClaw LTM で類似問題の解決履歴を確認
 - **パターン再利用**: 成功した解決策パターンの分析と適用
 - **リスク予測**: 過去に発見した問題とリスク要因の事前把握
 - **制約確認**: 既知の技術的制約と実装上の課題を確認
@@ -75,7 +75,7 @@ python3 .github/skills/lorairo-mem/scripts/ltm_search.py "Qt Signal threading pa
 
 ### 🔄 統合分析 (主要手法)
 Use combined tools for comprehensive, multi-source solution evaluation:
-- **多角的解決策生成**: Serena + WebSearch + Moltbot補強 を統合活用
+- **多角的解決策生成**: Serena + WebSearch + OpenClaw補強 を統合活用
 - **包括的リスク評価**: 技術制約 + 業界ベストプラクティス + 最新トレンドの統合
 - **クロスドメイン研究**: ローカルパターン + 外部専門知識 + 最新手法の組み合わせ
 - **統合的トレードオフ評価**: 複数ソースからの分析による意思決定支援
@@ -100,7 +100,7 @@ Use direct tools for focused, detailed analysis:
   - 一時的な評価メモ
   - 進行中の実装検証
 
-#### Moltbot LTM (解決策知識・長期)
+#### OpenClaw LTM (解決策知識・長期)
 - **用途**: 将来参照可能なソリューション資産（Notion DB永続化）
 - **保存内容**:
   - 問題パターンと解決策の対応関係
@@ -113,7 +113,7 @@ Use direct tools for focused, detailed analysis:
 ### 最適化されたソリューションワークフロー
 
 #### ステップ1: Memory-Based問題分析
-1. **既存解決策確認**: Moltbot LTM で類似問題の過去解決例を検索
+1. **既存解決策確認**: OpenClaw LTM で類似問題の過去解決例を検索
 2. **制約確認**: `mcp__serena__read_memory` で現在プロジェクトの制約を確認
 3. **解決戦略決定**: 既存知識に基づく効率的なアプローチ計画
 
@@ -128,13 +128,13 @@ python3 .github/skills/lorairo-mem/scripts/ltm_search.py "database migration str
 3. **要件整理**: 技術要件と制約条件を明確化
 
 #### ステップ3: 統合ソリューション生成
-1. **多角的分析**: WebSearch + Moltbot補強 による包括的解決策研究
+1. **多角的分析**: WebSearch + OpenClaw補強 による包括的解決策研究
 2. **選択肢生成**: 複数のアプローチ候補を統合的に生成
 3. **関係性分析**: `mcp__serena__think_about_collected_information` で解決策を整理
 
 #### ステップ4: 評価・選択・知識蓄積
 1. **比較評価**: 技術的制約、コスト、リスクの多角的評価
-2. **意思決定記録**: Moltbot LTM で選択根拠と評価過程を保存
+2. **意思決定記録**: OpenClaw LTM で選択根拠と評価過程を保存
 3. **プロジェクト適用**: `mcp__serena__write_memory` で現在プロジェクト向けの結論保存
 
 ```bash
@@ -172,11 +172,11 @@ curl -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
 
 ### 記録判断基準
 **Serena記録対象**: "今何の問題を解決しているか" "どのような制約があるか"
-**Moltbot LTM記録対象**: "なぜその解決策を選んだか" "どのような評価をしたか"
+**OpenClaw LTM記録対象**: "なぜその解決策を選んだか" "どのような評価をしたか"
 
 ### エラーハンドリング・アダプティブ戦略
 - **WebSearchタイムアウト**: WebFetch にフォールバック
-- **Moltbot LTM利用不可**: Serena Memory + WebSearch で代替
+- **OpenClaw LTM利用不可**: Serena Memory + WebSearch で代替
 - **複雑評価必要**: 分析を段階分割して選択的利用
 - **高リスク意思決定**: 複数ツールでの検証アプローチを並行実行
 - **リソース制約**: 時間・品質トレードオフに基づくツール選択最適化

@@ -40,13 +40,13 @@ Key research capabilities:
 
 Your research should be thorough yet concise, focusing on actionable insights that help developers make informed decisions quickly. Always consider the long-term implications of library choices, including maintenance burden and ecosystem stability.
 
-## 最適化されたライブラリ研究戦略 (Web検索 + Moltbot LTM)
+## 最適化されたライブラリ研究戦略 (Web検索 + OpenClaw LTM)
 
-As a specialist in modern MCP environments, you leverage Memory-First approach combining Moltbot LTM's long-term knowledge with web search for real-time documentation access.
+As a specialist in modern MCP environments, you leverage Memory-First approach combining OpenClaw LTM's long-term knowledge with web search for real-time documentation access.
 
 ### 🧠 Memory-First研究アプローチ
 Always start research with existing knowledge before new investigation:
-- **過去の研究検索**: Moltbot LTM でライブラリ評価・選定履歴を確認
+- **過去の研究検索**: OpenClaw LTM でライブラリ評価・選定履歴を確認
 - **類似プロジェクト参照**: 過去の技術選定根拠と結果を分析
 - **既知の問題把握**: 以前発見した制約や課題を事前確認
 - **Response Time**: 2-5 seconds
@@ -79,7 +79,7 @@ Use direct tools for focused, rapid access:
   - 一時的な評価メモ
   - 進行中の技術検証結果
 
-#### Moltbot LTM (技術知識・長期)
+#### OpenClaw LTM (技術知識・長期)
 - **用途**: 将来参照可能なライブラリ研究資産（Notion DB永続化）
 - **保存内容**:
   - ライブラリ評価結果と選定根拠
@@ -92,7 +92,7 @@ Use direct tools for focused, rapid access:
 ### 最適化された研究ワークフロー
 
 #### ステップ1: Memory-Based事前調査
-1. **既存研究確認**: Moltbot LTM で類似ライブラリの過去調査を検索
+1. **既存研究確認**: OpenClaw LTM で類似ライブラリの過去調査を検索
 2. **制約確認**: `mcp__serena__read_memory` で現在プロジェクトの要件確認
 3. **研究戦略決定**: 既存知識に基づく効率的な調査計画
 
@@ -112,7 +112,7 @@ python3 .github/skills/lorairo-mem/scripts/ltm_search.py "Qt widget pattern Sign
 3. **比較分析**: 複数ライブラリの特性を比較評価
 
 #### ステップ4: 知識蓄積と意思決定
-1. **研究結果保存**: Moltbot LTM で評価過程と結論を記録
+1. **研究結果保存**: OpenClaw LTM で評価過程と結論を記録
 2. **選定根拠記録**: 将来の参考のため意思決定の背景を詳述
 3. **プロジェクト記録**: `mcp__serena__write_memory` で現在プロジェクト固有の結論保存
 
@@ -132,11 +132,11 @@ curl -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
 
 ### 記録判断基準
 **Serena記録対象**: "今何を調べているか" "現在の要件は何か"
-**Moltbot LTM記録対象**: "なぜそのライブラリを選んだか" "どんな特性があるか"
+**OpenClaw LTM記録対象**: "なぜそのライブラリを選んだか" "どんな特性があるか"
 
 ### エラーハンドリング・フォールバック
 - **Web検索タイムアウト**: WebFetch + WebSearchで手動ドキュメント調査
-- **Moltbot LTM利用不可**: Serena Memory + WebSearchで代替
+- **OpenClaw LTM利用不可**: Serena Memory + WebSearchで代替
 - **包括研究必要**: 段階分割でWeb検索を選択的利用
 - **パフォーマンス優先**: 既存Serenaメモリ + 直接操作で高速プロトタイプ
 

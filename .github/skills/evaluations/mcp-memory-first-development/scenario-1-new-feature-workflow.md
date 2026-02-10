@@ -7,7 +7,7 @@
 - User is starting new feature development
 - Should follow 3-phase memory workflow (Before → During → After)
 - LoRAIro has existing export patterns (Parquet export in dataset builder)
-- Need to leverage both Serena (short-term) and Moltbot (long-term) memory
+- Need to leverage both Serena (short-term) and OpenClaw (long-term) memory
 
 ## Expected Behavior
 1. Skill `mcp-memory-first-development` should be invoked automatically
@@ -35,13 +35,13 @@
 
 4. Should NOT:
    - Skip memory search phase
-   - Store temporary notes in Moltbot (use Serena instead)
+   - Store temporary notes in OpenClaw (use Serena instead)
    - Create duplicate memory entries
 
 ## Success Criteria
 - [x] Correct skill invoked (mcp-memory-first-development)
 - [x] All 3 phases executed in order
-- [x] Both Serena and Moltbot LTM used appropriately
+- [x] Both Serena and OpenClaw LTM used appropriately
 - [x] Memory content is well-structured and useful
 - [x] User is guided through workflow (not just executing commands)
 - [x] Completes without errors
@@ -66,7 +66,7 @@ After running this scenario:
    - Serena memory updated with completion
 5. Verify memory structure:
    - Serena: Temporary, implementation-focused
-   - Moltbot: Reusable knowledge, design decisions
+   - OpenClaw: Reusable knowledge, design decisions
 6. Check workflow guidance:
    - User is told WHEN to do each step
    - Clear instructions for WHAT to record

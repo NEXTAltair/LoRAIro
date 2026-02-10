@@ -3,7 +3,8 @@
     "tests"
   ],
   "python.testing.unittestEnabled": false,
-  "python.testing.pytestEnabled": true
+  "python.testing.pytestEnabled": true,
+  "claudeCode.useTerminal": true
   // All VS Code settings moved to lorairo.code-workspace
   // This file is kept minimal for any cursor-specific overrides if needed
 }

@@ -5,7 +5,7 @@
 
 **Context:**
 - User is designing a new async worker
-- Need to search Moltbot long-term memory for past patterns
+- Need to search OpenClaw long-term memory for past patterns
 - LoRAIro has existing async patterns (WorkerManager, QThreadPool)
 - Should find relevant design decisions from past implementations
 
@@ -31,11 +31,11 @@
 - [x] Output meets requirements (past patterns, design decisions, references)
 - [x] Completes without errors
 - [x] Memory results are relevant to the query
-- [x] Combines long-term (Moltbot LTM) and short-term (Serena) memory appropriately
+- [x] Combines long-term (OpenClaw LTM) and short-term (Serena) memory appropriately
 
 ## Model Variations
 - **Haiku:** Should handle basic memory search; may return limited context
-- **Sonnet:** Should search both Moltbot and Serena memory; provides good synthesis of results
+- **Sonnet:** Should search both OpenClaw and Serena memory; provides good synthesis of results
 - **Opus:** May provide deeper analysis of trade-offs; might suggest improvements to past patterns based on current context
 
 ## Test Validation
@@ -53,4 +53,4 @@ After running this scenario:
    - Results should relate to async, database, and Qt
    - Should include LoRAIro-specific knowledge, not generic Qt docs
 5. Verify integration:
-   - If both Moltbot and Serena memory used, results should be synthesized coherently
+   - If both OpenClaw and Serena memory used, results should be synthesized coherently

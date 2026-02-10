@@ -32,8 +32,8 @@
      - Solution implemented
      - Verification results
 
-   **Knowledge Storage (Moltbot LTM):**
-   - Extract to Moltbot: `lorairo-mem webhook`
+   **Knowledge Storage (OpenClaw LTM):**
+   - Extract to OpenClaw: `lorairo-mem webhook`
    - Create reusable knowledge:
      - Problem pattern: Race condition in async workers
      - Root cause: Specific threading issue
@@ -49,7 +49,7 @@
 4. Should NOT:
    - Only record final solution (lose investigation context)
    - Skip failed attempts (they're valuable!)
-   - Store temporary debugging notes in Moltbot
+   - Store temporary debugging notes in OpenClaw
    - Forget to generalize for reuse
 
 ## Success Criteria
@@ -57,7 +57,7 @@
 - [x] Serena memory captures complete investigation
 - [x] Failed attempts are documented (not hidden)
 - [x] Root cause is clearly identified
-- [x] Moltbot LTM generalizes for reuse
+- [x] OpenClaw LTM generalizes for reuse
 - [x] Completes without errors
 - [x] Knowledge is actionable for future debugging
 
@@ -79,7 +79,7 @@ After running this scenario:
      - **Root Cause:** What was actually wrong
      - **Solution:** How it was fixed
      - **Verification:** How fix was validated
-3. Check Moltbot LTM (knowledge):
+3. Check OpenClaw LTM (knowledge):
    - Stored via `lorairo-mem webhook`
    - Generalized pattern:
      - Problem category (race conditions in async workers)

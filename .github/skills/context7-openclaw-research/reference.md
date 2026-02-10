@@ -1,4 +1,4 @@
-# Moltbot LTM + Web Research - APIリファレンス
+# OpenClaw LTM + Web Research - APIリファレンス
 
 ## 利用可能なツール
 
@@ -12,7 +12,7 @@ Codex では Context7 MCP を直接使いません。ライブラリ調査は we
 
 **応答時間**: 2-5秒
 
-### Moltbot LTM (長期記憶)
+### OpenClaw LTM (長期記憶)
 
 #### LTM検索
 
@@ -61,5 +61,5 @@ curl -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
 ## 使い分け
 
 - **Serena**: 即座の構造理解とコード操作（高速）
-- **Moltbot LTM**: 設計知識の永続化と再利用（長期記憶）
+- **OpenClaw LTM**: 設計知識の永続化と再利用（長期記憶）
 - **Web検索**: ライブラリドキュメント取得（外部・リアルタイム）

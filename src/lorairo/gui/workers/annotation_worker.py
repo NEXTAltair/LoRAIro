@@ -306,7 +306,9 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
             return result.get(field_name)
         return getattr(result, field_name, None)
 
-    def _append_scores(self, scores: dict[str, Any] | None, model_id: int, result: "AnnotationsDict") -> None:
+    def _append_scores(
+        self, scores: dict[str, Any] | None, model_id: int, result: "AnnotationsDict"
+    ) -> None:
         """スコア結果をAnnotationsDictに追加する。
 
         Args:

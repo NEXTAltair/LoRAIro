@@ -15,7 +15,7 @@
    - `web.run search_query` for official docs and comparisons
    - `lorairo-mem ltm_search.py` to check if we've evaluated these before
    - Optional: `mcp__serena__find_symbol` to understand current annotation implementation
-   - Optional: store decision summary to Moltbot LTM (Moltbot will refine)
+   - Optional: store decision summary to OpenClaw LTM (OpenClaw will refine)
 3. Should produce:
    - Detailed comparison table (features, pros/cons)
    - Integration complexity assessment for each option
@@ -60,7 +60,7 @@ After running this scenario:
    - Acknowledges trade-offs
    - Actionable for implementation
 5. Check timeout handling:
-   - If Moltbot times out, should fallback gracefully
+   - If OpenClaw times out, should fallback gracefully
    - Should still provide partial results if possible
 
 ## Edge Cases to Test

@@ -33,4 +33,4 @@
 - **serena**: Code reading, summarization, plan drafting
 - **cipher**: Implementation, command execution, external MCP calls
 - Workflow: PLAN (serena) → ACT (cipher)
-- NOTE: Cipher→Moltbot移行に伴い、この役割分担は変更予定
+- NOTE: Cipher→OpenClaw移行に伴い、この役割分担は変更予定

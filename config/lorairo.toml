@@ -1,22 +1,5 @@
-# API設定 - 平文保存、ログ出力時マスキング
-[api]
-openai_key = ""    # OpenAI APIキー
-claude_key = ""    # Anthropic Claude APIキー
-google_key = ""    # Google Vision APIキー
-
-# ディレクトリ設定
-[directories]
-database_dir = "lorairo_data/main_dataset_20250707_001"  # 既存プロジェクトを指定
-database_base_dir = "lorairo_data"      # 自動生成時のベースディレクトリ名
-database_project_name = "main_dataset" # 自動生成時のデフォルトプロジェクト名
-export_dir = ""                         # 学習用データセットの出力先（.txt/.captionファイル等）
-batch_results_dir = ""                  # OpenAI Batch API結果JSONLファイルの保存先
-
-# 画像処理設定
-[image_processing]
-upscaler = "RealESRGAN_x4plus" # 使用するアップスケーラーモデル名
-
-# アップスケーラーモデル設定
+text_extensions = [ ".txt", ".caption",]
+preferred_resolutions = [ [ 336, 784,], [ 384, 680,], [ 416, 624,], [ 440, 592,], [ 456, 576,], [ 512, 512,], [ 576, 456,], [ 592, 440,], [ 624, 416,], [ 680, 384,], [ 784, 336,], [ 504, 1176,], [ 576, 1024,], [ 624, 944,], [ 664, 888,], [ 688, 856,], [ 768, 768,], [ 856, 688,], [ 888, 664,], [ 944, 624,], [ 1024, 576,], [ 1176, 504,], [ 672, 1568,], [ 768, 1368,], [ 840, 1256,], [ 888, 1184,], [ 912, 1144,], [ 1024, 1024,], [ 1144, 912,], [ 1184, 888,], [ 1256, 840,], [ 1368, 768,], [ 1568, 672,],]
 [[upscaler_models]]
 name = "RealESRGAN_x4plus"
 path = "models/RealESRGAN/RealESRGAN_x4plus.pth"
@@ -27,18 +10,35 @@ name = "RealESRGAN_x4plus_anime_6B"
 path = "models/RealESRGAN/RealESRGAN_x4plus_anime_6B.pth"
 scale = 4.0
 
-# プロンプト設定
+[api]
+openai_key = ""
+claude_key = ""
+google_key = ""
+
+[directories]
+database_dir = "lorairo_data/main_dataset_20250707_001"
+database_base_dir = "lorairo_data"
+database_project_name = "main_dataset"
+export_dir = "export"
+batch_results_dir = "batch_results"
+
+[image_processing]
+upscaler = "RealESRGAN_x4plus"
+
 [prompts]
 additional = ""
 
-[log]
-level = "INFO"
+[database]
+image_db_filename = "image_database.db"
 
-# Qt/GUI設定
+[log]
+level = "DEBUG"
+file_path = "C:\\LoRAIro\\logs\\lorairo.log"
+rotation = "25 MB"
+
 [qt]
-platform = ""         # QT_QPA_PLATFORM override (windows, xcb, wayland, offscreen, etc.)
-font_dir = ""          # QT_QPA_FONTDIR override (システムフォントディレクトリ)
-default_font = ""      # デフォルトフォント名（空の場合：自動選択）
-font_size = 10         # デフォルトフォントサイズ
-suppress_warnings = true # フォント警告の抑制
-enable_debug = false   # Qt詳細デバッグ情報の表示
+font_size = 10
+suppress_warnings = true
+enable_debug = false
+
+[log.levels]

@@ -118,7 +118,7 @@ After:
 
 ### 調査後
 1. `mcp__serena__write_memory` で分析結果を保存
-2. 重要な最適化パターンは Moltbot LTM に永続化
+2. 重要な最適化パターンは OpenClaw LTM に永続化
 
 ```bash
 curl -sS -X POST http://host.docker.internal:18789/hooks/lorairo-memory \

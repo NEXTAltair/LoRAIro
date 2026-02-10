@@ -239,10 +239,10 @@ graph TD
 
 ## AI Assistance Tooling (MCP)
 
-**Development Agents**: Moltbot (long-term memory via Notion), serena (repository/memory management)
+**Development Agents**: OpenClaw (long-term memory via Notion), serena (repository/memory management)
 
 **Working Memory**: `.serena/memories/` for current project knowledge
-**Long-Term Memory**: Notion LTM via Moltbot
+**Long-Term Memory**: Notion LTM via OpenClaw
 
 **Development-only tools that do not affect runtime application.**
 

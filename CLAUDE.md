@@ -306,14 +306,14 @@ The local packages are installed in editable mode and automatically linked durin
 
 ### MCP-Based Development Approach
 
-This project uses Serena for fast code operations and Moltbot+Notion for long-term memory:
+This project uses Serena for fast code operations and OpenClaw+Notion for long-term memory:
 
 - **Serena MCP** (fast, 1-3s): Code reading, symbol search, memory operations, basic editing
-- **Moltbot (gateway)**: Long-term memory storage/retrieval via Notion (LoRAIro LTM)
+- **OpenClaw (gateway)**: Long-term memory storage/retrieval via Notion (LoRAIro LTM)
 
 **Memory Strategy:**
 - Machine memory: `.serena/memories/` (managed by Serena)
-- Long-term memory: Notion DB via Moltbot (LoRAIro-Long-Term Memory)
+- Long-term memory: Notion DB via OpenClaw (LoRAIro-Long-Term Memory)
 - Plan Mode plans: `.claude/plans/` → Auto-synced to Serena Memory via PostToolUse hook
 - Design/specs: `docs/` (architecture, services, integrations, testing)
 - **Obsolete**: `tasks/` directory (removed 2025-11-06, use Plan Mode + Serena Memory instead)
@@ -381,7 +381,7 @@ LoRAIroの開発パターンとMCP操作は **Claude Skills** で自動化され
 
 **MCP Operations Skills** (`.github/skills/`):
 - `mcp-serena-fast-ops`: 高速コード操作（1-3秒）- Symbol検索、Memory操作、基本編集
-- `mcp-memory-first-development`: 2重メモリ戦略 - Serena短期 + Moltbot/Notion長期記憶
+- `mcp-memory-first-development`: 2重メモリ戦略 - Serena短期 + OpenClaw/Notion長期記憶
 
 **LoRAIro Development Skills**:
 - `lorairo-repository-pattern`: SQLAlchemyリポジトリパターン実装ガイド
@@ -472,9 +472,9 @@ LoRAIroは Claude Code 2.1.0 の新機能を最大限活用するよう最適化
 - **Setup**: Run `./scripts/setup.sh` for dependency installation
 
 ### MCP Issues
-- **Moltbot/Notion errors**: Verify gateway tokens, Notion API key, and hook mappings
+- **OpenClaw/Notion errors**: Verify gateway tokens, Notion API key, and hook mappings
 - **Connection errors**: Use direct serena operations + local docs
-- **Performance**: Direct serena (1-3s) for simple ops; Moltbot for long-term memory
+- **Performance**: Direct serena (1-3s) for simple ops; OpenClaw for long-term memory
 
 ### UI Generation Issues
 - **SearchFilterService Configuration Error**: If you see "SearchFilterService が設定されていません" error, the issue is missing Qt Designer UI file generation
@@ -492,7 +492,7 @@ LoRAIroは Claude Code 2.1.0 の新機能を最大限活用するよう最適化
 - **`/implement`**: コード開発実装（段階的実行）
 - **`/test`**: 品質保証・テスト実行（引数なし: クイックチェック、引数あり: 包括的テスト）
 - **`/sync-plan`**: Plan Mode の計画を手動で Serena Memory に同期
-- **`/save-session`**: セッション終了前に実装結果・設計意図をSerena Memory + Moltbot LTMに保存
+- **`/save-session`**: セッション終了前に実装結果・設計意図をSerena Memory + OpenClaw LTMに保存
 
 ### Plan Mode vs /planning Command
 
@@ -512,11 +512,11 @@ Claude Code のネイティブ Plan Mode と custom `/planning` コマンドの�
 - **用途**: 複雑なアーキテクチャ決定、複数フェーズ機能
 - **所要時間**: 20-40分
 - **出力**: Notion LTM（設計/意図） + Serena Memory（現在状況）
-- **Memory**: Serena + Moltbot/Notion（クロスプロジェクト知識）
+- **Memory**: Serena + OpenClaw/Notion（クロスプロジェクト知識）
 - **特徴**:
   - Investigation + Library Research + Solutions agents 統合
   - 複数アプローチ検討とトレードオフ分析
-  - 設計知識を Moltbot→Notion に永続化（再利用可能）
+  - 設計知識を OpenClaw→Notion に永続化（再利用可能）
 
 **選択ガイドライン**:
 - シンプルな機能追加 → **Plan Mode**
@@ -526,7 +526,7 @@ Claude Code のネイティブ Plan Mode と custom `/planning` コマンドの�
 
 ### Agents（コマンド内で自動使用）
 - **investigation**: コードベース調査・分析（serena semantic search活用）
-- **library-research**: 技術研究（web検索 + Moltbot補強。保存時にContext7/Perplexityでブラッシュアップ）
+- **library-research**: 技術研究（web検索 + OpenClaw補強。保存時にContext7/Perplexityでブラッシュアップ）
 - **solutions**: 多角的問題解決・アプローチ評価
 - **code-formatter**: コード品質管理（Ruff統合）
 
