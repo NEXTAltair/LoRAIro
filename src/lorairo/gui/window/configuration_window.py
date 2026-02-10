@@ -32,7 +32,7 @@ class ConfigurationWindow(QDialog):
     """アプリケーション設定ダイアログ。
 
     ConfigurationService 経由で設定の読み込み・更新・保存を行う。
-    2タブ構成: 基本設定（API、ディレクトリ、ログ）と詳細設定（アノテーション、画像処理、プロンプト）。
+    2タブ構成: 基本設定（API、ディレクトリ、ログ）と詳細設定（画像処理、プロンプト）。
     """
 
     def __init__(
@@ -148,18 +148,6 @@ class ConfigurationWindow(QDialog):
         tab = QWidget()
         tab_layout = QVBoxLayout(tab)
 
-        # アノテーション設定
-        annotation_group = QGroupBox("アノテーション")
-        annotation_layout = QFormLayout(annotation_group)
-
-        self._combo_box_annotation_model = QComboBox()
-        self._combo_box_annotation_model.setObjectName("comboBoxAnnotationModel")
-        models = self._config_service.get_available_annotation_models()
-        self._combo_box_annotation_model.addItems(models)
-        annotation_layout.addRow("デフォルトモデル:", self._combo_box_annotation_model)
-
-        tab_layout.addWidget(annotation_group)
-
         # 画像処理設定
         image_group = QGroupBox("画像処理")
         image_layout = QFormLayout(image_group)
@@ -168,7 +156,7 @@ class ConfigurationWindow(QDialog):
         self._combo_box_upscaler.setObjectName("comboBoxUpscaler")
         upscalers = self._config_service.get_available_upscaler_names()
         self._combo_box_upscaler.addItems(upscalers)
-        image_layout.addRow("アップスケーラー:", self._combo_box_upscaler)
+        image_layout.addRow("登録時のアップスケーラー:", self._combo_box_upscaler)
 
         tab_layout.addWidget(image_group)
 
@@ -216,12 +204,6 @@ class ConfigurationWindow(QDialog):
         if idx >= 0:
             self._combo_box_log_level.setCurrentIndex(idx)
 
-        # アノテーション設定
-        default_model = self._config_service.get_default_annotation_model()
-        idx = self._combo_box_annotation_model.findText(default_model)
-        if idx >= 0:
-            self._combo_box_annotation_model.setCurrentIndex(idx)
-
         # 画像処理設定
         default_upscaler = self._config_service.get_default_upscaler_name()
         idx = self._combo_box_upscaler.findText(default_upscaler)
@@ -252,9 +234,6 @@ class ConfigurationWindow(QDialog):
             },
             "log": {
                 "level": self._combo_box_log_level.currentText(),
-            },
-            "annotation": {
-                "default_model": self._combo_box_annotation_model.currentText(),
             },
             "image_processing": {
                 "upscaler": self._combo_box_upscaler.currentText(),
