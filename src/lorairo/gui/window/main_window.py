@@ -549,14 +549,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     # シグナル接続
                     self.batchTagAddWidget.tag_add_requested.connect(self._handle_batch_tag_add)
                     self.batchTagAddWidget.staging_cleared.connect(self._handle_staging_cleared)
-                    self.batchTagAddWidget.staged_images_changed.connect(
-                        self._on_staged_images_changed
-                    )
+                    self.batchTagAddWidget.staged_images_changed.connect(self._on_staged_images_changed)
                     # 初期状態: アノテーションボタン無効化（ステージング画像0件）
                     self._update_annotation_target_ui(0)
                     logger.info("    ✅ BatchTagAddWidget シグナル接続完了")
                 except Exception as e:
                     logger.error(f"    ❌ BatchTagAddWidget シグナル接続失敗: {e}")
+
+            # 設定ダイアログ接続
+            if hasattr(self, "actionSettings"):
+                self.actionSettings.triggered.connect(self.open_settings)
+            if hasattr(self, "pushButtonSettings"):
+                self.pushButtonSettings.clicked.connect(self.open_settings)
 
             # パネル表示切替アクション接続
             self._connect_panel_toggle_actions()
