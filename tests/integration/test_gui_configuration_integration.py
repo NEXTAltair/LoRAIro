@@ -43,7 +43,7 @@ realesrgan_upscale = true
             config_service = ConfigurationService(config_file)
 
             # ImageProcessingService が設定を正しく読み込むこと
-            with patch("lorairo.services.image_processing_service.ImageProcessingManager"):
+            with patch("lorairo.editor.image_processor.ImageProcessingManager"):
                 service = ImageProcessingService(config_service, mock_fsm, mock_idm)
 
                 # 設定値が正しく渡されることを確認
