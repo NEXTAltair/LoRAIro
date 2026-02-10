@@ -88,7 +88,7 @@
      </property>
      <property name="styleSheet">
       <string notr="true">QLabel {
-    color: #333;
+    color: palette(text);
     padding: 2px 4px;
 }</string>
      </property>
@@ -170,9 +170,9 @@
      </property>
      <property name="styleSheet">
       <string notr="true">QLabel {
-    background-color: #e8f4fd;
-    color: #1976D2;
-    border: 1px solid #90caf9;
+    background-color: palette(button);
+    color: palette(button-text);
+    border: 2px solid palette(mid);
     border-radius: 9px;
     padding: 1px 4px;
     font-weight: 500;

@@ -57,7 +57,7 @@ class Ui_ModelCheckboxWidget(object):
         self.labelModelName.setFont(font)
         self.labelModelName.setAlignment(Qt.AlignmentFlag.AlignLeading|Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
         self.labelModelName.setStyleSheet(u"QLabel {\n"
-"    color: #333;\n"
+"    color: palette(text);\n"
 "    padding: 2px 4px;\n"
 "}")
 
@@ -95,9 +95,9 @@ class Ui_ModelCheckboxWidget(object):
         self.labelCapabilities.setFont(font2)
         self.labelCapabilities.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.labelCapabilities.setStyleSheet(u"QLabel {\n"
-"    background-color: #e8f4fd;\n"
-"    color: #1976D2;\n"
-"    border: 1px solid #90caf9;\n"
+"    background-color: palette(button);\n"
+"    color: palette(button-text);\n"
+"    border: 2px solid palette(mid);\n"
 "    border-radius: 9px;\n"
 "    padding: 1px 4px;\n"
 "    font-weight: 500;\n"
