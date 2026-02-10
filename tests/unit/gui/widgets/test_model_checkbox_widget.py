@@ -3,7 +3,7 @@
 import pytest
 from PySide6.QtCore import Qt
 
-from lorairo.gui.widgets.model_checkbox_widget import ModelCheckboxWidget, ModelInfo, PROVIDER_STYLES
+from lorairo.gui.widgets.model_checkbox_widget import PROVIDER_STYLES, ModelCheckboxWidget, ModelInfo
 
 
 class TestModelCheckboxWidget:
@@ -108,16 +108,18 @@ class TestModelCheckboxWidget:
     def test_provider_styling_openai(self, widget_openai):
         """OpenAI用スタイリング適用テスト"""
         style = widget_openai.labelProvider.styleSheet()
-        # OpenAI用の色が適用されている
-        assert "#1976D2" in style  # OpenAI color
-        assert "#f0f8ff" in style  # OpenAI background
+        # OpenAI用のボーダーカラーとパレット参照が適用されている
+        assert "#2196F3" in style  # OpenAI border
+        assert "palette(button)" in style  # System-adaptive background
+        assert "palette(button-text)" in style  # System-adaptive text
 
     def test_provider_styling_local(self, widget_local):
         """ローカルモデル用スタイリング適用テスト"""
         style = widget_local.labelProvider.styleSheet()
-        # ローカル用の色が適用されている
-        assert "#2E7D32" in style  # Local color
-        assert "#e8f5e8" in style  # Local background
+        # ローカル用のボーダーカラーとパレット参照が適用されている
+        assert "#4CAF50" in style  # Local border
+        assert "palette(button)" in style  # System-adaptive background
+        assert "palette(button-text)" in style  # System-adaptive text
 
     def test_provider_styling_anthropic(self, qtbot, anthropic_model_info):
         """Anthropic用スタイリング適用テスト"""
@@ -125,8 +127,9 @@ class TestModelCheckboxWidget:
         qtbot.addWidget(widget)
 
         style = widget.labelProvider.styleSheet()
-        assert "#F57C00" in style  # Anthropic color
-        assert "#fff8e1" in style  # Anthropic background
+        assert "#FF9800" in style  # Anthropic border
+        assert "palette(button)" in style  # System-adaptive background
+        assert "palette(button-text)" in style  # System-adaptive text
 
     def test_provider_styling_google(self, qtbot, google_model_info):
         """Google用スタイリング適用テスト"""
@@ -134,8 +137,9 @@ class TestModelCheckboxWidget:
         qtbot.addWidget(widget)
 
         style = widget.labelProvider.styleSheet()
-        assert "#7B1FA2" in style  # Google color
-        assert "#f3e5f5" in style  # Google background
+        assert "#9C27B0" in style  # Google border
+        assert "palette(button)" in style  # System-adaptive background
+        assert "palette(button-text)" in style  # System-adaptive text
 
     def test_provider_styling_unknown_provider(self, qtbot):
         """未知のプロバイダー用デフォルトスタイリングテスト"""
@@ -151,8 +155,9 @@ class TestModelCheckboxWidget:
 
         style = widget.labelProvider.styleSheet()
         # デフォルトスタイルが適用されている
-        assert "#555" in style  # Default color
-        assert "#f0f0f0" in style  # Default background
+        assert "palette(mid)" in style  # Default border with system palette
+        assert "palette(button)" in style  # System-adaptive background
+        assert "palette(button-text)" in style  # System-adaptive text
 
     def test_dynamic_property_set(self, widget_openai):
         """Dynamic Property設定テスト（将来的なQSS対応）"""

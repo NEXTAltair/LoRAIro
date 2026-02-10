@@ -31,44 +31,45 @@ class ModelInfo:
     requires_api_key: bool = True
 
 
-# プロバイダー別スタイル定義（設定として分離）
+# プロバイダー別スタイル定義（PySide6パレット機能でダークモード自動対応）
+# palette()関数で背景色・文字色はシステム自動調整、ボーダーで視覚的区別
 PROVIDER_STYLES = {
     "local": """QLabel {
-        background-color: #e8f5e8;
-        color: #2E7D32;
-        border: 1px solid #4CAF50;
+        background-color: palette(button);
+        color: palette(button-text);
+        border: 2px solid #4CAF50;
         border-radius: 9px;
         padding: 1px 4px;
         font-weight: 500;
     }""",
     "openai": """QLabel {
-        background-color: #f0f8ff;
-        color: #1976D2;
-        border: 1px solid #2196F3;
+        background-color: palette(button);
+        color: palette(button-text);
+        border: 2px solid #2196F3;
         border-radius: 9px;
         padding: 1px 4px;
         font-weight: 500;
     }""",
     "anthropic": """QLabel {
-        background-color: #fff8e1;
-        color: #F57C00;
-        border: 1px solid #FF9800;
+        background-color: palette(button);
+        color: palette(button-text);
+        border: 2px solid #FF9800;
         border-radius: 9px;
         padding: 1px 4px;
         font-weight: 500;
     }""",
     "google": """QLabel {
-        background-color: #f3e5f5;
-        color: #7B1FA2;
-        border: 1px solid #9C27B0;
+        background-color: palette(button);
+        color: palette(button-text);
+        border: 2px solid #9C27B0;
         border-radius: 9px;
         padding: 1px 4px;
         font-weight: 500;
     }""",
     "default": """QLabel {
-        background-color: #f0f0f0;
-        color: #555;
-        border: 1px solid #ddd;
+        background-color: palette(button);
+        color: palette(button-text);
+        border: 2px solid palette(mid);
         border-radius: 9px;
         padding: 1px 4px;
         font-weight: 500;
@@ -131,11 +132,7 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
         """プロバイダー別スタイリング適用（辞書ベース）"""
         try:
             # プロバイダー表示名をキーに変換
-            provider_key = (
-                "local"
-                if provider_display == "ローカル"
-                else provider_display.lower()
-            )
+            provider_key = "local" if provider_display == "ローカル" else provider_display.lower()
 
             # スタイル辞書から取得（存在しない場合はデフォルト）
             style = PROVIDER_STYLES.get(provider_key, PROVIDER_STYLES["default"])

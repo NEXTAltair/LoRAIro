@@ -243,6 +243,9 @@ if not __name__ == "__main__":
                 self.model_checkbox_widgets[model.name] = checkbox_widget
                 self.dynamicContentLayout.addWidget(checkbox_widget)
 
+            # レイアウト再計算（フィルタリング後のウィジェットサイズ安定化）
+            self.dynamicContentLayout.invalidate()
+
         def _convert_model_to_info(self, model: Model) -> ModelInfo:
             """Database Model を ModelInfo に変換"""
             return ModelInfo(
