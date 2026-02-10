@@ -7,7 +7,7 @@ ConfigurationServiceをモックで差し替え、ウィジェットの生成・
 from unittest.mock import MagicMock
 
 import pytest
-from PySide6.QtWidgets import QComboBox, QLineEdit, QMessageBox, QPlainTextEdit, QTabWidget
+from PySide6.QtWidgets import QComboBox, QLineEdit, QMessageBox, QTabWidget
 
 from lorairo.gui.window.configuration_window import ConfigurationWindow
 from lorairo.services.configuration_service import ConfigurationService
@@ -29,17 +29,14 @@ def _make_mock_config_service() -> MagicMock:
             "batch_results_dir": "/tmp/batch",
         },
         "log": {"level": "WARNING"},
-        "annotation": {"default_model": "gpt-4o"},
         "image_processing": {"upscaler": "RealESRGAN_x4plus"},
         "prompts": {"additional": "test prompt text"},
     }
-    mock.get_available_annotation_models.return_value = ["gpt-4o", "claude-sonnet"]
     mock.get_available_upscaler_names.return_value = [
         "RealESRGAN_x4plus",
         "RealESRGAN_x4plus_anime_6B",
     ]
     mock.get_default_upscaler_name.return_value = "RealESRGAN_x4plus"
-    mock.get_default_annotation_model.return_value = "gpt-4o"
     mock.save_settings.return_value = True
     return mock
 
@@ -104,7 +101,7 @@ class TestConfigurationWindow:
     ) -> None:
         """全セクション含む辞書を返す。"""
         settings = dialog._collect_settings()
-        expected_sections = {"api", "directories", "log", "annotation", "image_processing", "prompts"}
+        expected_sections = {"api", "directories", "log", "image_processing", "prompts"}
         assert set(settings.keys()) == expected_sections
 
     def test_populate_and_collect_roundtrip(self, dialog: ConfigurationWindow) -> None:
@@ -141,15 +138,8 @@ class TestConfigurationWindow:
         dialog._on_accepted()
         assert len(called) == 1
 
-    def test_dynamic_comboboxes_populated(self, dialog: ConfigurationWindow) -> None:
-        """ComboBoxに動的値が反映される。"""
-        annotation = dialog.findChild(QComboBox, "comboBoxAnnotationModel")
-        assert annotation is not None
-        assert annotation.count() == 2
-        items = [annotation.itemText(i) for i in range(annotation.count())]
-        assert "gpt-4o" in items
-        assert "claude-sonnet" in items
-
+    def test_upscaler_combobox_populated(self, dialog: ConfigurationWindow) -> None:
+        """アップスケーラーComboBoxに動的値が反映される。"""
         upscaler = dialog.findChild(QComboBox, "comboBoxUpscaler")
         assert upscaler is not None
         assert upscaler.count() == 2
