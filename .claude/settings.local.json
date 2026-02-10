@@ -60,7 +60,8 @@
       "Bash(grep:*)",
       "Bash(xargs:*)",
       "WebFetch(domain:pytest-qt.readthedocs.io)",
-      "WebFetch(domain:ilmanzo.github.io)"
+      "WebFetch(domain:ilmanzo.github.io)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []
