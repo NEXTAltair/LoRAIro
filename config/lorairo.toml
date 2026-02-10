@@ -4,12 +4,6 @@ openai_key = ""    # OpenAI APIキー
 claude_key = ""    # Anthropic Claude APIキー
 google_key = ""    # Google Vision APIキー
 
-# Hugging Face設定
-[huggingface]
-hf_username = ""   # Hugging Face ユーザー名
-repo_name = "test00" # リポジトリ名
-token = ""         # Hugging Face トークン
-
 # ディレクトリ設定
 [directories]
 database_dir = "lorairo_data/main_dataset_20250707_001"  # 既存プロジェクトを指定
@@ -20,9 +14,6 @@ batch_results_dir = ""                  # OpenAI Batch API結果JSONLファイ�
 
 # 画像処理設定
 [image_processing]
-target_resolution = 1024 # 学習モデルの基準解像度 512, 768, 1024
-realesrgan_upscale = false # 長辺が基準解像度より小さい場合、trueでアップスケールする
-realesrgan_model = "RealESRGAN_x4plus_anime_6B.pth" # アップスケールモデルのパス（非推奨：upscaler使用推奨）
 upscaler = "RealESRGAN_x4plus" # 使用するアップスケーラーモデル名
 
 # アップスケーラーモデル設定
@@ -36,21 +27,9 @@ name = "RealESRGAN_x4plus_anime_6B"
 path = "models/RealESRGAN/RealESRGAN_x4plus_anime_6B.pth"
 scale = 4.0
 
-# 生成設定
-[generation]
-batch_jsonl = false # バッチ処理用のjsonlファイルを生成する場合はtrue
-start_batch = false # バッチ処理を開始する場合はtrue
-single_image = true # 画像ごとに処理する場合はtrue
-
-# オプション設定
-[options]
-generate_meta_clean = false # sd-scriptsのファインチューニング用のメタデータを生成する場合はtrue
-cleanup_existing_tags = false # タグを生成せずに既存のタグをクリーンアップする場合はtrue
-join_existing_txt = true # 生成したタグを既存のタグと結合する場合はtrue
-
 # プロンプト設定
 [prompts]
-additional = "Your additional prompt here."
+additional = ""
 
 [log]
 level = "INFO"

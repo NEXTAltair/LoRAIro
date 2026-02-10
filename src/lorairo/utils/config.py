@@ -42,15 +42,7 @@ DEFAULT_CONFIG = {
         "export_dir": "export",  # 学習用データセットの出力先（.txt/.captionファイル等）
         "batch_results_dir": "batch_results",  # OpenAI Batch API結果JSONLファイルの保存先
     },
-    "huggingface": {
-        "hf_username": "",
-        "repo_name": "",
-        "token": "",
-    },
     "image_processing": {
-        "target_resolution": 1024,
-        "realesrgan_upscale": False,
-        "realesrgan_model": "RealESRGAN_x4plus_anime_6B.pth",
         "upscaler": "RealESRGAN_x4plus",  # デフォルトアップスケーラー名
     },
     "upscaler_models": [
@@ -65,9 +57,7 @@ DEFAULT_CONFIG = {
             "scale": 4.0,
         },
     ],
-    "generation": {"batch_jsonl": False, "start_batch": False, "single_image": True},
-    "options": {"generate_meta_clean": False, "cleanup_existing_tags": False, "join_existing_txt": True},
-    "prompts": {"main": "", "additional": ""},
+    "prompts": {"additional": ""},
     "text_extensions": [".txt", ".caption"],
     "preferred_resolutions": [
         # 512 Base
@@ -123,19 +113,9 @@ def load_config(config_file: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
             load_parameters = toml.load(f)
 
         # 必須セクションのチェック
-        for section in ["directories", "image_processing"]:
+        for section in ["directories"]:
             if section not in load_parameters:
                 raise KeyError(f"必須の設定セクション '{section}' が見つかりません。")
-
-        # mainprompt.mdファイルの存在確認と読み込み
-        prompt_file = Path("mainprompt.md")
-        if prompt_file.exists():
-            with open(prompt_file, encoding="utf-8") as f:
-                load_parameters.setdefault("prompts", {})
-                load_parameters["prompts"]["main"] = f.read()
-        else:
-            load_parameters.setdefault("prompts", {})
-            load_parameters["prompts"]["main"] = ""  # デフォルト値として空文字列を設定
 
         return load_parameters
     except FileNotFoundError:

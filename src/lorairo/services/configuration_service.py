@@ -77,9 +77,6 @@ class ConfigurationService:
         if section == "api" and "key" in key.lower():
             masked_value = self._mask_api_key(str(value))
             logger.debug("設定値を更新しました: [{}] {} = {}", section, key, masked_value)
-        elif section == "huggingface" and key == "token":
-            masked_value = self._mask_api_key(str(value))
-            logger.debug("設定値を更新しました: [{}] {} = {}", section, key, masked_value)
         else:
             logger.debug("設定値を更新しました: [{}] {} = {}", section, key, value)
 
