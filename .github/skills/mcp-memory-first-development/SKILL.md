@@ -272,8 +272,8 @@ Claude Code's Plan Mode is integrated with the Memory-First workflow through aut
 - **Use for:** Single-feature implementation, immediate execution tasks
 - **Duration:** 5-10 minutes
 - **Output:** `.claude/plans/` → Auto-sync to Serena Memory
-- **Memory:** Serena only (project-specific)
-- **Workflow:** Claude Code native planning → Auto-sync on exit
+- **Memory:** Serena + OpenClaw LTM (search required, storage optional)
+- **Workflow:** LTM search → Plan creation → Auto-sync on exit → (optional) LTM storage
 
 **/planning Command** (Comprehensive Design):
 - **Use for:** Complex architecture decisions, multi-phase features
@@ -286,7 +286,13 @@ Claude Code's Plan Mode is integrated with the Memory-First workflow through aut
 
 ```
 ┌──────────────────┐
-│   Plan Mode      │ User creates plan in Claude Code
+│  LTM Search      │ Search past design patterns from OpenClaw LTM
+│  (Pre-Planning)  │ ltm_search.py + ltm_latest.py
+└────────┬─────────┘
+         │
+         ↓ Serena Memory check (current-project-status)
+┌──────────────────┐
+│   Plan Mode      │ Create plan with context from LTM + Serena
 │  (Native UI)     │
 └────────┬─────────┘
          │
@@ -306,7 +312,7 @@ Claude Code's Plan Mode is integrated with the Memory-First workflow through aut
          ↓ After completion
 ┌──────────────────┐
 │ Extract to       │ Important design decisions → OpenClaw LTM
-│ OpenClaw LTM      │ POST /hooks/lorairo-memory
+│ OpenClaw LTM     │ ltm_write.py or POST /hooks/lorairo-memory
 └──────────────────┘
 ```
 
@@ -361,9 +367,21 @@ Use `/sync-plan` command when:
 
 ### Integration with Memory-First Cycle
 
-**Phase 1 (Before):**
-- Check for existing plans: `mcp__serena__list_memories()` → Look for `plan_*` files
-- Review past plans if similar feature was planned before
+**Phase 1 (Before) — Required for both Plan Mode and /planning:**
+1. Search OpenClaw LTM for past design patterns:
+   ```bash
+   python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
+   {"limit": 5, "filters": {"type": ["decision", "howto"], "tags": ["relevant-tag"]}}
+   JSON
+   ```
+2. Check latest LTM entries:
+   ```bash
+   python3 .github/skills/lorairo-mem/scripts/ltm_latest.py <<'JSON'
+   {"limit": 5}
+   JSON
+   ```
+3. Check Serena Memory: `mcp__serena__list_memories()` → Look for `plan_*` files
+4. Review past plans if similar feature was planned before
 
 **Phase 2 (During):**
 - Update plan memory with implementation notes
@@ -371,7 +389,20 @@ Use `/sync-plan` command when:
 - Track progress against plan phases
 
 **Phase 3 (After):**
-- Extract important design decisions to OpenClaw LTM
+- Extract important design decisions to OpenClaw LTM:
+  ```bash
+  python3 .github/skills/lorairo-mem/scripts/ltm_write.py <<'JSON'
+  {
+    "title": "LoRAIro [Feature] Design Decision",
+    "summary": "Brief summary",
+    "body": "# Details\n\n...",
+    "type": "decision",
+    "importance": "High",
+    "tags": ["relevant-tag"],
+    "source": "Container"
+  }
+  JSON
+  ```
 - Update plan status to "completed"
 - Record lessons learned vs original plan
 
