@@ -4,7 +4,7 @@
 ConfigurationServiceをモックで差し替え、ウィジェットの生成・値反映・収集を検証する。
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from PySide6.QtWidgets import QComboBox, QLineEdit, QMessageBox, QTabWidget
@@ -120,6 +120,19 @@ class TestConfigurationWindow:
         with qtbot.waitSignal(dialog.accepted, timeout=3000):
             dialog._on_accepted()
         config_service.save_settings.assert_called_once()
+
+    def test_ok_reinitializes_logging(
+        self, dialog: ConfigurationWindow, config_service: MagicMock, qtbot
+    ) -> None:
+        """OK保存時にinitialize_loggingが新しいログ設定で呼ばれる。"""
+        with (
+            patch(
+                "lorairo.gui.window.configuration_window.initialize_logging"
+            ) as mock_init_log,
+            qtbot.waitSignal(dialog.accepted, timeout=3000),
+        ):
+            dialog._on_accepted()
+        mock_init_log.assert_called_once_with({"level": "WARNING"})
 
     def test_save_failure_shows_error(
         self,
