@@ -46,6 +46,7 @@ class ModelSelectionService:
         try:
             # キャッシュがあれば返す（パフォーマンス最適化）
             if self._cached_models is not None:
+                logger.debug(f"モデルキャッシュヒット: {len(self._cached_models)}件")
                 return self._cached_models
 
             # DBから直接Model オブジェクトを取得（変換レイヤーなし）
@@ -54,6 +55,14 @@ class ModelSelectionService:
             self._all_models = db_models
             self._cached_models = db_models
             logger.info(f"Loaded {len(db_models)} models directly from DB")
+
+            # モデル詳細をデバッグ出力
+            for model in db_models:
+                logger.debug(
+                    f"  モデル読込: name={model.name}, provider={model.provider}, "
+                    f"available={model.available}, recommended={model.is_recommended}"
+                )
+
             return db_models
 
         except Exception as e:
@@ -85,6 +94,13 @@ class ModelSelectionService:
         if criteria is None:
             criteria = ModelSelectionCriteria()
 
+        logger.debug(
+            f"モデルフィルタリング開始: provider={criteria.provider}, "
+            f"exclude_local={criteria.exclude_local}, capabilities={criteria.capabilities}, "
+            f"only_recommended={criteria.only_recommended}, only_available={criteria.only_available}, "
+            f"対象モデル数={len(self._all_models)}"
+        )
+
         filtered = self._all_models
 
         # プロバイダーフィルタ
@@ -92,22 +108,32 @@ class ModelSelectionService:
             filtered = [
                 m for m in filtered if m.provider and m.provider.lower() == criteria.provider.lower()
             ]
+            logger.debug(f"  プロバイダーフィルタ後: {len(filtered)}件 (provider={criteria.provider})")
 
         # ローカルモデル除外フィルタ（API モデルのみ表示）
         if criteria.exclude_local:
             filtered = [m for m in filtered if m.provider and m.provider.lower() != "local"]
+            logger.debug(f"  ローカルモデル除外後: {len(filtered)}件")
 
         # 機能フィルタ
         if criteria.capabilities:
             filtered = [m for m in filtered if any(cap in m.capabilities for cap in criteria.capabilities)]
+            logger.debug(f"  機能フィルタ後: {len(filtered)}件 (capabilities={criteria.capabilities})")
 
         # 推奨フィルタ（DB Modelプロパティ使用）
         if criteria.only_recommended:
             filtered = [m for m in filtered if m.is_recommended]
+            logger.debug(f"  推奨フィルタ後: {len(filtered)}件")
 
         # 利用可能フィルタ（DB Modelプロパティ使用）
         if criteria.only_available:
             filtered = [m for m in filtered if m.available]
+            logger.debug(f"  利用可能フィルタ後: {len(filtered)}件")
+
+        logger.debug(
+            f"モデルフィルタリング完了: {len(self._all_models)} -> {len(filtered)}件, "
+            f"結果=[{', '.join(m.name for m in filtered)}]"
+        )
 
         return filtered
 

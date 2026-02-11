@@ -180,6 +180,8 @@ class WorkerService(QObject):
         Returns:
             str: ワーカーID
         """
+        logger.debug(f"バッチアノテーション準備: models={models}, 画像数={len(image_paths)}")
+
         worker = AnnotationWorker(
             annotation_logic=self.annotation_logic,
             image_paths=image_paths,
@@ -197,6 +199,7 @@ class WorkerService(QObject):
             logger.info(
                 f"バッチアノテーション開始: {len(image_paths)}画像, {len(models)}モデル (ID: {worker_id})"
             )
+            logger.debug(f"  ワーカーID={worker_id}, モデル=[{', '.join(models)}]")
             return worker_id
         else:
             raise RuntimeError(f"アノテーションワーカー開始失敗: {worker_id}")
