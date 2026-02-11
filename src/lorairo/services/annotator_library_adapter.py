@@ -86,13 +86,19 @@ class AnnotatorLibraryAdapter:
             Exception: アノテーション実行時のエラー
         """
         try:
-            logger.debug(f"アノテーション実行開始: {len(images)}画像, {len(model_names)}モデル")
+            logger.debug(
+                f"アノテーション実行開始: {len(images)}画像, モデル={model_names}, "
+                f"pHash指定={'あり' if phash_list else 'なし'}"
+            )
 
             # APIキー準備（引数として渡す形式）
             api_keys = self._prepare_api_keys()
+            logger.debug(f"利用可能プロバイダー: {list(api_keys.keys()) if api_keys else '（なし）'}")
 
             # image-annotator-lib API呼び出し
             from image_annotator_lib import annotate
+
+            logger.debug(f"image-annotator-lib.annotate() 呼び出し: model_name_list={model_names}")
 
             results = annotate(
                 images_list=images,

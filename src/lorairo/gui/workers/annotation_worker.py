@@ -57,6 +57,8 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
         self.db_manager = db_manager
 
         logger.info(f"AnnotationWorker初期化 - Images: {len(self.image_paths)}, Models: {len(self.models)}")
+        logger.debug(f"  選択モデル: {self.models}")
+        logger.debug(f"  対象画像パス: {self.image_paths[:5]}{'...' if len(self.image_paths) > 5 else ''}")
 
     def _save_error_records(
         self, error: Exception, image_paths: list[str], model_name: str | None = None
@@ -100,6 +102,8 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
         merged_results: PHashAnnotationResults = {}
         total_models = len(self.models)
 
+        logger.debug(f"モデル順次実行開始: {total_models}モデル = {self.models}")
+
         for model_idx, model_name in enumerate(self.models):
             self._check_cancellation()
 
@@ -112,6 +116,11 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
             )
 
             try:
+                logger.debug(
+                    f"モデル実行開始: {model_name} ({model_idx + 1}/{total_models}), "
+                    f"対象画像数={len(self.image_paths)}"
+                )
+
                 model_results = self.annotation_logic.execute_annotation(
                     image_paths=self.image_paths,
                     model_names=[model_name],
@@ -123,13 +132,17 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
                         merged_results[phash] = {}
                     merged_results[phash].update(annotations)
 
-                logger.debug(f"モデル {model_name} 完了: {len(model_results)}件の結果")
+                logger.debug(
+                    f"モデル実行完了: {model_name}, 結果={len(model_results)}件, "
+                    f"マージ後合計={len(merged_results)}件"
+                )
 
             except Exception as e:
                 logger.error(f"モデル {model_name} でエラー: {e}", exc_info=True)
                 self._save_error_records(e, self.image_paths, model_name=model_name)
                 # エラーでも次のモデルに進む(部分的成功を許容)
 
+        logger.debug(f"モデル順次実行完了: 最終結果={len(merged_results)}件")
         return merged_results
 
     def execute(self) -> PHashAnnotationResults:

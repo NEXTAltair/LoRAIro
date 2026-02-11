@@ -67,9 +67,12 @@ class AnnotationLogic:
         """
         try:
             logger.info(f"アノテーション処理開始: {len(image_paths)}画像, {len(model_names)}モデル")
+            logger.debug(f"  モデル名: {model_names}")
+            logger.debug(f"  pHashリスト指定: {'あり' if phash_list else 'なし（自動計算）'}")
 
             # 画像読み込み
             images = self._load_images(image_paths)
+            logger.debug(f"  画像読み込み完了: {len(images)}枚, サイズ={[img.size for img in images]}")
 
             # アノテーション実行（AnnotatorLibraryAdapter経由）
             results = self.annotator_adapter.annotate(
@@ -79,6 +82,7 @@ class AnnotationLogic:
             )
 
             logger.info(f"アノテーション処理完了: {len(results)}件の結果")
+            logger.debug(f"  結果pHashキー: {list(results.keys())[:5]}{'...' if len(results) > 5 else ''}")
             return results
 
         except Exception as e:

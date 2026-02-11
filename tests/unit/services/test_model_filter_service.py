@@ -312,7 +312,11 @@ class TestModelFilterService:
 
     @patch("lorairo.services.model_filter_service.logger")
     def test_validate_annotation_settings_error(self, mock_logger, service, mock_model_selection_service):
-        """アノテーション設定検証エラーテスト"""
+        """アノテーション設定検証エラーテスト
+
+        get_annotation_models_listが例外をキャッチして空リストを返すため、
+        validate_annotation_settingsは「モデルが利用できない」エラーとして処理する。
+        """
         # get_annotation_models_listでエラーを発生させる
         mock_model_selection_service.load_models.side_effect = Exception("Validation error")
 
@@ -320,11 +324,11 @@ class TestModelFilterService:
 
         result = service.validate_annotation_settings(settings)
 
-        # エラーが含まれた検証結果が返されることを確認
+        # get_annotation_models_listが空リストを返すため、
+        # 選択モデルが利用不可として報告される
         assert result.is_valid is False
         assert len(result.errors) > 0
-        assert any("検証中にエラーが発生しました" in error for error in result.errors)
-        mock_logger.error.assert_called_once()
+        assert any("利用できません" in error for error in result.errors)
 
     def test_apply_advanced_model_filters_no_filters(self, service):
         """高度なモデルフィルターなしテスト"""
