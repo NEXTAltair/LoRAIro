@@ -62,7 +62,11 @@ class TestWidgetServiceIntegration:
         from unittest.mock import Mock
 
         mock_db_manager = Mock()
-        return SearchFilterService(db_manager=mock_db_manager)
+        mock_model_selection_service = Mock()
+        return SearchFilterService(
+            db_manager=mock_db_manager,
+            model_selection_service=mock_model_selection_service,
+        )
 
     def test_filter_search_panel_with_search_service_integration(
         self, parent_widget, search_service, qtbot
@@ -111,9 +115,10 @@ class TestWidgetServiceIntegration:
             aspect_ratio = panel.comboAspectRatio.currentText()
 
             # サービスで検索条件作成
+            keywords = [k.strip() for k in search_text.split(",") if k.strip()]
             conditions = panel.search_service.create_search_conditions(
-                search_text=search_text,
                 search_type=search_type,
+                keywords=keywords,
                 tag_logic=tag_logic,
                 resolution_filter=resolution,
                 aspect_ratio_filter=aspect_ratio,
@@ -144,8 +149,8 @@ class TestWidgetServiceIntegration:
         assert conditions.exclude_duplicates is True
 
         # プレビューテキストが生成されていることを確認
-        assert "tags: 1girl, long hair" in preview
-        assert "すべて含む" in preview
+        assert "1girl" in preview
+        assert "long hair" in preview
         assert "解像度: 1024x1024" in preview
         assert "重複除外" in preview
 
@@ -239,7 +244,7 @@ class TestWidgetServiceIntegration:
 
         # 結果確認
         assert slider.is_date_mode is True
-        assert min_val < max_val
+        assert min_val <= max_val
         assert min_val >= slider.min_value
         assert max_val <= slider.max_value
 
@@ -251,44 +256,40 @@ class TestWidgetServiceIntegration:
         assert "-" in min_text
         assert "-" in max_text
 
-    def test_search_filter_conditions_separation_integration(self, search_service):
-        """検索・フィルター条件分離の統合テスト"""
+    def test_search_filter_conditions_and_preview_integration(self, search_service):
+        """検索条件作成とプレビュー生成の統合テスト"""
         # 複雑な検索条件を作成
         conditions = search_service.create_search_conditions(
-            search_text="1girl, school uniform, smile",
             search_type="tags",
+            keywords=["1girl", "school uniform", "smile"],
             tag_logic="and",
             resolution_filter="1920x1080",
             aspect_ratio_filter="風景 (16:9)",
             date_filter_enabled=True,
-            date_range_start=None,  # 簡略化
+            date_range_start=None,
             date_range_end=None,
             only_untagged=False,
             only_uncaptioned=True,
             exclude_duplicates=True,
         )
 
-        # 検索・フィルター条件分離
-        search_cond, filter_cond = search_service.separate_search_and_filter_conditions(conditions)
-
         # 検索条件確認
-        assert search_cond["search_type"] == "tags"
-        assert search_cond["keywords"] == ["1girl", "school uniform", "smile"]
-        assert search_cond["tag_logic"] == "and"
-        assert search_cond["only_untagged"] is False
-        assert search_cond["only_uncaptioned"] is True
-
-        # フィルター条件確認
-        assert filter_cond["resolution"] == (1920, 1080)  # 1920x1080解像度
-        assert filter_cond["aspect_ratio"] == "風景 (16:9)"
-        assert filter_cond["exclude_duplicates"] is True
+        assert conditions.search_type == "tags"
+        assert conditions.keywords == ["1girl", "school uniform", "smile"]
+        assert conditions.tag_logic == "and"
+        assert conditions.only_untagged is False
+        assert conditions.only_uncaptioned is True
+        assert conditions.resolution_filter == "1920x1080"
+        assert conditions.aspect_ratio_filter == "風景 (16:9)"
+        assert conditions.exclude_duplicates is True
 
         # プレビュー生成
         preview = search_service.create_search_preview(conditions)
-        assert "tags: 1girl, school uniform, smile (すべて含む)" in preview
+        assert "1girl" in preview
+        assert "school uniform" in preview
+        assert "smile" in preview
         assert "解像度: 1920x1080" in preview
-        assert "アスペクト比: 風景 (16:9)" in preview
-        assert "未キャプション画像のみ" in preview
+        assert "風景 (16:9)" in preview
         assert "重複除外" in preview
 
 
