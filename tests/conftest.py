@@ -69,6 +69,7 @@ for _submod_name in _ial_submodules:
 # db_core モジュールレベル初期化での RuntimeError を防止
 
 from pathlib import Path as _MockPath
+
 from sqlalchemy.orm import sessionmaker as _sessionmaker
 
 _mock_result_1 = unittest.mock.Mock()

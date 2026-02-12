@@ -96,9 +96,7 @@ class TestConfigurationWindow:
         assert project_name is not None
         assert project_name.text() == "test_project"
 
-    def test_collect_settings_returns_all_sections(
-        self, dialog: ConfigurationWindow
-    ) -> None:
+    def test_collect_settings_returns_all_sections(self, dialog: ConfigurationWindow) -> None:
         """全セクション含む辞書を返す。"""
         settings = dialog._collect_settings()
         expected_sections = {"api", "directories", "log", "image_processing", "prompts"}
@@ -126,9 +124,7 @@ class TestConfigurationWindow:
     ) -> None:
         """OK保存時にinitialize_loggingが新しいログ設定で呼ばれる。"""
         with (
-            patch(
-                "lorairo.gui.window.configuration_window.initialize_logging"
-            ) as mock_init_log,
+            patch("lorairo.gui.window.configuration_window.initialize_logging") as mock_init_log,
             qtbot.waitSignal(dialog.accepted, timeout=3000),
         ):
             dialog._on_accepted()

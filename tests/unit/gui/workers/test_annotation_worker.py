@@ -4,6 +4,7 @@ Phase 7で再設計された3層アーキテクチャに対応:
 - AnnotationLogic依存注入
 - image_paths/modelsインターフェース
 - 進捗報告・キャンセル処理
+- AnnotationExecutionResult サマリー付き戻り値
 """
 
 from types import SimpleNamespace
@@ -11,7 +12,11 @@ from unittest.mock import Mock
 
 import pytest
 
-from lorairo.gui.workers.annotation_worker import AnnotationWorker
+from lorairo.gui.workers.annotation_worker import (
+    AnnotationExecutionResult,
+    AnnotationWorker,
+    ModelErrorDetail,
+)
 
 
 @pytest.fixture
@@ -82,9 +87,14 @@ class TestAnnotationWorkerExecute:
             phash_list=None,
         )
 
-        # 結果が正しく返されることを確認
-        assert "test_phash" in result
-        assert "gpt-4o-mini" in result["test_phash"]
+        # AnnotationExecutionResult が返されることを確認
+        assert isinstance(result, AnnotationExecutionResult)
+        assert "test_phash" in result.results
+        assert "gpt-4o-mini" in result.results["test_phash"]
+        assert result.total_images == 2
+        assert result.models_used == ["gpt-4o-mini"]
+        assert result.db_save_success == 1
+        assert result.model_errors == []
 
     def test_execute_success_multiple_models(self, mock_annotation_logic):
         """複数モデルでの正常実行（結果マージ確認）"""
@@ -135,9 +145,12 @@ class TestAnnotationWorkerExecute:
         assert mock_annotation_logic.execute_annotation.call_count == 2
 
         # 結果がマージされていることを確認
-        assert "phash1" in result
-        assert "gpt-4o-mini" in result["phash1"]
-        assert "claude-3-haiku-20240307" in result["phash1"]
+        assert isinstance(result, AnnotationExecutionResult)
+        assert "phash1" in result.results
+        assert "gpt-4o-mini" in result.results["phash1"]
+        assert "claude-3-haiku-20240307" in result.results["phash1"]
+        assert result.total_images == 1
+        assert result.models_used == ["gpt-4o-mini", "claude-3-haiku-20240307"]
 
     def test_execute_model_error_partial_success(self, mock_annotation_logic):
         """モデルエラー時の部分的成功"""
@@ -179,10 +192,16 @@ class TestAnnotationWorkerExecute:
         assert mock_annotation_logic.execute_annotation.call_count == 3
 
         # 成功したモデルの結果のみ含まれる
-        assert "phash1" in result
-        assert "gpt-4o-mini" in result["phash1"]
-        assert "claude-3-haiku-20240307" not in result["phash1"]  # エラーで除外
-        assert "gemini-1.5-flash-latest" in result["phash1"]
+        assert isinstance(result, AnnotationExecutionResult)
+        assert "phash1" in result.results
+        assert "gpt-4o-mini" in result.results["phash1"]
+        assert "claude-3-haiku-20240307" not in result.results["phash1"]  # エラーで除外
+        assert "gemini-1.5-flash-latest" in result.results["phash1"]
+
+        # モデルエラーが記録されている
+        assert len(result.model_errors) == 1  # 1画像 x 1エラーモデル
+        assert result.model_errors[0].model_name == "claude-3-haiku-20240307"
+        assert "API Error" in result.model_errors[0].error_message
 
     def test_execute_all_models_fail(self, mock_annotation_logic):
         """全モデルエラー時（空結果）"""
@@ -213,7 +232,13 @@ class TestAnnotationWorkerExecute:
         result = worker.execute()
 
         # 空の結果が返される
-        assert result == {}
+        assert isinstance(result, AnnotationExecutionResult)
+        assert result.results == {}
+        assert result.total_images == 1
+        assert result.db_save_success == 0
+
+        # 全モデルのエラーが記録されている
+        assert len(result.model_errors) == 2  # 1画像 x 2エラーモデル
 
     def test_save_uses_batch_queries(self, mock_annotation_logic):
         """DB保存がバッチクエリを使用すること"""
@@ -276,6 +301,157 @@ class TestExtractField:
         assert worker._extract_field(obj, "tags") == ["cat"]
         assert worker._extract_field(obj, "scores") == {"aesthetic": 0.9}
         assert worker._extract_field(obj, "nonexistent") is None
+
+
+# ==============================================================================
+# Test _extract_scores_from_formatted_output
+# ==============================================================================
+
+
+class TestExtractScoresFromFormattedOutput:
+    """_extract_scores_from_formatted_outputのスコア抽出テスト"""
+
+    def test_none_returns_none(self):
+        """Noneの場合はNoneを返す。"""
+        assert AnnotationWorker._extract_scores_from_formatted_output(None) is None
+
+    def test_unified_result_with_scores(self):
+        """scores属性を持つオブジェクトからスコア辞書を抽出できる。"""
+        obj = SimpleNamespace(scores={"aesthetic": 5.2})
+        result = AnnotationWorker._extract_scores_from_formatted_output(obj)
+        assert result == {"aesthetic": 5.2}
+
+    def test_dict_with_hq_key(self):
+        """AestheticShadow形式のdict（hqキー）からaestheticスコアを抽出できる。"""
+        data = {"hq": 0.85, "lq": 0.15}
+        result = AnnotationWorker._extract_scores_from_formatted_output(data)
+        assert result == {"aesthetic": 0.85}
+
+    def test_float_value(self):
+        """CafePredictor形式の単一float値からaestheticスコアを抽出できる。"""
+        result = AnnotationWorker._extract_scores_from_formatted_output(0.67)
+        assert result == {"aesthetic": 0.67}
+
+    def test_int_value(self):
+        """int値からaestheticスコアを抽出できる。"""
+        result = AnnotationWorker._extract_scores_from_formatted_output(7)
+        assert result == {"aesthetic": 7.0}
+
+    def test_object_with_scores_none(self):
+        """scores属性がNoneのオブジェクトはNoneを返す。"""
+        obj = SimpleNamespace(scores=None)
+        assert AnnotationWorker._extract_scores_from_formatted_output(obj) is None
+
+    def test_unrelated_dict(self):
+        """スコア関連キーを含まないdictはNoneを返す。"""
+        data = {"tags": ["cat", "dog"]}
+        assert AnnotationWorker._extract_scores_from_formatted_output(data) is None
+
+    def test_string_returns_none(self):
+        """文字列はNoneを返す。"""
+        assert AnnotationWorker._extract_scores_from_formatted_output("some caption") is None
+
+
+# ==============================================================================
+# Test _convert_to_annotations_dict scorer fallback
+# ==============================================================================
+
+
+class TestConvertToAnnotationsDictScorerFallback:
+    """_convert_to_annotations_dictのformatted_outputフォールバック動作テスト"""
+
+    def test_scores_field_preferred_over_formatted_output(self, mock_annotation_logic):
+        """scoresフィールドが存在する場合はformatted_outputより優先される。"""
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=[],
+            models=[],
+            db_manager=Mock(),
+        )
+        model = SimpleNamespace(id=1)
+        annotations = {
+            "test-model": {
+                "scores": {"quality": 8.0},
+                "formatted_output": SimpleNamespace(scores={"aesthetic": 5.0}),
+                "tags": None,
+                "captions": None,
+                "ratings": None,
+                "error": None,
+            }
+        }
+        result = worker._convert_to_annotations_dict(annotations, {"test-model": model})
+        assert len(result["scores"]) == 1
+        assert result["scores"][0]["score"] == 8.0
+
+    def test_formatted_output_fallback_for_pipeline_dict(self, mock_annotation_logic):
+        """scoresがNoneの場合、formatted_outputのAestheticShadow形式dictからスコアを抽出する。"""
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=[],
+            models=[],
+            db_manager=Mock(),
+        )
+        model = SimpleNamespace(id=2)
+        annotations = {
+            "aesthetic-shadow": {
+                "scores": None,
+                "formatted_output": {"hq": 0.9, "lq": 0.1},
+                "tags": None,
+                "captions": None,
+                "ratings": None,
+                "error": None,
+            }
+        }
+        result = worker._convert_to_annotations_dict(annotations, {"aesthetic-shadow": model})
+        assert len(result["scores"]) == 1
+        assert result["scores"][0]["model_id"] == 2
+        assert result["scores"][0]["score"] == pytest.approx(0.9)
+
+    def test_formatted_output_fallback_for_float(self, mock_annotation_logic):
+        """scoresがNoneの場合、formatted_outputの単一float値からスコアを抽出する。"""
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=[],
+            models=[],
+            db_manager=Mock(),
+        )
+        model = SimpleNamespace(id=3)
+        annotations = {
+            "cafe-predictor": {
+                "scores": None,
+                "formatted_output": 0.67,
+                "tags": None,
+                "captions": None,
+                "ratings": None,
+                "error": None,
+            }
+        }
+        result = worker._convert_to_annotations_dict(annotations, {"cafe-predictor": model})
+        assert len(result["scores"]) == 1
+        assert result["scores"][0]["model_id"] == 3
+        assert result["scores"][0]["score"] == pytest.approx(0.67)
+
+    def test_no_scores_no_formatted_output(self, mock_annotation_logic):
+        """scoresもformatted_outputも無い場合はスコアが追加されない。"""
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=[],
+            models=[],
+            db_manager=Mock(),
+        )
+        model = SimpleNamespace(id=4)
+        annotations = {
+            "tagger-model": {
+                "scores": None,
+                "formatted_output": None,
+                "tags": ["cat", "dog"],
+                "captions": None,
+                "ratings": None,
+                "error": None,
+            }
+        }
+        result = worker._convert_to_annotations_dict(annotations, {"tagger-model": model})
+        assert len(result["scores"]) == 0
 
 
 # ==============================================================================

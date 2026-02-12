@@ -11,21 +11,20 @@
 ルート conftest では genai-tag-db-tools モックと Qt 設定が済みです。
 """
 
-import pytest
-from unittest.mock import Mock, MagicMock, patch
-from PIL import Image
-import numpy as np
+from unittest.mock import MagicMock, Mock, patch
 
+import numpy as np
+import pytest
+from PIL import Image
 
 # ===== External API Mocks =====
+
 
 @pytest.fixture
 def mock_openai():
     """OpenAI API モック"""
     with patch("openai.ChatCompletion.create") as mock:
-        mock.return_value = Mock(
-            choices=[Mock(message=Mock(content="test response"))]
-        )
+        mock.return_value = Mock(choices=[Mock(message=Mock(content="test response"))])
         yield mock
 
 
@@ -44,6 +43,7 @@ def mock_anthropic():
 
 
 # ===== Dummy Data Fixtures =====
+
 
 @pytest.fixture
 def dummy_pil_image() -> Image.Image:
@@ -67,6 +67,7 @@ def dummy_image_path(tmp_path):
 
 
 # ===== Service Mocks =====
+
 
 @pytest.fixture
 def mock_config_service():
@@ -105,6 +106,7 @@ def mock_image_processor():
 
 # ===== Batch Processing Mocks =====
 
+
 @pytest.fixture
 def mock_batch_processor():
     """BatchProcessor モック"""
@@ -123,6 +125,7 @@ def mock_worker_service():
 
 
 # ===== Test Data Factories =====
+
 
 @pytest.fixture
 def sample_image_metadata():
@@ -149,6 +152,7 @@ def sample_annotation():
 
 # ===== Scope Helpers =====
 
+
 @pytest.fixture
 def isolated_temp_dir(tmp_path):
     """隔離された一時ディレクトリ"""
@@ -156,6 +160,7 @@ def isolated_temp_dir(tmp_path):
 
 
 # ===== Automatic Marker Application =====
+
 
 def pytest_collection_modifyitems(config, items):
     """tests/unit 配下のテストに @pytest.mark.unit を自動付与"""

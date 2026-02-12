@@ -282,9 +282,27 @@ class TestModelSelectionService:
 
         # モックのモデルリストに追加
         mock_db_repository.get_model_objects.return_value = [
-            Model(name="gpt-4o", provider="openai", api_model_id="gpt-4o-2024", requires_api_key=True, estimated_size_gb=None),
-            Model(name="claude-3-5-sonnet", provider="anthropic", api_model_id="claude-3-5-sonnet-20241022", requires_api_key=True, estimated_size_gb=None),
-            Model(name="wd-v1-4", provider="local", api_model_id=None, requires_api_key=False, estimated_size_gb=2.5),
+            Model(
+                name="gpt-4o",
+                provider="openai",
+                api_model_id="gpt-4o-2024",
+                requires_api_key=True,
+                estimated_size_gb=None,
+            ),
+            Model(
+                name="claude-3-5-sonnet",
+                provider="anthropic",
+                api_model_id="claude-3-5-sonnet-20241022",
+                requires_api_key=True,
+                estimated_size_gb=None,
+            ),
+            Model(
+                name="wd-v1-4",
+                provider="local",
+                api_model_id=None,
+                requires_api_key=False,
+                estimated_size_gb=2.5,
+            ),
             manual_edit_model,
         ]
 
