@@ -211,6 +211,8 @@ dev = [
     "types-toml",
     "psutil",
     "matplotlib",
+    "radon>=6.0.1",
+    "lizard>=1.21.0",
 ]
 
 [tool.hatch.metadata]
