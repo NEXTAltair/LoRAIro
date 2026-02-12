@@ -11,16 +11,17 @@ GUI テスト層の共有フィクスチャ
 このファイルは tests/conftest.py (ルート) の qapp に依存します。
 """
 
-import pytest
 from unittest.mock import Mock, patch
-from PySide6.QtWidgets import QApplication, QMessageBox
 
+import pytest
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 # ===== Qt Configuration (inherited from root) =====
 # tests/conftest.py で qapp フィクスチャと configure_qt_for_tests が
 # 既に定義されています。
 
 # ===== QMessageBox Mocking =====
+
 
 @pytest.fixture(autouse=True)
 def auto_mock_qmessagebox(monkeypatch):
@@ -30,6 +31,7 @@ def auto_mock_qmessagebox(monkeypatch):
     使用: GUI テストで QMessageBox.question() 等が呼ばれると、
     自動的に QMessageBox.Yes を返す
     """
+
     def mock_question(*args, **kwargs):
         return QMessageBox.Yes
 
@@ -49,6 +51,7 @@ def auto_mock_qmessagebox(monkeypatch):
 
 
 # ===== GUI Test Data Fixtures =====
+
 
 @pytest.fixture
 def mock_config_for_gui():
@@ -103,6 +106,7 @@ def mock_file_system_manager_for_gui():
 
 # ===== Qt Widget Test Helpers =====
 
+
 @pytest.fixture
 def sample_qt_main_config():
     """MainWindow 用のモック設定"""
@@ -128,9 +132,11 @@ def sample_qt_widget_config():
 
 # ===== Async GUI Test Helpers =====
 
+
 @pytest.fixture
 def qt_signal_waiter(qtbot):
     """Qt シグナル待機ヘルパー"""
+
     def wait_for_signal(signal, timeout=5000):
         """
         シグナルを待機
@@ -151,6 +157,7 @@ def qt_signal_waiter(qtbot):
 @pytest.fixture
 def qt_wait_condition(qtbot):
     """Qt 条件待機ヘルパー"""
+
     def wait_until(condition, timeout=5000):
         """
         条件を待機
@@ -169,6 +176,7 @@ def qt_wait_condition(qtbot):
 
 # ===== pytest-qt Configuration =====
 
+
 @pytest.fixture(scope="session")
 def qt_api():
     """pytest-qt の API バージョン設定"""
@@ -178,10 +186,12 @@ def qt_api():
 @pytest.fixture
 def qt_messaging(qtbot):
     """Qt メッセージ処理ヘルパー"""
+
     class QtMessaging:
         def process_events(self):
             """イベント処理（ただし waitUntil の使用を推奨）"""
             from PySide6.QtCore import QCoreApplication
+
             QCoreApplication.processEvents()
 
         def wait_until(self, condition, timeout=5000):
@@ -192,6 +202,7 @@ def qt_messaging(qtbot):
 
 
 # ===== Automatic Marker Application =====
+
 
 def pytest_collection_modifyitems(config, items):
     """tests/unit/gui 配下のテストに @pytest.mark.gui を自動付与"""

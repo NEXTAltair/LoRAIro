@@ -10,11 +10,12 @@ BDD テスト層の共有フィクスチャ
 このファイルは tests/conftest.py (ルート) に依存します。
 """
 
-import pytest
 from pathlib import Path
 
+import pytest
 
 # ===== BDD Context Management =====
+
 
 @pytest.fixture
 def bdd_context():
@@ -26,13 +27,10 @@ def bdd_context():
     context = {
         # 入力データ
         "inputs": {},
-
         # 実行中の状態
         "state": {},
-
         # 出力結果
         "results": {},
-
         # テスト用オブジェクト
         "fixtures": {},
     }
@@ -52,6 +50,7 @@ def bdd_test_data():
 
 # ===== Scenario Setup =====
 
+
 @pytest.fixture
 def bdd_project_setup(bdd_context, bdd_test_data):
     """BDD シナリオ用のプロジェクトセットアップ"""
@@ -68,8 +67,9 @@ def bdd_project_setup(bdd_context, bdd_test_data):
 @pytest.fixture
 def bdd_image_setup(bdd_context, bdd_test_data):
     """BDD シナリオ用の画像セットアップ"""
-    from PIL import Image
     import tempfile
+
+    from PIL import Image
 
     with tempfile.TemporaryDirectory() as tmpdir:
         images = []
@@ -86,9 +86,11 @@ def bdd_image_setup(bdd_context, bdd_test_data):
 
 # ===== Step Execution Helpers =====
 
+
 @pytest.fixture
 def step_helper():
     """ステップ実行ヘルパー"""
+
     class StepHelper:
         def assert_result(self, context, key, expected):
             """結果を検証"""
@@ -108,6 +110,7 @@ def step_helper():
 
 # ===== BDD Environment =====
 
+
 @pytest.fixture(scope="session")
 def bdd_environment():
     """BDD テスト実行環境設定"""
@@ -120,15 +123,14 @@ def bdd_environment():
 
 # ===== Scenario Markers =====
 
+
 def pytest_configure(config):
     """pytest マーカー設定"""
-    config.addinivalue_line(
-        "markers",
-        "bdd: BDD E2E テスト（Gherkin シナリオ）"
-    )
+    config.addinivalue_line("markers", "bdd: BDD E2E テスト（Gherkin シナリオ）")
 
 
 # ===== Test Cleanup =====
+
 
 @pytest.fixture(autouse=True)
 def bdd_cleanup(bdd_context):
@@ -139,6 +141,7 @@ def bdd_cleanup(bdd_context):
 
 
 # ===== Automatic Marker Application =====
+
 
 def pytest_collection_modifyitems(config, items):
     """tests/bdd 配下のテストに @pytest.mark.bdd を自動付与"""

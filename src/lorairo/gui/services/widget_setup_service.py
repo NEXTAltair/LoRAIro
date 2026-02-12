@@ -357,9 +357,7 @@ class WidgetSetupService:
             )
             # アノテーション走査用デフォルトフィルター（upscaler除外）
             # 初期状態でアップスケーラーモデルを表示しない
-            main_window.batchModelSelection.apply_filters(
-                capabilities=["caption", "tags", "scores"]
-            )
+            main_window.batchModelSelection.apply_filters(capabilities=["caption", "tags", "scores"])
             main_window._annotation_filter_connected = True
             logger.info("✅ フィルター → モデル選択 Signal接続完了")
 

@@ -12,20 +12,21 @@
 ルート conftest では genai-tag-db-tools モックと Qt 設定が済みです。
 """
 
-import pytest
 import shutil
 import tempfile
 from pathlib import Path
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
 
-from lorairo.database.schema import Base, ModelType
-from lorairo.database.db_repository import ImageRepository
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
 from lorairo.database.db_manager import ImageDatabaseManager
+from lorairo.database.db_repository import ImageRepository
+from lorairo.database.schema import Base, ModelType
 from lorairo.storage.file_system import FileSystemManager
 
-
 # ===== Database Fixtures =====
+
 
 @pytest.fixture(scope="function")
 def test_db_url() -> str:
@@ -96,6 +97,7 @@ def test_session(db_session_factory) -> Session:
 
 # ===== Repository & Manager Fixtures =====
 
+
 @pytest.fixture(scope="function")
 def test_repository(test_session) -> ImageRepository:
     """ImageRepository インスタンス"""
@@ -110,6 +112,7 @@ def test_db_manager(test_engine_with_schema) -> ImageDatabaseManager:
 
 
 # ===== Storage Fixtures =====
+
 
 @pytest.fixture(scope="function")
 def temp_storage_dir():
@@ -147,15 +150,16 @@ def fs_manager(temp_storage_dir) -> FileSystemManager:
 
 # ===== Integration Test Data Fixtures =====
 
+
 @pytest.fixture(scope="function")
 def integration_test_images(temp_storage_dir):
     """統合テスト用のサンプル画像"""
-    from PIL import Image
     import numpy as np
+    from PIL import Image
 
     images = []
     for i in range(3):
-        img = Image.new("RGB", (256, 256), color=f"#{i*100:06x}")
+        img = Image.new("RGB", (256, 256), color=f"#{i * 100:06x}")
         img_path = temp_storage_dir / f"test_image_{i}.png"
         img.save(img_path)
         images.append(img_path)
@@ -173,6 +177,7 @@ def integration_test_project(temp_storage_dir):
 
 
 # ===== Transaction & Rollback Helpers =====
+
 
 @pytest.fixture(scope="function")
 def transactional_session(test_engine_with_schema):
@@ -192,6 +197,7 @@ def transactional_session(test_engine_with_schema):
 
 
 # ===== Automatic Marker Application =====
+
 
 def pytest_collection_modifyitems(config, items):
     """tests/integration 配下のテストに @pytest.mark.integration を自動付与"""

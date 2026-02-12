@@ -5,6 +5,7 @@ GUI Layer: 非同期処理とQt進捗管理のみ担当
 """
 
 import traceback
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -21,7 +22,43 @@ if TYPE_CHECKING:
     from lorairo.database.schema import AnnotationsDict
 
 
-class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
+@dataclass
+class ModelErrorDetail:
+    """モデルエラー詳細情報"""
+
+    model_name: str
+    image_path: str
+    error_message: str
+
+
+@dataclass
+class ImageResultSummary:
+    """画像ごとのアノテーション結果概要"""
+
+    file_name: str
+    tag_count: int = 0
+    has_caption: bool = False
+    score: float | None = None
+
+
+@dataclass
+class AnnotationExecutionResult:
+    """アノテーション実行結果（サマリー付き）
+
+    Workerの実行結果と処理統計を保持する。
+    MainWindowでサマリーダイアログ表示に使用する。
+    """
+
+    results: PHashAnnotationResults
+    total_images: int
+    models_used: list[str]
+    db_save_success: int = 0
+    db_save_skip: int = 0
+    model_errors: list[ModelErrorDetail] = field(default_factory=list)
+    image_summaries: list[ImageResultSummary] = field(default_factory=list)
+
+
+class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
     """アノテーションワーカー
 
     GUI Layer: Qt非同期処理と進捗管理
@@ -93,13 +130,14 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
             except Exception as save_error:
                 logger.error(f"エラーレコード保存失敗: {image_path}, {save_error}")
 
-    def _run_annotation(self) -> PHashAnnotationResults:
+    def _run_annotation(self) -> tuple[PHashAnnotationResults, list[ModelErrorDetail]]:
         """モデル単位でアノテーションを実行し、結果をマージする。
 
         Returns:
-            PHashAnnotationResults: マージされたアノテーション結果。
+            (マージされたアノテーション結果, モデルエラー詳細リスト) のタプル。
         """
         merged_results: PHashAnnotationResults = {}
+        model_errors: list[ModelErrorDetail] = []
         total_models = len(self.models)
 
         logger.debug(f"モデル順次実行開始: {total_models}モデル = {self.models}")
@@ -140,19 +178,28 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
             except Exception as e:
                 logger.error(f"モデル {model_name} でエラー: {e}", exc_info=True)
                 self._save_error_records(e, self.image_paths, model_name=model_name)
+                # エラー詳細を収集（全画像に対するモデルレベルエラー）
+                for image_path in self.image_paths:
+                    model_errors.append(
+                        ModelErrorDetail(
+                            model_name=model_name,
+                            image_path=Path(image_path).name,
+                            error_message=str(e),
+                        )
+                    )
                 # エラーでも次のモデルに進む(部分的成功を許容)
 
         logger.debug(f"モデル順次実行完了: 最終結果={len(merged_results)}件")
-        return merged_results
+        return merged_results, model_errors
 
-    def execute(self) -> PHashAnnotationResults:
+    def execute(self) -> AnnotationExecutionResult:
         """アノテーション処理実行
 
         AnnotationLogic経由でビジネスロジックを実行し、
         進捗管理とキャンセル処理を担当する。
 
         Returns:
-            PHashAnnotationResults: アノテーション結果
+            AnnotationExecutionResult: サマリー付きアノテーション結果
 
         Raises:
             Exception: アノテーション実行エラー
@@ -164,7 +211,7 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
             self._report_progress(10, "アノテーション処理を開始...", total_count=len(self.image_paths))
             self._check_cancellation()
 
-            merged_results = self._run_annotation()
+            merged_results, model_errors = self._run_annotation()
 
             # Phase 2: DB保存(85%)
             self._report_progress(
@@ -175,7 +222,7 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
             )
             self._check_cancellation()
 
-            self._save_results_to_database(merged_results)
+            db_save_success, db_save_skip, image_summaries = self._save_results_to_database(merged_results)
 
             self._report_progress(
                 100,
@@ -185,18 +232,31 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
             )
 
             logger.info(f"アノテーション処理完了: {len(merged_results)}件の結果")
-            return merged_results
+            return AnnotationExecutionResult(
+                results=merged_results,
+                total_images=len(self.image_paths),
+                models_used=list(self.models),
+                db_save_success=db_save_success,
+                db_save_skip=db_save_skip,
+                model_errors=model_errors,
+                image_summaries=image_summaries,
+            )
 
         except Exception as e:
             logger.error(f"アノテーション処理エラー: {e}", exc_info=True)
             self._save_error_records(e, self.image_paths, model_name=None)
             raise
 
-    def _save_results_to_database(self, results: PHashAnnotationResults) -> None:
+    def _save_results_to_database(
+        self, results: PHashAnnotationResults
+    ) -> tuple[int, int, list[ImageResultSummary]]:
         """アノテーション結果をDBに保存
 
         Args:
             results: PHashAnnotationResults (phash → model_name → UnifiedResult)
+
+        Returns:
+            (DB保存成功件数, スキップ件数, 画像ごとの結果概要リスト) のタプル。
 
         Note:
             ライブラリが返したpHashをfind_image_ids_by_phashesで一括DB照会。
@@ -206,6 +266,9 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
         # 事前一括取得: pHash → image_id（N+1回避）
         phash_to_image_id = self.db_manager.repository.find_image_ids_by_phashes(set(results.keys()))
 
+        # pHash → ファイル名マッピング構築（結果概要用）
+        phash_to_filename = self._build_phash_to_filename_map(phash_to_image_id)
+
         # 事前一括取得: モデル名・タグ文字列を収集
         all_model_names, all_raw_tags = self._collect_model_names_and_tags(results)
         models_cache = self.db_manager.repository.get_models_by_names(all_model_names)
@@ -214,6 +277,9 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
         tag_id_cache = self._resolve_tag_ids_batch(all_raw_tags)
 
         success_count = 0
+        skip_count = 0
+        image_summaries: list[ImageResultSummary] = []
+
         for phash, annotations in results.items():
             try:
                 image_id = phash_to_image_id.get(phash)
@@ -221,6 +287,7 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
                     logger.warning(
                         f"pHash {phash[:8]}... に対応する画像がDBに見つかりません。スキップします。"
                     )
+                    skip_count += 1
                     continue
 
                 # 変換（キャッシュ済みモデルを使用）
@@ -228,6 +295,7 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
 
                 if not annotations_dict or not any(annotations_dict.values()):
                     logger.debug(f"画像ID {image_id} に保存するアノテーションがありません")
+                    skip_count += 1
                     continue
 
                 # DB保存（annotation_worker経路: 存在チェックスキップ + タグIDキャッシュ使用）
@@ -239,12 +307,74 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
                 )
                 success_count += 1
 
-                logger.info(f"画像ID {image_id} のアノテーション保存成功")
+                # 画像ごとの結果概要を収集
+                image_summaries.append(
+                    self._build_image_summary(phash, phash_to_filename, annotations_dict)
+                )
+
+                logger.debug(f"画像ID {image_id} のアノテーション保存成功")
 
             except Exception as e:
                 logger.error(f"保存失敗 phash={phash[:8]}...: {e}", exc_info=True)
 
         logger.info(f"DB保存完了: {success_count}/{len(results)}件成功")
+        return success_count, skip_count, image_summaries
+
+    def _build_phash_to_filename_map(self, phash_to_image_id: dict[str, int | None]) -> dict[str, str]:
+        """pHashからファイル名へのマッピングを構築する。
+
+        image_pathsリストとDB上のimage_idマッピングから、
+        phash → ファイル名の逆引きマップを作る。
+
+        Args:
+            phash_to_image_id: pHash → image_id のマッピング。
+
+        Returns:
+            pHash → ファイル名のマッピング。
+        """
+        # image_id → file_path マッピングを構築
+        image_id_to_path: dict[int, str] = {}
+        for image_path in self.image_paths:
+            image_id = self.db_manager.get_image_id_by_filepath(image_path)
+            if image_id is not None:
+                image_id_to_path[image_id] = image_path
+
+        # phash → filename マッピング
+        result: dict[str, str] = {}
+        for phash, image_id in phash_to_image_id.items():
+            if image_id is not None and image_id in image_id_to_path:
+                result[phash] = Path(image_id_to_path[image_id]).name
+            else:
+                result[phash] = phash[:12] + "..."
+        return result
+
+    @staticmethod
+    def _build_image_summary(
+        phash: str,
+        phash_to_filename: dict[str, str],
+        annotations_dict: "AnnotationsDict",
+    ) -> ImageResultSummary:
+        """AnnotationsDictから画像結果概要を構築する。
+
+        Args:
+            phash: 画像のpHash。
+            phash_to_filename: pHash → ファイル名のマッピング。
+            annotations_dict: DB保存用アノテーション辞書。
+
+        Returns:
+            画像ごとの結果概要。
+        """
+        file_name = phash_to_filename.get(phash, phash[:12] + "...")
+        tag_count = len(annotations_dict.get("tags", []))
+        has_caption = len(annotations_dict.get("captions", [])) > 0
+        scores = annotations_dict.get("scores", [])
+        score = scores[0]["score"] if scores else None
+        return ImageResultSummary(
+            file_name=file_name,
+            tag_count=tag_count,
+            has_caption=has_caption,
+            score=score,
+        )
 
     @staticmethod
     def _collect_model_names_and_tags(
@@ -318,6 +448,42 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
         if isinstance(result, dict):
             return result.get(field_name)
         return getattr(result, field_name, None)
+
+    # FIXME: Issue #6参照 - ライブラリ側でUnifiedAnnotationResult統一後に削除可能
+    @staticmethod
+    def _extract_scores_from_formatted_output(formatted_output: Any) -> dict[str, float] | None:
+        """formatted_outputからスコア辞書を抽出する。
+
+        Pipeline/CLIPモデルはUnifiedAnnotationResultの`scores`フィールドではなく
+        `formatted_output`にスコアデータを格納する旧形式のため、ここで変換する。
+
+        Args:
+            formatted_output: AnnotationResult dictのformatted_outputフィールド値。
+                UnifiedAnnotationResult, dict, float/int, またはNone。
+
+        Returns:
+            スコア辞書(name->value)。抽出できない場合はNone。
+        """
+        if formatted_output is None:
+            return None
+
+        # CLIP系: formatted_outputがUnifiedAnnotationResult → .scoresをそのまま使用
+        if hasattr(formatted_output, "scores") and isinstance(
+            getattr(formatted_output, "scores", None), dict
+        ):
+            return formatted_output.scores
+
+        # Pipeline系(AestheticShadow): dict with "hq" key → aesthetic score
+        if isinstance(formatted_output, dict) and "hq" in formatted_output:
+            hq_value = formatted_output.get("hq")
+            if isinstance(hq_value, (int, float)):
+                return {"aesthetic": float(hq_value)}
+
+        # Pipeline系(CafePredictor等): 単一float/int → aesthetic score
+        if isinstance(formatted_output, (int, float)):
+            return {"aesthetic": float(formatted_output)}
+
+        return None
 
     def _append_scores(
         self, scores: dict[str, Any] | None, model_id: int, result: "AnnotationsDict"
@@ -436,7 +602,13 @@ class AnnotationWorker(LoRAIroWorkerBase[PHashAnnotationResults]):
                 logger.warning(f"モデル '{model_name}' がDB未登録")
                 continue
 
-            self._append_scores(self._extract_field(unified_result, "scores"), model.id, result)
+            # スコア抽出: scores フィールド優先、なければ formatted_output からフォールバック (Issue #6)
+            scores = self._extract_field(unified_result, "scores")
+            if scores is None:
+                scores = self._extract_scores_from_formatted_output(
+                    self._extract_field(unified_result, "formatted_output")
+                )
+            self._append_scores(scores, model.id, result)
             self._append_tags(self._extract_field(unified_result, "tags"), model.id, result)
             self._append_captions(self._extract_field(unified_result, "captions"), model.id, result)
             self._append_ratings(self._extract_field(unified_result, "ratings"), model.id, result)

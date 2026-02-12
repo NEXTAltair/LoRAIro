@@ -774,17 +774,29 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.warning(f"ResultHandlerService未初期化 - {method_name}スキップ")
 
     def _on_annotation_finished(self, result: Any) -> None:
-        """アノテーション完了ハンドラ（キャッシュ更新付き）
+        """アノテーション完了ハンドラ（サマリーダイアログ + キャッシュ更新）
 
         Args:
-            result: PHashAnnotationResults (phash → model_name → UnifiedResult)
+            result: AnnotationExecutionResult または PHashAnnotationResults（後方互換）
 
         Note:
-            - Phase 1: ResultHandlerService経由でステータスバー通知
+            - Phase 1: サマリーダイアログ表示
             - Phase 2: 検索結果キャッシュ更新（選択中画像の詳細パネル反映）
         """
-        # Phase 1: ステータスバー通知
-        self._delegate_to_result_handler("handle_annotation_finished", result, status_bar=self.statusBar())
+        from lorairo.gui.widgets.annotation_summary_dialog import AnnotationSummaryDialog
+        from lorairo.gui.workers.annotation_worker import AnnotationExecutionResult
+
+        # Phase 1: サマリーダイアログ表示
+        if isinstance(result, AnnotationExecutionResult):
+            dialog = AnnotationSummaryDialog(result, parent=self)
+            dialog.exec()
+            raw_results = result.results
+        else:
+            # 後方互換: 旧形式の生dict
+            self._delegate_to_result_handler(
+                "handle_annotation_finished", result, status_bar=self.statusBar()
+            )
+            raw_results = result if isinstance(result, dict) else None
 
         # Phase 2: 検索結果キャッシュ更新
         # ワークスペースタブで選択中の画像がアノテーション対象に含まれていた場合、
@@ -792,9 +804,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if not self.dataset_state_manager or not self.db_manager:
             return
 
-        if result and isinstance(result, dict):
+        if raw_results and isinstance(raw_results, dict):
             try:
-                phash_to_image_id = self.db_manager.repository.find_image_ids_by_phashes(set(result.keys()))
+                phash_to_image_id = self.db_manager.repository.find_image_ids_by_phashes(
+                    set(raw_results.keys())
+                )
                 image_ids = [img_id for img_id in phash_to_image_id.values() if img_id is not None]
 
                 if image_ids:
