@@ -62,12 +62,63 @@ class ImageDatabaseManager:
     # __enter__ と __exit__ はリポジトリがセッション管理するため、ここでは不要になることが多い
     # 必要であれば、リポジトリのセッションファクトリを使う処理を追加できる
 
+    def _prepare_image_metadata(
+        self,
+        image_path: Path,
+        fsm: FileSystemManager,
+    ) -> tuple[dict[str, Any], str, Path] | None:
+        """画像メタデータの準備（メタデータ取得 + pHash計算 + ストレージ保存 + 情報追加）。
+
+        Args:
+            image_path: オリジナル画像のパス。
+            fsm: ファイルシステム操作用マネージャー。
+
+        Returns:
+            成功時は (prepared_metadata, phash, stored_path)、失敗時は None。
+
+        Raises:
+            ValueError: 画像情報が取得できない場合。
+            FileNotFoundError: pHash計算に失敗した場合。
+
+        """
+        # 1. 画像情報を取得
+        original_metadata = fsm.get_image_info(image_path)
+        if not original_metadata:
+            logger.error(f"画像情報の取得に失敗: {image_path}")
+            raise ValueError(f"画像情報の取得に失敗: {image_path}")
+
+        # 2. pHash を計算
+        try:
+            phash = calculate_phash(image_path)
+        except (ValueError, FileNotFoundError) as e:
+            logger.warning(f"画像をスキップ: {e}")
+            raise
+
+        # 3. 画像をストレージに保存
+        db_stored_original_path = fsm.save_original_image(image_path)
+        if not db_stored_original_path:
+            logger.error(f"オリジナル画像のストレージ保存に失敗: {image_path}")
+            raise ValueError(f"ストレージ保存に失敗: {image_path}")
+
+        # 4. メタデータに情報を追加
+        image_uuid = str(uuid.uuid4())
+        original_metadata.update(
+            {
+                "uuid": image_uuid,
+                "phash": phash,
+                "original_image_path": str(image_path),
+                "stored_image_path": str(db_stored_original_path),
+            },
+        )
+
+        return original_metadata, phash, db_stored_original_path
+
     def register_original_image(
         self,
         image_path: Path,
         fsm: FileSystemManager,
     ) -> tuple[int, dict[str, Any]] | None:
-        """オリジナル画像をストレージに保存し、メタデータをデータベースに登録する。
+        """オリジナル画像をDBに登録する（オーケストレータ）。
 
         重複チェック (pHash) を行い、重複があれば既存IDを返す。
 
@@ -82,55 +133,37 @@ class ImageDatabaseManager:
 
         """
         try:
-            # 1. 画像情報を取得
-            original_metadata = fsm.get_image_info(image_path)
-            if not original_metadata:
-                logger.error(f"画像情報の取得に失敗: {image_path}")
+            # 1. メタデータを準備
+            prepare_result = self._prepare_image_metadata(image_path, fsm)
+            if prepare_result is None:
                 return None
+            original_metadata, phash, db_stored_original_path = prepare_result
 
-            # 2. pHash を計算
-            try:
-                phash = calculate_phash(image_path)
-            except (ValueError, FileNotFoundError) as e:
-                logger.warning(f"画像をスキップ: {e}")
-                return None
-
-            # 3. 重複チェック (pHash)
+            # 2. 重複チェック (pHash)
             existing_id = self.repository.find_duplicate_image_by_phash(phash)
             if existing_id is not None:
                 return self._handle_duplicate_image(existing_id, image_path, fsm)
 
-            # 4. 画像をストレージに保存
-            db_stored_original_path = fsm.save_original_image(image_path)
-            if not db_stored_original_path:
-                logger.error(f"オリジナル画像のストレージ保存に失敗: {image_path}")
-                return None
-
-            # 5. メタデータに情報を追加
-            image_uuid = str(uuid.uuid4())
-            original_metadata.update(
-                {
-                    "uuid": image_uuid,
-                    "phash": phash,
-                    "original_image_path": str(image_path),
-                    "stored_image_path": str(db_stored_original_path),
-                },
-            )
-
-            # 6. データベースに挿入
+            # 3. データベースに挿入
             image_id = self.repository.add_original_image(original_metadata)
             logger.debug(f"オリジナル画像を登録しました: ID={image_id}, Path={image_path}")
 
-            # 7. 512px サムネイル画像の自動生成
+            # 4. 512px サムネイル画像の自動生成
             try:
-                self._generate_thumbnail_512px(image_id, db_stored_original_path, original_metadata, fsm)
+                self._generate_thumbnail_512px(
+                    image_id, db_stored_original_path, original_metadata, fsm
+                )
             except Exception as e:
                 logger.warning(
-                    f"512px サムネイル生成に失敗しましたが、処理を続行します: {image_path}, Error: {e}",
+                    f"512px サムネイル生成に失敗しましたが、処理を続行します: "
+                    f"{image_path}, Error: {e}",
                 )
 
             return image_id, original_metadata
 
+        except (ValueError, FileNotFoundError):
+            # 既にログが出ているため、ここでは再ログしない
+            return None
         except Exception as e:
             logger.error(
                 f"オリジナル画像の登録処理全体でエラーが発生しました: {image_path}, Error: {e}",
