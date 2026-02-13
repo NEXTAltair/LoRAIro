@@ -47,9 +47,13 @@ class TestSearchCriteriaProcessor:
         assert results[0]["id"] == 1
         assert results[1]["id"] == 2
 
-        # DB呼び出しの引数を厳密に検証
-        expected_db_args = conditions.to_db_filter_args()
-        mock_db_manager.get_images_by_filter.assert_called_once_with(**expected_db_args)
+        # DB呼び出しの引数を検証（ImageFilterCriteria使用）
+        mock_db_manager.get_images_by_filter.assert_called_once()
+        call_kwargs = mock_db_manager.get_images_by_filter.call_args.kwargs
+        criteria = call_kwargs.get("criteria")
+        assert criteria is not None
+        assert criteria.tags == ["test", "tag"]
+        assert criteria.use_and is True
 
     def test_search_conditions_to_db_filter_args(self, processor):
         """SearchConditions.to_db_filter_args() のテスト"""
@@ -373,9 +377,14 @@ class TestSearchCriteriaProcessorIntegration:
         # 検索実行
         results, count = processor.execute_search_with_filters(conditions)
 
-        # DB呼び出しの引数を厳密に検証
-        expected_db_args = conditions.to_db_filter_args()
-        mock_db_manager.get_images_by_filter.assert_called_once_with(**expected_db_args)
+        # DB呼び出しの引数を検証（ImageFilterCriteria使用）
+        mock_db_manager.get_images_by_filter.assert_called_once()
+        call_kwargs = mock_db_manager.get_images_by_filter.call_args.kwargs
+        criteria = call_kwargs.get("criteria")
+        assert criteria is not None
+        assert criteria.tags == ["anime", "girl"]
+        assert criteria.use_and is True
+        assert criteria.resolution == 1024
 
         # フロントエンドフィルター適用後の結果確認
         assert count == 1  # 正方形のみ

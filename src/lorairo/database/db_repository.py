@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, selectinload, sessionmaker
 
 from ..utils.log import logger
 from .db_core import DefaultSessionLocal
+from .filter_criteria import ImageFilterCriteria
 from .schema import (
     Caption,
     ErrorRecord,
@@ -2484,71 +2485,50 @@ class ImageRepository:
 
     def get_images_by_filter(
         self,
-        tags: list[str] | None = None,
-        caption: str | None = None,
-        resolution: int = 0,
-        use_and: bool = True,
-        start_date: str | None = None,
-        end_date: str | None = None,
-        include_untagged: bool = False,
-        include_nsfw: bool = False,
-        include_unrated: bool = True,
-        manual_rating_filter: str | None = None,
-        ai_rating_filter: str | None = None,
-        manual_edit_filter: bool | None = None,
-        score_min: float | None = None,
-        score_max: float | None = None,
+        criteria: ImageFilterCriteria | None = None,
+        **kwargs: Any,
     ) -> tuple[list[dict[str, Any]], int]:
         """指定された条件に基づいて画像をフィルタリングし、メタデータと件数を返す。
 
         Args:
-            tags: 検索するタグのリスト。
-            caption: 検索するキャプション文字列。
-            resolution: 検索対象の解像度(長辺)。0の場合はオリジナル画像。
-            use_and: 複数タグ指定時の検索方法 (True: AND, False: OR)。
-            start_date: 検索開始日時 (ISO 8601形式)。
-            end_date: 検索終了日時 (ISO 8601形式)。
-            include_untagged: タグが付いていない画像のみを対象とするか。
-            include_nsfw: NSFWコンテンツを含む画像を除外しないか。
-            include_unrated: 未評価画像を含めるか。
-            manual_rating_filter: 指定した手動レーティングを持つ画像のみを対象とするか。
-            ai_rating_filter: 指定したAI評価レーティングフィルタ。
-            manual_edit_filter: アノテーションが手動編集されたかでフィルタするか。
-            score_min: 最小スコア値（0.0-10.0）。
-            score_max: 最大スコア値（0.0-10.0）。
+            criteria: ImageFilterCriteria形式のフィルター条件（推奨）
+            **kwargs: レガシー形式のキーワード引数（後方互換性用）
 
         Returns:
             条件にマッチした画像メタデータのリストとその総数。
-
         """
+        # criteriaが指定されていればそれを使用、なければkwargsから生成
+        filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
+
         # 型安全性チェック: resolution が文字列の場合は int に変換
-        if isinstance(resolution, str):
+        if isinstance(filter_criteria.resolution, str):
             try:
-                resolution = int(resolution)
+                filter_criteria.resolution = int(filter_criteria.resolution)
                 logger.warning(
-                    f"解像度パラメータが文字列として渡されました: '{resolution}' -> {resolution}",
+                    f"解像度パラメータが文字列として渡されました: '{filter_criteria.resolution}' -> "
+                    f"{filter_criteria.resolution}",
                 )
             except ValueError:
-                logger.error(f"解像度パラメータの変換に失敗しました: '{resolution}'")
+                logger.error(f"解像度パラメータの変換に失敗しました: '{filter_criteria.resolution}'")
                 return [], 0
 
         with self.session_factory() as session:
             try:
                 query = self._build_image_filter_query(
                     session=session,
-                    tags=tags,
-                    caption=caption,
-                    use_and=use_and,
-                    start_date=start_date,
-                    end_date=end_date,
-                    include_untagged=include_untagged,
-                    include_nsfw=include_nsfw,
-                    include_unrated=include_unrated,
-                    manual_rating_filter=manual_rating_filter,
-                    ai_rating_filter=ai_rating_filter,
-                    manual_edit_filter=manual_edit_filter,
-                    score_min=score_min,
-                    score_max=score_max,
+                    tags=filter_criteria.tags,
+                    caption=filter_criteria.caption,
+                    use_and=filter_criteria.use_and,
+                    start_date=filter_criteria.start_date,
+                    end_date=filter_criteria.end_date,
+                    include_untagged=filter_criteria.include_untagged,
+                    include_nsfw=filter_criteria.include_nsfw,
+                    include_unrated=filter_criteria.include_unrated,
+                    manual_rating_filter=filter_criteria.manual_rating_filter,
+                    ai_rating_filter=filter_criteria.ai_rating_filter,
+                    manual_edit_filter=filter_criteria.manual_edit_filter,
+                    score_min=filter_criteria.score_min,
+                    score_max=filter_criteria.score_max,
                 )
 
                 filtered_image_ids: list[int] = list(session.execute(query).scalars().all())
@@ -2559,7 +2539,9 @@ class ImageRepository:
 
                 logger.debug(f"フィルタリングで {len(filtered_image_ids)} 件の候補画像IDを取得しました。")
 
-                final_metadata_list = self._fetch_filtered_metadata(session, filtered_image_ids, resolution)
+                final_metadata_list = self._fetch_filtered_metadata(
+                    session, filtered_image_ids, filter_criteria.resolution
+                )
                 list_count = len(final_metadata_list)
                 logger.info(f"最終的な検索結果: {list_count} 件")
 

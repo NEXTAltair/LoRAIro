@@ -58,9 +58,9 @@ class SearchCriteriaProcessor:
                 "exclude_duplicates": conditions.exclude_duplicates,
             }
 
-            # DB検索実行（直接変換）
-            db_args = conditions.to_db_filter_args()
-            images, total_count = self.db_manager.get_images_by_filter(**db_args)
+            # DB検索実行（ImageFilterCriteria使用）
+            filter_criteria = conditions.to_filter_criteria()
+            images, total_count = self.db_manager.get_images_by_filter(criteria=filter_criteria)
 
             # フロントエンドフィルター適用（必要時のみ）
             applied_frontend_filters = any(frontend_filters.values())
@@ -70,8 +70,7 @@ class SearchCriteriaProcessor:
             # DB検索のみの場合はDB総件数を返す。フロントエンドフィルター適用時は件数が変わるためlen(images)を返す。
             reported_count = len(images) if applied_frontend_filters else total_count
             logger.info(
-                "検索実行完了: DB引数=%s項目, 結果件数=%s, 総件数=%s, frontend_filter=%s",
-                len(db_args),
+                "検索実行完了: 結果件数=%s, 総件数=%s, frontend_filter=%s",
                 len(images),
                 total_count,
                 applied_frontend_filters,
