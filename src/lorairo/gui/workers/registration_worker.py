@@ -39,7 +39,17 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         self.file_reader = ExistingFileReader()
 
     def execute(self) -> DatabaseRegistrationResult:
-        """データベース登録処理を実行"""
+        """データベース登録処理を実行
+
+        指定ディレクトリ内の画像ファイルを検索し、重複チェックを行った後に
+        データベースへの登録を実行する。進捗状況は定期的に報告される。
+
+        Returns:
+            DatabaseRegistrationResult: 登録結果（成功数、スキップ数、エラー数、処理時間）
+
+        Raises:
+            RuntimeError: 処理がキャンセルされた場合
+        """
         import time
 
         start_time = time.time()
@@ -55,11 +65,9 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
 
         logger.info(f"登録対象画像: {total_count}件")
 
-        # 進捗初期化
-        registered = 0
-        skipped = 0
-        errors = 0
-        processed_paths = []
+        # 統計情報初期化
+        stats = {"registered": 0, "skipped": 0, "errors": 0}
+        processed_paths: list[Path] = []
 
         # バッチ処理開始
         self._report_progress(10, f"バッチ登録開始: {total_count}件")
@@ -69,42 +77,16 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             self._check_cancellation()
 
             try:
-                # バッチ進捗報告
-                self._report_batch_progress(i + 1, total_count, image_path.name)
+                # 単一画像の登録処理
+                result_type, _ = self._register_single_image(image_path, i, total_count)
 
-                # 重複チェック
-                duplicate_image_id = self.db_manager.detect_duplicate_image(image_path)
-                if duplicate_image_id:
-                    # 重複画像でも関連ファイル（.txt/.caption）を処理
-                    self._process_associated_files(image_path, duplicate_image_id)
-                    skipped += 1
-                    logger.debug(f"スキップ (重複): {image_path} - 関連ファイルは処理")
-                else:
-                    # データベース登録
-                    result = self.db_manager.register_original_image(image_path, self.fsm)
-                    if result:
-                        image_id, _ = result
-                        # 関連ファイル（.txt/.caption）の処理
-                        self._process_associated_files(image_path, image_id)
-                        registered += 1
-                        processed_paths.append(image_path)
-                        logger.debug(f"登録完了: {image_path}")
-                    else:
-                        errors += 1
-                        logger.error(f"画像登録失敗: {image_path}")
-
-                # 進捗報告（ProgressHelper使用）
-                percentage = ProgressHelper.calculate_percentage(i + 1, total_count, 10, 85)  # 10-95%
-                self._report_progress(
-                    percentage,
-                    f"登録中: {image_path.name}",
-                    current_item=str(image_path),
-                    processed_count=i + 1,
-                    total_count=total_count,
-                )
+                # 統計情報更新
+                stats[result_type] += 1
+                if result_type == "registered":
+                    processed_paths.append(image_path)
 
             except Exception as e:
-                errors += 1
+                stats["errors"] += 1
                 logger.error(f"画像登録エラー: {image_path}, {e}")
 
                 # エラーレコード保存（二次エラー対策付き）
@@ -113,7 +95,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
                         operation_type="registration",
                         error_type=type(e).__name__,
                         error_message=str(e),
-                        image_id=None,  # まだ登録されていない
+                        image_id=None,
                         stack_trace=traceback.format_exc(),
                         file_path=str(image_path),
                         model_name=None,
@@ -122,20 +104,94 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
                     logger.error(f"エラーレコード保存失敗（二次エラー）: {save_error}")
 
         # 完了処理
-        processing_time = time.time() - start_time
         self._report_progress(100, "データベース登録完了")
+        return self._build_registration_result(stats, processed_paths, start_time)
+
+    def _register_single_image(self, image_path: Path, i: int, total_count: int) -> tuple[str, int]:
+        """単一画像の登録処理を実行
+
+        重複検出を行い、重複していない場合はデータベースに登録する。
+        重複している場合でも関連ファイル（.txt/.caption）は処理される。
+
+        Args:
+            image_path: 登録対象の画像ファイルパス
+            i: 現在の処理インデックス（0始まり）
+            total_count: 処理対象の総画像数
+
+        Returns:
+            tuple[str, int]: (result_type, image_id)
+                - result_type: "registered"|"skipped"|"error"
+                - image_id: 登録されたID、失敗時は-1
+        """
+        # バッチ進捗報告
+        self._report_batch_progress(i + 1, total_count, image_path.name)
+
+        # 重複チェック
+        duplicate_image_id = self.db_manager.detect_duplicate_image(image_path)
+        if duplicate_image_id:
+            # 重複画像でも関連ファイル（.txt/.caption）を処理
+            self._process_associated_files(image_path, duplicate_image_id)
+            logger.debug(f"スキップ (重複): {image_path} - 関連ファイルは処理")
+            result_type = "skipped"
+            image_id = duplicate_image_id
+        else:
+            # データベース登録
+            result = self.db_manager.register_original_image(image_path, self.fsm)
+            if result:
+                image_id, _ = result
+                # 関連ファイル（.txt/.caption）の処理
+                self._process_associated_files(image_path, image_id)
+                logger.debug(f"登録完了: {image_path}")
+                result_type = "registered"
+            else:
+                logger.error(f"画像登録失敗: {image_path}")
+                result_type = "error"
+                image_id = -1
+
+        # 進捗報告（ProgressHelper使用）
+        percentage = ProgressHelper.calculate_percentage(i + 1, total_count, 10, 85)  # 10-95%
+        self._report_progress(
+            percentage,
+            f"登録中: {image_path.name}",
+            current_item=str(image_path),
+            processed_count=i + 1,
+            total_count=total_count,
+        )
+
+        return result_type, image_id
+
+    def _build_registration_result(
+        self, stats: dict[str, int], processed_paths: list[Path], start_time: float
+    ) -> DatabaseRegistrationResult:
+        """登録結果オブジェクトを構築
+
+        処理統計情報と経過時間から最終的な登録結果を構築し、
+        サマリーログを出力する。
+
+        Args:
+            stats: 処理統計情報（registered, skipped, errors）
+            processed_paths: 登録成功した画像パスのリスト
+            start_time: 処理開始時刻（time.time()）
+
+        Returns:
+            DatabaseRegistrationResult: 登録結果オブジェクト
+        """
+        import time
+
+        processing_time = time.time() - start_time
 
         registration_result = DatabaseRegistrationResult(
-            registered_count=registered,
-            skipped_count=skipped,
-            error_count=errors,
+            registered_count=stats["registered"],
+            skipped_count=stats["skipped"],
+            error_count=stats["errors"],
             processed_paths=processed_paths,
             total_processing_time=processing_time,
         )
 
+        # バッチサマリーログ（INFOレベル）
         logger.info(
-            f"データベース登録完了: 登録={registered}, スキップ={skipped}, "
-            f"エラー={errors}, 処理時間={processing_time:.2f}秒"
+            f"データベース登録完了: 登録={stats['registered']}, スキップ={stats['skipped']}, "
+            f"エラー={stats['errors']}, 処理時間={processing_time:.2f}秒"
         )
 
         return registration_result

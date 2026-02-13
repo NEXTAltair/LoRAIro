@@ -23,7 +23,7 @@ Notes:
 - filters and query are combined into a structured prompt.
 """
 
-from ltm_common import DATA_SOURCE_ID, DEFAULT_PAGE_SIZE, query_via_responses, read_stdin_json, out_text
+from ltm_common import DATA_SOURCE_ID, DEFAULT_PAGE_SIZE, out_text, query_via_responses, read_stdin_json
 
 
 def _build_prompt(inp: dict) -> str:
