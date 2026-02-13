@@ -64,9 +64,11 @@ class TestAIRatingFilterIntegration:
         mock_repository.get_images_by_filter.assert_called_once()
         call_kwargs = mock_repository.get_images_by_filter.call_args.kwargs
 
-        # 新しいパラメータが正しく渡されている
-        assert call_kwargs["ai_rating_filter"] == "PG"
-        assert call_kwargs["include_unrated"] is False
+        # ImageFilterCriteria オブジェクトから値を確認
+        criteria = call_kwargs.get("criteria")
+        assert criteria is not None, "criteria should be passed"
+        assert criteria.ai_rating_filter == "PG"
+        assert criteria.include_unrated is False
 
     def test_priority_based_filtering_flow(self, criteria_processor, mock_repository):
         """優先順位ベースフィルタリングの完全フロー"""
@@ -86,9 +88,11 @@ class TestAIRatingFilterIntegration:
         mock_repository.get_images_by_filter.assert_called_once()
         call_kwargs = mock_repository.get_images_by_filter.call_args.kwargs
 
-        # 両方のパラメータが渡される（優先順位はRepository層で処理）
-        assert call_kwargs["manual_rating_filter"] == "PG"
-        assert call_kwargs["ai_rating_filter"] == "R"
+        # ImageFilterCriteria オブジェクトから値を確認
+        criteria = call_kwargs.get("criteria")
+        assert criteria is not None
+        assert criteria.manual_rating_filter == "PG"
+        assert criteria.ai_rating_filter == "R"
 
     def test_include_unrated_parameter_flow(self, criteria_processor, mock_repository):
         """include_unrated パラメータの完全フロー"""
@@ -104,7 +108,9 @@ class TestAIRatingFilterIntegration:
         mock_repository.get_images_by_filter.assert_called_once()
         call_kwargs = mock_repository.get_images_by_filter.call_args.kwargs
 
-        assert call_kwargs["include_unrated"] is False
+        criteria = call_kwargs.get("criteria")
+        assert criteria is not None
+        assert criteria.include_unrated is False
 
     def test_default_values_flow(self, criteria_processor, mock_repository):
         """デフォルト値の完全フロー"""
@@ -121,9 +127,10 @@ class TestAIRatingFilterIntegration:
         mock_repository.get_images_by_filter.assert_called_once()
         call_kwargs = mock_repository.get_images_by_filter.call_args.kwargs
 
-        # デフォルト値が正しく渡される
-        assert call_kwargs["ai_rating_filter"] is None
-        assert call_kwargs["include_unrated"] is True
+        criteria = call_kwargs.get("criteria")
+        assert criteria is not None
+        assert criteria.ai_rating_filter is None
+        assert criteria.include_unrated is True
 
     def test_nsfw_and_ai_rating_interaction_flow(self, criteria_processor, mock_repository):
         """NSFW と AI レーティングフィルタの相互作用フロー"""
@@ -140,9 +147,10 @@ class TestAIRatingFilterIntegration:
         mock_repository.get_images_by_filter.assert_called_once()
         call_kwargs = mock_repository.get_images_by_filter.call_args.kwargs
 
-        # 両方のパラメータが正しく渡される
-        assert call_kwargs["ai_rating_filter"] == "R"
-        assert call_kwargs["include_nsfw"] is False
+        criteria = call_kwargs.get("criteria")
+        assert criteria is not None
+        assert criteria.ai_rating_filter == "R"
+        assert criteria.include_nsfw is False
 
 
 class TestManagerLayerParameterForwarding:
@@ -150,17 +158,16 @@ class TestManagerLayerParameterForwarding:
 
     def test_manager_forwards_all_new_parameters(self, mock_repository):
         """Manager が新しいパラメータをすべて Repository に転送"""
-        # Mock Manager を使用
-        manager = Mock(spec=ImageDatabaseManager)
-        manager.repository = mock_repository
+        # 実際のManager（モックRepositoryを使用）を作成
+        from lorairo.services.configuration_service import ConfigurationService
 
-        # Managerの実際のメソッドを模倣
-        def get_images_by_filter_wrapper(**kwargs):
-            return mock_repository.get_images_by_filter(**kwargs)
+        config_service = MagicMock(spec=ConfigurationService)
+        manager = ImageDatabaseManager(
+            repository=mock_repository,
+            config_service=config_service,
+        )
 
-        manager.get_images_by_filter = Mock(side_effect=get_images_by_filter_wrapper)
-
-        # 新しいパラメータを含めて呼び出し
+        # 新しいパラメータを含めて呼び出し（レガシー形式）
         manager.get_images_by_filter(
             tags=["test"],
             ai_rating_filter="PG",
@@ -169,8 +176,18 @@ class TestManagerLayerParameterForwarding:
 
         # Repository が正しいパラメータで呼ばれた
         mock_repository.get_images_by_filter.assert_called_once()
-        call_kwargs = mock_repository.get_images_by_filter.call_args.kwargs
 
-        assert call_kwargs["tags"] == ["test"]
-        assert call_kwargs["ai_rating_filter"] == "PG"
-        assert call_kwargs["include_unrated"] is False
+        # ImageFilterCriteria オブジェクトから値を確認（後方互換性）
+        # Managerは位置引数で渡すか、キーワード引数で渡すかを確認
+        call_args = mock_repository.get_images_by_filter.call_args
+        if call_args.kwargs:
+            # キーワード引数で渡された場合
+            criteria = call_args.kwargs.get("criteria")
+        else:
+            # 位置引数で渡された場合
+            criteria = call_args.args[0] if call_args.args else None
+
+        assert criteria is not None, f"criteria should be passed, got args={call_args.args}, kwargs={call_args.kwargs}"
+        assert criteria.tags == ["test"]
+        assert criteria.ai_rating_filter == "PG"
+        assert criteria.include_unrated is False

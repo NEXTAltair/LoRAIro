@@ -20,6 +20,7 @@ from .db_repository import (
     ScoreAnnotationData,
     TagAnnotationData,
 )
+from .filter_criteria import ImageFilterCriteria
 
 if TYPE_CHECKING:
     from ..services.configuration_service import ConfigurationService
@@ -571,61 +572,22 @@ class ImageDatabaseManager:
 
     def get_images_by_filter(
         self,
-        tags: list[str] | None = None,
-        caption: str | None = None,
-        resolution: int = 0,
-        use_and: bool = True,
-        start_date: str | None = None,
-        end_date: str | None = None,
-        include_untagged: bool = False,
-        include_nsfw: bool = False,
-        include_unrated: bool = True,
-        manual_rating_filter: str | None = None,
-        ai_rating_filter: str | None = None,
-        manual_edit_filter: bool | None = None,
-        score_min: float | None = None,
-        score_max: float | None = None,
+        criteria: ImageFilterCriteria | None = None,
+        **kwargs: Any,
     ) -> tuple[list[dict[str, Any]], int]:
         """指定された条件に基づいて画像をフィルタリングし、メタデータと件数を返します。
 
         Args:
-            tags: 検索するタグのリスト
-            caption: 検索するキャプション文字列
-            resolution: 検索対象の解像度(長辺)、0の場合はオリジナル画像
-            use_and: 複数タグ指定時の検索方法 (True: AND, False: OR)
-            start_date: 検索開始日時 (ISO 8601形式)
-            end_date: 検索終了日時 (ISO 8601形式)
-            include_untagged: タグが付いていない画像のみを対象とするか
-            include_nsfw: NSFWコンテンツを含む画像を除外しないか
-            include_unrated: 未評価画像を含めるか (False: 手動またはAI評価のいずれか1つ以上を持つ画像のみ)
-            manual_rating_filter: 指定した手動レーティングを持つ画像のみを対象とするか
-            ai_rating_filter: 指定したAI評価レーティングを持つ画像のみを対象とするか (多数決ロジック)
-            manual_edit_filter: アノテーションが手動編集されたかでフィルタするか
-            score_min: 最小スコア値（0.0-10.0）
-            score_max: 最大スコア値（0.0-10.0）
+            criteria: ImageFilterCriteria形式のフィルター条件（推奨）
+            **kwargs: レガシー形式のキーワード引数（後方互換性用）
 
         Returns:
             tuple: (画像メタデータのリスト, 総数)
-
         """
         try:
-            # 引数をそのままリポジトリに渡す
-            return self.repository.get_images_by_filter(
-                tags=tags,
-                caption=caption,
-                resolution=resolution,
-                use_and=use_and,
-                start_date=start_date,
-                end_date=end_date,
-                include_untagged=include_untagged,
-                include_nsfw=include_nsfw,
-                include_unrated=include_unrated,
-                manual_rating_filter=manual_rating_filter,
-                ai_rating_filter=ai_rating_filter,
-                manual_edit_filter=manual_edit_filter,
-                score_min=score_min,
-                score_max=score_max,
-            )
+            # criteriaが指定されていればそれを使用、なければkwargsから生成
+            filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
+            return self.repository.get_images_by_filter(filter_criteria)
         except Exception as e:
             logger.error(f"画像フィルタリング検索中にエラーが発生しました: {e}", exc_info=True)
             raise
