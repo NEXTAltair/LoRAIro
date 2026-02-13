@@ -189,7 +189,7 @@ class ImageDatabaseManager:
         original_metadata: dict[str, Any],
         fsm: FileSystemManager,
     ) -> None:
-        """512px サムネイル画像を生成し、データベースに登録します。
+        """512px サムネイル画像を生成し、データベースに登録するオーケストレータ。
 
         Args:
             image_id (int): 元画像のID
@@ -198,61 +198,28 @@ class ImageDatabaseManager:
             fsm (FileSystemManager): ファイルシステムマネージャー
 
         """
-        # 元画像サイズを確認（アップスケール対応のため512px以下もスキップしない）
         original_width = original_metadata.get("width", 0)
         original_height = original_metadata.get("height", 0)
         logger.debug(f"512px画像生成開始: ID={image_id}, 元サイズ={original_width}x{original_height}")
 
         try:
-            # ImageProcessingManager を使用して512px解像度で処理（アップスケール対応）
-            from ..editor.image_processor import ImageProcessingManager
-
-            target_resolution = 512
-            preferred_resolutions = [(512, 512)]  # 基本的な512x512解像度
-
-            # 一時的なImageProcessingManagerを作成（ConfigurationService注入対応）
-            ipm = ImageProcessingManager(fsm, target_resolution, preferred_resolutions, self.config_service)
-
-            # アップスケーラー設定を取得（設定サービスから）
-            image_processing_config = self.config_service.get_image_processing_config()
-            upscaler = image_processing_config.get("upscaler", "RealESRGAN_x4plus")
-
-            # 画像処理を実行（アップスケール情報付き）
-            has_alpha = original_metadata.get("has_alpha", False)
-            mode = original_metadata.get("mode", "RGB")
-            processed_image, processing_metadata = ipm.process_image(
-                original_path,
-                has_alpha,
-                mode,
-                upscaler=upscaler,
-            )
-
-            if not processed_image:
-                # アップスケール後もサイズ不足等で処理できなかった場合はスキップ扱い
-                logger.debug(
-                    f"512pxサムネイル生成をスキップ: 元画像ID={image_id} (画像が小さすぎるか処理不可)",
-                )
+            # ステップ1: 画像処理と保存
+            result = self._create_and_save_thumbnail(image_id, original_path, original_metadata, fsm)
+            if result is None:
+                # 画像処理に失敗（スキップ扱い）
                 return
 
-            # 512px画像を保存
-            processed_path = fsm.save_processed_image(processed_image, original_path, target_resolution)
+            processed_path, processing_metadata = result
 
-            # 処理済み画像のメタデータを取得
-            processed_metadata = fsm.get_image_info(processed_path)
-
-            # アップスケール情報をメタデータに追加
-            if processing_metadata.get("was_upscaled", False):
-                processed_metadata["upscaler_used"] = processing_metadata.get("upscaler_used")
-                logger.info(
-                    f"512px生成時にアップスケールを実行: {processing_metadata.get('upscaler_used')}",
-                )
-
-            # データベースに512px画像を登録
-            processed_id = self.register_processed_image(image_id, processed_path, processed_metadata)
+            # ステップ2: DB登録
+            processed_id = self._register_thumbnail_in_db(
+                image_id, processed_path, processing_metadata, original_path, fsm
+            )
 
             if processed_id:
                 logger.debug(
-                    f"512px サムネイル画像を生成・登録しました: 元画像ID={image_id}, 処理済みID={processed_id}, Path={processed_path.name}",
+                    f"512px サムネイル画像を生成・登録しました: 元画像ID={image_id}, "
+                    f"処理済みID={processed_id}, Path={processed_path.name}",
                 )
             else:
                 logger.warning(
@@ -265,6 +232,102 @@ class ImageDatabaseManager:
                 exc_info=True,
             )
             raise
+
+    def _create_and_save_thumbnail(
+        self,
+        image_id: int,
+        original_path: Path,
+        original_metadata: dict[str, Any],
+        fsm: FileSystemManager,
+    ) -> tuple[Path, dict[str, Any]] | None:
+        """画像処理と保存を行う。
+
+        ImageProcessingManager を使用して512px解像度で処理（アップスケール対応）し、
+        処理済み画像をファイルシステムに保存します。
+
+        Args:
+            image_id (int): 元画像のID（ログ出力用）
+            original_path (Path): 保存されたオリジナル画像のパス
+            original_metadata (dict[str, Any]): 元画像のメタデータ
+            fsm (FileSystemManager): ファイルシステムマネージャー
+
+        Returns:
+            tuple[Path, dict[str, Any]] | None: (処理済み画像パス, 処理メタデータ) の
+            タプル。処理不可な場合は None。
+
+        """
+        from ..editor.image_processor import ImageProcessingManager
+
+        target_resolution = 512
+        preferred_resolutions = [(512, 512)]
+
+        # ImageProcessingManager を作成（ConfigurationService注入対応）
+        ipm = ImageProcessingManager(fsm, target_resolution, preferred_resolutions, self.config_service)
+
+        # アップスケーラー設定を取得
+        image_processing_config = self.config_service.get_image_processing_config()
+        upscaler = image_processing_config.get("upscaler", "RealESRGAN_x4plus")
+
+        # 画像処理を実行
+        has_alpha = original_metadata.get("has_alpha", False)
+        mode = original_metadata.get("mode", "RGB")
+        processed_image, processing_metadata = ipm.process_image(
+            original_path,
+            has_alpha,
+            mode,
+            upscaler=upscaler,
+        )
+
+        if not processed_image:
+            # アップスケール後もサイズ不足等で処理できなかった場合
+            logger.debug(
+                f"512pxサムネイル生成をスキップ: 元画像ID={image_id} (画像が小さすぎるか処理不可)",
+            )
+            return None
+
+        # 512px画像をファイルシステムに保存
+        processed_path = fsm.save_processed_image(processed_image, original_path, target_resolution)
+
+        return processed_path, processing_metadata
+
+    def _register_thumbnail_in_db(
+        self,
+        image_id: int,
+        processed_path: Path,
+        processing_metadata: dict[str, Any],
+        original_path: Path,
+        fsm: FileSystemManager,
+    ) -> int | None:
+        """処理済み画像をデータベースに登録する。
+
+        処理済み画像のメタデータを取得し、アップスケール情報を付加してから、
+        register_processed_image を使用してDB登録します。
+
+        Args:
+            image_id (int): 元画像のID
+            processed_path (Path): 処理済み画像の保存パス
+            processing_metadata (dict[str, Any]): 画像処理メタデータ（アップスケール情報含む）
+            original_path (Path): オリジナル画像パス（ログ出力用）
+            fsm (FileSystemManager): ファイルシステムマネージャー
+
+        Returns:
+            int | None: 登録された処理済み画像ID。登録失敗時は None。
+
+        """
+        # 処理済み画像のメタデータを取得
+        processed_metadata = fsm.get_image_info(processed_path)
+
+        # アップスケール情報をメタデータに追加
+        if processing_metadata.get("was_upscaled", False):
+            processed_metadata["upscaler_used"] = processing_metadata.get("upscaler_used")
+            logger.info(
+                f"512px生成時にアップスケールを実行: {processing_metadata.get('upscaler_used')}",
+            )
+
+        # データベースに512px画像を登録
+        processed_id = self.register_processed_image(image_id, processed_path, processed_metadata)
+
+        return processed_id
 
     def register_processed_image(
         self,
