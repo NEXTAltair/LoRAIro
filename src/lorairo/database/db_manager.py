@@ -943,6 +943,69 @@ class ImageDatabaseManager:
             )
             return None
 
+    def _parse_annotation_timestamp(self, update_time: datetime | str) -> datetime | None:
+        """アノテーションのタイムスタンプをパースする。
+
+        datetime オブジェクトまたは ISO 形式文字列からタイムスタンプを抽出し、
+        タイムゾーン情報を付与します。naive datetime は UTC として扱います。
+
+        Args:
+            update_time: datetime オブジェクトまたは ISO 形式文字列。
+
+        Returns:
+            datetime | None: UTC タイムゾーン付きの datetime、またはパース失敗時は None。
+
+        """
+        if isinstance(update_time, datetime):
+            dt = update_time
+        elif isinstance(update_time, str):
+            try:
+                dt = datetime.fromisoformat(update_time.replace("Z", "+00:00"))
+            except ValueError:
+                logger.warning(f"不正な updated_at 文字列: {update_time}")
+                return None
+        else:
+            return None
+
+        # naive datetime の場合、UTC と仮定
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+
+        return dt
+
+    def _find_latest_annotation_timestamp(
+        self,
+        annotations: dict[str, list[dict[str, Any]]],
+    ) -> datetime | None:
+        """全アノテーションから最新の更新日時を検索する。
+
+        タグ、キャプション、スコア、レーティング全体をスキャンして
+        最新の更新タイムスタンプを取得します。有効なタイムスタンプが
+        見つからない場合は None を返します。
+
+        Args:
+            annotations: 'tags', 'captions', 'scores', 'ratings' キーを持つ辞書。
+
+        Returns:
+            datetime | None: UTC タイムゾーン付きの最新更新日時、または見つからない場合は None。
+
+        """
+        all_updates: list[datetime] = []
+
+        # スキャン: 全アノテーションから更新日時を抽出
+        for key in annotations:
+            for item in annotations[key]:
+                if isinstance(item, dict) and "updated_at" in item:
+                    parsed_dt = self._parse_annotation_timestamp(item["updated_at"])
+                    if parsed_dt:
+                        all_updates.append(parsed_dt)
+
+        if not all_updates:
+            logger.info("アノテーションに有効な更新日時が見つかりませんでした。")
+            return None
+
+        return max(all_updates)
+
     def filter_recent_annotations(
         self,
         annotations: dict[str, list[dict[str, Any]]],
@@ -952,79 +1015,42 @@ class ImageDatabaseManager:
         'updated_at' フィールドが存在しないアノテーションは無視されます。
 
         Args:
-            annotations (dict): 'tags', 'captions', 'scores', 'ratings' キーを持つアノテーション辞書。
-                                各値はアノテーション情報の辞書のリスト。
+            annotations (dict): 'tags', 'captions', 'scores', 'ratings' キーを持つ
+                                アノテーション辞書。各値はアノテーション情報の辞書のリスト。
             minutes_threshold (int): 最新の更新時刻から遡る時間(分)。デフォルトは5分。
 
         Returns:
             dict: フィルタリングされたアノテーション辞書。
 
         """
+        # 初期化
         filtered_annotations: dict[str, list[dict[str, Any]]] = {
             "tags": [],
             "captions": [],
             "scores": [],
             "ratings": [],
-        }  # 型ヒントを追加
+        }
 
-        # 1. 全アノテーションから最新の更新日時を見つける
-        all_updates = []
-        for key in annotations:
-            for item in annotations[key]:
-                if isinstance(item, dict) and "updated_at" in item:
-                    # SQLAlchemy は datetime オブジェクトを返すはず
-                    update_time = item["updated_at"]
-                    if isinstance(update_time, datetime):
-                        all_updates.append(update_time)
-                    elif isinstance(update_time, str):  # 文字列の場合も考慮 (念のため)
-                        try:
-                            dt = datetime.fromisoformat(
-                                update_time.replace("Z", "+00:00"),
-                            )  # ISO形式をパース
-                            all_updates.append(dt)
-                        except ValueError:
-                            logger.warning(f"不正な updated_at 文字列: {update_time}")
+        # 最新の更新日時を取得
+        latest_update_dt = self._find_latest_annotation_timestamp(annotations)
+        if latest_update_dt is None:
+            return filtered_annotations
 
-        if not all_updates:
-            logger.info(
-                "アノテーションに有効な更新日時が見つかりませんでした。フィルタリングをスキップします。",
-            )
-            return filtered_annotations  # または元の annotations を返すか
-
-        latest_update_dt = max(all_updates)
-        # タイムゾーン対応: aware datetime 同士で比較
-        if latest_update_dt.tzinfo is None:
-            # naive datetime の場合、UTC とみなすかローカルタイムとみなすか要検討
-            # ここでは UTC と仮定 (DB保存時に timezone=True を想定)
-            latest_update_dt = latest_update_dt.replace(tzinfo=UTC)
-            logger.warning("naive な updated_at を UTC として扱います。")
-
+        # 閾値を計算
         time_threshold = latest_update_dt - timedelta(minutes=minutes_threshold)
         logger.debug(f"最新更新日時: {latest_update_dt}, 閾値: {time_threshold}")
 
-        # 2. 閾値でフィルタリング
+        # フィルタリング処理
         for key in annotations:
             for item in annotations[key]:
                 if isinstance(item, dict) and "updated_at" in item:
-                    update_time = item["updated_at"]
-                    item_dt: datetime | None = None
-                    if isinstance(update_time, datetime):
-                        item_dt = update_time
-                    elif isinstance(update_time, str):
-                        try:
-                            item_dt = datetime.fromisoformat(update_time.replace("Z", "+00:00"))
-                        except ValueError:
-                            continue  # 不正な形式はスキップ
+                    item_dt = self._parse_annotation_timestamp(item["updated_at"])
+                    if item_dt and item_dt >= time_threshold:
+                        filtered_annotations[key].append(item)
 
-                    if item_dt:
-                        # タイムゾーンを合わせる
-                        if item_dt.tzinfo is None:
-                            item_dt = item_dt.replace(tzinfo=UTC)  # UTC と仮定
-
-                        if item_dt >= time_threshold:
-                            filtered_annotations[key].append(item)
-
-        logger.info(f"最近更新されたアノテーションをフィルタリングしました (閾値: {minutes_threshold}分)。")
+        logger.info(
+            f"最近更新されたアノテーションをフィルタリングしました (閾値: {minutes_threshold}分)。",
+        )
         return filtered_annotations
 
     def check_image_has_annotation(self, image_id: int) -> bool:
