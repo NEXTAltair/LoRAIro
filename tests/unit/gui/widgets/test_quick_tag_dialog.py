@@ -4,7 +4,7 @@
 空入力、正規化失敗、正常系のシグナル発行を検証。
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from PySide6.QtWidgets import QMessageBox
@@ -36,25 +36,31 @@ class TestQuickTagDialogInitialization:
 class TestQuickTagDialogAddClicked:
     """追加ボタンクリック時のテスト"""
 
-    def test_empty_input_sets_placeholder(self, qtbot):
-        """空入力時にプレースホルダーが設定される"""
+    def test_empty_input_shows_warning(self, qtbot, monkeypatch):
+        """空入力時に警告ダイアログが表示される"""
         dialog = QuickTagDialog(image_ids=[1])
         qtbot.addWidget(dialog)
+
+        mock_warning = MagicMock()
+        monkeypatch.setattr(QMessageBox, "warning", mock_warning)
 
         dialog._tag_input.setText("")
         dialog._on_add_clicked()
 
-        assert dialog._tag_input.placeholderText() == "タグを入力してください"
+        mock_warning.assert_called_once_with(dialog, "タグ追加エラー", "タグを入力してください。")
 
-    def test_whitespace_only_input_sets_placeholder(self, qtbot):
-        """空白のみの入力時にプレースホルダーが設定される"""
+    def test_whitespace_only_input_shows_warning(self, qtbot, monkeypatch):
+        """空白のみの入力時に警告ダイアログが表示される"""
         dialog = QuickTagDialog(image_ids=[1])
         qtbot.addWidget(dialog)
+
+        mock_warning = MagicMock()
+        monkeypatch.setattr(QMessageBox, "warning", mock_warning)
 
         dialog._tag_input.setText("   ")
         dialog._on_add_clicked()
 
-        assert dialog._tag_input.placeholderText() == "タグを入力してください"
+        mock_warning.assert_called_once_with(dialog, "タグ追加エラー", "タグを入力してください。")
 
     def test_normalization_failure_shows_warning(self, qtbot, monkeypatch):
         """タグ正規化失敗時にQMessageBox.warningが表示される"""
