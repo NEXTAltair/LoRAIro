@@ -92,7 +92,8 @@ class QuickTagDialog(QDialog):
         """追加ボタンクリック時の処理。"""
         tag = self._tag_input.text().strip()
         if not tag:
-            self._tag_input.setPlaceholderText("タグを入力してください")
+            logger.warning("Empty tag input")
+            QMessageBox.warning(self, "タグ追加エラー", "タグを入力してください。")
             return
 
         # タグ正規化（BatchTagAddWidgetと同じロジック）
