@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 from PIL import Image
 from PySide6.QtCore import Qt, QTimer, Slot
-from PySide6.QtGui import QPainter, QPixmap, QResizeEvent
+from PySide6.QtGui import QPainter, QPixmap, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QSizePolicy, QWidget
 
 from ...gui.designer.ImagePreviewWidget_ui import Ui_ImagePreviewWidget
@@ -120,6 +120,10 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         super().resizeEvent(event)
         self._adjust_view_size()
 
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self._adjust_view_size()
+
     # === Phase 3.3: Enhanced Event-Driven Pattern ===
 
     def connect_to_data_signals(self, state_manager: "DatasetStateManager") -> None:
@@ -226,7 +230,7 @@ if __name__ == "__main__":
 
     app = QApplication([])
     widget = ImagePreviewWidget()
-    widget.load_image(Path("tests/resources/img/1_img/file01.webp"))  # 画像パスを指定
-    # FIXME: Issue #8参照 - スタンドアロン実行時のみ画像が異常に小さい（メインアプリ内では正常）
+    widget.resize(800, 600)
     widget.show()
+    widget.load_image(Path("tests/resources/img/1_img/file01.webp"))
     app.exec()
