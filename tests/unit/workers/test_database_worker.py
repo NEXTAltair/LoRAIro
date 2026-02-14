@@ -1054,3 +1054,225 @@ class TestRegistrationErrorHandling:
             assert mock_progress.call_count >= 3
             # _report_batch_progress は画像ごとに1回呼ばれる（3回）
             assert mock_batch.call_count == 3
+
+
+class TestRegisterSingleImageUnits:
+    """_register_single_image() の詳細単体テスト（10個のテストケース）"""
+
+    @pytest.fixture
+    def temp_dir(self):
+        """一時ディレクトリ"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            yield Path(tmp_dir)
+
+    @pytest.fixture
+    def worker_setup(self, temp_dir):
+        """worker と mock オブジェクトのセットアップ"""
+        mock_db_manager = Mock(spec=ImageDatabaseManager)
+        mock_fsm = Mock(spec=FileSystemManager)
+
+        worker = DatabaseRegistrationWorker(temp_dir, mock_db_manager, mock_fsm)
+
+        # _report_batch_progress と _report_progress をモック
+        worker._report_batch_progress = Mock()
+        worker._report_progress = Mock()
+
+        return worker, mock_db_manager, mock_fsm
+
+    def test_new_image_registration(self, temp_dir, worker_setup):
+        """1. 新規画像（重複なし）を登録し、image_id > 0、processed_paths に追加"""
+        worker, mock_db_manager, _ = worker_setup
+        image_path = temp_dir / "test.jpg"
+        image_path.write_bytes(b"fake_image")
+
+        mock_db_manager.detect_duplicate_image.return_value = None
+        mock_db_manager.register_original_image.return_value = (42, {"id": 42})
+
+        with patch.object(worker, "file_reader") as mock_file_reader:
+            mock_file_reader.get_existing_annotations.return_value = None
+
+            result_type, image_id = worker._register_single_image(image_path, 0, 10)
+
+            assert result_type == "registered"
+            assert image_id == 42
+            assert image_id > 0
+            mock_db_manager.register_original_image.assert_called_once()
+
+    def test_duplicate_detection_skips(self, temp_dir, worker_setup):
+        """2. 重複検出 → skipped、関連ファイル処理が呼ばれる"""
+        worker, mock_db_manager, _ = worker_setup
+        image_path = temp_dir / "duplicate.jpg"
+        image_path.write_bytes(b"fake_image")
+
+        mock_db_manager.detect_duplicate_image.return_value = 99
+
+        with patch.object(worker, "file_reader") as mock_file_reader, \
+             patch.object(worker, "_process_associated_files") as mock_process:
+            mock_file_reader.get_existing_annotations.return_value = None
+
+            result_type, image_id = worker._register_single_image(image_path, 0, 10)
+
+            assert result_type == "skipped"
+            assert image_id == 99
+            mock_process.assert_called_once_with(image_path, 99)
+            mock_db_manager.register_original_image.assert_not_called()
+
+    def test_no_associated_files(self, temp_dir, worker_setup):
+        """3. .txt/.caption 不在 → DB登録、_process_associated_files called で早期 return"""
+        worker, mock_db_manager, _ = worker_setup
+        image_path = temp_dir / "no_files.jpg"
+        image_path.write_bytes(b"fake_image")
+
+        mock_db_manager.detect_duplicate_image.return_value = None
+        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
+
+        with patch.object(worker, "file_reader") as mock_file_reader, \
+             patch.object(worker, "_process_associated_files") as mock_process:
+            mock_file_reader.get_existing_annotations.return_value = None
+
+            result_type, image_id = worker._register_single_image(image_path, 0, 10)
+
+            assert result_type == "registered"
+            # _process_associated_files は呼ばれるが、内部で None チェックして早期return
+            mock_process.assert_called_once_with(image_path, 1)
+
+    def test_tags_file_only(self, temp_dir, worker_setup):
+        """4. .txt のみ存在 → タグ処理、キャプション処理なし"""
+        worker, mock_db_manager, _ = worker_setup
+        image_path = temp_dir / "tags_only.jpg"
+        image_path.write_bytes(b"fake_image")
+
+        mock_db_manager.detect_duplicate_image.return_value = None
+        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
+
+        with patch.object(worker, "file_reader") as mock_file_reader:
+            mock_file_reader.get_existing_annotations.return_value = {
+                "tags": ["tag1", "tag2"],
+                "captions": [],
+            }
+
+            result_type, image_id = worker._register_single_image(image_path, 0, 10)
+
+            assert result_type == "registered"
+            mock_db_manager.save_tags.assert_called_once()
+            mock_db_manager.save_captions.assert_not_called()
+
+    def test_captions_file_only(self, temp_dir, worker_setup):
+        """5. .caption のみ存在 → キャプション処理、タグ処理なし"""
+        worker, mock_db_manager, _ = worker_setup
+        image_path = temp_dir / "captions_only.jpg"
+        image_path.write_bytes(b"fake_image")
+
+        mock_db_manager.detect_duplicate_image.return_value = None
+        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
+
+        with patch.object(worker, "file_reader") as mock_file_reader:
+            mock_file_reader.get_existing_annotations.return_value = {
+                "tags": [],
+                "captions": ["test caption"],
+            }
+
+            result_type, image_id = worker._register_single_image(image_path, 0, 10)
+
+            assert result_type == "registered"
+            mock_db_manager.save_tags.assert_not_called()
+            mock_db_manager.save_captions.assert_called_once()
+
+    def test_db_registration_returns_none(self, temp_dir, worker_setup):
+        """6. register_original_image() が None → error、image_id = -1"""
+        worker, mock_db_manager, _ = worker_setup
+        image_path = temp_dir / "fail.jpg"
+        image_path.write_bytes(b"fake_image")
+
+        mock_db_manager.detect_duplicate_image.return_value = None
+        mock_db_manager.register_original_image.return_value = None
+
+        with patch.object(worker, "file_reader") as mock_file_reader:
+            mock_file_reader.get_existing_annotations.return_value = None
+
+            result_type, image_id = worker._register_single_image(image_path, 0, 10)
+
+            assert result_type == "error"
+            assert image_id == -1
+
+    def test_progress_helper_call(self, temp_dir, worker_setup):
+        """7. ProgressHelper.calculate_percentage() が 10-85% 範囲で呼ばれる"""
+        worker, mock_db_manager, _ = worker_setup
+        image_path = temp_dir / "progress.jpg"
+        image_path.write_bytes(b"fake_image")
+
+        mock_db_manager.detect_duplicate_image.return_value = None
+        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
+
+        with patch.object(worker, "file_reader") as mock_file_reader, \
+             patch("lorairo.gui.workers.registration_worker.ProgressHelper.calculate_percentage") as mock_calc:
+            mock_file_reader.get_existing_annotations.return_value = None
+            mock_calc.return_value = 45
+
+            result_type, image_id = worker._register_single_image(image_path, 5, 100)
+
+            mock_calc.assert_called_once_with(6, 100, 10, 85)
+
+    def test_batch_progress_reporting(self, temp_dir, worker_setup):
+        """8. _report_batch_progress() が (i+1, total_count, image_path.name) で呼ばれる"""
+        worker, mock_db_manager, _ = worker_setup
+        image_path = temp_dir / "batch_report.jpg"
+        image_path.write_bytes(b"fake_image")
+
+        mock_db_manager.detect_duplicate_image.return_value = None
+        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
+
+        with patch.object(worker, "file_reader") as mock_file_reader:
+            mock_file_reader.get_existing_annotations.return_value = None
+
+            worker._register_single_image(image_path, 7, 50)
+
+            worker._report_batch_progress.assert_called_once_with(8, 50, "batch_report.jpg")
+
+    def test_associated_files_error_handling(self, temp_dir, worker_setup):
+        """9. save_tags() で例外 → エラーログ出力、処理継続"""
+        worker, mock_db_manager, _ = worker_setup
+        image_path = temp_dir / "error.jpg"
+        image_path.write_bytes(b"fake_image")
+
+        mock_db_manager.detect_duplicate_image.return_value = None
+        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
+        mock_db_manager.save_tags.side_effect = ValueError("Tag save failed")
+
+        with patch.object(worker, "file_reader") as mock_file_reader:
+            mock_file_reader.get_existing_annotations.return_value = {
+                "tags": ["tag1"],
+                "captions": [],
+            }
+
+            with pytest.raises(ValueError, match="Tag save failed"):
+                worker._register_single_image(image_path, 0, 10)
+
+    def test_multiple_tags_parsing(self, temp_dir, worker_setup):
+        """10. "tag1, tag2, tag3" → 3個の TagAnnotationData が save_tags に渡される"""
+        worker, mock_db_manager, _ = worker_setup
+        image_path = temp_dir / "multi_tags.jpg"
+        image_path.write_bytes(b"fake_image")
+
+        mock_db_manager.detect_duplicate_image.return_value = None
+        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
+
+        with patch.object(worker, "file_reader") as mock_file_reader:
+            mock_file_reader.get_existing_annotations.return_value = {
+                "tags": ["tag1", "tag2", "tag3"],
+                "captions": [],
+            }
+
+            result_type, image_id = worker._register_single_image(image_path, 0, 10)
+
+            assert result_type == "registered"
+            mock_db_manager.save_tags.assert_called_once()
+            call_args = mock_db_manager.save_tags.call_args
+            tags_data = call_args[0][1]
+
+            assert len(tags_data) == 3
+            assert tags_data[0]["tag"] == "tag1"
+            assert tags_data[1]["tag"] == "tag2"
+            assert tags_data[2]["tag"] == "tag3"
+            assert all(t["existing"] is True for t in tags_data)
+            assert all(t["is_edited_manually"] is False for t in tags_data)

@@ -76,36 +76,56 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             # キャンセルチェック
             self._check_cancellation()
 
-            try:
-                # 単一画像の登録処理
-                result_type, _ = self._register_single_image(image_path, i, total_count)
-
-                # 統計情報更新
-                stats[result_type] += 1
-                if result_type == "registered":
-                    processed_paths.append(image_path)
-
-            except Exception as e:
-                stats["errors"] += 1
-                logger.error(f"画像登録エラー: {image_path}, {e}")
-
-                # エラーレコード保存（二次エラー対策付き）
-                try:
-                    self.db_manager.save_error_record(
-                        operation_type="registration",
-                        error_type=type(e).__name__,
-                        error_message=str(e),
-                        image_id=None,
-                        stack_trace=traceback.format_exc(),
-                        file_path=str(image_path),
-                        model_name=None,
-                    )
-                except Exception as save_error:
-                    logger.error(f"エラーレコード保存失敗（二次エラー）: {save_error}")
+            # 単一画像の登録と統計更新
+            self._process_single_image_in_batch(image_path, i, total_count, stats, processed_paths)
 
         # 完了処理
         self._report_progress(100, "データベース登録完了")
         return self._build_registration_result(stats, processed_paths, start_time)
+
+    def _process_single_image_in_batch(
+        self,
+        image_path: Path,
+        i: int,
+        total_count: int,
+        stats: dict[str, int],
+        processed_paths: list[Path],
+    ) -> None:
+        """バッチ処理内で単一画像を処理し、統計情報を更新する。
+
+        Args:
+            image_path: 処理対象の画像パス。
+            i: 現在の処理インデックス（0始まり）。
+            total_count: 処理対象の総画像数。
+            stats: 処理統計情報を格納する辞書（in-place更新）。
+            processed_paths: 登録成功した画像パスを格納するリスト（in-place更新）。
+        """
+        try:
+            # 単一画像の登録処理
+            result_type, _ = self._register_single_image(image_path, i, total_count)
+
+            # 統計情報更新
+            stats[result_type] += 1
+            if result_type == "registered":
+                processed_paths.append(image_path)
+
+        except Exception as e:
+            stats["errors"] += 1
+            logger.error(f"画像登録エラー: {image_path}, {e}")
+
+            # エラーレコード保存（二次エラー対策付き）
+            try:
+                self.db_manager.save_error_record(
+                    operation_type="registration",
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    image_id=None,
+                    stack_trace=traceback.format_exc(),
+                    file_path=str(image_path),
+                    model_name=None,
+                )
+            except Exception as save_error:
+                logger.error(f"エラーレコード保存失敗（二次エラー）: {save_error}")
 
     def _register_single_image(self, image_path: Path, i: int, total_count: int) -> tuple[str, int]:
         """単一画像の登録処理を実行
