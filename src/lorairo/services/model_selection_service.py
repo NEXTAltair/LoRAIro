@@ -18,6 +18,7 @@ class ModelSelectionCriteria:
     only_recommended: bool = False
     only_available: bool = True
     exclude_local: bool = False  # True の場合、provider="local" を除外（API モデルのみ表示）
+    execution_env: str | None = None  # "APIモデルのみ" or "ローカルモデルのみ" or None/"すべて"
 
 
 class ModelSelectionService:
@@ -96,12 +97,24 @@ class ModelSelectionService:
 
         logger.debug(
             f"モデルフィルタリング開始: provider={criteria.provider}, "
-            f"exclude_local={criteria.exclude_local}, capabilities={criteria.capabilities}, "
+            f"exclude_local={criteria.exclude_local}, execution_env={criteria.execution_env}, "
+            f"capabilities={criteria.capabilities}, "
             f"only_recommended={criteria.only_recommended}, only_available={criteria.only_available}, "
             f"対象モデル数={len(self._all_models)}"
         )
 
         filtered = self._all_models
+
+        # 実行環境フィルタ（execution_env による分類）
+        if criteria.execution_env and criteria.execution_env != "すべて":
+            if criteria.execution_env == "APIモデルのみ":
+                # classが"PydanticAIWebAPIAnnotator"のモデルのみ（API モデル）
+                filtered = [m for m in filtered if m.class_name == "PydanticAIWebAPIAnnotator"]
+                logger.debug(f"  実行環境フィルタ後（APIモデルのみ）: {len(filtered)}件")
+            elif criteria.execution_env == "ローカルモデルのみ":
+                # classが"PydanticAIWebAPIAnnotator"でないモデル（ローカルモデル）
+                filtered = [m for m in filtered if m.class_name != "PydanticAIWebAPIAnnotator"]
+                logger.debug(f"  実行環境フィルタ後（ローカルモデルのみ）: {len(filtered)}件")
 
         # プロバイダーフィルタ
         if criteria.provider and criteria.provider != "すべて":
