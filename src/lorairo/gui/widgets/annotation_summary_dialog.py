@@ -258,7 +258,7 @@ class AnnotationSummaryDialog(QDialog):
         for phash, model_results in self._result.results.items():
             filename = self._result.phash_to_filename.get(phash, phash[:12] + "...")
             for model_name, result in model_results.items():
-                tags = result.get("tags", [])
+                tags = getattr(result, "tags", None) or []
                 if tags:
                     tags_text = ", ".join(tags)
                     tag_rows.append((filename, model_name, tags_text))
@@ -303,13 +303,7 @@ class AnnotationSummaryDialog(QDialog):
         for phash, model_results in self._result.results.items():
             filename = self._result.phash_to_filename.get(phash, phash[:12] + "...")
             for model_name, result in model_results.items():
-                formatted_output = result.get("formatted_output")
-                captions = None
-
-                if isinstance(formatted_output, dict):
-                    captions = formatted_output.get("captions")
-                elif hasattr(formatted_output, "captions"):
-                    captions = getattr(formatted_output, "captions", None)
+                captions = getattr(result, "captions", None)
 
                 if captions:
                     has_captions = True
@@ -344,22 +338,7 @@ class AnnotationSummaryDialog(QDialog):
         for phash, model_results in self._result.results.items():
             filename = self._result.phash_to_filename.get(phash, phash[:12] + "...")
             for model_name, result in model_results.items():
-                formatted_output = result.get("formatted_output")
-                scores = None
-
-                if isinstance(formatted_output, dict):
-                    # Pipeline系(AestheticShadow): dict with "hq" key
-                    if "hq" in formatted_output:
-                        hq_value = formatted_output.get("hq")
-                        if isinstance(hq_value, (int, float)):
-                            scores = {"aesthetic": float(hq_value)}
-                    else:
-                        scores = formatted_output.get("scores")
-                elif hasattr(formatted_output, "scores"):
-                    scores = getattr(formatted_output, "scores", None)
-                elif isinstance(formatted_output, (int, float)):
-                    # Pipeline系(CafePredictor等): 単一float/int
-                    scores = {"aesthetic": float(formatted_output)}
+                scores = getattr(result, "scores", None)
 
                 if scores and isinstance(scores, dict):
                     for score_name, score_value in scores.items():
