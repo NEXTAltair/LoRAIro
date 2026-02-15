@@ -151,6 +151,31 @@ QPushButton:pressed { background-color: #2196F3; color: white; }</string>
         </property>
        </spacer>
       </item>
+      <item>
+       <widget class="QComboBox" name="executionEnvCombo">
+        <property name="toolTip">
+         <string>実行環境でモデルをフィルタリング</string>
+        </property>
+        <property name="minimumWidth">
+         <number>120</number>
+        </property>
+        <item>
+         <property name="text">
+          <string>すべて</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>APIモデルのみ</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>ローカルモデルのみ</string>
+         </property>
+        </item>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>
