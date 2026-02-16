@@ -43,6 +43,93 @@ lorairo-cli status
 
 ## コマンド一覧
 
+### images - 画像管理
+
+LoRAIro プロジェクトに画像を登録・管理します。pHash（知覚ハッシュ）で重複検出を行います。
+
+#### images register - 画像登録
+
+**構文**:
+```bash
+lorairo-cli images register <directory> --project <name> [--skip-duplicates|--include-duplicates]
+```
+
+**引数**:
+- `directory`: 登録する画像が含まれるディレクトリ（必須）
+
+**オプション**:
+- `--project <name>` / `-p <name>`: 対象プロジェクト（必須）
+- `--skip-duplicates`: 重複画像をスキップ（デフォルト）
+- `--include-duplicates`: 重複画像も登録
+
+**例**:
+```bash
+# 基本的な使い方
+lorairo-cli images register /path/to/images --project my_dataset
+
+# 重複を含めて登録
+lorairo-cli images register /path/to/images --project my_dataset --include-duplicates
+```
+
+**出力例**:
+```
+Found 150 image(s)
+画像登録中... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%
+
+Registration Summary
+Registered     125
+Skipped (duplicates) 25
+Errors         0
+
+✓ Images registered to project: my_dataset
+```
+
+**内部動作**:
+1. ディレクトリ内の全画像ファイル（JPG, PNG, GIF など）を検索
+2. 各画像のpHashを計算（知覚ハッシュ）
+3. 重複検出（既存pHash と比較）
+4. プロジェクトへ登録
+5. Rich Progress バーで進捗表示
+
+**対応形式**: JPG, JPEG, PNG, GIF, BMP, WebP
+
+---
+
+#### images list - 画像一覧
+
+**構文**:
+```bash
+lorairo-cli images list --project <name> [--limit <count>]
+```
+
+**オプション**:
+- `--project <name>` / `-p <name>`: 対象プロジェクト（必須）
+- `--limit <count>` / `-l <count>`: 表示最大件数（オプション）
+
+**注記**: 現在開発中。今後実装予定です。
+
+---
+
+#### images update - メタデータ更新
+
+**構文**:
+```bash
+lorairo-cli images update --project <name> --tags <tags>
+```
+
+**オプション**:
+- `--project <name>` / `-p <name>`: 対象プロジェクト（必須）
+- `--tags <tags>`: 追加するタグ（カンマ区切り）
+
+**例**:
+```bash
+lorairo-cli images update --project my_dataset --tags "landscape,outdoor"
+```
+
+**注記**: 現在開発中。今後実装予定です。
+
+---
+
 ### project - プロジェクト管理
 
 LoRAIro データセットプロジェクトの作成、一覧表示、削除を行います。
