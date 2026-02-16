@@ -2,9 +2,8 @@
 """お気に入りフィルターの保存・読み込みを管理するサービスモジュール。"""
 
 import json
+from pathlib import Path
 from typing import Any
-
-from PySide6.QtCore import QSettings
 
 from ..utils.log import logger
 
@@ -12,20 +11,25 @@ from ..utils.log import logger
 class FavoriteFiltersService:
     """お気に入りフィルターの永続化を管理するサービスクラス。
 
-    QSettingsを使用してフィルター条件を保存・読み込みします。
-    フィルター条件はJSON形式でシリアライズされます。
+    JSON ファイルベースでフィルター条件を保存・読み込みします。
+    設定ファイルは ~/.config/lorairo/favorite_filters.json に保存されます。
     """
 
     def __init__(self, organization: str = "LoRAIro", application: str = "LoRAIro") -> None:
-        """FavoriteFiltersServiceを初期化します。
+        """FavoriteFiltersService を初期化します。
 
         Args:
-            organization: 組織名（QSettings用）
-            application: アプリケーション名（QSettings用）
+            organization: 組織名（将来の拡張用に保持）
+            application: アプリケーション名（将来の拡張用に保持）
         """
-        self._settings = QSettings(organization, application)
-        self._filters_group = "FavoriteFilters"
-        logger.debug("FavoriteFiltersService initialized (org={}, app={})", organization, application)
+        # 設定ファイルパス
+        self._config_dir = Path.home() / ".config" / "lorairo"
+        self._filters_file = self._config_dir / "favorite_filters.json"
+
+        # 設定ディレクトリを作成
+        self._config_dir.mkdir(parents=True, exist_ok=True)
+
+        logger.debug("FavoriteFiltersService initialized (config_dir={})", self._config_dir)
 
     def save_filter(self, name: str, filter_dict: dict[str, Any]) -> bool:
         """フィルター条件を保存します。
@@ -44,14 +48,17 @@ class FavoriteFiltersService:
             raise ValueError("Filter name cannot be empty")
 
         try:
-            # JSON形式でシリアライズ
-            filter_json = json.dumps(filter_dict, ensure_ascii=False)
+            # 既存のフィルターを読み込み
+            filters = self._load_all_filters()
 
-            # QSettingsに保存
-            self._settings.beginGroup(self._filters_group)
-            self._settings.setValue(name, filter_json)
-            self._settings.endGroup()
-            self._settings.sync()
+            # フィルターを追加
+            filters[name] = filter_dict
+
+            # JSON ファイルに保存
+            self._filters_file.write_text(
+                json.dumps(filters, ensure_ascii=False, indent=2),
+                encoding="utf-8"
+            )
 
             logger.info("Saved favorite filter: {}", name)
             return True
@@ -77,16 +84,13 @@ class FavoriteFiltersService:
             return None
 
         try:
-            self._settings.beginGroup(self._filters_group)
-            filter_json = self._settings.value(name)
-            self._settings.endGroup()
+            filters = self._load_all_filters()
 
-            if filter_json is None:
+            if name not in filters:
                 logger.debug("Filter not found: {}", name)
                 return None
 
-            # JSON形式でデシリアライズ
-            filter_dict = json.loads(filter_json)
+            filter_dict = filters[name]
 
             if not isinstance(filter_dict, dict):
                 logger.error("Invalid filter data for '{}': expected dict, got {}", name, type(filter_dict))
@@ -109,12 +113,8 @@ class FavoriteFiltersService:
             list[str]: フィルター名のリスト（アルファベット順）
         """
         try:
-            self._settings.beginGroup(self._filters_group)
-            filter_names = self._settings.childKeys()
-            self._settings.endGroup()
-
-            # アルファベット順にソート
-            sorted_names = sorted(filter_names)
+            filters = self._load_all_filters()
+            sorted_names = sorted(filters.keys())
 
             logger.debug("Listed {} favorite filters", len(sorted_names))
             return sorted_names
@@ -137,18 +137,21 @@ class FavoriteFiltersService:
             return False
 
         try:
-            self._settings.beginGroup(self._filters_group)
+            filters = self._load_all_filters()
 
             # 存在確認
-            if not self._settings.contains(name):
+            if name not in filters:
                 logger.warning("Filter not found for deletion: {}", name)
-                self._settings.endGroup()
                 return False
 
             # 削除
-            self._settings.remove(name)
-            self._settings.endGroup()
-            self._settings.sync()
+            del filters[name]
+
+            # JSON ファイルに保存
+            self._filters_file.write_text(
+                json.dumps(filters, ensure_ascii=False, indent=2),
+                encoding="utf-8"
+            )
 
             logger.info("Deleted favorite filter: {}", name)
             return True
@@ -170,10 +173,8 @@ class FavoriteFiltersService:
             return False
 
         try:
-            self._settings.beginGroup(self._filters_group)
-            exists = self._settings.contains(name)
-            self._settings.endGroup()
-            return exists
+            filters = self._load_all_filters()
+            return name in filters
         except Exception as e:
             logger.error("Failed to check filter existence '{}': {}", name, e, exc_info=True)
             return False
@@ -185,10 +186,11 @@ class FavoriteFiltersService:
             bool: 削除に成功した場合はTrue、失敗した場合はFalse
         """
         try:
-            self._settings.beginGroup(self._filters_group)
-            self._settings.remove("")  # Remove all keys in current group
-            self._settings.endGroup()
-            self._settings.sync()
+            # 空の辞書を保存
+            self._filters_file.write_text(
+                json.dumps({}, ensure_ascii=False, indent=2),
+                encoding="utf-8"
+            )
 
             logger.info("Cleared all favorite filters")
             return True
@@ -196,3 +198,22 @@ class FavoriteFiltersService:
         except Exception as e:
             logger.error("Failed to clear all filters: {}", e, exc_info=True)
             return False
+
+    def _load_all_filters(self) -> dict[str, Any]:
+        """すべてのフィルターを読み込みます。
+
+        Returns:
+            dict: フィルター辞書。ファイルが存在しない場合は空の辞書
+
+        Raises:
+            JSONDecodeError: JSON パースエラー
+        """
+        if not self._filters_file.exists():
+            return {}
+
+        try:
+            content = self._filters_file.read_text(encoding="utf-8")
+            return json.loads(content) if content else {}
+        except json.JSONDecodeError as e:
+            logger.error("Failed to parse filters file: {}", e, exc_info=True)
+            raise

@@ -106,10 +106,8 @@ class TestFavoriteFiltersService:
 
     def test_load_filter_deserialization_error(self, service: FavoriteFiltersService) -> None:
         """デシリアライズエラーハンドリング"""
-        # QSettingsに直接不正なJSONを書き込み
-        service._settings.beginGroup(service._filters_group)
-        service._settings.setValue("Broken Filter", "not a valid json")
-        service._settings.endGroup()
+        # JSON ファイルに直接不正なJSONを書き込み
+        service._filters_file.write_text("not a valid json", encoding="utf-8")
 
         loaded = service.load_filter("Broken Filter")
         assert loaded is None

@@ -66,7 +66,14 @@
       "Bash(gh issue list:*)",
       "Bash(gh issue close:*)",
       "Bash(gh issue view:*)",
-      "Bash(gh repo view:*)"
+      "Bash(gh repo view:*)",
+      "Bash(ln:*)",
+      "Bash(ln -s:*)",
+      "Bash(PYTHONPATH=\"\" VIRTUAL_ENV=\"\" .venv/bin/python:*)",
+      "Bash(# Merge:*)",
+      "Bash(done)",
+      "Bash(gh label list:*)",
+      "Bash(gh issue create:*)"
     ],
     "deny": [],
     "ask": []
