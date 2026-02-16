@@ -296,18 +296,28 @@ lorairo-cli project list --format json | jq -r '.[].name'
 
 ## よくある使用パターン
 
-### 1. 新しいデータセットの初期化
+### 1. 新しいデータセットの初期化から学習データ作成まで
 
 ```bash
-# プロジェクト作成
+# 1. プロジェクト作成
 lorairo-cli project create "my_training_dataset" \
   --description "Training data for LoRA model"
 
-# プロジェクト確認
+# 2. プロジェクト確認
 lorairo-cli project list | grep my_training_dataset
 
-# 後続: 画像登録（Phase 2.3 で実装予定）
-# lorairo-cli images register /path/to/images --project my_training_dataset
+# 3. 画像登録
+lorairo-cli images register /path/to/images --project my_training_dataset
+
+# 4. AIアノテーション実行
+lorairo-cli annotate run --project my_training_dataset --model gpt-4o-mini
+
+# 5. 学習用データセットをエクスポート
+lorairo-cli export create \
+  --project my_training_dataset \
+  --output ./training_data/ \
+  --format txt \
+  --resolution 512
 ```
 
 ### 2. CI/CD パイプラインでの利用
@@ -349,6 +359,58 @@ lorairo-cli project list --format json > backup_projects.json
 jq -r '.[] | .name' backup_projects.json | while read name; do
   echo "Project: $name"
 done
+```
+
+### 5. 複数モデルでのアノテーション比較
+
+```bash
+# プロジェクト作成
+lorairo-cli project create "annotation_test" -d "Testing different annotation models"
+
+# 画像登録
+lorairo-cli images register /path/to/test/images --project annotation_test
+
+# 複数モデルで同時アノテーション
+lorairo-cli annotate run \
+  --project annotation_test \
+  --model gpt-4o-mini \
+  --model claude-3-5-sonnet \
+  --model gemini-2.0-flash-thinking-exp
+
+# 結果をエクスポートして比較
+lorairo-cli export create \
+  --project annotation_test \
+  --output ./comparison/ \
+  --format json
+```
+
+### 6. バッチ処理での大規模データセット作成
+
+```bash
+#!/bin/bash
+
+# 大量の画像を処理
+PROJECT_NAME="large_dataset"
+
+# プロジェクト作成
+lorairo-cli project create "$PROJECT_NAME"
+
+# 画像を複数回に分けて登録（ディレクトリごと）
+for dir in /data/images/*; do
+  lorairo-cli images register "$dir" --project "$PROJECT_NAME"
+done
+
+# バッチサイズを大きくしてアノテーション実行
+lorairo-cli annotate run \
+  --project "$PROJECT_NAME" \
+  --model gpt-4o-mini \
+  --batch-size 50
+
+# 高解像度でエクスポート
+lorairo-cli export create \
+  --project "$PROJECT_NAME" \
+  --output ./training_1024/ \
+  --resolution 1024
 ```
 
 ---
@@ -425,26 +487,162 @@ export LORAIRO_CLI_MODE=true
 
 ---
 
-## 今後実装予定のコマンド
+### annotate - AI アノテーション
 
-### images - 画像管理（Phase 2.3）
+プロジェクトの画像に対してAIモデルを使用してアノテーション（タグ付け）を実行します。
 
+#### annotate run - アノテーション実行
+
+**構文**:
 ```bash
-lorairo-cli images register /path/to/images --project my_dataset
-lorairo-cli images update --project my_dataset --tags "tag1,tag2"
+lorairo-cli annotate run --project <name> --model <model_name> [--output <dir>] [--batch-size <size>]
 ```
 
-### annotate - AI アノテーション（Phase 2.4）
+**オプション**:
+- `--project <name>` / `-p <name>`: 対象プロジェクト（必須）
+- `--model <model_name>` / `-m <model_name>`: 使用するモデル名（必須、複数指定可能）
+  - 対応モデル: `gpt-4o`, `gpt-4o-mini`, `claude-3-5-sonnet`, `gemini-2.0-flash-thinking-exp`など
+- `--output <dir>` / `-o <dir>`: アノテーション結果の出力先ディレクトリ（オプション）
+- `--batch-size <size>` / `-b <size>`: バッチ処理サイズ（デフォルト: 10）
 
+**例**:
 ```bash
+# 単一モデルでアノテーション実行
 lorairo-cli annotate run --project my_dataset --model gpt-4o-mini
+
+# 複数モデルで実行
+lorairo-cli annotate run -p my_dataset -m gpt-4o -m claude-3-5-sonnet
+
+# バッチサイズ指定
+lorairo-cli annotate run -p my_dataset -m gpt-4o-mini --batch-size 20
+
+# 出力先指定
+lorairo-cli annotate run -p my_dataset -m gpt-4o-mini --output ./annotations/
 ```
 
-### export - データセットエクスポート（Phase 2.4）
+**出力例**:
+```
+Found 150 image(s)
+Using model(s): gpt-4o-mini
+画像ロード中... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%
+Loaded 150 image(s) (0 failed)
+Starting annotation...
+アノテーション実行中... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%
 
+Annotation Summary
+Total Images    150
+Models Used     gpt-4o-mini
+Results         150
+
+✓ Annotation completed successfully!
+```
+
+**内部動作**:
+1. プロジェクトの`image_dataset/original_images/`から画像を読み込み
+2. 指定されたモデルを使用してアノテーション実行
+3. 結果をデータベースに保存
+4. Rich Progress バーで進捗表示
+
+**注意**:
+- APIキーが`config/lorairo.toml`で設定されている必要があります
+- 大量の画像をアノテーションする場合、API利用料金が発生します
+- アノテーション中にエラーが発生した場合は、ログファイルを確認してください
+
+---
+
+### export - データセットエクスポート
+
+プロジェクトからトレーニング用データセットをエクスポートします。
+
+#### export create - データセットエクスポート
+
+**構文**:
 ```bash
-lorairo-cli export --project my_dataset --format txt --output ./output/
+lorairo-cli export create --project <name> --output <dir> [--format <format>] [--resolution <size>]
 ```
+
+**オプション**:
+- `--project <name>` / `-p <name>`: 対象プロジェクト（必須）
+- `--output <dir>` / `-o <dir>`: エクスポート先ディレクトリ（必須）
+- `--format <format>` / `-f <format>`: エクスポート形式（デフォルト: txt）
+  - `txt`: テキストファイル形式（各画像に対応する.txtファイル）
+  - `json`: JSON形式（メタデータを含む）
+- `--resolution <size>` / `-r <size>`: ターゲット解像度（デフォルト: 512）
+  - 512, 768, 1024など
+
+**例**:
+```bash
+# 基本的な使い方（TXT形式、512px）
+lorairo-cli export create --project my_dataset --output ./export/
+
+# JSON形式でエクスポート
+lorairo-cli export create -p my_dataset -o ./export/ --format json
+
+# 解像度指定
+lorairo-cli export create -p my_dataset -o ./export/ --resolution 1024
+
+# 全オプション指定
+lorairo-cli export create \
+  --project my_dataset \
+  --output ./training_data/ \
+  --format txt \
+  --resolution 768
+```
+
+**出力例**:
+```
+Loading project database: my_dataset
+Note: Working with currently configured database. Ensure config/lorairo.toml points to the correct project.
+画像情報取得中... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%
+Found 150 image(s)
+Export format: txt
+Target resolution: 512px
+Starting export...
+エクスポート中... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%
+
+Export Summary
+Total Images    150
+Export Format   txt
+Resolution      512px
+Output Path     ./export/
+
+✓ Export completed successfully!
+```
+
+**出力ディレクトリ構造**:
+```
+export/
+├── image_001.png
+├── image_001.txt    # タグ・キャプション
+├── image_002.png
+├── image_002.txt
+└── ...
+```
+
+**TXT形式の例**:
+```txt
+1girl, solo, long_hair, blue_eyes, smile, outdoor, landscape
+```
+
+**JSON形式の例**:
+```json
+{
+  "image_001.png": {
+    "tags": ["1girl", "solo", "long_hair"],
+    "captions": ["A girl with long hair standing in a field"],
+    "metadata": {
+      "width": 512,
+      "height": 512,
+      "source_id": 123
+    }
+  }
+}
+```
+
+**注意**:
+- 現在の実装では、`config/lorairo.toml`で設定されたデータベースを使用します
+- 将来的には動的なプロジェクト切り替えに対応予定です
+- エクスポート先ディレクトリが存在しない場合、自動的に作成されます
 
 ---
 

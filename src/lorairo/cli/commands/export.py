@@ -50,9 +50,7 @@ def _validate_project_and_db(
 
     db_file = project_dir / "image_database.db"
     if not db_file.exists():
-        console.print(
-            f"[yellow]Warning:[/yellow] Database not found for project: {project_name}"
-        )
+        console.print(f"[yellow]Warning:[/yellow] Database not found for project: {project_name}")
         raise typer.Exit(code=1)
 
     return project_dir
@@ -126,9 +124,7 @@ def create(
             progress.update(task, completed=1)
 
         if not image_ids:
-            console.print(
-                f"[yellow]Warning:[/yellow] No images found in project: {project}"
-            )
+            console.print(f"[yellow]Warning:[/yellow] No images found in project: {project}")
             raise typer.Exit(code=0)
 
         console.print(f"[cyan]Found {len(image_ids)} image(s)[/cyan]")
@@ -151,9 +147,7 @@ def create(
                 TimeRemainingColumn(),
                 console=console,
             ) as progress:
-                task = progress.add_task(
-                    "エクスポート中...", total=len(image_ids)
-                )
+                task = progress.add_task("エクスポート中...", total=len(image_ids))
 
                 # エクスポート実行
                 result_path = export_service.export_filtered_dataset(
@@ -189,9 +183,7 @@ def create(
 
         console.print(summary_table)
 
-        console.print(
-            "\n[green]Export completed successfully![/green]"
-        )
+        console.print("\n[green]Export completed successfully![/green]")
 
     except typer.Exit:
         raise
