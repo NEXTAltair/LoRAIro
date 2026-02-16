@@ -41,6 +41,9 @@ dependencies = [
     "sqlalchemy>=2.0.40",
     "alembic>=1.15.2",
     "huggingface_hub[hf_xet]",
+    # CLI系
+    "typer>=0.12.0",
+    "rich>=13.0.0",
     # GUI系
     "PySide6>=6.8.0.2",
     "superqt>=0.6.7",
@@ -54,6 +57,7 @@ dependencies = [
 
 [project.scripts]
 lorairo = "lorairo.main:main"
+lorairo-cli = "lorairo.cli.main:main"
 lorairo-docs = "sphinx.cmd.build:build_main"
 
 [project.urls]
@@ -154,6 +158,7 @@ markers = [
     "bdd: BDD scenarios (pytest-bdd)",
     "bdd_core: Core BDD scenarios (SimplifiedAgentWrapper, Factory)",
     "api_model_discovery: API model discovery tests",
+    "cli: CLI tests",
 ]
 
 # VS Code settings moved to lorairo.code-workspace
