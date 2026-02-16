@@ -51,8 +51,10 @@ def create_mock_service_container() -> MagicMock:
 
     # mock export_service - return the output path
     mock_export_service = MagicMock()
+
     def export_filtered_dataset_side_effect(image_ids, output_path, **kwargs):
         return output_path
+
     mock_export_service.export_filtered_dataset.side_effect = export_filtered_dataset_side_effect
     mock_container.dataset_export_service = mock_export_service
 
@@ -349,8 +351,8 @@ def test_export_create_invalid_format(
     # ServiceContainer をモック
     mock_container = create_mock_service_container()
     # export_service.export_filtered_dataset を無効フォーマット用にモック
-    mock_container.dataset_export_service.export_filtered_dataset.side_effect = (
-        ValueError("Unsupported format_type: invalid")
+    mock_container.dataset_export_service.export_filtered_dataset.side_effect = ValueError(
+        "Unsupported format_type: invalid"
     )
     mock_get_container.return_value = mock_container
 
