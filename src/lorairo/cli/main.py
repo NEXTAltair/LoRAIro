@@ -9,7 +9,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from lorairo.cli.commands import project, images
+from lorairo.cli.commands import project, images, annotate, export
 
 # Typer app 定義
 app = typer.Typer(
@@ -25,6 +25,8 @@ console = Console()
 # ===== サブコマンドグループ登録 =====
 app.add_typer(project.app, name="project", help="Project management commands")
 app.add_typer(images.app, name="images", help="Image management commands")
+app.add_typer(annotate.app, name="annotate", help="Annotation commands")
+app.add_typer(export.app, name="export", help="Dataset export commands")
 
 
 # ===== トップレベルコマンド =====
