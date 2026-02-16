@@ -1,0 +1,370 @@
+# LoRAIro CLI ドキュメント
+
+LoRAIro のコマンドラインインターフェース（CLI）。GUI なし環境でのデータセット管理、バッチ処理、プログラマティックアクセスを提供します。
+
+## インストール
+
+```bash
+# LoRAIro をインストール
+uv sync
+
+# CLI が利用可能か確認
+lorairo-cli --version
+```
+
+## 基本的な使い方
+
+### ヘルプ表示
+
+```bash
+# 全体的なヘルプ
+lorairo-cli --help
+
+# 特定のコマンドのヘルプ
+lorairo-cli project --help
+lorairo-cli project create --help
+```
+
+### バージョン確認
+
+```bash
+lorairo-cli version
+# Output: LoRAIro CLI v0.0.8
+```
+
+### システムステータス確認
+
+```bash
+lorairo-cli status
+# Output: Service Status テーブル表示
+```
+
+---
+
+## コマンド一覧
+
+### project - プロジェクト管理
+
+LoRAIro データセットプロジェクトの作成、一覧表示、削除を行います。
+
+#### project create - プロジェクト作成
+
+**構文**:
+```bash
+lorairo-cli project create <name> [--description <description>]
+```
+
+**引数**:
+- `name`: プロジェクト名（必須）
+  - Unicode 対応（日本語など）
+  - 特殊文字可（ハイフン、アンダースコア）
+  - 例: `my_dataset`, `テスト プロジェクト`
+
+**オプション**:
+- `--description <text>` / `-d <text>`: プロジェクトの説明（任意）
+
+**例**:
+```bash
+# シンプルなプロジェクト作成
+lorairo-cli project create "my_dataset"
+
+# 説明付き
+lorairo-cli project create "dataset_v1" --description "Training dataset version 1"
+
+# Unicode 名対応
+lorairo-cli project create "テスト画像データ" -d "テスト用の画像セット"
+```
+
+**出力**:
+```
+✓ Project created: my_dataset
+Location: /home/user/.lorairo/projects/my_dataset_20260216_063000
+```
+
+**内部動作**:
+1. `~/.lorairo/projects/` ディレクトリを作成（存在しない場合）
+2. `project_name_YYYYMMDDhhmmss` という名前でプロジェクトディレクトリを作成
+3. `.lorairo-project` メタデータファイルを生成
+4. `image_dataset/original_images/` ディレクトリ構造を初期化
+
+---
+
+#### project list - プロジェクト一覧表示
+
+**構文**:
+```bash
+lorairo-cli project list [--format <format>]
+```
+
+**オプション**:
+- `--format <format>` / `-f <format>`: 出力フォーマット
+  - `table`: リッチテーブル表示（デフォルト）
+  - `json`: JSON 形式（CI/CD 対応）
+
+**例**:
+```bash
+# テーブル形式（デフォルト）
+lorairo-cli project list
+
+# JSON 形式
+lorairo-cli project list --format json
+
+# CI/CD パイプラインでの使用
+lorairo-cli project list --format json | jq '.[] | .name'
+```
+
+**出力例**:
+
+テーブル形式:
+```
+Projects
+Name             Created         Path
+─────────────────────────────────────────────────────
+my_dataset       20260216_063000 ~/.lorairo/projects/my_dataset_20260216_063000
+test_project     20260215_120000 ~/.lorairo/projects/test_project_20260215_120000
+```
+
+JSON 形式:
+```json
+[
+  {
+    "name": "my_dataset",
+    "created": "20260216_063000",
+    "path": "/home/user/.lorairo/projects/my_dataset_20260216_063000"
+  },
+  {
+    "name": "test_project",
+    "created": "20260215_120000",
+    "path": "/home/user/.lorairo/projects/test_project_20260215_120000"
+  }
+]
+```
+
+---
+
+#### project delete - プロジェクト削除
+
+**構文**:
+```bash
+lorairo-cli project delete <name> [--force]
+```
+
+**引数**:
+- `name`: 削除するプロジェクト名（必須）
+
+**オプション**:
+- `--force` / `-f`: 確認プロンプトをスキップして即座に削除
+
+**例**:
+```bash
+# 確認プロンプト付き（推奨）
+lorairo-cli project delete "old_dataset"
+# Output: Delete project 'old_dataset' at ~/.../old_dataset_xxx? This cannot be undone. [y/N]:
+
+# 確認をスキップして削除
+lorairo-cli project delete "old_dataset" --force
+```
+
+**出力**:
+```
+✓ Project deleted: old_dataset
+```
+
+---
+
+## 出力フォーマット
+
+### リッチテーブル出力
+
+デフォルトの出力形式。カラー表示、整形されたテーブルで視覚的にわかりやすい表示。
+
+```bash
+lorairo-cli project list
+```
+
+**特徴**:
+- カラー表示（見やすい）
+- テーブル形式（整列）
+- インタラクティブ環境向け
+
+### JSON 出力
+
+CI/CD パイプライン、プログラマティックアクセス向け。
+
+```bash
+lorairo-cli project list --format json
+```
+
+**特徴**:
+- 機械可読形式
+- `jq` などでパース可能
+- スクリプト処理に最適
+
+**例**: JSON からプロジェクト名のみ抽出
+```bash
+lorairo-cli project list --format json | jq -r '.[].name'
+```
+
+---
+
+## よくある使用パターン
+
+### 1. 新しいデータセットの初期化
+
+```bash
+# プロジェクト作成
+lorairo-cli project create "my_training_dataset" \
+  --description "Training data for LoRA model"
+
+# プロジェクト確認
+lorairo-cli project list | grep my_training_dataset
+
+# 後続: 画像登録（Phase 2.3 で実装予定）
+# lorairo-cli images register /path/to/images --project my_training_dataset
+```
+
+### 2. CI/CD パイプラインでの利用
+
+```bash
+# GitHub Actions での例
+- name: Create dataset project
+  run: |
+    lorairo-cli project create "${{ env.DATASET_NAME }}" \
+      --description "Automated dataset creation"
+
+- name: List projects in JSON
+  run: |
+    lorairo-cli project list --format json > projects.json
+```
+
+### 3. スクリプトでの自動化
+
+```bash
+#!/bin/bash
+
+# 複数プロジェクト一括作成
+for i in {1..5}; do
+  lorairo-cli project create "dataset_v$i" \
+    --description "Version $i of training dataset"
+done
+
+# 一覧確認
+lorairo-cli project list --format json | jq '.[] | .name'
+```
+
+### 4. プロジェクトのバックアップ
+
+```bash
+# プロジェクト情報を JSON で保存
+lorairo-cli project list --format json > backup_projects.json
+
+# 後で復元
+jq -r '.[] | .name' backup_projects.json | while read name; do
+  echo "Project: $name"
+done
+```
+
+---
+
+## トラブルシューティング
+
+### プロジェクトが見つからない
+
+**症状**: `lorairo-cli project list` で何も表示されない
+
+**原因**: プロジェクトディレクトリがまだ作成されていない
+
+**解決**:
+```bash
+# プロジェクトを作成
+lorairo-cli project create "first_project"
+
+# 確認
+lorairo-cli project list
+```
+
+### 削除操作をキャンセルしたい
+
+**症状**: `project delete` 実行後、確認プロンプトが表示されている
+
+**解決**: `n` を入力して Enter キーを押す
+```bash
+Delete project 'dataset'? This cannot be undone. [y/N]: n
+```
+
+### JSON 出力をパースしたい
+
+**症状**: JSON が複数行に分割されて表示される
+
+**解決**: `jq` コマンドを使用
+```bash
+# プロジェクト数をカウント
+lorairo-cli project list --format json | jq 'length'
+
+# プロジェクト名のみを抽出
+lorairo-cli project list --format json | jq -r '.[].name'
+```
+
+---
+
+## ストレージの場所
+
+プロジェクトはユーザーのホームディレクトリに保存されます：
+
+```
+~/.lorairo/projects/
+├── project1_20260216_120000/
+│   ├── .lorairo-project       # メタデータ（JSON）
+│   ├── image_dataset/
+│   │   ├── original_images/   # 元画像
+│   │   └── [将来用: resolutions]/
+│   └── [将来用: image_database.db]
+├── project2_20260215_080000/
+└── ...
+```
+
+---
+
+## 環境変数
+
+### LORAIRO_CLI_MODE
+
+CLI モードを有効にするための環境変数（内部用）。
+
+```bash
+# 既に src/lorairo/cli/__init__.py で自動設定されます
+export LORAIRO_CLI_MODE=true
+```
+
+---
+
+## 今後実装予定のコマンド
+
+### images - 画像管理（Phase 2.3）
+
+```bash
+lorairo-cli images register /path/to/images --project my_dataset
+lorairo-cli images update --project my_dataset --tags "tag1,tag2"
+```
+
+### annotate - AI アノテーション（Phase 2.4）
+
+```bash
+lorairo-cli annotate run --project my_dataset --model gpt-4o-mini
+```
+
+### export - データセットエクスポート（Phase 2.4）
+
+```bash
+lorairo-cli export --project my_dataset --format txt --output ./output/
+```
+
+---
+
+## 参考リソース
+
+- [LoRAIro メインドキュメント](../README.md)
+- [アーキテクチャ](./architecture.md)
+- [開発ガイド](../CLAUDE.md)
+- [Typer 公式ドキュメント](https://typer.tiangolo.com/)
+- [Rich 公式ドキュメント](https://rich.readthedocs.io/)
