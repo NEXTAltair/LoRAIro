@@ -98,8 +98,9 @@ for _patch in _runtime_patches:
 
 # --- 3. Qt Headless Environment Setup (before any Qt import) ---
 # テスト収集時に Qt モジュールがインポートされても安全なようにする
-if sys.platform.startswith("linux") and os.getenv("DISPLAY") is None:
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# テスト環境では常に offscreen モードを使用（devcontainer.json の GUI 設定を上書き）
+if sys.platform.startswith("linux"):
+    os.environ["QT_QPA_PLATFORM"] = "offscreen"
 os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.xcb.warning=false")
 
 # =============================================================================
