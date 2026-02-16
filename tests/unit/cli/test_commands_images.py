@@ -122,9 +122,7 @@ def test_images_register_empty_directory(mock_projects_dir: Path, tmp_path: Path
 
 @pytest.mark.unit
 @pytest.mark.cli
-def test_images_register_with_skip_duplicates(
-    mock_projects_dir: Path, tmp_path: Path
-) -> None:
+def test_images_register_with_skip_duplicates(mock_projects_dir: Path, tmp_path: Path) -> None:
     """Test: images register --skip-duplicates - 重複検出。"""
     # プロジェクト作成
     runner.invoke(app, ["project", "create", "test_project"])
@@ -148,9 +146,7 @@ def test_images_register_with_skip_duplicates(
 
 @pytest.mark.unit
 @pytest.mark.cli
-def test_images_register_include_duplicates(
-    mock_projects_dir: Path, tmp_path: Path
-) -> None:
+def test_images_register_include_duplicates(mock_projects_dir: Path, tmp_path: Path) -> None:
     """Test: images register --include-duplicates - 重複を含める。"""
     # プロジェクト作成
     runner.invoke(app, ["project", "create", "test_project"])
@@ -232,9 +228,7 @@ def test_images_update_not_implemented(mock_projects_dir: Path) -> None:
 
 @pytest.mark.unit
 @pytest.mark.cli
-def test_images_register_multiple_formats(
-    mock_projects_dir: Path, tmp_path: Path
-) -> None:
+def test_images_register_multiple_formats(mock_projects_dir: Path, tmp_path: Path) -> None:
     """Test: images register - 複数形式の画像ファイル。"""
     # プロジェクト作成
     runner.invoke(app, ["project", "create", "test_project"])

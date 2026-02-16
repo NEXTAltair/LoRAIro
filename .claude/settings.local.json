@@ -73,7 +73,9 @@
       "Bash(# Merge:*)",
       "Bash(done)",
       "Bash(gh label list:*)",
-      "Bash(gh issue create:*)"
+      "Bash(gh issue create:*)",
+      "Skill(planning)",
+      "Skill(implement)"
     ],
     "deny": [],
     "ask": []
