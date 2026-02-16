@@ -9,7 +9,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from lorairo.cli.commands import project, images, annotate, export
+from lorairo.cli.commands import annotate, export, images, project
 
 # Typer app 定義
 app = typer.Typer(
@@ -66,7 +66,7 @@ def status() -> None:
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
 
 
 def main() -> None:

@@ -8,7 +8,7 @@ from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeRemainingColumn
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeRemainingColumn
 from rich.table import Table
 
 from lorairo.cli.commands import project as project_module
@@ -30,7 +30,7 @@ def _get_image_files(directory: Path) -> list[Path]:
         list[Path]: 画像ファイルのパスリスト
     """
     image_extensions = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
-    image_files = []
+    image_files: list[Path] = []
 
     if not directory.exists():
         return image_files
@@ -42,7 +42,7 @@ def _get_image_files(directory: Path) -> list[Path]:
     return sorted(set(image_files))  # 重複排除
 
 
-def _calculate_phash(image_path: Path) -> Optional[str]:
+def _calculate_phash(image_path: Path) -> str | None:
     """画像のpHashを計算。
 
     Args:
@@ -52,8 +52,8 @@ def _calculate_phash(image_path: Path) -> Optional[str]:
         Optional[str]: pHash値（16進数文字列）。計算失敗時はNone
     """
     try:
-        from PIL import Image
         import imagehash
+        from PIL import Image
 
         img = Image.open(image_path)
         phash = imagehash.phash(img)
@@ -160,14 +160,6 @@ def register(
                         progress.advance(task)
                         continue
 
-                    # メタデータ作成
-                    metadata = {
-                        "filename": image_file.name,
-                        "size": image_file.stat().st_size,
-                        "phash": phash,
-                        "registered_at": datetime.now().isoformat(),
-                    }
-
                     # 登録完了カウント
                     registered += 1
                     phashs_in_project.add(phash)
@@ -194,7 +186,7 @@ def register(
         raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
 
 
 @app.command("list")
@@ -205,7 +197,7 @@ def list_images(
         "-p",
         help="Project name",
     ),
-    limit: Optional[int] = typer.Option(
+    limit: int | None = typer.Option(
         None,
         "--limit",
         "-l",
@@ -228,7 +220,7 @@ def update(
         "-p",
         help="Project name",
     ),
-    tags: Optional[str] = typer.Option(
+    tags: str | None = typer.Option(
         None,
         "--tags",
         help="Tags to add (comma-separated)",
