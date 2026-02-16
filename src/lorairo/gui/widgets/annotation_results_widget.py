@@ -24,6 +24,8 @@ if TYPE_CHECKING:
     from ...gui.workers.annotation_worker import AnnotationExecutionResult
 
 
+# Placeholder comment to check if file operations work
+
 @dataclass
 class AnnotationResult:
     """単一モデルのアノテーション結果"""
