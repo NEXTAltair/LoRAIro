@@ -5,7 +5,7 @@ ImageRegistrationService をラップし、画像登録・管理機能を提供�
 
 from pathlib import Path
 
-from lorairo.api.exceptions import ImageRegistrationError
+from lorairo.api.exceptions import ImageRegistrationError, ProjectNotFoundError
 from lorairo.api.types import RegistrationResult
 from lorairo.services.service_container import ServiceContainer
 
@@ -13,6 +13,7 @@ from lorairo.services.service_container import ServiceContainer
 def register_images(
     directory: str | Path,
     skip_duplicates: bool = True,
+    project_name: str | None = None,
 ) -> RegistrationResult:
     """ディレクトリから画像を登録。
 
@@ -21,6 +22,7 @@ def register_images(
     Args:
         directory: 画像ファイルのディレクトリパス。
         skip_duplicates: 重複画像をスキップするか（デフォルト: True）。
+        project_name: 登録先プロジェクト名。指定時は画像をプロジェクトにコピー。
 
     Returns:
         RegistrationResult: 登録結果（成功数、失敗数、スキップ数など）。
@@ -28,19 +30,28 @@ def register_images(
     Raises:
         ImageRegistrationError: ディレクトリが見つからない、
                                または登録処理に失敗した場合。
+        ProjectNotFoundError: 指定プロジェクトが見つからない場合。
 
     使用例:
         >>> from pathlib import Path
         >>> from lorairo.api import register_images
         >>>
-        >>> result = register_images(Path("/path/to/images"))
+        >>> result = register_images(Path("/path/to/images"), project_name="my_project")
         >>> print(f"登録: {result.successful}件, スキップ: {result.skipped}件")
     """
     directory_path = Path(directory) if isinstance(directory, str) else directory
 
     container = ServiceContainer()
+
+    # プロジェクトディレクトリを解決
+    project_dir: Path | None = None
+    if project_name:
+        project_service = container.project_management_service
+        project_info = project_service.get_project(project_name)
+        project_dir = project_info.path
+
     service = container.image_registration_service
-    return service.register_images(directory_path, skip_duplicates)
+    return service.register_images(directory_path, skip_duplicates, project_dir)
 
 
 def detect_duplicate_images(

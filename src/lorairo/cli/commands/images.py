@@ -88,8 +88,8 @@ def register(
             console.print(f"[red]Error:[/red] Project not found: {project}")
             raise typer.Exit(code=1) from e
 
-        # API層経由で画像登録
-        result = api_register_images(dir_path, skip_duplicates)
+        # API層経由で画像登録（プロジェクトコンテキスト付き）
+        result = api_register_images(dir_path, skip_duplicates, project_name=project)
 
         if result.total == 0:
             console.print(f"[yellow]Warning:[/yellow] No image files found in {directory}")
