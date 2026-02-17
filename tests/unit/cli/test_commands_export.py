@@ -7,14 +7,15 @@ import pytest
 from typer.testing import CliRunner
 
 from lorairo.cli.main import app
-from lorairo.cli.commands import project
+from lorairo.services.project_management_service import ProjectManagementService
+from lorairo.services.service_container import ServiceContainer
 
 runner = CliRunner()
 
 
 @pytest.fixture
 def mock_projects_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """プロジェクトディレクトリをモック。
+    """ProjectManagementService のプロジェクトディレクトリをモック。
 
     Args:
         tmp_path: 一時ディレクトリ
@@ -25,7 +26,18 @@ def mock_projects_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """
     mock_dir = tmp_path / "projects"
     mock_dir.mkdir()
-    monkeypatch.setattr(project, "PROJECTS_BASE_DIR", mock_dir)
+
+    # ServiceContainerシングルトンのキャッシュをクリア
+    container = ServiceContainer()
+    container._project_management_service = None
+
+    original_init = ProjectManagementService.__init__
+
+    def patched_init(self: ProjectManagementService, projects_base_dir: Path | None = None) -> None:
+        original_init(self, projects_base_dir=mock_dir)
+
+    monkeypatch.setattr(ProjectManagementService, "__init__", patched_init)
+
     return mock_dir
 
 
@@ -70,16 +82,11 @@ def test_export_create_txt_format(
     tmp_path: Path,
 ) -> None:
     """Test: export create --format txt - TXT フォーマットでのエクスポート。"""
-    # ServiceContainer をモック
     mock_container = create_mock_service_container()
     mock_get_container.return_value = mock_container
 
     # プロジェクト作成
-    runner.invoke(app, ["project", "create", "test_project"])
-
-    # プロジェクトディレクトリにDBファイルを作成
-    project_dir = list(mock_projects_dir.glob("test_project_*"))[0]
-    (project_dir / "image_database.db").touch()
+    runner.invoke(app, ["project", "create", "test-project"])
 
     # エクスポート実行
     output_dir = tmp_path / "export"
@@ -89,7 +96,7 @@ def test_export_create_txt_format(
             "export",
             "create",
             "--project",
-            "test_project",
+            "test-project",
             "--output",
             str(output_dir),
             "--format",
@@ -113,16 +120,11 @@ def test_export_create_json_format(
     tmp_path: Path,
 ) -> None:
     """Test: export create --format json - JSON フォーマットでのエクスポート。"""
-    # ServiceContainer をモック
     mock_container = create_mock_service_container()
     mock_get_container.return_value = mock_container
 
     # プロジェクト作成
-    runner.invoke(app, ["project", "create", "test_project"])
-
-    # プロジェクトディレクトリにDBファイルを作成
-    project_dir = list(mock_projects_dir.glob("test_project_*"))[0]
-    (project_dir / "image_database.db").touch()
+    runner.invoke(app, ["project", "create", "test-project"])
 
     # エクスポート実行
     output_dir = tmp_path / "export"
@@ -132,7 +134,7 @@ def test_export_create_json_format(
             "export",
             "create",
             "--project",
-            "test_project",
+            "test-project",
             "--output",
             str(output_dir),
             "--format",
@@ -154,16 +156,11 @@ def test_export_create_with_custom_resolution(
     tmp_path: Path,
 ) -> None:
     """Test: export create --resolution - カスタム解像度指定。"""
-    # ServiceContainer をモック
     mock_container = create_mock_service_container()
     mock_get_container.return_value = mock_container
 
     # プロジェクト作成
-    runner.invoke(app, ["project", "create", "test_project"])
-
-    # プロジェクトディレクトリにDBファイルを作成
-    project_dir = list(mock_projects_dir.glob("test_project_*"))[0]
-    (project_dir / "image_database.db").touch()
+    runner.invoke(app, ["project", "create", "test-project"])
 
     # エクスポート実行（解像度1024指定）
     output_dir = tmp_path / "export"
@@ -173,7 +170,7 @@ def test_export_create_with_custom_resolution(
             "export",
             "create",
             "--project",
-            "test_project",
+            "test-project",
             "--output",
             str(output_dir),
             "--format",
@@ -196,16 +193,11 @@ def test_export_create_output_directory_auto_creation(
     tmp_path: Path,
 ) -> None:
     """Test: export create - 出力ディレクトリ自動作成。"""
-    # ServiceContainer をモック
     mock_container = create_mock_service_container()
     mock_get_container.return_value = mock_container
 
     # プロジェクト作成
-    runner.invoke(app, ["project", "create", "test_project"])
-
-    # プロジェクトディレクトリにDBファイルを作成
-    project_dir = list(mock_projects_dir.glob("test_project_*"))[0]
-    (project_dir / "image_database.db").touch()
+    runner.invoke(app, ["project", "create", "test-project"])
 
     # 存在しない出力ディレクトリを指定
     output_dir = tmp_path / "nonexistent" / "export"
@@ -215,7 +207,7 @@ def test_export_create_output_directory_auto_creation(
             "export",
             "create",
             "--project",
-            "test_project",
+            "test-project",
             "--output",
             str(output_dir),
             "--format",
@@ -224,8 +216,6 @@ def test_export_create_output_directory_auto_creation(
     )
 
     assert result.exit_code == 0
-    # ディレクトリが作成されていることを確認
-    # 出力には成功メッセージが含まれる
     assert "Export completed successfully" in result.stdout
 
 
@@ -238,7 +228,6 @@ def test_export_create_nonexistent_project(
     tmp_path: Path,
 ) -> None:
     """Test: export create - 無効なプロジェクト名。"""
-    # ServiceContainer をモック
     mock_container = create_mock_service_container()
     mock_get_container.return_value = mock_container
 
@@ -249,7 +238,7 @@ def test_export_create_nonexistent_project(
             "export",
             "create",
             "--project",
-            "nonexistent_project",
+            "nonexistent-project",
             "--output",
             str(output_dir),
             "--format",
@@ -259,41 +248,6 @@ def test_export_create_nonexistent_project(
 
     assert result.exit_code == 1
     assert "Project not found" in result.stdout
-
-
-@pytest.mark.unit
-@pytest.mark.cli
-@patch("lorairo.cli.commands.export.get_service_container")
-def test_export_create_missing_database(
-    mock_get_container,
-    mock_projects_dir: Path,
-    tmp_path: Path,
-) -> None:
-    """Test: export create - データベースファイルが存在しない場合。"""
-    # ServiceContainer をモック
-    mock_container = create_mock_service_container()
-    mock_get_container.return_value = mock_container
-
-    # プロジェクト作成（ただしDBファイルは作成しない）
-    runner.invoke(app, ["project", "create", "test_project"])
-
-    output_dir = tmp_path / "export"
-    result = runner.invoke(
-        app,
-        [
-            "export",
-            "create",
-            "--project",
-            "test_project",
-            "--output",
-            str(output_dir),
-            "--format",
-            "txt",
-        ],
-    )
-
-    assert result.exit_code == 1
-    assert "Database not found" in result.stdout or "Warning" in result.stdout
 
 
 @pytest.mark.unit
@@ -314,11 +268,7 @@ def test_export_create_no_images(
     mock_get_container.return_value = mock_container
 
     # プロジェクト作成
-    runner.invoke(app, ["project", "create", "test_project"])
-
-    # プロジェクトディレクトリにDBファイルを作成
-    project_dir = list(mock_projects_dir.glob("test_project_*"))[0]
-    (project_dir / "image_database.db").touch()
+    runner.invoke(app, ["project", "create", "test-project"])
 
     output_dir = tmp_path / "export"
     result = runner.invoke(
@@ -327,7 +277,7 @@ def test_export_create_no_images(
             "export",
             "create",
             "--project",
-            "test_project",
+            "test-project",
             "--output",
             str(output_dir),
             "--format",
@@ -348,20 +298,14 @@ def test_export_create_invalid_format(
     tmp_path: Path,
 ) -> None:
     """Test: export create - 無効なフォーマット。"""
-    # ServiceContainer をモック
     mock_container = create_mock_service_container()
-    # export_service.export_filtered_dataset を無効フォーマット用にモック
     mock_container.dataset_export_service.export_filtered_dataset.side_effect = ValueError(
         "Unsupported format_type: invalid"
     )
     mock_get_container.return_value = mock_container
 
     # プロジェクト作成
-    runner.invoke(app, ["project", "create", "test_project"])
-
-    # プロジェクトディレクトリにDBファイルを作成
-    project_dir = list(mock_projects_dir.glob("test_project_*"))[0]
-    (project_dir / "image_database.db").touch()
+    runner.invoke(app, ["project", "create", "test-project"])
 
     output_dir = tmp_path / "export"
     result = runner.invoke(
@@ -370,7 +314,7 @@ def test_export_create_invalid_format(
             "export",
             "create",
             "--project",
-            "test_project",
+            "test-project",
             "--output",
             str(output_dir),
             "--format",
@@ -414,16 +358,11 @@ def test_export_create_default_format(
     tmp_path: Path,
 ) -> None:
     """Test: export create - デフォルトフォーマット (txt)。"""
-    # ServiceContainer をモック
     mock_container = create_mock_service_container()
     mock_get_container.return_value = mock_container
 
     # プロジェクト作成
-    runner.invoke(app, ["project", "create", "test_project"])
-
-    # プロジェクトディレクトリにDBファイルを作成
-    project_dir = list(mock_projects_dir.glob("test_project_*"))[0]
-    (project_dir / "image_database.db").touch()
+    runner.invoke(app, ["project", "create", "test-project"])
 
     # format オプションなしで実行（デフォルトはtxt）
     output_dir = tmp_path / "export"
@@ -433,7 +372,7 @@ def test_export_create_default_format(
             "export",
             "create",
             "--project",
-            "test_project",
+            "test-project",
             "--output",
             str(output_dir),
         ],
@@ -452,16 +391,11 @@ def test_export_create_default_resolution(
     tmp_path: Path,
 ) -> None:
     """Test: export create - デフォルト解像度 (512)。"""
-    # ServiceContainer をモック
     mock_container = create_mock_service_container()
     mock_get_container.return_value = mock_container
 
     # プロジェクト作成
-    runner.invoke(app, ["project", "create", "test_project"])
-
-    # プロジェクトディレクトリにDBファイルを作成
-    project_dir = list(mock_projects_dir.glob("test_project_*"))[0]
-    (project_dir / "image_database.db").touch()
+    runner.invoke(app, ["project", "create", "test-project"])
 
     # resolution オプションなしで実行（デフォルトは512）
     output_dir = tmp_path / "export"
@@ -471,7 +405,7 @@ def test_export_create_default_resolution(
             "export",
             "create",
             "--project",
-            "test_project",
+            "test-project",
             "--output",
             str(output_dir),
         ],

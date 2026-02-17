@@ -1,21 +1,26 @@
 """Project management commands テスト。"""
 
 import json
-import shutil
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
 
 from lorairo.cli.main import app
-from lorairo.cli.commands import project
+from lorairo.services.project_management_service import ProjectManagementService
+from lorairo.services.service_container import ServiceContainer
 
 runner = CliRunner()
 
 
 @pytest.fixture
 def mock_projects_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """プロジェクトディレクトリをモック。
+    """ProjectManagementService のプロジェクトディレクトリをモック。
+
+    API層→Service層経由でプロジェクト操作が行われるため、
+    ServiceContainer が返す ProjectManagementService の
+    projects_base_dir を一時ディレクトリに差し替える。
 
     Args:
         tmp_path: 一時ディレクトリ
@@ -26,7 +31,19 @@ def mock_projects_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """
     mock_dir = tmp_path / "projects"
     mock_dir.mkdir()
-    monkeypatch.setattr(project, "PROJECTS_BASE_DIR", mock_dir)
+
+    # ServiceContainerシングルトンのキャッシュをクリア
+    container = ServiceContainer()
+    container._project_management_service = None
+
+    # ServiceContainer が返す ProjectManagementService のbase dirをパッチ
+    original_init = ProjectManagementService.__init__
+
+    def patched_init(self: ProjectManagementService, projects_base_dir: Path | None = None) -> None:
+        original_init(self, projects_base_dir=mock_dir)
+
+    monkeypatch.setattr(ProjectManagementService, "__init__", patched_init)
+
     return mock_dir
 
 
@@ -36,17 +53,15 @@ def test_project_create_success(mock_projects_dir: Path) -> None:
     """Test: project create - 成功ケース。"""
     result = runner.invoke(
         app,
-        ["project", "create", "test_project", "--description", "Test project"],
+        ["project", "create", "test-project", "--description", "Test project"],
     )
 
     assert result.exit_code == 0
     assert "Project created" in result.stdout
-    assert "test_project" in result.stdout
+    assert "test-project" in result.stdout
 
     # ディレクトリが実際に作成されたか確認
-    assert (mock_projects_dir / "test_project_20").exists() or any(
-        d.name.startswith("test_project_") for d in mock_projects_dir.iterdir()
-    )
+    assert any(d.name.startswith("test-project_") for d in mock_projects_dir.iterdir())
 
 
 @pytest.mark.unit
@@ -64,7 +79,7 @@ def test_project_list_empty(mock_projects_dir: Path) -> None:
 def test_project_list_json_format(mock_projects_dir: Path) -> None:
     """Test: project list --format json - JSON出力フォーマット。"""
     # プロジェクト作成
-    runner.invoke(app, ["project", "create", "json_test"])
+    runner.invoke(app, ["project", "create", "json-test"])
 
     # JSON形式で一覧取得
     result = runner.invoke(app, ["project", "list", "--format", "json"])
@@ -84,7 +99,7 @@ def test_project_list_json_format(mock_projects_dir: Path) -> None:
 def test_project_list_table_format(mock_projects_dir: Path) -> None:
     """Test: project list --format table - テーブル出力（デフォルト）。"""
     # プロジェクト作成
-    runner.invoke(app, ["project", "create", "table_test"])
+    runner.invoke(app, ["project", "create", "table-test"])
 
     # テーブル形式で一覧取得
     result = runner.invoke(app, ["project", "list", "--format", "table"])
@@ -95,20 +110,16 @@ def test_project_list_table_format(mock_projects_dir: Path) -> None:
 @pytest.mark.unit
 @pytest.mark.cli
 def test_project_delete_with_confirmation(mock_projects_dir: Path) -> None:
-    """Test: project delete - フォースなしでの削除（確認フロー）。
-
-    Note: CliRunner と typer.confirm() の相性が限定的なため、
-    このテストでは --force フラグなしの削除が実行されることを確認
-    """
+    """Test: project delete - フォースなしでの削除（確認フロー）。"""
     # プロジェクト作成
     create_result = runner.invoke(
         app,
-        ["project", "create", "confirm_test"],
+        ["project", "create", "confirm-test"],
     )
     assert create_result.exit_code == 0
 
     # ディレクトリが実際に作成されたか確認
-    projects = [d.name for d in mock_projects_dir.iterdir() if d.name.startswith("confirm_test_")]
+    projects = [d.name for d in mock_projects_dir.iterdir() if d.name.startswith("confirm-test_")]
     assert len(projects) > 0
 
 
@@ -116,13 +127,12 @@ def test_project_delete_with_confirmation(mock_projects_dir: Path) -> None:
 @pytest.mark.cli
 def test_project_delete_with_force_flag(mock_projects_dir: Path) -> None:
     """Test: project delete --force - 確認スキップ。"""
-    # プロジェクト作成
-    runner.invoke(app, ["project", "create", "force_delete_test"])
+    runner.invoke(app, ["project", "create", "force-delete-test"])
 
     # 強制削除
     result = runner.invoke(
         app,
-        ["project", "delete", "force_delete_test", "--force"],
+        ["project", "delete", "force-delete-test", "--force"],
     )
 
     assert result.exit_code == 0
@@ -177,25 +187,8 @@ def test_project_delete_help() -> None:
 
 @pytest.mark.unit
 @pytest.mark.cli
-def test_project_create_unicode_name(mock_projects_dir: Path) -> None:
-    """Test: project create - Unicode文字を含むプロジェクト名。"""
-    result = runner.invoke(
-        app,
-        ["project", "create", "テスト プロジェクト", "--description", "日本語説明"],
-    )
-
-    assert result.exit_code == 0
-    assert "Project created" in result.stdout
-
-    # Unicode ディレクトリが作成されたか確認
-    projects = list(mock_projects_dir.iterdir())
-    assert len(projects) > 0
-
-
-@pytest.mark.unit
-@pytest.mark.cli
 def test_project_create_special_chars(mock_projects_dir: Path) -> None:
-    """Test: project create - 特殊文字を含むプロジェクト名。"""
+    """Test: project create - ハイフン・アンダースコア含むプロジェクト名。"""
     result = runner.invoke(
         app,
         ["project", "create", "project-with-dashes_and_underscores"],
@@ -209,7 +202,7 @@ def test_project_create_special_chars(mock_projects_dir: Path) -> None:
 @pytest.mark.cli
 def test_project_create_long_name(mock_projects_dir: Path) -> None:
     """Test: project create - 長いプロジェクト名。"""
-    long_name = "a" * 100
+    long_name = "a" * 64  # max_length=64
     result = runner.invoke(
         app,
         ["project", "create", long_name],
@@ -221,11 +214,38 @@ def test_project_create_long_name(mock_projects_dir: Path) -> None:
 
 @pytest.mark.unit
 @pytest.mark.cli
+def test_project_create_too_long_name(mock_projects_dir: Path) -> None:
+    """Test: project create - 64文字超過のプロジェクト名。"""
+    long_name = "a" * 65
+    result = runner.invoke(
+        app,
+        ["project", "create", long_name],
+    )
+
+    assert result.exit_code == 1
+    assert "Error" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_project_create_invalid_name(mock_projects_dir: Path) -> None:
+    """Test: project create - 無効な文字を含むプロジェクト名。"""
+    result = runner.invoke(
+        app,
+        ["project", "create", "test project!"],
+    )
+
+    assert result.exit_code == 1
+    assert "Error" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
 def test_project_create_empty_description(mock_projects_dir: Path) -> None:
     """Test: project create - 説明文なし。"""
     result = runner.invoke(
         app,
-        ["project", "create", "no_description"],
+        ["project", "create", "no-description"],
     )
 
     assert result.exit_code == 0
@@ -244,13 +264,12 @@ def test_project_list_directory_structure(mock_projects_dir: Path) -> None:
     """Test: project list - プロジェクトディレクトリ構造の確認。"""
     # 複数プロジェクトを直接ディレクトリに作成（ファイルシステムで）
     for i in range(1, 4):
-        proj_dir = mock_projects_dir / f"project_{i}_20260216_063000"
+        proj_dir = mock_projects_dir / f"project{i}_20260216_063000"
         proj_dir.mkdir()
         (proj_dir / ".lorairo-project").write_text(
-            f'{{"name": "project_{i}", "created": "20260216_063000", "description": ""}}'
+            f'{{"name": "project{i}", "created": "20260216_063000", "description": ""}}'
         )
         (proj_dir / "image_dataset").mkdir()
-        # image_database.db ファイルを作成（存在確認用）
         (proj_dir / "image_database.db").touch()
 
     # テーブル形式で一覧取得
@@ -258,7 +277,7 @@ def test_project_list_directory_structure(mock_projects_dir: Path) -> None:
     assert result.exit_code == 0
 
     # プロジェクトが表示されたか確認
-    assert "project_" in result.stdout
+    assert "project" in result.stdout
 
 
 @pytest.mark.unit
@@ -267,13 +286,12 @@ def test_project_list_json_structure(mock_projects_dir: Path) -> None:
     """Test: project list --format json - JSON形式での複数プロジェクト。"""
     # プロジェクトディレクトリを直接作成
     for i in range(1, 3):
-        proj_dir = mock_projects_dir / f"json_{i}_20260216_063000"
+        proj_dir = mock_projects_dir / f"json{i}_20260216_063000"
         proj_dir.mkdir()
         (proj_dir / ".lorairo-project").write_text(
-            f'{{"name": "json_{i}", "created": "20260216_063000", "description": ""}}'
+            f'{{"name": "json{i}", "created": "20260216_063000", "description": ""}}'
         )
         (proj_dir / "image_dataset").mkdir()
-        # image_database.db ファイルを作成（存在確認用）
         (proj_dir / "image_database.db").touch()
 
     # JSON形式で一覧取得
@@ -289,27 +307,23 @@ def test_project_list_json_structure(mock_projects_dir: Path) -> None:
 @pytest.mark.unit
 @pytest.mark.cli
 def test_project_delete_partial_match(mock_projects_dir: Path) -> None:
-    """Test: project delete - 部分一致での検索。
-
-    複数の「test_」プロジェクトがある場合、
-    「test_a」で削除すると「test_a_xxx」が削除される
-    """
+    """Test: project delete - 部分一致での検索。"""
     # 複数の類似プロジェクト作成
-    runner.invoke(app, ["project", "create", "test_alpha"])
-    runner.invoke(app, ["project", "create", "test_beta"])
+    runner.invoke(app, ["project", "create", "test-alpha"])
+    runner.invoke(app, ["project", "create", "test-beta"])
 
-    # 「test_alpha」を削除
+    # 「test-alpha」を削除
     result = runner.invoke(
         app,
-        ["project", "delete", "test_alpha", "--force"],
+        ["project", "delete", "test-alpha", "--force"],
     )
 
     assert result.exit_code == 0
 
-    # test_alpha は削除され、test_beta は残る
+    # test-alpha は削除され、test-beta は残る
     remaining = list(mock_projects_dir.iterdir())
     names = [d.name for d in remaining]
-    assert any("test_beta" in name for name in names)
+    assert any("test-beta" in name for name in names)
 
 
 @pytest.mark.unit
@@ -338,5 +352,4 @@ def test_project_list_format_invalid(mock_projects_dir: Path) -> None:
     result = runner.invoke(app, ["project", "list", "--format", "yaml"])
 
     # Invalid format は table または json のみ
-    # 実装上は table as default になる可能性
     assert result.exit_code == 0 or result.exit_code == 2

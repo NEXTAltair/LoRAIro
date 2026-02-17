@@ -21,8 +21,10 @@ from ..utils.log import logger
 from .configuration_service import ConfigurationService
 from .dataset_export_service import DatasetExportService
 from .image_processing_service import ImageProcessingService
+from .image_registration_service import ImageRegistrationService
 from .model_registry_protocol import ModelRegistryServiceProtocol, NullModelRegistry
 from .model_sync_service import ModelSyncService
+from .project_management_service import ProjectManagementService
 
 
 class ServiceContainer:
@@ -83,6 +85,10 @@ class ServiceContainer:
         # Phase 1: SignalManagerService統合（GUI/CLI自動切り替え）
         self._signal_manager: SignalManagerServiceProtocol | None = None
         self._cli_mode: bool = os.environ.get("LORAIRO_CLI_MODE", "").lower() in ("1", "true")
+
+        # Phase 2: API層用新サービス
+        self._project_management_service: ProjectManagementService | None = None
+        self._image_registration_service: ImageRegistrationService | None = None
 
     @property
     def config_service(self) -> ConfigurationService:
@@ -208,7 +214,7 @@ class ServiceContainer:
         return self._tag_management_service
 
     @property
-    def favorite_filters_service(self) -> Any:  # type: ignore[misc]
+    def favorite_filters_service(self) -> Any:
         """FavoriteFiltersService取得（遅延初期化） - Phase 4"""
         if self._favorite_filters_service is None:
             from .favorite_filters_service import FavoriteFiltersService
@@ -244,6 +250,22 @@ class ServiceContainer:
 
         return self._signal_manager
 
+    @property
+    def project_management_service(self) -> ProjectManagementService:
+        """プロジェクト管理サービス取得（遅延初期化）"""
+        if self._project_management_service is None:
+            self._project_management_service = ProjectManagementService()
+            logger.debug("ProjectManagementService初期化完了")
+        return self._project_management_service
+
+    @property
+    def image_registration_service(self) -> ImageRegistrationService:
+        """画像登録サービス取得（遅延初期化）"""
+        if self._image_registration_service is None:
+            self._image_registration_service = ImageRegistrationService()
+            logger.debug("ImageRegistrationService初期化完了")
+        return self._image_registration_service
+
     def get_service_summary(self) -> dict[str, Any]:
         """サービス初期化状況のサマリー取得
 
@@ -264,6 +286,8 @@ class ServiceContainer:
                 "tag_management_service": self._tag_management_service is not None,
                 "favorite_filters_service": self._favorite_filters_service is not None,
                 "signal_manager": self._signal_manager is not None,
+                "project_management_service": self._project_management_service is not None,
+                "image_registration_service": self._image_registration_service is not None,
             },
             "container_initialized": ServiceContainer._initialized,
             "phase": "Phase 4 (Production Integration)"
@@ -292,6 +316,8 @@ class ServiceContainer:
         self._tag_management_service = None
         self._favorite_filters_service = None
         self._signal_manager = None
+        self._project_management_service = None
+        self._image_registration_service = None
 
         # クラスレベルリセット
         ServiceContainer._instance = None

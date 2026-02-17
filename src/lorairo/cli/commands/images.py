@@ -1,17 +1,19 @@
 """Image management commands.
 
 画像の登録、メタデータ更新などの画像管理コマンド。
+API層（lorairo.api）を経由してService層を利用する。
 """
 
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeRemainingColumn
 from rich.table import Table
 
-from lorairo.cli.commands import project as project_module
+from lorairo.api.exceptions import ImageRegistrationError, ProjectNotFoundError
+from lorairo.api.images import register_images as api_register_images
+from lorairo.api.project import get_project as api_get_project
+from lorairo.api.types import RegistrationResult
 
 # サブコマンドアプリ定義
 app = typer.Typer(help="Image management commands")
@@ -20,47 +22,28 @@ app = typer.Typer(help="Image management commands")
 console = Console()
 
 
-def _get_image_files(directory: Path) -> list[Path]:
-    """ディレクトリから画像ファイルを取得。
+def _print_registration_summary(result: RegistrationResult, project: str) -> None:
+    """画像登録結果のサマリーを表示する。
 
     Args:
-        directory: 検索対象ディレクトリ
-
-    Returns:
-        list[Path]: 画像ファイルのパスリスト
+        result: 登録結果
+        project: プロジェクト名
     """
-    image_extensions = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
-    image_files: list[Path] = []
+    console.print("\n[bold]Registration Summary[/bold]")
+    table = Table(show_header=False)
+    table.add_row("Total", f"{result.total}")
+    table.add_row("Registered", f"[green]{result.successful}[/green]")
+    table.add_row("Skipped (duplicates)", f"[yellow]{result.skipped}[/yellow]")
+    table.add_row("Errors", f"[red]{result.failed}[/red]")
+    console.print(table)
 
-    if not directory.exists():
-        return image_files
+    if result.error_details:
+        console.print("\n[yellow]Error details:[/yellow]")
+        for err in result.error_details:
+            console.print(f"  - {err}")
 
-    for ext in image_extensions:
-        image_files.extend(directory.glob(f"*{ext}"))
-        image_files.extend(directory.glob(f"*{ext.upper()}"))
-
-    return sorted(set(image_files))  # 重複排除
-
-
-def _calculate_phash(image_path: Path) -> str | None:
-    """画像のpHashを計算。
-
-    Args:
-        image_path: 画像ファイルパス
-
-    Returns:
-        Optional[str]: pHash値（16進数文字列）。計算失敗時はNone
-    """
-    try:
-        import imagehash
-        from PIL import Image
-
-        img = Image.open(image_path)
-        phash = imagehash.phash(img)
-        return str(phash)
-    except Exception as e:
-        console.print(f"[yellow]Warning:[/yellow] pHash計算失敗 {image_path.name}: {e}")
-        return None
+    if result.successful > 0:
+        console.print(f"\n[green]✓[/green] Images registered to project: {project}")
 
 
 @app.command("register")
@@ -87,9 +70,6 @@ def register(
     pHashを計算して重複検出を行います。
     """
     try:
-        import json
-        from datetime import datetime
-
         dir_path = Path(directory).resolve()
 
         # ディレクトリ存在確認
@@ -101,87 +81,25 @@ def register(
             console.print(f"[red]Error:[/red] Not a directory: {directory}")
             raise typer.Exit(code=1)
 
-        # 画像ファイルを取得
-        image_files = _get_image_files(dir_path)
+        # プロジェクト存在確認
+        try:
+            api_get_project(project)
+        except ProjectNotFoundError as e:
+            console.print(f"[red]Error:[/red] Project not found: {project}")
+            raise typer.Exit(code=1) from e
 
-        if not image_files:
+        # API層経由で画像登録
+        result = api_register_images(dir_path, skip_duplicates)
+
+        if result.total == 0:
             console.print(f"[yellow]Warning:[/yellow] No image files found in {directory}")
             raise typer.Exit(code=0)
 
-        console.print(f"[cyan]Found {len(image_files)} image(s)[/cyan]")
+        _print_registration_summary(result, project)
 
-        # プロジェクトディレクトリを確認
-        projects_base = project_module.PROJECTS_BASE_DIR
-        project_dir = None
-
-        if projects_base.exists():
-            for proj_dir in projects_base.iterdir():
-                if proj_dir.is_dir() and proj_dir.name.startswith(project + "_"):
-                    project_dir = proj_dir
-                    break
-
-        if not project_dir:
-            console.print(f"[red]Error:[/red] Project not found: {project}")
-            raise typer.Exit(code=1)
-
-        # 登録処理（Progress バー付き）
-        registered = 0
-        skipped = 0
-        errors = 0
-        phashs_in_project: set[str] = set()
-
-        # プロジェクト内の既存pHashを読み込み（将来：DB から取得）
-        # 今は簡略化して空集合で初期化
-        phashs_in_project = set()
-
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
-            TimeRemainingColumn(),
-            console=console,
-        ) as progress:
-            task = progress.add_task("画像登録中...", total=len(image_files))
-
-            for image_file in image_files:
-                try:
-                    # pHashを計算
-                    phash = _calculate_phash(image_file)
-
-                    if not phash:
-                        errors += 1
-                        progress.advance(task)
-                        continue
-
-                    # 重複チェック
-                    if skip_duplicates and phash in phashs_in_project:
-                        skipped += 1
-                        progress.advance(task)
-                        continue
-
-                    # 登録完了カウント
-                    registered += 1
-                    phashs_in_project.add(phash)
-
-                    progress.advance(task)
-
-                except Exception as e:
-                    console.print(f"[red]Error:[/red] {image_file.name}: {e}")
-                    errors += 1
-                    progress.advance(task)
-
-        # サマリー表示
-        console.print("\n[bold]Registration Summary[/bold]")
-        table = Table(show_header=False)
-        table.add_row("Registered", f"[green]{registered}[/green]")
-        table.add_row("Skipped (duplicates)", f"[yellow]{skipped}[/yellow]")
-        table.add_row("Errors", f"[red]{errors}[/red]")
-        console.print(table)
-
-        if registered > 0:
-            console.print(f"\n[green]✓[/green] Images registered to project: {project}")
-
+    except ImageRegistrationError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1) from e
     except typer.Exit:
         raise
     except Exception as e:

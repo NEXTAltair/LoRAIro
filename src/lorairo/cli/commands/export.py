@@ -1,6 +1,7 @@
 """Dataset export commands.
 
 データセット エクスポート コマンド。
+API層（lorairo.api）を経由してService層を利用する。
 """
 
 from pathlib import Path
@@ -10,7 +11,12 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeRemainingColumn
 from rich.table import Table
 
-from lorairo.cli.commands import project as project_module
+from lorairo.api.exceptions import (
+    ExportFailedError,
+    InvalidFormatError,
+    ProjectNotFoundError,
+)
+from lorairo.api.project import get_project as api_get_project
 from lorairo.services.service_container import get_service_container
 from lorairo.utils.log import logger
 
@@ -19,41 +25,6 @@ app = typer.Typer(help="Dataset export commands")
 
 # Rich console（出力用）
 console = Console()
-
-
-def _validate_project_and_db(
-    project_name: str,
-) -> Path:
-    """プロジェクトとデータベースを確認して、プロジェクトディレクトリを返す。
-
-    Args:
-        project_name: プロジェクト名
-
-    Returns:
-        Path: プロジェクトディレクトリパス
-
-    Raises:
-        typer.Exit: プロジェクトまたはDBが見つからない場合
-    """
-    projects_base = project_module.PROJECTS_BASE_DIR
-    project_dir = None
-
-    if projects_base.exists():
-        for proj_dir in projects_base.iterdir():
-            if proj_dir.is_dir() and proj_dir.name.startswith(project_name + "_"):
-                project_dir = proj_dir
-                break
-
-    if not project_dir:
-        console.print(f"[red]Error:[/red] Project not found: {project_name}")
-        raise typer.Exit(code=1)
-
-    db_file = project_dir / "image_database.db"
-    if not db_file.exists():
-        console.print(f"[yellow]Warning:[/yellow] Database not found for project: {project_name}")
-        raise typer.Exit(code=1)
-
-    return project_dir
 
 
 @app.command("create")
@@ -88,8 +59,12 @@ def create(
     プロジェクトからデータセットをエクスポートします。
     """
     try:
-        # プロジェクトディレクトリを確認
-        _validate_project_and_db(project)
+        # API層経由でプロジェクト確認
+        try:
+            api_get_project(project)
+        except ProjectNotFoundError as e:
+            console.print(f"[red]Error:[/red] Project not found: {project}")
+            raise typer.Exit(code=1) from e
 
         # ServiceContainer を取得
         container = get_service_container()
@@ -100,7 +75,6 @@ def create(
 
         # NOTE: Current architecture limitation - LoRAIro initializes database globally
         # through db_core.py. For now, we work with the currently configured database.
-        # TODO: Future enhancement - support dynamic database switching for multi-project CLI
         console.print(
             "[yellow]Note:[/yellow] Working with currently configured database. "
             "Ensure config/lorairo.toml points to the correct project."
