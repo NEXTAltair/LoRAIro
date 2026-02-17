@@ -11,7 +11,8 @@
         "--security-opt",
         "seccomp=unconfined",
         "-p",
-        "2222:22"
+        "2222:22",
+        "--add-host=host.docker.internal:host-gateway"
     ],
     // 複数の Devcontainer がある場合、プロジェクトごとにこのポート番号を変える
     "forwardPorts": [2222],
@@ -52,8 +53,10 @@
     "overrideCommand":true,
     "remoteUser": "vscode",
     "remoteEnv": {
-        "QT_QPA_PLATFORM": "offscreen",
-        "DISPLAY": ":99",
+        "DISPLAY": "host.docker.internal:0",
+        "QT_QPA_PLATFORM": "xcb",
+        "QT_X11_NO_MITSHM": "1",
+        "LIBGL_ALWAYS_INDIRECT": "1",
         "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
     },
     "mounts": [

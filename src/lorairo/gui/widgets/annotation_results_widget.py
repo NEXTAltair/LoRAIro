@@ -7,7 +7,7 @@ Annotation Results Widget
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
@@ -20,6 +20,11 @@ from PySide6.QtWidgets import (
 from ...gui.designer.AnnotationResultsWidget_ui import Ui_AnnotationResultsWidget
 from ...utils.log import logger
 
+if TYPE_CHECKING:
+    from ...gui.workers.annotation_worker import AnnotationExecutionResult
+
+
+# Placeholder comment to check if file operations work
 
 @dataclass
 class AnnotationResult:
@@ -455,6 +460,155 @@ class AnnotationResultsWidget(QWidget, Ui_AnnotationResultsWidget):
             logger.debug("AnnotationResultsWidget disabled")
         else:
             logger.debug("AnnotationResultsWidget enabled")
+
+    def load_from_execution_result(self, execution_result: "AnnotationExecutionResult") -> None:
+        """AnnotationExecutionResultから結果をロードして表示する。
+
+        AnnotationWorkerの実行結果を受け取り、PHashAnnotationResultsから
+        UnifiedAnnotationResultを抽出してAnnotationResultに変換し、add_result()で追加する。
+
+        Args:
+            execution_result: AnnotationExecutionResult
+                results: PHashAnnotationResults (phash → model_name → UnifiedAnnotationResult)
+                models_used: list[str]
+
+        Note:
+            - UnifiedAnnotationResultからtags/captions/scoresを抽出
+            - 各機能タイプごとにAnnotationResultを生成
+            - 処理時間は0.0sで固定（ExecutionResultには含まれていない）
+            - エラー結果はerror_messageとして記録
+        """
+        try:
+            from ...gui.workers.annotation_worker import AnnotationExecutionResult as ExecResult
+
+            # 型チェック（デバッグ用）
+            if not isinstance(execution_result, ExecResult):
+                logger.warning(f"Unexpected type for execution_result: {type(execution_result).__name__}")
+                return
+
+            results = execution_result.results
+            logger.debug(f"Loading results from {len(results)} images")
+
+            # 各モデルごとに結果を集約
+            model_aggregated_results = self._aggregate_results_by_model(results)
+
+            # 集約結果をAnnotationResultに変換して追加
+            self._add_aggregated_results(model_aggregated_results)
+
+            logger.info(
+                f"Loaded results for {len(model_aggregated_results)} models from {len(results)} images"
+            )
+
+        except Exception as e:
+            logger.error(f"Error loading execution result: {e}", exc_info=True)
+
+    def _aggregate_results_by_model(self, results: Any) -> dict[str, dict[str, list[str]]]:
+        """モデルごとに結果を集約する。
+
+        Args:
+            results: PHashAnnotationResults (phash → model_name → UnifiedAnnotationResult)
+
+        Returns:
+            モデル名ごとに集約されたtags/captions/scoresの辞書。
+        """
+        model_aggregated_results: dict[str, dict[str, list[str]]] = {}
+
+        for phash, model_results in results.items():
+            for model_name, unified_result in model_results.items():
+                if model_name not in model_aggregated_results:
+                    model_aggregated_results[model_name] = {
+                        "tags": [],
+                        "captions": [],
+                        "scores": [],
+                    }
+
+                # エラーチェック
+                error = self._extract_field(unified_result, "error")
+                if error:
+                    logger.warning(f"Model {model_name} error for phash {phash[:8]}...: {error}")
+                    continue
+
+                # tags抽出
+                tags = self._extract_field(unified_result, "tags")
+                if tags:
+                    model_aggregated_results[model_name]["tags"].extend(tags)
+
+                # captions抽出
+                captions = self._extract_field(unified_result, "captions")
+                if captions:
+                    model_aggregated_results[model_name]["captions"].extend(captions)
+
+                # scores抽出
+                scores = self._extract_field(unified_result, "scores")
+                if scores:
+                    # scoresはdict[str, float]形式
+                    for score_name, score_value in scores.items():
+                        model_aggregated_results[model_name]["scores"].append(
+                            f"{score_name}: {score_value:.3f}"
+                        )
+
+        return model_aggregated_results
+
+    def _add_aggregated_results(self, model_aggregated_results: dict[str, dict[str, list[str]]]) -> None:
+        """集約された結果をAnnotationResultに変換してウィジェットに追加する。
+
+        Args:
+            model_aggregated_results: モデル名ごとに集約されたtags/captions/scoresの辞書。
+        """
+        for model_name, aggregated in model_aggregated_results.items():
+            # タグ結果
+            if aggregated["tags"]:
+                tags_content = ", ".join(aggregated["tags"])
+                self.add_result(
+                    AnnotationResult(
+                        model_name=model_name,
+                        function_type="tags",
+                        content=tags_content,
+                        processing_time=0.0,
+                        success=True,
+                    )
+                )
+
+            # キャプション結果
+            if aggregated["captions"]:
+                captions_content = "\n".join(aggregated["captions"])
+                self.add_result(
+                    AnnotationResult(
+                        model_name=model_name,
+                        function_type="caption",
+                        content=captions_content,
+                        processing_time=0.0,
+                        success=True,
+                    )
+                )
+
+            # スコア結果
+            if aggregated["scores"]:
+                scores_content = ", ".join(aggregated["scores"])
+                self.add_result(
+                    AnnotationResult(
+                        model_name=model_name,
+                        function_type="scores",
+                        content=scores_content,
+                        processing_time=0.0,
+                        success=True,
+                    )
+                )
+
+    @staticmethod
+    def _extract_field(result: Any, field_name: str) -> Any:
+        """unified_resultから辞書/Pydanticモデル両対応でフィールドを取得する。
+
+        Args:
+            result: 辞書またはPydanticモデルオブジェクト。
+            field_name: 取得するフィールド名。
+
+        Returns:
+            フィールドの値、またはNone。
+        """
+        if isinstance(result, dict):
+            return result.get(field_name)
+        return getattr(result, field_name, None)
 
 
 if __name__ == "__main__":

@@ -11,8 +11,10 @@ RUN rm -f /home/vscode/.npmrc /root/.npmrc || true
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV DISPLAY=:99
-ENV QT_QPA_PLATFORM=offscreen
+ENV DISPLAY=host.docker.internal:0
+ENV QT_QPA_PLATFORM=xcb
+ENV QT_X11_NO_MITSHM=1
+ENV LIBGL_ALWAYS_INDIRECT=1
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
@@ -68,6 +70,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcursor1 \
     libxkbcommon0 \
     libgtk-3-0 \
+    # XCB libraries for Qt6/X11 GUI (Issue #14)
+    libxcb-cursor0 \
+    libxcb-icccm4 \
+    libxcb-image0 \
+    libxcb-keysyms1 \
+    libxcb-randr0 \
+    libxcb-render-util0 \
+    libxcb-xinerama0 \
+    libxcb-xfixes0 \
+    libxkbcommon-x11-0 \
+    libdbus-1-3 \
+    # Japanese fonts for GUI (Issue #14)
+    fonts-noto-cjk \
     # Database tools
     sqlite3 \
     libsqlite3-dev \

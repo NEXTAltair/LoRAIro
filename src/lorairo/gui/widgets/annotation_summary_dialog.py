@@ -1,8 +1,10 @@
 """アノテーション完了サマリーダイアログ
 
 アノテーション処理完了後に、処理結果のサマリーをモーダルダイアログで表示する。
-成功/失敗件数、保存結果一覧、エラー詳細を確認できる。
+成功/失敗件数、保存結果一覧、エラー詳細を5タブ形式で確認できる。
 """
+
+from typing import Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -14,6 +16,8 @@ from PySide6.QtWidgets import (
     QLabel,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -27,7 +31,14 @@ _MAX_TABLE_ROWS = 50
 class AnnotationSummaryDialog(QDialog):
     """アノテーション完了サマリーダイアログ
 
-    処理結果の概要、保存データ一覧、エラー詳細を表示するモーダルダイアログ。
+    処理結果の概要、保存データ一覧、エラー詳細を5タブ形式で表示するモーダルダイアログ。
+
+    タブ構成:
+        1. サマリー: 処理統計と全体概要
+        2. タグ: モデル別タグ一覧
+        3. キャプション: モデル別キャプション
+        4. スコア: モデル別スコア詳細
+        5. モデル詳細: モデル統計情報
     """
 
     def __init__(self, result: AnnotationExecutionResult, parent: QWidget | None = None) -> None:
@@ -46,22 +57,22 @@ class AnnotationSummaryDialog(QDialog):
         self._configure_window()
         layout = QVBoxLayout(self)
 
-        layout.addWidget(self._create_status_label())
-        layout.addWidget(self._create_summary_group())
+        # QTabWidgetをメインレイアウトに配置
+        tabs = QTabWidget()
+        tabs.addTab(self._create_summary_tab(), "サマリー")
+        tabs.addTab(self._create_tags_tab(), "タグ")
+        tabs.addTab(self._create_captions_tab(), "キャプション")
+        tabs.addTab(self._create_scores_tab(), "スコア")
+        tabs.addTab(self._create_model_details_tab(), "モデル詳細")
 
-        if self._result.image_summaries:
-            layout.addWidget(self._create_results_group())
-
-        if self._result.model_errors:
-            layout.addWidget(self._create_error_group())
-
+        layout.addWidget(tabs)
         layout.addWidget(self._create_button_box())
 
     def _configure_window(self) -> None:
         """ウィンドウ設定"""
         title = self._determine_title()
         self.setWindowTitle(title)
-        self.setMinimumWidth(500)
+        self.resize(800, 600)
         self.setModal(True)
 
     def _determine_title(self) -> str:
@@ -75,6 +86,27 @@ class AnnotationSummaryDialog(QDialog):
         if self._result.db_save_success > 0:
             return "アノテーション完了 (一部エラーあり)"
         return "アノテーション完了 (エラー)"
+
+    def _create_summary_tab(self) -> QWidget:
+        """サマリータブを作成する。
+
+        Returns:
+            サマリータブウィジェット。
+        """
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        layout.addWidget(self._create_status_label())
+        layout.addWidget(self._create_summary_group())
+
+        if self._result.image_summaries:
+            layout.addWidget(self._create_results_group())
+
+        if self._result.model_errors:
+            layout.addWidget(self._create_error_group())
+
+        layout.addStretch()
+        return widget
 
     def _create_status_label(self) -> QLabel:
         """ステータスラベルを作成する。
@@ -213,6 +245,207 @@ class AnnotationSummaryDialog(QDialog):
             layout.addWidget(overflow_label)
 
         return group
+
+
+    @staticmethod
+    def _get_result_attr(result: object, key: str, default: object = None) -> Any:  # Any使用: dict/objectの動的アクセス
+        """アノテーション結果からキーに対応する値を取得する。
+
+        object型（getattr）とdict型（get）の両方に対応。
+
+        Args:
+            result: アノテーション結果（objectまたはdict）。
+            key: 取得するキー名。
+            default: デフォルト値。
+
+        Returns:
+            対応する値。見つからない場合はdefault。
+        """
+        if isinstance(result, dict):
+            return result.get(key, default)
+        return getattr(result, key, default)
+
+    def _create_tags_tab(self) -> QWidget:
+        """タグタブを作成する。
+
+        Returns:
+            タグタブウィジェット。
+        """
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        # タグデータを収集
+        tag_rows: list[tuple[str, str, str]] = []
+        for phash, model_results in self._result.results.items():
+            filename = self._result.phash_to_filename.get(phash, phash[:12] + "...")
+            for model_name, result in model_results.items():
+                tags = self._get_result_attr(result, "tags", None) or []
+                if tags:
+                    tags_text = ", ".join(tags)
+                    tag_rows.append((filename, model_name, tags_text))
+
+        # テーブル作成
+        table = QTableWidget(len(tag_rows), 3)
+        table.setHorizontalHeaderLabels(["pHash/ファイル", "モデル名", "タグ"])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+
+        for row, (filename, model_name, tags_text) in enumerate(tag_rows):
+            table.setItem(row, 0, QTableWidgetItem(filename))
+            table.setItem(row, 1, QTableWidgetItem(model_name))
+            table.setItem(row, 2, QTableWidgetItem(tags_text))
+
+        layout.addWidget(table)
+
+        if not tag_rows:
+            layout.addWidget(QLabel("タグデータがありません。"))
+
+        return widget
+
+    def _create_captions_tab(self) -> QWidget:
+        """キャプションタブを作成する。
+
+        Returns:
+            キャプションタブウィジェット。
+        """
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        browser = QTextBrowser()
+        browser.setOpenExternalLinks(False)
+
+        caption_html = "<html><body>"
+        has_captions = False
+
+        for phash, model_results in self._result.results.items():
+            filename = self._result.phash_to_filename.get(phash, phash[:12] + "...")
+            for model_name, result in model_results.items():
+                captions = self._get_result_attr(result, "captions", None)
+
+                if captions:
+                    has_captions = True
+                    caption_html += f"<h3>{filename} - {model_name}</h3>"
+                    if isinstance(captions, list):
+                        for caption in captions:
+                            caption_html += f"<p>{caption}</p>"
+                    else:
+                        caption_html += f"<p>{captions}</p>"
+
+        caption_html += "</body></html>"
+
+        if has_captions:
+            browser.setHtml(caption_html)
+        else:
+            browser.setPlainText("キャプションデータがありません。")
+
+        layout.addWidget(browser)
+        return widget
+
+    def _create_scores_tab(self) -> QWidget:
+        """スコアタブを作成する。
+
+        Returns:
+            スコアタブウィジェット。
+        """
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        # スコアデータを収集
+        score_rows: list[tuple[str, str, str, float]] = []
+        for phash, model_results in self._result.results.items():
+            filename = self._result.phash_to_filename.get(phash, phash[:12] + "...")
+            for model_name, result in model_results.items():
+                scores = self._get_result_attr(result, "scores", None)
+
+                if scores and isinstance(scores, dict):
+                    for score_name, score_value in scores.items():
+                        if isinstance(score_value, (int, float)):
+                            score_rows.append((filename, model_name, score_name, float(score_value)))
+
+        # テーブル作成
+        table = QTableWidget(len(score_rows), 4)
+        table.setHorizontalHeaderLabels(["pHash/ファイル", "モデル名", "スコア名", "値"])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+
+        for row, (filename, model_name, score_name, score_value) in enumerate(score_rows):
+            table.setItem(row, 0, QTableWidgetItem(filename))
+            table.setItem(row, 1, QTableWidgetItem(model_name))
+            table.setItem(row, 2, QTableWidgetItem(score_name))
+            score_item = QTableWidgetItem(f"{score_value:.4f}")
+            score_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            table.setItem(row, 3, score_item)
+
+        layout.addWidget(table)
+
+        if not score_rows:
+            layout.addWidget(QLabel("スコアデータがありません。"))
+
+        return widget
+
+    def _create_model_details_tab(self) -> QWidget:
+        """モデル詳細タブを作成する。
+
+        Returns:
+            モデル詳細タブウィジェット。
+        """
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        stats = self._result.model_statistics
+        table = QTableWidget(len(stats), 7)
+        table.setHorizontalHeaderLabels(
+            ["モデル名", "プロバイダー", "成功", "エラー", "タグ数", "キャプション数", "処理時間(秒)"]
+        )
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for col in range(1, 7):
+            table.horizontalHeader().setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+
+        for row, (model_name, stat) in enumerate(stats.items()):
+            table.setItem(row, 0, QTableWidgetItem(model_name))
+            table.setItem(row, 1, QTableWidgetItem(stat.provider_name or "-"))
+
+            success_item = QTableWidgetItem(str(stat.success_count))
+            success_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            table.setItem(row, 2, success_item)
+
+            error_item = QTableWidgetItem(str(stat.error_count))
+            error_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            table.setItem(row, 3, error_item)
+
+            tags_item = QTableWidgetItem(str(stat.total_tags))
+            tags_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            table.setItem(row, 4, tags_item)
+
+            captions_item = QTableWidgetItem(str(stat.total_captions))
+            captions_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            table.setItem(row, 5, captions_item)
+
+            time_text = (
+                f"{stat.processing_time_sec:.2f}" if stat.processing_time_sec is not None else "-"
+            )
+            time_item = QTableWidgetItem(time_text)
+            time_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            table.setItem(row, 6, time_item)
+
+        layout.addWidget(table)
+
+        if not stats:
+            layout.addWidget(QLabel("モデル統計データがありません。"))
+
+        return widget
 
     def _create_button_box(self) -> QDialogButtonBox:
         """OKボタンを作成する。

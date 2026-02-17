@@ -2,13 +2,16 @@
 
 Phase 2: 既存サービスとPhase 1新サービスの統合管理
 Phase 4: 実ライブラリ統合での依存関係解決
+Phase 1: Qt依存除去による CLI対応
 """
 
+import os
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
     from lorairo.services.tag_management_service import TagManagementService
+    from lorairo.services.signal_manager_protocol import SignalManagerServiceProtocol
 
 from ..database.db_core import DefaultSessionLocal
 from ..database.db_manager import ImageDatabaseManager
@@ -18,8 +21,10 @@ from ..utils.log import logger
 from .configuration_service import ConfigurationService
 from .dataset_export_service import DatasetExportService
 from .image_processing_service import ImageProcessingService
+from .image_registration_service import ImageRegistrationService
 from .model_registry_protocol import ModelRegistryServiceProtocol, NullModelRegistry
 from .model_sync_service import ModelSyncService
+from .project_management_service import ProjectManagementService
 
 
 class ServiceContainer:
@@ -76,6 +81,14 @@ class ServiceContainer:
 
         # Phase 4: FavoriteFiltersService統合
         self._favorite_filters_service: Any = None
+
+        # Phase 1: SignalManagerService統合（GUI/CLI自動切り替え）
+        self._signal_manager: SignalManagerServiceProtocol | None = None
+        self._cli_mode: bool = os.environ.get("LORAIRO_CLI_MODE", "").lower() in ("1", "true")
+
+        # Phase 2: API層用新サービス
+        self._project_management_service: ProjectManagementService | None = None
+        self._image_registration_service: ImageRegistrationService | None = None
 
     @property
     def config_service(self) -> ConfigurationService:
@@ -201,7 +214,7 @@ class ServiceContainer:
         return self._tag_management_service
 
     @property
-    def favorite_filters_service(self) -> Any:  # type: ignore[misc]
+    def favorite_filters_service(self) -> Any:
         """FavoriteFiltersService取得（遅延初期化） - Phase 4"""
         if self._favorite_filters_service is None:
             from .favorite_filters_service import FavoriteFiltersService
@@ -209,6 +222,49 @@ class ServiceContainer:
             self._favorite_filters_service = FavoriteFiltersService()
             logger.info("FavoriteFiltersService初期化完了")
         return self._favorite_filters_service
+
+    @property
+    def signal_manager(self) -> "SignalManagerServiceProtocol":
+        """SignalManagerService取得（遅延初期化） - Phase 1
+
+        環境に応じて自動選択：
+        - GUI環境: SignalManagerService (QObject + Signal)
+        - CLI環境: NoOpSignalManager (Signal不要)
+
+        Returns:
+            SignalManagerServiceProtocol: Signal管理サービス
+        """
+        if self._signal_manager is None:
+            if self._cli_mode:
+                # CLI環境: NoOp実装を使用
+                from .noop_signal_manager import NoOpSignalManager
+
+                self._signal_manager = NoOpSignalManager()
+                logger.info("SignalManager初期化完了 (CLI mode)")
+            else:
+                # GUI環境: QObject+Signal実装を使用
+                from .signal_manager_service import SignalManagerService
+
+                self._signal_manager = SignalManagerService()
+                logger.info("SignalManager初期化完了 (GUI mode)")
+
+        return self._signal_manager
+
+    @property
+    def project_management_service(self) -> ProjectManagementService:
+        """プロジェクト管理サービス取得（遅延初期化）"""
+        if self._project_management_service is None:
+            self._project_management_service = ProjectManagementService()
+            logger.debug("ProjectManagementService初期化完了")
+        return self._project_management_service
+
+    @property
+    def image_registration_service(self) -> ImageRegistrationService:
+        """画像登録サービス取得（遅延初期化）"""
+        if self._image_registration_service is None:
+            self._image_registration_service = ImageRegistrationService()
+            logger.debug("ImageRegistrationService初期化完了")
+        return self._image_registration_service
 
     def get_service_summary(self) -> dict[str, Any]:
         """サービス初期化状況のサマリー取得
@@ -229,11 +285,15 @@ class ServiceContainer:
                 "annotator_library": self._annotator_library is not None,
                 "tag_management_service": self._tag_management_service is not None,
                 "favorite_filters_service": self._favorite_filters_service is not None,
+                "signal_manager": self._signal_manager is not None,
+                "project_management_service": self._project_management_service is not None,
+                "image_registration_service": self._image_registration_service is not None,
             },
             "container_initialized": ServiceContainer._initialized,
             "phase": "Phase 4 (Production Integration)"
             if self._use_production_mode
             else "Phase 1-2 (Mock Implementation)",
+            "environment": "CLI" if self._cli_mode else "GUI",
         }
 
     def reset_container(self) -> None:
@@ -255,6 +315,9 @@ class ServiceContainer:
         self._annotator_library = None
         self._tag_management_service = None
         self._favorite_filters_service = None
+        self._signal_manager = None
+        self._project_management_service = None
+        self._image_registration_service = None
 
         # クラスレベルリセット
         ServiceContainer._instance = None

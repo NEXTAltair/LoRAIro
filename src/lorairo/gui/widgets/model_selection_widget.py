@@ -56,7 +56,7 @@ if not __name__ == "__main__":
 
         # UI elements type hints (from Ui_ModelSelectionWidget via multi-inheritance)
         if TYPE_CHECKING:
-            from PySide6.QtWidgets import QPushButton
+            from PySide6.QtWidgets import QComboBox, QPushButton
 
             dynamicContentLayout: QVBoxLayout
             placeholderLabel: QLabel
@@ -64,6 +64,7 @@ if not __name__ == "__main__":
             btnSelectAll: QPushButton
             btnDeselectAll: QPushButton
             btnSelectRecommended: QPushButton
+            executionEnvCombo: QComboBox
 
         def __init__(
             self,
@@ -91,6 +92,13 @@ if not __name__ == "__main__":
             self.current_provider_filter: str | None = None
             self.current_capability_filters: list[str] = []
             self.current_exclude_local: bool = False
+            self.current_execution_env: str | None = None  # "すべて", "APIモデルのみ", "ローカルモデルのみ"
+
+            # executionEnvCombo シグナル接続
+            if hasattr(self, "executionEnvCombo"):
+                self.executionEnvCombo.currentTextChanged.connect(
+                    self._on_execution_env_changed
+                )
 
             # UI初期化
             self.load_models()
@@ -121,6 +129,7 @@ if not __name__ == "__main__":
             provider: str | None = None,
             capabilities: list[str] | None = None,
             exclude_local: bool = False,
+            execution_env: str | None = None,
         ) -> None:
             """フィルタリング適用
 
@@ -128,10 +137,12 @@ if not __name__ == "__main__":
                 provider: プロバイダーフィルタ（"local", "openai" など）
                 capabilities: 機能フィルタ（["caption", "tags", "scores"]）
                 exclude_local: True の場合、ローカルモデルを除外（API モデルのみ表示）
+                execution_env: 実行環境フィルタ（"すべて", "APIモデルのみ", "ローカルモデルのみ"）
             """
             self.current_provider_filter = provider
             self.current_capability_filters = capabilities or []
             self.current_exclude_local = exclude_local
+            self.current_execution_env = execution_env
             self.update_model_display()
 
         def update_model_display(self) -> None:
@@ -180,6 +191,7 @@ if not __name__ == "__main__":
                     else None,
                     only_available=True,
                     exclude_local=self.current_exclude_local,
+                    execution_env=self.current_execution_env,
                 )
 
                 filtered = self.model_selection_service.filter_models(criteria)
@@ -274,6 +286,17 @@ if not __name__ == "__main__":
                         self.dynamicContentLayout.removeWidget(widget)
                         widget.setParent(None)
                         widget.deleteLater()
+
+        @Slot(str)
+        def _on_execution_env_changed(self, execution_env: str) -> None:
+            """実行環境フィルター変更時の処理
+
+            Args:
+                execution_env: 選択された実行環境（"すべて", "APIモデルのみ", "ローカルモデルのみ"）
+            """
+            self.current_execution_env = execution_env
+            self.update_model_display()
+            logger.debug(f"Execution environment filter changed: {execution_env}")
 
         @Slot(str, bool)
         def _on_model_selection_changed(self, model_name: str, is_selected: bool) -> None:
