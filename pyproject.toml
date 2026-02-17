@@ -92,6 +92,7 @@ ignore = [
     "RUF002", # カタカナの `ノ` でのメッセージを無視
     "E501",   # Line too long (line-lengthで制御)
     "F401",   # Unused imports (IDEでの管理が困難なため)
+    "B008",   # typer.Option/Argument in function defaults (typer標準パターン)
 ]
 fixable = ["ALL"]
 

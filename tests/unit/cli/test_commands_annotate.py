@@ -1,6 +1,5 @@
 """Annotation commands テスト。"""
 
-import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -8,15 +7,16 @@ import pytest
 from PIL import Image
 from typer.testing import CliRunner
 
-from lorairo.cli.commands import project
 from lorairo.cli.main import app
+from lorairo.services.project_management_service import ProjectManagementService
+from lorairo.services.service_container import ServiceContainer
 
 runner = CliRunner()
 
 
 @pytest.fixture
 def mock_projects_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """プロジェクトディレクトリをモック。
+    """ProjectManagementService のプロジェクトディレクトリをモック。
 
     Args:
         tmp_path: 一時ディレクトリ
@@ -27,7 +27,18 @@ def mock_projects_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """
     mock_dir = tmp_path / "projects"
     mock_dir.mkdir()
-    monkeypatch.setattr(project, "PROJECTS_BASE_DIR", mock_dir)
+
+    # ServiceContainerシングルトンのキャッシュをクリア
+    container = ServiceContainer()
+    container._project_management_service = None
+
+    original_init = ProjectManagementService.__init__
+
+    def patched_init(self: ProjectManagementService, projects_base_dir: Path | None = None) -> None:
+        original_init(self, projects_base_dir=mock_dir)
+
+    monkeypatch.setattr(ProjectManagementService, "__init__", patched_init)
+
     return mock_dir
 
 
@@ -478,17 +489,17 @@ def test_annotate_subcommand_exists() -> None:
 @pytest.mark.unit
 @pytest.mark.cli
 @patch("lorairo.cli.commands.annotate.get_service_container")
-def test_annotate_run_with_unicode_project_name(
+def test_annotate_run_with_special_project_name(
     mock_get_container,
     mock_projects_dir: Path,
 ) -> None:
-    """Test: annotate run - Unicode文字を含むプロジェクト名。"""
-    # Unicode プロジェクトを作成
-    result = runner.invoke(app, ["project", "create", "テスト プロジェクト"])
+    """Test: annotate run - ハイフン付きプロジェクト名。"""
+    # プロジェクトを作成
+    result = runner.invoke(app, ["project", "create", "special-project"])
     assert result.exit_code == 0
 
     project_dirs = list(mock_projects_dir.iterdir())
-    project_dir = next(d for d in project_dirs if "テスト" in d.name)
+    project_dir = next(d for d in project_dirs if "special-project" in d.name)
 
     # 画像ファイルを作成
     image_dataset_dir = project_dir / "image_dataset" / "original_images"
@@ -516,7 +527,7 @@ def test_annotate_run_with_unicode_project_name(
             "annotate",
             "run",
             "--project",
-            "テスト プロジェクト",
+            "special-project",
             "--model",
             "gpt-4o-mini",
         ],

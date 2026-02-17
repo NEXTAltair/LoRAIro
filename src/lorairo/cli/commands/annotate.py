@@ -1,6 +1,7 @@
 """Annotation commands.
 
 アノテーション実行コマンド。
+API層（lorairo.api）を経由してService層を利用する。
 """
 
 from pathlib import Path
@@ -17,7 +18,12 @@ from rich.progress import (
 )
 from rich.table import Table
 
-from lorairo.cli.commands import project as project_module
+from lorairo.api.exceptions import (
+    AnnotationFailedError,
+    APIKeyNotConfiguredError,
+    ProjectNotFoundError,
+)
+from lorairo.api.project import get_project as api_get_project
 from lorairo.services.service_container import get_service_container
 from lorairo.utils.log import logger
 
@@ -26,25 +32,6 @@ app = typer.Typer(help="Annotation commands")
 
 # Rich console（出力用）
 console = Console()
-
-
-def _find_project_directory(project_name: str) -> str | None:
-    """プロジェクトディレクトリを検索。
-
-    Args:
-        project_name: プロジェクト名
-
-    Returns:
-        str | None: プロジェクトディレクトリパス、見つからない場合はNone
-    """
-    projects_base = project_module.PROJECTS_BASE_DIR
-
-    if projects_base.exists():
-        for proj_dir in projects_base.iterdir():
-            if proj_dir.is_dir() and proj_dir.name.startswith(project_name + "_"):
-                return str(proj_dir)
-
-    return None
 
 
 def _load_images(image_dataset_dir: Path) -> tuple[list[Image.Image], int, int]:
@@ -128,13 +115,14 @@ def run(
     プロジェクトの画像に対してアノテーションを実行します。
     """
     try:
-        # プロジェクトディレクトリを確認
-        project_dir_str = _find_project_directory(project)
-        if not project_dir_str:
+        # API層経由でプロジェクト確認
+        try:
+            project_info = api_get_project(project)
+        except ProjectNotFoundError as e:
             console.print(f"[red]Error:[/red] Project not found: {project}")
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=1) from e
 
-        project_dir = Path(project_dir_str)
+        project_dir = project_info.path
 
         # プロジェクトの画像ディレクトリ
         image_dataset_dir = project_dir / "image_dataset" / "original_images"

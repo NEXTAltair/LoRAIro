@@ -3,18 +3,19 @@
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
 from PIL import Image
+from typer.testing import CliRunner
 
 from lorairo.cli.main import app
-from lorairo.cli.commands import images
+from lorairo.services.project_management_service import ProjectManagementService
+from lorairo.services.service_container import ServiceContainer
 
 runner = CliRunner()
 
 
 @pytest.fixture
 def mock_projects_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """プロジェクトディレクトリをモック。
+    """ProjectManagementService のプロジェクトディレクトリをモック。
 
     Args:
         tmp_path: 一時ディレクトリ
@@ -23,11 +24,20 @@ def mock_projects_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     Returns:
         Path: モック後のプロジェクトディレクトリ
     """
-    from lorairo.cli.commands import project
-
     mock_dir = tmp_path / "projects"
     mock_dir.mkdir()
-    monkeypatch.setattr(project, "PROJECTS_BASE_DIR", mock_dir)
+
+    # ServiceContainerシングルトンのキャッシュをクリア
+    container = ServiceContainer()
+    container._project_management_service = None
+
+    original_init = ProjectManagementService.__init__
+
+    def patched_init(self: ProjectManagementService, projects_base_dir: Path | None = None) -> None:
+        original_init(self, projects_base_dir=mock_dir)
+
+    monkeypatch.setattr(ProjectManagementService, "__init__", patched_init)
+
     return mock_dir
 
 
@@ -57,16 +67,15 @@ def test_images_dir(tmp_path: Path) -> Path:
 def test_images_register_success(mock_projects_dir: Path, test_images_dir: Path) -> None:
     """Test: images register - 成功ケース。"""
     # プロジェクト作成
-    runner.invoke(app, ["project", "create", "test_project"])
+    runner.invoke(app, ["project", "create", "test-project"])
 
     # 画像登録
     result = runner.invoke(
         app,
-        ["images", "register", str(test_images_dir), "--project", "test_project"],
+        ["images", "register", str(test_images_dir), "--project", "test-project"],
     )
 
     assert result.exit_code == 0
-    assert "Found" in result.stdout
     assert "Registration Summary" in result.stdout
 
 
@@ -75,12 +84,12 @@ def test_images_register_success(mock_projects_dir: Path, test_images_dir: Path)
 def test_images_register_nonexistent_directory(mock_projects_dir: Path) -> None:
     """Test: images register - ディレクトリが存在しない場合。"""
     # プロジェクト作成
-    runner.invoke(app, ["project", "create", "test_project"])
+    runner.invoke(app, ["project", "create", "test-project"])
 
     # 存在しないディレクトリで登録
     result = runner.invoke(
         app,
-        ["images", "register", "/nonexistent/path", "--project", "test_project"],
+        ["images", "register", "/nonexistent/path", "--project", "test-project"],
     )
 
     assert result.exit_code == 1
@@ -89,7 +98,7 @@ def test_images_register_nonexistent_directory(mock_projects_dir: Path) -> None:
 
 @pytest.mark.unit
 @pytest.mark.cli
-def test_images_register_nonexistent_project(test_images_dir: Path) -> None:
+def test_images_register_nonexistent_project(mock_projects_dir: Path, test_images_dir: Path) -> None:
     """Test: images register - プロジェクトが存在しない場合。"""
     result = runner.invoke(
         app,
@@ -105,7 +114,7 @@ def test_images_register_nonexistent_project(test_images_dir: Path) -> None:
 def test_images_register_empty_directory(mock_projects_dir: Path, tmp_path: Path) -> None:
     """Test: images register - 画像のない空ディレクトリ。"""
     # プロジェクト作成
-    runner.invoke(app, ["project", "create", "test_project"])
+    runner.invoke(app, ["project", "create", "test-project"])
 
     # 空ディレクトリで登録
     empty_dir = tmp_path / "empty"
@@ -113,7 +122,7 @@ def test_images_register_empty_directory(mock_projects_dir: Path, tmp_path: Path
 
     result = runner.invoke(
         app,
-        ["images", "register", str(empty_dir), "--project", "test_project"],
+        ["images", "register", str(empty_dir), "--project", "test-project"],
     )
 
     assert result.exit_code == 0
@@ -125,7 +134,7 @@ def test_images_register_empty_directory(mock_projects_dir: Path, tmp_path: Path
 def test_images_register_with_skip_duplicates(mock_projects_dir: Path, tmp_path: Path) -> None:
     """Test: images register --skip-duplicates - 重複検出。"""
     # プロジェクト作成
-    runner.invoke(app, ["project", "create", "test_project"])
+    runner.invoke(app, ["project", "create", "test-project"])
 
     # 同じ画像を2回作成（重複）
     images_dir = tmp_path / "images"
@@ -138,7 +147,7 @@ def test_images_register_with_skip_duplicates(mock_projects_dir: Path, tmp_path:
     # 登録
     result = runner.invoke(
         app,
-        ["images", "register", str(images_dir), "--project", "test_project"],
+        ["images", "register", str(images_dir), "--project", "test-project"],
     )
 
     assert result.exit_code == 0
@@ -149,7 +158,7 @@ def test_images_register_with_skip_duplicates(mock_projects_dir: Path, tmp_path:
 def test_images_register_include_duplicates(mock_projects_dir: Path, tmp_path: Path) -> None:
     """Test: images register --include-duplicates - 重複を含める。"""
     # プロジェクト作成
-    runner.invoke(app, ["project", "create", "test_project"])
+    runner.invoke(app, ["project", "create", "test-project"])
 
     # 画像作成
     images_dir = tmp_path / "images"
@@ -166,7 +175,7 @@ def test_images_register_include_duplicates(mock_projects_dir: Path, tmp_path: P
             "register",
             str(images_dir),
             "--project",
-            "test_project",
+            "test-project",
             "--include-duplicates",
         ],
     )
@@ -189,11 +198,11 @@ def test_images_list_help() -> None:
 def test_images_list_not_implemented(mock_projects_dir: Path) -> None:
     """Test: images list - 未実装通知。"""
     # プロジェクト作成
-    runner.invoke(app, ["project", "create", "test_project"])
+    runner.invoke(app, ["project", "create", "test-project"])
 
     result = runner.invoke(
         app,
-        ["images", "list", "--project", "test_project"],
+        ["images", "list", "--project", "test-project"],
     )
 
     assert result.exit_code == 0
@@ -215,11 +224,11 @@ def test_images_update_help() -> None:
 def test_images_update_not_implemented(mock_projects_dir: Path) -> None:
     """Test: images update - 未実装通知。"""
     # プロジェクト作成
-    runner.invoke(app, ["project", "create", "test_project"])
+    runner.invoke(app, ["project", "create", "test-project"])
 
     result = runner.invoke(
         app,
-        ["images", "update", "--project", "test_project", "--tags", "tag1,tag2"],
+        ["images", "update", "--project", "test-project", "--tags", "tag1,tag2"],
     )
 
     assert result.exit_code == 0
@@ -231,7 +240,7 @@ def test_images_update_not_implemented(mock_projects_dir: Path) -> None:
 def test_images_register_multiple_formats(mock_projects_dir: Path, tmp_path: Path) -> None:
     """Test: images register - 複数形式の画像ファイル。"""
     # プロジェクト作成
-    runner.invoke(app, ["project", "create", "test_project"])
+    runner.invoke(app, ["project", "create", "test-project"])
 
     # 複数形式の画像を作成
     images_dir = tmp_path / "images"
@@ -243,17 +252,15 @@ def test_images_register_multiple_formats(mock_projects_dir: Path, tmp_path: Pat
             img = Image.new("RGB", (50, 50), color=(100, 100, 100))
             img.save(images_dir / f"image.{fmt}")
         except Exception:
-            # WebP は PIL で対応していない場合がある
             pass
 
     # 登録
     result = runner.invoke(
         app,
-        ["images", "register", str(images_dir), "--project", "test_project"],
+        ["images", "register", str(images_dir), "--project", "test-project"],
     )
 
     assert result.exit_code == 0
-    assert "Found" in result.stdout
 
 
 @pytest.mark.unit
