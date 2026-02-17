@@ -12,9 +12,9 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHeaderView,
     QLabel,
-    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -244,6 +244,25 @@ class AnnotationSummaryDialog(QDialog):
 
         return group
 
+
+    @staticmethod
+    def _get_result_attr(result: object, key: str, default: object = None) -> object:
+        """アノテーション結果からキーに対応する値を取得する。
+
+        object型（getattr）とdict型（get）の両方に対応。
+
+        Args:
+            result: アノテーション結果（objectまたはdict）。
+            key: 取得するキー名。
+            default: デフォルト値。
+
+        Returns:
+            対応する値。見つからない場合はdefault。
+        """
+        if isinstance(result, dict):
+            return result.get(key, default)
+        return getattr(result, key, default)
+
     def _create_tags_tab(self) -> QWidget:
         """タグタブを作成する。
 
@@ -258,7 +277,7 @@ class AnnotationSummaryDialog(QDialog):
         for phash, model_results in self._result.results.items():
             filename = self._result.phash_to_filename.get(phash, phash[:12] + "...")
             for model_name, result in model_results.items():
-                tags = getattr(result, "tags", None) or []
+                tags = self._get_result_attr(result, "tags", None) or []
                 if tags:
                     tags_text = ", ".join(tags)
                     tag_rows.append((filename, model_name, tags_text))
@@ -303,7 +322,7 @@ class AnnotationSummaryDialog(QDialog):
         for phash, model_results in self._result.results.items():
             filename = self._result.phash_to_filename.get(phash, phash[:12] + "...")
             for model_name, result in model_results.items():
-                captions = getattr(result, "captions", None)
+                captions = self._get_result_attr(result, "captions", None)
 
                 if captions:
                     has_captions = True
@@ -338,7 +357,7 @@ class AnnotationSummaryDialog(QDialog):
         for phash, model_results in self._result.results.items():
             filename = self._result.phash_to_filename.get(phash, phash[:12] + "...")
             for model_name, result in model_results.items():
-                scores = getattr(result, "scores", None)
+                scores = self._get_result_attr(result, "scores", None)
 
                 if scores and isinstance(scores, dict):
                     for score_name, score_value in scores.items():

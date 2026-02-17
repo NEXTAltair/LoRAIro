@@ -1,9 +1,10 @@
 """画像登録 Service。
 
-画像ファイルのスキャン、pHash計算、重複検出を Service 化。
+画像ファイルのスキャン、pHash計算、重複検出、プロジェクトへのコピーを Service 化。
 Qt 依存なし。
 """
 
+import shutil
 from pathlib import Path
 from typing import ClassVar
 
@@ -11,13 +12,13 @@ from loguru import logger
 from PIL import Image
 
 from lorairo.api.exceptions import ImageRegistrationError
-from lorairo.api.types import DuplicateInfo, RegistrationResult
+from lorairo.api.types import RegistrationResult
 
 
 class ImageRegistrationService:
     """画像登録 Service。
 
-    画像ファイルのスキャン、pHash計算、重複検出を担当。
+    画像ファイルのスキャン、pHash計算、重複検出、プロジェクトへの登録を担当。
     """
 
     # サポートする画像形式
@@ -34,12 +35,15 @@ class ImageRegistrationService:
         self,
         directory: Path,
         skip_duplicates: bool = True,
+        project_dir: Path | None = None,
     ) -> RegistrationResult:
         """ディレクトリから画像を登録。
 
         Args:
-            directory: 画像ファイルのディレクトリ。
+            directory: 画像ファイルのソースディレクトリ。
             skip_duplicates: 重複画像をスキップするか。
+            project_dir: プロジェクトディレクトリ。指定時は
+                        image_dataset/original_images/ にコピー。
 
         Returns:
             RegistrationResult: 登録結果。
@@ -56,6 +60,12 @@ class ImageRegistrationService:
             raise ImageRegistrationError(
                 f"ディレクトリではありません: {directory}", 0
             )
+
+        # プロジェクトの画像格納先を準備
+        dest_dir: Path | None = None
+        if project_dir:
+            dest_dir = project_dir / "image_dataset" / "original_images"
+            dest_dir.mkdir(parents=True, exist_ok=True)
 
         # 画像ファイルをスキャン
         image_files = self._get_image_files(directory)
@@ -85,6 +95,12 @@ class ImageRegistrationService:
                         f"重複スキップ: {image_file.name} (pHash={phash})"
                     )
                     continue
+
+                # プロジェクトディレクトリにコピー
+                if dest_dir:
+                    dest_file = dest_dir / image_file.name
+                    if not dest_file.exists():
+                        shutil.copy2(image_file, dest_file)
 
                 # 登録成功カウント
                 registered += 1

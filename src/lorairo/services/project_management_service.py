@@ -273,8 +273,8 @@ class ProjectManagementService:
     def _find_project_directory(self, name: str) -> Path | None:
         """プロジェクト名からディレクトリパスを検索。
 
-        ディレクトリ名は「name_日付」形式なので、
-        startswith で検索。
+        ディレクトリ名は「name_日付」形式。startswith による候補絞り込み後、
+        メタデータファイルの name フィールドで正確に照合する。
 
         Args:
             name: プロジェクト名。
@@ -288,12 +288,21 @@ class ProjectManagementService:
 
         try:
             for proj_dir in self.projects_base_dir.iterdir():
-                if proj_dir.is_dir() and proj_dir.name.startswith(
-                    f"{name}_"
-                ):
-                    # メタデータファイルで確認
-                    if (proj_dir / ".lorairo-project").exists():
+                if not proj_dir.is_dir():
+                    continue
+
+                metadata_file = proj_dir / ".lorairo-project"
+                if not metadata_file.exists():
+                    continue
+
+                # メタデータの name フィールドで正確にマッチ
+                try:
+                    metadata = json.loads(metadata_file.read_text())
+                    if metadata.get("name") == name:
                         return proj_dir
+                except (json.JSONDecodeError, OSError):
+                    continue
+
             return None
 
         except Exception:

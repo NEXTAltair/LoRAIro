@@ -12,7 +12,7 @@ from lorairo.services.service_container import ServiceContainer
 
 @pytest.fixture
 def mock_export_service(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> MagicMock:
-    """DatasetExportService をモック。
+    """DatasetExportService + ProjectManagementService をモック。
 
     Args:
         monkeypatch: pytest monkeypatch フィクスチャ
@@ -34,8 +34,21 @@ def mock_export_service(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Magi
     mock_service.export_dataset_txt_format.side_effect = mock_export
     mock_service.export_dataset_json_format.side_effect = mock_export
 
+    # ProjectManagementService モック（_resolve_project_image_ids用）
+    mock_project_service = MagicMock()
+    project_images_dir = tmp_path / "project" / "image_dataset" / "original_images"
+    project_images_dir.mkdir(parents=True, exist_ok=True)
+    # ダミー画像ファイル作成
+    (project_images_dir / "img_001.jpg").write_bytes(b"\xff\xd8\xff")
+    (project_images_dir / "img_002.png").write_bytes(b"\x89PNG")
+
+    mock_project_info = MagicMock()
+    mock_project_info.path = tmp_path / "project"
+    mock_project_service.get_project.return_value = mock_project_info
+
     container = ServiceContainer()
     monkeypatch.setattr(container, "_dataset_export_service", mock_service)
+    monkeypatch.setattr(container, "_project_management_service", mock_project_service)
 
     return mock_service
 

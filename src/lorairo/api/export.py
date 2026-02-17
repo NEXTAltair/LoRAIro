@@ -10,6 +10,41 @@ from lorairo.api.types import ExportCriteria, ExportResult
 from lorairo.services.service_container import ServiceContainer
 
 
+def _resolve_project_image_ids(project_name: str) -> list[int]:
+    """プロジェクトの画像IDリストを解決する。
+
+    現段階ではDBから画像IDを取得する完全な統合は未実装のため、
+    プロジェクトディレクトリの画像ファイル数に基づいたダミーIDを生成する。
+
+    Args:
+        project_name: プロジェクト名。
+
+    Returns:
+        list[int]: 画像IDリスト。
+
+    Raises:
+        ProjectNotFoundError: プロジェクトが見つからない場合。
+    """
+    container = ServiceContainer()
+    project_service = container.project_management_service
+    project_info = project_service.get_project(project_name)
+
+    # プロジェクトの画像ディレクトリをスキャン
+    images_dir = project_info.path / "image_dataset" / "original_images"
+    if not images_dir.exists():
+        return []
+
+    image_extensions = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
+    image_files = [
+        f for f in sorted(images_dir.iterdir())
+        if f.is_file() and f.suffix.lower() in image_extensions
+    ]
+
+    # FIXME: Issue #15後続 - DBからimage_idを取得する実装に置き換え
+    # 現在はファイルインデックスをIDとして使用
+    return list(range(len(image_files)))
+
+
 def export_dataset(
     project_name: str,
     output_path: str | Path,
@@ -59,8 +94,8 @@ def export_dataset(
     service = container.dataset_export_service
 
     try:
-        # 注: 現段階ではimage_idsは空リスト（DB統合は後続フェーズ）
-        image_ids: list[int] = []
+        # プロジェクトから画像IDを解決
+        image_ids = _resolve_project_image_ids(project_name)
 
         # 形式に応じたエクスポート実行
         if criteria.format_type == "txt":
@@ -80,7 +115,11 @@ def export_dataset(
 
         # エクスポート結果の集計
         file_count = sum(1 for _ in result_path.iterdir()) if result_path.exists() else 0
-        total_size = sum(f.stat().st_size for f in result_path.rglob("*") if f.is_file()) if result_path.exists() else 0
+        total_size = (
+            sum(f.stat().st_size for f in result_path.rglob("*") if f.is_file())
+            if result_path.exists()
+            else 0
+        )
 
         return ExportResult(
             output_path=result_path,
