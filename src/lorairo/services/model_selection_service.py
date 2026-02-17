@@ -108,12 +108,10 @@ class ModelSelectionService:
         # 実行環境フィルタ（execution_env による分類）
         if criteria.execution_env and criteria.execution_env != "すべて":
             if criteria.execution_env == "APIモデルのみ":
-                # classが"PydanticAIWebAPIAnnotator"のモデルのみ（API モデル）
-                filtered = [m for m in filtered if m.class_name == "PydanticAIWebAPIAnnotator"]
+                filtered = [m for m in filtered if m.requires_api_key]
                 logger.debug(f"  実行環境フィルタ後（APIモデルのみ）: {len(filtered)}件")
             elif criteria.execution_env == "ローカルモデルのみ":
-                # classが"PydanticAIWebAPIAnnotator"でないモデル（ローカルモデル）
-                filtered = [m for m in filtered if m.class_name != "PydanticAIWebAPIAnnotator"]
+                filtered = [m for m in filtered if not m.requires_api_key]
                 logger.debug(f"  実行環境フィルタ後（ローカルモデルのみ）: {len(filtered)}件")
 
         # プロバイダーフィルタ
