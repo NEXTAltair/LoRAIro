@@ -15,9 +15,9 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QFont, QFontDatabase, QGradient, QIcon,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
-from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel,
-    QPushButton, QScrollArea, QSizePolicy, QSpacerItem,
-    QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QComboBox, QFrame, QHBoxLayout,
+    QLabel, QPushButton, QScrollArea, QSizePolicy,
+    QSpacerItem, QVBoxLayout, QWidget)
 
 class Ui_ModelSelectionWidget(object):
     def setupUi(self, ModelSelectionWidget):
@@ -94,6 +94,15 @@ class Ui_ModelSelectionWidget(object):
         self.controlSpacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         self.controlLayout.addItem(self.controlSpacer)
+
+        self.executionEnvCombo = QComboBox(self.controlFrame)
+        self.executionEnvCombo.addItem("")
+        self.executionEnvCombo.addItem("")
+        self.executionEnvCombo.addItem("")
+        self.executionEnvCombo.setObjectName(u"executionEnvCombo")
+        self.executionEnvCombo.setMinimumWidth(120)
+
+        self.controlLayout.addWidget(self.executionEnvCombo)
 
 
         self.mainLayout.addWidget(self.controlFrame)
@@ -173,6 +182,13 @@ class Ui_ModelSelectionWidget(object):
         self.btnSelectRecommended.setToolTip(QCoreApplication.translate("ModelSelectionWidget", u"\u63a8\u5968\u30e2\u30c7\u30eb\u3092\u81ea\u52d5\u9078\u629e", None))
 #endif // QT_CONFIG(tooltip)
         self.btnSelectRecommended.setText(QCoreApplication.translate("ModelSelectionWidget", u"\u63a8\u5968\u9078\u629e", None))
+        self.executionEnvCombo.setItemText(0, QCoreApplication.translate("ModelSelectionWidget", u"\u3059\u3079\u3066", None))
+        self.executionEnvCombo.setItemText(1, QCoreApplication.translate("ModelSelectionWidget", u"API\u30e2\u30c7\u30eb\u306e\u307f", None))
+        self.executionEnvCombo.setItemText(2, QCoreApplication.translate("ModelSelectionWidget", u"\u30ed\u30fc\u30ab\u30eb\u30e2\u30c7\u30eb\u306e\u307f", None))
+
+#if QT_CONFIG(tooltip)
+        self.executionEnvCombo.setToolTip(QCoreApplication.translate("ModelSelectionWidget", u"\u5b9f\u884c\u74b0\u5883\u3067\u30e2\u30c7\u30eb\u3092\u30d5\u30a3\u30eb\u30bf\u30ea\u30f3\u30b0", None))
+#endif // QT_CONFIG(tooltip)
         self.placeholderLabel.setText(QCoreApplication.translate("ModelSelectionWidget", u"\u25a0 \u63a8\u5968AI\u30e2\u30c7\u30eb (DB\u81ea\u52d5\u9078\u629e)\n"
 "\n"
 "\u4e0b\u8a18\u306e\u63a8\u5968\u69cb\u6210\u304b\u3089\u8907\u6570\u9078\u629e\u3067\u304d\u307e\u3059:\n"

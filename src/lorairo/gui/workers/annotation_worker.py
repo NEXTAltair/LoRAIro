@@ -42,6 +42,21 @@ class ImageResultSummary:
 
 
 @dataclass
+class ModelStatistics:
+    """モデル別統計情報"""
+
+    model_name: str
+    provider_name: str | None
+    capabilities: list[str]
+    success_count: int
+    error_count: int
+    total_tags: int = 0
+    total_captions: int = 0
+    avg_confidence: float | None = None
+    processing_time_sec: float | None = None
+
+
+@dataclass
 class AnnotationExecutionResult:
     """アノテーション実行結果（サマリー付き）
 
@@ -56,6 +71,9 @@ class AnnotationExecutionResult:
     db_save_skip: int = 0
     model_errors: list[ModelErrorDetail] = field(default_factory=list)
     image_summaries: list[ImageResultSummary] = field(default_factory=list)
+    model_statistics: dict[str, ModelStatistics] = field(default_factory=dict)
+    phash_to_filename: dict[str, str] = field(default_factory=dict)
+    total_processing_time_sec: float = 0.0
 
 
 class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
@@ -222,7 +240,16 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             )
             self._check_cancellation()
 
-            db_save_success, db_save_skip, image_summaries = self._save_results_to_database(merged_results)
+            db_save_success, db_save_skip, image_summaries = self._save_results_to_database(
+                merged_results
+            )
+
+            # モデル統計とpHash→ファイル名マッピングを構築
+            model_statistics = self._build_model_statistics(merged_results)
+            phash_to_image_id = self.db_manager.repository.find_image_ids_by_phashes(
+                set(merged_results.keys())
+            )
+            phash_to_filename = self._build_phash_to_filename_map(phash_to_image_id)
 
             self._report_progress(
                 100,
@@ -240,6 +267,9 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 db_save_skip=db_save_skip,
                 model_errors=model_errors,
                 image_summaries=image_summaries,
+                model_statistics=model_statistics,
+                phash_to_filename=phash_to_filename,
+                total_processing_time_sec=0.0,
             )
 
         except Exception as e:
@@ -614,3 +644,81 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             self._append_ratings(self._extract_field(unified_result, "ratings"), model.id, result)
 
         return result
+
+    def _build_model_statistics(self, results: PHashAnnotationResults) -> dict[str, ModelStatistics]:
+        """モデル別統計情報を構築する。
+
+        resultsからモデル別の成功/エラー件数、タグ数、キャプション数を集計し、
+        image-annotator-libのメタデータからprovider情報とcapabilitiesを取得する。
+
+        Args:
+            results: PHashAnnotationResults (phash → model_name → UnifiedResult)
+
+        Returns:
+            モデル名 → ModelStatistics のマッピング。
+
+        Note:
+            - ライブラリのメタデータは AnnotatorLibraryAdapter.
+              get_available_models_with_metadata() から取得
+            - プロバイダー情報は メタデータの "provider" フィールド
+            - capabilities は メタデータの "capabilities" フィールド
+        """
+        from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
+
+        # モデルメタデータを取得
+        adapter = AnnotatorLibraryAdapter(self.annotation_logic.annotator_adapter.config_service)
+        try:
+            model_metadata_list = adapter.get_available_models_with_metadata()
+            # モデル名をキーとしたメタデータマップを構築
+            metadata_map: dict[str, dict[str, Any]] = {}
+            for metadata in model_metadata_list:
+                model_name = metadata.get("model_name")
+                if model_name:
+                    metadata_map[model_name] = metadata
+        except Exception as e:
+            logger.warning(f"モデルメタデータ取得エラー: {e}")
+            metadata_map = {}
+
+        # モデル別統計を集計
+        model_stats: dict[str, ModelStatistics] = {}
+
+        for annotations in results.values():
+            for model_name, unified_result in annotations.items():
+                if model_name not in model_stats:
+                    # メタデータから provider と capabilities を取得
+                    metadata = metadata_map.get(model_name, {})
+                    provider_name = metadata.get("provider")
+                    capabilities = metadata.get("capabilities", [])
+
+                    model_stats[model_name] = ModelStatistics(
+                        model_name=model_name,
+                        provider_name=provider_name,
+                        capabilities=capabilities,
+                        success_count=0,
+                        error_count=0,
+                        total_tags=0,
+                        total_captions=0,
+                        avg_confidence=None,
+                        processing_time_sec=None,
+                    )
+
+                # エラーチェック
+                error = self._extract_field(unified_result, "error")
+                if error:
+                    model_stats[model_name].error_count += 1
+                    continue
+
+                model_stats[model_name].success_count += 1
+
+                # タグ数を集計
+                tags = self._extract_field(unified_result, "tags")
+                if tags:
+                    model_stats[model_name].total_tags += len(tags)
+
+                # キャプション数を集計
+                captions = self._extract_field(unified_result, "captions")
+                if captions:
+                    model_stats[model_name].total_captions += len(captions)
+
+        logger.debug(f"モデル統計構築完了: {len(model_stats)}モデル")
+        return model_stats
