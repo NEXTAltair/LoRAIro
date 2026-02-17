@@ -4,6 +4,8 @@
 成功/失敗件数、保存結果一覧、エラー詳細を5タブ形式で確認できる。
 """
 
+from typing import Any
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
@@ -246,7 +248,7 @@ class AnnotationSummaryDialog(QDialog):
 
 
     @staticmethod
-    def _get_result_attr(result: object, key: str, default: object = None) -> object:
+    def _get_result_attr(result: object, key: str, default: object = None) -> Any:  # Any使用: dict/objectの動的アクセス
         """アノテーション結果からキーに対応する値を取得する。
 
         object型（getattr）とdict型（get）の両方に対応。
