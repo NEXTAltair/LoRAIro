@@ -2551,6 +2551,42 @@ class ImageRepository:
                 logger.error(f"画像フィルタリング検索中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
+    def get_images_count_only(
+        self,
+        criteria: ImageFilterCriteria | None = None,
+        **kwargs: Any,
+    ) -> int:
+        """指定条件に一致する画像件数のみを取得する。"""
+        filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
+
+        with self.session_factory() as session:
+            try:
+                base_query = self._build_image_filter_query(
+                    session=session,
+                    tags=filter_criteria.tags,
+                    caption=filter_criteria.caption,
+                    use_and=filter_criteria.use_and,
+                    start_date=filter_criteria.start_date,
+                    end_date=filter_criteria.end_date,
+                    include_untagged=filter_criteria.include_untagged,
+                    include_nsfw=filter_criteria.include_nsfw,
+                    include_unrated=filter_criteria.include_unrated,
+                    manual_rating_filter=filter_criteria.manual_rating_filter,
+                    ai_rating_filter=filter_criteria.ai_rating_filter,
+                    manual_edit_filter=filter_criteria.manual_edit_filter,
+                    score_min=filter_criteria.score_min,
+                    score_max=filter_criteria.score_max,
+                )
+
+                count_query = select(func.count(func.distinct(base_query.subquery().c.id)))
+                count = session.execute(count_query).scalar_one()
+                logger.debug(f"条件一致件数のみ取得: {count} 件")
+                return count
+
+            except SQLAlchemyError as e:
+                logger.error(f"件数取得専用クエリ実行中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
     # --- Model Information Retrieval ---
 
     def get_models(self) -> list[dict[str, Any]]:

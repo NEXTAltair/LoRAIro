@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QScrollArea
 
 from ...gui.designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
@@ -68,6 +68,12 @@ class FilterSearchPanel(QScrollArea):
             PipelineState.ERROR: "エラーが発生しました",
             PipelineState.CANCELED: "キャンセルされました",
         }
+
+        # リアルタイム件数表示（Issue #10）
+        self._realtime_count_debounce_ms = 500
+        self._realtime_count_timer = QTimer(self)
+        self._realtime_count_timer.setSingleShot(True)
+        self._realtime_count_timer.timeout.connect(self._update_realtime_count)
 
         # UI設定
         self.ui = Ui_FilterSearchPanel()
@@ -145,6 +151,10 @@ class FilterSearchPanel(QScrollArea):
         main_layout = self.ui.searchGroup.layout()
         if main_layout:
             main_layout.addLayout(self.progress_layout)
+
+            self.realtime_count_label = QLabel("該当件数: -")
+            self.realtime_count_label.setStyleSheet("color: #666; font-size: 11px;")
+            main_layout.addWidget(self.realtime_count_label)
 
         # 重複除外トグルは廃止: 登録時のpHash重複防止により検索UI上では不要
         self.ui.checkboxExcludeDuplicates.setChecked(False)
@@ -389,6 +399,7 @@ class FilterSearchPanel(QScrollArea):
 
         # 解像度フィルター
         self.ui.comboResolution.currentTextChanged.connect(self._on_resolution_changed)
+        self.ui.comboAspectRatio.currentTextChanged.connect(self._on_realtime_count_trigger)
 
         # 日付フィルター
         self.ui.checkboxDateFilter.toggled.connect(self._on_date_filter_toggled)
@@ -396,6 +407,16 @@ class FilterSearchPanel(QScrollArea):
 
         # Ratingフィルター
         self.ui.comboRating.currentTextChanged.connect(self._on_rating_changed)
+        self.ui.comboAIRating.currentTextChanged.connect(self._on_realtime_count_trigger)
+        self.ui.checkboxIncludeUnrated.toggled.connect(self._on_realtime_count_trigger)
+
+        # その他フィルター
+        self.ui.checkboxOnlyUntagged.toggled.connect(self._on_only_untagged_toggled)
+        self.ui.checkboxOnlyUncaptioned.toggled.connect(self._on_only_uncaptioned_toggled)
+        self.ui.radioAnd.toggled.connect(self._on_realtime_count_trigger)
+        self.ui.radioOr.toggled.connect(self._on_realtime_count_trigger)
+        self.score_range_slider.valueChanged.connect(self._on_realtime_count_trigger)
+        self.ui.lineEditSearch.textChanged.connect(self._on_realtime_count_trigger)
 
         # アクションボタン
         self.ui.buttonApply.clicked.connect(self._on_apply_clicked)
@@ -616,21 +637,73 @@ class FilterSearchPanel(QScrollArea):
 
     def _on_resolution_changed(self, text: str) -> None:
         """解像度選択変更処理"""
-        # 固定解像度選択肢のみのため処理不要
+        logger.debug(f"Resolution changed: {text}")
+        self._on_realtime_count_trigger()
 
     def _on_rating_changed(self, text: str) -> None:
         """Rating選択変更処理"""
-        # Rating選択肢変更時の処理（必要に応じて実装）
         logger.debug(f"Rating changed: {text}")
+        self._on_realtime_count_trigger()
 
     def _on_date_filter_toggled(self, checked: bool) -> None:
         """日付フィルター有効化切り替え処理"""
         self.ui.frameDateRange.setVisible(checked)
+        self._on_realtime_count_trigger()
 
     def _on_date_range_changed(self, min_timestamp: int, max_timestamp: int) -> None:
         """日付範囲変更処理"""
         logger.debug(f"日付範囲変更: {min_timestamp} - {max_timestamp}")
-        # 自動検索は行わず、ユーザーが検索ボタンを押すまで待つ
+        self._on_realtime_count_trigger()
+
+    def _on_realtime_count_trigger(self, *args: Any) -> None:
+        """フィルター変更時に件数再計算をデバウンスで予約する。"""
+        del args
+        if hasattr(self, "realtime_count_label"):
+            self.realtime_count_label.setText("該当件数: 計算中...")
+        self._realtime_count_timer.start(self._realtime_count_debounce_ms)
+
+    def _update_realtime_count(self) -> None:
+        """現在のフィルター条件で件数のみを取得して表示する。"""
+        if not self.search_filter_service:
+            return
+
+        try:
+            search_text = self.ui.lineEditSearch.text().strip()
+            keywords = self.search_filter_service.parse_search_input(search_text) if search_text else []
+            date_range_start, date_range_end = self.get_date_range_from_slider()
+            rating_filter = self._get_rating_filter_value()
+            ai_rating_filter = self._get_ai_rating_filter_value()
+            include_nsfw = self._resolve_include_nsfw(rating_filter, ai_rating_filter)
+            score_min, score_max = self._get_score_filter_values()
+
+            conditions = self.search_filter_service.create_search_conditions(
+                search_type=self._get_primary_search_type(),
+                keywords=keywords,
+                tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
+                resolution_filter=self.ui.comboResolution.currentText(),
+                aspect_ratio_filter=self.ui.comboAspectRatio.currentText(),
+                date_filter_enabled=self.ui.checkboxDateFilter.isChecked(),
+                date_range_start=date_range_start,
+                date_range_end=date_range_end,
+                only_untagged=self.ui.checkboxOnlyUntagged.isChecked(),
+                only_uncaptioned=self.ui.checkboxOnlyUncaptioned.isChecked(),
+                exclude_duplicates=False,
+                include_nsfw=include_nsfw,
+                rating_filter=rating_filter,
+                ai_rating_filter=ai_rating_filter,
+                include_unrated=self.ui.checkboxIncludeUnrated.isChecked(),
+                score_min=score_min,
+                score_max=score_max,
+            )
+
+            count = self.search_filter_service.get_estimated_count(conditions)
+            if hasattr(self, "realtime_count_label"):
+                self.realtime_count_label.setText(f"該当件数: {count:,} 件")
+
+        except Exception as e:
+            logger.error(f"リアルタイム件数更新エラー: {e}", exc_info=True)
+            if hasattr(self, "realtime_count_label"):
+                self.realtime_count_label.setText("該当件数: エラー")
 
     def get_date_range_from_slider(self) -> tuple[datetime | None, datetime | None]:
         """CustomRangeSliderから日付範囲を取得してdatetimeオブジェクトに変換
@@ -684,11 +757,13 @@ class FilterSearchPanel(QScrollArea):
         """未タグ画像のみ検索トグル処理"""
         self._update_search_input_state()
         self._on_search_type_changed()
+        self._on_realtime_count_trigger()
 
     def _on_only_uncaptioned_toggled(self, checked: bool) -> None:
         """未キャプション画像のみ検索トグル処理"""
         self._update_search_input_state()
         self._on_search_type_changed()
+        self._on_realtime_count_trigger()
 
     def _get_selected_search_types(self) -> list[str]:
         """選択された検索タイプのリストを取得"""
@@ -1181,6 +1256,8 @@ class FilterSearchPanel(QScrollArea):
     def _on_clear_clicked(self) -> None:
         """クリアボタンクリック処理"""
         self._on_clear_requested()
+        if hasattr(self, "realtime_count_label"):
+            self.realtime_count_label.setText("該当件数: -")
 
     def update_pipeline_progress(self, message: str, current_progress: float, end_progress: float) -> None:
         """Pipeline進捗表示の更新 - ModernProgressManagerに移行済みため無効化"""

@@ -688,6 +688,19 @@ class ImageDatabaseManager:
             logger.error(f"画像フィルタリング検索中にエラーが発生しました: {e}", exc_info=True)
             raise
 
+    def get_images_count_only(
+        self,
+        criteria: ImageFilterCriteria | None = None,
+        **kwargs: Any,
+    ) -> int:
+        """指定条件に一致する画像件数のみを取得します。"""
+        try:
+            filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
+            return self.repository.get_images_count_only(filter_criteria)
+        except Exception as e:
+            logger.error(f"画像件数取得中にエラーが発生しました: {e}", exc_info=True)
+            raise
+
     def detect_duplicate_image(self, image_path: Path) -> int | None:
         """画像の重複を検出し、重複する場合はその画像のIDを返す。
         pHashベースの視覚的重複検出を使用します。
