@@ -1868,6 +1868,7 @@ class ImageRepository:
         self,
         query: Select,
         tags: list[str] | None,
+        excluded_tags: list[str] | None,
         use_and: bool,
         include_untagged: bool,
     ) -> Select:
@@ -1909,6 +1910,22 @@ class ImageRepository:
                 if tag_criteria:
                     query = query.join(Tag, Image.id == Tag.image_id).where(or_(*tag_criteria))
                     # logger.debug(f"Query after OR tag join: {query}") # クエリ確認用
+
+        if excluded_tags and not include_untagged:
+            logger.debug(f"Applying excluded tag filter (NOT EXISTS) for tags: {excluded_tags}")
+            for excluded_tag in excluded_tags:
+                pattern, is_exact = self._prepare_like_pattern(excluded_tag)
+                excluded_condition = (Tag.tag == pattern) if is_exact else Tag.tag.like(pattern)
+                not_exists_subquery = (
+                    select(Tag.id)
+                    .where(
+                        Tag.image_id == Image.id,
+                        excluded_condition,
+                    )
+                    .correlate(Image)
+                    .exists()
+                )
+                query = query.where(not_(not_exists_subquery))
 
         return query
 
@@ -2406,6 +2423,7 @@ class ImageRepository:
         self,
         session: Session,
         tags: list[str] | None,
+        excluded_tags: list[str] | None,
         caption: str | None,
         use_and: bool,
         start_date: str | None,
@@ -2424,6 +2442,7 @@ class ImageRepository:
         Args:
             session: SQLAlchemyセッション。
             tags: 検索タグリスト。
+            excluded_tags: 除外検索タグリスト。
             caption: 検索キャプション文字列。
             use_and: 複数タグのAND/OR指定。
             start_date: 検索開始日時(ISO 8601)。
@@ -2450,7 +2469,7 @@ class ImageRepository:
         if include_untagged and (tags or caption):
             logger.warning("検索語句と include_untagged が同時に指定されたため、検索語句は無視されます。")
 
-        query = self._apply_tag_filter(query, tags, use_and, include_untagged)
+        query = self._apply_tag_filter(query, tags, excluded_tags, use_and, include_untagged)
         query = self._apply_caption_filter(query, caption)
 
         # Rating Filters (Priority-based: manual > AI)
@@ -2517,6 +2536,7 @@ class ImageRepository:
                 query = self._build_image_filter_query(
                     session=session,
                     tags=filter_criteria.tags,
+                    excluded_tags=filter_criteria.excluded_tags,
                     caption=filter_criteria.caption,
                     use_and=filter_criteria.use_and,
                     start_date=filter_criteria.start_date,
@@ -2576,6 +2596,7 @@ class ImageRepository:
                 filtered_query = self._build_image_filter_query(
                     session=session,
                     tags=filter_criteria.tags,
+                    excluded_tags=filter_criteria.excluded_tags,
                     caption=filter_criteria.caption,
                     use_and=filter_criteria.use_and,
                     start_date=filter_criteria.start_date,
