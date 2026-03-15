@@ -23,6 +23,7 @@ class SearchConditions:
     search_type: str  # "tags" or "caption"
     keywords: list[str]
     tag_logic: str  # "and" or "or"
+    excluded_keywords: list[str] | None = None
     resolution_filter: str | None = None
     aspect_ratio_filter: str | None = None
     date_filter_enabled: bool = False
@@ -57,6 +58,7 @@ class SearchConditions:
 
         return ImageFilterCriteria(
             tags=self.keywords if self.search_type == "tags" else None,
+            excluded_tags=self.excluded_keywords if self.search_type == "tags" else None,
             caption=self.keywords[0] if self.search_type == "caption" and self.keywords else None,
             resolution=self._resolve_resolution(),
             use_and=self.tag_logic == "and",

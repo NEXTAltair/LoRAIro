@@ -36,6 +36,7 @@ class ImageFilterCriteria:
 
     tags: list[str] | None = None
     caption: str | None = None
+    excluded_tags: list[str] | None = None
     resolution: int = 0
     use_and: bool = True
     start_date: str | None = None
@@ -86,6 +87,7 @@ class ImageFilterCriteria:
         return {
             "tags": self.tags,
             "caption": self.caption,
+            "excluded_tags": self.excluded_tags,
             "resolution": self.resolution,
             "use_and": self.use_and,
             "start_date": self.start_date,

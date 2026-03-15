@@ -110,41 +110,56 @@ class TestSearchFilterService:
     def test_parse_search_input_tags(self, service):
         """タグ検索入力解析テスト"""
         # 基本的なカンマ区切り
-        keywords = service.parse_search_input("tag1, tag2, tag3")
+        keywords, excluded = service.parse_search_input("tag1, tag2, tag3")
         assert keywords == ["tag1", "tag2", "tag3"]
+        assert excluded == []
 
         # スペース込みタグ
-        keywords = service.parse_search_input("1girl, long hair, blue eyes")
+        keywords, excluded = service.parse_search_input("1girl, long hair, blue eyes")
         assert keywords == ["1girl", "long hair", "blue eyes"]
+        assert excluded == []
 
         # 空のタグ除去
-        keywords = service.parse_search_input("tag1, , tag3, ")
+        keywords, excluded = service.parse_search_input("tag1, , tag3, ")
         assert keywords == ["tag1", "tag3"]
+        assert excluded == []
+
+    def test_parse_search_input_excluded_tags(self, service):
+        """除外タグ入力解析テスト"""
+        keywords, excluded = service.parse_search_input("1girl, -1boy, blue_eyes")
+
+        assert keywords == ["1girl", "blue_eyes"]
+        assert excluded == ["1boy"]
 
     def test_parse_search_input_caption(self, service):
         """キャプション検索入力解析テスト"""
         # カンマ区切りキャプション
-        keywords = service.parse_search_input("beautiful scene, landscape view, mountain scenery")
+        keywords, excluded = service.parse_search_input("beautiful scene, landscape view, mountain scenery")
         assert keywords == ["beautiful scene", "landscape view", "mountain scenery"]
+        assert excluded == []
 
         # 余分なスペース処理（単一キーワード）
-        keywords = service.parse_search_input("  single keyword  ")
+        keywords, excluded = service.parse_search_input("  single keyword  ")
         assert keywords == ["single keyword"]
+        assert excluded == []
 
     def test_parse_search_input_empty(self, service):
         """空の検索入力テスト"""
-        keywords = service.parse_search_input("")
+        keywords, excluded = service.parse_search_input("")
         assert keywords == []
+        assert excluded == []
 
-        keywords = service.parse_search_input("   ")
+        keywords, excluded = service.parse_search_input("   ")
         assert keywords == []
+        assert excluded == []
 
     def test_create_search_conditions_basic(self, service):
         """基本的な検索条件作成テスト"""
-        keywords = service.parse_search_input("tag1, tag2")
+        keywords, excluded = service.parse_search_input("tag1, tag2")
         conditions = service.create_search_conditions(
             search_type="tags",
             keywords=keywords,
+            excluded_keywords=excluded,
             tag_logic="and",
             resolution_filter="1024x1024",
             aspect_ratio_filter="1:1 (正方形)",
@@ -168,11 +183,12 @@ class TestSearchFilterService:
         """日付付き検索条件作成テスト"""
         start_date = datetime(2023, 1, 1)
         end_date = datetime(2023, 12, 31)
-        keywords = service.parse_search_input("test")
+        keywords, excluded = service.parse_search_input("test")
 
         conditions = service.create_search_conditions(
             search_type="caption",
             keywords=keywords,
+            excluded_keywords=excluded,
             tag_logic="or",
             resolution_filter="1024x1024",
             aspect_ratio_filter="正方形 (1:1)",
