@@ -61,6 +61,7 @@ class TestSearchCriteriaProcessor:
             search_type="tags",
             keywords=["tag1", "tag2"],
             tag_logic="and",
+            excluded_keywords=["tag3"],
             resolution_filter="1024x1024",
             only_untagged=False,
         )
@@ -70,6 +71,7 @@ class TestSearchCriteriaProcessor:
         # DB引数の確認
         assert db_args["tags"] == ["tag1", "tag2"]
         assert db_args["caption"] is None
+        assert db_args["excluded_tags"] == ["tag3"]
         assert db_args["resolution"] == 1024  # max(1024, 1024)
         assert db_args["use_and"] is True
         assert db_args["include_untagged"] is False
