@@ -71,28 +71,42 @@ class SearchFilterService:
 
         logger.info("SearchFilterService (純化版) initialized with new service layer integration")
 
-    def parse_search_input(self, input_text: str) -> list[str]:
+    def parse_search_input(self, input_text: str) -> tuple[list[str], list[str]]:
         """UI入力テキストの解析とキーワード抽出
 
         Args:
             input_text: ユーザー入力テキスト
 
         Returns:
-            list: 抽出されたキーワードリスト
+            tuple[list[str], list[str]]: (通常キーワード, 除外キーワード) のタプル
 
         """
         if not input_text:
-            return []
+            return [], []
+
+        keywords: list[str] = []
+        excluded_keywords: list[str] = []
 
         # 基本的なキーワード分割(カンマ区切り、タグ内スペース保持)
-        keywords = [keyword.strip() for keyword in input_text.split(",") if keyword.strip()]
-        logger.debug(f"入力解析完了: '{input_text}' -> {keywords}")
-        return keywords
+        for keyword in [part.strip() for part in input_text.split(",") if part.strip()]:
+            if keyword.startswith("-") and len(keyword) > 1:
+                excluded_keywords.append(keyword[1:].strip())
+            else:
+                keywords.append(keyword)
+
+        logger.debug(
+            "入力解析完了: '%s' -> include=%s, exclude=%s",
+            input_text,
+            keywords,
+            excluded_keywords,
+        )
+        return keywords, excluded_keywords
 
     def create_search_conditions(
         self,
         search_type: str,
         keywords: list[str],
+        excluded_keywords: list[str] | None = None,
         tag_logic: str = "and",
         resolution_filter: str | None = None,
         aspect_ratio_filter: str | None = None,
@@ -124,6 +138,7 @@ class SearchFilterService:
         conditions = SearchConditions(
             search_type=search_type,
             keywords=keywords,
+            excluded_keywords=excluded_keywords,
             tag_logic=tag_logic,
             resolution_filter=resolution_filter,
             aspect_ratio_filter=aspect_ratio_filter,
@@ -164,6 +179,10 @@ class SearchFilterService:
         if conditions.keywords:
             keyword_text = f" {conditions.tag_logic.upper()} ".join(conditions.keywords)
             preview_parts.append(f"キーワード: {keyword_text} ({conditions.search_type})")
+
+        if conditions.excluded_keywords:
+            excluded_text = " NOT ".join(conditions.excluded_keywords)
+            preview_parts.append(f"除外キーワード: {excluded_text}")
 
         # フィルター条件
         if conditions.resolution_filter:
