@@ -1868,6 +1868,7 @@ class ImageRepository:
         self,
         query: Select,
         tags: list[str] | None,
+        excluded_tags: list[str] | None,
         use_and: bool,
         include_untagged: bool,
     ) -> Select:
@@ -1876,9 +1877,9 @@ class ImageRepository:
             # タグが存在しない画像 (outerjoinしてTag.idがNULL)
             # 注: この条件は他のタグ/キャプション条件と併用されない前提 (Manager側で制御想定)
             query = query.outerjoin(Tag, Image.id == Tag.image_id).where(Tag.id.is_(None))
-        elif tags:
+        elif tags or excluded_tags:
             # use_and (AND検索) の場合、タグごとにJOIN条件を追加する
-            if use_and:
+            if tags and use_and:
                 logger.debug(f"Applying AND tag filter (EXISTS) for tags: {tags}")
                 for _i, tag_term in enumerate(tags):
                     pattern, is_exact = self._prepare_like_pattern(tag_term)
@@ -1896,7 +1897,7 @@ class ImageRepository:
                     )
                     # メインクエリに EXISTS 条件を追加
                     query = query.where(exists_subquery)
-            else:
+            elif tags:
                 # use_and=False (OR検索) の場合、単一のJOINとOR条件
                 logger.debug(f"Applying OR tag filter for tags: {tags}")
                 tag_criteria = []
@@ -1909,6 +1910,22 @@ class ImageRepository:
                 if tag_criteria:
                     query = query.join(Tag, Image.id == Tag.image_id).where(or_(*tag_criteria))
                     # logger.debug(f"Query after OR tag join: {query}") # クエリ確認用
+
+            if excluded_tags:
+                logger.debug(f"Applying NOT tag filter (NOT EXISTS) for tags: {excluded_tags}")
+                for excluded_tag in excluded_tags:
+                    pattern, is_exact = self._prepare_like_pattern(excluded_tag)
+                    exclusion_condition = (Tag.tag == pattern) if is_exact else Tag.tag.like(pattern)
+                    not_exists_subquery = (
+                        select(Tag.id)
+                        .where(
+                            Tag.image_id == Image.id,
+                            exclusion_condition,
+                        )
+                        .correlate(Image)
+                        .exists()
+                    )
+                    query = query.where(~not_exists_subquery)
 
         return query
 
@@ -2408,6 +2425,7 @@ class ImageRepository:
         tags: list[str] | None,
         caption: str | None,
         use_and: bool,
+        excluded_tags: list[str] | None,
         start_date: str | None,
         end_date: str | None,
         include_untagged: bool,
@@ -2426,6 +2444,7 @@ class ImageRepository:
             tags: 検索タグリスト。
             caption: 検索キャプション文字列。
             use_and: 複数タグのAND/OR指定。
+            excluded_tags: 除外するタグリスト。
             start_date: 検索開始日時(ISO 8601)。
             end_date: 検索終了日時(ISO 8601)。
             include_untagged: タグなし画像のみ対象とするか。
@@ -2450,7 +2469,7 @@ class ImageRepository:
         if include_untagged and (tags or caption):
             logger.warning("検索語句と include_untagged が同時に指定されたため、検索語句は無視されます。")
 
-        query = self._apply_tag_filter(query, tags, use_and, include_untagged)
+        query = self._apply_tag_filter(query, tags, excluded_tags, use_and, include_untagged)
         query = self._apply_caption_filter(query, caption)
 
         # Rating Filters (Priority-based: manual > AI)
@@ -2519,6 +2538,7 @@ class ImageRepository:
                     tags=filter_criteria.tags,
                     caption=filter_criteria.caption,
                     use_and=filter_criteria.use_and,
+                    excluded_tags=filter_criteria.excluded_tags,
                     start_date=filter_criteria.start_date,
                     end_date=filter_criteria.end_date,
                     include_untagged=filter_criteria.include_untagged,

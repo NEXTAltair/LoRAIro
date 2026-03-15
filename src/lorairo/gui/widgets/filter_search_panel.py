@@ -899,7 +899,9 @@ class FilterSearchPanel(QScrollArea):
         try:
             # 検索テキストをキーワードリストに変換
             search_text = self.ui.lineEditSearch.text().strip()
-            keywords = self.search_filter_service.parse_search_input(search_text) if search_text else []
+            keywords, excluded_keywords = (
+                self.search_filter_service.parse_search_input(search_text) if search_text else ([], [])
+            )
 
             # スコア範囲を取得して検索条件に含めるか判定
             score_min_internal, score_max_internal = self.score_range_slider.get_range()
@@ -945,6 +947,7 @@ class FilterSearchPanel(QScrollArea):
                 search_type=self._get_primary_search_type(),
                 keywords=keywords,
                 tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
+                excluded_keywords=excluded_keywords,
                 resolution_filter=self.ui.comboResolution.currentText(),
                 aspect_ratio_filter=self.ui.comboAspectRatio.currentText(),
                 date_filter_enabled=self.ui.checkboxDateFilter.isChecked(),
@@ -997,7 +1000,9 @@ class FilterSearchPanel(QScrollArea):
         try:
             # 検索テキストをキーワードリストに変換
             search_text = self.ui.lineEditSearch.text().strip()
-            keywords = self.search_filter_service.parse_search_input(search_text) if search_text else []
+            keywords, excluded_keywords = (
+                self.search_filter_service.parse_search_input(search_text) if search_text else ([], [])
+            )
 
             # 日付範囲を取得
             date_range_start, date_range_end = self.get_date_range_from_slider()
@@ -1014,6 +1019,7 @@ class FilterSearchPanel(QScrollArea):
                 search_type=self._get_primary_search_type(),
                 keywords=keywords,
                 tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
+                excluded_keywords=excluded_keywords,
                 resolution_filter=self.ui.comboResolution.currentText(),
                 aspect_ratio_filter=self.ui.comboAspectRatio.currentText(),
                 date_filter_enabled=self.ui.checkboxDateFilter.isChecked(),
