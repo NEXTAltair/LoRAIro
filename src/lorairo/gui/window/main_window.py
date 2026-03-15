@@ -23,6 +23,7 @@ from ...services.configuration_service import ConfigurationService
 from ...services.model_selection_service import ModelSelectionService
 from ...services.selection_state_service import SelectionStateService
 from ...services.service_container import ServiceContainer
+from ...services.tag_suggestion_service import TagSuggestionService
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
 from ..controllers.annotation_workflow_controller import AnnotationWorkflowController
@@ -1319,6 +1320,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         try:
             search_filter_service = self._create_search_filter_service()
             self.filterSearchPanel.set_search_filter_service(search_filter_service)
+
+            tag_suggestion_service = TagSuggestionService(self.db_manager.repository.merged_reader)
+            self.filterSearchPanel.set_tag_suggestion_service(tag_suggestion_service)
 
             if self.worker_service:
                 self.filterSearchPanel.set_worker_service(self.worker_service)

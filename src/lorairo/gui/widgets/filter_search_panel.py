@@ -4,10 +4,11 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QScrollArea
+from PySide6.QtCore import QTimer, Qt, Signal, QStringListModel
+from PySide6.QtWidgets import QCompleter, QScrollArea
 
 from ...gui.designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
+from ...services.tag_suggestion_service import TagSuggestionService
 from ...utils.log import logger
 from .custom_range_slider import CustomRangeSlider
 
@@ -68,6 +69,12 @@ class FilterSearchPanel(QScrollArea):
             PipelineState.ERROR: "エラーが発生しました",
             PipelineState.CANCELED: "キャンセルされました",
         }
+
+        # タグサジェスト関連
+        self.tag_suggestion_service: TagSuggestionService | None = None
+        self._suggestion_timer = QTimer(self)
+        self._suggestion_timer.setSingleShot(True)
+        self._suggestion_timer.setInterval(300)
 
         # UI設定
         self.ui = Ui_FilterSearchPanel()
@@ -384,6 +391,8 @@ class FilterSearchPanel(QScrollArea):
         """Qt DesignerのUIコンポーネントにシグナルを接続"""
         # 検索関連（チェックボックスに更新）
         self.ui.lineEditSearch.returnPressed.connect(self._on_search_requested)
+        self.ui.lineEditSearch.textChanged.connect(self._on_search_text_changed)
+        self._suggestion_timer.timeout.connect(self._fetch_tag_suggestions)
         self.ui.checkboxTags.toggled.connect(self._on_search_type_changed)
         self.ui.checkboxCaption.toggled.connect(self._on_search_type_changed)
 
@@ -400,6 +409,20 @@ class FilterSearchPanel(QScrollArea):
         # アクションボタン
         self.ui.buttonApply.clicked.connect(self._on_apply_clicked)
         self.ui.buttonClear.clicked.connect(self._on_clear_clicked)
+
+    def set_tag_suggestion_service(self, service: TagSuggestionService) -> None:
+        """TagSuggestionServiceを設定してQCompleterを初期化する。"""
+        self.tag_suggestion_service = service
+
+        model = QStringListModel([], self)
+        completer = QCompleter(model, self.ui.lineEditSearch)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        completer.activated[str].connect(self._on_tag_completer_activated)
+        self.ui.lineEditSearch.setCompleter(completer)
+
+        logger.debug("TagSuggestionService set for FilterSearchPanel")
 
     def set_search_filter_service(self, service: "SearchFilterService") -> None:
         """SearchFilterServiceを設定（拡張版：バリデーションとログ強化）"""
@@ -773,6 +796,69 @@ class FilterSearchPanel(QScrollArea):
             f"ai={ai_rating_filter}, include_nsfw={include_nsfw}",
         )
         return include_nsfw
+
+    @staticmethod
+    def _extract_last_token(text: str) -> str:
+        """カンマ区切り入力の最後のトークンを取得する。"""
+        if not text:
+            return ""
+        return text.split(",")[-1].strip()
+
+    def _on_search_text_changed(self, _text: str) -> None:
+        """検索入力変更時のタグサジェスト処理（300msデバウンス）。"""
+        if not self.ui.checkboxTags.isChecked():
+            return
+
+        if self.tag_suggestion_service is None:
+            return
+
+        token = self._extract_last_token(self.ui.lineEditSearch.text())
+        if len(token) < 2:
+            self._update_completer_items([])
+            return
+
+        self._suggestion_timer.start()
+
+    def _fetch_tag_suggestions(self) -> None:
+        if self.tag_suggestion_service is None:
+            return
+
+        token = self._extract_last_token(self.ui.lineEditSearch.text())
+        if len(token) < 2:
+            self._update_completer_items([])
+            return
+
+        suggestions = self.tag_suggestion_service.get_suggestions(token)
+        self._update_completer_items(suggestions)
+
+    def _update_completer_items(self, items: list[str]) -> None:
+        completer = self.ui.lineEditSearch.completer()
+        if not completer:
+            return
+        model = completer.model()
+        if not isinstance(model, QStringListModel):
+            return
+        model.setStringList(items)
+
+        popup = completer.popup()
+        if items and popup is not None and self.ui.lineEditSearch.hasFocus():
+            completer.complete()
+
+    def _on_tag_completer_activated(self, selected: str) -> None:
+        """補完選択時に最後のトークンを置換する。"""
+        full_text = self.ui.lineEditSearch.text()
+        tokens = [segment.strip() for segment in full_text.split(",")]
+
+        if tokens:
+            tokens[-1] = selected
+        else:
+            tokens = [selected]
+
+        updated = ", ".join(token for token in tokens if token)
+        if updated and not updated.endswith(","):
+            updated = f"{updated}, "
+
+        self.ui.lineEditSearch.setText(updated)
 
     def _on_search_type_changed(self) -> None:
         """検索タイプ変更時の処理（チェックボックス対応）"""
