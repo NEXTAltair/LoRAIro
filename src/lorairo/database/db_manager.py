@@ -151,13 +151,10 @@ class ImageDatabaseManager:
 
             # 4. 512px サムネイル画像の自動生成
             try:
-                self._generate_thumbnail_512px(
-                    image_id, db_stored_original_path, original_metadata, fsm
-                )
+                self._generate_thumbnail_512px(image_id, db_stored_original_path, original_metadata, fsm)
             except Exception as e:
                 logger.warning(
-                    f"512px サムネイル生成に失敗しましたが、処理を続行します: "
-                    f"{image_path}, Error: {e}",
+                    f"512px サムネイル生成に失敗しましたが、処理を続行します: {image_path}, Error: {e}",
                 )
 
             return image_id, original_metadata
@@ -722,6 +719,19 @@ class ImageDatabaseManager:
                 exc_info=True,
             )
             return None
+
+    def get_images_count_only(
+        self,
+        criteria: ImageFilterCriteria | None = None,
+        **kwargs: Any,
+    ) -> int:
+        """指定条件に一致する画像件数のみを取得します。"""
+        try:
+            filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
+            return self.repository.get_images_count_only(filter_criteria)
+        except Exception as e:
+            logger.error(f"画像件数の取得中にエラーが発生しました: {e}", exc_info=True)
+            return 0
 
     def get_total_image_count(self) -> int:
         """データベース内に登録されたオリジナル画像の総数を取得します。"""
