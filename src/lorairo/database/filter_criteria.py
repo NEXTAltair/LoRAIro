@@ -20,6 +20,7 @@ class ImageFilterCriteria:
     Attributes:
         tags: 検索するタグのリスト
         caption: 検索するキャプション文字列
+        excluded_tags: 除外するタグのリスト（NOT検索）
         resolution: 検索対象の解像度(長辺)、0の場合はオリジナル画像
         use_and: 複数タグ指定時の検索方法 (True: AND, False: OR)
         start_date: 検索開始日時 (ISO 8601形式)
@@ -36,6 +37,7 @@ class ImageFilterCriteria:
 
     tags: list[str] | None = None
     caption: str | None = None
+    excluded_tags: list[str] | None = None
     resolution: int = 0
     use_and: bool = True
     start_date: str | None = None
@@ -86,6 +88,7 @@ class ImageFilterCriteria:
         return {
             "tags": self.tags,
             "caption": self.caption,
+            "excluded_tags": self.excluded_tags,
             "resolution": self.resolution,
             "use_and": self.use_and,
             "start_date": self.start_date,

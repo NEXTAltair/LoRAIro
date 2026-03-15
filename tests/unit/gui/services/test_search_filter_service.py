@@ -18,6 +18,7 @@ class TestSearchConditions:
             search_type="tags",
             keywords=["tag1", "tag2"],
             tag_logic="and",
+            excluded_keywords=["tag3"],
             resolution_filter="1024x1024",
             aspect_ratio_filter="正方形 (1:1)",
             date_filter_enabled=True,
@@ -77,6 +78,7 @@ class TestSearchConditions:
             search_type="tags",
             keywords=["tag1", "tag2"],
             tag_logic="and",
+            excluded_keywords=["tag3"],
             include_nsfw=False,
             rating_filter="PG-13",
         )
@@ -86,6 +88,7 @@ class TestSearchConditions:
         assert db_args["include_nsfw"] is False
         assert db_args["manual_rating_filter"] == "PG-13"
         assert db_args["tags"] == ["tag1", "tag2"]
+        assert db_args["excluded_tags"] == ["tag3"]
         assert db_args["use_and"] is True
 
 
@@ -110,41 +113,57 @@ class TestSearchFilterService:
     def test_parse_search_input_tags(self, service):
         """タグ検索入力解析テスト"""
         # 基本的なカンマ区切り
-        keywords = service.parse_search_input("tag1, tag2, tag3")
+        keywords, excluded_keywords = service.parse_search_input("tag1, tag2, tag3")
         assert keywords == ["tag1", "tag2", "tag3"]
+        assert excluded_keywords == []
 
         # スペース込みタグ
-        keywords = service.parse_search_input("1girl, long hair, blue eyes")
+        keywords, excluded_keywords = service.parse_search_input("1girl, long hair, blue eyes")
         assert keywords == ["1girl", "long hair", "blue eyes"]
+        assert excluded_keywords == []
 
         # 空のタグ除去
-        keywords = service.parse_search_input("tag1, , tag3, ")
+        keywords, excluded_keywords = service.parse_search_input("tag1, , tag3, ")
         assert keywords == ["tag1", "tag3"]
+        assert excluded_keywords == []
 
     def test_parse_search_input_caption(self, service):
         """キャプション検索入力解析テスト"""
         # カンマ区切りキャプション
-        keywords = service.parse_search_input("beautiful scene, landscape view, mountain scenery")
+        keywords, excluded_keywords = service.parse_search_input("beautiful scene, landscape view, mountain scenery")
         assert keywords == ["beautiful scene", "landscape view", "mountain scenery"]
+        assert excluded_keywords == []
 
         # 余分なスペース処理（単一キーワード）
-        keywords = service.parse_search_input("  single keyword  ")
+        keywords, excluded_keywords = service.parse_search_input("  single keyword  ")
         assert keywords == ["single keyword"]
+        assert excluded_keywords == []
 
     def test_parse_search_input_empty(self, service):
         """空の検索入力テスト"""
-        keywords = service.parse_search_input("")
+        keywords, excluded_keywords = service.parse_search_input("")
         assert keywords == []
+        assert excluded_keywords == []
 
-        keywords = service.parse_search_input("   ")
+        keywords, excluded_keywords = service.parse_search_input("   ")
         assert keywords == []
+        assert excluded_keywords == []
+
+
+    def test_parse_search_input_with_exclusion(self, service):
+        """除外検索入力解析テスト"""
+        keywords, excluded_keywords = service.parse_search_input("1girl, -1boy, blue_eyes, -smile")
+
+        assert keywords == ["1girl", "blue_eyes"]
+        assert excluded_keywords == ["1boy", "smile"]
 
     def test_create_search_conditions_basic(self, service):
         """基本的な検索条件作成テスト"""
-        keywords = service.parse_search_input("tag1, tag2")
+        keywords, excluded_keywords = service.parse_search_input("tag1, tag2")
         conditions = service.create_search_conditions(
             search_type="tags",
             keywords=keywords,
+            excluded_keywords=excluded_keywords,
             tag_logic="and",
             resolution_filter="1024x1024",
             aspect_ratio_filter="1:1 (正方形)",
@@ -168,11 +187,12 @@ class TestSearchFilterService:
         """日付付き検索条件作成テスト"""
         start_date = datetime(2023, 1, 1)
         end_date = datetime(2023, 12, 31)
-        keywords = service.parse_search_input("test")
+        keywords, excluded_keywords = service.parse_search_input("test")
 
         conditions = service.create_search_conditions(
             search_type="caption",
             keywords=keywords,
+            excluded_keywords=excluded_keywords,
             tag_logic="or",
             resolution_filter="1024x1024",
             aspect_ratio_filter="正方形 (1:1)",
@@ -196,6 +216,7 @@ class TestSearchFilterService:
         conditions = SearchConditions(
             search_type="tags",
             keywords=["1girl", "long hair"],
+            excluded_keywords=["1boy"],
             tag_logic="and",
             resolution_filter="1024x1024",
             aspect_ratio_filter="1:1 (正方形)",
@@ -210,6 +231,7 @@ class TestSearchFilterService:
         preview = service.create_search_preview(conditions)
 
         assert "キーワード: 1girl AND long hair (tags)" in preview
+        assert "除外キーワード: 1boy" in preview
         assert "解像度: 1024x1024" in preview
         assert "アスペクト比: 1:1 (正方形)" in preview
         assert "日付範囲: 開始: 2023-01-01, 終了: 2023-12-31" in preview

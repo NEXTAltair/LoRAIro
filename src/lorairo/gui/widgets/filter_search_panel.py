@@ -899,7 +899,9 @@ class FilterSearchPanel(QScrollArea):
         try:
             # 検索テキストをキーワードリストに変換
             search_text = self.ui.lineEditSearch.text().strip()
-            keywords = self.search_filter_service.parse_search_input(search_text) if search_text else []
+            keywords, excluded_keywords = (
+                self.search_filter_service.parse_search_input(search_text) if search_text else ([], [])
+            )
 
             # スコア範囲を取得して検索条件に含めるか判定
             score_min_internal, score_max_internal = self.score_range_slider.get_range()
@@ -944,6 +946,7 @@ class FilterSearchPanel(QScrollArea):
             conditions = self.search_filter_service.create_search_conditions(
                 search_type=self._get_primary_search_type(),
                 keywords=keywords,
+                excluded_keywords=excluded_keywords,
                 tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
                 resolution_filter=self.ui.comboResolution.currentText(),
                 aspect_ratio_filter=self.ui.comboAspectRatio.currentText(),
@@ -997,7 +1000,9 @@ class FilterSearchPanel(QScrollArea):
         try:
             # 検索テキストをキーワードリストに変換
             search_text = self.ui.lineEditSearch.text().strip()
-            keywords = self.search_filter_service.parse_search_input(search_text) if search_text else []
+            keywords, excluded_keywords = (
+                self.search_filter_service.parse_search_input(search_text) if search_text else ([], [])
+            )
 
             # 日付範囲を取得
             date_range_start, date_range_end = self.get_date_range_from_slider()
@@ -1013,6 +1018,7 @@ class FilterSearchPanel(QScrollArea):
             conditions = self.search_filter_service.create_search_conditions(
                 search_type=self._get_primary_search_type(),
                 keywords=keywords,
+                excluded_keywords=excluded_keywords,
                 tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
                 resolution_filter=self.ui.comboResolution.currentText(),
                 aspect_ratio_filter=self.ui.comboAspectRatio.currentText(),
@@ -1129,6 +1135,7 @@ class FilterSearchPanel(QScrollArea):
             return {
                 "search_type": current.search_type,
                 "keywords": current.keywords,
+                "excluded_keywords": current.excluded_keywords or [],
                 "tag_logic": current.tag_logic,
                 "resolution_filter": current.resolution_filter,
                 "aspect_ratio_filter": current.aspect_ratio_filter,
