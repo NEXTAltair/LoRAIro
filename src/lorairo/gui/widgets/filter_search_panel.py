@@ -4,14 +4,16 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QScrollArea
+from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtGui import QStringListModel
+from PySide6.QtWidgets import QCompleter, QScrollArea
 
 from ...gui.designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
 from ...utils.log import logger
 from .custom_range_slider import CustomRangeSlider
 
 if TYPE_CHECKING:
+    from ...services.tag_suggestion_service import TagSuggestionService
     from ..services.search_filter_service import SearchFilterService
     from ..services.worker_service import WorkerService
 
@@ -55,6 +57,16 @@ class FilterSearchPanel(QScrollArea):
         # FavoriteFiltersService（依存注入） - Phase 4
         self.favorite_filters_service: Any = None  # type: ignore[assignment]
 
+        # タグ候補サジェストサービス
+        self.tag_suggestion_service: TagSuggestionService | None = None
+        self._tag_suggestion_timer = QTimer(self)
+        self._tag_suggestion_timer.setSingleShot(True)
+        self._tag_suggestion_timer.setInterval(300)
+        self._tag_suggestion_model = QStringListModel(self)
+        self._tag_completer = QCompleter(self._tag_suggestion_model, self)
+        self._tag_completer.setCaseSensitivity(False)
+        self._tag_completer.setFilterMode(Qt.MatchFlag.MatchContains)
+
         # 現在のSearchWorkerのID
         self._current_search_worker_id: str | None = None
 
@@ -74,6 +86,7 @@ class FilterSearchPanel(QScrollArea):
         self.ui.setupUi(self)
         self.setup_custom_widgets()
         self.setup_favorite_filters_ui()  # Phase 4
+        self.setup_tag_autocomplete()
         self.connect_signals()
 
         logger.debug("FilterSearchPanel initialized")
@@ -380,10 +393,59 @@ class FilterSearchPanel(QScrollArea):
             logger.error("Failed to delete filter '{}': {}", filter_name, e, exc_info=True)
             QMessageBox.critical(self, "エラー", f"フィルターの削除中にエラーが発生しました:\n{e}")
 
+    def setup_tag_autocomplete(self) -> None:
+        """検索入力欄にタグオートコンプリートを設定"""
+        self.ui.lineEditSearch.setCompleter(self._tag_completer)
+        self._tag_suggestion_timer.timeout.connect(self._update_tag_suggestions)
+        self._tag_completer.activated.connect(self._on_tag_completion_activated)
+
+    def set_tag_suggestion_service(self, service: "TagSuggestionService" | None) -> None:
+        """タグ候補サジェストサービスを設定"""
+        self.tag_suggestion_service = service
+
+    def _on_search_text_changed(self, _text: str) -> None:
+        if not self.ui.checkboxTags.isChecked():
+            return
+        self._tag_suggestion_timer.start()
+
+    def _update_tag_suggestions(self) -> None:
+        if not self.tag_suggestion_service or not self.ui.checkboxTags.isChecked():
+            self._tag_suggestion_model.setStringList([])
+            return
+
+        current_token = self._extract_current_tag_token(self.ui.lineEditSearch.text())
+        suggestions = self.tag_suggestion_service.suggest_tags(current_token)
+        self._tag_suggestion_model.setStringList(suggestions)
+
+    @staticmethod
+    def _extract_current_tag_token(text: str) -> str:
+        return text.rsplit(",", 1)[-1].strip()
+
+    def _on_tag_completion_activated(self, completion: str) -> None:
+        if not completion:
+            return
+        self._apply_completion_for_current_token(completion)
+
+    def _apply_completion_for_current_token(self, completion: str) -> None:
+        text = self.ui.lineEditSearch.text()
+        segments = text.split(",")
+        if len(segments) == 1:
+            new_text = completion
+        else:
+            segments[-1] = f" {completion}"
+            new_text = ",".join(segments)
+
+        if not new_text.endswith(", "):
+            new_text = f"{new_text}, "
+
+        self.ui.lineEditSearch.setText(new_text)
+        self.ui.lineEditSearch.setCursorPosition(len(new_text))
+
     def connect_signals(self) -> None:
         """Qt DesignerのUIコンポーネントにシグナルを接続"""
         # 検索関連（チェックボックスに更新）
         self.ui.lineEditSearch.returnPressed.connect(self._on_search_requested)
+        self.ui.lineEditSearch.textChanged.connect(self._on_search_text_changed)
         self.ui.checkboxTags.toggled.connect(self._on_search_type_changed)
         self.ui.checkboxCaption.toggled.connect(self._on_search_type_changed)
 
@@ -418,6 +480,15 @@ class FilterSearchPanel(QScrollArea):
 
         self.search_filter_service = service
         logger.info(f"SearchFilterService set for FilterSearchPanel: {type(service)}")
+
+        repository = getattr(getattr(service, "db_manager", None), "repository", None)
+        merged_reader = getattr(repository, "merged_reader", None)
+        if merged_reader is not None:
+            from ...services.tag_suggestion_service import TagSuggestionService
+
+            self.set_tag_suggestion_service(TagSuggestionService(merged_reader))
+        else:
+            self.set_tag_suggestion_service(None)
 
         # サービス機能確認（デバッグ用）
         try:
