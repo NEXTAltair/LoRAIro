@@ -4,14 +4,15 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QTimer, Signal
-from PySide6.QtWidgets import QScrollArea
+from PySide6.QtCore import QStringListModel, Qt, QTimer, Signal
+from PySide6.QtWidgets import QCompleter, QScrollArea
 
 from ...gui.designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
 from ...utils.log import logger
 from .custom_range_slider import CustomRangeSlider
 
 if TYPE_CHECKING:
+    from ...services.tag_suggestion_service import TagSuggestionService
     from ..services.search_filter_service import SearchFilterService
     from ...services.search_models import SearchConditions
     from ..services.worker_service import WorkerService
@@ -56,6 +57,17 @@ class FilterSearchPanel(QScrollArea):
         # FavoriteFiltersService（依存注入） - Phase 4
         self.favorite_filters_service: Any = None  # type: ignore[assignment]
 
+        # タグオートコンプリート（依存注入）
+        self.tag_suggestion_service: TagSuggestionService | None = None
+        self._tag_completer_model = QStringListModel(self)
+        self._tag_completer = QCompleter(self._tag_completer_model, self)
+        self._tag_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self._tag_completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self._tag_completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self._tag_suggestion_timer = QTimer(self)
+        self._tag_suggestion_timer.setSingleShot(True)
+        self._tag_suggestion_timer.setInterval(300)
+
         # 現在のSearchWorkerのID
         self._current_search_worker_id: str | None = None
 
@@ -81,6 +93,7 @@ class FilterSearchPanel(QScrollArea):
         self.ui.setupUi(self)
         self.setup_custom_widgets()
         self.setup_favorite_filters_ui()  # Phase 4
+        self._setup_tag_autocomplete()
         self.connect_signals()
 
         logger.debug("FilterSearchPanel initialized")
@@ -165,6 +178,92 @@ class FilterSearchPanel(QScrollArea):
         # NSFWトグルは廃止: レーティング選択から自動判定する
         self.ui.checkboxIncludeNSFW.setChecked(False)
         self.ui.checkboxIncludeNSFW.setVisible(False)
+
+    def _setup_tag_autocomplete(self) -> None:
+        """検索入力欄にタグオートコンプリートを設定する。"""
+        self.ui.lineEditSearch.setCompleter(self._tag_completer)
+        self._tag_suggestion_timer.timeout.connect(self._update_tag_completions)
+        self._tag_completer.activated[str].connect(self._on_tag_completion_activated)
+
+    def set_tag_suggestion_service(self, service: "TagSuggestionService | None") -> None:
+        """TagSuggestionService を設定する（依存注入）。
+
+        Args:
+            service: TagSuggestionService インスタンス。None の場合はオートコンプリートを無効化。
+        """
+        self.tag_suggestion_service = service
+        logger.debug("TagSuggestionService set: {}", type(service).__name__ if service else "None")
+
+    @staticmethod
+    def _extract_last_token(text: str) -> str:
+        """カンマ区切り入力の最後のトークンを取得する。
+
+        Args:
+            text: 検索入力テキスト（例: "1girl, bl"）。
+
+        Returns:
+            最後のトークン（例: "bl"）。
+        """
+        return text.rsplit(",", 1)[-1].strip()
+
+    def _on_search_text_edited(self, text: str) -> None:
+        """検索入力編集時にタグ候補取得をデバウンス実行する。
+
+        textEdited シグナルを使用（setCompleter による自動変更は除外）。
+
+        Args:
+            text: 現在の入力テキスト。
+        """
+        if not self.ui.checkboxTags.isChecked() or not self.ui.lineEditSearch.isEnabled():
+            self._clear_tag_suggestions()
+            return
+
+        token = self._extract_last_token(text)
+        if self.tag_suggestion_service is None or len(token) < self.tag_suggestion_service.min_chars:
+            self._clear_tag_suggestions()
+            return
+
+        self._tag_suggestion_timer.start()
+
+    def _update_tag_completions(self) -> None:
+        """現在入力中のトークンに基づいてオートコンプリート候補を更新する。
+
+        P2 修正: QCompleter のプレフィックスをカンマ区切りの最後のトークンに設定することで、
+        "1girl, bl" のような入力でも "blue_hair" 等の候補が正しくフィルタリングされる。
+        """
+        if self.tag_suggestion_service is None:
+            return
+
+        token = self._extract_last_token(self.ui.lineEditSearch.text())
+        suggestions = self.tag_suggestion_service.get_suggestions(token)
+        self._tag_completer_model.setStringList(suggestions)
+
+        if suggestions and self.ui.lineEditSearch.hasFocus():
+            # P2 修正: QCompleter のプレフィックスをトークンに合わせる
+            # これにより "1girl, bl" 入力時も "bl" を prefix として候補をフィルタリングできる
+            self._tag_completer.setCompletionPrefix(token)
+            self._tag_completer.complete()
+
+    def _clear_tag_suggestions(self) -> None:
+        """タグ候補をクリアしてデバウンスタイマーを停止する。"""
+        self._tag_suggestion_timer.stop()
+        self._tag_completer_model.setStringList([])
+
+    def _on_tag_completion_activated(self, selected_tag: str) -> None:
+        """候補選択時にカンマ区切り入力の最後のトークンを置換する。
+
+        Args:
+            selected_tag: 選択されたタグ候補。
+        """
+        current_text = self.ui.lineEditSearch.text()
+        if "," in current_text:
+            prefix, _ = current_text.rsplit(",", 1)
+            new_text = f"{prefix.rstrip()}, {selected_tag}, "
+        else:
+            new_text = f"{selected_tag}, "
+
+        self.ui.lineEditSearch.setText(new_text)
+        self.ui.lineEditSearch.setCursorPosition(len(new_text))
 
     def setup_favorite_filters_ui(self) -> None:
         """お気に入りフィルターUIを作成してメインレイアウトに追加 (Phase 4)"""
@@ -396,6 +495,7 @@ class FilterSearchPanel(QScrollArea):
         """Qt DesignerのUIコンポーネントにシグナルを接続"""
         # 検索関連（チェックボックスに更新）
         self.ui.lineEditSearch.returnPressed.connect(self._on_search_requested)
+        self.ui.lineEditSearch.textEdited.connect(self._on_search_text_edited)
         self.ui.checkboxTags.toggled.connect(self._on_search_type_changed)
         self.ui.checkboxCaption.toggled.connect(self._on_search_type_changed)
 
@@ -445,6 +545,21 @@ class FilterSearchPanel(QScrollArea):
 
         self.search_filter_service = service
         logger.info(f"SearchFilterService set for FilterSearchPanel: {type(service)}")
+
+        # TagSuggestionService を SearchFilterService 経由で初期化
+        # db_manager.repository.merged_reader が利用可能な場合のみ有効化
+        merged_reader = getattr(
+            getattr(getattr(service, "db_manager", None), "repository", None),
+            "merged_reader",
+            None,
+        )
+        if merged_reader is not None:
+            from ...services.tag_suggestion_service import TagSuggestionService
+
+            self.set_tag_suggestion_service(TagSuggestionService(merged_reader))
+        else:
+            logger.debug("MergedTagReader not available: tag autocomplete disabled")
+            self.set_tag_suggestion_service(None)
 
         # サービス機能確認（デバッグ用）
         try:
@@ -901,6 +1016,10 @@ class FilterSearchPanel(QScrollArea):
         else:
             # 複数タイプ選択時
             self.ui.lineEditSearch.setPlaceholderText("タグ・キャプション検索キーワードを入力...")
+
+        # タグ検索が無効になった場合はオートコンプリート候補をクリア
+        if not self.ui.checkboxTags.isChecked():
+            self._clear_tag_suggestions()
 
     def _update_search_input_state(self) -> None:
         """検索入力フィールドの有効/無効状態を更新（チェックボックス対応）"""
