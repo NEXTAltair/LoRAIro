@@ -238,3 +238,71 @@ class TestSearchFilterServiceEstimatedCount:
 
         assert service.get_estimated_count(conditions) == 42
         mock_db_manager.get_images_count_only.assert_called_once()
+
+
+class TestSearchConditionsExcludedTags:
+    """SearchConditions の除外タグ機能テスト"""
+
+    def test_search_conditions_to_db_filter_args_includes_excluded_tags(self):
+        """SearchConditions.to_db_filter_args() が excluded_tags を含むことを確認"""
+        from lorairo.services.search_models import SearchConditions
+
+        conditions = SearchConditions(
+            search_type="tags",
+            keywords=["1girl"],
+            tag_logic="and",
+            excluded_keywords=["1boy"],
+        )
+
+        db_args = conditions.to_db_filter_args()
+
+        assert db_args["excluded_tags"] == ["1boy"]
+
+
+class TestApplyTagFilterExcludeIntegration:
+    """_apply_tag_filter() の除外タグ統合テスト"""
+
+    @pytest.fixture
+    def repository(self):
+        from unittest.mock import Mock
+
+        mock_session_factory = Mock()
+        return ImageRepository(session_factory=mock_session_factory)
+
+    def test_apply_tag_filter_with_excluded_tags(self, repository):
+        """除外タグ指定時にクエリが更新されることを確認"""
+        from sqlalchemy import select
+
+        from lorairo.database.schema import Image
+
+        base_query = select(Image.id)
+
+        result_query = repository._apply_tag_filter(
+            base_query,
+            tags=["1girl"],
+            excluded_tags=["1boy"],
+            use_and=True,
+            include_untagged=False,
+        )
+
+        assert result_query is not None
+        assert result_query != base_query
+
+    def test_apply_tag_filter_only_excluded_tags(self, repository):
+        """除外タグのみ指定時もクエリが更新されることを確認"""
+        from sqlalchemy import select
+
+        from lorairo.database.schema import Image
+
+        base_query = select(Image.id)
+
+        result_query = repository._apply_tag_filter(
+            base_query,
+            tags=None,
+            excluded_tags=["nsfw"],
+            use_and=True,
+            include_untagged=False,
+        )
+
+        assert result_query is not None
+        assert result_query != base_query
