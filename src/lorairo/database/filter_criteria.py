@@ -32,9 +32,11 @@ class ImageFilterCriteria:
         manual_edit_filter: アノテーションが手動編集されたかでフィルタするか
         score_min: 最小スコア値（0.0-10.0）
         score_max: 最大スコア値（0.0-10.0）
+        excluded_tags: 除外するタグのリスト
     """
 
     tags: list[str] | None = None
+    excluded_tags: list[str] | None = None
     caption: str | None = None
     resolution: int = 0
     use_and: bool = True
@@ -86,6 +88,7 @@ class ImageFilterCriteria:
         return {
             "tags": self.tags,
             "caption": self.caption,
+            "excluded_tags": self.excluded_tags,
             "resolution": self.resolution,
             "use_and": self.use_and,
             "start_date": self.start_date,
