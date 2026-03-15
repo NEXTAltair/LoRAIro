@@ -2551,6 +2551,46 @@ class ImageRepository:
                 logger.error(f"画像フィルタリング検索中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
+    def get_images_count_only(
+        self,
+        criteria: ImageFilterCriteria | None = None,
+        **kwargs: Any,
+    ) -> int:
+        """指定条件に一致する画像件数を軽量クエリで取得する。"""
+        filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
+
+        if isinstance(filter_criteria.resolution, str):
+            try:
+                filter_criteria.resolution = int(filter_criteria.resolution)
+            except ValueError:
+                logger.error(f"無効な解像度形式です: '{filter_criteria.resolution}'")
+                return 0
+
+        with self.session_factory() as session:
+            try:
+                filtered_ids_query = self._build_image_filter_query(
+                    session=session,
+                    tags=filter_criteria.tags,
+                    caption=filter_criteria.caption,
+                    use_and=filter_criteria.use_and,
+                    start_date=filter_criteria.start_date,
+                    end_date=filter_criteria.end_date,
+                    include_untagged=filter_criteria.include_untagged,
+                    include_nsfw=filter_criteria.include_nsfw,
+                    include_unrated=filter_criteria.include_unrated,
+                    manual_rating_filter=filter_criteria.manual_rating_filter,
+                    ai_rating_filter=filter_criteria.ai_rating_filter,
+                    manual_edit_filter=filter_criteria.manual_edit_filter,
+                    score_min=filter_criteria.score_min,
+                    score_max=filter_criteria.score_max,
+                )
+                count_stmt = select(func.count()).select_from(filtered_ids_query.subquery())
+                count = session.execute(count_stmt).scalar_one()
+                return int(count)
+            except SQLAlchemyError as e:
+                logger.error(f"画像件数取得中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
     # --- Model Information Retrieval ---
 
     def get_models(self) -> list[dict[str, Any]]:

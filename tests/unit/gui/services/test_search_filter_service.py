@@ -270,6 +270,16 @@ class TestSearchFilterService:
 
         assert ratios == expected
 
+    def test_get_estimated_count(self, service):
+        """推定件数取得テスト"""
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+        service.db_manager.get_images_count_only.return_value = 42
+
+        count = service.get_estimated_count(conditions)
+
+        assert count == 42
+        service.db_manager.get_images_count_only.assert_called_once()
+
     def test_clear_conditions(self, service):
         """検索条件クリアテスト"""
         # 条件を設定

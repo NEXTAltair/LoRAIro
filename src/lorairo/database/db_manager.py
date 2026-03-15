@@ -723,6 +723,19 @@ class ImageDatabaseManager:
             )
             return None
 
+    def get_images_count_only(
+        self,
+        criteria: ImageFilterCriteria | None = None,
+        **kwargs: Any,
+    ) -> int:
+        """指定条件に一致する画像件数を取得します（メタデータ取得なし）。"""
+        try:
+            filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
+            return self.repository.get_images_count_only(filter_criteria)
+        except Exception as e:
+            logger.error(f"画像件数取得中にエラーが発生しました: {e}", exc_info=True)
+            return 0
+
     def get_total_image_count(self) -> int:
         """データベース内に登録されたオリジナル画像の総数を取得します。"""
         try:
