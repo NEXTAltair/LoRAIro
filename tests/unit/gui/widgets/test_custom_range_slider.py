@@ -637,6 +637,17 @@ class TestFilterSearchPanel:
         primary_type = filter_panel._get_primary_search_type()
         assert primary_type == "tags"
 
+
+    def test_extract_last_token_for_comma_separated_input(self, filter_panel):
+        """カンマ区切り入力の末尾トークン抽出テスト"""
+        token = filter_panel._extract_last_token("1girl, blue_hair")
+        assert token == "blue_hair"
+
+    def test_merge_completion_into_text_for_comma_separated_input(self, filter_panel):
+        """補完候補を末尾トークンへマージするテスト"""
+        merged = filter_panel._merge_completion_into_text("1girl, blue", "blue_hair")
+        assert merged == "1girl, blue_hair"
+
     def test_qbuttongroup_logic_operators_new_functionality(self, filter_panel):
         """QButtonGroup論理演算子テスト（新機能）"""
         # QButtonGroupが正しく設定されているかテスト

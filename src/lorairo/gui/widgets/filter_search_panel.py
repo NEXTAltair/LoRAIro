@@ -4,10 +4,11 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QScrollArea
+from PySide6.QtCore import QTimer, Qt, Signal, QStringListModel
+from PySide6.QtWidgets import QCompleter, QScrollArea
 
 from ...gui.designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
+from ...services.tag_suggestion_service import TagSuggestionService
 from ...utils.log import logger
 from .custom_range_slider import CustomRangeSlider
 
@@ -54,6 +55,17 @@ class FilterSearchPanel(QScrollArea):
 
         # FavoriteFiltersService（依存注入） - Phase 4
         self.favorite_filters_service: Any = None  # type: ignore[assignment]
+
+        # タグオートコンプリート
+        self._tag_suggestion_service = TagSuggestionService()
+        self._tag_suggestion_timer = QTimer(self)
+        self._tag_suggestion_timer.setSingleShot(True)
+        self._tag_suggestion_timer.setInterval(300)
+        self._tag_suggestion_timer.timeout.connect(self._update_tag_completions)
+        self._tag_completer_model = QStringListModel(self)
+        self._tag_completer = QCompleter(self._tag_completer_model, self)
+        self._tag_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self._tag_completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
 
         # 現在のSearchWorkerのID
         self._current_search_worker_id: str | None = None
@@ -384,6 +396,9 @@ class FilterSearchPanel(QScrollArea):
         """Qt DesignerのUIコンポーネントにシグナルを接続"""
         # 検索関連（チェックボックスに更新）
         self.ui.lineEditSearch.returnPressed.connect(self._on_search_requested)
+        self.ui.lineEditSearch.textEdited.connect(self._on_search_text_edited)
+        self.ui.lineEditSearch.setCompleter(self._tag_completer)
+        self._tag_completer.activated.connect(self._on_tag_completion_activated)
         self.ui.checkboxTags.toggled.connect(self._on_search_type_changed)
         self.ui.checkboxCaption.toggled.connect(self._on_search_type_changed)
 
@@ -690,6 +705,55 @@ class FilterSearchPanel(QScrollArea):
         self._update_search_input_state()
         self._on_search_type_changed()
 
+    @staticmethod
+    def _extract_last_token(text: str) -> str:
+        """カンマ区切り入力の最後のトークンを返す。"""
+        return text.rsplit(",", 1)[-1].strip()
+
+    @staticmethod
+    def _merge_completion_into_text(current_text: str, completion: str) -> str:
+        """カンマ区切り入力の最後のトークンを補完候補で置換する。"""
+        if "," not in current_text:
+            return completion
+
+        parts = current_text.rsplit(",", 1)
+        prefix = parts[0].strip()
+        if not prefix:
+            return completion
+        return f"{prefix}, {completion}"
+
+    def _on_search_text_edited(self, text: str) -> None:
+        """タグ検索入力時にデバウンスして候補取得を開始する。"""
+        if "tags" not in self._get_selected_search_types() or not self.ui.lineEditSearch.isEnabled():
+            self._tag_suggestion_timer.stop()
+            self._tag_completer_model.setStringList([])
+            return
+
+        token = self._extract_last_token(text)
+        if len(token) < 2:
+            self._tag_suggestion_timer.stop()
+            self._tag_completer_model.setStringList([])
+            return
+
+        self._tag_suggestion_timer.start()
+
+    def _update_tag_completions(self) -> None:
+        """現在入力中のタグトークンに対応する候補を更新する。"""
+        token = self._extract_last_token(self.ui.lineEditSearch.text())
+        if len(token) < 2:
+            self._tag_completer_model.setStringList([])
+            return
+
+        suggestions = self._tag_suggestion_service.get_suggestions(token)
+        self._tag_completer_model.setStringList(suggestions)
+        if suggestions:
+            self._tag_completer.complete()
+
+    def _on_tag_completion_activated(self, completion: str) -> None:
+        """候補選択時に最後のトークンを補完して反映する。"""
+        updated_text = self._merge_completion_into_text(self.ui.lineEditSearch.text(), completion)
+        self.ui.lineEditSearch.setText(updated_text)
+
     def _get_selected_search_types(self) -> list[str]:
         """選択された検索タイプのリストを取得"""
         types = []
@@ -804,6 +868,10 @@ class FilterSearchPanel(QScrollArea):
         else:
             # 複数タイプ選択時
             self.ui.lineEditSearch.setPlaceholderText("タグ・キャプション検索キーワードを入力...")
+
+        if "tags" not in selected_types:
+            self._tag_suggestion_timer.stop()
+            self._tag_completer_model.setStringList([])
 
     def _update_search_input_state(self) -> None:
         """検索入力フィールドの有効/無効状態を更新（チェックボックス対応）"""
