@@ -170,14 +170,16 @@ class TestFilterSearchIntegration:
         service = filter_panel.search_filter_service
 
         # parse_search_inputをテスト（カンマ区切りで分割、スペースは保持）
-        keywords = service.parse_search_input("test, keyword")
+        keywords, excluded_keywords = service.parse_search_input("test, keyword")
         assert keywords == ["test", "keyword"]
+        assert excluded_keywords == []
 
         # create_search_conditionsをテスト
         conditions = service.create_search_conditions(
             search_type="caption",
             keywords=keywords,
             tag_logic="or",
+            excluded_keywords=excluded_keywords,
             resolution_filter="1024x1024",
             only_untagged=True,
         )
