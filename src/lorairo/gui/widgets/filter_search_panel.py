@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QScrollArea
 
 from ...gui.designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
@@ -13,6 +13,7 @@ from .custom_range_slider import CustomRangeSlider
 
 if TYPE_CHECKING:
     from ..services.search_filter_service import SearchFilterService
+    from ...services.search_models import SearchConditions
     from ..services.worker_service import WorkerService
 
 
@@ -57,6 +58,12 @@ class FilterSearchPanel(QScrollArea):
 
         # 現在のSearchWorkerのID
         self._current_search_worker_id: str | None = None
+
+        # フィルター変更時の件数見積もり（デバウンス）
+        self._realtime_count_timer = QTimer(self)
+        self._realtime_count_timer.setSingleShot(True)
+        self._realtime_count_timer.setInterval(500)
+        self._realtime_count_timer.timeout.connect(self._update_realtime_count)
 
         # Phase 3: Pipeline State Management
         self._current_state: PipelineState = PipelineState.IDLE
@@ -135,6 +142,10 @@ class FilterSearchPanel(QScrollArea):
         self._status_label.setStyleSheet("color: #e74c3c; font-size: 11px;")
         self._status_label.setVisible(False)
 
+        # リアルタイム件数ラベル（フィルター変更時の見積もり表示）
+        self._estimated_count_label = QLabel("該当件数: -")
+        self._estimated_count_label.setStyleSheet("color: #3498db; font-size: 11px;")
+
         # 進捗表示レイアウト作成（キャンセルボタンなし）
         self.progress_layout = QHBoxLayout()
         self.progress_layout.addWidget(self.progress_bar)
@@ -144,6 +155,7 @@ class FilterSearchPanel(QScrollArea):
         # プレビューエリア削除後は、lineEditSearchの下に追加
         main_layout = self.ui.searchGroup.layout()
         if main_layout:
+            main_layout.addWidget(self._estimated_count_label)
             main_layout.addLayout(self.progress_layout)
 
         # 重複除外トグルは廃止: 登録時のpHash重複防止により検索UI上では不要
@@ -401,6 +413,21 @@ class FilterSearchPanel(QScrollArea):
         self.ui.buttonApply.clicked.connect(self._on_apply_clicked)
         self.ui.buttonClear.clicked.connect(self._on_clear_clicked)
 
+        # リアルタイム件数更新トリガー
+        self.ui.lineEditSearch.textChanged.connect(self._on_filter_value_changed)
+        self.ui.radioAnd.toggled.connect(self._on_filter_value_changed)
+        self.ui.radioOr.toggled.connect(self._on_filter_value_changed)
+        self.ui.comboResolution.currentTextChanged.connect(self._on_filter_value_changed)
+        self.ui.comboAspectRatio.currentTextChanged.connect(self._on_filter_value_changed)
+        self.ui.checkboxDateFilter.toggled.connect(self._on_filter_value_changed)
+        self.ui.comboRating.currentTextChanged.connect(self._on_filter_value_changed)
+        self.ui.comboAIRating.currentTextChanged.connect(self._on_filter_value_changed)
+        self.ui.checkboxIncludeUnrated.toggled.connect(self._on_filter_value_changed)
+        self.ui.checkboxOnlyUntagged.toggled.connect(self._on_filter_value_changed)
+        self.ui.checkboxOnlyUncaptioned.toggled.connect(self._on_filter_value_changed)
+        self.date_range_slider.valueChanged.connect(self._on_filter_value_changed)
+        self.score_range_slider.valueChanged.connect(self._on_filter_value_changed)
+
     def set_search_filter_service(self, service: "SearchFilterService") -> None:
         """SearchFilterServiceを設定（拡張版：バリデーションとログ強化）"""
         if service is None:
@@ -631,6 +658,76 @@ class FilterSearchPanel(QScrollArea):
         """日付範囲変更処理"""
         logger.debug(f"日付範囲変更: {min_timestamp} - {max_timestamp}")
         # 自動検索は行わず、ユーザーが検索ボタンを押すまで待つ
+
+    def _on_filter_value_changed(self, *args: Any) -> None:
+        """フィルター変更時にデバウンス付きで推定件数更新を予約する。"""
+        del args
+        if not self.search_filter_service:
+            return
+        self._realtime_count_timer.start()
+
+    def _build_current_search_conditions(self) -> "SearchConditions":
+        """現在のUI状態からSearchConditionsを組み立てる。"""
+        search_text = self.ui.lineEditSearch.text().strip()
+        keywords = self.search_filter_service.parse_search_input(search_text) if search_text else []
+        date_range_start, date_range_end = self.get_date_range_from_slider()
+        rating_filter = self._get_rating_filter_value()
+        ai_rating_filter = self._get_ai_rating_filter_value()
+        include_nsfw = self._resolve_include_nsfw(rating_filter, ai_rating_filter)
+        score_min, score_max = self._get_score_filter_values()
+
+        return self.search_filter_service.create_search_conditions(
+            search_type=self._get_primary_search_type(),
+            keywords=keywords,
+            tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
+            resolution_filter=self.ui.comboResolution.currentText(),
+            aspect_ratio_filter=self.ui.comboAspectRatio.currentText(),
+            date_filter_enabled=self.ui.checkboxDateFilter.isChecked(),
+            date_range_start=date_range_start,
+            date_range_end=date_range_end,
+            only_untagged=self.ui.checkboxOnlyUntagged.isChecked(),
+            only_uncaptioned=self.ui.checkboxOnlyUncaptioned.isChecked(),
+            exclude_duplicates=False,
+            include_nsfw=include_nsfw,
+            rating_filter=rating_filter,
+            ai_rating_filter=ai_rating_filter,
+            include_unrated=self.ui.checkboxIncludeUnrated.isChecked(),
+            score_min=score_min,
+            score_max=score_max,
+        )
+
+    def _update_realtime_count(self) -> None:
+        """現在のフィルター条件に対する推定件数を更新する。"""
+        if not self.search_filter_service:
+            return
+
+        try:
+            conditions = self._build_current_search_conditions()
+
+            # 有効なフィルター条件がない場合はクエリをスキップ
+            has_condition = bool(conditions.keywords) or any(
+                [
+                    conditions.only_untagged,
+                    conditions.only_uncaptioned,
+                    conditions.date_filter_enabled,
+                    conditions.resolution_filter not in (None, "全て"),
+                    conditions.aspect_ratio_filter not in (None, "全て"),
+                    conditions.rating_filter is not None,
+                    conditions.ai_rating_filter is not None,
+                    not conditions.include_unrated,
+                    conditions.score_min is not None,
+                    conditions.score_max is not None,
+                ],
+            )
+            if not has_condition:
+                self._estimated_count_label.setText("該当件数: -")
+                return
+
+            estimated_count = self.search_filter_service.get_estimated_count(conditions)
+            self._estimated_count_label.setText(f"該当件数: {estimated_count:,}件")
+        except Exception as e:
+            logger.debug(f"推定件数更新に失敗: {e}")
+            self._estimated_count_label.setText("該当件数: -")
 
     def get_date_range_from_slider(self) -> tuple[datetime | None, datetime | None]:
         """CustomRangeSliderから日付範囲を取得してdatetimeオブジェクトに変換
@@ -1088,6 +1185,8 @@ class FilterSearchPanel(QScrollArea):
 
     def _clear_all_inputs(self) -> None:
         """全入力をクリア"""
+        self._realtime_count_timer.stop()
+        self._estimated_count_label.setText("該当件数: -")
         self.ui.lineEditSearch.clear()
         self.ui.checkboxTags.setChecked(True)
         self.ui.checkboxCaption.setChecked(False)

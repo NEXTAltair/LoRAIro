@@ -185,3 +185,56 @@ class TestSearchFilterServiceIntegration:
 
         assert conditions.score_min == 3.0
         assert conditions.score_max == 7.5
+
+
+class TestGetImagesCountOnly:
+    """get_images_count_only() メソッドのテスト"""
+
+    @pytest.fixture
+    def mock_session_and_repository(self):
+        from sqlalchemy.orm import Session
+
+        mock_session = Mock(spec=Session)
+        mock_session_factory = Mock(return_value=mock_session)
+
+        mock_session.__enter__ = Mock(return_value=mock_session)
+        mock_session.__exit__ = Mock(return_value=None)
+
+        count_result = Mock()
+        count_result.scalar_one = Mock(return_value=3)
+        mock_session.execute = Mock(return_value=count_result)
+
+        repository = ImageRepository(session_factory=mock_session_factory)
+        return repository
+
+    def test_get_images_count_only_returns_count(self, mock_session_and_repository):
+        repository = mock_session_and_repository
+
+        count = repository.get_images_count_only(score_min=3.0, score_max=7.5)
+
+        assert count == 3
+
+
+class TestSearchFilterServiceEstimatedCount:
+    """SearchFilterService.get_estimated_count() のテスト"""
+
+    def test_get_estimated_count_delegates_to_db_manager(self):
+        from lorairo.gui.services.search_filter_service import SearchFilterService
+
+        mock_db_manager = Mock()
+        mock_db_manager.get_images_count_only.return_value = 42
+        mock_model_selection_service = Mock()
+
+        service = SearchFilterService(
+            db_manager=mock_db_manager,
+            model_selection_service=mock_model_selection_service,
+        )
+
+        conditions = service.create_search_conditions(
+            search_type="tags",
+            keywords=["test"],
+            tag_logic="and",
+        )
+
+        assert service.get_estimated_count(conditions) == 42
+        mock_db_manager.get_images_count_only.assert_called_once()
