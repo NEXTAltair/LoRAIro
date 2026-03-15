@@ -302,6 +302,15 @@ class SearchFilterService:
         """後方互換性ラッパー:SearchCriteriaProcessorに委譲"""
         return self.criteria_processor.execute_search_with_filters(conditions)
 
+    def get_estimated_count(self, conditions: SearchConditions) -> int:
+        """現在の検索条件に対する推定件数を取得する。"""
+        try:
+            filter_criteria = conditions.to_filter_criteria()
+            return self.db_manager.get_images_count_only(criteria=filter_criteria)
+        except Exception as e:
+            logger.error(f"推定件数取得エラー: {e}", exc_info=True)
+            return 0
+
     def get_annotation_models_list(self) -> list[dict[str, Any]]:
         """後方互換性ラッパー:ModelFilterServiceに委譲"""
         return self.model_filter_service.get_annotation_models_list()

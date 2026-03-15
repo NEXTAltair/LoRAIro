@@ -342,6 +342,16 @@ class TestSearchFilterServiceDatabase:
         # データベースマネージャーが正しく呼ばれたことを確認
         mock_db_manager.get_images_by_filter.assert_called_once()
 
+    def test_get_estimated_count(self, service_with_db, mock_db_manager):
+        """推定件数取得テスト"""
+        conditions = SearchConditions(search_type="tags", keywords=["cat"], tag_logic="and")
+        mock_db_manager.get_images_count_only.return_value = 7
+
+        count = service_with_db.get_estimated_count(conditions)
+
+        assert count == 7
+        mock_db_manager.get_images_count_only.assert_called_once()
+
 
 class TestSearchFilterServiceAnnotation:
     """SearchFilterService のアノテーション系機能テスト（Phase 2拡張）"""

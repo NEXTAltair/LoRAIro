@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QScrollArea
 
 from ...gui.designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
@@ -57,6 +57,12 @@ class FilterSearchPanel(QScrollArea):
 
         # 現在のSearchWorkerのID
         self._current_search_worker_id: str | None = None
+
+        # リアルタイム件数表示用（Issue #10）
+        self._estimated_count_timer = QTimer(self)
+        self._estimated_count_timer.setSingleShot(True)
+        self._estimated_count_timer.setInterval(500)
+        self._estimated_count_timer.timeout.connect(self._update_estimated_count)
 
         # Phase 3: Pipeline State Management
         self._current_state: PipelineState = PipelineState.IDLE
@@ -140,10 +146,12 @@ class FilterSearchPanel(QScrollArea):
         self.progress_layout.addWidget(self.progress_bar)
         self.progress_layout.addWidget(self._status_label)
 
-        # 検索グループの最後に進捗UIを追加
-        # プレビューエリア削除後は、lineEditSearchの下に追加
+        # 検索グループにリアルタイム件数ラベルと進捗UIを追加
         main_layout = self.ui.searchGroup.layout()
         if main_layout:
+            self.estimated_count_label = QLabel("該当件数: -")
+            self.estimated_count_label.setStyleSheet("color: #666; font-size: 11px;")
+            main_layout.addWidget(self.estimated_count_label)
             main_layout.addLayout(self.progress_layout)
 
         # 重複除外トグルは廃止: 登録時のpHash重複防止により検索UI上では不要
@@ -384,18 +392,35 @@ class FilterSearchPanel(QScrollArea):
         """Qt DesignerのUIコンポーネントにシグナルを接続"""
         # 検索関連（チェックボックスに更新）
         self.ui.lineEditSearch.returnPressed.connect(self._on_search_requested)
+        self.ui.lineEditSearch.textChanged.connect(self._schedule_estimated_count_update)
         self.ui.checkboxTags.toggled.connect(self._on_search_type_changed)
+        self.ui.checkboxTags.toggled.connect(self._schedule_estimated_count_update)
         self.ui.checkboxCaption.toggled.connect(self._on_search_type_changed)
+        self.ui.checkboxCaption.toggled.connect(self._schedule_estimated_count_update)
 
-        # 解像度フィルター
+        # 解像度・比率フィルター
         self.ui.comboResolution.currentTextChanged.connect(self._on_resolution_changed)
+        self.ui.comboResolution.currentTextChanged.connect(self._schedule_estimated_count_update)
+        self.ui.comboAspectRatio.currentTextChanged.connect(self._schedule_estimated_count_update)
 
         # 日付フィルター
         self.ui.checkboxDateFilter.toggled.connect(self._on_date_filter_toggled)
+        self.ui.checkboxDateFilter.toggled.connect(self._schedule_estimated_count_update)
         self.date_range_slider.valueChanged.connect(self._on_date_range_changed)
+        self.date_range_slider.valueChanged.connect(lambda *_: self._schedule_estimated_count_update())
 
         # Ratingフィルター
         self.ui.comboRating.currentTextChanged.connect(self._on_rating_changed)
+        self.ui.comboRating.currentTextChanged.connect(self._schedule_estimated_count_update)
+        self.ui.comboAIRating.currentTextChanged.connect(self._schedule_estimated_count_update)
+        self.ui.checkboxIncludeUnrated.toggled.connect(self._schedule_estimated_count_update)
+
+        # 追加フィルター
+        self.ui.checkboxOnlyUntagged.toggled.connect(self._on_only_untagged_toggled)
+        self.ui.checkboxOnlyUntagged.toggled.connect(self._schedule_estimated_count_update)
+        self.ui.checkboxOnlyUncaptioned.toggled.connect(self._on_only_uncaptioned_toggled)
+        self.ui.checkboxOnlyUncaptioned.toggled.connect(self._schedule_estimated_count_update)
+        self.score_range_slider.valueChanged.connect(lambda *_: self._schedule_estimated_count_update())
 
         # アクションボタン
         self.ui.buttonApply.clicked.connect(self._on_apply_clicked)
@@ -813,6 +838,77 @@ class FilterSearchPanel(QScrollArea):
         )
         self.ui.lineEditSearch.setEnabled(not disabled)
 
+    def _schedule_estimated_count_update(self, *_: Any) -> None:
+        """条件変更時に推定件数更新をデバウンス実行する。"""
+        if not self.search_filter_service:
+            return
+        self._estimated_count_timer.start()
+
+    def _update_estimated_count(self) -> None:
+        """現在条件に基づく推定件数を表示する。"""
+        if not self.search_filter_service:
+            return
+
+        conditions = self._build_conditions_for_estimate()
+        if conditions is None:
+            self.estimated_count_label.setText("該当件数: -")
+            return
+
+        count = self.search_filter_service.get_estimated_count(conditions)
+        self.estimated_count_label.setText(f"該当件数: {count}件")
+
+    def _build_conditions_for_estimate(self) -> Any | None:
+        """UI状態から推定件数取得用の検索条件を構築する。"""
+        search_text = self.ui.lineEditSearch.text().strip()
+        keywords = self.search_filter_service.parse_search_input(search_text) if search_text else []
+
+        score_min_internal, score_max_internal = self.score_range_slider.get_range()
+        has_score_filter = score_min_internal != 0 or score_max_internal != 1000
+
+        has_any_condition = keywords or any(
+            [
+                self.ui.checkboxOnlyUntagged.isChecked(),
+                self.ui.checkboxOnlyUncaptioned.isChecked(),
+                self.ui.checkboxDateFilter.isChecked(),
+                self.ui.comboResolution.currentText() != "全て",
+                self.ui.comboRating.currentText() != "全て",
+                self.ui.comboAIRating.currentText() != "全て",
+                not self.ui.checkboxIncludeUnrated.isChecked(),
+                has_score_filter,
+            ],
+        )
+        if not has_any_condition:
+            return None
+
+        date_range_start, date_range_end = self.get_date_range_from_slider()
+        if self.ui.checkboxDateFilter.isChecked() and (date_range_start is None or date_range_end is None):
+            return None
+
+        rating_filter = self._get_rating_filter_value()
+        ai_rating_filter = self._get_ai_rating_filter_value()
+        include_nsfw = self._resolve_include_nsfw(rating_filter, ai_rating_filter)
+        score_min, score_max = self._get_score_filter_values()
+
+        return self.search_filter_service.create_search_conditions(
+            search_type=self._get_primary_search_type(),
+            keywords=keywords,
+            tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
+            resolution_filter=self.ui.comboResolution.currentText(),
+            aspect_ratio_filter=self.ui.comboAspectRatio.currentText(),
+            date_filter_enabled=self.ui.checkboxDateFilter.isChecked(),
+            date_range_start=date_range_start,
+            date_range_end=date_range_end,
+            only_untagged=self.ui.checkboxOnlyUntagged.isChecked(),
+            only_uncaptioned=self.ui.checkboxOnlyUncaptioned.isChecked(),
+            exclude_duplicates=False,
+            include_nsfw=include_nsfw,
+            rating_filter=rating_filter,
+            ai_rating_filter=ai_rating_filter,
+            include_unrated=self.ui.checkboxIncludeUnrated.isChecked(),
+            score_min=score_min,
+            score_max=score_max,
+        )
+
     def _on_search_requested(self) -> None:
         """検索要求処理 - WorkerService経由で非同期実行（Qt Designer Phase 2レスポンシブレイアウト対応強化版）"""
         if not self.search_filter_service:
@@ -1088,6 +1184,8 @@ class FilterSearchPanel(QScrollArea):
 
     def _clear_all_inputs(self) -> None:
         """全入力をクリア"""
+        self._estimated_count_timer.stop()
+        self.estimated_count_label.setText("該当件数: -")
         self.ui.lineEditSearch.clear()
         self.ui.checkboxTags.setChecked(True)
         self.ui.checkboxCaption.setChecked(False)
