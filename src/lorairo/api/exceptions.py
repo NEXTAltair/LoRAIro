@@ -138,6 +138,19 @@ class AnnotationFailedError(AnnotationError):
         )
 
 
+class BatchImportError(AnnotationError):
+    """バッチインポートに失敗した場合に発生。
+
+    Args:
+        reason: 失敗した理由。
+        processed: 処理済み件数。
+    """
+
+    def __init__(self, reason: str, processed: int = 0) -> None:
+        self.processed = processed
+        super().__init__(f"バッチインポートに失敗しました: {reason} ({processed}件処理済み)")
+
+
 class APIKeyNotConfiguredError(AnnotationError):
     """必要なAPIキーが設定されていない場合に発生。
 

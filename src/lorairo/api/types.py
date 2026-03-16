@@ -153,6 +153,32 @@ class AnnotationResult(BaseModel):
         return self.successful_annotations / self.image_count
 
 
+class BatchImportResultResponse(BaseModel):
+    """バッチインポート結果。
+
+    Attributes:
+        total_records: JSONL内の総レコード数。
+        parsed_ok: パース成功数。
+        parse_errors: パースエラー数。
+        matched: DB照合成功数。
+        unmatched: DB照合失敗数。
+        saved: DB保存成功数。
+        save_errors: DB保存エラー数。
+        model_name: 使用されたモデル名。
+        unmatched_ids: マッチ失敗のcustom_idリスト。
+    """
+
+    total_records: int
+    parsed_ok: int
+    parse_errors: int
+    matched: int
+    unmatched: int
+    saved: int
+    save_errors: int
+    model_name: str
+    unmatched_ids: list[str] = Field(default_factory=list)
+
+
 class ModelInfo(BaseModel):
     """モデル情報。
 

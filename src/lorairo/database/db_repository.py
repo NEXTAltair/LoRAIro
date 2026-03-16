@@ -1,6 +1,7 @@
 """DBリポジトリ"""
 
 import datetime
+from pathlib import Path
 from typing import Any, TypedDict, cast
 
 from genai_tag_db_tools import search_tags
@@ -209,6 +210,31 @@ class ImageRepository:
                 return models_map
             except SQLAlchemyError as e:
                 logger.error(f"モデル一括取得エラー: {e}", exc_info=True)
+                raise
+
+    def get_all_image_filename_index(self) -> dict[str, int]:
+        """全画像のfilename stem → image_id インデックスを構築する。
+
+        バッチインポート時のcustom_id照合用。N+1クエリを回避するため
+        1回のクエリで全画像のファイル名とIDを取得する。
+
+        Returns:
+            {filename_stem: image_id} の辞書。重複stem時は最新IDを優先。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+        """
+        with self.session_factory() as session:
+            try:
+                stmt = select(Image.id, Image.filename).where(Image.filename.isnot(None))
+                results = session.execute(stmt).all()
+                index: dict[str, int] = {}
+                for image_id, filename in results:
+                    stem = Path(filename).stem
+                    index[stem] = image_id
+                return index
+            except SQLAlchemyError as e:
+                logger.error(f"ファイル名インデックス構築エラー: {e}", exc_info=True)
                 raise
 
     def _get_or_create_manual_edit_model(self, session: Session) -> int:

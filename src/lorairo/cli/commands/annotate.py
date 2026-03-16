@@ -4,7 +4,10 @@
 API層（lorairo.api）を経由してService層を利用する。
 """
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 from PIL import Image
@@ -18,9 +21,14 @@ from rich.progress import (
 )
 from rich.table import Table
 
+if TYPE_CHECKING:
+    from lorairo.services.batch_import_service import BatchImportResult
+
+from lorairo.api.batch_import import import_batch_annotations
 from lorairo.api.exceptions import (
     AnnotationFailedError,
     APIKeyNotConfiguredError,
+    BatchImportError,
     ProjectNotFoundError,
 )
 from lorairo.api.project import get_project as api_get_project
@@ -207,4 +215,107 @@ def run(
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         logger.error(f"Command error: {e}", exc_info=True)
+        raise typer.Exit(code=2) from e
+
+
+def _display_batch_import_result(result: BatchImportResult, *, dry_run: bool) -> None:
+    """バッチインポート結果をRichテーブルで表示する。
+
+    Args:
+        result: インポート結果。
+        dry_run: dry-runモードかどうか。
+    """
+    summary_table = Table(title="Batch Import Summary")
+    summary_table.add_column("Metric", style="cyan")
+    summary_table.add_column("Value", style="green")
+
+    summary_table.add_row("Total Records", str(result.total_records))
+    summary_table.add_row("Parsed OK", str(result.parsed_ok))
+    summary_table.add_row("Parse Errors", str(result.parse_errors))
+    summary_table.add_row("Matched", str(result.matched))
+    summary_table.add_row("Unmatched", str(result.unmatched))
+    summary_table.add_row("Saved", str(result.saved))
+    summary_table.add_row("Save Errors", str(result.save_errors))
+    summary_table.add_row("Model", result.model_name)
+    summary_table.add_row("Mode", "[yellow]DRY-RUN[/yellow]" if dry_run else "LIVE")
+
+    console.print(summary_table)
+
+    # アンマッチ一覧（10件まで表示）
+    if result.unmatched_ids:
+        console.print(f"\n[yellow]Unmatched IDs ({len(result.unmatched_ids)}件):[/yellow]")
+        for uid in result.unmatched_ids[:10]:
+            console.print(f"  - {uid}")
+        if len(result.unmatched_ids) > 10:
+            console.print(f"  ... 他 {len(result.unmatched_ids) - 10} 件")
+
+    # エラー詳細（5件まで表示）
+    if result.error_details:
+        console.print(f"\n[red]Errors ({len(result.error_details)}件):[/red]")
+        for detail in result.error_details[:5]:
+            console.print(f"  - {detail}")
+        if len(result.error_details) > 5:
+            console.print(f"  ... 他 {len(result.error_details) - 5} 件")
+
+    if not dry_run and result.saved > 0:
+        console.print(f"\n[green]インポート完了: {result.saved}件保存しました[/green]")
+
+
+@app.command("import-batch")
+def import_batch(
+    jsonl_dir: Path = typer.Argument(
+        ...,
+        help="OpenAI Batch API結果のJSONLファイルが格納されたディレクトリ",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        readable=True,
+    ),
+    project: str = typer.Option(
+        ...,
+        "--project",
+        "-p",
+        help="インポート先プロジェクト名",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="DB書き込みを行わず照合結果のみ表示",
+    ),
+    model_name: str | None = typer.Option(
+        None,
+        "--model-name",
+        help="モデル名を上書き（JSONL内のmodel名を無視）",
+    ),
+) -> None:
+    """OpenAI Batch API結果JSONLを一括インポートする。
+
+    ディレクトリ内の全JSONLファイルを読み込み、
+    custom_idとDB登録済み画像のファイル名を照合して
+    アノテーション結果をインポートします。
+
+    使用例:
+        lorairo annotate import-batch jsonl/ -p main_dataset_20250707_001
+        lorairo annotate import-batch jsonl/ -p my_project --dry-run
+    """
+    try:
+        result = import_batch_annotations(
+            jsonl_dir,
+            project,
+            dry_run=dry_run,
+            model_name_override=model_name,
+        )
+        _display_batch_import_result(result, dry_run=dry_run)
+
+    except ProjectNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1) from e
+    except BatchImportError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1) from e
+    except typer.Exit:
+        raise
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        logger.error(f"Batch import error: {e}", exc_info=True)
         raise typer.Exit(code=2) from e
