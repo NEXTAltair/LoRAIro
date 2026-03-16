@@ -29,11 +29,6 @@ venv/
 env/
 ENV/
 
-# 環境変数
-.env
-.env.*
-!.env.example
-
 # 依存関係管理
 uv.lock
 
@@ -44,6 +39,9 @@ htmlcov/
 pytest_temp/
 .pytest_reports/
 coverage.xml
+
+# コード品質ツール
+.ruff_cache/
 
 # IDE・エディタ関連
 .idea/
@@ -57,72 +55,27 @@ coverage.xml
 *~
 .DS_Store
 
-# Ruff キャッシュ
-.ruff_cache/
-
 # ドキュメント生成
 _build/
 *.html
 *.rst
 
-# Qt Designer/UI関連
+# Qt Designer/UI 関連
 *_ui.py
-# Keep .ui files for manual editing
-# *.ui
-!src/lorairo/gui/designer/*.ui  # デザイナーファイルは保持
+!src/lorairo/gui/designer/*.ui
 
-# プロジェクト固有
-# テスト用画像 (一部を除外)
-tests/resources/img/
-!tests/resources/img/1_img/
-
-# アノテーション関連テスト結果
-tools/annotator_models.txt
-tools/annotator_results.json
-tools/annotator_results.txt
-
-# 画像データベース
-lorairo_data/
-
-# データソース
-local_packages/genai-tag-db-tools/tags_csv/
-local_packages/genai-tag-db-tools/hf_repo/
-genai-tag-db-tools/tags_csv/  # 古いパス (移行中は両方残す)
-genai-tag-db-tools/hf_repo/   # 古いパス (移行中は両方残す)
-
-# ログファイル
-*.log
-logs/
-
-# データベース (本番用データベースは除外)
-*.db
-
-# 設定ファイル
-config/
-
-# API キーやトークン
+# 環境変数・シークレット
+.env
+.env.*
+!.env.example
 *.key
 *.token
 api_keys.json
 secrets.json
 
-# ローカル開発用ファイル
-.local/
-local_dev/
-dev_config/
-
-# Cursor/AI IDE 関連
-.cursor/mcp.json
-.cursor/composer/
-.cursor/chat/
-
-# Roo関連設定 (機密情報は除外、テンプレートは保持)
-.roo/mcp.json
-!.roo/mcp.json.example
-
-.claude/logs/
-
-# 一時ファイル
+# ログ・一時ファイル
+*.log
+logs/
 temp/
 tmp/
 *.tmp
@@ -130,16 +83,51 @@ tmp/
 *.bak
 *.backup
 
+# プロジェクトデータ
+lorairo_data/
+config/
+
+# テスト用画像
+tests/resources/img/
+!tests/resources/img/1_img/
+
+# annotatorツール出力
+tools/annotator_models.txt
+tools/annotator_results.json
+tools/annotator_results.txt
+
+# genai-tag-db-tools データ
+local_packages/genai-tag-db-tools/tags_csv/
+local_packages/genai-tag-db-tools/hf_repo/
+
+# データベース
+*.db
+
 # バックアップ・レポート
 backups/
 reports/
 
+# ローカル開発用
+.local/
+local_dev/
+dev_config/
+
+# AI IDE 関連設定
+.cursor/mcp.json
+.cursor/composer/
+.cursor/chat/
+.roo/mcp.json
+!.roo/mcp.json.example
+.claude/logs/
+
+# Serena キャッシュ
+.serena/cache/
+
 # システム固有
 *.pid
 *.lock
-.serena/cache/python/document_symbols_cache_v23-06-25.pkl
 
-# 開発用ツール（サブモジュールではないため除外）
+# 開発用ツール（サードパーティ）
 data/
 .clinerules/byterover-rules.md
 .kilocode/rules/byterover-rules.md

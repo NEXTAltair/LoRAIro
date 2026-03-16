@@ -68,6 +68,7 @@ lorairo-docs = "sphinx.cmd.build:build_main"
 [[tool.uv.index]]
 name = "pytorch"
 url = "https://download.pytorch.org/whl/cu130"
+explicit = true
 
 [tool.ruff]
 fix = true
