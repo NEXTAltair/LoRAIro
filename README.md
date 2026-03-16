@@ -2,7 +2,7 @@
 
 ## 概要
 
-本プロジェクトは、LoRA（Low-Rank Adaptation）学習用の画像データセット作成を自動化するPythonツールです。画像のリサイズ、AI自動タグ付け、キャプション生成、データベース管理などの機能を統合的に提供し、効率的なデータセット作成をサポートします。
+本プロジェクトは、LoRA（Low-Rank Adaptation）学習用の画像データセット作成を自動化するPythonツールです。画像のリサイズ、AI自動タグ付け、キャプション生成、データベース管理などの機能を統合的に提供し、効率的なデータセット作成をサポートします。GUIとCLIの両方のインターフェースを備えています。
 
 ### 主な機能
 
@@ -12,13 +12,17 @@
 - **バッチ処理**: 大量の画像を効率的に処理するためのバッチ処理機能を提供します。
 - **ファイルシステム管理**: 処理された画像や生成されたデータの保存を体系的に管理します。
 - **GUIインターフェース**: PySide6による使いやすいワークフロー中心のインターフェースを提供します。
+- **CLIインターフェース**: Typerベースのコマンドラインツールでプロジェクト管理、画像登録、アノテーション、エクスポートを実行できます。
+- **高度な検索**: タグ除外検索（`-tag`プレフィックス）、リアルタイム件数表示、タグオートコンプリートに対応しています。
+- **データセットエクスポート**: 学習用データセットのエクスポート機能を提供します。
+- **品質評価**: CLIP aesthetic、MUSIQによる画像品質スコアリングを搭載しています。
 - **非同期処理**: Qt QRunnable/QThreadPoolベースの効率的な非同期タスク実行システムを搭載します。
 
 ## 開発環境セットアップ
 
 ### 必要条件
 
-- Python 3.12以上
+- Python 3.12（3.13は未対応）
 - Git (Git LFSを含む)
 - uv (Pythonパッケージマネージャー)
 
@@ -45,45 +49,68 @@
 
 ## 使用方法
 
+### GUI
+
 ```bash
 uv run lorairo
 ```
+
+### CLI
+
+```bash
+uv run lorairo-cli --help
+```
+
+基本的なCLIコマンド例:
+
+```bash
+# プロジェクト管理
+uv run lorairo-cli project create "my-project"
+uv run lorairo-cli project list
+
+# 画像登録
+uv run lorairo-cli images register ./images --project "my-project"
+```
+
+詳細は [docs/cli.md](docs/cli.md) を参照してください。
 
 ## プロジェクト構造
 
 ```
 lorairo/
-├── .vscode/                # VS Code設定
+├── config/                 # アプリケーション設定
+│   └── lorairo.toml
 ├── local_packages/         # ローカルパッケージ（サブモジュール）
 │   ├── genai-tag-db-tools/  # タグデータベース管理ツール
 │   └── image-annotator-lib/ # 画像アノテーションライブラリ
 ├── src/                    # ソースコード
 │   └── lorairo/            # メインパッケージ
-│       ├── __init__.py
-│       ├── main.py         # エントリーポイント
-│       ├── config/         # 設定管理
+│       ├── main.py         # GUIエントリーポイント
+│       ├── annotations/    # AIアノテーション連携
+│       ├── api/            # Public API
+│       ├── cli/            # CLIインターフェース
 │       ├── database/       # データベース操作
+│       ├── editor/         # 画像編集（クロップ・アップスケール）
 │       ├── gui/            # GUIコンポーネント
-│       ├── image/          # 画像処理
+│       ├── services/       # ビジネスロジック
+│       ├── storage/        # ファイルシステム管理
 │       └── utils/          # ユーティリティ
 ├── tests/                  # テストコード
-│   ├── __init__.py
-│   └── resources/          # テスト用リソース
 ├── docs/                   # ドキュメント
-├── .env.example            # 環境変数の例
 ├── pyproject.toml          # プロジェクト設定
 └── README.md               # 本ファイル
 ```
 
 ## 設定
 
-`.env` ファイルを作成し、必要なAPI キーなどを設定します（`.env.example` を参照）。アプリケーション内の設定画面からも多くのオプションを設定できます。
+`config/lorairo.toml` でアプリケーションの各種設定を管理します。APIキーは設定ファイルの `[api]` セクション、またはアプリケーション内の設定画面から設定できます。
 
 ## 開発者向け情報
 
 - 開発には VS Code の使用を推奨します。`.vscode/lorairo.code-workspace` を使用すると便利です。
 - リンターとフォーマッターには Ruff を使用しています。
-- テストは pytest で実行します：`pytest`
+- テストは pytest で実行します：`uv run pytest`
+- 型チェック：`make mypy`
 
 ### 開発コマンド
 
@@ -99,6 +126,7 @@ make install-dev  # uv sync を実行
 # コードの品質チェック
 make lint
 make format
+make mypy
 
 # テストの実行
 make test
@@ -110,6 +138,13 @@ make docs-publish
 # クリーンアップ
 make clean
 ```
+
+### ドキュメント
+
+- [docs/architecture.md](docs/architecture.md) - アーキテクチャ設計
+- [docs/cli.md](docs/cli.md) - CLIリファレンス
+- [docs/services.md](docs/services.md) - サービスカタログ
+- [docs/testing.md](docs/testing.md) - テスト戦略
 
 ## ライセンス
 

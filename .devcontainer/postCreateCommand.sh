@@ -19,8 +19,11 @@ find /workspaces/LoRAIro/local_packages -type d -name .venv -exec rm -rf {} + ||
 # 3) install python deps
 make install-dev
 
-# 4) install global CLIs (only after node/npm are ready)
+# 4) install global CLIs
+# Claude Code: native install to ~/.local/bin (PATH already set via Dockerfile ENV)
+curl -fsSL https://claude.ai/install.sh | sh
+# Gemini CLI: npm install
 npm -v
-npm i -g @anthropic-ai/claude-code @google/gemini-cli
+npm i -g @google/gemini-cli
 
 echo "[postCreate] done"

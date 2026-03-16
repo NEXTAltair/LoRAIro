@@ -18,6 +18,8 @@ ENV LIBGL_ALWAYS_INDIRECT=1
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
+# Claude Code native install path
+ENV PATH="/home/vscode/.local/bin:${PATH}"
 # Agent execution environment
 ENV CLAUDE_WORKSPACE=/workspaces/LoRAIro
 ENV CLAUDE_CACHE_DIR=/home/vscode/.claude/cache
@@ -35,14 +37,14 @@ RUN apt-get update && \
 
 # Setup external APT repositories (Docker CLI, GitHub CLI)
 # Note: curl, gnupg, lsb-release are pre-installed in buildpack-deps base image
-RUN mkdir -p /etc/apt/keyrings /usr/share/keyrings && \
+RUN mkdir -p /etc/apt/keyrings && \
     # Docker CLI repository
     curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
-    # GitHub CLI repository
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
-    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+    # GitHub CLI repository (using /etc/apt/keyrings per current gh docs)
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/etc/apt/keyrings/githubcli-archive-keyring.gpg && \
+    chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
 
 # Install all system dependencies in a single layer
 # Note: build-essential, git, curl, wget, gnupg, procps, lsb-release are pre-installed in base image
@@ -130,7 +132,7 @@ RUN mkdir -p /home/vscode/.claude/cache \
 # Setup zsh with oh-my-zsh for better development experience
 RUN if [ ! -d "/home/vscode/.oh-my-zsh" ]; then \
     sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended; \
-    fi && echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.zshrc
+    fi && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 
 # Set bash history persistence
 RUN echo 'export HISTFILE=/home/vscode/.bash_history' >> ~/.bashrc \
