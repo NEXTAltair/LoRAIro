@@ -52,6 +52,7 @@ dependencies = [
     "image-annotator-lib",
     "rembg>=2.0.67",
     "pymatting>=1.1.15",
+    "torchvision>=0.25.0",
 ]
 
 
@@ -63,6 +64,10 @@ lorairo-docs = "sphinx.cmd.build:build_main"
 [project.urls]
 "Homepage" = "https://github.com/NEXTAltair/lorairo"
 "Bug Tracker" = "https://github.com/NEXTAltair/lorairo/issues"
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu130"
 
 [tool.ruff]
 fix = true
@@ -200,6 +205,8 @@ packages = ["src/lorairo"] # パッケージディレクトリ指定
 [tool.uv.sources]
 genai-tag-db-tools = { path = "local_packages/genai-tag-db-tools", editable = true }
 image-annotator-lib = { path = "local_packages/image-annotator-lib", editable = true }
+torch = { index = "pytorch" }
+torchvision = { index = "pytorch" }
 
 [dependency-groups]
 dev = [
