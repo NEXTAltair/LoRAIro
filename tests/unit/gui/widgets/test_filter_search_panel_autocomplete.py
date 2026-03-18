@@ -118,3 +118,42 @@ class TestClearTagSuggestions:
 
         panel._clear_tag_suggestions()
         assert not panel._tag_suggestion_timer.isActive()
+
+
+class _AsyncFakeTagService:
+    def __init__(self, response_map: dict[str, tuple[float, list[str]]], min_chars: int = 2) -> None:
+        self.min_chars = min_chars
+        self._response_map = response_map
+
+    def get_suggestions(self, query: str) -> list[str]:
+        import time
+
+        delay, response = self._response_map[query]
+        if delay > 0:
+            time.sleep(delay)
+        return response
+
+
+class TestAsyncTagSuggestion:
+    """タグ候補取得が非同期で行われ、古い結果が無視されることを検証。"""
+
+    def test_updates_model_asynchronously(self, panel, qtbot):
+        panel.ui.lineEditSearch.setFocus()
+        panel.ui.lineEditSearch.setText("bl")
+        panel.set_tag_suggestion_service(_AsyncFakeTagService({"bl": (0.01, ["blue_hair"])}))
+
+        panel._update_tag_completions()
+        qtbot.waitUntil(lambda: panel._tag_completer_model.stringList() == ["blue_hair"], timeout=1000)
+
+    def test_ignores_stale_results(self, panel, qtbot):
+        panel.ui.lineEditSearch.setFocus()
+        panel.set_tag_suggestion_service(
+            _AsyncFakeTagService({"bl": (0.05, ["blue_hair"]), "blu": (0.0, ["blush"])}),
+        )
+
+        panel.ui.lineEditSearch.setText("bl")
+        panel._update_tag_completions()
+        panel.ui.lineEditSearch.setText("blu")
+        panel._update_tag_completions()
+
+        qtbot.waitUntil(lambda: panel._tag_completer_model.stringList() == ["blush"], timeout=1500)

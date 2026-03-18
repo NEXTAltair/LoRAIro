@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from inspect import Parameter, signature
+from threading import RLock
 from time import monotonic
 from typing import TYPE_CHECKING, Any
 
@@ -49,6 +51,7 @@ class TagSuggestionService:
         self._cache_ttl = cache_ttl_seconds
         # OrderedDict で LRU + TTL キャッシュを実装: key -> (timestamp, list[str])
         self._cache: OrderedDict[str, tuple[float, list[str]]] = OrderedDict()
+        self._cache_lock = RLock()
 
     def get_suggestions(self, query: str) -> list[str]:
         """入力文字列からタグ候補一覧を取得する。
@@ -77,7 +80,8 @@ class TagSuggestionService:
 
     def clear_cache(self) -> None:
         """キャッシュをクリアする。"""
-        self._cache.clear()
+        with self._cache_lock:
+            self._cache.clear()
 
     def _search_tags(self, query: str) -> list[str]:
         """genai-tag-db-tools で タグ検索を実行する。"""
@@ -85,13 +89,7 @@ class TagSuggestionService:
             from genai_tag_db_tools import search_tags
             from genai_tag_db_tools.models import TagSearchRequest
 
-            request = TagSearchRequest(
-                query=query,
-                partial=True,
-                resolve_preferred=False,
-                include_aliases=True,
-                include_deprecated=False,
-            )
+            request = self._build_search_request(TagSearchRequest, query)
             result = search_tags(self._merged_reader, request)
 
             # TagSearchResult.items は list[TagRecordPublic]、各 item.tag がタグ文字列
@@ -109,7 +107,7 @@ class TagSuggestionService:
                 if len(candidates) >= self.max_results:
                     break
 
-            return candidates
+            return self._sort_candidates(candidates, query)
 
         except Exception as e:
             logger.warning("タグ候補取得に失敗: query='{}', error={}", query, e)
@@ -138,23 +136,73 @@ class TagSuggestionService:
 
     def _get_cache(self, key: str) -> list[str] | None:
         """キャッシュからエントリを取得する（TTL チェック込み）。"""
-        if key not in self._cache:
-            return None
+        with self._cache_lock:
+            if key not in self._cache:
+                return None
 
-        created_at, data = self._cache[key]
-        if monotonic() - created_at > self._cache_ttl:
-            del self._cache[key]
-            return None
+            created_at, data = self._cache[key]
+            if monotonic() - created_at > self._cache_ttl:
+                del self._cache[key]
+                return None
 
-        # LRU: 最近アクセスしたエントリを末尾へ移動
-        self._cache.move_to_end(key)
-        return data
+            # LRU: 最近アクセスしたエントリを末尾へ移動
+            self._cache.move_to_end(key)
+            return data
 
     def _set_cache(self, key: str, suggestions: list[str]) -> None:
         """キャッシュにエントリを追加する（LRU サイズ制限付き）。"""
-        self._cache[key] = (monotonic(), suggestions)
-        self._cache.move_to_end(key)
+        with self._cache_lock:
+            self._cache[key] = (monotonic(), suggestions)
+            self._cache.move_to_end(key)
 
-        # LRU: サイズ超過時は最古のエントリを削除
-        while len(self._cache) > self._cache_size:
-            self._cache.popitem(last=False)
+            # LRU: サイズ超過時は最古のエントリを削除
+            while len(self._cache) > self._cache_size:
+                self._cache.popitem(last=False)
+
+    def _build_search_request(self, request_cls: Any, query: str) -> Any:
+        """TagSearchRequest を互換性を保ちながら組み立てる。"""
+        kwargs: dict[str, Any] = {
+            "query": query,
+            "partial": True,
+            "resolve_preferred": False,
+            "include_aliases": True,
+            "include_deprecated": False,
+        }
+        if self._supports_request_field(request_cls, "limit"):
+            kwargs["limit"] = self.max_results
+        return request_cls(**kwargs)
+
+    @staticmethod
+    def _supports_request_field(request_cls: Any, field_name: str) -> bool:
+        """TagSearchRequest が指定フィールドを受け付けるかを判定する。"""
+        model_fields = getattr(request_cls, "model_fields", None)
+        if isinstance(model_fields, dict):
+            return field_name in model_fields
+
+        try:
+            sig = signature(request_cls)
+        except (TypeError, ValueError):
+            return False
+
+        if field_name in sig.parameters:
+            return True
+
+        return any(param.kind == Parameter.VAR_KEYWORD for param in sig.parameters.values())
+
+    @staticmethod
+    def _sort_candidates(candidates: list[str], query: str) -> list[str]:
+        """前方一致を優先しつつ候補を安定ソートする。"""
+        lowered_query = query.casefold()
+
+        def sort_key(tag: str) -> tuple[int, int, str]:
+            lowered_tag = tag.casefold()
+            if lowered_tag == lowered_query:
+                return (0, 0, lowered_tag)
+            if lowered_tag.startswith(lowered_query):
+                return (0, 1, lowered_tag)
+            contains_index = lowered_tag.find(lowered_query)
+            if contains_index >= 0:
+                return (1, contains_index, lowered_tag)
+            return (2, 9999, lowered_tag)
+
+        return sorted(candidates, key=sort_key)

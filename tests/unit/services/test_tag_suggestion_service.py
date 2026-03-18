@@ -143,6 +143,35 @@ class TestTagSuggestionServiceMaxResults:
 
         assert result.count("1girl") == 1
 
+    def test_limit_is_included_when_request_accepts_kwargs(self, monkeypatch):
+        """TagSearchRequest が可変キーワードを受ける場合は limit が付与される。"""
+        captured_request: dict = {}
+
+        def fake_search_tags(_reader, request):
+            captured_request.update(request)
+            return _FakeResult([_FakeItem("blue_hair")])
+
+        fake_models = types.SimpleNamespace(TagSearchRequest=lambda **kwargs: kwargs)
+        fake_module = types.SimpleNamespace(search_tags=fake_search_tags)
+        monkeypatch.setitem(sys.modules, "genai_tag_db_tools", fake_module)
+        monkeypatch.setitem(sys.modules, "genai_tag_db_tools.models", fake_models)
+
+        service = TagSuggestionService(object(), max_results=7)
+        service.get_suggestions("bl")
+
+        assert captured_request["limit"] == 7
+
+
+class TestTagSuggestionServiceSorting:
+    """候補ソート優先度テスト（前方一致優先）。"""
+
+    def test_prefix_matches_are_prioritized(self, patch_genai):
+        patch_genai([_FakeItem("table"), _FakeItem("blue_hair"), _FakeItem("black_hair")])
+        service = TagSuggestionService(object())
+
+        result = service.get_suggestions("bl")
+        assert result[:2] == ["black_hair", "blue_hair"]
+
 
 class TestExtractTagName:
     """_extract_tag_name の各フォーマット対応テスト。"""
