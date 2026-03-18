@@ -29,9 +29,10 @@ class _FakeResult:
 def _make_fake_genai(items: list, call_counter: dict | None = None) -> tuple:
     """genai_tag_db_tools のモジュールモックと呼び出しカウンターを返す。"""
 
-    def fake_search_tags(_reader, _request):
+    def fake_search_tags(_reader, request):
         if call_counter is not None:
             call_counter["count"] = call_counter.get("count", 0) + 1
+            call_counter.setdefault("requests", []).append(request)
         return _FakeResult(items)
 
     fake_models = types.SimpleNamespace(TagSearchRequest=lambda **kwargs: kwargs)
@@ -142,6 +143,29 @@ class TestTagSuggestionServiceMaxResults:
         result = service.get_suggestions("gi")
 
         assert result.count("1girl") == 1
+
+    def test_prefix_first_then_fallback_search(self, patch_genai):
+        """前方一致→部分一致の順で2回検索される。"""
+        counter: dict = {}
+        patch_genai([_FakeItem("blue_hair")], counter)
+
+        service = TagSuggestionService(object())
+        service.get_suggestions("bl")
+
+        assert counter["count"] == 2
+        assert counter["requests"][0]["query"] == "bl*"
+        assert counter["requests"][1]["query"] == "bl"
+
+    def test_limit_is_passed_to_search_request(self, patch_genai):
+        """DB側limitがTagSearchRequestへ渡される。"""
+        counter: dict = {}
+        patch_genai([_FakeItem("blue_hair")], counter)
+
+        service = TagSuggestionService(object(), max_results=7, db_fetch_limit_factor=3)
+        service.get_suggestions("bl")
+
+        assert counter["requests"][0]["limit"] == 21
+        assert counter["requests"][1]["limit"] == 21
 
 
 class TestExtractTagName:

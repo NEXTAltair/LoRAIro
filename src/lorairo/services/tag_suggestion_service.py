@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+import inspect
 from collections import OrderedDict
+from collections.abc import Mapping
 from time import monotonic
 from typing import TYPE_CHECKING, Any
 
@@ -31,6 +33,7 @@ class TagSuggestionService:
         max_results: int = 20,
         cache_size: int = 256,
         cache_ttl_seconds: float = 300.0,
+        db_fetch_limit_factor: int = 4,
     ) -> None:
         """TagSuggestionService を初期化する。
 
@@ -41,10 +44,13 @@ class TagSuggestionService:
             max_results: 取得する候補の最大件数。
             cache_size: LRU キャッシュの最大エントリ数。
             cache_ttl_seconds: キャッシュの有効期限（秒）。
+            db_fetch_limit_factor: DB側 limit 指定時に max_results へ乗算する係数。
+                重複・別名展開を見越して余剰件数を取得し、最終的に max_results へ整形する。
         """
         self._merged_reader = merged_reader
         self.min_chars = min_chars
         self.max_results = max_results
+        self._db_fetch_limit = max_results * max(db_fetch_limit_factor, 1)
         self._cache_size = cache_size
         self._cache_ttl = cache_ttl_seconds
         # OrderedDict で LRU + TTL キャッシュを実装: key -> (timestamp, list[str])
@@ -85,27 +91,15 @@ class TagSuggestionService:
             from genai_tag_db_tools import search_tags
             from genai_tag_db_tools.models import TagSearchRequest
 
-            request = TagSearchRequest(
-                query=query,
-                partial=True,
-                resolve_preferred=False,
-                include_aliases=True,
-                include_deprecated=False,
-            )
-            result = search_tags(self._merged_reader, request)
-
-            # TagSearchResult.items は list[TagRecordPublic]、各 item.tag がタグ文字列
             candidates: list[str] = []
             seen: set[str] = set()
-            for item in result.items:
-                tag_name = self._extract_tag_name(item)
-                if not tag_name:
-                    continue
-                key = tag_name.casefold()
-                if key in seen:
-                    continue
-                seen.add(key)
-                candidates.append(tag_name)
+
+            # 前方一致優先: "keyword*" で先に取得し、不足時のみ従来の部分一致へフォールバック
+            prefix_query = query if query.endswith("*") else f"{query}*"
+            for current_query in (prefix_query, query):
+                request_kwargs = self._build_search_request_kwargs(TagSearchRequest, current_query)
+                result = search_tags(self._merged_reader, TagSearchRequest(**request_kwargs))
+                self._collect_candidates(result, seen, candidates)
                 if len(candidates) >= self.max_results:
                     break
 
@@ -114,6 +108,60 @@ class TagSuggestionService:
         except Exception as e:
             logger.warning("タグ候補取得に失敗: query='{}', error={}", query, e)
             return []
+
+    def _build_search_request_kwargs(self, request_cls: type[Any], query: str) -> dict[str, Any]:
+        """TagSearchRequest の互換性を保ちながら kwargs を構築する。"""
+        kwargs = {
+            "query": query,
+            "partial": True,
+            "resolve_preferred": False,
+            "include_aliases": True,
+            "include_deprecated": False,
+        }
+        accepted = self._accepted_request_fields(request_cls)
+        if accepted is None or "limit" in accepted:
+            kwargs["limit"] = self._db_fetch_limit
+        return kwargs
+
+    @staticmethod
+    def _accepted_request_fields(request_cls: type[Any]) -> set[str] | None:
+        """TagSearchRequest が受け取るフィールド名一覧を返す。
+
+        Returns:
+            set[str] | None:
+                - フィールド一覧が分かる場合は set
+                - 可変 kwargs のみで判定できない場合は None
+        """
+        model_fields = getattr(request_cls, "model_fields", None)
+        if isinstance(model_fields, Mapping):
+            return set(model_fields.keys())
+
+        try:
+            signature = inspect.signature(request_cls)
+        except (TypeError, ValueError):
+            return None
+
+        accepted: set[str] = set()
+        for name, param in signature.parameters.items():
+            if param.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY):
+                accepted.add(name)
+            elif param.kind is inspect.Parameter.VAR_KEYWORD:
+                return None
+        return accepted
+
+    def _collect_candidates(self, result: Any, seen: set[str], candidates: list[str]) -> None:
+        """TagSearchResult から候補を重複排除しつつ収集する。"""
+        for item in getattr(result, "items", []):
+            tag_name = self._extract_tag_name(item)
+            if not tag_name:
+                continue
+            key = tag_name.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append(tag_name)
+            if len(candidates) >= self.max_results:
+                break
 
     @staticmethod
     def _extract_tag_name(item: Any) -> str | None:
