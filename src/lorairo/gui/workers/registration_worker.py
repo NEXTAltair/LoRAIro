@@ -151,6 +151,8 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         if duplicate_image_id:
             # 重複画像でも関連ファイル（.txt/.caption）を処理
             self._process_associated_files(image_path, duplicate_image_id)
+            # ファイル名エイリアスを登録（バッチインポート時のマッチング用）
+            self.db_manager.repository.add_filename_alias(duplicate_image_id, image_path.stem)
             logger.debug(f"スキップ (重複): {image_path} - 関連ファイルは処理")
             result_type = "skipped"
             image_id = duplicate_image_id

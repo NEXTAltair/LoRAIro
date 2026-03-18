@@ -128,6 +128,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.menuView.addAction(self.actionTagManagement)
                 logger.debug("Tag management menu action added")
 
+            # Batch APIインポートメニューアクション追加
+            if hasattr(self, "menuFile"):
+                from PySide6.QtGui import QAction
+
+                self.actionBatchImport = QAction("Batch API結果インポート...", self)
+                self.actionBatchImport.setShortcut("Ctrl+Shift+I")
+                self.actionBatchImport.triggered.connect(self._start_batch_import)
+                self.menuFile.addAction(self.actionBatchImport)
+                logger.debug("Batch import menu action added")
+
             # サービス初期化（例外を個別にキャッチ）
             logger.info("サービス初期化開始")
             self._initialize_services()
@@ -677,6 +687,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.worker_service.batch_registration_started.connect(self._on_batch_registration_started)
         self.worker_service.batch_registration_finished.connect(self._on_batch_registration_finished)
         self.worker_service.batch_registration_error.connect(self._on_batch_registration_error)
+
+        # Batch import connections
+        self.worker_service.batch_import_finished.connect(self._on_batch_import_finished)
+        self.worker_service.batch_import_error.connect(self._on_batch_import_error)
 
         # Annotation connections
         self.worker_service.enhanced_annotation_finished.connect(self._on_annotation_finished)
@@ -1728,3 +1742,99 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             panel = getattr(self, "framePreviewDetailPanel", None)
             if panel:
                 panel.setVisible(preview_visible)
+
+    def _start_batch_import(self) -> None:
+        """Batch APIインポートダイアログを開いてワーカーを起動する。"""
+        from PySide6.QtWidgets import QDialogButtonBox
+
+        if not self.worker_service:
+            QMessageBox.warning(self, "エラー", "WorkerServiceが初期化されていません")
+            return
+
+        # JSONLファイル選択（複数可）
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Batch API結果ファイルを選択 (JSONL)",
+            "",
+            "JSONL Files (*.jsonl)",
+        )
+        if not file_paths:
+            return
+
+        jsonl_files = [Path(p) for p in file_paths]
+
+        # Dry-Run確認
+        dry_run_box = QMessageBox(self)
+        dry_run_box.setWindowTitle("インポートモード選択")
+        dry_run_box.setText(
+            f"{len(jsonl_files)}ファイルをインポートします。\n\n"
+            "Dry-Run: 照合結果のみ確認（DB書き込みなし）\n"
+            "インポート: DBに保存"
+        )
+        dry_run_btn = dry_run_box.addButton("Dry-Run", QMessageBox.ButtonRole.AcceptRole)
+        import_btn = dry_run_box.addButton("インポート", QMessageBox.ButtonRole.AcceptRole)
+        dry_run_box.addButton("キャンセル", QMessageBox.ButtonRole.RejectRole)
+        dry_run_box.exec()
+
+        clicked = dry_run_box.clickedButton()
+        if clicked is None or (clicked is not dry_run_btn and clicked is not import_btn):
+            return
+
+        dry_run = clicked is dry_run_btn
+        self.worker_service.start_batch_import(jsonl_files, dry_run=dry_run)
+
+    def _on_batch_import_finished(self, result: Any) -> None:
+        """バッチインポート完了ハンドラ。"""
+        from ...services.batch_import_service import BatchImportResult
+        from ...services.batch_image_matcher import BatchImageMatcher
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QTextEdit, QVBoxLayout
+
+        if not isinstance(result, BatchImportResult):
+            logger.warning(f"Unexpected batch import result type: {type(result)}")
+            return
+
+        mode = "DRY-RUN" if result.saved == 0 and result.matched > 0 else "LIVE"
+        message = (
+            f"バッチインポート完了 ({mode})\n\n"
+            f"総レコード: {result.total_records}\n"
+            f"パース成功: {result.parsed_ok}\n"
+            f"照合成功: {result.matched}\n"
+            f"照合失敗: {result.unmatched}\n"
+            f"保存: {result.saved}\n"
+            f"モデル: {result.model_name}"
+        )
+
+        if result.unmatched_ids:
+            message += f"\n\n照合失敗 ({len(result.unmatched_ids)}件):"
+            message += "\n(custom_idから抽出したファイル名がDBに未登録)"
+            for uid in result.unmatched_ids[:5]:
+                stem = BatchImageMatcher.extract_stem(uid)
+                message += f"\n  - {stem}  ← {uid}"
+            if len(result.unmatched_ids) > 5:
+                message += f"\n  ... 他 {len(result.unmatched_ids) - 5} 件"
+
+        # コピー可能なダイアログで結果表示
+        dlg = QDialog(self)
+        dlg.setWindowTitle("バッチインポート結果")
+        dlg.setMinimumSize(520, 360)
+        layout = QVBoxLayout(dlg)
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+        text_edit.setPlainText(message)
+        layout.addWidget(text_edit)
+        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        btn_box.accepted.connect(dlg.accept)
+        layout.addWidget(btn_box)
+        dlg.exec()
+
+        self.statusBar().showMessage(
+            f"バッチインポート完了: {result.saved}件保存, {result.unmatched}件アンマッチ", 10000
+        )
+
+    def _on_batch_import_error(self, error_message: str) -> None:
+        """バッチインポートエラーハンドラ。"""
+        QMessageBox.critical(
+            self, "バッチインポートエラー", f"インポート中にエラーが発生しました:\n\n{error_message}"
+        )
+        if self.error_notification_widget:
+            self.error_notification_widget.update_error_count()

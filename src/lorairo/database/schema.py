@@ -391,6 +391,35 @@ class ErrorRecord(Base):
         return f"<ErrorRecord(id={self.id}, operation='{self.operation_type}', type='{self.error_type}')>"
 
 
+class ImageFilenameAlias(Base):
+    """重複スキップされた画像のファイル名エイリアス。
+
+    pHash重複で登録スキップされた画像のファイル名stemと、
+    重複元のimage_idを記録する。バッチインポート時のマッチングに使用。
+    """
+
+    __tablename__ = "image_filename_aliases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    image_id: Mapped[int] = mapped_column(
+        ForeignKey("images.id", ondelete="CASCADE"), nullable=False
+    )
+    stem: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+
+    image: Mapped[Image] = relationship("Image")
+
+    __table_args__ = (
+        Index("ix_image_filename_aliases_stem", "stem"),
+        UniqueConstraint("stem", name="uix_alias_stem"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ImageFilenameAlias(id={self.id}, stem='{self.stem}', image_id={self.image_id})>"
+
+
 # --- TypedDicts for data transfer ---
 
 

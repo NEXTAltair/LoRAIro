@@ -304,7 +304,7 @@ class BatchImportService:
         return self._repository.insert_model(
             name=model_name,
             provider="openai",
-            model_types=["llm", "captioner"],
+            model_types=["multimodal", "caption", "tags"],
             api_model_id=model_name,
             requires_api_key=True,
         )

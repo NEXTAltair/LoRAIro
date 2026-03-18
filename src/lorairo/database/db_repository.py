@@ -20,6 +20,7 @@ from .schema import (
     Caption,
     ErrorRecord,
     Image,
+    ImageFilenameAlias,
     Model,
     ModelType,
     ProcessedImage,
@@ -232,9 +233,41 @@ class ImageRepository:
                 for image_id, filename in results:
                     stem = Path(filename).stem
                     index[stem] = image_id
+
+                # エイリアス（重複スキップされた画像のファイル名）もインデックスに追加
+                alias_stmt = select(ImageFilenameAlias.image_id, ImageFilenameAlias.stem)
+                alias_results = session.execute(alias_stmt).all()
+                for image_id, stem in alias_results:
+                    if stem not in index:
+                        index[stem] = image_id
+
                 return index
             except SQLAlchemyError as e:
                 logger.error(f"ファイル名インデックス構築エラー: {e}", exc_info=True)
+                raise
+
+    def add_filename_alias(self, image_id: int, stem: str) -> None:
+        """重複スキップされた画像のファイル名エイリアスを登録する。
+
+        Args:
+            image_id: 重複元の画像ID。
+            stem: スキップされた画像のファイル名stem。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+        """
+        with self.session_factory() as session:
+            try:
+                alias = ImageFilenameAlias(image_id=image_id, stem=stem)
+                session.add(alias)
+                session.commit()
+                logger.debug(f"ファイル名エイリアス登録: {stem} → image_id={image_id}")
+            except IntegrityError:
+                session.rollback()
+                logger.debug(f"エイリアス既存のためスキップ: {stem}")
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"エイリアス登録エラー: {e}", exc_info=True)
                 raise
 
     def _get_or_create_manual_edit_model(self, session: Session) -> int:

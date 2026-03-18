@@ -198,7 +198,7 @@ class TestBatchImportServiceSingleFile:
         mock_repository.insert_model.assert_called_once_with(
             name="gpt-4-turbo-2024-04-09",
             provider="openai",
-            model_types=["llm", "captioner"],
+            model_types=["multimodal", "caption", "tags"],
             api_model_id="gpt-4-turbo-2024-04-09",
             requires_api_key=True,
         )

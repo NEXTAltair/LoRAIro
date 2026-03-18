@@ -49,6 +49,10 @@ class WorkerService(QObject):
     thumbnail_finished = Signal(object)  # ThumbnailLoadResult
     thumbnail_error = Signal(str)  # error_message
 
+    batch_import_started = Signal(str)  # worker_id
+    batch_import_finished = Signal(object)  # BatchImportResult
+    batch_import_error = Signal(str)  # error_message
+
     # === 進捗シグナル ===
     worker_progress_updated = Signal(str, object)  # worker_id, WorkerProgress
     worker_batch_progress = Signal(str, int, int, str)  # worker_id, current, total, filename
@@ -77,6 +81,7 @@ class WorkerService(QObject):
         self.current_registration_worker_id: str | None = None
         self.current_annotation_worker_id: str | None = None
         self.current_thumbnail_worker_id: str | None = None
+        self.current_batch_import_worker_id: str | None = None
 
         # ワーカーマネージャーのシグナル接続
         self.worker_manager.worker_started.connect(self._on_worker_started)
@@ -367,6 +372,59 @@ class WorkerService(QObject):
 
         raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
 
+    def start_batch_import(
+        self,
+        jsonl_files: list[Path],
+        *,
+        dry_run: bool = False,
+        model_name_override: str | None = None,
+    ) -> str:
+        """バッチインポートワーカーを開始する。
+
+        Args:
+            jsonl_files: インポート対象のJSONLファイルリスト。
+            dry_run: Trueの場合、DB書き込みを行わない。
+            model_name_override: モデル名上書き。
+
+        Returns:
+            ワーカーID。
+        """
+        from ..workers.batch_import_worker import BatchImportWorker
+
+        container = get_service_container()
+        repository = container.image_repository
+
+        worker = BatchImportWorker(
+            repository,
+            jsonl_files,
+            dry_run=dry_run,
+            model_name_override=model_name_override,
+        )
+        worker_id = f"batch_import_{uuid.uuid4().hex[:8]}"
+
+        worker.progress_updated.connect(
+            lambda progress: self.worker_progress_updated.emit(worker_id, progress)
+        )
+        worker.batch_progress.connect(
+            lambda current, total, filename: self.worker_batch_progress.emit(
+                worker_id, current, total, filename
+            )
+        )
+
+        mode = "DRY-RUN" if dry_run else "LIVE"
+        logger.info(f"バッチインポート開始: {len(jsonl_files)}ファイル ({mode}) (ID: {worker_id})")
+        self.worker_manager.start_worker(worker, worker_id)
+        self.current_batch_import_worker_id = worker_id
+        return worker_id
+
+    def cancel_batch_import(self, worker_id: str) -> None:
+        """バッチインポートワーカーをキャンセルする。
+
+        Args:
+            worker_id: キャンセル対象のワーカーID。
+        """
+        self.worker_manager.cancel_worker(worker_id)
+
     # === 全般管理 ===
 
     def cancel_all_workers(self) -> None:
@@ -381,7 +439,7 @@ class WorkerService(QObject):
         """指定ワーカーのステータス取得"""
         return self.worker_manager.get_worker_status(worker_id)
 
-    def _on_progress_updated(self, worker_id: str, progress: "WorkerProgress") -> None:
+    def _on_progress_updated(self, worker_id: str, progress: Any) -> None:
         """プログレス更新処理 - ModernProgressManagerに転送"""
         self.progress_manager.update_worker_progress(worker_id, progress)
 
@@ -409,6 +467,9 @@ class WorkerService(QObject):
         if worker_id.startswith("batch_reg_"):
             operation_name = "データベース登録"
             self.batch_registration_started.emit(worker_id)
+        elif worker_id.startswith("batch_import_"):
+            operation_name = "バッチインポート"
+            self.batch_import_started.emit(worker_id)
         elif worker_id.startswith("annotation_"):
             operation_name = "アノテーション処理"
             self.enhanced_annotation_started.emit(worker_id)
@@ -427,28 +488,31 @@ class WorkerService(QObject):
 
         logger.info(f"ワーカー開始: {operation_name} (ID: {worker_id})")
 
+    def _resolve_worker_type(self, worker_id: str) -> str:
+        """worker_idプレフィックスからワーカー種別を返すヘルパー。"""
+        for prefix in ("batch_reg_", "batch_import_", "annotation_", "search_", "thumbnail_"):
+            if worker_id.startswith(prefix):
+                return prefix.rstrip("_")
+        return "unknown"
+
     def _on_worker_finished(self, worker_id: str, result: Any) -> None:
         """ワーカー完了ハンドラ - プログレスダイアログ終了処理"""
-        # サムネイルワーカーはプログレスダイアログを使用しないためスキップ
-        if not worker_id.startswith("thumbnail_"):
+        worker_type = self._resolve_worker_type(worker_id)
+        if worker_type != "thumbnail":
             self.progress_manager.finish_worker_progress(worker_id, success=True)
 
-        if worker_id.startswith("batch_reg_"):
-            self.batch_registration_finished.emit(result)
-            if self.current_registration_worker_id == worker_id:
-                self.current_registration_worker_id = None
-        elif worker_id.startswith("annotation_"):
-            self.enhanced_annotation_finished.emit(result)
-            if self.current_annotation_worker_id == worker_id:
-                self.current_annotation_worker_id = None
-        elif worker_id.startswith("search_"):
-            self.search_finished.emit(result)
-            if self.current_search_worker_id == worker_id:
-                self.current_search_worker_id = None
-        elif worker_id.startswith("thumbnail_"):
-            self.thumbnail_finished.emit(result)
-            if self.current_thumbnail_worker_id == worker_id:
-                self.current_thumbnail_worker_id = None
+        finished_dispatch: dict[str, tuple[Any, str | None]] = {
+            "batch_reg": (self.batch_registration_finished, "current_registration_worker_id"),
+            "batch_import": (self.batch_import_finished, "current_batch_import_worker_id"),
+            "annotation": (self.enhanced_annotation_finished, "current_annotation_worker_id"),
+            "search": (self.search_finished, "current_search_worker_id"),
+            "thumbnail": (self.thumbnail_finished, "current_thumbnail_worker_id"),
+        }
+        if worker_type in finished_dispatch:
+            signal, attr = finished_dispatch[worker_type]
+            signal.emit(result)
+            if attr and getattr(self, attr) == worker_id:
+                setattr(self, attr, None)
 
         logger.info(f"ワーカー完了: {worker_id}")
 
@@ -456,25 +520,21 @@ class WorkerService(QObject):
         """ワーカーエラーハンドラ - プログレスダイアログエラー処理"""
         logger.error(f"ワーカーエラー {worker_id}: {error}")
 
-        # サムネイルワーカーはプログレスダイアログを使用しないためスキップ
-        if not worker_id.startswith("thumbnail_"):
+        worker_type = self._resolve_worker_type(worker_id)
+        if worker_type != "thumbnail":
             self.progress_manager.finish_worker_progress(worker_id, success=False)
 
-        if worker_id.startswith("batch_reg_"):
-            self.batch_registration_error.emit(error)
-            if self.current_registration_worker_id == worker_id:
-                self.current_registration_worker_id = None
-        elif worker_id.startswith("annotation_"):
-            self.enhanced_annotation_error.emit(error)
-            if self.current_annotation_worker_id == worker_id:
-                self.current_annotation_worker_id = None
-        elif worker_id.startswith("search_"):
-            self.search_error.emit(error)
-            if self.current_search_worker_id == worker_id:
-                self.current_search_worker_id = None
-        elif worker_id.startswith("thumbnail_"):
-            self.thumbnail_error.emit(error)
-            if self.current_thumbnail_worker_id == worker_id:
-                self.current_thumbnail_worker_id = None
+        error_dispatch: dict[str, tuple[Any, str | None]] = {
+            "batch_reg": (self.batch_registration_error, "current_registration_worker_id"),
+            "batch_import": (self.batch_import_error, "current_batch_import_worker_id"),
+            "annotation": (self.enhanced_annotation_error, "current_annotation_worker_id"),
+            "search": (self.search_error, "current_search_worker_id"),
+            "thumbnail": (self.thumbnail_error, "current_thumbnail_worker_id"),
+        }
+        if worker_type in error_dispatch:
+            signal, attr = error_dispatch[worker_type]
+            signal.emit(error)
+            if attr and getattr(self, attr) == worker_id:
+                setattr(self, attr, None)
 
         logger.info(f"ワーカーエラーとプログレス終了: {worker_id}")

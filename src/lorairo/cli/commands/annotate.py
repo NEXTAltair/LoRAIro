@@ -243,9 +243,15 @@ def _display_batch_import_result(result: BatchImportResult, *, dry_run: bool) ->
 
     # アンマッチ一覧（10件まで表示）
     if result.unmatched_ids:
-        console.print(f"\n[yellow]Unmatched IDs ({len(result.unmatched_ids)}件):[/yellow]")
+        from lorairo.services.batch_image_matcher import BatchImageMatcher
+
+        console.print(
+            f"\n[yellow]照合失敗 ({len(result.unmatched_ids)}件) "
+            f"- custom_idから抽出したファイル名がDBに未登録:[/yellow]"
+        )
         for uid in result.unmatched_ids[:10]:
-            console.print(f"  - {uid}")
+            stem = BatchImageMatcher.extract_stem(uid)
+            console.print(f"  - [bold]{stem}[/bold]  ← {uid}")
         if len(result.unmatched_ids) > 10:
             console.print(f"  ... 他 {len(result.unmatched_ids) - 10} 件")
 

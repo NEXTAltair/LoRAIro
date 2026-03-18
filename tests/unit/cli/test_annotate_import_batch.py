@@ -148,5 +148,5 @@ class TestImportBatchCommand:
         )
 
         assert result.exit_code == 0
-        assert "Unmatched IDs" in result.output
+        assert "照合失敗" in result.output
         assert "id_a" in result.output
