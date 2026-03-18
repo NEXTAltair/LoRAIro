@@ -118,3 +118,40 @@ class TestClearTagSuggestions:
 
         panel._clear_tag_suggestions()
         assert not panel._tag_suggestion_timer.isActive()
+
+
+class _FakeSuggestionService:
+    def __init__(self, *, cached: list[str] | None, async_result: list[str] | None = None):
+        self.min_chars = 2
+        self._cached = cached
+        self._async_result = async_result or []
+
+    def get_cached_suggestions(self, _query: str) -> list[str] | None:
+        return self._cached
+
+    def get_suggestions(self, _query: str) -> list[str]:
+        return self._async_result
+
+
+class TestAsyncAutocomplete:
+    """非同期オートコンプリートの基本動作テスト。"""
+
+    def test_update_uses_cached_suggestions_first(self, panel):
+        panel.ui.checkboxTags.setChecked(True)
+        panel.ui.lineEditSearch.setText("blue")
+        panel.set_tag_suggestion_service(_FakeSuggestionService(cached=["blue_hair", "blue_eyes"]))
+
+        panel._update_tag_completions()
+
+        assert panel._tag_completer_model.stringList() == ["blue_hair", "blue_eyes"]
+        assert not panel._tag_lookup_in_flight
+
+    def test_async_lookup_updates_model(self, panel, qtbot):
+        panel.ui.checkboxTags.setChecked(True)
+        panel.ui.lineEditSearch.setText("blue")
+        panel.set_tag_suggestion_service(_FakeSuggestionService(cached=None, async_result=["blue_hair"]))
+
+        panel._update_tag_completions()
+
+        qtbot.waitUntil(lambda: panel._tag_completer_model.stringList() == ["blue_hair"], timeout=2000)
+        assert not panel._tag_lookup_in_flight

@@ -29,9 +29,10 @@ class _FakeResult:
 def _make_fake_genai(items: list, call_counter: dict | None = None) -> tuple:
     """genai_tag_db_tools のモジュールモックと呼び出しカウンターを返す。"""
 
-    def fake_search_tags(_reader, _request):
+    def fake_search_tags(_reader, request):
         if call_counter is not None:
             call_counter["count"] = call_counter.get("count", 0) + 1
+            call_counter["last_request"] = request
         return _FakeResult(items)
 
     fake_models = types.SimpleNamespace(TagSearchRequest=lambda **kwargs: kwargs)
@@ -92,6 +93,25 @@ class TestTagSuggestionServiceCache:
         assert "bb" in service._cache
         assert "cc" in service._cache
 
+    def test_cached_subset_reuse_avoids_additional_db_query(self, patch_genai):
+        """長いクエリは短いクエリのキャッシュ部分集合を再利用する。"""
+        counter: dict = {}
+        patch_genai([_FakeItem("blue_hair"), _FakeItem("blue_eyes"), _FakeItem("black_hair")], counter)
+
+        service = TagSuggestionService(object(), cache_ttl_seconds=60)
+        first = service.get_suggestions("bl")
+        second = service.get_suggestions("blue")
+
+        assert first == ["black_hair", "blue_eyes", "blue_hair"]
+        assert second == ["blue_eyes", "blue_hair"]
+        assert counter["count"] == 1
+
+    def test_get_cached_suggestions_returns_none_when_cache_miss(self, patch_genai):
+        """get_cached_suggestions は未ヒット時に None を返す。"""
+        patch_genai([_FakeItem("blue_hair")])
+        service = TagSuggestionService(object(), cache_ttl_seconds=60)
+        assert service.get_cached_suggestions("bl") is None
+
 
 class TestTagSuggestionServiceMinChars:
     """最小文字数チェックのテスト。"""
@@ -142,6 +162,16 @@ class TestTagSuggestionServiceMaxResults:
         result = service.get_suggestions("gi")
 
         assert result.count("1girl") == 1
+
+    def test_db_request_contains_limit(self, patch_genai):
+        """TagSearchRequest に DB側limit が設定される。"""
+        counter: dict = {}
+        patch_genai([_FakeItem("tag_1")], counter)
+
+        service = TagSuggestionService(object(), max_results=7)
+        service.get_suggestions("tag")
+
+        assert counter["last_request"]["limit"] == 7
 
 
 class TestExtractTagName:

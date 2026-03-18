@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from threading import RLock
 from time import monotonic
 from typing import TYPE_CHECKING, Any
 
@@ -47,6 +48,7 @@ class TagSuggestionService:
         self.max_results = max_results
         self._cache_size = cache_size
         self._cache_ttl = cache_ttl_seconds
+        self._cache_lock = RLock()
         # OrderedDict で LRU + TTL キャッシュを実装: key -> (timestamp, list[str])
         self._cache: OrderedDict[str, tuple[float, list[str]]] = OrderedDict()
 
@@ -66,18 +68,48 @@ class TagSuggestionService:
         if len(normalized) < self.min_chars:
             return []
 
-        cache_key = normalized.casefold()
-        cached = self._get_cache(cache_key)
+        cached = self.get_cached_suggestions(normalized)
         if cached is not None:
             return cached
 
         suggestions = self._search_tags(normalized)
+        cache_key = normalized.casefold()
         self._set_cache(cache_key, suggestions)
         return suggestions
 
+    def get_cached_suggestions(self, query: str) -> list[str] | None:
+        """キャッシュから候補を取得する（DB検索は行わない）。
+
+        完全一致キャッシュがない場合は、より短いクエリのキャッシュ部分集合を再利用する。
+
+        Args:
+            query: 検索クエリ。
+
+        Returns:
+            キャッシュヒット時は候補一覧、未ヒット時は None。
+        """
+        normalized = query.strip()
+        if len(normalized) < self.min_chars:
+            return []
+
+        cache_key = normalized.casefold()
+
+        with self._cache_lock:
+            exact = self._get_cache_unlocked(cache_key)
+            if exact is not None:
+                return exact
+
+            subset = self._get_cached_subset_unlocked(cache_key)
+            if subset is None:
+                return None
+
+            self._set_cache_unlocked(cache_key, subset)
+            return subset
+
     def clear_cache(self) -> None:
         """キャッシュをクリアする。"""
-        self._cache.clear()
+        with self._cache_lock:
+            self._cache.clear()
 
     def _search_tags(self, query: str) -> list[str]:
         """genai-tag-db-tools で タグ検索を実行する。"""
@@ -91,6 +123,7 @@ class TagSuggestionService:
                 resolve_preferred=False,
                 include_aliases=True,
                 include_deprecated=False,
+                limit=self.max_results,
             )
             result = search_tags(self._merged_reader, request)
 
@@ -109,7 +142,7 @@ class TagSuggestionService:
                 if len(candidates) >= self.max_results:
                     break
 
-            return candidates
+            return self._rank_candidates(candidates, query)
 
         except Exception as e:
             logger.warning("タグ候補取得に失敗: query='{}', error={}", query, e)
@@ -136,8 +169,28 @@ class TagSuggestionService:
 
         return None
 
+    @staticmethod
+    def _rank_candidates(candidates: list[str], query: str) -> list[str]:
+        """候補を優先度順に並び替える（exact > prefix > contains）。"""
+        needle = query.casefold()
+
+        def _score(tag: str) -> tuple[int, str]:
+            folded = tag.casefold()
+            if folded == needle:
+                return (0, folded)
+            if folded.startswith(needle):
+                return (1, folded)
+            return (2, folded)
+
+        return sorted(candidates, key=_score)
+
     def _get_cache(self, key: str) -> list[str] | None:
         """キャッシュからエントリを取得する（TTL チェック込み）。"""
+        with self._cache_lock:
+            return self._get_cache_unlocked(key)
+
+    def _get_cache_unlocked(self, key: str) -> list[str] | None:
+        """ロック取得済み前提のキャッシュ読み出し。"""
         if key not in self._cache:
             return None
 
@@ -152,9 +205,41 @@ class TagSuggestionService:
 
     def _set_cache(self, key: str, suggestions: list[str]) -> None:
         """キャッシュにエントリを追加する（LRU サイズ制限付き）。"""
+        with self._cache_lock:
+            self._set_cache_unlocked(key, suggestions)
+
+    def _set_cache_unlocked(self, key: str, suggestions: list[str]) -> None:
+        """ロック取得済み前提のキャッシュ更新。"""
         self._cache[key] = (monotonic(), suggestions)
         self._cache.move_to_end(key)
 
         # LRU: サイズ超過時は最古のエントリを削除
         while len(self._cache) > self._cache_size:
             self._cache.popitem(last=False)
+
+    def _get_cached_subset_unlocked(self, key: str) -> list[str] | None:
+        """ロック取得済み前提でキャッシュ部分集合を取得する。"""
+        best_source: list[str] | None = None
+        best_len = -1
+
+        for candidate_key in list(self._cache.keys()):
+            if not key.startswith(candidate_key) or len(candidate_key) >= len(key):
+                continue
+
+            cached_values = self._get_cache_unlocked(candidate_key)
+            if cached_values is None:
+                continue
+
+            if len(candidate_key) > best_len:
+                best_len = len(candidate_key)
+                best_source = cached_values
+
+        if best_source is None:
+            return None
+
+        filtered = [tag for tag in best_source if key in tag.casefold()]
+        if not filtered:
+            return []
+
+        ranked = self._rank_candidates(filtered, key)
+        return ranked[: self.max_results]
