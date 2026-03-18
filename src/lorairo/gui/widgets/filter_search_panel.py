@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QStringListModel, Qt, QTimer, Signal
+from PySide6.QtCore import QObject, QRunnable, QStringListModel, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtWidgets import QCompleter, QScrollArea
 
 from ...gui.designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
@@ -27,6 +27,31 @@ class PipelineState(Enum):
     DISPLAYING = "displaying"  # 結果表示中
     ERROR = "error"  # エラー状態
     CANCELED = "canceled"  # キャンセル状態
+
+
+class _TagSuggestionTaskSignals(QObject):
+    """Tag suggestion background task signals."""
+
+    completed = Signal(int, str, list)  # request_id, token, suggestions
+    failed = Signal(int, str, str)  # request_id, token, error
+
+
+class _TagSuggestionTask(QRunnable):
+    """Run tag suggestion lookup in a background thread."""
+
+    def __init__(self, request_id: int, token: str, service: "TagSuggestionService") -> None:
+        super().__init__()
+        self.request_id = request_id
+        self.token = token
+        self.service = service
+        self.signals = _TagSuggestionTaskSignals()
+
+    def run(self) -> None:
+        try:
+            suggestions = self.service.get_suggestions(self.token)
+            self.signals.completed.emit(self.request_id, self.token, suggestions)
+        except Exception as e:
+            self.signals.failed.emit(self.request_id, self.token, str(e))
 
 
 class FilterSearchPanel(QScrollArea):
@@ -67,6 +92,9 @@ class FilterSearchPanel(QScrollArea):
         self._tag_suggestion_timer = QTimer(self)
         self._tag_suggestion_timer.setSingleShot(True)
         self._tag_suggestion_timer.setInterval(300)
+        self._tag_suggestion_pool = QThreadPool(self)
+        self._tag_suggestion_pool.setMaxThreadCount(1)
+        self._tag_request_id = 0
 
         # 現在のSearchWorkerのID
         self._current_search_worker_id: str | None = None
@@ -235,7 +263,45 @@ class FilterSearchPanel(QScrollArea):
             return
 
         token = self._extract_last_token(self.ui.lineEditSearch.text())
-        suggestions = self.tag_suggestion_service.get_suggestions(token)
+        if len(token) < self.tag_suggestion_service.min_chars:
+            self._clear_tag_suggestions()
+            return
+
+        cached = self.tag_suggestion_service.get_cached_suggestions(token)
+        if cached is not None:
+            self._apply_tag_suggestions(token, cached)
+            return
+
+        # 古い未実行タスクをキューから除去し、最新リクエストを優先
+        self._tag_suggestion_pool.clear()
+        self._tag_request_id += 1
+        request_id = self._tag_request_id
+        task = _TagSuggestionTask(request_id, token, self.tag_suggestion_service)
+        task.signals.completed.connect(self._on_tag_suggestions_completed)
+        task.signals.failed.connect(self._on_tag_suggestions_failed)
+        self._tag_suggestion_pool.start(task)
+
+    def _on_tag_suggestions_completed(self, request_id: int, token: str, suggestions: list[str]) -> None:
+        """バックグラウンド検索完了時に候補を反映する。"""
+        # 最新リクエスト以外は破棄（入力遅延で古い結果が上書きしないようにする）
+        if request_id != self._tag_request_id:
+            return
+
+        current_token = self._extract_last_token(self.ui.lineEditSearch.text())
+        if current_token.casefold() != token.casefold():
+            return
+
+        self._apply_tag_suggestions(token, suggestions)
+
+    def _on_tag_suggestions_failed(self, request_id: int, token: str, error: str) -> None:
+        """バックグラウンド検索エラーをログ出力する。"""
+        if request_id != self._tag_request_id:
+            return
+        logger.warning("タグ候補の非同期取得に失敗: token='{}', error={}", token, error)
+        self._clear_tag_suggestions()
+
+    def _apply_tag_suggestions(self, token: str, suggestions: list[str]) -> None:
+        """候補リストを completer に反映する。"""
         self._tag_completer_model.setStringList(suggestions)
 
         if suggestions and self.ui.lineEditSearch.hasFocus():
@@ -247,6 +313,9 @@ class FilterSearchPanel(QScrollArea):
     def _clear_tag_suggestions(self) -> None:
         """タグ候補をクリアしてデバウンスタイマーを停止する。"""
         self._tag_suggestion_timer.stop()
+        # 進行中/待機中タスクを無効化
+        self._tag_request_id += 1
+        self._tag_suggestion_pool.clear()
         self._tag_completer_model.setStringList([])
 
     def _on_tag_completion_activated(self, selected_tag: str) -> None:

@@ -49,6 +49,7 @@ class TagSuggestionService:
         self._cache_ttl = cache_ttl_seconds
         # OrderedDict で LRU + TTL キャッシュを実装: key -> (timestamp, list[str])
         self._cache: OrderedDict[str, tuple[float, list[str]]] = OrderedDict()
+        self._request_supports_limit: bool | None = None
 
     def get_suggestions(self, query: str) -> list[str]:
         """入力文字列からタグ候補一覧を取得する。
@@ -79,19 +80,40 @@ class TagSuggestionService:
         """キャッシュをクリアする。"""
         self._cache.clear()
 
+    def get_cached_suggestions(self, query: str) -> list[str] | None:
+        """有効なキャッシュが存在する場合のみ候補を返す。"""
+        normalized = query.strip()
+        if len(normalized) < self.min_chars:
+            return []
+        cache_key = normalized.casefold()
+        return self._get_cache(cache_key)
+
     def _search_tags(self, query: str) -> list[str]:
         """genai-tag-db-tools で タグ検索を実行する。"""
         try:
             from genai_tag_db_tools import search_tags
             from genai_tag_db_tools.models import TagSearchRequest
 
-            request = TagSearchRequest(
-                query=query,
-                partial=True,
-                resolve_preferred=False,
-                include_aliases=True,
-                include_deprecated=False,
-            )
+            request_kwargs: dict[str, Any] = {
+                "query": query,
+                "partial": True,
+                "resolve_preferred": False,
+                "include_aliases": True,
+                "include_deprecated": False,
+            }
+            if self._request_supports_limit is not False:
+                request_kwargs["limit"] = self.max_results
+
+            try:
+                request = TagSearchRequest(**request_kwargs)
+                self._request_supports_limit = "limit" in request_kwargs
+            except Exception:
+                if "limit" not in request_kwargs:
+                    raise
+                request_kwargs.pop("limit", None)
+                request = TagSearchRequest(**request_kwargs)
+                self._request_supports_limit = False
+
             result = search_tags(self._merged_reader, request)
 
             # TagSearchResult.items は list[TagRecordPublic]、各 item.tag がタグ文字列
@@ -109,11 +131,25 @@ class TagSuggestionService:
                 if len(candidates) >= self.max_results:
                     break
 
-            return candidates
+            return self._sort_candidates(candidates, query)
 
         except Exception as e:
             logger.warning("タグ候補取得に失敗: query='{}', error={}", query, e)
             return []
+
+    @staticmethod
+    def _sort_candidates(candidates: list[str], query: str) -> list[str]:
+        """候補を exact/prefix 優先で並び替える。"""
+        folded_query = query.casefold()
+        return sorted(
+            candidates,
+            key=lambda tag: (
+                0 if tag.casefold() == folded_query else 1,
+                0 if tag.casefold().startswith(folded_query) else 1,
+                len(tag),
+                tag.casefold(),
+            ),
+        )
 
     @staticmethod
     def _extract_tag_name(item: Any) -> str | None:

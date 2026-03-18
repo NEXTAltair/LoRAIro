@@ -92,6 +92,19 @@ class TestTagSuggestionServiceCache:
         assert "bb" in service._cache
         assert "cc" in service._cache
 
+    def test_get_cached_suggestions_returns_none_when_missing(self, patch_genai):
+        patch_genai([_FakeItem("tag")])
+        service = TagSuggestionService(object(), cache_ttl_seconds=60)
+
+        assert service.get_cached_suggestions("ta") is None
+
+    def test_get_cached_suggestions_returns_data_when_present(self, patch_genai):
+        patch_genai([_FakeItem("tag")])
+        service = TagSuggestionService(object(), cache_ttl_seconds=60)
+        service.get_suggestions("ta")
+
+        assert service.get_cached_suggestions("ta") == ["tag"]
+
 
 class TestTagSuggestionServiceMinChars:
     """最小文字数チェックのテスト。"""
@@ -142,6 +155,45 @@ class TestTagSuggestionServiceMaxResults:
         result = service.get_suggestions("gi")
 
         assert result.count("1girl") == 1
+
+    def test_prefix_match_is_prioritized(self, patch_genai):
+        patch_genai([_FakeItem("zzz_bl"), _FakeItem("blue_hair"), _FakeItem("blush")])
+        service = TagSuggestionService(object())
+
+        result = service.get_suggestions("bl")
+
+        assert result[:2] == ["blush", "blue_hair"]
+
+
+class TestTagSearchRequestLimitFallback:
+    """TagSearchRequest が limit 非対応でも動作継続できることを検証。"""
+
+    def test_limit_fallback_when_request_rejects_limit(self, monkeypatch):
+        calls: list[dict] = []
+
+        class _StrictRequest:
+            def __init__(self, **kwargs):
+                if "limit" in kwargs:
+                    raise TypeError("unexpected keyword argument: limit")
+                self.kwargs = kwargs
+
+        def fake_search_tags(_reader, request):
+            calls.append(request.kwargs)
+            return _FakeResult([_FakeItem("blue_hair")])
+
+        monkeypatch.setitem(sys.modules, "genai_tag_db_tools", types.SimpleNamespace(search_tags=fake_search_tags))
+        monkeypatch.setitem(
+            sys.modules,
+            "genai_tag_db_tools.models",
+            types.SimpleNamespace(TagSearchRequest=_StrictRequest),
+        )
+
+        service = TagSuggestionService(object())
+        result = service.get_suggestions("bl")
+
+        assert result == ["blue_hair"]
+        assert calls, "search_tags should be called"
+        assert "limit" not in calls[0]
 
 
 class TestExtractTagName:
