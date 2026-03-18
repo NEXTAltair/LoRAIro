@@ -24,6 +24,36 @@
       "pattern": "cd.*local_packages/[^/]+.*[;&].*uv run",
       "reason": "Creates separate .venv in local package",
       "suggestion": "Run from project root: uv run pytest local_packages/<pkg>/tests/"
+    },
+    {
+      "pattern": "git\\s+filter-repo",
+      "reason": "【危険】git filter-repo はワーキングディレクトリのファイルも削除します。過去にこの操作で作業ファイルを失っています",
+      "suggestion": "まず git rm --cached でインデックスから除外し、.gitignore に追加する方法を検討してください。履歴削除が本当に必要かユーザーに確認してください"
+    },
+    {
+      "pattern": "git\\s+reset\\s+--hard",
+      "reason": "【危険】git reset --hard はコミットされていない全変更を永久に消去します",
+      "suggestion": "git stash で一時退避するか、ユーザーに確認を取ってから実行してください"
+    },
+    {
+      "pattern": "git\\s+push\\s+(.*\\s)?(-f|--force)(?!-with-lease)",
+      "reason": "【危険】git push --force はリモート履歴を強制上書きします",
+      "suggestion": "git push --force-with-lease を使用するか、ユーザーに確認を取ってください"
+    },
+    {
+      "pattern": "git\\s+checkout\\s+(--\\s*\\.|\\.$|-f)",
+      "reason": "【危険】git checkout -- . はコミットされていない全変更を消去します",
+      "suggestion": "git stash で一時退避するか、ユーザーに確認を取ってから実行してください"
+    },
+    {
+      "pattern": "git\\s+clean\\s+.*-f",
+      "reason": "【危険】git clean -f は追跡されていないファイルを完全に削除します",
+      "suggestion": "git clean -n でドライランを先に確認するか、ユーザーに確認を取ってください"
+    },
+    {
+      "pattern": "git\\s+branch\\s+(-D|--delete\\s+-f)",
+      "reason": "【危険】git branch -D はマージ未確認のブランチを強制削除します",
+      "suggestion": "git branch -d（小文字）を使用するか、ユーザーに確認を取ってください"
     }
   ],
   "makefile_transforms": [
