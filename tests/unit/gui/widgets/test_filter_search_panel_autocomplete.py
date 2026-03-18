@@ -118,3 +118,41 @@ class TestClearTagSuggestions:
 
         panel._clear_tag_suggestions()
         assert not panel._tag_suggestion_timer.isActive()
+
+
+class TestAsyncAutocompleteFlow:
+    """非同期オートコンプリート制御のテスト。"""
+
+    def test_cache_first_avoids_async_lookup(self, panel, monkeypatch):
+        from unittest.mock import MagicMock
+
+        service = MagicMock()
+        service.min_chars = 2
+        service.get_cached_suggestions.return_value = ["blue_hair", "blue_eyes"]
+        service.get_cached_subset.return_value = None
+        service.get_suggestions.side_effect = AssertionError("should not call get_suggestions")
+        panel.set_tag_suggestion_service(service)
+        panel.ui.lineEditSearch.setText("blu")
+
+        started: list[str] = []
+        monkeypatch.setattr(panel, "_start_tag_lookup", lambda token: started.append(token))
+
+        panel._update_tag_completions()
+
+        assert started == []
+        assert panel._tag_completer_model.stringList() == ["blue_hair", "blue_eyes"]
+
+    def test_queues_pending_request_while_lookup_in_flight(self, panel):
+        from unittest.mock import MagicMock
+
+        service = MagicMock()
+        service.min_chars = 2
+        service.get_cached_suggestions.return_value = None
+        service.get_cached_subset.return_value = None
+        panel.set_tag_suggestion_service(service)
+        panel._tag_lookup_in_flight = True
+        panel.ui.lineEditSearch.setText("blue")
+
+        panel._update_tag_completions()
+
+        assert panel._pending_lookup_token == "blue"

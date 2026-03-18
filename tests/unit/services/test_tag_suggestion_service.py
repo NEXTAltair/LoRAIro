@@ -26,12 +26,14 @@ class _FakeResult:
         self.items = items
 
 
-def _make_fake_genai(items: list, call_counter: dict | None = None) -> tuple:
+def _make_fake_genai(items: list, call_counter: dict | None = None, request_store: dict | None = None) -> tuple:
     """genai_tag_db_tools のモジュールモックと呼び出しカウンターを返す。"""
 
     def fake_search_tags(_reader, _request):
         if call_counter is not None:
             call_counter["count"] = call_counter.get("count", 0) + 1
+        if request_store is not None:
+            request_store["request"] = _request
         return _FakeResult(items)
 
     fake_models = types.SimpleNamespace(TagSearchRequest=lambda **kwargs: kwargs)
@@ -43,8 +45,8 @@ def _make_fake_genai(items: list, call_counter: dict | None = None) -> tuple:
 def patch_genai(monkeypatch):
     """genai_tag_db_tools をモジュールレベルでモックするフィクスチャ。"""
 
-    def _patch(items: list, call_counter: dict | None = None):
-        fake_module, fake_models = _make_fake_genai(items, call_counter)
+    def _patch(items: list, call_counter: dict | None = None, request_store: dict | None = None):
+        fake_module, fake_models = _make_fake_genai(items, call_counter, request_store)
         monkeypatch.setitem(sys.modules, "genai_tag_db_tools", fake_module)
         monkeypatch.setitem(sys.modules, "genai_tag_db_tools.models", fake_models)
 
@@ -91,6 +93,19 @@ class TestTagSuggestionServiceCache:
         assert "aa" not in service._cache
         assert "bb" in service._cache
         assert "cc" in service._cache
+
+    def test_incremental_query_reuses_cached_subset(self, patch_genai):
+        """連続入力時に既存キャッシュの部分集合が再利用される。"""
+        counter: dict = {}
+        patch_genai([_FakeItem("blue_hair"), _FakeItem("blue_eyes"), _FakeItem("black_hair")], counter)
+
+        service = TagSuggestionService(object(), cache_ttl_seconds=60)
+        first = service.get_suggestions("bl")
+        second = service.get_suggestions("blu")
+
+        assert first == ["black_hair", "blue_eyes", "blue_hair"]
+        assert second == ["blue_eyes", "blue_hair"]
+        assert counter["count"] == 1
 
 
 class TestTagSuggestionServiceMinChars:
@@ -142,6 +157,16 @@ class TestTagSuggestionServiceMaxResults:
         result = service.get_suggestions("gi")
 
         assert result.count("1girl") == 1
+
+    def test_limit_is_passed_to_search_request(self, patch_genai):
+        """DB 側の limit パラメータが TagSearchRequest に渡される。"""
+        request_store: dict = {}
+        patch_genai([_FakeItem("tag_1"), _FakeItem("tag_2")], request_store=request_store)
+
+        service = TagSuggestionService(object(), max_results=7)
+        service.get_suggestions("ta")
+
+        assert request_store["request"]["limit"] == 7
 
 
 class TestExtractTagName:
