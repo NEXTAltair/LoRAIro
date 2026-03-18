@@ -118,3 +118,38 @@ class TestClearTagSuggestions:
 
         panel._clear_tag_suggestions()
         assert not panel._tag_suggestion_timer.isActive()
+
+
+class _FakeAsyncSuggestionService:
+    min_chars = 2
+
+    def __init__(self) -> None:
+        self.cached: dict[str, list[str]] = {}
+
+    def get_cached_suggestions(self, query: str) -> list[str] | None:
+        return self.cached.get(query)
+
+    def get_suggestions(self, query: str) -> list[str]:
+        return [f"{query}_tag"]
+
+
+class TestAsyncTagLookup:
+    def test_uses_cached_result_without_async_lookup(self, panel):
+        service = _FakeAsyncSuggestionService()
+        service.cached["bl"] = ["blue_hair"]
+        panel.set_tag_suggestion_service(service)
+        panel.ui.checkboxTags.setChecked(True)
+        panel.ui.lineEditSearch.setText("bl")
+
+        panel._update_tag_completions()
+
+        assert panel._tag_completer_model.stringList() == ["blue_hair"]
+
+    def test_background_lookup_updates_model(self, panel, qtbot):
+        service = _FakeAsyncSuggestionService()
+        panel.set_tag_suggestion_service(service)
+        panel.ui.checkboxTags.setChecked(True)
+        panel.ui.lineEditSearch.setText("blue")
+
+        panel._update_tag_completions()
+        qtbot.waitUntil(lambda: panel._tag_completer_model.stringList() == ["blue_tag"], timeout=1500)

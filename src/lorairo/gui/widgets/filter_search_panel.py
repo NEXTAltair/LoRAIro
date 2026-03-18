@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QStringListModel, Qt, QTimer, Signal
+from PySide6.QtCore import QObject, QRunnable, QStringListModel, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtWidgets import QCompleter, QScrollArea
 
 from ...gui.designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
@@ -27,6 +27,33 @@ class PipelineState(Enum):
     DISPLAYING = "displaying"  # 結果表示中
     ERROR = "error"  # エラー状態
     CANCELED = "canceled"  # キャンセル状態
+
+
+class _TagSuggestionTaskSignals(QObject):
+    """タグ候補検索タスクのシグナル。"""
+
+    finished = Signal(int, str, list)
+    failed = Signal(int, str, str)
+
+
+class _TagSuggestionTask(QRunnable):
+    """TagSuggestionService をバックグラウンドで実行するタスク。"""
+
+    def __init__(self, token: int, query: str, service: "TagSuggestionService") -> None:
+        super().__init__()
+        self._token = token
+        self._query = query
+        self._service = service
+        self.signals = _TagSuggestionTaskSignals()
+
+    def run(self) -> None:
+        try:
+            suggestions = self._service.get_suggestions(self._query)
+        except Exception as e:
+            self.signals.failed.emit(self._token, self._query, str(e))
+            return
+
+        self.signals.finished.emit(self._token, self._query, suggestions)
 
 
 class FilterSearchPanel(QScrollArea):
@@ -67,6 +94,11 @@ class FilterSearchPanel(QScrollArea):
         self._tag_suggestion_timer = QTimer(self)
         self._tag_suggestion_timer.setSingleShot(True)
         self._tag_suggestion_timer.setInterval(300)
+        self._tag_lookup_pool = QThreadPool(self)
+        self._tag_lookup_pool.setMaxThreadCount(1)
+        self._tag_lookup_in_flight = False
+        self._tag_lookup_token = 0
+        self._pending_lookup_query: str | None = None
 
         # 現在のSearchWorkerのID
         self._current_search_worker_id: str | None = None
@@ -235,12 +267,68 @@ class FilterSearchPanel(QScrollArea):
             return
 
         token = self._extract_last_token(self.ui.lineEditSearch.text())
-        suggestions = self.tag_suggestion_service.get_suggestions(token)
-        self._tag_completer_model.setStringList(suggestions)
+        if len(token) < self.tag_suggestion_service.min_chars:
+            self._clear_tag_suggestions()
+            return
 
+        cached_suggestions = self.tag_suggestion_service.get_cached_suggestions(token)
+        if cached_suggestions is not None:
+            self._apply_tag_suggestions(token, cached_suggestions)
+            return
+
+        if self._tag_lookup_in_flight:
+            self._pending_lookup_query = token
+            return
+
+        self._start_tag_lookup(token)
+
+    def _start_tag_lookup(self, token: str) -> None:
+        """タグ候補検索タスクを起動する。"""
+        if self.tag_suggestion_service is None:
+            return
+
+        self._tag_lookup_token += 1
+        request_token = self._tag_lookup_token
+        self._tag_lookup_in_flight = True
+        self._pending_lookup_query = None
+
+        task = _TagSuggestionTask(request_token, token, self.tag_suggestion_service)
+        task.signals.finished.connect(self._on_tag_lookup_finished)
+        task.signals.failed.connect(self._on_tag_lookup_failed)
+        self._tag_lookup_pool.start(task)
+
+    def _on_tag_lookup_finished(self, request_token: int, query: str, suggestions: list[str]) -> None:
+        """非同期タグ候補検索の完了ハンドラ。"""
+        self._tag_lookup_in_flight = False
+        if request_token == self._tag_lookup_token:
+            current_token = self._extract_last_token(self.ui.lineEditSearch.text())
+            if current_token.casefold() == query.casefold():
+                self._apply_tag_suggestions(current_token, suggestions)
+
+        self._dispatch_pending_lookup()
+
+    def _on_tag_lookup_failed(self, request_token: int, query: str, error: str) -> None:
+        """非同期タグ候補検索の失敗ハンドラ。"""
+        self._tag_lookup_in_flight = False
+        if request_token == self._tag_lookup_token:
+            logger.warning("タグ候補非同期検索に失敗: query='{}', error={}", query, error)
+            self._clear_tag_suggestions()
+        self._dispatch_pending_lookup()
+
+    def _dispatch_pending_lookup(self) -> None:
+        """保留中クエリがあれば次の検索を起動する。"""
+        pending_query = self._pending_lookup_query
+        if not pending_query:
+            return
+
+        self._pending_lookup_query = None
+        if self.tag_suggestion_service and len(pending_query) >= self.tag_suggestion_service.min_chars:
+            self._start_tag_lookup(pending_query)
+
+    def _apply_tag_suggestions(self, token: str, suggestions: list[str]) -> None:
+        """候補をモデルに反映し、必要に応じてポップアップ表示する。"""
+        self._tag_completer_model.setStringList(suggestions)
         if suggestions and self.ui.lineEditSearch.hasFocus():
-            # P2 修正: QCompleter のプレフィックスをトークンに合わせる
-            # これにより "1girl, bl" 入力時も "bl" を prefix として候補をフィルタリングできる
             self._tag_completer.setCompletionPrefix(token)
             self._tag_completer.complete()
 
@@ -248,6 +336,7 @@ class FilterSearchPanel(QScrollArea):
         """タグ候補をクリアしてデバウンスタイマーを停止する。"""
         self._tag_suggestion_timer.stop()
         self._tag_completer_model.setStringList([])
+        self._pending_lookup_query = None
 
     def _on_tag_completion_activated(self, selected_tag: str) -> None:
         """候補選択時にカンマ区切り入力の最後のトークンを置換する。
@@ -264,6 +353,14 @@ class FilterSearchPanel(QScrollArea):
 
         self.ui.lineEditSearch.setText(new_text)
         self.ui.lineEditSearch.setCursorPosition(len(new_text))
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        """Widget破棄時にタグ検索関連リソースを解放する。"""
+        self._tag_suggestion_timer.stop()
+        self._pending_lookup_query = None
+        self._tag_lookup_pool.clear()
+        self._tag_lookup_pool.waitForDone(1000)
+        super().closeEvent(event)
 
     def setup_favorite_filters_ui(self) -> None:
         """お気に入りフィルターUIを作成してメインレイアウトに追加 (Phase 4)"""

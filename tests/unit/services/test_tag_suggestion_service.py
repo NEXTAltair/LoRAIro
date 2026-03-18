@@ -92,6 +92,19 @@ class TestTagSuggestionServiceCache:
         assert "bb" in service._cache
         assert "cc" in service._cache
 
+    def test_cached_subset_reuse(self, patch_genai):
+        """先頭一致する親クエリのキャッシュを再利用して DB 再検索を回避する。"""
+        counter: dict = {}
+        patch_genai([_FakeItem("blue_hair"), _FakeItem("blue_eyes"), _FakeItem("black_hair")], counter)
+        service = TagSuggestionService(object(), cache_ttl_seconds=60)
+
+        first = service.get_suggestions("bl")
+        second = service.get_suggestions("blue")
+
+        assert first == ["black_hair", "blue_eyes", "blue_hair"]
+        assert second == ["blue_eyes", "blue_hair"]
+        assert counter["count"] == 1
+
 
 class TestTagSuggestionServiceMinChars:
     """最小文字数チェックのテスト。"""
@@ -142,6 +155,15 @@ class TestTagSuggestionServiceMaxResults:
         result = service.get_suggestions("gi")
 
         assert result.count("1girl") == 1
+
+    def test_contains_sort_priority(self, patch_genai):
+        """候補は exact > prefix > contains の順で並ぶ。"""
+        patch_genai([_FakeItem("blue_hair"), _FakeItem("hair_blue"), _FakeItem("blue")])
+        service = TagSuggestionService(object())
+
+        result = service.get_suggestions("blue")
+
+        assert result == ["blue", "blue_hair", "hair_blue"]
 
 
 class TestExtractTagName:

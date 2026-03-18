@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from threading import RLock
 from time import monotonic
 from typing import TYPE_CHECKING, Any
 
@@ -47,6 +48,7 @@ class TagSuggestionService:
         self.max_results = max_results
         self._cache_size = cache_size
         self._cache_ttl = cache_ttl_seconds
+        self._cache_lock = RLock()
         # OrderedDict で LRU + TTL キャッシュを実装: key -> (timestamp, list[str])
         self._cache: OrderedDict[str, tuple[float, list[str]]] = OrderedDict()
 
@@ -69,15 +71,39 @@ class TagSuggestionService:
         cache_key = normalized.casefold()
         cached = self._get_cache(cache_key)
         if cached is not None:
-            return cached
+            return cached[:]
+
+        subset_cached = self._get_cached_subset(cache_key)
+        if subset_cached is not None:
+            self._set_cache(cache_key, subset_cached)
+            return subset_cached[:]
 
         suggestions = self._search_tags(normalized)
         self._set_cache(cache_key, suggestions)
-        return suggestions
+        return suggestions[:]
+
+    def get_cached_suggestions(self, query: str) -> list[str] | None:
+        """クエリに一致するキャッシュ済み候補を返す（未ヒット時は None）。"""
+        normalized = query.strip()
+        if len(normalized) < self.min_chars:
+            return []
+
+        cache_key = normalized.casefold()
+        cached = self._get_cache(cache_key)
+        if cached is not None:
+            return cached[:]
+
+        subset_cached = self._get_cached_subset(cache_key)
+        if subset_cached is not None:
+            self._set_cache(cache_key, subset_cached)
+            return subset_cached[:]
+
+        return None
 
     def clear_cache(self) -> None:
         """キャッシュをクリアする。"""
-        self._cache.clear()
+        with self._cache_lock:
+            self._cache.clear()
 
     def _search_tags(self, query: str) -> list[str]:
         """genai-tag-db-tools で タグ検索を実行する。"""
@@ -85,13 +111,20 @@ class TagSuggestionService:
             from genai_tag_db_tools import search_tags
             from genai_tag_db_tools.models import TagSearchRequest
 
-            request = TagSearchRequest(
-                query=query,
-                partial=True,
-                resolve_preferred=False,
-                include_aliases=True,
-                include_deprecated=False,
-            )
+            request_kwargs = {
+                "query": query,
+                "partial": True,
+                "resolve_preferred": False,
+                "include_aliases": True,
+                "include_deprecated": False,
+                "limit": self.max_results,
+            }
+            try:
+                request = TagSearchRequest(**request_kwargs)
+            except Exception:
+                # 互換性のため、limit 未対応の旧APIでは limit を除外して再試行
+                request_kwargs.pop("limit", None)
+                request = TagSearchRequest(**request_kwargs)
             result = search_tags(self._merged_reader, request)
 
             # TagSearchResult.items は list[TagRecordPublic]、各 item.tag がタグ文字列
@@ -109,7 +142,7 @@ class TagSuggestionService:
                 if len(candidates) >= self.max_results:
                     break
 
-            return candidates
+            return self._sort_candidates(query, candidates)
 
         except Exception as e:
             logger.warning("タグ候補取得に失敗: query='{}', error={}", query, e)
@@ -138,23 +171,57 @@ class TagSuggestionService:
 
     def _get_cache(self, key: str) -> list[str] | None:
         """キャッシュからエントリを取得する（TTL チェック込み）。"""
-        if key not in self._cache:
-            return None
+        with self._cache_lock:
+            if key not in self._cache:
+                return None
 
-        created_at, data = self._cache[key]
-        if monotonic() - created_at > self._cache_ttl:
-            del self._cache[key]
-            return None
+            created_at, data = self._cache[key]
+            if monotonic() - created_at > self._cache_ttl:
+                del self._cache[key]
+                return None
 
-        # LRU: 最近アクセスしたエントリを末尾へ移動
-        self._cache.move_to_end(key)
-        return data
+            # LRU: 最近アクセスしたエントリを末尾へ移動
+            self._cache.move_to_end(key)
+            return data
 
     def _set_cache(self, key: str, suggestions: list[str]) -> None:
         """キャッシュにエントリを追加する（LRU サイズ制限付き）。"""
-        self._cache[key] = (monotonic(), suggestions)
-        self._cache.move_to_end(key)
+        with self._cache_lock:
+            self._cache[key] = (monotonic(), suggestions)
+            self._cache.move_to_end(key)
 
-        # LRU: サイズ超過時は最古のエントリを削除
-        while len(self._cache) > self._cache_size:
-            self._cache.popitem(last=False)
+            # LRU: サイズ超過時は最古のエントリを削除
+            while len(self._cache) > self._cache_size:
+                self._cache.popitem(last=False)
+
+    def _get_cached_subset(self, key: str) -> list[str] | None:
+        """親クエリのキャッシュから部分集合候補を再利用する。"""
+        with self._cache_lock:
+            now = monotonic()
+            for existing_key, (created_at, cached_items) in reversed(self._cache.items()):
+                if now - created_at > self._cache_ttl:
+                    continue
+                if not key.startswith(existing_key):
+                    continue
+
+                subset = [item for item in cached_items if key in item.casefold()]
+                if not subset:
+                    return []
+                return self._sort_candidates(key, subset)[: self.max_results]
+
+        return None
+
+    @staticmethod
+    def _sort_candidates(query: str, candidates: list[str]) -> list[str]:
+        """候補を exact > prefix > contains の優先度でソートする。"""
+        folded_query = query.casefold()
+
+        def rank(tag: str) -> tuple[int, str]:
+            folded = tag.casefold()
+            if folded == folded_query:
+                return (0, folded)
+            if folded.startswith(folded_query):
+                return (1, folded)
+            return (2, folded)
+
+        return sorted(candidates, key=rank)
