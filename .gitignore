@@ -87,6 +87,10 @@ tmp/
 lorairo_data/
 config/
 
+# モデルファイル・推論結果
+models/
+jsonl/
+
 # テスト用画像
 tests/resources/img/
 !tests/resources/img/1_img/
