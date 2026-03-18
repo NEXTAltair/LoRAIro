@@ -26,7 +26,13 @@ class _FakeResult:
         self.items = items
 
 
-def _make_fake_genai(items: list, call_counter: dict | None = None) -> tuple:
+def _make_fake_genai(
+    items: list,
+    call_counter: dict | None = None,
+    request_sink: dict | None = None,
+    *,
+    supports_limit: bool = False,
+) -> tuple:
     """genai_tag_db_tools のモジュールモックと呼び出しカウンターを返す。"""
 
     def fake_search_tags(_reader, _request):
@@ -34,17 +40,54 @@ def _make_fake_genai(items: list, call_counter: dict | None = None) -> tuple:
             call_counter["count"] = call_counter.get("count", 0) + 1
         return _FakeResult(items)
 
-    fake_models = types.SimpleNamespace(TagSearchRequest=lambda **kwargs: kwargs)
+    if supports_limit:
+        fake_models = types.SimpleNamespace(TagSearchRequest=lambda **kwargs: kwargs)
+    else:
+        fake_models = types.SimpleNamespace(TagSearchRequest=_make_tag_search_request_without_limit(request_sink))
+
+    if request_sink is not None and supports_limit:
+        fake_models.TagSearchRequest = _make_tag_search_request_with_limit(request_sink)
+
     fake_module = types.SimpleNamespace(search_tags=fake_search_tags)
     return fake_module, fake_models
+
+
+def _make_tag_search_request_with_limit(request_sink: dict):
+    def _factory(**kwargs):
+        request_sink["kwargs"] = kwargs
+        return kwargs
+
+    _factory.model_fields = {"query": object(), "limit": object()}
+    return _factory
+
+
+def _make_tag_search_request_without_limit(request_sink: dict | None):
+    def _factory(**kwargs):
+        if request_sink is not None:
+            request_sink["kwargs"] = kwargs
+        return kwargs
+
+    _factory.model_fields = {"query": object()}
+    return _factory
 
 
 @pytest.fixture()
 def patch_genai(monkeypatch):
     """genai_tag_db_tools をモジュールレベルでモックするフィクスチャ。"""
 
-    def _patch(items: list, call_counter: dict | None = None):
-        fake_module, fake_models = _make_fake_genai(items, call_counter)
+    def _patch(
+        items: list,
+        call_counter: dict | None = None,
+        request_sink: dict | None = None,
+        *,
+        supports_limit: bool = False,
+    ):
+        fake_module, fake_models = _make_fake_genai(
+            items,
+            call_counter,
+            request_sink,
+            supports_limit=supports_limit,
+        )
         monkeypatch.setitem(sys.modules, "genai_tag_db_tools", fake_module)
         monkeypatch.setitem(sys.modules, "genai_tag_db_tools.models", fake_models)
 
@@ -142,6 +185,32 @@ class TestTagSuggestionServiceMaxResults:
         result = service.get_suggestions("gi")
 
         assert result.count("1girl") == 1
+
+    def test_prefix_matches_prioritized(self, patch_genai):
+        patch_genai([_FakeItem("blue_hair"), _FakeItem("long_blue_hair"), _FakeItem("blush")])
+
+        service = TagSuggestionService(object(), max_results=5)
+        result = service.get_suggestions("bl")
+
+        assert result == ["blue_hair", "blush", "long_blue_hair"]
+
+    def test_limit_passed_when_supported(self, patch_genai):
+        request_sink: dict = {}
+        patch_genai([_FakeItem("blue_hair")], request_sink=request_sink, supports_limit=True)
+
+        service = TagSuggestionService(object(), max_results=7)
+        _ = service.get_suggestions("bl")
+
+        assert request_sink["kwargs"]["limit"] == 7
+
+    def test_limit_not_passed_when_unsupported(self, patch_genai):
+        request_sink: dict = {}
+        patch_genai([_FakeItem("blue_hair")], request_sink=request_sink, supports_limit=False)
+
+        service = TagSuggestionService(object(), max_results=7)
+        _ = service.get_suggestions("bl")
+
+        assert "limit" not in request_sink["kwargs"]
 
 
 class TestExtractTagName:

@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QStringListModel, Qt, QTimer, Signal
+from PySide6.QtCore import QObject, QRunnable, QStringListModel, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtWidgets import QCompleter, QScrollArea
 
 from ...gui.designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
@@ -12,9 +12,9 @@ from ...utils.log import logger
 from .custom_range_slider import CustomRangeSlider
 
 if TYPE_CHECKING:
+    from ...services.search_models import SearchConditions
     from ...services.tag_suggestion_service import TagSuggestionService
     from ..services.search_filter_service import SearchFilterService
-    from ...services.search_models import SearchConditions
     from ..services.worker_service import WorkerService
 
 
@@ -27,6 +27,27 @@ class PipelineState(Enum):
     DISPLAYING = "displaying"  # 結果表示中
     ERROR = "error"  # エラー状態
     CANCELED = "canceled"  # キャンセル状態
+
+
+class _TagSuggestionWorkerSignals(QObject):
+    """タグ候補検索ワーカー用シグナル。"""
+
+    finished = Signal(int, str, list)  # request_id, token, suggestions
+
+
+class _TagSuggestionWorker(QRunnable):
+    """TagSuggestionService をバックグラウンド実行するQRunnable。"""
+
+    def __init__(self, request_id: int, token: str, tag_suggestion_service: "TagSuggestionService") -> None:
+        super().__init__()
+        self.request_id = request_id
+        self.token = token
+        self.tag_suggestion_service = tag_suggestion_service
+        self.signals = _TagSuggestionWorkerSignals()
+
+    def run(self) -> None:
+        suggestions = self.tag_suggestion_service.get_suggestions(self.token)
+        self.signals.finished.emit(self.request_id, self.token, suggestions)
 
 
 class FilterSearchPanel(QScrollArea):
@@ -67,6 +88,10 @@ class FilterSearchPanel(QScrollArea):
         self._tag_suggestion_timer = QTimer(self)
         self._tag_suggestion_timer.setSingleShot(True)
         self._tag_suggestion_timer.setInterval(300)
+        self._tag_suggestion_thread_pool = QThreadPool.globalInstance()
+        self._tag_request_sequence = 0
+        self._latest_tag_request_id = 0
+        self._active_tag_workers: dict[int, _TagSuggestionWorker] = {}
 
         # 現在のSearchWorkerのID
         self._current_search_worker_id: str | None = None
@@ -235,18 +260,39 @@ class FilterSearchPanel(QScrollArea):
             return
 
         token = self._extract_last_token(self.ui.lineEditSearch.text())
-        suggestions = self.tag_suggestion_service.get_suggestions(token)
-        self._tag_completer_model.setStringList(suggestions)
+        if len(token) < self.tag_suggestion_service.min_chars:
+            self._clear_tag_suggestions()
+            return
 
+        self._tag_request_sequence += 1
+        request_id = self._tag_request_sequence
+        self._latest_tag_request_id = request_id
+
+        worker = _TagSuggestionWorker(request_id, token, self.tag_suggestion_service)
+        worker.signals.finished.connect(self._on_tag_suggestions_ready)
+        self._active_tag_workers[request_id] = worker
+        self._tag_suggestion_thread_pool.start(worker)
+
+    def _on_tag_suggestions_ready(self, request_id: int, token: str, suggestions: list[str]) -> None:
+        """バックグラウンドで取得したタグ候補をUIへ反映する。"""
+        self._active_tag_workers.pop(request_id, None)
+
+        if request_id != self._latest_tag_request_id:
+            return
+
+        current_token = self._extract_last_token(self.ui.lineEditSearch.text())
+        if current_token.casefold() != token.casefold():
+            return
+
+        self._tag_completer_model.setStringList(suggestions)
         if suggestions and self.ui.lineEditSearch.hasFocus():
-            # P2 修正: QCompleter のプレフィックスをトークンに合わせる
-            # これにより "1girl, bl" 入力時も "bl" を prefix として候補をフィルタリングできる
             self._tag_completer.setCompletionPrefix(token)
             self._tag_completer.complete()
 
     def _clear_tag_suggestions(self) -> None:
         """タグ候補をクリアしてデバウンスタイマーを停止する。"""
         self._tag_suggestion_timer.stop()
+        self._latest_tag_request_id = self._tag_request_sequence
         self._tag_completer_model.setStringList([])
 
     def _on_tag_completion_activated(self, selected_tag: str) -> None:

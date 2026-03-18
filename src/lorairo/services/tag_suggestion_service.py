@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import inspect
 from collections import OrderedDict
 from time import monotonic
 from typing import TYPE_CHECKING, Any
@@ -85,18 +86,24 @@ class TagSuggestionService:
             from genai_tag_db_tools import search_tags
             from genai_tag_db_tools.models import TagSearchRequest
 
-            request = TagSearchRequest(
-                query=query,
-                partial=True,
-                resolve_preferred=False,
-                include_aliases=True,
-                include_deprecated=False,
-            )
+            request_kwargs: dict[str, Any] = {
+                "query": query,
+                "partial": True,
+                "resolve_preferred": False,
+                "include_aliases": True,
+                "include_deprecated": False,
+            }
+            if self._supports_limit_parameter(TagSearchRequest):
+                request_kwargs["limit"] = self.max_results
+
+            request = TagSearchRequest(**request_kwargs)
             result = search_tags(self._merged_reader, request)
 
             # TagSearchResult.items は list[TagRecordPublic]、各 item.tag がタグ文字列
-            candidates: list[str] = []
+            prefix_matches: list[str] = []
+            partial_matches: list[str] = []
             seen: set[str] = set()
+            query_key = query.casefold()
             for item in result.items:
                 tag_name = self._extract_tag_name(item)
                 if not tag_name:
@@ -105,15 +112,34 @@ class TagSuggestionService:
                 if key in seen:
                     continue
                 seen.add(key)
-                candidates.append(tag_name)
-                if len(candidates) >= self.max_results:
+
+                if key.startswith(query_key):
+                    prefix_matches.append(tag_name)
+                else:
+                    partial_matches.append(tag_name)
+
+                if len(prefix_matches) + len(partial_matches) >= self.max_results:
                     break
 
-            return candidates
+            return (prefix_matches + partial_matches)[: self.max_results]
 
         except Exception as e:
             logger.warning("タグ候補取得に失敗: query='{}', error={}", query, e)
             return []
+
+    @staticmethod
+    def _supports_limit_parameter(tag_search_request_cls: type) -> bool:
+        """TagSearchRequest が limit パラメータを受け付けるか判定する。"""
+        model_fields = getattr(tag_search_request_cls, "model_fields", None)
+        if isinstance(model_fields, dict):
+            return "limit" in model_fields
+
+        try:
+            signature = inspect.signature(tag_search_request_cls)
+        except (TypeError, ValueError):
+            return False
+
+        return "limit" in signature.parameters
 
     @staticmethod
     def _extract_tag_name(item: Any) -> str | None:
