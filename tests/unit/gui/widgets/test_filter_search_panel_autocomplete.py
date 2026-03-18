@@ -118,3 +118,30 @@ class TestClearTagSuggestions:
 
         panel._clear_tag_suggestions()
         assert not panel._tag_suggestion_timer.isActive()
+
+
+class TestAsyncTagSuggestions:
+    """非同期タグ候補更新の動作テスト。"""
+
+    def test_ignores_stale_result(self, panel):
+        """古いリクエストIDの結果は UI に反映しない。"""
+        panel._latest_tag_request_id = 3
+        panel.ui.checkboxTags.setChecked(True)
+        panel.ui.lineEditSearch.setEnabled(True)
+        panel.ui.lineEditSearch.setText("bl")
+        panel._tag_completer_model.setStringList(["existing"])
+
+        panel._on_tag_suggestions_ready(2, "bl", ["blue_hair"])
+
+        assert panel._tag_completer_model.stringList() == ["existing"]
+
+    def test_applies_latest_result(self, panel):
+        """最新リクエストIDかつトークン一致なら UI に反映する。"""
+        panel._latest_tag_request_id = 4
+        panel.ui.checkboxTags.setChecked(True)
+        panel.ui.lineEditSearch.setEnabled(True)
+        panel.ui.lineEditSearch.setText("bl")
+
+        panel._on_tag_suggestions_ready(4, "bl", ["blue_hair", "blush"])
+
+        assert panel._tag_completer_model.stringList() == ["blue_hair", "blush"]

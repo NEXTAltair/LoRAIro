@@ -32,6 +32,7 @@ def _make_fake_genai(items: list, call_counter: dict | None = None) -> tuple:
     def fake_search_tags(_reader, _request):
         if call_counter is not None:
             call_counter["count"] = call_counter.get("count", 0) + 1
+            call_counter["request"] = _request
         return _FakeResult(items)
 
     fake_models = types.SimpleNamespace(TagSearchRequest=lambda **kwargs: kwargs)
@@ -92,6 +93,19 @@ class TestTagSuggestionServiceCache:
         assert "bb" in service._cache
         assert "cc" in service._cache
 
+    def test_reuses_parent_query_cache(self, patch_genai):
+        """より短いクエリのキャッシュから部分集合を再利用できる。"""
+        counter: dict = {}
+        patch_genai([_FakeItem("blue_hair"), _FakeItem("blush"), _FakeItem("solo")], counter)
+        service = TagSuggestionService(object(), cache_ttl_seconds=60)
+
+        parent = service.get_suggestions("bl")
+        narrowed = service.get_suggestions("blu")
+
+        assert "blue_hair" in parent
+        assert narrowed == ["blue_hair"]
+        assert counter["count"] == 1
+
 
 class TestTagSuggestionServiceMinChars:
     """最小文字数チェックのテスト。"""
@@ -142,6 +156,17 @@ class TestTagSuggestionServiceMaxResults:
         result = service.get_suggestions("gi")
 
         assert result.count("1girl") == 1
+
+    def test_limit_is_passed_when_supported(self, patch_genai):
+        """TagSearchRequest が limit を受け取れる場合は DB 側 LIMIT を利用する。"""
+        counter: dict = {}
+        patch_genai([_FakeItem("1girl")], counter)
+
+        service = TagSuggestionService(object(), max_results=7)
+        service.get_suggestions("gi")
+
+        request = counter["request"]
+        assert request["limit"] == 7
 
 
 class TestExtractTagName:

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from time import monotonic
+from threading import RLock
 from typing import TYPE_CHECKING, Any
 
 from ..utils.log import logger
@@ -49,6 +50,7 @@ class TagSuggestionService:
         self._cache_ttl = cache_ttl_seconds
         # OrderedDict で LRU + TTL キャッシュを実装: key -> (timestamp, list[str])
         self._cache: OrderedDict[str, tuple[float, list[str]]] = OrderedDict()
+        self._cache_lock = RLock()
 
     def get_suggestions(self, query: str) -> list[str]:
         """入力文字列からタグ候補一覧を取得する。
@@ -70,6 +72,10 @@ class TagSuggestionService:
         cached = self._get_cache(cache_key)
         if cached is not None:
             return cached
+        cached_from_prefix = self._get_cached_subset(cache_key)
+        if cached_from_prefix is not None:
+            self._set_cache(cache_key, cached_from_prefix)
+            return cached_from_prefix
 
         suggestions = self._search_tags(normalized)
         self._set_cache(cache_key, suggestions)
@@ -77,7 +83,8 @@ class TagSuggestionService:
 
     def clear_cache(self) -> None:
         """キャッシュをクリアする。"""
-        self._cache.clear()
+        with self._cache_lock:
+            self._cache.clear()
 
     def _search_tags(self, query: str) -> list[str]:
         """genai-tag-db-tools で タグ検索を実行する。"""
@@ -85,13 +92,21 @@ class TagSuggestionService:
             from genai_tag_db_tools import search_tags
             from genai_tag_db_tools.models import TagSearchRequest
 
-            request = TagSearchRequest(
-                query=query,
-                partial=True,
-                resolve_preferred=False,
-                include_aliases=True,
-                include_deprecated=False,
-            )
+            request_kwargs = {
+                "query": query,
+                "partial": True,
+                "resolve_preferred": False,
+                "include_aliases": True,
+                "include_deprecated": False,
+                # 新しい genai-tag-db-tools では DB 側 LIMIT が使える
+                "limit": self.max_results,
+            }
+            try:
+                request = TagSearchRequest(**request_kwargs)
+            except TypeError:
+                # 旧バージョン互換（limit 未対応）
+                request_kwargs.pop("limit", None)
+                request = TagSearchRequest(**request_kwargs)
             result = search_tags(self._merged_reader, request)
 
             # TagSearchResult.items は list[TagRecordPublic]、各 item.tag がタグ文字列
@@ -138,23 +153,38 @@ class TagSuggestionService:
 
     def _get_cache(self, key: str) -> list[str] | None:
         """キャッシュからエントリを取得する（TTL チェック込み）。"""
-        if key not in self._cache:
-            return None
+        with self._cache_lock:
+            if key not in self._cache:
+                return None
 
-        created_at, data = self._cache[key]
-        if monotonic() - created_at > self._cache_ttl:
-            del self._cache[key]
-            return None
+            created_at, data = self._cache[key]
+            if monotonic() - created_at > self._cache_ttl:
+                del self._cache[key]
+                return None
 
-        # LRU: 最近アクセスしたエントリを末尾へ移動
-        self._cache.move_to_end(key)
-        return data
+            # LRU: 最近アクセスしたエントリを末尾へ移動
+            self._cache.move_to_end(key)
+            return data
 
     def _set_cache(self, key: str, suggestions: list[str]) -> None:
         """キャッシュにエントリを追加する（LRU サイズ制限付き）。"""
-        self._cache[key] = (monotonic(), suggestions)
-        self._cache.move_to_end(key)
+        with self._cache_lock:
+            self._cache[key] = (monotonic(), suggestions)
+            self._cache.move_to_end(key)
 
-        # LRU: サイズ超過時は最古のエントリを削除
-        while len(self._cache) > self._cache_size:
-            self._cache.popitem(last=False)
+            # LRU: サイズ超過時は最古のエントリを削除
+            while len(self._cache) > self._cache_size:
+                self._cache.popitem(last=False)
+
+    def _get_cached_subset(self, key: str) -> list[str] | None:
+        """より短いキャッシュキーから部分集合を推定する。"""
+        with self._cache_lock:
+            now = monotonic()
+            for cached_key, (created_at, cached_items) in reversed(self._cache.items()):
+                if now - created_at > self._cache_ttl:
+                    continue
+                if not key.startswith(cached_key):
+                    continue
+                filtered = [item for item in cached_items if key in item.casefold()]
+                return filtered[: self.max_results]
+        return None
