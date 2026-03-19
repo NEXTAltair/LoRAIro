@@ -411,7 +411,13 @@ class ImageDatabaseManager:
             )
             return None
 
-    def save_tags(self, image_id: int, tags_data: list[TagAnnotationData]) -> None:
+    def save_tags(
+        self,
+        image_id: int,
+        tags_data: list[TagAnnotationData],
+        *,
+        tag_id_cache: dict[str, int | None] | None = None,
+    ) -> None:
         """指定された画像のタグ情報を保存・更新します。"""
         try:
             annotations_to_save: AnnotationsDict = {
@@ -420,7 +426,11 @@ class ImageDatabaseManager:
                 "scores": [],
                 "ratings": [],
             }
-            self.repository.save_annotations(image_id, annotations_to_save)
+            self.repository.save_annotations(
+                image_id,
+                annotations_to_save,
+                tag_id_cache=tag_id_cache,
+            )
             logger.debug(f"画像 ID {image_id} のタグ {len(tags_data)} 件を保存しました。")
         except Exception as e:
             logger.error(f"画像 ID {image_id} のタグ保存中にエラー: {e}", exc_info=True)
