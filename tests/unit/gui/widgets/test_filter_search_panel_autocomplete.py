@@ -1,6 +1,8 @@
 # tests/unit/gui/widgets/test_filter_search_panel_autocomplete.py
 # FilterSearchPanel のタグオートコンプリート機能テスト。
 
+from unittest.mock import MagicMock
+
 import pytest
 from PySide6.QtWidgets import QCompleter
 
@@ -71,8 +73,6 @@ class TestTagSuggestionServiceInjection:
 
     def test_set_tag_suggestion_service(self, panel):
         """set_tag_suggestion_service でサービスが設定される。"""
-        from unittest.mock import MagicMock
-
         mock_service = MagicMock()
         panel.set_tag_suggestion_service(mock_service)
 
@@ -117,4 +117,34 @@ class TestClearTagSuggestions:
         assert panel._tag_suggestion_timer.isActive()
 
         panel._clear_tag_suggestions()
+        assert not panel._tag_suggestion_timer.isActive()
+
+
+class TestCacheFirstAutocomplete:
+    """キャッシュ優先で候補表示する動作テスト。"""
+
+    def test_cached_suggestions_shown_without_timer(self, panel):
+        mock_service = MagicMock()
+        mock_service.min_chars = 2
+        mock_service.get_cached_suggestions.return_value = ["blue_hair", "blush"]
+        panel.set_tag_suggestion_service(mock_service)
+        panel.ui.checkboxTags.setChecked(True)
+        panel.ui.lineEditSearch.setEnabled(True)
+
+        panel._on_search_text_edited("bl")
+
+        assert panel._tag_completer_model.stringList() == ["blue_hair", "blush"]
+        assert not panel._tag_suggestion_timer.isActive()
+
+
+class TestWidgetCloseCleanup:
+    """closeEvent 時のクリーンアップ動作。"""
+
+    def test_close_event_stops_timer_and_clears_pending(self, panel):
+        panel._pending_tag_token = "blue"
+        panel._tag_suggestion_timer.start(5000)
+
+        panel.close()
+
+        assert panel._pending_tag_token is None
         assert not panel._tag_suggestion_timer.isActive()

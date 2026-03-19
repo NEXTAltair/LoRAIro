@@ -135,6 +135,35 @@ class TestTagSuggestionServiceCache:
         assert "bb" in service._cache
         assert "cc" in service._cache
 
+    def test_get_cached_subset_reuses_prefix_cache(self, patch_genai):
+        counter: dict = {}
+        patch_genai([_FakeItem("blue_hair"), _FakeItem("blush"), _FakeItem("solo")], counter)
+
+        service = TagSuggestionService(object(), cache_ttl_seconds=60)
+        first = service.get_suggestions("bl")
+        second = service.get_suggestions("blu")
+
+        assert first == ["blue_hair", "blush"]
+        assert second == ["blue_hair"]
+        assert counter["count"] == 1
+
+    def test_get_cached_suggestions_returns_none_when_cache_miss(self, patch_genai):
+        patch_genai([_FakeItem("blue_hair")])
+        service = TagSuggestionService(object(), cache_ttl_seconds=60)
+        assert service.get_cached_suggestions("bl") is None
+
+    def test_get_cached_suggestions_uses_subset_without_db(self, patch_genai):
+        counter: dict = {}
+        patch_genai([_FakeItem("blue_hair"), _FakeItem("blush")], counter)
+        service = TagSuggestionService(object(), cache_ttl_seconds=60)
+        _ = service.get_suggestions("bl")
+        before = counter["count"]
+
+        cached = service.get_cached_suggestions("blu")
+
+        assert cached == ["blue_hair"]
+        assert counter["count"] == before
+
 
 class TestTagSuggestionServiceMinChars:
     """最小文字数チェックのテスト。"""
@@ -187,12 +216,12 @@ class TestTagSuggestionServiceMaxResults:
         assert result.count("1girl") == 1
 
     def test_prefix_matches_prioritized(self, patch_genai):
-        patch_genai([_FakeItem("blue_hair"), _FakeItem("long_blue_hair"), _FakeItem("blush")])
+        patch_genai([_FakeItem("bl"), _FakeItem("blue_hair"), _FakeItem("long_blue_hair"), _FakeItem("blush")])
 
         service = TagSuggestionService(object(), max_results=5)
         result = service.get_suggestions("bl")
 
-        assert result == ["blue_hair", "blush", "long_blue_hair"]
+        assert result == ["bl", "blue_hair", "blush", "long_blue_hair"]
 
     def test_limit_passed_when_supported(self, patch_genai):
         request_sink: dict = {}
