@@ -37,6 +37,8 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         self.db_manager = db_manager
         self.fsm = fsm
         self.file_reader = ExistingFileReader()
+        self._annotation_cache: dict[Path, dict[str, object] | None] = {}
+        self._tag_id_cache: dict[str, int | None] = {}
 
     def execute(self) -> DatabaseRegistrationResult:
         """データベース登録処理を実行
@@ -65,6 +67,9 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
 
         logger.info(f"登録対象画像: {total_count}件")
 
+        # 事前にアノテーションを読み込み、タグIDを一括解決（N+1回避）
+        self._prepare_annotation_caches(image_files)
+
         # 統計情報初期化
         stats = {"registered": 0, "skipped": 0, "errors": 0}
         processed_paths: list[Path] = []
@@ -81,7 +86,26 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
 
         # 完了処理
         self._report_progress(100, "データベース登録完了")
-        return self._build_registration_result(stats, processed_paths, start_time)
+        result = self._build_registration_result(stats, processed_paths, start_time)
+        self._annotation_cache.clear()
+        self._tag_id_cache.clear()
+        return result
+
+    def _prepare_annotation_caches(self, image_files: list[Path]) -> None:
+        """画像ごとの既存アノテーションをキャッシュし、タグIDを一括解決する。"""
+        all_tags: set[str] = set()
+        for image_path in image_files:
+            annotations = self.file_reader.get_existing_annotations(image_path)
+            self._annotation_cache[image_path] = annotations
+            if annotations:
+                tags = annotations.get("tags", [])
+                if isinstance(tags, list):
+                    all_tags.update(tag for tag in tags if isinstance(tag, str) and tag)
+
+        if all_tags:
+            self._tag_id_cache = self.db_manager.repository.batch_resolve_tag_ids(all_tags)
+        else:
+            self._tag_id_cache = {}
 
     def _process_single_image_in_batch(
         self,
@@ -225,7 +249,9 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             image_path: 画像ファイルのパス。
             image_id: データベースの画像ID。
         """
-        annotations = self.file_reader.get_existing_annotations(image_path)
+        annotations = self._annotation_cache.get(image_path)
+        if annotations is None:
+            annotations = self.file_reader.get_existing_annotations(image_path)
         if not annotations:
             return
 
@@ -235,7 +261,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
 
             tags_data: list[TagAnnotationData] = [
                 {
-                    "tag_id": None,
+                    "tag_id": self._tag_id_cache.get(tag),
                     "model_id": None,
                     "tag": tag,
                     "confidence_score": None,
@@ -244,7 +270,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
                 }
                 for tag in tags
             ]
-            self.db_manager.save_tags(image_id, tags_data)
+            self.db_manager.save_tags(image_id, tags_data, tag_id_cache=self._tag_id_cache)
             logger.debug(f"タグを追加: {image_path.name} - {len(tags)}個のタグ")
 
         captions = annotations.get("captions", [])
