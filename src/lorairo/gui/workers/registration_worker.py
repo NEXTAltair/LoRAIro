@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from genai_tag_db_tools.utils.cleanup_str import TagCleaner
+
 from ...annotations.existing_file_reader import ExistingFileReader
 from ...utils.log import logger
 from .base import LoRAIroWorkerBase
@@ -37,6 +39,8 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         self.db_manager = db_manager
         self.fsm = fsm
         self.file_reader = ExistingFileReader()
+        self._annotations_cache: dict[Path, dict[str, object]] = {}
+        self._tag_id_cache: dict[str, int | None] = {}
 
     def execute(self) -> DatabaseRegistrationResult:
         """データベース登録処理を実行
@@ -64,6 +68,9 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             return DatabaseRegistrationResult(0, 0, 0, [], 0.0)
 
         logger.info(f"登録対象画像: {total_count}件")
+
+        # 事前処理: 関連テキストを1回だけ読み取り、タグIDを一括解決（N+1回避）
+        self._prepare_annotation_cache(image_files)
 
         # 統計情報初期化
         stats = {"registered": 0, "skipped": 0, "errors": 0}
@@ -218,6 +225,43 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
 
         return registration_result
 
+    def _prepare_annotation_cache(self, image_files: list[Path]) -> None:
+        """関連アノテーションを事前読み込みし、タグIDを一括解決する。"""
+        self._annotations_cache.clear()
+        self._tag_id_cache.clear()
+
+        all_normalized_tags: set[str] = set()
+        for image_path in image_files:
+            self._check_cancellation()
+            annotations = self.file_reader.get_existing_annotations(image_path)
+            if not annotations:
+                continue
+
+            self._annotations_cache[image_path] = annotations
+            tags = annotations.get("tags", [])
+            if not isinstance(tags, list):
+                continue
+
+            for raw_tag in tags:
+                if not isinstance(raw_tag, str):
+                    continue
+                normalized = TagCleaner.clean_format(raw_tag).strip()
+                if normalized:
+                    all_normalized_tags.add(normalized)
+
+        if not all_normalized_tags:
+            return
+
+        try:
+            self._tag_id_cache = self.db_manager.repository.batch_resolve_tag_ids(all_normalized_tags)
+            logger.info(
+                "フォルダ登録のタグID一括解決完了: "
+                f"{len(self._tag_id_cache)}件（ユニークタグ {len(all_normalized_tags)}件）"
+            )
+        except Exception as e:
+            logger.warning(f"タグID一括解決に失敗したため個別解決へフォールバック: {e}")
+            self._tag_id_cache = {}
+
     def _process_associated_files(self, image_path: Path, image_id: int) -> None:
         """画像ファイルに関連する.txtと.captionファイルを処理し、データベースに登録する。
 
@@ -225,17 +269,20 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             image_path: 画像ファイルのパス。
             image_id: データベースの画像ID。
         """
-        annotations = self.file_reader.get_existing_annotations(image_path)
+        annotations = self._annotations_cache.pop(image_path, None)
+        if annotations is None:
+            annotations = self.file_reader.get_existing_annotations(image_path)
         if not annotations:
             return
 
-        tags = annotations.get("tags", [])
+        raw_tags = annotations.get("tags", [])
+        tags = [tag for tag in raw_tags if isinstance(tag, str)] if isinstance(raw_tags, list) else []
         if tags:
             from ...database.db_repository import TagAnnotationData
 
             tags_data: list[TagAnnotationData] = [
                 {
-                    "tag_id": None,
+                    "tag_id": self._tag_id_cache.get(TagCleaner.clean_format(tag).strip()),
                     "model_id": None,
                     "tag": tag,
                     "confidence_score": None,
@@ -247,7 +294,12 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             self.db_manager.save_tags(image_id, tags_data)
             logger.debug(f"タグを追加: {image_path.name} - {len(tags)}個のタグ")
 
-        captions = annotations.get("captions", [])
+        raw_captions = annotations.get("captions", [])
+        captions = (
+            [caption for caption in raw_captions if isinstance(caption, str)]
+            if isinstance(raw_captions, list)
+            else []
+        )
         if captions:
             from ...database.db_repository import CaptionAnnotationData
 
