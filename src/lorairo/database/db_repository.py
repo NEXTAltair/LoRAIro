@@ -1288,17 +1288,18 @@ class ImageRepository:
             is_existing_tag = tag_info.get("existing", False)  # 元ファイル由来か
 
             # 外部DBから tag_id を取得/作成
-            # キャッシュがある場合は正規化後のタグで検索し、ミス時はフォールバック
-            external_tag_id: int | None = None
-            if tag_id_cache is not None:
-                normalized_key = TagCleaner.clean_format(tag_string).strip()
-                if normalized_key in tag_id_cache:
-                    external_tag_id = tag_id_cache[normalized_key]
+            # 呼び出し元が設定済みの tag_id を優先し、未設定時はキャッシュ→個別照会の順
+            external_tag_id: int | None = tag_info.get("tag_id")
+            if external_tag_id is None:
+                if tag_id_cache is not None:
+                    normalized_key = TagCleaner.clean_format(tag_string).strip()
+                    if normalized_key in tag_id_cache:
+                        external_tag_id = tag_id_cache[normalized_key]
+                    else:
+                        # キャッシュミス: 従来の個別照会にフォールバック
+                        external_tag_id = self._get_or_create_tag_id_external(session, tag_string)
                 else:
-                    # キャッシュミス: 従来の個別照会にフォールバック
                     external_tag_id = self._get_or_create_tag_id_external(session, tag_string)
-            else:
-                external_tag_id = self._get_or_create_tag_id_external(session, tag_string)
 
             if external_tag_id is None and tag_string:
                 logger.warning(

@@ -385,6 +385,7 @@ class TestRegisterSingleImage:
 
         # モック設定
         mock_db_manager.detect_duplicate_image.return_value = 42  # 重複画像ID
+        mock_db_manager.repository = Mock()
 
         # ExistingFileReader をモック
         with patch.object(worker, "file_reader") as mock_file_reader:
@@ -400,7 +401,7 @@ class TestRegisterSingleImage:
             worker._report_progress.assert_called_once()
 
     def test_register_single_image_with_tags_only(self, temp_dir, worker_setup):
-        """".txt 存在、.caption 不在"""
+        """ ".txt 存在、.caption 不在"""
         worker, mock_db_manager, mock_fsm = worker_setup
 
         image_path = temp_dir / "test.jpg"
@@ -728,9 +729,10 @@ class TestBuildRegistrationResult:
         processed_paths = [Path(f"img{i}.jpg") for i in range(5)]
         start_time = 0.0
 
-        with patch("time.time", return_value=2.0), patch(
-            "lorairo.gui.workers.registration_worker.logger"
-        ) as mock_logger:
+        with (
+            patch("time.time", return_value=2.0),
+            patch("lorairo.gui.workers.registration_worker.logger") as mock_logger,
+        ):
             result = worker._build_registration_result(stats, processed_paths, start_time)
 
             # INFO ログが呼ばれたことを確認
@@ -749,9 +751,10 @@ class TestBuildRegistrationResult:
         processed_paths = [Path(f"img{i}.jpg") for i in range(3)]
         start_time = 0.0
 
-        with patch("time.time", return_value=1.5), patch(
-            "lorairo.gui.workers.registration_worker.logger"
-        ) as mock_logger:
+        with (
+            patch("time.time", return_value=1.5),
+            patch("lorairo.gui.workers.registration_worker.logger") as mock_logger,
+        ):
             result = worker._build_registration_result(stats, processed_paths, start_time)
 
             # DEBUG ログが呼ばれていないことを確認
@@ -870,9 +873,11 @@ class TestRegistrationErrorHandling:
         worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
 
         # register_original_imageをMock化
-        with patch.object(real_db_manager, "detect_duplicate_image") as mock_detect, \
-             patch.object(real_db_manager, "register_original_image") as mock_register, \
-             patch.object(worker, "_check_cancellation") as mock_cancel:
+        with (
+            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
+            patch.object(real_db_manager, "register_original_image") as mock_register,
+            patch.object(worker, "_check_cancellation") as mock_cancel,
+        ):
             mock_detect.return_value = None
             mock_register.return_value = (1, {})
 
@@ -888,9 +893,11 @@ class TestRegistrationErrorHandling:
 
     def test_exception_in_db_registration(self, temp_dir, real_db_manager, mock_fsm):
         """register_original_imageが例外を発生した場合の処理確認"""
-        with patch.object(real_db_manager, "detect_duplicate_image") as mock_detect, \
-             patch.object(real_db_manager, "register_original_image") as mock_register, \
-             patch.object(real_db_manager, "save_error_record") as mock_save_error:
+        with (
+            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
+            patch.object(real_db_manager, "register_original_image") as mock_register,
+            patch.object(real_db_manager, "save_error_record") as mock_save_error,
+        ):
             mock_detect.return_value = None
             mock_register.side_effect = ValueError("登録エラー")
 
@@ -902,14 +909,14 @@ class TestRegistrationErrorHandling:
             # error_countが増加したことを確認
             assert result.error_count == 3
 
-    def test_secondary_error_in_save_error_record(
-        self, temp_dir, real_db_manager, mock_fsm
-    ):
+    def test_secondary_error_in_save_error_record(self, temp_dir, real_db_manager, mock_fsm):
         """save_error_record自体が例外を発生した場合の処理確認"""
-        with patch.object(real_db_manager, "detect_duplicate_image") as mock_detect, \
-             patch.object(real_db_manager, "register_original_image") as mock_register, \
-             patch.object(real_db_manager, "save_error_record") as mock_save_error, \
-             patch("lorairo.gui.workers.registration_worker.logger") as mock_logger:
+        with (
+            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
+            patch.object(real_db_manager, "register_original_image") as mock_register,
+            patch.object(real_db_manager, "save_error_record") as mock_save_error,
+            patch("lorairo.gui.workers.registration_worker.logger") as mock_logger,
+        ):
             mock_detect.return_value = None
             mock_register.side_effect = ValueError("登録エラー")
             mock_save_error.side_effect = Exception("エラー保存失敗")
@@ -921,17 +928,21 @@ class TestRegistrationErrorHandling:
             assert result.error_count == 3
             # logger.error で二次エラーが記録されることを確認
             # save_error_record の例外ハンドルで logger.error() が呼ばれる
-            assert any("エラーレコード保存失敗（二次エラー）" in str(call)
-                      for call in mock_logger.error.call_args_list)
+            assert any(
+                "エラーレコード保存失敗（二次エラー）" in str(call)
+                for call in mock_logger.error.call_args_list
+            )
 
     def test_progress_reporting_sequence(self, temp_dir, real_db_manager, mock_fsm):
         """進捗報告の呼び出し順序確認"""
         worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
 
-        with patch.object(real_db_manager, "detect_duplicate_image") as mock_detect, \
-             patch.object(real_db_manager, "register_original_image") as mock_register, \
-             patch.object(worker, "_report_progress") as mock_progress, \
-             patch.object(worker, "_report_batch_progress") as mock_batch:
+        with (
+            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
+            patch.object(real_db_manager, "register_original_image") as mock_register,
+            patch.object(worker, "_report_progress") as mock_progress,
+            patch.object(worker, "_report_batch_progress") as mock_batch,
+        ):
             mock_detect.return_value = None
             mock_register.return_value = (1, {})
 
@@ -965,8 +976,10 @@ class TestRegistrationErrorHandling:
 
     def test_integration_with_split_methods(self, temp_dir, real_db_manager, mock_fsm):
         """分割メソッド（_register_single_image, _build_registration_result）の協調確認"""
-        with patch.object(real_db_manager, "detect_duplicate_image") as mock_detect, \
-             patch.object(real_db_manager, "register_original_image") as mock_register:
+        with (
+            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
+            patch.object(real_db_manager, "register_original_image") as mock_register,
+        ):
             mock_detect.return_value = None
             mock_register.return_value = (1, {"id": 1})
 
@@ -995,9 +1008,11 @@ class TestRegistrationErrorHandling:
 
         mock_fsm.get_image_files.return_value = [image_file]
 
-        with patch.object(real_db_manager, "detect_duplicate_image") as mock_detect, \
-             patch.object(real_db_manager, "save_tags") as mock_save_tags, \
-             patch.object(real_db_manager, "save_captions") as mock_save_captions:
+        with (
+            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
+            patch.object(real_db_manager, "save_tags") as mock_save_tags,
+            patch.object(real_db_manager, "save_captions") as mock_save_captions,
+        ):
             # 重複画像を返す（image_id = 999）
             mock_detect.return_value = 999
 
@@ -1023,8 +1038,10 @@ class TestRegistrationErrorHandling:
         mock_fsm = Mock(spec=FileSystemManager)
         mock_fsm.get_image_files.return_value = image_files
 
-        with patch.object(real_db_manager, "detect_duplicate_image") as mock_detect, \
-             patch.object(real_db_manager, "register_original_image") as mock_register:
+        with (
+            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
+            patch.object(real_db_manager, "register_original_image") as mock_register,
+        ):
             mock_detect.return_value = None
             mock_register.return_value = (1, {})
 
@@ -1040,10 +1057,12 @@ class TestRegistrationErrorHandling:
         """進捗報告呼び出し回数の確認"""
         worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
 
-        with patch.object(real_db_manager, "detect_duplicate_image") as mock_detect, \
-             patch.object(real_db_manager, "register_original_image") as mock_register, \
-             patch.object(worker, "_report_progress") as mock_progress, \
-             patch.object(worker, "_report_batch_progress") as mock_batch:
+        with (
+            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
+            patch.object(real_db_manager, "register_original_image") as mock_register,
+            patch.object(worker, "_report_progress") as mock_progress,
+            patch.object(worker, "_report_batch_progress") as mock_batch,
+        ):
             mock_detect.return_value = None
             mock_register.return_value = (1, {})
 
@@ -1105,16 +1124,19 @@ class TestRegisterSingleImageUnits:
         image_path.write_bytes(b"fake_image")
 
         mock_db_manager.detect_duplicate_image.return_value = 99
+        mock_db_manager.repository = Mock()
 
-        with patch.object(worker, "file_reader") as mock_file_reader, \
-             patch.object(worker, "_process_associated_files") as mock_process:
+        with (
+            patch.object(worker, "file_reader") as mock_file_reader,
+            patch.object(worker, "_process_associated_files") as mock_process,
+        ):
             mock_file_reader.get_existing_annotations.return_value = None
 
             result_type, image_id = worker._register_single_image(image_path, 0, 10)
 
             assert result_type == "skipped"
             assert image_id == 99
-            mock_process.assert_called_once_with(image_path, 99)
+            mock_process.assert_called_once_with(image_path, 99, annotations=None, tag_id_cache=None)
             mock_db_manager.register_original_image.assert_not_called()
 
     def test_no_associated_files(self, temp_dir, worker_setup):
@@ -1126,15 +1148,17 @@ class TestRegisterSingleImageUnits:
         mock_db_manager.detect_duplicate_image.return_value = None
         mock_db_manager.register_original_image.return_value = (1, {"id": 1})
 
-        with patch.object(worker, "file_reader") as mock_file_reader, \
-             patch.object(worker, "_process_associated_files") as mock_process:
+        with (
+            patch.object(worker, "file_reader") as mock_file_reader,
+            patch.object(worker, "_process_associated_files") as mock_process,
+        ):
             mock_file_reader.get_existing_annotations.return_value = None
 
             result_type, image_id = worker._register_single_image(image_path, 0, 10)
 
             assert result_type == "registered"
             # _process_associated_files は呼ばれるが、内部で None チェックして早期return
-            mock_process.assert_called_once_with(image_path, 1)
+            mock_process.assert_called_once_with(image_path, 1, annotations=None, tag_id_cache=None)
 
     def test_tags_file_only(self, temp_dir, worker_setup):
         """4. .txt のみ存在 → タグ処理、キャプション処理なし"""
@@ -1204,8 +1228,12 @@ class TestRegisterSingleImageUnits:
         mock_db_manager.detect_duplicate_image.return_value = None
         mock_db_manager.register_original_image.return_value = (1, {"id": 1})
 
-        with patch.object(worker, "file_reader") as mock_file_reader, \
-             patch("lorairo.gui.workers.registration_worker.ProgressHelper.calculate_percentage") as mock_calc:
+        with (
+            patch.object(worker, "file_reader") as mock_file_reader,
+            patch(
+                "lorairo.gui.workers.registration_worker.ProgressHelper.calculate_percentage"
+            ) as mock_calc,
+        ):
             mock_file_reader.get_existing_annotations.return_value = None
             mock_calc.return_value = 45
 
