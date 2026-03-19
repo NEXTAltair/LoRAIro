@@ -886,7 +886,9 @@ class FilterSearchPanel(QScrollArea):
     def _build_current_search_conditions(self) -> "SearchConditions":
         """現在のUI状態からSearchConditionsを組み立てる。"""
         search_text = self.ui.lineEditSearch.text().strip()
-        keywords = self.search_filter_service.parse_search_input(search_text) if search_text else []
+        keywords, excluded_keywords = (
+            self.search_filter_service.parse_search_input(search_text) if search_text else ([], [])
+        )
         date_range_start, date_range_end = self.get_date_range_from_slider()
         rating_filter = self._get_rating_filter_value()
         ai_rating_filter = self._get_ai_rating_filter_value()
@@ -896,6 +898,7 @@ class FilterSearchPanel(QScrollArea):
         return self.search_filter_service.create_search_conditions(
             search_type=self._get_primary_search_type(),
             keywords=keywords,
+            excluded_keywords=excluded_keywords if excluded_keywords else None,
             tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
             resolution_filter=self.ui.comboResolution.currentText(),
             aspect_ratio_filter=self.ui.comboAspectRatio.currentText(),
