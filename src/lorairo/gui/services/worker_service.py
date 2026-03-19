@@ -413,7 +413,7 @@ class WorkerService(QObject):
 
         mode = "DRY-RUN" if dry_run else "LIVE"
         logger.info(f"バッチインポート開始: {len(jsonl_files)}ファイル ({mode}) (ID: {worker_id})")
-        self.worker_manager.start_worker(worker, worker_id)
+        self.worker_manager.start_worker(worker_id, worker)
         self.current_batch_import_worker_id = worker_id
         return worker_id
 

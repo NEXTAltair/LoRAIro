@@ -26,15 +26,37 @@ class _FakeResult:
         self.items = items
 
 
-def _make_fake_genai(items: list, call_counter: dict | None = None) -> tuple:
+def _make_fake_genai(
+    items: list,
+    call_counter: dict | None = None,
+    request_store: dict | None = None,
+    *,
+    supports_limit: bool = True,
+) -> tuple:
     """genai_tag_db_tools のモジュールモックと呼び出しカウンターを返す。"""
 
-    def fake_search_tags(_reader, _request):
+    def fake_search_tags(_reader, request):
         if call_counter is not None:
             call_counter["count"] = call_counter.get("count", 0) + 1
+        if request_store is not None:
+            request_store["request"] = request
         return _FakeResult(items)
 
-    fake_models = types.SimpleNamespace(TagSearchRequest=lambda **kwargs: kwargs)
+    if supports_limit:
+
+        def _factory_with_limit(**kwargs):
+            return kwargs
+
+        _factory_with_limit.model_fields = {"query": object(), "limit": object()}
+        fake_models = types.SimpleNamespace(TagSearchRequest=_factory_with_limit)
+    else:
+
+        def _factory_without_limit(**kwargs):
+            return kwargs
+
+        _factory_without_limit.model_fields = {"query": object()}
+        fake_models = types.SimpleNamespace(TagSearchRequest=_factory_without_limit)
+
     fake_module = types.SimpleNamespace(search_tags=fake_search_tags)
     return fake_module, fake_models
 
@@ -43,8 +65,16 @@ def _make_fake_genai(items: list, call_counter: dict | None = None) -> tuple:
 def patch_genai(monkeypatch):
     """genai_tag_db_tools をモジュールレベルでモックするフィクスチャ。"""
 
-    def _patch(items: list, call_counter: dict | None = None):
-        fake_module, fake_models = _make_fake_genai(items, call_counter)
+    def _patch(
+        items: list,
+        call_counter: dict | None = None,
+        request_store: dict | None = None,
+        *,
+        supports_limit: bool = True,
+    ):
+        fake_module, fake_models = _make_fake_genai(
+            items, call_counter, request_store, supports_limit=supports_limit
+        )
         monkeypatch.setitem(sys.modules, "genai_tag_db_tools", fake_module)
         monkeypatch.setitem(sys.modules, "genai_tag_db_tools.models", fake_models)
 
@@ -57,14 +87,14 @@ class TestTagSuggestionServiceCache:
     def test_same_query_uses_cache(self, patch_genai):
         """同一クエリに対してキャッシュが使用され、DB 呼び出しが1回のみ実行される。"""
         counter: dict = {}
-        patch_genai([_FakeItem("1girl"), _FakeItem("solo")], counter)
+        patch_genai([_FakeItem("1girl"), _FakeItem("girl_solo")], counter)
 
         service = TagSuggestionService(object(), cache_ttl_seconds=60)
-        first = service.get_suggestions("gi")
-        second = service.get_suggestions("gi")
+        first = service.get_suggestions("girl")
+        second = service.get_suggestions("girl")
 
-        assert first == ["1girl", "solo"]
-        assert second == ["1girl", "solo"]
+        assert first == ["girl_solo", "1girl"]
+        assert second == ["girl_solo", "1girl"]
         assert counter["count"] == 1
 
     def test_clear_cache_forces_re_query(self, patch_genai):
@@ -91,6 +121,38 @@ class TestTagSuggestionServiceCache:
         assert "aa" not in service._cache
         assert "bb" in service._cache
         assert "cc" in service._cache
+
+    def test_cached_subset_reuses_prefix_cache(self, patch_genai):
+        """連続入力時に既存キャッシュの部分集合が再利用され、DB再検索を回避する。"""
+        counter: dict = {}
+        patch_genai([_FakeItem("blue_hair"), _FakeItem("blush"), _FakeItem("solo")], counter)
+
+        service = TagSuggestionService(object(), cache_ttl_seconds=60)
+        first = service.get_suggestions("bl")
+        second = service.get_suggestions("blue")
+
+        assert first == ["blue_hair", "blush"]
+        assert second == ["blue_hair"]
+        assert counter["count"] == 1
+
+    def test_get_cached_suggestions_returns_none_when_cache_miss(self, patch_genai):
+        """get_cached_suggestions は未ヒット時に None を返す。"""
+        patch_genai([_FakeItem("blue_hair")])
+        service = TagSuggestionService(object(), cache_ttl_seconds=60)
+        assert service.get_cached_suggestions("bl") is None
+
+    def test_get_cached_suggestions_uses_subset_without_db(self, patch_genai):
+        """get_cached_suggestions でも部分集合キャッシュが利用される。"""
+        counter: dict = {}
+        patch_genai([_FakeItem("blue_hair"), _FakeItem("blush")], counter)
+        service = TagSuggestionService(object(), cache_ttl_seconds=60)
+        service.get_suggestions("bl")
+        before = counter["count"]
+
+        cached = service.get_cached_suggestions("blue")
+
+        assert cached == ["blue_hair"]
+        assert counter["count"] == before
 
 
 class TestTagSuggestionServiceMinChars:
@@ -142,6 +204,41 @@ class TestTagSuggestionServiceMaxResults:
         result = service.get_suggestions("gi")
 
         assert result.count("1girl") == 1
+
+    def test_prefix_matches_prioritized(self, patch_genai):
+        """候補は exact > prefix > contains の順で並ぶ。"""
+        patch_genai(
+            [_FakeItem("bl"), _FakeItem("blue_hair"), _FakeItem("long_blue_hair"), _FakeItem("blush")]
+        )
+
+        service = TagSuggestionService(object(), max_results=10)
+        result = service.get_suggestions("bl")
+
+        assert result == ["bl", "blue_hair", "blush", "long_blue_hair"]
+
+
+class TestTagSearchRequestLimit:
+    """DB側limit パラメータの対応テスト。"""
+
+    def test_limit_passed_when_supported(self, patch_genai):
+        """TagSearchRequest が limit を受け取れる場合は DB 側 LIMIT を利用する。"""
+        request_store: dict = {}
+        patch_genai([_FakeItem("blue_hair")], request_store=request_store, supports_limit=True)
+
+        service = TagSuggestionService(object(), max_results=7)
+        service.get_suggestions("bl")
+
+        assert request_store["request"]["limit"] == 7
+
+    def test_limit_not_passed_when_unsupported(self, patch_genai):
+        """TagSearchRequest が limit 非対応の場合は limit を含めない。"""
+        request_store: dict = {}
+        patch_genai([_FakeItem("blue_hair")], request_store=request_store, supports_limit=False)
+
+        service = TagSuggestionService(object(), max_results=7)
+        service.get_suggestions("bl")
+
+        assert "limit" not in request_store["request"]
 
 
 class TestExtractTagName:

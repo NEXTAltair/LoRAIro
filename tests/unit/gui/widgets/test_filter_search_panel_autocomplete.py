@@ -1,6 +1,8 @@
 # tests/unit/gui/widgets/test_filter_search_panel_autocomplete.py
 # FilterSearchPanel のタグオートコンプリート機能テスト。
 
+from unittest.mock import MagicMock
+
 import pytest
 from PySide6.QtWidgets import QCompleter
 
@@ -71,8 +73,6 @@ class TestTagSuggestionServiceInjection:
 
     def test_set_tag_suggestion_service(self, panel):
         """set_tag_suggestion_service でサービスが設定される。"""
-        from unittest.mock import MagicMock
-
         mock_service = MagicMock()
         panel.set_tag_suggestion_service(mock_service)
 
@@ -117,4 +117,99 @@ class TestClearTagSuggestions:
         assert panel._tag_suggestion_timer.isActive()
 
         panel._clear_tag_suggestions()
+        assert not panel._tag_suggestion_timer.isActive()
+
+    def test_clears_pending_token(self, panel):
+        """_clear_tag_suggestions で保留中トークンがクリアされる。"""
+        panel._pending_tag_token = "blue"
+        panel._clear_tag_suggestions()
+        assert panel._pending_tag_token is None
+
+
+class TestCacheFirstAutocomplete:
+    """キャッシュ優先で候補表示する動作テスト。"""
+
+    def test_cached_suggestions_shown_without_timer(self, panel):
+        """キャッシュヒット時はタイマーを経由せず即時表示する。"""
+        mock_service = MagicMock()
+        mock_service.min_chars = 2
+        mock_service.get_cached_suggestions.return_value = ["blue_hair", "blush"]
+        panel.set_tag_suggestion_service(mock_service)
+        panel.ui.checkboxTags.setChecked(True)
+        panel.ui.lineEditSearch.setEnabled(True)
+
+        panel._on_search_text_edited("bl")
+
+        assert panel._tag_completer_model.stringList() == ["blue_hair", "blush"]
+        assert not panel._tag_suggestion_timer.isActive()
+
+    def test_timer_starts_on_cache_miss(self, panel):
+        """キャッシュミス時はデバウンスタイマーが起動する。"""
+        mock_service = MagicMock()
+        mock_service.min_chars = 2
+        mock_service.get_cached_suggestions.return_value = None
+        panel.set_tag_suggestion_service(mock_service)
+        panel.ui.checkboxTags.setChecked(True)
+        panel.ui.lineEditSearch.setEnabled(True)
+
+        panel._on_search_text_edited("bl")
+
+        assert panel._tag_suggestion_timer.isActive()
+
+
+class _FakeAsyncSuggestionService:
+    """非同期テスト用のフェイクサービス。"""
+
+    def __init__(self, *, cached: list[str] | None = None, async_result: list[str] | None = None):
+        self.min_chars = 2
+        self._cached = cached
+        self._async_result = async_result or []
+
+    def get_cached_suggestions(self, _query: str) -> list[str] | None:
+        return self._cached
+
+    def get_suggestions(self, _query: str) -> list[str]:
+        return self._async_result
+
+
+class TestAsyncTagLookup:
+    """非同期タグ候補取得の動作テスト。"""
+
+    def test_background_lookup_updates_model(self, panel, qtbot):
+        """非同期取得完了後にモデルが更新される。"""
+        panel.ui.checkboxTags.setChecked(True)
+        panel.ui.lineEditSearch.setText("blue")
+        panel.set_tag_suggestion_service(
+            _FakeAsyncSuggestionService(cached=None, async_result=["blue_hair"])
+        )
+
+        panel._update_tag_completions()
+        qtbot.waitUntil(lambda: panel._tag_completer_model.stringList() == ["blue_hair"], timeout=2000)
+        assert not panel._tag_lookup_in_flight
+
+    def test_queues_pending_while_in_flight(self, panel):
+        """検索中に新しいリクエストが来ると保留される。"""
+        mock_service = MagicMock()
+        mock_service.min_chars = 2
+        mock_service.get_cached_suggestions.return_value = None
+        panel.set_tag_suggestion_service(mock_service)
+        panel._tag_lookup_in_flight = True
+        panel.ui.lineEditSearch.setText("blue")
+
+        panel._update_tag_completions()
+
+        assert panel._pending_tag_token == "blue"
+
+
+class TestWidgetCloseCleanup:
+    """closeEvent 時のクリーンアップ動作。"""
+
+    def test_close_event_stops_timer_and_clears_pending(self, panel):
+        """close時にタイマー停止と保留トークンクリアが行われる。"""
+        panel._pending_tag_token = "blue"
+        panel._tag_suggestion_timer.start(5000)
+
+        panel.close()
+
+        assert panel._pending_tag_token is None
         assert not panel._tag_suggestion_timer.isActive()
