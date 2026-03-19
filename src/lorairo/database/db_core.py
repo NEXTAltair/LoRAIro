@@ -93,6 +93,9 @@ IMG_DB_FILENAME = db_config.get(
 # Note: TAG_DB_PACKAGE and TAG_DB_FILENAME were removed (2026-01-02)
 # Tag databases are now managed via genai-tag-db-tools public API (initialize_databases)
 
+# 相対パスを絶対パスに解決（stored_image_path のパス二重結合を防止）
+DB_DIR = DB_DIR.resolve()
+
 # Ensure DB_DIR exists
 DB_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -123,7 +126,9 @@ def resolve_stored_path(stored_path: str) -> Path:
     Returns:
         解決済みの絶対パス
     """
-    path = Path(stored_path)
+    # バックスラッシュをフォワードスラッシュに正規化（Windows/Linux互換）
+    normalized = stored_path.replace("\\", "/")
+    path = Path(normalized)
 
     # 既に絶対パスの場合はそのまま返す
     if path.is_absolute():
@@ -131,6 +136,22 @@ def resolve_stored_path(stored_path: str) -> Path:
 
     # 相対パスの場合、現在のプロジェクトルートと結合
     project_root = get_current_project_root()
+
+    # 二重結合防止: stored_path にプロジェクトディレクトリ名が含まれている場合、
+    # それ以降の部分のみをプロジェクトルートからの相対パスとして使用
+    # (例: "lorairo_data/main_dataset_20250707_001/image_dataset/..." →
+    #  "image_dataset/..." を抽出して project_root と結合)
+    project_dir_name = project_root.name
+    try:
+        idx = path.parts.index(project_dir_name)
+        remainder_parts = path.parts[idx + 1:]
+        if remainder_parts:
+            resolved = project_root.joinpath(*remainder_parts)
+            logger.debug(f"パス解決（プレフィックス正規化）: {stored_path} -> {resolved}")
+            return resolved
+    except ValueError:
+        pass
+
     resolved = project_root / stored_path
     logger.debug(f"パス解決: {stored_path} -> {resolved}")
     return resolved
