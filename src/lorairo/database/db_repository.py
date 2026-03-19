@@ -2440,6 +2440,10 @@ class ImageRepository:
             if img.image_id not in proc_images_by_id:
                 proc_images_by_id[img.image_id] = []
             proc_metadata = {c.name: getattr(img, c.name) for c in img.__table__.columns}
+            # idをimages.idに統一（GUI全体で「画像ID」として使われるため）
+            # processed_images.idはprocessed_image_idとして保持
+            proc_metadata["processed_image_id"] = proc_metadata["id"]
+            proc_metadata["id"] = img.image_id
             if img.image_id in annotations_by_image_id:
                 proc_metadata.update(annotations_by_image_id[img.image_id])
             proc_images_by_id[img.image_id].append(proc_metadata)

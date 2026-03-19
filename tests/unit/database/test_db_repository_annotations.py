@@ -280,16 +280,19 @@ class TestFetchFilteredMetadataAnnotations:
 
         # Mock ProcessedImage
         mock_proc_image = Mock()
-        mock_proc_image.image_id = 1
+        mock_proc_image.id = 100  # processed_images.id
+        mock_proc_image.image_id = 1  # images.id (FK)
         mock_proc_image.resolution = 1024
         mock_proc_image.__table__ = Mock()
         # Create proper column mocks with string names
+        id_column = Mock()
+        id_column.name = "id"
         image_id_column = Mock()
         image_id_column.name = "image_id"
         resolution_column = Mock()
         resolution_column.name = "resolution"
 
-        mock_proc_image.__table__.columns = [image_id_column, resolution_column]
+        mock_proc_image.__table__.columns = [id_column, image_id_column, resolution_column]
 
         # Mock Original Image with annotations
         mock_orig_image = Mock(spec=Image)
