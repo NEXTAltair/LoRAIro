@@ -7,7 +7,7 @@ name = "lorairo"
 version = "0.0.8"
 description = "AIタグ付LoRA画像データセット準備ツール"
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12,<3.14"
 license = { text = "MIT" }
 authors = [{ name = "NEXTAltair" }]
 keywords = ["lora", "dataset", "ai", "image-processing"]
