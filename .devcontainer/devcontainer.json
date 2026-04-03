@@ -33,19 +33,14 @@
                 "mechatroner.rainbow-csv",
                 "eamodio.gitlens",
                 "donjayamanne.git-extension-pack",
-                "codezombiech.gitignore",
                 "streetsidesoftware.code-spell-checker",
                 "vscode-icons-team.vscode-icons",
                 "shardulm94.trailing-spaces",
                 "gruntfuggly.todo-tree",
                 "intellsmi.comment-translate",
-                "cweijan.vscode-typora",
-                "alexkrechik.cucumberautocomplete",
+                "CucumberOpen.cucumber-official",
                 "wscats.search",
-                "rooveterinaryinc.roo-cline",
-                "google.geminicodeassist",
                 "esbenp.prettier-vscode",
-                "ms-azuretools.vscode-docker",
                 "masakit.zenkaku-hankaku"
             ]
         }
