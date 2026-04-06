@@ -2,7 +2,7 @@
 
 **作成日**: 2026-02-10
 **設計ドキュメント**: [new_test_architecture.md](new_test_architecture.md)
-**ステータス**: 設計完了、Phase 1 実装待ち
+**ステータス**: Phase 1 部分実装済み（conftest 分割は未完了、root conftest.py が826行のまま残存）
 
 ---
 
