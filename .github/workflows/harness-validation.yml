@@ -1,0 +1,36 @@
+name: Harness Validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".claude/**"
+      - ".github/skills/**"
+      - "CLAUDE.md"
+      - "scripts/validate_docs.py"
+      - "scripts/validate_harness.py"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".claude/**"
+      - ".github/skills/**"
+      - "CLAUDE.md"
+      - "scripts/validate_docs.py"
+      - "scripts/validate_harness.py"
+
+jobs:
+  validate-harness:
+    name: Validate Agent Harness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate harness (skills, hooks, settings)
+        run: python scripts/validate_harness.py
+
+      - name: Validate documentation consistency
+        run: python scripts/validate_docs.py
