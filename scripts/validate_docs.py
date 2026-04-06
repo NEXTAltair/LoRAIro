@@ -125,22 +125,22 @@ class DocValidator:
 
         actual_count = len(business_services) + len(gui_services)
 
-        # Expected count from CLAUDE.md
-        expected_count = 29  # 22 business + 7 GUI
+        # Expected count from actual codebase
+        expected_count = 37  # 29 business + 8 GUI
 
         if actual_count != expected_count:
             return ValidationResult(
                 passed=False,
                 message=f"Service count mismatch: expected {expected_count}, found {actual_count}",
                 details=[
-                    f"Business services: {len(business_services)} (expected 22)",
-                    f"GUI services: {len(gui_services)} (expected 7)",
+                    f"Business services: {len(business_services)} (expected 29)",
+                    f"GUI services: {len(gui_services)} (expected 8)",
                 ],
             )
 
         return ValidationResult(
             passed=True,
-            message=f"Service count matches: {actual_count} services (22 business + 7 GUI)",
+            message=f"Service count matches: {actual_count} services (29 business + 8 GUI)",
         )
 
     def validate_integration_points(self) -> ValidationResult:
