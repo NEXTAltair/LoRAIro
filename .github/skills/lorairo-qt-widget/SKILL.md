@@ -6,10 +6,10 @@ metadata:
   short-description: PySide6技術実装（Signal/Slot、Qt Designer）。デザイン意図はinterface-design参照。
 allowed-tools:
   # Code exploration
-  - mcp__serena__find_symbol
-  - mcp__serena__get_symbols_overview
+  - Grep
+  - Grep
   # Memory (widget patterns)
-  - mcp__serena__read_memory
+  - Grep
   # Fallback
   - Read
   - Write
@@ -296,14 +296,14 @@ def test_signal_emission(qtbot, widget):
 
 **Before implementation:**
 ```
-1. mcp__serena__read_memory("current-project-status")
+1. Grep("current-project-status")
 2. Check for existing widget patterns
 3. Review interface-design system.md if exists
 ```
 
 **After implementation:**
 ```
-1. mcp__serena__write_memory - Record widget structure
+1. Grep - Record widget structure
 ```
 
 ## Examples

@@ -55,39 +55,18 @@ graph TD
 
 ### Component Architecture Summary
 
-**Detailed implementation information is maintained in Serena memory.**  
-Use `mcp__serena__read_memory current-project-status` for current implementation status.
-
 #### Core Layers
 - **Presentation Layer**: PySide6 GUI with Qt worker system
 - **Service Layer**: Business logic coordination (2-tier architecture)
 - **Data Layer**: SQLite database with repository pattern
 - **AI Integration**: Multi-provider annotation system
 
-#### Implementation Reference
-
-**For detailed component implementations, file paths, and current status:**
-
-- **Current Status**: `mcp__serena__read_memory current-project-status`
-- **Implementation Details**: `mcp__serena__read_memory active-development-tasks`
-- **Architecture Patterns**: `mcp__serena__list_memories` for specific component memories
-
-#### Core Architecture Layers
-
-**Service Layer**: Business logic coordination with 2-tier architecture  
-**Data Layer**: SQLite database with repository pattern  
-**Worker System**: QThreadPool-based asynchronous processing  
-**AI Integration**: Multi-provider annotation with local package integration
-
-**Detailed information about specific services, components, and integration patterns is maintained in Serena memory for current reference.**
+See `docs/services.md` for the complete service catalog and `docs/decisions/` for design decision records.
 
 ### Service Layer Architecture
 
-**For detailed service implementations and current architecture:**
-- **Service Details**: `mcp__serena__read_memory service-layer-architecture`  
-- **Implementation Status**: `mcp__serena__read_memory current-project-status`
-
-The service layer encapsulates business logic with a 2-tier architecture:
+The service layer encapsulates business logic with a 2-tier architecture.
+See `docs/services.md` for the full catalog (29 services).
 
 **Business Logic Services** (`src/lorairo/services/`):
 - SearchCriteriaProcessor, ModelFilterService, ImageProcessingService, ConfigurationService
@@ -95,13 +74,9 @@ The service layer encapsulates business logic with a 2-tier architecture:
 **GUI Services** (`src/lorairo/gui/services/`):
 - WorkerService, SearchFilterService
 
-**Current implementation details and integration patterns are maintained in Serena memory.**
+**Design decisions**: `docs/decisions/0001-two-tier-service-architecture.md`, `docs/decisions/0009-qt-decoupling-design.md`
 
 ### Data Layer Architecture
-
-**For detailed data layer implementation:**
-- **Database Architecture**: `mcp__serena__read_memory database-architecture`
-- **Schema Details**: `mcp__serena__read_memory current-project-status`
 
 The data layer provides persistent storage with:
 
@@ -111,7 +86,7 @@ The data layer provides persistent storage with:
 - SQLAlchemy ORM with Schema Models (`src/lorairo/database/schema.py`)
 - SQLite Database with Alembic migrations
 
-**Current implementation details maintained in Serena memory.**
+**Design decisions**: `docs/decisions/0002-database-schema-decisions.md`, `docs/decisions/0012-batch-tag-atomic-transaction.md`
 
 ### GUI Architecture (Updated: 2025-07-21)
 
@@ -133,25 +108,15 @@ graph TD
     L --> M[State Signals]
 ```
 
-#### GUI Components
-
-**For detailed GUI implementation:**
-- **Widget Architecture**: `mcp__serena__read_memory gui-architecture`
-- **State Management**: `mcp__serena__read_memory current-project-status`
-
 **Main Components**:
 - **MainWindow** (`src/lorairo/gui/window/main_window.py`): 3-panel workflow design
 - **Panel Widgets**: Filter/Search, Thumbnail Selector, Preview/Detail panels
 - **State Management** (`src/lorairo/gui/state/dataset_state.py`): DatasetStateManager
 - **Worker Integration**: Qt QThreadPool-based asynchronous processing
 
-**Current implementation details maintained in Serena memory.**
+**Design decisions**: `docs/decisions/0011-mainwindow-ui-redesign.md`
 
 ### Worker Architecture (PySide6 QThreadPool System)
-
-**For detailed worker implementation:**
-- **Worker Architecture**: `mcp__serena__read_memory worker-architecture`
-- **Implementation Details**: `mcp__serena__read_memory current-project-status`
 
 **Core Architecture**: Qt QRunnable and QThreadPool-based asynchronous processing
 
@@ -163,13 +128,7 @@ graph TD
 
 **Features**: Progress reporting, cancellation support, error handling, state management integration
 
-**Current implementation details maintained in Serena memory.**
-
 ### AI Integration Architecture
-
-**For detailed AI integration:**
-- **AI Architecture**: `mcp__serena__read_memory ai-integration-architecture`
-- **Provider Details**: `mcp__serena__read_memory current-project-status`
 
 **Multi-Provider Support**: OpenAI, Anthropic, Google, Local ML models via `image-annotator-lib`
 
@@ -178,26 +137,16 @@ graph TD
 - **image-annotator-lib**: Unified provider interface
 - **Local Models**: CLIP, DeepDanbooru, ONNX/TensorFlow support
 
-**Current implementation details maintained in Serena memory.**
+**Design decisions**: `docs/decisions/0003-annotator-config-management.md`, `docs/decisions/0004-annotator-lib-architecture.md`
 
 ### Storage Architecture
-
-**For detailed storage implementation:**
-- **Storage Architecture**: `mcp__serena__read_memory storage-architecture`
-- **File Management**: `mcp__serena__read_memory current-project-status`
 
 **Key Components**:
 - **FileSystemManager** (`src/lorairo/storage/file_system.py`): Directory and file management
 - **File Organization**: Images with metadata files (.txt/.caption)
 - **Project Structure**: `lorairo_data/project_name_YYYYMMDD_NNN/` format
 
-**Current implementation details maintained in Serena memory.**
-
 ## Local Package Integration
-
-**For detailed local package information:**
-- **Package Integration**: `mcp__serena__read_memory local-package-integration`
-- **Dependency Management**: `mcp__serena__read_memory current-project-status`
 
 **Local Packages (uv-managed submodules)**:
 - **genai-tag-db-tools**: Tag database management and cleaning utilities
@@ -205,75 +154,49 @@ graph TD
 
 **Integration**: Direct Python imports, editable installs via uv.sources
 
-**Current implementation details maintained in Serena memory.**
+See `docs/integrations.md` for detailed integration patterns.
 
 ## Configuration Architecture
-
-**For detailed configuration implementation:**
-- **Configuration Details**: `mcp__serena__read_memory configuration-architecture`
 
 **Hierarchical Configuration**: System defaults (`config/lorairo.toml`), environment variables, user overrides
 
 **Key Features**: API key management, runtime updates, validation
 
-**Current implementation details maintained in Serena memory.**
-
 ## Security Architecture
-
-**Security Details**: `mcp__serena__read_memory security-architecture`
 
 **Key Features**: API key management, file system security, error handling
 
-**Current implementation details maintained in Serena memory.**
+See `.claude/rules/security.md` for security guidelines.
 
 ## Performance Architecture
 
-**Performance Details**: `mcp__serena__read_memory performance-architecture`
-
-**Key Features**: 
+**Key Features**:
 - **Batch Processing**: 100-image batches, 5min target for 1000 images
 - **Memory Management**: Lazy loading, resource cleanup automation
 - **Scalability**: Parallel processing, queue management
 
-**Current implementation details maintained in Serena memory.**
+**Design decisions**: `docs/decisions/0010-torch-import-design.md`
 
-## AI Assistance Tooling (MCP)
+## AI Assistance Tooling
 
-**Development Agents**: OpenClaw (long-term memory via Notion), serena (repository/memory management)
+**Development Agents**: OpenClaw (long-term memory via Notion)
 
-**Working Memory**: `.serena/memories/` for current project knowledge
+**Documentation**: `docs/decisions/` for design decisions, `docs/plans/` for planning records
 **Long-Term Memory**: Notion LTM via OpenClaw
 
 **Development-only tools that do not affect runtime application.**
 
 ## Testing Architecture
 
-**Testing Details**: `mcp__serena__read_memory testing-architecture`
-
 **Test Categories**:
 - **Unit Tests** (`pytest -m unit`): Service and business logic testing
 - **Integration Tests** (`pytest -m integration`): Database and service coordination
 - **GUI Tests** (`pytest -m gui`): pytest-qt framework with cross-platform support
 
-**Current implementation details maintained in Serena memory.**
+See `docs/testing.md` for comprehensive testing patterns and best practices.
 
 ## Deployment & Future Architecture
-
-**Deployment Details**: `mcp__serena__read_memory deployment-architecture`
 
 **Current**: Local development with uv virtual environment, SQLite database
 
 **Future Considerations**: Plugin architecture, microservice potential, framework evolution
-
-**Current implementation details maintained in Serena memory.**
-
-## Detailed Implementation Information
-
-**For comprehensive implementation details, sequence diagrams, and workflow documentation:**
-- **Sequence Diagrams**: `mcp__serena__read_memory architecture-sequence-diagrams`
-- **Implementation Workflows**: `mcp__serena__read_memory workflow-documentation`
-- **Component Interactions**: `mcp__serena__read_memory current-project-status`
-
-**All detailed architectural information is maintained in Serena memory for current reference.**
-
-This simplified architecture documentation provides the essential system overview while maintaining detailed implementation information in dynamic memory storage.

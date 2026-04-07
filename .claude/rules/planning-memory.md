@@ -1,42 +1,38 @@
 # Planning Memory Rules
 
-計画策定時のOpenClaw LTM（長期記憶）活用ルール。Plan Mode・`/planning` コマンドの両方に適用。
+計画策定時の過去知識活用ルール。Plan Mode・`/planning` コマンドの両方に適用。
 
-## 必須: 計画策定前のLTM検索
+## 必須: 計画策定前の知識確認
 
-Plan Mode または `/planning` コマンドで計画を策定する際、コード調査の**前に**以下を実行すること:
+Plan Mode または `/planning` コマンドで計画を策定する際、コード調査の**前に**以下を確認すること:
 
-### 1. OpenClaw LTM検索（過去の設計知識）
-
-```bash
-python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
-{"limit": 5, "filters": {"type": ["decision", "howto"], "tags": ["関連タグ"]}}
-JSON
-```
-
-- 類似の設計パターン・過去の実装記録・技術選定の根拠を検索
-- タグは実装対象に合わせて変更（例: `repository-pattern`, `widget`, `signal-slot`, `architecture`）
-- 該当なしの場合はタグなしで再検索:
-  ```bash
-  python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
-  {"limit": 5, "filters": {"type": ["decision", "howto"]}}
-  JSON
-  ```
-
-### 2. Serena Memory確認（プロジェクト状況）
-
-- `mcp__serena__list_memories()` で関連メモリを探索
-- `mcp__serena__read_memory("current-project-status")` で最新状況を確認
-
-### 3. 最新LTMエントリ確認
-
-直近の設計判断を把握するため、最新エントリも確認する:
+### 1. 過去の設計判断確認（ADR）
 
 ```bash
-python3 .github/skills/lorairo-mem/scripts/ltm_latest.py <<'JSON'
-{"limit": 5}
-JSON
+ls docs/decisions/
 ```
+
+- `docs/decisions/README.md` でインデックスを確認
+- 関連する ADR を `Read docs/decisions/XXXX-*.md` で参照
+- 類似の設計パターン・技術選定の根拠を確認
+
+### 2. 教訓確認
+
+```bash
+# docs/lessons-learned.md を参照
+```
+
+- `docs/lessons-learned.md` でバグパターン・教訓を確認
+- 特に同じドメイン（Architecture/Testing/Qt/DB/Integration）のセクションを重点的に確認
+
+### 3. 最新の計画確認
+
+```bash
+ls -la docs/plans/
+```
+
+- `docs/plans/` の最新計画を確認（前回セッションの計画）
+- 継続する計画がある場合は `Read docs/plans/plan_*.md` で参照
 
 ## 適用条件
 
@@ -47,13 +43,25 @@ JSON
 ## スキップ可能な条件
 
 - 単純なバグ修正（1-2ファイルの変更で設計判断不要）
-- 同一セッションで既にLTM検索済みの場合
+- 同一セッションで既に確認済みの場合
 - typo修正、コメント追加など設計判断を伴わない変更
 
-## 計画完了後のLTM保存
+## 計画完了後の知識保存
 
-計画策定完了後、重要な設計判断は OpenClaw LTM に保存すること:
+計画策定完了後、重要な設計判断は以下に保存すること:
 
+**ADR（設計判断）:**
+```
+docs/decisions/XXXX-title.md に新しい ADR を追加
+docs/decisions/README.md のインデックスを更新
+```
+
+**教訓（バグパターン）:**
+```
+docs/lessons-learned.md の該当ドメインセクションに追記
+```
+
+**OpenClaw LTM（長期・クロスプロジェクト）:**
 ```bash
 python3 .github/skills/lorairo-mem/scripts/ltm_write.py <<'JSON'
 {

@@ -6,8 +6,8 @@ metadata:
   short-description: UIデザイン原則（意図、ドメイン探索、クラフト）。技術実装はlorairo-qt-widget参照。
   origin: https://github.com/Dammyjay93/interface-design
 allowed-tools:
-  - mcp__serena__read_memory
-  - mcp__serena__write_memory
+  - Grep
+  - Grep
   - Read
   - Write
   - Edit

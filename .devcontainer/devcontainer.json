@@ -66,9 +66,7 @@
         "source=lorairo-claude-config,target=/home/vscode/.claude,type=volume"
     ],
     "postCreateCommand": "bash .devcontainer/postCreateCommand.sh",
-    "postAttachCommand": {
-        "mcpSerena": "claude mcp add serena -- uvx --from git+https://github.com/oraios/serena serena start-mcp-server --context ide-assistant --project /workspaces/LoRAIro"
-    },
+    "postAttachCommand": {},
     "features": {
         "ghcr.io/devcontainers/features/sshd:1": {
         "version": "latest",

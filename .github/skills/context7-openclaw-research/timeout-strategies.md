@@ -58,13 +58,13 @@ web.run search_query(...) → TIMEOUT
 #### Pattern 2: OpenClaw LTM → Serena + local search
 ```
 ltm_search.py → ERROR
-→ mcp__serena__read_memory + mcp__serena__search_for_pattern
+→ Grep + Grep
 ```
 
 #### Pattern 3: Complex → Simple
 ```
 POST /hooks/lorairo-memory + ltm_search.py → TIMEOUT
-→ mcp__serena__write_memory (short-term only)
+→ Grep (short-term only)
 ```
 
 ## Sequential vs Parallel
@@ -84,7 +84,7 @@ POST /hooks/lorairo-memory + ltm_search.py → TIMEOUT
 
 **OK: Parallel light operations**
 ```
-mcp__serena__read_memory(...) + mcp__serena__find_symbol(...)
+Grep(...) + Grep(...)
 ```
 
 ## Timeout Recovery

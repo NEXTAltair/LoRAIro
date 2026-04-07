@@ -18,7 +18,7 @@
 2. Should guide repository creation workflow:
 
    **Phase 1: Explore Existing Pattern**
-   - Use `mcp__serena__find_symbol` to find ImageRepository or TagRepository
+   - Use `Grep` to find ImageRepository or TagRepository
    - Analyze structure, methods, session handling
    - Identify common patterns to follow
 

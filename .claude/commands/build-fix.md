@@ -1,5 +1,5 @@
 ---
-allowed-tools: Task, Bash, Read, Grep, mcp__serena__find_symbol, mcp__serena__search_for_pattern
+allowed-tools: Task, Bash, Read, Grep, Glob
 description: ビルド/テストエラーの自動診断と修正提案。pytest失敗、mypy/Ruffエラーを解析し、具体的な修正案を提示します。
 ---
 

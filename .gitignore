@@ -124,9 +124,6 @@ dev_config/
 !.roo/mcp.json.example
 .claude/logs/
 
-# Serena キャッシュ
-.serena/cache/
-
 # システム固有
 *.pid
 *.lock

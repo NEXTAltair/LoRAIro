@@ -18,7 +18,7 @@
 2. Should guide widget creation workflow:
 
    **Phase 1: Explore Existing Widgets**
-   - Use `mcp__serena__find_symbol` to examine existing widget (e.g., SearchFilterWidget)
+   - Use `Grep` to examine existing widget (e.g., SearchFilterWidget)
    - Analyze structure: __init__, signals, slots, layout
    - Check memory for widget patterns
 
