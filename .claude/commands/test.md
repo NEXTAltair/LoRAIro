@@ -1,5 +1,5 @@
 ---
-allowed-tools: mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, mcp__serena__search_for_pattern, mcp__serena__read_memory, mcp__serena__write_memory, Read, Edit, Write, Bash, TodoWrite, Task, Glob, Grep
+allowed-tools: Read, Edit, Write, Bash, TodoWrite, Task, Glob, Grep
 description: テスト実行・同期・品質チェック。クイックチェック、包括的テスト、テスト同期（追加・修正・削除）に対応。
 
 ---

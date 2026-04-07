@@ -8,10 +8,10 @@ allowed-tools:
   # Web research (Codex)
   - web.run
   # Serena tools (for code integration)
-  - mcp__serena__find_symbol
-  - mcp__serena__search_for_pattern
-  - mcp__serena__read_memory
-  - mcp__serena__write_memory
+  - Grep
+  - Grep
+  - Grep
+  - Grep
   # Bash for OpenClaw LTM operations
   - Bash
 dependencies:
@@ -109,13 +109,12 @@ Example (web search):
 4. Store knowledge - After completion
 ```
 
-## Serena vs OpenClaw LTM
+## Code Search vs OpenClaw LTM
 
-**Serena (0.3-0.5s)** - Use for:
-- Symbol search (classes, methods)
-- File structure
-- Short-term memory (progress)
-- Basic code editing
+**Code Search (fast)** - Use for:
+- Symbol search (Grep/Glob)
+- File structure exploration
+- Current implementation details
 
 **OpenClaw LTM (1-3s)** - Use for:
 - Design pattern search
@@ -125,11 +124,11 @@ Example (web search):
 
 ### Combined Workflow
 ```
-1. Serena: Check status (read_memory)
+1. docs/decisions/: Check past design decisions
 2. OpenClaw: Search past designs (ltm_search.py)
 3. Web: Research library (web.run)
-4. Serena: Implement (find_symbol, replace_symbol_body)
-5. Serena: Track progress (write_memory)
+4. Code: Implement with Grep/Glob/Read/Edit
+5. docs/lessons-learned.md: Record lessons
 6. OpenClaw: Store knowledge (POST /hooks/lorairo-memory)
 ```
 
@@ -172,7 +171,7 @@ JSON
 | LTM search | ltm_search.py | 2-5s |
 | LTM write | POST /hooks/lorairo-memory | 1-3s |
 | Web search | web.run | 2-5s |
-| Serena ops | mcp__serena__* | 0.3-0.5s |
+| Code search | Grep/Glob/Read | 0.1-0.3s |
 
 ## Examples
 

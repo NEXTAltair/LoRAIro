@@ -4,7 +4,7 @@ description: コード品質、可読性、LoRAIro規約準拠の自動レビュ
 context: fork
 parallel-safe: true
 color: blue
-allowed-tools: mcp__serena__get_symbols_overview, mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__search_for_pattern, Read, Grep, Glob, Bash
+allowed-tools: Read, Grep, Glob, Bash
 ---
 
 # Code Review Specialist
@@ -53,9 +53,9 @@ uv run mypy [target_path] --output=json
 
 ### Step 2: Semantic Analysis
 Use Serena tools for deeper inspection:
-- `mcp__serena__get_symbols_overview` for module structure
-- `mcp__serena__find_symbol` for function signatures
-- `mcp__serena__find_referencing_symbols` for dependency analysis
+- `Glob` + `Read` (first 100 lines) for module structure
+- `Grep` (class/def pattern) for function signatures
+- `Grep` (symbol name search) for dependency analysis
 
 ### Step 3: Pattern Detection
 Identify code patterns:

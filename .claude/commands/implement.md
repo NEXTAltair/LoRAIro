@@ -1,5 +1,5 @@
 ---
-allowed-tools: mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__replace_symbol_body, mcp__serena__insert_after_symbol, mcp__serena__insert_before_symbol, mcp__serena__replace_regex, mcp__serena__get_symbols_overview, mcp__serena__think_about_task_adherence, mcp__serena__think_about_whether_you_are_done, mcp__serena__read_memory, mcp__serena__write_memory, Read, Edit, MultiEdit, Write, Bash, TodoWrite, Task
+allowed-tools: Read, Edit, Write, Glob, Grep, Bash, TodoWrite, Task
 description: plan フェーズで策定された実装計画に基づき、LoRAIro プロジェクトの実際のコード実装を行います。
 ---
 
@@ -34,9 +34,9 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 ### 1. 実装前チェックリスト
 
 過去の実装パターンと現在のプロジェクト状況を確認：
-- 詳細なMemory-Firstワークフローは **mcp-memory-first-development** Skill参照
-- 高速Memory操作は **mcp-serena-fast-ops** Skill参照
-- 複雑な分析は **context7-openclaw-research** Skill参照
+- `docs/decisions/` で関連する設計判断を確認
+- `docs/lessons-learned.md` で類似ドメインの教訓を確認
+- OpenClaw LTM で過去の実装パターンを検索
 
 実装前タスク:
 1. plan フェーズの実装計画を詳細確認
@@ -123,7 +123,7 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 
 ### 9. 知識蓄積・完了処理
 
-実装知識を長期記憶として保存（**mcp-memory-first-development** Skill参照）
+実装知識を長期記憶として保存（OpenClaw LTM経由でNotionに保存）
 
 完了処理タスク:
 50. 実装完了コードの自己レビュー
@@ -136,8 +136,8 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 
 ### 実装準備フェーズ
 
-#### Memory-First実装準備
-過去の実装知識を確認（**mcp-memory-first-development** Skill参照）
+#### 実装前知識確認
+`docs/decisions/` と `docs/lessons-learned.md` で過去の設計判断と教訓を確認
 
 #### 詳細コード分析
 - **🔍 Investigation Agent活用**: 実装対象の既存コード詳細調査
@@ -176,14 +176,13 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 - 機能統合と動作確認
 
 #### 実装知識の蓄積
-実装判断と教訓を長期記憶として保存（**mcp-memory-first-development** Skill参照）
+重要な設計判断は `docs/decisions/` にADRとして保存し、教訓は `docs/lessons-learned.md` に追記。OpenClaw LTM経由でNotionにも永続保存。
 
-## 参照メモリ / ソース
+## 参照ドキュメント / ソース
 
-- `.serena/memories/active-development-tasks` - 実装対象タスクの詳細
-- `.serena/memories/current-project-status` - 最新状況と依存関係
-- `.serena/memories/development_guidelines` - 共通実装パターン
-- `.serena/memories/architecture_structure` - コンポーネント関係
+- `docs/decisions/` - 設計判断の一覧（ADR）
+- `docs/lessons-learned.md` - バグパターンと教訓
+- `docs/plans/` - 直近の計画ファイル
 - `.claude/commands/implement.md` - 実装ガイドライン(本コマンド文書を一次参照とし、最新手順はここに集約)
 - `src/lorairo/services/` - 既存サービス実装パターン
 - `src/lorairo/database/schema.py` - データベーススキーマ
@@ -240,8 +239,6 @@ plan フェーズで承認された設計に基づき、上記実装対象に Lo
 ## Memory管理とSkills
 
 このコマンドでは以下のSkillsを活用してメモリー管理を効率化します：
-- **mcp-memory-first-development**: Memory-First開発ワークフロー
-- **mcp-serena-fast-ops**: 高速コード編集とMemory操作
 - **context7-openclaw-research**: ライブラリ調査とOpenClaw LTM（長期記憶）
 
 詳細な使い方は各SkillのSKILL.mdを参照してください。

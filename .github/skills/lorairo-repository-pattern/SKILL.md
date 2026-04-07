@@ -6,11 +6,11 @@ metadata:
   short-description: LoRAIro向けSQLAlchemyリポジトリ実装（トランザクション、セッション、ORM）。
 allowed-tools:
   # Code exploration (recommended)
-  - mcp__serena__find_symbol
-  - mcp__serena__get_symbols_overview
-  - mcp__serena__find_referencing_symbols
+  - Grep
+  - Grep
+  - Grep
   # Memory (design patterns)
-  - mcp__serena__read_memory
+  - Grep
   # Fallback
   - Read
   - Write
@@ -212,14 +212,12 @@ SQLite Database
 1. **Search past patterns (OpenClaw LTM):**
    - `python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<< '{"filters":{"tags":["repository-pattern","sqlalchemy"]}}'` → Past repository implementations
 2. **Check project status (Serena):**
-   - `mcp__serena__read_memory("current-project-status")` → Current database schema
-3. **Explore existing repositories (Serena):**
-   - `mcp__serena__find_symbol(name_path="Repository", relative_path="src/lorairo/database/")` → Existing patterns
-
+   3. **Explore existing repositories (Serena):**
+   
 ### During Implementation
 **Track progress (Serena):**
 ```markdown
-mcp__serena__write_memory(
+Grep(
   memory_name="active-development-tasks",
   content="## Implementing {Entity}Repository
   - [x] Basic CRUD operations
@@ -246,7 +244,7 @@ curl -sS -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
   }'
 ```
 
-See [mcp-memory-first-development](../mcp-memory-first-development/SKILL.md) for complete workflow.
+See [](..//SKILL.md) for complete workflow.
 
 ## Best Practices Checklist
 

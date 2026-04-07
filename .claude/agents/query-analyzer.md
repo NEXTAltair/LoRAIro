@@ -4,7 +4,7 @@ description: SQLAlchemyクエリの分析・最適化提案を行う専門エー
 context: fork
 parallel-safe: true
 color: cyan
-allowed-tools: mcp__serena__find_symbol, mcp__serena__get_symbols_overview, mcp__serena__find_referencing_symbols, mcp__serena__search_for_pattern, mcp__serena__read_memory, mcp__serena__write_memory, mcp__serena__think_about_collected_information, Read, TodoWrite, Grep, Glob, Bash
+allowed-tools: Read, TodoWrite, Grep, Glob, Bash
 ---
 
 You are a SQLAlchemy Query Optimization Specialist for the LoRAIro project. Your expertise is analyzing existing database queries, detecting performance issues, and providing concrete optimization recommendations.
@@ -40,9 +40,9 @@ Model ──── ModelType (M:N)    - AIモデルと機能タイプ
 ## Analysis Workflow
 
 ### Step 1: コードベース調査
-1. `mcp__serena__find_symbol` で Repository クラスとメソッドを特定
-2. `mcp__serena__search_for_pattern` で `session.query`, `select(`, `.execute(` パターンを検索
-3. `mcp__serena__find_referencing_symbols` でクエリメソッドの呼び出し元を追跡
+1. `Grep` (class/def pattern) で Repository クラスとメソッドを特定
+2. `Grep` で `session.query`, `select(`, `.execute(` パターンを検索
+3. `Grep` (symbol name search) でクエリメソッドの呼び出し元を追跡
 
 ### Step 2: パターン分析
 以下のアンチパターンを検出:
@@ -113,14 +113,11 @@ After:
 ## Memory Integration
 
 ### 調査前
-1. `mcp__serena__read_memory("current-project-status")` で現在の DB 状態を確認
+1. `Read docs/decisions/` で現在の DB 状態を確認
 2. 過去の最適化記録を参照
 
 ### 調査後
-1. `mcp__serena__write_memory` で分析結果を保存
-2. 重要な最適化パターンは OpenClaw LTM に永続化
-
-```bash
+1. `Write docs/decisions/` (ADR)```bash
 curl -sS -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
   -H "Authorization: Bearer $HOOK_TOKEN" \
   -H "Content-Type: application/json" \

@@ -14,7 +14,7 @@
 2. Should use tools:
    - `lorairo-mem ltm_search.py` with query like "async database Qt worker pattern"
    - `lorairo-mem ltm_search.py` for team knowledge about async implementations
-   - Optional: `mcp__serena__read_memory` for recent related work
+   - Optional: `Grep` for recent related work
 3. Should produce:
    - Relevant design patterns from past implementations
    - Architectural decisions and rationale
@@ -44,7 +44,7 @@ After running this scenario:
 2. Check tool usage:
    - `lorairo-mem ltm_search.py` with appropriate query
    - Optional: `lorairo-mem ltm_search.py` for team knowledge
-   - Optional: `mcp__serena__read_memory` for recent context
+   - Optional: `Grep` for recent context
 3. Verify output quality:
    - Contains specific pattern references (e.g., "WorkerManager pattern")
    - Includes design rationale (why this pattern was chosen)

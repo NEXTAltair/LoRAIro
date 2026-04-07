@@ -1,5 +1,5 @@
 ---
-allowed-tools: mcp__serena__get_symbols_overview, mcp__serena__find_symbol, mcp__serena__search_for_pattern, mcp__serena__read_memory, mcp__serena__write_memory, Read, Bash, TodoWrite, Task
+allowed-tools: Read, Glob, Grep, Bash, TodoWrite, Task
 description: investigateフェーズの結果を基に、LoRAIro プロジェクトの実装戦略と詳細設計を策定します。
 ---
 
@@ -28,11 +28,11 @@ investigateフェーズで特定された要件と課題を基に、上記実装
 
 ## タスクに含まれるべきTODO
 
-### 1. Memory-First事前分析と要件明確化
+### 1. 事前分析と要件明確化
 過去の設計パターンと現在のプロジェクト状況を確認：
-- 詳細なMemory-Firstワークフローは **mcp-memory-first-development** Skill参照
-- 高速Memory操作は **mcp-serena-fast-ops** Skill参照
-- 複雑な分析は **context7-openclaw-research** Skill参照
+- `docs/decisions/` — 過去の設計判断 (ADR)
+- `docs/lessons-learned.md` — バグパターン・教訓
+- `docs/architecture.md` — システム設計原則
 
 要件明確化タスク:
 1. investigateフェーズの結果を確認・分析
@@ -105,8 +105,8 @@ investigateフェーズで特定された要件と課題を基に、上記実装
 
 ### 要件明確化フェーズ
 
-#### Memory-First設計準備
-過去の設計知識を確認（**mcp-memory-first-development** Skill参照）
+#### 設計準備
+過去の設計知識を確認（`docs/decisions/` の ADR と `docs/lessons-learned.md` を参照）
 
 #### 詳細要件分析
 - investigateフェーズ結果の詳細分析
@@ -135,18 +135,16 @@ investigateフェーズで特定された要件と課題を基に、上記実装
 - テスト・検証戦略策定
 
 #### 設計知識の蓄積
-設計判断と教訓を長期記憶として保存（**mcp-memory-first-development** Skill参照）
+重要な設計判断は `docs/decisions/` に ADR として、教訓は `docs/lessons-learned.md` に追加する
 
-## 参照メモリ / ソース
-- `.serena/memories/current-project-status` - 最新プロジェクト状況
-- `.serena/memories/active-development-tasks` - 進行中タスクと課題
-- `.serena/memories/architecture_structure` - モジュール構成・アーキテクチャ
-- `.serena/memories/development_guidelines` - 実装パターン・設計指針
-- `.serena/memories/image_annotator_lib_completion_master_plan` など関連フェーズ記録
-- `.claude/commands/planning.md` - プランニングガイドライン(本コマンド文書を一次参照とし、最新手順はここに集約)
-- `src/lorairo/services/` - 既存サービス実装
-- `src/lorairo/database/schema.py` - データベース構造
-- `config/lorairo.toml` - 現在の設定
+## 参照ソース
+- `docs/decisions/` — 過去の設計判断 (ADR)
+- `docs/lessons-learned.md` — バグパターン・教訓
+- `docs/architecture.md` — モジュール構成・アーキテクチャ
+- `docs/plans/` — 最新の Plan Mode 計画
+- `src/lorairo/services/` — 既存サービス実装
+- `src/lorairo/database/schema.py` — データベース構造
+- `config/lorairo.toml` — 現在の設定
 
 ## 出力形式(プランニングテンプレート準拠)
 1. **ultrathink設計プロセス**: 設計決定の思考過程
@@ -163,11 +161,8 @@ investigateフェーズで特定された要件と課題を基に、上記実装
 ## 次のコマンド
 計画完了・承認後は `/implement` コマンドで実装を開始します。
 
-## Memory管理とSkills
+## 関連ドキュメント
 
-このコマンドでは以下のSkillsを活用してメモリー管理を効率化します：
-- **mcp-memory-first-development**: Memory-First開発ワークフロー
-- **mcp-serena-fast-ops**: 高速Memory操作とコード検索
-- **context7-openclaw-research**: ライブラリ調査とOpenClaw LTM（長期記憶）
-
-詳細な使い方は各SkillのSKILL.mdを参照してください。
+- `docs/decisions/` — 過去の設計判断 (ADR)
+- `docs/lessons-learned.md` — バグパターン・教訓
+- `docs/development-workflow.md` — 開発ワークフロー詳細

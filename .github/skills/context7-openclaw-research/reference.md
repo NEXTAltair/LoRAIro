@@ -44,10 +44,6 @@ curl -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
 
 ### Serena (ローカル操作)
 
-- `mcp__serena__get_symbols_overview` - シンボル概要取得 (0.3-0.5s)
-- `mcp__serena__find_symbol` - シンボル検索 (0.3-0.5s)
-- `mcp__serena__search_for_pattern` - パターン検索 (0.5-1s)
-- `mcp__serena__read_memory` / `write_memory` - 短期メモリ操作 (0.2-0.3s)
 
 ## パフォーマンス特性
 

@@ -6,11 +6,11 @@ metadata:
   short-description: LoRAIro向けpytest/pytest-qtテスト生成（fixtures、mocks、カバレッジ重視）。
 allowed-tools:
   # Code exploration
-  - mcp__serena__find_symbol
-  - mcp__serena__search_for_pattern
-  - mcp__serena__get_symbols_overview
+  - Grep
+  - Grep
+  - Grep
   # Memory (test patterns)
-  - mcp__serena__read_memory
+  - Grep
   # Fallback
   - Read
   - Write
@@ -223,14 +223,14 @@ tests/
 
 **Before writing tests:**
 ```
-1. mcp__serena__read_memory("current-project-status")
+1. Grep("current-project-status")
 2. Check for similar test patterns
 3. Review existing test fixtures
 ```
 
 **After writing tests:**
 ```
-1. mcp__serena__write_memory - Record test patterns
+1. Grep - Record test patterns
 2. OpenClaw LTM - Store testing strategies (POST /hooks/lorairo-memory)
 ```
 

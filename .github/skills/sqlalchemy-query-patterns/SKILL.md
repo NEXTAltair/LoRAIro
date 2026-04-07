@@ -6,12 +6,12 @@ metadata:
   short-description: SQLAlchemy効率クエリ（N+1回避、バルク操作、インデックス、EXPLAIN）。
 allowed-tools:
   # Code exploration
-  - mcp__serena__find_symbol
-  - mcp__serena__get_symbols_overview
-  - mcp__serena__find_referencing_symbols
-  - mcp__serena__search_for_pattern
+  - Grep
+  - Grep
+  - Grep
+  - Grep
   # Memory
-  - mcp__serena__read_memory
+  - Grep
   # Fallback
   - Read
   - Write

@@ -14,7 +14,7 @@
 2. Should use tools (complex multi-tool workflow):
    - `web.run search_query` for official docs and comparisons
    - `lorairo-mem ltm_search.py` to check if we've evaluated these before
-   - Optional: `mcp__serena__find_symbol` to understand current annotation implementation
+   - Optional: `Grep` to understand current annotation implementation
    - Optional: store decision summary to OpenClaw LTM (OpenClaw will refine)
 3. Should produce:
    - Detailed comparison table (features, pros/cons)
@@ -48,7 +48,7 @@ After running this scenario:
    - Documentation fetch: `web.run search_query` (multiple queries)
    - Comparison research: `web.run search_query` for trade-offs
    - Memory check: `ltm_search.py` for past evaluations
-   - Code exploration: `mcp__serena__find_symbol` (optional)
+   - Code exploration: `Grep` (optional)
 3. Verify output completeness:
    - Comparison covers key dimensions (API, complexity, performance)
    - Both libraries analyzed in depth

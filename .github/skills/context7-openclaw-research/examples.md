@@ -46,7 +46,7 @@ curl -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
 
 ```python
 # 1. [Serena] 現在のコード構造を確認
-mcp__serena__get_symbols_overview(relative_path="src/lorairo/gui/workers/")
+Grep(relative_path="src/lorairo/gui/workers/")
 
 # 2. [OpenClaw LTM] 過去事例検索
 # python3 ltm_search.py "worker pattern implementation"
@@ -55,7 +55,7 @@ mcp__serena__get_symbols_overview(relative_path="src/lorairo/gui/workers/")
 # {"search_query":[{"q":"PySide6 QRunnable QThreadPool official docs"}]}
 
 # 4. [Serena] 関連シンボル検索
-mcp__serena__find_symbol(name_path_pattern="WorkerManager", include_body=True)
+Grep(name_path_pattern="WorkerManager", include_body=True)
 
 # 5. [OpenClaw LTM] 長期記憶化
 # curl POST /hooks/lorairo-memory with type="decision"

@@ -1,5 +1,5 @@
 ---
-allowed-tools: Task, Bash, Read, Grep, Glob, mcp__serena__search_for_pattern, mcp__serena__find_symbol
+allowed-tools: Task, Bash, Read, Grep, Glob
 description: PRレビュー相当のコード品質検査を実行。security-reviewerとcode-reviewerエージェントを並列で実行し、包括的なレビューを提供します。
 ---
 

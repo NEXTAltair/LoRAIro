@@ -1,9 +1,5 @@
 # LoRAIro Technical Specification
 
-**For detailed technical implementation:**
-- **Technology Stack**: `mcp__serena__read_memory technical-stack`
-- **Implementation Details**: `mcp__serena__read_memory current-project-status`
-
 ## Technology Stack
 
 ### Core Technologies
@@ -16,26 +12,18 @@
 
 **Package Management**: uv for dependency resolution and virtual environment management
 
-**Current implementation details maintained in Serena memory.**
-
 ### AI Integration
-
-**For detailed AI integration:**
-- **AI Architecture**: `mcp__serena__read_memory ai-integration`
-- **Provider Configuration**: `mcp__serena__read_memory current-project-status`
 
 **Supported Providers**: OpenAI GPT-4, Anthropic Claude, Google Gemini, Local ML models
 
-**Key Integration**: 
+**Key Integration**:
 - **WorkerService** → **AnnotationWorker** → **image-annotator-lib**
 - Multi-provider unified interface via local package integration
 - Local packages: image-annotator-lib, genai-tag-db-tools
 
-**Current implementation details maintained in Serena memory.**
+See `docs/integrations.md` for detailed integration patterns.
 
 ### Development Tools
-
-**Development Tools Details**: `mcp__serena__read_memory development-tools`
 
 **Code Quality**: Ruff (linter/formatter), mypy (type checking)
 
@@ -43,22 +31,16 @@
 
 **Logging**: Loguru for structured logging with configuration in `src/lorairo/utils/log.py`
 
-**Current implementation details maintained in Serena memory.**
+## Development Tooling
 
-## MCP Integration and Agent Roles
+**Development Agents**: OpenClaw (long-term memory via Notion)
 
-**MCP Integration Details**: `mcp__serena__read_memory mcp-integration`
-
-**Development Agents**: OpenClaw (long-term memory via Notion), serena (codebase/memory management)
-
-**Working Memory**: `.serena/memories/` for development knowledge management
+**Documentation**: `docs/decisions/` for design decisions, `docs/plans/` for planning records
 **Long-Term Memory**: Notion LTM via OpenClaw
 
 **Development-only tools that enhance the coding workflow.**
 
 ## Development Environment
-
-**Environment Setup Details**: `mcp__serena__read_memory development-environment`
 
 ### System Requirements
 - **OS**: Windows 10/11, macOS 10.15+, Linux (Ubuntu 20.04+)
@@ -75,11 +57,7 @@ uv sync --dev
 - **Main Config**: `config/lorairo.toml` - Application settings, API keys, logging
 - **Environment Variables**: API keys for OpenAI, Anthropic, Google providers
 
-**Current implementation details maintained in Serena memory.**
-
 ## Database Design
-
-**Database Design Details**: `mcp__serena__read_memory database-design`
 
 ### Schema Architecture
 
@@ -93,11 +71,9 @@ uv sync --dev
 
 **Migration Management**: Alembic with auto-generated migrations and rollback support
 
-**Current implementation details maintained in Serena memory.**
+See `docs/decisions/0002-database-schema-decisions.md` for design decisions (no UNIQUE constraints, no FK to external tag DB).
 
 ## Code Architecture
-
-**Code Architecture Details**: `mcp__serena__read_memory code-architecture`
 
 ### Design Patterns
 
@@ -106,6 +82,8 @@ uv sync --dev
 - **Service Layer Pattern**: 2-tier architecture (Business Logic + GUI Services)
 - **Factory Pattern**: AI provider creation and management
 - **Dependency Injection**: Service container with layered architecture
+
+See `docs/decisions/` for rationale behind each pattern choice.
 
 ### Error Handling Strategy
 
@@ -119,10 +97,7 @@ uv sync --dev
 
 **Protocol Definitions**: Runtime-checkable protocols for interface compliance
 
-**Current implementation details maintained in Serena memory.**
 ## Performance Optimization
-
-**Performance Details**: `mcp__serena__read_memory performance-optimization`
 
 **Key Features**:
 - **Memory Management**: Image processing optimization with resource monitoring
@@ -130,38 +105,19 @@ uv sync --dev
 - **Batch Processing**: 100-image batches with 5-minute target for 1000 images
 - **Asynchronous Processing**: Background task management with QThreadPool
 
-**Current implementation details maintained in Serena memory.**
+See `docs/decisions/0010-torch-import-design.md` for ML library lazy import decisions.
 
 ## Security Considerations
-
-**Security Details**: `mcp__serena__read_memory security-considerations`
 
 **Key Features**:
 - **API Key Management**: Environment variable storage with masked logging
 - **Input Validation**: File path validation and image content verification
 - **Configuration Security**: Plain-text storage for personal development use
 
-**Current implementation details maintained in Serena memory.**
+See `.claude/rules/security.md` for security guidelines.
 
 ## Deployment Considerations
-
-**Deployment Details**: `mcp__serena__read_memory deployment-considerations`
 
 **Build and Distribution**: Application packaging with pyproject.toml and environment configuration
 
 **Environment Setup**: Production configuration with resource limits and logging
-
-**Current implementation details maintained in Serena memory.**
-
-## Implementation Details
-
-**For comprehensive technical implementation information:**
-- **Architecture Patterns**: `mcp__serena__read_memory architecture-patterns`
-- **Performance Specifications**: `mcp__serena__read_memory performance-specs`  
-- **Security Implementation**: `mcp__serena__read_memory security-implementation`
-- **Database Schemas**: `mcp__serena__read_memory database-schemas`
-- **Configuration Management**: `mcp__serena__read_memory configuration-management`
-
-**All detailed technical information is maintained in Serena memory for current reference.**
-
-This simplified technical specification provides essential implementation guidance while maintaining comprehensive details in dynamic memory storage.
