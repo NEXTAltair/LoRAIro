@@ -4,25 +4,6 @@
   },
   "permissions": {
     "allow": [
-      "mcp__serena__check_onboarding_performed",
-      "mcp__serena__delete_memory",
-      "mcp__serena__edit_memory",
-      "mcp__serena__find_file",
-      "mcp__serena__find_referencing_symbols",
-      "mcp__serena__find_symbol",
-      "mcp__serena__get_symbols_overview",
-      "mcp__serena__initial_instructions",
-      "mcp__serena__insert_after_symbol",
-      "mcp__serena__insert_before_symbol",
-      "mcp__serena__list_dir",
-      "mcp__serena__list_memories",
-      "mcp__serena__read_memory",
-      "mcp__serena__replace_symbol_body",
-      "mcp__serena__search_for_pattern",
-      "mcp__serena__think_about_collected_information",
-      "mcp__serena__think_about_task_adherence",
-      "mcp__serena__think_about_whether_you_are_done",
-      "mcp__serena__write_memory",
       "WebSearch",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:api.github.com)",
@@ -30,6 +11,8 @@
       "WebFetch(domain:code.claude.com)",
       "WebFetch(domain:claude.com)",
       "WebFetch(domain:ai.pydantic.dev)",
+      "WebFetch(domain:pytest-qt.readthedocs.io)",
+      "WebFetch(domain:ilmanzo.github.io)",
       "Read(//workspaces/**)",
       "Read(//home/vscode/**)",
       "Bash(git *)",
@@ -59,10 +42,7 @@
       "Bash(mount:*)",
       "Bash(grep:*)",
       "Bash(xargs:*)",
-      "WebFetch(domain:pytest-qt.readthedocs.io)",
-      "WebFetch(domain:ilmanzo.github.io)",
       "Bash(git commit:*)",
-      "Skill(save-session)",
       "Bash(gh issue list:*)",
       "Bash(gh issue close:*)",
       "Bash(gh issue view:*)",
@@ -70,95 +50,24 @@
       "Bash(ln:*)",
       "Bash(ln -s:*)",
       "Bash(PYTHONPATH=\"\" VIRTUAL_ENV=\"\" .venv/bin/python:*)",
-      "Bash(# Merge:*)",
-      "Bash(done)",
       "Bash(gh label list:*)",
       "Bash(gh issue create:*)",
+      "Skill(save-session)",
       "Skill(planning)",
-      "Skill(implement)",
-      "Bash(.venv/bin/mypy src/lorairo/database/db_repository.py src/lorairo/database/db_manager.py src/lorairo/gui/services/search_filter_service.py src/lorairo/gui/widgets/filter_search_panel.py --ignore-missing-imports 2>&1 | tail -20)"
+      "Skill(implement)"
     ],
     "deny": [],
     "ask": []
   },
   "enableAllProjectMcpServers": true,
   "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_session_start.py"
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_session_end.py"
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_assistant_response_checker.py"
-          }
-        ]
-      },
-      {
-        "matcher": "Grep",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_git_grep_enforcement.py"
-          }
-        ]
-      },
       {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
             "command": "/workspaces/LoRAIro/.claude/hooks/hook_pre_commands.py"
-          }
-        ]
-      },
-      {
-        "matcher": "Read",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_plan_read_redirect.py"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_stop_words.py"
-          }
-        ]
-      },
-      {
-        "matcher": "ExitPlanMode",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_post_plan_mode.py"
           }
         ]
       }

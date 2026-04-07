@@ -5,14 +5,13 @@ Claude Code Hooks - Pre-Commands (PreToolUse Hook)
 LoRAIroプロジェクト用コマンド制御・変換システム。
 
 機能:
-- Makefile変換（pytest → make test など）
 - uv run変換（python → uv run python など）
-- ブロックコマンド検出
+- ブロックコマンド検出（git安全系、pip等）
+- grep系コマンド制御（Grepツール推奨、git grepはコンテキストフラグ必須）
 """
 
 import json
 import re
-import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -45,17 +44,6 @@ def load_rules() -> dict[str, Any] | None:
         return None
 
 
-def apply_makefile_transform(command: str, rules: dict[str, Any]) -> str | None:
-    """Makefile変換: pytest → make test など"""
-    for rule in rules.get("makefile_transforms", []):
-        pattern = rule.get("pattern", "")
-        target = rule.get("transform", "")
-        if re.search(pattern, command):
-            log_debug(f"Makefile transform: {command} → {target}")
-            return target
-    return None
-
-
 def apply_uv_transform(command: str, rules: dict[str, Any]) -> str | None:
     """uv run変換: python → uv run python など"""
     for rule in rules.get("uv_transforms", []):
@@ -84,21 +72,37 @@ def check_blocked(command: str, rules: dict[str, Any]) -> str | None:
     return None
 
 
-def call_external_script(script_name: str, hook_data: str) -> int:
-    """外部スクリプト呼び出し"""
-    script_path = Path(__file__).parent / script_name
-    if not script_path.exists():
-        return 0
-    try:
-        result = subprocess.run(
-            ["python3", str(script_path)],
-            input=hook_data, capture_output=True, text=True, timeout=30
-        )
-        if result.stdout:
-            print(result.stdout, end="")
-        return result.returncode
-    except Exception:
-        return 0
+def check_grep_command(command: str) -> str | None:
+    """grep系コマンドの制御。
+
+    - rg/grep → Grepツール使用を推奨してブロック
+    - git grep（コンテキストフラグなし） → --function-context 追加を推奨してブロック
+    - git grep（コンテキストフラグあり） → 許可
+
+    Returns:
+        ブロックする場合はエラーメッセージ、許可する場合はNone
+    """
+    # rg (ripgrep) コマンド → Grepツール推奨
+    if re.match(r"^rg\s", command):
+        log_debug(f"BLOCKING: rg command detected: {command}")
+        return "🔍 rg の代わりに Claude Code の Grep ツールを使用してください。\nGrep ツールはripgrepベースで高速かつ権限管理されています。"
+
+    # bare grep コマンド → Grepツール推奨
+    if re.match(r"^grep\s", command):
+        log_debug(f"BLOCKING: grep command detected: {command}")
+        return "🔍 grep の代わりに Claude Code の Grep ツールを使用してください。\nGrep ツールはripgrepベースで高速かつ権限管理されています。"
+
+    # git grep（コンテキストフラグなし） → --function-context 推奨
+    if re.match(r"^git\s+grep\s", command):
+        has_context = bool(re.search(r"(--function-context|--show-function|-W|-p)", command))
+        if not has_context:
+            log_debug(f"BLOCKING: git grep without context flags: {command}")
+            return (
+                "🔍 git grep では --function-context または --show-function フラグを使用してください。\n"
+                "→ git grep --function-context <pattern> [path]"
+            )
+
+    return None
 
 
 def main() -> None:
@@ -116,25 +120,16 @@ def main() -> None:
         if not rules:
             sys.exit(0)
 
-        # rg/git grep → 外部スクリプト
-        if re.match(r"^rg\s", command):
-            sys.exit(call_external_script("read_mcp_memorys.py", json.dumps(input_data)))
-        if re.match(r"^git\s+grep", command):
-            sys.exit(call_external_script("bash_grep_checker.py", json.dumps(input_data)))
+        # grep系コマンド制御
+        grep_msg = check_grep_command(command)
+        if grep_msg:
+            print(json.dumps({"decision": "block", "reason": grep_msg}, ensure_ascii=False))
+            sys.exit(2)
 
         # ブロックチェック
         block_msg = check_blocked(command, rules)
         if block_msg:
             print(json.dumps({"decision": "block", "reason": block_msg}, ensure_ascii=False))
-            sys.exit(2)
-
-        # Makefile変換
-        make_cmd = apply_makefile_transform(command, rules)
-        if make_cmd:
-            print(json.dumps({
-                "decision": "block",
-                "reason": f"🔄 Makefile使用: {make_cmd}\n元: {command}"
-            }, ensure_ascii=False))
             sys.exit(2)
 
         # uv run変換
