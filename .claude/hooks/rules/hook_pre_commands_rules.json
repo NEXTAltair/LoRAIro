@@ -6,16 +6,6 @@
       "suggestion": "uv add <package>"
     },
     {
-      "pattern": "^npm ",
-      "reason": "Python project",
-      "suggestion": "uv for Python"
-    },
-    {
-      "pattern": "^git push.*origin.*main",
-      "reason": "Direct push to main restricted",
-      "suggestion": "Create feature branch and PR"
-    },
-    {
       "pattern": "^rm\\s+-rf\\s+.+",
       "reason": "Destructive operation",
       "suggestion": "make clean or confirm with user"
@@ -56,28 +46,6 @@
       "suggestion": "git branch -d（小文字）を使用するか、ユーザーに確認を取ってください"
     }
   ],
-  "makefile_transforms": [
-    {
-      "pattern": "^pytest\\b",
-      "transform": "make test",
-      "description": "Use Makefile test target"
-    },
-    {
-      "pattern": "^uv run pytest\\s*$",
-      "transform": "make test",
-      "description": "Use Makefile test target"
-    },
-    {
-      "pattern": "^(uv run )?ruff (format|check).*src/.*tests/",
-      "transform": "make format",
-      "description": "Use Makefile format target"
-    },
-    {
-      "pattern": "^(uv run )?mypy -p lorairo",
-      "transform": "make mypy",
-      "description": "Use Makefile mypy target"
-    }
-  ],
   "uv_transforms": [
     {
       "pattern": "^pytest\\s+local_packages/",
@@ -100,5 +68,5 @@
       "description": "Custom mypy needs uv run"
     }
   ],
-  "description": "LoRAIro command control - Makefile優先、uv run変換、危険コマンドブロック"
+  "description": "LoRAIro command control - uv run変換、危険コマンドブロック"
 }
