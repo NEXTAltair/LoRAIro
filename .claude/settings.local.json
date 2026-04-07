@@ -20,13 +20,7 @@
       "Bash(timeout:*)",
       "Bash(QT_QPA_PLATFORM=offscreen uv run pytest:*)",
       "Bash(make:*)",
-      "Bash(gh pr view:*)",
-      "Bash(gh issue list:*)",
-      "Bash(gh issue close:*)",
-      "Bash(gh issue view:*)",
-      "Bash(gh issue create:*)",
-      "Bash(gh repo view:*)",
-      "Bash(gh label list:*)",
+      "Bash(gh:*)",
       "Bash(docker build:*)",
       "Bash(docker volume:*)",
       "Bash(sqlite3:*)",
@@ -52,9 +46,6 @@
       "Bash(ln -s:*)",
       "Bash(git commit:*)",
       "Bash(PYTHONPATH=\"\" VIRTUAL_ENV=\"\" .venv/bin/python:*)",
-      "Bash(# Merge:*)",
-      "Bash(done)",
-      "Bash(.venv/bin/mypy src/lorairo/database/db_repository.py src/lorairo/database/db_manager.py src/lorairo/gui/services/search_filter_service.py src/lorairo/gui/widgets/filter_search_panel.py --ignore-missing-imports 2>&1 | tail -20)",
       "Skill(save-session)",
       "Skill(planning)",
       "Skill(implement)"
@@ -64,82 +55,13 @@
   },
   "enableAllProjectMcpServers": true,
   "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_session_start.py"
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_session_end.py"
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_assistant_response_checker.py"
-          }
-        ]
-      },
-      {
-        "matcher": "Grep",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_git_grep_enforcement.py"
-          }
-        ]
-      },
       {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
             "command": "/workspaces/LoRAIro/.claude/hooks/hook_pre_commands.py"
-          }
-        ]
-      },
-      {
-        "matcher": "Read",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_plan_read_redirect.py"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_stop_words.py"
-          }
-        ]
-      },
-      {
-        "matcher": "ExitPlanMode",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_post_plan_mode.py"
           }
         ]
       }
