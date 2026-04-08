@@ -10,7 +10,7 @@
 - Should find relevant design decisions from past implementations
 
 ## Expected Behavior
-1. Skill `context7-moltbot-research` should be invoked automatically
+1. Skill `context7-openclaw-research` should be invoked automatically
 2. Should use tools:
    - `lorairo-mem ltm_search.py` with query like "async database Qt worker pattern"
    - `lorairo-mem ltm_search.py` for team knowledge about async implementations
@@ -26,7 +26,7 @@
    - Miss relevant workspace context
 
 ## Success Criteria
-- [x] Correct skill invoked (context7-moltbot-research)
+- [x] Correct skill invoked (context7-openclaw-research)
 - [x] Tools used efficiently (memory search operations)
 - [x] Output meets requirements (past patterns, design decisions, references)
 - [x] Completes without errors
@@ -40,7 +40,7 @@
 
 ## Test Validation
 After running this scenario:
-1. Verify skill invoked: Check `context7-moltbot-research` in metadata
+1. Verify skill invoked: Check `context7-openclaw-research` in metadata
 2. Check tool usage:
    - `lorairo-mem ltm_search.py` with appropriate query
    - Optional: `lorairo-mem ltm_search.py` for team knowledge

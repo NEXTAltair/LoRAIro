@@ -2,12 +2,12 @@
 
 ## 利用可能なツール
 
-### Web Research (web.run)
+### Web Research (WebSearch)
 
-Codex では Context7 MCP を直接使いません。ライブラリ調査は web.run で公式ドキュメントを確認します。
+ライブラリ調査は WebSearch で公式ドキュメントを確認します。
 
-```json
-{"search_query":[{"q":"PySide6 Signal Slot QThread official docs"}]}
+```
+WebSearch: "PySide6 Signal Slot QThread official docs"
 ```
 
 **応答時間**: 2-5秒
@@ -52,7 +52,7 @@ curl -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
 | ローカル分析 | Serena | 0.3-0.5s |
 | LTM検索 | ltm_search.py | 2-5s |
 | LTM保存 | POST /hooks/lorairo-memory | 1-3s |
-| Web検索 | web.run | 2-5s |
+| Web検索 | WebSearch | 2-5s |
 
 ## 使い分け
 

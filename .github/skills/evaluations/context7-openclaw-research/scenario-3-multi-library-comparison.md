@@ -10,9 +10,9 @@
 - Requires both library docs research AND memory search for past decisions
 
 ## Expected Behavior
-1. Skill `context7-moltbot-research` should be invoked automatically
+1. Skill `context7-openclaw-research` should be invoked automatically
 2. Should use tools (complex multi-tool workflow):
-   - `web.run search_query` for official docs and comparisons
+   - `WebSearch` for official docs and comparisons
    - `lorairo-mem ltm_search.py` to check if we've evaluated these before
    - Optional: `Grep` to understand current annotation implementation
    - Optional: store decision summary to OpenClaw LTM (OpenClaw will refine)
@@ -28,7 +28,7 @@
    - Provide outdated comparison (should use current library versions)
 
 ## Success Criteria
-- [x] Correct skill invoked (context7-moltbot-research)
+- [x] Correct skill invoked (context7-openclaw-research)
 - [x] Tools used efficiently (multi-tool integration)
 - [x] Output meets requirements (comprehensive comparison)
 - [x] Completes without errors (even with multiple tool calls)
@@ -43,10 +43,10 @@
 
 ## Test Validation
 After running this scenario:
-1. Verify skill invoked: Check `context7-moltbot-research` in metadata
+1. Verify skill invoked: Check `context7-openclaw-research` in metadata
 2. Check tool usage sequence (complex workflow):
-   - Documentation fetch: `web.run search_query` (multiple queries)
-   - Comparison research: `web.run search_query` for trade-offs
+   - Documentation fetch: `WebSearch` (multiple queries)
+   - Comparison research: `WebSearch` for trade-offs
    - Memory check: `ltm_search.py` for past evaluations
    - Code exploration: `Grep` (optional)
 3. Verify output completeness:
@@ -64,7 +64,7 @@ After running this scenario:
    - Should still provide partial results if possible
 
 ## Edge Cases to Test
-- One library has no official docs found (should use web.run search_query)
+- One library has no official docs found (should use WebSearch)
 - Memory search returns conflicting past decisions (should acknowledge and explain)
 - Both libraries are equally viable (should present trade-offs clearly)
 - Current implementation uses neither library (should consider migration cost)

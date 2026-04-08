@@ -10,9 +10,9 @@
 - Expected research time: 10-30 seconds
 
 ## Expected Behavior
-1. Skill `context7-moltbot-research` should be invoked automatically
+1. Skill `context7-openclaw-research` should be invoked automatically
 2. Should use tools (in sequence):
-   - `web.run search_query` for official docs and API references
+   - `WebSearch` for official docs and API references
    - Optional: store a summary to OpenClaw LTM (OpenClaw will refine)
 3. Should produce:
    - Relevant Polars API documentation for Parquet operations
@@ -23,8 +23,8 @@
    - Return outdated documentation
 
 ## Success Criteria
-- [x] Correct skill invoked (context7-moltbot-research)
-- [x] Tools used efficiently (web.run search_query)
+- [x] Correct skill invoked (context7-openclaw-research)
+- [x] Tools used efficiently (WebSearch)
 - [x] Output meets requirements (accurate Polars API docs)
 - [x] Completes without errors
 - [x] Response time: 10-30 seconds (acceptable for complex analysis)
@@ -32,14 +32,14 @@
 
 ## Model Variations
 - **Haiku:** Should handle basic library lookup; may need guidance on which topic to query
-- **Sonnet:** Should handle full workflow; uses web.run to find official docs with appropriate queries
+- **Sonnet:** Should handle full workflow; uses WebSearch to find official docs with appropriate queries
 - **Opus:** May provide additional context about Polars vs Pandas trade-offs; may proactively suggest related APIs
 
 ## Test Validation
 After running this scenario:
-1. Verify skill invoked: Check `context7-moltbot-research` in metadata
+1. Verify skill invoked: Check `context7-openclaw-research` in metadata
 2. Check tool usage sequence:
-   - `web.run search_query` with query like "polars parquet read"
+   - `WebSearch` with query like "polars parquet read"
 3. Verify output contains:
    - Polars API methods for Parquet I/O
    - Code examples (preferably with syntax highlighting)

@@ -2,8 +2,8 @@
 
 ## Example 1: ライブラリドキュメント取得
 
-```json
-{"search_query":[{"q":"PySide6 Signal Slot QThread official docs"}]}
+```
+WebSearch: "PySide6 Signal Slot QThread official docs"
 ```
 
 ## Example 2: 過去の設計知識検索
@@ -35,8 +35,8 @@ curl -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
 # Step 1: LTM検索で過去の類似調査を確認
 # python3 ltm_search.py "database migration SQLAlchemy"
 
-# Step 2: web.runで公式ドキュメント取得
-# {"search_query":[{"q":"SQLAlchemy Alembic async migration official docs"}]}
+# Step 2: WebSearchで公式ドキュメント取得
+# WebSearch: "SQLAlchemy Alembic async migration official docs"
 
 # Step 3: 調査結果をLTMに保存
 # curl POST /hooks/lorairo-memory with type="decision"
@@ -52,7 +52,7 @@ Grep(relative_path="src/lorairo/gui/workers/")
 # python3 ltm_search.py "worker pattern implementation"
 
 # 3. [Web] ライブラリ調査
-# {"search_query":[{"q":"PySide6 QRunnable QThreadPool official docs"}]}
+# WebSearch: "PySide6 QRunnable QThreadPool official docs"
 
 # 4. [Serena] 関連シンボル検索
 Grep(name_path_pattern="WorkerManager", include_body=True)
@@ -65,7 +65,7 @@ Grep(name_path_pattern="WorkerManager", include_body=True)
 
 ### 効率的な使用パターン
 1. **LTM検索優先**: 新規調査前に必ず過去知識を確認
-2. **Web検索 + OpenClaw補強**: ライブラリドキュメントは web.run で確認し、保存時に OpenClaw が補強
+2. **Web検索 + OpenClaw補強**: ライブラリドキュメントは WebSearch で確認し、保存時に OpenClaw が補強
 3. **必ず記録**: 重要な判断は OpenClaw LTM で永続化
 
 ### タイミング特性
@@ -73,5 +73,5 @@ Grep(name_path_pattern="WorkerManager", include_body=True)
 |------|--------|----------|
 | LTM検索 | ltm_search.py | 2-5s |
 | LTM保存 | POST /hooks/lorairo-memory | 1-3s |
-| ライブラリドキュメント | web.run | 2-5s |
+| ライブラリドキュメント | WebSearch | 2-5s |
 | ローカル分析 | Serena | 0.3-0.5s |

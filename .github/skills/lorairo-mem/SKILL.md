@@ -1,7 +1,7 @@
 ---
 name: lorairo-mem
 version: "1.1.0"
-description: LoRAIro long-term memory operations. Use when you need to store structured project memories via the local OpenClaw webhook (/hooks/lorairo-memory), de-duplicate by hash, or search/retrieve entries from the Notion database "LoRAIro-Long-Term Memory (Shared)".
+description: LoRAIro long-term memory via OpenClaw webhook (/hooks/lorairo-memory). Store, de-duplicate, and retrieve project memories from Notion DB "LoRAIro-Long-Term Memory (Shared)".
 metadata:
   short-description: LoRAIro長期記憶パイプライン（OpenClaw webhook → Notion DB書き込み・検索・重複排除）。
   clawdbot:

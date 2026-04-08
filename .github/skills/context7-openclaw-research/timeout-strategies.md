@@ -1,6 +1,6 @@
 # Timeout Strategies for Web Research + OpenClaw LTM
 
-This document covers timeouts when using web.run and OpenClaw LTM.
+This document covers timeouts when using WebSearch and OpenClaw LTM.
 
 ## Understanding Operation Timing
 
@@ -8,7 +8,7 @@ This document covers timeouts when using web.run and OpenClaw LTM.
 - **Serena operations**: 0.3-0.5s (fast)
 - **OpenClaw LTM search**: 2-5s (ltm_search.py)
 - **OpenClaw LTM write**: 1-3s (POST /hooks/lorairo-memory)
-- **web.run search_query**: 2-5s
+- **WebSearch**: 2-5s
 
 ### Timeout Thresholds
 - **Expected**: < 15s
@@ -34,8 +34,8 @@ JSON
 ```
 
 **Good: Specific web search**
-```json
-{"search_query":[{"q":"PySide6 Signal Slot QThread official docs"}]}
+```
+WebSearch: "PySide6 Signal Slot QThread official docs"
 ```
 
 ## Error Handling
@@ -51,7 +51,7 @@ When operations time out:
 
 #### Pattern 1: Web search → narrower query
 ```
-web.run search_query(...) → TIMEOUT
+WebSearch(...) → TIMEOUT
 → Narrow the query and retry
 ```
 
@@ -74,7 +74,7 @@ POST /hooks/lorairo-memory + ltm_search.py → TIMEOUT
 **Correct approach:**
 ```
 1. Wait for ltm_search.py to complete
-2. Then run web.run search_query
+2. Then run WebSearch
 3. Then run POST /hooks/lorairo-memory
 ```
 
