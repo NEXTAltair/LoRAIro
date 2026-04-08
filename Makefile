@@ -49,8 +49,10 @@ format:
 	uv run ruff check src/ tests/ --fix
 
 skills-update:
-	@echo "Updating community skills from skills.sh..."
-	npx skills update
+	@echo "Restoring skills from skills-lock.json..."
+	npx skills experimental_install --yes
+	@echo "Updating community skills to latest versions..."
+	npx skills update --yes
 	@for skill in $$(ls .agents/skills/ 2>/dev/null); do \
 		cp -r .agents/skills/$$skill/. .github/skills/$$skill/; \
 		echo "Updated: $$skill"; \
