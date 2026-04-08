@@ -56,7 +56,8 @@
       "WebFetch(domain:martinfowler.com)",
       "WebFetch(domain:arxiv.org)",
       "WebFetch(domain:gist.github.com)",
-      "WebFetch(domain:docs.anthropic.com)"
+      "WebFetch(domain:docs.anthropic.com)",
+      "Bash(npx skills:*)"
     ],
     "deny": [],
     "ask": []

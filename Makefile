@@ -1,7 +1,7 @@
 # LoRAIro Project Makefile
 # Development task automation
 
-.PHONY: help test mypy format install install-dev clean run-gui generate-ui
+.PHONY: help test mypy format install install-dev clean run-gui generate-ui skills-update
 
 # Default target
 help:
@@ -16,6 +16,7 @@ help:
 	@echo "  mypy         Run code check (mypy)"
 	@echo "  format       Format code (ruff format)"
 	@echo "  clean        Clean build artifacts"
+	@echo "  skills-update Update community skills in .github/skills/"
 
 # Development targets
 install:
@@ -46,6 +47,15 @@ format:
 	@echo "Formatting code..."
 	uv run ruff format src/ tests/
 	uv run ruff check src/ tests/ --fix
+
+skills-update:
+	@echo "Updating community skills from skills.sh..."
+	npx skills update
+	@for skill in $$(ls .agents/skills/ 2>/dev/null); do \
+		cp -r .agents/skills/$$skill/. .github/skills/$$skill/; \
+		echo "Updated: $$skill"; \
+	done
+	@echo "Skills updated. Review changes and commit."
 
 clean:
 	@echo "Cleaning build artifacts and caches..."

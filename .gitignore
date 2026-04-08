@@ -123,6 +123,8 @@ dev_config/
 .roo/mcp.json
 !.roo/mcp.json.example
 .claude/logs/
+.claude/skills/
+.agents/
 
 # システム固有
 *.pid
