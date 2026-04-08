@@ -59,39 +59,15 @@ def load_ng_word_rules(rules_file: Path, log_file: Path) -> dict[str, Any] | Non
         return None
 
 
-def strip_code_blocks(text: str) -> str:
-    """コードブロックとインラインコードを除去してNGワード誤検知を防ぐ。
+def strip_quoted_content(text: str) -> str:
+    """引用符内のコンテンツを除去する（引用・言及・例示はNGワード対象外）。
 
-    Args:
-        text: チェック対象テキスト
-
-    Returns:
-        コードブロック・インラインコードを除去したテキスト
+    対象: 「」（日本語鉤括弧）、""（英語ダブルクオート）、``（バッククオート）
     """
-    # ``` コードブロック除去（複数行対応）
-    text = re.sub(r"```[\s\S]*?```", " ", text)
-    # ` インラインコード除去
-    text = re.sub(r"`[^`\n]+`", " ", text)
+    text = re.sub(r"「[^」]*」", "", text)
+    text = re.sub(r'"[^"]*"', "", text)
+    text = re.sub(r"`[^`\n]*`", "", text)
     return text
-
-
-def is_excluded_by_patterns(text: str, keyword: str, exclude_patterns: list[str]) -> bool:
-    """除外パターンのいずれかにマッチする文脈ならTrue。
-
-    Args:
-        text: コードブロック除去済みのチェック対象テキスト
-        keyword: 検出されたNGキーワード
-        exclude_patterns: 除外パターンのリスト
-
-    Returns:
-        除外すべき文脈の場合True
-    """
-    for pattern in exclude_patterns:
-        if re.search(pattern, text, re.IGNORECASE):
-            return True
-    return False
-
-
 def check_ng_words(message: str, rules: dict[str, Any], log_file: Path) -> tuple[bool, list[str]]:
     """NGワード検出メイン処理（文脈対応版）。
 
@@ -103,10 +79,10 @@ def check_ng_words(message: str, rules: dict[str, Any], log_file: Path) -> tuple
     Returns:
         (違反検出フラグ, 違反詳細リスト)
     """
-    # コードブロック・インラインコードを除去
-    stripped = strip_code_blocks(message)
-
     violations = []
+
+    # 引用符内はNGワード対象外（キーワードの言及・例示・説明のため）
+    check_message = strip_quoted_content(message)
 
     for rule_name, rule_config in rules.items():
         if not isinstance(rule_config, dict):
@@ -122,13 +98,8 @@ def check_ng_words(message: str, rules: dict[str, Any], log_file: Path) -> tuple
             if not isinstance(keyword, str) or not keyword:
                 continue
 
-            # 大文字小文字を区別しない検索（コードブロック除去済みテキスト）
-            if re.search(re.escape(keyword), stripped, re.IGNORECASE):
-                # 除外パターンチェック（文脈認識）
-                if is_excluded_by_patterns(stripped, keyword, exclude_patterns):
-                    log_debug(log_file, f"EXCLUDED by pattern - Rule: {rule_name}, Keyword: {keyword}")
-                    continue
-
+            # 大文字小文字を区別しない検索（引用符除去済みテキストで）
+            if re.search(re.escape(keyword), check_message, re.IGNORECASE):
                 violation_detail = f"🚫 [{rule_name}] キーワード「{keyword}」検出\n   → {rule_message}"
                 violations.append(violation_detail)
 
