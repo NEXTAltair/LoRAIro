@@ -55,7 +55,8 @@
       "WebFetch(domain:skills.sh)",
       "WebFetch(domain:martinfowler.com)",
       "WebFetch(domain:arxiv.org)",
-      "WebFetch(domain:gist.github.com)"
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:docs.anthropic.com)"
     ],
     "deny": [],
     "ask": []
@@ -80,6 +81,28 @@
           {
             "type": "command",
             "command": "/workspaces/LoRAIro/.claude/hooks/hook_response_monitor.py"
+          }
+        ]
+      }
+    ],
+    "FileChanged": [
+      {
+        "matcher": "**/*.ui",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /workspaces/LoRAIro && uv run python scripts/generate_ui.py 2>&1 | tail -5"
+          }
+        ]
+      }
+    ],
+    "WorktreeCreate": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_worktree_create.py"
           }
         ]
       }
