@@ -84,6 +84,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gh \
     # Utilities
     rsync \
+    # Terminal multiplexer (required for Agent Teams)
+    tmux \
     # Secret storage (for CLI tools credential management)
     libsecret-1-0 \
     && apt-get clean \
