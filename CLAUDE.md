@@ -54,6 +54,7 @@ uv run pytest
 uv run pytest -m unit              # Unit tests only
 uv run pytest -m integration       # Integration tests only
 uv run pytest -m gui               # GUI tests (headless)
+uv run pytest -m bdd               # BDD tests (pytest-bdd)
 uv run pytest --cov=src --cov-report=xml
 ```
 

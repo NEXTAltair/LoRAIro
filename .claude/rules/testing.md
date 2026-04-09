@@ -16,7 +16,10 @@ tests/
 ├── unit/           # ユニットテスト（外部依存はモック）
 ├── integration/    # 統合テスト（内部コンポーネント結合）
 ├── gui/            # GUIテスト（pytest-qt）
-├── bdd/            # BDD E2Eテスト
+├── bdd/            # BDD振る舞い仕様テスト（pytest-bdd）
+│   ├── conftest.py     # bddマーカー自動付与
+│   ├── features/       # Gherkin featureファイル
+│   └── steps/          # ステップ定義（test_*.py）
 └── resources/      # テストリソース
 ```
 
@@ -25,6 +28,7 @@ tests/
 @pytest.mark.unit        # ユニットテスト
 @pytest.mark.integration # 統合テスト
 @pytest.mark.gui         # GUIテスト
+@pytest.mark.bdd         # BDDテスト（tests/bdd/配下は自動付与）
 @pytest.mark.slow        # 時間のかかるテスト
 ```
 
@@ -92,6 +96,9 @@ uv run pytest
 # ユニットテストのみ
 uv run pytest -m unit
 
+# BDDテストのみ
+uv run pytest -m bdd
+
 # カバレッジ付き
 uv run pytest --cov=src --cov-report=html
 
@@ -107,6 +114,44 @@ QT_QPA_PLATFORM=offscreen uv run pytest -m gui
 # Windows: ネイティブウィンドウ
 uv run pytest -m gui
 ```
+
+## BDD テスト（pytest-bdd）
+
+BDDはE2Eに限定せず「振る舞い仕様の表現形式」としてService層以上に適用する。
+
+### 適用レイヤー
+
+| レイヤー | BDD の適用 | 理由 |
+|---------|-----------|------|
+| ユーザー向け機能フロー | ◎ | 仕様そのもの |
+| Service 層の振る舞い | ○ | ビジネスルールの表現に向く |
+| Repository 層の CRUD | △ | 技術的すぎて Gherkin が冗長 |
+| 内部ロジック・ユーティリティ | ✕ | 通常の pytest が適切 |
+
+### BDDシナリオを書くべきケース
+
+- 新しいユーザー向け機能（画像登録、タグ検索等）
+- Service層のビジネスルール（重複排除、バリデーション等）
+- バグ修正のリグレッション防止（再現シナリオを書いてから修正）
+
+### BDDシナリオを書かないケース
+
+- 内部リファクタリング
+- UIの見た目の調整
+- Repository層の単純CRUD
+
+### 新しいBDDテストの追加方法
+
+1. `tests/bdd/features/` に `.feature` ファイルを作成（日本語Gherkin）
+2. `tests/bdd/steps/` に `test_<feature名>.py` を作成
+3. `scenarios()` で feature ファイルを参照:
+   ```python
+   from pathlib import Path
+   from pytest_bdd import scenarios
+   _FEATURE_FILE = Path(__file__).parent.parent / "features" / "<feature名>.feature"
+   scenarios(str(_FEATURE_FILE))
+   ```
+4. `@given`, `@when`, `@then` でステップ定義を実装
 
 ## テスト命名規則
 
@@ -138,3 +183,4 @@ def clean_state():
 - `tests/conftest.py`: 共通フィクスチャ
 - `tests/unit/conftest.py`: ユニットテスト専用
 - `tests/integration/conftest.py`: 統合テスト専用
+- `tests/bdd/conftest.py`: BDDマーカー自動付与
