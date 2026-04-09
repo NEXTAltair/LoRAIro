@@ -1,10 +1,8 @@
 ---
 name: build-error-resolver
 description: pytest失敗、mypy/Ruffエラーの自動診断・修正提案を行う専門エージェント。エラーログを解析し、根本原因を特定して具体的な修正案を提示します。
-context: fork
-parallel-safe: true
 color: orange
-allowed-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash
 ---
 
 # Build Error Resolution Specialist

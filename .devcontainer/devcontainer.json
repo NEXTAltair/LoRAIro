@@ -48,6 +48,7 @@
     "overrideCommand":true,
     "remoteUser": "vscode",
     "remoteEnv": {
+        "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
         "DISPLAY": "host.docker.internal:0",
         "QT_QPA_PLATFORM": "xcb",
         "QT_X11_NO_MITSHM": "1",

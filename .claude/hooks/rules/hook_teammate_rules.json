@@ -1,0 +1,16 @@
+{
+  "task_completed": {
+    "run_ruff": true,
+    "ruff_block_on_error": false,
+    "run_mypy": false,
+    "description": "TaskCompleted時の品質チェック設定。ruff_block_on_errorをtrueにすると差し戻し有効。mypyはデフォルト無効（重いため）"
+  },
+  "task_created": {
+    "min_subject_length": 5,
+    "description": "TaskCreated時のバリデーション。タスク名の最小文字数チェック"
+  },
+  "teammate_idle": {
+    "require_changes": true,
+    "description": "TeammateIdle時の成果物確認。require_changesをtrueにすると変更なしでアイドルを阻止"
+  }
+}

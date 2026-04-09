@@ -107,6 +107,36 @@
           }
         ]
       }
+    ],
+    "TeammateIdle": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_teammate_monitor.py"
+          }
+        ]
+      }
+    ],
+    "TaskCreated": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_teammate_monitor.py"
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_teammate_monitor.py"
+          }
+        ]
+      }
     ]
   },
   "language": "japanese"

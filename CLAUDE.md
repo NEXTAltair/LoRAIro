@@ -170,9 +170,13 @@ Always run after modifying `.ui` files.
 
 ### Agents
 
+Agent Teams 有効（実験的）。チームメートとしても利用可能（`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`）。
+
 - **investigation**: コードベース調査・分析
 - **solutions**: 多角的問題解決・アプローチ評価
 - **code-formatter**: コード品質管理（Ruff統合）
+- **test-runner**: テスト実行・結果解析
+- **db-schema-reviewer**: スキーマ・マイグレーション品質検査
 
 ### Skills
 
