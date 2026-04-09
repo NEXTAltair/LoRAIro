@@ -171,6 +171,7 @@ Always run after modifying `.ui` files.
 ### Agents
 
 Agent Teams 有効（実験的）。チームメートとしても利用可能（`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`）。
+推奨チームサイズ: 3〜5人、1人あたり5〜6タスク。チームメートごとに担当ファイルを分離してファイル競合を防ぐ。
 
 - **investigation**: コードベース調査・分析
 - **solutions**: 多角的問題解決・アプローチ評価
