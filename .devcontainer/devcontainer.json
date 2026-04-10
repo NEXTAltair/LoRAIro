@@ -59,7 +59,8 @@
         "source=lorairo-bashhistory,target=/home/vscode/.bash_history,type=volume",
         "source=lorairo-vscode-extensions,target=/home/vscode/.vscode-server/extensions,type=volume",
         "source=lorairo-venv,target=/workspaces/LoRAIro/.venv,type=volume",
-        "source=lorairo-claude-config,target=/home/vscode/.claude,type=volume"
+        "source=lorairo-claude-config,target=/home/vscode/.claude,type=volume",
+        "source=lorairo-worktrees,target=/tmp/worktrees,type=volume"
     ],
     "postCreateCommand": "bash .devcontainer/postCreateCommand.sh",
     "postAttachCommand": {},
