@@ -92,7 +92,7 @@ models/
 jsonl/
 
 # テスト用画像
-tests/resources/img/
+tests/resources/img/*
 !tests/resources/img/1_img/
 
 # annotatorツール出力
