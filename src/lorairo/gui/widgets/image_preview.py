@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from PIL import Image
 from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtGui import QPainter, QPixmap, QResizeEvent, QShowEvent
-from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QSizePolicy, QWidget
+from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QWidget
 
 from ...gui.designer.ImagePreviewWidget_ui import Ui_ImagePreviewWidget
 from ...utils.log import logger
@@ -103,17 +103,11 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         return pixmap
 
     def _adjust_view_size(self) -> None:
-        # graphicsView のサイズポリシーを一時的に Ignored に設定
-        self.previewGraphicsView.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
-
-        # graphicsView のサイズを表示領域のサイズに設定
-        view_size = self.previewGraphicsView.viewport().size()
-        self.previewGraphicsView.resize(view_size)
-
-        # fitInView を呼び出して画像をフィット
-        self.previewGraphicsView.fitInView(
-            self.graphics_scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio
-        )
+        # pixmap_item が None の場合はスキップ（sceneRect が (0,0,0,0) の状態での縮小を防ぐ）
+        if self.pixmap_item is not None:
+            self.previewGraphicsView.fitInView(
+                self.graphics_scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio
+            )
 
     # resizeEvent をオーバーライドしてウィンドウサイズ変更時にサイズ調整
     def resizeEvent(self, event: QResizeEvent) -> None:
