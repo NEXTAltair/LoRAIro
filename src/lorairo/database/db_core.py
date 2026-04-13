@@ -144,7 +144,7 @@ def resolve_stored_path(stored_path: str) -> Path:
     project_dir_name = project_root.name
     try:
         idx = path.parts.index(project_dir_name)
-        remainder_parts = path.parts[idx + 1:]
+        remainder_parts = path.parts[idx + 1 :]
         if remainder_parts:
             resolved = project_root.joinpath(*remainder_parts)
             logger.debug(f"パス解決（プレフィックス正規化）: {stored_path} -> {resolved}")

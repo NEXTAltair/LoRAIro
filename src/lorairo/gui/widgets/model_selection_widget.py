@@ -96,9 +96,7 @@ if not __name__ == "__main__":
 
             # executionEnvCombo シグナル接続
             if hasattr(self, "executionEnvCombo"):
-                self.executionEnvCombo.currentTextChanged.connect(
-                    self._on_execution_env_changed
-                )
+                self.executionEnvCombo.currentTextChanged.connect(self._on_execution_env_changed)
 
             # UI初期化
             self.load_models()

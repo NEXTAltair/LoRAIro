@@ -56,8 +56,7 @@ class FavoriteFiltersService:
 
             # JSON ファイルに保存
             self._filters_file.write_text(
-                json.dumps(filters, ensure_ascii=False, indent=2),
-                encoding="utf-8"
+                json.dumps(filters, ensure_ascii=False, indent=2), encoding="utf-8"
             )
 
             logger.info("Saved favorite filter: {}", name)
@@ -149,8 +148,7 @@ class FavoriteFiltersService:
 
             # JSON ファイルに保存
             self._filters_file.write_text(
-                json.dumps(filters, ensure_ascii=False, indent=2),
-                encoding="utf-8"
+                json.dumps(filters, ensure_ascii=False, indent=2), encoding="utf-8"
             )
 
             logger.info("Deleted favorite filter: {}", name)
@@ -187,10 +185,7 @@ class FavoriteFiltersService:
         """
         try:
             # 空の辞書を保存
-            self._filters_file.write_text(
-                json.dumps({}, ensure_ascii=False, indent=2),
-                encoding="utf-8"
-            )
+            self._filters_file.write_text(json.dumps({}, ensure_ascii=False, indent=2), encoding="utf-8")
 
             logger.info("Cleared all favorite filters")
             return True

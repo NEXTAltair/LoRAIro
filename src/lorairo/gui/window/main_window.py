@@ -1785,9 +1785,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def _on_batch_import_finished(self, result: Any) -> None:
         """バッチインポート完了ハンドラ。"""
-        from ...services.batch_import_service import BatchImportResult
-        from ...services.batch_image_matcher import BatchImageMatcher
         from PySide6.QtWidgets import QDialog, QDialogButtonBox, QTextEdit, QVBoxLayout
+
+        from ...services.batch_image_matcher import BatchImageMatcher
+        from ...services.batch_import_service import BatchImportResult
 
         if not isinstance(result, BatchImportResult):
             logger.warning(f"Unexpected batch import result type: {type(result)}")

@@ -130,7 +130,9 @@ class TestSearchFilterService:
     def test_parse_search_input_caption(self, service):
         """キャプション検索入力解析テスト"""
         # カンマ区切りキャプション
-        keywords, excluded_keywords = service.parse_search_input("beautiful scene, landscape view, mountain scenery")
+        keywords, excluded_keywords = service.parse_search_input(
+            "beautiful scene, landscape view, mountain scenery"
+        )
         assert keywords == ["beautiful scene", "landscape view", "mountain scenery"]
         assert excluded_keywords == []
 
@@ -148,7 +150,6 @@ class TestSearchFilterService:
         keywords, excluded_keywords = service.parse_search_input("   ")
         assert keywords == []
         assert excluded_keywords == []
-
 
     def test_parse_search_input_with_exclusion(self, service):
         """除外検索入力解析テスト"""

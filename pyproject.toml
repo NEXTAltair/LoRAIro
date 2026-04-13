@@ -73,6 +73,10 @@ explicit = true
 fix = true
 line-length = 108
 target-version = "py312"
+exclude = [
+    "*/gui/designer/*", # Qtデザイナが生成するコード
+    "*/__pycache__",
+]
 
 [tool.ruff.lint]
 select = [
@@ -84,11 +88,6 @@ select = [
     "B",   # flake8-bugbear
     "UP",  # pyupgrade
     "RUF", # Ruff-specific rules
-]
-
-exclude = [
-    "*/gui/designer/*", # Qtデザイナが生成するコード
-    "*/__pycache__",
 ]
 
 ignore = [
@@ -226,6 +225,7 @@ dev = [
     "matplotlib",
     "radon>=6.0.1",
     "lizard>=1.21.0",
+    "pre-commit>=4.5.1",
 ]
 
 [tool.hatch.metadata]

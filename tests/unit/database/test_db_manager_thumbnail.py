@@ -21,9 +21,7 @@ def mock_repository() -> Mock:
 def mock_config_service() -> Mock:
     """MockConfigurationServiceを作成"""
     config_service = Mock(spec=ConfigurationService)
-    config_service.get_image_processing_config.return_value = {
-        "upscaler": "RealESRGAN_x4plus"
-    }
+    config_service.get_image_processing_config.return_value = {"upscaler": "RealESRGAN_x4plus"}
     return config_service
 
 
@@ -71,9 +69,7 @@ class TestCreateAndSaveThumbnail:
             "height": 512,
         }
 
-        with patch(
-            "lorairo.editor.image_processor.ImageProcessingManager"
-        ) as mock_ipm_class:
+        with patch("lorairo.editor.image_processor.ImageProcessingManager") as mock_ipm_class:
             mock_ipm = Mock()
             mock_ipm_class.return_value = mock_ipm
             mock_ipm.process_image.return_value = (processed_image_mock, processing_metadata)
@@ -110,9 +106,7 @@ class TestCreateAndSaveThumbnail:
             "mode": "RGB",
         }
 
-        with patch(
-            "lorairo.editor.image_processor.ImageProcessingManager"
-        ) as mock_ipm_class:
+        with patch("lorairo.editor.image_processor.ImageProcessingManager") as mock_ipm_class:
             mock_ipm = Mock()
             mock_ipm_class.return_value = mock_ipm
             # process_image が None を返す（処理できない）
@@ -146,9 +140,7 @@ class TestCreateAndSaveThumbnail:
             "mode": "RGBA",
         }
 
-        with patch(
-            "lorairo.editor.image_processor.ImageProcessingManager"
-        ) as mock_ipm_class:
+        with patch("lorairo.editor.image_processor.ImageProcessingManager") as mock_ipm_class:
             mock_ipm = Mock()
             mock_ipm_class.return_value = mock_ipm
             mock_ipm.process_image.return_value = (MagicMock(), {})

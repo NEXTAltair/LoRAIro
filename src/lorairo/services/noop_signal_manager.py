@@ -8,8 +8,8 @@ Signal管理が不要なCLI環境向けに、SignalManagerServiceProtocol
 from collections.abc import Callable
 from typing import Any
 
-from .signal_manager_protocol import SignalManagerServiceProtocol
 from ..utils.log import logger
+from .signal_manager_protocol import SignalManagerServiceProtocol
 
 
 class NoOpSignalManager:
@@ -28,9 +28,7 @@ class NoOpSignalManager:
         """NoOpSignalManagerを初期化します。"""
         logger.debug("NoOpSignalManager initialized (CLI mode)")
 
-    def connect_widget_signals(
-        self, widget: Any, signal_mapping: dict[str, Callable[..., Any]]
-    ) -> bool:
+    def connect_widget_signals(self, widget: Any, signal_mapping: dict[str, Callable[..., Any]]) -> bool:
         """Widget Signal接続（NoOp）
 
         Args:
@@ -43,7 +41,9 @@ class NoOpSignalManager:
         Note:
             CLI環境ではSignalが存在しないため、実装なし。
         """
-        widget_name = getattr(widget, "__class__", object).__name__ if hasattr(widget, "__class__") else "Unknown"
+        widget_name = (
+            getattr(widget, "__class__", object).__name__ if hasattr(widget, "__class__") else "Unknown"
+        )
         logger.debug("NoOp: connect_widget_signals called (widget={})", widget_name)
         return True
 
@@ -63,9 +63,7 @@ class NoOpSignalManager:
         logger.debug("NoOp: emit_application_signal called (signal_name={})", signal_name)
         return True
 
-    def register_error_handler(
-        self, widget: Any, error_handler: Callable[[str, Exception], None]
-    ) -> bool:
+    def register_error_handler(self, widget: Any, error_handler: Callable[[str, Exception], None]) -> bool:
         """Widget用統一エラーハンドラー登録（NoOp）
 
         Args:

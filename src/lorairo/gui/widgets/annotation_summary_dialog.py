@@ -246,9 +246,10 @@ class AnnotationSummaryDialog(QDialog):
 
         return group
 
-
     @staticmethod
-    def _get_result_attr(result: object, key: str, default: object = None) -> Any:  # Any使用: dict/objectの動的アクセス
+    def _get_result_attr(
+        result: object, key: str, default: object = None
+    ) -> Any:  # Any使用: dict/objectの動的アクセス
         """アノテーション結果からキーに対応する値を取得する。
 
         object型（getattr）とdict型（get）の両方に対応。
@@ -433,9 +434,7 @@ class AnnotationSummaryDialog(QDialog):
             captions_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, 5, captions_item)
 
-            time_text = (
-                f"{stat.processing_time_sec:.2f}" if stat.processing_time_sec is not None else "-"
-            )
+            time_text = f"{stat.processing_time_sec:.2f}" if stat.processing_time_sec is not None else "-"
             time_item = QTableWidgetItem(time_text)
             time_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, 6, time_item)

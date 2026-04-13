@@ -23,8 +23,18 @@ class ImageRegistrationService:
 
     # サポートする画像形式
     SUPPORTED_EXTENSIONS: ClassVar[set[str]] = {
-        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp",
-        ".JPG", ".JPEG", ".PNG", ".GIF", ".BMP", ".WEBP"
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".webp",
+        ".JPG",
+        ".JPEG",
+        ".PNG",
+        ".GIF",
+        ".BMP",
+        ".WEBP",
     }
 
     def __init__(self) -> None:
@@ -52,14 +62,10 @@ class ImageRegistrationService:
             ImageRegistrationError: ディレクトリが見つからない場合。
         """
         if not directory.exists():
-            raise ImageRegistrationError(
-                f"ディレクトリが見つかりません: {directory}", 0
-            )
+            raise ImageRegistrationError(f"ディレクトリが見つかりません: {directory}", 0)
 
         if not directory.is_dir():
-            raise ImageRegistrationError(
-                f"ディレクトリではありません: {directory}", 0
-            )
+            raise ImageRegistrationError(f"ディレクトリではありません: {directory}", 0)
 
         # プロジェクトの画像格納先を準備
         dest_dir: Path | None = None
@@ -91,9 +97,7 @@ class ImageRegistrationService:
                 # 重複チェック
                 if skip_duplicates and phash in phashs_seen:
                     skipped += 1
-                    logger.debug(
-                        f"重複スキップ: {image_file.name} (pHash={phash})"
-                    )
+                    logger.debug(f"重複スキップ: {image_file.name} (pHash={phash})")
                     continue
 
                 # プロジェクトディレクトリにコピー
@@ -105,9 +109,7 @@ class ImageRegistrationService:
                 # 登録成功カウント
                 registered += 1
                 phashs_seen.add(phash)
-                logger.debug(
-                    f"登録: {image_file.name} (pHash={phash})"
-                )
+                logger.debug(f"登録: {image_file.name} (pHash={phash})")
 
             except Exception as e:
                 failed += 1
@@ -123,16 +125,11 @@ class ImageRegistrationService:
             error_details=errors if errors else None,
         )
 
-        logger.info(
-            f"登録完了: 成功={result.successful}, スキップ={result.skipped}, "
-            f"失敗={result.failed}"
-        )
+        logger.info(f"登録完了: 成功={result.successful}, スキップ={result.skipped}, 失敗={result.failed}")
 
         return result
 
-    def detect_duplicate_images(
-        self, directory: Path
-    ) -> dict[str, list[str]]:
+    def detect_duplicate_images(self, directory: Path) -> dict[str, list[str]]:
         """ディレクトリ内の重複画像を検出。
 
         同じpHashを持つ画像をグループ化して返す。
@@ -148,14 +145,10 @@ class ImageRegistrationService:
             ImageRegistrationError: ディレクトリが見つからない場合。
         """
         if not directory.exists():
-            raise ImageRegistrationError(
-                f"ディレクトリが見つかりません: {directory}", 0
-            )
+            raise ImageRegistrationError(f"ディレクトリが見つかりません: {directory}", 0)
 
         if not directory.is_dir():
-            raise ImageRegistrationError(
-                f"ディレクトリではありません: {directory}", 0
-            )
+            raise ImageRegistrationError(f"ディレクトリではありません: {directory}", 0)
 
         image_files = self._get_image_files(directory)
         logger.debug(f"重複検出対象: {len(image_files)}個の画像ファイル")
@@ -171,16 +164,10 @@ class ImageRegistrationService:
                         phash_map[phash] = []
                     phash_map[phash].append(str(image_file))
             except Exception as e:
-                logger.warning(
-                    f"pHash計算失敗: {image_file.name} - {e}"
-                )
+                logger.warning(f"pHash計算失敗: {image_file.name} - {e}")
 
         # 重複（2個以上）のみを抽出
-        duplicates = {
-            phash: files
-            for phash, files in phash_map.items()
-            if len(files) > 1
-        }
+        duplicates = {phash: files for phash, files in phash_map.items() if len(files) > 1}
 
         if duplicates:
             logger.info(f"重複検出: {len(duplicates)}グループ")
@@ -226,7 +213,5 @@ class ImageRegistrationService:
             return str(phash)
 
         except Exception as e:
-            logger.debug(
-                f"pHash計算失敗: {image_path.name} - {type(e).__name__}"
-            )
+            logger.debug(f"pHash計算失敗: {image_path.name} - {type(e).__name__}")
             return None

@@ -88,10 +88,12 @@ class TestBatchImageMatcher:
     def test_windows_path_custom_ids(self, mock_repository: MagicMock) -> None:
         """Windowsパス形式のcustom_idが正しくマッチする。"""
         matcher = BatchImageMatcher(mock_repository)
-        result = matcher.match_all([
-            "H:\\lora\\images\\0262_1227",
-            "H:\\lora\\images\\0263_1228.jpg",
-        ])
+        result = matcher.match_all(
+            [
+                "H:\\lora\\images\\0262_1227",
+                "H:\\lora\\images\\0263_1228.jpg",
+            ]
+        )
 
         assert len(result.matched) == 2
         assert result.matched["H:\\lora\\images\\0262_1227"] == 1

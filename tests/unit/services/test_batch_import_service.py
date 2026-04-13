@@ -212,12 +212,8 @@ class TestBatchImportServiceDirectory:
         records1 = [_make_batch_record("0262_1227", "Tags: 1girl\n\nCaption: a")]
         records2 = [_make_batch_record("0263_1228", "Tags: solo\n\nCaption: b")]
 
-        (tmp_path / "batch1.jsonl").write_text(
-            "\n".join(json.dumps(r) for r in records1), encoding="utf-8"
-        )
-        (tmp_path / "batch2.jsonl").write_text(
-            "\n".join(json.dumps(r) for r in records2), encoding="utf-8"
-        )
+        (tmp_path / "batch1.jsonl").write_text("\n".join(json.dumps(r) for r in records1), encoding="utf-8")
+        (tmp_path / "batch2.jsonl").write_text("\n".join(json.dumps(r) for r in records2), encoding="utf-8")
 
         service = BatchImportService(mock_repository)
         result = service.import_from_directory(tmp_path)

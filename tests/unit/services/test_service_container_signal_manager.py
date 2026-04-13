@@ -1,10 +1,11 @@
 """ServiceContainer での signal_manager 自動切り替えテスト"""
 
 import os
+
 import pytest
 
-from lorairo.services.service_container import ServiceContainer
 from lorairo.services.noop_signal_manager import NoOpSignalManager
+from lorairo.services.service_container import ServiceContainer
 from lorairo.services.signal_manager_service import SignalManagerService
 
 

@@ -35,9 +35,7 @@ class TestImportBatchCommand:
     """import-batch CLIコマンドのテスト。"""
 
     @patch("lorairo.cli.commands.annotate.import_batch_annotations")
-    def test_normal_invocation(
-        self, mock_import: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_normal_invocation(self, mock_import: MagicMock, tmp_path: Path) -> None:
         """正常呼び出しで結果テーブルが表示される。"""
         # JSONLファイルを用意（typerのexists=True検証用）
         jsonl_dir = tmp_path / "jsonl"
@@ -46,9 +44,7 @@ class TestImportBatchCommand:
 
         mock_import.return_value = _make_batch_result()
 
-        result = runner.invoke(
-            app, ["annotate", "import-batch", str(jsonl_dir), "-p", "test_project"]
-        )
+        result = runner.invoke(app, ["annotate", "import-batch", str(jsonl_dir), "-p", "test_project"])
 
         assert result.exit_code == 0
         assert "Batch Import Summary" in result.output
@@ -56,9 +52,7 @@ class TestImportBatchCommand:
         mock_import.assert_called_once()
 
     @patch("lorairo.cli.commands.annotate.import_batch_annotations")
-    def test_dry_run_flag(
-        self, mock_import: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_dry_run_flag(self, mock_import: MagicMock, tmp_path: Path) -> None:
         """--dry-runフラグが伝播される。"""
         jsonl_dir = tmp_path / "jsonl"
         jsonl_dir.mkdir()
@@ -77,9 +71,7 @@ class TestImportBatchCommand:
         assert call_kwargs.kwargs["dry_run"] is True
 
     @patch("lorairo.cli.commands.annotate.import_batch_annotations")
-    def test_model_name_override(
-        self, mock_import: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_model_name_override(self, mock_import: MagicMock, tmp_path: Path) -> None:
         """--model-nameオプションが伝播される。"""
         jsonl_dir = tmp_path / "jsonl"
         jsonl_dir.mkdir()
@@ -90,9 +82,13 @@ class TestImportBatchCommand:
         result = runner.invoke(
             app,
             [
-                "annotate", "import-batch", str(jsonl_dir),
-                "-p", "test_project",
-                "--model-name", "custom-model",
+                "annotate",
+                "import-batch",
+                str(jsonl_dir),
+                "-p",
+                "test_project",
+                "--model-name",
+                "custom-model",
             ],
         )
 
@@ -110,9 +106,7 @@ class TestImportBatchCommand:
         assert result.exit_code != 0
 
     @patch("lorairo.cli.commands.annotate.import_batch_annotations")
-    def test_project_not_found(
-        self, mock_import: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_project_not_found(self, mock_import: MagicMock, tmp_path: Path) -> None:
         """存在しないプロジェクトでエラー。"""
         from lorairo.api.exceptions import ProjectNotFoundError
 
@@ -131,21 +125,15 @@ class TestImportBatchCommand:
         assert "nonexistent" in result.output
 
     @patch("lorairo.cli.commands.annotate.import_batch_annotations")
-    def test_unmatched_ids_displayed(
-        self, mock_import: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_unmatched_ids_displayed(self, mock_import: MagicMock, tmp_path: Path) -> None:
         """アンマッチIDが表示される。"""
         jsonl_dir = tmp_path / "jsonl"
         jsonl_dir.mkdir()
         (jsonl_dir / "test.jsonl").write_text("{}", encoding="utf-8")
 
-        mock_import.return_value = _make_batch_result(
-            unmatched_ids=["id_a", "id_b", "id_c"]
-        )
+        mock_import.return_value = _make_batch_result(unmatched_ids=["id_a", "id_b", "id_c"])
 
-        result = runner.invoke(
-            app, ["annotate", "import-batch", str(jsonl_dir), "-p", "test_project"]
-        )
+        result = runner.invoke(app, ["annotate", "import-batch", str(jsonl_dir), "-p", "test_project"])
 
         assert result.exit_code == 0
         assert "照合失敗" in result.output

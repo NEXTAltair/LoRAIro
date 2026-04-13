@@ -36,8 +36,7 @@ def _resolve_project_image_ids(project_name: str) -> list[int]:
 
     image_extensions = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
     image_files = [
-        f for f in sorted(images_dir.iterdir())
-        if f.is_file() and f.suffix.lower() in image_extensions
+        f for f in sorted(images_dir.iterdir()) if f.is_file() and f.suffix.lower() in image_extensions
     ]
 
     # FIXME: Issue #15後続 - DBからimage_idを取得する実装に置き換え
@@ -84,9 +83,7 @@ def export_dataset(
     # フォーマット検証
     supported_formats = ["txt", "json"]
     if criteria.format_type not in supported_formats:
-        raise InvalidFormatError(
-            criteria.format_type, supported_formats
-        )
+        raise InvalidFormatError(criteria.format_type, supported_formats)
 
     output_dir = Path(output_path) if isinstance(output_path, str) else output_path
 

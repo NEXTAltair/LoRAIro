@@ -401,9 +401,7 @@ class ImageFilenameAlias(Base):
     __tablename__ = "image_filename_aliases"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    image_id: Mapped[int] = mapped_column(
-        ForeignKey("images.id", ondelete="CASCADE"), nullable=False
-    )
+    image_id: Mapped[int] = mapped_column(ForeignKey("images.id", ondelete="CASCADE"), nullable=False)
     stem: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime.datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()

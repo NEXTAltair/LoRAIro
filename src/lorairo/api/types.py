@@ -21,14 +21,8 @@ class ProjectCreateRequest(BaseModel):
         description: プロジェクトの説明（任意）。
     """
 
-    name: str = Field(
-        ..., min_length=1, max_length=64,
-        description="プロジェクト名"
-    )
-    description: str | None = Field(
-        default=None, max_length=256,
-        description="プロジェクトの説明"
-    )
+    name: str = Field(..., min_length=1, max_length=64, description="プロジェクト名")
+    description: str | None = Field(default=None, max_length=256, description="プロジェクトの説明")
 
     @field_validator("name")
     @classmethod
@@ -36,8 +30,7 @@ class ProjectCreateRequest(BaseModel):
         """プロジェクト名の形式検証。"""
         if not v.replace("_", "").replace("-", "").isalnum():
             raise ValueError(
-                "プロジェクト名はアルファベット・数字・アンダースコア・"
-                "ハイフンのみ使用可能です"
+                "プロジェクト名はアルファベット・数字・アンダースコア・ハイフンのみ使用可能です"
             )
         return v
 

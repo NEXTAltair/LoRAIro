@@ -34,16 +34,10 @@ class ProjectManagementService:
             projects_base_dir: プロジェクトベースディレクトリ。
                               未指定時は ~/.lorairo/projects
         """
-        self.projects_base_dir = projects_base_dir or (
-            Path.home() / ".lorairo" / "projects"
-        )
-        logger.debug(
-            f"ProjectManagementService 初期化: {self.projects_base_dir}"
-        )
+        self.projects_base_dir = projects_base_dir or (Path.home() / ".lorairo" / "projects")
+        logger.debug(f"ProjectManagementService 初期化: {self.projects_base_dir}")
 
-    def create_project(
-        self, name: str, description: str = ""
-    ) -> ProjectInfo:
+    def create_project(self, name: str, description: str = "") -> ProjectInfo:
         """プロジェクトを作成。
 
         ディレクトリ構造:
@@ -90,9 +84,7 @@ class ProjectManagementService:
             # ディレクトリ構造作成
             project_dir.mkdir(parents=True, exist_ok=True)
             (project_dir / "image_dataset").mkdir(exist_ok=True)
-            (project_dir / "image_dataset" / "original_images").mkdir(
-                exist_ok=True
-            )
+            (project_dir / "image_dataset" / "original_images").mkdir(exist_ok=True)
 
             # メタデータファイル作成
             metadata = {
@@ -101,9 +93,7 @@ class ProjectManagementService:
                 "description": description,
             }
             metadata_file = project_dir / ".lorairo-project"
-            metadata_file.write_text(
-                json.dumps(metadata, indent=2, ensure_ascii=False)
-            )
+            metadata_file.write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
 
             # 初期データベースファイル作成（ダミー）
             # 実際のDB初期化は ImageDatabaseManager で行われる
@@ -135,10 +125,7 @@ class ProjectManagementService:
         projects: list[ProjectInfo] = []
 
         if not self.projects_base_dir.exists():
-            logger.debug(
-                f"プロジェクトベースディレクトリが存在しません: "
-                f"{self.projects_base_dir}"
-            )
+            logger.debug(f"プロジェクトベースディレクトリが存在しません: {self.projects_base_dir}")
             return projects
 
         try:
@@ -214,9 +201,7 @@ class ProjectManagementService:
             logger.error(f"プロジェクト削除失敗: {name}", exc_info=True)
             raise ProjectOperationError(name, "削除", str(e)) from e
 
-    def update_project(
-        self, name: str, description: str
-    ) -> ProjectInfo:
+    def update_project(self, name: str, description: str) -> ProjectInfo:
         """プロジェクト情報を更新。
 
         現在は説明文の更新のみサポート。
@@ -242,9 +227,7 @@ class ProjectManagementService:
             if metadata_file.exists():
                 metadata = json.loads(metadata_file.read_text())
                 metadata["description"] = description
-                metadata_file.write_text(
-                    json.dumps(metadata, indent=2, ensure_ascii=False)
-                )
+                metadata_file.write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
 
             logger.info(f"プロジェクト更新: {name}")
 
@@ -309,9 +292,7 @@ class ProjectManagementService:
             logger.warning(f"プロジェクト検索エラー: {name}", exc_info=True)
             return None
 
-    def _read_project_info(
-        self, project_dir: Path
-    ) -> ProjectInfo | None:
+    def _read_project_info(self, project_dir: Path) -> ProjectInfo | None:
         """プロジェクトディレクトリから情報を読み込み。
 
         Args:
@@ -324,10 +305,7 @@ class ProjectManagementService:
         try:
             metadata_file = project_dir / ".lorairo-project"
             if not metadata_file.exists():
-                logger.warning(
-                    f"メタデータファイルが見つかりません: "
-                    f"{metadata_file}"
-                )
+                logger.warning(f"メタデータファイルが見つかりません: {metadata_file}")
                 return None
 
             metadata = json.loads(metadata_file.read_text())
@@ -340,17 +318,13 @@ class ProjectManagementService:
                 # 新しいフォーマット対応（_NNNサフィックス対応）
                 parts = created_str.rsplit("_", 1)
                 if len(parts) == 2 and parts[1].isdigit():
-                    created = datetime.strptime(
-                        parts[0], "%Y%m%d_%H%M%S"
-                    )
+                    created = datetime.strptime(parts[0], "%Y%m%d_%H%M%S")
                 else:
                     created = datetime.now()
 
             # 画像数を取得（ダミー実装、実際はDB から取得）
             image_count = 0
-            original_images_dir = (
-                project_dir / "image_dataset" / "original_images"
-            )
+            original_images_dir = project_dir / "image_dataset" / "original_images"
             if original_images_dir.exists():
                 image_count = len(list(original_images_dir.glob("*")))
 

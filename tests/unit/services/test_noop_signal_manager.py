@@ -21,6 +21,7 @@ class TestNoOpSignalManager:
 
     def test_connect_widget_signals_returns_true(self, manager: NoOpSignalManager) -> None:
         """connect_widget_signals は常に True を返す"""
+
         class MockWidget:
             pass
 
@@ -37,6 +38,7 @@ class TestNoOpSignalManager:
 
     def test_register_error_handler_returns_true(self, manager: NoOpSignalManager) -> None:
         """register_error_handler は常に True を返す"""
+
         class MockWidget:
             pass
 
@@ -61,6 +63,7 @@ class TestNoOpSignalManager:
 
     def test_multiple_operations_sequence(self, manager: NoOpSignalManager) -> None:
         """複数操作の実行シーケンス"""
+
         class MockWidget:
             pass
 
@@ -80,6 +83,7 @@ class TestNoOpSignalManager:
 
     def test_noop_with_empty_mapping(self, manager: NoOpSignalManager) -> None:
         """空のシグナルマッピングを渡す"""
+
         class MockWidget:
             pass
 
@@ -97,8 +101,8 @@ class TestNoOpSignalManager:
         assert hasattr(manager, "get_signal_registry")
 
         # すべてのメソッドが callable であることを確認
-        assert callable(getattr(manager, "connect_widget_signals"))
-        assert callable(getattr(manager, "emit_application_signal"))
-        assert callable(getattr(manager, "register_error_handler"))
-        assert callable(getattr(manager, "validate_signal_naming"))
-        assert callable(getattr(manager, "get_signal_registry"))
+        assert callable(manager.connect_widget_signals)
+        assert callable(manager.emit_application_signal)
+        assert callable(manager.register_error_handler)
+        assert callable(manager.validate_signal_naming)
+        assert callable(manager.get_signal_registry)

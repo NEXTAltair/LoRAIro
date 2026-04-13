@@ -240,9 +240,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             )
             self._check_cancellation()
 
-            db_save_success, db_save_skip, image_summaries = self._save_results_to_database(
-                merged_results
-            )
+            db_save_success, db_save_skip, image_summaries = self._save_results_to_database(merged_results)
 
             # モデル統計とpHash→ファイル名マッピングを構築
             model_statistics = self._build_model_statistics(merged_results)

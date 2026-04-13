@@ -42,7 +42,16 @@ class TestResolveStoredPath:
         with patch("lorairo.database.db_core.get_current_project_root", return_value=mock_project_root):
             result = resolve_stored_path(stored)
 
-        expected = mock_project_root / "image_dataset" / "original_images" / "2025" / "07" / "22" / "2_color" / "2745.png"
+        expected = (
+            mock_project_root
+            / "image_dataset"
+            / "original_images"
+            / "2025"
+            / "07"
+            / "22"
+            / "2_color"
+            / "2745.png"
+        )
         assert result == expected
 
     def test_cwd_relative_with_project_root_prefix(self, mock_project_root: Path) -> None:
@@ -58,7 +67,16 @@ class TestResolveStoredPath:
         with patch("lorairo.database.db_core.get_current_project_root", return_value=mock_project_root):
             result = resolve_stored_path(stored)
 
-        expected = mock_project_root / "image_dataset" / "original_images" / "2026" / "03" / "17" / "10_Alim" / "0262_1227.webp"
+        expected = (
+            mock_project_root
+            / "image_dataset"
+            / "original_images"
+            / "2026"
+            / "03"
+            / "17"
+            / "10_Alim"
+            / "0262_1227.webp"
+        )
         assert result == expected
 
     def test_windows_backslash_paths(self, mock_project_root: Path) -> None:

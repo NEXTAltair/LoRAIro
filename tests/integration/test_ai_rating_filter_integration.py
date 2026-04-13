@@ -187,7 +187,9 @@ class TestManagerLayerParameterForwarding:
             # 位置引数で渡された場合
             criteria = call_args.args[0] if call_args.args else None
 
-        assert criteria is not None, f"criteria should be passed, got args={call_args.args}, kwargs={call_args.kwargs}"
+        assert criteria is not None, (
+            f"criteria should be passed, got args={call_args.args}, kwargs={call_args.kwargs}"
+        )
         assert criteria.tags == ["test"]
         assert criteria.ai_rating_filter == "PG"
         assert criteria.include_unrated is False

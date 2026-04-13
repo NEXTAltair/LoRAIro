@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 # Placeholder comment to check if file operations work
 
+
 @dataclass
 class AnnotationResult:
     """単一モデルのアノテーション結果"""

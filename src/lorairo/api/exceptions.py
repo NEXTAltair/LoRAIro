@@ -57,9 +57,7 @@ class ProjectOperationError(ProjectError):
     def __init__(self, project_name: str, operation: str, reason: str) -> None:
         self.project_name = project_name
         self.operation = operation
-        super().__init__(
-            f"プロジェクト '{project_name}' の{operation}に失敗しました: {reason}"
-        )
+        super().__init__(f"プロジェクト '{project_name}' の{operation}に失敗しました: {reason}")
 
 
 # 画像関連例外
@@ -92,9 +90,7 @@ class DuplicateImageError(ImageError):
     def __init__(self, file_path: str, existing_id: int) -> None:
         self.file_path = file_path
         self.existing_id = existing_id
-        super().__init__(
-            f"画像 '{file_path}' は既に登録されています (ID={existing_id})"
-        )
+        super().__init__(f"画像 '{file_path}' は既に登録されています (ID={existing_id})")
 
 
 class ImageRegistrationError(ImageError):
@@ -127,14 +123,11 @@ class AnnotationFailedError(AnnotationError):
         reason: 失敗した理由。
     """
 
-    def __init__(
-        self, model_name: str, image_count: int, reason: str
-    ) -> None:
+    def __init__(self, model_name: str, image_count: int, reason: str) -> None:
         self.model_name = model_name
         self.image_count = image_count
         super().__init__(
-            f"モデル '{model_name}' による{image_count}枚の"
-            f"アノテーションに失敗しました: {reason}"
+            f"モデル '{model_name}' による{image_count}枚のアノテーションに失敗しました: {reason}"
         )
 
 
@@ -180,9 +173,7 @@ class ExportFailedError(ExportError):
 
     def __init__(self, format_type: str, reason: str) -> None:
         self.format_type = format_type
-        super().__init__(
-            f"形式 '{format_type}' でのエクスポートに失敗しました: {reason}"
-        )
+        super().__init__(f"形式 '{format_type}' でのエクスポートに失敗しました: {reason}")
 
 
 class InvalidFormatError(ExportError):
@@ -197,8 +188,7 @@ class InvalidFormatError(ExportError):
         self.format_type = format_type
         self.supported_formats = supported_formats
         super().__init__(
-            f"形式 '{format_type}' はサポートされていません。"
-            f"サポート形式: {', '.join(supported_formats)}"
+            f"形式 '{format_type}' はサポートされていません。サポート形式: {', '.join(supported_formats)}"
         )
 
 
@@ -251,9 +241,7 @@ class DatabaseConnectionError(DatabaseError):
 
     def __init__(self, project_name: str, reason: str) -> None:
         self.project_name = project_name
-        super().__init__(
-            f"プロジェクト '{project_name}' のデータベース接続に失敗しました: {reason}"
-        )
+        super().__init__(f"プロジェクト '{project_name}' のデータベース接続に失敗しました: {reason}")
 
 
 # 入力検証関連例外

@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
-    from lorairo.services.tag_management_service import TagManagementService
     from lorairo.services.signal_manager_protocol import SignalManagerServiceProtocol
+    from lorairo.services.tag_management_service import TagManagementService
 
 from ..database.db_core import DefaultSessionLocal
 from ..database.db_manager import ImageDatabaseManager

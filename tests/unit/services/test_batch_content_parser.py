@@ -12,7 +12,9 @@ class TestBatchContentParser:
 
     def test_standard_format_with_caption(self) -> None:
         """標準フォーマット: Tags + Caption。"""
-        content = "Tags: 1girl, solo, blue hair, school uniform\n\nCaption: A girl with blue hair standing alone."
+        content = (
+            "Tags: 1girl, solo, blue hair, school uniform\n\nCaption: A girl with blue hair standing alone."
+        )
         result = BatchContentParser.parse(content)
         assert result.tags == ["1girl", "solo", "blue hair", "school uniform"]
         assert result.caption == "A girl with blue hair standing alone."
