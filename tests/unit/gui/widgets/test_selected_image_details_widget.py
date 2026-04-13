@@ -161,3 +161,86 @@ class TestSelectedImageDetailsWidget:
         # 表示がクリアされる
         assert widget.current_image_id is None
         assert widget.current_details is None
+
+    def test_set_merged_reader_none_hides_language_selector(self, widget):
+        """set_merged_reader(None)でコンボボックスが非表示になること"""
+        widget.set_merged_reader(None)
+        # isHidden()はisVisible()と異なり親ウィジェットの表示状態に依存しない
+        assert widget.annotation_display._lang_bar.isHidden()
+
+    def test_set_merged_reader_with_valid_reader_shows_selector(self, widget):
+        """有効なMergedTagReaderでコンボボックスが表示されること"""
+        mock_reader = Mock()
+        mock_reader.get_tag_languages.return_value = ["japanese", "chinese"]
+
+        widget.set_merged_reader(mock_reader)
+
+        assert not widget.annotation_display._lang_bar.isHidden()
+        # "english" + 2言語 = 3アイテム
+        assert widget.annotation_display._lang_combo.count() == 3
+
+    def test_build_metadata_with_translations(self, widget):
+        """翻訳データが正しくAnnotationData.tag_translationsに入ること"""
+        mock_reader = Mock()
+        mock_reader.get_tag_languages.return_value = ["japanese"]
+        tr_mock = Mock()
+        tr_mock.language = "japanese"
+        tr_mock.translation = "1人の女の子"
+        mock_reader.get_translations.return_value = [tr_mock]
+        widget.set_merged_reader(mock_reader)
+
+        metadata = {
+            "id": 1,
+            "file_path": "/test/img.jpg",
+            "tags": [
+                {
+                    "tag": "1girl",
+                    "tag_id": 42,
+                    "model_name": "wd",
+                    "source": "AI",
+                    "confidence_score": 0.9,
+                    "is_edited_manually": False,
+                }
+            ],
+            "caption_text": "",
+            "tags_text": "1girl",
+            "score_value": 0,
+            "rating_value": "",
+        }
+        details = widget._build_image_details_from_metadata(metadata)
+
+        assert details.annotation_data is not None
+        assert 42 in details.annotation_data.tag_translations
+        assert details.annotation_data.tag_translations[42]["japanese"] == "1人の女の子"
+
+    def test_build_metadata_skips_tag_without_tag_id(self, widget):
+        """tag_id=Noneのタグは翻訳取得をスキップすること"""
+        mock_reader = Mock()
+        mock_reader.get_tag_languages.return_value = ["japanese"]
+        mock_reader.get_translations.return_value = []
+        widget.set_merged_reader(mock_reader)
+
+        metadata = {
+            "id": 1,
+            "file_path": "/test/img.jpg",
+            "tags": [
+                {
+                    "tag": "1girl",
+                    "tag_id": None,
+                    "model_name": "wd",
+                    "source": "AI",
+                    "confidence_score": 0.9,
+                    "is_edited_manually": False,
+                }
+            ],
+            "caption_text": "",
+            "tags_text": "1girl",
+            "score_value": 0,
+            "rating_value": "",
+        }
+        details = widget._build_image_details_from_metadata(metadata)
+
+        # tag_id=Noneのタグはスキップ → get_translationsは呼ばれない
+        mock_reader.get_translations.assert_not_called()
+        assert details.annotation_data is not None
+        assert details.annotation_data.tag_translations == {}

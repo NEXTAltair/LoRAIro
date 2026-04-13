@@ -122,6 +122,13 @@ class WidgetSetupService:
         else:
             logger.warning("⚠️ DatasetStateManager が None - 接続スキップ")
 
+        # MergedTagReaderを注入してタグ翻訳機能を有効化
+        from ...services import get_service_container
+
+        service_container = get_service_container()
+        widget.set_merged_reader(service_container.image_repository.merged_reader)
+        logger.info("✅ MergedTagReader注入完了")
+
         logger.info("✅ SelectedImageDetailsWidget設定完了")
 
     @staticmethod
