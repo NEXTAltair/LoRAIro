@@ -316,7 +316,7 @@ class TestFilterSearchIntegration:
 
     def test_memory_management_integration(self, filter_panel):
         """メモリ管理統合テスト"""
-        initial_conditions = filter_panel.search_filter_service.get_current_conditions()
+        filter_panel.search_filter_service.get_current_conditions()
 
         # 複数回の検索実行
         for i in range(10):
@@ -397,13 +397,13 @@ class TestServiceLayerIntegration:
     def test_cross_service_communication(self, service_integration):
         """サービス間通信統合テスト"""
         processor = service_integration["criteria_processor"]
-        model_service = service_integration["model_filter_service"]
+        service_integration["model_filter_service"]
 
         # 検索実行後、結果に対してモデルフィルター適用
         conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
 
         # 1. 検索実行
-        images, count = processor.execute_search_with_filters(conditions)
+        images, _count = processor.execute_search_with_filters(conditions)
 
         # 2. アノテーション状態フィルタリング
         filtered_images = processor.filter_images_by_annotation_status(images, "annotated")

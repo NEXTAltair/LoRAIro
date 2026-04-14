@@ -98,6 +98,11 @@ ignore = [
     "F401",   # Unused imports (IDEでの管理が困難なため)
     "B008",   # typer.Option/Argument in function defaults (typer標準パターン)
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# tests/conftest.py はモックを先に設定してから lorairo モジュールをインポートする必要があるため
+# モジュール先頭以外の import は意図的
+"tests/conftest.py" = ["E402"]
 fixable = ["ALL"]
 
 [tool.ruff.format]

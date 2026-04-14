@@ -295,7 +295,7 @@ class TestSearchWorkerErrorRecording:
         worker = SearchWorker(db_manager=db_manager, search_conditions=conditions)
 
         with patch.object(db_manager, "get_images_by_filter", side_effect=Exception("Database Error")):
-            with pytest.raises(Exception):
+            with pytest.raises(Exception, match="Database Error"):
                 worker.execute()
 
         # error_recordsテーブルにエラーが記録されていることを確認
