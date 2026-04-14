@@ -180,7 +180,7 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
+def main() -> int:
     """メイン実行関数"""
     # コマンドライン引数解析
     args = parse_arguments()
