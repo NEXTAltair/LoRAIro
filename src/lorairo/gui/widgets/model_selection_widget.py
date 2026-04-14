@@ -13,7 +13,7 @@ Model Selection Widget
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QLabel, QWidget
@@ -414,7 +414,10 @@ if __name__ == "__main__":
         # Qt Designer UI クラスを直接定義（テスト用）
         class ModelSelectionWidgetTest(QWidget, Ui_ModelSelectionWidget):
             def __init__(
-                self, parent: QWidget | None = None, model_selection_service=None, mode: str = "simple"
+                self,
+                parent: QWidget | None = None,
+                model_selection_service: Any = None,
+                mode: str = "simple",
             ) -> None:
                 super().__init__(parent)
                 print("🔧 setupUi開始...")
@@ -427,8 +430,8 @@ if __name__ == "__main__":
                     return
 
                 # 最小限の初期化
-                self.all_models: list = []
-                self.filtered_models: list = []
+                self.all_models: list[Any] = []
+                self.filtered_models: list[Any] = []
 
                 # UI表示テスト
                 try:
@@ -456,17 +459,17 @@ if __name__ == "__main__":
                 }
 
         # Qt Designer signal-slot connection compatibility methods (test stubs)
-        def select_all_models(self) -> None:
+        def select_all_models(self: Any) -> None:
             """Test stub for select_all_models signal-slot connection"""
             print("🧪 Test stub: select_all_models called")
             pass
 
-        def deselect_all_models(self) -> None:
+        def deselect_all_models(self: Any) -> None:
             """Test stub for deselect_all_models signal-slot connection"""
             print("🧪 Test stub: deselect_all_models called")
             pass
 
-        def select_recommended_models(self) -> None:
+        def select_recommended_models(self: Any) -> None:
             """Test stub for select_recommended_models signal-slot connection"""
             print("🧪 Test stub: select_recommended_models called")
             pass

@@ -30,7 +30,7 @@ class APIError(Exception):
         self.error_code = error_code
         self.status_code = status_code
 
-    def __str__(self):
+    def __str__(self) -> str:
         parts = [f"{self.api_provider} API Error: {self.args[0]}"]
         if self.error_code:
             parts.append(f"Code: {self.error_code}")

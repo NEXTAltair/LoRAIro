@@ -276,7 +276,7 @@ class UIResponsiveConversionService:
         logger.debug(f"Backup created: {backup_path}")
         return backup_path
 
-    def _save_backup_metadata(self, backup_path: Path, original_path: Path):
+    def _save_backup_metadata(self, backup_path: Path, original_path: Path) -> None:
         """バックアップメタデータ保存
 
         Args:
@@ -297,7 +297,7 @@ class UIResponsiveConversionService:
         with open(metadata_path, "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2, ensure_ascii=False)
 
-    def _cleanup_old_backups(self, file_stem: str, max_backups: int = 5):
+    def _cleanup_old_backups(self, file_stem: str, max_backups: int = 5) -> None:
         """古いバックアップファイルの削除
 
         Args:
@@ -746,7 +746,7 @@ class UIResponsiveConversionService:
 
         return None
 
-    def _preserve_xml_formatting(self, tree: ET.ElementTree, file_path: Path):
+    def _preserve_xml_formatting(self, tree: ET.ElementTree, file_path: Path) -> None:
         """XMLフォーマット保持でファイル保存
 
         Qt Designerの標準的なフォーマットを維持してXML出力
@@ -764,7 +764,7 @@ class UIResponsiveConversionService:
         # 改行コード統一
         self._normalize_line_endings(file_path)
 
-    def _indent_xml_element(self, elem: ET.Element, level: int = 0):
+    def _indent_xml_element(self, elem: ET.Element, level: int = 0) -> None:
         """XML要素の階層インデント追加
 
         Args:
@@ -786,7 +786,7 @@ class UIResponsiveConversionService:
             if level and (not elem.tail or not elem.tail.strip()):
                 elem.tail = indent_str
 
-    def _normalize_line_endings(self, file_path: Path):
+    def _normalize_line_endings(self, file_path: Path) -> None:
         """改行コード統一 (LF)
 
         Args:

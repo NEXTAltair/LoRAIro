@@ -5,7 +5,7 @@ DatasetStateManagerのラッパーサービス。
 """
 
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from loguru import logger
 
@@ -51,7 +51,7 @@ class SelectionStateService:
         self.dataset_state_manager = dataset_state_manager
         self.db_repository = db_repository
 
-    def get_selected_images_for_annotation(self) -> list[dict]:
+    def get_selected_images_for_annotation(self) -> list[dict[str, Any]]:
         """アノテーション対象画像取得
 
         フォールバック戦略で画像を取得:
@@ -115,7 +115,7 @@ class SelectionStateService:
         logger.debug(f"絶対パス変換完了: {len(paths)}件の画像パス")
         return paths
 
-    def _get_images_by_ids(self, image_ids: list[int]) -> list[dict]:
+    def _get_images_by_ids(self, image_ids: list[int]) -> list[dict[str, Any]]:
         """画像IDリストから画像データを取得
 
         Args:
@@ -135,7 +135,7 @@ class SelectionStateService:
                 logger.warning(f"画像ID {image_id} に stored_image_path がありません（スキップ）")
         return images
 
-    def _extract_valid_images(self, images: list[dict]) -> list[dict]:
+    def _extract_valid_images(self, images: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """画像リストから有効な画像を抽出
 
         Args:

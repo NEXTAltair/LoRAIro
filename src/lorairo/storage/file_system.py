@@ -481,7 +481,7 @@ class FileSystemManager:
             json.dump(existing_data, f, indent=4, ensure_ascii=False)
 
     @staticmethod
-    def save_toml_config(config: dict, filename: str) -> None:
+    def save_toml_config(config: dict[str, Any], filename: str) -> None:
         try:
             with open(filename, "w") as f:
                 toml.dump(config, f)

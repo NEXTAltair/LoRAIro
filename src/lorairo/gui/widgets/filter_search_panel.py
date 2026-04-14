@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject, QRunnable, QStringListModel, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import QCompleter, QScrollArea
+from PySide6.QtWidgets import QCompleter, QScrollArea, QWidget
 
 from ...gui.designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
 from ...utils.log import logger
@@ -72,7 +72,7 @@ class FilterSearchPanel(QScrollArea):
     # Phase 3: Pipeline State Management
     pipeline_state_changed = Signal(object)  # PipelineState
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
         # SearchFilterService（依存注入）
@@ -82,7 +82,7 @@ class FilterSearchPanel(QScrollArea):
         self.worker_service: WorkerService | None = None
 
         # FavoriteFiltersService（依存注入） - Phase 4
-        self.favorite_filters_service: Any = None  # type: ignore[assignment]
+        self.favorite_filters_service: Any = None
 
         # タグオートコンプリート（依存注入）
         self.tag_suggestion_service: TagSuggestionService | None = None
@@ -418,7 +418,7 @@ class FilterSearchPanel(QScrollArea):
 
         logger.debug("Favorite filters UI initialized")
 
-    def set_favorite_filters_service(self, service: Any) -> None:  # type: ignore[misc]
+    def set_favorite_filters_service(self, service: Any) -> None:
         """FavoriteFiltersServiceを設定 (Phase 4)
 
         Args:
@@ -515,7 +515,7 @@ class FilterSearchPanel(QScrollArea):
         filter_name = selected_items[0].text()
         self._load_filter_by_name(filter_name)
 
-    def _on_filter_double_clicked(self, item: Any) -> None:  # type: ignore[misc]
+    def _on_filter_double_clicked(self, item: Any) -> None:
         """フィルターダブルクリックハンドラ (Phase 4)
 
         Args:
@@ -1383,7 +1383,7 @@ class FilterSearchPanel(QScrollArea):
 
     # === Private Methods ===
 
-    def _update_ui_from_conditions(self, conditions: dict) -> None:
+    def _update_ui_from_conditions(self, conditions: dict[str, Any]) -> None:
         """条件からUIを更新"""
         # 検索テキスト（チェックボックス対応）
         if conditions.get("tags"):
@@ -1527,7 +1527,7 @@ class FilterSearchPanel(QScrollArea):
                 self.progress_bar.setVisible(False)
                 logger.debug("Inline progress bar hidden - using popup progress display")
 
-    def handle_pipeline_error(self, phase: str, error_info: dict) -> None:
+    def handle_pipeline_error(self, phase: str, error_info: dict[str, Any]) -> None:
         """Pipelineエラー処理（Phase 2対応）"""
         try:
             # Phase 3: State transition to ERROR

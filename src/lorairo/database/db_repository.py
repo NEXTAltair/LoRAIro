@@ -1905,10 +1905,10 @@ class ImageRepository:
 
     def _apply_date_filter(
         self,
-        query: Select,
+        query: Select[Any],
         start_dt: datetime.datetime | None,
         end_dt: datetime.datetime | None,
-    ) -> Select:
+    ) -> Select[Any]:
         """クエリに日付フィルタを適用します (画像またはアノテーションの更新日時)。"""
         if not start_dt and not end_dt:
             return query
@@ -1926,12 +1926,12 @@ class ImageRepository:
 
     def _apply_tag_filter(
         self,
-        query: Select,
+        query: Select[Any],
         tags: list[str] | None,
         excluded_tags: list[str] | None,
         use_and: bool,
         include_untagged: bool,
-    ) -> Select:
+    ) -> Select[Any]:
         """クエリにタグフィルタを適用します。"""
         if include_untagged:
             # タグが存在しない画像 (outerjoinしてTag.idがNULL)
@@ -1989,7 +1989,7 @@ class ImageRepository:
 
         return query
 
-    def _apply_caption_filter(self, query: Select, caption: str | None) -> Select:
+    def _apply_caption_filter(self, query: Select[Any], caption: str | None) -> Select[Any]:
         """クエリにキャプションフィルタを適用します (EXISTSを使用)。"""
         if caption:
             logger.debug(f"Applying caption filter (EXISTS) for caption: '{caption}'")
@@ -2011,7 +2011,7 @@ class ImageRepository:
             query = query.where(exists_subquery)
         return query
 
-    def _apply_ai_rating_filter(self, query: Select, ai_rating_filter: str) -> Select:
+    def _apply_ai_rating_filter(self, query: Select[Any], ai_rating_filter: str) -> Select[Any]:
         """クエリにAI評価レーティングフィルタを適用します (多数決ロジック)。
 
         1つの画像に複数のAIモデルによる異なる評価がある場合、
@@ -2072,7 +2072,7 @@ class ImageRepository:
         logger.debug("AI rating filter applied with majority vote logic")
         return query
 
-    def _apply_unrated_filter(self, query: Select, include_unrated: bool) -> Select:
+    def _apply_unrated_filter(self, query: Select[Any], include_unrated: bool) -> Select[Any]:
         """クエリに未評価画像フィルタを適用します (Either-based ロジック)。
 
         include_unrated=False の場合、手動評価またはAI評価のいずれか1つ以上を持つ画像のみを返します。
@@ -2099,7 +2099,7 @@ class ImageRepository:
 
         return query
 
-    def _apply_nsfw_filter(self, query: Select, include_nsfw: bool, session: Session) -> Select:
+    def _apply_nsfw_filter(self, query: Select[Any], include_nsfw: bool, session: Session) -> Select[Any]:
         """クエリにNSFWフィルタを適用します。"""
         if not include_nsfw:
             # NSFWとみなすレーティング値 (小文字にして比較)
@@ -2134,10 +2134,10 @@ class ImageRepository:
 
     def _apply_score_filter(
         self,
-        query: Select,
+        query: Select[Any],
         score_min: float | None,
         score_max: float | None,
-    ) -> Select:
+    ) -> Select[Any]:
         """クエリにスコア範囲フィルタを適用します。
 
         Args:
@@ -2178,11 +2178,11 @@ class ImageRepository:
 
     def _apply_manual_filters(
         self,
-        query: Select,
+        query: Select[Any],
         manual_rating_filter: str | None,
         manual_edit_filter: bool | None,
         session: Session,
-    ) -> Select:
+    ) -> Select[Any]:
         """クエリに手動評価と手動編集フラグのフィルタを適用します。"""
         if manual_rating_filter:
             manual_edit_model_id = self._get_or_create_manual_edit_model(session)
@@ -2500,7 +2500,7 @@ class ImageRepository:
         manual_edit_filter: bool | None,
         score_min: float | None = None,
         score_max: float | None = None,
-    ) -> Select:
+    ) -> Select[Any]:
         """画像フィルタ条件を適用したクエリを構築する。
 
         Args:

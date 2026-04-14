@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from PIL import Image
 from PySide6.QtCore import Qt, QTimer, Slot
@@ -153,7 +153,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         )
 
     @Slot(dict)
-    def _on_image_data_received(self, image_data: dict) -> None:
+    def _on_image_data_received(self, image_data: dict[str, Any]) -> None:
         """
         画像データ受信時のプレビュー更新（純粋表示専用）
 

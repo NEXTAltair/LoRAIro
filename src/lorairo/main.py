@@ -3,6 +3,7 @@ import os
 import platform
 import sys
 import warnings
+from typing import Any
 
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
@@ -12,7 +13,7 @@ from .utils.config import get_config
 from .utils.log import initialize_logging, logger
 
 
-def setup_qt_environment(config=None):
+def setup_qt_environment(config: dict[str, Any] | None = None) -> None:
     """Qt環境の設定とフォント問題の解決"""
     qt_config = config.get("qt", {}) if config else {}
 
@@ -105,7 +106,7 @@ def setup_qt_environment(config=None):
         logger.info("macOS環境: Cocoaプラットフォームを設定")
 
 
-def setup_application_fonts(app: QApplication, config=None):
+def setup_application_fonts(app: QApplication, config: dict[str, Any] | None = None) -> None:
     """アプリケーションフォントの設定"""
     try:
         qt_config = config.get("qt", {}) if config else {}
@@ -159,7 +160,7 @@ def setup_application_fonts(app: QApplication, config=None):
         logger.warning(f"フォント設定でエラーが発生しました: {e}")
 
 
-def parse_arguments():
+def parse_arguments() -> argparse.Namespace:
     """コマンドライン引数を解析"""
     parser = argparse.ArgumentParser(
         description="LoRAIro - LoRA/Finetune用画像データセット管理ツール",

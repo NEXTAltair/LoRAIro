@@ -10,8 +10,8 @@ from ...utils.log import logger
 class FilePickerWidget(QWidget, Ui_FilePickerWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setupUi(self)  # type: ignore  # Justification: Qt Designer generated method signature
-        self.set_label_text("フォルダを選択")  # type: ignore
+        self.setupUi(self)
+        self.set_label_text("フォルダを選択")
 
         self.FilePicker.pushButtonPicker.clicked.connect(self.select_file)
         self.FilePicker.comboBoxHistory.currentIndexChanged.connect(self.on_history_item_selected)
@@ -20,7 +20,7 @@ class FilePickerWidget(QWidget, Ui_FilePickerWidget):
         file_path, _ = QFileDialog.getOpenFileName(self, "ファイルを選択", "", "すべてのファイル (*)")
         if file_path:
             self.FilePicker.lineEditPicker.setText(file_path)
-            self.FilePicker.update_history(file_path)  # type: ignore
+            self.FilePicker.update_history(file_path)
             logger.debug(f"ファイル選択: {file_path}")
 
     def on_history_item_selected(self, index: int) -> None:
@@ -52,7 +52,7 @@ if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
 
     app = QApplication(sys.argv)
-    widget = FilePickerWidget()  # type: ignore
-    widget.set_label_text("Select Folder")  # type: ignore
+    widget = FilePickerWidget()
+    widget.set_label_text("Select Folder")
     widget.show()
     sys.exit(app.exec())

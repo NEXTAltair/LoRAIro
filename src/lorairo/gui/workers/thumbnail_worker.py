@@ -1,6 +1,7 @@
 """サムネイル読み込み専用ワーカー"""
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QSize, Qt
@@ -222,7 +223,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
 
         return batch_loaded, batch_failed
 
-    def _get_thumbnail_path(self, image_data: dict[str, Any], image_id: int):
+    def _get_thumbnail_path(self, image_data: dict[str, Any], image_id: int) -> Path | None:
         """サムネイル用の最適な画像パスを取得する。
 
         Args:

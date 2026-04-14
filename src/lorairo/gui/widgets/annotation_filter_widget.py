@@ -17,7 +17,7 @@ Annotation Filter Widget - アノテーションフィルターウィジェッ�
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget
@@ -96,7 +96,7 @@ class AnnotationFilterWidget(QWidget, Ui_AnnotationFilterWidget):
         logger.debug(f"Filter changed: {filters}")
         self.filter_changed.emit(filters)
 
-    def get_current_filters(self) -> dict:
+    def get_current_filters(self) -> dict[str, Any]:
         """
         現在のフィルター状態を取得
 

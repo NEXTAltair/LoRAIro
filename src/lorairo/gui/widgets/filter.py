@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 class TagFilterWidget(QWidget):
     """Stub implementation of TagFilterWidget for UI compatibility."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize empty widget stub."""
         super().__init__(parent)
 

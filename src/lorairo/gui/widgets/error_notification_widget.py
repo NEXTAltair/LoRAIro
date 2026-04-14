@@ -5,6 +5,7 @@
 
 from loguru import logger
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QFrame, QLabel, QWidget
 
 from ...database.db_manager import ImageDatabaseManager
@@ -81,7 +82,7 @@ class ErrorNotificationWidget(QLabel):
             self.setText("エラー: 取得失敗")
             self.setStyleSheet("QLabel { color: gray; }")
 
-    def mousePressEvent(self, event) -> None:
+    def mousePressEvent(self, event: QMouseEvent) -> None:
         """マウスクリックイベント"""
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
