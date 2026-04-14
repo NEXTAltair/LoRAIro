@@ -33,6 +33,8 @@ from .annotation_data_display_widget import (
 from .rating_score_edit_widget import RatingScoreEditWidget
 
 if TYPE_CHECKING:
+    from genai_tag_db_tools.db.repository import MergedTagReader
+
     from ..state.dataset_state import DatasetStateManager
 
 
@@ -93,6 +95,10 @@ class SelectedImageDetailsWidget(QWidget):
 
         # DatasetStateManagerへの参照（後でset_dataset_state_managerで設定）
         self._dataset_state_manager: DatasetStateManager | None = None
+
+        # タグ翻訳用（後でset_merged_readerで設定）
+        self._merged_reader: MergedTagReader | None = None
+        self._available_languages: list[str] = []
 
         # 内部状態
         self.current_details: ImageDetails | None = None
@@ -247,6 +253,17 @@ class SelectedImageDetailsWidget(QWidget):
         """
         logger.debug("Annotation data loaded in AnnotationDataDisplayWidget")
 
+    def set_merged_reader(self, reader: "MergedTagReader | None") -> None:
+        """MergedTagReaderを設定し、言語セレクターを初期化する。
+
+        Args:
+            reader: タグ翻訳取得用のMergedTagReader。Noneの場合は翻訳機能無効。
+        """
+        self._merged_reader = reader
+        self._available_languages = reader.get_tag_languages() if reader is not None else []
+        self.annotation_display.initialize_language_selector(self._available_languages)
+        logger.debug(f"MergedTagReader設定完了: 利用可能言語={self._available_languages}")
+
     # Phase 3: Direct Widget Communication Pattern
     def connect_to_data_signals(self, state_manager: "DatasetStateManager") -> None:
         """データシグナル接続（Phase 2互換）
@@ -396,11 +413,24 @@ class SelectedImageDetailsWidget(QWidget):
         caption_text = metadata.get("caption_text", "")
         tags_text = metadata.get("tags_text", "")
 
+        # 翻訳データ取得（merged_readerがある場合のみバッチ取得）
+        tag_translations: dict[int, dict[str, str]] = {}
+        if self._merged_reader is not None:
+            for tag_dict in tags_list:
+                tag_id = tag_dict.get("tag_id")
+                if tag_id is None:
+                    continue
+                for tr in self._merged_reader.get_translations(tag_id):
+                    if tr.language and tr.translation:
+                        tag_translations.setdefault(tag_id, {})[tr.language] = tr.translation
+
         annotation_data = AnnotationData(
             tags=tags_list,  # ← list[dict] をそのまま渡す
             caption=caption_text,
             aesthetic_score=score_value,
             overall_score=0,  # Rating値は文字列なのでoverall_scoreには使用しない
+            tag_translations=tag_translations,
+            available_languages=self._available_languages,
         )
 
         details = ImageDetails(

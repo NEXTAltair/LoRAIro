@@ -9,8 +9,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
+    QComboBox,
+    QHBoxLayout,
     QLabel,
     QSizePolicy,
     QTableWidgetItem,
@@ -30,6 +33,10 @@ class AnnotationData:
     aesthetic_score: float | None = None
     overall_score: int = 0
     score_type: str = "Aesthetic"
+    # 翻訳データ: {tag_id: {language: translated_text}}
+    tag_translations: dict[int, dict[str, str]] = field(default_factory=dict)
+    # 利用可能な言語リスト（get_tag_languages()から取得）
+    available_languages: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -80,6 +87,9 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._setup_caption_compact_view()
         self._adjust_content_heights()
 
+        # 言語コンボボックスのシグナル接続
+        self._lang_combo.currentTextChanged.connect(self._on_language_changed)
+
         logger.debug("AnnotationDataDisplayWidget initialized")
 
     def _setup_widget_properties(self) -> None:
@@ -92,11 +102,23 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self.textEditCaption.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
     def _setup_tags_compact_view(self) -> None:
+        # 言語切り替えバー（コンボボックス付き）を先頭に動的追加
+        self._lang_bar = QWidget(self.groupBoxTags)
+        lang_layout = QHBoxLayout(self._lang_bar)
+        lang_layout.setContentsMargins(0, 0, 0, 2)
+        lang_label = QLabel("言語:", self._lang_bar)
+        lang_layout.addWidget(lang_label)
+        self._lang_combo = QComboBox(self._lang_bar)
+        self._lang_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        lang_layout.addWidget(self._lang_combo)
+        self._lang_bar.setVisible(False)  # merged_readerがない場合は非表示
+        self.verticalLayoutTags.insertWidget(0, self._lang_bar)
+
         self._tags_compact_label = QLabel(self.groupBoxTags)
         self._tags_compact_label.setWordWrap(True)
         self._tags_compact_label.setText("-")
         self._tags_compact_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        self.verticalLayoutTags.insertWidget(0, self._tags_compact_label)
+        self.verticalLayoutTags.insertWidget(1, self._tags_compact_label)
 
         self.tableWidgetTags.setVisible(False)
 
@@ -182,10 +204,69 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
 
             self._tags_compact_label.setText(", ".join([name for name in tag_names if name]) or "-")
 
+            # 英語以外の言語が選択されている場合は翻訳で再描画
+            # isHidden()で判定（isVisible()は親ウィジェット未表示時にFalseを返すため）
+            current_lang = self._lang_combo.currentText() if not self._lang_bar.isHidden() else "english"
+            if current_lang and current_lang != "english":
+                self._refresh_tags_for_language(current_lang)
+
             logger.debug(f"Updated tags display: {len(tags)} rows")
 
         except Exception as e:
             logger.error(f"Error updating tags display: {e}")
+
+    def initialize_language_selector(self, available_languages: list[str]) -> None:
+        """言語コンボボックスを初期化する。
+
+        Args:
+            available_languages: 利用可能な言語リスト。空の場合はコンボボックスを非表示にする。
+        """
+        if not available_languages:
+            self._lang_bar.setVisible(False)
+            return
+
+        self._lang_combo.blockSignals(True)
+        self._lang_combo.clear()
+        self._lang_combo.addItem("english")  # 常に先頭（原文）
+        for lang in available_languages:
+            if lang != "english":
+                self._lang_combo.addItem(lang)
+        self._lang_combo.blockSignals(False)
+        self._lang_bar.setVisible(True)
+
+    @Slot(str)
+    def _on_language_changed(self, language: str) -> None:
+        """言語コンボボックス変更時にタグ表示を更新する。"""
+        self._refresh_tags_for_language(language)
+
+    def _refresh_tags_for_language(self, language: str) -> None:
+        """現在のタグデータを指定言語で再描画する。
+
+        Args:
+            language: 表示言語名。"english" または available_languages の要素。
+                      翻訳がないタグは英語原文でフォールバック。
+        """
+        tags = self.current_data.tags
+        translations = self.current_data.tag_translations
+        use_english = language == "english" or not language
+
+        tag_names: list[str] = []
+        for row, tag_dict in enumerate(tags):
+            tag_id = tag_dict.get("tag_id")
+            original = tag_dict.get("tag", "")
+            if use_english or tag_id is None:
+                display = original
+            else:
+                # 翻訳がなければ英語原文にフォールバック
+                display = translations.get(tag_id, {}).get(language, original)
+            tag_names.append(display)
+
+            # テーブルのTag列（列0）も更新
+            item = self.tableWidgetTags.item(row, 0)
+            if item is not None:
+                item.setText(display)
+
+        self._tags_compact_label.setText(", ".join(n for n in tag_names if n) or "-")
 
     def _update_caption_display(self, caption: str) -> None:
         """キャプション表示を更新"""
@@ -265,7 +346,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self.groupBoxCaption.setVisible(caption)
         self.groupBoxScores.setVisible(scores)
 
-    def resizeEvent(self, event) -> None:  # type: ignore[override]
+    def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
         self._adjust_caption_height()
 
