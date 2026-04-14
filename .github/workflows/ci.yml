@@ -155,7 +155,7 @@ jobs:
 
       - name: Run integration tests
         run: |
-          uv run pytest tests/integration tests/step_defs \
+          uv run pytest tests/integration tests/bdd \
             -m "not gui_show and not real_api and not slow" \
             --cov=src \
             --cov=local_packages/genai-tag-db-tools/src/genai_tag_db_tools \
