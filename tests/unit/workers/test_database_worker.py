@@ -354,7 +354,7 @@ class TestRegisterSingleImage:
 
     def test_register_single_image_normal_registration(self, temp_dir, worker_setup):
         """新規画像を登録（重複なし、関連ファイルなし）"""
-        worker, mock_db_manager, mock_fsm = worker_setup
+        worker, mock_db_manager, _mock_fsm = worker_setup
 
         image_path = temp_dir / "test.jpg"
         image_path.write_bytes(b"fake_image")
@@ -378,7 +378,7 @@ class TestRegisterSingleImage:
 
     def test_register_single_image_duplicate_detection(self, temp_dir, worker_setup):
         """pHash一致で重複検出 → スキップ"""
-        worker, mock_db_manager, mock_fsm = worker_setup
+        worker, mock_db_manager, _mock_fsm = worker_setup
 
         image_path = temp_dir / "test.jpg"
         image_path.write_bytes(b"fake_image")
@@ -402,7 +402,7 @@ class TestRegisterSingleImage:
 
     def test_register_single_image_with_tags_only(self, temp_dir, worker_setup):
         """ ".txt 存在、.caption 不在"""
-        worker, mock_db_manager, mock_fsm = worker_setup
+        worker, mock_db_manager, _mock_fsm = worker_setup
 
         image_path = temp_dir / "test.jpg"
         image_path.write_bytes(b"fake_image")
@@ -427,7 +427,7 @@ class TestRegisterSingleImage:
 
     def test_register_single_image_with_caption_only(self, temp_dir, worker_setup):
         """.caption 存在、.txt 不在"""
-        worker, mock_db_manager, mock_fsm = worker_setup
+        worker, mock_db_manager, _mock_fsm = worker_setup
 
         image_path = temp_dir / "test.jpg"
         image_path.write_bytes(b"fake_image")
@@ -452,7 +452,7 @@ class TestRegisterSingleImage:
 
     def test_register_single_image_with_both_files(self, temp_dir, worker_setup):
         """.txt と .caption の両方存在"""
-        worker, mock_db_manager, mock_fsm = worker_setup
+        worker, mock_db_manager, _mock_fsm = worker_setup
 
         image_path = temp_dir / "test.jpg"
         image_path.write_bytes(b"fake_image")
@@ -477,7 +477,7 @@ class TestRegisterSingleImage:
 
     def test_register_single_image_without_associated_files(self, temp_dir, worker_setup):
         """.txt/.caption 不在"""
-        worker, mock_db_manager, mock_fsm = worker_setup
+        worker, mock_db_manager, _mock_fsm = worker_setup
 
         image_path = temp_dir / "test.jpg"
         image_path.write_bytes(b"fake_image")
@@ -499,7 +499,7 @@ class TestRegisterSingleImage:
 
     def test_register_single_image_db_registration_returns_none(self, temp_dir, worker_setup):
         """register_original_image() が None を返す（失敗）"""
-        worker, mock_db_manager, mock_fsm = worker_setup
+        worker, mock_db_manager, _mock_fsm = worker_setup
 
         image_path = temp_dir / "test.jpg"
         image_path.write_bytes(b"fake_image")
@@ -521,7 +521,7 @@ class TestRegisterSingleImage:
 
     def test_register_single_image_progress_reporting(self, temp_dir, worker_setup):
         """_report_batch_progress() と _report_progress() が呼ばれる"""
-        worker, mock_db_manager, mock_fsm = worker_setup
+        worker, mock_db_manager, _mock_fsm = worker_setup
 
         image_path = temp_dir / "test.jpg"
         image_path.write_bytes(b"fake_image")
@@ -534,7 +534,7 @@ class TestRegisterSingleImage:
         with patch.object(worker, "file_reader") as mock_file_reader:
             mock_file_reader.get_existing_annotations.return_value = None
 
-            result_type, image_id = worker._register_single_image(image_path, 5, 100)
+            _result_type, _image_id = worker._register_single_image(image_path, 5, 100)
 
             # _report_batch_progress の呼び出しを確認
             worker._report_batch_progress.assert_called_once_with(6, 100, image_path.name)
@@ -546,7 +546,7 @@ class TestRegisterSingleImage:
 
     def test_register_single_image_associated_file_processing_error(self, temp_dir, worker_setup):
         """save_tags() で例外発生 - エラーが適切にハンドルされる"""
-        worker, mock_db_manager, mock_fsm = worker_setup
+        worker, mock_db_manager, _mock_fsm = worker_setup
 
         image_path = temp_dir / "test.jpg"
         image_path.write_bytes(b"fake_image")
@@ -570,7 +570,7 @@ class TestRegisterSingleImage:
 
     def test_register_single_image_multiple_tags_parsing(self, temp_dir, worker_setup):
         """複数タグのパース - TagAnnotationData を複数個作成"""
-        worker, mock_db_manager, mock_fsm = worker_setup
+        worker, mock_db_manager, _mock_fsm = worker_setup
 
         image_path = temp_dir / "test.jpg"
         image_path.write_bytes(b"fake_image")
@@ -586,7 +586,7 @@ class TestRegisterSingleImage:
                 "captions": [],
             }
 
-            result_type, image_id = worker._register_single_image(image_path, 0, 1)
+            result_type, _image_id = worker._register_single_image(image_path, 0, 1)
 
             assert result_type == "registered"
 
@@ -733,7 +733,7 @@ class TestBuildRegistrationResult:
             patch("time.time", return_value=2.0),
             patch("lorairo.gui.workers.registration_worker.logger") as mock_logger,
         ):
-            result = worker._build_registration_result(stats, processed_paths, start_time)
+            worker._build_registration_result(stats, processed_paths, start_time)
 
             # INFO ログが呼ばれたことを確認
             mock_logger.info.assert_called_once()
@@ -755,7 +755,7 @@ class TestBuildRegistrationResult:
             patch("time.time", return_value=1.5),
             patch("lorairo.gui.workers.registration_worker.logger") as mock_logger,
         ):
-            result = worker._build_registration_result(stats, processed_paths, start_time)
+            worker._build_registration_result(stats, processed_paths, start_time)
 
             # DEBUG ログが呼ばれていないことを確認
             mock_logger.debug.assert_not_called()
@@ -1154,7 +1154,7 @@ class TestRegisterSingleImageUnits:
         ):
             mock_file_reader.get_existing_annotations.return_value = None
 
-            result_type, image_id = worker._register_single_image(image_path, 0, 10)
+            result_type, _image_id = worker._register_single_image(image_path, 0, 10)
 
             assert result_type == "registered"
             # _process_associated_files は呼ばれるが、内部で None チェックして早期return
@@ -1175,7 +1175,7 @@ class TestRegisterSingleImageUnits:
                 "captions": [],
             }
 
-            result_type, image_id = worker._register_single_image(image_path, 0, 10)
+            result_type, _image_id = worker._register_single_image(image_path, 0, 10)
 
             assert result_type == "registered"
             mock_db_manager.save_tags.assert_called_once()
@@ -1196,7 +1196,7 @@ class TestRegisterSingleImageUnits:
                 "captions": ["test caption"],
             }
 
-            result_type, image_id = worker._register_single_image(image_path, 0, 10)
+            result_type, _image_id = worker._register_single_image(image_path, 0, 10)
 
             assert result_type == "registered"
             mock_db_manager.save_tags.assert_not_called()
@@ -1237,7 +1237,7 @@ class TestRegisterSingleImageUnits:
             mock_file_reader.get_existing_annotations.return_value = None
             mock_calc.return_value = 45
 
-            result_type, image_id = worker._register_single_image(image_path, 5, 100)
+            _result_type, _image_id = worker._register_single_image(image_path, 5, 100)
 
             mock_calc.assert_called_once_with(6, 100, 10, 85)
 
@@ -1291,7 +1291,7 @@ class TestRegisterSingleImageUnits:
                 "captions": [],
             }
 
-            result_type, image_id = worker._register_single_image(image_path, 0, 10)
+            result_type, _image_id = worker._register_single_image(image_path, 0, 10)
 
             assert result_type == "registered"
             mock_db_manager.save_tags.assert_called_once()

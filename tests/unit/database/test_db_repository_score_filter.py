@@ -120,7 +120,7 @@ class TestGetImagesByFilterScoreIntegration:
         """score_min のみが指定された場合、適用されることを確認"""
         repository, mock_session = mock_session_and_repository
 
-        results, count = repository.get_images_by_filter(score_min=5.0)
+        _results, _count = repository.get_images_by_filter(score_min=5.0)
 
         # クエリが実行されたことを確認
         assert mock_session.execute.called
@@ -129,7 +129,7 @@ class TestGetImagesByFilterScoreIntegration:
         """score_max のみが指定された場合、適用されることを確認"""
         repository, mock_session = mock_session_and_repository
 
-        results, count = repository.get_images_by_filter(score_max=8.0)
+        _results, _count = repository.get_images_by_filter(score_max=8.0)
 
         # クエリが実行されたことを確認
         assert mock_session.execute.called

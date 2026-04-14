@@ -28,7 +28,7 @@ class TestSaveErrorRecord:
         mock_record.id = 1
         repository.session_factory.return_value.__enter__.return_value = mock_session
 
-        error_id = repository.save_error_record(
+        repository.save_error_record(
             operation_type="annotation",
             error_type="API error",
             error_message="Test error",
@@ -49,7 +49,7 @@ class TestSaveErrorRecord:
         mock_record.id = 2
         repository.session_factory.return_value.__enter__.return_value = mock_session
 
-        error_id = repository.save_error_record(
+        repository.save_error_record(
             operation_type="annotation",
             error_type="API error",
             error_message="Test error",

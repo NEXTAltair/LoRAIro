@@ -58,7 +58,7 @@ class TestAIRatingFilterIntegration:
         )
 
         # SearchCriteriaProcessor 経由で検索実行
-        results, count = criteria_processor.execute_search_with_filters(conditions)
+        _results, _count = criteria_processor.execute_search_with_filters(conditions)
 
         # Repository が正しいパラメータで呼ばれたことを確認
         mock_repository.get_images_by_filter.assert_called_once()

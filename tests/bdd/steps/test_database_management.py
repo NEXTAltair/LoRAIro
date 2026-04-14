@@ -475,12 +475,13 @@ def when_save_annotations_with_datatable(
                 continue
 
             # ヘルパー関数で値を取得 (列が存在しない場合は None)
-            def get_value(col_name):
+            # デフォルト引数でループ変数 row_values を束縛し、クロージャの遅延評価を回避
+            def get_value(col_name, _row=row_values):
                 return (
-                    row_values[header_map[col_name]].strip()
+                    _row[header_map[col_name]].strip()
                     if col_name in header_map
-                    and header_map[col_name] < len(row_values)
-                    and row_values[header_map[col_name]] is not None
+                    and header_map[col_name] < len(_row)
+                    and _row[header_map[col_name]] is not None
                     else None
                 )
 

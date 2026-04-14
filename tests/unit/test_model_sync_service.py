@@ -232,7 +232,7 @@ class TestModelSyncServiceWithRealDB:
         assert registered_model_1 is not None
         assert registered_model_1.provider == "openai"
         assert len(registered_model_1.model_types) == 2
-        assert set(mt.name for mt in registered_model_1.model_types) == {"llm", "captioner"}
+        assert {mt.name for mt in registered_model_1.model_types} == {"llm", "captioner"}
 
         registered_model_2 = temp_db_repository.get_model_by_name("test-model-new-2")
         assert registered_model_2 is not None
@@ -296,7 +296,7 @@ class TestModelSyncServiceWithRealDB:
     def test_update_existing_models_success(self, model_sync_service, temp_db_repository):
         """既存モデル更新処理（実DB操作）"""
         # 事前にモデルを登録
-        model_id = temp_db_repository.insert_model(
+        temp_db_repository.insert_model(
             name="update-test-model", provider="openai", model_types=["captioner"], estimated_size_gb=1.0
         )
 
@@ -325,7 +325,7 @@ class TestModelSyncServiceWithRealDB:
         assert updated_model is not None
         assert updated_model.estimated_size_gb == 2.5
         assert len(updated_model.model_types) == 2
-        assert set(mt.name for mt in updated_model.model_types) == {"llm", "captioner"}
+        assert {mt.name for mt in updated_model.model_types} == {"llm", "captioner"}
 
     def test_update_existing_models_no_changes(self, model_sync_service, temp_db_repository):
         """既存モデル更新処理（変更なし）"""

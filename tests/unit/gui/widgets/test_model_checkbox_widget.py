@@ -244,7 +244,7 @@ class TestProviderStylesConstant:
 
     def test_styles_are_valid_qss(self):
         """スタイル文字列が有効なQSS形式であることを確認"""
-        for provider, style in PROVIDER_STYLES.items():
+        for _provider, style in PROVIDER_STYLES.items():
             # 基本的なQSS構文チェック
             assert "QLabel" in style
             assert "{" in style

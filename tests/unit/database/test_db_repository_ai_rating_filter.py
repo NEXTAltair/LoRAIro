@@ -130,7 +130,7 @@ class TestGetImagesByFilterAIRating:
 
     def test_priority_based_manual_over_ai(self, mock_session_and_repository):
         """manual_rating_filter が ai_rating_filter より優先されることを確認"""
-        repository, mock_session = mock_session_and_repository
+        repository, _mock_session = mock_session_and_repository
 
         with patch.object(repository, "_apply_manual_filters") as mock_manual:
             with patch.object(repository, "_apply_ai_rating_filter") as mock_ai:
@@ -147,7 +147,7 @@ class TestGetImagesByFilterAIRating:
 
     def test_ai_rating_filter_only(self, mock_session_and_repository):
         """ai_rating_filter のみが指定された場合、適用されることを確認"""
-        repository, mock_session = mock_session_and_repository
+        repository, _mock_session = mock_session_and_repository
 
         with patch.object(repository, "_apply_ai_rating_filter") as mock_ai:
             mock_ai.return_value = select(Image.id)
@@ -163,7 +163,7 @@ class TestGetImagesByFilterAIRating:
         repository, mock_session = mock_session_and_repository
 
         # include_unrated=False を指定して検索
-        results, count = repository.get_images_by_filter(include_unrated=False)
+        _results, _count = repository.get_images_by_filter(include_unrated=False)
 
         # クエリが実行されたことを確認
         assert mock_session.execute.called
@@ -173,11 +173,11 @@ class TestGetImagesByFilterAIRating:
         repository, mock_session = mock_session_and_repository
 
         # NSFW値を ai_rating_filter に指定した場合、NSFW除外は無効化される
-        results1, count1 = repository.get_images_by_filter(ai_rating_filter="R", include_nsfw=False)
+        _results1, _count1 = repository.get_images_by_filter(ai_rating_filter="R", include_nsfw=False)
         assert mock_session.execute.called
 
         # 非NSFW値を ai_rating_filter に指定した場合、NSFW除外が有効
-        results2, count2 = repository.get_images_by_filter(ai_rating_filter="PG", include_nsfw=False)
+        _results2, _count2 = repository.get_images_by_filter(ai_rating_filter="PG", include_nsfw=False)
         assert mock_session.execute.called
 
 

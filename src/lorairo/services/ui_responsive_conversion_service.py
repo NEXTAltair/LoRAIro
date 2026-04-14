@@ -223,7 +223,7 @@ class UIResponsiveConversionService:
             tree = ET.parse(file_path)
             root = tree.getroot()
         except ET.ParseError as e:
-            raise ValueError(f"XML parse error in {file_path}: {e}")
+            raise ValueError(f"XML parse error in {file_path}: {e}") from e
 
         # XML構造検証
         if not self._validate_xml_structure(root):
@@ -676,7 +676,11 @@ class UIResponsiveConversionService:
         return True
 
     def _find_widgets_by_criteria(
-        self, root: ET.Element, widget_class: str = None, widget_name: str = None, has_property: str = None
+        self,
+        root: ET.Element,
+        widget_class: str | None = None,
+        widget_name: str | None = None,
+        has_property: str | None = None,
     ) -> list[ET.Element]:
         """複合条件でのウィジェット検索
 
@@ -709,7 +713,7 @@ class UIResponsiveConversionService:
         return widgets
 
     def _get_widget_property_value(
-        self, widget: ET.Element, property_name: str, sub_element: str = None
+        self, widget: ET.Element, property_name: str, sub_element: str | None = None
     ) -> str | None:
         """ウィジェットプロパティ値取得
 
