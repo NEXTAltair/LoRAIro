@@ -17,7 +17,7 @@ from .configuration_service import ConfigurationService
 
 if TYPE_CHECKING:
     from image_annotator_lib import (
-        PHashAnnotationResults,  # type: ignore[attr-defined]  # Justification: Local package without type stubs
+        PHashAnnotationResults,
     )
 
 

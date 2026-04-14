@@ -9,6 +9,7 @@ from typing import Any
 
 from loguru import logger
 from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QButtonGroup, QDialog, QFileDialog, QMessageBox, QWidget
 
 from ...services.service_container import ServiceContainer
@@ -25,7 +26,7 @@ class DatasetExportWorker(QObject):
 
     def __init__(
         self,
-        export_service,
+        export_service: Any,
         image_ids: list[int],
         output_path: Path,
         resolution: int,
@@ -423,7 +424,7 @@ class DatasetExportWidget(QDialog):
         """Show warning message to user."""
         QMessageBox.warning(self, "警告", message)
 
-    def closeEvent(self, event) -> None:
+    def closeEvent(self, event: QCloseEvent) -> None:
         """Handle dialog close event."""
         # Clean up any running workers
         if self.export_thread and self.export_thread.isRunning():

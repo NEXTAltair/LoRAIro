@@ -13,8 +13,8 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setupUi(self)  # type: ignore  # Justification: Qt Designer generated method signature
-        self.set_label_text("フォルダを選択")  # type: ignore
+        self.setupUi(self)
+        self.set_label_text("フォルダを選択")
 
         self.DirectoryPicker.pushButtonPicker.clicked.connect(self.select_folder)
         self.DirectoryPicker.comboBoxHistory.currentIndexChanged.connect(self.on_history_item_selected)
@@ -27,7 +27,7 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
         dir_path = QFileDialog.getExistingDirectory(self, "フォルダを選択")
         if dir_path:
             self.DirectoryPicker.lineEditPicker.setText(dir_path)
-            self.DirectoryPicker.update_history(dir_path)  # type: ignore
+            self.DirectoryPicker.update_history(dir_path)
             logger.debug(f"フォルダが選択: {dir_path}")
             # ダイアログで選択されたパスは確実に有効なので即座に発信
             self.validDirectorySelected.emit(dir_path)
@@ -147,7 +147,7 @@ if __name__ == "__main__":
     import sys
 
     app = QApplication(sys.argv)
-    widget = DirectoryPickerWidget()  # type: ignore
-    widget.set_label_text("Select Folder")  # type: ignore
+    widget = DirectoryPickerWidget()
+    widget.set_label_text("Select Folder")
     widget.show()
     sys.exit(app.exec())

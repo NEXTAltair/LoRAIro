@@ -219,7 +219,7 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
         self.labelStatus.setText("Status: Updating...")
 
         # QThreadでシンプルに実行（Worker class不要）
-        def run_update():
+        def run_update() -> None:
             try:
                 self.tag_service.update_tag_types(updates)
                 self.update_completed.emit()
