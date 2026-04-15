@@ -488,95 +488,90 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"Failed to show tag management dialog: {e}", exc_info=True)
             QMessageBox.critical(self, "エラー", f"タグ管理の表示に失敗しました:\n{e}")
 
+    def _connect_thumbnail_preview_signals(self) -> None:
+        """サムネイル→プレビュー間の Signal 接続を行う。"""
+        if not (self.thumbnail_selector and self.image_preview_widget):
+            return
+        try:
+            self.thumbnail_selector.image_selected.connect(self.image_preview_widget.load_image)
+            if hasattr(self.thumbnail_selector, "stage_selected_requested"):
+                self.thumbnail_selector.stage_selected_requested.connect(self.send_selected_to_batch_tag)
+            if hasattr(self.thumbnail_selector, "quick_tag_requested"):
+                self.thumbnail_selector.quick_tag_requested.connect(self._show_quick_tag_dialog)
+            logger.info("    ✅ サムネイル→プレビュー接続完了")
+        except Exception as e:
+            logger.error(f"    ❌ サムネイル→プレビュー接続失敗: {e}")
+
+    def _connect_menu_actions(self) -> None:
+        """編集メニューの全選択・選択解除アクション Signal 接続を行う。"""
+        if not self.thumbnail_selector:
+            return
+        try:
+            if hasattr(self, "actionSelectAll"):
+                self.actionSelectAll.triggered.connect(self.thumbnail_selector._select_all_items)
+            if hasattr(self, "actionDeselectAll"):
+                self.actionDeselectAll.triggered.connect(self.thumbnail_selector._deselect_all_items)
+            logger.info("    ✅ 編集メニュー（全選択/選択解除）接続完了")
+        except Exception as e:
+            logger.error(f"    ❌ 編集メニュー接続失敗: {e}")
+
+    def _connect_details_widget_signals(self) -> None:
+        """SelectedImageDetailsWidget の Rating/Score シグナル接続を行う。"""
+        if not hasattr(self, "selectedImageDetailsWidget"):
+            return
+        try:
+            self.selectedImageDetailsWidget.rating_changed.connect(self._handle_rating_changed)
+            self.selectedImageDetailsWidget.score_changed.connect(self._handle_score_changed)
+            self.selectedImageDetailsWidget.batch_rating_changed.connect(self._handle_batch_rating_changed)
+            self.selectedImageDetailsWidget.batch_score_changed.connect(self._handle_batch_score_changed)
+            logger.info("    ✅ SelectedImageDetailsWidget シグナル接続完了")
+        except Exception as e:
+            logger.error(f"    ❌ SelectedImageDetailsWidget シグナル接続失敗: {e}")
+
+    def _connect_dataset_state_signals(self) -> None:
+        """DatasetStateManager の選択変更シグナル接続を行う。"""
+        if not self.dataset_state_manager:
+            return
+        try:
+            self.dataset_state_manager.selection_changed.connect(self._handle_selection_changed_for_rating)
+            logger.info("    ✅ DatasetStateManager selection_changed シグナル接続完了")
+        except Exception as e:
+            logger.error(f"    ❌ DatasetStateManager selection_changed 接続失敗: {e}")
+
+    def _connect_batch_tag_signals(self) -> None:
+        """BatchTagAddWidget の各種シグナル接続と初期状態設定を行う。"""
+        if not hasattr(self, "batchTagAddWidget"):
+            return
+        try:
+            self.batchTagAddWidget.set_dataset_state_manager(self.dataset_state_manager)
+            self.batchTagAddWidget.tag_add_requested.connect(self._handle_batch_tag_add)
+            self.batchTagAddWidget.staging_cleared.connect(self._handle_staging_cleared)
+            self.batchTagAddWidget.staged_images_changed.connect(self._on_staged_images_changed)
+            self._update_annotation_target_ui(0)
+            logger.info("    ✅ BatchTagAddWidget シグナル接続完了")
+        except Exception as e:
+            logger.error(f"    ❌ BatchTagAddWidget シグナル接続失敗: {e}")
+
+    def _connect_settings_signals(self) -> None:
+        """設定ダイアログを開くアクション・ボタンの Signal 接続を行う。"""
+        if hasattr(self, "actionSettings"):
+            self.actionSettings.triggered.connect(self.open_settings)
+        if hasattr(self, "pushButtonSettings"):
+            self.pushButtonSettings.clicked.connect(self.open_settings)
+
     def _connect_events(self) -> None:
         """イベント接続を設定（安全な実装）"""
         try:
             logger.info("  - イベント接続開始...")
-
-            # ウィジェット間のイベント接続（複雑な動的接続）
-            if self.thumbnail_selector and self.image_preview_widget:
-                try:
-                    # サムネイル選択をプレビューに反映
-                    self.thumbnail_selector.image_selected.connect(self.image_preview_widget.load_image)
-                    # サムネイル右クリックからバッチタグへ送る
-                    if hasattr(self.thumbnail_selector, "stage_selected_requested"):
-                        self.thumbnail_selector.stage_selected_requested.connect(
-                            self.send_selected_to_batch_tag
-                        )
-                    # クイックタグ追加要求
-                    if hasattr(self.thumbnail_selector, "quick_tag_requested"):
-                        self.thumbnail_selector.quick_tag_requested.connect(self._show_quick_tag_dialog)
-                    logger.info("    ✅ サムネイル→プレビュー接続完了")
-                except Exception as e:
-                    logger.error(f"    ❌ サムネイル→プレビュー接続失敗: {e}")
-
-            # 編集メニューの全選択/選択解除アクション接続
-            if self.thumbnail_selector:
-                try:
-                    if hasattr(self, "actionSelectAll"):
-                        self.actionSelectAll.triggered.connect(self.thumbnail_selector._select_all_items)
-                    if hasattr(self, "actionDeselectAll"):
-                        self.actionDeselectAll.triggered.connect(
-                            self.thumbnail_selector._deselect_all_items
-                        )
-                    logger.info("    ✅ 編集メニュー（全選択/選択解除）接続完了")
-                except Exception as e:
-                    logger.error(f"    ❌ 編集メニュー接続失敗: {e}")
-
-            # Sequential Worker Pipeline 統合シグナル接続
+            self._connect_thumbnail_preview_signals()
+            self._connect_menu_actions()
             self._setup_worker_pipeline_signals()
-
-            # SelectedImageDetailsWidget から転送される Rating/Score シグナル接続
-            if hasattr(self, "selectedImageDetailsWidget"):
-                try:
-                    self.selectedImageDetailsWidget.rating_changed.connect(self._handle_rating_changed)
-                    self.selectedImageDetailsWidget.score_changed.connect(self._handle_score_changed)
-                    self.selectedImageDetailsWidget.batch_rating_changed.connect(
-                        self._handle_batch_rating_changed
-                    )
-                    self.selectedImageDetailsWidget.batch_score_changed.connect(
-                        self._handle_batch_score_changed
-                    )
-                    logger.info("    ✅ SelectedImageDetailsWidget シグナル接続完了")
-                except Exception as e:
-                    logger.error(f"    ❌ SelectedImageDetailsWidget シグナル接続失敗: {e}")
-
-            # DatasetStateManager シグナル接続 - 選択変更時のRating/Score更新
-            if self.dataset_state_manager:
-                try:
-                    self.dataset_state_manager.selection_changed.connect(
-                        self._handle_selection_changed_for_rating
-                    )
-                    logger.info("    ✅ DatasetStateManager selection_changed シグナル接続完了")
-                except Exception as e:
-                    logger.error(f"    ❌ DatasetStateManager selection_changed 接続失敗: {e}")
-
-            # BatchTagAddWidget シグナル接続（Phase 3.1）
-            if hasattr(self, "batchTagAddWidget"):
-                try:
-                    # DatasetStateManager 参照を設定
-                    self.batchTagAddWidget.set_dataset_state_manager(self.dataset_state_manager)
-                    # シグナル接続
-                    self.batchTagAddWidget.tag_add_requested.connect(self._handle_batch_tag_add)
-                    self.batchTagAddWidget.staging_cleared.connect(self._handle_staging_cleared)
-                    self.batchTagAddWidget.staged_images_changed.connect(self._on_staged_images_changed)
-                    # 初期状態: アノテーションボタン無効化（ステージング画像0件）
-                    self._update_annotation_target_ui(0)
-                    logger.info("    ✅ BatchTagAddWidget シグナル接続完了")
-                except Exception as e:
-                    logger.error(f"    ❌ BatchTagAddWidget シグナル接続失敗: {e}")
-
-            # 設定ダイアログ接続
-            if hasattr(self, "actionSettings"):
-                self.actionSettings.triggered.connect(self.open_settings)
-            if hasattr(self, "pushButtonSettings"):
-                self.pushButtonSettings.clicked.connect(self.open_settings)
-
-            # パネル表示切替アクション接続
+            self._connect_details_widget_signals()
+            self._connect_dataset_state_signals()
+            self._connect_batch_tag_signals()
+            self._connect_settings_signals()
             self._connect_panel_toggle_actions()
-
             logger.info("  ✅ イベント接続完了")
-
         except Exception as e:
             logger.error(f"イベント接続で予期しないエラー: {e}", exc_info=True)
 

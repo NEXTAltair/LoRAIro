@@ -266,6 +266,54 @@ class AutoCrop:
 
         return detected_borders
 
+    def _normalize_to_rgb(self, np_image: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
+        """グレースケール・RGBA・LA 画像を RGB 3ch 配列に正規化する。
+
+        Args:
+            np_image: 入力画像 (Grayscale / RGBA / LA / RGB)。
+
+        Returns:
+            RGB 3ch に変換された画像配列。
+        """
+        # グレースケール(2D)対応: RGB変換
+        if np_image.ndim == 2:
+            logger.debug("グレースケール画像検出: RGB変換を実行")
+            return cv2.cvtColor(np_image, cv2.COLOR_GRAY2RGB)
+
+        # RGBA対応: アルファチャンネルを破棄してRGB変換
+        if np_image.ndim == 3 and np_image.shape[2] == 4:
+            logger.debug("RGBA画像検出: RGB変換を実行")
+            return cv2.cvtColor(np_image, cv2.COLOR_RGBA2RGB)
+
+        # LA(グレースケール+アルファ)対応: アルファを破棄しグレースケール→RGB変換
+        if np_image.ndim == 3 and np_image.shape[2] == 2:
+            logger.debug("LA画像検出(2ch): グレースケール→RGB変換を実行")
+            return cv2.cvtColor(np_image[:, :, 0], cv2.COLOR_GRAY2RGB)
+
+        return np_image
+
+    def _compute_adaptive_threshold_params(
+        self, gray_diff: np.ndarray[Any, Any], shape: tuple[int, int]
+    ) -> tuple[int, int]:
+        """適応的閾値処理のパラメータ (blockSize, C値) を画像サイズ・輝度から算出する。
+
+        Args:
+            gray_diff: グレースケール差分画像。
+            shape: 画像の (height, width)。
+
+        Returns:
+            (block_size, adaptive_c) のタプル。
+        """
+        height, width = shape
+        # blockSize は奇数かつ画像サイズに比例 (最小 11)
+        block_size = max(11, min(width, height) // 50)
+        if block_size % 2 == 0:
+            block_size += 1
+
+        mean_brightness = np.mean(gray_diff)
+        adaptive_c = max(2, int(mean_brightness / 32))
+        return block_size, adaptive_c
+
     def _get_crop_area(self, np_image: np.ndarray[Any, Any]) -> tuple[int, int, int, int] | None:
         """
         Detect crop area using complementary color difference algorithm.
@@ -290,20 +338,7 @@ class AutoCrop:
             Crop area as (x, y, width, height) tuple, or None if no crop detected
         """
         try:
-            # グレースケール対応: RGB変換
-            if np_image.ndim == 2:
-                logger.debug("グレースケール画像検出: RGB変換を実行")
-                np_image = cv2.cvtColor(np_image, cv2.COLOR_GRAY2RGB)
-
-            # RGBA対応: アルファチャンネルを破棄してRGB変換
-            if np_image.ndim == 3 and np_image.shape[2] == 4:
-                logger.debug("RGBA画像検出: RGB変換を実行")
-                np_image = cv2.cvtColor(np_image, cv2.COLOR_RGBA2RGB)
-
-            # LA(グレースケール+アルファ)対応: アルファを破棄しグレースケール→RGB変換
-            if np_image.ndim == 3 and np_image.shape[2] == 2:
-                logger.debug("LA画像検出(2ch): グレースケール→RGB変換を実行")
-                np_image = cv2.cvtColor(np_image[:, :, 0], cv2.COLOR_GRAY2RGB)
+            np_image = self._normalize_to_rgb(np_image)
 
             # Complementary color-based crop area detection
             complementary_color = [255 - np.mean(np_image[..., i]) for i in range(3)]
@@ -316,17 +351,8 @@ class AutoCrop:
             # Apply blur to reduce noise
             blurred_diff = cv2.GaussianBlur(gray_diff, (5, 5), 0)
 
-            # Dynamic parameter calculation
             height, width = np_image.shape[:2]
-
-            # Adjust blockSize based on image size (must be odd)
-            block_size = max(11, min(width, height) // 50)
-            if block_size % 2 == 0:
-                block_size += 1
-
-            # Adjust C value based on image brightness
-            mean_brightness = np.mean(gray_diff)
-            adaptive_c = max(2, int(mean_brightness / 32))
+            block_size, adaptive_c = self._compute_adaptive_threshold_params(gray_diff, (height, width))
 
             # Adaptive thresholding with optimized parameters
             thresh = cv2.adaptiveThreshold(

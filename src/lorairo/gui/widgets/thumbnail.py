@@ -1086,6 +1086,59 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     # === Modern Loading Interface ===
 
+    def _reset_thumbnail_display(self) -> None:
+        """サムネイル表示状態を完全にクリアする。"""
+        self.scene.clear()
+        self.thumbnail_items.clear()
+        self.clear_cache()
+        self.image_data.clear()
+        if self.pagination_nav:
+            self.pagination_nav.setVisible(False)
+
+    def _sync_dataset_state_from_result(self, thumbnail_result: Any) -> None:
+        """thumbnail_result の画像メタデータを DatasetStateManager に同期する。"""
+        if (
+            self.dataset_state
+            and hasattr(thumbnail_result, "image_metadata")
+            and thumbnail_result.image_metadata
+        ):
+            self.dataset_state.update_from_search_results(thumbnail_result.image_metadata)
+            logger.debug("検索結果をDatasetStateManagerに同期完了")
+
+    def _build_image_data_from_result(self, thumbnail_result: Any) -> None:
+        """thumbnail_result の image_metadata から self.image_data を構築する。"""
+        if hasattr(thumbnail_result, "image_metadata") and thumbnail_result.image_metadata:
+            self.image_data = [
+                (Path(item["stored_image_path"]), item["id"])
+                for item in thumbnail_result.image_metadata
+                if "stored_image_path" in item and "id" in item
+            ]
+
+    def _cache_single_thumbnail(self, image_id: int, qimage: Any) -> bool:
+        """単一の QImage を QPixmap に変換してキャッシュに格納する。
+
+        Args:
+            image_id: 画像 ID。
+            qimage: 変換元の QImage オブジェクト。
+
+        Returns:
+            変換・キャッシュ成功時 True、失敗時 False。
+        """
+        try:
+            qpixmap = QPixmap.fromImage(qimage)
+            if not qpixmap.isNull():
+                metadata = {}
+                if self.dataset_state:
+                    metadata = self.dataset_state.get_image_by_id(image_id) or {}
+                self.cache_thumbnail(image_id, qpixmap, metadata)
+                return True
+            else:
+                logger.warning(f"QPixmap変換失敗: image_id={image_id}")
+                return False
+        except Exception as e:
+            logger.error(f"QImage→QPixmap変換エラー image_id={image_id}: {e}")
+            return False
+
     def load_thumbnails_from_result(self, thumbnail_result: Any) -> None:
         """
         ThumbnailLoadResultからサムネイルをロード（クリーンアーキテクチャ版）
@@ -1104,13 +1157,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         """
         logger.info(f"サムネイル表示開始: {len(thumbnail_result.loaded_thumbnails)}件")
 
-        # UI表示のクリア
-        self.scene.clear()
-        self.thumbnail_items.clear()
-        self.clear_cache()
-        self.image_data.clear()
-        if self.pagination_nav:
-            self.pagination_nav.setVisible(False)
+        self._reset_thumbnail_display()
 
         if not thumbnail_result.loaded_thumbnails:
             logger.info("表示する画像がありません")
@@ -1119,43 +1166,15 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
                 self.graphics_view.viewport().update()
             return
 
-        # **クリーンアーキテクチャ**: DatasetStateManagerに統一データ管理を委譲
-        if (
-            self.dataset_state
-            and hasattr(thumbnail_result, "image_metadata")
-            and thumbnail_result.image_metadata
-        ):
-            self.dataset_state.update_from_search_results(thumbnail_result.image_metadata)
-            logger.debug("検索結果をDatasetStateManagerに同期完了")
+        self._sync_dataset_state_from_result(thumbnail_result)
+        self._build_image_data_from_result(thumbnail_result)
 
-        # 表示順序を先に確定（_display_cached_thumbnails が image_data を参照するため）
-        if hasattr(thumbnail_result, "image_metadata") and thumbnail_result.image_metadata:
-            self.image_data = [
-                (Path(item["stored_image_path"]), item["id"])
-                for item in thumbnail_result.image_metadata
-                if "stored_image_path" in item and "id" in item
-            ]
+        valid_thumbnails = sum(
+            1
+            for image_id, qimage in thumbnail_result.loaded_thumbnails
+            if self._cache_single_thumbnail(image_id, qimage)
+        )
 
-        # **表示専念**: UI表示のみに集中
-        valid_thumbnails = 0
-        for image_id, qimage in thumbnail_result.loaded_thumbnails:
-            try:
-                qpixmap = QPixmap.fromImage(qimage)
-                if not qpixmap.isNull():
-                    # シンプルなキャッシュ保存（メタデータはDatasetStateManagerから取得）
-                    metadata = {}
-                    if self.dataset_state:
-                        metadata = self.dataset_state.get_image_by_id(image_id) or {}
-
-                    self.cache_thumbnail(image_id, qpixmap, metadata)
-                    valid_thumbnails += 1
-                else:
-                    logger.warning(f"QPixmap変換失敗: image_id={image_id}")
-
-            except Exception as e:
-                logger.error(f"QImage→QPixmap変換エラー image_id={image_id}: {e}")
-
-        # UI表示を構築
         self._display_cached_thumbnails()
         self._update_image_count_display()
         if hasattr(self, "graphics_view"):

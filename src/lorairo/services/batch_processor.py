@@ -170,6 +170,57 @@ def _process_single_image(
         results["errors"] += 1
 
 
+def _notify_batch_progress(
+    current: int,
+    total: int,
+    filename: str,
+    progress_callback: Callable[[int], None] | None,
+    batch_progress_callback: Callable[[int, int, str], None] | None,
+    status_callback: Callable[[str], None] | None,
+) -> None:
+    """バッチ処理の進捗を各コールバックへ通知する。
+
+    Args:
+        current: 現在の処理件数 (1始まり)。
+        total: 全件数。
+        filename: 処理中のファイル名。
+        progress_callback: 0-100 の進捗コールバック。
+        batch_progress_callback: 詳細進捗コールバック (current, total, filename)。
+        status_callback: ステータスメッセージコールバック。
+    """
+    if batch_progress_callback:
+        batch_progress_callback(current, total, filename)
+    if progress_callback:
+        progress_callback(int((current / total) * 100))
+    if status_callback:
+        status_callback(f"処理中: {filename} ({current}/{total})")
+
+
+def _should_cancel(
+    is_canceled: Callable[[], bool] | None,
+    current: int,
+    total: int,
+    status_callback: Callable[[str], None] | None,
+) -> bool:
+    """キャンセル状態を確認し、キャンセル済みならログ出力して True を返す。
+
+    Args:
+        is_canceled: キャンセル状態確認関数。None の場合は常に False を返す。
+        current: 現在の処理件数。
+        total: 全件数。
+        status_callback: ステータスメッセージコールバック。
+
+    Returns:
+        キャンセルされた場合 True、継続する場合 False。
+    """
+    if is_canceled and is_canceled():
+        logger.info(f"バッチ処理がキャンセルされました (処理済み: {current - 1}/{total})")
+        if status_callback:
+            status_callback("処理がキャンセルされました")
+        return True
+    return False
+
+
 def process_directory_batch(
     directory_path: Path,
     config_service: ConfigurationService,
@@ -214,23 +265,20 @@ def process_directory_batch(
     for current_index, image_file in enumerate(image_files):
         current_count = current_index + 1
 
-        # キャンセルチェック
-        if is_canceled and is_canceled():
-            logger.info(f"バッチ処理がキャンセルされました (処理済み: {current_count - 1}/{total_files})")
-            if status_callback:
-                status_callback("処理がキャンセルされました")
+        if _should_cancel(is_canceled, current_count, total_files, status_callback):
             break
 
         filename = image_file.name
         logger.debug(f"処理中: {filename} ({current_count}/{total_files})")
 
-        # 進捗更新
-        if batch_progress_callback:
-            batch_progress_callback(current_count, total_files, filename)
-        if progress_callback:
-            progress_callback(int((current_count / total_files) * 100))
-        if status_callback:
-            status_callback(f"処理中: {filename} ({current_count}/{total_files})")
+        _notify_batch_progress(
+            current_count,
+            total_files,
+            filename,
+            progress_callback,
+            batch_progress_callback,
+            status_callback,
+        )
 
         try:
             _process_single_image(image_file, idm, fsm, results)
