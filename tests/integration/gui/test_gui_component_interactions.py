@@ -82,7 +82,7 @@ class TestGUIComponentInteractions:
     @pytest.fixture
     def test_images_data(self):
         """テスト用画像データ（実際のテストリソース使用）"""
-        test_img_dir = Path("/workspaces/LoRAIro/tests/resources/img/1_img")
+        test_img_dir = Path(__file__).resolve().parents[2] / "resources/img/1_img"
         return [
             {
                 "id": i + 1,
@@ -150,7 +150,7 @@ class TestGUIComponentInteractions:
     def test_real_dataset_state_coordination(self, dataset_state_manager, test_images_data):
         """実際のデータセット状態協調統合テスト"""
         # 実際のテストリソースパス設定
-        test_path = Path("/workspaces/LoRAIro/tests/resources/img/1_img")
+        test_path = Path(__file__).resolve().parents[2] / "resources/img/1_img"
         dataset_state_manager.set_dataset_path(test_path)
 
         # 実際のテスト画像データ設定

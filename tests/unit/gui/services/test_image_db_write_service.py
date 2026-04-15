@@ -344,7 +344,7 @@ class TestImageDBWriteServiceIntegration:
 
         results = []
         for image_id in image_ids:
-            rating = "PG" if image_id == 1 else "G"
+            rating = "PG" if image_id == 1 else "R"
             result = integration_service.update_rating(image_id, rating)
             results.append(result)
 
