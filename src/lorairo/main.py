@@ -3,6 +3,7 @@ import os
 import platform
 import sys
 import warnings
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtGui import QFont, QFontDatabase
@@ -11,6 +12,65 @@ from PySide6.QtWidgets import QApplication
 from .gui.window.main_window import MainWindow
 from .utils.config import get_config
 from .utils.log import initialize_logging, logger
+
+
+def _set_font_dir_from_candidates(font_dirs: list[Path]) -> None:
+    """候補リストから最初に存在するフォントディレクトリを QT_QPA_FONTDIR に設定する。
+
+    Args:
+        font_dirs: 優先順位順のフォントディレクトリ候補リスト。
+    """
+    for font_dir in font_dirs:
+        if font_dir.exists():
+            os.environ["QT_QPA_FONTDIR"] = str(font_dir)
+            break
+
+
+def _apply_windows_qt_env() -> None:
+    """Windows 環境向けの Qt フォント・プラットフォーム設定を適用する。"""
+    font_dirs = [
+        Path("C:/Windows/Fonts"),
+        Path.home() / "AppData/Local/Microsoft/Windows/Fonts",
+    ]
+    _set_font_dir_from_candidates(font_dirs)
+    os.environ["QT_QPA_PLATFORM"] = "windows"
+    logger.info("Windows環境: ネイティブウィンドウプラットフォームを設定")
+
+
+def _apply_linux_qt_env() -> None:
+    """Linux 環境向けの Qt フォント・プラットフォーム設定を適用する。
+
+    ヘッドレス環境 (DISPLAY/WAYLAND_DISPLAY 未設定) では offscreen モードを使用する。
+    """
+    font_dirs = [
+        Path("/usr/share/fonts"),
+        Path("/usr/local/share/fonts"),
+        Path("/system/fonts"),  # Android
+        Path.home() / ".fonts",
+    ]
+    _set_font_dir_from_candidates(font_dirs)
+
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        logger.info("Linux環境でDISPLAY未設定 - offscreenモードを使用")
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    elif os.environ.get("WAYLAND_DISPLAY"):
+        os.environ["QT_QPA_PLATFORM"] = "wayland"
+        logger.info("Linux環境: Waylandプラットフォームを設定")
+    else:
+        os.environ["QT_QPA_PLATFORM"] = "xcb"
+        logger.info("Linux環境: X11プラットフォームを設定")
+
+
+def _apply_macos_qt_env() -> None:
+    """macOS 環境向けの Qt フォント・プラットフォーム設定を適用する。"""
+    font_dirs = [
+        Path("/System/Library/Fonts"),
+        Path("/Library/Fonts"),
+        Path.home() / "Library/Fonts",
+    ]
+    _set_font_dir_from_candidates(font_dirs)
+    os.environ["QT_QPA_PLATFORM"] = "cocoa"
+    logger.info("macOS環境: Cocoaプラットフォームを設定")
 
 
 def setup_qt_environment(config: dict[str, Any] | None = None) -> None:
@@ -38,72 +98,14 @@ def setup_qt_environment(config: dict[str, Any] | None = None) -> None:
     if qt_config.get("font_dir"):
         os.environ["QT_QPA_FONTDIR"] = qt_config["font_dir"]
 
-    # プラットフォーム別フォントディレクトリ設定
+    # プラットフォーム別フォントディレクトリ・プラットフォーム設定
     system = platform.system()
-
     if system == "Windows":
-        # Windowsシステムフォントディレクトリ
-        from pathlib import Path
-
-        font_dirs = [
-            Path("C:/Windows/Fonts"),
-            Path.home() / "AppData/Local/Microsoft/Windows/Fonts",
-        ]
-        # 存在するフォントディレクトリを設定
-        for font_dir in font_dirs:
-            if font_dir.exists():
-                os.environ["QT_QPA_FONTDIR"] = str(font_dir)
-                break
-
-        # プラットフォームプラグイン設定
-        os.environ["QT_QPA_PLATFORM"] = "windows"
-        logger.info("Windows環境: ネイティブウィンドウプラットフォームを設定")
-
+        _apply_windows_qt_env()
     elif system == "Linux":
-        # Linuxシステムフォントディレクトリ
-        from pathlib import Path
-
-        font_dirs = [
-            Path("/usr/share/fonts"),
-            Path("/usr/local/share/fonts"),
-            Path("/system/fonts"),  # Android
-            Path.home() / ".fonts",
-        ]
-        for font_dir in font_dirs:
-            if font_dir.exists():
-                os.environ["QT_QPA_FONTDIR"] = str(font_dir)
-                break
-
-        # Linux環境でのみヘッドレス対応をチェック
-        if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
-            logger.info("Linux環境でDISPLAY未設定 - offscreenモードを使用")
-            os.environ["QT_QPA_PLATFORM"] = "offscreen"
-        else:
-            # Linux GUI環境では適切なプラットフォームを設定
-            if os.environ.get("WAYLAND_DISPLAY"):
-                os.environ["QT_QPA_PLATFORM"] = "wayland"
-                logger.info("Linux環境: Waylandプラットフォームを設定")
-            else:
-                os.environ["QT_QPA_PLATFORM"] = "xcb"
-                logger.info("Linux環境: X11プラットフォームを設定")
-
+        _apply_linux_qt_env()
     elif system == "Darwin":  # macOS
-        # macOSシステムフォントディレクトリ
-        from pathlib import Path
-
-        font_dirs = [
-            Path("/System/Library/Fonts"),
-            Path("/Library/Fonts"),
-            Path.home() / "Library/Fonts",
-        ]
-        for font_dir in font_dirs:
-            if font_dir.exists():
-                os.environ["QT_QPA_FONTDIR"] = str(font_dir)
-                break
-
-        # macOS環境でのプラットフォーム設定
-        os.environ["QT_QPA_PLATFORM"] = "cocoa"
-        logger.info("macOS環境: Cocoaプラットフォームを設定")
+        _apply_macos_qt_env()
 
 
 def setup_application_fonts(app: QApplication, config: dict[str, Any] | None = None) -> None:

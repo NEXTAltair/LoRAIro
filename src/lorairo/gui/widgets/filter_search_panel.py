@@ -1134,76 +1134,133 @@ class FilterSearchPanel(QScrollArea):
         )
         self.ui.lineEditSearch.setEnabled(not disabled)
 
-    def _on_search_requested(self) -> None:
-        """検索要求処理 - WorkerService経由で非同期実行（Qt Designer Phase 2レスポンシブレイアウト対応強化版）"""
-        if not self.search_filter_service:
-            # 詳細診断情報を追加（Qt Designer Phase 2対応強化版）
-            error_details = [
-                "SearchFilterService not set - 詳細診断:",
-                f"  - FilterSearchPanel instance: {id(self)}",
-                f"  - search_filter_service: {self.search_filter_service}",
-                f"  - hasattr(search_filter_service): {hasattr(self, 'search_filter_service')}",
-            ]
+    def _log_search_filter_service_missing(self) -> None:
+        """SearchFilterService 未設定時の詳細診断情報をログ出力する。"""
+        error_details = [
+            "SearchFilterService not set - 詳細診断:",
+            f"  - FilterSearchPanel instance: {id(self)}",
+            f"  - search_filter_service: {self.search_filter_service}",
+            f"  - hasattr(search_filter_service): {hasattr(self, 'search_filter_service')}",
+        ]
 
-            # MainWindow統合状況の確認（Qt Designer Phase 2診断強化版）
-            try:
-                parent_window = self.window()
-                if hasattr(parent_window, "filter_search_panel"):
-                    parent_instance = parent_window.filter_search_panel
-                    is_same_instance = parent_instance is self
-                    parent_service = (
-                        getattr(parent_instance, "search_filter_service", None) if parent_instance else None
-                    )
+        try:
+            parent_window = self.window()
+            if hasattr(parent_window, "filter_search_panel"):
+                parent_instance = parent_window.filter_search_panel
+                is_same_instance = parent_instance is self
+                parent_service = (
+                    getattr(parent_instance, "search_filter_service", None) if parent_instance else None
+                )
+
+                error_details.extend(
+                    [
+                        f"  - MainWindow.filter_search_panel: {id(parent_instance) if parent_instance else None}",
+                        f"    (same instance: {is_same_instance})",
+                        f"  - Parent instance service: {parent_service}",
+                        f"    (parent service type: {type(parent_service) if parent_service else 'None'})",
+                    ],
+                )
+
+                if hasattr(parent_window, "filterSearchPanel"):
+                    qt_designer_instance = parent_window.filterSearchPanel
+                    qt_same_as_parent = qt_designer_instance is parent_instance
+                    qt_same_as_self = qt_designer_instance is self
 
                     error_details.extend(
                         [
-                            f"  - MainWindow.filter_search_panel: {id(parent_instance) if parent_instance else None}",
-                            f"    (same instance: {is_same_instance})",
-                            f"  - Parent instance service: {parent_service}",
-                            f"    (parent service type: {type(parent_service) if parent_service else 'None'})",
+                            f"  - Qt Designer filterSearchPanel: {id(qt_designer_instance) if qt_designer_instance else None}",
+                            f"    (same as parent: {qt_same_as_parent}, same as self: {qt_same_as_self})",
                         ],
                     )
 
-                    # Qt Designer生成インスタンス確認
-                    if hasattr(parent_window, "filterSearchPanel"):
-                        qt_designer_instance = parent_window.filterSearchPanel
-                        qt_same_as_parent = qt_designer_instance is parent_instance
-                        qt_same_as_self = qt_designer_instance is self
+                    if qt_designer_instance and hasattr(qt_designer_instance, "search_filter_service"):
+                        qt_service = getattr(qt_designer_instance, "search_filter_service", None)
+                        error_details.append(f"    (Qt Designer instance service: {qt_service})")
 
-                        error_details.extend(
-                            [
-                                f"  - Qt Designer filterSearchPanel: {id(qt_designer_instance) if qt_designer_instance else None}",
-                                f"    (same as parent: {qt_same_as_parent}, same as self: {qt_same_as_self})",
-                            ],
-                        )
+                if parent_instance and parent_service and not is_same_instance:
+                    error_details.append(
+                        "  - 疑われる問題: Qt Designer Phase 2変更によるインスタンス不整合",
+                    )
+                elif parent_instance and not parent_service:
+                    error_details.append(
+                        "  - 疑われる問題: MainWindow._setup_search_filter_integration()未実行または失敗",
+                    )
+                elif not parent_instance:
+                    error_details.append(
+                        "  - 疑われる問題: MainWindow.setup_custom_widgets()未実行または失敗",
+                    )
 
-                        # Qt Designer Phase 2の影響を確認
-                        if qt_designer_instance and hasattr(qt_designer_instance, "search_filter_service"):
-                            qt_service = getattr(qt_designer_instance, "search_filter_service", None)
-                            error_details.append(f"    (Qt Designer instance service: {qt_service})")
+            else:
+                error_details.append("  - MainWindow.filter_search_panel attribute not found")
 
-                    # Phase 3.5統合状況の推測
-                    if parent_instance and parent_service and not is_same_instance:
-                        error_details.append(
-                            "  - 疑われる問題: Qt Designer Phase 2変更によるインスタンス不整合",
-                        )
-                    elif parent_instance and not parent_service:
-                        error_details.append(
-                            "  - 疑われる問題: MainWindow._setup_search_filter_integration()未実行または失敗",
-                        )
-                    elif not parent_instance:
-                        error_details.append(
-                            "  - 疑われる問題: MainWindow.setup_custom_widgets()未実行または失敗",
-                        )
+        except Exception as diagnostic_error:
+            error_details.append(f"  - Diagnostic error: {diagnostic_error}")
 
-                else:
-                    error_details.append("  - MainWindow.filter_search_panel attribute not found")
+        logger.error("\n".join(error_details))
 
-            except Exception as diagnostic_error:
-                error_details.append(f"  - Diagnostic error: {diagnostic_error}")
+    def _build_search_conditions_from_ui(self) -> "SearchConditions | None":
+        """UI 入力から SearchConditions を構築する。検証失敗時は None を返す。"""
+        search_text = self.ui.lineEditSearch.text().strip()
+        keywords, excluded_keywords = (
+            self.search_filter_service.parse_search_input(search_text) if search_text else ([], [])
+        )
 
-            # 詳細エラーログ出力
-            logger.error("\n".join(error_details))
+        score_min_internal, score_max_internal = self.score_range_slider.get_range()
+        has_score_filter = score_min_internal != 0 or score_max_internal != 1000
+
+        # 基本的な入力検証
+        if not keywords and not any(
+            [
+                self.ui.checkboxOnlyUntagged.isChecked(),
+                self.ui.checkboxOnlyUncaptioned.isChecked(),
+                self.ui.checkboxDateFilter.isChecked(),
+                self.ui.comboResolution.currentText() != "全て",
+                self.ui.comboAspectRatio.currentText() != "全て",
+                self.ui.comboRating.currentText() != "全て",
+                self.ui.comboAIRating.currentText() != "全て",
+                has_score_filter,
+            ],
+        ):
+            logger.debug("検索条件が未指定のため検索をスキップ")
+            self._show_status_message("検索条件が未指定です", auto_hide_ms=3000)
+            return None
+
+        date_range_start, date_range_end = self.get_date_range_from_slider()
+        if self.ui.checkboxDateFilter.isChecked() and (date_range_start is None or date_range_end is None):
+            logger.warning("日付範囲フィルターエラー: 有効だが範囲が無効")
+            self._show_status_message("日付範囲が無効です", auto_hide_ms=3000)
+            return None
+
+        rating_filter = self._get_rating_filter_value()
+        ai_rating_filter = self._get_ai_rating_filter_value()
+        include_nsfw = self._resolve_include_nsfw(rating_filter, ai_rating_filter)
+        score_min, score_max = self._get_score_filter_values()
+
+        return self.search_filter_service.create_search_conditions(
+            search_type=self._get_primary_search_type(),
+            keywords=keywords,
+            excluded_keywords=excluded_keywords,
+            tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
+            resolution_filter=self.ui.comboResolution.currentText(),
+            aspect_ratio_filter=self.ui.comboAspectRatio.currentText(),
+            date_filter_enabled=self.ui.checkboxDateFilter.isChecked(),
+            date_range_start=date_range_start,
+            date_range_end=date_range_end,
+            only_untagged=self.ui.checkboxOnlyUntagged.isChecked(),
+            only_uncaptioned=self.ui.checkboxOnlyUncaptioned.isChecked(),
+            exclude_duplicates=False,
+            include_nsfw=include_nsfw,
+            rating_filter=rating_filter,
+            ai_rating_filter=ai_rating_filter,
+            include_unrated=self.ui.checkboxIncludeUnrated.isChecked(),
+            score_min=score_min,
+            score_max=score_max,
+        )
+
+    def _on_search_requested(self) -> None:
+        """検索要求処理 - WorkerService経由で非同期実行（Qt Designer Phase 2レスポンシブレイアウト対応強化版）"""
+        if not self.search_filter_service:
+            self._log_search_filter_service_missing()
             return
 
         if not self.worker_service:
@@ -1218,100 +1275,30 @@ class FilterSearchPanel(QScrollArea):
             self._reset_search_ui()
 
         try:
-            # 検索テキストをキーワードリストに変換
-            search_text = self.ui.lineEditSearch.text().strip()
-            keywords, excluded_keywords = (
-                self.search_filter_service.parse_search_input(search_text) if search_text else ([], [])
-            )
-
-            # スコア範囲を取得して検索条件に含めるか判定
-            score_min_internal, score_max_internal = self.score_range_slider.get_range()
-            has_score_filter = score_min_internal != 0 or score_max_internal != 1000
-
-            # 基本的な入力検証
-            if not keywords and not any(
-                [
-                    self.ui.checkboxOnlyUntagged.isChecked(),
-                    self.ui.checkboxOnlyUncaptioned.isChecked(),
-                    self.ui.checkboxDateFilter.isChecked(),
-                    self.ui.comboResolution.currentText() != "全て",
-                    self.ui.comboAspectRatio.currentText() != "全て",
-                    self.ui.comboRating.currentText() != "全て",
-                    self.ui.comboAIRating.currentText() != "全て",
-                    has_score_filter,
-                ],
-            ):
-                logger.debug("検索条件が未指定のため検索をスキップ")
-                self._show_status_message("検索条件が未指定です", auto_hide_ms=3000)
+            conditions = self._build_search_conditions_from_ui()
+            if conditions is None:
                 return
 
-            # 日付範囲を取得
-            date_range_start, date_range_end = self.get_date_range_from_slider()
-
-            # 日付フィルターが有効だが範囲が取得できない場合の処理
-            if self.ui.checkboxDateFilter.isChecked() and (
-                date_range_start is None or date_range_end is None
-            ):
-                logger.warning("日付範囲フィルターエラー: 有効だが範囲が無効")
-                self._show_status_message("日付範囲が無効です", auto_hide_ms=3000)
-                return
-
-            rating_filter = self._get_rating_filter_value()
-            ai_rating_filter = self._get_ai_rating_filter_value()
-            include_nsfw = self._resolve_include_nsfw(rating_filter, ai_rating_filter)
-
-            # スコア範囲を取得（全範囲の場合はNoneでフィルター無効化）
-            score_min, score_max = self._get_score_filter_values()
-
-            # SearchFilterServiceを使用して検索条件を作成
-            conditions = self.search_filter_service.create_search_conditions(
-                search_type=self._get_primary_search_type(),
-                keywords=keywords,
-                excluded_keywords=excluded_keywords,
-                tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
-                resolution_filter=self.ui.comboResolution.currentText(),
-                aspect_ratio_filter=self.ui.comboAspectRatio.currentText(),
-                date_filter_enabled=self.ui.checkboxDateFilter.isChecked(),
-                date_range_start=date_range_start,
-                date_range_end=date_range_end,
-                only_untagged=self.ui.checkboxOnlyUntagged.isChecked(),
-                only_uncaptioned=self.ui.checkboxOnlyUncaptioned.isChecked(),
-                exclude_duplicates=False,
-                include_nsfw=include_nsfw,
-                rating_filter=rating_filter,
-                ai_rating_filter=ai_rating_filter,
-                include_unrated=self.ui.checkboxIncludeUnrated.isChecked(),
-                score_min=score_min,
-                score_max=score_max,
-            )
-
-            # Phase 3: State transition to SEARCHING
             self._transition_to_state(PipelineState.SEARCHING)
 
-            # WorkerServiceで非同期検索開始
             worker_id = self.worker_service.start_search(conditions)
             if worker_id:
                 self._current_search_worker_id = worker_id
                 logger.debug(f"非同期検索開始: {worker_id}")
-
                 # 旧形式のシグナルも発行（後方互換性）
                 self.search_requested.emit({"conditions": conditions, "worker_id": worker_id})
             else:
                 logger.error("WorkerService.start_search failed")
-                # Phase 3: State transition to ERROR
                 self._transition_to_state(PipelineState.ERROR)
 
         except AttributeError as e:
             logger.error(f"UI AttributeError: {e}", exc_info=True)
-            # Phase 3: State transition to ERROR
             self._transition_to_state(PipelineState.ERROR)
         except ValueError as e:
             logger.error(f"検索入力値エラー: {e}")
-            # Phase 3: State transition to ERROR
             self._transition_to_state(PipelineState.ERROR)
         except Exception as e:
             logger.error(f"検索実行エラー: {e}", exc_info=True)
-            # Phase 3: State transition to ERROR
             self._transition_to_state(PipelineState.ERROR)
 
     def _execute_synchronous_search(self) -> None:

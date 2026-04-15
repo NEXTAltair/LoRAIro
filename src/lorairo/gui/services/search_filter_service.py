@@ -160,6 +160,72 @@ class SearchFilterService:
         logger.debug(f"検索条件作成完了: {conditions}")
         return conditions
 
+    def _format_keyword_parts(self, conditions: SearchConditions) -> list[str]:
+        """キーワード条件のプレビューパーツを返す。"""
+        parts: list[str] = []
+        if conditions.keywords:
+            keyword_text = f" {conditions.tag_logic.upper()} ".join(conditions.keywords)
+            parts.append(f"キーワード: {keyword_text} ({conditions.search_type})")
+        if conditions.excluded_keywords:
+            parts.append(f"除外キーワード: {', '.join(conditions.excluded_keywords)}")
+        return parts
+
+    def _format_filter_parts(self, conditions: SearchConditions) -> list[str]:
+        """解像度・アスペクト比・日付フィルター条件のプレビューパーツを返す。"""
+        parts: list[str] = []
+        if conditions.resolution_filter:
+            parts.append(f"解像度: {conditions.resolution_filter}")
+        if conditions.aspect_ratio_filter:
+            parts.append(f"アスペクト比: {conditions.aspect_ratio_filter}")
+        if conditions.date_filter_enabled:
+            date_info = []
+            if conditions.date_range_start:
+                date_info.append(f"開始: {conditions.date_range_start.strftime('%Y-%m-%d')}")
+            if conditions.date_range_end:
+                date_info.append(f"終了: {conditions.date_range_end.strftime('%Y-%m-%d')}")
+            if date_info:
+                parts.append(f"日付範囲: {', '.join(date_info)}")
+        return parts
+
+    def _format_flag_parts(self, conditions: SearchConditions) -> list[str]:
+        """特殊フラグ条件（未タグ・未キャプション・重複除外）のプレビューパーツを返す。"""
+        parts: list[str] = []
+        if conditions.only_untagged:
+            parts.append("未タグ付きのみ")
+        if conditions.only_uncaptioned:
+            parts.append("未キャプションのみ")
+        if conditions.exclude_duplicates:
+            parts.append("重複除外")
+        return parts
+
+    def _format_rating_parts(self, conditions: SearchConditions) -> list[str]:
+        """レーティング・NSFW 関連のプレビューパーツを返す。"""
+        parts: list[str] = []
+        if conditions.rating_filter:
+            rating_display = (
+                "未設定のみ" if conditions.rating_filter == "UNRATED" else conditions.rating_filter
+            )
+            parts.append(f"手動レーティング: {rating_display}")
+        if conditions.ai_rating_filter:
+            ai_rating_display = (
+                "未設定のみ" if conditions.ai_rating_filter == "UNRATED" else conditions.ai_rating_filter
+            )
+            ai_rating_text = f"AIレーティング: {ai_rating_display} (多数決)"
+            if conditions.rating_filter:
+                ai_rating_text += " ※手動レーティング優先"
+            parts.append(ai_rating_text)
+        if not conditions.include_nsfw:
+            parts.append("NSFW除外")
+        if not conditions.include_unrated:
+            parts.append("未評価除外 (手動/AI両方なし)")
+        return parts
+
+    def _format_model_parts(self, conditions: SearchConditions) -> list[str]:
+        """モデルフィルター条件のプレビューパーツを返す。"""
+        if conditions.model_criteria:
+            return ["高度なモデルフィルター有効"]
+        return []
+
     def create_search_preview(self, conditions: SearchConditions) -> str:
         """人間が読みやすい検索条件プレビューの生成
 
@@ -170,63 +236,12 @@ class SearchFilterService:
             str: プレビューテキスト
 
         """
-        preview_parts = []
-
-        # 基本検索条件
-        if conditions.keywords:
-            keyword_text = f" {conditions.tag_logic.upper()} ".join(conditions.keywords)
-            preview_parts.append(f"キーワード: {keyword_text} ({conditions.search_type})")
-
-        if conditions.excluded_keywords:
-            excluded_text = ", ".join(conditions.excluded_keywords)
-            preview_parts.append(f"除外キーワード: {excluded_text}")
-
-        # フィルター条件
-        if conditions.resolution_filter:
-            preview_parts.append(f"解像度: {conditions.resolution_filter}")
-
-        if conditions.aspect_ratio_filter:
-            preview_parts.append(f"アスペクト比: {conditions.aspect_ratio_filter}")
-
-        if conditions.date_filter_enabled:
-            date_info = []
-            if conditions.date_range_start:
-                date_info.append(f"開始: {conditions.date_range_start.strftime('%Y-%m-%d')}")
-            if conditions.date_range_end:
-                date_info.append(f"終了: {conditions.date_range_end.strftime('%Y-%m-%d')}")
-            if date_info:
-                preview_parts.append(f"日付範囲: {', '.join(date_info)}")
-
-        # 特殊条件
-        if conditions.only_untagged:
-            preview_parts.append("未タグ付きのみ")
-        if conditions.only_uncaptioned:
-            preview_parts.append("未キャプションのみ")
-        if conditions.exclude_duplicates:
-            preview_parts.append("重複除外")
-
-        # Ratingフィルター
-        if conditions.rating_filter:
-            rating_display = (
-                "未設定のみ" if conditions.rating_filter == "UNRATED" else conditions.rating_filter
-            )
-            preview_parts.append(f"手動レーティング: {rating_display}")
-        if conditions.ai_rating_filter:
-            ai_rating_display = (
-                "未設定のみ" if conditions.ai_rating_filter == "UNRATED" else conditions.ai_rating_filter
-            )
-            ai_rating_text = f"AIレーティング: {ai_rating_display} (多数決)"
-            if conditions.rating_filter:
-                ai_rating_text += " ※手動レーティング優先"
-            preview_parts.append(ai_rating_text)
-        if not conditions.include_nsfw:
-            preview_parts.append("NSFW除外")
-        if not conditions.include_unrated:
-            preview_parts.append("未評価除外 (手動/AI両方なし)")
-
-        # モデルフィルター
-        if conditions.model_criteria:
-            preview_parts.append("高度なモデルフィルター有効")
+        preview_parts: list[str] = []
+        preview_parts.extend(self._format_keyword_parts(conditions))
+        preview_parts.extend(self._format_filter_parts(conditions))
+        preview_parts.extend(self._format_flag_parts(conditions))
+        preview_parts.extend(self._format_rating_parts(conditions))
+        preview_parts.extend(self._format_model_parts(conditions))
 
         if not preview_parts:
             return "すべての画像"

@@ -146,6 +146,141 @@ def given_image_registered(
     return result[0]
 
 
+def _prepare_annotations_from_row(
+    row_data: dict[str, Any], dummy_model_id_map: dict[str, int]
+) -> tuple[AnnotationsDict, dict[str, Any]]:
+    """行データからアノテーションデータと登録サマリーを構築する。"""
+    annotations_to_save: AnnotationsDict = {"tags": [], "captions": [], "scores": [], "ratings": []}
+    ann_summary: dict[str, Any] = {}
+
+    tags_str = row_data.get("tags")
+    if tags_str:
+        tags = [t.strip() for t in tags_str.split(",")]
+        tag_model_id = dummy_model_id_map["tag_model"]
+        annotations_to_save["tags"] = [
+            {
+                "tag": tag,
+                "model_id": tag_model_id,
+                "confidence_score": 0.9,
+                "existing": False,
+                "is_edited_manually": False,
+                "tag_id": None,
+            }
+            for tag in tags
+        ]
+        ann_summary["tags"] = tags
+
+    caption_str = row_data.get("caption")
+    if caption_str:
+        caption_model_id = dummy_model_id_map["caption_model"]
+        annotations_to_save["captions"] = [
+            {
+                "caption": caption_str,
+                "model_id": caption_model_id,
+                "existing": False,
+                "is_edited_manually": False,
+            }
+        ]
+        ann_summary["caption"] = caption_str
+
+    score_str = row_data.get("score")
+    if score_str:
+        score_value = parse_optional_float(score_str)
+        if score_value is not None:
+            score_model_id = dummy_model_id_map["score_model"]
+            annotations_to_save["scores"].append(
+                {"score": score_value, "model_id": score_model_id, "is_edited_manually": False}
+            )
+            ann_summary["score"] = score_value
+
+    return annotations_to_save, ann_summary
+
+
+def _apply_manual_edits(db_manager: ImageDatabaseManager, image_id: int, manual_edit_target: str) -> None:
+    """手動編集フラグを設定する。"""
+    try:
+        edit_type, edit_identifier = (
+            manual_edit_target.split(":", 1) if ":" in manual_edit_target else (manual_edit_target, None)
+        )
+        ann_data = db_manager.get_image_annotations(image_id)
+        target_ann_id = None
+
+        if edit_type == "tag" and edit_identifier:
+            for tag_ann in ann_data.get("tags", []):
+                if tag_ann.get("tag") == edit_identifier:
+                    target_ann_id = tag_ann.get("id")
+                    break
+        elif edit_type == "caption" and ann_data.get("captions"):
+            target_ann_id = ann_data["captions"][0].get("id")
+        elif edit_type == "score" and ann_data.get("scores"):
+            target_ann_id = ann_data["scores"][0].get("id")
+
+        if target_ann_id is not None:
+            db_manager.repository.update_annotation_manual_edit_flag(f"{edit_type}s", target_ann_id, True)
+        print(f"画像ID {image_id} の {manual_edit_target} (ID: {target_ann_id}) を手動編集済みに設定")
+    except Exception as e:
+        pytest.fail(f"画像ID {image_id} の手動編集フラグ設定中にエラー: {e}")
+
+
+def _apply_manual_rating(
+    db_manager: ImageDatabaseManager, image_id: int, manual_rating: str | None
+) -> None:
+    """手動レーティングを設定する。"""
+    if not manual_rating:
+        return
+    try:
+        db_manager.repository.update_manual_rating(image_id, manual_rating)
+        print(f"画像ID {image_id} の manual_rating を {manual_rating} に設定")
+    except Exception as e:
+        pytest.fail(f"画像ID {image_id} の手動レーティング設定中にエラー: {e}")
+
+
+def _apply_nsfw_rating(
+    db_manager: ImageDatabaseManager, image_id: int, image_filename: str, tags_str: str | None
+) -> None:
+    """NSFW条件 (file02.webp + nsfw タグ) に基づき手動レーティングを設定する。"""
+    if not (image_filename == "file02.webp" and tags_str and "nsfw" in tags_str.lower()):
+        return
+    try:
+        nsfw_rating = "R"
+        db_manager.repository.update_manual_rating(image_id, nsfw_rating)
+        print(
+            f"画像ID {image_id} ({image_filename}) の manual_rating を NSFWテスト用に '{nsfw_rating}' に設定"
+        )
+    except Exception as e:
+        pytest.fail(f"画像ID {image_id} のNSFWテスト用レーティング設定中にエラー: {e}")
+
+
+def _apply_date_offset(
+    db_manager: ImageDatabaseManager, image_id: int, offset_days_str: str, has_tags: bool
+) -> None:
+    """登録日時をオフセットする (テスト目的)。"""
+    try:
+        offset_days = int(offset_days_str)
+        if offset_days == 0:
+            target_time = datetime.now(UTC)
+        else:
+            # timedelta に秒単位のずれを追加して境界値問題を回避
+            target_time = datetime.now(UTC) - timedelta(days=offset_days, seconds=1)
+
+        with db_manager.repository.session_factory() as session:
+            session.execute(
+                sa.update(SchemaImage)
+                .where(SchemaImage.id == image_id)
+                .values(created_at=target_time, updated_at=target_time)
+            )
+            if has_tags:
+                session.execute(
+                    sa.update(Tag)
+                    .where(Tag.image_id == image_id)
+                    .values(created_at=target_time, updated_at=target_time)
+                )
+            session.commit()
+        print(f"画像ID {image_id} の登録日時を 約{offset_days} 日前に設定 (微調整あり)")
+    except Exception as e:
+        pytest.fail(f"画像ID {image_id} の日付オフセット設定中にエラー: {e}")
+
+
 @given(
     parsers.parse("以下の画像とアノテーションが登録されている:"),
     target_fixture="registered_images_with_annotations",
@@ -159,13 +294,10 @@ def given_images_with_annotations_registered(
 ):
     """データテーブルに基づいて複数の画像とアノテーションを登録する"""
     registered_data = {}
-    # データテーブルを処理 (リスト形式で受け取る前提に修正)
-    header = [h.strip() for h in datatable[0]]  # .headings ではなくインデックス0でヘッダー取得
-    rows = datatable[1:]  # .rows ではなくスライスでデータ行取得
+    header = [h.strip() for h in datatable[0]]
+    rows = datatable[1:]
 
-    # 登録済みモデルIDをキャッシュ(毎回取得しないように)
     model_cache = {m["name"]: m["id"] for m in test_db_manager.get_models()}
-    # テスト用にダミーのモデルIDマッピング(もしDBになければ)
     dummy_model_id_map = {
         "tag_model": model_cache.get("wd-vit-large-tagger-v3", 1),
         "caption_model": model_cache.get("GPT-4o", 1),
@@ -181,210 +313,39 @@ def given_images_with_annotations_registered(
             print(f"警告: image_file が指定されていません。スキップします: {row_data}")
             continue
 
-        # テスト画像パスを作成 (tests/resources/img/1_img/ 内のファイル名を想定)
         current_image_path = test_image_dir / image_filename
-        # ファイル存在チェック (テストリソースが存在することを前提とする)
         if not current_image_path.exists():
             pytest.fail(f"テストに必要な画像ファイルが見つかりません: {current_image_path}")
 
-        # 1. 画像を登録
         register_result = test_db_manager.register_original_image(current_image_path, fs_manager)
         if not register_result:
             pytest.fail(f"テストデータの画像登録に失敗: {current_image_path}")
         image_id, _ = register_result
         registered_data[image_filename] = {"id": image_id, "annotations": {}}
 
-        # 2. アノテーションを準備
-        annotations_to_save: AnnotationsDict = {"tags": [], "captions": [], "scores": [], "ratings": []}
+        annotations_to_save, ann_summary = _prepare_annotations_from_row(row_data, dummy_model_id_map)
+        registered_data[image_filename]["annotations"] = ann_summary
 
-        # タグ処理
-        tags_str = row_data.get("tags")
-        if tags_str:
-            tags = [t.strip() for t in tags_str.split(",")]
-            # 簡略化のため、最初のタグモデルを使用
-            tag_model_id = dummy_model_id_map["tag_model"]
-            annotations_to_save["tags"] = [
-                {
-                    "tag": tag,
-                    "model_id": tag_model_id,
-                    "confidence_score": 0.9,
-                    "existing": False,
-                    "is_edited_manually": False,
-                    "tag_id": None,
-                }
-                for tag in tags
-            ]
-            registered_data[image_filename]["annotations"]["tags"] = tags
-
-        # キャプション処理
-        caption_str = row_data.get("caption")
-        if caption_str:
-            # 簡略化のため、最初のキャプションモデルを使用
-            caption_model_id = dummy_model_id_map["caption_model"]
-            annotations_to_save["captions"] = [
-                {
-                    "caption": caption_str,
-                    "model_id": caption_model_id,
-                    "existing": False,
-                    "is_edited_manually": False,
-                }
-            ]
-            registered_data[image_filename]["annotations"]["caption"] = caption_str
-
-        # スコア処理 (もしテーブルにあれば)
-        score_str = row_data.get("score")
-        if score_str:
-            score_value = parse_optional_float(score_str)
-            if score_value is not None:
-                score_model_id = dummy_model_id_map["score_model"]
-                annotations_to_save["scores"].append(
-                    {"score": score_value, "model_id": score_model_id, "is_edited_manually": False}
-                )
-                registered_data[image_filename]["annotations"]["score"] = score_value
-
-        # 3. アノテーションを保存
         if any(annotations_to_save.values()):
             try:
                 test_db_manager.repository.save_annotations(image_id, annotations_to_save)
             except Exception as e:
                 pytest.fail(f"画像ID {image_id} のアノテーション保存中にエラー: {e}")
 
-        # 4. 手動編集フラグやレーティングの更新 (必要に応じて)
         manual_edit_target = row_data.get("manual_edit_target")
         if manual_edit_target and manual_edit_target != "none":
-            try:
-                edit_type, edit_identifier = (
-                    manual_edit_target.split(":", 1)
-                    if ":" in manual_edit_target
-                    else (manual_edit_target, None)
-                )
-                # 対応するアノテーションIDを探して更新フラグを立てる (簡略化)
-                # 実際のテストでは、より厳密なアノテーション特定が必要
-                ann_data = test_db_manager.get_image_annotations(image_id)
-                target_ann_id = None
-                if edit_type == "tag" and edit_identifier:
-                    for tag_ann in ann_data.get("tags", []):
-                        if tag_ann.get("tag") == edit_identifier:
-                            target_ann_id = tag_ann.get("id")
-                            break
-                    if target_ann_id:
-                        # Assuming repository has the method now:
-                        test_db_manager.repository.update_annotation_manual_edit_flag(
-                            "tags", target_ann_id, True
-                        )
-                        # with test_db_manager.repository.session_factory() as session:
-                        #     session.execute(
-                        #         sa.update(Tag)
-                        #         .where(Tag.id == target_ann_id)
-                        #         .values(is_edited_manually=True)
-                        #     )
-                        #     session.commit()
-                elif edit_type == "caption":
-                    if ann_data.get("captions"):
-                        target_ann_id = ann_data["captions"][0].get("id")
-                    if target_ann_id:
-                        test_db_manager.repository.update_annotation_manual_edit_flag(
-                            "captions", target_ann_id, True
-                        )
-                        # with test_db_manager.repository.session_factory() as session:
-                        #     session.execute(
-                        #         sa.update(Caption)
-                        #         .where(Caption.id == target_ann_id)
-                        #         .values(is_edited_manually=True)
-                        #     )
-                        #     session.commit()
-                elif edit_type == "score":
-                    if ann_data.get("scores"):
-                        target_ann_id = ann_data["scores"][0].get("id")
-                    if target_ann_id:
-                        test_db_manager.repository.update_annotation_manual_edit_flag(
-                            "scores", target_ann_id, True
-                        )
-                        # with test_db_manager.repository.session_factory() as session:
-                        #     session.execute(
-                        #         sa.update(Score)
-                        #         .where(Score.id == target_ann_id)
-                        #         .values(is_edited_manually=True)
-                        #     )
-                        #     session.commit()
-                print(
-                    f"画像ID {image_id} の {manual_edit_target} (ID: {target_ann_id}) を手動編集済みに設定"
-                )
-            except Exception as e:
-                pytest.fail(f"画像ID {image_id} の手動編集フラグ設定中にエラー: {e}")
+            _apply_manual_edits(test_db_manager, image_id, manual_edit_target)
 
-        manual_rating = row_data.get("manual_rating")
-        if manual_rating:
-            try:
-                test_db_manager.repository.update_manual_rating(image_id, manual_rating)
-                # with test_db_manager.repository.session_factory() as session:
-                #     session.execute(
-                #         sa.update(SchemaImage)
-                #         .where(SchemaImage.id == image_id)
-                #         .values(manual_rating=manual_rating)
-                #     )
-                #     session.commit()
-                print(f"画像ID {image_id} の manual_rating を {manual_rating} に設定")
-            except Exception as e:
-                pytest.fail(f"画像ID {image_id} の手動レーティング設定中にエラー: {e}")
+        _apply_manual_rating(test_db_manager, image_id, row_data.get("manual_rating"))
+        _apply_nsfw_rating(test_db_manager, image_id, image_filename, row_data.get("tags"))
 
-        # ★★★ NSFWテストデータ用の手動レーティング設定を追加 ★★★
-        # filenameとtagsで判定 (tags_str が None でないことも確認)
-        if image_filename == "file02.webp" and tags_str and "nsfw" in tags_str.lower():
-            try:
-                nsfw_rating = "R"  # または 'X', 'XXX'
-                test_db_manager.repository.update_manual_rating(image_id, nsfw_rating)
-                # with test_db_manager.repository.session_factory() as session:
-                #     session.execute(
-                #         sa.update(SchemaImage)
-                #         .where(SchemaImage.id == image_id)
-                #         .values(manual_rating=nsfw_rating)
-                #     )
-                #     session.commit()
-                print(
-                    f"画像ID {image_id} ({image_filename}) の manual_rating を NSFWテスト用に '{nsfw_rating}' に設定"
-                )
-            except Exception as e:
-                pytest.fail(f"画像ID {image_id} のNSFWテスト用レーティング設定中にエラー: {e}")
-        # ★★★ 追加ここまで ★★★
-
-        # 日付オフセット処理 (もしテーブルにあれば)
         offset_days_str = row_data.get("registration_offset_days")
         if offset_days_str:
-            try:
-                offset_days = int(offset_days_str)
-                # わずかなオフセットを追加して境界値問題を回避
-                # offset 0日は現在時刻、1日は24時間+1秒前、2日は48時間+1秒前とする
-                if offset_days == 0:
-                    target_time = datetime.now(UTC)
-                else:
-                    # timedelta に秒単位のずれを追加
-                    target_time = datetime.now(UTC) - timedelta(days=offset_days, seconds=1)
+            _apply_date_offset(
+                test_db_manager, image_id, offset_days_str, bool(annotations_to_save["tags"])
+            )
 
-                # created_at と updated_at を直接更新 (テスト目的)
-                with test_db_manager.repository.session_factory() as session:
-                    session.execute(
-                        sa.update(SchemaImage)  # Use imported SchemaImage model
-                        .where(SchemaImage.id == image_id)  # Use SchemaImage.id
-                        .values(created_at=target_time, updated_at=target_time)
-                    )
-                    # アノテーションの日付も更新 (簡略化のためタグのみ)
-                    if annotations_to_save["tags"]:
-                        session.execute(
-                            sa.update(Tag)  # Use imported Tag model
-                            .where(Tag.image_id == image_id)
-                            .values(created_at=target_time, updated_at=target_time)
-                        )
-                    session.commit()  # Commit within the session context
-                print(
-                    f"画像ID {image_id} の登録日時を 約{offset_days} 日前に設定 (微調整あり)"
-                )  # ログメッセージ変更
-            except Exception as e:
-                pytest.fail(f"画像ID {image_id} の日付オフセット設定中にエラー: {e}")
-
-    # 登録したIDなどを後続ステップで使えるようにコンテキストに保存
-    # request.config.cache.set("registered_images_context", registered_data)
-    return registered_data  # フィクスチャとして返す
+    return registered_data
 
 
 # --- Step Definitions (When) --- #
@@ -439,127 +400,132 @@ def when_register_processed_image(
     return processed_id
 
 
+def _build_annotation_entry(
+    annotation_type: str,
+    content: str,
+    model_id: int,
+    confidence_score: float | None,
+    is_edited: bool,
+    existing: bool,
+    tag_id: int | None,
+    row_ref: Any,
+) -> tuple[str, dict[str, Any]] | None:
+    """アノテーションタイプに応じたエントリを構築する。
+
+    Returns:
+        (dict_key, annotation_data) のタプル。スキップすべき場合は None。
+    """
+    if annotation_type == "tag":
+        return "tags", {
+            "tag": content,
+            "model_id": model_id,
+            "confidence_score": confidence_score,
+            "is_edited_manually": is_edited,
+            "existing": existing,
+            "tag_id": tag_id,
+        }
+    if annotation_type == "caption":
+        return "captions", {
+            "caption": content,
+            "model_id": model_id,
+            "existing": existing,
+            "is_edited_manually": is_edited,
+        }
+    if annotation_type == "score":
+        score_value = parse_optional_float(content)
+        if score_value is None:
+            print(f"警告 (行 {row_ref}): 無効な score 値: {content}。スキップします.")
+            return None
+        return "scores", {"score": score_value, "model_id": model_id, "is_edited_manually": is_edited}
+    if annotation_type == "rating":
+        return "ratings", {
+            "raw_rating_value": content,
+            "normalized_rating": content,
+            "model_id": model_id,
+            "confidence_score": confidence_score,
+        }
+    print(f"警告 (行 {row_ref}): 未知のアノテーションタイプ: {annotation_type}。スキップします.")
+    return None
+
+
+def _process_datatable_row(
+    row_values: list[Any],
+    header_map: dict[str, int],
+    annotations_dict: AnnotationsDict,
+    row_ref: Any,
+) -> None:
+    """データテーブルの1行を解析して annotations_dict に追加する。"""
+
+    # デフォルト引数でループ変数を束縛し、クロージャの遅延評価を回避
+    def get_value(col_name: str, _row: list[Any] = row_values) -> str | None:
+        return (
+            _row[header_map[col_name]].strip()
+            if col_name in header_map
+            and header_map[col_name] < len(_row)
+            and _row[header_map[col_name]] is not None
+            else None
+        )
+
+    annotation_type = get_value("type")
+    content = get_value("content")
+    model_id_str = get_value("model_id")
+
+    if not annotation_type or not content or not model_id_str:
+        print(
+            f"警告 (行 {row_ref}): データテーブルの行が無効です (必須項目不足): "
+            f"type={annotation_type}, content={content}, model_id={model_id_str}。スキップします."
+        )
+        return
+
+    model_id = parse_optional_int(model_id_str)
+    if model_id is None:
+        print(f"警告 (行 {row_ref}): 無効な model_id: {model_id_str}。スキップします.")
+        return
+
+    confidence_score = parse_optional_float(get_value("confidence_score"))
+    is_edited = parse_bool(get_value("is_edited_manually"))
+    existing = parse_bool(get_value("existing"))
+    tag_id = parse_optional_int(get_value("tag_id"))
+
+    try:
+        result = _build_annotation_entry(
+            annotation_type, content, model_id, confidence_score, is_edited, existing, tag_id, row_ref
+        )
+        if result is not None:
+            dict_key, ann_data = result
+            annotations_dict[dict_key].append(ann_data)  # type: ignore[literal-required]
+    except Exception as inner_e:
+        print(
+            f"エラー (行 {row_ref}): アノテーションデータの構造化中にエラー: {inner_e}, データ: {row_values}"
+        )
+
+
 @when("以下のアノテーションを保存する:", target_fixture="saved_annotations_data")
 def when_save_annotations_with_datatable(
     test_db_manager: ImageDatabaseManager, image_registered: int, datatable
 ):
     """データテーブル形式のアノテーションを解析し、保存する"""
-    annotations_dict: AnnotationsDict = {
-        "tags": [],
-        "captions": [],
-        "scores": [],
-        "ratings": [],
-    }
+    annotations_dict: AnnotationsDict = {"tags": [], "captions": [], "scores": [], "ratings": []}
 
     try:
-        # データテーブルをリストとして処理するよう修正
-        header = [h.strip() for h in datatable[0]]  # ヘッダー行を取得
-        data_rows = datatable[1:]  # データ行を取得
+        header = [h.strip() for h in datatable[0]]
+        data_rows = datatable[1:]
 
-        # Check for essential headers (can be adjusted)
         required_headers = {"type", "content", "model_id"}
         if not required_headers.issubset(set(header)):
             raise ValueError(f"データテーブルのヘッダーに必要なカラムが含まれていません: {header}")
 
-        # ヘッダー名からインデックスへのマッピングを作成
         header_map = {name: idx for idx, name in enumerate(header)}
 
         for row_values_tuple in data_rows:
-            # Ensure row_values is a list or tuple
-            row_values = list(row_values_tuple) if isinstance(row_values_tuple, tuple) else row_values_tuple
-
+            row_values = list(row_values_tuple)
             if len(row_values) != len(header):
                 print(
-                    f"警告 (行 {row_values_tuple}): データ行の値の数({len(row_values)})がヘッダー({len(header)})と一致しません: {row_values}。スキップします."
+                    f"警告 (行 {row_values_tuple}): データ行の値の数({len(row_values)})が"
+                    f"ヘッダー({len(header)})と一致しません: {row_values}。スキップします."
                 )
                 continue
-
-            # ヘルパー関数で値を取得 (列が存在しない場合は None)
-            # デフォルト引数でループ変数 row_values を束縛し、クロージャの遅延評価を回避
-            def get_value(col_name, _row=row_values):
-                return (
-                    _row[header_map[col_name]].strip()
-                    if col_name in header_map
-                    and header_map[col_name] < len(_row)
-                    and _row[header_map[col_name]] is not None
-                    else None
-                )
-
-            # --- 各列の値をパース ---
-            annotation_type = get_value("type")
-            content = get_value("content")
-            model_id_str = get_value("model_id")
-            confidence_str = get_value("confidence_score")
-            edited_str = get_value("is_edited_manually")
-            existing_str = get_value("existing")
-            tag_id_str = get_value("tag_id")
-
-            if not annotation_type or not content or not model_id_str:
-                print(
-                    f"警告 (行 {row_values_tuple}): データテーブルの行が無効です (必須項目不足): type={annotation_type}, content={content}, model_id={model_id_str}。スキップします."
-                )
-                continue
-
-            model_id = parse_optional_int(model_id_str)
-            if model_id is None:
-                print(f"警告 (行 {row_values_tuple}): 無効な model_id: {model_id_str}。スキップします.")
-                continue  # 次の行へ
-
-            confidence_score = parse_optional_float(confidence_str)
-            is_edited = parse_bool(edited_str)
-            existing = parse_bool(existing_str)
-            tag_id = parse_optional_int(tag_id_str)
-
-            # --- 型ごとに AnnotationsDict に追加 ---
-            try:
-                if annotation_type == "tag":
-                    tag_data: TagAnnotationData = {
-                        "tag": content,
-                        "model_id": model_id,
-                        "confidence_score": confidence_score,
-                        "is_edited_manually": is_edited,
-                        "existing": existing if existing is not None else False,
-                        "tag_id": tag_id,
-                    }
-                    annotations_dict["tags"].append(tag_data)
-                elif annotation_type == "caption":
-                    caption_data: CaptionAnnotationData = {
-                        "caption": content,
-                        "model_id": model_id,
-                        "existing": existing if existing is not None else False,
-                        "is_edited_manually": is_edited,
-                    }
-                    annotations_dict["captions"].append(caption_data)
-                elif annotation_type == "score":
-                    score_value = parse_optional_float(content)
-                    if score_value is None:
-                        print(f"警告 (行 {row_values_tuple}): 無効な score 値: {content}。スキップします.")
-                        continue  # 次の行へ
-                    score_data: ScoreAnnotationData = {
-                        "score": score_value,
-                        "model_id": model_id,
-                        "is_edited_manually": is_edited if is_edited is not None else False,
-                    }
-                    annotations_dict["scores"].append(score_data)
-                elif annotation_type == "rating":
-                    # rating の content は raw_rating_value とする
-                    rating_data: RatingAnnotationData = {
-                        "raw_rating_value": content,
-                        "normalized_rating": content,  # テスト用に同じ値
-                        "model_id": model_id,
-                        "confidence_score": confidence_score,
-                    }
-                    annotations_dict["ratings"].append(rating_data)
-                else:
-                    print(
-                        f"警告 (行 {row_values_tuple}): 未知のアノテーションタイプ: {annotation_type}。スキップします."
-                    )
-
-            except Exception as inner_e:  # 個々の行の処理エラーを捕捉
-                print(
-                    f"エラー (行 {row_values_tuple}): アノテーションデータの構造化中にエラー: {inner_e}, データ: {row_values}"
-                )
-                continue  # 次の行へ
+            _process_datatable_row(row_values, header_map, annotations_dict, row_values_tuple)
 
     except Exception as e:
         print(f"エラー: データテーブルの処理中に予期せぬエラーが発生しました: {e}")
@@ -568,7 +534,6 @@ def when_save_annotations_with_datatable(
         traceback.print_exc()
         pytest.fail(f"データテーブル処理エラー: {e}")
 
-    # --- 保存処理の実行 ---
     try:
         test_db_manager.repository.save_annotations(image_registered, annotations_dict)
         print(f"画像ID {image_registered} のアノテーションをDBに保存しました: {annotations_dict}")
@@ -579,7 +544,6 @@ def when_save_annotations_with_datatable(
         traceback.print_exc()
         pytest.fail(f"アノテーション保存エラー: {save_e}")
 
-    # パースしたアノテーションデータを返す必要がある
     return annotations_dict
 
 
@@ -925,6 +889,139 @@ def then_check_search_result_count(search_context: SearchContext, expected_count
 # ... (then_check_tag_is_edited_with_model など詳細検証ステップは変更なし) ...
 
 
+def _make_annotation_lookup_key(key: str, item: dict[str, Any]) -> tuple[Any, ...] | None:
+    """アノテーションアイテムのルックアップキーを生成する。"""
+    if key == "tags":
+        return (item.get("tag"), item.get("model_id"))
+    if key == "captions":
+        return (item.get("caption"), item.get("model_id"))
+    if key == "scores":
+        return (item.get("model_id"), item.get("score"))
+    if key == "ratings":
+        return (item.get("normalized_rating"), item.get("model_id"))
+    return None
+
+
+def _build_db_items_map(
+    db_list: list[dict[str, Any]], key: str
+) -> dict[tuple[Any, ...], list[dict[str, Any]]]:
+    """DBアイテムリストをルックアップ用マップに変換する。"""
+    db_items_map: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    for item in db_list:
+        try:
+            map_key = _make_annotation_lookup_key(key, item)
+        except Exception as e:
+            print(f"警告: DBアイテムのキー作成中にエラー: {e}, item={item}")
+            continue
+        if map_key is not None:
+            if map_key in db_items_map:
+                db_items_map[map_key].append(item)
+                print(f"情報: DBデータでキー {map_key} が重複。リストに追加しました。")
+            else:
+                db_items_map[map_key] = [item]
+    return db_items_map
+
+
+def _handle_db_none_field(key: str, lookup_key: tuple[Any, ...], field: str, saved_value: Any) -> None:
+    """db_value が None の場合のフィールド比較を処理する。"""
+    if field == "tag_id" and saved_value is not None:
+        # tag_id はDB側でのみ生成される場合があるので許容
+        print(
+            f"情報: フィールド 'tag_id' はDB側で生成されるため、DB値が None でも許容されます。saved={saved_value}"
+        )
+    elif field != "tag_id":
+        assert saved_value is None, (
+            f"{key} '{lookup_key}' のフィールド '{field}' が一致しません。期待: {saved_value}, DB: None"
+        )
+
+
+def _compare_int_field_value(
+    key: str, lookup_key: tuple[Any, ...], field: str, saved_value: Any, db_value: Any
+) -> None:
+    """int フィールドの比較処理。"""
+    if saved_value is not None:
+        assert int(saved_value) == int(db_value), (
+            f"{key} '{lookup_key}' の int フィールド '{field}' が一致しません。"
+            f"期待: {saved_value}, DB: {db_value}"
+        )
+    elif field == "tag_id":
+        assert isinstance(db_value, int), (
+            f"{key} '{lookup_key}' のフィールド 'tag_id' はDB側で整数であるべきです。"
+            f"DB値: {db_value} (型: {type(db_value)})"
+        )
+        print(
+            f"情報: フィールド 'tag_id' は保存時に指定されていませんが、DB側で値 ({db_value}) が設定されています。"
+        )
+
+
+def _compare_bool_field_value(
+    key: str, lookup_key: tuple[Any, ...], field: str, saved_value: Any, db_value: Any
+) -> None:
+    """bool フィールドの比較処理 (DBが 0/1 を返す可能性を考慮)。"""
+    parsed_saved = saved_value if isinstance(saved_value, bool) else parse_bool(str(saved_value))
+    parsed_db = db_value if isinstance(db_value, bool) else parse_bool(str(db_value))
+    assert parsed_saved == parsed_db, (
+        f"{key} '{lookup_key}' の bool フィールド '{field}' が一致しません。"
+        f"期待: {parsed_saved} ({saved_value}), DB: {parsed_db} ({db_value})"
+    )
+
+
+def _compare_annotation_item(
+    key: str,
+    lookup_key: tuple[Any, ...],
+    saved_item: dict[str, Any],
+    db_item_to_compare: dict[str, Any],
+) -> None:
+    """保存試みアイテムとDBアイテムの各フィールドを比較する。"""
+    all_keys = set(saved_item.keys()) | set(db_item_to_compare.keys())
+    keys_to_compare = [
+        k for k in all_keys if k not in ["id", "created_at", "updated_at", "image_id", "tag_id"]
+    ]
+
+    for field in keys_to_compare:
+        saved_value = saved_item.get(field)
+        db_value = db_item_to_compare.get(field)
+
+        if saved_value is None:
+            assert db_value is None, (
+                f"{key} '{lookup_key}' のフィールド '{field}' が一致しません。期待: None, DB: {db_value}"
+            )
+            continue
+        elif db_value is None:
+            _handle_db_none_field(key, lookup_key, field, saved_value)
+            continue
+
+        try:
+            is_bool_field = isinstance(saved_value, bool) or field in ["is_edited_manually", "existing"]
+            if is_bool_field:
+                _compare_bool_field_value(key, lookup_key, field, saved_value, db_value)
+                continue
+
+            is_float_field = isinstance(saved_value, float) or field in ["confidence_score", "score"]
+            if is_float_field:
+                assert abs(float(saved_value) - float(db_value)) < 1e-6, (
+                    f"{key} '{lookup_key}' の float フィールド '{field}' が一致しません。"
+                    f"期待: {saved_value}, DB: {db_value}"
+                )
+                continue
+
+            is_int_field = isinstance(saved_value, int) or field in ["model_id", "tag_id"]
+            if is_int_field:
+                _compare_int_field_value(key, lookup_key, field, saved_value, db_value)
+                continue
+
+        except (ValueError, TypeError) as e:
+            print(
+                f"警告: フィールド '{field}' の比較中に型変換エラー: {e}"
+                f" (saved={saved_value}, db={db_value})。文字列比較を試みます。"
+            )
+
+        assert str(saved_value) == str(db_value), (
+            f"{key} '{lookup_key}' のフィールド '{field}' が一致しません。"
+            f"期待: {saved_value}, DB: {db_value}"
+        )
+
+
 @then("アノテーションがデータベースに保存される")
 @then("保存されたアノテーションが期待通りにDBに存在するか確認する")
 def then_check_annotations_saved(
@@ -935,56 +1032,21 @@ def then_check_annotations_saved(
     assert db_annotations is not None, (
         f"画像ID {image_registered} のアノテーションがDBから取得できませんでした"
     )
-    # print(f"画像ID {image_registered} から取得したDBアノテーション: {db_annotations}") # デバッグ用
 
     for key in ["tags", "captions", "scores", "ratings"]:
-        # saved_list にはパースされたデータ、db_list にはDBから取得したデータ
         saved_list = saved_annotations_data.get(key, [])
         db_list = db_annotations.get(key, [])
-        # print(f"検証中: {key}, 保存試行件数: {len(saved_list)}, DB件数: {len(db_list)}") # デバッグ用
 
         assert len(saved_list) == len(db_list), (
             f"保存された {key} の件数が一致しません。期待: {len(saved_list)}, DB: {len(db_list)}"
         )
 
-        # DBから取得したデータを検索しやすいように辞書に変換
-        db_items_map: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
-        for item in db_list:
-            map_key = None
-            try:
-                if key == "tags":
-                    map_key = (item.get("tag"), item.get("model_id"))
-                elif key == "captions":
-                    map_key = (item.get("caption"), item.get("model_id"))
-                elif key == "scores":
-                    map_key = (item.get("model_id"), item.get("score"))  # スコア値もキーに含める
-                elif key == "ratings":
-                    map_key = (item.get("normalized_rating"), item.get("model_id"))
-            except Exception as e:
-                print(f"警告: DBアイテムのキー作成中にエラー: {e}, item={item}")
-                continue
-            if map_key is not None:
-                if map_key in db_items_map:
-                    # 既にキーが存在する場合、リストに追加
-                    db_items_map[map_key].append(item)
-                    print(f"情報: DBデータでキー {map_key} が重複。リストに追加しました。")
-                else:
-                    # キーが初めて現れた場合、要素が1つのリストとして作成
-                    db_items_map[map_key] = [item]
+        db_items_map = _build_db_items_map(db_list, key)
+        processed_lookup_keys: set[tuple[Any, ...]] = set()
 
-        # 保存試行したデータがDBに存在し、値が一致するか確認
-        processed_lookup_keys = set()  # 重複検証用
         for saved_item in saved_list:
-            lookup_key = None
             try:
-                if key == "tags":
-                    lookup_key = (saved_item.get("tag"), saved_item.get("model_id"))
-                elif key == "captions":
-                    lookup_key = (saved_item.get("caption"), saved_item.get("model_id"))
-                elif key == "scores":
-                    lookup_key = (saved_item.get("model_id"), saved_item.get("score"))
-                elif key == "ratings":
-                    lookup_key = (saved_item.get("normalized_rating"), saved_item.get("model_id"))
+                lookup_key = _make_annotation_lookup_key(key, saved_item)
             except Exception as e:
                 print(f"警告: 保存試行データのキー作成中にエラー: {e}, item={saved_item}")
                 pytest.fail(f"テストデータエラー: {saved_item}")
@@ -992,18 +1054,14 @@ def then_check_annotations_saved(
             assert lookup_key is not None, f"ルックアップキーの生成に失敗しました: {saved_item}"
             assert lookup_key in db_items_map, (
                 f"保存試行した {key[:-1]} がDBに見つかりません (キー: {lookup_key})。"
-                f" DB Map Keys: {list(db_items_map.keys())}\n"  # 改行はエスケープ
+                f" DB Map Keys: {list(db_items_map.keys())}\n"
                 f"保存試行アイテム: {saved_item}"
             )
 
-            # DB側のデータ取得(常にリストとして取得)
             db_data_list = db_items_map[lookup_key]
-            db_item_to_compare = None
-
-            # まだ比較されていないDBアイテムを探す
             found_match_in_list = False
+            db_item_to_compare = None
             for _idx, db_item in enumerate(db_data_list):
-                # 簡易的な識別子(例:全フィールドをタプル化)で比較済みかチェック
                 item_identifier = tuple(sorted(db_item.items()))
                 if (lookup_key, item_identifier) not in processed_lookup_keys:
                     db_item_to_compare = db_item
@@ -1018,115 +1076,7 @@ def then_check_annotations_saved(
             assert db_item_to_compare is not None, (
                 f"比較対象のDBアイテムが見つかりませんでした (キー: {lookup_key})"
             )
-
-            # print(f"比較中 ({key}):\n保存試行 -> {saved_item}\nDBデータ -> {db_item_to_compare}") # デバッグ用
-
-            # 各フィールドを比較
-            all_keys = set(saved_item.keys()) | set(db_item_to_compare.keys())
-            # 比較不要なキーを除外 (DBから返される可能性のあるキーも考慮)
-            # tag_id は外部DB由来で変動するため、比較から除外
-            keys_to_compare = [
-                k for k in all_keys if k not in ["id", "created_at", "updated_at", "image_id", "tag_id"]
-            ]
-
-            for field in keys_to_compare:
-                saved_value = saved_item.get(field)
-                db_value = db_item_to_compare.get(field)
-
-                # --- 値の比較ロジック --- #
-                # None の扱い: saved が None なら DB も None を期待 (逆も然り)
-                if saved_value is None:
-                    assert db_value is None, (
-                        f"{key} '{lookup_key}' のフィールド '{field}' が一致しません。"
-                        f"期待: None, DB: {db_value}"
-                    )
-                    continue
-                elif db_value is None:
-                    # 'tag_id' はDB側でのみ生成される場合があるので、 saved_value が None でなければエラー
-                    if field == "tag_id" and saved_value is not None:
-                        print(
-                            f"情報: フィールド 'tag_id' はDB側で生成されるため、DB値が None でも許容される場合があります。saved={saved_value}"
-                        )
-                        # ここでテストを失敗させるか、許容するかは要件次第
-                        # pytest.fail(f"{key} '{lookup_key}' のフィールド '{field}' がDBでNoneですが、保存側は {saved_value} です。")
-                    elif field != "tag_id":  # tag_id 以外でDBが None は通常期待しない
-                        assert saved_value is None, (
-                            f"{key} '{lookup_key}' のフィールド '{field}' が一致しません。"
-                            f"期待: {saved_value}, DB: None"
-                        )
-                    continue
-
-                # 型を比較前に合わせる(特に bool と float)
-                try:
-                    # Bool 値の比較 (DBが 0/1 を返す可能性を考慮)
-                    is_bool_field = isinstance(saved_value, bool) or field in [
-                        "is_edited_manually",
-                        "existing",
-                    ]
-                    if is_bool_field:
-                        # 文字列 "true"/"false" と数値 0/1 を bool に統一
-                        parsed_saved_bool = (
-                            parse_bool(str(saved_value))
-                            if not isinstance(saved_value, bool)
-                            else saved_value
-                        )
-                        parsed_db_bool = (
-                            parse_bool(str(db_value)) if not isinstance(db_value, bool) else db_value
-                        )
-                        assert parsed_saved_bool == parsed_db_bool, (
-                            f"{key} '{lookup_key}' の bool フィールド '{field}' が一致しません。"
-                            f"期待: {parsed_saved_bool} ({saved_value}), DB: {parsed_db_bool} ({db_value})"
-                        )
-                        continue
-
-                    # Float 値の比較 (許容誤差)
-                    is_float_field = isinstance(saved_value, float) or field in [
-                        "confidence_score",
-                        "score",
-                    ]
-                    if is_float_field:
-                        assert abs(float(saved_value) - float(db_value)) < 1e-6, (
-                            f"{key} '{lookup_key}' の float フィールド '{field}' が一致しません。"
-                            f"期待: {saved_value}, DB: {db_value}"
-                        )
-                        continue
-
-                    # Int 値の比較 (tag_id など)
-                    # tag_id は DB側で自動生成される場合があるので、 saved_item に存在しない場合がある
-                    is_int_field = isinstance(saved_value, int) or field in ["model_id", "tag_id"]
-                    if is_int_field:
-                        # saved_value が None でなく、かつ DB の値と比較する場合
-                        if saved_value is not None:
-                            assert int(saved_value) == int(db_value), (
-                                f"{key} '{lookup_key}' の int フィールド '{field}' が一致しません。"
-                                f"期待: {saved_value}, DB: {db_value}"
-                            )
-                        elif field == "tag_id":
-                            # saved_value が None (tag_idが未指定) の場合、DB側は整数のはず
-                            assert isinstance(db_value, int), (
-                                f"{key} '{lookup_key}' のフィールド 'tag_id' はDB側で整数であるべきです。"
-                                f"DB値: {db_value} (型: {type(db_value)})"
-                            )
-                            # ここで tag_id が期待通りに振られているかの追加検証も可能
-                            print(
-                                f"情報: フィールド 'tag_id' は保存時に指定されていませんが、DB側で値 ({db_value}) が設定されています。"
-                            )
-                        continue
-
-                except (ValueError, TypeError) as e:
-                    print(
-                        f"警告: フィールド '{field}' の比較中に型変換エラー: {e} (saved={saved_value}, db={db_value})。 文字列比較を試みます。"
-                    )
-                    # 型変換エラー時は文字列比較にフォールバック
-                    pass
-
-                # その他の型 (主に文字列) の比較
-                assert str(saved_value) == str(db_value), (
-                    f"{key} '{lookup_key}' のフィールド '{field}' が一致しません。"
-                    f"期待: {saved_value}, DB: {db_value}"
-                )
-
-            # print(f"アイテム比較OK: {saved_item}") # デバッグ用
+            _compare_annotation_item(key, lookup_key, saved_item, db_item_to_compare)
 
 
 @then("保存したアノテーションを取得できる")

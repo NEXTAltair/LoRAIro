@@ -126,6 +126,63 @@ class ImageProcessingService:
         if status_callback:
             status_callback("画像処理が完了しました。")
 
+    def _resolve_original_metadata(self, image_file: Path) -> tuple[int, dict[str, Any]]:
+        """DB から image_file の ID とメタデータを取得する。未登録なら新規登録する。
+
+        Args:
+            image_file: 対象の画像ファイルパス。
+
+        Returns:
+            (image_id, original_image_metadata) のタプル。
+
+        Raises:
+            RuntimeError: DB 登録または取得に失敗した場合。
+        """
+        image_id = self.idm.detect_duplicate_image(image_file)
+        if not image_id:
+            logger.debug(f"{image_file.name}: DBに未登録。新規登録します。")
+            registration_result = self.idm.register_original_image(image_file, self.fsm)
+            if registration_result is None:
+                logger.error(f"{image_file.name}: DBへの新規登録に失敗しました。")
+                raise RuntimeError(f"Failed to register original image: {image_file.name}")
+            image_id, metadata_maybe = registration_result
+            if image_id is None or metadata_maybe is None:
+                logger.error(
+                    f"{image_file.name}: DBへの新規登録後、有効なIDまたはメタデータが取得できませんでした。"
+                )
+                raise RuntimeError(f"Failed to get valid data after registering: {image_file.name}")
+            return image_id, metadata_maybe
+        else:
+            logger.debug(f"{image_file.name}: DBに登録済み (ID: {image_id})。メタデータを取得します。")
+            metadata_maybe = self.idm.get_image_metadata(image_id)
+            if metadata_maybe is None:
+                logger.error(f"{image_file.name} (ID: {image_id}): DBからメタデータの取得に失敗しました。")
+                raise RuntimeError(f"Failed to get metadata from DB for image ID: {image_id}")
+            return image_id, metadata_maybe
+
+    def _resolve_upscaler(self, image_file: Path, upscaler_override: str | None) -> str | None:
+        """Upscaler 名を解決する。override が None なら設定から取得する。
+
+        Args:
+            image_file: ログ出力用の画像ファイルパス。
+            upscaler_override: 呼び出し元から指定されたアップスケーラ名。
+
+        Returns:
+            使用するアップスケーラ名。設定にも存在しない場合は None。
+        """
+        if upscaler_override is not None:
+            return upscaler_override
+
+        image_processing_config = self.config_service.get_image_processing_config()
+        config_upscaler = image_processing_config.get("upscaler")
+        if config_upscaler:
+            logger.debug(
+                f"{image_file.name}: Upscaler override is None. Using default from config: {config_upscaler}"
+            )
+        else:
+            logger.debug(f"{image_file.name}: Upscaler override is None and no default found in config.")
+        return config_upscaler
+
     def _process_single_image(
         self, image_file: Path, upscaler: str | None = None, ipm: "ImageProcessingManager | None" = None
     ) -> None:
@@ -141,46 +198,10 @@ class ImageProcessingService:
             logger.error("ImageProcessingManager が提供されていないため、処理を実行できません。")
             raise RuntimeError("ImageProcessingManager is not provided.")
 
-        # --- 1. DBチェックとオリジナル画像登録 (元 process_image の前半) ---
-        image_id = self.idm.detect_duplicate_image(image_file)
-        original_image_metadata: dict[str, Any]
-        if not image_id:
-            logger.debug(f"{image_file.name}: DBに未登録。新規登録します。")
-            # register_original_image の戻り値をチェック
-            registration_result = self.idm.register_original_image(image_file, self.fsm)
-            if registration_result is None:
-                logger.error(f"{image_file.name}: DBへの新規登録に失敗しました。")
-                # エラー処理: ここで処理を中断するかどうか
-                raise RuntimeError(f"Failed to register original image: {image_file.name}")
-            original_image_metadata_maybe = registration_result[1]
-            image_id = registration_result[0]
-            # 戻り値が None でないことを確認してから代入
-            if image_id is None or original_image_metadata_maybe is None:
-                logger.error(
-                    f"{image_file.name}: DBへの新規登録後、有効なIDまたはメタデータが取得できませんでした。"
-                )
-                raise RuntimeError(f"Failed to get valid data after registering: {image_file.name}")
-            original_image_metadata = original_image_metadata_maybe
-        else:
-            logger.debug(f"{image_file.name}: DBに登録済み (ID: {image_id})。メタデータを取得します。")
-            # get_image_metadata の戻り値が None の可能性を考慮
-            metadata_maybe = self.idm.get_image_metadata(image_id)
-            if metadata_maybe is None:
-                logger.error(f"{image_file.name} (ID: {image_id}): DBからメタデータの取得に失敗しました。")
-                # エラー処理: ここで処理を中断するかどうか
-                raise RuntimeError(f"Failed to get metadata from DB for image ID: {image_id}")
-            original_image_metadata = metadata_maybe
+        # --- 1. DB チェックとオリジナル画像登録 ---
+        image_id, original_image_metadata = self._resolve_original_metadata(image_file)
 
-        # --- 2. 既存アノテーションの処理 (元 process_image の中盤) ---
-        # アノテーション処理は ImageAnalyzer サービス等に分離するのが望ましいが、
-        # 元コードに合わせて一旦ここに含めるか、コメントアウトして責務外とする。
-        # ※ 元コードでは ImageAnalyzer.get_existing_annotations を呼び出していたが、
-        #   それはファイルベースの .txt/.json を見る実装だった可能性。
-        #   DBから取得するロジックに修正が必要かも。
-        # existing_annotations = ImageAnalyzer.get_existing_annotations(image_file) # ファイルベース想定?
-        # logger.warning("_process_single_image 内のアノテーション処理は未実装です。")
-
-        # --- 3. 処理済み画像の存在チェック (元 process_image の後半) ---
+        # --- 2. 処理済み画像の存在チェック ---
         # 設定から最新の解像度を取得 (edit.pyで変更された可能性があるため)
         image_processing_config = self.config_service.get_image_processing_config()
         target_resolution = image_processing_config.get("target_resolution", 512)
@@ -191,24 +212,8 @@ class ImageProcessingService:
             )
             return
 
-        # --- 4. 画像処理の実行 (元 process_image の後半) ---
-        # upscaler が None の場合は設定から取得
-        final_upscaler = upscaler
-        if final_upscaler is None:
-            image_processing_config = self.config_service.get_image_processing_config()
-            final_upscaler = image_processing_config.get(
-                "upscaler"
-            )  # 設定にもなければ None のまま (process_image 側で対応想定)
-            if final_upscaler:
-                logger.debug(
-                    f"{image_file.name}: Upscaler override is None. Using default from config: {final_upscaler}"
-                )
-            else:
-                logger.debug(
-                    f"{image_file.name}: Upscaler override is None and no default found in config."
-                )
-
-        # final_upscaler が決定できなかった場合は処理をスキップ
+        # --- 3. Upscaler 解決 ---
+        final_upscaler = self._resolve_upscaler(image_file, upscaler)
         if final_upscaler is None:
             logger.warning(
                 f"{image_file.name}: Upscaler が決定できなかったため、画像処理をスキップします。"

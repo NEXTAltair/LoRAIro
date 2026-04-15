@@ -177,6 +177,47 @@ class OpenAIBatchProcessor:
         except Exception as e:
             raise APIError(f"バッチステータス取得中にエラーが発生しました: {e}", "OpenAI") from e
 
+    def _parse_jsonl_file(self, jsonl_file: Path, results: dict[str, str]) -> None:
+        """単一の JSONL ファイルを解析し、results に custom_id → content を追加する。
+
+        Args:
+            jsonl_file: 解析対象の JSONL ファイルパス。
+            results: 結果を追記する辞書（直接更新される）。
+        """
+        try:
+            with open(jsonl_file, encoding="utf-8") as f:
+                for line_num, line in enumerate(f, 1):
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    try:
+                        data = json.loads(line)
+                        if "custom_id" in data and "response" in data:
+                            response_data = data["response"]
+                            if "body" in response_data and "choices" in response_data["body"]:
+                                custom_id = data["custom_id"]
+                                choices = response_data["body"]["choices"]
+                                if (
+                                    choices
+                                    and "message" in choices[0]
+                                    and "content" in choices[0]["message"]
+                                ):
+                                    content = choices[0]["message"]["content"]
+                                    results[custom_id] = content
+                                else:
+                                    logger.warning(f"無効な応答構造 in {jsonl_file}:{line_num}")
+                            else:
+                                logger.warning(f"レスポンスボディが不正 in {jsonl_file}:{line_num}")
+                        else:
+                            logger.warning(f"必須フィールドが不足 in {jsonl_file}:{line_num}")
+                    except json.JSONDecodeError as e:
+                        logger.error(f"JSON解析エラー in {jsonl_file}:{line_num}: {e}")
+                        continue
+
+        except UnicodeDecodeError as e:
+            logger.error(f"ファイル読み込みエラー {jsonl_file}: {e}")
+
     def get_batch_results(self, batch_result_dir: Path) -> dict[str, str]:
         """
         OpenAI API のバッチ処理結果を読み込み、解析します。
@@ -189,7 +230,6 @@ class OpenAIBatchProcessor:
 
         Raises:
             FileNotFoundError: 結果ディレクトリが見つからない場合
-            json.JSONDecodeError: JSONLファイルの解析に失敗した場合
         """
         if not batch_result_dir.exists():
             raise FileNotFoundError(f"バッチ結果ディレクトリが見つかりません: {batch_result_dir}")
@@ -204,40 +244,7 @@ class OpenAIBatchProcessor:
 
         for jsonl_file in jsonl_files:
             logger.debug(f"処理中: {jsonl_file}")
-            try:
-                with open(jsonl_file, encoding="utf-8") as f:
-                    for line_num, line in enumerate(f, 1):
-                        line = line.strip()
-                        if not line:
-                            continue
-
-                        try:
-                            data = json.loads(line)
-                            if "custom_id" in data and "response" in data:
-                                response_data = data["response"]
-                                if "body" in response_data and "choices" in response_data["body"]:
-                                    custom_id = data["custom_id"]
-                                    choices = response_data["body"]["choices"]
-                                    if (
-                                        choices
-                                        and "message" in choices[0]
-                                        and "content" in choices[0]["message"]
-                                    ):
-                                        content = choices[0]["message"]["content"]
-                                        results[custom_id] = content
-                                    else:
-                                        logger.warning(f"無効な応答構造 in {jsonl_file}:{line_num}")
-                                else:
-                                    logger.warning(f"レスポンスボディが不正 in {jsonl_file}:{line_num}")
-                            else:
-                                logger.warning(f"必須フィールドが不足 in {jsonl_file}:{line_num}")
-                        except json.JSONDecodeError as e:
-                            logger.error(f"JSON解析エラー in {jsonl_file}:{line_num}: {e}")
-                            continue
-
-            except UnicodeDecodeError as e:
-                logger.error(f"ファイル読み込みエラー {jsonl_file}: {e}")
-                continue
+            self._parse_jsonl_file(jsonl_file, results)
 
         logger.info(f"バッチ処理結果読み込み完了: {len(results)}件")
         return results
