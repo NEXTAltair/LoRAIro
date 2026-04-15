@@ -413,16 +413,17 @@ class SelectedImageDetailsWidget(QWidget):
         caption_text = metadata.get("caption_text", "")
         tags_text = metadata.get("tags_text", "")
 
-        # 翻訳データ取得（merged_readerがある場合のみバッチ取得）
+        # 翻訳データ取得（N+1回避のためバッチ取得）
         tag_translations: dict[int, dict[str, str]] = {}
         if self._merged_reader is not None:
-            for tag_dict in tags_list:
-                tag_id = tag_dict.get("tag_id")
-                if tag_id is None:
-                    continue
-                for tr in self._merged_reader.get_translations(tag_id):
-                    if tr.language and tr.translation:
-                        tag_translations.setdefault(tag_id, {})[tr.language] = tr.translation
+            valid_tag_ids = [
+                tag_dict["tag_id"] for tag_dict in tags_list if tag_dict.get("tag_id") is not None
+            ]
+            if valid_tag_ids:
+                for tag_id, trs in self._merged_reader.get_translations_batch(valid_tag_ids).items():
+                    for tr in trs:
+                        if tr.language and tr.translation:
+                            tag_translations.setdefault(tag_id, {})[tr.language] = tr.translation
 
         annotation_data = AnnotationData(
             tags=tags_list,  # ← list[dict] をそのまま渡す

@@ -186,7 +186,7 @@ class TestSelectedImageDetailsWidget:
         tr_mock = Mock()
         tr_mock.language = "japanese"
         tr_mock.translation = "1人の女の子"
-        mock_reader.get_translations.return_value = [tr_mock]
+        mock_reader.get_translations_batch.return_value = {42: [tr_mock]}
         widget.set_merged_reader(mock_reader)
 
         metadata = {
@@ -217,7 +217,7 @@ class TestSelectedImageDetailsWidget:
         """tag_id=Noneのタグは翻訳取得をスキップすること"""
         mock_reader = Mock()
         mock_reader.get_tag_languages.return_value = ["japanese"]
-        mock_reader.get_translations.return_value = []
+        mock_reader.get_translations_batch.return_value = {}
         widget.set_merged_reader(mock_reader)
 
         metadata = {
@@ -240,7 +240,39 @@ class TestSelectedImageDetailsWidget:
         }
         details = widget._build_image_details_from_metadata(metadata)
 
-        # tag_id=Noneのタグはスキップ → get_translationsは呼ばれない
-        mock_reader.get_translations.assert_not_called()
+        # tag_id=Noneのタグはスキップ → get_translations_batchは呼ばれない
+        mock_reader.get_translations_batch.assert_not_called()
         assert details.annotation_data is not None
         assert details.annotation_data.tag_translations == {}
+
+    def test_build_metadata_translations_uses_single_batch_call(self, widget):
+        """N個タグが存在してもget_translations_batchは1回だけ呼ばれること"""
+        mock_reader = Mock()
+        mock_reader.get_tag_languages.return_value = []
+        mock_reader.get_translations_batch.return_value = {}
+        widget.set_merged_reader(mock_reader)
+
+        metadata = {
+            "id": 1,
+            "file_path": "/test/img.jpg",
+            "tags": [
+                {
+                    "tag": f"tag{i}",
+                    "tag_id": i,
+                    "model_name": "wd",
+                    "source": "AI",
+                    "confidence_score": 0.9,
+                    "is_edited_manually": False,
+                }
+                for i in range(1, 11)
+            ],
+            "caption_text": "",
+            "tags_text": "",
+            "score_value": 0,
+            "rating_value": "",
+        }
+        widget._build_image_details_from_metadata(metadata)
+
+        mock_reader.get_translations_batch.assert_called_once()
+        call_args = mock_reader.get_translations_batch.call_args[0][0]
+        assert len(call_args) == 10
