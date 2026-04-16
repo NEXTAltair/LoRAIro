@@ -2,11 +2,12 @@ import json
 import math
 import os
 import shutil
+from collections.abc import Callable
 from datetime import datetime
 from io import BytesIO
 from itertools import islice
 from pathlib import Path
-from typing import Any, Callable, ClassVar, Literal, cast
+from typing import Any, ClassVar, Literal, cast
 
 import toml
 from PIL import Image, ImageCms
