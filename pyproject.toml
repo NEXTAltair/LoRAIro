@@ -103,6 +103,7 @@ ignore = [
 # tests/conftest.py はモックを先に設定してから lorairo モジュールをインポートする必要があるため
 # モジュール先頭以外の import は意図的
 "tests/conftest.py" = ["E402"]
+"*/database/migrations/versions/*" = ["C901"]
 fixable = ["ALL"]
 
 [tool.ruff.format]
