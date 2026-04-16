@@ -1540,8 +1540,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         タブ構造の検証を行う。
 
         Note:
-            ワークスペースタブでは右カラムのアノテーション制御（groupBoxAnnotationControl）を
-            非表示にする。バッチタグ機能はバッチタグタブに移動したため。
+            バッチタグ機能はバッチタグタブに移動済み。
+            タブ切り替えは _on_main_tab_changed で処理する。
         """
         # UIで定義されたtabWidgetMainModeの存在確認
         if not hasattr(self, "tabWidgetMainMode") or not self.tabWidgetMainMode:
