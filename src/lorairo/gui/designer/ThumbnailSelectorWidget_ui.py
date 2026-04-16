@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel,
     QVBoxLayout, QWidget)
 
 class Ui_ThumbnailSelectorWidget(object):
-    def setupUi(self, ThumbnailSelectorWidget):
+    def setupUi(self, ThumbnailSelectorWidget: QWidget) -> None:
         if not ThumbnailSelectorWidget.objectName():
             ThumbnailSelectorWidget.setObjectName(u"ThumbnailSelectorWidget")
         self.verticalLayout = QVBoxLayout(ThumbnailSelectorWidget)
@@ -88,7 +88,7 @@ class Ui_ThumbnailSelectorWidget(object):
         QMetaObject.connectSlotsByName(ThumbnailSelectorWidget)
     # setupUi
 
-    def retranslateUi(self, ThumbnailSelectorWidget):
+    def retranslateUi(self, ThumbnailSelectorWidget: QWidget) -> None:
         self.labelThumbnailCount.setText(QCoreApplication.translate("ThumbnailSelectorWidget", u"\u753b\u50cf: 0\u4ef6", None))
         self.labelThumbnailSize.setText(QCoreApplication.translate("ThumbnailSelectorWidget", u"\u30b5\u30a4\u30ba:", None))
         pass

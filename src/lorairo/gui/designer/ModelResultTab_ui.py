@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (QApplication, QFrame, QGroupBox, QHBoxLayout,
     QWidget)
 
 class Ui_ModelResultTab(object):
-    def setupUi(self, ModelResultTab):
+    def setupUi(self, ModelResultTab: QWidget) -> None:
         if not ModelResultTab.objectName():
             ModelResultTab.setObjectName(u"ModelResultTab")
         ModelResultTab.resize(500, 400)
@@ -263,7 +263,7 @@ class Ui_ModelResultTab(object):
         QMetaObject.connectSlotsByName(ModelResultTab)
     # setupUi
 
-    def retranslateUi(self, ModelResultTab):
+    def retranslateUi(self, ModelResultTab: QWidget) -> None:
         self.labelModelName.setText(QCoreApplication.translate("ModelResultTab", u"\u30e2\u30c7\u30eb\u540d: GPT-4o", None))
         self.labelProcessingTime.setText(QCoreApplication.translate("ModelResultTab", u"\u51e6\u7406\u6642\u9593: 2.3s", None))
         self.labelStatus.setText(QCoreApplication.translate("ModelResultTab", u"\u2713 \u6210\u529f", None))

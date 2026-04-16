@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (QApplication, QHBoxLayout, QSizePolicy, QWidget)
 from ..widgets.picker import PickerWidget
 
 class Ui_FilePickerWidget(object):
-    def setupUi(self, FilePickerWidget):
+    def setupUi(self, FilePickerWidget: QWidget) -> None:
         if not FilePickerWidget.objectName():
             FilePickerWidget.setObjectName(u"FilePickerWidget")
         FilePickerWidget.resize(562, 253)
@@ -42,7 +42,7 @@ class Ui_FilePickerWidget(object):
         QMetaObject.connectSlotsByName(FilePickerWidget)
     # setupUi
 
-    def retranslateUi(self, FilePickerWidget):
+    def retranslateUi(self, FilePickerWidget: QWidget) -> None:
         FilePickerWidget.setWindowTitle(QCoreApplication.translate("FilePickerWidget", u"Form", None))
     # retranslateUi
 

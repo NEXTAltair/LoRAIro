@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QSizePolicy, QWidget)
 
 class Ui_PickerWidget(object):
-    def setupUi(self, PickerWidget):
+    def setupUi(self, PickerWidget: QWidget) -> None:
         if not PickerWidget.objectName():
             PickerWidget.setObjectName(u"PickerWidget")
         PickerWidget.resize(540, 210)
@@ -73,7 +73,7 @@ class Ui_PickerWidget(object):
         QMetaObject.connectSlotsByName(PickerWidget)
     # setupUi
 
-    def retranslateUi(self, PickerWidget):
+    def retranslateUi(self, PickerWidget: QWidget) -> None:
         PickerWidget.setWindowTitle(QCoreApplication.translate("PickerWidget", u"Form", None))
         self.labelPicker.setText(QCoreApplication.translate("PickerWidget", u"Path", None))
         self.pushButtonPicker.setText(QCoreApplication.translate("PickerWidget", u"\u9078\u629e...", None))

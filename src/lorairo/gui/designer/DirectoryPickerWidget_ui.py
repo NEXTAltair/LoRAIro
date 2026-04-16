@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (QApplication, QHBoxLayout, QSizePolicy, QWidget)
 from ..widgets.picker import PickerWidget
 
 class Ui_DirectoryPickerWidget(object):
-    def setupUi(self, DirectoryPickerWidget):
+    def setupUi(self, DirectoryPickerWidget: QWidget) -> None:
         if not DirectoryPickerWidget.objectName():
             DirectoryPickerWidget.setObjectName(u"DirectoryPickerWidget")
         DirectoryPickerWidget.resize(562, 253)
@@ -42,7 +42,7 @@ class Ui_DirectoryPickerWidget(object):
         QMetaObject.connectSlotsByName(DirectoryPickerWidget)
     # setupUi
 
-    def retranslateUi(self, DirectoryPickerWidget):
+    def retranslateUi(self, DirectoryPickerWidget: QWidget) -> None:
         DirectoryPickerWidget.setWindowTitle(QCoreApplication.translate("DirectoryPickerWidget", u"Form", None))
     # retranslateUi
 

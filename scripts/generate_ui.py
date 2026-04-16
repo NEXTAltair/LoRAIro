@@ -14,6 +14,7 @@ Author: Claude Code (Anthropic)
 Date: 2025-09-04
 """
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -48,6 +49,31 @@ def find_ui_files() -> list[Path]:
     return ui_files
 
 
+def add_type_hints_to_ui(py_file: Path) -> None:
+    """Add QWidget type hints to setupUi and retranslateUi methods.
+
+    pyside6-uic generates untyped method signatures. This post-processing step
+    adds 'QWidget' type annotation and '-> None' return type so mypy does not
+    report no-untyped-call errors when these methods are called from typed code.
+    """
+    content = py_file.read_text(encoding="utf-8")
+    # def setupUi(self, SomeName):  →  def setupUi(self, SomeName: QWidget) -> None:
+    content = re.sub(
+        r"(def setupUi\(self, \w+)\):\s*$",
+        r"\1: QWidget) -> None:",
+        content,
+        flags=re.MULTILINE,
+    )
+    # def retranslateUi(self, SomeName):  →  def retranslateUi(self, SomeName: QWidget) -> None:
+    content = re.sub(
+        r"(def retranslateUi\(self, \w+)\):\s*$",
+        r"\1: QWidget) -> None:",
+        content,
+        flags=re.MULTILINE,
+    )
+    py_file.write_text(content, encoding="utf-8")
+
+
 def generate_python_from_ui(ui_file: Path) -> bool:
     """Generate Python code from a UI file using pyside6-uic."""
     # Calculate output filename
@@ -70,6 +96,7 @@ def generate_python_from_ui(ui_file: Path) -> bool:
         )
 
         if result.returncode == 0:
+            add_type_hints_to_ui(py_file)
             print(f"✅ Generated {py_file.name} from {ui_file.name}")
             return True
         else:

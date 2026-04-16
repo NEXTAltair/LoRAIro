@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFrame,
     QSpacerItem, QVBoxLayout, QWidget)
 
 class Ui_FilterSearchPanel(object):
-    def setupUi(self, FilterSearchPanel):
+    def setupUi(self, FilterSearchPanel: QWidget) -> None:
         if not FilterSearchPanel.objectName():
             FilterSearchPanel.setObjectName(u"FilterSearchPanel")
         FilterSearchPanel.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -301,7 +301,7 @@ class Ui_FilterSearchPanel(object):
         QMetaObject.connectSlotsByName(FilterSearchPanel)
     # setupUi
 
-    def retranslateUi(self, FilterSearchPanel):
+    def retranslateUi(self, FilterSearchPanel: QWidget) -> None:
         FilterSearchPanel.setWindowTitle(QCoreApplication.translate("FilterSearchPanel", u"Filter Search Panel", None))
         self.searchGroup.setTitle(QCoreApplication.translate("FilterSearchPanel", u"\u691c\u7d22", None))
         self.searchTypeLabel.setText(QCoreApplication.translate("FilterSearchPanel", u"\u691c\u7d22\u5bfe\u8c61:", None))

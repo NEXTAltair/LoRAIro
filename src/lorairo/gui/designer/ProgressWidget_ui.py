@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (QApplication, QLabel, QProgressBar, QPushButton,
     QSizePolicy, QVBoxLayout, QWidget)
 
 class Ui_ProgressWidget(object):
-    def setupUi(self, ProgressWidget):
+    def setupUi(self, ProgressWidget: QWidget) -> None:
         if not ProgressWidget.objectName():
             ProgressWidget.setObjectName(u"ProgressWidget")
         ProgressWidget.setWindowModality(Qt.WindowModality.WindowModal)
@@ -60,7 +60,7 @@ class Ui_ProgressWidget(object):
         QMetaObject.connectSlotsByName(ProgressWidget)
     # setupUi
 
-    def retranslateUi(self, ProgressWidget):
+    def retranslateUi(self, ProgressWidget: QWidget) -> None:
         ProgressWidget.setWindowTitle(QCoreApplication.translate("ProgressWidget", u"Form", None))
         self.statusLabel.setText(QCoreApplication.translate("ProgressWidget", u"\u5f85\u6a5f\u4e2d...", None))
         self.progressBar.setFormat(QCoreApplication.translate("ProgressWidget", u"%v / %m", None))

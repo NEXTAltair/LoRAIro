@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QFrame, QHBoxLayout,
     QSpacerItem, QVBoxLayout, QWidget)
 
 class Ui_ModelSelectionWidget(object):
-    def setupUi(self, ModelSelectionWidget):
+    def setupUi(self, ModelSelectionWidget: QWidget) -> None:
         if not ModelSelectionWidget.objectName():
             ModelSelectionWidget.setObjectName(u"ModelSelectionWidget")
         ModelSelectionWidget.resize(320, 300)
@@ -174,7 +174,7 @@ class Ui_ModelSelectionWidget(object):
         QMetaObject.connectSlotsByName(ModelSelectionWidget)
     # setupUi
 
-    def retranslateUi(self, ModelSelectionWidget):
+    def retranslateUi(self, ModelSelectionWidget: QWidget) -> None:
         ModelSelectionWidget.setWindowTitle(QCoreApplication.translate("ModelSelectionWidget", u"Model Selection", None))
         self.btnSelectAll.setText(QCoreApplication.translate("ModelSelectionWidget", u"\u5168\u9078\u629e", None))
         self.btnDeselectAll.setText(QCoreApplication.translate("ModelSelectionWidget", u"\u5168\u89e3\u9664", None))

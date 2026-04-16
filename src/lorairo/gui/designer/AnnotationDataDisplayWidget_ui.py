@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QGridLayout, QGr
     QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget)
 
 class Ui_AnnotationDataDisplayWidget(object):
-    def setupUi(self, AnnotationDataDisplayWidget):
+    def setupUi(self, AnnotationDataDisplayWidget: QWidget) -> None:
         if not AnnotationDataDisplayWidget.objectName():
             AnnotationDataDisplayWidget.setObjectName(u"AnnotationDataDisplayWidget")
         AnnotationDataDisplayWidget.resize(400, 600)
@@ -123,7 +123,7 @@ class Ui_AnnotationDataDisplayWidget(object):
         QMetaObject.connectSlotsByName(AnnotationDataDisplayWidget)
     # setupUi
 
-    def retranslateUi(self, AnnotationDataDisplayWidget):
+    def retranslateUi(self, AnnotationDataDisplayWidget: QWidget) -> None:
         AnnotationDataDisplayWidget.setWindowTitle(QCoreApplication.translate("AnnotationDataDisplayWidget", u"Annotation Data Display", None))
         self.groupBoxTags.setTitle(QCoreApplication.translate("AnnotationDataDisplayWidget", u"\u30bf\u30b0", None))
         ___qtablewidgetitem = self.tableWidgetTags.horizontalHeaderItem(0)

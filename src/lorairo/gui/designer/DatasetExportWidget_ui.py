@@ -26,7 +26,7 @@ from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.thumbnail import ThumbnailSelectorWidget
 
 class Ui_DatasetExportWidget(object):
-    def setupUi(self, DatasetExportWidget):
+    def setupUi(self, DatasetExportWidget: QWidget) -> None:
         if not DatasetExportWidget.objectName():
             DatasetExportWidget.setObjectName(u"DatasetExportWidget")
         DatasetExportWidget.resize(1200, 800)
@@ -254,7 +254,7 @@ class Ui_DatasetExportWidget(object):
         QMetaObject.connectSlotsByName(DatasetExportWidget)
     # setupUi
 
-    def retranslateUi(self, DatasetExportWidget):
+    def retranslateUi(self, DatasetExportWidget: QWidget) -> None:
         DatasetExportWidget.setWindowTitle(QCoreApplication.translate("DatasetExportWidget", u"Dataset Export", None))
         self.imageCountLabel.setText("")
         self.exportGroupBox.setTitle(QCoreApplication.translate("DatasetExportWidget", u"Export Settings", None))

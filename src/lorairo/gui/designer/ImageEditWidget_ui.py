@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFram
 from ..widgets.image_preview import ImagePreviewWidget
 
 class Ui_ImageEditWidget(object):
-    def setupUi(self, ImageEditWidget):
+    def setupUi(self, ImageEditWidget: QWidget) -> None:
         if not ImageEditWidget.objectName():
             ImageEditWidget.setObjectName(u"ImageEditWidget")
         ImageEditWidget.resize(758, 781)
@@ -170,7 +170,7 @@ class Ui_ImageEditWidget(object):
         QMetaObject.connectSlotsByName(ImageEditWidget)
     # setupUi
 
-    def retranslateUi(self, ImageEditWidget):
+    def retranslateUi(self, ImageEditWidget: QWidget) -> None:
         ImageEditWidget.setWindowTitle(QCoreApplication.translate("ImageEditWidget", u"Form", None))
         ___qtablewidgetitem = self.tableWidgetImageList.horizontalHeaderItem(0)
         ___qtablewidgetitem.setText(QCoreApplication.translate("ImageEditWidget", u"\u30b5\u30e0\u30cd\u30a4\u30eb", None));

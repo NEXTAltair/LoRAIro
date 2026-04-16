@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QHBoxLayout, QLabel,
     QSizePolicy, QWidget)
 
 class Ui_ModelCheckboxWidget(object):
-    def setupUi(self, ModelCheckboxWidget):
+    def setupUi(self, ModelCheckboxWidget: QWidget) -> None:
         if not ModelCheckboxWidget.objectName():
             ModelCheckboxWidget.setObjectName(u"ModelCheckboxWidget")
         ModelCheckboxWidget.resize(300, 28)
@@ -111,7 +111,7 @@ class Ui_ModelCheckboxWidget(object):
         QMetaObject.connectSlotsByName(ModelCheckboxWidget)
     # setupUi
 
-    def retranslateUi(self, ModelCheckboxWidget):
+    def retranslateUi(self, ModelCheckboxWidget: QWidget) -> None:
         ModelCheckboxWidget.setWindowTitle(QCoreApplication.translate("ModelCheckboxWidget", u"Model Checkbox", None))
         self.checkboxModel.setText("")
         self.labelModelName.setText(QCoreApplication.translate("ModelCheckboxWidget", u"Model Name", None))
