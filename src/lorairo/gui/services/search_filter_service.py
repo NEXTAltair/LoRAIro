@@ -349,6 +349,33 @@ class SearchFilterService:
         """後方互換性ラッパー:ModelFilterServiceに委譲"""
         return self.model_filter_service.validate_annotation_settings(settings)
 
+    def filter_models_by_criteria(
+        self,
+        models: list[dict[str, Any]],
+        function_types: list[str],
+        providers: list[str],
+    ) -> list[dict[str, Any]]:
+        """モデルリストを機能タイプとプロバイダーでフィルタリングする。
+
+        Args:
+            models: フィルタリング対象のモデルリスト
+            function_types: 絞り込む機能タイプリスト（空リストの場合は全て）
+            providers: 絞り込むプロバイダーリスト（空リストの場合は全て）
+
+        Returns:
+            フィルタリング済みモデルリスト
+        """
+        filtered = models
+        if function_types:
+            filtered = [
+                m for m in filtered if any(ft in m.get("capabilities", []) for ft in function_types)
+            ]
+        if providers:
+            filtered = [
+                m for m in filtered if str(m.get("provider", "")).lower() in [p.lower() for p in providers]
+            ]
+        return filtered
+
     def get_annotation_status_counts(self) -> AnnotationStatusCounts:
         """アノテーション状態カウントを取得（GUI用）
 

@@ -76,7 +76,7 @@ class RatingScoreEditWidget(QWidget):
 
         # UI設定
         self.ui = Ui_RatingScoreEditWidget()
-        self.ui.setupUi(self)  # type: ignore[no-untyped-call]
+        self.ui.setupUi(self)
         self._apply_compact_layout()
 
         # スライダーと値ラベルの連動

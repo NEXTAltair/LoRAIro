@@ -76,7 +76,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setupUi(self)  # type: ignore  # Justification: Qt Designer generated method signature
+        self.setupUi(self)
 
         # 現在のデータ
         self.current_data: AnnotationData = AnnotationData()

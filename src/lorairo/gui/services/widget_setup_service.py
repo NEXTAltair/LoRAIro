@@ -339,12 +339,12 @@ class WidgetSetupService:
                 placeholder.deleteLater()
                 logger.debug("🗑️ modelSelectionPlaceholder を削除")
 
-            widget = ModelSelectionWidget(mode="advanced")
-            widget.setObjectName("batchModelSelection")
-            widget.setParent(annotation_group)
-            annotation_group.layout().insertWidget(2, widget)
+            model_widget = ModelSelectionWidget(mode="advanced")
+            model_widget.setObjectName("batchModelSelection")
+            model_widget.setParent(annotation_group)
+            annotation_group.layout().insertWidget(2, model_widget)
 
-            main_window.batchModelSelection = widget
+            main_window.batchModelSelection = model_widget
             logger.info("✅ ModelSelectionWidget を追加完了 (mode=advanced)")
 
         # Signal接続

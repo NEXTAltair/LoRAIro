@@ -217,7 +217,7 @@ try:
         format_name="Lorairo",
     )
 
-    USER_TAG_DB_PATH = DB_DIR / "user_tags.sqlite"
+    USER_TAG_DB_PATH: Path | None = DB_DIR / "user_tags.sqlite"
     logger.info(f"Tag databases initialized: {len(results)} base DB(s) + user DB at {USER_TAG_DB_PATH}")
 
 except Exception as e:

@@ -108,7 +108,7 @@ class SelectedImageDetailsWidget(QWidget):
 
         # UI設定
         self.ui = Ui_SelectedImageDetailsWidget()
-        self.ui.setupUi(self)  # type: ignore[no-untyped-call]
+        self.ui.setupUi(self)
         self.annotation_display: AnnotationDataDisplayWidget = self.ui.annotationDataDisplay
         self.annotation_display.set_group_box_visibility(scores=False)
 

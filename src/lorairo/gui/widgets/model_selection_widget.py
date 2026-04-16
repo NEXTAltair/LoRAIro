@@ -73,7 +73,7 @@ if not __name__ == "__main__":
             mode: str = "simple",  # "simple" or "advanced"
         ) -> None:
             super().__init__(parent)
-            self.setupUi(self)  # type: ignore  # Multi-inheritance pattern - direct setupUi call
+            self.setupUi(self)
 
             self.mode = mode
 
@@ -278,12 +278,13 @@ if not __name__ == "__main__":
             # レイアウトから削除（プレースホルダーとverticalSpacer以外）
             for i in reversed(range(self.dynamicContentLayout.count())):
                 item = self.dynamicContentLayout.itemAt(i)
-                if item and item.widget():
-                    widget = item.widget()
-                    if widget != self.placeholderLabel and widget.objectName() != "verticalSpacer":
-                        self.dynamicContentLayout.removeWidget(widget)
-                        widget.setParent(None)
-                        widget.deleteLater()
+                if item is None:
+                    continue
+                w = item.widget()
+                if w is not None and w != self.placeholderLabel and w.objectName() != "verticalSpacer":
+                    self.dynamicContentLayout.removeWidget(w)
+                    w.setParent(None)
+                    w.deleteLater()
 
         @Slot(str)
         def _on_execution_env_changed(self, execution_env: str) -> None:

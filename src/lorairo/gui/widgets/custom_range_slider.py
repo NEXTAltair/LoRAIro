@@ -1,3 +1,5 @@
+from typing import Any, Callable, cast
+
 from PySide6.QtCore import QDate, QDateTime, Qt, QTime, QTimeZone, Signal, Slot
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from superqt import QDoubleRangeSlider
@@ -28,7 +30,8 @@ class CustomRangeSlider(QWidget):
         layout = QVBoxLayout(self)
 
         # superqtのQDoubleRangeSliderを直接値範囲で使用
-        self.slider = QDoubleRangeSlider(Qt.Orientation.Horizontal)
+        _DoubleRangeSlider = cast("Callable[..., Any]", QDoubleRangeSlider)
+        self.slider = _DoubleRangeSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(self.min_value, self.max_value)
         self.slider.setValue((self.min_value, self.max_value))
 
@@ -48,6 +51,8 @@ class CustomRangeSlider(QWidget):
     @Slot()
     def update_labels(self) -> None:
         """ラベルを更新してシグナルを発行"""
+        min_val: float
+        max_val: float
         min_val, max_val = self.slider.value()
         min_count = int(min_val)
         max_count = int(max_val)
@@ -72,6 +77,8 @@ class CustomRangeSlider(QWidget):
 
     def get_range(self) -> tuple[int, int]:
         """現在の選択範囲を取得"""
+        min_val: float
+        max_val: float
         min_val, max_val = self.slider.value()
         return (int(min_val), int(max_val))
 

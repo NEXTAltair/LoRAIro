@@ -17,7 +17,7 @@ Annotation Filter Widget - アノテーションフィルターウィジェッ�
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget
@@ -69,7 +69,7 @@ class AnnotationFilterWidget(QWidget, Ui_AnnotationFilterWidget):
             parent: 親ウィジェット
         """
         super().__init__(parent)
-        self.setupUi(self)  # type: ignore[no-untyped-call]
+        self.setupUi(self)
 
         self._connect_signals()
         logger.debug("AnnotationFilterWidget initialized")
@@ -148,7 +148,7 @@ class AnnotationFilterWidget(QWidget, Ui_AnnotationFilterWidget):
         try:
             # 機能タイプ設定 (DB ModelType.name 値と一致: 'caption', 'tags', 'scores')
             if capabilities is not _UNSET:
-                caps = capabilities if capabilities is not None else []
+                caps = cast("list[str]", capabilities if capabilities is not None else [])
                 self.checkBoxCaption.setChecked("caption" in caps)
                 self.checkBoxTags.setChecked("tags" in caps)
                 self.checkBoxScore.setChecked("scores" in caps)

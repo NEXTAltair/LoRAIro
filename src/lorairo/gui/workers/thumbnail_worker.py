@@ -25,7 +25,7 @@ class ThumbnailLoadResult:
     failed_count: int
     total_count: int
     processing_time: float
-    image_metadata: list[dict[str, Any]] = None  # 検索結果メタデータ（DatasetStateManager同期用）
+    image_metadata: list[dict[str, Any]] | None = None  # 検索結果メタデータ（DatasetStateManager同期用）
     request_id: str | None = None  # リクエスト識別子（古い結果の破棄用）
     page_num: int | None = None  # ページ番号（ページネーション用）
     image_ids: list[int] | None = None  # 処理対象画像ID（ページ単位表示用）
@@ -94,7 +94,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
             logger.info(f"サムネイル読み込み開始: {total_count}件")
 
         # 進捗初期化
-        loaded_thumbnails = []
+        loaded_thumbnails: list[tuple[int, QImage]] = []
         failed_count = 0
 
         # 初期進捗報告
