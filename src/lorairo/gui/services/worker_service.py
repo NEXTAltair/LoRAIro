@@ -2,10 +2,11 @@
 
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from PIL.Image import Image
 from PySide6.QtCore import QObject, QSize, Signal
+from PySide6.QtWidgets import QWidget
 
 from ...annotations.annotation_logic import AnnotationLogic
 from ...annotations.annotator_adapter import AnnotatorLibraryAdapter
@@ -73,7 +74,7 @@ class WorkerService(QObject):
         self.worker_manager = WorkerManager(self)
 
         # モダンプログレス管理
-        self.progress_manager = ModernProgressManager(parent)
+        self.progress_manager = ModernProgressManager(cast("QWidget | None", parent))
         self.progress_manager.cancellation_requested.connect(self._on_progress_cancellation_requested)
 
         # シングルトンワーカー管理
@@ -433,11 +434,13 @@ class WorkerService(QObject):
 
     def get_active_worker_count(self) -> int:
         """アクティブワーカー数取得"""
-        return self.worker_manager.active_worker_count()
+        return self.worker_manager.get_active_worker_count()
 
     def get_worker_status(self, worker_id: str) -> str | None:
         """指定ワーカーのステータス取得"""
-        return self.worker_manager.get_worker_status(worker_id)
+        if self.worker_manager.is_worker_active(worker_id):
+            return "active"
+        return None
 
     def _on_progress_updated(self, worker_id: str, progress: Any) -> None:
         """プログレス更新処理 - ModernProgressManagerに転送"""
@@ -483,7 +486,10 @@ class WorkerService(QObject):
         # サムネイル先読みはバックグラウンド処理のためプログレスダイアログ不要
         if not worker_id.startswith("thumbnail_"):
             self.progress_manager.start_worker_progress(
-                worker_id, operation_name, f"{operation_name}を開始しています...", parent=self.parent()
+                worker_id,
+                operation_name,
+                f"{operation_name}を開始しています...",
+                parent=cast("QWidget | None", self.parent()),
             )
 
         logger.info(f"ワーカー開始: {operation_name} (ID: {worker_id})")

@@ -106,6 +106,7 @@ class ExportController:
         if not self._validate_services():
             return []
 
+        assert self.selection_state_service is not None
         return self.selection_state_service.get_current_selected_images()
 
     def _on_export_completed(self, path: str) -> None:

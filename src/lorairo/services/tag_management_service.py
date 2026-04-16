@@ -3,6 +3,8 @@
 unknown typeタグの検索、type_name選択、一括更新を担当します。
 """
 
+from typing import cast
+
 from genai_tag_db_tools import (
     get_all_type_names,
     get_format_type_names,
@@ -57,7 +59,7 @@ class TagManagementService:
         try:
             tags = get_unknown_type_tags(self.reader, format_id=self.LORAIRO_FORMAT_ID)
             logger.info("Found {} unknown type tags for format_id={}", len(tags), self.LORAIRO_FORMAT_ID)
-            return tags
+            return cast("list[TagRecordPublic]", tags)
         except Exception as e:
             logger.error("Error getting unknown type tags: {}", e, exc_info=True)
             raise
@@ -77,7 +79,7 @@ class TagManagementService:
         try:
             types = get_all_type_names(self.reader)
             logger.debug("Retrieved {} type names", len(types))
-            return types
+            return cast("list[str]", types)
         except Exception as e:
             logger.error("Error getting all type names: {}", e, exc_info=True)
             raise
@@ -101,7 +103,7 @@ class TagManagementService:
                 len(types),
                 self.LORAIRO_FORMAT_ID,
             )
-            return types
+            return cast("list[str]", types)
         except Exception as e:
             logger.error("Error getting format-specific type names: {}", e, exc_info=True)
             raise

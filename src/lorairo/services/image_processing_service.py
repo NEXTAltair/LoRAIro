@@ -154,11 +154,11 @@ class ImageProcessingService:
             return image_id, metadata_maybe
         else:
             logger.debug(f"{image_file.name}: DBに登録済み (ID: {image_id})。メタデータを取得します。")
-            metadata_maybe = self.idm.get_image_metadata(image_id)
-            if metadata_maybe is None:
+            metadata = self.idm.get_image_metadata(image_id)
+            if metadata is None:
                 logger.error(f"{image_file.name} (ID: {image_id}): DBからメタデータの取得に失敗しました。")
                 raise RuntimeError(f"Failed to get metadata from DB for image ID: {image_id}")
-            return image_id, metadata_maybe
+            return image_id, metadata
 
     def _resolve_upscaler(self, image_file: Path, upscaler_override: str | None) -> str | None:
         """Upscaler 名を解決する。override が None なら設定から取得する。

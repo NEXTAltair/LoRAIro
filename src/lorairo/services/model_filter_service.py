@@ -72,7 +72,7 @@ class ModelFilterService:
                         "provider": model.provider,
                         "capabilities": model.capabilities,
                         "requires_api_key": model.requires_api_key,
-                        "is_local": model.provider.lower() == "local",
+                        "is_local": (model.provider or "").lower() == "local",
                         "estimated_size_gb": model.estimated_size_gb,
                         "is_recommended": model.is_recommended,
                     }
@@ -344,7 +344,7 @@ class ModelFilterService:
             if not provider_filter:
                 return True
 
-            model_provider = model.get("provider", "").lower()
+            model_provider = str(model.get("provider", "")).lower()
 
             if isinstance(provider_filter, str):
                 return model_provider == provider_filter.lower()

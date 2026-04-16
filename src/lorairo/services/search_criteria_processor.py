@@ -151,7 +151,7 @@ class SearchCriteriaProcessor:
             dict: 処理済みタグ条件
         """
         try:
-            tag_conditions = {}
+            tag_conditions: dict[str, Any] = {}
 
             if conditions.keywords and conditions.search_type == "tags":
                 tag_conditions["tags"] = conditions.keywords

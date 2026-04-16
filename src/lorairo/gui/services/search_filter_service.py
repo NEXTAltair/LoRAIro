@@ -364,9 +364,9 @@ class SearchFilterService:
 
             # AnnotationStatusCounts に変換
             return AnnotationStatusCounts(
-                total=counts_dict["total"],
-                completed=counts_dict["completed"],
-                error=counts_dict["error"],
+                total=int(counts_dict["total"]),
+                completed=int(counts_dict["completed"]),
+                error=int(counts_dict["error"]),
             )
 
         except Exception as e:

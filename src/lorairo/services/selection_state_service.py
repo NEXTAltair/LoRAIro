@@ -89,6 +89,16 @@ class SelectionStateService:
             "サムネイル表示で画像を選択してください。"
         )
 
+    def get_current_selected_images(self) -> list[int]:
+        """現在選択中の画像IDリスト取得。
+
+        Returns:
+            選択中の画像IDリスト。未選択または未初期化の場合は空リスト。
+        """
+        if not self.dataset_state_manager:
+            return []
+        return list(self.dataset_state_manager.selected_image_ids)
+
     def get_selected_image_paths(self) -> list[str]:
         """選択画像のパスリスト取得（便利メソッド）
 
@@ -124,6 +134,8 @@ class SelectionStateService:
         Returns:
             画像データリスト（stored_image_pathを持つもののみ）
         """
+        if not self.dataset_state_manager:
+            return []
         images = []
         for image_id in image_ids:
             image_data = self.dataset_state_manager.get_image_by_id(image_id)
