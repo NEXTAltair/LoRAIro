@@ -8,7 +8,7 @@ from pathlib import Path
 from loguru import logger
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QDialog, QMessageBox
+from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
 
 from ...database.db_manager import ImageDatabaseManager
 from ...database.schema import ErrorRecord
@@ -29,7 +29,7 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
         self,
         db_manager: ImageDatabaseManager,
         error_id: int,
-        parent: QDialog | None = None,
+        parent: QWidget | None = None,
     ):
         """ErrorDetailDialogを初期化します
 
@@ -39,7 +39,7 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
             parent: 親Dialog
         """
         super().__init__(parent)
-        self.setupUi(self)  # type: ignore  # Justification: Qt Designer generated method signature
+        self.setupUi(self)
 
         self.db_manager = db_manager
         self.error_id = error_id

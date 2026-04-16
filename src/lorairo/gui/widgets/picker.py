@@ -11,7 +11,7 @@ class PickerWidget(QWidget, Ui_PickerWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setupUi(self)
-        self.history = []  # 履歴を保存するリスト
+        self.history: list[str] = []  # 履歴を保存するリスト
 
         self.comboBoxHistory.currentIndexChanged.connect(self.on_history_item_selected)
 

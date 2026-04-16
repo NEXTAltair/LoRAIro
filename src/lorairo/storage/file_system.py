@@ -6,7 +6,7 @@ from datetime import datetime
 from io import BytesIO
 from itertools import islice
 from pathlib import Path
-from typing import Any, ClassVar, Literal
+from typing import Any, Callable, ClassVar, Literal, cast
 
 import toml
 from PIL import Image, ImageCms
@@ -116,6 +116,7 @@ class FileSystemManager:
         if not self.initialized:
             raise RuntimeError("FileSystemManagerが初期化されていません。")
 
+        assert self.image_dataset_dir is not None
         resolution_dir = self.image_dataset_dir / str(target_resolution)
         current_date = datetime.now().strftime("%Y/%m/%d")
         resized_images_dir = resolution_dir / current_date
@@ -189,7 +190,8 @@ class FileSystemManager:
             color_space = mode
             if icc_profile:
                 profile = ImageCms.ImageCmsProfile(BytesIO(icc_profile))
-                color_space = str(ImageCms.getProfileName(profile)).strip()
+                _get_profile_name = cast("Callable[[Any], str]", ImageCms.getProfileName)
+                color_space = _get_profile_name(profile).strip()
 
             return {
                 "width": width,

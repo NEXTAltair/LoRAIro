@@ -38,7 +38,7 @@ class ErrorLogViewerWidget(QWidget, Ui_ErrorLogViewerWidget):
             parent: 親Widget
         """
         super().__init__(parent)
-        self.setupUi(self)  # type: ignore  # Justification: Qt Designer generated method signature
+        self.setupUi(self)
 
         # 依存注入
         self.db_manager: ImageDatabaseManager | None = None
@@ -241,7 +241,10 @@ class ErrorLogViewerWidget(QWidget, Ui_ErrorLogViewerWidget):
             return
 
         # エラーレコードID取得
-        error_id = self.tableWidgetErrors.item(selected_row, 0).data(Qt.ItemDataRole.UserRole)
+        error_item = self.tableWidgetErrors.item(selected_row, 0)
+        if error_item is None:
+            return
+        error_id = error_item.data(Qt.ItemDataRole.UserRole)
 
         # Signal発火
         self.error_selected.emit(error_id)
@@ -264,7 +267,10 @@ class ErrorLogViewerWidget(QWidget, Ui_ErrorLogViewerWidget):
             return
 
         # エラーレコードID取得
-        error_id = self.tableWidgetErrors.item(selected_row, 0).data(Qt.ItemDataRole.UserRole)
+        resolve_item = self.tableWidgetErrors.item(selected_row, 0)
+        if resolve_item is None:
+            return
+        error_id = resolve_item.data(Qt.ItemDataRole.UserRole)
 
         # 確認ダイアログ
         reply = QMessageBox.question(

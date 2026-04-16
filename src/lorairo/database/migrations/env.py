@@ -1,9 +1,10 @@
 # Add imports for your models and db core functionality
 from logging.config import fileConfig
-from typing import Any
+from typing import Any, Literal
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
+from sqlalchemy.sql.schema import SchemaItem
 
 from lorairo.database.schema import Base  # Use absolute import from src
 
@@ -29,7 +30,13 @@ target_metadata = Base.metadata  # Set your Base's metadata here
 
 
 # --- Function to ignore tag_db schema objects ---
-def include_object(object: Any, name: str, type_: str, reflected: bool, compare_to: Any) -> bool:
+def include_object(
+    object: SchemaItem,
+    name: str | None,
+    type_: Literal["schema", "table", "column", "index", "unique_constraint", "foreign_key_constraint"],
+    reflected: bool,
+    compare_to: SchemaItem | None,
+) -> bool:
     """Exclude objects belonging to the 'tag_db' schema from comparison."""
     # Only check schema for tables
     if type_ == "table" and hasattr(object, "schema") and object.schema == "tag_db":

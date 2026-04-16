@@ -111,7 +111,7 @@ class BatchTagAddWidget(QWidget):
 
         # UI設定
         self.ui = Ui_BatchTagAddWidget()
-        self.ui.setupUi(self)  # type: ignore[no-untyped-call]
+        self.ui.setupUi(self)
 
         self._staging_thumbnail_widget: ThumbnailSelectorWidget | None = None
         self._setup_staging_thumbnail_widget()
@@ -254,7 +254,9 @@ class BatchTagAddWidget(QWidget):
             if container.layout() is None:
                 layout = QVBoxLayout(container)
                 layout.setContentsMargins(0, 0, 0, 0)
-            container.layout().addWidget(tag_input)
+            container_layout = container.layout()
+            assert container_layout is not None
+            container_layout.addWidget(tag_input)
 
         splitter = getattr(self.ui, "splitterBatchTagStaging", None)
         if splitter:

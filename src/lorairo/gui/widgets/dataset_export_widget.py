@@ -126,7 +126,7 @@ class DatasetExportWidget(QDialog):
 
         # Services
         self.service_container = service_container
-        self.export_service = service_container.dataset_export_service()
+        self.export_service = service_container.dataset_export_service
 
         # Data
         self.image_ids = initial_image_ids or []
@@ -167,7 +167,7 @@ class DatasetExportWidget(QDialog):
 
         # UI state change connections
         self.ui.comboBoxResolution.currentTextChanged.connect(self._on_settings_changed)
-        self.format_button_group.idChanged.connect(self._on_settings_changed)
+        self.format_button_group.idClicked.connect(self._on_settings_changed)
         self.ui.latestOnlyCheckBox.toggled.connect(self._on_settings_changed)
 
     def _update_initial_state(self) -> None:

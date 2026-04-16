@@ -35,7 +35,7 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
             parent: 親Widget
         """
         super().__init__(parent)
-        self.setupUi(self)  # type: ignore  # Justification: Qt Designer generated method
+        self.setupUi(self)
 
         # 依存注入
         self.tag_service: TagManagementService | None = None
@@ -218,10 +218,13 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
         self.buttonUpdate.setEnabled(False)
         self.labelStatus.setText("Status: Updating...")
 
+        assert self.tag_service is not None
+        tag_service = self.tag_service
+
         # QThreadでシンプルに実行（Worker class不要）
         def run_update() -> None:
             try:
-                self.tag_service.update_tag_types(updates)
+                tag_service.update_tag_types(updates)
                 self.update_completed.emit()
             except Exception as e:
                 logger.error(f"Error updating tag types: {e}", exc_info=True)

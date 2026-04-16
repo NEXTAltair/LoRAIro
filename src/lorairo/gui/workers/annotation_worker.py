@@ -7,7 +7,7 @@ GUI Layer: 非同期処理とQt進捗管理のみ担当
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 from image_annotator_lib import PHashAnnotationResults
@@ -348,7 +348,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         logger.info(f"DB保存完了: {success_count}/{len(results)}件成功")
         return success_count, skip_count, image_summaries
 
-    def _build_phash_to_filename_map(self, phash_to_image_id: dict[str, int | None]) -> dict[str, str]:
+    def _build_phash_to_filename_map(self, phash_to_image_id: dict[str, int]) -> dict[str, str]:
         """pHashからファイル名へのマッピングを構築する。
 
         image_pathsリストとDB上のimage_idマッピングから、
@@ -499,7 +499,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         if hasattr(formatted_output, "scores") and isinstance(
             getattr(formatted_output, "scores", None), dict
         ):
-            return formatted_output.scores
+            return cast("dict[str, float]", formatted_output.scores)
 
         # Pipeline系(AestheticShadow): dict with "hq" key → aesthetic score
         if isinstance(formatted_output, dict) and "hq" in formatted_output:
