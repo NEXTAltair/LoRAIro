@@ -185,21 +185,8 @@ class TestStatePreservation:
 class TestAnnotationControlVisibility:
     """アノテーション制御表示テスト"""
 
-    def test_annotation_control_hidden_in_workspace(self, main_window_with_tabs):
-        """ワークスペースタブでgroupBoxAnnotationControlが非表示"""
-        # groupBoxAnnotationControlが存在する場合、hide()が呼ばれたことを確認
-        # Note: isVisible()はウィンドウ未表示時に常にFalseを返すため、
-        #       isHidden()を使用してhide()が明示的に呼ばれたことを検証
-        if hasattr(main_window_with_tabs, "groupBoxAnnotationControl"):
-            annotation_control = main_window_with_tabs.groupBoxAnnotationControl
-            assert annotation_control.isHidden(), (
-                "groupBoxAnnotationControl should be explicitly hidden via hide()"
-            )
-
     def test_tab_changed_handler_exists(self, main_window_with_tabs):
         """_on_main_tab_changedメソッドが存在する"""
-        # Note: groupBoxAnnotationControlの非表示制御はUIレイアウト変更により不要となった
-        # 代わりにタブ切り替えハンドラの存在を検証
         assert hasattr(main_window_with_tabs, "_on_main_tab_changed")
 
 
