@@ -529,9 +529,9 @@ class ImageDatabaseManager:
             metadata = self.repository.get_processed_image(image_id, resolution=0, all_data=False)
             if isinstance(metadata, dict):  # None でなく dict であることを確認
                 path = metadata.get("stored_image_path")
-                if path:
+                if isinstance(path, str) and path:
                     logger.debug(f"画像ID {image_id} の低解像度画像パスを取得しました。")
-                    return path  # type: ignore[no-any-return]
+                    return path
                 logger.warning(
                     f"画像ID {image_id} の低解像度画像のパスが見つかりません。 Metadata: {metadata}",
                 )

@@ -7,7 +7,7 @@ Phase 4-5: APIキー管理統合（引数ベース方式）
 ConfigurationServiceからAPIキーを取得し、api_keysパラメータとして明示的に渡す
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from image_annotator_lib import list_available_annotators_with_metadata
 from PIL import Image
@@ -53,7 +53,8 @@ class AnnotatorLibraryAdapter:
             logger.debug("image-annotator-libからモデルメタデータを取得中...")
 
             # image-annotator-lib API呼び出し
-            models: list[dict[str, Any]] = list_available_annotators_with_metadata()  # type: ignore[assignment]
+            # 外部ライブラリの戻り値型が未定義のためcastで明示
+            models = cast(list[dict[str, Any]], list_available_annotators_with_metadata())
 
             logger.info(f"image-annotator-libからモデルメタデータ取得完了: {len(models)}件")
             return models

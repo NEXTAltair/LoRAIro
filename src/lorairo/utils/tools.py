@@ -74,4 +74,5 @@ def read_text_with_fallback(file_path: Path, encodings: tuple[str, ...] = _FALLB
         except UnicodeDecodeError as e:
             last_error = e
             continue
-    raise last_error  # type: ignore[misc]  # latin-1が最終フォールバックのため到達しないが安全策
+    assert last_error is not None  # encodingsは非空契約。latin-1で到達しないが型ナロウイング用
+    raise last_error
