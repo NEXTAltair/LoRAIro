@@ -32,7 +32,7 @@ class ResultHandlerService:
         self,
         result: Any,
         status_bar: Any | None = None,
-        completion_signal: Signal | SignalInstance | None = None,
+        completion_signal: SignalInstance | None = None,
     ) -> None:
         """バッチ登録完了処理
 

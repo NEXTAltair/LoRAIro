@@ -7,7 +7,7 @@ QProgressDialogを使用したモーダルプログレス表示を提供し、
 WorkerServiceとの統合によりワーカー進捗の視認性を大幅に改善します。
 """
 
-from typing import Optional
+from typing import Optional, cast
 from uuid import uuid4
 
 from loguru import logger
@@ -60,7 +60,7 @@ class ModernProgressManager(QObject):
             self._close_dialog(worker_id)
 
         # QProgressDialog作成
-        dialog = QProgressDialog(parent or self.parent())
+        dialog = QProgressDialog(parent or cast("QWidget | None", self.parent()))
         dialog.setWindowTitle(f"LoRAIro - {operation_name}")
         dialog.setLabelText(initial_message)
         dialog.setMinimum(0)

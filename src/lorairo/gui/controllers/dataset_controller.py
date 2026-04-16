@@ -107,14 +107,17 @@ class DatasetController:
             return
 
         try:
+            file_system_manager = self.file_system_manager
+            worker_service = self.worker_service
+            assert file_system_manager is not None
+            assert worker_service is not None
+
             # FileSystemManagerの初期化（新しいメソッド使用）
-            output_dir = self.file_system_manager.initialize_from_dataset_selection(directory)
+            output_dir = file_system_manager.initialize_from_dataset_selection(directory)
             logger.info(f"FileSystemManager初期化完了: output_dir={output_dir}")
 
             # バッチ登録開始（初期化済みFileSystemManagerを渡す）
-            worker_id = self.worker_service.start_batch_registration_with_fsm(
-                directory, self.file_system_manager
-            )
+            worker_id = worker_service.start_batch_registration_with_fsm(directory, file_system_manager)
 
             if worker_id:
                 logger.info(f"バッチ登録開始: worker_id={worker_id}, directory={directory}")

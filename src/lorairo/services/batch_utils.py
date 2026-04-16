@@ -190,7 +190,7 @@ def monitor_batch_progress(processor: Any, batch_id: str, check_interval: int = 
 
             if status in ["completed", "failed", "cancelled"]:
                 logger.info(f"バッチ処理終了: {status}")
-                return status
+                return str(status)
 
             elif status in ["validating", "in_progress", "finalizing"]:
                 logger.info(f"処理中... 次回チェック: {check_interval}秒後")

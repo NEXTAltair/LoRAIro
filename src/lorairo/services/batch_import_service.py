@@ -193,8 +193,8 @@ class BatchImportService:
 
         # 5. タグID一括解決（N+1回避）
         all_tags: set[str] = set()
-        for content in parsed.values():
-            for tag in content.tags:
+        for parsed_content in parsed.values():
+            for tag in parsed_content.tags:
                 all_tags.add(tag.strip().lower())
 
         tag_id_cache = self._repository.batch_resolve_tag_ids(all_tags)
@@ -203,9 +203,9 @@ class BatchImportService:
         saved = 0
         save_errors = 0
         for custom_id, image_id in match_result.matched.items():
-            content = parsed[custom_id]
+            parsed_content = parsed[custom_id]
             try:
-                annotations = self._build_annotations(content, model_id)
+                annotations = self._build_annotations(parsed_content, model_id)
                 self._repository.save_annotations(
                     image_id,
                     annotations,
