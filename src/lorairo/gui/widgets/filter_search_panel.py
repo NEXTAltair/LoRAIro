@@ -134,6 +134,7 @@ class FilterSearchPanel(QScrollArea):
     def setup_custom_widgets(self) -> None:
         """Qt DesignerのUIに日付範囲スライダー、スコア範囲スライダー、進捗表示、QButtonGroupを追加"""
         from PySide6.QtWidgets import (
+            QBoxLayout,
             QButtonGroup,
             QGroupBox,
             QHBoxLayout,
@@ -148,13 +149,15 @@ class FilterSearchPanel(QScrollArea):
 
         # プレースホルダーを実際のスライダーで置き換え
         placeholder = self.ui.dateRangeSliderPlaceholder
-        layout = placeholder.parent().layout()
-        if layout:
-            # プレースホルダーの位置を取得して置き換え
-            index = layout.indexOf(placeholder)
-            layout.removeWidget(placeholder)
-            placeholder.deleteLater()
-            layout.insertWidget(index, self.date_range_slider)
+        parent_widget = placeholder.parentWidget()
+        if parent_widget:
+            layout = parent_widget.layout()
+            if isinstance(layout, QBoxLayout):
+                # プレースホルダーの位置を取得して置き換え
+                index = layout.indexOf(placeholder)
+                layout.removeWidget(placeholder)
+                placeholder.deleteLater()
+                layout.insertWidget(index, self.date_range_slider)
 
         # スコア範囲スライダーを作成（0.0-10.0の範囲、内部値0-1000）
         self.score_range_slider = CustomRangeSlider(min_value=0, max_value=1000)
@@ -167,9 +170,10 @@ class FilterSearchPanel(QScrollArea):
         score_group.setLayout(score_layout)
 
         # フィルターグループの適切な位置にスコアスライダーを追加
-        if hasattr(self.ui, "filterGroup") and self.ui.filterGroup.layout():
+        if hasattr(self.ui, "filterGroup"):
             filter_layout = self.ui.filterGroup.layout()
-            filter_layout.addWidget(score_group)
+            if isinstance(filter_layout, QBoxLayout):
+                filter_layout.addWidget(score_group)
 
         # QButtonGroup実装（論理演算子の独立化）
         self.logic_button_group = QButtonGroup(self)
@@ -200,7 +204,7 @@ class FilterSearchPanel(QScrollArea):
         # 検索グループの最後に進捗UIを追加
         # プレビューエリア削除後は、lineEditSearchの下に追加
         main_layout = self.ui.searchGroup.layout()
-        if main_layout:
+        if isinstance(main_layout, QBoxLayout):
             main_layout.addWidget(self._estimated_count_label)
             main_layout.addLayout(self.progress_layout)
 
@@ -216,7 +220,7 @@ class FilterSearchPanel(QScrollArea):
         """検索入力欄にタグオートコンプリートを設定する。"""
         self.ui.lineEditSearch.setCompleter(self._tag_completer)
         self._tag_suggestion_timer.timeout.connect(self._update_tag_completions)
-        self._tag_completer.activated[str].connect(self._on_tag_completion_activated)
+        self._tag_completer.activated.connect(self._on_tag_completion_activated)
 
     def set_tag_suggestion_service(self, service: "TagSuggestionService | None") -> None:
         """TagSuggestionService を設定する（依存注入）。
@@ -370,6 +374,7 @@ class FilterSearchPanel(QScrollArea):
     def setup_favorite_filters_ui(self) -> None:
         """お気に入りフィルターUIを作成してメインレイアウトに追加 (Phase 4)"""
         from PySide6.QtWidgets import (
+            QBoxLayout,
             QGroupBox,
             QHBoxLayout,
             QListWidget,
@@ -405,7 +410,7 @@ class FilterSearchPanel(QScrollArea):
 
         # メインレイアウトに追加（buttonApply/buttonClearの前に追加）
         main_layout = self.ui.scrollAreaWidgetContents.layout()
-        if main_layout:
+        if isinstance(main_layout, QBoxLayout):
             # 最後から2番目に挿入（Apply/Clearボタンの前）
             insert_index = main_layout.count() - 1
             main_layout.insertWidget(insert_index, self.favorite_filters_group)
@@ -758,7 +763,8 @@ class FilterSearchPanel(QScrollArea):
                     logger.debug(f"Search batch progress: {current}/{total} -> {overall_progress:.1%}")
 
             elif (
-                hasattr(self.worker_service, "current_thumbnail_worker_id")
+                self.worker_service is not None
+                and hasattr(self.worker_service, "current_thumbnail_worker_id")
                 and worker_id == self.worker_service.current_thumbnail_worker_id
             ):
                 # サムネイル読み込みフェーズ: 30-100%
@@ -885,6 +891,7 @@ class FilterSearchPanel(QScrollArea):
 
     def _build_current_search_conditions(self) -> "SearchConditions":
         """現在のUI状態からSearchConditionsを組み立てる。"""
+        assert self.search_filter_service is not None, "SearchFilterService が設定されていません"
         search_text = self.ui.lineEditSearch.text().strip()
         keywords, excluded_keywords = (
             self.search_filter_service.parse_search_input(search_text) if search_text else ([], [])
@@ -1200,6 +1207,8 @@ class FilterSearchPanel(QScrollArea):
 
     def _build_search_conditions_from_ui(self) -> "SearchConditions | None":
         """UI 入力から SearchConditions を構築する。検証失敗時は None を返す。"""
+        if self.search_filter_service is None:
+            return None
         search_text = self.ui.lineEditSearch.text().strip()
         keywords, excluded_keywords = (
             self.search_filter_service.parse_search_input(search_text) if search_text else ([], [])
@@ -1303,6 +1312,9 @@ class FilterSearchPanel(QScrollArea):
 
     def _execute_synchronous_search(self) -> None:
         """同期検索実行（WorkerServiceが利用できない場合のフォールバック）"""
+        if self.search_filter_service is None:
+            self._log_search_filter_service_missing()
+            return
         logger.warning("フォールバック: 同期検索を実行")
 
         try:
