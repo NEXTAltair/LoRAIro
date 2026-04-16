@@ -804,11 +804,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             dialog.exec()
             raw_results = result.results
         else:
-            # 後方互換: 旧形式の生dict
+            # 後方互換: 旧形式の生dict（PHashAnnotationResults は dict サブクラス）
             self._delegate_to_result_handler(
                 "handle_annotation_finished", result, status_bar=self.statusBar()
             )
-            raw_results = result if isinstance(result, PHashAnnotationResults) else None
+            raw_results = cast(PHashAnnotationResults, result) if isinstance(result, dict) else None
 
         # Phase 2: 検索結果キャッシュ更新
         # ワークスペースタブで選択中の画像がアノテーション対象に含まれていた場合、
