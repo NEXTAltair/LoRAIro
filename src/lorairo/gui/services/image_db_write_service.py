@@ -244,8 +244,9 @@ class ImageDBWriteService:
                     "tag_id": None,  # 手動編集時はNone（自動生成）
                     "model_id": self.db_manager.get_manual_edit_model_id(),
                     "tag": tag,
-                    "source": "manual",  # 手動編集ソース
                     "confidence_score": None,  # 手動編集時は信頼度スコアなし
+                    "existing": False,
+                    "is_edited_manually": True,
                 }
                 tags_data.append(tag_data)
 
@@ -283,6 +284,7 @@ class ImageDBWriteService:
                 "model_id": self.db_manager.get_manual_edit_model_id(),
                 "caption": caption.strip(),
                 "existing": False,  # 手動編集時は新規作成
+                "is_edited_manually": True,
             }
 
             # Repositoryの save_annotations を呼び出し

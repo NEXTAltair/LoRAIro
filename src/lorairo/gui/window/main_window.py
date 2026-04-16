@@ -792,10 +792,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             - Phase 1: サマリーダイアログ表示
             - Phase 2: 検索結果キャッシュ更新（選択中画像の詳細パネル反映）
         """
+        from image_annotator_lib import PHashAnnotationResults
+
         from lorairo.gui.widgets.annotation_summary_dialog import AnnotationSummaryDialog
         from lorairo.gui.workers.annotation_worker import AnnotationExecutionResult
 
         # Phase 1: サマリーダイアログ表示
+        raw_results: PHashAnnotationResults | None = None
         if isinstance(result, AnnotationExecutionResult):
             dialog = AnnotationSummaryDialog(result, parent=self)
             dialog.exec()
@@ -805,7 +808,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self._delegate_to_result_handler(
                 "handle_annotation_finished", result, status_bar=self.statusBar()
             )
-            raw_results = result if isinstance(result, dict) else None
+            raw_results = result if isinstance(result, PHashAnnotationResults) else None
 
         # Phase 2: 検索結果キャッシュ更新
         # ワークスペースタブで選択中の画像がアノテーション対象に含まれていた場合、

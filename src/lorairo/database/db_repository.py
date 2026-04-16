@@ -2,7 +2,7 @@
 
 import datetime
 from pathlib import Path
-from typing import Any, TypedDict, cast
+from typing import Any, cast
 
 from genai_tag_db_tools import search_tags
 from genai_tag_db_tools.db.repository import MergedTagReader, get_default_reader
@@ -17,6 +17,9 @@ from ..utils.log import logger
 from .db_core import DefaultSessionLocal
 from .filter_criteria import ImageFilterCriteria
 from .schema import (
+    AnnotationsDict as AnnotationsDict,
+)
+from .schema import (
     Caption,
     ErrorRecord,
     Image,
@@ -28,44 +31,18 @@ from .schema import (
     Score,
     Tag,
 )
-
-
-# --- データ構造の型定義 (例) ---
-# 呼び出し側はこの構造に合わせてデータを用意する想定
-class TagAnnotationData(TypedDict):
-    tag: str
-    model_id: int | None
-    confidence_score: float | None
-    existing: bool
-    is_edited_manually: bool | None
-    tag_id: int | None
-
-
-class CaptionAnnotationData(TypedDict):
-    caption: str
-    model_id: int | None
-    existing: bool
-    is_edited_manually: bool | None
-
-
-class ScoreAnnotationData(TypedDict):
-    score: float
-    model_id: int
-    is_edited_manually: bool
-
-
-class RatingAnnotationData(TypedDict):
-    raw_rating_value: str
-    normalized_rating: str
-    model_id: int  # Rating must have a model
-    confidence_score: float | None
-
-
-class AnnotationsDict(TypedDict):
-    tags: list[TagAnnotationData]
-    captions: list[CaptionAnnotationData]
-    scores: list[ScoreAnnotationData]
-    ratings: list[RatingAnnotationData]
+from .schema import (
+    CaptionAnnotationData as CaptionAnnotationData,
+)
+from .schema import (
+    RatingAnnotationData as RatingAnnotationData,
+)
+from .schema import (
+    ScoreAnnotationData as ScoreAnnotationData,
+)
+from .schema import (
+    TagAnnotationData as TagAnnotationData,
+)
 
 
 class ImageRepository:

@@ -154,7 +154,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         Returns:
             (マージされたアノテーション結果, モデルエラー詳細リスト) のタプル。
         """
-        merged_results: PHashAnnotationResults = {}
+        merged_results: PHashAnnotationResults = PHashAnnotationResults()
         model_errors: list[ModelErrorDetail] = []
         total_models = len(self.models)
 
@@ -611,7 +611,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             - model_id解決はmodels_cacheから取得(N+1回避)
             - 正しいキー名: "tag", "caption", "raw_rating_value", "normalized_rating"
         """
-        from lorairo.database.db_repository import AnnotationsDict
+        from lorairo.database.schema import AnnotationsDict
 
         result: AnnotationsDict = {
             "scores": [],
