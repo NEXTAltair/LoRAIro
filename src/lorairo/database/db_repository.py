@@ -10,6 +10,7 @@ from genai_tag_db_tools.models import TagRegisterRequest, TagSearchRequest
 from genai_tag_db_tools.services.tag_register import TagRegisterService
 from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 from sqlalchemy import Select, and_, exists, func, not_, or_, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 
@@ -133,7 +134,7 @@ class ImageRepository:
                 result = session.execute(stmt).scalar_one_or_none()
                 if result is None:
                     logger.warning(f"モデル名 '{model_name}' がデータベースに見つかりません。")
-                return cast("int | None", result)
+                return result
             except SQLAlchemyError as e:
                 logger.error(f"モデルIDの取得中にエラーが発生しました: {e}", exc_info=True)
                 raise
@@ -904,6 +905,8 @@ class ImageRepository:
 
         existing_tags_by_image: dict[int, set[str]] = {}
         for tag_obj in all_existing_tags:
+            if tag_obj.image_id is None:
+                continue
             if tag_obj.image_id not in existing_tags_by_image:
                 existing_tags_by_image[tag_obj.image_id] = set()
             existing_tags_by_image[tag_obj.image_id].add(tag_obj.tag.lower())
@@ -1077,7 +1080,7 @@ class ImageRepository:
             register_result = self.tag_register_service.register_tag(register_request)
             tag_id = register_result.tag_id
             logger.debug(f"Registered new tag_id {tag_id} for '{normalized_tag}'")
-            return tag_id
+            return cast("int | None", tag_id)
         except ValueError as ve:
             logger.error(f"Tag registration failed (invalid format/type): {ve}")
             return None
@@ -1089,7 +1092,7 @@ class ImageRepository:
                 if retry_result.items and len(retry_result.items) > 0:
                     tag_id = retry_result.items[0].tag_id
                     logger.debug(f"Found tag_id {tag_id} on retry for '{normalized_tag}'")
-                    return tag_id
+                    return cast("int | None", tag_id)
             except Exception as retry_error:
                 logger.error(f"Retry search failed: {retry_error}", exc_info=True)
             return None
@@ -1372,7 +1375,7 @@ class ImageRepository:
                 # 更新
                 logger.debug(f"Updating existing score: id={existing_record.id}")
                 existing_record.score = score_value
-                existing_record.is_edited_manually = is_edited  # 渡された値を使用
+                existing_record.is_edited_manually = is_edited or False  # None → False
             else:
                 # 新規作成
                 logger.debug(f"Adding new score: model_id={model_id}, score={score_value}")
@@ -2182,8 +2185,10 @@ class ImageRepository:
 
         if manual_edit_filter is not None:
             has_manual_edit = or_(
-                exists().where(Tag.image_id == Image.id, Tag.is_edited_manually).correlate(Image),
-                exists().where(Caption.image_id == Image.id, Caption.is_edited_manually).correlate(Image),
+                exists().where(Tag.image_id == Image.id, Tag.is_edited_manually.is_(True)).correlate(Image),
+                exists()
+                .where(Caption.image_id == Image.id, Caption.is_edited_manually.is_(True))
+                .correlate(Image),
                 exists().where(Score.image_id == Image.id, Score.is_edited_manually).correlate(Image),
             )
 
@@ -2808,7 +2813,7 @@ class ImageRepository:
         with self.session_factory() as session:
             try:
                 stmt = update(Image).where(Image.id == image_id).values(manual_rating=rating)
-                result = session.execute(stmt)
+                result = cast("CursorResult[Any]", session.execute(stmt))
                 if result.rowcount == 0:
                     logger.warning(f"Manual rating の更新対象画像が見つかりません: image_id={image_id}")
                     return False
@@ -2857,7 +2862,7 @@ class ImageRepository:
                     .where(target_model.__table__.c.id == annotation_id)
                     .values(is_edited_manually=is_edited)
                 )
-                result = session.execute(stmt)
+                result = cast("CursorResult[Any]", session.execute(stmt))
                 if result.rowcount == 0:
                     logger.warning(
                         f"手動編集フラグの更新対象アノテーションが見つかりません: "
