@@ -28,7 +28,7 @@ from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from ..widgets.thumbnail import ThumbnailSelectorWidget
 
 class Ui_MainWindow(object):
-    def setupUi(self, MainWindow):
+    def setupUi(self, MainWindow: QWidget) -> None:
         if not MainWindow.objectName():
             MainWindow.setObjectName(u"MainWindow")
         MainWindow.resize(1287, 1178)
@@ -441,7 +441,7 @@ class Ui_MainWindow(object):
         QMetaObject.connectSlotsByName(MainWindow)
     # setupUi
 
-    def retranslateUi(self, MainWindow):
+    def retranslateUi(self, MainWindow: QWidget) -> None:
         MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"LoRAIro - \u30ef\u30fc\u30af\u30b9\u30da\u30fc\u30b9", None))
         self.actionOpenDataset.setText(QCoreApplication.translate("MainWindow", u"\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8\u3092\u958b\u304f", None))
 #if QT_CONFIG(shortcut)

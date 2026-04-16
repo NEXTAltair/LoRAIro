@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QGridLayout, QGroupBox,
     QSpacerItem, QVBoxLayout, QWidget)
 
 class Ui_AnnotationStatusFilterWidget(object):
-    def setupUi(self, AnnotationStatusFilterWidget):
+    def setupUi(self, AnnotationStatusFilterWidget: QWidget) -> None:
         if not AnnotationStatusFilterWidget.objectName():
             AnnotationStatusFilterWidget.setObjectName(u"AnnotationStatusFilterWidget")
         AnnotationStatusFilterWidget.resize(251, 167)
@@ -93,7 +93,7 @@ class Ui_AnnotationStatusFilterWidget(object):
         QMetaObject.connectSlotsByName(AnnotationStatusFilterWidget)
     # setupUi
 
-    def retranslateUi(self, AnnotationStatusFilterWidget):
+    def retranslateUi(self, AnnotationStatusFilterWidget: QWidget) -> None:
         AnnotationStatusFilterWidget.setWindowTitle(QCoreApplication.translate("AnnotationStatusFilterWidget", u"Annotation Status Filter", None))
         self.groupBoxStatusFilter.setTitle(QCoreApplication.translate("AnnotationStatusFilterWidget", u"\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u72b6\u614b", None))
         self.checkBoxError.setText(QCoreApplication.translate("AnnotationStatusFilterWidget", u"\u30a8\u30e9\u30fc", None))

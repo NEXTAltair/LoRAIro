@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (QApplication, QGraphicsView, QSizePolicy, QVBoxLa
     QWidget)
 
 class Ui_ImagePreviewWidget(object):
-    def setupUi(self, ImagePreviewWidget):
+    def setupUi(self, ImagePreviewWidget: QWidget) -> None:
         if not ImagePreviewWidget.objectName():
             ImagePreviewWidget.setObjectName(u"ImagePreviewWidget")
         self.verticalLayout = QVBoxLayout(ImagePreviewWidget)
@@ -37,7 +37,7 @@ class Ui_ImagePreviewWidget(object):
         QMetaObject.connectSlotsByName(ImagePreviewWidget)
     # setupUi
 
-    def retranslateUi(self, ImagePreviewWidget):
+    def retranslateUi(self, ImagePreviewWidget: QWidget) -> None:
         ImagePreviewWidget.setWindowTitle(QCoreApplication.translate("ImagePreviewWidget", u"Form", None))
     # retranslateUi
 

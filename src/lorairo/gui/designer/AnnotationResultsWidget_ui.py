@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHeaderView, QLa
     QVBoxLayout, QWidget)
 
 class Ui_AnnotationResultsWidget(object):
-    def setupUi(self, AnnotationResultsWidget):
+    def setupUi(self, AnnotationResultsWidget: QWidget) -> None:
         if not AnnotationResultsWidget.objectName():
             AnnotationResultsWidget.setObjectName(u"AnnotationResultsWidget")
         AnnotationResultsWidget.resize(400, 400)
@@ -132,7 +132,7 @@ class Ui_AnnotationResultsWidget(object):
         QMetaObject.connectSlotsByName(AnnotationResultsWidget)
     # setupUi
 
-    def retranslateUi(self, AnnotationResultsWidget):
+    def retranslateUi(self, AnnotationResultsWidget: QWidget) -> None:
         AnnotationResultsWidget.setWindowTitle(QCoreApplication.translate("AnnotationResultsWidget", u"Annotation Results", None))
         self.labelResultsTitle.setText(QCoreApplication.translate("AnnotationResultsWidget", u"\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u7d50\u679c", None))
         ___qtablewidgetitem = self.tableWidgetCaption.horizontalHeaderItem(0)

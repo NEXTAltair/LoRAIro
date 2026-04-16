@@ -24,7 +24,7 @@ from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.thumbnail import ThumbnailSelectorWidget
 
 class Ui_DatasetOverviewWidget(object):
-    def setupUi(self, DatasetOverviewWidget):
+    def setupUi(self, DatasetOverviewWidget: QWidget) -> None:
         if not DatasetOverviewWidget.objectName():
             DatasetOverviewWidget.setObjectName(u"DatasetOverviewWidget")
         DatasetOverviewWidget.resize(350, 777)
@@ -267,7 +267,7 @@ class Ui_DatasetOverviewWidget(object):
         QMetaObject.connectSlotsByName(DatasetOverviewWidget)
     # setupUi
 
-    def retranslateUi(self, DatasetOverviewWidget):
+    def retranslateUi(self, DatasetOverviewWidget: QWidget) -> None:
         DatasetOverviewWidget.setWindowTitle(QCoreApplication.translate("DatasetOverviewWidget", u"Dataset Overview", None))
         self.metadataGroupBox.setTitle("")
         self.fileNameLabel.setText(QCoreApplication.translate("DatasetOverviewWidget", u"\u30d5\u30a1\u30a4\u30eb\u540d:", None))

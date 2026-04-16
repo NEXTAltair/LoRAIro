@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (QApplication, QGridLayout, QGroupBox, QLabel,
 from ..widgets.annotation_data_display_widget import AnnotationDataDisplayWidget
 
 class Ui_SelectedImageDetailsWidget(object):
-    def setupUi(self, SelectedImageDetailsWidget):
+    def setupUi(self, SelectedImageDetailsWidget: QWidget) -> None:
         if not SelectedImageDetailsWidget.objectName():
             SelectedImageDetailsWidget.setObjectName(u"SelectedImageDetailsWidget")
         SelectedImageDetailsWidget.resize(250, 400)
@@ -172,7 +172,7 @@ class Ui_SelectedImageDetailsWidget(object):
         QMetaObject.connectSlotsByName(SelectedImageDetailsWidget)
     # setupUi
 
-    def retranslateUi(self, SelectedImageDetailsWidget):
+    def retranslateUi(self, SelectedImageDetailsWidget: QWidget) -> None:
         SelectedImageDetailsWidget.setWindowTitle(QCoreApplication.translate("SelectedImageDetailsWidget", u"Selected Image Details", None))
         self.groupBoxImageInfo.setTitle(QCoreApplication.translate("SelectedImageDetailsWidget", u"\u753b\u50cf\u60c5\u5831", None))
         self.labelFileName.setText(QCoreApplication.translate("SelectedImageDetailsWidget", u"\u30d5\u30a1\u30a4\u30eb\u540d:", None))

@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHeaderView, QSi
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 class Ui_ModelSelectionTableWidget(object):
-    def setupUi(self, ModelSelectionTableWidget):
+    def setupUi(self, ModelSelectionTableWidget: QWidget) -> None:
         if not ModelSelectionTableWidget.objectName():
             ModelSelectionTableWidget.setObjectName(u"ModelSelectionTableWidget")
         ModelSelectionTableWidget.resize(400, 300)
@@ -70,7 +70,7 @@ class Ui_ModelSelectionTableWidget(object):
         QMetaObject.connectSlotsByName(ModelSelectionTableWidget)
     # setupUi
 
-    def retranslateUi(self, ModelSelectionTableWidget):
+    def retranslateUi(self, ModelSelectionTableWidget: QWidget) -> None:
         ModelSelectionTableWidget.setWindowTitle(QCoreApplication.translate("ModelSelectionTableWidget", u"Model Selection Table", None))
         ___qtablewidgetitem = self.tableWidgetModels.horizontalHeaderItem(0)
         ___qtablewidgetitem.setText(QCoreApplication.translate("ModelSelectionTableWidget", u"\u9078\u629e", None));

@@ -24,7 +24,7 @@ from ..widgets.directory_picker import DirectoryPickerWidget
 from ..widgets.file_picker import FilePickerWidget
 
 class Ui_ConfigurationWindow(object):
-    def setupUi(self, ConfigurationWindow):
+    def setupUi(self, ConfigurationWindow: QWidget) -> None:
         if not ConfigurationWindow.objectName():
             ConfigurationWindow.setObjectName(u"ConfigurationWindow")
         ConfigurationWindow.resize(718, 681)
@@ -245,7 +245,7 @@ class Ui_ConfigurationWindow(object):
         QMetaObject.connectSlotsByName(ConfigurationWindow)
     # setupUi
 
-    def retranslateUi(self, ConfigurationWindow):
+    def retranslateUi(self, ConfigurationWindow: QWidget) -> None:
         ConfigurationWindow.setWindowTitle(QCoreApplication.translate("ConfigurationWindow", u"Form", None))
         self.groupBoxFolders.setTitle(QCoreApplication.translate("ConfigurationWindow", u"\u30d5\u30a9\u30eb\u30c0\u8a2d\u5b9a", None))
         self.groupBoxApiSettings.setTitle(QCoreApplication.translate("ConfigurationWindow", u"API KEY", None))
