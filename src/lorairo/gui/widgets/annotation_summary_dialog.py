@@ -173,6 +173,7 @@ class AnnotationSummaryDialog(QDialog):
         layout = QVBoxLayout(group)
 
         table = QTableWidget(display_count, 4)
+        table.setObjectName("resultsTable")
         table.setHorizontalHeaderLabels(["画像名", "タグ数", "キャプション", "スコア"])
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -223,6 +224,7 @@ class AnnotationSummaryDialog(QDialog):
         layout = QVBoxLayout(group)
 
         table = QTableWidget(display_count, 3)
+        table.setObjectName("errorTable")
         table.setHorizontalHeaderLabels(["画像", "モデル", "エラー内容"])
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -287,6 +289,7 @@ class AnnotationSummaryDialog(QDialog):
 
         # テーブル作成
         table = QTableWidget(len(tag_rows), 3)
+        table.setObjectName("tagsTable")
         table.setHorizontalHeaderLabels(["pHash/ファイル", "モデル名", "タグ"])
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -369,6 +372,7 @@ class AnnotationSummaryDialog(QDialog):
 
         # テーブル作成
         table = QTableWidget(len(score_rows), 4)
+        table.setObjectName("scoresTable")
         table.setHorizontalHeaderLabels(["pHash/ファイル", "モデル名", "スコア名", "値"])
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -404,6 +408,7 @@ class AnnotationSummaryDialog(QDialog):
 
         stats = self._result.model_statistics
         table = QTableWidget(len(stats), 7)
+        table.setObjectName("modelDetailsTable")
         table.setHorizontalHeaderLabels(
             ["モデル名", "プロバイダー", "成功", "エラー", "タグ数", "キャプション数", "処理時間(秒)"]
         )

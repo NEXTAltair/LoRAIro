@@ -108,6 +108,31 @@ def mock_file_system_manager_for_gui():
 
 
 @pytest.fixture
+def find_child_widget():
+    """objectName でウィジェットを安全に検索するヘルパーフィクスチャ。
+
+    Returns:
+        (parent, widget_type, name) -> widget の検索関数。
+        見つからない場合は AssertionError（タイポ等の即時検出）。
+
+    Usage:
+        def test_something(self, qtbot, find_child_widget):
+            table = find_child_widget(dialog, QTableWidget, "errorTable")
+    """
+    from PySide6.QtCore import QObject
+
+    def _find(parent: QObject, widget_type: type, name: str) -> QObject:
+        widget = parent.findChild(widget_type, name)
+        assert widget is not None, (
+            f"{widget_type.__name__}(objectName='{name}') が見つかりません。"
+            f" setObjectName('{name}') が設定されているか確認してください。"
+        )
+        return widget
+
+    return _find
+
+
+@pytest.fixture
 def sample_qt_main_config():
     """MainWindow 用のモック設定"""
     return {
