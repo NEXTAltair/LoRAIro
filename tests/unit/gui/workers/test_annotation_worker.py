@@ -32,6 +32,7 @@ def mock_annotation_logic():
             }
         }
     }
+    logic.get_available_models_with_metadata.return_value = []
     return logic
 
 

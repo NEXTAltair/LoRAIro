@@ -661,12 +661,9 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             - プロバイダー情報は メタデータの "provider" フィールド
             - capabilities は メタデータの "capabilities" フィールド
         """
-        from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
-
-        # モデルメタデータを取得
-        adapter = AnnotatorLibraryAdapter(self.annotation_logic.annotator_adapter.config_service)
+        # モデルメタデータを取得（AnnotationLogic経由でアダプターに委譲）
         try:
-            model_metadata_list = adapter.get_available_models_with_metadata()
+            model_metadata_list = self.annotation_logic.get_available_models_with_metadata()
             # モデル名をキーとしたメタデータマップを構築
             metadata_map: dict[str, dict[str, Any]] = {}
             for metadata in model_metadata_list:
