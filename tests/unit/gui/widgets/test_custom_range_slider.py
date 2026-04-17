@@ -1,6 +1,6 @@
 # tests/unit/gui/widgets/test_filter_widgets.py
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 from PySide6.QtWidgets import QWidget
@@ -217,6 +217,31 @@ class TestCustomRangeSlider:
         assert range_slider.is_date_mode is False
 
 
+class _TestableFilterSearchPanel(FilterSearchPanel):
+    """クラスレベル @patch を回避するためのテスト用サブクラス。
+
+    @patch で Shiboken クラスのメソッドをクラスレベルで置換すると vtable が壊れて
+    Segfault になるため、サブクラスでオーバーライドして回避する。
+    """
+
+    def setup_custom_widgets(self) -> None:
+        self.date_range_slider = Mock()
+        self.date_range_slider.get_range.return_value = (1640995200, 1703980800)
+        self.date_range_slider.slider = Mock()
+        self.score_range_slider = Mock()
+        self.score_range_slider.get_range.return_value = (0, 1000)
+        self._estimated_count_label = Mock()
+        self.progress_bar = Mock()
+        self._status_label = Mock()
+        self.progress_layout = Mock()
+
+    def setup_favorite_filters_ui(self) -> None:
+        pass
+
+    def connect_signals(self) -> None:
+        pass
+
+
 class TestFilterSearchPanel:
     """FilterSearchPanel のユニットテスト"""
 
@@ -228,19 +253,13 @@ class TestFilterSearchPanel:
         yield widget
 
     @pytest.fixture
-    @patch("lorairo.gui.widgets.filter_search_panel.FilterSearchPanel.setup_custom_widgets")
-    @patch("lorairo.gui.widgets.filter_search_panel.FilterSearchPanel.setup_favorite_filters_ui")
-    @patch("lorairo.gui.widgets.filter_search_panel.FilterSearchPanel.connect_signals")
     def filter_panel(
         self,
-        mock_connect_signals,
-        mock_setup_favorite_filters,
-        mock_setup_custom_widgets,
         parent_widget,
         qtbot,
     ):
-        """テスト用FilterSearchPanel（UI初期化をモック）"""
-        panel = FilterSearchPanel(parent_widget)
+        """テスト用FilterSearchPanel（_TestableFilterSearchPanel でサブクラス化して初期化副作用を排除）"""
+        panel = _TestableFilterSearchPanel(parent_widget)
         qtbot.addWidget(panel)
 
         # UI要素をモック（チェックボックス更新）
@@ -531,6 +550,7 @@ class TestFilterSearchPanel:
         """フィルター適用シグナルテスト"""
         # MockSearchFilterServiceを設定
         mock_search_service = Mock()
+        mock_search_service.parse_search_input.return_value = (["test"], [])
         mock_search_service.create_search_conditions.return_value = {
             "search_text": "test",
             "search_type": "tags",
@@ -698,8 +718,9 @@ class TestFilterWidgetIntegration:
         range_slider.set_date_range()
         assert range_slider.is_date_mode is True
 
-        # 値を変更
-        range_slider.slider.setValue((20, 80))
+        # set_date_range() 後はタイムスタンプ範囲内の値を設定する必要がある
+        quarter = (range_slider.max_value - range_slider.min_value) // 4
+        range_slider.slider.setValue((range_slider.min_value + quarter, range_slider.max_value - quarter))
         min_val, max_val = range_slider.get_range()
 
         assert min_val < max_val
