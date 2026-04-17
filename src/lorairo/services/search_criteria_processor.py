@@ -238,11 +238,11 @@ class SearchCriteriaProcessor:
         Returns:
             マッチすればTrue
         """
-        width = image.get("width", 0)
-        height = image.get("height", 0)
+        width = int(image.get("width", 0))
+        height = int(image.get("height", 0))
         if width <= 0 or height <= 0:
             return False
-        return abs(width / height - target_ratio) <= tolerance
+        return bool(abs(width / height - target_ratio) <= tolerance)
 
     def _filter_by_aspect_ratio(
         self, images: list[dict[str, Any]], aspect_ratio_filter: str
