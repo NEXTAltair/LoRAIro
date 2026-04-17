@@ -133,6 +133,7 @@ class TestAnnotationWorkerErrorRecording:
         # AnnotationLogic モック（エラーを引き起こす）
         mock_logic = Mock(spec=AnnotationLogic)
         mock_logic.execute_annotation.side_effect = Exception("API Error")
+        mock_logic.get_available_models_with_metadata.return_value = []
 
         # Workerの db_manager 注入をテスト
         from lorairo.gui.workers.annotation_worker import AnnotationWorker
@@ -163,6 +164,7 @@ class TestAnnotationWorkerErrorRecording:
         # AnnotationLogic モック（初期化エラーを引き起こす）
         mock_logic = Mock(spec=AnnotationLogic)
         mock_logic.execute_annotation.side_effect = RuntimeError("Logic Error")
+        mock_logic.get_available_models_with_metadata.return_value = []
 
         from lorairo.gui.workers.annotation_worker import AnnotationWorker
 
