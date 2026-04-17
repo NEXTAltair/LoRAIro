@@ -199,11 +199,55 @@ class SearchCriteriaProcessor:
             logger.error(f"フロントエンドフィルター適用中にエラー: {e}", exc_info=True)
             return images
 
-    def _filter_by_aspect_ratio(  # noqa: C901
+    def _resolve_target_aspect_ratio(self, aspect_ratio_filter: str) -> float:
+        """フィルター文字列から目標アスペクト比を抽出する。
+
+        UIラベルの「x:y」形式を優先し、名前ベースのフォールバックを行う。
+
+        Args:
+            aspect_ratio_filter: アスペクト比フィルター条件（文字列）
+
+        Returns:
+            目標アスペクト比（width / height）
+        """
+        ratio_match = re.search(r"(\d+)\s*:\s*(\d+)", aspect_ratio_filter)
+        if ratio_match:
+            numerator = int(ratio_match.group(1))
+            denominator = int(ratio_match.group(2))
+            if denominator != 0:
+                return numerator / denominator
+
+        if "正方形" in aspect_ratio_filter:
+            return 1.0
+        if "風景" in aspect_ratio_filter:
+            return 16 / 9
+        if "縦長" in aspect_ratio_filter:
+            return 9 / 16
+        return 1.0
+
+    def _image_matches_aspect_ratio(
+        self, image: dict[str, Any], target_ratio: float, tolerance: float
+    ) -> bool:
+        """画像のアスペクト比が目標範囲内か判定する。
+
+        Args:
+            image: 画像データ辞書（width, heightキーを含む）
+            target_ratio: 目標アスペクト比
+            tolerance: 許容誤差
+
+        Returns:
+            マッチすればTrue
+        """
+        width = image.get("width", 0)
+        height = image.get("height", 0)
+        if width <= 0 or height <= 0:
+            return False
+        return abs(width / height - target_ratio) <= tolerance
+
+    def _filter_by_aspect_ratio(
         self, images: list[dict[str, Any]], aspect_ratio_filter: str
     ) -> list[dict[str, Any]]:
-        """
-        アスペクト比フィルタリング
+        """アスペクト比フィルタリング。
 
         指定されたアスペクト比条件で画像をフィルタリングします。
 
@@ -218,34 +262,14 @@ class SearchCriteriaProcessor:
             if not aspect_ratio_filter or aspect_ratio_filter == "全て":
                 return images
 
-            filtered_images = []
-
-            # アスペクト比の目標値を設定
-            target_ratio = 1.0  # デフォルト
+            target_ratio = self._resolve_target_aspect_ratio(aspect_ratio_filter)
             tolerance = 0.1
 
-            # UIラベルから比率値を優先抽出（例: "風景 (4:3)" -> 4/3）
-            ratio_match = re.search(r"(\d+)\s*:\s*(\d+)", aspect_ratio_filter)
-            if ratio_match:
-                numerator = int(ratio_match.group(1))
-                denominator = int(ratio_match.group(2))
-                if denominator != 0:
-                    target_ratio = numerator / denominator
-            elif "正方形" in aspect_ratio_filter:
-                target_ratio = 1.0
-            elif "風景" in aspect_ratio_filter:
-                target_ratio = 16 / 9
-            elif "縦長" in aspect_ratio_filter:
-                target_ratio = 9 / 16
-
-            for image in images:
-                width = image.get("width", 0)
-                height = image.get("height", 0)
-
-                if width > 0 and height > 0:
-                    image_ratio = width / height
-                    if abs(image_ratio - target_ratio) <= tolerance:
-                        filtered_images.append(image)
+            filtered_images = [
+                image
+                for image in images
+                if self._image_matches_aspect_ratio(image, target_ratio, tolerance)
+            ]
 
             logger.debug(f"アスペクト比フィルター完了: {len(images)} -> {len(filtered_images)}件")
             return filtered_images
