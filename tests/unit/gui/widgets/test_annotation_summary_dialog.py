@@ -114,13 +114,12 @@ class TestAnnotationSummaryDialogLayout:
         group_titles = [g.title() for g in error_groups]
         assert any("エラー詳細" in t for t in group_titles)
 
-    def test_error_table_content(self, qtbot, partial_error_result):
+    def test_error_table_content(self, qtbot, partial_error_result, find_child_widget):
         """エラーテーブルの内容が正しい"""
         dialog = AnnotationSummaryDialog(partial_error_result)
         qtbot.addWidget(dialog)
 
-        table = dialog.findChild(QTableWidget)
-        assert table is not None
+        table = find_child_widget(dialog, QTableWidget, "errorTable")
         assert table.rowCount() == 1
         assert table.item(0, 0).text() == "image_001.png"
         assert table.item(0, 1).text() == "claude-3-haiku"
@@ -206,55 +205,49 @@ class TestAnnotationSummaryDialogResultsTable:
         group_titles = [g.title() for g in groups]
         assert not any("保存結果一覧" in t for t in group_titles)
 
-    def test_results_table_row_count(self, qtbot, success_result):
+    def test_results_table_row_count(self, qtbot, success_result, find_child_widget):
         """保存結果テーブルの行数が正しい"""
         dialog = AnnotationSummaryDialog(success_result)
         qtbot.addWidget(dialog)
 
-        tables = dialog.findChildren(QTableWidget)
-        # 保存結果テーブルは4列（画像名、タグ数、キャプション、スコア）
-        results_table = next(t for t in tables if t.columnCount() == 4)
+        results_table = find_child_widget(dialog, QTableWidget, "resultsTable")
         assert results_table.rowCount() == 3
 
-    def test_results_table_file_names(self, qtbot, success_result):
+    def test_results_table_file_names(self, qtbot, success_result, find_child_widget):
         """保存結果テーブルにファイル名が表示される"""
         dialog = AnnotationSummaryDialog(success_result)
         qtbot.addWidget(dialog)
 
-        tables = dialog.findChildren(QTableWidget)
-        results_table = next(t for t in tables if t.columnCount() == 4)
+        results_table = find_child_widget(dialog, QTableWidget, "resultsTable")
         assert results_table.item(0, 0).text() == "image_001.png"
         assert results_table.item(1, 0).text() == "image_002.png"
         assert results_table.item(2, 0).text() == "image_003.png"
 
-    def test_results_table_tag_counts(self, qtbot, success_result):
+    def test_results_table_tag_counts(self, qtbot, success_result, find_child_widget):
         """保存結果テーブルにタグ数が表示される"""
         dialog = AnnotationSummaryDialog(success_result)
         qtbot.addWidget(dialog)
 
-        tables = dialog.findChildren(QTableWidget)
-        results_table = next(t for t in tables if t.columnCount() == 4)
+        results_table = find_child_widget(dialog, QTableWidget, "resultsTable")
         assert results_table.item(0, 1).text() == "15"
         assert results_table.item(1, 1).text() == "12"
         assert results_table.item(2, 1).text() == "8"
 
-    def test_results_table_caption_status(self, qtbot, success_result):
+    def test_results_table_caption_status(self, qtbot, success_result, find_child_widget):
         """保存結果テーブルにキャプション有無が表示される"""
         dialog = AnnotationSummaryDialog(success_result)
         qtbot.addWidget(dialog)
 
-        tables = dialog.findChildren(QTableWidget)
-        results_table = next(t for t in tables if t.columnCount() == 4)
+        results_table = find_child_widget(dialog, QTableWidget, "resultsTable")
         assert results_table.item(0, 2).text() == "あり"
         assert results_table.item(2, 2).text() == "-"
 
-    def test_results_table_scores(self, qtbot, success_result):
+    def test_results_table_scores(self, qtbot, success_result, find_child_widget):
         """保存結果テーブルにスコアが表示される"""
         dialog = AnnotationSummaryDialog(success_result)
         qtbot.addWidget(dialog)
 
-        tables = dialog.findChildren(QTableWidget)
-        results_table = next(t for t in tables if t.columnCount() == 4)
+        results_table = find_child_widget(dialog, QTableWidget, "resultsTable")
         assert results_table.item(0, 3).text() == "0.85"
         assert results_table.item(1, 3).text() == "-"  # score=None
         assert results_table.item(2, 3).text() == "0.72"
