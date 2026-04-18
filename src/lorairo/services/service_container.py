@@ -325,6 +325,23 @@ class ServiceContainer:
 
         logger.warning("ServiceContainer状態リセット完了")
 
+    @classmethod
+    def reset_for_testing(cls) -> None:
+        """シングルトン状態を完全にリセット（テスト専用）。
+
+        インスタンス化せずクラスレベルで `_instance` と `_initialized` を
+        クリアする。LORAIRO_CLI_MODE 環境変数の変化が次回の
+        ServiceContainer() 呼び出しで確実に反映される。
+
+        Warning:
+            本番コードからは絶対に呼び出さない。テスト用 autouse fixture
+            (tests/unit/services/conftest.py) からの使用を想定。
+        """
+        if cls._instance is not None:
+            cls._instance.reset_container()
+        else:
+            cls._initialized = False
+
     def set_production_mode(self, enable: bool) -> None:
         """プロダクションモード設定（主にテスト用）
 

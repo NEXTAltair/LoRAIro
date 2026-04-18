@@ -70,7 +70,14 @@ def status() -> None:
 
 
 def main() -> None:
-    """CLIメインエントリポイント。"""
+    """CLIメインエントリポイント。
+
+    ServiceContainer が NoOpSignalManager を自動選択するよう
+    LORAIRO_CLI_MODE を設定してから app を起動する。
+    """
+    import os
+
+    os.environ.setdefault("LORAIRO_CLI_MODE", "true")
     app()
 
 
