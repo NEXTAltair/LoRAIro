@@ -240,14 +240,12 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             )
             self._check_cancellation()
 
-            db_save_success, db_save_skip, image_summaries = self._save_results_to_database(merged_results)
-
-            # モデル統計とpHash→ファイル名マッピングを構築
-            model_statistics = self._build_model_statistics(merged_results)
-            phash_to_image_id = self.db_manager.repository.find_image_ids_by_phashes(
-                set(merged_results.keys())
+            db_save_success, db_save_skip, image_summaries, phash_to_filename = (
+                self._save_results_to_database(merged_results)
             )
-            phash_to_filename = self._build_phash_to_filename_map(phash_to_image_id)
+
+            # モデル統計を構築
+            model_statistics = self._build_model_statistics(merged_results)
 
             self._report_progress(
                 100,
@@ -277,14 +275,14 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
     def _save_results_to_database(
         self, results: PHashAnnotationResults
-    ) -> tuple[int, int, list[ImageResultSummary]]:
+    ) -> tuple[int, int, list[ImageResultSummary], dict[str, str]]:
         """アノテーション結果をDBに保存
 
         Args:
             results: PHashAnnotationResults (phash → model_name → UnifiedResult)
 
         Returns:
-            (DB保存成功件数, スキップ件数, 画像ごとの結果概要リスト) のタプル。
+            (DB保存成功件数, スキップ件数, 画像ごとの結果概要リスト, phash→ファイル名マップ) のタプル。
 
         Note:
             ライブラリが返したpHashをfind_image_ids_by_phashesで一括DB照会。
@@ -294,7 +292,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         # 事前一括取得: pHash → image_id（N+1回避）
         phash_to_image_id = self.db_manager.repository.find_image_ids_by_phashes(set(results.keys()))
 
-        # pHash → ファイル名マッピング構築（結果概要用）
+        # pHash → ファイル名マッピング構築（結果概要用・呼び出し元で再利用）
         phash_to_filename = self._build_phash_to_filename_map(phash_to_image_id)
 
         # 事前一括取得: モデル名・タグ文字列を収集
@@ -346,7 +344,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 logger.error(f"保存失敗 phash={phash[:8]}...: {e}", exc_info=True)
 
         logger.info(f"DB保存完了: {success_count}/{len(results)}件成功")
-        return success_count, skip_count, image_summaries
+        return success_count, skip_count, image_summaries, phash_to_filename
 
     def _build_phash_to_filename_map(self, phash_to_image_id: dict[str, int]) -> dict[str, str]:
         """pHashからファイル名へのマッピングを構築する。
