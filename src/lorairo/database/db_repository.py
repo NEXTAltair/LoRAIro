@@ -2107,8 +2107,15 @@ class ImageRepository:
                 .correlate(Image)
             )
 
-            # AIレーティングまたは手動レーティングがNSFWである画像を除外
-            query = query.where(not_(or_(ai_nsfw_condition, manual_nsfw_condition)))
+            # タグベースのNSFW判定（"nsfw" / "explicit" タグが付いている画像を除外）
+            tag_nsfw_condition = (
+                exists()
+                .where(Tag.image_id == Image.id, func.lower(Tag.tag).in_(["nsfw", "explicit"]))
+                .correlate(Image)
+            )
+
+            # AIレーティング、手動レーティング、またはタグがNSFWである画像を除外
+            query = query.where(not_(or_(ai_nsfw_condition, manual_nsfw_condition, tag_nsfw_condition)))
             # レーティング情報がない (NULL) 画像は除外しない
         return query
 
