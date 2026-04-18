@@ -377,7 +377,8 @@ def when_register_processed_image(
     """ダミーの処理済み画像を作成し、DBに登録する"""
     # ダミーの処理済み画像情報を作成
     processed_filename = f"{test_image_path.stem}_processed.webp"
-    processed_path = fs_manager.resized_images_dir / processed_filename  # 属性名を修正
+    resized_dir = fs_manager.get_resolution_dir(256)
+    processed_path = resized_dir / processed_filename
     dummy_info = {
         "width": 256,
         "height": 256,
