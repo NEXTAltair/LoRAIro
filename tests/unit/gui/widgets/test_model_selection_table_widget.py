@@ -182,11 +182,10 @@ class TestModelSelectionTableWidget:
         assert info.selected_models == [sample_models[0]["name"]]
 
     def test_load_models_without_service(self, widget):
-        # サービス未設定でも例外にならず、テーブルがクリアされる
-        widget.load_models()
-        assert widget.all_models == []
-        assert widget.filtered_models == []
-        assert widget.tableWidgetModels.rowCount() == 0
+        # サービス未設定時は RuntimeError を送出する（fail-fast 設計）
+        with pytest.raises(RuntimeError) as exc_info:
+            widget.load_models()
+        assert "SearchFilterService not available" in str(exc_info.value)
 
     def test_apply_filters_without_service_warns(self, widget, sample_models):
         # サービス未設定でフィルタしても落ちない
