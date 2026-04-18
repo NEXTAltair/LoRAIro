@@ -10,6 +10,8 @@ from ..utils.log import logger
 class ConfigurationService:
     """アプリケーションの設定読み込み、更新、保存を担当するサービスクラス。"""
 
+    _SECRET_KEY_PATTERNS = ("key", "token", "secret")
+
     def __init__(
         self, config_path: Path | None = None, shared_config: dict[str, Any] | None = None
     ) -> None:
@@ -73,8 +75,8 @@ class ConfigurationService:
         if section not in self._config:
             self._config[section] = {}
         self._config[section][key] = value
-        # APIキーの場合はマスキングしてログ出力
-        if section == "api" and "key" in key.lower():
+        # キー名に機密情報パターンが含まれる場合はマスキングしてログ出力
+        if any(p in key.lower() for p in self._SECRET_KEY_PATTERNS):
             masked_value = self._mask_api_key(str(value))
             logger.debug("設定値を更新しました: [{}] {} = {}", section, key, masked_value)
         else:
@@ -168,11 +170,22 @@ class ConfigurationService:
 
     def get_database_directory(self) -> Path:
         """directories.database_dir の設定値を取得します。"""
-        dir_str = self.get_setting("directories", "database_dir", "database")
-        # 空文字列の場合もデフォルト値を使用
-        if not dir_str:
-            dir_str = "database"
-        return Path(dir_str).resolve()
+        try:
+            dir_str = self.get_setting("directories", "database_dir", "database")
+            # 空文字列の場合もデフォルト値を使用
+            if not dir_str:
+                dir_str = "database"
+            path = Path(dir_str)
+            if not path.is_absolute():
+                resolved = path.resolve()
+                logger.debug(f"Resolved relative database_dir: {path} -> {resolved}")
+                path = resolved
+            return path
+        except Exception as e:
+            logger.error(f"Failed to resolve database_dir: {e}", exc_info=True)
+            fallback = Path.cwd() / "database"
+            logger.warning(f"Using fallback database directory: {fallback}")
+            return fallback
 
     def get_batch_results_directory(self) -> Path:
         """directories.batch_results_dir の設定値を取得します。"""
