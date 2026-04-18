@@ -2006,27 +2006,33 @@ class ImageRepository:
         """
         logger.debug(f"Applying AI rating filter (majority vote) for rating: '{ai_rating_filter}'")
 
-        # UNRATED: レーティングが存在しない画像をフィルタ
+        # MANUAL_EDIT は AI フィルタから除外（AI 判定行のみを対象とする）
+        ai_only = Rating.model_id.in_(select(Model.id).where(Model.name != "MANUAL_EDIT"))
+
+        # UNRATED: AI レーティングが存在しない画像をフィルタ
         if ai_rating_filter == "UNRATED":
-            has_any_rating = exists(select(Rating.id).where(Rating.image_id == Image.id)).correlate(Image)
-            query = query.where(not_(has_any_rating))
-            logger.debug("AI rating filter applied: UNRATED (no ratings)")
+            has_any_ai_rating = exists(
+                select(Rating.id).where(Rating.image_id == Image.id, ai_only)
+            ).correlate(Image)
+            query = query.where(not_(has_any_ai_rating))
+            logger.debug("AI rating filter applied: UNRATED (no AI ratings)")
             return query
 
         # 多数決ロジック: 画像ごとに総AI評価数とマッチング数を計算
         # マッチング数 >= 総評価数 / 2.0 の画像のみを返す
 
-        # サブクエリ1: 画像ごとの総AI評価数
+        # サブクエリ1: 画像ごとの総AI評価数（MANUAL_EDIT 除外）
         total_ratings_subquery = (
             select(Rating.image_id, func.count(Rating.id).label("total_count"))
+            .where(ai_only)
             .group_by(Rating.image_id)
             .subquery()
         )
 
-        # サブクエリ2: 画像ごとのマッチング評価数
+        # サブクエリ2: 画像ごとのマッチング評価数（MANUAL_EDIT 除外）
         matching_ratings_subquery = (
             select(Rating.image_id, func.count(Rating.id).label("matching_count"))
-            .where(func.lower(Rating.normalized_rating) == ai_rating_filter.lower())
+            .where(func.lower(Rating.normalized_rating) == ai_rating_filter.lower(), ai_only)
             .group_by(Rating.image_id)
             .subquery()
         )
