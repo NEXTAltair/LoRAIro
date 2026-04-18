@@ -2801,9 +2801,9 @@ class ImageRepository:
     def update_manual_rating(self, image_id: int, rating: str | None) -> bool:
         """指定された画像IDの手動レーティングを Rating テーブルに保存します。
 
-        rating=None の場合、既存の MANUAL_EDIT レコードを全て削除します（解除）。
-        rating 指定時は新規 INSERT します（ADR 0002 履歴保持との整合: 手動評価は最新値のみ
-        意味を持つため解除操作は DELETE、設定は INSERT の方針。詳細は ADR 0015 参照）。
+        常に既存の MANUAL_EDIT レコードを削除してから INSERT する upsert 方式。
+        rating=None の場合は削除のみ（解除）。手動レーティングは「現在値」のみ意味を持つため
+        履歴を保持しない。詳細は ADR 0015 参照。
 
         Args:
             image_id (int): 更新する画像のID。
@@ -2825,14 +2825,13 @@ class ImageRepository:
 
                 manual_edit_model_id = self._get_or_create_manual_edit_model(session)
 
-                if rating is None:
-                    session.execute(
-                        delete(Rating).where(
-                            Rating.image_id == image_id,
-                            Rating.model_id == manual_edit_model_id,
-                        )
+                session.execute(
+                    delete(Rating).where(
+                        Rating.image_id == image_id,
+                        Rating.model_id == manual_edit_model_id,
                     )
-                else:
+                )
+                if rating is not None:
                     session.add(
                         Rating(
                             image_id=image_id,

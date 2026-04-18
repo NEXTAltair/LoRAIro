@@ -67,10 +67,10 @@ class TestUpdateManualRatingWritesToRatingTable:
             ratings = session.query(Rating).filter_by(image_id=image_id, model_id=manual_model.id).all()
             assert len(ratings) == 0, f"解除後に Rating レコードが残っている: {len(ratings)} 件"
 
-    def test_set_rating_twice_keeps_history(
+    def test_set_rating_twice_keeps_only_latest(
         self, test_repository: ImageRepository, db_session_factory: sessionmaker, image_id: int
     ) -> None:
-        """PG → R と 2 回設定すると Rating テーブルに 2 件残る（履歴保持）。"""
+        """PG → R と 2 回設定すると最新の R だけが残る（upsert 動作）。"""
         test_repository.update_manual_rating(image_id, "PG")
         test_repository.update_manual_rating(image_id, "R")
 
@@ -78,10 +78,8 @@ class TestUpdateManualRatingWritesToRatingTable:
             manual_model = session.query(Model).filter_by(name="MANUAL_EDIT").first()
             assert manual_model is not None
             ratings = session.query(Rating).filter_by(image_id=image_id, model_id=manual_model.id).all()
-            assert len(ratings) == 2, f"履歴として 2 件のはずが {len(ratings)} 件"
-            normalized_values = {r.normalized_rating for r in ratings}
-            assert "PG" in normalized_values
-            assert "R" in normalized_values
+            assert len(ratings) == 1, f"最新値 1 件のはずが {len(ratings)} 件"
+            assert ratings[0].normalized_rating == "R"
 
     def test_nonexistent_image_id_returns_false(self, test_repository: ImageRepository) -> None:
         """存在しない image_id では False を返し、例外は発生しない。"""
