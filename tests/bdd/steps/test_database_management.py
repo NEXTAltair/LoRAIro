@@ -777,19 +777,22 @@ def then_check_phash_saved(register_image_result: dict[str, Any]):
     assert isinstance(metadata["phash"], str) and len(metadata["phash"]) > 0, "pHashが無効です"
 
 
-# New step definition
-@then("manual_rating は NULL である")
+# manual_rating は Rating テーブル (MANUAL_EDIT) に統一されたため、
+# 登録直後は MANUAL_EDIT レコードが存在しないことを確認する
+@then("手動レーティングが設定されていない")
 def then_manual_rating_is_null(
     test_db_manager: ImageDatabaseManager, register_image_result: dict[str, Any]
 ):
-    """登録された画像の manual_rating が NULL であることを確認"""
+    """登録された画像の MANUAL_EDIT Rating レコードが存在しないことを確認"""
+    from lorairo.database.schema import Model, Rating
+
     image_id = register_image_result["image_id"]
-    db_metadata = test_db_manager.get_image_metadata(image_id)
-    assert db_metadata is not None, f"画像 ID {image_id} のメタデータが取得できません"
-    assert "manual_rating" in db_metadata, "メタデータに 'manual_rating' がありません"
-    assert db_metadata["manual_rating"] is None, (
-        f"manual_rating が NULL ではありません: {db_metadata['manual_rating']}"
-    )
+    with test_db_manager.repository.session_factory() as session:
+        manual_model = session.query(Model).filter_by(name="MANUAL_EDIT").first()
+        if manual_model is None:
+            return  # MANUAL_EDIT モデル自体がなければレコードも存在しない
+        rating_count = session.query(Rating).filter_by(image_id=image_id, model_id=manual_model.id).count()
+        assert rating_count == 0, f"登録直後に MANUAL_EDIT Rating が {rating_count} 件存在しています"
 
 
 # ... (then_check_processed_metadata_saved, then_check_processed_image_linked は変更なし) ...

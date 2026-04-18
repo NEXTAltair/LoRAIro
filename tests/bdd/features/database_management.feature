@@ -12,7 +12,7 @@ Feature: 画像データベース管理機能
     Then 画像メタデータがデータベースに保存される
     And 画像のUUIDが生成される
     And 画像のpHashが計算され保存される
-    And manual_rating は NULL である
+    And 手動レーティングが設定されていない
 
   Scenario: 処理済み画像の登録
     Given オリジナル画像が登録されている

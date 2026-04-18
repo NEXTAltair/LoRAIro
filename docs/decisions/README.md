@@ -18,6 +18,7 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0012](0012-batch-tag-atomic-transaction.md) | Batch Tag Atomic Transaction Fix | 2026-01-06 | Accepted |
 | [0013](0013-legacy-tag-db-cleanup.md) | Legacy Tag DB Cleanup | 2026-01-02 | Accepted |
 | [0014](0014-agent-teams-integration.md) | Agent Teams Integration | 2026-04-09 | Accepted |
+| [0015](0015-manual-rating-storage-unification.md) | Manual Rating Storage Unification | 2026-04-18 | Accepted |
 
 ## ADR テンプレート
 

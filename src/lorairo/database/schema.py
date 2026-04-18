@@ -155,7 +155,6 @@ class Image(Base):
     extension: Mapped[str] = mapped_column(String, nullable=False)
     color_space: Mapped[str | None] = mapped_column(String)
     icc_profile: Mapped[str | None] = mapped_column(String)
-    manual_rating: Mapped[str | None] = mapped_column(String)  # 手動評価 (Civitai基準)
     created_at: Mapped[datetime.datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
     )
@@ -436,7 +435,6 @@ class ImageDict(TypedDict):
     extension: str
     color_space: str | None
     icc_profile: str | None
-    manual_rating: str | None
     created_at: NotRequired[datetime.datetime]  # DBから取得時にのみ存在
     updated_at: NotRequired[datetime.datetime]  # DBから取得時にのみ存在
 

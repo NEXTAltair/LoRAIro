@@ -9,7 +9,7 @@ from genai_tag_db_tools.db.repository import MergedTagReader, get_default_reader
 from genai_tag_db_tools.models import TagRegisterRequest, TagSearchRequest
 from genai_tag_db_tools.services.tag_register import TagRegisterService
 from genai_tag_db_tools.utils.cleanup_str import TagCleaner
-from sqlalchemy import Select, and_, exists, func, not_, or_, select, update
+from sqlalchemy import Select, and_, delete, exists, func, not_, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload, sessionmaker
@@ -683,7 +683,6 @@ class ImageRepository:
             extension=info["extension"],
             color_space=info.get("color_space"),
             icc_profile=info.get("icc_profile"),
-            manual_rating=info.get("manual_rating"),  # 初期値はNoneのはず
             # created_at, updated_at は server_default で設定される
         )
 
@@ -2007,27 +2006,33 @@ class ImageRepository:
         """
         logger.debug(f"Applying AI rating filter (majority vote) for rating: '{ai_rating_filter}'")
 
-        # UNRATED: レーティングが存在しない画像をフィルタ
+        # MANUAL_EDIT は AI フィルタから除外（AI 判定行のみを対象とする）
+        ai_only = Rating.model_id.in_(select(Model.id).where(Model.name != "MANUAL_EDIT"))
+
+        # UNRATED: AI レーティングが存在しない画像をフィルタ
         if ai_rating_filter == "UNRATED":
-            has_any_rating = exists(select(Rating.id).where(Rating.image_id == Image.id)).correlate(Image)
-            query = query.where(not_(has_any_rating))
-            logger.debug("AI rating filter applied: UNRATED (no ratings)")
+            has_any_ai_rating = exists(
+                select(Rating.id).where(Rating.image_id == Image.id, ai_only)
+            ).correlate(Image)
+            query = query.where(not_(has_any_ai_rating))
+            logger.debug("AI rating filter applied: UNRATED (no AI ratings)")
             return query
 
         # 多数決ロジック: 画像ごとに総AI評価数とマッチング数を計算
         # マッチング数 >= 総評価数 / 2.0 の画像のみを返す
 
-        # サブクエリ1: 画像ごとの総AI評価数
+        # サブクエリ1: 画像ごとの総AI評価数（MANUAL_EDIT 除外）
         total_ratings_subquery = (
             select(Rating.image_id, func.count(Rating.id).label("total_count"))
+            .where(ai_only)
             .group_by(Rating.image_id)
             .subquery()
         )
 
-        # サブクエリ2: 画像ごとのマッチング評価数
+        # サブクエリ2: 画像ごとのマッチング評価数（MANUAL_EDIT 除外）
         matching_ratings_subquery = (
             select(Rating.image_id, func.count(Rating.id).label("matching_count"))
-            .where(func.lower(Rating.normalized_rating) == ai_rating_filter.lower())
+            .where(func.lower(Rating.normalized_rating) == ai_rating_filter.lower(), ai_only)
             .group_by(Rating.image_id)
             .subquery()
         )
@@ -2067,15 +2072,11 @@ class ImageRepository:
 
         """
         if not include_unrated:
-            logger.debug("Applying unrated filter: excluding images with neither manual nor AI rating")
-
-            # Either-based logic: 手動評価またはAI評価のいずれかが存在する
-            has_manual_rating = Image.manual_rating.is_not(None)
-            has_ai_rating = exists().where(Rating.image_id == Image.id).correlate(Image)
-
-            # 少なくとも1つの評価が存在する画像のみを含める
-            query = query.where(or_(has_manual_rating, has_ai_rating))
-            logger.debug("Unrated filter applied: images must have at least one rating (manual OR AI)")
+            # MANUAL_EDIT も含む Rating テーブルに行が存在する画像のみを返す
+            # (manual rating も Rating テーブルに統一されたため OR は不要)
+            has_any_rating = exists().where(Rating.image_id == Image.id).correlate(Image)
+            query = query.where(has_any_rating)
+            logger.debug("Unrated filter applied: images must have at least one rating")
 
         return query
 
@@ -2804,11 +2805,15 @@ class ImageRepository:
     # --- Update Methods (Manual Edits) ---
 
     def update_manual_rating(self, image_id: int, rating: str | None) -> bool:
-        """指定された画像IDの manual_rating を更新します。
+        """指定された画像IDの手動レーティングを Rating テーブルに保存します。
+
+        常に既存の MANUAL_EDIT レコードを削除してから INSERT する upsert 方式。
+        rating=None の場合は削除のみ（解除）。手動レーティングは「現在値」のみ意味を持つため
+        履歴を保持しない。詳細は ADR 0015 参照。
 
         Args:
             image_id (int): 更新する画像のID。
-            rating (Optional[str]): 新しいレーティング値 ('PG', 'R' など)。NoneでNULLに設定。
+            rating (str | None): 新しいレーティング値 ('PG', 'R' など)。None で解除。
 
         Returns:
             bool: 更新が成功した場合はTrue、画像が見つからない場合はFalse。
@@ -2819,13 +2824,32 @@ class ImageRepository:
         """
         with self.session_factory() as session:
             try:
-                stmt = update(Image).where(Image.id == image_id).values(manual_rating=rating)
-                result = cast("CursorResult[Any]", session.execute(stmt))
-                if result.rowcount == 0:
+                image = session.get(Image, image_id)
+                if image is None:
                     logger.warning(f"Manual rating の更新対象画像が見つかりません: image_id={image_id}")
                     return False
+
+                manual_edit_model_id = self._get_or_create_manual_edit_model(session)
+
+                session.execute(
+                    delete(Rating).where(
+                        Rating.image_id == image_id,
+                        Rating.model_id == manual_edit_model_id,
+                    )
+                )
+                if rating is not None:
+                    session.add(
+                        Rating(
+                            image_id=image_id,
+                            model_id=manual_edit_model_id,
+                            raw_rating_value=rating,
+                            normalized_rating=rating,
+                            confidence_score=None,
+                        )
+                    )
+
                 session.commit()
-                logger.info(f"画像ID {image_id} の manual_rating を '{rating}' に更新しました。")
+                logger.debug(f"画像ID {image_id} の manual_rating を '{rating}' に更新しました")
                 return True
             except SQLAlchemyError as e:
                 session.rollback()
