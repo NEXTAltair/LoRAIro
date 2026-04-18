@@ -41,12 +41,17 @@ def upgrade() -> None:
         manual_edit_id = row
 
     # 2. 既存の Image.manual_rating 値を Rating テーブルへ移行
+    # update_rating_batch 経由で既に MANUAL_EDIT 行が存在する画像はスキップ
+    # （バッチ更新済みの Rating 行の方が正確なため優先する）
     connection.execute(
         sa.text("""
             INSERT INTO ratings (image_id, model_id, raw_rating_value, normalized_rating)
             SELECT id, :mid, manual_rating, manual_rating
             FROM images
             WHERE manual_rating IS NOT NULL
+              AND id NOT IN (
+                SELECT image_id FROM ratings WHERE model_id = :mid
+              )
         """),
         {"mid": manual_edit_id},
     )
