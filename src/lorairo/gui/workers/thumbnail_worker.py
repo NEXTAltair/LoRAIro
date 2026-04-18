@@ -216,9 +216,15 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
 
             except Exception as e:
                 batch_failed += 1
-                # ワーカースレッドではDB保存不可（スレッドセーフティ）、ログのみ
                 logger.error(
                     f"サムネイル読み込みエラー: image_id={image_id}, path={thumbnail_path}, error={e}"
+                )
+                self.db_manager.save_error_record(
+                    operation_type="thumbnail",
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    image_id=image_id,
+                    file_path=str(thumbnail_path) if thumbnail_path else None,
                 )
 
         return batch_loaded, batch_failed
