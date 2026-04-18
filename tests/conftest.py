@@ -509,7 +509,6 @@ def sample_image_data(test_image_path) -> ImageDict:
         "color_space": "sRGB",  # 登録時に抽出
         "icc_profile": None,  # 登録時に抽出
         "phash": "will-be-calculated",  # 登録時に計算
-        "manual_rating": None,  # 新しいカラム、デフォルトはNone
         # created_at, updated_at はDB側で自動設定
     }
 
