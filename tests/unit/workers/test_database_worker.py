@@ -1026,6 +1026,34 @@ class TestRegistrationErrorHandling:
             # スキップ数が増加することを確認
             assert result.skipped_count == 1
 
+    def test_duplicate_skipped_even_if_alias_registration_fails(self, temp_dir, real_db_manager, mock_fsm):
+        """add_filename_alias が SQLAlchemyError を送出しても skipped_count が増加する"""
+        from sqlalchemy.exc import SQLAlchemyError
+
+        image_file = temp_dir / "alias_fail_test.jpg"
+        tag_file = temp_dir / "alias_fail_test.txt"
+        image_file.write_bytes(b"fake_image")
+        tag_file.write_text("tag1", encoding="utf-8")
+        mock_fsm.get_image_files.return_value = [image_file]
+
+        with (
+            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
+            patch.object(real_db_manager, "save_tags"),
+            patch.object(real_db_manager, "save_captions"),
+            patch.object(
+                real_db_manager.repository,
+                "add_filename_alias",
+                side_effect=SQLAlchemyError("table not found"),
+            ),
+        ):
+            mock_detect.return_value = 999
+
+            worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
+            result = worker.execute()
+
+            assert result.skipped_count == 1
+            assert result.error_count == 0
+
     def test_high_volume_image_processing(self, temp_dir, real_db_manager):
         """100個の画像処理時のパフォーマンステスト"""
         # 100個の画像ファイルを作成
