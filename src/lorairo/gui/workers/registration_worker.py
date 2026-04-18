@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from ...annotations.existing_file_reader import ExistingFileReader
 from ...utils.log import logger
 from .base import LoRAIroWorkerBase
@@ -184,7 +186,11 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
                 image_path, duplicate_image_id, annotations=annotations, tag_id_cache=tag_id_cache
             )
             # ファイル名エイリアスを登録（バッチインポート時のマッチング用）
-            self.db_manager.repository.add_filename_alias(duplicate_image_id, image_path.stem)
+            # DBが未初期化の場合でも重複扱い（skipped）は変わらないため例外を握り潰す
+            try:
+                self.db_manager.repository.add_filename_alias(duplicate_image_id, image_path.stem)
+            except SQLAlchemyError as e:
+                logger.warning(f"エイリアス登録失敗（スキップ扱いは継続）: {image_path.stem}, {e}")
             logger.debug(f"スキップ (重複): {image_path} - 関連ファイルは処理")
             result_type = "skipped"
             image_id = duplicate_image_id
