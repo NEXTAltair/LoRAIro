@@ -104,17 +104,6 @@ def mock_image_processor():
     return mock
 
 
-# ===== Batch Processing Mocks =====
-
-
-@pytest.fixture
-def mock_batch_processor():
-    """BatchProcessor モック"""
-    mock = Mock()
-    mock.process_batch.return_value = {"success": 0, "failed": 0}
-    return mock
-
-
 @pytest.fixture
 def mock_worker_service():
     """WorkerService モック"""

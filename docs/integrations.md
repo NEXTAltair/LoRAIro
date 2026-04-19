@@ -252,7 +252,7 @@ from image_annotator_lib.types import AnnotationRequest
 
 #### Service Layer
 
-**File**: `src/lorairo/services/annotator_library_adapter.py`
+**File**: `src/lorairo/annotations/annotator_adapter.py`
 
 **Responsibility:**
 - Business logic wrapper for annotation
@@ -290,7 +290,7 @@ max_tokens = 1000
 #### プロバイダー選択
 
 ```python
-from src.lorairo.services.annotator_library_adapter import AnnotatorLibraryAdapter
+from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
 
 adapter = AnnotatorLibraryAdapter(config_service)
 annotator = adapter.create_annotator(
@@ -324,12 +324,11 @@ result = annotate(request)
 #### バッチアノテーション
 
 ```python
-from src.lorairo.services.batch_processor import BatchProcessor
+from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
 
-processor = BatchProcessor(annotator_adapter)
-results = processor.process_batch(
+adapter = AnnotatorLibraryAdapter(config_service)
+results = adapter.annotate_batch(
     image_paths=["img1.jpg", "img2.jpg", ...],
-    max_concurrent=5
 )
 ```
 
@@ -361,7 +360,7 @@ results = processor.process_batch(
 #### リトライ戦略
 
 ```python
-from src.lorairo.services.annotator_library_adapter import AnnotatorLibraryAdapter
+from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
 
 adapter = AnnotatorLibraryAdapter(config)
 result = adapter.annotate_with_retry(
