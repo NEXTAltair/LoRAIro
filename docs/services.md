@@ -51,19 +51,11 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 ### AIアノテーション
 
 #### AnnotatorLibraryAdapter
-- **Path**: `src/lorairo/services/annotator_library_adapter.py`
+- **Path**: `src/lorairo/annotations/annotator_adapter.py`
 - **Class**: `AnnotatorLibraryAdapter`
 - **Purpose**: image-annotator-lib統合アダプター
 - **Providers**: OpenAI, Anthropic, Google, Local ML models
 - **Returns**: `PHashAnnotationResults`
-
-#### BatchProcessor
-- **Path**: `src/lorairo/services/batch_processor.py`
-- **Purpose**: バッチアノテーション処理の調整
-
-#### OpenAIBatchProcessor
-- **Path**: `src/lorairo/services/openai_batch_processor.py`
-- **Purpose**: OpenAI Batch API専用プロセッサ
 
 ### 画像処理
 
@@ -94,11 +86,6 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 - **Class**: `ModelSyncService`
 - **Purpose**: モデル設定の同期とキャッシュ管理
 
-#### ModelInfoManager
-- **Path**: `src/lorairo/services/model_info_manager.py`
-- **Class**: `ModelInfoManager`
-- **Purpose**: モデルメタデータの管理
-
 #### ModelRegistryProtocol
 - **Path**: `src/lorairo/services/model_registry_protocol.py`
 - **Purpose**: モデルレジストリのプロトコル定義
@@ -126,14 +113,6 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 #### DateFormatter
 - **Path**: `src/lorairo/services/date_formatter.py`
 - **Purpose**: 日付フォーマット統一処理
-
-#### BatchUtils
-- **Path**: `src/lorairo/services/batch_utils.py`
-- **Purpose**: バッチ処理のユーティリティ関数
-
-#### UIResponsiveConversionService
-- **Path**: `src/lorairo/services/ui_responsive_conversion_service.py`
-- **Purpose**: UI応答性を保ったデータ変換処理
 
 #### FavoriteFiltersService
 - **Path**: `src/lorairo/services/favorite_filters_service.py`
