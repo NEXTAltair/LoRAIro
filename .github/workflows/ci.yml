@@ -108,15 +108,23 @@ jobs:
             --cov=local_packages/image-annotator-lib/src/image_annotator_lib \
             --cov-report=xml:coverage-unit.xml \
             --cov-report=term-missing \
+            --cov-fail-under=0 \
             --timeout=120 \
             -x
 
-      - name: Upload coverage
+      - name: Upload coverage XML
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: coverage-unit
           path: coverage-unit.xml
+
+      - name: Upload coverage data
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-unit-data
+          path: .coverage
 
   test-integration:
     name: Integration Tests
@@ -162,12 +170,60 @@ jobs:
             --cov=local_packages/image-annotator-lib/src/image_annotator_lib \
             --cov-report=xml:coverage-integration.xml \
             --cov-report=term-missing \
+            --cov-fail-under=0 \
             --timeout=300 \
             -x
 
-      - name: Upload coverage
+      - name: Upload coverage XML
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: coverage-integration
           path: coverage-integration.xml
+
+      - name: Upload coverage data
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-integration-data
+          path: .coverage
+
+  coverage-gate:
+    name: Coverage Gate (Combined ≥ 75%)
+    needs: [test-unit, test-integration]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Download unit coverage data
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-unit-data
+          path: coverage-data/unit
+
+      - name: Download integration coverage data
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-integration-data
+          path: coverage-data/integration
+
+      - name: Combine and check coverage
+        run: |
+          cp coverage-data/unit/.coverage .coverage.unit
+          cp coverage-data/integration/.coverage .coverage.integration
+          uv run coverage combine
+          uv run coverage report
