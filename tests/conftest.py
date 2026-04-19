@@ -731,6 +731,10 @@ def test_tag_db_path(temp_dir):
     yield test_db_path
 
     # ランタイムの状態をリセット（他のテストへの副作用を防止）
+    # init_user_db が作成した一時エンジンを先に dispose してからリセット
+    temp_user_engine = tag_runtime._user_engine
+    if temp_user_engine is not None and temp_user_engine is not orig_user_engine:
+        temp_user_engine.dispose()
     tag_runtime._base_db_paths = orig_base_db_paths
     tag_runtime._user_db_path = orig_user_db_path
     tag_runtime._user_engine = orig_user_engine
