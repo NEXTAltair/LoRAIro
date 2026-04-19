@@ -5,7 +5,6 @@
 """
 
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from PySide6.QtWidgets import QWidget
@@ -34,50 +33,32 @@ class TestGUIComponentInteractions:
         return DatasetStateManager(parent_widget)
 
     @pytest.fixture
-    def real_filter_panel(self, parent_widget, dataset_state_manager, qtbot):
+    def real_filter_panel(self, parent_widget, qtbot):
         """実際のフィルター検索パネル（外部依存のみモック）"""
-        try:
-            # 外部ファイルシステム操作のみモック（統合テスト方針準拠）
-            with patch("lorairo.storage.file_system.FileSystemManager"):
-                panel = FilterSearchPanel(parent_widget, dataset_state_manager)
-                qtbot.addWidget(panel)
-                return panel
-        except Exception as e:
-            pytest.skip(f"FilterSearchPanel initialization failed: {e}")
-            return None
+        panel = FilterSearchPanel(parent_widget)
+        qtbot.addWidget(panel)
+        return panel
 
     @pytest.fixture
     def real_thumbnail_widget(self, parent_widget, dataset_state_manager, qtbot):
         """実際のサムネイルセレクターウィジェット（テスト用画像リソース使用）"""
-        try:
-            widget = ThumbnailSelectorWidget(parent_widget, dataset_state_manager)
-            qtbot.addWidget(widget)
-            return widget
-        except Exception as e:
-            pytest.skip(f"ThumbnailSelectorWidget initialization failed: {e}")
-            return None
+        widget = ThumbnailSelectorWidget(parent_widget, dataset_state_manager)
+        qtbot.addWidget(widget)
+        return widget
 
     @pytest.fixture
     def real_preview_widget(self, parent_widget, qtbot):
         """実際の画像プレビューウィジェット（テスト用画像リソース使用）"""
-        try:
-            widget = ImagePreviewWidget(parent_widget)
-            qtbot.addWidget(widget)
-            return widget
-        except Exception as e:
-            pytest.skip(f"ImagePreviewWidget initialization failed: {e}")
-            return None
+        widget = ImagePreviewWidget(parent_widget)
+        qtbot.addWidget(widget)
+        return widget
 
     @pytest.fixture
     def real_details_widget(self, parent_widget, qtbot):
         """実際の選択画像詳細ウィジェット"""
-        try:
-            widget = SelectedImageDetailsWidget(parent_widget)
-            qtbot.addWidget(widget)
-            return widget
-        except Exception as e:
-            pytest.skip(f"SelectedImageDetailsWidget initialization failed: {e}")
-            return None
+        widget = SelectedImageDetailsWidget(parent_widget)
+        qtbot.addWidget(widget)
+        return widget
 
     @pytest.fixture
     def test_images_data(self):
@@ -98,9 +79,6 @@ class TestGUIComponentInteractions:
         self, real_filter_panel, real_thumbnail_widget, test_images_data
     ):
         """実際のフィルター→サムネイル シグナルフロー統合テスト"""
-        if not real_filter_panel or not real_thumbnail_widget:
-            pytest.skip("Required widgets not available")
-
         # 実際のシグナル受信確認
         signal_received = []
 
@@ -131,9 +109,6 @@ class TestGUIComponentInteractions:
         self, real_thumbnail_widget, real_preview_widget, test_images_data
     ):
         """実際の画像選択→プレビュー フロー統合テスト"""
-        if not real_thumbnail_widget or not real_preview_widget:
-            pytest.skip("Required widgets not available")
-
         # 実際のテスト画像データを使用
         test_image = test_images_data[0]  # file01.webp
 
