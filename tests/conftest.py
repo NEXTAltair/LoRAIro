@@ -693,35 +693,48 @@ def test_tag_db_path(temp_dir):
     """外部tag_dbテスト用の一時データベースパスを提供
 
     環境変数TEST_TAG_DB_PATHが設定されている場合、そのパスをコピー元として使用。
-    未設定の場合はテストをスキップする。
-    常に一時ディレクトリにコピーして使用するため、元DBは汚染されない。
+    未設定の場合はスキーマ+Lorairoフォーマットマッピングを持つ空DBをCI用に生成する。
+    常に一時ディレクトリにコピー/作成して使用するため、元DBは汚染されない。
 
-    Returns:
+    Yields:
         Path: テスト用tag_dbのパス（一時ディレクトリ内）
     """
-    # 環境変数からコピー元DBパスを取得
+    from genai_tag_db_tools.db import runtime as tag_runtime
+
+    # テスト後にリセットするためランタイム状態を保存
+    orig_base_db_paths = tag_runtime._base_db_paths
+    orig_user_db_path = tag_runtime._user_db_path
+    orig_user_engine = tag_runtime._user_engine
+    orig_user_session_local = tag_runtime._UserSessionLocal
+
     source_db_env = os.getenv("TEST_TAG_DB_PATH")
     if not source_db_env:
-        # 環境変数未設定の場合はテストスキップ
-        pytest.skip("TEST_TAG_DB_PATH not set. Skipping external tag_db integration tests.")
-
-    # 常に一時ディレクトリにコピーして使用（本番DB汚染防止）
-    test_db_path = temp_dir / "tags_test.db"
-    source_db_path = Path(source_db_env)
-
-    if source_db_path.exists():
-        # 指定されたDBをコピー
-        shutil.copy(source_db_path, test_db_path)
+        # 環境変数未設定の場合: CI用にスキーマ+Lorairoフォーマットを持つ空DBを作成
+        test_db_path = tag_runtime.init_user_db(user_db_dir=temp_dir, format_name="Lorairo")
+        tag_runtime.set_base_database_paths([test_db_path])
     else:
-        # 指定DBが存在しない場合は本番DBをコピー
-        prod_tag_db = Path("local_packages/genai-tag-db-tools/src/genai_tag_db_tools/data/tags_v4.db")
-        if prod_tag_db.exists():
-            shutil.copy(prod_tag_db, test_db_path)
+        # 環境変数設定時: 指定DBをコピーして使用（本番DB汚染防止）
+        test_db_path = temp_dir / "tags_test.db"
+        source_db_path = Path(source_db_env)
+        if source_db_path.exists():
+            shutil.copy(source_db_path, test_db_path)
         else:
-            # 本番DBも見つからない場合は空のDBを作成
-            test_db_path.touch()
+            prod_tag_db = Path("local_packages/genai-tag-db-tools/src/genai_tag_db_tools/data/tags_v4.db")
+            if prod_tag_db.exists():
+                shutil.copy(prod_tag_db, test_db_path)
+            else:
+                test_db_path.touch()
+        # 指定DB使用時もTagRegisterServiceが動作するようにランタイムを設定
+        tag_runtime.init_user_db(user_db_dir=temp_dir / "user_db", format_name="Lorairo")
+        tag_runtime.set_base_database_paths([test_db_path])
 
-    return test_db_path
+    yield test_db_path
+
+    # ランタイムの状態をリセット（他のテストへの副作用を防止）
+    tag_runtime._base_db_paths = orig_base_db_paths
+    tag_runtime._user_db_path = orig_user_db_path
+    tag_runtime._user_engine = orig_user_engine
+    tag_runtime._UserSessionLocal = orig_user_session_local
 
 
 @pytest.fixture(scope="function")
@@ -735,7 +748,7 @@ def test_tag_repository(test_tag_db_path):
         TestTagRepositoryHelper: テスト用のTagRepository互換オブジェクト
     """
     from genai_tag_db_tools import search_tags
-    from genai_tag_db_tools.db.repository import MergedTagReader
+    from genai_tag_db_tools.db.repository import MergedTagReader, TagReader
     from genai_tag_db_tools.models import TagSearchRequest
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
@@ -746,8 +759,8 @@ def test_tag_repository(test_tag_db_path):
 
     # MergedTagReaderを作成（テスト用DBをベースDBとして使用）
     merged_reader = MergedTagReader(
-        base_session_factory=test_session_factory,
-        user_session_factory=None,  # テストではユーザーDBは使用しない
+        base_repo=TagReader(session_factory=test_session_factory),
+        user_repo=None,
     )
 
     # 作成されたタグIDを記録（クリーンアップ用）
@@ -762,7 +775,7 @@ def test_tag_repository(test_tag_db_path):
 
         def create_tag(self, source_tag: str, tag: str) -> int:
             """新規タグを作成してtag_idを返す（Phase 2実装待ちのため、直接DB書き込み）"""
-            from genai_tag_db_tools.data.database_schema import Tag
+            from genai_tag_db_tools.db.schema import Tag
 
             with self.session_factory() as session:
                 new_tag = Tag(source_tag=source_tag, tag=tag)
@@ -774,7 +787,7 @@ def test_tag_repository(test_tag_db_path):
 
         def get_tag_by_id(self, tag_id: int):
             """tag_idでタグを取得"""
-            from genai_tag_db_tools.data.database_schema import Tag
+            from genai_tag_db_tools.db.schema import Tag
 
             with self.session_factory() as session:
                 return session.query(Tag).filter_by(tag_id=tag_id).first()
@@ -797,7 +810,7 @@ def test_tag_repository(test_tag_db_path):
     # テスト終了後のクリーンアップ
     try:
         with test_session_factory() as session:
-            from genai_tag_db_tools.data.database_schema import Tag
+            from genai_tag_db_tools.db.schema import Tag
 
             for tag_id in created_tag_ids:
                 tag = session.query(Tag).filter_by(tag_id=tag_id).first()
