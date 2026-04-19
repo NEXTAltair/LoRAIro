@@ -125,6 +125,7 @@ jobs:
         with:
           name: coverage-unit-data
           path: .coverage
+          include-hidden-files: true
 
   test-integration:
     name: Integration Tests
@@ -187,6 +188,7 @@ jobs:
         with:
           name: coverage-integration-data
           path: .coverage
+          include-hidden-files: true
 
   coverage-gate:
     name: Coverage Gate (Combined ≥ 75%)
