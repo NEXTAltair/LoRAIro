@@ -12,6 +12,9 @@ LoRAIro 開発で得られた教訓。バグパターン・設計ミス・解決
 - **統合テストの価値**: モックが通ってもprod移行で失敗するケースが発生。外部依存(DB, ファイルシステム)はモックせず実際のテストDBを使用する。
 - **pytest-qt のアンチパターン**: `qtbot.wait(固定時間)` は不安定。`qtbot.waitSignal()` または `qtbot.waitUntil(条件)` を使う。`QCoreApplication.processEvents()` 直接呼び出しも避ける。
 - **QMessageBox の忘れがち**: テスト中に `QMessageBox.question` をモックしないとテストがハングする。必ず `monkeypatch` でモックする。
+- **カバレッジ閾値は CI で検証しないと aspirational 値のまま**: `fail_under=75` が長期間 CI で未検証のまま放置され、実測 58% が顕在化（Issue #131 で coverage-gate 新設後に判明）。新しい閾値を設定する際は必ず PR で CI 実測値と同時に設定し、aspirational な値のまま設定だけして放置しないこと。
+- **デッドコードはカバレッジ分母を汚染して測定値を押し下げる**: Issue #138 で `src/` 本体から未参照の 9 モジュール / 3,957 LOC を削除して +17pt を達成。`grep` ベースの import graph 解析による定期的な dead code audit がカバレッジ改善に効果的（ADR 0016参照）。
+- **Qt 描画専用コードと torch/ML ライブラリは coverage から除外が合理的**: ADR-0016 でコアサービス層の omit を禁止しつつ、Qt 描画専用 GUI の `omit` 基準と image-annotator-lib の `source` 除外基準を確立。headless CI では torch 初期化が困難なため、ML バックエンドは `[tool.coverage.run] source` から除外して計測対象外にするのが正しい（Issue #135）。
 
 ## PySide6 / Qt
 
