@@ -179,7 +179,8 @@ markers = [
 source = [
     "src",
     "local_packages/genai-tag-db-tools/src/genai_tag_db_tools",
-    "local_packages/image-annotator-lib/src/image_annotator_lib",
+    # image-annotator-lib は tests/conftest.py でモジュールレベルにモック化されているため
+    # CI では 0% となり計測対象から除外する（torch/ML モデルは headless CI でテスト不可）
 ]
 omit = [
     "*/shibokensupport/*",
