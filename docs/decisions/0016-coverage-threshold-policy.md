@@ -1,7 +1,7 @@
 # ADR 0016: Coverage Threshold Policy
 
 - **日付**: 2026-04-19
-- **ステータス**: Accepted
+- **ステータス**: Accepted (amended 2026-04-20: `source` 除外基準を追記 — Issue #153)
 
 ## Context
 
@@ -63,6 +63,17 @@ Issue #138–142 群の前提判断材料として固定することが必要。
 5. **ポリシー参照義務**:
    `[tool.coverage.run] omit` への新規追加、および `src/` 配下のファイル削除を伴う PR は
    本 ADR (0016) をコミットメッセージまたは PR 説明で参照すること。
+
+6. **`source` 除外基準** (`omit` とは別概念):
+   - `omit`: 計測対象に含めてから特定ファイルを除外する
+   - `source` 除外: 計測対象そのものに含めない（より強い除外）
+   - **除外許可条件**: 外部 API リクエストや ML モデルロード等、headless CI 環境で
+     実行できない初期化処理を含むローカルパッケージ
+   - **現状の適用例**: `image-annotator-lib` — torch/ML モデルロードが headless CI で
+     ハングするため `tests/conftest.py` でモジュールレベルの `sys.modules` injection
+     によりモック化。CI では 0% となるため `source` から除外する
+   - **含有例**: `genai-tag-db-tools` — SQLite 操作のみで CI 実行可能なため `source` に含める
+   - `source` リストの変更を伴う PR も本 ADR (0016) を参照すること
 
 ## Rationale
 
