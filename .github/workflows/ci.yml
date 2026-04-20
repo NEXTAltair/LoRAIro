@@ -102,10 +102,11 @@ jobs:
       - name: Run unit tests
         run: |
           uv run pytest tests/unit \
+            local_packages/genai-tag-db-tools/tests/ \
+            --ignore=local_packages/genai-tag-db-tools/tests/gui/unit/test_worker_service.py \
             -m "not gui_show and not real_api and not slow" \
             --cov=src \
             --cov=local_packages/genai-tag-db-tools/src/genai_tag_db_tools \
-            --cov=local_packages/image-annotator-lib/src/image_annotator_lib \
             --cov-report=xml:coverage-unit.xml \
             --cov-report=term-missing \
             --cov-fail-under=0 \
@@ -168,7 +169,6 @@ jobs:
             -m "not gui_show and not real_api and not slow" \
             --cov=src \
             --cov=local_packages/genai-tag-db-tools/src/genai_tag_db_tools \
-            --cov=local_packages/image-annotator-lib/src/image_annotator_lib \
             --cov-report=xml:coverage-integration.xml \
             --cov-report=term-missing \
             --cov-fail-under=0 \
