@@ -175,7 +175,7 @@ class TestCreateDirectory:
         fsm = FileSystemManager()
         file_as_dir = tmp_path / "file.txt"
         file_as_dir.write_text("content")
-        with pytest.raises(Exception):
+        with pytest.raises(NotADirectoryError):
             fsm._create_directory(file_as_dir / "subdir")
 
 
@@ -270,7 +270,7 @@ class TestGetImageInfo:
     def test_raises_on_invalid_file(self, tmp_path: Path) -> None:
         invalid_path = tmp_path / "invalid.png"
         invalid_path.write_bytes(b"not an image data")
-        with pytest.raises(Exception):
+        with pytest.raises(OSError):
             FileSystemManager.get_image_info(invalid_path)
 
     def test_returns_color_space(self, rgb_image_path: Path) -> None:
@@ -447,7 +447,7 @@ class TestSaveOriginalImage:
         image_file = tmp_path / "source_dir" / "nonexistent.jpg"
         image_file.parent.mkdir()
 
-        with pytest.raises(Exception):
+        with pytest.raises(FileNotFoundError):
             initialized_fsm.save_original_image(image_file)
 
 
@@ -631,7 +631,7 @@ class TestExportDatasetToJson:
 
         with open(save_dir / "meta_data.json", encoding="utf-8") as f:
             data = json.load(f)
-        values = list(data.values())[0]
+        values = next(iter(data.values()))
         assert "tag1" in values["tags"]
         assert "test caption" in values["caption"]
 
