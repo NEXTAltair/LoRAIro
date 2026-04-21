@@ -89,6 +89,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
     - AnnotationLogic呼び出し
     """
 
+    _OPERATION_TYPE = "annotation"
+
     def __init__(
         self,
         annotation_logic: AnnotationLogic,
@@ -104,7 +106,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             models: 使用モデル名リスト
             db_manager: データベースマネージャ（必須: DB保存・エラー記録用）
         """
-        super().__init__()
+        super().__init__(db_manager=db_manager)
 
         self.annotation_logic = annotation_logic
         self.image_paths = image_paths
@@ -271,6 +273,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         except Exception as e:
             logger.error(f"アノテーション処理エラー: {e}", exc_info=True)
             self._save_error_records(e, self.image_paths, model_name=None)
+            self._error_already_recorded = True
             raise
 
     def _save_results_to_database(

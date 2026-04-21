@@ -34,6 +34,8 @@ class ThumbnailLoadResult:
 class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
     """サムネイル読み込み専用ワーカー"""
 
+    _OPERATION_TYPE = "thumbnail"
+
     def __init__(
         self,
         search_result: "SearchResult",
@@ -43,7 +45,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
         request_id: str | None = None,
         page_num: int | None = None,
     ):
-        super().__init__()
+        super().__init__(db_manager=db_manager)
         self.search_result = search_result
         self.thumbnail_size = thumbnail_size
         self.db_manager = db_manager

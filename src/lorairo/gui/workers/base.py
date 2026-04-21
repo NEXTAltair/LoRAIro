@@ -1,13 +1,18 @@
 # src/lorairo/workers/base.py
 
 import time
+import traceback
 from abc import abstractmethod
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING, ClassVar
 
 from PySide6.QtCore import QObject, Signal
 
 from ...utils.log import logger
+
+if TYPE_CHECKING:
+    from ...database.db_manager import ImageDatabaseManager
 
 
 class WorkerStatus(Enum):
@@ -96,8 +101,12 @@ class LoRAIroWorkerBase[T](QObject):
     finished = Signal(object)  # result: T
     error_occurred = Signal(str)
 
-    def __init__(self) -> None:
+    _OPERATION_TYPE: ClassVar[str] = ""
+
+    def __init__(self, db_manager: "ImageDatabaseManager | None" = None) -> None:
         super().__init__()
+        self._db_manager = db_manager
+        self._error_already_recorded: bool = False
         self.cancellation = CancellationController()
         self.progress = ProgressReporter()
         self.status = WorkerStatus.IDLE
@@ -137,7 +146,29 @@ class LoRAIroWorkerBase[T](QObject):
             self._set_status(WorkerStatus.FAILED)
             error_msg = f"ワーカー実行エラー: {e!s}"
             logger.error(error_msg, exc_info=True)
+            self._record_unhandled_error(e)
             self.error_occurred.emit(error_msg)
+
+    def _record_unhandled_error(self, e: Exception) -> None:
+        """ハンドルされなかった例外をDBエラーログに記録する。
+
+        サブクラスが既に save_error_record() を呼び出してから re-raise した場合は
+        self._error_already_recorded = True をセットすることで二重記録を防ぐ。
+        """
+        if self._error_already_recorded:
+            self._error_already_recorded = False
+            return
+        if self._db_manager is None:
+            return
+        try:
+            self._db_manager.save_error_record(
+                operation_type=self._OPERATION_TYPE or self.__class__.__name__,
+                error_type=type(e).__name__,
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+            )
+        except Exception as save_error:
+            logger.error(f"エラーレコード保存失敗（二次エラー）: {save_error}")
 
     def cancel(self) -> None:
         """ワーカーキャンセル要求"""

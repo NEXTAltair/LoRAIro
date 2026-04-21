@@ -26,8 +26,10 @@ class SearchResult:
 class SearchWorker(LoRAIroWorkerBase[SearchResult]):
     """データベース検索専用ワーカー"""
 
+    _OPERATION_TYPE = "search"
+
     def __init__(self, db_manager: "ImageDatabaseManager", search_conditions: "SearchConditions"):
-        super().__init__()
+        super().__init__(db_manager=db_manager)
         self.db_manager = db_manager
         self.criteria_processor = SearchCriteriaProcessor(db_manager)
         self.search_conditions = search_conditions
@@ -99,4 +101,5 @@ class SearchWorker(LoRAIroWorkerBase[SearchResult]):
             except Exception as save_error:
                 logger.error(f"エラーレコード保存失敗（二次エラー）: {save_error}")
 
+            self._error_already_recorded = True
             raise
