@@ -59,9 +59,15 @@ class TestExportControllerValidateServices:
     def test_validate_services_without_service_returns_false(self, controller_no_service):
         assert controller_no_service._validate_services() is False
 
-    def test_validate_services_shows_warning_when_missing(self, controller_no_service):
+    def test_validate_services_shows_warning_when_missing(self, controller_no_service, monkeypatch):
+        from unittest.mock import Mock
+
+        from PySide6.QtWidgets import QMessageBox
+
+        mock_warning = Mock(return_value=QMessageBox.StandardButton.Ok)
+        monkeypatch.setattr(QMessageBox, "warning", mock_warning)
         controller_no_service._validate_services()
-        controller_no_service.parent.assert_not_called()
+        mock_warning.assert_called_once()
 
 
 class TestExportControllerGetCurrentSelectedImages:
