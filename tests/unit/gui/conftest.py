@@ -11,10 +11,10 @@ GUI テスト層の共有フィクスチャ
 このファイルは tests/conftest.py (ルート) の qapp に依存します。
 """
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 # ===== Qt Configuration (inherited from root) =====
 # tests/conftest.py で qapp フィクスチャと configure_qt_for_tests が
@@ -33,21 +33,34 @@ def auto_mock_qmessagebox(monkeypatch):
     """
 
     def mock_question(*args, **kwargs):
-        return QMessageBox.Yes
+        return QMessageBox.StandardButton.Yes
 
     def mock_warning(*args, **kwargs):
-        return QMessageBox.Ok
+        return QMessageBox.StandardButton.Ok
 
     def mock_information(*args, **kwargs):
-        return QMessageBox.Ok
+        return QMessageBox.StandardButton.Ok
 
     def mock_critical(*args, **kwargs):
-        return QMessageBox.Ok
+        return QMessageBox.StandardButton.Ok
 
     monkeypatch.setattr(QMessageBox, "question", mock_question)
     monkeypatch.setattr(QMessageBox, "warning", mock_warning)
     monkeypatch.setattr(QMessageBox, "information", mock_information)
     monkeypatch.setattr(QMessageBox, "critical", mock_critical)
+
+
+@pytest.fixture(autouse=True)
+def auto_mock_qfiledialog(monkeypatch):
+    """QFileDialogをautouseでモック化（全GUIテストで自動実行）
+
+    headless環境でネイティブファイルダイアログがイベントループをブロックするのを防止。
+    テスト内で個別にファイル選択をテストする場合は monkeypatch でオーバーライド可能。
+    """
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **kw: "")
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **kw: ("", ""))
+    monkeypatch.setattr(QFileDialog, "getOpenFileNames", lambda *a, **kw: ([], ""))
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **kw: ("", ""))
 
 
 # ===== GUI Test Data Fixtures =====
