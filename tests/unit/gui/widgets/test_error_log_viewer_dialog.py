@@ -13,6 +13,7 @@ def mock_db_manager():
     db.repository = Mock()
     db.repository.get_error_records.return_value = []
     db.repository.get_error_count_total.return_value = 0
+    db.repository.get_error_count_unresolved.return_value = 0
     return db
 
 
