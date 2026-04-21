@@ -288,6 +288,8 @@ class TestLoRAIroWorkerBase:
 class ConcreteWorkerWithDb(LoRAIroWorkerBase[str]):
     """db_manager付きテスト用具象ワーカー"""
 
+    _OPERATION_TYPE = "test_op"
+
     def __init__(self, db_manager=None, should_fail: bool = False):
         super().__init__(db_manager=db_manager)
         self.should_fail = should_fail
@@ -296,6 +298,28 @@ class ConcreteWorkerWithDb(LoRAIroWorkerBase[str]):
         if self.should_fail:
             raise RuntimeError("テスト例外")
         return "completed"
+
+
+class ConcreteWorkerPreRecords(LoRAIroWorkerBase[str]):
+    """自前でDB記録してから re-raise するテスト用ワーカー"""
+
+    _OPERATION_TYPE = "pre_record_op"
+
+    def __init__(self, db_manager=None):
+        super().__init__(db_manager=db_manager)
+
+    def execute(self) -> str:
+        try:
+            raise RuntimeError("内部エラー")
+        except Exception as e:
+            self._db_manager.save_error_record(
+                operation_type="pre_record_op",
+                error_type=type(e).__name__,
+                error_message=str(e),
+                stack_trace="trace",
+            )
+            self._error_already_recorded = True
+            raise
 
 
 class TestLoRAIroWorkerBaseUnhandledError:
@@ -335,6 +359,25 @@ class TestLoRAIroWorkerBaseUnhandledError:
         worker.run()
 
         error_mock.assert_called_once()
+
+    def test_run_uses_operation_type_class_variable(self):
+        """_OPERATION_TYPE クラス変数が operation_type として使われる"""
+        mock_db = Mock()
+        worker = ConcreteWorkerWithDb(db_manager=mock_db, should_fail=True)
+
+        worker.run()
+
+        call_kwargs = mock_db.save_error_record.call_args.kwargs
+        assert call_kwargs["operation_type"] == "test_op"
+
+    def test_run_does_not_double_record_when_error_already_recorded(self):
+        """_error_already_recorded=True の場合、基底クラスは再記録しない"""
+        mock_db = Mock()
+        worker = ConcreteWorkerPreRecords(db_manager=mock_db)
+
+        worker.run()
+
+        assert mock_db.save_error_record.call_count == 1
 
 
 class TestLoRAIroWorkerBaseAlias:

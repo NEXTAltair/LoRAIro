@@ -5,7 +5,7 @@ import traceback
 from abc import abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from PySide6.QtCore import QObject, Signal
 
@@ -101,9 +101,12 @@ class LoRAIroWorkerBase[T](QObject):
     finished = Signal(object)  # result: T
     error_occurred = Signal(str)
 
+    _OPERATION_TYPE: ClassVar[str] = ""
+
     def __init__(self, db_manager: "ImageDatabaseManager | None" = None) -> None:
         super().__init__()
         self._db_manager = db_manager
+        self._error_already_recorded: bool = False
         self.cancellation = CancellationController()
         self.progress = ProgressReporter()
         self.status = WorkerStatus.IDLE
@@ -147,12 +150,19 @@ class LoRAIroWorkerBase[T](QObject):
             self.error_occurred.emit(error_msg)
 
     def _record_unhandled_error(self, e: Exception) -> None:
-        """ハンドルされなかった例外をDBエラーログに記録する。"""
+        """ハンドルされなかった例外をDBエラーログに記録する。
+
+        サブクラスが既に save_error_record() を呼び出してから re-raise した場合は
+        self._error_already_recorded = True をセットすることで二重記録を防ぐ。
+        """
+        if self._error_already_recorded:
+            self._error_already_recorded = False
+            return
         if self._db_manager is None:
             return
         try:
             self._db_manager.save_error_record(
-                operation_type=self.__class__.__name__,
+                operation_type=self._OPERATION_TYPE or self.__class__.__name__,
                 error_type=type(e).__name__,
                 error_message=str(e),
                 stack_trace=traceback.format_exc(),

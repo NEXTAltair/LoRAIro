@@ -31,6 +31,8 @@ class DatabaseRegistrationResult:
 class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
     """データベース登録専用ワーカー"""
 
+    _OPERATION_TYPE = "registration"
+
     def __init__(
         self, directory: Path, db_manager: "ImageDatabaseManager", fsm: "FileSystemManager"
     ) -> None:
