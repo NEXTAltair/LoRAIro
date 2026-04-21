@@ -285,6 +285,58 @@ class TestLoRAIroWorkerBase:
         status_mock.assert_called_once_with(WorkerStatus.RUNNING)
 
 
+class ConcreteWorkerWithDb(LoRAIroWorkerBase[str]):
+    """db_manager付きテスト用具象ワーカー"""
+
+    def __init__(self, db_manager=None, should_fail: bool = False):
+        super().__init__(db_manager=db_manager)
+        self.should_fail = should_fail
+
+    def execute(self) -> str:
+        if self.should_fail:
+            raise RuntimeError("テスト例外")
+        return "completed"
+
+
+class TestLoRAIroWorkerBaseUnhandledError:
+    """ハンドルされない例外のDB記録テスト"""
+
+    def test_run_records_error_to_db_when_db_manager_provided(self):
+        """db_manager提供時、ハンドルされない例外がDBに記録される"""
+        mock_db = Mock()
+        worker = ConcreteWorkerWithDb(db_manager=mock_db, should_fail=True)
+
+        worker.run()
+
+        mock_db.save_error_record.assert_called_once()
+        call_kwargs = mock_db.save_error_record.call_args.kwargs
+        assert call_kwargs["error_type"] == "RuntimeError"
+        assert "テスト例外" in call_kwargs["error_message"]
+        assert call_kwargs["stack_trace"] is not None
+
+    def test_run_skips_db_record_when_db_manager_is_none(self):
+        """db_manager=None時、エラー記録をスキップしてもクラッシュしない"""
+        worker = ConcreteWorkerWithDb(db_manager=None, should_fail=True)
+        error_mock = Mock()
+        worker.error_occurred.connect(error_mock)
+
+        worker.run()
+
+        error_mock.assert_called_once()
+
+    def test_run_handles_save_error_record_secondary_failure(self):
+        """save_error_record失敗（二次エラー）でもrun()は正常終了し error_occurred が発行される"""
+        mock_db = Mock()
+        mock_db.save_error_record.side_effect = RuntimeError("DB障害")
+        worker = ConcreteWorkerWithDb(db_manager=mock_db, should_fail=True)
+        error_mock = Mock()
+        worker.error_occurred.connect(error_mock)
+
+        worker.run()
+
+        error_mock.assert_called_once()
+
+
 class TestLoRAIroWorkerBaseAlias:
     """LoRAIroWorkerBase エイリアステスト"""
 

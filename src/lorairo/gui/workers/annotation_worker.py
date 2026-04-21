@@ -104,7 +104,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             models: 使用モデル名リスト
             db_manager: データベースマネージャ（必須: DB保存・エラー記録用）
         """
-        super().__init__()
+        super().__init__(db_manager=db_manager)
 
         self.annotation_logic = annotation_logic
         self.image_paths = image_paths
