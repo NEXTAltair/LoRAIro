@@ -46,9 +46,17 @@ def mock_export_service(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Magi
     mock_project_info.path = tmp_path / "project"
     mock_project_service.get_project.return_value = mock_project_info
 
+    # ImageRepository モック（フィルタ条件を適用して画像IDを返す）
+    mock_repository = MagicMock()
+    mock_repository.get_images_by_filter.return_value = (
+        [{"id": 1}, {"id": 2}],
+        2,
+    )
+
     container = ServiceContainer()
     monkeypatch.setattr(container, "_dataset_export_service", mock_service)
     monkeypatch.setattr(container, "_project_management_service", mock_project_service)
+    monkeypatch.setattr(container, "_image_repository", mock_repository)
 
     return mock_service
 

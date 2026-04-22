@@ -730,3 +730,69 @@ def test_export_create_filter_passed_to_repository(
     assert isinstance(criteria_arg, ImageFilterCriteria)
     assert criteria_arg.tags == ["cat", "dog"]
     assert criteria_arg.manual_rating_filter == "PG"
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_empty_tags_string_exits_code_2(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --tags "" (空文字列) はフィルタとして無効 → exit_code=2。"""
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--tags",
+            "",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_empty_caption_string_exits_code_2(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --caption "" (空文字列) はフィルタとして無効 → exit_code=2。"""
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--caption",
+            "   ",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout

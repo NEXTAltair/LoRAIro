@@ -180,6 +180,11 @@ def create(
             console.print(f"[red]Error:[/red] Project not found: {project}")
             raise typer.Exit(code=1) from e
 
+        # 空文字列をNoneに正規化（シェル変数・env varによる意図しない空値を排除）
+        tags = tags if tags and tags.strip() else None
+        excluded_tags = excluded_tags if excluded_tags and excluded_tags.strip() else None
+        caption = caption if caption and caption.strip() else None
+
         # フィルタ条件バリデーション（フィルタなしは学習用途として無効）
         has_filter = any(
             [

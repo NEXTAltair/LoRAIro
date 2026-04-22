@@ -7,39 +7,8 @@ from pathlib import Path
 
 from lorairo.api.exceptions import ExportFailedError, InvalidFormatError, InvalidInputError
 from lorairo.api.types import ExportCriteria, ExportResult
+from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.services.service_container import ServiceContainer
-
-
-def _resolve_project_image_ids(project_name: str) -> list[int]:
-    """プロジェクトの画像IDリストを解決する。
-
-    現段階ではDBから画像IDを取得する完全な統合は未実装のため、
-    プロジェクトディレクトリの画像ファイル数に基づいたダミーIDを生成する。
-
-    Args:
-        project_name: プロジェクト名。
-
-    Returns:
-        list[int]: 画像IDリスト。
-
-    Raises:
-        ProjectNotFoundError: プロジェクトが見つからない場合。
-    """
-    container = ServiceContainer()
-    project_service = container.project_management_service
-    project_info = project_service.get_project(project_name)
-
-    # プロジェクトの画像ディレクトリをスキャン
-    images_dir = project_info.path / "image_dataset" / "original_images"
-    if not images_dir.exists():
-        return []
-
-    image_extensions = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
-    image_files = [
-        f for f in sorted(images_dir.iterdir()) if f.is_file() and f.suffix.lower() in image_extensions
-    ]
-
-    return list(range(len(image_files)))
 
 
 def export_dataset(
@@ -52,14 +21,15 @@ def export_dataset(
     Args:
         project_name: プロジェクト名。
         output_path: 出力ディレクトリパス。
-        criteria: エクスポート条件（未指定時はデフォルト）。
-                 フォーマット: 'txt' or 'json'
-                 解像度: 256-2048ピクセル
+        criteria: エクスポート条件。フィルタ条件（tag_filter, caption,
+                 manual_rating, ai_rating, score_min, score_max のいずれか）を
+                 必ず1つ以上指定すること。
 
     Returns:
         ExportResult: エクスポート結果。
 
     Raises:
+        InvalidInputError: フィルタ条件が指定されていない場合。
         InvalidFormatError: サポートされていない形式が指定。
         ExportFailedError: エクスポート実行に失敗。
 
@@ -70,6 +40,7 @@ def export_dataset(
         >>> criteria = ExportCriteria(
         ...     format_type="txt",
         ...     resolution=512,
+        ...     tag_filter=["cat"],
         ... )
         >>> result = export_dataset("my_project", "/tmp/export", criteria)
         >>> print(f"エクスポート完了: {result.file_count}ファイル")
@@ -95,10 +66,22 @@ def export_dataset(
 
     container = ServiceContainer()
     service = container.dataset_export_service
+    repository = container.image_repository
 
     try:
-        # プロジェクトから画像IDを解決
-        image_ids = _resolve_project_image_ids(project_name)
+        # フィルタ条件を ImageFilterCriteria に変換してDBから画像IDを取得
+        filter_criteria = ImageFilterCriteria(
+            tags=criteria.tag_filter,
+            excluded_tags=criteria.excluded_tags,
+            caption=criteria.caption,
+            manual_rating_filter=criteria.manual_rating,
+            ai_rating_filter=criteria.ai_rating,
+            include_nsfw=criteria.include_nsfw,
+            score_min=criteria.score_min,
+            score_max=criteria.score_max,
+        )
+        all_images, _ = repository.get_images_by_filter(filter_criteria)
+        image_ids = [img["id"] for img in all_images] if all_images else []
 
         # 形式に応じたエクスポート実行
         if criteria.format_type == "txt":
