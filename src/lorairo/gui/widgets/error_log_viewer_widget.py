@@ -259,37 +259,52 @@ class ErrorLogViewerWidget(QWidget, Ui_ErrorLogViewerWidget):
                 self.error_resolved.emit(error_id)
                 self.load_error_records()
 
+    def _get_selected_error_ids(self) -> list[int]:
+        """選択行のエラーレコードIDリストを返す。選択なし時は空リスト。"""
+        selection_model = self.tableWidgetErrors.selectionModel()
+        if selection_model is None:
+            return []
+        error_ids: list[int] = []
+        for index in selection_model.selectedRows():
+            item = self.tableWidgetErrors.item(index.row(), 0)
+            if item is None:
+                continue
+            error_id = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(error_id, int):
+                error_ids.append(error_id)
+        return error_ids
+
     def _on_mark_resolved_clicked(self) -> None:
-        """解決済みマークボタンクリック処理"""
-        selected_row = self.tableWidgetErrors.currentRow()
-        if selected_row < 0:
+        """解決済みマークボタンクリック処理（複数選択対応）"""
+        error_ids = self._get_selected_error_ids()
+        if not error_ids:
             QMessageBox.warning(self, "警告", "エラーレコードを選択してください")
             return
 
-        # エラーレコードID取得
-        resolve_item = self.tableWidgetErrors.item(selected_row, 0)
-        if resolve_item is None:
-            return
-        error_id = resolve_item.data(Qt.ItemDataRole.UserRole)
-
-        # 確認ダイアログ
+        count = len(error_ids)
         reply = QMessageBox.question(
             self,
             "確認",
-            "このエラーを解決済みにマークしますか？",
+            f"選択した {count} 件のエラーを解決済みにマークしますか？",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
+        if reply != QMessageBox.StandardButton.Yes or self.db_manager is None:
+            return
 
-        if reply == QMessageBox.StandardButton.Yes:
-            try:
-                if self.db_manager:
-                    self.db_manager.repository.mark_error_resolved(error_id)
-                    QMessageBox.information(self, "成功", "エラーを解決済みにマークしました")
-                    self.error_resolved.emit(error_id)
-                    self.load_error_records()
-            except Exception as e:
-                logger.error(f"解決マーク失敗: {e}", exc_info=True)
-                QMessageBox.critical(self, "エラー", f"解決マークに失敗しました:\n{e}")
+        try:
+            success, updated_count = self.db_manager.mark_errors_resolved_batch(error_ids)
+            if success:
+                QMessageBox.information(
+                    self, "成功", f"{updated_count} 件のエラーを解決済みにマークしました"
+                )
+                for eid in error_ids:
+                    self.error_resolved.emit(eid)
+                self.load_error_records()
+            else:
+                QMessageBox.critical(self, "エラー", "一括解決マークに失敗しました")
+        except Exception as e:
+            logger.error(f"一括解決マーク失敗: {e}", exc_info=True)
+            QMessageBox.critical(self, "エラー", f"解決マークに失敗しました:\n{e}")
 
     def _on_export_log_clicked(self) -> None:
         """エラーログをCSVファイルにエクスポートする。

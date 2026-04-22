@@ -303,6 +303,93 @@ class TestMarkErrorResolved:
         assert mock_session.rollback.called
 
 
+class TestMarkErrorsResolvedBatch:
+    """mark_errors_resolved_batch メソッドのテスト"""
+
+    @pytest.fixture
+    def repository(self):
+        """テスト用ImageRepository"""
+        mock_session_factory = MagicMock()
+        return ImageRepository(session_factory=mock_session_factory)
+
+    def test_mark_errors_resolved_batch_success(self, repository):
+        """複数エラーIDの一括解決済みマーク成功"""
+        mock_session = Mock()
+        mock_record_1 = Mock(spec=ErrorRecord)
+        mock_record_1.id = 1
+        mock_record_1.resolved_at = None
+        mock_record_2 = Mock(spec=ErrorRecord)
+        mock_record_2.id = 2
+        mock_record_2.resolved_at = None
+        mock_session.execute.return_value.scalars.return_value.all.return_value = [
+            mock_record_1,
+            mock_record_2,
+        ]
+        repository.session_factory.return_value.__enter__.return_value = mock_session
+
+        success, count = repository.mark_errors_resolved_batch([1, 2])
+
+        assert success is True
+        assert count == 2
+        assert mock_record_1.resolved_at is not None
+        assert mock_record_2.resolved_at is not None
+        assert mock_session.commit.called
+
+    def test_mark_errors_resolved_batch_empty_list(self, repository):
+        """空リストでの一括解決はFalse/0を返す"""
+        success, count = repository.mark_errors_resolved_batch([])
+
+        assert success is False
+        assert count == 0
+
+    def test_mark_errors_resolved_batch_partial_nonexistent(self, repository):
+        """一部IDが存在しない場合、存在するIDのみ更新"""
+        mock_session = Mock()
+        mock_record = Mock(spec=ErrorRecord)
+        mock_record.id = 1
+        mock_record.resolved_at = None
+        # id=999 は存在しないので result には含まれない
+        mock_session.execute.return_value.scalars.return_value.all.return_value = [mock_record]
+        repository.session_factory.return_value.__enter__.return_value = mock_session
+
+        success, count = repository.mark_errors_resolved_batch([1, 999])
+
+        assert success is True
+        assert count == 1
+        assert mock_record.resolved_at is not None
+        assert mock_session.commit.called
+
+    def test_mark_errors_resolved_batch_database_error(self, repository):
+        """データベースエラー時にロールバックして例外を再送出"""
+        mock_session = Mock()
+        mock_session.execute.side_effect = SQLAlchemyError("DB Error")
+        repository.session_factory.return_value.__enter__.return_value = mock_session
+
+        with pytest.raises(SQLAlchemyError):
+            repository.mark_errors_resolved_batch([1, 2])
+
+        assert mock_session.rollback.called
+
+    def test_mark_errors_resolved_batch_sets_resolved_at_to_now(self, repository):
+        """resolved_atが現在時刻(UTC)に設定されることを確認"""
+        from datetime import UTC, datetime
+
+        mock_session = Mock()
+        mock_record = Mock(spec=ErrorRecord)
+        mock_record.id = 1
+        mock_record.resolved_at = None
+        mock_session.execute.return_value.scalars.return_value.all.return_value = [mock_record]
+        repository.session_factory.return_value.__enter__.return_value = mock_session
+
+        before = datetime.now(UTC)
+        repository.mark_errors_resolved_batch([1])
+        after = datetime.now(UTC)
+
+        assert mock_record.resolved_at is not None
+        # resolved_atがbefore〜afterの間に設定されていることを確認
+        assert before <= mock_record.resolved_at <= after
+
+
 class TestGetSession:
     """get_session メソッドのテスト"""
 

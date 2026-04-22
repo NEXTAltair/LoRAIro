@@ -3149,6 +3149,50 @@ class ImageRepository:
                 logger.error(f"エラーレコードの解決マーク中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
+    def mark_errors_resolved_batch(self, error_ids: list[int]) -> tuple[bool, int]:
+        """複数のエラーレコードを原子的に解決済みにマーク
+
+        単一トランザクションで全エラーを処理する。全件成功 or 全件ロールバック。
+        ADR-0012 (Batch Tag Atomic Transaction) パターン準拠。
+
+        Args:
+            error_ids: 対象エラーレコードのIDリスト
+
+        Returns:
+            (成功フラグ, 解決済みマーク件数)
+
+        Raises:
+            SQLAlchemyError: データベースエラー時（ロールバック後に再送出）
+        """
+        from datetime import UTC
+
+        if not error_ids:
+            logger.warning("mark_errors_resolved_batch: 空のerror_idsリストが渡されました")
+            return (False, 0)
+
+        with self.session_factory() as session:
+            try:
+                existing = (
+                    session.execute(select(ErrorRecord).where(ErrorRecord.id.in_(error_ids)))
+                    .scalars()
+                    .all()
+                )
+
+                now = datetime.datetime.now(UTC)
+                updated_count = 0
+                for record in existing:
+                    record.resolved_at = now
+                    updated_count += 1
+
+                session.commit()
+                logger.info(f"エラーレコード一括解決完了: 要求={len(error_ids)}件, 更新={updated_count}件")
+                return (True, updated_count)
+
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"エラーレコード一括解決失敗: {e}", exc_info=True)
+                raise
+
     def get_session(self) -> Session:
         """セッションを取得（Manager層で生SQLを実行する際に使用）
 
