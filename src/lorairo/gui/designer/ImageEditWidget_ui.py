@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'ImageEditWidget.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.10.2
+## Created by: Qt User Interface Compiler version 6.11.0
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -173,17 +173,17 @@ class Ui_ImageEditWidget(object):
     def retranslateUi(self, ImageEditWidget: QWidget) -> None:
         ImageEditWidget.setWindowTitle(QCoreApplication.translate("ImageEditWidget", u"Form", None))
         ___qtablewidgetitem = self.tableWidgetImageList.horizontalHeaderItem(0)
-        ___qtablewidgetitem.setText(QCoreApplication.translate("ImageEditWidget", u"\u30b5\u30e0\u30cd\u30a4\u30eb", None));
+        ___qtablewidgetitem.setText(QCoreApplication.translate("ImageEditWidget", u"\u30b5\u30e0\u30cd\u30a4\u30eb", None))
         ___qtablewidgetitem1 = self.tableWidgetImageList.horizontalHeaderItem(1)
-        ___qtablewidgetitem1.setText(QCoreApplication.translate("ImageEditWidget", u"\u30d5\u30a1\u30a4\u30eb\u540d", None));
+        ___qtablewidgetitem1.setText(QCoreApplication.translate("ImageEditWidget", u"\u30d5\u30a1\u30a4\u30eb\u540d", None))
         ___qtablewidgetitem2 = self.tableWidgetImageList.horizontalHeaderItem(2)
-        ___qtablewidgetitem2.setText(QCoreApplication.translate("ImageEditWidget", u"\u30d1\u30b9", None));
+        ___qtablewidgetitem2.setText(QCoreApplication.translate("ImageEditWidget", u"\u30d1\u30b9", None))
         ___qtablewidgetitem3 = self.tableWidgetImageList.horizontalHeaderItem(3)
-        ___qtablewidgetitem3.setText(QCoreApplication.translate("ImageEditWidget", u"\u30b5\u30a4\u30ba", None));
+        ___qtablewidgetitem3.setText(QCoreApplication.translate("ImageEditWidget", u"\u30b5\u30a4\u30ba", None))
         ___qtablewidgetitem4 = self.tableWidgetImageList.horizontalHeaderItem(4)
-        ___qtablewidgetitem4.setText(QCoreApplication.translate("ImageEditWidget", u"\u65e2\u5b58\u30bf\u30b0", None));
+        ___qtablewidgetitem4.setText(QCoreApplication.translate("ImageEditWidget", u"\u65e2\u5b58\u30bf\u30b0", None))
         ___qtablewidgetitem5 = self.tableWidgetImageList.horizontalHeaderItem(5)
-        ___qtablewidgetitem5.setText(QCoreApplication.translate("ImageEditWidget", u"\u65e2\u5b58\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3", None));
+        ___qtablewidgetitem5.setText(QCoreApplication.translate("ImageEditWidget", u"\u65e2\u5b58\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3", None))
         self.labelPreviewTitle.setText(QCoreApplication.translate("ImageEditWidget", u"\u30d7\u30ec\u30d3\u30e5\u30fc", None))
         self.groupBoxEditOptions.setTitle(QCoreApplication.translate("ImageEditWidget", u"\u7de8\u96c6\u30aa\u30d7\u30b7\u30e7\u30f3", None))
         self.labelResizeOption.setText(QCoreApplication.translate("ImageEditWidget", u"\u30ea\u30b5\u30a4\u30ba:", None))

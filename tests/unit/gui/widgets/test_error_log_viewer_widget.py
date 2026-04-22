@@ -8,7 +8,8 @@ import datetime
 from unittest.mock import Mock, patch
 
 import pytest
-from PySide6.QtWidgets import QFileDialog, QMessageBox
+from PySide6.QtCore import QItemSelectionModel
+from PySide6.QtWidgets import QAbstractItemView, QFileDialog, QMessageBox
 
 from lorairo.database.schema import ErrorRecord
 from lorairo.gui.widgets.error_log_viewer_widget import ErrorLogViewerWidget
@@ -286,6 +287,120 @@ class TestErrorLogViewerWidgetActions:
         with patch.object(QFileDialog, "getSaveFileName", return_value=("", "")):
             # キャンセル時はQMessageBoxが呼ばれない
             error_log_viewer_widget._on_export_log_clicked()
+
+
+class TestMarkResolvedMultiSelect:
+    """複数選択による一括解決テスト"""
+
+    @pytest.fixture
+    def record_2(self):
+        """2件目のエラーレコード"""
+        return ErrorRecord(
+            id=2,
+            operation_type="registration",
+            error_type="FileError",
+            error_message="Second error message",
+            file_path=None,
+            model_name=None,
+            retry_count=0,
+            resolved_at=None,
+            created_at=datetime.datetime(2025, 11, 25, 12, 0, 0),
+        )
+
+    @pytest.fixture
+    def widget_with_two_records(self, error_log_viewer_widget, sample_error_record, record_2):
+        """2件のレコードが表示され ExtendedSelection が有効な widget"""
+        error_log_viewer_widget._update_table_display([sample_error_record, record_2])
+        error_log_viewer_widget.tableWidgetErrors.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
+        return error_log_viewer_widget
+
+    def _select_rows(self, table, row_indices: list[int]) -> None:
+        """指定行を複数選択するヘルパー"""
+        table.selectRow(row_indices[0])
+        for row in row_indices[1:]:
+            table.selectionModel().select(
+                table.model().index(row, 0),
+                QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+            )
+
+    def test_multi_select_calls_batch_method(self, widget_with_two_records, mock_db_manager):
+        """複数行選択時に mark_errors_resolved_batch が全選択IDで呼ばれる"""
+        mock_db_manager.mark_errors_resolved_batch.return_value = (True, 2)
+        table = widget_with_two_records.tableWidgetErrors
+        self._select_rows(table, [0, 1])
+
+        with (
+            patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes),
+            patch.object(QMessageBox, "information"),
+        ):
+            widget_with_two_records._on_mark_resolved_clicked()
+
+        mock_db_manager.mark_errors_resolved_batch.assert_called_once()
+        called_ids = mock_db_manager.mark_errors_resolved_batch.call_args[0][0]
+        assert set(called_ids) == {1, 2}
+
+    def test_confirmation_message_shows_count(self, widget_with_two_records, mock_db_manager):
+        """確認ダイアログのメッセージに選択件数が含まれる"""
+        mock_db_manager.mark_errors_resolved_batch.return_value = (True, 2)
+        table = widget_with_two_records.tableWidgetErrors
+        self._select_rows(table, [0, 1])
+
+        captured: list[str] = []
+
+        def capture_question(parent, title, message, *args, **kwargs):
+            captured.append(message)
+            return QMessageBox.StandardButton.No
+
+        with patch.object(QMessageBox, "question", side_effect=capture_question):
+            widget_with_two_records._on_mark_resolved_clicked()
+
+        assert len(captured) == 1
+        assert "2" in captured[0]
+
+    def test_cancel_does_not_call_db(self, widget_with_two_records, mock_db_manager):
+        """ユーザーがキャンセルしたときは DB 操作を一切呼ばない"""
+        table = widget_with_two_records.tableWidgetErrors
+        self._select_rows(table, [0, 1])
+
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No):
+            widget_with_two_records._on_mark_resolved_clicked()
+
+        mock_db_manager.mark_errors_resolved_batch.assert_not_called()
+
+    def test_emits_signal_per_resolved_id(self, widget_with_two_records, mock_db_manager):
+        """解決済みにした各IDに対して error_resolved シグナルが発火する"""
+        mock_db_manager.mark_errors_resolved_batch.return_value = (True, 2)
+        table = widget_with_two_records.tableWidgetErrors
+        self._select_rows(table, [0, 1])
+
+        emitted: list[int] = []
+        widget_with_two_records.error_resolved.connect(emitted.append)
+
+        with (
+            patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes),
+            patch.object(QMessageBox, "information"),
+        ):
+            widget_with_two_records._on_mark_resolved_clicked()
+
+        assert set(emitted) == {1, 2}
+
+    def test_reloads_table_after_success(self, widget_with_two_records, mock_db_manager):
+        """一括解決成功後に load_error_records が呼ばれてテーブルがリロードされる"""
+        mock_db_manager.mark_errors_resolved_batch.return_value = (True, 1)
+        mock_db_manager.repository.get_error_records.return_value = []
+        mock_db_manager.repository.get_error_count_unresolved.return_value = 0
+        table = widget_with_two_records.tableWidgetErrors
+        table.selectRow(0)
+
+        with (
+            patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes),
+            patch.object(QMessageBox, "information"),
+        ):
+            widget_with_two_records._on_mark_resolved_clicked()
+
+        mock_db_manager.repository.get_error_records.assert_called()
 
 
 class TestErrorLogViewerWidgetTableDisplay:

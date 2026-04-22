@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'AnnotationDataDisplayWidget.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.10.2
+## Created by: Qt User Interface Compiler version 6.11.0
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -127,15 +127,15 @@ class Ui_AnnotationDataDisplayWidget(object):
         AnnotationDataDisplayWidget.setWindowTitle(QCoreApplication.translate("AnnotationDataDisplayWidget", u"Annotation Data Display", None))
         self.groupBoxTags.setTitle(QCoreApplication.translate("AnnotationDataDisplayWidget", u"\u30bf\u30b0", None))
         ___qtablewidgetitem = self.tableWidgetTags.horizontalHeaderItem(0)
-        ___qtablewidgetitem.setText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"Tag", None));
+        ___qtablewidgetitem.setText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"Tag", None))
         ___qtablewidgetitem1 = self.tableWidgetTags.horizontalHeaderItem(1)
-        ___qtablewidgetitem1.setText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"Model", None));
+        ___qtablewidgetitem1.setText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"Model", None))
         ___qtablewidgetitem2 = self.tableWidgetTags.horizontalHeaderItem(2)
-        ___qtablewidgetitem2.setText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"Source", None));
+        ___qtablewidgetitem2.setText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"Source", None))
         ___qtablewidgetitem3 = self.tableWidgetTags.horizontalHeaderItem(3)
-        ___qtablewidgetitem3.setText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"Confidence", None));
+        ___qtablewidgetitem3.setText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"Confidence", None))
         ___qtablewidgetitem4 = self.tableWidgetTags.horizontalHeaderItem(4)
-        ___qtablewidgetitem4.setText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"Edited", None));
+        ___qtablewidgetitem4.setText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"Edited", None))
         self.groupBoxCaption.setTitle(QCoreApplication.translate("AnnotationDataDisplayWidget", u"\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3", None))
         self.textEditCaption.setPlaceholderText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3\u304c\u8868\u793a\u3055\u308c\u307e\u3059", None))
         self.textEditCaption.setStyleSheet(QCoreApplication.translate("AnnotationDataDisplayWidget", u"QTextEdit {\n"

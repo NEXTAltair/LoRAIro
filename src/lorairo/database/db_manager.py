@@ -1175,6 +1175,21 @@ class ImageDatabaseManager:
             logger.error(f"エラーレコード保存中にエラー（二次エラー）: {e}", exc_info=True)
             return -1
 
+    def mark_errors_resolved_batch(self, error_ids: list[int]) -> tuple[bool, int]:
+        """複数エラーを一括解決済みマーク（Manager層Facade）
+
+        Args:
+            error_ids: 対象エラーレコードのIDリスト
+
+        Returns:
+            (成功フラグ, 解決済みマーク件数)
+        """
+        try:
+            return self.repository.mark_errors_resolved_batch(error_ids)
+        except Exception as e:
+            logger.error(f"一括解決マーク失敗（Manager）: {e}", exc_info=True)
+            return (False, 0)
+
     def get_image_id_by_filepath(self, filepath: str) -> int | None:
         """ファイルパスから画像IDを取得（Manager層Facade）
 
