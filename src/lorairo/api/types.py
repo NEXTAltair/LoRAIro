@@ -244,18 +244,32 @@ class ExportCriteria(BaseModel):
     score_max: float | None = None
 
     def has_any_filter(self) -> bool:
-        """フィルタ条件が1つ以上指定されているか検証。
+        """フィルタ条件が1つ以上「有効に」指定されているか検証。
 
-        文字列フィールドは空文字列を「未指定」として扱う。
-        score_min/score_max は 0.0 が有効値のため is not None で判定する。
+        下位レイヤ（ImageRepository）に渡った時点で空値として扱われる入力を
+        事前に無効と判定する。そうしないと「フィルタ未指定だが検証は通過」
+        という抜け道が生まれ、学習用途と矛盾する全件エクスポートを許してしまう。
+
+        - リストフィールド: 空白のみの要素を除いた結果が空なら無効
+        - 文字列フィールド: 空白のみの文字列は無効
+        - score_min/score_max: 0.0 も有効値のため is not None で判定
         """
+
+        def _has_non_blank_list_entry(values: list[str] | None) -> bool:
+            if not values:
+                return False
+            return any(v and v.strip() for v in values)
+
+        def _is_non_blank_string(value: str | None) -> bool:
+            return value is not None and bool(value.strip())
+
         return any(
             [
-                bool(self.tag_filter),
-                bool(self.excluded_tags),
-                bool(self.caption),
-                bool(self.manual_rating),
-                bool(self.ai_rating),
+                _has_non_blank_list_entry(self.tag_filter),
+                _has_non_blank_list_entry(self.excluded_tags),
+                _is_non_blank_string(self.caption),
+                _is_non_blank_string(self.manual_rating),
+                _is_non_blank_string(self.ai_rating),
                 self.score_min is not None,
                 self.score_max is not None,
             ]

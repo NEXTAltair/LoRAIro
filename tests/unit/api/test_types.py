@@ -220,3 +220,38 @@ class TestExportCriteria:
         """score_min=0.0 は有効なフィルタ → True（falsy だが is not None で判定）。"""
         criteria = ExportCriteria(score_min=0.0)
         assert criteria.has_any_filter() is True
+
+    def test_has_any_filter_tag_filter_with_only_empty_string_is_false(self) -> None:
+        """tag_filter=[""] はリスト非空だが有効要素なし → False。"""
+        criteria = ExportCriteria(tag_filter=[""])
+        assert criteria.has_any_filter() is False
+
+    def test_has_any_filter_tag_filter_with_only_whitespace_is_false(self) -> None:
+        """tag_filter=["   "] は空白のみで有効要素なし → False。"""
+        criteria = ExportCriteria(tag_filter=["   "])
+        assert criteria.has_any_filter() is False
+
+    def test_has_any_filter_tag_filter_with_valid_and_blank_entries_is_true(self) -> None:
+        """tag_filter=["cat", ""] は有効要素が1つでもあれば → True。"""
+        criteria = ExportCriteria(tag_filter=["cat", ""])
+        assert criteria.has_any_filter() is True
+
+    def test_has_any_filter_excluded_tags_with_only_blank_is_false(self) -> None:
+        """excluded_tags=["", " "] は有効要素なし → False。"""
+        criteria = ExportCriteria(excluded_tags=["", " "])
+        assert criteria.has_any_filter() is False
+
+    def test_has_any_filter_whitespace_only_caption_is_false(self) -> None:
+        """caption="   " は空白のみで無効 → False。"""
+        criteria = ExportCriteria(caption="   ")
+        assert criteria.has_any_filter() is False
+
+    def test_has_any_filter_whitespace_only_manual_rating_is_false(self) -> None:
+        """manual_rating="  " は空白のみで無効 → False。"""
+        criteria = ExportCriteria(manual_rating="  ")
+        assert criteria.has_any_filter() is False
+
+    def test_has_any_filter_whitespace_only_ai_rating_is_false(self) -> None:
+        """ai_rating=" " は空白のみで無効 → False。"""
+        criteria = ExportCriteria(ai_rating=" ")
+        assert criteria.has_any_filter() is False

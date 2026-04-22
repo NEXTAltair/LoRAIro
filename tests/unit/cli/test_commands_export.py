@@ -796,3 +796,178 @@ def test_export_create_empty_caption_string_exits_code_2(
 
     assert result.exit_code == 2
     assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_comma_only_tags_exits_code_2(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --tags "," (カンマのみ) は正規化後に空リスト → exit_code=2。"""
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--tags",
+            ",",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_multiple_commas_tags_exits_code_2(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --tags ",,," (カンマのみ) は正規化後に空リスト → exit_code=2。"""
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--tags",
+            ",,,",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_whitespace_excluded_tags_exits_code_2(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --excluded-tags " , , " (空白・カンマのみ) は正規化後に空リスト → exit_code=2。"""
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--excluded-tags",
+            " , , ",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_tags_with_blanks_and_valid_entries_passes(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --tags "cat,,dog" は空要素除外後も有効要素が残るため正常終了。"""
+    from lorairo.database.filter_criteria import ImageFilterCriteria
+
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--tags",
+            "cat,,dog",
+        ],
+    )
+
+    assert result.exit_code == 0
+    call_args = mock_container.image_repository.get_images_by_filter.call_args
+    criteria_arg = call_args[0][0]
+    assert isinstance(criteria_arg, ImageFilterCriteria)
+    assert criteria_arg.tags == ["cat", "dog"]
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_whitespace_tags_entry_stripped(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --tags " cat , , dog " は strip 後に有効要素として扱われる。"""
+    from lorairo.database.filter_criteria import ImageFilterCriteria
+
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--tags",
+            " cat , , dog ",
+        ],
+    )
+
+    assert result.exit_code == 0
+    call_args = mock_container.image_repository.get_images_by_filter.call_args
+    criteria_arg = call_args[0][0]
+    assert isinstance(criteria_arg, ImageFilterCriteria)
+    assert criteria_arg.tags == ["cat", "dog"]

@@ -68,6 +68,13 @@ def _build_filter_criteria(
 ) -> ImageFilterCriteria:
     """CLI引数から ImageFilterCriteria を生成する。
 
+    全テキスト/リスト系フィルタは同一ポリシーで正規化する:
+    - リスト: カンマで分割し各要素を strip、空要素は破棄。空リストは None 扱い
+    - 文字列: strip して空なら None 扱い
+
+    こうすることで、後段の has_any_filter 判定が
+    「正規化後の最終フィルタ値」をそのまま参照できる。
+
     Args:
         tags: カンマ区切りのタグ文字列。
         excluded_tags: カンマ区切りの除外タグ文字列。
@@ -81,19 +88,48 @@ def _build_filter_criteria(
     Returns:
         構築した ImageFilterCriteria。
     """
-    tags_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
-    excluded_tags_list = (
-        [t.strip() for t in excluded_tags.split(",") if t.strip()] if excluded_tags else None
-    )
+
+    def _normalize_csv(value: str | None) -> list[str] | None:
+        if not value:
+            return None
+        items = [t.strip() for t in value.split(",") if t.strip()]
+        return items if items else None
+
+    def _normalize_text(value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped if stripped else None
+
     return ImageFilterCriteria(
-        tags=tags_list,
-        excluded_tags=excluded_tags_list,
-        caption=caption,
+        tags=_normalize_csv(tags),
+        excluded_tags=_normalize_csv(excluded_tags),
+        caption=_normalize_text(caption),
         manual_rating_filter=manual_rating,
         ai_rating_filter=ai_rating,
         include_nsfw=include_nsfw,
         score_min=score_min,
         score_max=score_max,
+    )
+
+
+def _criteria_has_effective_filter(criteria: ImageFilterCriteria) -> bool:
+    """正規化済みの ImageFilterCriteria に有効なフィルタが1つ以上あるか判定する。
+
+    _build_filter_criteria で空要素・空白は既に None/空リストに正規化されている
+    前提。ここでは truthy 判定だけで済む。include_nsfw はフィルタ条件としては
+    扱わない（他フィルタの振る舞い修飾子）。
+    """
+    return any(
+        [
+            bool(criteria.tags),
+            bool(criteria.excluded_tags),
+            bool(criteria.caption),
+            bool(criteria.manual_rating_filter),
+            bool(criteria.ai_rating_filter),
+            criteria.score_min is not None,
+            criteria.score_max is not None,
+        ]
     )
 
 
@@ -180,30 +216,7 @@ def create(
             console.print(f"[red]Error:[/red] Project not found: {project}")
             raise typer.Exit(code=1) from e
 
-        # 空文字列をNoneに正規化（シェル変数・env varによる意図しない空値を排除）
-        tags = tags if tags and tags.strip() else None
-        excluded_tags = excluded_tags if excluded_tags and excluded_tags.strip() else None
-        caption = caption if caption and caption.strip() else None
-
-        # フィルタ条件バリデーション（フィルタなしは学習用途として無効）
-        has_filter = any(
-            [
-                tags is not None,
-                excluded_tags is not None,
-                caption is not None,
-                manual_rating is not None,
-                ai_rating is not None,
-                score_min is not None,
-                score_max is not None,
-            ]
-        )
-        if not has_filter:
-            console.print("[red]Error:[/red] エクスポートには最低1つのフィルタ条件が必要です")
-            console.print("例: lorairo-cli export create --project foo --tags cat --output /tmp/out")
-            console.print("詳細: lorairo-cli export create --help")
-            raise typer.Exit(code=2)
-
-        # フィルタ条件を構築
+        # フィルタ条件を構築（CSV分割・空白除去・空要素除外を含む正規化はここで完結）
         criteria = _build_filter_criteria(
             tags=tags,
             excluded_tags=excluded_tags,
@@ -214,6 +227,14 @@ def create(
             score_min=score_min,
             score_max=score_max,
         )
+
+        # 正規化後のフィルタ条件で判定する（--tags "," や "   " が repository に
+        # 到達する時点では空リスト/空値となるため、検証もこの段階で行う必要がある）
+        if not _criteria_has_effective_filter(criteria):
+            console.print("[red]Error:[/red] エクスポートには最低1つのフィルタ条件が必要です")
+            console.print("例: lorairo-cli export create --project foo --tags cat --output /tmp/out")
+            console.print("詳細: lorairo-cli export create --help")
+            raise typer.Exit(code=2)
 
         # ServiceContainer を取得
         container = get_service_container()
