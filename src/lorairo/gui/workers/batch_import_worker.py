@@ -4,16 +4,24 @@
 進捗とキャンセルをGUIに統合する。
 """
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING, ClassVar
 
 from ...database.db_repository import ImageRepository
 from ...services.batch_import_service import BatchImportResult, BatchImportService
 from ...utils.log import logger
 from .base import LoRAIroWorkerBase
 
+if TYPE_CHECKING:
+    from ...database.db_manager import ImageDatabaseManager
+
 
 class BatchImportWorker(LoRAIroWorkerBase[BatchImportResult]):
     """OpenAI Batch API JSONL インポートワーカー。"""
+
+    _OPERATION_TYPE: ClassVar[str] = "batch_import"
 
     def __init__(
         self,
@@ -22,6 +30,7 @@ class BatchImportWorker(LoRAIroWorkerBase[BatchImportResult]):
         *,
         dry_run: bool = False,
         model_name_override: str | None = None,
+        db_manager: ImageDatabaseManager | None = None,
     ) -> None:
         """ワーカー初期化。
 
@@ -30,8 +39,9 @@ class BatchImportWorker(LoRAIroWorkerBase[BatchImportResult]):
             jsonl_files: インポート対象のJSONLファイルリスト。
             dry_run: Trueの場合、DB書き込みを行わない。
             model_name_override: モデル名上書き。
+            db_manager: エラー記録用DBマネージャー。
         """
-        super().__init__()
+        super().__init__(db_manager=db_manager)
         self._repository = repository
         self._jsonl_files = jsonl_files
         self._dry_run = dry_run

@@ -2959,7 +2959,7 @@ class ImageRepository:
                 session.flush()
                 error_id = record.id
                 session.commit()
-                logger.info(
+                logger.debug(
                     f"エラーレコードを保存しました: ID={error_id}, "
                     f"operation={operation_type}, type={error_type}",
                 )

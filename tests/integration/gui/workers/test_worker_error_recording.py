@@ -311,6 +311,63 @@ class TestSearchWorkerErrorRecording:
         assert "Database Error" in error_records[0].error_message
 
 
+class TestBatchImportWorkerErrorRecording:
+    """BatchImportWorker のエラー記録テスト"""
+
+    def test_batch_import_error_creates_error_record(self, db_manager, tmp_path):
+        """バッチインポートエラー時にエラーレコードが作成される"""
+        from unittest.mock import patch
+
+        from lorairo.gui.workers.batch_import_worker import BatchImportWorker
+
+        jsonl_file = tmp_path / "result.jsonl"
+        jsonl_file.touch()
+
+        worker = BatchImportWorker(
+            repository=db_manager.repository,
+            jsonl_files=[jsonl_file],
+            db_manager=db_manager,
+        )
+
+        with patch(
+            "lorairo.gui.workers.batch_import_worker.BatchImportService",
+            side_effect=Exception("JSONL parse error"),
+        ):
+            worker.run()
+
+        error_count = db_manager.repository.get_error_count_unresolved(operation_type="batch_import")
+        assert error_count > 0
+
+        error_records = db_manager.repository.get_error_records(operation_type="batch_import")
+        assert len(error_records) > 0
+        assert "JSONL parse error" in error_records[0].error_message
+
+    def test_batch_import_operation_type_stored_correctly(self, db_manager, tmp_path):
+        """operation_type が 'batch_import' で記録される"""
+        from unittest.mock import patch
+
+        from lorairo.gui.workers.batch_import_worker import BatchImportWorker
+
+        jsonl_file = tmp_path / "result.jsonl"
+        jsonl_file.touch()
+
+        worker = BatchImportWorker(
+            repository=db_manager.repository,
+            jsonl_files=[jsonl_file],
+            db_manager=db_manager,
+        )
+
+        with patch(
+            "lorairo.gui.workers.batch_import_worker.BatchImportService",
+            side_effect=RuntimeError("Unexpected error"),
+        ):
+            worker.run()
+
+        error_records = db_manager.repository.get_error_records(operation_type="batch_import")
+        assert len(error_records) > 0
+        assert error_records[0].operation_type == "batch_import"
+
+
 class TestErrorRecordIntegration:
     """エラーレコード統合テスト"""
 
