@@ -200,3 +200,23 @@ class TestExportCriteria:
         """空リストの tag_filter はフィルタなしと同じ → False。"""
         criteria = ExportCriteria(tag_filter=[])
         assert criteria.has_any_filter() is False
+
+    def test_has_any_filter_empty_caption_string_is_false(self) -> None:
+        """空文字列の caption はフィルタとして無効 → False。"""
+        criteria = ExportCriteria(caption="")
+        assert criteria.has_any_filter() is False
+
+    def test_has_any_filter_empty_manual_rating_string_is_false(self) -> None:
+        """空文字列の manual_rating はフィルタとして無効 → False。"""
+        criteria = ExportCriteria(manual_rating="")
+        assert criteria.has_any_filter() is False
+
+    def test_has_any_filter_empty_ai_rating_string_is_false(self) -> None:
+        """空文字列の ai_rating はフィルタとして無効 → False。"""
+        criteria = ExportCriteria(ai_rating="")
+        assert criteria.has_any_filter() is False
+
+    def test_has_any_filter_score_min_zero_is_true(self) -> None:
+        """score_min=0.0 は有効なフィルタ → True（falsy だが is not None で判定）。"""
+        criteria = ExportCriteria(score_min=0.0)
+        assert criteria.has_any_filter() is True

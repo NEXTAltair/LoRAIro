@@ -244,14 +244,18 @@ class ExportCriteria(BaseModel):
     score_max: float | None = None
 
     def has_any_filter(self) -> bool:
-        """フィルタ条件が1つ以上指定されているか検証。"""
+        """フィルタ条件が1つ以上指定されているか検証。
+
+        文字列フィールドは空文字列を「未指定」として扱う。
+        score_min/score_max は 0.0 が有効値のため is not None で判定する。
+        """
         return any(
             [
                 bool(self.tag_filter),
                 bool(self.excluded_tags),
-                self.caption is not None,
-                self.manual_rating is not None,
-                self.ai_rating is not None,
+                bool(self.caption),
+                bool(self.manual_rating),
+                bool(self.ai_rating),
                 self.score_min is not None,
                 self.score_max is not None,
             ]

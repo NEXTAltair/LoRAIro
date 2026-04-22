@@ -10,6 +10,10 @@ from lorairo.api.types import ExportCriteria, ExportResult
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.services.service_container import ServiceContainer
 
+# NOTE: LoRAIro は db_core.py でデータベースをグローバルに初期化するため、
+# project_name は存在確認に使用するが、クエリ自体のスコープ制御には使えない。
+# config/lorairo.toml が正しいプロジェクトを指していることをユーザーが保証する必要がある。
+
 
 def export_dataset(
     project_name: str,
@@ -45,6 +49,10 @@ def export_dataset(
         >>> result = export_dataset("my_project", "/tmp/export", criteria)
         >>> print(f"エクスポート完了: {result.file_count}ファイル")
     """
+    # プロジェクト存在確認
+    container = ServiceContainer()
+    container.project_management_service.get_project(project_name)
+
     # クライテリア初期化
     if criteria is None:
         criteria = ExportCriteria()
@@ -64,7 +72,6 @@ def export_dataset(
 
     output_dir = Path(output_path) if isinstance(output_path, str) else output_path
 
-    container = ServiceContainer()
     service = container.dataset_export_service
     repository = container.image_repository
 
