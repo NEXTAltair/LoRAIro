@@ -5,7 +5,7 @@ DatasetExportService をラップし、エクスポート機能を提供。
 
 from pathlib import Path
 
-from lorairo.api.exceptions import ExportFailedError, InvalidFormatError
+from lorairo.api.exceptions import ExportFailedError, InvalidFormatError, InvalidInputError
 from lorairo.api.types import ExportCriteria, ExportResult
 from lorairo.services.service_container import ServiceContainer
 
@@ -77,6 +77,14 @@ def export_dataset(
     # クライテリア初期化
     if criteria is None:
         criteria = ExportCriteria()
+
+    # フィルタ条件バリデーション
+    if not criteria.has_any_filter():
+        raise InvalidInputError(
+            "criteria",
+            "エクスポートには最低1つのフィルタ条件が必要です"
+            " (tag_filter, caption, manual_rating, ai_rating, score_min, score_max のいずれか)",
+        )
 
     # フォーマット検証
     supported_formats = ["txt", "json"]

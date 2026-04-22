@@ -221,6 +221,13 @@ class ExportCriteria(BaseModel):
         include_captions: キャプションを含めるかどうか。
         include_tags: タグを含めるかどうか。
         tag_filter: タグフィルター（指定タグのみをエクスポート）。
+        excluded_tags: 除外タグリスト（NOT検索）。
+        caption: キャプションテキストフィルター。
+        manual_rating: 手動レーティングフィルター（PG/PG-13/R/X/XXX/UNRATED）。
+        ai_rating: AI評価レーティングフィルター（PG/PG-13/R/X/XXX/UNRATED）。
+        include_nsfw: NSFWコンテンツを含めるかどうか。
+        score_min: 最小スコア値（0.0-10.0）。
+        score_max: 最大スコア値（0.0-10.0）。
     """
 
     format_type: str = Field(default="txt", pattern="^(txt|json)$")
@@ -228,6 +235,27 @@ class ExportCriteria(BaseModel):
     include_captions: bool = True
     include_tags: bool = True
     tag_filter: list[str] | None = None
+    excluded_tags: list[str] | None = None
+    caption: str | None = None
+    manual_rating: str | None = None
+    ai_rating: str | None = None
+    include_nsfw: bool = False
+    score_min: float | None = None
+    score_max: float | None = None
+
+    def has_any_filter(self) -> bool:
+        """フィルタ条件が1つ以上指定されているか検証。"""
+        return any(
+            [
+                bool(self.tag_filter),
+                bool(self.excluded_tags),
+                self.caption is not None,
+                self.manual_rating is not None,
+                self.ai_rating is not None,
+                self.score_min is not None,
+                self.score_max is not None,
+            ]
+        )
 
 
 # ==================== タグ関連 ====================

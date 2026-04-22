@@ -8,6 +8,7 @@ import pytest
 from lorairo.api.types import (
     AnnotationResult,
     DuplicateInfo,
+    ExportCriteria,
     ExportResult,
     ProjectInfo,
     RegistrationResult,
@@ -144,3 +145,58 @@ class TestTagSearchResult:
         )
         assert result.count == 2
         assert result.matches[0] == "cat"
+
+
+@pytest.mark.unit
+class TestExportCriteria:
+    """ExportCriteria テスト。"""
+
+    def test_has_any_filter_empty(self) -> None:
+        """フィルタ条件なし → False。"""
+        criteria = ExportCriteria()
+        assert criteria.has_any_filter() is False
+
+    def test_has_any_filter_with_tag_filter(self) -> None:
+        """tag_filter 指定 → True。"""
+        criteria = ExportCriteria(tag_filter=["cat"])
+        assert criteria.has_any_filter() is True
+
+    def test_has_any_filter_with_excluded_tags(self) -> None:
+        """excluded_tags 指定 → True。"""
+        criteria = ExportCriteria(excluded_tags=["nsfw"])
+        assert criteria.has_any_filter() is True
+
+    def test_has_any_filter_with_caption(self) -> None:
+        """caption 指定 → True。"""
+        criteria = ExportCriteria(caption="a girl")
+        assert criteria.has_any_filter() is True
+
+    def test_has_any_filter_with_manual_rating(self) -> None:
+        """manual_rating 指定 → True。"""
+        criteria = ExportCriteria(manual_rating="PG")
+        assert criteria.has_any_filter() is True
+
+    def test_has_any_filter_with_ai_rating(self) -> None:
+        """ai_rating 指定 → True。"""
+        criteria = ExportCriteria(ai_rating="PG-13")
+        assert criteria.has_any_filter() is True
+
+    def test_has_any_filter_with_score_min(self) -> None:
+        """score_min 指定 → True（0.0 でも有効）。"""
+        criteria = ExportCriteria(score_min=0.0)
+        assert criteria.has_any_filter() is True
+
+    def test_has_any_filter_with_score_max(self) -> None:
+        """score_max 指定 → True。"""
+        criteria = ExportCriteria(score_max=8.0)
+        assert criteria.has_any_filter() is True
+
+    def test_has_any_filter_include_nsfw_alone_is_false(self) -> None:
+        """include_nsfw のみはフィルタとして扱わない → False。"""
+        criteria = ExportCriteria(include_nsfw=True)
+        assert criteria.has_any_filter() is False
+
+    def test_has_any_filter_empty_tag_filter_is_false(self) -> None:
+        """空リストの tag_filter はフィルタなしと同じ → False。"""
+        criteria = ExportCriteria(tag_filter=[])
+        assert criteria.has_any_filter() is False

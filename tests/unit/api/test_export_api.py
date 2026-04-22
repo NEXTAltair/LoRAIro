@@ -60,7 +60,7 @@ class TestExportDataset:
     def test_txt_format(self, mock_export_service: MagicMock, tmp_path: Path) -> None:
         """TXTフォーマットでエクスポート。"""
         output = tmp_path / "output"
-        criteria = ExportCriteria(format_type="txt", resolution=512)
+        criteria = ExportCriteria(format_type="txt", resolution=512, tag_filter=["cat"])
 
         result = export_dataset("test-project", output, criteria)
 
@@ -73,7 +73,7 @@ class TestExportDataset:
     def test_json_format(self, mock_export_service: MagicMock, tmp_path: Path) -> None:
         """JSONフォーマットでエクスポート。"""
         output = tmp_path / "output"
-        criteria = ExportCriteria(format_type="json", resolution=1024)
+        criteria = ExportCriteria(format_type="json", resolution=1024, tag_filter=["cat"])
 
         result = export_dataset("test-project", output, criteria)
 
@@ -81,20 +81,23 @@ class TestExportDataset:
         assert result.resolution == 1024
         mock_export_service.export_dataset_json_format.assert_called_once()
 
-    def test_default_criteria(self, mock_export_service: MagicMock, tmp_path: Path) -> None:
-        """criteria未指定でデフォルト値。"""
+    def test_default_criteria_no_filter_raises(
+        self, mock_export_service: MagicMock, tmp_path: Path
+    ) -> None:
+        """criteria未指定（フィルタなし）は InvalidInputError。"""
+        from lorairo.api.exceptions import InvalidInputError
+
         output = tmp_path / "output"
 
-        result = export_dataset("test-project", output)
-
-        assert result.format_type == "txt"
-        assert result.resolution == 512
+        with pytest.raises(InvalidInputError):
+            export_dataset("test-project", output)
 
     def test_string_path(self, mock_export_service: MagicMock, tmp_path: Path) -> None:
         """文字列パスでも動作。"""
         output = tmp_path / "output"
+        criteria = ExportCriteria(tag_filter=["cat"])
 
-        result = export_dataset("test-project", str(output))
+        result = export_dataset("test-project", str(output), criteria)
 
         assert isinstance(result, ExportResult)
 
