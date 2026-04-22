@@ -28,6 +28,18 @@ def sample_result():
 class TestBatchImportWorkerInit:
     """BatchImportWorker 初期化テスト。"""
 
+    def test_operation_type_is_batch_import(self):
+        assert BatchImportWorker._OPERATION_TYPE == "batch_import"
+
+    def test_init_with_db_manager(self, mock_repository, tmp_path):
+        from unittest.mock import Mock
+
+        mock_db_manager = Mock()
+        jsonl_file = tmp_path / "result.jsonl"
+        jsonl_file.touch()
+        worker = BatchImportWorker(mock_repository, [jsonl_file], db_manager=mock_db_manager)
+        assert worker._db_manager is mock_db_manager
+
     def test_init_defaults(self, mock_repository, tmp_path):
         jsonl_file = tmp_path / "result.jsonl"
         jsonl_file.touch()
@@ -36,6 +48,7 @@ class TestBatchImportWorkerInit:
         assert worker._jsonl_files == [jsonl_file]
         assert worker._dry_run is False
         assert worker._model_name_override is None
+        assert worker._db_manager is None
 
     def test_init_with_options(self, mock_repository, tmp_path):
         jsonl_file = tmp_path / "result.jsonl"

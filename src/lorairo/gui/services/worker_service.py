@@ -400,6 +400,7 @@ class WorkerService(QObject):
             jsonl_files,
             dry_run=dry_run,
             model_name_override=model_name_override,
+            db_manager=self.db_manager,
         )
         worker_id = f"batch_import_{uuid.uuid4().hex[:8]}"
 
