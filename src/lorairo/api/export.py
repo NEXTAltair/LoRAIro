@@ -39,8 +39,6 @@ def _resolve_project_image_ids(project_name: str) -> list[int]:
         f for f in sorted(images_dir.iterdir()) if f.is_file() and f.suffix.lower() in image_extensions
     ]
 
-    # FIXME: Issue #15後続 - DBからimage_idを取得する実装に置き換え
-    # 現在はファイルインデックスをIDとして使用
     return list(range(len(image_files)))
 
 

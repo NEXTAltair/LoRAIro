@@ -478,7 +478,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             return result.get(field_name)
         return getattr(result, field_name, None)
 
-    # FIXME: Issue #6参照 - ライブラリ側でUnifiedAnnotationResult統一後に削除可能
+    # FIXME: image-annotator-lib Issue #2 解決後に削除可能
     @staticmethod
     def _extract_scores_from_formatted_output(formatted_output: Any) -> dict[str, float] | None:
         """formatted_outputからスコア辞書を抽出する。
@@ -631,7 +631,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 logger.warning(f"モデル '{model_name}' がDB未登録")
                 continue
 
-            # スコア抽出: scores フィールド優先、なければ formatted_output からフォールバック (Issue #6)
+            # スコア抽出: scores フィールド優先、なければ formatted_output からフォールバック (image-annotator-lib Issue #2)
             scores = self._extract_field(unified_result, "scores")
             if scores is None:
                 scores = self._extract_scores_from_formatted_output(
