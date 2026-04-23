@@ -56,6 +56,28 @@ def _validate_rating(ctx: click.Context, param: click.Parameter, value: str | No
     return normalized
 
 
+def _validate_score_bounds(
+    score_min: float | None,
+    score_max: float | None,
+) -> None:
+    """score_min/score_max の範囲と順序を検証する。
+
+    Args:
+        score_min: 最小スコア値。
+        score_max: 最大スコア値。
+
+    Raises:
+        click.UsageError: 範囲外または逆転指定の場合（exit_code=2）。
+    """
+    for name, value in (("--score-min", score_min), ("--score-max", score_max)):
+        if value is not None and not (0.0 <= value <= 10.0):
+            raise click.UsageError(f"{name} は 0.0 以上 10.0 以下で指定してください (指定値: {value})")
+    if score_min is not None and score_max is not None and score_min > score_max:
+        raise click.UsageError(
+            f"--score-min ({score_min}) は --score-max ({score_max}) 以下にする必要があります"
+        )
+
+
 def _build_filter_criteria(
     tags: str | None,
     excluded_tags: str | None,
@@ -215,6 +237,9 @@ def create(
         except ProjectNotFoundError as e:
             console.print(f"[red]Error:[/red] Project not found: {project}")
             raise typer.Exit(code=1) from e
+
+        # スコア範囲・順序検証（_apply_score_filter に渡す前に拒否）
+        _validate_score_bounds(score_min, score_max)
 
         # フィルタ条件を構築（CSV分割・空白除去・空要素除外を含む正規化はここで完結）
         criteria = _build_filter_criteria(

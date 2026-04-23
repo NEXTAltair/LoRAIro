@@ -938,6 +938,95 @@ def test_export_create_tags_with_blanks_and_valid_entries_passes(
 @pytest.mark.unit
 @pytest.mark.cli
 @patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_score_min_below_zero_exits_code_2(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --score-min が 0.0 未満は exit code 2。"""
+    mock_get_container.return_value = create_mock_service_container()
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(tmp_path / "export"),
+            "--score-min",
+            "-1.0",
+        ],
+    )
+
+    assert result.exit_code == 2
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_score_max_above_ten_exits_code_2(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --score-max が 10.0 超は exit code 2。"""
+    mock_get_container.return_value = create_mock_service_container()
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(tmp_path / "export"),
+            "--score-max",
+            "99.0",
+        ],
+    )
+
+    assert result.exit_code == 2
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_score_reversed_bounds_exits_code_2(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --score-min > --score-max は exit code 2（常に 0 件になる逆転指定を拒否）。"""
+    mock_get_container.return_value = create_mock_service_container()
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(tmp_path / "export"),
+            "--score-min",
+            "9.0",
+            "--score-max",
+            "1.0",
+        ],
+    )
+
+    assert result.exit_code == 2
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
 def test_export_create_whitespace_tags_entry_stripped(
     mock_get_container,
     mock_projects_dir: Path,

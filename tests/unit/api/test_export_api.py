@@ -7,6 +7,7 @@ import pytest
 
 from lorairo.api.export import export_dataset
 from lorairo.api.types import ExportCriteria, ExportResult
+from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.services.service_container import ServiceContainer
 
 
@@ -24,7 +25,7 @@ def mock_export_service(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Magi
     mock_service = MagicMock()
 
     # エクスポート結果として出力ディレクトリを返す
-    def mock_export(image_ids, output_path, **kwargs):
+    def mock_export(image_ids: list[int], output_path: Path, **kwargs: object) -> Path:
         output_path.mkdir(parents=True, exist_ok=True)
         # ダミーファイルを作成
         (output_path / "export_1.txt").write_text("test content")
@@ -183,7 +184,9 @@ class TestExportDataset:
         container = ServiceContainer()
         captured: dict[str, object] = {}
 
-        def capture_filter(filter_criteria, **kwargs):
+        def capture_filter(
+            filter_criteria: ImageFilterCriteria, **kwargs: object
+        ) -> tuple[list[dict[str, int]], int]:
             captured["manual"] = filter_criteria.manual_rating_filter
             captured["ai"] = filter_criteria.ai_rating_filter
             return ([{"id": 1}], 1)
@@ -207,7 +210,9 @@ class TestExportDataset:
         container = ServiceContainer()
         captured: dict[str, object] = {}
 
-        def capture_filter(filter_criteria, **kwargs):
+        def capture_filter(
+            filter_criteria: ImageFilterCriteria, **kwargs: object
+        ) -> tuple[list[dict[str, int]], int]:
             captured["excluded"] = filter_criteria.excluded_tags
             return ([{"id": 1}], 1)
 

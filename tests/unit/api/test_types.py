@@ -69,6 +69,7 @@ class TestRegistrationResult:
             skipped=0,
             error_details=["error1", "error2"],
         )
+        assert result.error_details is not None
         assert len(result.error_details) == 2
 
 
