@@ -46,7 +46,7 @@ def _validate_rating(ctx: click.Context, param: click.Parameter, value: str | No
     """
     if value is None:
         return None
-    normalized = value.upper()
+    normalized = value.strip().upper()
     if normalized not in VALID_RATINGS:
         raise click.BadParameter(
             f"有効な値: {', '.join(sorted(VALID_RATINGS))}",
