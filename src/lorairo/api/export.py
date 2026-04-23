@@ -113,6 +113,18 @@ def export_dataset(
         all_images, _ = repository.get_images_by_filter(filter_criteria)
         image_ids = [img["id"] for img in all_images] if all_images else []
 
+        # フィルタ結果が 0 件は正常系（実行エラーではない）
+        # DatasetExportService は空リストを ValueError で拒否するため事前に分岐する
+        if not image_ids:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            return ExportResult(
+                output_path=output_dir,
+                file_count=0,
+                total_size=0,
+                format_type=criteria.format_type,
+                resolution=criteria.resolution,
+            )
+
         # 形式に応じたエクスポート実行
         if criteria.format_type == "txt":
             result_path = service.export_dataset_txt_format(

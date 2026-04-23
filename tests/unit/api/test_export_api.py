@@ -122,6 +122,30 @@ class TestExportDataset:
 
         assert "format_type" in str(exc_info.value)
 
+    def test_empty_filter_result_returns_zero_count(
+        self, mock_export_service: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """フィルタ結果が 0 件の場合は ExportFailedError にならず file_count=0 で返る。
+
+        DatasetExportService は空リストを ValueError で拒否するため、
+        export_dataset 側でショートサーキットして正常系として扱う必要がある。
+        """
+        container = ServiceContainer()
+        monkeypatch.setattr(
+            container.image_repository,
+            "get_images_by_filter",
+            lambda *a, **kw: ([], 0),
+        )
+
+        criteria = ExportCriteria(tag_filter=["nonexistent_tag"])
+        output = tmp_path / "output"
+        result = export_dataset("test-project", str(output), criteria)
+
+        assert result.file_count == 0
+        assert result.total_size == 0
+        assert result.format_type == "txt"
+        mock_export_service.export_dataset_txt_format.assert_not_called()
+
     def test_db_project_mismatch_raises(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """DB接続先と project_name が指すプロジェクトが異なる場合、
         DatabaseConnectionError を発生させる。"""

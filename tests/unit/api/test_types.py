@@ -346,3 +346,42 @@ class TestExportCriteria:
         criteria = ExportCriteria(manual_rating="pg", ai_rating="xxx")
         assert criteria.manual_rating == "PG"
         assert criteria.ai_rating == "XXX"
+
+    def test_score_min_out_of_range_raises(self) -> None:
+        """score_min が 0.0 未満は ValidationError。"""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            ExportCriteria(score_min=-1.0)
+
+    def test_score_max_out_of_range_raises(self) -> None:
+        """score_max が 10.0 超は ValidationError。"""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            ExportCriteria(score_max=99.0)
+
+    def test_score_reversed_bounds_raises(self) -> None:
+        """score_min > score_max は ValidationError（常に 0 件になる silent failure を防ぐ）。"""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError) as exc_info:
+            ExportCriteria(score_min=8.0, score_max=3.0)
+        assert "score_min" in str(exc_info.value)
+        assert "score_max" in str(exc_info.value)
+
+    def test_score_equal_bounds_accepted(self) -> None:
+        """score_min == score_max は有効（1点完全一致）。"""
+        criteria = ExportCriteria(score_min=5.0, score_max=5.0)
+        assert criteria.score_min == 5.0
+        assert criteria.score_max == 5.0
+
+    def test_score_zero_min_accepted(self) -> None:
+        """score_min=0.0 は境界値として有効。"""
+        criteria = ExportCriteria(score_min=0.0)
+        assert criteria.score_min == 0.0
+
+    def test_score_ten_max_accepted(self) -> None:
+        """score_max=10.0 は境界値として有効。"""
+        criteria = ExportCriteria(score_max=10.0)
+        assert criteria.score_max == 10.0

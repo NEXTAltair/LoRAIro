@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ==================== プロジェクト関連 ====================
 
@@ -245,8 +245,8 @@ class ExportCriteria(BaseModel):
     manual_rating: str | None = None
     ai_rating: str | None = None
     include_nsfw: bool = False
-    score_min: float | None = None
-    score_max: float | None = None
+    score_min: float | None = Field(default=None, ge=0.0, le=10.0)
+    score_max: float | None = Field(default=None, ge=0.0, le=10.0)
 
     @field_validator("tag_filter", "excluded_tags", mode="after")
     @classmethod
@@ -295,6 +295,20 @@ class ExportCriteria(BaseModel):
                 f"無効なレーティング: {value!r}. 有効な値: {', '.join(sorted(_VALID_RATINGS))}"
             )
         return normalized
+
+    @model_validator(mode="after")
+    def _validate_score_range(self) -> "ExportCriteria":
+        """score_min <= score_max を保証する（両方指定時のみ）。
+
+        score_min=5, score_max=3 のような逆転指定は DB で
+        常に 0 件になるが ValidationError にならずに成功扱いとなる silent failure。
+        """
+        if self.score_min is not None and self.score_max is not None:
+            if self.score_min > self.score_max:
+                raise ValueError(
+                    f"score_min ({self.score_min}) は score_max ({self.score_max}) 以下にする必要があります"
+                )
+        return self
 
     def has_any_filter(self) -> bool:
         """フィルタ条件が1つ以上「有効に」指定されているか検証。
