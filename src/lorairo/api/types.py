@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ==================== プロジェクト関連 ====================
 
@@ -188,6 +188,11 @@ class ModelInfo(BaseModel):
 
 # ==================== エクスポート関連 ====================
 
+# DB (Rating.normalized_rating) は Civitai 基準 + UNRATED の大文字文字列で格納される。
+# manual_rating は exact match、ai_rating は UNRATED 分岐で大文字完全一致のため、
+# この集合以外は DB でヒットせず「成功したように見えるが 0 件」になる。
+_VALID_RATINGS: frozenset[str] = frozenset({"PG", "PG-13", "R", "X", "XXX", "UNRATED"})
+
 
 class ExportResult(BaseModel):
     """データセットエクスポート結果。
@@ -221,6 +226,13 @@ class ExportCriteria(BaseModel):
         include_captions: キャプションを含めるかどうか。
         include_tags: タグを含めるかどうか。
         tag_filter: タグフィルター（指定タグのみをエクスポート）。
+        excluded_tags: 除外タグリスト（NOT検索）。
+        caption: キャプションテキストフィルター。
+        manual_rating: 手動レーティングフィルター（PG/PG-13/R/X/XXX/UNRATED）。
+        ai_rating: AI評価レーティングフィルター（PG/PG-13/R/X/XXX/UNRATED）。
+        include_nsfw: NSFWコンテンツを含めるかどうか。
+        score_min: 最小スコア値（0.0-10.0）。
+        score_max: 最大スコア値（0.0-10.0）。
     """
 
     format_type: str = Field(default="txt", pattern="^(txt|json)$")
@@ -228,6 +240,94 @@ class ExportCriteria(BaseModel):
     include_captions: bool = True
     include_tags: bool = True
     tag_filter: list[str] | None = None
+    excluded_tags: list[str] | None = None
+    caption: str | None = None
+    manual_rating: str | None = None
+    ai_rating: str | None = None
+    include_nsfw: bool = False
+    score_min: float | None = Field(default=None, ge=0.0, le=10.0)
+    score_max: float | None = Field(default=None, ge=0.0, le=10.0)
+
+    @field_validator("tag_filter", "excluded_tags", mode="after")
+    @classmethod
+    def _normalize_tag_list(cls, value: list[str] | None) -> list[str] | None:
+        """タグリストから空白のみの要素を除外し、空リストは None 扱いにする。
+
+        下位の ``_apply_tag_filter`` は excluded_tags の各要素を ``LIKE`` パターンとして
+        NOT-EXISTS に使うため、空文字列が混入すると ``LIKE '%%'`` となり
+        「タグを1つでも持つ画像」を全て除外してしまう事故が起きる。
+        境界で正規化しておき、下位レイヤに空要素を渡さない。
+        """
+        if value is None:
+            return None
+        cleaned = [item.strip() for item in value if item and item.strip()]
+        return cleaned or None
+
+    @field_validator("caption", mode="after")
+    @classmethod
+    def _normalize_caption(cls, value: str | None) -> str | None:
+        """caption を strip し、空白のみは None として扱う。"""
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("manual_rating", "ai_rating", mode="after")
+    @classmethod
+    def _normalize_rating(cls, value: str | None) -> str | None:
+        """レーティングを strip + 大文字化し、許容値以外は拒否する。
+
+        DB 側は "PG"/"PG-13"/"R"/"X"/"XXX"/"UNRATED" で格納される。
+        - ``_apply_manual_filters``: ``Rating.normalized_rating == value`` の完全一致
+        - ``_apply_ai_rating_filter``: lower 比較だが ``"UNRATED"`` 分岐のみ大文字完全一致
+        大文字化だけでは "SAFE" のような typo が素通りし「成功したが 0 件」を
+        招くため、許容集合に含まれない値はここで ``ValueError`` にする
+        （CLI の ``_validate_rating`` と同じポリシー）。
+        """
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            return None
+        normalized = stripped.upper()
+        if normalized not in _VALID_RATINGS:
+            raise ValueError(
+                f"無効なレーティング: {value!r}. 有効な値: {', '.join(sorted(_VALID_RATINGS))}"
+            )
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_score_range(self) -> "ExportCriteria":
+        """score_min <= score_max を保証する（両方指定時のみ）。
+
+        score_min=5, score_max=3 のような逆転指定は DB で
+        常に 0 件になるが ValidationError にならずに成功扱いとなる silent failure。
+        """
+        if self.score_min is not None and self.score_max is not None:
+            if self.score_min > self.score_max:
+                raise ValueError(
+                    f"score_min ({self.score_min}) は score_max ({self.score_max}) 以下にする必要があります"
+                )
+        return self
+
+    def has_any_filter(self) -> bool:
+        """フィルタ条件が1つ以上「有効に」指定されているか検証。
+
+        各フィールドは field_validator で正規化済み（空白のみは None、
+        リストは空要素除外後に空なら None）。score は 0.0 も有効なため
+        is not None で判定する。
+        """
+        return any(
+            [
+                bool(self.tag_filter),
+                bool(self.excluded_tags),
+                bool(self.caption),
+                bool(self.manual_rating),
+                bool(self.ai_rating),
+                self.score_min is not None,
+                self.score_max is not None,
+            ]
+        )
 
 
 # ==================== タグ関連 ====================
