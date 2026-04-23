@@ -188,6 +188,11 @@ class ModelInfo(BaseModel):
 
 # ==================== エクスポート関連 ====================
 
+# DB (Rating.normalized_rating) は Civitai 基準 + UNRATED の大文字文字列で格納される。
+# manual_rating は exact match、ai_rating は UNRATED 分岐で大文字完全一致のため、
+# この集合以外は DB でヒットせず「成功したように見えるが 0 件」になる。
+_VALID_RATINGS: frozenset[str] = frozenset({"PG", "PG-13", "R", "X", "XXX", "UNRATED"})
+
 
 class ExportResult(BaseModel):
     """データセットエクスポート結果。
@@ -270,17 +275,26 @@ class ExportCriteria(BaseModel):
     @field_validator("manual_rating", "ai_rating", mode="after")
     @classmethod
     def _normalize_rating(cls, value: str | None) -> str | None:
-        """レーティングを strip + 大文字化し、空は None として扱う。
+        """レーティングを strip + 大文字化し、許容値以外は拒否する。
 
         DB 側は "PG"/"PG-13"/"R"/"X"/"XXX"/"UNRATED" で格納される。
         - ``_apply_manual_filters``: ``Rating.normalized_rating == value`` の完全一致
         - ``_apply_ai_rating_filter``: lower 比較だが ``"UNRATED"`` 分岐のみ大文字完全一致
-        入力側で正規化しておかないと、"pg" や " UNRATED " で 0 件ヒットになる。
+        大文字化だけでは "SAFE" のような typo が素通りし「成功したが 0 件」を
+        招くため、許容集合に含まれない値はここで ``ValueError`` にする
+        （CLI の ``_validate_rating`` と同じポリシー）。
         """
         if value is None:
             return None
         stripped = value.strip()
-        return stripped.upper() if stripped else None
+        if not stripped:
+            return None
+        normalized = stripped.upper()
+        if normalized not in _VALID_RATINGS:
+            raise ValueError(
+                f"無効なレーティング: {value!r}. 有効な値: {', '.join(sorted(_VALID_RATINGS))}"
+            )
+        return normalized
 
     def has_any_filter(self) -> bool:
         """フィルタ条件が1つ以上「有効に」指定されているか検証。

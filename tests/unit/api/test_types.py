@@ -320,3 +320,29 @@ class TestExportCriteria:
         """空白のみの ai_rating は None に正規化。"""
         criteria = ExportCriteria(ai_rating="   ")
         assert criteria.ai_rating is None
+
+    def test_invalid_manual_rating_raises_validation_error(self) -> None:
+        """許容集合外の manual_rating は ValidationError。
+
+        DB 側は exact match なので "SAFE" 等の typo を通すと
+        silently 0 件エクスポートになるため、API 構築時点で拒否する。
+        """
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError) as exc_info:
+            ExportCriteria(manual_rating="SAFE")
+        assert "無効なレーティング" in str(exc_info.value)
+
+    def test_invalid_ai_rating_raises_validation_error(self) -> None:
+        """許容集合外の ai_rating は ValidationError。"""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError) as exc_info:
+            ExportCriteria(ai_rating="unknown")
+        assert "無効なレーティング" in str(exc_info.value)
+
+    def test_valid_rating_lowercase_accepted(self) -> None:
+        """許容集合に含まれる値は大文字化されて受理される（"pg"→"PG"）。"""
+        criteria = ExportCriteria(manual_rating="pg", ai_rating="xxx")
+        assert criteria.manual_rating == "PG"
+        assert criteria.ai_rating == "XXX"
