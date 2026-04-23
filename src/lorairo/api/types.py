@@ -243,33 +243,59 @@ class ExportCriteria(BaseModel):
     score_min: float | None = None
     score_max: float | None = None
 
+    @field_validator("tag_filter", "excluded_tags", mode="after")
+    @classmethod
+    def _normalize_tag_list(cls, value: list[str] | None) -> list[str] | None:
+        """タグリストから空白のみの要素を除外し、空リストは None 扱いにする。
+
+        下位の ``_apply_tag_filter`` は excluded_tags の各要素を ``LIKE`` パターンとして
+        NOT-EXISTS に使うため、空文字列が混入すると ``LIKE '%%'`` となり
+        「タグを1つでも持つ画像」を全て除外してしまう事故が起きる。
+        境界で正規化しておき、下位レイヤに空要素を渡さない。
+        """
+        if value is None:
+            return None
+        cleaned = [item.strip() for item in value if item and item.strip()]
+        return cleaned or None
+
+    @field_validator("caption", mode="after")
+    @classmethod
+    def _normalize_caption(cls, value: str | None) -> str | None:
+        """caption を strip し、空白のみは None として扱う。"""
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("manual_rating", "ai_rating", mode="after")
+    @classmethod
+    def _normalize_rating(cls, value: str | None) -> str | None:
+        """レーティングを strip + 大文字化し、空は None として扱う。
+
+        DB 側は "PG"/"PG-13"/"R"/"X"/"XXX"/"UNRATED" で格納される。
+        - ``_apply_manual_filters``: ``Rating.normalized_rating == value`` の完全一致
+        - ``_apply_ai_rating_filter``: lower 比較だが ``"UNRATED"`` 分岐のみ大文字完全一致
+        入力側で正規化しておかないと、"pg" や " UNRATED " で 0 件ヒットになる。
+        """
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped.upper() if stripped else None
+
     def has_any_filter(self) -> bool:
         """フィルタ条件が1つ以上「有効に」指定されているか検証。
 
-        下位レイヤ（ImageRepository）に渡った時点で空値として扱われる入力を
-        事前に無効と判定する。そうしないと「フィルタ未指定だが検証は通過」
-        という抜け道が生まれ、学習用途と矛盾する全件エクスポートを許してしまう。
-
-        - リストフィールド: 空白のみの要素を除いた結果が空なら無効
-        - 文字列フィールド: 空白のみの文字列は無効
-        - score_min/score_max: 0.0 も有効値のため is not None で判定
+        各フィールドは field_validator で正規化済み（空白のみは None、
+        リストは空要素除外後に空なら None）。score は 0.0 も有効なため
+        is not None で判定する。
         """
-
-        def _has_non_blank_list_entry(values: list[str] | None) -> bool:
-            if not values:
-                return False
-            return any(v and v.strip() for v in values)
-
-        def _is_non_blank_string(value: str | None) -> bool:
-            return value is not None and bool(value.strip())
-
         return any(
             [
-                _has_non_blank_list_entry(self.tag_filter),
-                _has_non_blank_list_entry(self.excluded_tags),
-                _is_non_blank_string(self.caption),
-                _is_non_blank_string(self.manual_rating),
-                _is_non_blank_string(self.ai_rating),
+                bool(self.tag_filter),
+                bool(self.excluded_tags),
+                bool(self.caption),
+                bool(self.manual_rating),
+                bool(self.ai_rating),
                 self.score_min is not None,
                 self.score_max is not None,
             ]

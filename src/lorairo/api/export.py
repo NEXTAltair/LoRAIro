@@ -5,14 +5,22 @@ DatasetExportService をラップし、エクスポート機能を提供。
 
 from pathlib import Path
 
-from lorairo.api.exceptions import ExportFailedError, InvalidFormatError, InvalidInputError
+from lorairo.api.exceptions import (
+    DatabaseConnectionError,
+    ExportFailedError,
+    InvalidFormatError,
+    InvalidInputError,
+)
 from lorairo.api.types import ExportCriteria, ExportResult
+from lorairo.database.db_core import get_current_project_root
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.services.service_container import ServiceContainer
 
-# NOTE: LoRAIro は db_core.py でデータベースをグローバルに初期化するため、
-# project_name は存在確認に使用するが、クエリ自体のスコープ制御には使えない。
-# config/lorairo.toml が正しいプロジェクトを指していることをユーザーが保証する必要がある。
+# NOTE: LoRAIro は db_core.py でデータベースをグローバルに初期化する。
+# project_name は存在確認に使うだけでは、config/lorairo.toml が別プロジェクトを
+# 指している場合に全く別プロジェクトの画像を取り出してしまう。
+# そのため get_current_project_root() と project_info.path を比較し、
+# ミスマッチ時は明示的にエラーにする。
 
 
 def export_dataset(
@@ -35,6 +43,7 @@ def export_dataset(
     Raises:
         InvalidInputError: フィルタ条件が指定されていない場合。
         InvalidFormatError: サポートされていない形式が指定。
+        DatabaseConnectionError: 現在接続中のDBと project_name が指すプロジェクトが異なる場合。
         ExportFailedError: エクスポート実行に失敗。
 
     使用例:
@@ -51,7 +60,21 @@ def export_dataset(
     """
     # プロジェクト存在確認
     container = ServiceContainer()
-    container.project_management_service.get_project(project_name)
+    project_info = container.project_management_service.get_project(project_name)
+
+    # DB接続先とプロジェクト整合性チェック
+    # LoRAIro は db_core.py でDBをグローバル初期化するため、project_name だけでは
+    # クエリがスコープされない。config/lorairo.toml が別プロジェクトを指していると
+    # 別プロジェクトの画像が返る事故になるので、明示的にミスマッチを検知する。
+    current_db_root = get_current_project_root().resolve()
+    requested_root = project_info.path.resolve()
+    if current_db_root != requested_root:
+        raise DatabaseConnectionError(
+            project_name,
+            f"DB接続先が要求プロジェクトと異なります "
+            f"(要求: {requested_root}, 接続中: {current_db_root})。"
+            f" config/lorairo.toml の database_dir を確認してください",
+        )
 
     # クライテリア初期化
     if criteria is None:
