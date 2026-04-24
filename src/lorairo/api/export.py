@@ -101,6 +101,7 @@ def export_dataset(
     try:
         # フィルタ条件を ImageFilterCriteria に変換してDBから画像IDを取得
         filter_criteria = ImageFilterCriteria(
+            project_name=project_name,
             tags=criteria.tag_filter,
             excluded_tags=criteria.excluded_tags,
             caption=criteria.caption,

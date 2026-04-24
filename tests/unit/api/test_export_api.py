@@ -223,6 +223,32 @@ class TestExportDataset:
 
         assert captured["excluded"] == ["nsfw"]
 
+    def test_project_name_passed_to_filter_criteria(
+        self, mock_export_service: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """export_dataset に渡した project_name が ImageFilterCriteria.project_name として
+        DB クエリに渡され、プロジェクトスコープのフィルタが適用される。
+
+        _apply_project_filter は project_name を受け取って Image.project_id の
+        サブクエリに変換するため、この値が None だとプロジェクト単位の絞り込みが
+        機能しない。
+        """
+        container = ServiceContainer()
+        captured: dict[str, object] = {}
+
+        def capture_filter(
+            filter_criteria: ImageFilterCriteria, **kwargs: object
+        ) -> tuple[list[dict[str, int]], int]:
+            captured["project_name"] = filter_criteria.project_name
+            return ([{"id": 1}], 1)
+
+        monkeypatch.setattr(container.image_repository, "get_images_by_filter", capture_filter)
+
+        criteria = ExportCriteria(tag_filter=["cat"])
+        export_dataset("my_project", tmp_path / "output", criteria)
+
+        assert captured["project_name"] == "my_project"
+
 
 @pytest.mark.unit
 class TestExportCriteria:
