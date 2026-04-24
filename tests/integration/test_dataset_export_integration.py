@@ -117,8 +117,19 @@ class TestDatasetExportIntegration:
             captions = get_captions_side_effect(image_id)
             return {"tags": tags, "captions": captions}
 
+        def get_batch_available_resolutions_side_effect(image_ids):
+            result = {}
+            for image_id in image_ids:
+                available = []
+                for resolution in [512, 768, 1024, 1536]:
+                    if check_processed_side_effect(image_id, resolution) is not None:
+                        available.append(resolution)
+                result[image_id] = available
+            return result
+
         mock.get_image_metadata.side_effect = get_metadata_side_effect
         mock.check_processed_image_exists.side_effect = check_processed_side_effect
+        mock.get_batch_available_resolutions.side_effect = get_batch_available_resolutions_side_effect
         mock.get_tags.side_effect = get_tags_side_effect
         mock.get_captions.side_effect = get_captions_side_effect
         mock.get_image_annotations.side_effect = get_annotations_side_effect

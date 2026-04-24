@@ -341,18 +341,17 @@ class TestDatasetExportService:
     def test_get_available_resolutions(self, dataset_export_service, mock_db_manager):
         """利用可能解像度取得テスト"""
 
-        # Given: データベースから解像度別の存在チェック結果を返す
-        def check_exists_side_effect(image_id, resolution):
-            if image_id == 1 and resolution in [512, 768]:
-                return {"stored_image_path": f"image_dataset/{resolution}/test.webp"}
-            return None
-
-        mock_db_manager.check_processed_image_exists.side_effect = check_exists_side_effect
+        # Given: バッチ取得メソッドがモックの結果を返す
+        mock_db_manager.get_batch_available_resolutions.return_value = {
+            1: [512, 768],
+            2: [],
+        }
 
         # When: 利用可能解像度を取得
         result = dataset_export_service.get_available_resolutions([1, 2])
 
-        # Then: 適切な解像度マップが返される
+        # Then: バッチメソッドが1回だけ呼ばれ、適切な解像度マップが返される
+        mock_db_manager.get_batch_available_resolutions.assert_called_once_with([1, 2])
         assert result[1] == [512, 768]
         assert result[2] == []
 
