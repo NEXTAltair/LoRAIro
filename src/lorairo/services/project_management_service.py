@@ -18,13 +18,14 @@ from lorairo.api.exceptions import (
     ProjectOperationError,
 )
 from lorairo.api.types import ProjectInfo
+from lorairo.utils.config import get_config
 
 
 class ProjectManagementService:
     """プロジェクト管理 Service。
 
     プロジェクトディレクトリの CRUD操作を担当。
-    ~/.lorairo/projects/ 配下にプロジェクトディレクトリを管理する。
+    config/lorairo.toml の database_base_dir 配下にプロジェクトディレクトリを管理する。
     """
 
     def __init__(self, projects_base_dir: Path | None = None) -> None:
@@ -32,9 +33,22 @@ class ProjectManagementService:
 
         Args:
             projects_base_dir: プロジェクトベースディレクトリ。
-                              未指定時は ~/.lorairo/projects
+                              未指定時は config/lorairo.toml の database_base_dir
         """
-        self.projects_base_dir = projects_base_dir or (Path.home() / ".lorairo" / "projects")
+        if projects_base_dir is not None:
+            self.projects_base_dir = projects_base_dir
+        else:
+            config = get_config()
+            base_dir_str = config.get("directories", {}).get("database_base_dir", "lorairo_data")
+            self.projects_base_dir = Path(base_dir_str).resolve()
+
+            # 旧ディレクトリ残存チェック（移行案内）
+            old_dir = Path.home() / ".lorairo" / "projects"
+            if old_dir.exists():
+                logger.info(
+                    f"旧プロジェクトディレクトリが検出されました: {old_dir}"
+                    f" → {self.projects_base_dir} への移動を検討してください"
+                )
         logger.debug(f"ProjectManagementService 初期化: {self.projects_base_dir}")
 
     def create_project(self, name: str, description: str = "") -> ProjectInfo:

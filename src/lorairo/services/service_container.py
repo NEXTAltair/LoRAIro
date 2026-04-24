@@ -266,6 +266,36 @@ class ServiceContainer:
             logger.debug("ImageRegistrationService初期化完了")
         return self._image_registration_service
 
+    def set_active_project(self, project_name: str) -> None:
+        """CLI用: アクティブプロジェクトの DB に接続を切り替える。
+
+        ProjectManagementService でプロジェクトパスを解決し、
+        そのプロジェクト専用のセッションファクトリで image_repository を再初期化する。
+        依存するサービス (db_manager, dataset_export_service 等) もリセットし、
+        次回参照時に新しい image_repository を使って再初期化させる。
+
+        Args:
+            project_name: 切り替えるプロジェクト名。
+
+        Raises:
+            ProjectNotFoundError: プロジェクトが見つからない場合。
+        """
+        from ..database.db_core import create_project_session_factory
+
+        project_info = self.project_management_service.get_project(project_name)
+        db_path = project_info.path / "image_database.db"
+
+        session_factory = create_project_session_factory(db_path)
+        self._image_repository = ImageRepository(session_factory=session_factory)
+
+        # 依存サービスをリセット（次参照時に新しい image_repository で再初期化）
+        self._db_manager = None
+        self._dataset_export_service = None
+        self._image_processing_service = None
+        self._model_sync_service = None
+
+        logger.info(f"アクティブプロジェクト切替: {project_name} -> {db_path}")
+
     def get_service_summary(self) -> dict[str, Any]:
         """サービス初期化状況のサマリー取得
 
