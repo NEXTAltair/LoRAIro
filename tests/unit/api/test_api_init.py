@@ -1,6 +1,7 @@
 """lorairo.api.__init__ の遅延ロードテスト。"""
 
 import pytest
+
 import lorairo.api as api
 
 

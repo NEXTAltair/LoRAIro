@@ -136,6 +136,25 @@ class Model(Base):
         return [model_type.name for model_type in self.model_types]
 
 
+class Project(Base):
+    """プロジェクト情報を格納するテーブル"""
+
+    __tablename__ = "projects"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    path: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+
+    images: Mapped[list[Image]] = relationship("Image", back_populates="project")
+
+    def __repr__(self) -> str:
+        return f"<Project(id={self.id}, name='{self.name}')>"
+
+
 class Image(Base):
     """オリジナル画像情報を格納するテーブル"""
 
@@ -155,6 +174,11 @@ class Image(Base):
     extension: Mapped[str] = mapped_column(String, nullable=False)
     color_space: Mapped[str | None] = mapped_column(String)
     icc_profile: Mapped[str | None] = mapped_column(String)
+    project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at: Mapped[datetime.datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
     )
@@ -163,6 +187,7 @@ class Image(Base):
     )
 
     # Relationships
+    project: Mapped[Project | None] = relationship("Project", back_populates="images")
     processed_images: Mapped[list[ProcessedImage]] = relationship(
         "ProcessedImage", back_populates="image", cascade="all, delete-orphan"
     )
