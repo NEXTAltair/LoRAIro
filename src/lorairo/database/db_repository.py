@@ -274,6 +274,7 @@ class ImageRepository:
             existing_model = session.execute(stmt).scalar_one_or_none()
 
             if existing_model:
+                # コミット済みのレコードなのでキャッシュ安全
                 self._manual_edit_model_id = existing_model.id
                 logger.debug(f"既存のMANUAL_EDITモデルを使用: ID={existing_model.id}")
                 return self._manual_edit_model_id
@@ -281,9 +282,12 @@ class ImageRepository:
             manual_edit_model = Model(name="MANUAL_EDIT", provider="user")
             session.add(manual_edit_model)
             session.flush()
-            self._manual_edit_model_id = manual_edit_model.id
-            logger.info(f"MANUAL_EDITモデルを新規作成: ID={manual_edit_model.id}")
-            return self._manual_edit_model_id
+            # flush後はまだ未コミットのためキャッシュしない。
+            # 呼び出し元がコミットしない読み取りパスでも flush が rollback されるため、
+            # キャッシュするとロールバック後に無効なIDが残りFK違反を引き起こす。
+            model_id: int = manual_edit_model.id
+            logger.info(f"MANUAL_EDITモデルを新規作成: ID={model_id}")
+            return model_id
 
         except SQLAlchemyError as e:
             logger.error(f"MANUAL_EDITモデルの取得/作成中にエラーが発生しました: {e}", exc_info=True)
@@ -1541,18 +1545,19 @@ class ImageRepository:
         if not image_ids:
             return {}
 
-        with self.session_factory() as session:
-            rows = (
-                session.execute(select(ProcessedImage).where(ProcessedImage.image_id.in_(image_ids)))
-                .scalars()
-                .all()
-            )
-
         by_image: dict[int, list[dict[str, Any]]] = {image_id: [] for image_id in image_ids}
-        for row in rows:
-            metadata = {c.name: getattr(row, c.name) for c in row.__table__.columns}
-            if row.image_id in by_image:
-                by_image[row.image_id].append(metadata)
+        with self.session_factory() as session:
+            for i in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+                chunk = image_ids[i : i + self.BATCH_CHUNK_SIZE]
+                rows = (
+                    session.execute(select(ProcessedImage).where(ProcessedImage.image_id.in_(chunk)))
+                    .scalars()
+                    .all()
+                )
+                for row in rows:
+                    metadata = {c.name: getattr(row, c.name) for c in row.__table__.columns}
+                    if row.image_id in by_image:
+                        by_image[row.image_id].append(metadata)
 
         target_resolutions = [512, 768, 1024, 1536]
         return {
