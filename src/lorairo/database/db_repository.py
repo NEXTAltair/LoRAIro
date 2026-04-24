@@ -66,7 +66,6 @@ class ImageRepository:
 
         """
         self.session_factory = session_factory
-        self._manual_edit_model_id: int | None = None
         logger.info("ImageRepository initialized.")
 
         # 外部tag_db統合（公開API経由、グレースフルデグラデーション対応）
@@ -266,28 +265,19 @@ class ImageRepository:
             SQLAlchemyError: データベース操作中にエラーが発生した場合
 
         """
-        if self._manual_edit_model_id is not None:
-            return self._manual_edit_model_id
-
         try:
             stmt = select(Model).where(Model.name == "MANUAL_EDIT")
             existing_model = session.execute(stmt).scalar_one_or_none()
 
             if existing_model:
-                # コミット済みのレコードなのでキャッシュ安全
-                self._manual_edit_model_id = existing_model.id
                 logger.debug(f"既存のMANUAL_EDITモデルを使用: ID={existing_model.id}")
-                return self._manual_edit_model_id
+                return existing_model.id
 
             manual_edit_model = Model(name="MANUAL_EDIT", provider="user")
             session.add(manual_edit_model)
             session.flush()
-            # flush後はまだ未コミットのためキャッシュしない。
-            # 呼び出し元がコミットしない読み取りパスでも flush が rollback されるため、
-            # キャッシュするとロールバック後に無効なIDが残りFK違反を引き起こす。
-            model_id: int = manual_edit_model.id
-            logger.info(f"MANUAL_EDITモデルを新規作成: ID={model_id}")
-            return model_id
+            logger.info(f"MANUAL_EDITモデルを新規作成: ID={manual_edit_model.id}")
+            return manual_edit_model.id
 
         except SQLAlchemyError as e:
             logger.error(f"MANUAL_EDITモデルの取得/作成中にエラーが発生しました: {e}", exc_info=True)
