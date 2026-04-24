@@ -50,6 +50,13 @@ def upgrade() -> None:
     with op.batch_alter_table("images", schema=None) as batch_op:
         batch_op.add_column(sa.Column("project_id", sa.Integer(), nullable=True))
         batch_op.create_index("ix_images_project_id", ["project_id"])
+        batch_op.create_foreign_key(
+            "fk_images_project_id",
+            "projects",
+            ["project_id"],
+            ["id"],
+            ondelete="SET NULL",
+        )
 
     # Phase 3: バックフィル（冪等性あり・インメモリDB はスキップ）
     _backfill_project(op.get_bind())
@@ -113,6 +120,7 @@ def _backfill_project(connection: sa.engine.Connection) -> None:
 def downgrade() -> None:
     """Downgrade: images.project_id カラム削除・projects テーブル削除。"""
     with op.batch_alter_table("images", schema=None) as batch_op:
+        batch_op.drop_constraint("fk_images_project_id", type_="foreignkey")
         batch_op.drop_index("ix_images_project_id")
         batch_op.drop_column("project_id")
 
