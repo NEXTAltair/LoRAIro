@@ -322,3 +322,76 @@ class TestAssignImagesToProject:
         assert updated == 2
         result = repo.get_image_ids_by_project_id(pid)
         assert len(result) == 2
+
+
+# ---------------------------------------------------------------------------
+# add_original_image — project_id セット検証（ISSUE #165 Codex P1 指摘対応）
+# ---------------------------------------------------------------------------
+
+
+class TestAddOriginalImageProjectId:
+    """add_original_image() が info["project_id"] を Image に設定することを検証。
+
+    マイグレーション後に登録される新規画像も project_id が付くことで、
+    _apply_project_filter() の WHERE Image.project_id == subq が機能する。
+    """
+
+    @pytest.fixture
+    def repository(self, memory_session_factory):
+        from lorairo.database.db_repository import ImageRepository
+
+        return ImageRepository(session_factory=memory_session_factory)
+
+    @pytest.fixture
+    def project_id(self, memory_session_factory):
+        """projects テーブルにダミー行を挿入してIDを返す。"""
+        from lorairo.database.schema import Project
+
+        with memory_session_factory() as session:
+            project = Project(name="test_project", path="/tmp/test_project")
+            session.add(project)
+            session.commit()
+            return project.id
+
+    def _base_info(self) -> dict:
+        import uuid as _uuid
+
+        uid = _uuid.uuid4().hex
+        return {
+            "uuid": uid,
+            "phash": uid[:16],
+            "original_image_path": f"/tmp/{uid}.png",
+            "stored_image_path": f"/tmp/{uid}_s.png",
+            "width": 100,
+            "height": 100,
+            "format": "PNG",
+            "extension": "png",
+        }
+
+    def test_add_original_image_sets_project_id_when_provided(
+        self, repository, memory_session_factory, project_id
+    ):
+        """info に project_id を含めると Image.project_id が設定される。"""
+        from sqlalchemy import select
+
+        from lorairo.database.schema import Image
+
+        info = {**self._base_info(), "project_id": project_id}
+        image_id = repository.add_original_image(info)
+
+        with memory_session_factory() as session:
+            img = session.execute(select(Image).where(Image.id == image_id)).scalar_one()
+        assert img.project_id == project_id
+
+    def test_add_original_image_project_id_none_by_default(self, repository, memory_session_factory):
+        """info に project_id がない場合、Image.project_id は None。"""
+        from sqlalchemy import select
+
+        from lorairo.database.schema import Image
+
+        info = self._base_info()
+        image_id = repository.add_original_image(info)
+
+        with memory_session_factory() as session:
+            img = session.execute(select(Image).where(Image.id == image_id)).scalar_one()
+        assert img.project_id is None

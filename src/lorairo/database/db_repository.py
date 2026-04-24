@@ -684,6 +684,7 @@ class ImageRepository:
             extension=info["extension"],
             color_space=info.get("color_space"),
             icc_profile=info.get("icc_profile"),
+            project_id=info.get("project_id"),
             # created_at, updated_at は server_default で設定される
         )
 
