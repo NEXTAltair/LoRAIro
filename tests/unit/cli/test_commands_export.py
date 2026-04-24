@@ -7,6 +7,7 @@ import pytest
 from typer.testing import CliRunner
 
 from lorairo.cli.main import app
+from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.services.project_management_service import ProjectManagementService
 from lorairo.services.service_container import ServiceContainer
 
@@ -101,6 +102,8 @@ def test_export_create_txt_format(
             str(output_dir),
             "--format",
             "txt",
+            "--tags",
+            "cat",
         ],
     )
 
@@ -139,6 +142,8 @@ def test_export_create_json_format(
             str(output_dir),
             "--format",
             "json",
+            "--tags",
+            "cat",
         ],
     )
 
@@ -177,6 +182,8 @@ def test_export_create_with_custom_resolution(
             "txt",
             "--resolution",
             "1024",
+            "--tags",
+            "cat",
         ],
     )
 
@@ -212,6 +219,8 @@ def test_export_create_output_directory_auto_creation(
             str(output_dir),
             "--format",
             "txt",
+            "--tags",
+            "cat",
         ],
     )
 
@@ -282,6 +291,8 @@ def test_export_create_no_images(
             str(output_dir),
             "--format",
             "txt",
+            "--tags",
+            "cat",
         ],
     )
 
@@ -319,6 +330,8 @@ def test_export_create_invalid_format(
             str(output_dir),
             "--format",
             "invalid",
+            "--tags",
+            "cat",
         ],
     )
 
@@ -337,6 +350,11 @@ def test_export_create_help() -> None:
     assert "--output" in result.stdout
     assert "--format" in result.stdout
     assert "--resolution" in result.stdout
+    assert "--tags" in result.stdout
+    assert "--manual-rating" in result.stdout
+    assert "--ai-rating" in result.stdout
+    assert "--score-min" in result.stdout
+    assert "--score-max" in result.stdout
 
 
 @pytest.mark.unit
@@ -375,6 +393,8 @@ def test_export_create_default_format(
             "test-project",
             "--output",
             str(output_dir),
+            "--tags",
+            "cat",
         ],
     )
 
@@ -408,8 +428,676 @@ def test_export_create_default_resolution(
             "test-project",
             "--output",
             str(output_dir),
+            "--tags",
+            "cat",
         ],
     )
 
     assert result.exit_code == 0
     assert "512" in result.stdout
+
+
+# ==================== 新規テスト: フィルタ必須化バリデーション ====================
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_no_filter_exits_code_2(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: フィルタ条件なし → exit_code=2。"""
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_include_nsfw_alone_exits_code_2(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --include-nsfw 単独はフィルタとして不十分 → exit_code=2。"""
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--include-nsfw",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_with_tags_filter(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --tags 指定 → 正常終了。"""
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--tags",
+            "cat,dog",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Found 3 image(s)" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_with_manual_rating_pg(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --manual-rating PG → 正常終了。"""
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--manual-rating",
+            "PG",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Found 3 image(s)" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_with_manual_rating_pg13(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --manual-rating PG-13 → 正常終了（AI と同一スケール）。"""
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--manual-rating",
+            "PG-13",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Found 3 image(s)" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_export_create_with_invalid_manual_rating(
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --manual-rating invalid → exit_code=2。"""
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--manual-rating",
+            "invalid",
+        ],
+    )
+
+    assert result.exit_code == 2
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_export_create_with_invalid_ai_rating(
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --ai-rating invalid → exit_code=2。"""
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--ai-rating",
+            "invalid",
+        ],
+    )
+
+    assert result.exit_code == 2
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_with_score_filter(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --score-min / --score-max フィルタ → 正常終了。"""
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--score-min",
+            "7.0",
+            "--score-max",
+            "10.0",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Found 3 image(s)" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_filter_passed_to_repository(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: フィルタ条件が repository.get_images_by_filter に渡されることを確認。"""
+    from lorairo.database.filter_criteria import ImageFilterCriteria
+
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--tags",
+            "cat,dog",
+            "--manual-rating",
+            "PG",
+        ],
+    )
+
+    # get_images_by_filter が ImageFilterCriteria を引数として呼ばれたことを確認
+    call_args = mock_container.image_repository.get_images_by_filter.call_args
+    assert call_args is not None
+    criteria_arg = call_args[0][0]
+    assert isinstance(criteria_arg, ImageFilterCriteria)
+    assert criteria_arg.tags == ["cat", "dog"]
+    assert criteria_arg.manual_rating_filter == "PG"
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_empty_tags_string_exits_code_2(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --tags "" (空文字列) はフィルタとして無効 → exit_code=2。"""
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--tags",
+            "",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_empty_caption_string_exits_code_2(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --caption "" (空文字列) はフィルタとして無効 → exit_code=2。"""
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--caption",
+            "   ",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_comma_only_tags_exits_code_2(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --tags "," (カンマのみ) は正規化後に空リスト → exit_code=2。"""
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--tags",
+            ",",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_multiple_commas_tags_exits_code_2(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --tags ",,," (カンマのみ) は正規化後に空リスト → exit_code=2。"""
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--tags",
+            ",,,",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_whitespace_excluded_tags_exits_code_2(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --excluded-tags " , , " (空白・カンマのみ) は正規化後に空リスト → exit_code=2。"""
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--excluded-tags",
+            " , , ",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_tags_with_blanks_and_valid_entries_passes(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --tags "cat,,dog" は空要素除外後も有効要素が残るため正常終了。"""
+    from lorairo.database.filter_criteria import ImageFilterCriteria
+
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--tags",
+            "cat,,dog",
+        ],
+    )
+
+    assert result.exit_code == 0
+    call_args = mock_container.image_repository.get_images_by_filter.call_args
+    criteria_arg = call_args[0][0]
+    assert isinstance(criteria_arg, ImageFilterCriteria)
+    assert criteria_arg.tags == ["cat", "dog"]
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_score_min_below_zero_exits_code_2(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --score-min が 0.0 未満は exit code 2。"""
+    mock_get_container.return_value = create_mock_service_container()
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(tmp_path / "export"),
+            "--score-min",
+            "-1.0",
+        ],
+    )
+
+    assert result.exit_code == 2
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_score_max_above_ten_exits_code_2(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --score-max が 10.0 超は exit code 2。"""
+    mock_get_container.return_value = create_mock_service_container()
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(tmp_path / "export"),
+            "--score-max",
+            "99.0",
+        ],
+    )
+
+    assert result.exit_code == 2
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_score_reversed_bounds_exits_code_2(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --score-min > --score-max は exit code 2（常に 0 件になる逆転指定を拒否）。"""
+    mock_get_container.return_value = create_mock_service_container()
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(tmp_path / "export"),
+            "--score-min",
+            "9.0",
+            "--score-max",
+            "1.0",
+        ],
+    )
+
+    assert result.exit_code == 2
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_whitespace_tags_entry_stripped(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test: --tags " cat , , dog " は strip 後に有効要素として扱われる。"""
+    from lorairo.database.filter_criteria import ImageFilterCriteria
+
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    output_dir = tmp_path / "export"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "test-project",
+            "--output",
+            str(output_dir),
+            "--tags",
+            " cat , , dog ",
+        ],
+    )
+
+    assert result.exit_code == 0
+    call_args = mock_container.image_repository.get_images_by_filter.call_args
+    criteria_arg = call_args[0][0]
+    assert isinstance(criteria_arg, ImageFilterCriteria)
+    assert criteria_arg.tags == ["cat", "dog"]
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_project_name_passed_to_filter_criteria(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """--project に渡したプロジェクト名が ImageFilterCriteria.project_name として
+    get_images_by_filter に渡され、_apply_project_filter が有効になる。
+
+    _apply_project_filter は project_name を Image.project_id サブクエリに変換する。
+    None だとプロジェクト単位の絞り込みが機能しない。
+    """
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "my-project"])
+
+    output_dir = tmp_path / "export"
+    runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "my-project",
+            "--output",
+            str(output_dir),
+            "--tags",
+            "cat",
+        ],
+    )
+
+    call_args = mock_container.image_repository.get_images_by_filter.call_args
+    criteria_arg = call_args[0][0]
+    assert isinstance(criteria_arg, ImageFilterCriteria)
+    assert criteria_arg.project_name == "my-project"

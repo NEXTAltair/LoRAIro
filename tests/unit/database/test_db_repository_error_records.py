@@ -372,7 +372,6 @@ class TestMarkErrorsResolvedBatch:
 
     def test_mark_errors_resolved_batch_sets_resolved_at_to_now(self, repository):
         """resolved_atが現在時刻(UTC)に設定されることを確認"""
-        from datetime import UTC, datetime
 
         mock_session = Mock()
         mock_record = Mock(spec=ErrorRecord)

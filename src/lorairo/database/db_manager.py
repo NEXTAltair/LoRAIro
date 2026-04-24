@@ -49,6 +49,7 @@ class ImageDatabaseManager:
         self.repository = repository
         self.config_service = config_service
         self.fsm = fsm
+        self._cached_project_id: int | None = None
         logger.info("ImageDatabaseManager initialized.")
 
     @classmethod
@@ -62,6 +63,36 @@ class ImageDatabaseManager:
 
     # __enter__ と __exit__ はリポジトリがセッション管理するため、ここでは不要になることが多い
     # 必要であれば、リポジトリのセッションファクトリを使う処理を追加できる
+
+    def _get_current_project_id(self) -> int | None:
+        """現在接続中の DB のプロジェクト ID を取得してキャッシュする。
+
+        .lorairo-project メタデータから logical name を読み、ensure_project() で
+        projects テーブルに行を確保してからそのIDを返す。
+        失敗時は None を返し（project_id 未設定のまま挿入される）。
+        """
+        if self._cached_project_id is not None:
+            return self._cached_project_id
+
+        import json
+
+        from .db_core import get_current_project_root
+
+        try:
+            project_root = get_current_project_root()
+            metadata_file = project_root / ".lorairo-project"
+            try:
+                metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+                project_name = metadata.get("name") or project_root.name
+            except (OSError, json.JSONDecodeError, ValueError):
+                project_name = project_root.name
+
+            self._cached_project_id = self.repository.ensure_project(project_name, project_root)
+        except Exception:
+            logger.debug("プロジェクト ID 取得失敗 — project_id は未設定のまま挿入します", exc_info=True)
+            return None
+
+        return self._cached_project_id
 
     def _prepare_image_metadata(
         self,
@@ -145,7 +176,10 @@ class ImageDatabaseManager:
             if existing_id is not None:
                 return self._handle_duplicate_image(existing_id, image_path, fsm)
 
-            # 3. データベースに挿入
+            # 3. データベースに挿入（project_id を付与して project-scoped filter を有効化）
+            project_id = self._get_current_project_id()
+            if project_id is not None:
+                original_metadata["project_id"] = project_id
             image_id = self.repository.add_original_image(original_metadata)
             logger.debug(f"オリジナル画像を登録しました: ID={image_id}, Path={image_path}")
 
