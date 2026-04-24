@@ -34,6 +34,14 @@ def _make_batch_result(**overrides: object) -> BatchImportResult:
 class TestImportBatchCommand:
     """import-batch CLIコマンドのテスト。"""
 
+    @pytest.fixture(autouse=True)
+    def mock_set_active_project(self) -> MagicMock:
+        """set_active_project をモックして DB 接続切り替えをスキップする。"""
+        with patch("lorairo.cli.commands.annotate.get_service_container") as mock_container_factory:
+            mock_container = MagicMock()
+            mock_container_factory.return_value = mock_container
+            yield mock_container
+
     @patch("lorairo.cli.commands.annotate.import_batch_annotations")
     def test_normal_invocation(self, mock_import: MagicMock, tmp_path: Path) -> None:
         """正常呼び出しで結果テーブルが表示される。"""
