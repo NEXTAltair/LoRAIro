@@ -1,7 +1,6 @@
 """ISSUE #174: ImageFilterCriteria の project_name/project_id フィールドテスト。"""
 
-import logging
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from sqlalchemy import select
@@ -80,32 +79,38 @@ class TestApplyProjectFilter:
         result = repository._apply_project_filter(base_query, None, None)
         assert result == base_query
 
-    def test_apply_project_filter_warns_for_project_name(self, repository, caplog):
+    def test_apply_project_filter_warns_for_project_name(self, repository):
         """project_name 指定時に WARNING を出力し、クエリを変更しない。"""
         from lorairo.database.schema import Image
 
         base_query = select(Image.id)
-        with caplog.at_level(logging.WARNING, logger="lorairo.database.db_repository"):
+        with patch("lorairo.database.db_repository.logger") as mock_logger:
             result = repository._apply_project_filter(base_query, "my_project", None)
         assert result == base_query
-        assert any("my_project" in msg for msg in caplog.messages)
+        mock_logger.warning.assert_called_once()
+        warned_msg = mock_logger.warning.call_args[0][0]
+        assert "my_project" in warned_msg
 
-    def test_apply_project_filter_warns_for_project_id(self, repository, caplog):
+    def test_apply_project_filter_warns_for_project_id(self, repository):
         """project_id 指定時に WARNING を出力し、クエリを変更しない。"""
         from lorairo.database.schema import Image
 
         base_query = select(Image.id)
-        with caplog.at_level(logging.WARNING, logger="lorairo.database.db_repository"):
+        with patch("lorairo.database.db_repository.logger") as mock_logger:
             result = repository._apply_project_filter(base_query, None, 42)
         assert result == base_query
-        assert any("42" in msg for msg in caplog.messages)
+        mock_logger.warning.assert_called_once()
+        warned_msg = mock_logger.warning.call_args[0][0]
+        assert "42" in warned_msg
 
-    def test_apply_project_filter_project_id_takes_priority(self, repository, caplog):
+    def test_apply_project_filter_project_id_takes_priority(self, repository):
         """project_id と project_name が両方指定された場合、project_id の WARNING が出る。"""
         from lorairo.database.schema import Image
 
         base_query = select(Image.id)
-        with caplog.at_level(logging.WARNING, logger="lorairo.database.db_repository"):
+        with patch("lorairo.database.db_repository.logger") as mock_logger:
             result = repository._apply_project_filter(base_query, "foo", 42)
         assert result == base_query
-        assert any("42" in msg for msg in caplog.messages)
+        mock_logger.warning.assert_called_once()
+        warned_msg = mock_logger.warning.call_args[0][0]
+        assert "42" in warned_msg

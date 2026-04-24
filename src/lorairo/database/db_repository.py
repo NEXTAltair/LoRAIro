@@ -2471,6 +2471,34 @@ class ImageRepository:
             return self._fetch_original_image_metadata(session, image_ids)
         return self._fetch_processed_image_metadata(session, image_ids, resolution)
 
+    def _apply_project_filter(
+        self,
+        query: Select[Any],
+        project_name: str | None,
+        project_id: int | None,
+    ) -> Select[Any]:
+        """プロジェクトフィルタを適用する（Phase C完了後に本実装予定）。
+
+        Args:
+            query: 適用対象の SQLAlchemy Select クエリ。
+            project_name: フィルタ対象プロジェクト名。
+            project_id: フィルタ対象プロジェクトID（project_name より優先）。
+
+        Returns:
+            フィルタ適用済みクエリ（Phase C完了前はクエリを変更しない）。
+        """
+        if project_id is not None:
+            logger.warning(
+                f"project_id={project_id} が指定されましたが、"
+                "projects テーブルが未実装のため無視されます (Phase C 待ち)。"
+            )
+        elif project_name is not None:
+            logger.warning(
+                f"project_name='{project_name}' が指定されましたが、"
+                "projects テーブルが未実装のため無視されます (Phase C 待ち)。"
+            )
+        return query
+
     # --- Main Filter Method ---
 
     def _build_image_filter_query(
@@ -2490,6 +2518,8 @@ class ImageRepository:
         manual_edit_filter: bool | None,
         score_min: float | None = None,
         score_max: float | None = None,
+        project_name: str | None = None,
+        project_id: int | None = None,
     ) -> Select[Any]:
         """画像フィルタ条件を適用したクエリを構築する。
 
@@ -2509,6 +2539,8 @@ class ImageRepository:
             manual_edit_filter: 手動編集フラグフィルタ。
             score_min: 最小スコア値（0.0-10.0）。
             score_max: 最大スコア値（0.0-10.0）。
+            project_name: プロジェクト名フィルタ（Phase C完了後に有効化）。
+            project_id: プロジェクトIDフィルタ（Phase C完了後に有効化）。
 
         Returns:
             フィルタ適用済みのSelectクエリ。
@@ -2553,6 +2585,9 @@ class ImageRepository:
 
         # Score Filter
         query = self._apply_score_filter(query, score_min, score_max)
+
+        # Project Filter (Phase C完了後に有効化)
+        query = self._apply_project_filter(query, project_name, project_id)
 
         return query.distinct()
 
@@ -2603,6 +2638,8 @@ class ImageRepository:
                     manual_edit_filter=filter_criteria.manual_edit_filter,
                     score_min=filter_criteria.score_min,
                     score_max=filter_criteria.score_max,
+                    project_name=filter_criteria.project_name,
+                    project_id=filter_criteria.project_id,
                 )
 
                 filtered_image_ids: list[int] = list(session.execute(query).scalars().all())
@@ -2663,6 +2700,8 @@ class ImageRepository:
                     manual_edit_filter=filter_criteria.manual_edit_filter,
                     score_min=filter_criteria.score_min,
                     score_max=filter_criteria.score_max,
+                    project_name=filter_criteria.project_name,
+                    project_id=filter_criteria.project_id,
                 )
 
                 count_query = select(func.count()).select_from(filtered_query.subquery())
