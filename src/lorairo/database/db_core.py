@@ -268,6 +268,26 @@ def create_session_factory(engine: Engine) -> sessionmaker[Session]:
     return sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+def create_project_session_factory(project_db_path: Path) -> sessionmaker[Session]:
+    """指定プロジェクト DB 用セッションファクトリを生成。
+
+    新規 DB（touch で空ファイル）の場合はスキーマを初期化する。
+    既存テーブルは変更しない（create_all は冪等）。
+
+    Args:
+        project_db_path: プロジェクト DB ファイルの絶対パス。
+
+    Returns:
+        sessionmaker[Session]: プロジェクト専用セッションファクトリ。
+    """
+    from .schema import Base
+
+    db_url = f"sqlite:///{project_db_path.resolve()}?check_same_thread=False"
+    engine = create_db_engine(db_url)
+    Base.metadata.create_all(engine)
+    return create_session_factory(engine)
+
+
 # --- デフォルトの Engine と Session Factory --- #
 # 通常のアプリケーション実行時に使用される
 default_engine = create_db_engine(DATABASE_URL)

@@ -265,19 +265,13 @@ def create(
             console.print("詳細: lorairo-cli export create --help")
             raise typer.Exit(code=2)
 
-        # ServiceContainer を取得
+        # ServiceContainer を取得してプロジェクト DB に切り替え
         container = get_service_container()
+        container.set_active_project(project)
         repository = container.image_repository
         export_service = container.dataset_export_service
 
         console.print(f"[cyan]Loading project database: {project}[/cyan]")
-
-        # NOTE: Current architecture limitation - LoRAIro initializes database globally
-        # through db_core.py. For now, we work with the currently configured database.
-        console.print(
-            "[yellow]Note:[/yellow] Working with currently configured database. "
-            "Ensure config/lorairo.toml points to the correct project."
-        )
 
         # フィルタ条件を適用して画像を取得
         with Progress(

@@ -123,13 +123,14 @@ def run(
     プロジェクトの画像に対してアノテーションを実行します。
     """
     try:
-        # API層経由でプロジェクト確認
+        # API層経由でプロジェクト確認 & DB 接続切り替え
         try:
             project_info = api_get_project(project)
         except ProjectNotFoundError as e:
             console.print(f"[red]Error:[/red] Project not found: {project}")
             raise typer.Exit(code=1) from e
 
+        get_service_container().set_active_project(project)
         project_dir = project_info.path
 
         # プロジェクトの画像ディレクトリ
@@ -305,6 +306,7 @@ def import_batch(
         lorairo annotate import-batch jsonl/ -p my_project --dry-run
     """
     try:
+        get_service_container().set_active_project(project)
         result = import_batch_annotations(
             jsonl_dir,
             project,

@@ -14,6 +14,7 @@ from lorairo.api.exceptions import ImageRegistrationError, ProjectNotFoundError
 from lorairo.api.images import register_images as api_register_images
 from lorairo.api.project import get_project as api_get_project
 from lorairo.api.types import RegistrationResult
+from lorairo.services.service_container import get_service_container
 
 # サブコマンドアプリ定義
 app = typer.Typer(help="Image management commands")
@@ -81,12 +82,14 @@ def register(
             console.print(f"[red]Error:[/red] Not a directory: {directory}")
             raise typer.Exit(code=1)
 
-        # プロジェクト存在確認
+        # プロジェクト存在確認 & DB 接続切り替え
         try:
             api_get_project(project)
         except ProjectNotFoundError as e:
             console.print(f"[red]Error:[/red] Project not found: {project}")
             raise typer.Exit(code=1) from e
+
+        get_service_container().set_active_project(project)
 
         # API層経由で画像登録（プロジェクトコンテキスト付き）
         result = api_register_images(dir_path, skip_duplicates, project_name=project)

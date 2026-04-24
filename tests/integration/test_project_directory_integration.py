@@ -3,9 +3,11 @@
 db_core.py の変更をテストする
 """
 
+import json
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -242,3 +244,160 @@ class TestProjectDirectoryIntegration:
                 dir_name = project_dir.name
                 assert len(dir_name) > 0
                 assert dir_name not in [".", ".."]
+
+
+class TestProjectManagementServiceDefaultPath:
+    """ProjectManagementService のデフォルトパステスト（ADR 0018）"""
+
+    def test_default_path_uses_config_database_base_dir(self, tmp_path: Path) -> None:
+        """デフォルト projects_base_dir が config の database_base_dir を参照する"""
+        from lorairo.services.project_management_service import ProjectManagementService
+
+        fake_config = {
+            "directories": {"database_base_dir": str(tmp_path)},
+        }
+        with patch("lorairo.services.project_management_service.get_config", return_value=fake_config):
+            service = ProjectManagementService()
+
+        assert service.projects_base_dir == tmp_path.resolve()
+
+    def test_explicit_path_overrides_config(self, tmp_path: Path) -> None:
+        """明示的に指定した projects_base_dir が設定より優先される"""
+        from lorairo.services.project_management_service import ProjectManagementService
+
+        explicit_dir = tmp_path / "explicit"
+        service = ProjectManagementService(projects_base_dir=explicit_dir)
+
+        assert service.projects_base_dir == explicit_dir
+
+    def test_old_dir_migration_log_emitted(self, tmp_path: Path) -> None:
+        """~/.lorairo/projects/ が残存する場合に移行案内ログが出力される"""
+        from unittest.mock import MagicMock
+
+        from lorairo.services.project_management_service import ProjectManagementService
+
+        # Path.home() が tmp_path を返すとき、old_dir = tmp_path / ".lorairo" / "projects"
+        old_dir = tmp_path / ".lorairo" / "projects"
+        old_dir.mkdir(parents=True)
+        fake_config = {
+            "directories": {"database_base_dir": str(tmp_path / "new_base")},
+        }
+
+        mock_info = MagicMock()
+        with (
+            patch("lorairo.services.project_management_service.get_config", return_value=fake_config),
+            patch("lorairo.services.project_management_service.Path.home", return_value=tmp_path),
+            patch("lorairo.services.project_management_service.logger.info", mock_info),
+        ):
+            ProjectManagementService()
+
+        called_msgs = [str(call.args[0]) for call in mock_info.call_args_list]
+        assert any("旧プロジェクトディレクトリが検出されました" in msg for msg in called_msgs)
+
+    def test_no_migration_log_when_old_dir_absent(self, tmp_path: Path) -> None:
+        """旧ディレクトリが存在しない場合は移行案内ログが出ない"""
+        from unittest.mock import MagicMock
+
+        from lorairo.services.project_management_service import ProjectManagementService
+
+        fake_config = {
+            "directories": {"database_base_dir": str(tmp_path)},
+        }
+        mock_info = MagicMock()
+        # tmp_path 配下には old ".lorairo/projects" を作らない
+        with (
+            patch("lorairo.services.project_management_service.get_config", return_value=fake_config),
+            patch("lorairo.services.project_management_service.Path.home", return_value=tmp_path),
+            patch("lorairo.services.project_management_service.logger.info", mock_info),
+        ):
+            ProjectManagementService()
+
+        called_msgs = [str(call.args[0]) for call in mock_info.call_args_list]
+        assert not any("旧プロジェクトディレクトリが検出されました" in msg for msg in called_msgs)
+
+
+class TestServiceContainerSetActiveProject:
+    """ServiceContainer.set_active_project テスト（ADR 0009 + ADR 0018）"""
+
+    def setup_method(self) -> None:
+        """各テストの前に ServiceContainer をリセット"""
+        from lorairo.services.service_container import ServiceContainer
+
+        ServiceContainer.reset_for_testing()
+
+    def teardown_method(self) -> None:
+        """各テストの後に ServiceContainer をリセット"""
+        from lorairo.services.service_container import ServiceContainer
+
+        ServiceContainer.reset_for_testing()
+
+    def _create_project_dir(self, base: Path, name: str) -> Path:
+        """テスト用プロジェクトディレクトリを作成する。"""
+        project_dir = base / f"{name}_20260101_001"
+        project_dir.mkdir(parents=True)
+        (project_dir / "image_dataset" / "original_images").mkdir(parents=True)
+        metadata = {"name": name, "created": "20260101_000000", "description": ""}
+        (project_dir / ".lorairo-project").write_text(json.dumps(metadata))
+        (project_dir / "image_database.db").touch()
+        return project_dir
+
+    def test_set_active_project_switches_repository(self, tmp_path: Path) -> None:
+        """set_active_project でリポジトリが対象プロジェクト DB に切り替わる"""
+        import os
+
+        from lorairo.services.service_container import ServiceContainer
+
+        os.environ["LORAIRO_CLI_MODE"] = "1"
+        try:
+            ServiceContainer.reset_for_testing()
+            container = ServiceContainer()
+
+            project_dir = self._create_project_dir(tmp_path, "foo")
+            fake_config = {"directories": {"database_base_dir": str(tmp_path)}}
+
+            with patch(
+                "lorairo.services.project_management_service.get_config",
+                return_value=fake_config,
+            ):
+                container.set_active_project("foo")
+
+            # リポジトリが差し替わっていること（新しいインスタンスを参照）
+            repo = container.image_repository
+            assert repo is not None
+            # DB ファイルが存在すること（create_project_session_factory でスキーマ初期化済み）
+            assert (project_dir / "image_database.db").exists()
+        finally:
+            del os.environ["LORAIRO_CLI_MODE"]
+
+    def test_set_active_project_resets_dependent_services(self, tmp_path: Path) -> None:
+        """set_active_project 後に依存サービスがリセットされる"""
+        import os
+
+        from lorairo.services.service_container import ServiceContainer
+
+        os.environ["LORAIRO_CLI_MODE"] = "1"
+        try:
+            ServiceContainer.reset_for_testing()
+            container = ServiceContainer()
+
+            # 先にサービスを初期化して参照を取得
+            _ = container.db_manager  # _db_manager を初期化
+            _ = container.dataset_export_service  # _dataset_export_service を初期化
+
+            assert container._db_manager is not None
+            assert container._dataset_export_service is not None
+
+            self._create_project_dir(tmp_path, "bar")
+            fake_config = {"directories": {"database_base_dir": str(tmp_path)}}
+
+            with patch(
+                "lorairo.services.project_management_service.get_config",
+                return_value=fake_config,
+            ):
+                container.set_active_project("bar")
+
+            # 依存サービスがリセットされていること
+            assert container._db_manager is None
+            assert container._dataset_export_service is None
+        finally:
+            del os.environ["LORAIRO_CLI_MODE"]
