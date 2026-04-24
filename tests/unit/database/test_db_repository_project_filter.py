@@ -10,7 +10,6 @@ from sqlalchemy.orm import sessionmaker
 
 from lorairo.database.filter_criteria import ImageFilterCriteria
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -243,37 +242,37 @@ class TestGetImageIdsByProject:
 
     def test_get_by_name_returns_correct_count(self, repo_with_images):
         """get_image_ids_by_project() が正しい件数を返す。"""
-        repo, pid_a, pid_b, ids_a, ids_b = repo_with_images
+        repo, _, _, _, _ = repo_with_images
         result = repo.get_image_ids_by_project("proj_a")
         assert len(result) == 3
 
     def test_get_by_id_returns_correct_count(self, repo_with_images):
         """get_image_ids_by_project_id() が正しい件数を返す。"""
-        repo, pid_a, pid_b, ids_a, ids_b = repo_with_images
+        repo, pid_a, _, _, _ = repo_with_images
         result = repo.get_image_ids_by_project_id(pid_a)
         assert len(result) == 3
 
     def test_get_by_name_returns_correct_ids(self, repo_with_images):
         """get_image_ids_by_project() が実際の画像 ID セットを返す。"""
-        repo, pid_a, pid_b, ids_a, ids_b = repo_with_images
+        repo, _, _, ids_a, _ = repo_with_images
         result = repo.get_image_ids_by_project("proj_a")
         assert set(result) == set(ids_a)
 
     def test_get_by_id_returns_correct_ids(self, repo_with_images):
         """get_image_ids_by_project_id() が実際の画像 ID セットを返す。"""
-        repo, pid_a, pid_b, ids_a, ids_b = repo_with_images
+        repo, pid_a, _, ids_a, _ = repo_with_images
         result = repo.get_image_ids_by_project_id(pid_a)
         assert set(result) == set(ids_a)
 
     def test_get_by_unknown_name_returns_empty(self, repo_with_images):
         """存在しないプロジェクト名では空リストを返す。"""
-        repo, pid_a, pid_b, ids_a, ids_b = repo_with_images
+        repo, _, _, _, _ = repo_with_images
         result = repo.get_image_ids_by_project("nonexistent")
         assert result == []
 
     def test_get_does_not_mix_projects(self, repo_with_images):
         """proj_a の取得結果に proj_b の画像が含まれない。"""
-        repo, pid_a, pid_b, ids_a, ids_b = repo_with_images
+        repo, _, _, _, _ = repo_with_images
         result_a = set(repo.get_image_ids_by_project("proj_a"))
         result_b = set(repo.get_image_ids_by_project("proj_b"))
         assert result_a.isdisjoint(result_b)
@@ -305,7 +304,7 @@ class TestAssignImagesToProject:
 
     def test_assign_empty_list_returns_zero(self, repo_with_unassigned_images):
         """空リストを渡すと 0 を返す。"""
-        repo, pid, image_ids = repo_with_unassigned_images
+        repo, pid, _ = repo_with_unassigned_images
         updated = repo.assign_images_to_project([], pid)
         assert updated == 0
 
