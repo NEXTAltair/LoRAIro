@@ -256,7 +256,7 @@ class TestFetchFilteredMetadataAnnotations:
         mock_image.scores = []
         mock_image.ratings = []
 
-        mock_result.unique().scalars().all.return_value = [mock_image]
+        mock_result.scalars.return_value.all.return_value = [mock_image]
         mock_session.execute.return_value = mock_result
 
         with patch.object(repository, "_format_annotations_for_metadata") as mock_format:
@@ -311,12 +311,10 @@ class TestFetchFilteredMetadataAnnotations:
                 mock_scalars.all.return_value = [mock_proc_image]
                 mock_result.scalars.return_value = mock_scalars
             else:  # Original Image query with annotations
-                # Create proper mock chain for unique().scalars().all()
+                # Create proper mock chain for scalars().all()
                 mock_scalars = Mock()
                 mock_scalars.all.return_value = [mock_orig_image]
-                mock_unique = Mock()
-                mock_unique.scalars.return_value = mock_scalars
-                mock_result.unique.return_value = mock_unique
+                mock_result.scalars.return_value = mock_scalars
             return mock_result
 
         mock_session.execute.side_effect = mock_execute

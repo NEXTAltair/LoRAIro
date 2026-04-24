@@ -276,7 +276,10 @@ class Tag(Base):
     image: Mapped[Image] = relationship("Image", back_populates="tags")
     model: Mapped[Model] = relationship("Model", back_populates="tags")
 
-    __table_args__ = (Index("ix_tags_image_id", "image_id"),)
+    __table_args__ = (
+        Index("ix_tags_image_id", "image_id"),
+        Index("ix_tags_tag", "tag"),
+    )
 
     def __repr__(self) -> str:
         return f"<Tag(id={self.id}, image_id={self.image_id}, tag='{self.tag}')>"

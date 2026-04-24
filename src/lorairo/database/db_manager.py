@@ -982,6 +982,18 @@ class ImageDatabaseManager:
             )
             return None
 
+    def get_batch_available_resolutions(self, image_ids: list[int]) -> dict[int, list[int]]:
+        """複数画像の利用可能な処理済み解像度を一括取得します。
+
+        Args:
+            image_ids: 画像IDリスト
+
+        Returns:
+            image_id -> 利用可能な解像度リスト のマッピング
+
+        """
+        return self.repository.get_batch_available_resolutions(image_ids)
+
     def _parse_annotation_timestamp(self, update_time: datetime | str) -> datetime | None:
         """アノテーションのタイムスタンプをパースする。
 

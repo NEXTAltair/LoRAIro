@@ -266,7 +266,6 @@ class ImageRepository:
 
         """
         try:
-            # 既存のMANUAL_EDITモデルを検索
             stmt = select(Model).where(Model.name == "MANUAL_EDIT")
             existing_model = session.execute(stmt).scalar_one_or_none()
 
@@ -274,11 +273,9 @@ class ImageRepository:
                 logger.debug(f"既存のMANUAL_EDITモデルを使用: ID={existing_model.id}")
                 return existing_model.id
 
-            # 新規作成
             manual_edit_model = Model(name="MANUAL_EDIT", provider="user")
             session.add(manual_edit_model)
-            session.flush()  # IDを取得するためにflush
-
+            session.flush()
             logger.info(f"MANUAL_EDITモデルを新規作成: ID={manual_edit_model.id}")
             return manual_edit_model.id
 
@@ -1518,6 +1515,50 @@ class ImageRepository:
                 )
                 raise
 
+    def get_batch_available_resolutions(self, image_ids: list[int]) -> dict[int, list[int]]:
+        """複数画像の利用可能な処理済み解像度を一括取得する。
+
+        1クエリで全 ProcessedImage を取得し、Python側で解像度マッピングを構築する。
+        N+1ループ（image_id × resolution の組み合わせ）の代替として使用する。
+
+        Args:
+            image_ids: 画像IDリスト
+
+        Returns:
+            image_id -> 利用可能な解像度リスト のマッピング。
+            ProcessedImage が存在しない image_id は空リストになる。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+
+        """
+        if not image_ids:
+            return {}
+
+        by_image: dict[int, list[dict[str, Any]]] = {image_id: [] for image_id in image_ids}
+        with self.session_factory() as session:
+            for i in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+                chunk = image_ids[i : i + self.BATCH_CHUNK_SIZE]
+                rows = (
+                    session.execute(select(ProcessedImage).where(ProcessedImage.image_id.in_(chunk)))
+                    .scalars()
+                    .all()
+                )
+                for row in rows:
+                    metadata = {c.name: getattr(row, c.name) for c in row.__table__.columns}
+                    if row.image_id in by_image:
+                        by_image[row.image_id].append(metadata)
+
+        target_resolutions = [512, 768, 1024, 1536]
+        return {
+            image_id: [
+                target
+                for target in target_resolutions
+                if self._filter_by_resolution(by_image[image_id], target) is not None
+            ]
+            for image_id in image_ids
+        }
+
     def get_processed_image(
         self,
         image_id: int,
@@ -2367,19 +2408,19 @@ class ImageRepository:
             メタデータ辞書のリスト。
 
         """
-        from sqlalchemy.orm import joinedload
+        from sqlalchemy.orm import selectinload
 
         orig_stmt = (
             select(Image)
             .where(Image.id.in_(image_ids))
             .options(
-                joinedload(Image.tags).joinedload(Tag.model),
-                joinedload(Image.captions).joinedload(Caption.model),
-                joinedload(Image.scores).joinedload(Score.model),
-                joinedload(Image.ratings),
+                selectinload(Image.tags).selectinload(Tag.model),
+                selectinload(Image.captions).selectinload(Caption.model),
+                selectinload(Image.scores).selectinload(Score.model),
+                selectinload(Image.ratings),
             )
         )
-        orig_results: list[Image] = list(session.execute(orig_stmt).unique().scalars().all())
+        orig_results: list[Image] = list(session.execute(orig_stmt).scalars().all())
 
         result = []
         for img in orig_results:
@@ -2405,7 +2446,7 @@ class ImageRepository:
             メタデータ辞書のリスト。
 
         """
-        from sqlalchemy.orm import joinedload
+        from sqlalchemy.orm import selectinload
 
         proc_stmt = select(ProcessedImage).where(ProcessedImage.image_id.in_(image_ids))
         all_proc_images = session.execute(proc_stmt).scalars().all()
@@ -2415,13 +2456,13 @@ class ImageRepository:
             select(Image)
             .where(Image.id.in_(image_ids))
             .options(
-                joinedload(Image.tags).joinedload(Tag.model),
-                joinedload(Image.captions).joinedload(Caption.model),
-                joinedload(Image.scores).joinedload(Score.model),
-                joinedload(Image.ratings),
+                selectinload(Image.tags).selectinload(Tag.model),
+                selectinload(Image.captions).selectinload(Caption.model),
+                selectinload(Image.scores).selectinload(Score.model),
+                selectinload(Image.ratings),
             )
         )
-        orig_images = session.execute(orig_annotations_stmt).unique().scalars().all()
+        orig_images = session.execute(orig_annotations_stmt).scalars().all()
         annotations_by_image_id = {
             img.id: self._format_annotations_for_metadata(img) for img in orig_images
         }

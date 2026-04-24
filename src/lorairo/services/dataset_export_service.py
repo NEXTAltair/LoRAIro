@@ -329,23 +329,7 @@ class DatasetExportService:
         Returns:
             Dictionary mapping image_id -> list of available resolutions
         """
-        resolution_map = {}
-
-        for image_id in image_ids:
-            try:
-                # Check common resolutions
-                available_resolutions = []
-                for resolution in [512, 768, 1024, 1536]:
-                    if self.db_manager.check_processed_image_exists(image_id, resolution):
-                        available_resolutions.append(resolution)
-
-                resolution_map[image_id] = available_resolutions
-
-            except Exception as e:
-                logger.error(f"Error checking resolutions for image ID {image_id}: {e}")
-                resolution_map[image_id] = []
-
-        return resolution_map
+        return self.db_manager.get_batch_available_resolutions(image_ids)
 
     def validate_export_requirements(self, image_ids: list[int], resolution: int) -> dict[str, Any]:
         """Validate that export requirements can be met.

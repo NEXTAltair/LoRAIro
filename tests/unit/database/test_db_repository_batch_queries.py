@@ -467,3 +467,108 @@ class TestGetModelsByNames:
         result = repository.get_models_by_names({"gpt4", "unknown"})
         assert "gpt4" in result
         assert "unknown" not in result
+
+
+class TestGetBatchAvailableResolutions:
+    """get_batch_available_resolutions メソッドのテスト"""
+
+    @pytest.fixture
+    def repository(self):
+        """テスト用ImageRepository"""
+        mock_session_factory = Mock()
+        return ImageRepository(session_factory=mock_session_factory)
+
+    def _make_proc_image(self, image_id: int, width: int, height: int) -> Mock:
+        """ProcessedImage モックを生成するヘルパー。"""
+        from lorairo.database.schema import ProcessedImage
+
+        col_names = [c.name for c in ProcessedImage.__table__.columns]
+        row = Mock()
+        row.image_id = image_id
+        row.width = width
+        row.height = height
+        row.__table__ = ProcessedImage.__table__
+
+        for name in col_names:
+            setattr(row, name, None)
+        row.image_id = image_id
+        row.width = width
+        row.height = height
+        return row
+
+    def test_empty_list_returns_empty_dict(self, repository):
+        """空リストを渡すと空dictが返る（DBアクセスなし）"""
+        result = repository.get_batch_available_resolutions([])
+        assert result == {}
+        repository.session_factory.assert_not_called()
+
+    def test_returns_correct_resolutions_for_exact_match(self, repository):
+        """長辺が target に一致する ProcessedImage が存在する場合に正しい解像度を返す"""
+        mock_session = MagicMock()
+        repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
+        repository.session_factory.return_value.__exit__ = Mock(return_value=False)
+
+        row = self._make_proc_image(image_id=1, width=512, height=384)
+        mock_session.execute.return_value.scalars.return_value.all.return_value = [row]
+
+        result = repository.get_batch_available_resolutions([1])
+        assert result[1] == [512]
+
+    def test_missing_image_id_gets_empty_list(self, repository):
+        """ProcessedImage が存在しない image_id は空リストになる"""
+        mock_session = MagicMock()
+        repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
+        repository.session_factory.return_value.__exit__ = Mock(return_value=False)
+
+        row = self._make_proc_image(image_id=1, width=512, height=384)
+        mock_session.execute.return_value.scalars.return_value.all.return_value = [row]
+
+        result = repository.get_batch_available_resolutions([1, 2])
+        assert result[1] == [512]
+        assert result[2] == []
+
+    def test_multiple_resolutions_for_single_image(self, repository):
+        """1つの image_id に複数の解像度が対応する場合"""
+        mock_session = MagicMock()
+        repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
+        repository.session_factory.return_value.__exit__ = Mock(return_value=False)
+
+        row_512 = self._make_proc_image(image_id=1, width=512, height=384)
+        row_768 = self._make_proc_image(image_id=1, width=768, height=576)
+        mock_session.execute.return_value.scalars.return_value.all.return_value = [
+            row_512,
+            row_768,
+        ]
+
+        result = repository.get_batch_available_resolutions([1])
+        assert 512 in result[1]
+        assert 768 in result[1]
+
+    def test_multiple_images_independent_results(self, repository):
+        """複数画像IDの結果が独立している"""
+        mock_session = MagicMock()
+        repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
+        repository.session_factory.return_value.__exit__ = Mock(return_value=False)
+
+        row_img1 = self._make_proc_image(image_id=1, width=512, height=384)
+        row_img2 = self._make_proc_image(image_id=2, width=1024, height=768)
+        mock_session.execute.return_value.scalars.return_value.all.return_value = [
+            row_img1,
+            row_img2,
+        ]
+
+        result = repository.get_batch_available_resolutions([1, 2, 3])
+        assert result[1] == [512]
+        assert result[2] == [1024]
+        assert result[3] == []
+
+    def test_single_db_query_for_all_images(self, repository):
+        """N+1を解消するため、DB クエリが1回だけ発行される"""
+        mock_session = MagicMock()
+        repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
+        repository.session_factory.return_value.__exit__ = Mock(return_value=False)
+
+        mock_session.execute.return_value.scalars.return_value.all.return_value = []
+
+        repository.get_batch_available_resolutions([1, 2, 3, 4, 5])
+        assert mock_session.execute.call_count == 1
