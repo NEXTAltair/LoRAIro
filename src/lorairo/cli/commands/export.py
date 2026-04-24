@@ -79,6 +79,7 @@ def _validate_score_bounds(
 
 
 def _build_filter_criteria(
+    project_name: str,
     tags: str | None,
     excluded_tags: str | None,
     caption: str | None,
@@ -98,6 +99,7 @@ def _build_filter_criteria(
     「正規化後の最終フィルタ値」をそのまま参照できる。
 
     Args:
+        project_name: プロジェクト名（_apply_project_filter のスコープ用）。
         tags: カンマ区切りのタグ文字列。
         excluded_tags: カンマ区切りの除外タグ文字列。
         caption: キャプションテキストフィルター。
@@ -124,6 +126,7 @@ def _build_filter_criteria(
         return stripped if stripped else None
 
     return ImageFilterCriteria(
+        project_name=project_name,
         tags=_normalize_csv(tags),
         excluded_tags=_normalize_csv(excluded_tags),
         caption=_normalize_text(caption),
@@ -243,6 +246,7 @@ def create(
 
         # フィルタ条件を構築（CSV分割・空白除去・空要素除外を含む正規化はここで完結）
         criteria = _build_filter_criteria(
+            project_name=project,
             tags=tags,
             excluded_tags=excluded_tags,
             caption=caption,

@@ -7,6 +7,7 @@ import pytest
 from typer.testing import CliRunner
 
 from lorairo.cli.main import app
+from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.services.project_management_service import ProjectManagementService
 from lorairo.services.service_container import ServiceContainer
 
@@ -1060,3 +1061,43 @@ def test_export_create_whitespace_tags_entry_stripped(
     criteria_arg = call_args[0][0]
     assert isinstance(criteria_arg, ImageFilterCriteria)
     assert criteria_arg.tags == ["cat", "dog"]
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.export.get_service_container")
+def test_export_create_project_name_passed_to_filter_criteria(
+    mock_get_container,
+    mock_projects_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """--project に渡したプロジェクト名が ImageFilterCriteria.project_name として
+    get_images_by_filter に渡され、_apply_project_filter が有効になる。
+
+    _apply_project_filter は project_name を Image.project_id サブクエリに変換する。
+    None だとプロジェクト単位の絞り込みが機能しない。
+    """
+    mock_container = create_mock_service_container()
+    mock_get_container.return_value = mock_container
+
+    runner.invoke(app, ["project", "create", "my-project"])
+
+    output_dir = tmp_path / "export"
+    runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "my-project",
+            "--output",
+            str(output_dir),
+            "--tags",
+            "cat",
+        ],
+    )
+
+    call_args = mock_container.image_repository.get_images_by_filter.call_args
+    criteria_arg = call_args[0][0]
+    assert isinstance(criteria_arg, ImageFilterCriteria)
+    assert criteria_arg.project_name == "my-project"

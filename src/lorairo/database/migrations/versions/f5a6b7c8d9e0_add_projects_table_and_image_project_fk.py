@@ -13,6 +13,7 @@ Create Date: 2026-04-24
 
 """
 
+import json
 import logging
 from collections.abc import Sequence
 from pathlib import Path
@@ -89,8 +90,20 @@ def _backfill_project(connection: sa.engine.Connection) -> None:
         logger.info(f"projects テーブルに既存行あり ({existing_count} 件) — バックフィルをスキップ")
         return
 
-    project_path = str(Path(db_file).parent)
-    project_name = Path(db_file).parent.name
+    db_parent = Path(db_file).parent
+    project_path = str(db_parent)
+
+    # .lorairo-project メタデータから logical name を読む。
+    # ディレクトリ名は "name_YYYYMMDD_HHMMSS" 形式だが、アプリが使う project_name は
+    # メタデータの "name" フィールド（タイムスタンプなし）なので、一致させる必要がある。
+    metadata_file = db_parent / ".lorairo-project"
+    project_name = db_parent.name  # フォールバック: ディレクトリ名
+    try:
+        metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+        if isinstance(metadata.get("name"), str) and metadata["name"]:
+            project_name = metadata["name"]
+    except (OSError, json.JSONDecodeError, ValueError):
+        pass
 
     connection.execute(
         sa.text("INSERT OR IGNORE INTO projects (name, path) VALUES (:name, :path)"),
