@@ -96,10 +96,9 @@ def export_dataset(
     output_dir = Path(output_path) if isinstance(output_path, str) else output_path
 
     service = container.dataset_export_service
-    repository = container.image_repository
 
     try:
-        # フィルタ条件を ImageFilterCriteria に変換してDBから画像IDを取得
+        # フィルタ条件を ImageFilterCriteria に変換して export_with_criteria に委譲
         filter_criteria = ImageFilterCriteria(
             project_name=project_name,
             tags=criteria.tag_filter,
@@ -111,44 +110,20 @@ def export_dataset(
             score_min=criteria.score_min,
             score_max=criteria.score_max,
         )
-        all_images, _ = repository.get_images_by_filter(filter_criteria)
-        image_ids = [img["id"] for img in all_images] if all_images else []
 
-        # フィルタ結果が 0 件は正常系（実行エラーではない）
-        # DatasetExportService は空リストを ValueError で拒否するため事前に分岐する
-        if not image_ids:
-            output_dir.mkdir(parents=True, exist_ok=True)
-            return ExportResult(
-                output_path=output_dir,
-                file_count=0,
-                total_size=0,
-                format_type=criteria.format_type,
-                resolution=criteria.resolution,
-            )
+        result_path = service.export_with_criteria(
+            output_path=output_dir,
+            format_type=criteria.format_type,
+            resolution=criteria.resolution,
+            criteria=filter_criteria,
+        )
 
-        # 形式に応じたエクスポート実行
-        if criteria.format_type == "txt":
-            result_path = service.export_dataset_txt_format(
-                image_ids=image_ids,
-                output_path=output_dir,
-                resolution=criteria.resolution,
-            )
-        elif criteria.format_type == "json":
-            result_path = service.export_dataset_json_format(
-                image_ids=image_ids,
-                output_path=output_dir,
-                resolution=criteria.resolution,
-            )
-        else:
-            raise ValueError(f"未知の形式: {criteria.format_type}")
+        # 零件マッチ時はサービス側でディレクトリを作成しない場合があるため確保する
+        result_path.mkdir(parents=True, exist_ok=True)
 
         # エクスポート結果の集計
-        file_count = sum(1 for _ in result_path.iterdir()) if result_path.exists() else 0
-        total_size = (
-            sum(f.stat().st_size for f in result_path.rglob("*") if f.is_file())
-            if result_path.exists()
-            else 0
-        )
+        file_count = sum(1 for _ in result_path.iterdir())
+        total_size = sum(f.stat().st_size for f in result_path.rglob("*") if f.is_file())
 
         return ExportResult(
             output_path=result_path,

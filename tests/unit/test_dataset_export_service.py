@@ -405,3 +405,126 @@ class TestDatasetExportService:
                 # Then: エクスポートは完了するが、ファイルは作成されない
                 assert result_path == output_path
                 assert not (output_path / "test_project_00001.txt").exists()
+
+
+@pytest.mark.unit
+class TestExportWithCriteria:
+    """DatasetExportService.export_with_criteria() のユニットテスト"""
+
+    @pytest.fixture
+    def mock_db_manager(self):
+        return Mock()
+
+    @pytest.fixture
+    def dataset_export_service(self, mock_db_manager):
+        return DatasetExportService(
+            config_service=Mock(),
+            file_system_manager=Mock(),
+            db_manager=mock_db_manager,
+            search_processor=Mock(),
+        )
+
+    def test_criteria_path_calls_db_filter(self, dataset_export_service, mock_db_manager, tmp_path):
+        """criteria 指定時に db_manager.get_images_by_filter が呼ばれ export_filtered_dataset に委譲される"""
+        from lorairo.database.filter_criteria import ImageFilterCriteria
+
+        mock_db_manager.get_images_by_filter.return_value = ([{"id": 1}, {"id": 2}], 2)
+
+        with patch.object(
+            dataset_export_service, "export_filtered_dataset", return_value=tmp_path
+        ) as mock_export:
+            criteria = ImageFilterCriteria(tags=["cat"])
+            result = dataset_export_service.export_with_criteria(
+                output_path=tmp_path,
+                criteria=criteria,
+            )
+
+        mock_db_manager.get_images_by_filter.assert_called_once_with(criteria)
+        mock_export.assert_called_once_with(
+            image_ids=[1, 2],
+            output_path=tmp_path,
+            format_type="txt",
+            resolution=512,
+        )
+        assert result == tmp_path
+
+    def test_image_ids_path_emits_deprecation_warning(self, dataset_export_service, tmp_path):
+        """image_ids 指定時に DeprecationWarning が発行される"""
+        import warnings
+
+        with patch.object(dataset_export_service, "export_filtered_dataset", return_value=tmp_path):
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                dataset_export_service.export_with_criteria(
+                    output_path=tmp_path,
+                    image_ids=[1, 2, 3],
+                )
+
+        assert len(w) == 1
+        assert issubclass(w[0].category, DeprecationWarning)
+        assert "image_ids" in str(w[0].message).lower() or "deprecated" in str(w[0].message).lower()
+
+    def test_image_ids_path_skips_db_query(self, dataset_export_service, mock_db_manager, tmp_path):
+        """image_ids 指定時は DB フィルタクエリを実行しない"""
+        import warnings
+
+        with patch.object(dataset_export_service, "export_filtered_dataset", return_value=tmp_path):
+            with warnings.catch_warnings(record=True):
+                warnings.simplefilter("always")
+                dataset_export_service.export_with_criteria(
+                    output_path=tmp_path,
+                    image_ids=[1, 2],
+                )
+
+        mock_db_manager.get_images_by_filter.assert_not_called()
+
+    def test_no_args_raises_value_error(self, dataset_export_service, tmp_path):
+        """criteria も image_ids も指定しない場合 ValueError が発生する"""
+        with pytest.raises(ValueError, match="criteria または image_ids"):
+            dataset_export_service.export_with_criteria(output_path=tmp_path)
+
+    def test_criteria_empty_result_completes_without_error(
+        self, dataset_export_service, mock_db_manager, tmp_path
+    ):
+        """criteria フィルタ結果が 0 件でも例外なく完了する"""
+        from lorairo.database.filter_criteria import ImageFilterCriteria
+
+        mock_db_manager.get_images_by_filter.return_value = ([], 0)
+        criteria = ImageFilterCriteria(tags=["nonexistent_xyz"])
+
+        result = dataset_export_service.export_with_criteria(
+            output_path=tmp_path,
+            criteria=criteria,
+        )
+
+        assert result == tmp_path
+
+    def test_json_format_delegates_to_json_method(self, dataset_export_service, mock_db_manager, tmp_path):
+        """format_type='json' のとき export_dataset_json_format が呼ばれる"""
+        from lorairo.database.filter_criteria import ImageFilterCriteria
+
+        mock_db_manager.get_images_by_filter.return_value = ([{"id": 1}], 1)
+
+        with patch.object(
+            dataset_export_service, "export_dataset_json_format", return_value=tmp_path
+        ) as mock_json:
+            criteria = ImageFilterCriteria(tags=["cat"])
+            dataset_export_service.export_with_criteria(
+                output_path=tmp_path,
+                format_type="json",
+                criteria=criteria,
+            )
+
+        mock_json.assert_called_once()
+
+    def test_both_criteria_and_image_ids_raises_value_error(self, dataset_export_service, tmp_path):
+        """criteria と image_ids を同時に指定すると ValueError が発生する"""
+        from lorairo.database.filter_criteria import ImageFilterCriteria
+
+        criteria = ImageFilterCriteria(tags=["cat"])
+        with pytest.raises(ValueError, match="同時に指定"):
+            dataset_export_service.export_with_criteria(
+                output_path=tmp_path,
+                criteria=criteria,
+                image_ids=[1, 2, 3],
+            )

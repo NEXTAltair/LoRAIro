@@ -315,10 +315,12 @@ def create(
             ) as progress:
                 task = progress.add_task("エクスポート中...", total=len(image_ids))
 
-                # エクスポート実行
+                # image_ids は上の repository.get_images_by_filter で既に解決済みのため、
+                # export_with_criteria に criteria を渡すと同じ DB クエリを 2 回実行してしまう。
+                # 解決済みの image_ids を直接渡して二重クエリを回避する。
                 result_path = export_service.export_filtered_dataset(
-                    image_ids,
-                    output_path,
+                    image_ids=image_ids,
+                    output_path=output_path,
                     format_type=format.lower(),
                     resolution=resolution,
                 )

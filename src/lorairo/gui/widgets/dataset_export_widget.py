@@ -64,22 +64,22 @@ class DatasetExportWorker(QObject):
 
             self.progress.emit(10, "エクスポート処理を開始しています...")
 
-            # Execute export based on format
+            # export_with_criteria 経由で統一エントリポイントを使用（image_ids は deprecated パス）
             if self.export_format == "json":
-                result_path = self.export_service.export_dataset_json_format(
-                    image_ids=self.image_ids,
+                result_path = self.export_service.export_with_criteria(
                     output_path=self.output_path,
+                    format_type="json",
                     resolution=self.resolution,
-                    metadata_filename="metadata.json",
+                    image_ids=self.image_ids,
                 )
                 self.progress.emit(90, "JSON形式でエクスポート中...")
             else:
-                # TXT formats (separate or merged)
                 merge_option = self.export_format == "txt_merged" or self.merge_caption
-                result_path = self.export_service.export_dataset_txt_format(
-                    image_ids=self.image_ids,
+                result_path = self.export_service.export_with_criteria(
                     output_path=self.output_path,
+                    format_type="txt",
                     resolution=self.resolution,
+                    image_ids=self.image_ids,
                     merge_caption=merge_option,
                 )
                 self.progress.emit(90, "TXT形式でエクスポート中...")
