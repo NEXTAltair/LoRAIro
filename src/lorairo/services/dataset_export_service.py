@@ -5,6 +5,7 @@ compatible with kohya-ss/sd-scripts requirements.
 """
 
 import json
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ from loguru import logger
 
 from ..database.db_core import resolve_stored_path
 from ..database.db_manager import ImageDatabaseManager
+from ..database.filter_criteria import ImageFilterCriteria
 from ..storage.file_system import FileSystemManager
 from .configuration_service import ConfigurationService
 from .search_criteria_processor import SearchCriteriaProcessor
@@ -257,6 +259,55 @@ class DatasetExportService:
             return self.export_dataset_json_format(image_ids, output_path, resolution, **kwargs)
         else:
             raise ValueError(f"Unsupported format_type: {format_type}. Use 'txt' or 'json'")
+
+    def export_with_criteria(
+        self,
+        output_path: Path,
+        format_type: str = "txt",
+        resolution: int = 512,
+        criteria: ImageFilterCriteria | None = None,
+        image_ids: list[int] | None = None,
+        **kwargs: Any,
+    ) -> Path:
+        """フィルタ条件または画像 ID リストからデータセットをエクスポートする統合メソッド。
+
+        criteria と image_ids のどちらか一方を指定すること。
+        image_ids は非推奨。将来のバージョンで削除予定。
+
+        Args:
+            output_path: 出力ディレクトリパス。
+            format_type: エクスポート形式 ("txt" または "json")。
+            resolution: 処理済み画像の解像度。
+            criteria: DB フィルタ条件。内部で ID 解決を行う。
+            image_ids: エクスポート対象の画像 ID リスト（非推奨）。
+            **kwargs: export_filtered_dataset に渡す追加パラメータ。
+
+        Returns:
+            エクスポート先ディレクトリのパス。
+
+        Raises:
+            ValueError: criteria も image_ids も指定されていない場合。
+        """
+        if image_ids is not None:
+            warnings.warn(
+                "image_ids パラメータは非推奨です。criteria (ImageFilterCriteria) を使用してください。",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            resolved_ids = image_ids
+        elif criteria is not None:
+            all_images, _ = self.db_manager.get_images_by_filter(criteria)
+            resolved_ids = [img["id"] for img in all_images] if all_images else []
+        else:
+            raise ValueError("criteria または image_ids のどちらかを指定してください")
+
+        return self.export_filtered_dataset(
+            image_ids=resolved_ids,
+            output_path=output_path,
+            format_type=format_type,
+            resolution=resolution,
+            **kwargs,
+        )
 
     def _resolve_processed_image_path(self, image_id: int, resolution: int) -> Path | None:
         """Resolve the file system path for a processed image at specified resolution.

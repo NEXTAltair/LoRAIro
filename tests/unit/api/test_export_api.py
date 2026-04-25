@@ -32,8 +32,22 @@ def mock_export_service(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Magi
         (output_path / "export_2.txt").write_text("test content 2")
         return output_path
 
+    def mock_export_with_criteria(
+        output_path: Path,
+        format_type: str = "txt",
+        resolution: int = 512,
+        criteria: object = None,
+        image_ids: object = None,
+        **kwargs: object,
+    ) -> Path:
+        output_path.mkdir(parents=True, exist_ok=True)
+        (output_path / "export_1.txt").write_text("test content")
+        (output_path / "export_2.txt").write_text("test content 2")
+        return output_path
+
     mock_service.export_dataset_txt_format.side_effect = mock_export
     mock_service.export_dataset_json_format.side_effect = mock_export
+    mock_service.export_with_criteria.side_effect = mock_export_with_criteria
 
     # ProjectManagementService モック（_resolve_project_image_ids用）
     mock_project_service = MagicMock()
@@ -81,7 +95,7 @@ class TestExportDataset:
         assert result.format_type == "txt"
         assert result.resolution == 512
         assert result.file_count > 0
-        mock_export_service.export_dataset_txt_format.assert_called_once()
+        mock_export_service.export_with_criteria.assert_called_once()
 
     def test_json_format(self, mock_export_service: MagicMock, tmp_path: Path) -> None:
         """JSONフォーマットでエクスポート。"""
@@ -92,7 +106,7 @@ class TestExportDataset:
 
         assert result.format_type == "json"
         assert result.resolution == 1024
-        mock_export_service.export_dataset_json_format.assert_called_once()
+        mock_export_service.export_with_criteria.assert_called_once()
 
     def test_default_criteria_no_filter_raises(
         self, mock_export_service: MagicMock, tmp_path: Path
@@ -124,28 +138,26 @@ class TestExportDataset:
         assert "format_type" in str(exc_info.value)
 
     def test_empty_filter_result_returns_zero_count(
-        self, mock_export_service: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, mock_export_service: MagicMock, tmp_path: Path
     ) -> None:
-        """フィルタ結果が 0 件の場合は ExportFailedError にならず file_count=0 で返る。
+        """export_with_criteria が空ディレクトリを返した場合は file_count=0 で返る。
 
-        DatasetExportService は空リストを ValueError で拒否するため、
-        export_dataset 側でショートサーキットして正常系として扱う必要がある。
+        フィルタ結果 0 件の処理は export_with_criteria → export_filtered_dataset に委譲され、
+        Service 層で正常系として扱われる。API 層は結果ファイル数で判断する。
         """
-        container = ServiceContainer()
-        monkeypatch.setattr(
-            container.image_repository,
-            "get_images_by_filter",
-            lambda *a, **kw: ([], 0),
-        )
+        # export_with_criteria が空ディレクトリを返すよう設定（0 件相当）
+        empty_dir = tmp_path / "empty_output"
+        empty_dir.mkdir(parents=True, exist_ok=True)
+        mock_export_service.export_with_criteria.side_effect = None
+        mock_export_service.export_with_criteria.return_value = empty_dir
 
         criteria = ExportCriteria(tag_filter=["nonexistent_tag"])
-        output = tmp_path / "output"
-        result = export_dataset("test-project", str(output), criteria)
+        result = export_dataset("test-project", tmp_path / "output", criteria)
 
         assert result.file_count == 0
         assert result.total_size == 0
         assert result.format_type == "txt"
-        mock_export_service.export_dataset_txt_format.assert_not_called()
+        mock_export_service.export_with_criteria.assert_called_once()
 
     def test_db_project_mismatch_raises(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """DB接続先と project_name が指すプロジェクトが異なる場合、
@@ -173,79 +185,89 @@ class TestExportDataset:
         assert "project_requested" in str(exc_info.value)
         assert "project_connected" in str(exc_info.value)
 
-    def test_rating_normalized_for_db_query(
-        self, mock_export_service: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """小文字 rating が API 層で大文字化されてから DB クエリに渡される。
+    def test_rating_normalized_for_db_query(self, mock_export_service: MagicMock, tmp_path: Path) -> None:
+        """小文字 rating が API 層で大文字化されてから export_with_criteria に渡される。
 
         _apply_manual_filters は exact match、_apply_ai_rating_filter は
         UNRATED 分岐で大文字完全一致を使うため、正規化がないと 0 件ヒットになる。
         """
-        container = ServiceContainer()
         captured: dict[str, object] = {}
 
-        def capture_filter(
-            filter_criteria: ImageFilterCriteria, **kwargs: object
-        ) -> tuple[list[dict[str, int]], int]:
-            captured["manual"] = filter_criteria.manual_rating_filter
-            captured["ai"] = filter_criteria.ai_rating_filter
-            return ([{"id": 1}], 1)
+        def capture_export(
+            output_path: Path,
+            format_type: str = "txt",
+            resolution: int = 512,
+            criteria: ImageFilterCriteria | None = None,
+            **kwargs: object,
+        ) -> Path:
+            captured["manual"] = criteria.manual_rating_filter if criteria else None
+            captured["ai"] = criteria.ai_rating_filter if criteria else None
+            output_path.mkdir(parents=True, exist_ok=True)
+            return output_path
 
-        monkeypatch.setattr(container.image_repository, "get_images_by_filter", capture_filter)
+        mock_export_service.export_with_criteria.side_effect = capture_export
 
-        criteria = ExportCriteria(manual_rating="pg", ai_rating="unrated", tag_filter=["cat"])
-        export_dataset("test-project", tmp_path / "output", criteria)
+        export_criteria = ExportCriteria(manual_rating="pg", ai_rating="unrated", tag_filter=["cat"])
+        export_dataset("test-project", tmp_path / "output", export_criteria)
 
         assert captured["manual"] == "PG"
         assert captured["ai"] == "UNRATED"
 
     def test_excluded_tags_blank_stripped_before_db_query(
-        self, mock_export_service: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, mock_export_service: MagicMock, tmp_path: Path
     ) -> None:
-        """空白要素を含む excluded_tags が API 層で除外されてから DB に渡る。
+        """空白要素を含む excluded_tags が API 層で除外されてから export_with_criteria に渡る。
 
         _apply_tag_filter で空文字列が NOT-EXISTS 内 LIKE '%%' に化けると
         タグを持つ画像を全て除外してしまうため、事前に除去する。
         """
-        container = ServiceContainer()
         captured: dict[str, object] = {}
 
-        def capture_filter(
-            filter_criteria: ImageFilterCriteria, **kwargs: object
-        ) -> tuple[list[dict[str, int]], int]:
-            captured["excluded"] = filter_criteria.excluded_tags
-            return ([{"id": 1}], 1)
+        def capture_export(
+            output_path: Path,
+            format_type: str = "txt",
+            resolution: int = 512,
+            criteria: ImageFilterCriteria | None = None,
+            **kwargs: object,
+        ) -> Path:
+            captured["excluded"] = criteria.excluded_tags if criteria else None
+            output_path.mkdir(parents=True, exist_ok=True)
+            return output_path
 
-        monkeypatch.setattr(container.image_repository, "get_images_by_filter", capture_filter)
+        mock_export_service.export_with_criteria.side_effect = capture_export
 
-        criteria = ExportCriteria(excluded_tags=["nsfw", "", "  "])
-        export_dataset("test-project", tmp_path / "output", criteria)
+        export_criteria = ExportCriteria(excluded_tags=["nsfw", "", "  "])
+        export_dataset("test-project", tmp_path / "output", export_criteria)
 
         assert captured["excluded"] == ["nsfw"]
 
     def test_project_name_passed_to_filter_criteria(
-        self, mock_export_service: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, mock_export_service: MagicMock, tmp_path: Path
     ) -> None:
         """export_dataset に渡した project_name が ImageFilterCriteria.project_name として
-        DB クエリに渡され、プロジェクトスコープのフィルタが適用される。
+        export_with_criteria に渡され、プロジェクトスコープのフィルタが適用される。
 
         _apply_project_filter は project_name を受け取って Image.project_id の
         サブクエリに変換するため、この値が None だとプロジェクト単位の絞り込みが
         機能しない。
         """
-        container = ServiceContainer()
         captured: dict[str, object] = {}
 
-        def capture_filter(
-            filter_criteria: ImageFilterCriteria, **kwargs: object
-        ) -> tuple[list[dict[str, int]], int]:
-            captured["project_name"] = filter_criteria.project_name
-            return ([{"id": 1}], 1)
+        def capture_export(
+            output_path: Path,
+            format_type: str = "txt",
+            resolution: int = 512,
+            criteria: ImageFilterCriteria | None = None,
+            **kwargs: object,
+        ) -> Path:
+            captured["project_name"] = criteria.project_name if criteria else None
+            output_path.mkdir(parents=True, exist_ok=True)
+            return output_path
 
-        monkeypatch.setattr(container.image_repository, "get_images_by_filter", capture_filter)
+        mock_export_service.export_with_criteria.side_effect = capture_export
 
-        criteria = ExportCriteria(tag_filter=["cat"])
-        export_dataset("my_project", tmp_path / "output", criteria)
+        export_criteria = ExportCriteria(tag_filter=["cat"])
+        export_dataset("my_project", tmp_path / "output", export_criteria)
 
         assert captured["project_name"] == "my_project"
 

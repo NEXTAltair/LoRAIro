@@ -321,12 +321,12 @@ def create(
             ) as progress:
                 task = progress.add_task("エクスポート中...", total=len(image_ids))
 
-                # エクスポート実行
-                result_path = export_service.export_filtered_dataset(
-                    image_ids,
-                    output_path,
+                # criteria 経由の統合エントリポイントを使用
+                result_path = export_service.export_with_criteria(
+                    output_path=output_path,
                     format_type=format.lower(),
                     resolution=resolution,
+                    criteria=criteria,
                 )
 
                 # 完了時に進捗を100%に

@@ -310,7 +310,7 @@ def test_export_create_invalid_format(
 ) -> None:
     """Test: export create - 無効なフォーマット。"""
     mock_container = create_mock_service_container()
-    mock_container.dataset_export_service.export_filtered_dataset.side_effect = ValueError(
+    mock_container.dataset_export_service.export_with_criteria.side_effect = ValueError(
         "Unsupported format_type: invalid"
     )
     mock_get_container.return_value = mock_container
