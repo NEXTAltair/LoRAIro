@@ -185,7 +185,9 @@ def migrate(
     if dry_run:
         for src in candidates:
             dst = resolved_target / src.name
-            logger.info(f"移行予定: {src} → {dst}")
+            typer.echo(f"[dry-run] {src} → {dst}")
+            logger.debug(f"移行予定: {src} → {dst}")
+        logger.info(f"dry-run 完了: 移行予定 {len(candidates)} 件")
         return
 
     _run_migration(candidates, resolved_target, backup)
