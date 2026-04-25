@@ -18,27 +18,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-> **BREAKING CHANGES** — 既存スクリプトやワークフローへの影響あり。下記 Migration Notes を参照。
+> **BREAKING CHANGES** — 既存スクリプトやワークフローへの影響あり。移行手順は以下を参照。
+>
+> **Migration:**
+>
+> ```bash
+> # データのバックアップ (推奨)
+> cp -r lorairo_data/ lorairo_data_backup_$(date +%Y%m%d)/
+>
+> # DB スキーマ更新 (必須)
+> uv run alembic upgrade head
+>
+> # 旧 CLI プロジェクトの移行 (CLI ユーザーのみ)
+> # NOTE: scripts/migrate_legacy_projects.py はこのバージョンに同梱されています
+> uv run python scripts/migrate_legacy_projects.py --dry-run  # プレビュー
+> uv run python scripts/migrate_legacy_projects.py --backup   # 本番実行
+> ```
 
 - **[BREAKING]** `lorairo-cli export create` がフィルタ条件を **必須化** — フィルタ無し呼び出しは `exit_code=2`
   - 移行: 既存スクリプトに `--project <name>` 等を追加すること
   - エラー例: `Error: エクスポートには最低1つのフィルタ条件が必要です`
 - **[BREAKING]** CLI プロジェクト保存場所を `~/.lorairo/projects/` から `lorairo_data/` へ統一
   - 移行: 既存プロジェクトは `uv run python scripts/migrate_legacy_projects.py --dry-run` でプレビュー
-
-### Migration Notes
-
-```bash
-# データのバックアップ (推奨)
-make backup
-
-# DB スキーマ更新 (必須)
-uv run alembic upgrade head
-
-# 旧 CLI プロジェクトの移行 (CLI ユーザーのみ)
-uv run python scripts/migrate_legacy_projects.py --dry-run  # プレビュー
-uv run python scripts/migrate_legacy_projects.py --backup   # 本番実行
-```
 
 ---
 
@@ -48,3 +49,5 @@ uv run python scripts/migrate_legacy_projects.py --backup   # 本番実行
 - [ADR 0018: Project Storage Unification](docs/decisions/0018-project-storage-unification.md)
 - [ADR 0019: Export Filter Required Design](docs/decisions/0019-export-filter-required-design.md)
 - [Epic #166](https://github.com/NEXTAltair/LoRAIro/issues/166)
+
+[Unreleased]: https://github.com/NEXTAltair/LoRAIro/compare/HEAD...HEAD
