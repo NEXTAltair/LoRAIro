@@ -70,9 +70,52 @@ uv run lorairo-cli project list
 
 # 画像登録
 uv run lorairo-cli images register ./images --project "my-project"
+
+# データセットエクスポート（フィルタ条件は必須）
+uv run lorairo-cli export create -p "my-project" -o ./dataset --tags cat
 ```
 
 詳細は [docs/cli.md](docs/cli.md) を参照してください。
+
+### 旧バージョンからの移行
+
+以前の CLI バージョンを使用していた場合、以下の **破壊的変更** があります。
+
+**1. `export create` のフィルタ条件が必須化 (ADR 0019)**
+
+フィルタ条件なしの呼び出しはエラー (exit_code=2) になります:
+
+```bash
+# NG: フィルタ条件なし
+uv run lorairo-cli export create -p "my-project" -o ./dataset
+
+# OK: 最低1つのフィルタ条件が必要
+uv run lorairo-cli export create -p "my-project" -o ./dataset --tags cat
+```
+
+エラー出力例:
+
+```
+Error: エクスポートには最低1つのフィルタ条件が必要です
+例: lorairo-cli export create --project foo --tags cat --output /tmp/out
+詳細: lorairo-cli export create --help
+```
+
+**2. CLI プロジェクト保存場所の変更 (ADR 0018)**
+
+CLI で作成したプロジェクトの保存場所が `~/.lorairo/projects/` から `lorairo_data/`（`config/lorairo.toml` の `database_base_dir` 設定値）に変更されました。
+
+旧プロジェクトを移行する場合は `scripts/migrate_legacy_projects.py` を使用してください:
+
+```bash
+# プレビュー (副作用なし)
+uv run python scripts/migrate_legacy_projects.py --dry-run
+
+# 旧ディレクトリをバックアップして移行
+uv run python scripts/migrate_legacy_projects.py --backup
+```
+
+詳細な手順: [docs/migration/0019-legacy-projects-migration.md](docs/migration/0019-legacy-projects-migration.md)
 
 ## プロジェクト構造
 
