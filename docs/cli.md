@@ -558,7 +558,7 @@ Results         150
 
 **構文**:
 ```bash
-lorairo-cli export create --project <name> --output <dir> [--format <format>] [--resolution <size>]
+lorairo-cli export create --project <name> --output <dir> [OPTIONS]
 ```
 
 **オプション**:
@@ -569,24 +569,51 @@ lorairo-cli export create --project <name> --output <dir> [--format <format>] [-
   - `json`: JSON形式（メタデータを含む）
 - `--resolution <size>` / `-r <size>`: ターゲット解像度（デフォルト: 512）
   - 512, 768, 1024など
+- `--tags <tags>`: カンマ区切りタグフィルタ（例: `cat,dog`）
+- `--excluded-tags <tags>`: 除外タグ（カンマ区切り）
+- `--caption <text>`: キャプションテキストフィルタ
+- `--manual-rating <rating>`: 手動レーティングフィルタ（`PG` / `PG-13` / `R` / `X` / `XXX` / `UNRATED`）
+- `--ai-rating <rating>`: AI レーティングフィルタ（`PG` / `PG-13` / `R` / `X` / `XXX` / `UNRATED`）
+- `--include-nsfw`: NSFW コンテンツを含める（フラグ、デフォルト: False）
+- `--score-min <float>`: 最小スコア（0.0-10.0）
+- `--score-max <float>`: 最大スコア（0.0-10.0）
+
+> **注意:** `--project` と `--output` 以外のフィルタ条件が最低 1 つ必要です。
+> フィルタ条件なしで実行すると `exit_code=2` を返します。
+>
+> ```
+> Error: エクスポートには最低1つのフィルタ条件が必要です。
+> 例: lorairo-cli export create --project foo --tags cat --output /tmp/out
+> 詳細: lorairo-cli export create --help
+> ```
 
 **例**:
 ```bash
-# 基本的な使い方（TXT形式、512px）
-lorairo-cli export create --project my_dataset --output ./export/
+# タグフィルタ付きエクスポート
+lorairo-cli export create --project my_dataset --tags cat,dog --output ./export/
+
+# スコアとレーティングでフィルタ
+lorairo-cli export create -p my_dataset --score-min 7.0 --manual-rating PG --output ./export/
 
 # JSON形式でエクスポート
-lorairo-cli export create -p my_dataset -o ./export/ --format json
+lorairo-cli export create -p my_dataset --tags cat -o ./export/ --format json
 
 # 解像度指定
-lorairo-cli export create -p my_dataset -o ./export/ --resolution 1024
+lorairo-cli export create -p my_dataset --tags cat -o ./export/ --resolution 1024
 
 # 全オプション指定
 lorairo-cli export create \
   --project my_dataset \
+  --tags cat,dog \
+  --score-min 6.0 \
+  --manual-rating PG \
   --output ./training_data/ \
   --format txt \
   --resolution 768
+
+# フィルタなし (エラー例)
+lorairo-cli export create --project my_dataset --output ./export/
+# Error: エクスポートには最低1つのフィルタ条件が必要です
 ```
 
 **出力例**:
@@ -640,9 +667,13 @@ export/
 ```
 
 **注意**:
-- 現在の実装では、`config/lorairo.toml`で設定されたデータベースを使用します
-- 将来的には動的なプロジェクト切り替えに対応予定です
+- プロジェクト保存場所は `config/lorairo.toml` の `[directories] database_base_dir` で設定します（デフォルト: `lorairo_data/`）
 - エクスポート先ディレクトリが存在しない場合、自動的に作成されます
+
+> **Breaking Change:** `lorairo-cli export create` はフィルタ条件を必須化しました。
+> フィルタ条件なしの呼び出しは `exit_code=2` を返します。
+> 既存スクリプトへの `--project <name>` または `--tags <tag>` の追加が必要な場合があります。
+> 詳細: [CHANGELOG.md](../CHANGELOG.md)
 
 ---
 

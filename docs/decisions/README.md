@@ -20,9 +20,9 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0014](0014-agent-teams-integration.md) | Agent Teams Integration | 2026-04-09 | Accepted |
 | [0015](0015-manual-rating-storage-unification.md) | Manual Rating Storage Unification | 2026-04-18 | Accepted |
 | [0016](0016-coverage-threshold-policy.md) | Coverage Threshold Policy | 2026-04-20 | Accepted (amended) |
-| [0017](0017-project-db-normalization.md) | Project DB Normalization | 2026-04-22 | Accepted |
-| [0018](0018-project-storage-unification.md) | Project Storage Unification | 2026-04-22 | Accepted |
-| [0019](0019-export-filter-required-design.md) | Export Filter Required Design | 2026-04-22 | Accepted |
+| [0017](0017-project-db-normalization.md) | Project DB Normalization | 2026-04-22 | Implemented |
+| [0018](0018-project-storage-unification.md) | Project Storage Unification | 2026-04-22 | Implemented |
+| [0019](0019-export-filter-required-design.md) | Export Filter Required Design | 2026-04-22 | Implemented |
 
 ## ADR テンプレート
 
