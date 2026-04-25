@@ -288,6 +288,9 @@ class ServiceContainer:
         session_factory = create_project_session_factory(db_path)
         self._image_repository = ImageRepository(session_factory=session_factory)
 
+        # FileSystemManager をプロジェクトディレクトリで初期化（CLI の DB 書き込みに必要）
+        self.file_system_manager.initialize(project_info.path)
+
         # 依存サービスをリセット（次参照時に新しい image_repository で再初期化）
         self._db_manager = None
         self._dataset_export_service = None

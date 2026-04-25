@@ -43,15 +43,45 @@ def register_images(
 
     container = ServiceContainer()
 
-    # プロジェクトディレクトリを解決
-    project_dir: Path | None = None
     if project_name:
-        project_service = container.project_management_service
-        project_info = project_service.get_project(project_name)
-        project_dir = project_info.path
+        # プロジェクト指定時: db_manager 経由でファイルコピーと DB 登録を同時に行う
+        # (set_active_project により FileSystemManager と ImageRepository は既に初期化済み)
+        scan_service = container.image_registration_service
+        image_files = scan_service.get_image_files(directory_path)
 
+        if not image_files:
+            return RegistrationResult(total=0, successful=0, failed=0, skipped=0)
+
+        db_manager = container.db_manager
+        fsm = container.file_system_manager
+
+        registered = 0
+        failed = 0
+        errors: list[str] = []
+
+        for image_file in image_files:
+            try:
+                result = db_manager.register_original_image(image_file, fsm)
+                if result is not None:
+                    registered += 1
+                else:
+                    failed += 1
+                    errors.append(f"{image_file.name}: 登録失敗")
+            except Exception as e:
+                failed += 1
+                errors.append(f"{image_file.name}: {e!s}")
+
+        return RegistrationResult(
+            total=len(image_files),
+            successful=registered,
+            failed=failed,
+            skipped=0,
+            error_details=errors or None,
+        )
+
+    # プロジェクト未指定: ファイルコピーのみ（DB 登録なし）
     service = container.image_registration_service
-    return service.register_images(directory_path, skip_duplicates, project_dir)
+    return service.register_images(directory_path, skip_duplicates, None)
 
 
 def detect_duplicate_images(
