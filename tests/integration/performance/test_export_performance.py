@@ -220,7 +220,7 @@ class TestExportPerformance:
                 )
 
         elapsed = time.perf_counter() - start_time
-        current, peak = tracemalloc.get_traced_memory()
+        _, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
         peak_mb = peak / (1024 * 1024)
 
