@@ -1,7 +1,7 @@
 # ADR 0017: Project DB Normalization
 
 - **日付**: 2026-04-22
-- **ステータス**: Accepted
+- **ステータス**: Implemented (2026-04-25)
 
 ## Context
 

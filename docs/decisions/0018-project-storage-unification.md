@@ -1,7 +1,7 @@
 # ADR 0018: Project Storage Unification (lorairo_data/ 配下統一)
 
 - **日付**: 2026-04-22
-- **ステータス**: Accepted
+- **ステータス**: Implemented (2026-04-25)
 
 ## Context
 
