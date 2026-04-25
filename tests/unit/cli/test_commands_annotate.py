@@ -111,10 +111,18 @@ def test_annotate_run_nonexistent_project(mock_projects_dir: Path) -> None:
 
 @pytest.mark.unit
 @pytest.mark.cli
-def test_annotate_run_no_images(mock_projects_dir: Path) -> None:
-    """Test: annotate run - プロジェクトに画像がない場合。"""
+@patch("lorairo.cli.commands.annotate.get_service_container")
+def test_annotate_run_no_images(
+    mock_get_container,
+    mock_projects_dir: Path,
+) -> None:
+    """Test: annotate run - プロジェクトに画像がない場合（DB未登録）。"""
     # プロジェクトのみ作成（画像なし）
     runner.invoke(app, ["project", "create", "empty_project"])
+
+    mock_container = MagicMock()
+    mock_container.image_repository.get_images_by_filter.return_value = ([], 0)
+    mock_get_container.return_value = mock_container
 
     result = runner.invoke(
         app,
@@ -129,7 +137,7 @@ def test_annotate_run_no_images(mock_projects_dir: Path) -> None:
     )
 
     assert result.exit_code == 1
-    assert "No image files found" in result.stdout
+    assert "No registered images found" in result.stdout
 
 
 @pytest.mark.unit
@@ -166,7 +174,7 @@ def test_annotate_run_with_single_model(
     test_project_with_images: tuple[Path, list[Path]],
 ) -> None:
     """Test: annotate run - 単一モデル指定。"""
-    _project_dir, _image_files = test_project_with_images
+    _project_dir, image_files = test_project_with_images
 
     # ServiceContainer をモック
     mock_container = MagicMock()
@@ -183,6 +191,11 @@ def test_annotate_run_with_single_model(
         "hash3": {"tags": ["tag4", "tag5"]},
     }
 
+    image_records = [
+        {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
+        for i, img_path in enumerate(image_files)
+    ]
+    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -213,7 +226,7 @@ def test_annotate_run_with_multiple_models(
     test_project_with_images: tuple[Path, list[Path]],
 ) -> None:
     """Test: annotate run - 複数モデル指定。"""
-    _project_dir, _image_files = test_project_with_images
+    _project_dir, image_files = test_project_with_images
 
     # ServiceContainer をモック
     mock_container = MagicMock()
@@ -230,6 +243,11 @@ def test_annotate_run_with_multiple_models(
         "hash3": {"tags": ["tag3"]},
     }
 
+    image_records = [
+        {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
+        for i, img_path in enumerate(image_files)
+    ]
+    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -261,7 +279,7 @@ def test_annotate_run_no_api_keys(
     test_project_with_images: tuple[Path, list[Path]],
 ) -> None:
     """Test: annotate run - APIキーなし（WARNINGメッセージ確認）。"""
-    _project_dir, _image_files = test_project_with_images
+    _project_dir, image_files = test_project_with_images
 
     # ServiceContainer をモック
     mock_container = MagicMock()
@@ -278,6 +296,11 @@ def test_annotate_run_no_api_keys(
         "hash3": {"tags": ["tag3"]},
     }
 
+    image_records = [
+        {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
+        for i, img_path in enumerate(image_files)
+    ]
+    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -308,7 +331,7 @@ def test_annotate_run_with_output_option(
     tmp_path: Path,
 ) -> None:
     """Test: annotate run - --output オプション指定。"""
-    _project_dir, _image_files = test_project_with_images
+    _project_dir, image_files = test_project_with_images
 
     # ServiceContainer をモック
     mock_container = MagicMock()
@@ -322,6 +345,11 @@ def test_annotate_run_with_output_option(
         "hash3": {"tags": ["tag3"]},
     }
 
+    image_records = [
+        {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
+        for i, img_path in enumerate(image_files)
+    ]
+    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -354,7 +382,7 @@ def test_annotate_run_with_batch_size(
     test_project_with_images: tuple[Path, list[Path]],
 ) -> None:
     """Test: annotate run - --batch-size オプション指定。"""
-    _project_dir, _image_files = test_project_with_images
+    _project_dir, image_files = test_project_with_images
 
     # ServiceContainer をモック
     mock_container = MagicMock()
@@ -368,6 +396,11 @@ def test_annotate_run_with_batch_size(
         "hash3": {"tags": ["tag3"]},
     }
 
+    image_records = [
+        {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
+        for i, img_path in enumerate(image_files)
+    ]
+    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -398,7 +431,7 @@ def test_annotate_run_annotation_failure(
     test_project_with_images: tuple[Path, list[Path]],
 ) -> None:
     """Test: annotate run - アノテーション実行エラー。"""
-    _project_dir, _image_files = test_project_with_images
+    _project_dir, image_files = test_project_with_images
 
     # ServiceContainer をモック
     mock_container = MagicMock()
@@ -410,6 +443,11 @@ def test_annotate_run_annotation_failure(
     # アノテーション実行でエラーが発生する
     mock_annotator.annotate.side_effect = Exception("API Error: Invalid key")
 
+    image_records = [
+        {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
+        for i, img_path in enumerate(image_files)
+    ]
+    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -438,7 +476,7 @@ def test_annotate_run_summary_display(
     test_project_with_images: tuple[Path, list[Path]],
 ) -> None:
     """Test: annotate run - アノテーション完了後のサマリー表示。"""
-    _project_dir, _image_files = test_project_with_images
+    _project_dir, image_files = test_project_with_images
 
     # ServiceContainer をモック
     mock_container = MagicMock()
@@ -452,6 +490,11 @@ def test_annotate_run_summary_display(
         "hash3": {"tags": ["tag3"]},
     }
 
+    image_records = [
+        {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
+        for i, img_path in enumerate(image_files)
+    ]
+    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -517,6 +560,10 @@ def test_annotate_run_with_special_project_name(
     mock_config.get_setting.return_value = "test_key"
     mock_annotator.annotate.return_value = {"hash1": {"tags": ["tag1"]}}
 
+    mock_container.image_repository.get_images_by_filter.return_value = (
+        [{"id": 1, "phash": "phash0000000000000000", "stored_image_path": str(img_path)}],
+        1,
+    )
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -561,6 +608,11 @@ def test_annotate_run_image_load_failure(
         "hash2": {"tags": ["tag2"]},
     }
 
+    image_records = [
+        {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
+        for i, img_path in enumerate(image_files)
+    ]
+    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -591,7 +643,7 @@ def test_annotate_run_all_models_failed_exits_nonzero(
     test_project_with_images: tuple[Path, list[Path]],
 ) -> None:
     """Test: annotate run - 全モデルがエラー結果を返した場合は exit_code=1。"""
-    _project_dir, _image_files = test_project_with_images
+    _project_dir, image_files = test_project_with_images
 
     mock_container = MagicMock()
     mock_annotator = MagicMock()
@@ -607,6 +659,11 @@ def test_annotate_run_all_models_failed_exits_nonzero(
         "hash3": {"gpt-4o-mini": error_result},
     }
 
+    image_records = [
+        {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
+        for i, img_path in enumerate(image_files)
+    ]
+    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -629,7 +686,7 @@ def test_annotate_run_partial_model_failure_shows_warning(
     test_project_with_images: tuple[Path, list[Path]],
 ) -> None:
     """Test: annotate run - 一部モデルがエラー、一部が成功の場合は exit_code=0 + Warning。"""
-    _project_dir, _image_files = test_project_with_images
+    _project_dir, image_files = test_project_with_images
 
     mock_container = MagicMock()
     mock_annotator = MagicMock()
@@ -647,6 +704,11 @@ def test_annotate_run_partial_model_failure_shows_warning(
         "hash3": {"gpt-4o-mini": error_result, "wdtagger": success_result},
     }
 
+    image_records = [
+        {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
+        for i, img_path in enumerate(image_files)
+    ]
+    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
