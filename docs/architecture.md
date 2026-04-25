@@ -70,6 +70,7 @@ See `docs/services.md` for the full catalog (29 services).
 
 **Business Logic Services** (`src/lorairo/services/`):
 - SearchCriteriaProcessor, ModelFilterService, ImageProcessingService, ConfigurationService
+- **DatasetExportService**: `export_with_criteria()` メソッドにより GUI/CLI/API の 3 経路からのエクスポートを統一インターフェースで処理
 
 **GUI Services** (`src/lorairo/gui/services/`):
 - WorkerService, SearchFilterService
@@ -85,6 +86,10 @@ The data layer provides persistent storage with:
 - Repository Pattern (`src/lorairo/database/db_repository.py`)
 - SQLAlchemy ORM with Schema Models (`src/lorairo/database/schema.py`)
 - SQLite Database with Alembic migrations
+
+**主要エンティティ**:
+- **Project** (`projects` テーブル): id, name, path, description, created_at — プロジェクト単位のデータセット管理
+- **Image** (`images` テーブル): `project_id` FK → `projects.id` (ON DELETE SET NULL) でプロジェクトに紐付け
 
 **Design decisions**: `docs/decisions/0002-database-schema-decisions.md`, `docs/decisions/0012-batch-tag-atomic-transaction.md`
 
@@ -145,6 +150,9 @@ graph TD
 - **FileSystemManager** (`src/lorairo/storage/file_system.py`): Directory and file management
 - **File Organization**: Images with metadata files (.txt/.caption)
 - **Project Structure**: `lorairo_data/project_name_YYYYMMDD_NNN/` format
+
+**保存場所の統一** (Epic #166):
+GUI と CLI はともに `lorairo_data/` (config/lorairo.toml の `[directories] database_base_dir`) をプロジェクト保存場所として使用する。旧 CLI 保存場所 (`~/.lorairo/projects/`) は廃止され、`lorairo_data/` に統一済み。
 
 ## Local Package Integration
 
