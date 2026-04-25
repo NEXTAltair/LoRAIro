@@ -10,7 +10,13 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker
 
+from lorairo.cli.commands.export import _criteria_has_effective_filter
+from lorairo.database.db_repository import ImageRepository
+from lorairo.database.filter_criteria import ImageFilterCriteria
+from lorairo.database.schema import Base, ModelType
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.dataset_export_service import DatasetExportService
 from lorairo.services.search_criteria_processor import SearchCriteriaProcessor
@@ -379,3 +385,92 @@ class TestDatasetExportIntegration:
             assert result_path == export_path
             assert (export_path / "test_project_00001.webp").exists()
             assert (export_path / "test_project_00001.txt").exists()
+
+
+@pytest.mark.integration
+class TestExportFullScanGuard:
+    """export 経路で全件取得 SQL が発行されないことを保証するガードテスト。"""
+
+    @pytest.fixture
+    def guard_engine(self):
+        """ガードテスト専用のインメモリ SQLite エンジン。"""
+        engine = create_engine("sqlite:///:memory:", echo=False)
+        Base.metadata.create_all(engine)
+        # ModelType 初期データ挿入
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        with SessionLocal() as session:
+            for type_name in ["tagger", "multimodal", "score", "rating"]:
+                if not session.query(ModelType).filter_by(name=type_name).first():
+                    session.add(ModelType(name=type_name))
+            session.commit()
+        yield engine
+        engine.dispose()
+
+    @pytest.fixture
+    def guard_repository(self, guard_engine):
+        """ImageRepository インスタンス（ガードテスト専用エンジン使用）。"""
+        session_factory = sessionmaker(autocommit=False, autoflush=False, bind=guard_engine)
+        return ImageRepository(session_factory)
+
+    def test_filter_required_no_full_scan(self, guard_repository, guard_engine):
+        """ImageFilterCriteria を渡した場合、Images テーブルを対象とした SELECT に WHERE 句が含まれる。"""
+        executed_queries: list[str] = []
+
+        @event.listens_for(guard_engine, "before_cursor_execute")
+        def capture_query(conn, cursor, statement, parameters, context, executemany):
+            executed_queries.append(statement)
+
+        criteria = ImageFilterCriteria(tags=["anime"])
+
+        # エラーにならないことを確認（0件返却で正常終了）
+        result_images, count = guard_repository.get_images_by_filter(criteria=criteria)
+
+        assert result_images == []
+        assert count == 0
+
+        # images テーブルに対する SELECT クエリにはすべて WHERE 句が含まれることを確認
+        image_select_queries = [
+            q for q in executed_queries if "images" in q.lower() and q.strip().upper().startswith("SELECT")
+        ]
+        assert len(image_select_queries) > 0, "images テーブルへの SELECT クエリが発行されていません"
+        for q in image_select_queries:
+            assert "WHERE" in q.upper(), f"WHERE 句なしの全件スキャンクエリが検出されました:\n{q}"
+
+    def test_no_criteria_returns_empty_not_all_images(self, guard_repository):
+        """criteria=None を渡すと空の criteria として扱われ、0 件が返る（全件スキャンではない）。
+
+        実装確認: get_images_by_filter(criteria=None) は ValueError を発生させず、
+        空の ImageFilterCriteria を使ってフィルタリングを行う。
+        DB が空の場合は ([], 0) を返す。
+        """
+        # criteria=None の場合の動作を確認
+        result_images, count = guard_repository.get_images_by_filter(criteria=None)
+
+        # 空 DB なので 0 件が返る
+        assert result_images == []
+        assert count == 0
+
+    def test_empty_criteria_no_effective_filter(self):
+        """空の criteria では _criteria_has_effective_filter が False を返す。
+
+        _criteria_has_effective_filter は CLI の export.py に定義された関数であり、
+        有効なフィルタ条件が 1 つ以上あるかを判定する。空の criteria は有効フィルタなし。
+        """
+        # すべてデフォルト値の空 criteria
+        empty_criteria = ImageFilterCriteria()
+        assert _criteria_has_effective_filter(empty_criteria) is False
+
+    def test_criteria_with_tags_has_effective_filter(self):
+        """tags を指定した criteria では _criteria_has_effective_filter が True を返す。"""
+        criteria = ImageFilterCriteria(tags=["anime", "girl"])
+        assert _criteria_has_effective_filter(criteria) is True
+
+    def test_criteria_with_rating_has_effective_filter(self):
+        """manual_rating_filter を指定した criteria では _criteria_has_effective_filter が True を返す。"""
+        criteria = ImageFilterCriteria(manual_rating_filter="g")
+        assert _criteria_has_effective_filter(criteria) is True
+
+    def test_criteria_with_score_range_has_effective_filter(self):
+        """score_min を指定した criteria では _criteria_has_effective_filter が True を返す。"""
+        criteria = ImageFilterCriteria(score_min=5.0)
+        assert _criteria_has_effective_filter(criteria) is True
