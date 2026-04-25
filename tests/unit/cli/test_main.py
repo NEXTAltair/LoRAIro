@@ -32,10 +32,16 @@ def test_cli_version() -> None:
 
 @pytest.mark.unit
 @pytest.mark.cli
+@patch("lorairo.cli.main.DEFAULT_CONFIG_PATH")
 @patch("lorairo.cli.main.get_service_container")
-def test_cli_status(mock_get_container: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_status(
+    mock_get_container: MagicMock,
+    mock_config_path: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test: status command in CLI mode shows LoRAIro CLI Status."""
     monkeypatch.setenv("LORAIRO_CLI_MODE", "true")
+    mock_config_path.exists.return_value = True
 
     mock_container = MagicMock()
     mock_container.get_service_summary.return_value = {
@@ -57,9 +63,15 @@ def test_cli_status(mock_get_container: MagicMock, monkeypatch: pytest.MonkeyPat
 
 @pytest.mark.unit
 @pytest.mark.cli
+@patch("lorairo.cli.main.DEFAULT_CONFIG_PATH")
 @patch("lorairo.cli.main.get_service_container")
-def test_cli_status_shows_configured_api_key(mock_get_container: MagicMock) -> None:
+def test_cli_status_shows_configured_api_key(
+    mock_get_container: MagicMock,
+    mock_config_path: MagicMock,
+) -> None:
     """Test: status コマンドがAPIキー設定済みを正しく表示する。"""
+    mock_config_path.exists.return_value = True
+
     mock_container = MagicMock()
     mock_container.get_service_summary.return_value = {
         "environment": "CLI",
@@ -82,17 +94,21 @@ def test_cli_status_shows_configured_api_key(mock_get_container: MagicMock) -> N
 
 @pytest.mark.unit
 @pytest.mark.cli
+@patch("lorairo.cli.main.DEFAULT_CONFIG_PATH")
 @patch("lorairo.cli.main.get_service_container")
-def test_cli_status_shows_on_demand_note(mock_get_container: MagicMock) -> None:
+def test_cli_status_shows_on_demand_note(
+    mock_get_container: MagicMock,
+    mock_config_path: MagicMock,
+) -> None:
     """Test: status コマンドがCLIモードのオンデマンド初期化を説明する。"""
+    mock_config_path.exists.return_value = False
+
     mock_container = MagicMock()
     mock_container.get_service_summary.return_value = {
         "environment": "CLI",
         "phase": "Phase 4 (Production Integration)",
         "initialized_services": {},
     }
-    mock_container.config_service = MagicMock()
-    mock_container.config_service.get_setting.return_value = ""
     mock_get_container.return_value = mock_container
 
     result = runner.invoke(app, ["status"])
@@ -100,6 +116,32 @@ def test_cli_status_shows_on_demand_note(mock_get_container: MagicMock) -> None:
     assert result.exit_code == 0
     assert "on demand" in result.stdout
     assert "Not Ready" not in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.main.DEFAULT_CONFIG_PATH")
+@patch("lorairo.cli.main.get_service_container")
+def test_cli_status_config_not_found(
+    mock_get_container: MagicMock,
+    mock_config_path: MagicMock,
+) -> None:
+    """Test: 設定ファイルが存在しない場合は Not Found を表示しAPIキーセクションを省略する。"""
+    mock_config_path.exists.return_value = False
+
+    mock_container = MagicMock()
+    mock_container.get_service_summary.return_value = {
+        "environment": "CLI",
+        "phase": "Phase 4 (Production Integration)",
+        "initialized_services": {},
+    }
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "Not Found" in result.stdout
+    assert "API Key" not in result.stdout
 
 
 @pytest.mark.unit

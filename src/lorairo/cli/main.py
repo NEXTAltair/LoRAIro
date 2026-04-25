@@ -13,6 +13,7 @@ from rich.table import Table
 
 from lorairo.cli.commands import annotate, export, images, project
 from lorairo.services.service_container import get_service_container
+from lorairo.utils.config import DEFAULT_CONFIG_PATH
 
 if TYPE_CHECKING:
     from lorairo.services.service_container import ServiceContainer
@@ -49,15 +50,11 @@ def _show_cli_status(container: ServiceContainer) -> None:
     table.add_column("Item", style="cyan")
     table.add_column("Status", style="green")
 
-    try:
+    config_file_found = DEFAULT_CONFIG_PATH.exists()
+    table.add_row("Config File", "✓ Found" if config_file_found else "✗ Not Found")
+
+    if config_file_found:
         config = container.config_service
-        config_ok = True
-    except Exception:
-        config_ok = False
-
-    table.add_row("Config File", "✓ Found" if config_ok else "✗ Not Found")
-
-    if config_ok:
         api_providers = {
             "OpenAI": config.get_setting("api", "openai_key", ""),
             "Anthropic": config.get_setting("api", "claude_key", ""),
