@@ -517,3 +517,15 @@ class TestExportWithCriteria:
             )
 
         mock_json.assert_called_once()
+
+    def test_both_criteria_and_image_ids_raises_value_error(self, dataset_export_service, tmp_path):
+        """criteria と image_ids を同時に指定すると ValueError が発生する"""
+        from lorairo.database.filter_criteria import ImageFilterCriteria
+
+        criteria = ImageFilterCriteria(tags=["cat"])
+        with pytest.raises(ValueError, match="同時に指定"):
+            dataset_export_service.export_with_criteria(
+                output_path=tmp_path,
+                criteria=criteria,
+                image_ids=[1, 2, 3],
+            )

@@ -286,8 +286,12 @@ class DatasetExportService:
             エクスポート先ディレクトリのパス。
 
         Raises:
-            ValueError: criteria も image_ids も指定されていない場合。
+            ValueError: criteria も image_ids も指定されていない場合、または両方同時に指定された場合。
         """
+        if criteria is not None and image_ids is not None:
+            raise ValueError(
+                "criteria と image_ids を同時に指定することはできません。どちらか一方を使用してください。"
+            )
         if image_ids is not None:
             warnings.warn(
                 "image_ids パラメータは非推奨です。criteria (ImageFilterCriteria) を使用してください。",
