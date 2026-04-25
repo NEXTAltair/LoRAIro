@@ -101,6 +101,7 @@ def _copy_one(src: Path, dst: Path) -> tuple[int, int, int]:
         logger.debug(f"コピー完了: {dst}")
     except (OSError, shutil.Error) as e:
         logger.error(f"コピーに失敗しました: {src} → {dst} — {e}", exc_info=True)
+        shutil.rmtree(dst, ignore_errors=True)
         return 0, 0, 1
 
     return 1, 0, 0
@@ -139,7 +140,7 @@ def _run_migration(
 
     logger.info(f"移行完了: 成功={success_count}, スキップ={skip_count}, エラー={error_count}")
 
-    if backup and success_count > 0:
+    if backup and success_count > 0 and error_count == 0:
         bak_path = source_root.parent / (source_root.name + ".bak")
         try:
             source_root.rename(bak_path)
