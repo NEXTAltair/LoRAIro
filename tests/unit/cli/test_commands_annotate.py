@@ -128,7 +128,7 @@ def test_annotate_run_no_images(mock_projects_dir: Path) -> None:
         ],
     )
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "No image files found" in result.stdout
 
 
@@ -581,3 +581,90 @@ def test_annotate_run_image_load_failure(
     assert "Found 3 image(s)" in result.stdout
     # 失敗メッセージが表示されるか
     assert "Warning" in result.stdout or "Failed" in result.stdout or result.exit_code in [0, 1]
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.annotate.get_service_container")
+def test_annotate_run_all_models_failed_exits_nonzero(
+    mock_get_container: MagicMock,
+    test_project_with_images: tuple[Path, list[Path]],
+) -> None:
+    """Test: annotate run - 全モデルがエラー結果を返した場合は exit_code=1。"""
+    _project_dir, _image_files = test_project_with_images
+
+    mock_container = MagicMock()
+    mock_annotator = MagicMock()
+    mock_config = MagicMock()
+    mock_config.get_setting.return_value = "test_key"
+
+    # 全モデルがエラー結果を返す (UnifiedAnnotationResult.error != None)
+    error_result = MagicMock()
+    error_result.error = "Model 'gpt-4o-mini' not found in registry"
+    mock_annotator.annotate.return_value = {
+        "hash1": {"gpt-4o-mini": error_result},
+        "hash2": {"gpt-4o-mini": error_result},
+        "hash3": {"gpt-4o-mini": error_result},
+    }
+
+    mock_container.annotator_library = mock_annotator
+    mock_container.config_service = mock_config
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(
+        app,
+        ["annotate", "run", "--project", "test_dataset", "--model", "gpt-4o-mini"],
+    )
+
+    assert result.exit_code == 1
+    assert "Error" in result.stdout
+    assert "gpt-4o-mini" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.annotate.get_service_container")
+def test_annotate_run_partial_model_failure_shows_warning(
+    mock_get_container: MagicMock,
+    test_project_with_images: tuple[Path, list[Path]],
+) -> None:
+    """Test: annotate run - 一部モデルがエラー、一部が成功の場合は exit_code=0 + Warning。"""
+    _project_dir, _image_files = test_project_with_images
+
+    mock_container = MagicMock()
+    mock_annotator = MagicMock()
+    mock_config = MagicMock()
+    mock_config.get_setting.return_value = "test_key"
+
+    error_result = MagicMock()
+    error_result.error = "Model config error"
+    success_result = MagicMock()
+    success_result.error = None
+
+    mock_annotator.annotate.return_value = {
+        "hash1": {"gpt-4o-mini": error_result, "wdtagger": success_result},
+        "hash2": {"gpt-4o-mini": error_result, "wdtagger": success_result},
+        "hash3": {"gpt-4o-mini": error_result, "wdtagger": success_result},
+    }
+
+    mock_container.annotator_library = mock_annotator
+    mock_container.config_service = mock_config
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(
+        app,
+        [
+            "annotate",
+            "run",
+            "--project",
+            "test_dataset",
+            "--model",
+            "gpt-4o-mini",
+            "--model",
+            "wdtagger",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Warning" in result.stdout
+    assert "gpt-4o-mini" in result.stdout

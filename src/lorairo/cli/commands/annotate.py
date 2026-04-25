@@ -7,7 +7,7 @@ API層（lorairo.api）を経由してService層を利用する。
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import typer
 from PIL import Image
@@ -91,6 +91,57 @@ def _load_images(image_dataset_dir: Path) -> tuple[list[Image.Image], int, int]:
     return pil_images, loaded_count, failed_count
 
 
+def _check_annotation_errors(
+    results: Any,
+) -> tuple[bool, set[str]]:
+    """アノテーション結果のエラーを検出する。
+
+    Args:
+        results: PHashAnnotationResults ({phash: {model_name: UnifiedAnnotationResult}})
+
+    Returns:
+        tuple: (成功結果あり, エラーが発生したモデル名の集合)
+    """
+    error_detected_models: set[str] = set()
+    success_detected = False
+
+    for model_results in results.values():
+        for m_name, m_result in model_results.items():
+            if getattr(m_result, "error", None) is not None:
+                error_detected_models.add(m_name)
+            else:
+                success_detected = True
+
+    return success_detected, error_detected_models
+
+
+def _handle_annotation_results(results: Any) -> None:
+    """アノテーション結果を検証し、全モデルが失敗した場合は typer.Exit(code=1) を発生させる。
+
+    Args:
+        results: PHashAnnotationResults ({phash: {model_name: UnifiedAnnotationResult}})
+
+    Raises:
+        typer.Exit: 結果が空またはすべてのモデルが失敗した場合 (code=1)。
+    """
+    if not results:
+        console.print("[red]Error:[/red] Annotation produced no results")
+        raise typer.Exit(code=1)
+
+    success_detected, error_detected_models = _check_annotation_errors(results)
+
+    if not success_detected and error_detected_models:
+        console.print(
+            f"[red]Error:[/red] All annotation models failed: {', '.join(sorted(error_detected_models))}"
+        )
+        raise typer.Exit(code=1)
+    elif error_detected_models:
+        console.print(
+            f"[yellow]Warning:[/yellow] Some models encountered errors: "
+            f"{', '.join(sorted(error_detected_models))}"
+        )
+
+
 @app.command("run")
 def run(
     project: str = typer.Option(
@@ -143,8 +194,8 @@ def run(
         pil_images, loaded_count, failed_count = _load_images(image_dataset_dir)
 
         if not pil_images and loaded_count == 0:
-            console.print(f"[yellow]Warning:[/yellow] No image files found in {image_dataset_dir}")
-            raise typer.Exit(code=0)
+            console.print(f"[red]Error:[/red] No image files found in {image_dataset_dir}")
+            raise typer.Exit(code=1)
 
         console.print(f"[cyan]Found {loaded_count + failed_count} image(s)[/cyan]")
         console.print(f"[cyan]Using model(s): {', '.join(model)}[/cyan]")
@@ -195,6 +246,9 @@ def run(
             console.print(f"[red]Error:[/red] Annotation failed: {e}")
             logger.error(f"Annotation error: {e}", exc_info=True)
             raise typer.Exit(code=1) from e
+
+        # モデルエラーを検出（全失敗時は Exit(code=1)、部分失敗時は Warning 表示）
+        _handle_annotation_results(results)
 
         # 結果サマリー表示
         console.print("\n[bold cyan]Annotation Summary[/bold cyan]")
