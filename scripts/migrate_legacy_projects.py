@@ -32,7 +32,7 @@ def _resolve_target_dir(target_dir: Path | None) -> Path:
         return target_dir
 
     config = get_config()
-    base_dir = config.get("directories", {}).get("database_base_dir", "lorairo_data")
+    base_dir: str = config.get("directories", {}).get("database_base_dir", "lorairo_data")
     # スクリプトはプロジェクトルートから実行されることを想定
     project_root = Path(__file__).parent.parent
     return project_root / base_dir
@@ -81,13 +81,12 @@ def _release_lock(lock_file: TextIOWrapper, lock_path: Path) -> None:
         pass
 
 
-def _copy_one(src: Path, dst: Path, backup: bool) -> tuple[int, int, int]:
-    """単一ディレクトリをコピーし、オプションでバックアップを作成する。
+def _copy_one(src: Path, dst: Path) -> tuple[int, int, int]:
+    """単一ディレクトリをコピーする。
 
     Args:
         src: コピー元ディレクトリ。
         dst: コピー先ディレクトリ。
-        backup: True の場合、コピー後に旧ディレクトリを .bak にリネームする。
 
     Returns:
         (success, skip, error) のタプル。各値は 0 または 1。
@@ -104,24 +103,22 @@ def _copy_one(src: Path, dst: Path, backup: bool) -> tuple[int, int, int]:
         logger.error(f"コピーに失敗しました: {src} → {dst} — {e}", exc_info=True)
         return 0, 0, 1
 
-    if backup:
-        bak_path = src.with_suffix(".bak")
-        try:
-            src.rename(bak_path)
-            logger.debug(f"バックアップ完了: {src} → {bak_path}")
-        except OSError as e:
-            logger.warning(f"バックアップのリネームに失敗しました: {src} → {bak_path}: {e}")
-
     return 1, 0, 0
 
 
-def _run_migration(candidates: list[Path], resolved_target: Path, backup: bool) -> None:
+def _run_migration(
+    candidates: list[Path],
+    source_root: Path,
+    resolved_target: Path,
+    backup: bool,
+) -> None:
     """排他ロックを取得してディレクトリ群を移行する。
 
     Args:
         candidates: 移行対象のソースディレクトリ一覧。
+        source_root: 移行元のルートディレクトリ（~/.lorairo/projects）。
         resolved_target: 移行先のベースディレクトリ。
-        backup: True の場合、コピー後に旧ディレクトリを .bak にリネームする。
+        backup: True の場合、全コピー完了後にソースルートを .bak にリネームする。
     """
     lock_path = resolved_target / ".migrate.lock"
     lock_file = _acquire_lock(lock_path)
@@ -133,7 +130,7 @@ def _run_migration(candidates: list[Path], resolved_target: Path, backup: bool) 
     try:
         for src in candidates:
             dst = resolved_target / src.name
-            s, sk, e = _copy_one(src, dst, backup)
+            s, sk, e = _copy_one(src, dst)
             success_count += s
             skip_count += sk
             error_count += e
@@ -141,6 +138,14 @@ def _run_migration(candidates: list[Path], resolved_target: Path, backup: bool) 
         _release_lock(lock_file, lock_path)
 
     logger.info(f"移行完了: 成功={success_count}, スキップ={skip_count}, エラー={error_count}")
+
+    if backup and success_count > 0:
+        bak_path = source_root.parent / (source_root.name + ".bak")
+        try:
+            source_root.rename(bak_path)
+            logger.info(f"バックアップ完了: {source_root} → {bak_path}")
+        except OSError as e:
+            logger.warning(f"バックアップのリネームに失敗しました: {source_root} → {bak_path}: {e}")
 
 
 @app.command()
@@ -190,7 +195,7 @@ def migrate(
         logger.info(f"dry-run 完了: 移行予定 {len(candidates)} 件")
         return
 
-    _run_migration(candidates, resolved_target, backup)
+    _run_migration(candidates, resolved_source, resolved_target, backup)
 
 
 if __name__ == "__main__":
