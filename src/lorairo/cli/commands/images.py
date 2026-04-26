@@ -14,6 +14,7 @@ from lorairo.api.exceptions import ImageRegistrationError, ProjectNotFoundError
 from lorairo.api.images import register_images as api_register_images
 from lorairo.api.project import get_project as api_get_project
 from lorairo.api.types import RegistrationResult
+from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.services.service_container import get_service_container
 
 # サブコマンドアプリ定義
@@ -127,10 +128,52 @@ def list_images(
 ) -> None:
     """List images in a project.
 
-    プロジェクト内の画像一覧を表示します（将来実装）。
+    プロジェクトに登録されている画像の一覧をテーブル形式で表示します。
     """
-    console.print("[yellow]Note:[/yellow] images list is not yet implemented")
-    console.print("This will show registered images in the project.")
+    try:
+        try:
+            api_get_project(project)
+        except ProjectNotFoundError as e:
+            console.print(f"[red]Error:[/red] Project not found: {project}")
+            raise typer.Exit(code=1) from e
+
+        container = get_service_container()
+        container.set_active_project(project)
+
+        repository = container.image_repository
+        criteria = ImageFilterCriteria(include_nsfw=True)
+        image_records, total_count = repository.get_images_by_filter(criteria)
+
+        if not image_records:
+            console.print(f"No images found in project: {project}")
+            return
+
+        display_records = image_records[:limit] if limit else image_records
+
+        console.print(f"Images in project: {project}")
+        table = Table()
+        table.add_column("ID", style="cyan")
+        table.add_column("Filename")
+        table.add_column("Tags", style="green")
+        table.add_column("Annotated", style="yellow")
+
+        for record in display_records:
+            image_id = str(record.get("id", ""))
+            filename = Path(record.get("stored_image_path", "")).name or str(record.get("filename", ""))
+            tag_count = str(record.get("tag_count", 0))
+            annotated = "Yes" if record.get("tag_count", 0) > 0 else "No"
+            table.add_row(image_id, filename, tag_count, annotated)
+
+        console.print(table)
+
+        if limit and total_count > limit:
+            console.print(f"Showing {limit} of {total_count} images.")
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1) from e
 
 
 @app.command("update")
