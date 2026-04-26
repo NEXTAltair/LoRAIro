@@ -266,18 +266,102 @@ def test_images_update_help() -> None:
 
 @pytest.mark.unit
 @pytest.mark.cli
-def test_images_update_not_implemented(mock_projects_dir: Path) -> None:
-    """Test: images update - 未実装通知。"""
-    # プロジェクト作成
+def test_images_update_no_tags_exits_code2(mock_projects_dir: Path) -> None:
+    """Test: images update - --tags なしはexit code 2。"""
     runner.invoke(app, ["project", "create", "test-project"])
+    result = runner.invoke(app, ["images", "update", "--project", "test-project"])
+    assert result.exit_code == 2
+    assert "At least one update operation" in result.stdout
 
-    result = runner.invoke(
-        app,
-        ["images", "update", "--project", "test-project", "--tags", "tag1,tag2"],
-    )
 
+@pytest.mark.unit
+@pytest.mark.cli
+def test_images_update_nonexistent_project(mock_projects_dir: Path) -> None:
+    """Test: images update - 存在しないプロジェクトはエラー。"""
+    result = runner.invoke(app, ["images", "update", "--project", "nonexistent", "--tags", "cat"])
+    assert result.exit_code == 1
+    assert "Project not found" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_images_update_no_images_in_project(mock_projects_dir: Path) -> None:
+    """Test: images update - プロジェクト内に画像がない場合は警告表示。"""
+    runner.invoke(app, ["project", "create", "test-project"])
+    with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
+        mock_container = MagicMock()
+        mock_container.image_repository.get_images_by_filter.return_value = ([], 0)
+        mock_get_container.return_value = mock_container
+        result = runner.invoke(app, ["images", "update", "--project", "test-project", "--tags", "cat"])
     assert result.exit_code == 0
-    assert "not yet implemented" in result.stdout
+    assert "No images found" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_images_update_adds_tags_success(mock_projects_dir: Path) -> None:
+    """Test: images update - タグ追加成功。"""
+    runner.invoke(app, ["project", "create", "test-project"])
+    fake_records = [
+        {"id": i, "stored_image_path": f"/path/image{i}.jpg", "tag_count": 0} for i in range(1, 4)
+    ]
+    with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
+        mock_container = MagicMock()
+        mock_container.image_repository.get_images_by_filter.return_value = (fake_records, 3)
+        mock_container.image_repository.add_tag_to_images_batch.return_value = (True, 3)
+        mock_get_container.return_value = mock_container
+        result = runner.invoke(app, ["images", "update", "--project", "test-project", "--tags", "cat,dog"])
+    assert result.exit_code == 0
+    assert "Update Summary" in result.stdout
+    assert mock_container.image_repository.add_tag_to_images_batch.call_count == 2
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_images_update_with_image_id(mock_projects_dir: Path) -> None:
+    """Test: images update --image-id - 特定画像へのタグ追加。"""
+    runner.invoke(app, ["project", "create", "test-project"])
+    with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
+        mock_container = MagicMock()
+        mock_container.image_repository.get_image_metadata.return_value = {
+            "id": 42,
+            "filename": "a.jpg",
+        }
+        mock_container.image_repository.add_tag_to_images_batch.return_value = (True, 1)
+        mock_get_container.return_value = mock_container
+        result = runner.invoke(
+            app,
+            ["images", "update", "--project", "test-project", "--tags", "cat", "--image-id", "42"],
+        )
+    assert result.exit_code == 0
+    assert "Update Summary" in result.stdout
+    mock_container.image_repository.add_tag_to_images_batch.assert_called_once_with([42], "cat", None)
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_images_update_image_id_not_found(mock_projects_dir: Path) -> None:
+    """Test: images update --image-id - 存在しない画像IDはエラー。"""
+    runner.invoke(app, ["project", "create", "test-project"])
+    with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
+        mock_container = MagicMock()
+        mock_container.image_repository.get_image_metadata.return_value = None
+        mock_get_container.return_value = mock_container
+        result = runner.invoke(
+            app,
+            [
+                "images",
+                "update",
+                "--project",
+                "test-project",
+                "--tags",
+                "cat",
+                "--image-id",
+                "9999",
+            ],
+        )
+    assert result.exit_code == 1
+    assert "No image found with ID: 9999" in result.stdout
 
 
 @pytest.mark.unit
