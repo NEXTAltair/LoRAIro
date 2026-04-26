@@ -44,8 +44,9 @@ def register_images(
     container = ServiceContainer()
 
     if project_name:
-        # プロジェクト指定時: db_manager 経由でファイルコピーと DB 登録を同時に行う
-        # (set_active_project により FileSystemManager と ImageRepository は既に初期化済み)
+        # プロジェクト指定時: プロジェクトを自己解決してから DB 登録を行う
+        container.set_active_project(project_name)
+
         scan_service = container.image_registration_service
         image_files = scan_service.get_image_files(directory_path)
 
@@ -56,11 +57,15 @@ def register_images(
         fsm = container.file_system_manager
 
         registered = 0
+        skipped = 0
         failed = 0
         errors: list[str] = []
 
         for image_file in image_files:
             try:
+                if skip_duplicates and db_manager.detect_duplicate_image(image_file) is not None:
+                    skipped += 1
+                    continue
                 result = db_manager.register_original_image(image_file, fsm)
                 if result is not None:
                     registered += 1
@@ -75,7 +80,7 @@ def register_images(
             total=len(image_files),
             successful=registered,
             failed=failed,
-            skipped=0,
+            skipped=skipped,
             error_details=errors or None,
         )
 
