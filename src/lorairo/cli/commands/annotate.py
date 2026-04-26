@@ -194,7 +194,7 @@ def run(
 
         # DB からプロジェクトの登録済み画像を取得
         repository = container.image_repository
-        criteria = ImageFilterCriteria(project_name=project, include_nsfw=True)
+        criteria = ImageFilterCriteria(include_nsfw=True)
         image_records, total_in_db = repository.get_images_by_filter(criteria)
 
         if not image_records:
