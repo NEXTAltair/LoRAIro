@@ -32,6 +32,7 @@ from lorairo.api.exceptions import (
     ProjectNotFoundError,
 )
 from lorairo.api.project import get_project as api_get_project
+from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.services.service_container import get_service_container
 from lorairo.utils.log import logger
 
@@ -42,30 +43,24 @@ app = typer.Typer(help="Annotation commands")
 console = Console()
 
 
-def _load_images(image_dataset_dir: Path) -> tuple[list[Image.Image], int, int]:
-    """画像ファイルをロード。
+def _load_images_from_db(
+    image_records: list[dict[str, Any]],
+) -> tuple[list[Image.Image], dict[str, int], int, int]:
+    """DB の画像レコードから PIL 画像をロード。
 
     Args:
-        image_dataset_dir: 画像ディレクトリ
+        image_records: ImageRepository.get_images_by_filter() が返すレコードリスト
 
     Returns:
-        tuple: (PIL画像リスト, ロード成功数, ロード失敗数)
+        tuple: (PIL画像リスト, phash→image_id辞書, ロード成功数, ロード失敗数)
+               phash→image_id は issue #168 (アノテーション結果の DB 保存) で利用する。
     """
+    from lorairo.database.db_core import resolve_stored_path
+
     pil_images: list[Image.Image] = []
+    phash_to_image_id: dict[str, int] = {}
     loaded_count = 0
     failed_count = 0
-
-    # 画像ファイルを取得
-    image_extensions = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
-    image_files: list[Path] = []
-    for ext in image_extensions:
-        image_files.extend(image_dataset_dir.glob(f"*{ext}"))
-        image_files.extend(image_dataset_dir.glob(f"*{ext.upper()}"))
-
-    image_files = sorted(set(image_files))
-
-    if not image_files:
-        return [], 0, 0
 
     with Progress(
         SpinnerColumn(),
@@ -75,20 +70,33 @@ def _load_images(image_dataset_dir: Path) -> tuple[list[Image.Image], int, int]:
         TimeRemainingColumn(),
         console=console,
     ) as progress:
-        task = progress.add_task("画像ロード中...", total=len(image_files))
+        task = progress.add_task("画像ロード中...", total=len(image_records))
 
-        for image_file in image_files:
+        for record in image_records:
+            image_id: int | None = record.get("id")
+            phash: str = record.get("phash", "")
+            stored_path_str: str | None = record.get("stored_image_path")
+
+            if not stored_path_str:
+                failed_count += 1
+                progress.advance(task)
+                continue
+
+            image_path = resolve_stored_path(stored_path_str)
+
             try:
-                img = Image.open(image_file)
+                img = Image.open(image_path)
                 img.load()
                 pil_images.append(img)
+                if image_id is not None and phash:
+                    phash_to_image_id[phash] = image_id
                 loaded_count += 1
             except Exception as e:
-                console.print(f"[yellow]Warning:[/yellow] Failed to load {image_file.name}: {e}")
+                console.print(f"[yellow]Warning:[/yellow] Failed to load {image_path.name}: {e}")
                 failed_count += 1
             progress.advance(task)
 
-    return pil_images, loaded_count, failed_count
+    return pil_images, phash_to_image_id, loaded_count, failed_count
 
 
 def _check_annotation_errors(
@@ -176,37 +184,37 @@ def run(
     try:
         # API層経由でプロジェクト確認 & DB 接続切り替え
         try:
-            project_info = api_get_project(project)
+            api_get_project(project)
         except ProjectNotFoundError as e:
             console.print(f"[red]Error:[/red] Project not found: {project}")
             raise typer.Exit(code=1) from e
 
-        get_service_container().set_active_project(project)
-        project_dir = project_info.path
+        container = get_service_container()
+        container.set_active_project(project)
 
-        # プロジェクトの画像ディレクトリ
-        image_dataset_dir = project_dir / "image_dataset" / "original_images"
-        if not image_dataset_dir.exists():
-            console.print(f"[red]Error:[/red] Image directory not found: {image_dataset_dir}")
+        # DB からプロジェクトの登録済み画像を取得
+        repository = container.image_repository
+        criteria = ImageFilterCriteria(include_nsfw=True)
+        image_records, total_in_db = repository.get_images_by_filter(criteria)
+
+        if not image_records:
+            console.print(
+                f"[red]Error:[/red] No registered images found in project '{project}'. "
+                "Run 'lorairo-cli images register' first."
+            )
             raise typer.Exit(code=1)
 
-        # 画像をロード
-        pil_images, loaded_count, failed_count = _load_images(image_dataset_dir)
-
-        if not pil_images and loaded_count == 0:
-            console.print(f"[red]Error:[/red] No image files found in {image_dataset_dir}")
-            raise typer.Exit(code=1)
-
-        console.print(f"[cyan]Found {loaded_count + failed_count} image(s)[/cyan]")
-        console.print(f"[cyan]Using model(s): {', '.join(model)}[/cyan]")
-        console.print(f"[green]Loaded {loaded_count} image(s) ({failed_count} failed)[/green]")
+        # DB レコードから PIL 画像をロード
+        pil_images, _phash_to_image_id, loaded_count, failed_count = _load_images_from_db(image_records)
 
         if not pil_images:
             console.print("[red]Error:[/red] No images could be loaded for annotation")
             raise typer.Exit(code=1)
 
-        # ServiceContainer を取得
-        container = get_service_container()
+        console.print(f"[cyan]Found {total_in_db} image(s) in DB[/cyan]")
+        console.print(f"[cyan]Using model(s): {', '.join(model)}[/cyan]")
+        console.print(f"[green]Loaded {loaded_count} image(s) ({failed_count} failed)[/green]")
+
         annotator = container.annotator_library
         config = container.config_service
 

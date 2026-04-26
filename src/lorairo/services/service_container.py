@@ -280,13 +280,22 @@ class ServiceContainer:
         Raises:
             ProjectNotFoundError: プロジェクトが見つからない場合。
         """
+        from ..database import db_core
         from ..database.db_core import create_project_session_factory
 
         project_info = self.project_management_service.get_project(project_name)
         db_path = project_info.path / "image_database.db"
 
+        # P1: _get_current_project_id() が get_current_project_root() → IMG_DB_PATH.parent を
+        # 参照するため、セッション切り替えと同時にグローバルも更新して project_id が
+        # 正しいプロジェクトに紐付くようにする
+        db_core.IMG_DB_PATH = db_path
+
         session_factory = create_project_session_factory(db_path)
         self._image_repository = ImageRepository(session_factory=session_factory)
+
+        # FileSystemManager をプロジェクトディレクトリで初期化（CLI の DB 書き込みに必要）
+        self.file_system_manager.initialize(project_info.path)
 
         # 依存サービスをリセット（次参照時に新しい image_repository で再初期化）
         self._db_manager = None

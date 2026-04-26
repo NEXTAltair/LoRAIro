@@ -176,6 +176,17 @@ class ImageRegistrationService:
 
         return duplicates
 
+    def get_image_files(self, directory: Path) -> list[Path]:
+        """ディレクトリから画像ファイルを取得（公開API）。
+
+        Args:
+            directory: 検索対象ディレクトリ。
+
+        Returns:
+            list[Path]: 画像ファイルパスのリスト（ソート済み）。
+        """
+        return self._get_image_files(directory)
+
     # ==================== プライベートメソッド ====================
 
     def _get_image_files(self, directory: Path) -> list[Path]:
