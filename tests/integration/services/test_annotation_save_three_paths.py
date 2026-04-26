@@ -22,7 +22,6 @@ from lorairo.database.schema import Base, Image, Model, ModelType, Score, Tag
 from lorairo.gui.workers.annotation_worker import AnnotationWorker
 from lorairo.services.annotation_save_service import AnnotationSaveService
 
-
 TEST_PHASH = "deadbeef12345678"
 TEST_MODEL_NAME = "wdtagger-v3"
 
