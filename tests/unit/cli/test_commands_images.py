@@ -1,6 +1,7 @@
 """Image management commands テスト。"""
 
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 from PIL import Image
@@ -195,18 +196,62 @@ def test_images_list_help() -> None:
 
 @pytest.mark.unit
 @pytest.mark.cli
-def test_images_list_not_implemented(mock_projects_dir: Path) -> None:
-    """Test: images list - 未実装通知。"""
-    # プロジェクト作成
+def test_images_list_shows_registered_images(mock_projects_dir: Path, test_images_dir: Path) -> None:
+    """Test: images list - 登録済み画像をテーブル表示する。"""
     runner.invoke(app, ["project", "create", "test-project"])
+    runner.invoke(app, ["images", "register", str(test_images_dir), "--project", "test-project"])
 
-    result = runner.invoke(
-        app,
-        ["images", "list", "--project", "test-project"],
-    )
+    result = runner.invoke(app, ["images", "list", "--project", "test-project"])
 
     assert result.exit_code == 0
-    assert "not yet implemented" in result.stdout
+    assert "Images in project: test-project" in result.stdout
+    assert "ID" in result.stdout
+    assert "Filename" in result.stdout
+    assert "Tags" in result.stdout
+    assert "Annotated" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_images_list_no_images_shows_message(mock_projects_dir: Path) -> None:
+    """Test: images list - 画像未登録時は適切なメッセージを表示する。"""
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    result = runner.invoke(app, ["images", "list", "--project", "test-project"])
+
+    assert result.exit_code == 0
+    assert "No images found" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_images_list_with_limit(mock_projects_dir: Path) -> None:
+    """Test: images list --limit - 件数を制限して表示する。"""
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    fake_records = [
+        {"id": i, "stored_image_path": f"/path/image{i}.jpg", "tag_count": 0} for i in range(1, 4)
+    ]
+    with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
+        mock_container = MagicMock()
+        mock_container.image_repository.get_images_by_filter.return_value = (fake_records, 3)
+        mock_get_container.return_value = mock_container
+
+        result = runner.invoke(app, ["images", "list", "--project", "test-project", "--limit", "1"])
+
+    assert result.exit_code == 0
+    assert "Images in project: test-project" in result.stdout
+    assert "Showing 1 of 3" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_images_list_nonexistent_project(mock_projects_dir: Path) -> None:
+    """Test: images list - 存在しないプロジェクトはエラー。"""
+    result = runner.invoke(app, ["images", "list", "--project", "nonexistent"])
+
+    assert result.exit_code == 1
+    assert "Project not found" in result.stdout
 
 
 @pytest.mark.unit
