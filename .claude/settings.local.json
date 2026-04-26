@@ -58,7 +58,11 @@
       "WebFetch(domain:gist.github.com)",
       "WebFetch(domain:docs.anthropic.com)",
       "Bash(npx skills:*)",
-      "Skill(build-fix)"
+      "Skill(build-fix)",
+      "Skill(schedule)",
+      "Bash(AnnotationSaveService)",
+      "Bash(annotate run *)",
+      "Bash(AnnotationWorker)"
     ],
     "deny": [],
     "ask": []
