@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
+    from lorairo.services.annotation_save_service import AnnotationSaveService
     from lorairo.services.signal_manager_protocol import SignalManagerServiceProtocol
     from lorairo.services.tag_management_service import TagManagementService
 
@@ -89,6 +90,9 @@ class ServiceContainer:
         # Phase 2: API層用新サービス
         self._project_management_service: ProjectManagementService | None = None
         self._image_registration_service: ImageRegistrationService | None = None
+
+        # アノテーション保存サービス
+        self._annotation_save_service: AnnotationSaveService | None = None
 
     @property
     def config_service(self) -> ConfigurationService:
@@ -266,6 +270,16 @@ class ServiceContainer:
             logger.debug("ImageRegistrationService初期化完了")
         return self._image_registration_service
 
+    @property
+    def annotation_save_service(self) -> "AnnotationSaveService":
+        """アノテーション保存サービス取得（遅延初期化）"""
+        if self._annotation_save_service is None:
+            from .annotation_save_service import AnnotationSaveService
+
+            self._annotation_save_service = AnnotationSaveService(self.image_repository)
+            logger.debug("AnnotationSaveService初期化完了")
+        return self._annotation_save_service
+
     def set_active_project(self, project_name: str) -> None:
         """CLI用: アクティブプロジェクトの DB に接続を切り替える。
 
@@ -302,6 +316,7 @@ class ServiceContainer:
         self._dataset_export_service = None
         self._image_processing_service = None
         self._model_sync_service = None
+        self._annotation_save_service = None
 
         logger.info(f"アクティブプロジェクト切替: {project_name} -> {db_path}")
 
@@ -357,6 +372,7 @@ class ServiceContainer:
         self._signal_manager = None
         self._project_management_service = None
         self._image_registration_service = None
+        self._annotation_save_service = None
 
         # クラスレベルリセット
         ServiceContainer._instance = None

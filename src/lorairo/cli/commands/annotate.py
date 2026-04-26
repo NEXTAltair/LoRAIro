@@ -45,20 +45,18 @@ console = Console()
 
 def _load_images_from_db(
     image_records: list[dict[str, Any]],
-) -> tuple[list[Image.Image], dict[str, int], int, int]:
+) -> tuple[list[Image.Image], int, int]:
     """DB の画像レコードから PIL 画像をロード。
 
     Args:
         image_records: ImageRepository.get_images_by_filter() が返すレコードリスト
 
     Returns:
-        tuple: (PIL画像リスト, phash→image_id辞書, ロード成功数, ロード失敗数)
-               phash→image_id は issue #168 (アノテーション結果の DB 保存) で利用する。
+        tuple: (PIL画像リスト, ロード成功数, ロード失敗数)
     """
     from lorairo.database.db_core import resolve_stored_path
 
     pil_images: list[Image.Image] = []
-    phash_to_image_id: dict[str, int] = {}
     loaded_count = 0
     failed_count = 0
 
@@ -73,8 +71,6 @@ def _load_images_from_db(
         task = progress.add_task("画像ロード中...", total=len(image_records))
 
         for record in image_records:
-            image_id: int | None = record.get("id")
-            phash: str = record.get("phash", "")
             stored_path_str: str | None = record.get("stored_image_path")
 
             if not stored_path_str:
@@ -88,15 +84,13 @@ def _load_images_from_db(
                 img = Image.open(image_path)
                 img.load()
                 pil_images.append(img)
-                if image_id is not None and phash:
-                    phash_to_image_id[phash] = image_id
                 loaded_count += 1
             except Exception as e:
                 console.print(f"[yellow]Warning:[/yellow] Failed to load {image_path.name}: {e}")
                 failed_count += 1
             progress.advance(task)
 
-    return pil_images, phash_to_image_id, loaded_count, failed_count
+    return pil_images, loaded_count, failed_count
 
 
 def _check_annotation_errors(
@@ -205,7 +199,7 @@ def run(
             raise typer.Exit(code=1)
 
         # DB レコードから PIL 画像をロード
-        pil_images, _phash_to_image_id, loaded_count, failed_count = _load_images_from_db(image_records)
+        pil_images, loaded_count, failed_count = _load_images_from_db(image_records)
 
         if not pil_images:
             console.print("[red]Error:[/red] No images could be loaded for annotation")
@@ -258,6 +252,11 @@ def run(
         # モデルエラーを検出（全失敗時は Exit(code=1)、部分失敗時は Warning 表示）
         _handle_annotation_results(results)
 
+        # DB保存
+        save_result = container.annotation_save_service.save_annotation_results(results)
+        if save_result.error_count:
+            console.print(f"[yellow]Warning:[/yellow] DB保存に一部失敗: {save_result.error_count}件")
+
         # 結果サマリー表示
         console.print("\n[bold cyan]Annotation Summary[/bold cyan]")
 
@@ -268,10 +267,14 @@ def run(
         summary_table.add_row("Total Images", str(len(pil_images)))
         summary_table.add_row("Models Used", ", ".join(model))
         summary_table.add_row("Results", str(len(results)))
+        summary_table.add_row("Saved to DB", str(save_result.success_count))
+        summary_table.add_row("Skipped", str(save_result.skip_count))
 
         console.print(summary_table)
 
-        console.print("\n[green]Annotation completed successfully![/green]")
+        console.print(
+            f"\n[green]Annotation completed successfully! ({save_result.success_count} saved to DB)[/green]"
+        )
 
     except typer.Exit:
         raise

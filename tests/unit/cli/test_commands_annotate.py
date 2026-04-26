@@ -8,6 +8,7 @@ from PIL import Image
 from typer.testing import CliRunner
 
 from lorairo.cli.main import app
+from lorairo.services.annotation_save_service import AnnotationSaveResult
 from lorairo.services.project_management_service import ProjectManagementService
 from lorairo.services.service_container import ServiceContainer
 
@@ -730,3 +731,185 @@ def test_annotate_run_partial_model_failure_shows_warning(
     assert result.exit_code == 0
     assert "Warning" in result.stdout
     assert "gpt-4o-mini" in result.stdout
+
+
+# ===== DB保存テスト =====
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.annotate.get_service_container")
+def test_annotate_run_saves_results_to_db(
+    mock_get_container: MagicMock,
+    test_project_with_images: tuple[Path, list[Path]],
+) -> None:
+    """Test: annotate run - アノテーション結果がDBに保存される。"""
+    _project_dir, image_files = test_project_with_images
+
+    mock_container = MagicMock()
+    mock_annotator = MagicMock()
+    mock_config = MagicMock()
+    mock_config.get_setting.return_value = "test_key"
+
+    mock_annotator.annotate.return_value = {
+        "hash0000000000000001": {"gpt-4o-mini": MagicMock(error=None)},
+        "hash0000000000000002": {"gpt-4o-mini": MagicMock(error=None)},
+    }
+
+    image_records = [
+        {"id": 1, "phash": "hash0000000000000001", "stored_image_path": str(image_files[0])},
+        {"id": 2, "phash": "hash0000000000000002", "stored_image_path": str(image_files[1])},
+        {"id": 3, "phash": "hash0000000000000003", "stored_image_path": str(image_files[2])},
+    ]
+
+    mock_container.annotation_save_service.save_annotation_results.return_value = AnnotationSaveResult(
+        success_count=2, skip_count=1, error_count=0, total_count=3
+    )
+    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
+    mock_container.annotator_library = mock_annotator
+    mock_container.config_service = mock_config
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(
+        app,
+        ["annotate", "run", "--project", "test_dataset", "--model", "gpt-4o-mini"],
+    )
+
+    assert result.exit_code == 0
+    # annotation_save_service.save_annotation_results が呼ばれたことを確認
+    assert mock_container.annotation_save_service.save_annotation_results.call_count == 1
+    # サマリーに保存件数が表示される
+    assert "Saved to DB" in result.stdout
+    assert "2" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.annotate.get_service_container")
+def test_annotate_run_summary_shows_saved_count(
+    mock_get_container: MagicMock,
+    test_project_with_images: tuple[Path, list[Path]],
+) -> None:
+    """Test: annotate run - 保存件数がSummaryに表示される。"""
+    _project_dir, image_files = test_project_with_images
+
+    mock_container = MagicMock()
+    mock_annotator = MagicMock()
+    mock_config = MagicMock()
+    mock_config.get_setting.return_value = "test_key"
+
+    mock_annotator.annotate.return_value = {
+        "matchhash001": {"gpt-4o-mini": MagicMock(error=None)},
+    }
+
+    image_records = [
+        {"id": 10, "phash": "matchhash001", "stored_image_path": str(image_files[0])},
+    ]
+
+    mock_container.annotation_save_service.save_annotation_results.return_value = AnnotationSaveResult(
+        success_count=1, skip_count=0, error_count=0, total_count=1
+    )
+    mock_container.image_repository.get_images_by_filter.return_value = (image_records, 1)
+    mock_container.annotator_library = mock_annotator
+    mock_container.config_service = mock_config
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(
+        app,
+        ["annotate", "run", "--project", "test_dataset", "--model", "gpt-4o-mini"],
+    )
+
+    assert result.exit_code == 0
+    assert "Saved to DB" in result.stdout
+    assert "Skipped" in result.stdout
+    # 完了メッセージに保存件数が含まれる
+    assert "saved to DB" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.annotate.get_service_container")
+def test_annotate_run_db_save_error_shows_warning(
+    mock_get_container: MagicMock,
+    test_project_with_images: tuple[Path, list[Path]],
+) -> None:
+    """Test: annotate run - DB保存エラー時はWarningを表示して処理継続。"""
+    _project_dir, image_files = test_project_with_images
+
+    mock_container = MagicMock()
+    mock_annotator = MagicMock()
+    mock_config = MagicMock()
+    mock_config.get_setting.return_value = "test_key"
+
+    mock_annotator.annotate.return_value = {
+        "saveerrhash001": {"gpt-4o-mini": MagicMock(error=None)},
+    }
+
+    image_records = [
+        {"id": 5, "phash": "saveerrhash001", "stored_image_path": str(image_files[0])},
+    ]
+
+    mock_container.annotation_save_service.save_annotation_results.return_value = AnnotationSaveResult(
+        success_count=0,
+        skip_count=0,
+        error_count=1,
+        total_count=1,
+        error_details=["phash=saveerrh...: DB write error"],
+    )
+    mock_container.image_repository.get_images_by_filter.return_value = (image_records, 1)
+    mock_container.annotator_library = mock_annotator
+    mock_container.config_service = mock_config
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(
+        app,
+        ["annotate", "run", "--project", "test_dataset", "--model", "gpt-4o-mini"],
+    )
+
+    # 保存エラーがあっても exit_code=0 で継続
+    assert result.exit_code == 0
+    assert "Warning" in result.stdout
+    # 保存件数は0
+    assert "Saved to DB" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.annotate.get_service_container")
+def test_annotate_run_phash_mismatch_skips_gracefully(
+    mock_get_container: MagicMock,
+    test_project_with_images: tuple[Path, list[Path]],
+) -> None:
+    """Test: annotate run - phashが不一致の場合はスキップして処理継続。"""
+    _project_dir, image_files = test_project_with_images
+
+    mock_container = MagicMock()
+    mock_annotator = MagicMock()
+    mock_config = MagicMock()
+    mock_config.get_setting.return_value = "test_key"
+
+    # アノテーション結果のphashがDB記録と不一致
+    mock_annotator.annotate.return_value = {
+        "completely_different_hash": {"gpt-4o-mini": MagicMock(error=None)},
+    }
+
+    image_records = [
+        {"id": 1, "phash": "db_stored_hash_001", "stored_image_path": str(image_files[0])},
+    ]
+
+    mock_container.annotation_save_service.save_annotation_results.return_value = AnnotationSaveResult(
+        success_count=0, skip_count=1, error_count=0, total_count=1
+    )
+    mock_container.image_repository.get_images_by_filter.return_value = (image_records, 1)
+    mock_container.annotator_library = mock_annotator
+    mock_container.config_service = mock_config
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(
+        app,
+        ["annotate", "run", "--project", "test_dataset", "--model", "gpt-4o-mini"],
+    )
+
+    assert result.exit_code == 0
+    # スキップされてもエラーにならない
+    assert "Saved to DB" in result.stdout
