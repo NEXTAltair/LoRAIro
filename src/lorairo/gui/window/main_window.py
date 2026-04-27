@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...database.db_core import IMG_DB_PATH, USER_TAG_DB_PATH, get_current_project_root
+from ...database.db_core import IMG_DB_PATH, get_current_project_root, get_user_tag_db_path
 from ...database.db_manager import ImageDatabaseManager
 from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
@@ -237,8 +237,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             image_db_path = IMG_DB_PATH.resolve()
             tooltip_lines = [f"画像DB: {image_db_path}"]
 
-            if USER_TAG_DB_PATH:
-                tooltip_lines.append(f"タグDB: {USER_TAG_DB_PATH.resolve()}")
+            tag_db_path = get_user_tag_db_path()
+            if tag_db_path:
+                tooltip_lines.append(f"タグDB: {tag_db_path.resolve()}")
 
             self.labelDbInfo.setText(f"データベース: {project_root}")
             self.labelDbInfo.setToolTip("\n".join(tooltip_lines))

@@ -205,27 +205,41 @@ def _initialize_lorairo_format_mappings() -> None:
 IMG_DB_PATH: Path = DB_DIR / IMG_DB_FILENAME
 
 # --- genai-tag-db-tools Database Initialization --- #
-# GUI起動前にベースDB（3つ: CC4, MIT, CC0）+ ユーザーDBを初期化
-try:
-    from genai_tag_db_tools import initialize_databases
+# 遅延初期化: モジュール import 時ではなく、最初に DB アクセスが必要になった時点で初期化する。
+# CLI --help / version コマンドでは HF Hub に接続しない。
+USER_TAG_DB_PATH: Path | None = None
+_tag_db_initialized: bool = False
 
-    logger.info("Initializing genai-tag-db-tools databases...")
 
-    # ワンストップ初期化（デフォルトで3つすべてのDBをダウンロード）
-    results = initialize_databases(
-        user_db_dir=DB_DIR,
-        format_name="Lorairo",
-    )
+def ensure_tag_db_initialized() -> None:
+    """タグDBを遅延初期化する。初回呼び出し時のみ HF Hub に接続する。"""
+    import os
 
-    USER_TAG_DB_PATH: Path | None = DB_DIR / "user_tags.sqlite"
-    logger.info(f"Tag databases initialized: {len(results)} base DB(s) + user DB at {USER_TAG_DB_PATH}")
+    global _tag_db_initialized, USER_TAG_DB_PATH
+    if _tag_db_initialized:
+        return
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+    try:
+        from genai_tag_db_tools import initialize_databases
 
-except Exception as e:
-    USER_TAG_DB_PATH = None
-    logger.error(
-        f"Failed to initialize tag databases: {e}. LoRAIro cannot start without external tag DB access."
-    )
-    raise RuntimeError("Tag database initialization failed") from e
+        logger.info("Initializing genai-tag-db-tools databases...")
+        results = initialize_databases(
+            user_db_dir=DB_DIR,
+            format_name="Lorairo",
+            token=token,
+        )
+        USER_TAG_DB_PATH = DB_DIR / "user_tags.sqlite"
+        _tag_db_initialized = True
+        logger.info(f"Tag databases initialized: {len(results)} base DB(s) + user DB at {USER_TAG_DB_PATH}")
+    except Exception as e:
+        logger.error(f"Failed to initialize tag databases: {e}.", exc_info=True)
+        raise RuntimeError("Tag database initialization failed") from e
+
+
+def get_user_tag_db_path() -> Path | None:
+    """タグDBパスを返す（ensure_tag_db_initialized() 呼び出し後に設定される）。"""
+    return USER_TAG_DB_PATH
+
 
 DATABASE_URL = f"sqlite:///{IMG_DB_PATH.resolve()}?check_same_thread=False"
 
