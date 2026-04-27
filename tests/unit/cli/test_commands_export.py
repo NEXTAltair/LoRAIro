@@ -468,7 +468,7 @@ def test_export_create_no_filter_exits_code_2(
     )
 
     assert result.exit_code == 2
-    assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout
+    assert "At least one filter condition is required for export" in result.stdout
 
 
 @pytest.mark.unit
@@ -500,7 +500,7 @@ def test_export_create_include_nsfw_alone_exits_code_2(
     )
 
     assert result.exit_code == 2
-    assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout
+    assert "At least one filter condition is required for export" in result.stdout
 
 
 @pytest.mark.unit
@@ -763,7 +763,7 @@ def test_export_create_empty_tags_string_exits_code_2(
     )
 
     assert result.exit_code == 2
-    assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout
+    assert "At least one filter condition is required for export" in result.stdout
 
 
 @pytest.mark.unit
@@ -796,7 +796,7 @@ def test_export_create_empty_caption_string_exits_code_2(
     )
 
     assert result.exit_code == 2
-    assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout
+    assert "At least one filter condition is required for export" in result.stdout
 
 
 @pytest.mark.unit
@@ -829,7 +829,7 @@ def test_export_create_comma_only_tags_exits_code_2(
     )
 
     assert result.exit_code == 2
-    assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout
+    assert "At least one filter condition is required for export" in result.stdout
 
 
 @pytest.mark.unit
@@ -862,7 +862,7 @@ def test_export_create_multiple_commas_tags_exits_code_2(
     )
 
     assert result.exit_code == 2
-    assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout
+    assert "At least one filter condition is required for export" in result.stdout
 
 
 @pytest.mark.unit
@@ -895,7 +895,7 @@ def test_export_create_whitespace_excluded_tags_exits_code_2(
     )
 
     assert result.exit_code == 2
-    assert "エクスポートには最低1つのフィルタ条件が必要です" in result.stdout
+    assert "At least one filter condition is required for export" in result.stdout
 
 
 @pytest.mark.unit

@@ -144,5 +144,5 @@ class TestImportBatchCommand:
         result = runner.invoke(app, ["annotate", "import-batch", str(jsonl_dir), "-p", "test_project"])
 
         assert result.exit_code == 0
-        assert "照合失敗" in result.output
+        assert "Unmatched" in result.output
         assert "id_a" in result.output
