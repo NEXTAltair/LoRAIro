@@ -14,6 +14,7 @@ from rich.table import Table
 from lorairo.cli.commands import annotate, export, images, project
 from lorairo.services.service_container import get_service_container
 from lorairo.utils.config import DEFAULT_CONFIG_PATH
+from lorairo.utils.log import initialize_logging
 
 if TYPE_CHECKING:
     from lorairo.services.service_container import ServiceContainer
@@ -113,6 +114,7 @@ def main() -> None:
     import os
 
     os.environ.setdefault("LORAIRO_CLI_MODE", "true")
+    initialize_logging({"level": "WARNING"})  # CLI モード: DEBUG/INFO を抑制
     app()
 
 
