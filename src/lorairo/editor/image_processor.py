@@ -213,8 +213,9 @@ class ImageProcessor:
             Optional[tuple[int, int]]: 同じアスペクト比の解像度のタプル
         """
         if original_width < self.target_resolution and original_height < self.target_resolution:
-            print(
-                f"find_matching_resolution Error: 意図しない小さな画像を受け取った: {original_width}x{original_height}"
+            logger.warning(
+                f"target_resolution ({self.target_resolution}) より小さな画像を受け取りました: "
+                f"{original_width}x{original_height}"
             )
             return None
 
