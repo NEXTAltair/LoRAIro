@@ -154,3 +154,16 @@ def test_project_help() -> None:
     assert "create" in result.stdout
     assert "list" in result.stdout
     assert "delete" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_main_configures_logging_warning_level() -> None:
+    """Test: main() が CLI モードで loguru を WARNING レベルに設定する。"""
+    with patch("lorairo.cli.main.initialize_logging") as mock_init_log, patch("lorairo.cli.main.app"):
+        from lorairo.cli.main import main
+
+        main()
+    mock_init_log.assert_called_once()
+    config_arg = mock_init_log.call_args[0][0]
+    assert config_arg["level"] == "WARNING"
