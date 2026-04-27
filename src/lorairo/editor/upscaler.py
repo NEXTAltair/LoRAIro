@@ -29,6 +29,7 @@ class Upscaler:
         """
         self.config_service = config_service
         self._loaded_models: dict[str, Any] = {}
+        self._model_not_found_warned: set[str] = set()
 
         # 設定の妥当性チェック
         if not self.config_service.validate_upscaler_config():
@@ -54,7 +55,9 @@ class Upscaler:
             # モデル設定取得
             model_config = self.config_service.get_upscaler_model_by_name(model_name)
             if not model_config:
-                logger.error(f"アップスケーラーモデル '{model_name}' が見つかりません")
+                logger.warning(
+                    f"アップスケーラーモデル設定 '{model_name}' が見つかりません。スキップします"
+                )
                 return img
 
             # スケール決定
@@ -63,7 +66,7 @@ class Upscaler:
             # モデル読み込み（キャッシュ使用）
             model = self._get_or_load_model(model_name, model_config)
             if model is None:
-                logger.error(f"モデル '{model_name}' の読み込みに失敗しました")
+                logger.debug(f"モデル '{model_name}' が利用不可のためアップスケールをスキップ")
                 return img
 
             return self._upscale(img, model, scale)
@@ -84,7 +87,11 @@ class Upscaler:
             model_path = project_root / model_path
 
         if not model_path.exists():
-            logger.error(f"モデルファイルが見つかりません: {model_path}")
+            if model_name not in self._model_not_found_warned:
+                logger.warning(f"モデルファイルが見つかりません（アップスケールをスキップ）: {model_path}")
+                self._model_not_found_warned.add(model_name)
+            else:
+                logger.debug(f"モデルファイルが見つかりません（スキップ）: {model_name}")
             return None
 
         try:
