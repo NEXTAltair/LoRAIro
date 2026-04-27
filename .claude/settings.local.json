@@ -150,5 +150,6 @@
       }
     ]
   },
-  "language": "japanese"
+  "language": "japanese",
+  "teammateMode": "tmux"
 }
