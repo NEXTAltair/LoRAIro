@@ -86,6 +86,10 @@ def validate_hooks(project_root: Path) -> list[str]:
                 cmd = hook.get("command", "")
                 if not cmd:
                     continue
+                # Complex shell expressions (containing spaces, &&, |, ;) are not file paths.
+                # Only validate simple direct-path commands like /path/to/hook.py
+                if any(c in cmd for c in (" ", "&&", "|", ";")):
+                    continue
                 # Commands may be absolute paths like /workspaces/LoRAIro/.claude/hooks/foo.py
                 # Resolve relative to project root if not absolute
                 cmd_path = Path(cmd)
