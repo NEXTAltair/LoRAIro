@@ -213,6 +213,108 @@ def test_images_list_shows_registered_images(mock_projects_dir: Path, test_image
 
 @pytest.mark.unit
 @pytest.mark.cli
+def test_images_list_displays_tag_count_from_tags_list(mock_projects_dir: Path) -> None:
+    """Test: images list - tags リストの長さがそのまま Tag 列に出る。"""
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    fake_records = [
+        {
+            "id": 1,
+            "stored_image_path": "/path/img.jpg",
+            "tags": [
+                {"id": 1, "tag": "cat"},
+                {"id": 2, "tag": "dog"},
+            ],
+            "captions": [],
+            "scores": [],
+            "ratings": [],
+        },
+    ]
+    with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
+        mock_container = MagicMock()
+        mock_container.image_repository.get_images_by_filter.return_value = (fake_records, 1)
+        mock_get_container.return_value = mock_container
+
+        result = runner.invoke(app, ["images", "list", "--project", "test-project"])
+
+    assert result.exit_code == 0
+    assert "img.jpg" in result.stdout
+    # タグ件数 2 と Annotated=Yes が両方表示されることを検証
+    assert "2" in result.stdout
+    assert "Yes" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_images_list_annotated_yes_when_only_captions(mock_projects_dir: Path) -> None:
+    """Test: images list - tags 空でも captions があれば Annotated=Yes。"""
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    fake_records = [
+        {
+            "id": 1,
+            "stored_image_path": "/path/img.jpg",
+            "tags": [],
+            "captions": [{"id": 1, "caption": "a cat"}],
+            "scores": [],
+            "ratings": [],
+        },
+    ]
+    with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
+        mock_container = MagicMock()
+        mock_container.image_repository.get_images_by_filter.return_value = (fake_records, 1)
+        mock_get_container.return_value = mock_container
+
+        result = runner.invoke(app, ["images", "list", "--project", "test-project"])
+
+    assert result.exit_code == 0
+    assert "Yes" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_images_list_no_annotation_shows_no(mock_projects_dir: Path) -> None:
+    """Test: images list - 何のアノテーションも無いとき Annotated=No。"""
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    fake_records = [
+        {
+            "id": 1,
+            "stored_image_path": "/path/img.jpg",
+            "tags": [],
+            "captions": [],
+            "scores": [],
+            "ratings": [],
+        },
+    ]
+    with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
+        mock_container = MagicMock()
+        mock_container.image_repository.get_images_by_filter.return_value = (fake_records, 1)
+        mock_get_container.return_value = mock_container
+
+        result = runner.invoke(app, ["images", "list", "--project", "test-project"])
+
+    assert result.exit_code == 0
+    assert "No" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_images_list_reflects_update_tags(mock_projects_dir: Path, test_images_dir: Path) -> None:
+    """Test: images update でタグを追加した後、images list が件数を反映する。"""
+    runner.invoke(app, ["project", "create", "test-project"])
+    runner.invoke(app, ["images", "register", str(test_images_dir), "--project", "test-project"])
+    runner.invoke(app, ["images", "update", "--project", "test-project", "--tags", "cat,dog"])
+
+    result = runner.invoke(app, ["images", "list", "--project", "test-project"])
+
+    assert result.exit_code == 0
+    # 直前に 2 タグを追加したので Annotated=Yes になっているはず
+    assert "Yes" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
 def test_images_list_no_images_shows_message(mock_projects_dir: Path) -> None:
     """Test: images list - 画像未登録時は適切なメッセージを表示する。"""
     runner.invoke(app, ["project", "create", "test-project"])
@@ -230,7 +332,15 @@ def test_images_list_with_limit(mock_projects_dir: Path) -> None:
     runner.invoke(app, ["project", "create", "test-project"])
 
     fake_records = [
-        {"id": i, "stored_image_path": f"/path/image{i}.jpg", "tag_count": 0} for i in range(1, 4)
+        {
+            "id": i,
+            "stored_image_path": f"/path/image{i}.jpg",
+            "tags": [],
+            "captions": [],
+            "scores": [],
+            "ratings": [],
+        }
+        for i in range(1, 4)
     ]
     with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
         mock_container = MagicMock()
@@ -303,7 +413,15 @@ def test_images_update_adds_tags_success(mock_projects_dir: Path) -> None:
     """Test: images update - タグ追加成功。"""
     runner.invoke(app, ["project", "create", "test-project"])
     fake_records = [
-        {"id": i, "stored_image_path": f"/path/image{i}.jpg", "tag_count": 0} for i in range(1, 4)
+        {
+            "id": i,
+            "stored_image_path": f"/path/image{i}.jpg",
+            "tags": [],
+            "captions": [],
+            "scores": [],
+            "ratings": [],
+        }
+        for i in range(1, 4)
     ]
     with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
         mock_container = MagicMock()

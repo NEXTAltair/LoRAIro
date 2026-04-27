@@ -217,9 +217,15 @@ def list_images(
         for record in display_records:
             image_id = str(record.get("id", ""))
             filename = Path(record.get("stored_image_path", "")).name or str(record.get("filename", ""))
-            tag_count = str(record.get("tag_count", 0))
-            annotated = "Yes" if record.get("tag_count", 0) > 0 else "No"
-            table.add_row(image_id, filename, tag_count, annotated)
+            tag_count = len(record.get("tags") or [])
+            has_any_annotation = bool(
+                record.get("tags")
+                or record.get("captions")
+                or record.get("scores")
+                or record.get("ratings")
+            )
+            annotated = "Yes" if has_any_annotation else "No"
+            table.add_row(image_id, filename, str(tag_count), annotated)
 
         console.print(table)
 
