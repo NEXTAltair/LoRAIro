@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from lorairo.services.signal_manager_protocol import SignalManagerServiceProtocol
     from lorairo.services.tag_management_service import TagManagementService
 
-from ..database.db_core import DefaultSessionLocal
+from ..database.db_core import DefaultSessionLocal, ensure_tag_db_initialized
 from ..database.db_manager import ImageDatabaseManager
 from ..database.db_repository import ImageRepository
 from ..storage.file_system import FileSystemManager
@@ -55,6 +55,7 @@ class ServiceContainer:
             return
 
         logger.info("ServiceContainer初期化開始")
+        ensure_tag_db_initialized()
 
         # コアサービス初期化
         self._config_service: ConfigurationService | None = None

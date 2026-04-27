@@ -981,7 +981,7 @@ class TestDatabaseStatusLabel:
         mock_img_db.resolve.return_value = Path("/test/db.sqlite")
         with patch("lorairo.gui.window.main_window.get_current_project_root", return_value=mock_root):
             with patch("lorairo.gui.window.main_window.IMG_DB_PATH", mock_img_db):
-                with patch("lorairo.gui.window.main_window.USER_TAG_DB_PATH", None):
+                with patch("lorairo.gui.window.main_window.get_user_tag_db_path", return_value=None):
                     MainWindow._update_database_status_label(mock_window)
         mock_window.labelDbInfo.setText.assert_called_once()
 
