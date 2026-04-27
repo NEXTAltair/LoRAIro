@@ -23,6 +23,7 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0017](0017-project-db-normalization.md) | Project DB Normalization | 2026-04-22 | Implemented |
 | [0018](0018-project-storage-unification.md) | Project Storage Unification | 2026-04-22 | Implemented |
 | [0019](0019-export-filter-required-design.md) | Export Filter Required Design | 2026-04-22 | Implemented |
+| [0020](0020-cli-message-language-policy.md) | CLI Message Language Policy | 2026-04-27 | Accepted |
 
 ## ADR テンプレート
 

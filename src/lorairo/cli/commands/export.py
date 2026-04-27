@@ -49,6 +49,7 @@ def _validate_rating(ctx: click.Context, param: click.Parameter, value: str | No
     normalized = value.strip().upper()
     if normalized not in VALID_RATINGS:
         raise click.BadParameter(
+            f"Valid values: {', '.join(sorted(VALID_RATINGS))}\n"
             f"有効な値: {', '.join(sorted(VALID_RATINGS))}",
             ctx=ctx,
             param=param,
@@ -71,9 +72,13 @@ def _validate_score_bounds(
     """
     for name, value in (("--score-min", score_min), ("--score-max", score_max)):
         if value is not None and not (0.0 <= value <= 10.0):
-            raise click.UsageError(f"{name} は 0.0 以上 10.0 以下で指定してください (指定値: {value})")
+            raise click.UsageError(
+                f"{name} must be between 0.0 and 10.0 (given: {value})\n"
+                f"{name} は 0.0 以上 10.0 以下で指定してください (指定値: {value})"
+            )
     if score_min is not None and score_max is not None and score_min > score_max:
         raise click.UsageError(
+            f"--score-min ({score_min}) must be <= --score-max ({score_max})\n"
             f"--score-min ({score_min}) は --score-max ({score_max}) 以下にする必要があります"
         )
 
@@ -260,8 +265,11 @@ def create(
         # 正規化後のフィルタ条件で判定する（--tags "," や "   " が repository に
         # 到達する時点では空リスト/空値となるため、検証もこの段階で行う必要がある）
         if not _criteria_has_effective_filter(criteria):
-            console.print("[red]Error:[/red] エクスポートには最低1つのフィルタ条件が必要です")
-            console.print("例: lorairo-cli export create --project foo --tags cat --output /tmp/out")
+            console.print(
+                "[red]Error:[/red] At least one filter condition is required for export.\n"
+                "エクスポートには最低1つのフィルタ条件が必要です"
+            )
+            console.print("Example: lorairo-cli export create --project foo --tags cat --output /tmp/out")
             console.print("詳細: lorairo-cli export create --help")
             raise typer.Exit(code=2)
 
@@ -282,7 +290,7 @@ def create(
             TimeRemainingColumn(),
             console=console,
         ) as progress:
-            task = progress.add_task("画像情報取得中...", total=None)
+            task = progress.add_task("Fetching images...", total=None)
 
             all_images, _ = repository.get_images_by_filter(criteria)
             image_ids = [img["id"] for img in all_images] if all_images else []
@@ -313,7 +321,7 @@ def create(
                 TimeRemainingColumn(),
                 console=console,
             ) as progress:
-                task = progress.add_task("エクスポート中...", total=len(image_ids))
+                task = progress.add_task("Exporting...", total=len(image_ids))
 
                 # image_ids は上の repository.get_images_by_filter で既に解決済みのため、
                 # export_with_criteria に criteria を渡すと同じ DB クエリを 2 回実行してしまう。

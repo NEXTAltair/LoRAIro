@@ -68,7 +68,7 @@ def _load_images_from_db(
         TimeRemainingColumn(),
         console=console,
     ) as progress:
-        task = progress.add_task("画像ロード中...", total=len(image_records))
+        task = progress.add_task("Loading images...", total=len(image_records))
 
         for record in image_records:
             stored_path_str: str | None = record.get("stored_image_path")
@@ -238,7 +238,7 @@ def run(
                 TimeRemainingColumn(),
                 console=console,
             ) as progress:
-                task = progress.add_task("アノテーション実行中...", total=len(pil_images))
+                task = progress.add_task("Running annotation...", total=len(pil_images))
 
                 results = annotator.annotate(pil_images, model)
 
@@ -255,7 +255,10 @@ def run(
         # DB保存
         save_result = container.annotation_save_service.save_annotation_results(results)
         if save_result.error_count:
-            console.print(f"[yellow]Warning:[/yellow] DB保存に一部失敗: {save_result.error_count}件")
+            console.print(
+                f"[yellow]Warning:[/yellow] DB save partially failed: {save_result.error_count} item(s)\n"
+                f"DB保存に一部失敗: {save_result.error_count}件"
+            )
 
         # 結果サマリー表示
         console.print("\n[bold cyan]Annotation Summary[/bold cyan]")
@@ -312,32 +315,36 @@ def _display_batch_import_result(result: BatchImportResult, *, dry_run: bool) ->
         from lorairo.services.batch_image_matcher import BatchImageMatcher
 
         console.print(
-            f"\n[yellow]照合失敗 ({len(result.unmatched_ids)}件) "
-            f"- custom_idから抽出したファイル名がDBに未登録:[/yellow]"
+            f"\n[yellow]Unmatched ({len(result.unmatched_ids)} item(s))"
+            f" - filenames from custom_id not registered in DB\n"
+            f"照合失敗 ({len(result.unmatched_ids)}件) - custom_idから抽出したファイル名がDBに未登録:[/yellow]"
         )
         for uid in result.unmatched_ids[:10]:
             stem = BatchImageMatcher.extract_stem(uid)
             console.print(f"  - [bold]{stem}[/bold]  ← {uid}")
         if len(result.unmatched_ids) > 10:
-            console.print(f"  ... 他 {len(result.unmatched_ids) - 10} 件")
+            console.print(f"  ... and {len(result.unmatched_ids) - 10} more")
 
     # エラー詳細（5件まで表示）
     if result.error_details:
-        console.print(f"\n[red]Errors ({len(result.error_details)}件):[/red]")
+        console.print(f"\n[red]Errors ({len(result.error_details)}):[/red]")
         for detail in result.error_details[:5]:
             console.print(f"  - {detail}")
         if len(result.error_details) > 5:
-            console.print(f"  ... 他 {len(result.error_details) - 5} 件")
+            console.print(f"  ... and {len(result.error_details) - 5} more")
 
     if not dry_run and result.saved > 0:
-        console.print(f"\n[green]インポート完了: {result.saved}件保存しました[/green]")
+        console.print(
+            f"\n[green]Import completed: {result.saved} item(s) saved.\n"
+            f"インポート完了: {result.saved}件保存しました[/green]"
+        )
 
 
 @app.command("import-batch")
 def import_batch(
     jsonl_dir: Path = typer.Argument(
         ...,
-        help="OpenAI Batch API結果のJSONLファイルが格納されたディレクトリ",
+        help="Directory containing JSONL result files from OpenAI Batch API\nOpenAI Batch API結果のJSONLファイルが格納されたディレクトリ",
         exists=True,
         file_okay=False,
         dir_okay=True,
@@ -347,26 +354,29 @@ def import_batch(
         ...,
         "--project",
         "-p",
-        help="インポート先プロジェクト名",
+        help="Target project name / インポート先プロジェクト名",
     ),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
-        help="DB書き込みを行わず照合結果のみ表示",
+        help="Show match results without saving to DB / DB書き込みを行わず照合結果のみ表示",
     ),
     model_name: str | None = typer.Option(
         None,
         "--model-name",
-        help="モデル名を上書き（JSONL内のmodel名を無視）",
+        help="Override model name (ignores model field in JSONL) / モデル名を上書き（JSONL内のmodel名を無視）",
     ),
 ) -> None:
-    """OpenAI Batch API結果JSONLを一括インポートする。
+    """Import OpenAI Batch API result JSONL files in bulk.
+    OpenAI Batch API結果JSONLを一括インポートする。
 
+    Reads all JSONL files in the directory, matches custom_id against
+    registered image filenames in the DB, and imports annotation results.
     ディレクトリ内の全JSONLファイルを読み込み、
     custom_idとDB登録済み画像のファイル名を照合して
     アノテーション結果をインポートします。
 
-    使用例:
+    Examples:
         lorairo annotate import-batch jsonl/ -p main_dataset_20250707_001
         lorairo annotate import-batch jsonl/ -p my_project --dry-run
     """
