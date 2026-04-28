@@ -144,6 +144,24 @@ def _handle_annotation_results(results: Any) -> None:
         )
 
 
+def _get_deprecated_models_best_effort(annotator: Any, model_names: list[str]) -> list[str]:
+    """廃止モデル一覧をbest-effortで取得する。
+
+    廃止判定は警告表示のための補助情報なので、取得に失敗しても
+    アノテーション本体は継続する。
+    """
+    try:
+        return [
+            model_name for model_name in model_names if annotator.is_model_deprecated(model_name) is True
+        ]
+    except Exception as e:
+        logger.warning(f"Deprecated model check skipped: {e}")
+        console.print(
+            "[yellow]Warning:[/yellow] Deprecated model metadata is unavailable; continuing annotation."
+        )
+        return []
+
+
 @app.command("run")
 def run(
     project: str = typer.Option(
@@ -212,9 +230,7 @@ def run(
         annotator = container.annotator_library
         config = container.config_service
 
-        deprecated_models = [
-            model_name for model_name in model if annotator.is_model_deprecated(model_name) is True
-        ]
+        deprecated_models = _get_deprecated_models_best_effort(annotator, model)
         for deprecated_model in deprecated_models:
             console.print(f"[yellow]Warning: Model '{deprecated_model}' is deprecated[/yellow]")
 

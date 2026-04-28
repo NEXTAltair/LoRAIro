@@ -71,3 +71,26 @@ class TestModelSelectionWidgetFilters:
 
     def test_set_selected_models_does_not_crash_with_empty_list(self, widget):
         widget.set_selected_models([])
+
+
+class TestModelSelectionWidgetRefreshThread:
+    def test_stop_refresh_thread_quits_and_waits(self, widget):
+        thread = Mock()
+        thread.isRunning.return_value = True
+        thread.wait.return_value = True
+        widget._refresh_thread = thread
+        widget._refresh_worker = Mock()
+
+        widget._stop_refresh_thread()
+
+        thread.quit.assert_called_once()
+        thread.wait.assert_called_once_with(30000)
+        assert widget._refresh_thread is None
+        assert widget._refresh_worker is None
+
+    def test_stop_refresh_thread_ignores_missing_thread(self, widget):
+        widget._refresh_thread = None
+
+        widget._stop_refresh_thread()
+
+        assert widget._refresh_thread is None

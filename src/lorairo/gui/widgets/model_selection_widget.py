@@ -15,7 +15,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QObject, QThread, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QLabel, QMessageBox, QProgressBar, QPushButton, QWidget
 
 # Database imports moved to conditional section for standalone compatibility
@@ -166,6 +167,26 @@ if not __name__ == "__main__":
             self.controlLayout.insertWidget(3, self.btnRefreshModels)
             self.controlLayout.insertWidget(4, self.refreshProgressBar)
 
+        def closeEvent(self, event: QCloseEvent) -> None:
+            """Widget終了時に実行中の更新Threadを安全に停止する。"""
+            self._stop_refresh_thread()
+            super().closeEvent(event)
+
+        def _stop_refresh_thread(self) -> None:
+            """実行中のモデル更新Threadを停止し、破棄前に待機する。"""
+            thread = self._refresh_thread
+            if thread is None:
+                return
+
+            if thread.isRunning():
+                logger.debug("モデル一覧更新Threadの終了を待機します")
+                thread.quit()
+                if not thread.wait(30000):
+                    logger.warning("モデル一覧更新Threadが30秒以内に終了しませんでした")
+
+            self._refresh_thread = None
+            self._refresh_worker = None
+
         def load_models(self) -> None:
             """モデル情報をModelSelectionServiceから取得"""
             try:
@@ -195,7 +216,10 @@ if not __name__ == "__main__":
             self._refresh_thread.started.connect(self._refresh_worker.run)
             self._refresh_worker.succeeded.connect(self._on_model_refresh_succeeded)
             self._refresh_worker.failed.connect(self._on_model_refresh_failed)
-            self._refresh_worker.finished.connect(self._refresh_thread.quit)
+            self._refresh_worker.finished.connect(
+                self._refresh_thread.quit,
+                Qt.ConnectionType.DirectConnection,
+            )
             self._refresh_worker.finished.connect(self._refresh_worker.deleteLater)
             self._refresh_thread.finished.connect(self._on_model_refresh_finished)
             self._refresh_thread.finished.connect(self._refresh_thread.deleteLater)

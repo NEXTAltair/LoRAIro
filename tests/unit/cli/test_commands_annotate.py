@@ -269,6 +269,54 @@ def test_annotate_run_deprecated_model_shows_warning(
 @pytest.mark.unit
 @pytest.mark.cli
 @patch("lorairo.cli.commands.annotate.get_service_container")
+def test_annotate_run_deprecated_check_failure_continues(
+    mock_get_container,
+    test_project_with_images: tuple[Path, list[Path]],
+) -> None:
+    """Test: annotate run - 廃止判定失敗時もアノテーションを継続。"""
+    _project_dir, image_files = test_project_with_images
+
+    mock_container = MagicMock()
+    mock_annotator = MagicMock()
+    mock_config = MagicMock()
+
+    mock_config.get_setting.return_value = "test_key"
+    mock_annotator.is_model_deprecated.side_effect = RuntimeError("registry parse failed")
+    mock_annotator.annotate.return_value = {
+        "hash1": {"openai/model": MagicMock(error=None)},
+        "hash2": {"openai/model": MagicMock(error=None)},
+        "hash3": {"openai/model": MagicMock(error=None)},
+    }
+
+    image_records = [
+        {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
+        for i, img_path in enumerate(image_files)
+    ]
+    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
+    mock_container.annotator_library = mock_annotator
+    mock_container.config_service = mock_config
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(
+        app,
+        [
+            "annotate",
+            "run",
+            "--project",
+            "test_dataset",
+            "--model",
+            "openai/model",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Deprecated model metadata is unavailable" in result.stdout
+    mock_annotator.annotate.assert_called_once()
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.annotate.get_service_container")
 def test_annotate_run_with_multiple_models(
     mock_get_container,
     test_project_with_images: tuple[Path, list[Path]],
