@@ -14,10 +14,19 @@ console = Console()
 
 
 @app.command("refresh")
-def refresh() -> None:
+def refresh(
+    project: str | None = typer.Option(
+        None,
+        "--project",
+        "-p",
+        help="Project to sync model metadata into. Uses default DB when omitted.",
+    ),
+) -> None:
     """Refresh available WebAPI models."""
     try:
         container = get_service_container()
+        if project is not None:
+            container.set_active_project(project)
         console.print("[cyan]Refreshing model registry...[/cyan]")
         models = container.annotator_library.refresh_available_models(force_refresh=True)
         sync_result = container.model_sync_service.sync_available_models()
@@ -58,7 +67,11 @@ def list_models(
         table.add_column("Status", style="green")
 
         for model in models:
-            deprecated = annotator.is_model_deprecated(model)
+            try:
+                deprecated = annotator.is_model_deprecated(model)
+            except Exception as e:
+                logger.warning(f"Deprecated check failed for {model}: {e}")
+                deprecated = False
             if deprecated and not include_deprecated:
                 continue
             table.add_row(model, "[yellow]deprecated[/yellow]" if deprecated else "active")
