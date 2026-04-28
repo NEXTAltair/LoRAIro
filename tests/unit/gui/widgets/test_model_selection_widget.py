@@ -6,6 +6,8 @@ ModelSelectionService をモックして get_service_container() の呼び出し
 from unittest.mock import Mock
 
 import pytest
+from PySide6.QtGui import QCloseEvent
+from PySide6.QtWidgets import QProgressBar, QPushButton
 
 from lorairo.gui.widgets.model_selection_widget import ModelSelectionWidget
 
@@ -40,6 +42,12 @@ class TestModelSelectionWidgetInit:
     def test_initial_selected_models_empty(self, widget):
         assert widget.get_selected_models() == []
 
+    def test_has_refresh_controls(self, widget):
+        assert isinstance(widget.btnRefreshModels, QPushButton)
+        assert isinstance(widget.refreshProgressBar, QProgressBar)
+        assert widget.btnRefreshModels.text() == "更新"
+        assert widget.refreshProgressBar.isVisible() is False
+
     def test_get_selection_info_returns_dict(self, widget):
         info = widget.get_selection_info()
         assert isinstance(info, dict)
@@ -64,3 +72,56 @@ class TestModelSelectionWidgetFilters:
 
     def test_set_selected_models_does_not_crash_with_empty_list(self, widget):
         widget.set_selected_models([])
+
+
+class TestModelSelectionWidgetRefreshThread:
+    def test_stop_refresh_thread_quits_and_waits(self, widget):
+        thread = Mock()
+        thread.isRunning.return_value = True
+        thread.wait.return_value = True
+        widget._refresh_thread = thread
+        widget._refresh_worker = Mock()
+
+        result = widget._stop_refresh_thread()
+
+        thread.quit.assert_called_once()
+        thread.wait.assert_called_once_with(30000)
+        assert widget._refresh_thread is None
+        assert widget._refresh_worker is None
+        assert result is True
+
+    def test_stop_refresh_thread_ignores_missing_thread(self, widget):
+        widget._refresh_thread = None
+
+        result = widget._stop_refresh_thread()
+
+        assert widget._refresh_thread is None
+        assert result is True
+
+    def test_stop_refresh_thread_timeout_keeps_thread_reference(self, widget):
+        thread = Mock()
+        thread.isRunning.return_value = True
+        thread.wait.return_value = False
+        widget._refresh_thread = thread
+        widget._refresh_worker = Mock()
+
+        result = widget._stop_refresh_thread()
+
+        thread.quit.assert_called_once()
+        thread.wait.assert_called_once_with(30000)
+        assert widget._refresh_thread is thread
+        assert result is False
+
+    def test_close_event_ignores_when_refresh_thread_cannot_stop(self, widget, monkeypatch):
+        monkeypatch.setattr(widget, "_stop_refresh_thread", Mock(return_value=False))
+        mock_warning = Mock()
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.model_selection_widget.QMessageBox.warning",
+            mock_warning,
+        )
+        event = QCloseEvent()
+
+        widget.closeEvent(event)
+
+        mock_warning.assert_called_once()
+        assert event.isAccepted() is False

@@ -36,7 +36,11 @@ _ial_mock.get_available_models = unittest.mock.MagicMock(return_value=[])
 _ial_mock.initialize_registry = unittest.mock.MagicMock()
 _ial_mock.config_registry = unittest.mock.MagicMock()
 _ial_mock.init_logger = unittest.mock.MagicMock()
-_ial_mock.discover_available_vision_models = unittest.mock.MagicMock(return_value=[])
+_ial_mock.discover_available_vision_models = unittest.mock.MagicMock(
+    return_value={"models": [], "toml_data": {}}
+)
+_ial_mock.list_all_models = unittest.mock.MagicMock(return_value=[])
+_ial_mock.is_model_deprecated = unittest.mock.MagicMock(return_value=False)
 
 # サブモジュールも登録（from image_annotator_lib.xxx import yyy 対策）
 _ial_submodules = [

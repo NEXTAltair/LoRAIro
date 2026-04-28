@@ -358,6 +358,52 @@ class TestStartAnnotationWorkflow:
         call_args = mock_worker_service.start_enhanced_batch_annotation.call_args
         assert call_args[1]["models"] == selected_models
 
+    @patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox.warning")
+    @patch("lorairo.gui.controllers.annotation_workflow_controller.get_service_container")
+    def test_start_annotation_workflow_warns_but_allows_deprecated_models(
+        self,
+        mock_get_container,
+        mock_warning,
+        controller,
+        mock_worker_service,
+    ):
+        """廃止モデル選択時は警告し、OKなら実行は継続する。"""
+        from PySide6.QtWidgets import QMessageBox
+
+        mock_container = Mock()
+        mock_container.annotator_library.is_model_deprecated.side_effect = lambda model_name: (
+            model_name == "openai/old-model"
+        )
+        mock_get_container.return_value = mock_container
+        mock_warning.return_value = QMessageBox.StandardButton.Ok
+
+        controller.start_annotation_workflow(selected_models=["openai/old-model"])
+
+        mock_warning.assert_called_once()
+        mock_worker_service.start_enhanced_batch_annotation.assert_called_once()
+
+    @patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox.warning")
+    @patch("lorairo.gui.controllers.annotation_workflow_controller.get_service_container")
+    def test_start_annotation_workflow_cancel_deprecated_warning_blocks_start(
+        self,
+        mock_get_container,
+        mock_warning,
+        controller,
+        mock_worker_service,
+    ):
+        """廃止モデル警告でCancelした場合は開始しない。"""
+        from PySide6.QtWidgets import QMessageBox
+
+        mock_container = Mock()
+        mock_container.annotator_library.is_model_deprecated.return_value = True
+        mock_get_container.return_value = mock_container
+        mock_warning.return_value = QMessageBox.StandardButton.Cancel
+
+        controller.start_annotation_workflow(selected_models=["openai/old-model"])
+
+        mock_warning.assert_called_once()
+        mock_worker_service.start_enhanced_batch_annotation.assert_not_called()
+
     def test_start_annotation_workflow_no_models_no_callback(
         self,
         controller,

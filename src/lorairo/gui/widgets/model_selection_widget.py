@@ -15,8 +15,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Signal, Slot
-from PySide6.QtWidgets import QLabel, QWidget
+from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
+from PySide6.QtGui import QCloseEvent
+from PySide6.QtWidgets import QLabel, QMessageBox, QProgressBar, QPushButton, QWidget
 
 # Database imports moved to conditional section for standalone compatibility
 if __name__ == "__main__":
@@ -37,6 +38,31 @@ if TYPE_CHECKING:
 
 
 if not __name__ == "__main__":
+
+    class _ModelRefreshWorker(QObject):
+        """モデル一覧更新をGUIスレッド外で実行するWorker。"""
+
+        succeeded = Signal(int, str)
+        failed = Signal(str)
+        finished = Signal()
+
+        @Slot()
+        def run(self) -> None:
+            try:
+                service_container = get_service_container()
+                models = service_container.annotator_library.refresh_available_models(force_refresh=True)
+                sync_result = service_container.model_sync_service.sync_available_models()
+
+                if sync_result.errors:
+                    self.failed.emit("; ".join(sync_result.errors))
+                    return
+
+                self.succeeded.emit(len(models), sync_result.summary)
+            except Exception as e:
+                logger.error(f"モデル一覧更新に失敗: {e}", exc_info=True)
+                self.failed.emit(str(e))
+            finally:
+                self.finished.emit()
 
     class ModelSelectionWidget(QWidget, Ui_ModelSelectionWidget):
         """
@@ -64,6 +90,8 @@ if not __name__ == "__main__":
             btnSelectAll: QPushButton
             btnDeselectAll: QPushButton
             btnSelectRecommended: QPushButton
+            btnRefreshModels: QPushButton
+            refreshProgressBar: QProgressBar
             executionEnvCombo: QComboBox
 
         def __init__(
@@ -87,6 +115,8 @@ if not __name__ == "__main__":
             self.all_models: list[Model] = []
             self.filtered_models: list[Model] = []
             self.model_checkbox_widgets: dict[str, ModelCheckboxWidget] = {}
+            self._refresh_thread: QThread | None = None
+            self._refresh_worker: _ModelRefreshWorker | None = None
 
             # フィルタ状態
             self.current_provider_filter: str | None = None
@@ -97,6 +127,8 @@ if not __name__ == "__main__":
             # executionEnvCombo シグナル接続
             if hasattr(self, "executionEnvCombo"):
                 self.executionEnvCombo.currentTextChanged.connect(self._on_execution_env_changed)
+
+            self._setup_refresh_controls()
 
             # UI初期化
             self.load_models()
@@ -110,6 +142,60 @@ if not __name__ == "__main__":
             service_container = get_service_container()
             return ModelSelectionService.create(db_repository=service_container.image_repository)
 
+        def _setup_refresh_controls(self) -> None:
+            """モデル一覧手動更新用のUIを追加する。"""
+            self.btnRefreshModels = QPushButton("更新", self)
+            self.btnRefreshModels.setObjectName("btnRefreshModels")
+            self.btnRefreshModels.setToolTip("モデル一覧を更新")
+            self.btnRefreshModels.setMaximumSize(48, 24)
+            self.btnRefreshModels.setStyleSheet(
+                "QPushButton { font-size: 10px; padding: 3px 6px; border: 1px solid #607D8B; "
+                "border-radius: 3px; background-color: #f6f8f9; color: #455A64; }"
+                "QPushButton:hover { background-color: #ECEFF1; }"
+                "QPushButton:pressed { background-color: #607D8B; color: white; }"
+            )
+            self.btnRefreshModels.clicked.connect(self.refresh_model_registry)
+
+            self.refreshProgressBar = QProgressBar(self)
+            self.refreshProgressBar.setObjectName("refreshProgressBar")
+            self.refreshProgressBar.setRange(0, 0)
+            self.refreshProgressBar.setMaximumWidth(56)
+            self.refreshProgressBar.setMaximumHeight(8)
+            self.refreshProgressBar.setTextVisible(False)
+            self.refreshProgressBar.setVisible(False)
+
+            self.controlLayout.insertWidget(3, self.btnRefreshModels)
+            self.controlLayout.insertWidget(4, self.refreshProgressBar)
+
+        def closeEvent(self, event: QCloseEvent) -> None:
+            """Widget終了時に実行中の更新Threadを安全に停止する。"""
+            if not self._stop_refresh_thread():
+                QMessageBox.warning(
+                    self,
+                    "モデル一覧更新中",
+                    "モデル一覧の更新処理がまだ終了していないため、ウィンドウを閉じられません。",
+                )
+                event.ignore()
+                return
+            super().closeEvent(event)
+
+        def _stop_refresh_thread(self) -> bool:
+            """実行中のモデル更新Threadを停止し、破棄前に待機する。"""
+            thread = self._refresh_thread
+            if thread is None:
+                return True
+
+            if thread.isRunning():
+                logger.debug("モデル一覧更新Threadの終了を待機します")
+                thread.quit()
+                if not thread.wait(30000):
+                    logger.warning("モデル一覧更新Threadが30秒以内に終了しませんでした")
+                    return False
+
+            self._refresh_thread = None
+            self._refresh_worker = None
+            return True
+
         def load_models(self) -> None:
             """モデル情報をModelSelectionServiceから取得"""
             try:
@@ -121,6 +207,63 @@ if not __name__ == "__main__":
                 logger.error(f"Failed to load models: {e}")
                 self.all_models = []
                 self.update_model_display()
+
+        @Slot()
+        def refresh_model_registry(self) -> None:
+            """image-annotator-libのモデル一覧を手動更新し、DB表示を再読込する。"""
+            if self._refresh_thread is not None:
+                return
+
+            self.btnRefreshModels.setEnabled(False)
+            self.refreshProgressBar.setVisible(True)
+            self.statusLabel.setText("モデル一覧を更新中...")
+
+            self._refresh_thread = QThread(self)
+            self._refresh_worker = _ModelRefreshWorker()
+            self._refresh_worker.moveToThread(self._refresh_thread)
+
+            self._refresh_thread.started.connect(self._refresh_worker.run)
+            self._refresh_worker.succeeded.connect(self._on_model_refresh_succeeded)
+            self._refresh_worker.failed.connect(self._on_model_refresh_failed)
+            self._refresh_worker.finished.connect(
+                self._refresh_thread.quit,
+                Qt.ConnectionType.DirectConnection,
+            )
+            self._refresh_worker.finished.connect(self._refresh_worker.deleteLater)
+            self._refresh_thread.finished.connect(self._on_model_refresh_finished)
+            self._refresh_thread.finished.connect(self._refresh_thread.deleteLater)
+            self._refresh_thread.start()
+
+        @Slot(int, str)
+        def _on_model_refresh_succeeded(self, model_count: int, summary: str) -> None:
+            """モデル一覧更新成功時の処理。"""
+            self.model_selection_service.refresh_models()
+            self.load_models()
+            logger.info(f"モデル一覧更新完了: {model_count}件, {summary}")
+            QMessageBox.information(
+                self,
+                "モデル一覧更新",
+                f"モデル一覧を更新しました。\n取得モデル数: {model_count}\n{summary}",
+            )
+
+        @Slot(str)
+        def _on_model_refresh_failed(self, error_message: str) -> None:
+            """モデル一覧更新失敗時の処理。"""
+            logger.warning(f"モデル一覧更新失敗: {error_message}")
+            QMessageBox.warning(
+                self,
+                "モデル一覧更新エラー",
+                f"モデル一覧の更新に失敗しました。\n{error_message}",
+            )
+
+        @Slot()
+        def _on_model_refresh_finished(self) -> None:
+            """モデル一覧更新Worker終了時のUI復帰。"""
+            self.btnRefreshModels.setEnabled(True)
+            self.refreshProgressBar.setVisible(False)
+            self._refresh_thread = None
+            self._refresh_worker = None
+            self._update_selection_count()
 
         def apply_filters(
             self,
