@@ -22,11 +22,17 @@ def refresh() -> None:
         models = container.annotator_library.refresh_available_models(force_refresh=True)
         sync_result = container.model_sync_service.sync_available_models()
 
+        if sync_result.errors:
+            console.print("[red]Error:[/red] Model registry refreshed but DB sync failed.")
+            console.print(sync_result.summary)
+            for error in sync_result.errors:
+                console.print(f"[red]Sync error:[/red] {error}")
+            raise typer.Exit(code=1)
+
         console.print(f"[green]Model registry refreshed.[/green] {len(models)} model(s) discovered.")
         console.print(sync_result.summary)
-        if sync_result.errors:
-            for error in sync_result.errors:
-                console.print(f"[yellow]Warning:[/yellow] {error}")
+    except typer.Exit:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] Failed to refresh models: {e}")
         logger.error(f"Model refresh command failed: {e}", exc_info=True)

@@ -169,23 +169,32 @@ if not __name__ == "__main__":
 
         def closeEvent(self, event: QCloseEvent) -> None:
             """Widget終了時に実行中の更新Threadを安全に停止する。"""
-            self._stop_refresh_thread()
+            if not self._stop_refresh_thread():
+                QMessageBox.warning(
+                    self,
+                    "モデル一覧更新中",
+                    "モデル一覧の更新処理がまだ終了していないため、ウィンドウを閉じられません。",
+                )
+                event.ignore()
+                return
             super().closeEvent(event)
 
-        def _stop_refresh_thread(self) -> None:
+        def _stop_refresh_thread(self) -> bool:
             """実行中のモデル更新Threadを停止し、破棄前に待機する。"""
             thread = self._refresh_thread
             if thread is None:
-                return
+                return True
 
             if thread.isRunning():
                 logger.debug("モデル一覧更新Threadの終了を待機します")
                 thread.quit()
                 if not thread.wait(30000):
                     logger.warning("モデル一覧更新Threadが30秒以内に終了しませんでした")
+                    return False
 
             self._refresh_thread = None
             self._refresh_worker = None
+            return True
 
         def load_models(self) -> None:
             """モデル情報をModelSelectionServiceから取得"""

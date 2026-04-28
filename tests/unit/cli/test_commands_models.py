@@ -37,6 +37,29 @@ def test_models_refresh_updates_registry(mock_get_container) -> None:
 @pytest.mark.unit
 @pytest.mark.cli
 @patch("lorairo.cli.commands.models.get_service_container")
+def test_models_refresh_fails_when_db_sync_reports_errors(mock_get_container) -> None:
+    """models refresh はDB同期エラー時に非ゼロ終了する。"""
+    mock_container = MagicMock()
+    mock_container.annotator_library.refresh_available_models.return_value = ["openai/gpt-4.1-mini"]
+    mock_container.model_sync_service.sync_available_models.return_value.summary = (
+        "同期完了: ライブラリモデル 1件, エラー 1件"
+    )
+    mock_container.model_sync_service.sync_available_models.return_value.errors = [
+        "failed to update model table"
+    ]
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["models", "refresh"])
+
+    assert result.exit_code == 1
+    assert "DB sync failed" in result.stdout
+    assert "failed to update model table" in result.stdout
+    assert "Model registry refreshed." not in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.models.get_service_container")
 def test_models_list_excludes_deprecated_by_default(mock_get_container) -> None:
     """models list はデフォルトで active モデルだけを表示する。"""
     mock_container = MagicMock()
