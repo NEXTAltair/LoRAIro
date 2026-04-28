@@ -89,8 +89,8 @@ class AnnotatorLibraryAdapter:
             include_deprecated: Trueの場合は廃止済みモデルも含める。
         """
         if include_deprecated:
-            return cast(list[str], list_all_models())
-        return cast(list[str], get_available_models())
+            return list_all_models()
+        return get_available_models()
 
     def is_model_deprecated(self, model_name: str) -> bool:
         """指定モデルが廃止済みかどうかを返す。"""
