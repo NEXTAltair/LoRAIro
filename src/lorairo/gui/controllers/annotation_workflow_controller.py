@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QMessageBox, QWidget
 from lorairo.gui.services.worker_service import WorkerService
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.selection_state_service import SelectionStateService
+from lorairo.services.service_container import get_service_container
 
 
 class AnnotationWorkflowController:
@@ -84,30 +85,11 @@ class AnnotationWorkflowController:
             image_paths = paths_to_use
 
             # Step 3: モデル選択（selected_models優先）
-            models_to_use: list[str] = []
+            models_to_use = self._resolve_models_to_use(selected_models, model_selection_callback)
+            if not models_to_use:
+                return
 
-            if selected_models:
-                # チェックボックスから選択されたモデルを使用
-                models_to_use = selected_models
-                logger.info(f"チェックボックスから選択されたモデル: {models_to_use}")
-            elif model_selection_callback:
-                # フォールバック: ダイアログからモデル選択
-                available_models = self._get_available_models()
-                selected_model = model_selection_callback(available_models)
-                if not selected_model:
-                    logger.info("モデル選択がキャンセルされました")
-                    return
-                models_to_use = [selected_model]
-                logger.info(f"ダイアログから選択されたモデル: {selected_model}")
-            else:
-                # モデル選択手段がない場合はエラー
-                logger.warning("モデルが選択されていません")
-                if self.parent:
-                    QMessageBox.warning(
-                        self.parent,
-                        "モデル未選択",
-                        "アノテーションに使用するモデルを選択してください。",
-                    )
+            if self._warn_deprecated_models(models_to_use) is False:
                 return
 
             # Step 4: バッチアノテーション開始
@@ -122,6 +104,34 @@ class AnnotationWorkflowController:
                     "アノテーション開始エラー",
                     error_msg,
                 )
+
+    def _resolve_models_to_use(
+        self,
+        selected_models: list[str] | None,
+        model_selection_callback: Callable[[list[str]], str | None] | None,
+    ) -> list[str]:
+        """アノテーションに使用するモデルを決定する。"""
+        if selected_models:
+            logger.info(f"チェックボックスから選択されたモデル: {selected_models}")
+            return selected_models
+
+        if model_selection_callback:
+            available_models = self._get_available_models()
+            selected_model = model_selection_callback(available_models)
+            if not selected_model:
+                logger.info("モデル選択がキャンセルされました")
+                return []
+            logger.info(f"ダイアログから選択されたモデル: {selected_model}")
+            return [selected_model]
+
+        logger.warning("モデルが選択されていません")
+        if self.parent:
+            QMessageBox.warning(
+                self.parent,
+                "モデル未選択",
+                "アノテーションに使用するモデルを選択してください。",
+            )
+        return []
 
     def _validate_services(self) -> bool:
         """必須サービスの検証
@@ -208,6 +218,43 @@ class AnnotationWorkflowController:
             return []
 
         return self.config_service.get_available_annotation_models()
+
+    def _warn_deprecated_models(self, models: list[str]) -> bool:
+        """廃止済みモデルが選択されている場合に警告する。
+
+        Returns:
+            bool: 処理継続する場合True。
+        """
+        try:
+            annotator = get_service_container().annotator_library
+            deprecated_models = [
+                model_name for model_name in models if annotator.is_model_deprecated(model_name) is True
+            ]
+        except Exception as e:
+            logger.warning(f"廃止モデル判定をスキップ: {e}")
+            return True
+
+        if not deprecated_models:
+            return True
+
+        message = (
+            "選択されたモデルは廃止済みです。\n"
+            f"{', '.join(deprecated_models)}\n\n"
+            "再現性のため実行は可能ですが、新しいモデルへの切り替えを推奨します。"
+        )
+        logger.warning(f"廃止済みモデルが選択されています: {deprecated_models}")
+
+        if not self.parent:
+            return True
+
+        reply = QMessageBox.warning(
+            self.parent,
+            "廃止済みモデル",
+            message,
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Ok,
+        )
+        return reply == QMessageBox.StandardButton.Ok
 
     def _start_batch_annotation(self, image_paths: list[str], models: list[str]) -> None:
         """バッチアノテーション開始

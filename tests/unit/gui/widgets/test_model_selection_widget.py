@@ -6,6 +6,7 @@ ModelSelectionService をモックして get_service_container() の呼び出し
 from unittest.mock import Mock
 
 import pytest
+from PySide6.QtWidgets import QProgressBar, QPushButton
 
 from lorairo.gui.widgets.model_selection_widget import ModelSelectionWidget
 
@@ -39,6 +40,12 @@ class TestModelSelectionWidgetInit:
 
     def test_initial_selected_models_empty(self, widget):
         assert widget.get_selected_models() == []
+
+    def test_has_refresh_controls(self, widget):
+        assert isinstance(widget.btnRefreshModels, QPushButton)
+        assert isinstance(widget.refreshProgressBar, QProgressBar)
+        assert widget.btnRefreshModels.text() == "更新"
+        assert widget.refreshProgressBar.isVisible() is False
 
     def test_get_selection_info_returns_dict(self, widget):
         info = widget.get_selection_info()

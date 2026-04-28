@@ -212,6 +212,12 @@ def run(
         annotator = container.annotator_library
         config = container.config_service
 
+        deprecated_models = [
+            model_name for model_name in model if annotator.is_model_deprecated(model_name) is True
+        ]
+        for deprecated_model in deprecated_models:
+            console.print(f"[yellow]Warning: Model '{deprecated_model}' is deprecated[/yellow]")
+
         # APIキー確認
         api_keys = {
             "openai": config.get_setting("api", "openai_key", ""),
