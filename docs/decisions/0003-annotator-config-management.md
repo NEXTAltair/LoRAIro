@@ -1,7 +1,7 @@
 # ADR 0003: Annotator Config Management
 
 - **日付**: 2025-11-15
-- **ステータス**: Accepted
+- **ステータス**: Superseded by ADR 0021 (partial — WebAPI セクションのみ)
 
 ## Context
 
@@ -29,3 +29,12 @@ PydanticAI 統合完了後、97 件の古い `*ApiAnnotator` クラス参照が 
 - 初回/強制更新: `force_refresh=True` で API から全取得
 - 廃止モデルは削除せず `deprecated_on` で履歴保持
 - 旧 `*ApiAnnotator` クラス 4 ファイル 2581 行を完全削除（PydanticAI で全機能カバー済み）
+
+## 補足: ADR 0021 による部分的 supersede (2026-04-28)
+
+WebAPI モデル管理に関しては [ADR 0021](0021-litellm-driven-model-registry.md) で
+LiteLLM 駆動の動的解決へ移行した。理由は約11ヶ月の運用で `available_api_models.toml`
+の追従が破綻し、`deprecated_on` フィルタも実装されないまま放置されたため。
+
+**ローカル ML モデル（ONNX/Transformers/CLIP）の管理に関する本 ADR の決定は引き続き有効**。
+WebAPI セクションのみ ADR 0021 に置き換わる。

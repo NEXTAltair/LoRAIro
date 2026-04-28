@@ -6,7 +6,7 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 |-----|---------|------|-----------|
 | [0001](0001-two-tier-service-architecture.md) | Two-Tier Service Architecture | 2025-08-16 | Accepted |
 | [0002](0002-database-schema-decisions.md) | Database Schema Decisions | 2025-10-01 | Accepted |
-| [0003](0003-annotator-config-management.md) | Annotator Config Management | 2025-11-15 | Accepted |
+| [0003](0003-annotator-config-management.md) | Annotator Config Management | 2025-11-15 | Superseded by 0021 (partial) |
 | [0004](0004-annotator-lib-architecture.md) | Annotator-Lib Architecture | 2025-11-15 | Accepted |
 | [0005](0005-annotation-layer-reorganization.md) | Annotation Layer Reorganization | 2025-11-15 | Accepted |
 | [0006](0006-pagination-approach.md) | Pagination Approach | 2026-02-05 | Accepted |
@@ -24,6 +24,7 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0018](0018-project-storage-unification.md) | Project Storage Unification | 2026-04-22 | Implemented |
 | [0019](0019-export-filter-required-design.md) | Export Filter Required Design | 2026-04-22 | Implemented |
 | [0020](0020-cli-message-language-policy.md) | CLI Message Language Policy | 2026-04-27 | Accepted |
+| [0021](0021-litellm-driven-model-registry.md) | LiteLLM-Driven WebAPI Model Registry | 2026-04-28 | Proposed |
 
 ## ADR テンプレート
 
