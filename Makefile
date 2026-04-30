@@ -1,7 +1,7 @@
 # LoRAIro Project Makefile
 # Development task automation
 
-.PHONY: help test mypy format install install-dev clean run-gui generate-ui skills-update
+.PHONY: help test mypy format install install-dev clean run-gui generate-ui skills-update venv-rebuild
 
 # Default target
 help:
@@ -16,6 +16,7 @@ help:
 	@echo "  mypy         Run code check (mypy)"
 	@echo "  format       Format code (ruff format)"
 	@echo "  clean        Clean build artifacts"
+	@echo "  venv-rebuild Rebuild .venv from scratch (recovery from corruption)"
 	@echo "  skills-update Update community skills in .github/skills/"
 
 # Development targets
@@ -58,6 +59,12 @@ skills-update:
 		echo "Updated: $$skill"; \
 	done
 	@echo "Skills updated. Review changes and commit."
+
+venv-rebuild:
+	@echo "Rebuilding .venv from scratch (Issue #222 recovery)..."
+	rm -rf .venv
+	uv sync --dev
+	@echo ".venv rebuilt successfully."
 
 clean:
 	@echo "Cleaning build artifacts and caches..."

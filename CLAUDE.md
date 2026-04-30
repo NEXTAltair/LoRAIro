@@ -27,6 +27,8 @@ cd /workspaces/LoRAIro/local_packages/image-annotator-lib
 uv run pytest tests/
 ```
 
+**並列実行**: 複数の `uv run` を同時に走らせる場合は [.claude/rules/parallel-execution.md](.claude/rules/parallel-execution.md) を参照。`uv run --active` は Hook で自動ブロックされる。
+
 ## Development Commands
 
 ### Environment Setup

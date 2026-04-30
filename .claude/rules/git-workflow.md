@@ -41,3 +41,4 @@ git worktree remove /tmp/worktrees/fix-issue-123
 
 - ワークツリー内で `uv sync` する場合、venv は `/tmp/worktrees/` のボリューム上に作られるため高速
 - プロジェクトルートの `.venv` とは別管理になる
+- 並列で `uv run` を実行する場合の詳細ルールは [parallel-execution.md](parallel-execution.md) を参照

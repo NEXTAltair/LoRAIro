@@ -16,6 +16,11 @@
       "suggestion": "Run from project root: uv run pytest local_packages/<pkg>/tests/"
     },
     {
+      "pattern": "uv\\s+run\\s+(--[\\w-]+\\s+)*--active",
+      "reason": "並列実行時に .venv を破損させる原因（Issue #222）。--active は単一プロセスかつ VIRTUAL_ENV と pyproject.toml の Python が完全一致する場合のみ安全",
+      "suggestion": "通常は --active を外して `uv run` を使用（uv-managed venv で並列セーフ）。意図的に使う場合は .venv/bin/python を直接呼ぶか .claude/rules/parallel-execution.md を参照"
+    },
+    {
       "pattern": "git\\s+filter-repo",
       "reason": "【危険】git filter-repo はワーキングディレクトリのファイルも削除します。過去にこの操作で作業ファイルを失っています",
       "suggestion": "まず git rm --cached でインデックスから除外し、.gitignore に追加する方法を検討してください。履歴削除が本当に必要かユーザーに確認してください"
