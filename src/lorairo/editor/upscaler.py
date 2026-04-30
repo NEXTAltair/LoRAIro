@@ -63,11 +63,8 @@ class Upscaler:
             # スケール決定
             scale = scale or model_config.get("scale", 4.0)
 
-            # モデル読み込み（キャッシュ使用）
+            # モデル読み込み（キャッシュ使用）。モデル未配置時は FileNotFoundError を送出
             model = self._get_or_load_model(model_name, model_config)
-            if model is None:
-                logger.debug(f"モデル '{model_name}' が利用不可のためアップスケールをスキップ")
-                return img
 
             return self._upscale(img, model, scale)
 
@@ -92,7 +89,7 @@ class Upscaler:
                 self._model_not_found_warned.add(model_name)
             else:
                 logger.debug(f"モデルファイルが見つかりません（スキップ）: {model_name}")
-            return None
+            raise FileNotFoundError(model_path)
 
         try:
             model = self._load_model(model_path)

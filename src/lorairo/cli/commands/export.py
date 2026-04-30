@@ -235,8 +235,14 @@ def create(
     """Create a dataset export from project.
 
     プロジェクトからデータセットをエクスポートします。
-    最低1つのフィルタ条件（--tags, --caption, --manual-rating, --ai-rating,
-    --score-min, --score-max）を指定する必要があります。
+
+    [必須] --tags / --caption / --manual-rating / --ai-rating /
+           --score-min / --score-max のいずれかを最低1つ指定してください。
+
+    Examples:
+        lorairo-cli export create --project myproject --tags cat --output /tmp/out
+        lorairo-cli export create --project myproject --tags "cat,dog" --manual-rating PG --output /tmp/out
+        lorairo-cli export create --project myproject --score-min 6.0 --output /tmp/out --format json
     """
     try:
         # API層経由でプロジェクト確認
