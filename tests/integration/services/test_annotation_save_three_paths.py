@@ -200,7 +200,6 @@ class TestAnnotationSaveThreePaths:
                     "scores": None,
                     "ratings": None,
                     "error": None,
-                    "formatted_output": None,
                 }
             }
         }
@@ -258,7 +257,6 @@ class TestAnnotationSaveThreePaths:
                     "scores": None,
                     "ratings": None,
                     "error": None,
-                    "formatted_output": None,
                 }
             }
         }
