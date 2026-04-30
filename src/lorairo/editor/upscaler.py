@@ -68,6 +68,9 @@ class Upscaler:
 
             return self._upscale(img, model, scale)
 
+        except FileNotFoundError:
+            # モデル未配置は呼び出し元 (_try_upscale) で「想定内のスキップ」として扱うため再 raise
+            raise
         except Exception as e:
             logger.error(f"アップスケーリング中のエラー: {e}")
             return img
