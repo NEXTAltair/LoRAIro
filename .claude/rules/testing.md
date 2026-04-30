@@ -115,6 +115,76 @@ QT_QPA_PLATFORM=offscreen uv run pytest -m gui
 uv run pytest -m gui
 ```
 
+## 長時間実行テストの待機パターン
+
+LoRAIroの全テスト実行は約83秒。テストは長時間ジョブとなりやすく、待機方法を誤ると `sleep + tail` ループがランタイムによってブロックされる。以下のパターンに従うこと。
+
+### 禁止パターン
+
+```bash
+# ❌ ブロックされる: sleep を含むコマンドの後に追加の処理を chain
+sleep 30 && tail -15 /tmp/.../task.output
+
+# ❌ ブロックされる: 複数 sleep の連鎖でポーリング代替
+for i in 1 2 3; do sleep 10; tail log; done
+
+# ❌ 意味がない: 自分で時間を当てる方法
+qtbot.wait(1000)  # 固定時間待機（テスト内でも禁止）
+```
+
+ランタイムは「先頭に長い `sleep` がある」「`sleep` の後に別コマンドが続く」を検知してブロックする。回避のために sleep を 5 個に分割しても同様にブロックされる（チェーンも検知される）。
+
+### 推奨パターン1: 同期実行（デフォルト）
+
+`Bash` ツールは既定で約83分タイムアウト。テストスイート全体（83秒）であれば同期実行で十分。
+
+```python
+# Claude Code の Bash ツール呼び出し
+Bash(command="uv run pytest --cov=src", description="Run full test suite")
+# 完了までブロック → 完了後に stdout/stderr が直接返る
+```
+
+**利点**: 追加の待機ロジック不要。出力が即座に context に入る。
+**使う場面**: テスト結果が次のステップに必要な場合（殆どのケース）。
+
+### 推奨パターン2: バックグラウンド実行 + 完了通知
+
+他の独立した作業と並行したい場合のみ使用。`run_in_background: true` を設定すると、ランタイムが完了時に自動通知する。
+
+```python
+Bash(command="uv run pytest -v", run_in_background=True, description="Run tests in background")
+# → タスクIDが返る。Claude は他作業を継続。
+# → 完了時に system-reminder で通知。出力ファイルを Read で読む。
+```
+
+**重要**: 通知が来る前に自分で `sleep` してポーリングしない。ランタイムに任せる。
+
+### 推奨パターン3: 条件待機（Monitor + until ループ）
+
+特定の条件成立を待ちたい場合のみ使用。`Monitor` ツールを `ToolSearch` で取り出し、`until` ループの脱出を待つ。
+
+```bash
+# ✓ 許可されているパターン: until ループ内の sleep
+until grep -q "PASSED" /tmp/results.log; do sleep 2; done
+```
+
+このパターンは Bash の単発 `sleep && next` と異なり、条件成立時に脱出する明示的な待機なので許可されている。
+
+### 判断フロー
+
+| 状況 | 使うパターン |
+|------|------------|
+| テスト結果がすぐ必要 | パターン1（同期実行） |
+| 並行して他作業を進めたい | パターン2（バックグラウンド + 通知） |
+| 特定ログ出力を待ちたい | パターン3（Monitor + until） |
+| ジョブ完了を `sleep` で待ちたい | **どれも該当しない → 設計を見直す** |
+
+### よくある間違い
+
+- 「タスク開始から30秒経ったら結果を見る」と決め打ちで `sleep 30` する → 完了通知を待つべき
+- バックグラウンド実行後に `tail` で進捗を確認したくなる → 完了通知が来てから `Read` する
+- 短い `sleep` を複数回挟んで回避を試みる → ランタイムが検知してブロックする
+
 ## BDD テスト（pytest-bdd）
 
 BDDはE2Eに限定せず「振る舞い仕様の表現形式」としてService層以上に適用する。

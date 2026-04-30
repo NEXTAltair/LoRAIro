@@ -180,7 +180,8 @@ def list_images(
         None,
         "--limit",
         "-l",
-        help="Maximum number of images to display",
+        min=1,
+        help="Maximum number of images to display (>= 1)",
     ),
 ) -> None:
     """List images in a project.
@@ -258,10 +259,14 @@ def update(
         help="Target specific image by ID",
     ),
 ) -> None:
-    """Update image metadata.
+    """Add tags to images in a project.
 
     プロジェクト内の画像にタグを追加します。
     --image-id を指定すると特定の1枚のみ更新します。
+    指定しない場合はプロジェクト全画像が対象です。
+
+    Example:
+        lorairo-cli images update --project myproject --tags "cat,dog"
     """
     if not tags:
         console.print("[red]Error:[/red] At least one update operation is required.")

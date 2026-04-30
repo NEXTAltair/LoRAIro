@@ -13,6 +13,7 @@ import pytest
 from PIL import Image
 
 from lorairo.editor.image_processor import ImageProcessingManager, ImageProcessor
+from lorairo.editor.upscaler import Upscaler
 from lorairo.storage.file_system import FileSystemManager
 
 
@@ -304,6 +305,30 @@ class TestImageProcessingManager:
                     preferred_resolutions=[(512, 512)],
                     config_service=self.mock_config_service,
                 )
+
+
+class TestUpscaler:
+    """Test cases for Upscaler class"""
+
+    def test_upscale_image_returns_original_when_model_load_returns_none(self):
+        """Model load failure should skip without calling _upscale with None."""
+        mock_config_service = Mock()
+        mock_config_service.validate_upscaler_config.return_value = True
+        mock_config_service.get_upscaler_model_by_name.return_value = {
+            "path": "models/missing-or-invalid.pth",
+            "scale": 4.0,
+        }
+        upscaler = Upscaler(mock_config_service)
+        img = Image.new("RGB", (64, 64), color="blue")
+
+        with (
+            patch.object(upscaler, "_get_or_load_model", return_value=None),
+            patch.object(upscaler, "_upscale") as mock_upscale,
+        ):
+            result = upscaler.upscale_image(img, "InvalidModel")
+
+        assert result is img
+        mock_upscale.assert_not_called()
 
 
 if __name__ == "__main__":

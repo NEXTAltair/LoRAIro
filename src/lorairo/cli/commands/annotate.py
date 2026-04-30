@@ -192,6 +192,11 @@ def run(
     """Run annotation on project images.
 
     プロジェクトの画像に対してアノテーションを実行します。
+    使用可能なモデル名は 'lorairo-cli models list' で確認してください。
+
+    Examples:
+        lorairo-cli annotate run --project myproject --model gpt-4o
+        lorairo-cli annotate run --project myproject --model gpt-4o --model claude-3-5-sonnet-20241022
     """
     try:
         # API層経由でプロジェクト確認 & DB 接続切り替え
@@ -366,7 +371,7 @@ def _display_batch_import_result(result: BatchImportResult, *, dry_run: bool) ->
 def import_batch(
     jsonl_dir: Path = typer.Argument(
         ...,
-        help="Directory containing JSONL result files from OpenAI Batch API\nOpenAI Batch API結果のJSONLファイルが格納されたディレクトリ",
+        help="JSONL files directory (OpenAI Batch API results)",
         exists=True,
         file_okay=False,
         dir_okay=True,
@@ -399,8 +404,8 @@ def import_batch(
     アノテーション結果をインポートします。
 
     Examples:
-        lorairo annotate import-batch jsonl/ -p main_dataset_20250707_001
-        lorairo annotate import-batch jsonl/ -p my_project --dry-run
+        lorairo-cli annotate import-batch jsonl/ -p main_dataset_20250707_001
+        lorairo-cli annotate import-batch jsonl/ -p my_project --dry-run
     """
     try:
         get_service_container().set_active_project(project)

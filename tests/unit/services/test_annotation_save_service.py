@@ -35,7 +35,6 @@ def _make_success_result(
     result.captions = captions or []
     result.scores = scores
     result.ratings = None
-    result.formatted_output = None
     return result
 
 

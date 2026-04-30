@@ -22,7 +22,15 @@ if TYPE_CHECKING:
 # Typer app 定義
 app = typer.Typer(
     name="lorairo",
-    help="LoRAIro - AI-powered image annotation and dataset management",
+    help=(
+        "LoRAIro - AI-powered image annotation and dataset management\n\n"
+        "Typical workflow:\n\n"
+        "  1. lorairo-cli project create <name>\n\n"
+        "  2. lorairo-cli images register <dir> --project <name>\n\n"
+        "  3. lorairo-cli models list  (confirm model names)\n\n"
+        "  4. lorairo-cli annotate run --project <name> --model <model>\n\n"
+        "  5. lorairo-cli export create --project <name> --tags <tag> --output <dir>"
+    ),
     add_completion=True,
     no_args_is_help=True,
 )

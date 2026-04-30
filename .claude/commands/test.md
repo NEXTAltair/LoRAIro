@@ -41,6 +41,12 @@ uv run mypy -p lorairo --pretty
 uv run pytest --cov=src --cov-report=term-missing -v
 ```
 
+**待機パターン**:
+- デフォルトでは `Bash` 同期実行（約83秒、Bashタイムアウト83分なので問題なし）
+- 並行作業が必要な場合のみ `run_in_background: true` で実行し、完了通知を待つ
+- **禁止**: `sleep N && tail -K output` のような chain（ランタイムがブロック）
+- 詳細: `.claude/rules/testing.md` の「長時間実行テストの待機パターン」
+
 ### 出力形式
 ```markdown
 # Quick Verification Report

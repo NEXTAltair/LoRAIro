@@ -7,7 +7,7 @@ CLI・GUI・API の3経路で共有する Qt-free サービス。
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, cast  # cast: _extract_scores_from_formatted_outputで使用
+from typing import TYPE_CHECKING, Any
 
 from lorairo.database.db_repository import ImageRepository
 from lorairo.utils.log import logger
@@ -56,31 +56,6 @@ class AnnotationSaveService:
         if isinstance(result, dict):
             return result.get(field_name)
         return getattr(result, field_name, None)
-
-    @staticmethod
-    def _extract_scores_from_formatted_output(formatted_output: Any) -> dict[str, float] | None:
-        """formatted_outputからスコア辞書を抽出する。
-
-        Pipeline/CLIPモデルはscoresではなくformatted_outputにスコアを格納するため変換する。
-        FIXME: image-annotator-libのUnifiedAnnotationResultスコアフィールド統一後に削除
-        """
-        if formatted_output is None:
-            return None
-
-        if hasattr(formatted_output, "scores") and isinstance(
-            getattr(formatted_output, "scores", None), dict
-        ):
-            return cast("dict[str, float]", formatted_output.scores)
-
-        if isinstance(formatted_output, dict) and "hq" in formatted_output:
-            hq_value = formatted_output.get("hq")
-            if isinstance(hq_value, (int, float)):
-                return {"aesthetic": float(hq_value)}
-
-        if isinstance(formatted_output, (int, float)):
-            return {"aesthetic": float(formatted_output)}
-
-        return None
 
     def _append_model_result(
         self,
@@ -146,15 +121,9 @@ class AnnotationSaveService:
             logger.warning(f"モデル '{model_name}' がDB未登録")
             return
 
-        scores = self._extract_field(unified_result, "scores")
-        if scores is None:
-            scores = self._extract_scores_from_formatted_output(
-                self._extract_field(unified_result, "formatted_output")
-            )
-
         self._append_model_result(
             model.id,
-            scores,
+            self._extract_field(unified_result, "scores"),
             self._extract_field(unified_result, "tags"),
             self._extract_field(unified_result, "captions"),
             self._extract_field(unified_result, "ratings"),

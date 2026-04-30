@@ -371,7 +371,7 @@ def test_images_update_help() -> None:
     result = runner.invoke(app, ["images", "update", "--help"])
 
     assert result.exit_code == 0
-    assert "Update image" in result.stdout
+    assert "Add tags to images" in result.stdout
 
 
 @pytest.mark.unit

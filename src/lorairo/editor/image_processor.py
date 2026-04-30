@@ -147,6 +147,9 @@ class ImageProcessingManager:
             metadata["was_upscaled"] = True
             metadata["upscaler_used"] = upscaler
             return upscaled
+        except FileNotFoundError:
+            metadata["upscale_skipped_reason"] = "model_not_found"
+            return img
         except Exception as e:
             metadata["upscale_skipped_reason"] = "upscale_failed"
             logger.warning(f"アップスケール失敗、元サイズのまま処理を続行: {image_path}, Error: {e}")
