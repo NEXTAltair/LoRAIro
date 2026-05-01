@@ -21,7 +21,9 @@ _ial_mock.__path__ = []
 _ial_mock.__package__ = "image_annotator_lib"
 
 # テストコードで参照されるモジュールレベルの公開 API をモック
-_ial_mock.list_available_annotators_with_metadata = unittest.mock.MagicMock(return_value=[])
+_ial_mock.list_annotator_info = unittest.mock.MagicMock(return_value=[])
+_ial_mock.AnnotatorInfo = unittest.mock.MagicMock()
+_ial_mock.ModelType = unittest.mock.MagicMock()
 _ial_mock.list_available_annotators = unittest.mock.MagicMock(return_value=[])
 _ial_mock.PHashAnnotationResults = dict
 _ial_mock.annotate = unittest.mock.MagicMock(return_value={})
