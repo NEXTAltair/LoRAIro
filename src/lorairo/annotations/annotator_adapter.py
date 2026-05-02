@@ -41,14 +41,32 @@ class AnnotatorLibraryAdapter:
         self.config_service = config_service
         logger.info("AnnotatorLibraryAdapter初期化完了（実ライブラリ統合モード）")
 
+    def list_annotator_info(self) -> list[AnnotatorInfo]:
+        """利用可能アノテーターの型安全メタデータ一覧を取得する。
+
+        image-annotator-lib の ``list_annotator_info()`` 公開 API を委譲呼び出しで返す。
+        ローカル ML モデルと WebAPI モデル、PydanticAI 直接モデルを統合した完全リストを
+        ``list[AnnotatorInfo]`` で返却する (ソート: name 昇順)。
+
+        Returns:
+            list[AnnotatorInfo]: 型安全なアノテーター情報のリスト
+        """
+        try:
+            infos = list_annotator_info()
+            logger.debug(f"image-annotator-lib から AnnotatorInfo を {len(infos)} 件取得")
+            return infos
+        except Exception:
+            logger.error("image-annotator-lib AnnotatorInfo 取得エラー", exc_info=True)
+            raise
+
     def get_available_models_with_metadata(self) -> list[dict[str, Any]]:
-        """利用可能アノテーターのメタデータ付き一覧を取得
+        """利用可能アノテーターのメタデータ付き一覧を取得 (dict 互換 API)。
 
         image-annotator-lib の型安全 API ``list_annotator_info()`` を呼び出し、
-        上位層が期待する dict 形式に変換する。
+        上位層 (ModelSyncService 等) が期待する dict 形式に変換する。
 
-        ※ Issue #220 でこの dict 変換は除去し、Protocol/worker/sync_service を
-           ``list[AnnotatorInfo]`` に揃える予定。
+        ※ 後続 Issue で Protocol/sync_service を ``list[AnnotatorInfo]`` に揃え、
+           ``provider`` 等は config_registry 経由で取得する想定 (Phase 2)。
 
         Returns:
             list[dict[str, Any]]: モデルメタデータリスト
@@ -72,7 +90,7 @@ class AnnotatorLibraryAdapter:
         """モデル名からプロバイダーを推論する。
 
         AnnotatorInfo に provider フィールドが存在しないため、モデル名のキーワードから推論する。
-        Issue #220 で config_registry 経由の正式取得に置き換える予定。
+        Phase 2 (Issue #19/#220 follow-up) で config_registry 経由の正式取得に置き換える予定。
 
         Args:
             info: アノテーター情報
@@ -101,7 +119,8 @@ class AnnotatorLibraryAdapter:
         Note:
             ``class`` / ``api_model_id`` / ``estimated_size_gb`` / ``discontinued_at`` /
             ``max_output_tokens`` は AnnotatorInfo に含まれないため None で埋める。
-            Issue #220 で ``list[AnnotatorInfo]`` への migration と同時に config_registry 経由で取得する。
+            Phase 2 (Issue #19/#220 follow-up) で ``list[AnnotatorInfo]`` への migration と
+            同時に config_registry 経由で取得する。
             ``provider`` はモデル名からの推論で補完する (暫定対処)。
         """
         provider = AnnotatorLibraryAdapter._infer_provider(info)

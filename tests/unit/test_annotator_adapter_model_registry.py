@@ -80,3 +80,35 @@ def test_list_available_models_switches_active_and_all() -> None:
     ):
         assert adapter.list_available_models() == ["active"]
         assert adapter.list_available_models(include_deprecated=True) == ["active", "old"]
+
+
+@pytest.mark.unit
+def test_list_annotator_info_passes_through_library_result() -> None:
+    """adapter.list_annotator_info() がライブラリ戻り値をそのまま返すことを検証する (Issue #220)."""
+    adapter = AnnotatorLibraryAdapter(MagicMock())
+    fake_infos = [
+        _FakeAnnotatorInfo(name="wd-v1-4-tagger", is_api=False),
+        _FakeAnnotatorInfo(name="gpt-4o", is_api=True),
+    ]
+
+    with patch(
+        "lorairo.annotations.annotator_adapter.list_annotator_info",
+        return_value=fake_infos,
+    ) as mock_lib:
+        result = adapter.list_annotator_info()
+
+    assert result == fake_infos
+    mock_lib.assert_called_once_with()
+
+
+@pytest.mark.unit
+def test_list_annotator_info_propagates_library_exception() -> None:
+    """ライブラリ例外は呼び出し元に伝播することを検証する (Issue #220)."""
+    adapter = AnnotatorLibraryAdapter(MagicMock())
+
+    with patch(
+        "lorairo.annotations.annotator_adapter.list_annotator_info",
+        side_effect=RuntimeError("registry not initialized"),
+    ):
+        with pytest.raises(RuntimeError, match="registry not initialized"):
+            adapter.list_annotator_info()

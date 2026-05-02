@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -11,6 +13,24 @@ from lorairo.utils.log import logger
 
 app = typer.Typer(help="Model registry commands")
 console = Console()
+
+
+class ModelTypeFilter(StrEnum):
+    """`models list` の `--type` フィルタ値。"""
+
+    all = "all"
+    webapi = "webapi"
+    local = "local"
+
+
+class ModelCategoryFilter(StrEnum):
+    """`models list` の `--category` フィルタ値 (AnnotatorInfo.model_type に対応)。"""
+
+    all = "all"
+    tagger = "tagger"
+    scorer = "scorer"
+    captioner = "captioner"
+    vision = "vision"
 
 
 @app.command("refresh")
@@ -53,31 +73,64 @@ def list_models(
     include_deprecated: bool = typer.Option(
         False,
         "--include-deprecated",
-        help="Include deprecated models",
+        help="Include deprecated WebAPI models",
+    ),
+    type_filter: ModelTypeFilter = typer.Option(
+        ModelTypeFilter.all,
+        "--type",
+        case_sensitive=False,
+        help="Filter by execution type (all / webapi / local)",
+    ),
+    category: ModelCategoryFilter = typer.Option(
+        ModelCategoryFilter.all,
+        "--category",
+        case_sensitive=False,
+        help="Filter by model category (all / tagger / scorer / captioner / vision)",
     ),
 ) -> None:
-    """List available WebAPI models."""
+    """List available annotator models (WebAPI + local)."""
     try:
         container = get_service_container()
         annotator = container.annotator_library
-        models = annotator.list_available_models(include_deprecated=include_deprecated)
+        infos = annotator.list_annotator_info()
 
-        table = Table(title="Available API Models")
-        table.add_column("Model", style="cyan")
-        table.add_column("Status", style="green")
+        rows: list[tuple[str, str, str, bool]] = []
+        for info in infos:
+            if type_filter is ModelTypeFilter.webapi and not info.is_api:
+                continue
+            if type_filter is ModelTypeFilter.local and not info.is_local:
+                continue
+            if category is not ModelCategoryFilter.all and info.model_type != category.value:
+                continue
 
-        for model in models:
             try:
-                deprecated = annotator.is_model_deprecated(model)
+                deprecated = annotator.is_model_deprecated(info.name)
             except Exception as e:
-                logger.warning(f"Deprecated check failed for {model}: {e}")
+                logger.warning(f"Deprecated check failed for {info.name}: {e}")
                 deprecated = False
+
             if deprecated and not include_deprecated:
                 continue
-            table.add_row(model, "[yellow]deprecated[/yellow]" if deprecated else "active")
+
+            type_label = "webapi" if info.is_api else "local"
+            rows.append((info.name, type_label, info.model_type, deprecated))
+
+        table = Table(title="Available Models")
+        table.add_column("Model", style="cyan", no_wrap=True)
+        table.add_column("Type", style="magenta")
+        table.add_column("Category", style="blue")
+        table.add_column("Status", style="green")
+
+        for name, type_label, model_category, deprecated in rows:
+            table.add_row(
+                name,
+                type_label,
+                model_category,
+                "[yellow]deprecated[/yellow]" if deprecated else "active",
+            )
 
         console.print(table)
-        console.print(f"[dim]{len(models)} model(s)[/dim]")
+        console.print(f"[dim]{len(rows)} model(s)[/dim]")
     except Exception as e:
         console.print(f"[red]Error:[/red] Failed to list models: {e}")
         logger.error(f"Model list command failed: {e}", exc_info=True)
