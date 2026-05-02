@@ -285,3 +285,42 @@ def test_models_list_empty_registry_returns_zero(mock_get_container) -> None:
 
     assert result.exit_code == 0
     assert "0 model(s)" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.models.get_service_container")
+def test_models_list_long_model_names_keep_columns_visible(mock_get_container) -> None:
+    """長いモデル名でも Type/Category/Status カラムが collapse されない (Issue #220 表示バグ regression)."""
+    long_infos = [
+        _FakeAnnotatorInfo(
+            name="vercel_ai_gateway/openai/o1-very-long-model-name-2025-04-16",
+            model_type="vision",
+            is_local=False,
+            is_api=True,
+        ),
+        _FakeAnnotatorInfo(
+            name="some/very/deep/namespace/local-tagger-with-extremely-long-identifier-v3.5.2",
+            model_type="tagger",
+            is_local=True,
+            is_api=False,
+            device="cuda",
+        ),
+    ]
+    mock_container = MagicMock()
+    mock_container.annotator_library.list_annotator_info.return_value = long_infos
+    mock_container.annotator_library.is_model_deprecated.return_value = False
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["models", "list"])
+
+    assert result.exit_code == 0
+    # Type 値 (webapi/local) が空 collapse せずに描画されること
+    assert "webapi" in result.stdout
+    assert "local" in result.stdout
+    # Category 値 (vision/tagger) が空 collapse せずに描画されること
+    assert "vision" in result.stdout
+    assert "tagger" in result.stdout
+    # Status 値 (active) が空 collapse せずに描画されること
+    assert "active" in result.stdout
+    assert "2 model(s)" in result.stdout

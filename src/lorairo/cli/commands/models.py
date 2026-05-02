@@ -115,11 +115,15 @@ def list_models(
             type_label = "webapi" if info.is_api else "local"
             rows.append((info.name, type_label, info.model_type, deprecated))
 
+        # 長いモデル名 (例: "vercel_ai_gateway/openai/o1") で固定幅未指定のままだと
+        # Rich Table が Type/Category/Status を 0 幅に collapse させて Issue #220 の
+        # 主要機能 (Type 列で local/webapi 区別) が視認できなくなる。各カラムに
+        # min_width を指定し、Model カラムは折返し許容で長さに対応する。
         table = Table(title="Available Models")
-        table.add_column("Model", style="cyan", no_wrap=True)
-        table.add_column("Type", style="magenta")
-        table.add_column("Category", style="blue")
-        table.add_column("Status", style="green")
+        table.add_column("Model", style="cyan", overflow="fold", min_width=20)
+        table.add_column("Type", style="magenta", min_width=6, no_wrap=True)
+        table.add_column("Category", style="blue", min_width=9, no_wrap=True)
+        table.add_column("Status", style="green", min_width=10, no_wrap=True)
 
         for name, type_label, model_category, deprecated in rows:
             table.add_row(
