@@ -192,7 +192,7 @@ class ModelSyncService:
             else:
                 return ["captioner"]
 
-        elif library_model_type == "score":
+        elif library_model_type in ("score", "scorer"):
             return ["score"]
 
         elif library_model_type == "tagger":

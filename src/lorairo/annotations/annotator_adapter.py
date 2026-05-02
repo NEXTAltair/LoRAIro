@@ -68,6 +68,30 @@ class AnnotatorLibraryAdapter:
             raise
 
     @staticmethod
+    def _infer_provider(info: AnnotatorInfo) -> str | None:
+        """モデル名からプロバイダーを推論する。
+
+        AnnotatorInfo に provider フィールドが存在しないため、モデル名のキーワードから推論する。
+        Issue #220 で config_registry 経由の正式取得に置き換える予定。
+
+        Args:
+            info: アノテーター情報
+
+        Returns:
+            str | None: プロバイダー名。ローカルモデルまたは推論不能の場合は None。
+        """
+        if not info.is_api:
+            return None
+        name_lower = info.name.lower()
+        if any(k in name_lower for k in ("claude", "anthropic")):
+            return "anthropic"
+        if any(k in name_lower for k in ("gpt", "openai", "o1-", "o3-", "o4-")):
+            return "openai"
+        if any(k in name_lower for k in ("gemini", "google")):
+            return "google"
+        return None
+
+    @staticmethod
     def _annotator_info_to_dict(info: AnnotatorInfo) -> dict[str, Any]:
         """AnnotatorInfo を上位層の dict 形式に変換する。
 
@@ -75,11 +99,12 @@ class AnnotatorLibraryAdapter:
         新規の型安全フィールド (is_local/is_api/device) も追加する。
 
         Note:
-            旧形式に存在した ``class`` / ``provider`` / ``api_model_id`` / ``estimated_size_gb`` /
-            ``discontinued_at`` / ``max_output_tokens`` は AnnotatorInfo には含まれないため
-            None で埋める。これらが必要な箇所がある場合は Issue #220 で正式に
-            ``list[AnnotatorInfo]`` への migration と同時に config_registry 経由で取得する。
+            ``class`` / ``api_model_id`` / ``estimated_size_gb`` / ``discontinued_at`` /
+            ``max_output_tokens`` は AnnotatorInfo に含まれないため None で埋める。
+            Issue #220 で ``list[AnnotatorInfo]`` への migration と同時に config_registry 経由で取得する。
+            ``provider`` はモデル名からの推論で補完する (暫定対処)。
         """
+        provider = AnnotatorLibraryAdapter._infer_provider(info)
         return {
             "name": info.name,
             "model_name": info.name,
@@ -89,9 +114,9 @@ class AnnotatorLibraryAdapter:
             "is_api": info.is_api,
             "device": info.device,
             "requires_api_key": info.is_api,
-            # 旧 dict 互換キー (現状は AnnotatorInfo には含めず None)
+            # 旧 dict 互換キー
             "class": None,
-            "provider": None,
+            "provider": provider,
             "api_model_id": None,
             "estimated_size_gb": None,
             "discontinued_at": None,

@@ -1,10 +1,47 @@
 """AnnotatorLibraryAdapter model registry tests."""
 
+from dataclasses import dataclass
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
+
+# --- _infer_provider のテスト用ダミー ---
+
+
+@dataclass(frozen=True)
+class _FakeAnnotatorInfo:
+    name: str
+    is_api: bool
+
+
+@pytest.mark.unit
+class TestInferProvider:
+    """_infer_provider がモデル名からプロバイダーを推論することを検証する (P1修正)。"""
+
+    def _make(self, name: str, is_api: bool) -> _FakeAnnotatorInfo:
+        return _FakeAnnotatorInfo(name=name, is_api=is_api)
+
+    def test_local_model_returns_none(self):
+        info = self._make("wd-v1-4-tagger", is_api=False)
+        assert AnnotatorLibraryAdapter._infer_provider(info) is None  # type: ignore[arg-type]
+
+    def test_claude_returns_anthropic(self):
+        info = self._make("Claude-3-Opus", is_api=True)
+        assert AnnotatorLibraryAdapter._infer_provider(info) == "anthropic"  # type: ignore[arg-type]
+
+    def test_gpt_returns_openai(self):
+        info = self._make("GPT-4o", is_api=True)
+        assert AnnotatorLibraryAdapter._infer_provider(info) == "openai"  # type: ignore[arg-type]
+
+    def test_gemini_returns_google(self):
+        info = self._make("gemini-2.5-pro", is_api=True)
+        assert AnnotatorLibraryAdapter._infer_provider(info) == "google"  # type: ignore[arg-type]
+
+    def test_unknown_api_model_returns_none(self):
+        info = self._make("unknown-cloud-model", is_api=True)
+        assert AnnotatorLibraryAdapter._infer_provider(info) is None  # type: ignore[arg-type]
 
 
 @pytest.mark.unit
