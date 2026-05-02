@@ -149,6 +149,13 @@ class TestModelTypeMapping:
         result = service_with_mock._map_library_model_type_to_db("score", "aesthetic", "AestheticPredictor")
         assert result == ["score"]
 
+    def test_map_scorer_to_score(self, service_with_mock):
+        """scorerタイプ (Issue #19 の新値) をscoreにマッピング (P1修正: #scorer != #score 不一致)"""
+        result = service_with_mock._map_library_model_type_to_db(
+            "scorer", "cafe-aesthetic", "CafeAesthetic"
+        )
+        assert result == ["score"]
+
     def test_map_tagger_to_tagger(self, service_with_mock):
         """taggerタイプをtaggerにマッピング"""
         result = service_with_mock._map_library_model_type_to_db("tagger", "wd-tagger", "WDTagger")

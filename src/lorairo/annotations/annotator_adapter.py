@@ -41,14 +41,32 @@ class AnnotatorLibraryAdapter:
         self.config_service = config_service
         logger.info("AnnotatorLibraryAdapter初期化完了（実ライブラリ統合モード）")
 
+    def list_annotator_info(self) -> list[AnnotatorInfo]:
+        """利用可能アノテーターの型安全メタデータ一覧を取得する。
+
+        image-annotator-lib の ``list_annotator_info()`` 公開 API を委譲呼び出しで返す。
+        ローカル ML モデルと WebAPI モデル、PydanticAI 直接モデルを統合した完全リストを
+        ``list[AnnotatorInfo]`` で返却する (ソート: name 昇順)。
+
+        Returns:
+            list[AnnotatorInfo]: 型安全なアノテーター情報のリスト
+        """
+        try:
+            infos = list_annotator_info()
+            logger.debug(f"image-annotator-lib から AnnotatorInfo を {len(infos)} 件取得")
+            return infos
+        except Exception:
+            logger.error("image-annotator-lib AnnotatorInfo 取得エラー", exc_info=True)
+            raise
+
     def get_available_models_with_metadata(self) -> list[dict[str, Any]]:
-        """利用可能アノテーターのメタデータ付き一覧を取得
+        """利用可能アノテーターのメタデータ付き一覧を取得 (dict 互換 API)。
 
         image-annotator-lib の型安全 API ``list_annotator_info()`` を呼び出し、
-        上位層が期待する dict 形式に変換する。
+        上位層 (ModelSyncService 等) が期待する dict 形式に変換する。
 
-        ※ Issue #220 でこの dict 変換は除去し、Protocol/worker/sync_service を
-           ``list[AnnotatorInfo]`` に揃える予定。
+        ※ 後続 Issue で Protocol/sync_service を ``list[AnnotatorInfo]`` に揃え、
+           ``provider`` 等は config_registry 経由で取得する想定 (Phase 2)。
 
         Returns:
             list[dict[str, Any]]: モデルメタデータリスト
@@ -68,6 +86,30 @@ class AnnotatorLibraryAdapter:
             raise
 
     @staticmethod
+    def _infer_provider(info: AnnotatorInfo) -> str | None:
+        """モデル名からプロバイダーを推論する。
+
+        AnnotatorInfo に provider フィールドが存在しないため、モデル名のキーワードから推論する。
+        Phase 2 (Issue #19/#220 follow-up) で config_registry 経由の正式取得に置き換える予定。
+
+        Args:
+            info: アノテーター情報
+
+        Returns:
+            str | None: プロバイダー名。ローカルモデルまたは推論不能の場合は None。
+        """
+        if not info.is_api:
+            return None
+        name_lower = info.name.lower()
+        if any(k in name_lower for k in ("claude", "anthropic")):
+            return "anthropic"
+        if any(k in name_lower for k in ("gpt", "openai", "o1-", "o3-", "o4-")):
+            return "openai"
+        if any(k in name_lower for k in ("gemini", "google")):
+            return "google"
+        return None
+
+    @staticmethod
     def _annotator_info_to_dict(info: AnnotatorInfo) -> dict[str, Any]:
         """AnnotatorInfo を上位層の dict 形式に変換する。
 
@@ -75,11 +117,13 @@ class AnnotatorLibraryAdapter:
         新規の型安全フィールド (is_local/is_api/device) も追加する。
 
         Note:
-            旧形式に存在した ``class`` / ``provider`` / ``api_model_id`` / ``estimated_size_gb`` /
-            ``discontinued_at`` / ``max_output_tokens`` は AnnotatorInfo には含まれないため
-            None で埋める。これらが必要な箇所がある場合は Issue #220 で正式に
-            ``list[AnnotatorInfo]`` への migration と同時に config_registry 経由で取得する。
+            ``class`` / ``api_model_id`` / ``estimated_size_gb`` / ``discontinued_at`` /
+            ``max_output_tokens`` は AnnotatorInfo に含まれないため None で埋める。
+            Phase 2 (Issue #19/#220 follow-up) で ``list[AnnotatorInfo]`` への migration と
+            同時に config_registry 経由で取得する。
+            ``provider`` はモデル名からの推論で補完する (暫定対処)。
         """
+        provider = AnnotatorLibraryAdapter._infer_provider(info)
         return {
             "name": info.name,
             "model_name": info.name,
@@ -89,9 +133,9 @@ class AnnotatorLibraryAdapter:
             "is_api": info.is_api,
             "device": info.device,
             "requires_api_key": info.is_api,
-            # 旧 dict 互換キー (現状は AnnotatorInfo には含めず None)
+            # 旧 dict 互換キー
             "class": None,
-            "provider": None,
+            "provider": provider,
             "api_model_id": None,
             "estimated_size_gb": None,
             "discontinued_at": None,
