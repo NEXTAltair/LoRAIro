@@ -6,7 +6,7 @@ import pytest
 from image_annotator_lib import AnnotatorInfo
 from image_annotator_lib.core.types import TaskCapability
 
-from lorairo.annotations.annotator_adapter import AnnotatorExtras, AnnotatorLibraryAdapter
+from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
 
 
 def _make_info(
@@ -15,6 +15,9 @@ def _make_info(
     is_api: bool,
     model_type: str = "vision",
     capabilities: set[TaskCapability] | None = None,
+    provider: str | None = None,
+    estimated_size_gb: float | None = None,
+    api_model_id: str | None = None,
 ) -> AnnotatorInfo:
     return AnnotatorInfo(
         name=name,
@@ -23,6 +26,9 @@ def _make_info(
         is_local=not is_api,
         is_api=is_api,
         device=None if is_api else "cuda",
+        provider=provider,
+        estimated_size_gb=estimated_size_gb,
+        api_model_id=api_model_id,
     )
 
 
@@ -96,66 +102,12 @@ def test_list_annotator_info_propagates_library_exception() -> None:
             adapter.list_annotator_info()
 
 
-# ---- Issue #225: get_model_extras / get_available_models のテスト ----
-
-
-class _FakeRegistry:
-    """`config_registry.get(name, key, default)` を模す fake registry。"""
-
-    def __init__(self, data: dict[str, dict[str, object]]):
-        self._data = data
-
-    def get(self, model_name: str, key: str, default=None):
-        return self._data.get(model_name, {}).get(key, default)
-
-
-@pytest.mark.unit
-def test_get_model_extras_returns_values_from_config_registry() -> None:
-    """登録済みモデルは config_registry から各フィールドを取得する"""
-    adapter = AnnotatorLibraryAdapter(MagicMock())
-    fake = _FakeRegistry(
-        {
-            "wd-v1-4-tagger": {
-                "provider": "smilingwolf",
-                "class": "WDTagger",
-                "api_model_id": None,
-                "estimated_size_gb": 1.2,
-                "discontinued_at": None,
-                "max_output_tokens": None,
-            }
-        }
-    )
-
-    with patch("lorairo.annotations.annotator_adapter.config_registry", fake):
-        extras = adapter.get_model_extras("wd-v1-4-tagger")
-
-    assert isinstance(extras, AnnotatorExtras)
-    assert extras.provider == "smilingwolf"
-    assert extras.class_name == "WDTagger"
-    assert extras.estimated_size_gb == 1.2
-    assert extras.api_model_id is None
-
-
-@pytest.mark.unit
-def test_get_model_extras_pydantic_ai_model_returns_all_none() -> None:
-    """PydanticAI 直接モデル (config_registry 未登録) は全 None を返す"""
-    adapter = AnnotatorLibraryAdapter(MagicMock())
-    fake = _FakeRegistry({})  # 空 registry
-
-    with patch("lorairo.annotations.annotator_adapter.config_registry", fake):
-        extras = adapter.get_model_extras("google/gemini-2.5-pro")
-
-    assert extras.provider is None
-    assert extras.class_name is None
-    assert extras.api_model_id is None
-    assert extras.estimated_size_gb is None
-    assert extras.discontinued_at is None
-    assert extras.max_output_tokens is None
+# ---- Issue #225 follow-up: get_available_models のテスト ----
 
 
 @pytest.mark.unit
 def test_get_available_models_builds_model_info_with_provider() -> None:
-    """登録済みモデルは config_registry から provider を取得して ModelInfo を組み立てる"""
+    """登録済みモデルは AnnotatorInfo.provider から ModelInfo を組み立てる (Phase 2)"""
     adapter = AnnotatorLibraryAdapter(MagicMock())
     fake_infos = [
         _make_info(
@@ -163,22 +115,12 @@ def test_get_available_models_builds_model_info_with_provider() -> None:
             is_api=False,
             model_type="tagger",
             capabilities={TaskCapability.TAGS},
+            provider="smilingwolf",
+            estimated_size_gb=1.2,
         )
     ]
-    fake_registry = _FakeRegistry(
-        {
-            "wd-v1-4-tagger": {
-                "provider": "smilingwolf",
-                "estimated_size_gb": 1.2,
-                "api_model_id": None,
-            }
-        }
-    )
 
-    with (
-        patch("lorairo.annotations.annotator_adapter.list_annotator_info", return_value=fake_infos),
-        patch("lorairo.annotations.annotator_adapter.config_registry", fake_registry),
-    ):
+    with patch("lorairo.annotations.annotator_adapter.list_annotator_info", return_value=fake_infos):
         models = adapter.get_available_models()
 
     assert len(models) == 1
@@ -192,7 +134,7 @@ def test_get_available_models_builds_model_info_with_provider() -> None:
 
 @pytest.mark.unit
 def test_get_available_models_unknown_provider_falls_back_to_unknown() -> None:
-    """provider が config_registry に無い場合は 'unknown' にフォールバック"""
+    """provider が未設定の API モデルは 'unknown' にフォールバック"""
     adapter = AnnotatorLibraryAdapter(MagicMock())
     fake_infos = [
         _make_info(
@@ -200,13 +142,11 @@ def test_get_available_models_unknown_provider_falls_back_to_unknown() -> None:
             is_api=True,
             model_type="vision",
             capabilities={TaskCapability.TAGS, TaskCapability.CAPTIONS},
+            # provider=None (未設定) → "unknown" にフォールバック
         )
     ]
 
-    with (
-        patch("lorairo.annotations.annotator_adapter.list_annotator_info", return_value=fake_infos),
-        patch("lorairo.annotations.annotator_adapter.config_registry", _FakeRegistry({})),
-    ):
+    with patch("lorairo.annotations.annotator_adapter.list_annotator_info", return_value=fake_infos):
         models = adapter.get_available_models()
 
     assert len(models) == 1
@@ -220,8 +160,5 @@ def test_get_available_models_with_metadata_alias() -> None:
     """get_available_models_with_metadata は get_available_models と同じ結果を返す"""
     adapter = AnnotatorLibraryAdapter(MagicMock())
 
-    with (
-        patch("lorairo.annotations.annotator_adapter.list_annotator_info", return_value=[]),
-        patch("lorairo.annotations.annotator_adapter.config_registry", _FakeRegistry({})),
-    ):
+    with patch("lorairo.annotations.annotator_adapter.list_annotator_info", return_value=[]):
         assert adapter.get_available_models_with_metadata() == adapter.get_available_models()
