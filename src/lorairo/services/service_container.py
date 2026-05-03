@@ -23,7 +23,7 @@ from .configuration_service import ConfigurationService
 from .dataset_export_service import DatasetExportService
 from .image_processing_service import ImageProcessingService
 from .image_registration_service import ImageRegistrationService
-from .model_registry_protocol import ModelRegistryServiceProtocol, NullModelRegistry
+from .model_registry_protocol import ModelRegistryServiceProtocol
 from .model_sync_service import ModelSyncService
 from .project_management_service import ProjectManagementService
 
@@ -186,13 +186,12 @@ class ServiceContainer:
     def model_registry(self) -> ModelRegistryServiceProtocol:
         """モデルレジストリサービス取得（遅延初期化）
 
-        Protocol-basedモデルレジストリ使用
-        フォールバック: NullModelRegistry使用
+        Issue #225: `AnnotatorLibraryAdapter` が `ModelRegistryServiceProtocol` を
+        実装するため、annotator_library をそのまま返す (構造的サブタイピング)。
         """
         if self._model_registry is None:
-            # Protocol-basedモデルレジストリ使用
-            self._model_registry = NullModelRegistry()
-            logger.info("モデルレジストリ初期化完了（Protocol-based）")
+            self._model_registry = self.annotator_library
+            logger.info("モデルレジストリ初期化完了 (AnnotatorLibraryAdapter)")
         return self._model_registry
 
     @property

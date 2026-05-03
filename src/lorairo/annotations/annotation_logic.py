@@ -5,7 +5,7 @@ Qt非依存、AnnotatorLibraryAdapterとDBRepositoryを使用
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from PIL import Image
 
@@ -89,17 +89,6 @@ class AnnotationLogic:
             error_msg = f"アノテーション処理エラー: {e}"
             logger.error(error_msg, exc_info=True)
             raise
-
-    def get_available_models_with_metadata(self) -> list[dict[str, Any]]:
-        """利用可能モデルのメタデータ付き一覧を取得する。
-
-        AnnotatorLibraryAdapter.get_available_models_with_metadata() に委譲する。
-        Worker層がAdapterの内部構造に直接アクセスしないようにするための委譲メソッド。
-
-        Returns:
-            list[dict[str, Any]]: モデルメタデータリスト
-        """
-        return self.annotator_adapter.get_available_models_with_metadata()
 
     def _load_images(self, image_paths: list[str]) -> list[Image.Image]:
         """画像パスリストからPIL.Imageリストを作成

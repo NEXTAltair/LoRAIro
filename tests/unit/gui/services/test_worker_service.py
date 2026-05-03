@@ -469,13 +469,14 @@ class TestWorkerService:
         # バッチアノテーション開始
         worker_id = worker_service.start_enhanced_batch_annotation(image_paths=image_paths, models=models)
 
-        # AnnotationWorkerが新シグネチャで初期化されたことを確認
-        mock_worker_class.assert_called_once_with(
-            annotation_logic=worker_service.annotation_logic,
-            image_paths=image_paths,
-            models=models,
-            db_manager=worker_service.db_manager,
-        )
+        # AnnotationWorkerが新シグネチャで初期化されたことを確認 (Issue #225: model_registry 追加)
+        mock_worker_class.assert_called_once()
+        kwargs = mock_worker_class.call_args.kwargs
+        assert kwargs["annotation_logic"] is worker_service.annotation_logic
+        assert kwargs["image_paths"] == image_paths
+        assert kwargs["models"] == models
+        assert kwargs["db_manager"] is worker_service.db_manager
+        assert "model_registry" in kwargs
 
         # ワーカーマネージャーにワーカーが登録されたことを確認
         worker_service.worker_manager.start_worker.assert_called_once()

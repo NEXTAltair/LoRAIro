@@ -1,14 +1,16 @@
 """ModelSyncService ユニットテスト
 
-Phase 4実装のimage-annotator-lib統合モデル同期サービスをテスト
-実DB統合版: temp_db_repository fixtureを使用した実際のDB操作テスト
+Issue #225: 型安全 API (`AnnotatorLibraryProtocol` = list_annotator_info + get_model_extras) に migrate 完了。
 """
 
 import datetime
 from unittest.mock import Mock
 
 import pytest
+from image_annotator_lib import AnnotatorInfo
+from image_annotator_lib.core.types import TaskCapability
 
+from lorairo.annotations.annotator_adapter import AnnotatorExtras
 from lorairo.services.model_sync_service import (
     AnnotatorLibraryProtocol,
     MockAnnotatorLibrary,
@@ -18,18 +20,30 @@ from lorairo.services.model_sync_service import (
 )
 
 
+def _info(name: str, model_type: str, *, is_api: bool, capabilities: set[TaskCapability]) -> AnnotatorInfo:
+    """AnnotatorInfo 生成のショートカット (テストコード簡素化用)"""
+    return AnnotatorInfo(
+        name=name,
+        model_type=model_type,  # type: ignore[arg-type]
+        capabilities=frozenset(capabilities),
+        is_local=not is_api,
+        is_api=is_api,
+        device=None if is_api else "cuda",
+    )
+
+
 class TestModelMetadata:
     """ModelMetadata型定義テスト"""
 
     def test_model_metadata_structure(self):
-        """ModelMetadata型構造確認（model_types追加版）"""
+        """ModelMetadata型構造確認（class_name は Optional に変更）"""
         metadata: ModelMetadata = {
             "name": "gpt-4o",
             "provider": "openai",
             "class_name": "PydanticAIWebAPIAnnotator",
             "api_model_id": "gpt-4o",
             "model_type": "vision",
-            "model_types": ["llm", "captioner"],  # 追加: マッピング後のタイプ
+            "model_types": ["llm", "captioner"],
             "estimated_size_gb": None,
             "requires_api_key": True,
             "discontinued_at": None,
@@ -75,43 +89,61 @@ class TestModelSyncResult:
 
 
 class TestMockAnnotatorLibrary:
-    """MockAnnotatorLibrary テスト"""
+    """MockAnnotatorLibrary テスト (Issue #225 で AnnotatorInfo + extras に変更)"""
 
-    def test_get_available_models_with_metadata(self):
-        """モックのメタデータ付きモデル一覧取得"""
+    def test_list_annotator_info_returns_annotator_info(self):
+        """list_annotator_info は AnnotatorInfo のリストを返す"""
         mock_lib = MockAnnotatorLibrary()
-        models = mock_lib.get_available_models_with_metadata()
+        infos = mock_lib.list_annotator_info()
 
-        # リスト形式で返却される
-        assert isinstance(models, list)
-        assert len(models) > 0
+        assert isinstance(infos, list)
+        assert len(infos) > 0
+        assert all(isinstance(info, AnnotatorInfo) for info in infos)
 
-        # 各モデルに必要なフィールドが含まれる
-        for model in models:
-            assert "name" in model
-            assert "class" in model
-            assert "model_type" in model
-            assert "requires_api_key" in model
+        names = {info.name for info in infos}
+        assert "gpt-4o" in names
+        assert "claude-3-5-sonnet" in names
+        assert "wd-v1-4-swinv2-tagger" in names
 
-        # 特定のモデルが含まれることを確認
-        model_names = [m["name"] for m in models]
-        assert "gpt-4o" in model_names
-        assert "claude-3-5-sonnet" in model_names
-        assert "wd-v1-4-swinv2-tagger" in model_names
-
-    def test_mock_model_types(self):
-        """モックモデルの種類確認"""
+    def test_mock_model_types_use_post_issue_19_literals(self):
+        """モックモデルの model_type は Issue #19 の Literal 値 (vision/scorer/tagger/captioner)"""
         mock_lib = MockAnnotatorLibrary()
-        models = mock_lib.get_available_models_with_metadata()
+        infos = mock_lib.list_annotator_info()
 
-        model_types = [m["model_type"] for m in models]
-        assert "vision" in model_types
-        assert "tagger" in model_types
-        assert "score" in model_types
+        types = {info.model_type for info in infos}
+        assert "vision" in types
+        assert "tagger" in types
+        assert "scorer" in types  # Issue #19 P1 fix で "score" → "scorer"
+
+    def test_get_model_extras_returns_registered_extras(self):
+        """登録済みモデルは適切な extras を返す"""
+        mock_lib = MockAnnotatorLibrary()
+
+        gpt_extras = mock_lib.get_model_extras("gpt-4o")
+        assert gpt_extras.provider == "openai"
+        assert gpt_extras.class_name == "PydanticAIWebAPIAnnotator"
+        assert gpt_extras.api_model_id == "gpt-4o"
+
+        wd_extras = mock_lib.get_model_extras("wd-v1-4-swinv2-tagger")
+        assert wd_extras.provider is None
+        assert wd_extras.class_name == "WDTagger"
+        assert wd_extras.estimated_size_gb == 1.2
+
+    def test_get_model_extras_unknown_returns_all_none(self):
+        """未登録モデルは全 None の AnnotatorExtras を返す"""
+        mock_lib = MockAnnotatorLibrary()
+        extras = mock_lib.get_model_extras("nonexistent-model")
+
+        assert extras.provider is None
+        assert extras.class_name is None
+        assert extras.api_model_id is None
+        assert extras.estimated_size_gb is None
+        assert extras.discontinued_at is None
+        assert extras.max_output_tokens is None
 
 
 class TestModelTypeMapping:
-    """ModelTypeマッピングロジックテスト"""
+    """ModelTypeマッピングロジックテスト (Issue #225 で AnnotatorInfo 引数に変更)"""
 
     @pytest.fixture
     def service_with_mock(self, temp_db_repository, mock_config_service):
@@ -120,51 +152,45 @@ class TestModelTypeMapping:
             db_repository=temp_db_repository, config_service=mock_config_service, annotator_library=Mock()
         )
 
-    def test_map_vision_to_llm_captioner_for_pydanticai(self, service_with_mock):
-        """visionタイプのPydanticAIモデルをllm+captionerにマッピング"""
-        result = service_with_mock._map_library_model_type_to_db(
-            "vision", "gpt-4o", "PydanticAIWebAPIAnnotator"
+    def test_vision_api_maps_to_llm_captioner(self, service_with_mock):
+        """vision タイプの WebAPI モデルは ['llm', 'captioner'] にマッピングされる"""
+        info = _info(
+            "gpt-4o", "vision", is_api=True, capabilities={TaskCapability.TAGS, TaskCapability.CAPTIONS}
         )
-        assert result == ["llm", "captioner"]
+        assert service_with_mock._map_library_model_type_to_db(info) == ["llm", "captioner"]
 
-    def test_map_vision_to_llm_captioner_for_webapi(self, service_with_mock):
-        """visionタイプのWebAPIモデルをllm+captionerにマッピング"""
-        result = service_with_mock._map_library_model_type_to_db("vision", "claude", "WebAPIAnnotator")
-        assert result == ["llm", "captioner"]
+    def test_vision_local_maps_to_captioner(self, service_with_mock):
+        """vision タイプのローカルモデルは ['captioner'] にマッピングされる"""
+        info = _info("local-vision", "vision", is_api=False, capabilities={TaskCapability.CAPTIONS})
+        assert service_with_mock._map_library_model_type_to_db(info) == ["captioner"]
 
-    def test_map_vision_to_llm_for_llm_model(self, service_with_mock):
-        """visionタイプのLLMモデルをllmにマッピング"""
-        result = service_with_mock._map_library_model_type_to_db("vision", "llm-model", "LLMAnnotator")
-        assert result == ["llm"]
+    def test_captioner_maps_to_captioner(self, service_with_mock):
+        """captioner タイプは ['captioner'] にマッピングされる"""
+        info = _info("blip-captioner", "captioner", is_api=False, capabilities={TaskCapability.CAPTIONS})
+        assert service_with_mock._map_library_model_type_to_db(info) == ["captioner"]
 
-    def test_map_vision_to_captioner_default(self, service_with_mock):
-        """visionタイプのその他モデルをcaptionerにマッピング"""
-        result = service_with_mock._map_library_model_type_to_db(
-            "vision", "other-vision", "VisionAnnotator"
+    def test_scorer_maps_to_score(self, service_with_mock):
+        """scorer タイプは ['score'] にマッピングされる (DB 側カラム名整合)"""
+        info = _info("aesthetic", "scorer", is_api=False, capabilities={TaskCapability.SCORES})
+        assert service_with_mock._map_library_model_type_to_db(info) == ["score"]
+
+    def test_tagger_maps_to_tagger(self, service_with_mock):
+        """tagger タイプは ['tagger'] にマッピングされる"""
+        info = _info("wd-tagger", "tagger", is_api=False, capabilities={TaskCapability.TAGS})
+        assert service_with_mock._map_library_model_type_to_db(info) == ["tagger"]
+
+    def test_unknown_type_falls_back_to_captioner(self, service_with_mock):
+        """未知のタイプは ['captioner'] にフォールバック (警告ログ付き)"""
+        # AnnotatorInfo の Literal を回避するため type: ignore 経由で生成
+        info = AnnotatorInfo(
+            name="weird",
+            model_type="weird-type",  # type: ignore[arg-type]
+            capabilities=frozenset({TaskCapability.TAGS}),
+            is_local=True,
+            is_api=False,
+            device="cuda",
         )
-        assert result == ["captioner"]
-
-    def test_map_score_to_score(self, service_with_mock):
-        """scoreタイプをscoreにマッピング"""
-        result = service_with_mock._map_library_model_type_to_db("score", "aesthetic", "AestheticPredictor")
-        assert result == ["score"]
-
-    def test_map_scorer_to_score(self, service_with_mock):
-        """scorerタイプ (Issue #19 の新値) をscoreにマッピング (P1修正: #scorer != #score 不一致)"""
-        result = service_with_mock._map_library_model_type_to_db(
-            "scorer", "cafe-aesthetic", "CafeAesthetic"
-        )
-        assert result == ["score"]
-
-    def test_map_tagger_to_tagger(self, service_with_mock):
-        """taggerタイプをtaggerにマッピング"""
-        result = service_with_mock._map_library_model_type_to_db("tagger", "wd-tagger", "WDTagger")
-        assert result == ["tagger"]
-
-    def test_map_unknown_type_to_captioner(self, service_with_mock):
-        """未知のタイプをcaptionerにマッピング（警告ログ付き）"""
-        result = service_with_mock._map_library_model_type_to_db("unknown_type", "test", "TestAnnotator")
-        assert result == ["captioner"]
+        assert service_with_mock._map_library_model_type_to_db(info) == ["captioner"]
 
 
 class TestModelSyncServiceWithRealDB:
@@ -188,7 +214,6 @@ class TestModelSyncServiceWithRealDB:
         assert isinstance(metadata_list, list)
         assert len(metadata_list) > 0
 
-        # 最初のメタデータ構造確認
         first_model = metadata_list[0]
         assert "name" in first_model
         assert "provider" in first_model
@@ -201,6 +226,8 @@ class TestModelSyncServiceWithRealDB:
         gpt4o_model = next((m for m in metadata_list if m["name"] == "gpt-4o"), None)
         assert gpt4o_model is not None
         assert gpt4o_model["model_types"] == ["llm", "captioner"]
+        assert gpt4o_model["provider"] == "openai"
+        assert gpt4o_model["class_name"] == "PydanticAIWebAPIAnnotator"
 
     def test_register_new_models_to_db_success(self, model_sync_service, temp_db_repository):
         """新規モデルDB登録成功（実DB操作）"""
@@ -231,10 +258,8 @@ class TestModelSyncServiceWithRealDB:
 
         count = model_sync_service.register_new_models_to_db(test_models)
 
-        # 2つのモデルが実際に登録される
         assert count == 2
 
-        # DB確認
         registered_model_1 = temp_db_repository.get_model_by_name("test-model-new-1")
         assert registered_model_1 is not None
         assert registered_model_1.provider == "openai"
@@ -267,16 +292,13 @@ class TestModelSyncServiceWithRealDB:
         count = model_sync_service.register_new_models_to_db(test_models)
         assert count == 1
 
-        # DB確認: discontinued_atが正しく保存されている
         registered_model = temp_db_repository.get_model_by_name("discontinued-model")
         assert registered_model is not None
         assert registered_model.discontinued_at is not None
-        # SQLiteはnaive datetimeとして保存するため、timezone情報を削除して比較
         assert registered_model.discontinued_at == discontinued_date.replace(tzinfo=None)
 
     def test_register_new_models_existing_models_skip(self, model_sync_service, temp_db_repository):
         """既存モデル存在時のDB登録スキップ"""
-        # 事前に1つ目のモデルを登録
         temp_db_repository.insert_model(
             name="existing-model-test", provider="openai", model_types=["llm"], requires_api_key=True
         )
@@ -296,18 +318,14 @@ class TestModelSyncServiceWithRealDB:
         ]
 
         count = model_sync_service.register_new_models_to_db(test_models)
-
-        # 既存モデルなので新規登録は0
         assert count == 0
 
     def test_update_existing_models_success(self, model_sync_service, temp_db_repository):
         """既存モデル更新処理（実DB操作）"""
-        # 事前にモデルを登録
         temp_db_repository.insert_model(
             name="update-test-model", provider="openai", model_types=["captioner"], estimated_size_gb=1.0
         )
 
-        # 更新データ（サイズとタイプ変更）
         test_models: list[ModelMetadata] = [
             {
                 "name": "update-test-model",
@@ -315,19 +333,16 @@ class TestModelSyncServiceWithRealDB:
                 "class_name": "UpdatedAnnotator",
                 "api_model_id": "updated",
                 "model_type": "vision",
-                "model_types": ["llm", "captioner"],  # タイプ追加
-                "estimated_size_gb": 2.5,  # サイズ変更
+                "model_types": ["llm", "captioner"],
+                "estimated_size_gb": 2.5,
                 "requires_api_key": True,
                 "discontinued_at": None,
             }
         ]
 
         count = model_sync_service.update_existing_models(test_models)
-
-        # 1つのモデルが更新される
         assert count == 1
 
-        # DB確認: 実際に更新されている
         updated_model = temp_db_repository.get_model_by_name("update-test-model")
         assert updated_model is not None
         assert updated_model.estimated_size_gb == 2.5
@@ -336,12 +351,10 @@ class TestModelSyncServiceWithRealDB:
 
     def test_update_existing_models_no_changes(self, model_sync_service, temp_db_repository):
         """既存モデル更新処理（変更なし）"""
-        # 事前にモデルを登録
         temp_db_repository.insert_model(
             name="no-change-model", provider="openai", model_types=["llm"], estimated_size_gb=1.0
         )
 
-        # 同じデータで更新
         test_models: list[ModelMetadata] = [
             {
                 "name": "no-change-model",
@@ -357,18 +370,14 @@ class TestModelSyncServiceWithRealDB:
         ]
 
         count = model_sync_service.update_existing_models(test_models)
-
-        # 変更がないので更新数は0
         assert count == 0
 
     def test_update_existing_models_with_discontinued_at(self, model_sync_service, temp_db_repository):
         """既存モデルのdiscontinued_at更新（Issue #5対応）"""
-        # 事前にモデルを登録（discontinued_at=None）
         temp_db_repository.insert_model(
             name="to-be-discontinued", provider="openai", model_types=["captioner"], discontinued_at=None
         )
 
-        # discontinued_atを設定して更新
         discontinued_date = datetime.datetime(2025, 6, 30, tzinfo=datetime.UTC)
         test_models: list[ModelMetadata] = [
             {
@@ -387,10 +396,8 @@ class TestModelSyncServiceWithRealDB:
         count = model_sync_service.update_existing_models(test_models)
         assert count == 1
 
-        # DB確認: discontinued_atが更新されている
         updated_model = temp_db_repository.get_model_by_name("to-be-discontinued")
         assert updated_model is not None
-        # SQLiteはnaive datetimeとして保存するため、timezone情報を削除して比較
         assert updated_model.discontinued_at == discontinued_date.replace(tzinfo=None)
 
     def test_sync_available_models_success(self, model_sync_service):
@@ -404,9 +411,9 @@ class TestModelSyncServiceWithRealDB:
         assert len(result.errors) == 0
 
     def test_sync_available_models_with_error(self, temp_db_repository, mock_config_service):
-        """モデル同期処理エラー発生"""
+        """モデル同期処理エラー発生 (新 Protocol: list_annotator_info で例外)"""
         error_lib = Mock(spec=AnnotatorLibraryProtocol)
-        error_lib.get_available_models_with_metadata.side_effect = Exception("Sync error")
+        error_lib.list_annotator_info.side_effect = Exception("Sync error")
 
         service = ModelSyncService(
             db_repository=temp_db_repository,
@@ -434,10 +441,13 @@ class TestModelSyncServiceWithRealDB:
         assert "local_models" in summary
 
     def test_validate_annotation_model_type(self, model_sync_service):
-        """アノテーションモデルタイプの妥当性検証"""
+        """アノテーションモデルタイプの妥当性検証 (post Issue #19 値)"""
         assert model_sync_service.validate_annotation_model_type("vision") is True
-        assert model_sync_service.validate_annotation_model_type("score") is True
+        assert model_sync_service.validate_annotation_model_type("scorer") is True
         assert model_sync_service.validate_annotation_model_type("tagger") is True
+        assert model_sync_service.validate_annotation_model_type("captioner") is True
+        # 旧値 "score" は invalid (Issue #19 で "scorer" に統一)
+        assert model_sync_service.validate_annotation_model_type("score") is False
         assert model_sync_service.validate_annotation_model_type("upscaler") is False
         assert model_sync_service.validate_annotation_model_type("unknown") is False
 
@@ -451,9 +461,17 @@ class TestModelSyncServiceEdgeCases:
         return ModelSyncService(db_repository=temp_db_repository, config_service=mock_config_service)
 
     def test_empty_model_list_sync(self, temp_db_repository, mock_config_service):
-        """空のモデルリスト同期"""
+        """空のモデルリスト同期 (新 Protocol: list_annotator_info が空リスト)"""
         empty_lib = Mock(spec=AnnotatorLibraryProtocol)
-        empty_lib.get_available_models_with_metadata.return_value = []
+        empty_lib.list_annotator_info.return_value = []
+        empty_lib.get_model_extras.return_value = AnnotatorExtras(
+            provider=None,
+            class_name=None,
+            api_model_id=None,
+            estimated_size_gb=None,
+            discontinued_at=None,
+            max_output_tokens=None,
+        )
 
         service = ModelSyncService(
             db_repository=temp_db_repository,
@@ -469,16 +487,15 @@ class TestModelSyncServiceEdgeCases:
 
     def test_invalid_model_metadata_handling(self, model_sync_service):
         """不正なモデルメタデータの処理"""
-        # 不正なメタデータを含むテスト
         invalid_models: list[ModelMetadata] = [
             {
                 "name": "",  # 空の名前
                 "provider": "openai",
                 "class_name": "TestAnnotator",
                 "api_model_id": None,
-                "model_type": "unknown",  # 不明な型
-                "model_types": ["captioner"],  # マッピング結果
-                "estimated_size_gb": -1.0,  # 負の値
+                "model_type": "unknown",
+                "model_types": ["captioner"],
+                "estimated_size_gb": -1.0,
                 "requires_api_key": True,
                 "discontinued_at": None,
             }
