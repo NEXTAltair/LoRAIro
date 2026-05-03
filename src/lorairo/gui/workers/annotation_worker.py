@@ -13,6 +13,7 @@ from image_annotator_lib import PHashAnnotationResults
 
 from lorairo.annotations.annotation_logic import AnnotationLogic
 from lorairo.services.annotation_save_service import AnnotationSaveService
+from lorairo.services.model_registry_protocol import ModelInfo, ModelRegistryServiceProtocol
 from lorairo.utils.log import logger
 
 from .base import LoRAIroWorkerBase
@@ -96,6 +97,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         image_paths: list[str],
         models: list[str],
         db_manager: "ImageDatabaseManager",
+        model_registry: ModelRegistryServiceProtocol,
     ):
         """AnnotationWorker初期化
 
@@ -104,6 +106,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             image_paths: 画像パスリスト
             models: 使用モデル名リスト
             db_manager: データベースマネージャ（必須: DB保存・エラー記録用）
+            model_registry: モデルレジストリ (provider/capabilities 取得用、Issue #225)
         """
         super().__init__(db_manager=db_manager)
 
@@ -111,6 +114,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         self.image_paths = image_paths
         self.models = models
         self.db_manager = db_manager
+        self.model_registry = model_registry
 
         logger.info(f"AnnotationWorker初期化 - Images: {len(self.image_paths)}, Models: {len(self.models)}")
         logger.debug(f"  選択モデル: {self.models}")
@@ -406,7 +410,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         """モデル別統計情報を構築する。
 
         resultsからモデル別の成功/エラー件数、タグ数、キャプション数を集計し、
-        image-annotator-libのメタデータからprovider情報とcapabilitiesを取得する。
+        ModelRegistry からprovider情報とcapabilitiesを取得する (Issue #225)。
 
         Args:
             results: PHashAnnotationResults (phash → model_name → UnifiedResult)
@@ -415,23 +419,16 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             モデル名 → ModelStatistics のマッピング。
 
         Note:
-            - ライブラリのメタデータは AnnotatorLibraryAdapter.
-              get_available_models_with_metadata() から取得
-            - プロバイダー情報は メタデータの "provider" フィールド
-            - capabilities は メタデータの "capabilities" フィールド
+            - メタデータは ModelRegistryServiceProtocol.get_available_models() から取得
+            - プロバイダーと capabilities は ModelInfo の属性
+            - 取得失敗時は provider=None, capabilities=[] にフォールバック
         """
-        # モデルメタデータを取得（AnnotationLogic経由でアダプターに委譲）
         try:
-            model_metadata_list = self.annotation_logic.get_available_models_with_metadata()
-            # モデル名をキーとしたメタデータマップを構築
-            metadata_map: dict[str, dict[str, Any]] = {}
-            for metadata in model_metadata_list:
-                model_name = metadata.get("model_name")
-                if model_name:
-                    metadata_map[model_name] = metadata
+            model_info_list = self.model_registry.get_available_models()
+            info_map: dict[str, ModelInfo] = {info.name: info for info in model_info_list}
         except Exception as e:
             logger.warning(f"モデルメタデータ取得エラー: {e}")
-            metadata_map = {}
+            info_map = {}
 
         # モデル別統計を集計
         model_stats: dict[str, ModelStatistics] = {}
@@ -439,10 +436,9 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         for annotations in results.values():
             for model_name, unified_result in annotations.items():
                 if model_name not in model_stats:
-                    # メタデータから provider と capabilities を取得
-                    metadata = metadata_map.get(model_name, {})
-                    provider_name = metadata.get("provider")
-                    capabilities = metadata.get("capabilities", [])
+                    info = info_map.get(model_name)
+                    provider_name = info.provider if info else None
+                    capabilities = list(info.capabilities) if info else []
 
                     model_stats[model_name] = ModelStatistics(
                         model_name=model_name,

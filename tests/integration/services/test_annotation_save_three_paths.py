@@ -142,15 +142,17 @@ class TestAnnotationSaveThreePaths:
         mock_db_manager.get_image_id_by_filepath.return_value = None
         mock_db_manager.save_error_record = Mock()
 
+        from lorairo.services.model_registry_protocol import NullModelRegistry
+
         mock_logic = Mock()
         mock_logic.execute_annotation.return_value = mock_annotation_results
-        mock_logic.get_available_models_with_metadata.return_value = []
 
         worker = AnnotationWorker(
             annotation_logic=mock_logic,
             image_paths=["/test/cat.jpg"],
             models=[TEST_MODEL_NAME],
             db_manager=mock_db_manager,
+            model_registry=NullModelRegistry(),
         )
         exec_result = worker.execute()
 
@@ -229,14 +231,16 @@ class TestAnnotationSaveThreePaths:
         mock_db.repository = repo_b
         mock_db.get_image_id_by_filepath.return_value = None
         mock_db.save_error_record = Mock()
+        from lorairo.services.model_registry_protocol import NullModelRegistry
+
         mock_logic = Mock()
         mock_logic.execute_annotation.return_value = annotation_results
-        mock_logic.get_available_models_with_metadata.return_value = []
         AnnotationWorker(
             annotation_logic=mock_logic,
             image_paths=["/test/cat.jpg"],
             models=[TEST_MODEL_NAME],
             db_manager=mock_db,
+            model_registry=NullModelRegistry(),
         ).execute()
         tags_b = _count_tags(sf_b, image_id_b)
         scores_b = _count_scores(sf_b, image_id_b)

@@ -2,21 +2,29 @@
 
 Data Access Layer: image-annotator-libとLoRAIroを統合
 ConfigurationServiceからAPIキーを取得し、api_keysパラメータとして明示的に渡す
+`ModelRegistryServiceProtocol` を実装し、GUI/CLI から統一窓口として使用される。
 """
 
+from __future__ import annotations
+
+import datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from image_annotator_lib import (
     AnnotatorInfo,
+    config_registry,
     discover_available_vision_models,
     get_available_models,
     is_model_deprecated,
     list_all_models,
     list_annotator_info,
 )
+from image_annotator_lib.core.types import TaskCapability
 from PIL import Image
 
+from lorairo.annotations.annotator_metadata import AnnotatorExtras
 from lorairo.services.configuration_service import ConfigurationService
+from lorairo.services.model_registry_protocol import ModelInfo
 from lorairo.utils.log import logger
 
 if TYPE_CHECKING:
@@ -25,11 +33,24 @@ if TYPE_CHECKING:
     )
 
 
+# AnnotatorInfo.capabilities (frozenset[TaskCapability]) → ModelInfo.capabilities (list[str])
+# の変換テーブル。TaskCapability.value をそのまま採用する。
+_CAPABILITY_VALUES: dict[TaskCapability, str] = {
+    TaskCapability.TAGS: "tags",
+    TaskCapability.CAPTIONS: "captions",
+    TaskCapability.SCORES: "scores",
+}
+
+# AnnotatorExtras を Adapter モジュールからも re-export (既存テストの import 互換)
+__all__ = ["AnnotatorExtras", "AnnotatorLibraryAdapter"]
+
+
 class AnnotatorLibraryAdapter:
     """image-annotator-lib統合アダプター
 
     LoRAIro側の設計とimage-annotator-libのAPIを橋渡しする。
     ConfigurationService経由でAPIキーを取得し、image-annotator-libに渡す。
+    `ModelRegistryServiceProtocol` を実装する (構造的サブタイピング)。
     """
 
     def __init__(self, config_service: ConfigurationService):
@@ -59,88 +80,63 @@ class AnnotatorLibraryAdapter:
             logger.error("image-annotator-lib AnnotatorInfo 取得エラー", exc_info=True)
             raise
 
-    def get_available_models_with_metadata(self) -> list[dict[str, Any]]:
-        """利用可能アノテーターのメタデータ付き一覧を取得 (dict 互換 API)。
+    def get_model_extras(self, name: str) -> AnnotatorExtras:
+        """指定モデルの追加メタデータを `config_registry` から取得する。
 
-        image-annotator-lib の型安全 API ``list_annotator_info()`` を呼び出し、
-        上位層 (ModelSyncService 等) が期待する dict 形式に変換する。
-
-        ※ 後続 Issue で Protocol/sync_service を ``list[AnnotatorInfo]`` に揃え、
-           ``provider`` 等は config_registry 経由で取得する想定 (Phase 2)。
-
-        Returns:
-            list[dict[str, Any]]: モデルメタデータリスト
-        """
-        try:
-            logger.debug("image-annotator-libからモデルメタデータを取得中...")
-
-            infos: list[AnnotatorInfo] = list_annotator_info()
-            models: list[dict[str, Any]] = [self._annotator_info_to_dict(info) for info in infos]
-
-            logger.info(f"image-annotator-libからモデルメタデータ取得完了: {len(models)}件")
-            return models
-
-        except Exception as e:
-            error_msg = f"image-annotator-libモデルメタデータ取得エラー: {e}"
-            logger.error(error_msg, exc_info=True)
-            raise
-
-    @staticmethod
-    def _infer_provider(info: AnnotatorInfo) -> str | None:
-        """モデル名からプロバイダーを推論する。
-
-        AnnotatorInfo に provider フィールドが存在しないため、モデル名のキーワードから推論する。
-        Phase 2 (Issue #19/#220 follow-up) で config_registry 経由の正式取得に置き換える予定。
-
-        Args:
-            info: アノテーター情報
-
-        Returns:
-            str | None: プロバイダー名。ローカルモデルまたは推論不能の場合は None。
-        """
-        if not info.is_api:
-            return None
-        name_lower = info.name.lower()
-        if any(k in name_lower for k in ("claude", "anthropic")):
-            return "anthropic"
-        if any(k in name_lower for k in ("gpt", "openai", "o1-", "o3-", "o4-")):
-            return "openai"
-        if any(k in name_lower for k in ("gemini", "google")):
-            return "google"
-        return None
-
-    @staticmethod
-    def _annotator_info_to_dict(info: AnnotatorInfo) -> dict[str, Any]:
-        """AnnotatorInfo を上位層の dict 形式に変換する。
-
-        旧 ``list_available_annotators_with_metadata()`` が返していたキーを互換目的で含めつつ、
-        新規の型安全フィールド (is_local/is_api/device) も追加する。
+        config_registry に未登録のモデル (PydanticAI 直接モデル等) は全フィールドが
+        None の `AnnotatorExtras` を返す (ADR 0004: provider は PydanticAI が
+        自動推論するため、同期メタデータ取得時には不明で構わない)。
 
         Note:
-            ``class`` / ``api_model_id`` / ``estimated_size_gb`` / ``discontinued_at`` /
-            ``max_output_tokens`` は AnnotatorInfo に含まれないため None で埋める。
-            Phase 2 (Issue #19/#220 follow-up) で ``list[AnnotatorInfo]`` への migration と
-            同時に config_registry 経由で取得する。
-            ``provider`` はモデル名からの推論で補完する (暫定対処)。
+            ADR 0021 (LiteLLM 駆動 model registry, Proposed) 採択時はこのメソッド
+            内部のみ変更すれば LiteLLM 経路に切り替えられる。境界が Adapter に閉じる。
+
+        Args:
+            name: モデル名 (レジストリキー)
+
+        Returns:
+            AnnotatorExtras: 追加メタデータ (未登録モデルは全 None)
         """
-        provider = AnnotatorLibraryAdapter._infer_provider(info)
-        return {
-            "name": info.name,
-            "model_name": info.name,
-            "model_type": info.model_type,
-            "capabilities": [c.value for c in info.capabilities],
-            "is_local": info.is_local,
-            "is_api": info.is_api,
-            "device": info.device,
-            "requires_api_key": info.is_api,
-            # 旧 dict 互換キー
-            "class": None,
-            "provider": provider,
-            "api_model_id": None,
-            "estimated_size_gb": None,
-            "discontinued_at": None,
-            "max_output_tokens": None,
-        }
+        return AnnotatorExtras(
+            provider=cast("str | None", config_registry.get(name, "provider", None)),
+            class_name=cast("str | None", config_registry.get(name, "class", None)),
+            api_model_id=cast("str | None", config_registry.get(name, "api_model_id", None)),
+            estimated_size_gb=cast("float | None", config_registry.get(name, "estimated_size_gb", None)),
+            discontinued_at=cast(
+                "datetime.datetime | None", config_registry.get(name, "discontinued_at", None)
+            ),
+            max_output_tokens=cast("int | None", config_registry.get(name, "max_output_tokens", None)),
+        )
+
+    def get_available_models(self) -> list[ModelInfo]:
+        """`ModelRegistryServiceProtocol` 実装: 利用可能モデルを `ModelInfo` で返す。
+
+        Returns:
+            list[ModelInfo]: 全 AnnotatorInfo + Extras から組み立てた ModelInfo リスト
+        """
+        infos = self.list_annotator_info()
+        return [self._to_model_info(info) for info in infos]
+
+    def get_available_models_with_metadata(self) -> list[ModelInfo]:
+        """`ModelRegistryServiceProtocol` 実装 (互換別名): 同上。"""
+        return self.get_available_models()
+
+    def _to_model_info(self, info: AnnotatorInfo) -> ModelInfo:
+        """`AnnotatorInfo` + `AnnotatorExtras` から `ModelInfo` を組み立てる。
+
+        provider は extras から取得し、未登録時は "unknown" にフォールバック
+        (ModelInfo.provider が `str` 必須のため)。
+        """
+        extras = self.get_model_extras(info.name)
+        capabilities = sorted(_CAPABILITY_VALUES[c] for c in info.capabilities)
+        return ModelInfo(
+            name=info.name,
+            provider=extras.provider or "unknown",
+            capabilities=capabilities,
+            api_model_id=extras.api_model_id,
+            requires_api_key=info.is_api,
+            estimated_size_gb=extras.estimated_size_gb,
+        )
 
     def refresh_available_models(self, force_refresh: bool = True) -> list[str]:
         """WebAPIモデル一覧を強制更新し、利用可能なモデルIDを返す。"""
@@ -176,7 +172,7 @@ class AnnotatorLibraryAdapter:
         images: list[Image.Image],
         model_names: list[str],
         phash_list: list[str] | None = None,
-    ) -> "PHashAnnotationResults":
+    ) -> PHashAnnotationResults:
         """アノテーション実行
 
         image-annotator-libの`annotate()`を呼び出し、画像にアノテーションを付与する。

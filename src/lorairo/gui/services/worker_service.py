@@ -193,6 +193,7 @@ class WorkerService(QObject):
             image_paths=image_paths,
             models=models,
             db_manager=self.db_manager,
+            model_registry=get_service_container().model_registry,
         )
         worker_id = f"annotation_{uuid.uuid4().hex[:8]}"
 

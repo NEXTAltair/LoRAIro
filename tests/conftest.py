@@ -22,7 +22,36 @@ _ial_mock.__package__ = "image_annotator_lib"
 
 # テストコードで参照されるモジュールレベルの公開 API をモック
 _ial_mock.list_annotator_info = unittest.mock.MagicMock(return_value=[])
-_ial_mock.AnnotatorInfo = unittest.mock.MagicMock()
+# Issue #225 + Codex P1/P2 fix: AnnotatorInfo / TaskCapability は実体クラスを露出する
+# (image_annotator_lib.core.types は pydantic のみ依存で torch/tf を引かないため安全)
+# - P1: submodule 未チェックアウト時 (non-recursive clone) は MagicMock fallback で
+#   test collection を継続できるようにする
+# - P2: 後段 `_ial_submodules` ループの上書きから core.types を保護する処理は
+#   ループ側 (`if _submod_name in sys.modules: continue`) で実施
+import importlib.util as _ial_iutil
+from pathlib import Path as _IalPath
+
+_ial_types_path = (
+    _IalPath(__file__).parent.parent
+    / "local_packages"
+    / "image-annotator-lib"
+    / "src"
+    / "image_annotator_lib"
+    / "core"
+    / "types.py"
+)
+if _ial_types_path.exists():
+    _ial_types_spec = _ial_iutil.spec_from_file_location("image_annotator_lib.core.types", _ial_types_path)
+    _ial_types_module = _ial_iutil.module_from_spec(_ial_types_spec)
+    sys.modules["image_annotator_lib.core.types"] = _ial_types_module
+    _ial_types_spec.loader.exec_module(_ial_types_module)
+    _ial_mock.AnnotatorInfo = _ial_types_module.AnnotatorInfo
+    _ial_mock.TaskCapability = _ial_types_module.TaskCapability
+else:
+    # submodule 未取得 (non-recursive clone) では MagicMock にフォールバック。
+    # 型安全 migration の検証は image-annotator-lib 込みで実施する想定。
+    _ial_mock.AnnotatorInfo = unittest.mock.MagicMock()
+    _ial_mock.TaskCapability = unittest.mock.MagicMock()
 _ial_mock.ModelType = unittest.mock.MagicMock()
 _ial_mock.list_available_annotators = unittest.mock.MagicMock(return_value=[])
 _ial_mock.PHashAnnotationResults = dict
@@ -36,7 +65,10 @@ _ial_mock.ModelLoad = unittest.mock.MagicMock()
 _ial_mock.create_agent = unittest.mock.MagicMock()
 _ial_mock.get_available_models = unittest.mock.MagicMock(return_value=[])
 _ial_mock.initialize_registry = unittest.mock.MagicMock()
+# config_registry.get(name, key, default) がデフォルトで None を返すよう設定
+# (Issue #225: MagicMock 戻り値だと AnnotatorExtras 構築時にチェックが効かないため)
 _ial_mock.config_registry = unittest.mock.MagicMock()
+_ial_mock.config_registry.get = unittest.mock.MagicMock(side_effect=lambda name, key, default=None: default)
 _ial_mock.init_logger = unittest.mock.MagicMock()
 _ial_mock.discover_available_vision_models = unittest.mock.MagicMock(
     return_value={"models": [], "toml_data": {}}
@@ -66,6 +98,11 @@ _ial_submodules = [
 
 sys.modules["image_annotator_lib"] = _ial_mock
 for _submod_name in _ial_submodules:
+    # Codex P2 fix: 上で実体ロード済みのサブモジュール (image_annotator_lib.core.types) を
+    # MagicMock で上書きしない。これがないと `from image_annotator_lib.core.types import
+    # TaskCapability` 等が MagicMock を返し、enum 動作 (.value 等) のテストが masked される。
+    if _submod_name in sys.modules and not isinstance(sys.modules[_submod_name], unittest.mock.MagicMock):
+        continue
     _submod = unittest.mock.MagicMock()
     _submod.__path__ = []
     _submod.__package__ = _submod_name

@@ -130,10 +130,11 @@ class TestAnnotationWorkerErrorRecording:
 
     def test_annotation_model_error_creates_error_record(self, db_manager):
         """モデルレベルエラー時にエラーレコードが作成される"""
+        from lorairo.services.model_registry_protocol import NullModelRegistry
+
         # AnnotationLogic モック（エラーを引き起こす）
         mock_logic = Mock(spec=AnnotationLogic)
         mock_logic.execute_annotation.side_effect = Exception("API Error")
-        mock_logic.get_available_models_with_metadata.return_value = []
 
         # Workerの db_manager 注入をテスト
         from lorairo.gui.workers.annotation_worker import AnnotationWorker
@@ -143,6 +144,7 @@ class TestAnnotationWorkerErrorRecording:
             image_paths=["/test/image1.jpg"],
             models=["test-model"],
             db_manager=db_manager,
+            model_registry=NullModelRegistry(),
         )
 
         # Worker実行（エラーが発生するが部分的成功を許容）
@@ -161,10 +163,11 @@ class TestAnnotationWorkerErrorRecording:
 
     def test_annotation_overall_error_creates_error_record(self, db_manager):
         """全体エラー時にエラーレコードが作成される"""
+        from lorairo.services.model_registry_protocol import NullModelRegistry
+
         # AnnotationLogic モック（初期化エラーを引き起こす）
         mock_logic = Mock(spec=AnnotationLogic)
         mock_logic.execute_annotation.side_effect = RuntimeError("Logic Error")
-        mock_logic.get_available_models_with_metadata.return_value = []
 
         from lorairo.gui.workers.annotation_worker import AnnotationWorker
 
@@ -173,6 +176,7 @@ class TestAnnotationWorkerErrorRecording:
             image_paths=["/test/image1.jpg"],
             models=["test-model"],
             db_manager=db_manager,
+            model_registry=NullModelRegistry(),
         )
 
         # Worker実行（モデルレベルエラーは部分的成功として扱われる）
