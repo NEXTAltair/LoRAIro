@@ -229,6 +229,46 @@ class TestModelSyncServiceWithRealDB:
         assert gpt4o_model["provider"] == "openai"
         assert gpt4o_model["class_name"] == "PydanticAIWebAPIAnnotator"
 
+    def test_pydanticai_direct_model_provider_falls_back_to_unknown(
+        self, temp_db_repository, mock_config_service
+    ):
+        """API モデルで config_registry に provider がない場合 'unknown' にフォールバック (Codex P2 修正)
+
+        理由: model_selection_service.exclude_local フィルタが
+        `m.provider and m.provider.lower() != "local"` で provider=None を drop してしまうため、
+        API モデルが UI から消える / "local" 扱いされる問題を防ぐ。
+        ローカルモデルは provider=None のまま (既存の "provider=None → local" 解釈を維持)。
+        """
+        empty_extras = AnnotatorExtras(
+            provider=None,
+            class_name=None,
+            api_model_id=None,
+            estimated_size_gb=None,
+            discontinued_at=None,
+            max_output_tokens=None,
+        )
+        # config_registry 未登録の PydanticAI 直接モデル + ローカルモデル
+        custom_lib = Mock(spec=AnnotatorLibraryProtocol)
+        custom_lib.list_annotator_info.return_value = [
+            _info("google/gemini-2.5-pro", "vision", is_api=True, capabilities={TaskCapability.CAPTIONS}),
+            _info("local-tagger", "tagger", is_api=False, capabilities={TaskCapability.TAGS}),
+        ]
+        custom_lib.get_model_extras.return_value = empty_extras
+
+        service = ModelSyncService(
+            db_repository=temp_db_repository,
+            config_service=mock_config_service,
+            annotator_library=custom_lib,
+        )
+        metadata_list = service.get_model_metadata_from_library()
+
+        api_meta = next(m for m in metadata_list if m["name"] == "google/gemini-2.5-pro")
+        local_meta = next(m for m in metadata_list if m["name"] == "local-tagger")
+        # API モデルは "unknown" にフォールバック (exclude_local フィルタで drop されない)
+        assert api_meta["provider"] == "unknown"
+        # ローカルモデルは None のまま (既存の "provider=None → local" 解釈を維持)
+        assert local_meta["provider"] is None
+
     def test_register_new_models_to_db_success(self, model_sync_service, temp_db_repository):
         """新規モデルDB登録成功（実DB操作）"""
         test_models: list[ModelMetadata] = [

@@ -301,9 +301,15 @@ class ModelSyncService:
                 extras = self.annotator_library.get_model_extras(info.name)
                 db_model_types = self._map_library_model_type_to_db(info)
 
+                # API モデルで provider 不明 (config_registry 未登録の PydanticAI 直接モデル等)
+                # は "unknown" にフォールバック。ローカルモデルは provider=None のままにし
+                # 既存の「provider=None → local」解釈 (model_selection_service の
+                # exclude_local / "provider or 'local'") を維持する。
+                provider = extras.provider or ("unknown" if info.is_api else None)
+
                 metadata: ModelMetadata = {
                     "name": info.name,
-                    "provider": extras.provider,
+                    "provider": provider,
                     "class_name": extras.class_name,
                     "api_model_id": extras.api_model_id,
                     "model_type": info.model_type,
