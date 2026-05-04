@@ -10,7 +10,6 @@ import pytest
 from image_annotator_lib import AnnotatorInfo
 from image_annotator_lib.core.types import TaskCapability
 
-from lorairo.annotations.annotator_adapter import AnnotatorExtras
 from lorairo.services.model_sync_service import (
     AnnotatorLibraryProtocol,
     MockAnnotatorLibrary,
@@ -115,31 +114,19 @@ class TestMockAnnotatorLibrary:
         assert "tagger" in types
         assert "scorer" in types  # Issue #19 P1 fix で "score" → "scorer"
 
-    def test_get_model_extras_returns_registered_extras(self):
-        """登録済みモデルは適切な extras を返す"""
+    def test_mock_annotator_info_has_provider_field(self):
+        """MockAnnotatorLibrary の AnnotatorInfo には provider / api_model_id が設定されている (Phase 2)"""
         mock_lib = MockAnnotatorLibrary()
+        infos = {info.name: info for info in mock_lib.list_annotator_info()}
 
-        gpt_extras = mock_lib.get_model_extras("gpt-4o")
-        assert gpt_extras.provider == "openai"
-        assert gpt_extras.class_name == "PydanticAIWebAPIAnnotator"
-        assert gpt_extras.api_model_id == "gpt-4o"
-
-        wd_extras = mock_lib.get_model_extras("wd-v1-4-swinv2-tagger")
-        assert wd_extras.provider is None
-        assert wd_extras.class_name == "WDTagger"
-        assert wd_extras.estimated_size_gb == 1.2
-
-    def test_get_model_extras_unknown_returns_all_none(self):
-        """未登録モデルは全 None の AnnotatorExtras を返す"""
-        mock_lib = MockAnnotatorLibrary()
-        extras = mock_lib.get_model_extras("nonexistent-model")
-
-        assert extras.provider is None
-        assert extras.class_name is None
-        assert extras.api_model_id is None
-        assert extras.estimated_size_gb is None
-        assert extras.discontinued_at is None
-        assert extras.max_output_tokens is None
+        assert infos["gpt-4o"].provider == "openai"
+        assert infos["gpt-4o"].api_model_id == "gpt-4o"
+        assert infos["claude-3-5-sonnet"].provider == "anthropic"
+        assert infos["gemini-1.5-pro"].provider == "google"
+        assert infos["wd-v1-4-swinv2-tagger"].provider == "local"
+        assert infos["wd-v1-4-swinv2-tagger"].estimated_size_gb == 1.2
+        assert infos["aesthetic-predictor"].provider == "local"
+        assert infos["aesthetic-predictor"].estimated_size_gb == 0.8
 
 
 class TestModelTypeMapping:
@@ -227,7 +214,7 @@ class TestModelSyncServiceWithRealDB:
         assert gpt4o_model is not None
         assert gpt4o_model["model_types"] == ["llm", "captioner"]
         assert gpt4o_model["provider"] == "openai"
-        assert gpt4o_model["class_name"] == "PydanticAIWebAPIAnnotator"
+        assert gpt4o_model["class_name"] is None  # Phase 2: AnnotatorInfo に class_name なし
 
     def test_pydanticai_direct_model_provider_falls_back_to_unknown(
         self, temp_db_repository, mock_config_service
@@ -239,21 +226,12 @@ class TestModelSyncServiceWithRealDB:
         API モデルが UI から消える / "local" 扱いされる問題を防ぐ。
         ローカルモデルは provider=None のまま (既存の "provider=None → local" 解釈を維持)。
         """
-        empty_extras = AnnotatorExtras(
-            provider=None,
-            class_name=None,
-            api_model_id=None,
-            estimated_size_gb=None,
-            discontinued_at=None,
-            max_output_tokens=None,
-        )
-        # config_registry 未登録の PydanticAI 直接モデル + ローカルモデル
+        # provider=None の PydanticAI 直接モデル + ローカルモデル (AnnotatorInfo に直接設定)
         custom_lib = Mock(spec=AnnotatorLibraryProtocol)
         custom_lib.list_annotator_info.return_value = [
             _info("google/gemini-2.5-pro", "vision", is_api=True, capabilities={TaskCapability.CAPTIONS}),
             _info("local-tagger", "tagger", is_api=False, capabilities={TaskCapability.TAGS}),
         ]
-        custom_lib.get_model_extras.return_value = empty_extras
 
         service = ModelSyncService(
             db_repository=temp_db_repository,
@@ -504,14 +482,6 @@ class TestModelSyncServiceEdgeCases:
         """空のモデルリスト同期 (新 Protocol: list_annotator_info が空リスト)"""
         empty_lib = Mock(spec=AnnotatorLibraryProtocol)
         empty_lib.list_annotator_info.return_value = []
-        empty_lib.get_model_extras.return_value = AnnotatorExtras(
-            provider=None,
-            class_name=None,
-            api_model_id=None,
-            estimated_size_gb=None,
-            discontinued_at=None,
-            max_output_tokens=None,
-        )
 
         service = ModelSyncService(
             db_repository=temp_db_repository,

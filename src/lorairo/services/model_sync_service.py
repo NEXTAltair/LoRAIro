@@ -13,7 +13,6 @@ from typing import Any, ClassVar, Protocol, TypedDict
 from image_annotator_lib import AnnotatorInfo
 from image_annotator_lib.core.types import TaskCapability
 
-from ..annotations.annotator_metadata import AnnotatorExtras
 from ..database.db_repository import ImageRepository
 from ..services.configuration_service import ConfigurationService
 from ..utils.log import logger
@@ -61,29 +60,12 @@ class ModelSyncResult:
 class AnnotatorLibraryProtocol(Protocol):
     """アノテーターライブラリのプロトコル定義（DI用）
 
-    Issue #225: 型安全 API への migration 完了。
     `AnnotatorLibraryAdapter` または `MockAnnotatorLibrary` が実装する。
     """
 
     def list_annotator_info(self) -> list[AnnotatorInfo]:
         """利用可能アノテーターの型安全メタデータ一覧を返す"""
         ...
-
-    def get_model_extras(self, name: str) -> AnnotatorExtras:
-        """指定モデルの追加メタデータ (config_registry 由来) を返す"""
-        ...
-
-
-def _empty_extras() -> AnnotatorExtras:
-    """全フィールド None の `AnnotatorExtras` を返す。"""
-    return AnnotatorExtras(
-        provider=None,
-        class_name=None,
-        api_model_id=None,
-        estimated_size_gb=None,
-        discontinued_at=None,
-        max_output_tokens=None,
-    )
 
 
 class MockAnnotatorLibrary:
@@ -100,6 +82,9 @@ class MockAnnotatorLibrary:
             is_local=False,
             is_api=True,
             device=None,
+            provider="openai",
+            api_model_id="gpt-4o",
+            max_output_tokens=1800,
         ),
         AnnotatorInfo(
             name="claude-3-5-sonnet",
@@ -108,6 +93,9 @@ class MockAnnotatorLibrary:
             is_local=False,
             is_api=True,
             device=None,
+            provider="anthropic",
+            api_model_id="claude-3-5-sonnet-20241022",
+            max_output_tokens=1800,
         ),
         AnnotatorInfo(
             name="gemini-1.5-pro",
@@ -116,6 +104,9 @@ class MockAnnotatorLibrary:
             is_local=False,
             is_api=True,
             device=None,
+            provider="google",
+            api_model_id="gemini-1.5-pro",
+            max_output_tokens=1800,
         ),
         AnnotatorInfo(
             name="wd-v1-4-swinv2-tagger",
@@ -124,6 +115,8 @@ class MockAnnotatorLibrary:
             is_local=True,
             is_api=False,
             device="cuda",
+            provider="local",
+            estimated_size_gb=1.2,
         ),
         AnnotatorInfo(
             name="aesthetic-predictor",
@@ -132,61 +125,15 @@ class MockAnnotatorLibrary:
             is_local=True,
             is_api=False,
             device="cuda",
+            provider="local",
+            estimated_size_gb=0.8,
         ),
     )
-
-    _EXTRAS: ClassVar[dict[str, AnnotatorExtras]] = {
-        "gpt-4o": AnnotatorExtras(
-            provider="openai",
-            class_name="PydanticAIWebAPIAnnotator",
-            api_model_id="gpt-4o",
-            estimated_size_gb=None,
-            discontinued_at=None,
-            max_output_tokens=1800,
-        ),
-        "claude-3-5-sonnet": AnnotatorExtras(
-            provider="anthropic",
-            class_name="PydanticAIWebAPIAnnotator",
-            api_model_id="claude-3-5-sonnet-20241022",
-            estimated_size_gb=None,
-            discontinued_at=None,
-            max_output_tokens=1800,
-        ),
-        "gemini-1.5-pro": AnnotatorExtras(
-            provider="google",
-            class_name="PydanticAIWebAPIAnnotator",
-            api_model_id="gemini-1.5-pro",
-            estimated_size_gb=None,
-            discontinued_at=None,
-            max_output_tokens=1800,
-        ),
-        "wd-v1-4-swinv2-tagger": AnnotatorExtras(
-            provider=None,
-            class_name="WDTagger",
-            api_model_id=None,
-            estimated_size_gb=1.2,
-            discontinued_at=None,
-            max_output_tokens=None,
-        ),
-        "aesthetic-predictor": AnnotatorExtras(
-            provider=None,
-            class_name="AestheticPredictor",
-            api_model_id=None,
-            estimated_size_gb=0.8,
-            discontinued_at=None,
-            max_output_tokens=None,
-        ),
-    }
 
     def list_annotator_info(self) -> list[AnnotatorInfo]:
         """モックの AnnotatorInfo 一覧"""
         logger.debug("モックライブラリから AnnotatorInfo 一覧を取得")
         return list(self._MODELS)
-
-    def get_model_extras(self, name: str) -> AnnotatorExtras:
-        """モックの extras (未登録モデルは全 None)"""
-        logger.debug(f"モックライブラリから {name} の extras を取得")
-        return self._EXTRAS.get(name, _empty_extras())
 
 
 class ModelSyncService:
@@ -298,25 +245,24 @@ class ModelSyncService:
 
             models_metadata: list[ModelMetadata] = []
             for info in infos:
-                extras = self.annotator_library.get_model_extras(info.name)
                 db_model_types = self._map_library_model_type_to_db(info)
 
-                # API モデルで provider 不明 (config_registry 未登録の PydanticAI 直接モデル等)
-                # は "unknown" にフォールバック。ローカルモデルは provider=None のままにし
+                # API モデルで provider 不明 (PydanticAI 直接モデル等) は "unknown" に
+                # フォールバック。ローカルモデルは provider=None のままにし
                 # 既存の「provider=None → local」解釈 (model_selection_service の
                 # exclude_local / "provider or 'local'") を維持する。
-                provider = extras.provider or ("unknown" if info.is_api else None)
+                provider = info.provider or ("unknown" if info.is_api else None)
 
                 metadata: ModelMetadata = {
                     "name": info.name,
                     "provider": provider,
-                    "class_name": extras.class_name,
-                    "api_model_id": extras.api_model_id,
+                    "class_name": None,
+                    "api_model_id": info.api_model_id,
                     "model_type": info.model_type,
                     "model_types": db_model_types,
-                    "estimated_size_gb": extras.estimated_size_gb,
+                    "estimated_size_gb": info.estimated_size_gb,
                     "requires_api_key": info.is_api,
-                    "discontinued_at": extras.discontinued_at,
+                    "discontinued_at": info.discontinued_at,
                 }
                 models_metadata.append(metadata)
 
