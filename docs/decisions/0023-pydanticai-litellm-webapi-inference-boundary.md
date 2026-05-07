@@ -381,6 +381,35 @@ resolved_at IS NULL
 - running loop を検出した場合は thread fallback せず、async API 利用を促す明示エラーを返す
 - 将来問題が出た場合は、呼び出し側の async 化または worker 実行方式を別 issue で調整する
 
+#### サポート対象実行環境とスコープ
+
+`image-annotator-lib` は **LoRAIro 専用 submodule** として運用される前提で設計されている。
+LoRAIro は WebAPI annotation を Qt worker (`QRunnable` on `QThreadPool`,
+`src/lorairo/gui/workers/`) で実行し、Qt event loop は asyncio とは別系統のため
+worker thread には running asyncio loop が存在しない。本 ADR の sync wrapper は
+この想定のもと `asyncio.run()` 経由で動作する。
+
+サポート対象の実行環境:
+
+- LoRAIro の Qt worker (`QRunnable` / `QThreadPool`)
+- 通常の Python CLI / script (`python -m image_annotator_lib...`)
+- pytest 同期テスト (asyncio loop なし)
+
+サポート対象外の実行環境:
+
+- Jupyter notebook / IPython kernel (kernel が asyncio loop を保持する)
+- FastAPI handler / asyncio web framework の handler 内
+- 既に `asyncio.run()` 内の任意の async コンテキスト
+
+これらの環境で `image_annotator_lib.annotate()` を呼ぶと sync wrapper の running
+loop 検出ロジックにより `InferenceError` が raise される。本ライブラリを直接利用する
+外部コードがこの制約を超える要件を持った場合は、別 issue で公開 `annotate_async()` の
+追加または `nest_asyncio` 等の代替を再評価する。
+
+[Codex review on PR #38](https://github.com/NEXTAltair/image-annotator-lib/pull/38#discussion_r3204194306)
+で同問題が指摘されたが、上記の実行環境スコープに基づき現状の `InferenceError`
+fail-fast を維持する判断とした。
+
 ### 実行経路 (確定版)
 
 1. LiteLLM 同梱 DB を起動時に読み、`SUPPORTED_PROVIDERS` と capability で filter して registry を構築
