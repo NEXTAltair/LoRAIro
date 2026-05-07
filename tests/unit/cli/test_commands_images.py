@@ -526,3 +526,33 @@ def test_images_register_no_directory_arg() -> None:
     result = runner.invoke(app, ["images", "register", "--project", "test"])
 
     assert result.exit_code == 2  # 必須引数欠落
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_images_register_single_file_success(mock_projects_dir: Path, tmp_path: Path) -> None:
+    """Test: images register - 単一ファイルパスで登録が成功する。"""
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    img = Image.new("RGB", (100, 100), color=(100, 100, 100))
+    img_path = tmp_path / "test.jpg"
+    img.save(img_path)
+
+    result = runner.invoke(app, ["images", "register", str(img_path), "--project", "test-project"])
+
+    assert result.exit_code == 0
+    assert "Registration Summary" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_images_register_unsupported_file_format(mock_projects_dir: Path, tmp_path: Path) -> None:
+    """Test: images register - サポート外形式のファイルはエラー。"""
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    txt_path = tmp_path / "test.txt"
+    txt_path.write_text("not an image")
+
+    result = runner.invoke(app, ["images", "register", str(txt_path), "--project", "test-project"])
+
+    assert result.exit_code == 1

@@ -107,9 +107,9 @@ def _print_update_summary(
 
 @app.command("register")
 def register(
-    directory: str = typer.Argument(
+    path: str = typer.Argument(
         ...,
-        help="Image directory path",
+        help="Image file or directory path",
     ),
     project: str = typer.Option(
         ...,
@@ -123,21 +123,21 @@ def register(
         help="Skip duplicate images (detected by pHash)",
     ),
 ) -> None:
-    """Register images from directory to project.
+    """Register images from file or directory to project.
 
-    画像ディレクトリからプロジェクトへ画像を登録します。
+    画像ファイルまたはディレクトリからプロジェクトへ画像を登録します。
     pHashを計算して重複検出を行います。
     """
     try:
-        dir_path = Path(directory).resolve()
+        input_path = Path(path).resolve()
 
-        # ディレクトリ存在確認
-        if not dir_path.exists():
-            console.print(f"[red]Error:[/red] Directory not found: {directory}")
+        # パス存在確認
+        if not input_path.exists():
+            console.print(f"[red]Error:[/red] Path not found: {path}")
             raise typer.Exit(code=1)
 
-        if not dir_path.is_dir():
-            console.print(f"[red]Error:[/red] Not a directory: {directory}")
+        if not input_path.is_file() and not input_path.is_dir():
+            console.print(f"[red]Error:[/red] Not a file or directory: {path}")
             raise typer.Exit(code=1)
 
         # プロジェクト存在確認 & DB 接続切り替え
@@ -150,10 +150,10 @@ def register(
         get_service_container().set_active_project(project)
 
         # API層経由で画像登録（プロジェクトコンテキスト付き）
-        result = api_register_images(dir_path, skip_duplicates, project_name=project)
+        result = api_register_images(input_path, skip_duplicates, project_name=project)
 
         if result.total == 0:
-            console.print(f"[yellow]Warning:[/yellow] No image files found in {directory}")
+            console.print(f"[yellow]Warning:[/yellow] No image files found in {path}")
             raise typer.Exit(code=0)
 
         _print_registration_summary(result, project)

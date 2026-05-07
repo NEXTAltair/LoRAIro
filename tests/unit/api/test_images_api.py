@@ -118,6 +118,26 @@ class TestRegisterImages:
         result = register_images(d)
         assert result.total >= 3
 
+    def test_single_file_registration(self, tmp_path: Path) -> None:
+        """単一ファイルパスで登録が成功する。"""
+        img = Image.new("RGB", (100, 100), color=(100, 100, 100))
+        img_path = tmp_path / "test.jpg"
+        img.save(img_path)
+
+        result = register_images(img_path)
+
+        assert result.total == 1
+        assert result.successful == 1
+        assert result.failed == 0
+
+    def test_single_file_unsupported_format_raises_error(self, tmp_path: Path) -> None:
+        """サポート外形式の単一ファイルはImageRegistrationError。"""
+        txt_file = tmp_path / "test.txt"
+        txt_file.write_text("not an image")
+
+        with pytest.raises(ImageRegistrationError):
+            register_images(txt_file)
+
 
 @pytest.mark.unit
 @pytest.mark.usefixtures("_reset_service_container")
