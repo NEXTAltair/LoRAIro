@@ -105,19 +105,20 @@ class AnnotatorLibraryAdapter:
             estimated_size_gb=info.estimated_size_gb,
         )
 
-    def refresh_available_models(self, force_refresh: bool = True) -> list[str]:
-        """WebAPIモデル一覧を強制更新し、利用可能なモデルIDを返す。"""
-        try:
-            logger.info("image-annotator-libモデル一覧の手動更新を開始")
-            result = discover_available_vision_models(force_refresh=force_refresh)
-            if "error" in result:
-                raise RuntimeError(result["error"])
+    def refresh_available_models(self) -> list[str]:
+        """WebAPIモデル一覧を取得し、利用可能なモデルIDを返す。
 
+        ADR 0023 Phase 1 で `force_refresh` 引数は廃止された。LiteLLM 同梱 DB を
+        runtime SSoT として直接参照するため、refresh 概念が消失している。
+        """
+        try:
+            logger.info("image-annotator-libモデル一覧の取得を開始")
+            result = discover_available_vision_models()
             models = cast(list[str], result.get("models", []))
-            logger.info(f"image-annotator-libモデル一覧更新完了: {len(models)}件")
+            logger.info(f"image-annotator-libモデル一覧取得完了: {len(models)}件")
             return models
         except Exception:
-            logger.error("image-annotator-libモデル一覧更新エラー", exc_info=True)
+            logger.error("image-annotator-libモデル一覧取得エラー", exc_info=True)
             raise
 
     def list_available_models(self, include_deprecated: bool = False) -> list[str]:

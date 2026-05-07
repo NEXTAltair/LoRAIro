@@ -59,7 +59,7 @@ def test_models_refresh_updates_registry(mock_get_container) -> None:
     result = runner.invoke(app, ["models", "refresh"])
 
     assert result.exit_code == 0
-    mock_container.annotator_library.refresh_available_models.assert_called_once_with(force_refresh=True)
+    mock_container.annotator_library.refresh_available_models.assert_called_once_with()
     mock_container.model_sync_service.sync_available_models.assert_called_once()
     assert "Model registry refreshed" in result.stdout
 

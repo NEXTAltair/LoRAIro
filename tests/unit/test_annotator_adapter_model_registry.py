@@ -38,24 +38,29 @@ def test_refresh_available_models_returns_discovered_models() -> None:
 
     with patch(
         "lorairo.annotations.annotator_adapter.discover_available_vision_models",
-        return_value={"models": ["openai/gpt-4.1-mini"], "toml_data": {}},
+        return_value={"models": ["openai/gpt-4.1-mini"], "metadata": {}},
     ) as mock_discover:
-        result = adapter.refresh_available_models(force_refresh=True)
+        result = adapter.refresh_available_models()
 
     assert result == ["openai/gpt-4.1-mini"]
-    mock_discover.assert_called_once_with(force_refresh=True)
+    mock_discover.assert_called_once_with()
 
 
 @pytest.mark.unit
 def test_refresh_available_models_raises_on_discovery_error() -> None:
+    """ADR 0023 Phase 1: 旧 API の `{"error": ...}` 戻り値経路は廃止された。
+
+    新 `discover_available_vision_models()` は例外を内部で catch せず raise するため、
+    adapter の `except Exception:` で受け再 raise されることを検証する。
+    """
     adapter = AnnotatorLibraryAdapter(MagicMock())
 
     with patch(
         "lorairo.annotations.annotator_adapter.discover_available_vision_models",
-        return_value={"error": "network unavailable"},
+        side_effect=RuntimeError("network unavailable"),
     ):
         with pytest.raises(RuntimeError, match="network unavailable"):
-            adapter.refresh_available_models(force_refresh=True)
+            adapter.refresh_available_models()
 
 
 @pytest.mark.unit
