@@ -43,14 +43,14 @@ class ImageRegistrationService:
 
     def register_images(
         self,
-        directory: Path,
+        source: Path,
         skip_duplicates: bool = True,
         project_dir: Path | None = None,
     ) -> RegistrationResult:
-        """ディレクトリから画像を登録。
+        """ファイルまたはディレクトリから画像を登録。
 
         Args:
-            directory: 画像ファイルのソースディレクトリ。
+            source: 画像ファイルまたはソースディレクトリのパス。
             skip_duplicates: 重複画像をスキップするか。
             project_dir: プロジェクトディレクトリ。指定時は
                         image_dataset/original_images/ にコピー。
@@ -59,13 +59,14 @@ class ImageRegistrationService:
             RegistrationResult: 登録結果。
 
         Raises:
-            ImageRegistrationError: ディレクトリが見つからない場合。
+            ImageRegistrationError: パスが見つからない、または非対応形式の場合。
         """
-        if not directory.exists():
-            raise ImageRegistrationError(f"ディレクトリが見つかりません: {directory}", 0)
+        if not source.exists():
+            raise ImageRegistrationError(f"パスが見つかりません: {source}", 0)
+        if source.is_file() and source.suffix not in self.SUPPORTED_EXTENSIONS:
+            raise ImageRegistrationError(f"サポートされていない画像形式: {source}", 0)
 
-        if not directory.is_dir():
-            raise ImageRegistrationError(f"ディレクトリではありません: {directory}", 0)
+        image_files = self.get_image_files(source)
 
         # プロジェクトの画像格納先を準備
         dest_dir: Path | None = None
@@ -73,8 +74,6 @@ class ImageRegistrationService:
             dest_dir = project_dir / "image_dataset" / "original_images"
             dest_dir.mkdir(parents=True, exist_ok=True)
 
-        # 画像ファイルをスキャン
-        image_files = self._get_image_files(directory)
         logger.info(f"スキャン完了: {len(image_files)}個の画像ファイル")
 
         # 登録処理
@@ -176,16 +175,20 @@ class ImageRegistrationService:
 
         return duplicates
 
-    def get_image_files(self, directory: Path) -> list[Path]:
-        """ディレクトリから画像ファイルを取得（公開API）。
+    def get_image_files(self, source: Path) -> list[Path]:
+        """ファイルまたはディレクトリから画像ファイルを取得（公開API）。
 
         Args:
-            directory: 検索対象ディレクトリ。
+            source: 画像ファイルまたは検索対象ディレクトリ。
 
         Returns:
             list[Path]: 画像ファイルパスのリスト（ソート済み）。
         """
-        return self._get_image_files(directory)
+        if source.is_file():
+            if source.suffix in self.SUPPORTED_EXTENSIONS:
+                return [source]
+            return []
+        return self._get_image_files(source)
 
     # ==================== プライベートメソッド ====================
 

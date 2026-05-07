@@ -44,11 +44,10 @@ def register_images(
     container = ServiceContainer()
 
     if project_name:
-        # P2: register_images() と同じパスバリデーションを project ブランチにも適用
         if not directory_path.exists():
-            raise ImageRegistrationError(f"ディレクトリが見つかりません: {directory_path}", 0)
-        if not directory_path.is_dir():
-            raise ImageRegistrationError(f"ディレクトリではありません: {directory_path}", 0)
+            raise ImageRegistrationError(f"パスが見つかりません: {directory_path}", 0)
+        if not directory_path.is_file() and not directory_path.is_dir():
+            raise ImageRegistrationError(f"ファイルまたはディレクトリではありません: {directory_path}", 0)
 
         # プロジェクト指定時: プロジェクトを自己解決してから DB 登録を行う
         container.set_active_project(project_name)
@@ -57,6 +56,8 @@ def register_images(
         image_files = scan_service.get_image_files(directory_path)
 
         if not image_files:
+            if directory_path.is_file():
+                raise ImageRegistrationError(f"サポートされていない画像形式: {directory_path}", 0)
             return RegistrationResult(total=0, successful=0, failed=0, skipped=0)
 
         db_manager = container.db_manager
