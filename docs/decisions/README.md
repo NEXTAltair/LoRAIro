@@ -24,8 +24,9 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0018](0018-project-storage-unification.md) | Project Storage Unification | 2026-04-22 | Implemented |
 | [0019](0019-export-filter-required-design.md) | Export Filter Required Design | 2026-04-22 | Implemented |
 | [0020](0020-cli-message-language-policy.md) | CLI Message Language Policy | 2026-04-27 | Accepted |
-| [0021](0021-litellm-driven-model-registry.md) | LiteLLM-Driven WebAPI Model Registry | 2026-04-28 | Accepted |
+| [0021](0021-litellm-driven-model-registry.md) | LiteLLM-Driven WebAPI Model Registry | 2026-04-28 | Superseded by 0023 (partial) |
 | [0022](0022-aesthetic-score-predictor-survey.md) | Aesthetic Score Predictor Model Survey | 2025-02-06 | Accepted |
+| [0023](0023-pydanticai-litellm-webapi-inference-boundary.md) | PydanticAI / LiteLLM WebAPI Inference Boundary | 2026-05-07 | Accepted |
 
 ## ADR テンプレート
 
