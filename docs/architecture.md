@@ -135,14 +135,22 @@ graph TD
 
 ### AI Integration Architecture
 
-**Multi-Provider Support**: OpenAI, Anthropic, Google, Local ML models via `image-annotator-lib`
+**Multi-Provider Support**: OpenAI, Anthropic, Google, OpenRouter, Local ML models via `image-annotator-lib`
 
 **Key Integration**:
 - **AnnotationWorker**: Primary AI coordination
 - **image-annotator-lib**: Unified provider interface
 - **Local Models**: CLIP, DeepDanbooru, ONNX/TensorFlow support
 
-**Design decisions**: `docs/decisions/0003-annotator-config-management.md`, `docs/decisions/0004-annotator-lib-architecture.md`
+**WebAPI 推論経路の責務分離 (ADR 0023 Phase 1)**:
+- **discovery / capability metadata**: LiteLLM 同梱 DB を runtime SSoT (`available_api_models.toml` キャッシュ廃止)
+- **推論実行 / multimodal input / structured output / output retry**: PydanticAI native provider/model
+- **LiteLLM ID と PydanticAI 実行 descriptor mapping**: `image-annotator-lib/core/model_id.py`
+- **API key 注入**: provider object への明示注入のみ (`os.environ` mutate 全廃)
+- **Agent / Provider / Model**: 推論呼び出しごとに新規作成 (キャッシュなし)
+- **対応 provider**: OpenAI / Anthropic / Google / OpenRouter (Phase 1 スコープ)
+
+**Design decisions**: `docs/decisions/0003-annotator-config-management.md`, `docs/decisions/0004-annotator-lib-architecture.md`, `docs/decisions/0023-pydanticai-litellm-webapi-inference-boundary.md`
 
 ### Storage Architecture
 

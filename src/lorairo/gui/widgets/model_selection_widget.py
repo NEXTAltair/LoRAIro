@@ -50,7 +50,7 @@ if not __name__ == "__main__":
         def run(self) -> None:
             try:
                 service_container = get_service_container()
-                models = service_container.annotator_library.refresh_available_models(force_refresh=True)
+                models = service_container.annotator_library.refresh_available_models()
                 sync_result = service_container.model_sync_service.sync_available_models()
 
                 if sync_result.errors:

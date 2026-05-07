@@ -71,7 +71,7 @@ _ial_mock.config_registry = unittest.mock.MagicMock()
 _ial_mock.config_registry.get = unittest.mock.MagicMock(side_effect=lambda name, key, default=None: default)
 _ial_mock.init_logger = unittest.mock.MagicMock()
 _ial_mock.discover_available_vision_models = unittest.mock.MagicMock(
-    return_value={"models": [], "toml_data": {}}
+    return_value={"models": [], "metadata": {}}
 )
 _ial_mock.list_all_models = unittest.mock.MagicMock(return_value=[])
 _ial_mock.is_model_deprecated = unittest.mock.MagicMock(return_value=False)

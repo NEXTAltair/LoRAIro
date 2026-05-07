@@ -48,7 +48,7 @@ def refresh(
         if project is not None:
             container.set_active_project(project)
         console.print("[cyan]Refreshing model registry...[/cyan]")
-        models = container.annotator_library.refresh_available_models(force_refresh=True)
+        models = container.annotator_library.refresh_available_models()
         sync_result = container.model_sync_service.sync_available_models()
 
         if sync_result.errors:
