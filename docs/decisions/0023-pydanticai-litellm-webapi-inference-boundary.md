@@ -424,6 +424,49 @@ fail-fast を維持する判断とした。
 8. `result.output` (`AnnotationSchema` 検証済) を `core/result_adapter.py:to_annotation_result()` で
    `AnnotationResult` に変換
 
+### Phase 1.x: WebAPI 経路の device 判定責務分離 (Issue #35)
+
+**契機**: ADR 0023 Phase 1 (Issue #36, PR #38) で `WebApiAnnotator` が新設され、WebAPI
+推論経路は構造的にこのクラスに集約されたが、以下 2 つの設計負債が残った。
+
+1. registry が登録するのは `PydanticAIWebAPIAnnotator` (旧クラス) で、`annotation_runner._create_annotator_instance()` が `WebApiAnnotator` に置換するという
+   「片付けない」パターン。`_is_webapi_annotator_class` は class 名文字列リストでの照合という fragile 実装。
+2. `BaseAnnotator.__init__` が `_validate_device` 経由で `determine_effective_device` を呼ぶ
+   構造のため、将来 WebAPI 系クラスが `super().__init__()` を呼ぶと CUDA 判定が走り、
+   CPU-only 環境で「CUDA非対応PyTorch」WARNING が出る問題が再発する余地がある (Issue #35)。
+
+**Phase 1.x の決定**: 階層整理 + デッドコード掃除を行う。
+
+- `BaseAnnotator.__init__` から `_validate_device` 呼び出しを削除し、ローカル ML 系 base
+  class (`TransformersBaseAnnotator` / `ONNXBaseAnnotator` / `TensorflowBaseAnnotator` /
+  `ClipBaseAnnotator` / `PipelineBaseAnnotator`) の `__init__` で個別に `determine_effective_device` を呼ぶ責務に移譲する。
+- `BaseAnnotator.device` の型は `str` を維持し、空文字 (`""`) を「サブクラス未上書き」の
+  sentinel とする。
+- registry が `WebApiAnnotator` を直接登録するように `_register_webapi_models_from_discovery()` を更新。
+- `annotation_runner._is_webapi_annotator_class()` を `issubclass(cls, WebApiAnnotator)` 判定にシンプル化。
+- `api.py:list_annotator_info()` の class 名照合も `issubclass(model_class, WebApiAnnotator)` に置換。
+- 削除する死コード:
+  - `core/base/pydantic_ai_annotator.py` (`PydanticAIWebAPIAnnotator`)
+  - `core/base/webapi.py` (`WebApiBaseAnnotator`)
+  - `core/base/webapi_common.py`
+  - `model_class/annotator_webapi/{anthropic_api,google_api,openai_api_chat,openai_api_response,pydantic_ai_unified}.py`
+  - `model_class/pydantic_ai_webapi_annotator.py`
+  - `core/model_factory_adapters/` (旧 SDK adapter helpers)
+
+**結果**: WebAPI 推論経路は `BaseAnnotator → WebApiAnnotator` 一直線になり、device 判定は
+ローカル ML 系 base class でのみ走る。Issue #35 (CPU-only 環境の WARNING) は構造的に
+解消される。
+
+**実機検証** (PR-A baseline / post-fix 比較で確認済):
+
+- baseline (PR #38 マージ後 commit `a9861bd`): `gemini-2.0-flash-lite` 実行時に
+  `determine_effective_device` の WARNING は **既に出ない** (Phase 1 での `WebApiAnnotator`
+  への切替が `BaseAnnotator.__init__` を skip していたため)。
+- post-fix (Phase 1.x マージ後): WARNING が出ないことを構造的に保証する regression test
+  (`tests/unit/core/test_webapi_annotator.py`) を追加。`BaseAnnotator.__init__` 自体からも
+  device 判定が削除されたため、将来 WebAPI 系クラスが `super().__init__()` を呼んでも
+  WARNING は発生しなくなる。
+
 ### LiteLLMProvider / LiteLLM SDK 推論の扱い
 
 PydanticAI の `LiteLLMProvider` または LiteLLM SDK 直接推論は、通常の直接 API 実行経路では
