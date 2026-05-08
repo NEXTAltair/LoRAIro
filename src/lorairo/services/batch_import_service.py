@@ -305,7 +305,7 @@ class BatchImportService:
             name=model_name,
             provider="openai",
             model_types=["multimodal", "caption", "tags"],
-            api_model_id=model_name,
+            litellm_model_id=model_name,
             requires_api_key=True,
         )
 

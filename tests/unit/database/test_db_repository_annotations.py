@@ -438,7 +438,7 @@ class TestApplySimpleFieldUpdates:
         """値が異なるフィールドのみ更新される。"""
         model = Mock()
         model.provider = "old_provider"
-        model.api_model_id = "old-id"
+        model.litellm_model_id = "old-id"
         model.estimated_size_gb = None
         model.requires_api_key = None
         model.discontinued_at = None

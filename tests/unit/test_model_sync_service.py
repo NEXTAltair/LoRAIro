@@ -40,7 +40,7 @@ class TestModelMetadata:
             "name": "gpt-4o",
             "provider": "openai",
             "class_name": "PydanticAIWebAPIAnnotator",
-            "api_model_id": "gpt-4o",
+            "litellm_model_id": "gpt-4o",
             "model_type": "vision",
             "model_types": ["llm", "captioner"],
             "estimated_size_gb": None,
@@ -115,12 +115,12 @@ class TestMockAnnotatorLibrary:
         assert "scorer" in types  # Issue #19 P1 fix で "score" → "scorer"
 
     def test_mock_annotator_info_has_provider_field(self):
-        """MockAnnotatorLibrary の AnnotatorInfo には provider / api_model_id が設定されている (Phase 2)"""
+        """MockAnnotatorLibrary の AnnotatorInfo には provider / litellm_model_id が設定されている (Phase 2)"""
         mock_lib = MockAnnotatorLibrary()
         infos = {info.name: info for info in mock_lib.list_annotator_info()}
 
         assert infos["gpt-4o"].provider == "openai"
-        assert infos["gpt-4o"].api_model_id == "gpt-4o"
+        assert infos["gpt-4o"].litellm_model_id == "gpt-4o"
         assert infos["claude-3-5-sonnet"].provider == "anthropic"
         assert infos["gemini-1.5-pro"].provider == "google"
         assert infos["wd-v1-4-swinv2-tagger"].provider == "local"
@@ -254,7 +254,7 @@ class TestModelSyncServiceWithRealDB:
                 "name": "test-model-new-1",
                 "provider": "openai",
                 "class_name": "TestAnnotator",
-                "api_model_id": "test-1",
+                "litellm_model_id": "test-1",
                 "model_type": "vision",
                 "model_types": ["llm", "captioner"],
                 "estimated_size_gb": None,
@@ -265,7 +265,7 @@ class TestModelSyncServiceWithRealDB:
                 "name": "test-model-new-2",
                 "provider": None,
                 "class_name": "LocalTagger",
-                "api_model_id": None,
+                "litellm_model_id": None,
                 "model_type": "tagger",
                 "model_types": ["tagger"],
                 "estimated_size_gb": 1.5,
@@ -298,7 +298,7 @@ class TestModelSyncServiceWithRealDB:
                 "name": "discontinued-model",
                 "provider": "openai",
                 "class_name": "DiscontinuedAnnotator",
-                "api_model_id": "discontinued-1",
+                "litellm_model_id": "discontinued-1",
                 "model_type": "vision",
                 "model_types": ["captioner"],
                 "estimated_size_gb": None,
@@ -326,7 +326,7 @@ class TestModelSyncServiceWithRealDB:
                 "name": "existing-model-test",
                 "provider": "openai",
                 "class_name": "TestAnnotator",
-                "api_model_id": "existing",
+                "litellm_model_id": "existing",
                 "model_type": "vision",
                 "model_types": ["llm"],
                 "estimated_size_gb": None,
@@ -349,7 +349,7 @@ class TestModelSyncServiceWithRealDB:
                 "name": "update-test-model",
                 "provider": "openai",
                 "class_name": "UpdatedAnnotator",
-                "api_model_id": "updated",
+                "litellm_model_id": "updated",
                 "model_type": "vision",
                 "model_types": ["llm", "captioner"],
                 "estimated_size_gb": 2.5,
@@ -378,7 +378,7 @@ class TestModelSyncServiceWithRealDB:
                 "name": "no-change-model",
                 "provider": "openai",
                 "class_name": "TestAnnotator",
-                "api_model_id": None,
+                "litellm_model_id": None,
                 "model_type": "vision",
                 "model_types": ["llm"],
                 "estimated_size_gb": 1.0,
@@ -402,7 +402,7 @@ class TestModelSyncServiceWithRealDB:
                 "name": "to-be-discontinued",
                 "provider": "openai",
                 "class_name": "DiscontinuedAnnotator",
-                "api_model_id": "discontinued",
+                "litellm_model_id": "discontinued",
                 "model_type": "vision",
                 "model_types": ["captioner"],
                 "estimated_size_gb": None,
@@ -502,7 +502,7 @@ class TestModelSyncServiceEdgeCases:
                 "name": "",  # 空の名前
                 "provider": "openai",
                 "class_name": "TestAnnotator",
-                "api_model_id": None,
+                "litellm_model_id": None,
                 "model_type": "unknown",
                 "model_types": ["captioner"],
                 "estimated_size_gb": -1.0,

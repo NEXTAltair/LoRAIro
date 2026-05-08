@@ -199,7 +199,7 @@ class TestBatchImportServiceSingleFile:
             name="gpt-4-turbo-2024-04-09",
             provider="openai",
             model_types=["multimodal", "caption", "tags"],
-            api_model_id="gpt-4-turbo-2024-04-09",
+            litellm_model_id="gpt-4-turbo-2024-04-09",
             requires_api_key=True,
         )
 
