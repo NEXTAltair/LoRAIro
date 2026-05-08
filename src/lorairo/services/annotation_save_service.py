@@ -104,15 +104,84 @@ class AnnotationSaveService:
                 }
             )
 
+    # ADR 0023 Phase 1.5 (Issue #42): image-annotator-lib 側で refusal を検出した
+    # 場合、UnifiedAnnotationResult.error は f"{type(refusal_exc).__name__}: {msg}"
+    # 形式の文字列で乗ってくる。LoRAIro 側はこの prefix を string match で decode
+    # して error_records に記録する (型 import せず文字列 prefix のみで疎結合に保つ)。
+    _REFUSAL_ERROR_PREFIXES: tuple[str, ...] = (
+        "SafetyRefusalError:",
+        "ContentPolicyRefusalError:",
+    )
+
+    @classmethod
+    def _detect_refusal_error_type(cls, error: Any) -> str | None:
+        """`UnifiedAnnotationResult.error` から refusal exception type 名を抽出する。
+
+        ADR 0023 Phase 1.5: image-annotator-lib 側 `_classify_refusal()` が
+        `f"{type(refusal_exc).__name__}: {refusal_exc}"` 形式で error 文字列を
+        構築するため、prefix を startswith で判定して error_type を切り出す。
+
+        Args:
+            error: `UnifiedAnnotationResult.error` の値 (str | None | 他)。
+
+        Returns:
+            "SafetyRefusalError" / "ContentPolicyRefusalError"、または非 refusal なら None。
+        """
+        if not isinstance(error, str):
+            return None
+        for prefix in cls._REFUSAL_ERROR_PREFIXES:
+            if error.startswith(prefix):
+                # prefix は ":" を含むため strip して error_type 名のみ返す
+                return prefix.rstrip(":")
+        return None
+
     def _process_model_result(
         self,
         model_name: str,
         unified_result: Any,
         models_cache: dict[str, Any],
         result: AnnotationsDict,
+        image_id: int | None = None,
     ) -> None:
-        """1モデル分のアノテーション結果をAnnotationsDictに追記する。"""
-        if self._extract_field(unified_result, "error"):
+        """1モデル分のアノテーション結果をAnnotationsDictに追記する。
+
+        ADR 0023 Phase 1.5 (Issue #42): error が SafetyRefusalError /
+        ContentPolicyRefusalError の prefix を持つ場合、`error_records` に記録
+        してから skip する。`image_id is None` の場合は記録できないため warning
+        のみ出して skip する。
+
+        Args:
+            model_name: アノテーションを行ったモデル名。
+            unified_result: image-annotator-lib から返された UnifiedAnnotationResult。
+            models_cache: model_name → Model の事前取得キャッシュ。
+            result: 追記先の AnnotationsDict。
+            image_id: 対象画像 ID。refusal を error_records に記録する際に必要。
+        """
+        error = self._extract_field(unified_result, "error")
+        if error:
+            refusal_type = self._detect_refusal_error_type(error)
+            if refusal_type is not None:
+                # ADR 0023 line 347-372: refusal は retry せず error_records に
+                # 記録 → 送信前 filter で除外。
+                error_message = error.split(":", 1)[1].strip() if ":" in error else ""
+                if image_id is not None:
+                    self._repository.save_error_record(
+                        operation_type="annotation",
+                        error_type=refusal_type,
+                        error_message=error_message,
+                        image_id=image_id,
+                        model_name=model_name,
+                    )
+                    logger.warning(
+                        f"Refusal recorded to error_records: model={model_name}, "
+                        f"image_id={image_id}, type={refusal_type}"
+                    )
+                else:
+                    logger.warning(
+                        f"Refusal detected but image_id missing, cannot persist: "
+                        f"model={model_name}, type={refusal_type}"
+                    )
+                return
             logger.warning(f"モデル {model_name} エラーをスキップ")
             return
 
@@ -134,19 +203,21 @@ class AnnotationSaveService:
         self,
         phash_annotations: dict[str, Any],
         models_cache: dict[str, Any],
+        image_id: int | None = None,
     ) -> AnnotationsDict:
         """1画像分のアノテーション結果をAnnotationsDictに変換する。
 
         Args:
             phash_annotations: model_name → UnifiedAnnotationResult のマッピング。
             models_cache: model_name → Model の事前取得キャッシュ。
+            image_id: 対象画像 ID。refusal を error_records に記録する際に必要。
 
         Returns:
             DB保存用のAnnotationsDict。
         """
         result: AnnotationsDict = {"scores": [], "tags": [], "captions": [], "ratings": []}
         for model_name, unified_result in phash_annotations.items():
-            self._process_model_result(model_name, unified_result, models_cache, result)
+            self._process_model_result(model_name, unified_result, models_cache, result, image_id=image_id)
         return result
 
     def _collect_names_and_tags(self, results: Any) -> tuple[set[str], set[str]]:
@@ -220,7 +291,7 @@ class AnnotationSaveService:
             logger.warning(f"pHash {phash[:8]}... に対応する画像がDBに見つかりません。スキップします。")
             return False
 
-        annotations_dict = self._build_annotations_dict(phash_annotations, models_cache)
+        annotations_dict = self._build_annotations_dict(phash_annotations, models_cache, image_id=image_id)
 
         if not annotations_dict or not any(annotations_dict.values()):
             logger.debug(f"画像ID {image_id} に保存するアノテーションがありません")
@@ -290,3 +361,58 @@ class AnnotationSaveService:
             total_count=total_count,
             error_details=error_details,
         )
+
+    # ADR 0023 Phase 1.5 (Issue #42): WebAPI annotation 対象から、過去に refusal
+    # を返した画像を除外するための送信前 filter。AnnotationWorker 等の caller が
+    # image_paths を構築した直後に呼ぶことで、無駄な API 課金 + refusal ループを防ぐ。
+    REFUSAL_ERROR_TYPES: tuple[str, ...] = (
+        "SafetyRefusalError",
+        "ContentPolicyRefusalError",
+    )
+
+    def filter_refused_image_paths(self, image_paths: list[str]) -> list[str]:
+        """過去に safety/content refusal を返した画像 path を除外する。
+
+        ADR 0023 line 363-369 の送信前 filter:
+            operation_type = "annotation"
+            error_type in {"SafetyRefusalError", "ContentPolicyRefusalError"}
+            resolved_at IS NULL
+
+        を満たす image_id 集合を取得し、対応する image_path を除外する。
+        path → image_id の解決には `_repository.get_image_id_by_filepath()` を使う。
+        DB に未登録の画像 path は filter 対象外として通過させる (新規画像扱い)。
+
+        Args:
+            image_paths: アノテーション対象候補の画像 path リスト。
+
+        Returns:
+            refusal 履歴を持たない image_path のサブリスト (順序維持)。
+        """
+        if not image_paths:
+            return []
+
+        refused_image_ids = set(
+            self._repository.get_error_image_ids(
+                operation_type="annotation",
+                resolved=False,
+                error_types=list(self.REFUSAL_ERROR_TYPES),
+            )
+        )
+        if not refused_image_ids:
+            return list(image_paths)
+
+        filtered: list[str] = []
+        excluded_count = 0
+        for path in image_paths:
+            image_id = self._repository.get_image_id_by_filepath(path)
+            if image_id is not None and image_id in refused_image_ids:
+                excluded_count += 1
+                continue
+            filtered.append(path)
+
+        if excluded_count > 0:
+            logger.info(
+                f"WebAPI annotation 送信前 filter: 対象 {len(filtered)}件 "
+                f"(refusal 除外: {excluded_count}件)"
+            )
+        return filtered

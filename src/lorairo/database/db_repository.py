@@ -3196,13 +3196,21 @@ class ImageRepository:
                 logger.error(f"未解決エラー件数の取得中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
-    def get_error_image_ids(self, operation_type: str | None = None, resolved: bool = False) -> list[int]:
+    def get_error_image_ids(
+        self,
+        operation_type: str | None = None,
+        resolved: bool = False,
+        error_types: list[str] | None = None,
+    ) -> list[int]:
         """エラー画像のID一覧を取得
 
         Args:
             operation_type: 操作種別フィルタ
             resolved: True = 解決済み（resolved_at IS NOT NULL）、
                      False = 未解決（resolved_at IS NULL）
+            error_types: 特定 error_type のみに絞る (e.g.
+                ["SafetyRefusalError", "ContentPolicyRefusalError"])。
+                None = 全 type。ADR 0023 Phase 1.5 の送信前 filter で使用。
 
         Returns:
             list[int]: 画像IDリスト（重複除去済み、Noneを除外）
@@ -3220,12 +3228,15 @@ class ImageRepository:
                     query = query.where(ErrorRecord.resolved_at.is_(None))
                 if operation_type:
                     query = query.where(ErrorRecord.operation_type == operation_type)
+                if error_types:
+                    query = query.where(ErrorRecord.error_type.in_(error_types))
 
                 results = session.execute(query).scalars().all()
                 image_ids = [id for id in results if id is not None]
                 logger.debug(
                     f"エラー画像ID一覧を取得: {len(image_ids)}件 "
-                    f"(operation_type={operation_type or 'all'}, resolved={resolved})",
+                    f"(operation_type={operation_type or 'all'}, resolved={resolved}, "
+                    f"error_types={error_types or 'all'})",
                 )
                 return image_ids
             except SQLAlchemyError as e:

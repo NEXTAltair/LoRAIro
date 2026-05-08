@@ -186,11 +186,22 @@ class WorkerService(QObject):
         Returns:
             str: ワーカーID
         """
-        logger.debug(f"バッチアノテーション準備: models={models}, 画像数={len(image_paths)}")
+        # ADR 0023 Phase 1.5 (Issue #42): 過去に safety / content policy refusal
+        # を返した画像を送信前 filter で除外する。無駄な API 課金 + refusal ループ
+        # を防ぐ。filter は AnnotationSaveService に集約 (Qt-free service 層)。
+        save_service = get_service_container().annotation_save_service
+        filtered_image_paths = save_service.filter_refused_image_paths(image_paths)
+        if len(filtered_image_paths) != len(image_paths):
+            logger.info(
+                f"バッチアノテーション送信前 filter: {len(image_paths)}件 → "
+                f"{len(filtered_image_paths)}件 (refusal 除外)"
+            )
+
+        logger.debug(f"バッチアノテーション準備: models={models}, 画像数={len(filtered_image_paths)}")
 
         worker = AnnotationWorker(
             annotation_logic=self.annotation_logic,
-            image_paths=image_paths,
+            image_paths=filtered_image_paths,
             models=models,
             db_manager=self.db_manager,
             model_registry=get_service_container().model_registry,
@@ -204,7 +215,8 @@ class WorkerService(QObject):
 
         if self.worker_manager.start_worker(worker_id, worker):
             logger.info(
-                f"バッチアノテーション開始: {len(image_paths)}画像, {len(models)}モデル (ID: {worker_id})"
+                f"バッチアノテーション開始: {len(filtered_image_paths)}画像, "
+                f"{len(models)}モデル (ID: {worker_id})"
             )
             logger.debug(f"  ワーカーID={worker_id}, モデル=[{', '.join(models)}]")
             return worker_id
