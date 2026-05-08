@@ -526,3 +526,79 @@ class TestWorkerService:
 
         # WorkerManagerにキャンセルが要求されたことを確認
         worker_service.worker_manager.cancel_worker.assert_called_with("test_worker_003")
+
+
+class TestSelectionIncludesWebApiModel:
+    """`selection_includes_webapi_model()` の単体テスト。
+
+    ADR 0023 Phase 1.5 (Issue #42) / Codex P1 (PR #233 r3208397315):
+    refusal 送信前 filter は WebAPI モデル選択時のみ適用すべきという contract を
+    回帰テストで保証する。
+    """
+
+    @staticmethod
+    def _model_info(name: str, requires_api_key: bool):
+        """ModelInfo の最小 mock。"""
+        info = Mock()
+        info.name = name
+        info.requires_api_key = requires_api_key
+        return info
+
+    def _registry(self, models):
+        """ModelRegistryServiceProtocol mock with given ModelInfo entries."""
+        registry = Mock()
+        registry.get_available_models.return_value = list(models)
+        return registry
+
+    def test_returns_true_when_webapi_model_selected(self):
+        """少なくとも 1 つ requires_api_key=True のモデルが選択されていれば True。"""
+        from lorairo.gui.services.worker_service import selection_includes_webapi_model
+
+        registry = self._registry(
+            [
+                self._model_info("openai/gpt-4o", requires_api_key=True),
+                self._model_info("wd-v1-4-tagger", requires_api_key=False),
+            ]
+        )
+        assert selection_includes_webapi_model(["openai/gpt-4o"], registry) is True
+
+    def test_returns_false_when_only_local_models_selected(self):
+        """ローカルモデル単独選択時は False (Codex P1 回帰防止: filter 適用しない)。"""
+        from lorairo.gui.services.worker_service import selection_includes_webapi_model
+
+        registry = self._registry(
+            [
+                self._model_info("openai/gpt-4o", requires_api_key=True),
+                self._model_info("wd-v1-4-tagger", requires_api_key=False),
+                self._model_info("aesthetic-predictor", requires_api_key=False),
+            ]
+        )
+        assert selection_includes_webapi_model(["wd-v1-4-tagger", "aesthetic-predictor"], registry) is False
+
+    def test_returns_true_with_mixed_selection(self):
+        """ローカル + WebAPI の混在選択時は True (1 つでも WebAPI なら filter 適用)。"""
+        from lorairo.gui.services.worker_service import selection_includes_webapi_model
+
+        registry = self._registry(
+            [
+                self._model_info("openai/gpt-4o", requires_api_key=True),
+                self._model_info("wd-v1-4-tagger", requires_api_key=False),
+            ]
+        )
+        assert selection_includes_webapi_model(["wd-v1-4-tagger", "openai/gpt-4o"], registry) is True
+
+    def test_returns_false_for_unknown_model_name(self):
+        """registry に未登録のモデル名は WebAPI 扱いしない (defensive default)。"""
+        from lorairo.gui.services.worker_service import selection_includes_webapi_model
+
+        registry = self._registry([self._model_info("openai/gpt-4o", requires_api_key=True)])
+        assert selection_includes_webapi_model(["unknown-model"], registry) is False
+
+    def test_returns_false_for_empty_selection(self):
+        """空リストは False (early return、registry を引かない)。"""
+        from lorairo.gui.services.worker_service import selection_includes_webapi_model
+
+        registry = self._registry([self._model_info("openai/gpt-4o", requires_api_key=True)])
+        assert selection_includes_webapi_model([], registry) is False
+        # registry は引かれないこと (early return)
+        registry.get_available_models.assert_not_called()

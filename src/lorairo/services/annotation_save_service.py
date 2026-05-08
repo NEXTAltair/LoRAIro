@@ -373,6 +373,13 @@ class AnnotationSaveService:
     def filter_refused_image_paths(self, image_paths: list[str]) -> list[str]:
         """過去に safety/content refusal を返した画像 path を除外する。
 
+        **本 method は WebAPI 推論経路向けの filter** — SafetyRefusal /
+        ContentPolicyRefusal は cloud provider の content policy 拒否概念で、
+        ローカル ML モデル (WD-Tagger 等) はこの種の refusal を返さない。
+        したがって caller はローカルモデル単独実行時に本 filter を呼ばないこと。
+        WebAPI モデルが選択モデルに含まれているかの判定は呼び出し側 (`worker_service`)
+        で行う (`selection_includes_webapi_model()` 参照)。
+
         ADR 0023 line 363-369 の送信前 filter:
             operation_type = "annotation"
             error_type in {"SafetyRefusalError", "ContentPolicyRefusalError"}
