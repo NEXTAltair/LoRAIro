@@ -408,10 +408,15 @@ class AnnotationSaveService:
         if not refused_image_ids:
             return list(image_paths)
 
+        # ADR 0023 Phase 1.5 (Codex P2 r3209342204): N+1 回避のため、path → image_id
+        # は 1 クエリでバッチ解決する。`get_image_ids_by_filepaths()` は filename IN
+        # 句 + Python 側 resolve 比較で大量パスを sub-second で処理する。
+        path_to_image_id = self._repository.get_image_ids_by_filepaths(image_paths)
+
         filtered: list[str] = []
         excluded_count = 0
         for path in image_paths:
-            image_id = self._repository.get_image_id_by_filepath(path)
+            image_id = path_to_image_id.get(path)
             if image_id is not None and image_id in refused_image_ids:
                 excluded_count += 1
                 continue

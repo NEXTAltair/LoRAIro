@@ -12,7 +12,6 @@ from ...annotations.annotation_logic import AnnotationLogic
 from ...annotations.annotator_adapter import AnnotatorLibraryAdapter
 from ...database.db_manager import ImageDatabaseManager
 from ...services.configuration_service import ConfigurationService
-from ...services.model_registry_protocol import ModelRegistryServiceProtocol
 from ...services.search_models import SearchConditions
 from ...services.service_container import get_service_container
 from ...storage.file_system import FileSystemManager
@@ -26,31 +25,6 @@ from ..workers.database_worker import (
 )
 from ..workers.manager import WorkerManager
 from ..workers.modern_progress_manager import ModernProgressManager, create_worker_id
-
-
-def selection_includes_webapi_model(
-    model_names: list[str],
-    model_registry: ModelRegistryServiceProtocol,
-) -> bool:
-    """選択されたモデルに WebAPI モデル (`requires_api_key=True`) が含まれるか判定。
-
-    ADR 0023 Phase 1.5 (Issue #42): SafetyRefusal / ContentPolicyRefusal は
-    WebAPI 推論経路 (cloud provider の content policy 拒否) でのみ発生する概念。
-    ローカル ML モデル (WD-Tagger 等) の推論は同じ画像でも refusal を返さない
-    ため、refusal による事前 filter はローカルモデル単独実行に対して適用しない。
-
-    Args:
-        model_names: 選択されたモデル名のリスト。
-        model_registry: モデル情報を引ける Protocol 実装。
-
-    Returns:
-        bool: 1 つでも `requires_api_key=True` のモデルがあれば True。
-            registry に未登録のモデル名は WebAPI ではないと扱う (defensive default)。
-    """
-    if not model_names:
-        return False
-    available = {info.name: info for info in model_registry.get_available_models()}
-    return any((info := available.get(name)) is not None and info.requires_api_key for name in model_names)
 
 
 class WorkerService(QObject):
@@ -212,47 +186,16 @@ class WorkerService(QObject):
         Returns:
             str: ワーカーID
         """
-        # ADR 0023 Phase 1.5 (Issue #42): 過去に safety / content policy refusal
-        # を返した画像を送信前 filter で除外する。無駄な API 課金 + refusal ループ
-        # を防ぐ。**filter は WebAPI モデル選択時のみ適用** — ローカル ML モデル
-        # は refusal の概念を持たないため、ローカル単独選択時は filter しない
-        # (Codex P1 review feedback: PR #233 r3208397315)。
-        #
-        # registry lookup が失敗した場合は filter を skip して annotation を続行する
-        # (Codex P2 review feedback: PR #233 r3208793528)。registry の一時的な障害で
-        # annotation 全体を落とすのは過剰反応で、ローカルでもクラウドでも annotation
-        # は実行できる前提なので「prefilter は best-effort」扱い。
-        container = get_service_container()
-        model_registry = container.model_registry
-        try:
-            should_filter = selection_includes_webapi_model(models, model_registry)
-        except Exception as exc:
-            logger.warning(
-                f"Model registry lookup failed; refusal prefilter を skip して annotation 続行: {exc}",
-                exc_info=True,
-            )
-            should_filter = False
-
-        if should_filter:
-            save_service = container.annotation_save_service
-            filtered_image_paths = save_service.filter_refused_image_paths(image_paths)
-            if len(filtered_image_paths) != len(image_paths):
-                logger.info(
-                    f"バッチアノテーション送信前 filter: {len(image_paths)}件 → "
-                    f"{len(filtered_image_paths)}件 (refusal 除外, WebAPI モデル含む)"
-                )
-        else:
-            filtered_image_paths = list(image_paths)
-            logger.debug(
-                f"バッチアノテーション送信前 filter スキップ "
-                f"(WebAPI 不在 or registry lookup 失敗): models={models}"
-            )
-
-        logger.debug(f"バッチアノテーション準備: models={models}, 画像数={len(filtered_image_paths)}")
+        # ADR 0023 Phase 1.5 (Issue #42, Codex P2 r3209342204): refusal 送信前
+        # filter は AnnotationWorker.execute() 冒頭で実行する。GUI スレッド上
+        # で N+1 DB クエリを避け (大量画像選択時の UI freeze 防止)、Worker 内で
+        # async / 進捗シグナル経由で実行する。filter ロジック自体は Worker
+        # 内 `_apply_refusal_prefilter()` 参照。
+        logger.debug(f"バッチアノテーション準備: models={models}, 画像数={len(image_paths)}")
 
         worker = AnnotationWorker(
             annotation_logic=self.annotation_logic,
-            image_paths=filtered_image_paths,
+            image_paths=image_paths,
             models=models,
             db_manager=self.db_manager,
             model_registry=get_service_container().model_registry,
@@ -266,9 +209,10 @@ class WorkerService(QObject):
 
         if self.worker_manager.start_worker(worker_id, worker):
             logger.info(
-                f"バッチアノテーション開始: {len(filtered_image_paths)}画像, "
+                f"バッチアノテーション開始: {len(image_paths)}画像 (filter 前), "
                 f"{len(models)}モデル (ID: {worker_id})"
             )
+            logger.debug("  refusal filter は Worker 内で実行 (Codex P2 対応)")
             logger.debug(f"  ワーカーID={worker_id}, モデル=[{', '.join(models)}]")
             return worker_id
         else:

@@ -274,6 +274,66 @@ def test_filter_refused_image_paths_empty_input(
 
 
 @pytest.mark.integration
+def test_filter_uses_batch_resolve_for_path_to_image_id(
+    save_service: AnnotationSaveService,
+    repo: ImageRepository,
+    registered_image: tuple[int, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ADR 0023 Phase 1.5 Codex P2 (PR #233 r3209342204): filter は N+1 ではなく
+    バッチ解決 (`get_image_ids_by_filepaths`) を使う回帰防止。
+    """
+    image_id, file_path = registered_image
+    repo.save_error_record(
+        operation_type="annotation",
+        error_type="SafetyRefusalError",
+        error_message="blocked",
+        image_id=image_id,
+        model_name="openai/gpt-4o",
+    )
+
+    per_path_calls: list[str] = []
+    original_per_path = repo.get_image_id_by_filepath
+    monkeypatch.setattr(
+        repo,
+        "get_image_id_by_filepath",
+        lambda p: (per_path_calls.append(p), original_per_path(p))[1],
+    )
+    batch_calls: list[list[str]] = []
+    original_batch = repo.get_image_ids_by_filepaths
+    monkeypatch.setattr(
+        repo,
+        "get_image_ids_by_filepaths",
+        lambda paths: (batch_calls.append(list(paths)), original_batch(paths))[1],
+    )
+
+    filtered = save_service.filter_refused_image_paths([file_path])
+    assert filtered == []
+    assert len(batch_calls) == 1, "バッチ解決が 1 回のみ呼ばれるはず"
+    assert per_path_calls == [], "per-path lookup は呼ばれてはならない (N+1 防止)"
+
+
+@pytest.mark.integration
+def test_get_image_ids_by_filepaths_batch_resolve(
+    repo: ImageRepository,
+    registered_image: tuple[int, str],
+) -> None:
+    """ImageRepository.get_image_ids_by_filepaths のバッチ解決動作確認。"""
+    image_id, file_path = registered_image
+    result = repo.get_image_ids_by_filepaths([file_path, "/nonexistent/foo.png"])
+    assert result[file_path] == image_id
+    assert result["/nonexistent/foo.png"] is None
+
+
+@pytest.mark.integration
+def test_get_image_ids_by_filepaths_empty_input(
+    repo: ImageRepository,
+) -> None:
+    """空 list は空 dict を返す (early return)。"""
+    assert repo.get_image_ids_by_filepaths([]) == {}
+
+
+@pytest.mark.integration
 def test_get_error_image_ids_with_error_types_filter(
     repo: ImageRepository,
     registered_image: tuple[int, str],

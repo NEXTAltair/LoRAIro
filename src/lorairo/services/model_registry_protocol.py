@@ -59,3 +59,39 @@ class NullModelRegistry(ModelRegistryServiceProtocol):
     def get_available_models_with_metadata(self) -> list[ModelInfo]:
         logger.info("Model registry unavailable; returning empty list (degraded mode)")
         return []
+
+
+def selection_includes_webapi_model(
+    model_names: list[str],
+    model_registry: ModelRegistryServiceProtocol,
+) -> bool:
+    """選択されたモデルに WebAPI モデル (`requires_api_key=True`) が含まれるか判定。
+
+    ADR 0023 Phase 1.5 (Issue #42): SafetyRefusal / ContentPolicyRefusal は
+    WebAPI 推論経路 (cloud provider の content policy 拒否) でのみ発生する概念。
+    ローカル ML モデル (WD-Tagger 等) の推論は同じ画像でも refusal を返さない
+    ため、refusal による事前 filter はローカルモデル単独実行に対して適用しない。
+
+    本関数は Qt-free な pure helper として `services/` 層に置く。GUI 層
+    (`worker_service`) と Worker 層 (`gui/workers/annotation_worker`) の双方から
+    参照されるため、いずれにも依存しない neutral な場所に配置する必要がある
+    (Codex P2 review feedback, PR #233 r3209342204: filter を Worker 内で実行する
+    設計に伴う再配置)。
+
+    Args:
+        model_names: 選択されたモデル名のリスト。
+        model_registry: モデル情報を引ける Protocol 実装。
+
+    Returns:
+        bool: 1 つでも `requires_api_key=True` のモデルがあれば True。
+            registry に未登録のモデル名は WebAPI ではないと扱う (defensive default)。
+
+    Raises:
+        例外は呼び出し元で吸収する契約 (Codex P2 review feedback,
+        PR #233 r3208793528)。registry の一時的な障害は filter skip の signal と
+        して扱い、annotation 全体を abort させない。
+    """
+    if not model_names:
+        return False
+    available = {info.name: info for info in model_registry.get_available_models()}
+    return any((info := available.get(name)) is not None and info.requires_api_key for name in model_names)
