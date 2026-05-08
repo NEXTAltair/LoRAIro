@@ -217,9 +217,23 @@ class WorkerService(QObject):
         # を防ぐ。**filter は WebAPI モデル選択時のみ適用** — ローカル ML モデル
         # は refusal の概念を持たないため、ローカル単独選択時は filter しない
         # (Codex P1 review feedback: PR #233 r3208397315)。
+        #
+        # registry lookup が失敗した場合は filter を skip して annotation を続行する
+        # (Codex P2 review feedback: PR #233 r3208793528)。registry の一時的な障害で
+        # annotation 全体を落とすのは過剰反応で、ローカルでもクラウドでも annotation
+        # は実行できる前提なので「prefilter は best-effort」扱い。
         container = get_service_container()
         model_registry = container.model_registry
-        if selection_includes_webapi_model(models, model_registry):
+        try:
+            should_filter = selection_includes_webapi_model(models, model_registry)
+        except Exception as exc:
+            logger.warning(
+                f"Model registry lookup failed; refusal prefilter を skip して annotation 続行: {exc}",
+                exc_info=True,
+            )
+            should_filter = False
+
+        if should_filter:
             save_service = container.annotation_save_service
             filtered_image_paths = save_service.filter_refused_image_paths(image_paths)
             if len(filtered_image_paths) != len(image_paths):
@@ -230,7 +244,8 @@ class WorkerService(QObject):
         else:
             filtered_image_paths = list(image_paths)
             logger.debug(
-                f"バッチアノテーション送信前 filter スキップ: ローカルモデルのみ (models={models})"
+                f"バッチアノテーション送信前 filter スキップ "
+                f"(WebAPI 不在 or registry lookup 失敗): models={models}"
             )
 
         logger.debug(f"バッチアノテーション準備: models={models}, 画像数={len(filtered_image_paths)}")

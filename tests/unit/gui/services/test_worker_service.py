@@ -602,3 +602,163 @@ class TestSelectionIncludesWebApiModel:
         assert selection_includes_webapi_model([], registry) is False
         # registry は引かれないこと (early return)
         registry.get_available_models.assert_not_called()
+
+    def test_propagates_registry_exception(self):
+        """registry が例外を raise した場合は呼び出し元で吸収する契約。
+
+        本 helper は pure な分類関数で、例外吸収は caller (`start_enhanced_batch_annotation`)
+        の責務 (Codex P2: PR #233 r3208793528)。helper 自体は registry の例外を
+        そのまま伝搬させる (graceful degradation の責務分離)。
+        """
+        from lorairo.gui.services.worker_service import selection_includes_webapi_model
+
+        registry = Mock()
+        registry.get_available_models.side_effect = RuntimeError("registry unavailable")
+        with pytest.raises(RuntimeError, match="registry unavailable"):
+            selection_includes_webapi_model(["openai/gpt-4o"], registry)
+
+
+class TestStartEnhancedBatchAnnotationRefusalFilter:
+    """`start_enhanced_batch_annotation()` の refusal prefilter 統合テスト。
+
+    Codex P2 (PR #233 r3208793528): registry lookup 失敗で annotation 全体が落ちる
+    回帰防止 — registry 例外時は filter を skip して annotation を続行する。
+    """
+
+    @pytest.fixture
+    def mock_db_manager(self):
+        return Mock()
+
+    @pytest.fixture
+    def mock_fsm(self):
+        return Mock()
+
+    @pytest.fixture
+    def worker_service_with_mocks(self, mock_db_manager, mock_fsm):
+        """WorkerService + ServiceContainer の必要 attribute を mock した fixture。"""
+        from lorairo.gui.services.worker_service import WorkerService
+
+        with patch("lorairo.gui.services.worker_service.WorkerManager") as mwm:
+            wm = Mock()
+            mwm.return_value = wm
+            wm.start_worker.return_value = True
+            service = WorkerService(mock_db_manager, mock_fsm)
+            service.worker_manager = wm
+        return service
+
+    def test_skips_filter_when_registry_lookup_raises(self, worker_service_with_mocks):
+        """registry 例外 → filter skip + annotation 続行 (Codex P2 回帰防止)。"""
+        from lorairo.services.annotation_save_service import AnnotationSaveService
+
+        save_service = Mock(spec=AnnotationSaveService)
+        save_service.filter_refused_image_paths = Mock()  # 呼ばれないこと
+
+        broken_registry = Mock()
+        broken_registry.get_available_models.side_effect = RuntimeError("registry boom")
+
+        container_mock = Mock()
+        container_mock.annotation_save_service = save_service
+        container_mock.model_registry = broken_registry
+
+        with (
+            patch(
+                "lorairo.gui.services.worker_service.get_service_container",
+                return_value=container_mock,
+            ),
+            patch("lorairo.gui.services.worker_service.AnnotationWorker") as mock_worker_cls,
+        ):
+            mock_worker = Mock()
+            mock_worker_cls.return_value = mock_worker
+
+            worker_id = worker_service_with_mocks.start_enhanced_batch_annotation(
+                image_paths=["/tmp/img1.png", "/tmp/img2.png"],
+                models=["openai/gpt-4o"],
+            )
+
+        # filter は skip された (registry 例外吸収)
+        save_service.filter_refused_image_paths.assert_not_called()
+        # annotation は続行された (worker が構築されている)
+        mock_worker_cls.assert_called_once()
+        call_kwargs = mock_worker_cls.call_args.kwargs
+        assert call_kwargs["image_paths"] == ["/tmp/img1.png", "/tmp/img2.png"]
+        assert call_kwargs["models"] == ["openai/gpt-4o"]
+        assert worker_id.startswith("annotation_")
+
+    def test_applies_filter_when_webapi_model_selected(self, worker_service_with_mocks):
+        """WebAPI モデル選択時は filter が呼ばれる (positive path)。"""
+        from lorairo.services.annotation_save_service import AnnotationSaveService
+        from lorairo.services.model_registry_protocol import ModelInfo
+
+        save_service = Mock(spec=AnnotationSaveService)
+        save_service.filter_refused_image_paths = Mock(return_value=["/tmp/img1.png"])
+
+        registry = Mock()
+        registry.get_available_models.return_value = [
+            ModelInfo(
+                name="openai/gpt-4o",
+                provider="openai",
+                capabilities=["tags"],
+                api_model_id="openai/gpt-4o",
+                requires_api_key=True,
+                estimated_size_gb=None,
+            )
+        ]
+        container_mock = Mock()
+        container_mock.annotation_save_service = save_service
+        container_mock.model_registry = registry
+
+        with (
+            patch(
+                "lorairo.gui.services.worker_service.get_service_container",
+                return_value=container_mock,
+            ),
+            patch("lorairo.gui.services.worker_service.AnnotationWorker") as mock_worker_cls,
+        ):
+            mock_worker_cls.return_value = Mock()
+            worker_service_with_mocks.start_enhanced_batch_annotation(
+                image_paths=["/tmp/img1.png", "/tmp/img2.png"],
+                models=["openai/gpt-4o"],
+            )
+
+        save_service.filter_refused_image_paths.assert_called_once_with(["/tmp/img1.png", "/tmp/img2.png"])
+        # filter 結果がそのまま worker に渡る
+        assert mock_worker_cls.call_args.kwargs["image_paths"] == ["/tmp/img1.png"]
+
+    def test_skips_filter_for_local_only_selection(self, worker_service_with_mocks):
+        """ローカルモデル単独選択時は filter が呼ばれない (Codex P1 回帰防止)。"""
+        from lorairo.services.annotation_save_service import AnnotationSaveService
+        from lorairo.services.model_registry_protocol import ModelInfo
+
+        save_service = Mock(spec=AnnotationSaveService)
+        save_service.filter_refused_image_paths = Mock()  # 呼ばれないこと
+
+        registry = Mock()
+        registry.get_available_models.return_value = [
+            ModelInfo(
+                name="wd-v1-4-tagger",
+                provider="local",
+                capabilities=["tags"],
+                api_model_id=None,
+                requires_api_key=False,
+                estimated_size_gb=1.5,
+            )
+        ]
+        container_mock = Mock()
+        container_mock.annotation_save_service = save_service
+        container_mock.model_registry = registry
+
+        with (
+            patch(
+                "lorairo.gui.services.worker_service.get_service_container",
+                return_value=container_mock,
+            ),
+            patch("lorairo.gui.services.worker_service.AnnotationWorker") as mock_worker_cls,
+        ):
+            mock_worker_cls.return_value = Mock()
+            worker_service_with_mocks.start_enhanced_batch_annotation(
+                image_paths=["/tmp/img1.png"],
+                models=["wd-v1-4-tagger"],
+            )
+
+        save_service.filter_refused_image_paths.assert_not_called()
+        assert mock_worker_cls.call_args.kwargs["image_paths"] == ["/tmp/img1.png"]
