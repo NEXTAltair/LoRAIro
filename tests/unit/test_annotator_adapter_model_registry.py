@@ -17,7 +17,7 @@ def _make_info(
     capabilities: set[TaskCapability] | None = None,
     provider: str | None = None,
     estimated_size_gb: float | None = None,
-    api_model_id: str | None = None,
+    litellm_model_id: str | None = None,
 ) -> AnnotatorInfo:
     return AnnotatorInfo(
         name=name,
@@ -28,7 +28,7 @@ def _make_info(
         device=None if is_api else "cuda",
         provider=provider,
         estimated_size_gb=estimated_size_gb,
-        api_model_id=api_model_id,
+        litellm_model_id=litellm_model_id,
     )
 
 

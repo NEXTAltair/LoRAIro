@@ -24,7 +24,7 @@ class ModelMetadata(TypedDict):
     name: str
     provider: str | None
     class_name: str | None
-    api_model_id: str | None
+    litellm_model_id: str | None
     model_type: str  # AnnotatorInfo.model_type ("tagger"/"scorer"/"captioner"/"vision")
     model_types: list[str]  # LoRAIro DB の model_types (マッピング後)
     estimated_size_gb: float | None
@@ -83,7 +83,7 @@ class MockAnnotatorLibrary:
             is_api=True,
             device=None,
             provider="openai",
-            api_model_id="gpt-4o",
+            litellm_model_id="gpt-4o",
             max_output_tokens=1800,
         ),
         AnnotatorInfo(
@@ -94,7 +94,7 @@ class MockAnnotatorLibrary:
             is_api=True,
             device=None,
             provider="anthropic",
-            api_model_id="claude-3-5-sonnet-20241022",
+            litellm_model_id="claude-3-5-sonnet-20241022",
             max_output_tokens=1800,
         ),
         AnnotatorInfo(
@@ -105,7 +105,7 @@ class MockAnnotatorLibrary:
             is_api=True,
             device=None,
             provider="google",
-            api_model_id="gemini-1.5-pro",
+            litellm_model_id="gemini-1.5-pro",
             max_output_tokens=1800,
         ),
         AnnotatorInfo(
@@ -257,7 +257,7 @@ class ModelSyncService:
                     "name": info.name,
                     "provider": provider,
                     "class_name": None,
-                    "api_model_id": info.api_model_id,
+                    "litellm_model_id": info.litellm_model_id,
                     "model_type": info.model_type,
                     "model_types": db_model_types,
                     "estimated_size_gb": info.estimated_size_gb,
@@ -299,7 +299,7 @@ class ModelSyncService:
                         name=model_metadata["name"],
                         provider=model_metadata.get("provider"),
                         model_types=model_metadata["model_types"],
-                        api_model_id=model_metadata.get("api_model_id"),
+                        litellm_model_id=model_metadata.get("litellm_model_id"),
                         estimated_size_gb=model_metadata.get("estimated_size_gb"),
                         requires_api_key=model_metadata.get("requires_api_key", False),
                         discontinued_at=model_metadata.get("discontinued_at"),
@@ -341,7 +341,7 @@ class ModelSyncService:
                         model_id=existing_model.id,
                         provider=model_metadata.get("provider"),
                         model_types=model_metadata["model_types"],
-                        api_model_id=model_metadata.get("api_model_id"),
+                        litellm_model_id=model_metadata.get("litellm_model_id"),
                         estimated_size_gb=model_metadata.get("estimated_size_gb"),
                         requires_api_key=model_metadata.get("requires_api_key", False),
                         discontinued_at=model_metadata.get("discontinued_at"),

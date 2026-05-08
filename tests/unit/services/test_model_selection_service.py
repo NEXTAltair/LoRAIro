@@ -20,14 +20,14 @@ class TestModel:
         model = Model(
             name="gpt-4o",
             provider="openai",
-            api_model_id="gpt-4o-2024",
+            litellm_model_id="gpt-4o-2024",
             requires_api_key=True,
             estimated_size_gb=None,
         )
 
         assert model.name == "gpt-4o"
         assert model.provider == "openai"
-        assert model.api_model_id == "gpt-4o-2024"
+        assert model.litellm_model_id == "gpt-4o-2024"
         assert model.requires_api_key is True
         assert model.estimated_size_gb is None
         assert model.is_recommended is True  # gpt-4o is a recommended model
@@ -37,7 +37,7 @@ class TestModel:
         model = Model(
             name="test-model",
             provider="test",
-            api_model_id=None,
+            litellm_model_id=None,
             requires_api_key=False,
             estimated_size_gb=1.5,
         )
@@ -59,7 +59,7 @@ class TestModelSelectionService:
         gpt_model = Model(
             name="gpt-4o",
             provider="openai",
-            api_model_id="gpt-4o-2024",
+            litellm_model_id="gpt-4o-2024",
             requires_api_key=True,
             estimated_size_gb=None,
         )
@@ -67,7 +67,7 @@ class TestModelSelectionService:
         claude_model = Model(
             name="claude-3-5-sonnet",
             provider="anthropic",
-            api_model_id="claude-3-5-sonnet-20241022",
+            litellm_model_id="claude-3-5-sonnet-20241022",
             requires_api_key=True,
             estimated_size_gb=None,
         )
@@ -75,7 +75,7 @@ class TestModelSelectionService:
         wd_model = Model(
             name="wd-v1-4",
             provider="local",
-            api_model_id=None,
+            litellm_model_id=None,
             requires_api_key=False,
             estimated_size_gb=2.5,
         )
@@ -83,7 +83,7 @@ class TestModelSelectionService:
         clip_model = Model(
             name="clip-aesthetic",
             provider="local",
-            api_model_id=None,
+            litellm_model_id=None,
             requires_api_key=False,
             estimated_size_gb=1.2,
         )
@@ -275,7 +275,7 @@ class TestModelSelectionService:
         manual_edit_model = Model(
             name="MANUAL_EDIT",
             provider="user",
-            api_model_id=None,
+            litellm_model_id=None,
             requires_api_key=False,
             estimated_size_gb=None,
         )
@@ -285,21 +285,21 @@ class TestModelSelectionService:
             Model(
                 name="gpt-4o",
                 provider="openai",
-                api_model_id="gpt-4o-2024",
+                litellm_model_id="gpt-4o-2024",
                 requires_api_key=True,
                 estimated_size_gb=None,
             ),
             Model(
                 name="claude-3-5-sonnet",
                 provider="anthropic",
-                api_model_id="claude-3-5-sonnet-20241022",
+                litellm_model_id="claude-3-5-sonnet-20241022",
                 requires_api_key=True,
                 estimated_size_gb=None,
             ),
             Model(
                 name="wd-v1-4",
                 provider="local",
-                api_model_id=None,
+                litellm_model_id=None,
                 requires_api_key=False,
                 estimated_size_gb=2.5,
             ),
