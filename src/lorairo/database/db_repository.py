@@ -3196,13 +3196,21 @@ class ImageRepository:
                 logger.error(f"未解決エラー件数の取得中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
-    def get_error_image_ids(self, operation_type: str | None = None, resolved: bool = False) -> list[int]:
+    def get_error_image_ids(
+        self,
+        operation_type: str | None = None,
+        resolved: bool = False,
+        error_types: list[str] | None = None,
+    ) -> list[int]:
         """エラー画像のID一覧を取得
 
         Args:
             operation_type: 操作種別フィルタ
             resolved: True = 解決済み（resolved_at IS NOT NULL）、
                      False = 未解決（resolved_at IS NULL）
+            error_types: 特定 error_type のみに絞る (e.g.
+                ["SafetyRefusalError", "ContentPolicyRefusalError"])。
+                None = 全 type。ADR 0023 Phase 1.5 の送信前 filter で使用。
 
         Returns:
             list[int]: 画像IDリスト（重複除去済み、Noneを除外）
@@ -3220,12 +3228,15 @@ class ImageRepository:
                     query = query.where(ErrorRecord.resolved_at.is_(None))
                 if operation_type:
                     query = query.where(ErrorRecord.operation_type == operation_type)
+                if error_types:
+                    query = query.where(ErrorRecord.error_type.in_(error_types))
 
                 results = session.execute(query).scalars().all()
                 image_ids = [id for id in results if id is not None]
                 logger.debug(
                     f"エラー画像ID一覧を取得: {len(image_ids)}件 "
-                    f"(operation_type={operation_type or 'all'}, resolved={resolved})",
+                    f"(operation_type={operation_type or 'all'}, resolved={resolved}, "
+                    f"error_types={error_types or 'all'})",
                 )
                 return image_ids
             except SQLAlchemyError as e:
@@ -3436,6 +3447,129 @@ class ImageRepository:
             except Exception as e:
                 logger.error(f"ファイルパスからの画像ID取得エラー: {filepath}, {e}")
                 return None
+
+    @staticmethod
+    def _normalize_input_paths(filepaths: list[str]) -> tuple[dict[str, Path], set[str]]:
+        """入力 path リストを resolve した dict と filename set に変換する helper。
+
+        Args:
+            filepaths: 解決対象の path リスト。
+
+        Returns:
+            (input_path -> resolved Path の dict, filename set)。
+            resolve できなかった path は元 Path object のまま dict に入れ、
+            filename set には含めない (DB 検索対象から除外)。
+        """
+        path_resolved: dict[str, Path] = {}
+        filenames: set[str] = set()
+        for raw in filepaths:
+            try:
+                resolved = Path(raw).resolve()
+            except (OSError, RuntimeError, ValueError):
+                path_resolved[raw] = Path(raw)
+                continue
+            path_resolved[raw] = resolved
+            filenames.add(resolved.name)
+        return path_resolved, filenames
+
+    def _build_candidates_by_filename(self, candidates: list[Image]) -> dict[str, list[tuple[Path, int]]]:
+        """candidates を filename をキーとする dict に集約する helper。
+
+        ADR 0023 Phase 1.5 (Codex P2 r3209511028): row-level resolve guard 経由で
+        corrupted 行は skip し、健全な行のみ集約する。
+
+        Args:
+            candidates: filename IN 句で取得した Image ORM 行のリスト。
+
+        Returns:
+            filename -> [(resolved_abs Path, image_id), ...] の dict。
+            同じ filename で複数 image (別ディレクトリ) があり得るため list 値。
+        """
+        by_filename: dict[str, list[tuple[Path, int]]] = {}
+        for img in candidates:
+            if img.filename is None:
+                continue
+            resolved_abs = self._safe_resolve_stored_path(img.id, img.stored_image_path)
+            if resolved_abs is None:
+                continue
+            by_filename.setdefault(img.filename, []).append((resolved_abs, img.id))
+        return by_filename
+
+    @staticmethod
+    def _safe_resolve_stored_path(image_id: int, stored_image_path: str) -> Path | None:
+        """`stored_image_path` を絶対 Path に解決する row-level guard 付き helper。
+
+        ADR 0023 Phase 1.5 (Codex P2 r3209511028): 1 行の corrupted path
+        (シンボリックループ / 解決不能 path 等) で batch 全体を落とさないため、
+        row-level で例外を吸収する。失敗時は warning + None を返す。
+
+        Args:
+            image_id: 対象画像 ID (logging 用)。
+            stored_image_path: DB に保存された生 path。
+
+        Returns:
+            解決済みの絶対 Path、または resolve 失敗時 None。
+        """
+        from ..database.db_core import resolve_stored_path
+
+        try:
+            resolved_stored = resolve_stored_path(stored_image_path)
+            return resolved_stored.resolve()
+        except (OSError, ValueError, RuntimeError) as exc:
+            logger.warning(
+                f"バッチ画像 ID 解決: stored_image_path resolve 失敗を skip: "
+                f"image_id={image_id}, path={stored_image_path!r}, error={exc}"
+            )
+            return None
+
+    def get_image_ids_by_filepaths(self, filepaths: list[str]) -> dict[str, int | None]:
+        """複数のファイルパスから画像 ID をバッチ解決する。
+
+        ADR 0023 Phase 1.5 (Issue #42, Codex P2 r3209342204): N+1 クエリ回避。
+        `get_image_id_by_filepath()` を N 回呼ぶ代わりに、filename を IN 句で
+        一括取得して input path と stored_image_path の resolve 比較を Python 側
+        で行う。GUI スレッドや Worker 内のループ内で大量パスを引く場合に使用。
+
+        Args:
+            filepaths: 解決対象の画像 path リスト (絶対 / 相対パス混在可)。
+
+        Returns:
+            dict[str, int | None]: 入力 path をキーに、対応する image_id (見つから
+                なければ None) を値とする辞書。入力 path はそのまま辞書キーとして
+                使われる (caller が input list との対応を辿りやすくするため)。
+        """
+        if not filepaths:
+            return {}
+
+        path_resolved, filenames = self._normalize_input_paths(filepaths)
+        result: dict[str, int | None] = dict.fromkeys(filepaths)
+
+        if not filenames:
+            return result
+
+        with self.session_factory() as session:
+            try:
+                # filename IN (...) で 1 クエリ取得 (重複 filename もまとめて)
+                stmt = select(Image).where(Image.filename.in_(filenames))
+                candidates = list(session.execute(stmt).scalars().all())
+                by_filename = self._build_candidates_by_filename(candidates)
+
+                # input path ごとに対応する image_id を resolve 比較で確定
+                for raw, resolved_input in path_resolved.items():
+                    matches = by_filename.get(resolved_input.name, [])
+                    for stored_resolved, image_id in matches:
+                        if stored_resolved == resolved_input:
+                            result[raw] = image_id
+                            break
+
+                logger.debug(
+                    f"バッチ画像 ID 解決: 入力 {len(filepaths)}件 → "
+                    f"解決 {sum(1 for v in result.values() if v is not None)}件"
+                )
+                return result
+            except Exception as e:
+                logger.error(f"バッチ画像 ID 解決エラー: {e}", exc_info=True)
+                return result
 
     def update_rating_batch(
         self,

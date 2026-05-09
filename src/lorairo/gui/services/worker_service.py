@@ -186,6 +186,11 @@ class WorkerService(QObject):
         Returns:
             str: ワーカーID
         """
+        # ADR 0023 Phase 1.5 (Issue #42, Codex P2 r3209342204): refusal 送信前
+        # filter は AnnotationWorker.execute() 冒頭で実行する。GUI スレッド上
+        # で N+1 DB クエリを避け (大量画像選択時の UI freeze 防止)、Worker 内で
+        # async / 進捗シグナル経由で実行する。filter ロジック自体は Worker
+        # 内 `_apply_refusal_prefilter()` 参照。
         logger.debug(f"バッチアノテーション準備: models={models}, 画像数={len(image_paths)}")
 
         worker = AnnotationWorker(
@@ -204,8 +209,10 @@ class WorkerService(QObject):
 
         if self.worker_manager.start_worker(worker_id, worker):
             logger.info(
-                f"バッチアノテーション開始: {len(image_paths)}画像, {len(models)}モデル (ID: {worker_id})"
+                f"バッチアノテーション開始: {len(image_paths)}画像 (filter 前), "
+                f"{len(models)}モデル (ID: {worker_id})"
             )
+            logger.debug("  refusal filter は Worker 内で実行 (Codex P2 対応)")
             logger.debug(f"  ワーカーID={worker_id}, モデル=[{', '.join(models)}]")
             return worker_id
         else:

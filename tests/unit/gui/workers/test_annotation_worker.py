@@ -369,3 +369,166 @@ class TestSaveErrorRecords:
         worker._save_error_records(Exception("overall"), ["/test/img.jpg"], model_name=None)
         call_kwargs = mock_db.save_error_record.call_args.kwargs
         assert call_kwargs["model_name"] is None
+
+
+class TestApplyRefusalPrefilter:
+    """`AnnotationWorker._apply_refusal_prefilter()` の単体テスト。
+
+    ADR 0023 Phase 1.5 (Issue #42, Codex P2 r3209342204): refusal filter は
+    Worker 内で実行される設計に変更された (GUI freeze 防止 + N+1 解消)。
+    本テスト群では filter の WebAPI 判定 + 例外吸収 + image_paths 更新を確認する。
+    """
+
+    @staticmethod
+    def _make_worker(mock_annotation_logic, image_paths, models, db_manager, model_registry):
+        return AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=image_paths,
+            models=models,
+            db_manager=db_manager,
+            model_registry=model_registry,
+        )
+
+    @staticmethod
+    def _registry_with_models(model_specs):
+        registry = Mock()
+        infos = []
+        for name, requires_api_key in model_specs:
+            info = Mock()
+            info.name = name
+            info.requires_api_key = requires_api_key
+            infos.append(info)
+        registry.get_available_models.return_value = infos
+        return registry
+
+    def test_filter_applied_when_webapi_model_selected(self, mock_annotation_logic, monkeypatch):
+        """WebAPI モデル選択時は filter が適用され image_paths が更新される。"""
+        from lorairo.gui.workers import annotation_worker as aw_mod
+
+        registry = self._registry_with_models([("openai/gpt-4o", True)])
+        mock_db = Mock()
+        mock_db.repository = Mock()
+
+        # AnnotationSaveService.filter_refused_image_paths をパッチ
+        mock_save_service = Mock()
+        mock_save_service.filter_refused_image_paths = Mock(return_value=["/path/img1.jpg"])
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda repo: mock_save_service)
+
+        worker = self._make_worker(
+            mock_annotation_logic,
+            ["/path/img1.jpg", "/path/img2.jpg"],
+            ["openai/gpt-4o"],
+            mock_db,
+            registry,
+        )
+        worker._apply_refusal_prefilter()
+
+        # filter が呼ばれた
+        mock_save_service.filter_refused_image_paths.assert_called_once_with(
+            ["/path/img1.jpg", "/path/img2.jpg"]
+        )
+        # image_paths が filter 結果で置換された
+        assert worker.image_paths == ["/path/img1.jpg"]
+
+    def test_filter_skipped_for_local_only_selection(self, mock_annotation_logic, monkeypatch):
+        """ローカルモデル単独選択時は filter スキップ (Codex P1 回帰防止)。"""
+        from lorairo.gui.workers import annotation_worker as aw_mod
+
+        registry = self._registry_with_models([("wd-v1-4-tagger", False)])
+        mock_db = Mock()
+        mock_db.repository = Mock()
+
+        mock_save_service = Mock()
+        mock_save_service.filter_refused_image_paths = Mock()
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda repo: mock_save_service)
+
+        worker = self._make_worker(
+            mock_annotation_logic,
+            ["/path/img1.jpg", "/path/img2.jpg"],
+            ["wd-v1-4-tagger"],
+            mock_db,
+            registry,
+        )
+        worker._apply_refusal_prefilter()
+
+        # filter は呼ばれない (skipped)
+        mock_save_service.filter_refused_image_paths.assert_not_called()
+        # image_paths は変更されない
+        assert worker.image_paths == ["/path/img1.jpg", "/path/img2.jpg"]
+
+    def test_filter_skipped_when_registry_lookup_raises(self, mock_annotation_logic, monkeypatch):
+        """registry 例外時は filter skip + annotation 続行 (Codex P2 回帰防止)。"""
+        from lorairo.gui.workers import annotation_worker as aw_mod
+
+        broken_registry = Mock()
+        broken_registry.get_available_models.side_effect = RuntimeError("registry boom")
+        mock_db = Mock()
+        mock_db.repository = Mock()
+
+        mock_save_service = Mock()
+        mock_save_service.filter_refused_image_paths = Mock()
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda repo: mock_save_service)
+
+        worker = self._make_worker(
+            mock_annotation_logic,
+            ["/path/img1.jpg"],
+            ["openai/gpt-4o"],
+            mock_db,
+            broken_registry,
+        )
+        worker._apply_refusal_prefilter()
+
+        mock_save_service.filter_refused_image_paths.assert_not_called()
+        # registry 失敗時 image_paths は元のまま (graceful degradation)
+        assert worker.image_paths == ["/path/img1.jpg"]
+
+    def test_filter_skipped_when_save_service_raises(self, mock_annotation_logic, monkeypatch):
+        """filter 内部 (DB クエリ) 例外時も filter skip + annotation 続行 (best-effort)。"""
+        from lorairo.gui.workers import annotation_worker as aw_mod
+
+        registry = self._registry_with_models([("openai/gpt-4o", True)])
+        mock_db = Mock()
+        mock_db.repository = Mock()
+
+        mock_save_service = Mock()
+        mock_save_service.filter_refused_image_paths = Mock(side_effect=RuntimeError("DB error"))
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda repo: mock_save_service)
+
+        worker = self._make_worker(
+            mock_annotation_logic,
+            ["/path/img1.jpg", "/path/img2.jpg"],
+            ["openai/gpt-4o"],
+            mock_db,
+            registry,
+        )
+        worker._apply_refusal_prefilter()
+
+        # filter は呼ばれたが例外、image_paths は元のまま
+        mock_save_service.filter_refused_image_paths.assert_called_once()
+        assert worker.image_paths == ["/path/img1.jpg", "/path/img2.jpg"]
+
+    def test_filter_no_exclusion_when_no_refusal_records(self, mock_annotation_logic, monkeypatch):
+        """filter 結果が同件数 (refusal 0 件) の場合も問題なく動く。"""
+        from lorairo.gui.workers import annotation_worker as aw_mod
+
+        registry = self._registry_with_models([("openai/gpt-4o", True)])
+        mock_db = Mock()
+        mock_db.repository = Mock()
+
+        # filter が image_paths をそのまま返す (refusal 0 件)
+        mock_save_service = Mock()
+        mock_save_service.filter_refused_image_paths = Mock(
+            return_value=["/path/img1.jpg", "/path/img2.jpg"]
+        )
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda repo: mock_save_service)
+
+        worker = self._make_worker(
+            mock_annotation_logic,
+            ["/path/img1.jpg", "/path/img2.jpg"],
+            ["openai/gpt-4o"],
+            mock_db,
+            registry,
+        )
+        worker._apply_refusal_prefilter()
+
+        assert worker.image_paths == ["/path/img1.jpg", "/path/img2.jpg"]

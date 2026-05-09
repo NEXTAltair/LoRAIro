@@ -13,7 +13,11 @@ from image_annotator_lib import PHashAnnotationResults
 
 from lorairo.annotations.annotation_logic import AnnotationLogic
 from lorairo.services.annotation_save_service import AnnotationSaveService
-from lorairo.services.model_registry_protocol import ModelInfo, ModelRegistryServiceProtocol
+from lorairo.services.model_registry_protocol import (
+    ModelInfo,
+    ModelRegistryServiceProtocol,
+    selection_includes_webapi_model,
+)
 from lorairo.utils.log import logger
 
 from .base import LoRAIroWorkerBase
@@ -230,6 +234,19 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         logger.info(f"アノテーション処理開始 - {len(self.image_paths)}画像, {len(self.models)}モデル")
 
         try:
+            # Phase 0: refusal 送信前 filter (5%)
+            # ADR 0023 Phase 1.5 (Issue #42, Codex P2 r3209342204): refusal filter
+            # は WebAPI モデル選択時のみ適用、Worker 内で async 実行 (GUI freeze
+            # 回避)。バッチ resolve で N+1 クエリも解消。filter 後の件数を以後の
+            # progress total_count として使う。
+            self._report_progress(
+                5,
+                "refusal filter を適用中...",
+                total_count=len(self.image_paths),
+            )
+            self._check_cancellation()
+            self._apply_refusal_prefilter()
+
             # Phase 1: アノテーション実行(10-80%)
             self._report_progress(10, "アノテーション処理を開始...", total_count=len(self.image_paths))
             self._check_cancellation()
@@ -278,6 +295,49 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             self._save_error_records(e, self.image_paths, model_name=None)
             self._error_already_recorded = True
             raise
+
+    def _apply_refusal_prefilter(self) -> None:
+        """refusal を持つ画像を `self.image_paths` から除外する (Worker 内実行版)。
+
+        ADR 0023 Phase 1.5 (Issue #42, Codex P2 r3209342204): GUI スレッド上で
+        N+1 クエリを発行しないよう、Worker 内で実行する設計に変更。filter は
+        WebAPI モデル選択時のみ適用し、registry lookup 失敗時は filter skip して
+        annotation を続行する (graceful degradation)。
+
+        副作用: `self.image_paths` を filter 結果で in-place 置換する。
+        """
+        try:
+            should_filter = selection_includes_webapi_model(self.models, self.model_registry)
+        except Exception as exc:
+            logger.warning(
+                f"Model registry lookup failed; refusal prefilter を skip して annotation 続行: {exc}",
+                exc_info=True,
+            )
+            should_filter = False
+
+        if not should_filter:
+            logger.debug(
+                f"refusal filter スキップ (WebAPI 不在 or registry lookup 失敗): models={self.models}"
+            )
+            return
+
+        save_service = AnnotationSaveService(self.db_manager.repository)
+        original_count = len(self.image_paths)
+        try:
+            self.image_paths = save_service.filter_refused_image_paths(self.image_paths)
+        except Exception as exc:
+            logger.warning(
+                f"refusal filter 実行失敗; filter skip して annotation 続行: {exc}",
+                exc_info=True,
+            )
+            return
+
+        excluded = original_count - len(self.image_paths)
+        if excluded > 0:
+            logger.info(
+                f"refusal filter 適用: {original_count}件 → {len(self.image_paths)}件 "
+                f"(refusal 除外: {excluded}件)"
+            )
 
     def _save_results_to_database(
         self, results: PHashAnnotationResults
