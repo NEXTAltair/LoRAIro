@@ -288,7 +288,7 @@ class ImageRepository:
         name: str,
         provider: str | None,
         model_types: list[str],
-        api_model_id: str | None = None,
+        litellm_model_id: str | None = None,
         estimated_size_gb: float | None = None,
         requires_api_key: bool = False,
         discontinued_at: datetime.datetime | None = None,
@@ -299,7 +299,7 @@ class ImageRepository:
             name: モデル名（一意）
             provider: プロバイダー名（openai, anthropic, google, None）
             model_types: LoRAIroのmodel_typeリスト（["captioner"], ["llm", "captioner"], ["score"], ["tagger"]等）
-            api_model_id: API呼び出し時のモデルID
+            litellm_model_id: API呼び出し時のモデルID
             estimated_size_gb: ローカルモデルの推定サイズ（GB）
             requires_api_key: APIキー要否
             discontinued_at: 廃止日時（該当する場合）
@@ -330,7 +330,7 @@ class ImageRepository:
                 new_model = Model(
                     name=name,
                     provider=provider,
-                    api_model_id=api_model_id,
+                    litellm_model_id=litellm_model_id,
                     estimated_size_gb=estimated_size_gb,
                     requires_api_key=requires_api_key,
                     discontinued_at=discontinued_at,
@@ -357,7 +357,7 @@ class ImageRepository:
     def _apply_simple_field_updates(
         model: Any,
         provider: str | None,
-        api_model_id: str | None,
+        litellm_model_id: str | None,
         estimated_size_gb: float | None,
         requires_api_key: bool | None,
         discontinued_at: datetime.datetime | None,
@@ -367,7 +367,7 @@ class ImageRepository:
         Args:
             model: ModelのORMオブジェクト。
             provider: プロバイダー名。
-            api_model_id: APIモデルID。
+            litellm_model_id: APIモデルID。
             estimated_size_gb: 推定サイズ。
             requires_api_key: APIキー要否。
             discontinued_at: 廃止日時。
@@ -379,7 +379,7 @@ class ImageRepository:
         has_changes = False
         simple_fields = {
             "provider": provider,
-            "api_model_id": api_model_id,
+            "litellm_model_id": litellm_model_id,
             "estimated_size_gb": estimated_size_gb,
             "requires_api_key": requires_api_key,
             "discontinued_at": discontinued_at,
@@ -435,7 +435,7 @@ class ImageRepository:
         model_id: int,
         provider: str | None = None,
         model_types: list[str] | None = None,
-        api_model_id: str | None = None,
+        litellm_model_id: str | None = None,
         estimated_size_gb: float | None = None,
         requires_api_key: bool | None = None,
         discontinued_at: datetime.datetime | None = None,
@@ -448,7 +448,7 @@ class ImageRepository:
             model_id: 更新対象モデルのID
             provider: プロバイダー名
             model_types: モデルタイプリスト
-            api_model_id: API呼び出し時のモデルID
+            litellm_model_id: API呼び出し時のモデルID
             estimated_size_gb: 推定サイズ
             requires_api_key: APIキー要否
             discontinued_at: 廃止日時
@@ -471,7 +471,7 @@ class ImageRepository:
                 has_changes = self._apply_simple_field_updates(
                     model,
                     provider,
-                    api_model_id,
+                    litellm_model_id,
                     estimated_size_gb,
                     requires_api_key,
                     discontinued_at,

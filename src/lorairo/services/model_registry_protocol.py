@@ -15,7 +15,7 @@ class ModelInfo:
     name: 一意なモデル識別名
     provider: 提供元（"openai" / "anthropic" / "google" / "local" / "unknown" 等）
     capabilities: 提供機能 ["caption", "tags", "scores"] など
-    api_model_id: 外部APIで使用するモデルID（該当しない場合はNone）
+    litellm_model_id: 外部APIで使用するモデルID（該当しない場合はNone）
     requires_api_key: APIキーの要否
     estimated_size_gb: ローカルモデルの推定サイズ（APIモデルはNone）
     """
@@ -23,7 +23,7 @@ class ModelInfo:
     name: str
     provider: str
     capabilities: list[str]
-    api_model_id: str | None
+    litellm_model_id: str | None
     requires_api_key: bool
     estimated_size_gb: float | None
 

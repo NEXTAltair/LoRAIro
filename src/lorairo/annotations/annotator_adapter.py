@@ -100,7 +100,7 @@ class AnnotatorLibraryAdapter:
             name=info.name,
             provider=info.provider or ("unknown" if info.is_api else "local"),
             capabilities=capabilities,
-            api_model_id=info.api_model_id,
+            litellm_model_id=info.litellm_model_id,
             requires_api_key=info.is_api,
             estimated_size_gb=info.estimated_size_gb,
         )
