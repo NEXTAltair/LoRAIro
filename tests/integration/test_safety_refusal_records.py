@@ -326,6 +326,31 @@ def test_get_image_ids_by_filepaths_batch_resolve(
 
 
 @pytest.mark.integration
+def test_get_image_ids_by_filepaths_contains_input_resolve_runtime_error(
+    repo: ImageRepository,
+    registered_image: tuple[int, str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """入力 path の symlink loop 相当 RuntimeError は該当 path だけ None にする。"""
+    image_id, file_path = registered_image
+    broken_path = str(tmp_path / "symlink_loop.png")
+    original_resolve = Path.resolve
+
+    def resolve_with_symlink_loop(self: Path, *args, **kwargs):
+        if str(self) == broken_path:
+            raise RuntimeError("Symlink loop from test")
+        return original_resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", resolve_with_symlink_loop)
+
+    result = repo.get_image_ids_by_filepaths([file_path, broken_path])
+
+    assert result[file_path] == image_id
+    assert result[broken_path] is None
+
+
+@pytest.mark.integration
 def test_get_image_ids_by_filepaths_empty_input(
     repo: ImageRepository,
 ) -> None:

@@ -3477,7 +3477,7 @@ class ImageRepository:
         for raw in filepaths:
             try:
                 resolved = Path(raw).resolve()
-            except (OSError, ValueError):
+            except (OSError, RuntimeError, ValueError):
                 # 解決できない path は None として扱う (後段で結果に含める)
                 path_resolved[raw] = Path(raw)
                 continue
