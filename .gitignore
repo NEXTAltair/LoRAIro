@@ -125,6 +125,7 @@ dev_config/
 .claude/logs/
 .claude/skills/
 .agents/
+.claude/settings.local.json
 
 # システム固有
 *.pid

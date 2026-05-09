@@ -1,8 +1,137 @@
 {
   "permissions": {
-    "additionalDirectories": []
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:code.claude.com)",
+      "WebFetch(domain:claude.com)",
+      "WebFetch(domain:ai.pydantic.dev)",
+      "WebFetch(domain:pytest-qt.readthedocs.io)",
+      "WebFetch(domain:ilmanzo.github.io)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:openai.com)",
+      "WebFetch(domain:platform.openai.com)",
+      "WebFetch(domain:ai.google.dev)",
+      "WebFetch(domain:openrouter.ai)",
+      "WebFetch(domain:pydantic.dev)",
+      "WebFetch(domain:gist.github.com)",
+      "Read(//workspaces/**)",
+      "Read(//home/vscode/**)",
+      "Bash(git *)",
+      "Bash(uv *)",
+      "Bash(make *)",
+      "Bash(gh *)",
+      "Bash(docker build *)",
+      "Bash(docker volume *)",
+      "Bash(sqlite3 *)",
+      "Bash(python3 *)",
+      "Bash(code --list-extensions)",
+      "Bash(env)",
+      "Bash(find *)",
+      "Bash(ls *)",
+      "Bash(tree *)",
+      "Bash(head *)",
+      "Bash(cat *)",
+      "Bash(wc *)",
+      "Bash(tee *)",
+      "Bash(test *)",
+      "Bash(mkdir *)",
+      "Bash(chmod *)",
+      "Bash(curl *)",
+      "Bash(pkill *)",
+      "Bash(mount *)",
+      "Bash(grep *)",
+      "Bash(xargs *)",
+      "Bash(ln *)",
+      "Bash(timeout *)",
+      "Bash(npx skills *)",
+      "Bash(PYTHONPATH=\"\" VIRTUAL_ENV=\"\" .venv/bin/python *)",
+      "Bash(QT_QPA_PLATFORM=offscreen uv run pytest *)"
+    ],
+    "additionalDirectories": [
+      "/tmp/worktrees/"
+    ]
   },
   "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "BASH_DEFAULT_TIMEOUT_MS": "5000000"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_pre_commands.py"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_response_monitor.py"
+          }
+        ]
+      }
+    ],
+    "FileChanged": [
+      {
+        "matcher": "**/*.ui",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /workspaces/LoRAIro && uv run python scripts/generate_ui.py 2>&1 | tail -5"
+          }
+        ]
+      }
+    ],
+    "WorktreeCreate": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_worktree_create.py"
+          }
+        ]
+      }
+    ],
+    "TeammateIdle": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_teammate_monitor.py"
+          }
+        ]
+      }
+    ],
+    "TaskCreated": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_teammate_monitor.py"
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_teammate_monitor.py"
+          }
+        ]
+      }
+    ]
   }
 }
