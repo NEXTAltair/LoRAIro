@@ -7,10 +7,7 @@
 - **関連 ISSUE**:
   [image-annotator-lib#37](https://github.com/NEXTAltair/image-annotator-lib/issues/37),
   [#36](https://github.com/NEXTAltair/image-annotator-lib/issues/36),
-  [#35](https://github.com/NEXTAltair/image-annotator-lib/issues/35),
-  [#45](https://github.com/NEXTAltair/image-annotator-lib/issues/45),
-  [#46](https://github.com/NEXTAltair/image-annotator-lib/issues/46),
-  [#47](https://github.com/NEXTAltair/image-annotator-lib/issues/47)
+  [#35](https://github.com/NEXTAltair/image-annotator-lib/issues/35)
 
 ## Context
 
@@ -55,7 +52,7 @@ user TOML WebAPI override も再評価して整理する。
 | structured output | `output_type`, Tool/Native/Prompted output, Pydantic validation, `result.output` | `response_format`, `supports_response_schema`, client-side JSON schema validation | Phase 1 は PydanticAI default Tool Output を使う |
 | response validation | Pydantic schema / validators / validation context / `ModelRetry` が自然 | JSON schema validation は可能だが application schema の意味検証は薄い | PydanticAI に寄せる |
 | output retry | `retries` / `output_retries` で validation failure を同一モデルに再試行 | Router retry は API 呼び出し失敗寄り | PydanticAI を採用 |
-| HTTP/API retry | `AsyncTenacityTransport` を provider HTTP client に設定可能 | Router / Proxy retry が強い | PydanticAI transport retry のみ採用。LiteLLM Router retry は採用しない |
+| HTTP/API retry | Tenacity transport を provider HTTP client に設定可能 | Router / Proxy retry が強い | PydanticAI HTTP retry のみ採用。LiteLLM Router retry は採用しない |
 | fallback / routing | `FallbackModel` あり。Agent 内で明示モデル順を管理 | Router/Proxy の load balancing/fallback が強い | 採用しない。同一モデル retry までに限定する |
 | cost / token metadata | `result.usage()` で usage は取得可能 | 価格 metadata / cost helpers がある | Phase 1 では使わない。必要なら別 ADR |
 | API key / provider config | native provider に明示注入でき、副作用が小さい | env/config/proxy 経由が得意 | 通常経路は PydanticAI provider に明示注入 |
@@ -208,9 +205,6 @@ import litellm
 
 if not litellm.supports_vision(litellm_model_id):
     raise VisionUnsupportedError(litellm_model_id=litellm_model_id)
-
-if not litellm.supports_function_calling(litellm_model_id):
-    raise FunctionCallingUnsupportedError(litellm_model_id=litellm_model_id)
 ```
 
 - LiteLLM を SSoT にする以上、registry 構築時のフィルタだけでなく実行時にも同じ source を
@@ -295,7 +289,6 @@ WebApiError (existing)
 ├── UnknownProviderError    # SUPPORTED_PROVIDERS に含まれない provider
 ├── MissingApiKeyError      # api_keys に該当 provider のキーが無い
 ├── VisionUnsupportedError  # litellm.supports_vision() == False
-├── FunctionCallingUnsupportedError # litellm.supports_function_calling() == False
 ├── SafetyRefusalError      # provider safety / content policy refusal
 ├── ContentPolicyRefusalError # provider content policy refusal
 └── InferenceError          # PydanticAI 実行時エラーの wrap (HTTP / validation / timeout 等)
@@ -310,15 +303,11 @@ LoRAIro 側の `annotator_adapter.py` は `WebApiError` で広く拾い、必要
 Phase 1 の retry は「構造化出力の validation failure」と「API transient failure」だけを対象にする。
 
 - output / schema validation failure は PydanticAI の `output_retries=1` で 1 回だけ再生成する
-- HTTP/API transient failure は PydanticAI provider の HTTP client に
-  `pydantic_ai.retries.AsyncTenacityTransport` を組み込んで扱う
-- attempts は initial + 2 retries (最大 3 attempts) とする
+- HTTP/API transient failure は PydanticAI provider の HTTP client / transport で initial + 2 retries
+  (最大 3 attempts) とする
 - retry 対象 HTTP status は `408`, `409`, `429`, `500`, `502`, `503`, `504`
-- `Retry-After` は `pydantic_ai.retries.wait_retry_after()` に従って扱う。長すぎる
-  `Retry-After` は `max_wait` に丸め、Phase 1 では `Retry-After > max_wait` を
-  retry 中断条件にする独自ロジックは実装しない
-- provider SDK が独自 retry を持つ場合は、可能な範囲で無効化し、PydanticAI transport retry
-  を主経路に寄せる。ただし provider 差異を完全吸収する大きな独自 adapter は Phase 1 では作らない
+- `Retry-After` がある場合は尊重する。ただし最大待機は 60 秒までとし、それを超える場合は retry せず
+  error として返す
 - model fallback / routing は実装しない。別モデルへの自動切り替えは行わない
 - LiteLLM Router retry は採用しない
 - `Agent(retries=...)` を API failure retry として扱わない
@@ -338,12 +327,8 @@ Retry しないもの:
 
 ### Output normalization
 
-PydanticAI の output function / output validator を使い、LLM が返す軽微な schema 揺れを
-PydanticAI の output 処理内で正規化する。正規化後に `AnnotationSchema` として検証し、
-補正できない場合は `ModelRetry` を raise して PydanticAI output retry に任せる。
-
-実装は「寛容な raw 受け皿 → 軽微正規化 → `AnnotationSchema` 検証」の薄い層に限定する。
-独自 JSON repair class や複雑な parser 層は作らない。
+`AnnotationSchema` validation 時の軽微な正規化は許可する。ただし独自 JSON repair class や
+複雑な parser 層は作らない。軽微な正規化で補正できない場合は PydanticAI output retry に任せる。
 
 許可する軽微な正規化:
 
@@ -352,22 +337,6 @@ PydanticAI の output 処理内で正規化する。正規化後に `AnnotationS
 - `score` が数値文字列なら float 化
 - tag / caption の前後空白除去
 - 空文字 tag / caption の除外
-
-責務分担:
-
-- PydanticAI output function / output validator:
-  - raw output の軽微正規化
-  - `AnnotationSchema` への変換・検証
-  - 補正不能時の `ModelRetry`
-- `AnnotationSchema`:
-  - アプリケーションが受け入れる最終 schema
-- `core/result_adapter.py`:
-  - 検証済み `AnnotationSchema` から `AnnotationResult` への変換
-  - error message / `formatted_output` の整形
-
-`result_adapter` は validation 前の揺れを補正する主責務を持たない。最終防衛として
-空要素除去等を残す場合でも、PydanticAI output 処理側が正規化の主経路であることを
-コメントとテストで明確にする。
 
 実装しない補正:
 
@@ -449,12 +418,10 @@ fail-fast を維持する判断とした。
 3. `resolve_model_ref(litellm_model_id, config)` で `PydanticAIModelRef` を生成
 4. API key を provider object に明示注入し、PydanticAI 実行用 model object / model string を構築
    (env mutate なし)
-5. `Agent(model=model, output_type=<PydanticAI output function / validator 経由>, system_prompt=BASE_PROMPT, ...)`
-   を毎回新規作成
-6. PydanticAI output 処理で raw output を軽微正規化し、`AnnotationSchema` として検証する
-7. async core では `result = await agent.run([prompt_text, binary_content])` (sequence で渡す)
-8. sync wrapper は `run_inference_with_model_async()` を event loop 非稼働 thread でだけ実行する
-9. `result.output` (`AnnotationSchema` 検証済) を `core/result_adapter.py:to_annotation_result()` で
+5. `Agent(model=model, output_type=AnnotationSchema, system_prompt=BASE_PROMPT, ...)` を毎回新規作成
+6. async core では `result = await agent.run([prompt_text, binary_content])` (sequence で渡す)
+7. sync wrapper は `run_inference_with_model_async()` を event loop 非稼働 thread でだけ実行する
+8. `result.output` (`AnnotationSchema` 検証済) を `core/result_adapter.py:to_annotation_result()` で
    `AnnotationResult` に変換
 
 ### Phase 1.x: WebAPI 経路の device 判定責務分離 (Issue #35)
@@ -576,10 +543,6 @@ PydanticAI と LiteLLM の両方を最大限使うのではなく、同じ責務
 - `core/result_adapter.py`
   - `to_annotation_result(schema_output, phash, error=None) -> AnnotationResult`
   - エラー正規化、tag 抽出、formatted_output 詰め
-- `core/output_normalization.py` (または同等の小さな helper)
-  - PydanticAI output function / output validator から呼ぶ raw output 正規化
-  - 軽微補正後の `AnnotationSchema` 検証
-  - 補正不能時の `ModelRetry`
 - `core/image_preprocess.py`
   - `preprocess_images_to_binary(images: list[Image.Image]) -> list[BinaryContent]`
   - 旧 `pydantic_ai_factory.preprocess_images_to_binary` を移動
@@ -592,7 +555,6 @@ PydanticAI と LiteLLM の両方を最大限使うのではなく、同じ責務
   - `run_inference_with_model()` 引数を `api_model_id` → `litellm_model_id` にリネーム (破壊的変更)
   - キャッシュ取得を廃止し毎回 `resolve_model_ref` → provider/model/Agent 構築
   - 推論前 vision + function/tool calling capability check を追加
-  - PydanticAI output function / output validator で軽微な schema 揺れを正規化し、`AnnotationSchema` に検証する
   - `agent.run_sync(binary_content)` → async core の `await agent.run([prompt_text, binary_content])`
   - `response.data` → `result.output`
   - `_get_provider`, `_get_api_key` の ID parsing 部分を `core/model_id.py` 利用に置換
