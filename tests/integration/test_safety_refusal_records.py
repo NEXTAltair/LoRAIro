@@ -359,6 +359,61 @@ def test_get_image_ids_by_filepaths_empty_input(
 
 
 @pytest.mark.integration
+def test_get_image_ids_by_filepaths_isolates_row_resolution_failures(
+    repo: ImageRepository,
+    registered_image: tuple[int, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ADR 0023 Phase 1.5 Codex P2 (PR #233 r3209511028): 1 行の corrupted
+    stored_image_path で batch 全体を落とさず、健全な行は解決され続けることを確認する。
+
+    `_safe_resolve_stored_path()` helper を patch することで row-level guard の
+    動作を直接検証する。
+    """
+    image_id, file_path = registered_image
+
+    # 既存 row に対する `_safe_resolve_stored_path` を OSError で失敗させる。
+    # row-level guard で例外が吸収され、result["sample.png"] は None になる
+    # (1 candidate しかないため skip 後に matches が空になる)。
+    failures: list[int] = []
+
+    def flaky_safe_resolve(image_id_arg: int, stored_image_path: str) -> Path | None:
+        failures.append(image_id_arg)
+        return None  # helper 自体が失敗をキャプチャした体で None 返却
+
+    monkeypatch.setattr(ImageRepository, "_safe_resolve_stored_path", staticmethod(flaky_safe_resolve))
+
+    result = repo.get_image_ids_by_filepaths([file_path, "/nonexistent/foo.png"])
+
+    # 全行が skip されても batch 全体は abort せず、各 path に対し None を返す
+    assert result[file_path] is None
+    assert result["/nonexistent/foo.png"] is None
+    # 1 candidate の helper が呼ばれ、image_id が記録された
+    assert image_id in failures, "row-level guard 経由で helper が呼ばれるはず"
+
+
+@pytest.mark.integration
+def test_safe_resolve_stored_path_returns_none_on_oserror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_safe_resolve_stored_path()` が OSError を吸収して None を返すことを確認。"""
+    from lorairo.database import db_repository as db_repo_mod
+
+    def raising_resolve(_path: str) -> Path:
+        raise OSError("simulated symlink loop")
+
+    monkeypatch.setattr(db_repo_mod, "resolve_stored_path", raising_resolve, raising=False)
+
+    # _safe_resolve_stored_path 内の遅延 import より、db_core を patch
+    from lorairo.database import db_core
+
+    monkeypatch.setattr(db_core, "resolve_stored_path", raising_resolve)
+
+    result = ImageRepository._safe_resolve_stored_path(image_id=42, stored_image_path="/bad/path")
+    assert result is None
+
+
+@pytest.mark.integration
 def test_get_error_image_ids_with_error_types_filter(
     repo: ImageRepository,
     registered_image: tuple[int, str],

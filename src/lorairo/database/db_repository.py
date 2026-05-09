@@ -3448,6 +3448,80 @@ class ImageRepository:
                 logger.error(f"ファイルパスからの画像ID取得エラー: {filepath}, {e}")
                 return None
 
+    @staticmethod
+    def _normalize_input_paths(filepaths: list[str]) -> tuple[dict[str, Path], set[str]]:
+        """入力 path リストを resolve した dict と filename set に変換する helper。
+
+        Args:
+            filepaths: 解決対象の path リスト。
+
+        Returns:
+            (input_path -> resolved Path の dict, filename set)。
+            resolve できなかった path は元 Path object のまま dict に入れ、
+            filename set には含めない (DB 検索対象から除外)。
+        """
+        path_resolved: dict[str, Path] = {}
+        filenames: set[str] = set()
+        for raw in filepaths:
+            try:
+                resolved = Path(raw).resolve()
+            except (OSError, RuntimeError, ValueError):
+                path_resolved[raw] = Path(raw)
+                continue
+            path_resolved[raw] = resolved
+            filenames.add(resolved.name)
+        return path_resolved, filenames
+
+    def _build_candidates_by_filename(self, candidates: list[Image]) -> dict[str, list[tuple[Path, int]]]:
+        """candidates を filename をキーとする dict に集約する helper。
+
+        ADR 0023 Phase 1.5 (Codex P2 r3209511028): row-level resolve guard 経由で
+        corrupted 行は skip し、健全な行のみ集約する。
+
+        Args:
+            candidates: filename IN 句で取得した Image ORM 行のリスト。
+
+        Returns:
+            filename -> [(resolved_abs Path, image_id), ...] の dict。
+            同じ filename で複数 image (別ディレクトリ) があり得るため list 値。
+        """
+        by_filename: dict[str, list[tuple[Path, int]]] = {}
+        for img in candidates:
+            if img.filename is None:
+                continue
+            resolved_abs = self._safe_resolve_stored_path(img.id, img.stored_image_path)
+            if resolved_abs is None:
+                continue
+            by_filename.setdefault(img.filename, []).append((resolved_abs, img.id))
+        return by_filename
+
+    @staticmethod
+    def _safe_resolve_stored_path(image_id: int, stored_image_path: str) -> Path | None:
+        """`stored_image_path` を絶対 Path に解決する row-level guard 付き helper。
+
+        ADR 0023 Phase 1.5 (Codex P2 r3209511028): 1 行の corrupted path
+        (シンボリックループ / 解決不能 path 等) で batch 全体を落とさないため、
+        row-level で例外を吸収する。失敗時は warning + None を返す。
+
+        Args:
+            image_id: 対象画像 ID (logging 用)。
+            stored_image_path: DB に保存された生 path。
+
+        Returns:
+            解決済みの絶対 Path、または resolve 失敗時 None。
+        """
+        from ..database.db_core import resolve_stored_path
+
+        try:
+            resolved_stored = resolve_stored_path(stored_image_path)
+            return resolved_stored.resolve()
+        except (OSError, ValueError, RuntimeError) as exc:
+            logger.warning(
+                f"バッチ画像 ID 解決: stored_image_path resolve 失敗を skip: "
+                f"image_id={image_id}, path={stored_image_path!r}, error={exc}"
+            )
+            return None
+
     def get_image_ids_by_filepaths(self, filepaths: list[str]) -> dict[str, int | None]:
         """複数のファイルパスから画像 ID をバッチ解決する。
 
@@ -3467,23 +3541,7 @@ class ImageRepository:
         if not filepaths:
             return {}
 
-        from pathlib import Path
-
-        from ..database.db_core import resolve_stored_path
-
-        # input path → resolved Path object のマッピング (重複 filename 解決用)
-        path_resolved: dict[str, Path] = {}
-        filenames: set[str] = set()
-        for raw in filepaths:
-            try:
-                resolved = Path(raw).resolve()
-            except (OSError, RuntimeError, ValueError):
-                # 解決できない path は None として扱う (後段で結果に含める)
-                path_resolved[raw] = Path(raw)
-                continue
-            path_resolved[raw] = resolved
-            filenames.add(resolved.name)
-
+        path_resolved, filenames = self._normalize_input_paths(filepaths)
         result: dict[str, int | None] = dict.fromkeys(filepaths)
 
         if not filenames:
@@ -3493,17 +3551,8 @@ class ImageRepository:
             try:
                 # filename IN (...) で 1 クエリ取得 (重複 filename もまとめて)
                 stmt = select(Image).where(Image.filename.in_(filenames))
-                candidates = session.execute(stmt).scalars().all()
-
-                # filename をキーに stored_image_path resolve 結果を集約
-                # 同 filename で複数画像 (別ディレクトリ等) があり得るため list of
-                # (resolved_path, image_id) を保持
-                by_filename: dict[str, list[tuple[Path, int]]] = {}
-                for img in candidates:
-                    if img.filename is None:
-                        continue
-                    resolved_stored = resolve_stored_path(img.stored_image_path)
-                    by_filename.setdefault(img.filename, []).append((resolved_stored.resolve(), img.id))
+                candidates = list(session.execute(stmt).scalars().all())
+                by_filename = self._build_candidates_by_filename(candidates)
 
                 # input path ごとに対応する image_id を resolve 比較で確定
                 for raw, resolved_input in path_resolved.items():
