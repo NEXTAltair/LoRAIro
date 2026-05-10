@@ -86,8 +86,16 @@ class TestLitellmModelIdMigration:
             assert row.provider == "user"
         engine.dispose()
 
-    def test_slash_name_is_split_and_provider_lowercased(self, tmp_path: Path) -> None:
-        """`name='OpenAI/gpt-4o'` (capitalize 込み slash) → 分離 + lowercase 化。"""
+    def test_slash_name_is_split_and_litellm_id_normalized_lowercase(self, tmp_path: Path) -> None:
+        """`name='OpenAI/gpt-4o'` (大文字混入 slash) → 分離後 `litellm_model_id` も lowercase 化 (P2 指摘)。
+
+        旧実装は slash 込み name を litellm_model_id に verbatim コピーしていたため
+        `OpenAI/gpt-4o` のような大文字混入がそのまま `litellm_model_id` に残り、後の
+        case-sensitive lookup で正規 `openai/gpt-4o` と一致せず重複登録が起きていた。
+        修正後は Step 2 で name/provider を分離 + provider lowercase、Step 3 で
+        正規化済み provider/name から litellm_model_id を再構築するため、常に LiteLLM 規約
+        (lowercase prefix) の正規 ID が格納される。
+        """
         db = tmp_path / "test.db"
         _create_legacy_schema(db)
         engine = create_engine(f"sqlite:///{db}")
@@ -104,7 +112,37 @@ class TestLitellmModelIdMigration:
             ).one()
             assert row.name == "gpt-4o"
             assert row.provider == "openai"
-            assert row.litellm_model_id == "OpenAI/gpt-4o"
+            # P2 指摘: litellm_model_id は lowercase 化された正規 LiteLLM ID
+            assert row.litellm_model_id == "openai/gpt-4o"
+        engine.dispose()
+
+    def test_openrouter_nested_slash_name_normalized(self, tmp_path: Path) -> None:
+        """`name='openrouter/openai/gpt-4o'` → `provider='openrouter', name='openai/gpt-4o', litellm_model_id='openrouter/openai/gpt-4o'`。
+
+        複数 `/` を含む OpenRouter 経由モデルも、最初の `/` で分離 + provider lowercase 化
+        により正規 LiteLLM ID が構築される。
+        """
+        db = tmp_path / "test.db"
+        _create_legacy_schema(db)
+        engine = create_engine(f"sqlite:///{db}")
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO models (name, provider) VALUES ('openrouter/openai/gpt-4o', 'openrouter')"
+                )
+            )
+        engine.dispose()
+
+        _upgrade_to_head(db)
+
+        engine = create_engine(f"sqlite:///{db}")
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT name, provider, litellm_model_id FROM models WHERE id = 1")
+            ).one()
+            assert row.name == "openai/gpt-4o"
+            assert row.provider == "openrouter"
+            assert row.litellm_model_id == "openrouter/openai/gpt-4o"
         engine.dispose()
 
     def test_bare_name_with_known_provider_is_normalized(self, tmp_path: Path) -> None:
