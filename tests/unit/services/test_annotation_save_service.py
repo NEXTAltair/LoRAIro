@@ -12,7 +12,7 @@ def mock_repository() -> MagicMock:
     """モック ImageRepository。"""
     repo = MagicMock()
     repo.find_image_ids_by_phashes.return_value = {}
-    repo.get_models_by_names.return_value = {}
+    repo.get_models_by_litellm_ids.return_value = {}
     repo.batch_resolve_tag_ids.return_value = {}
     return repo
 
@@ -62,7 +62,7 @@ def test_save_annotation_results_with_known_phashes_saves_all(
     mock_model.id = 10
 
     mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1, "phash002": 2}
-    mock_repository.get_models_by_names.return_value = {"wdtagger": mock_model}
+    mock_repository.get_models_by_litellm_ids.return_value = {"wdtagger": mock_model}
     mock_repository.batch_resolve_tag_ids.return_value = {}
 
     results = {
@@ -109,7 +109,7 @@ def test_save_annotation_results_handles_partial_save_failure(
     mock_model = MagicMock()
     mock_model.id = 1
     mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1}
-    mock_repository.get_models_by_names.return_value = {"wdtagger": mock_model}
+    mock_repository.get_models_by_litellm_ids.return_value = {"wdtagger": mock_model}
     mock_repository.save_annotations.side_effect = RuntimeError("DB write error")
 
     results = {
@@ -130,7 +130,7 @@ def test_save_annotation_results_uses_batch_resolution(
     service: AnnotationSaveService,
     mock_repository: MagicMock,
 ) -> None:
-    """N+1を避けるため、find_image_ids_by_phashesとget_models_by_namesを各1回のみ呼ぶ。"""
+    """N+1を避けるため、find_image_ids_by_phashesとget_models_by_litellm_idsを各1回のみ呼ぶ。"""
     mock_model = MagicMock()
     mock_model.id = 1
     mock_repository.find_image_ids_by_phashes.return_value = {
@@ -138,7 +138,7 @@ def test_save_annotation_results_uses_batch_resolution(
         "phash002": 2,
         "phash003": 3,
     }
-    mock_repository.get_models_by_names.return_value = {"wdtagger": mock_model}
+    mock_repository.get_models_by_litellm_ids.return_value = {"wdtagger": mock_model}
     mock_repository.batch_resolve_tag_ids.return_value = {}
 
     results = {
@@ -150,4 +150,4 @@ def test_save_annotation_results_uses_batch_resolution(
     service.save_annotation_results(results)
 
     mock_repository.find_image_ids_by_phashes.assert_called_once()
-    mock_repository.get_models_by_names.assert_called_once()
+    mock_repository.get_models_by_litellm_ids.assert_called_once()

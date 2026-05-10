@@ -19,12 +19,17 @@ from ..utils.log import logger
 
 
 class ModelMetadata(TypedDict):
-    """モデルメタデータの型定義 (sync_service 内部表現)"""
+    """モデルメタデータの型定義 (sync_service 内部表現)。
+
+    ADR 0023 Phase 1.11 (Issue #238): `litellm_model_id` は registry key SSoT として
+    NOT NULL。`info.litellm_model_id` が None のローカル ML モデルでは `info.name`
+    で fallback する。
+    """
 
     name: str
     provider: str | None
     class_name: str | None
-    litellm_model_id: str | None
+    litellm_model_id: str  # registry key SSoT (NOT NULL)
     model_type: str  # AnnotatorInfo.model_type ("tagger"/"scorer"/"captioner"/"vision")
     model_types: list[str]  # LoRAIro DB の model_types (マッピング後)
     estimated_size_gb: float | None
@@ -253,11 +258,16 @@ class ModelSyncService:
                 # exclude_local / "provider or 'local'") を維持する。
                 provider = info.provider or ("unknown" if info.is_api else None)
 
+                # ADR 0023 Phase 1.11 (Issue #238): litellm_model_id は registry key
+                # SSoT (UNIQUE NOT NULL)。info.litellm_model_id が None のローカル ML
+                # モデルでは info.name (bare name) を fallback として使う。
+                litellm_model_id = info.litellm_model_id or info.name
+
                 metadata: ModelMetadata = {
                     "name": info.name,
                     "provider": provider,
                     "class_name": None,
-                    "litellm_model_id": info.litellm_model_id,
+                    "litellm_model_id": litellm_model_id,
                     "model_type": info.model_type,
                     "model_types": db_model_types,
                     "estimated_size_gb": info.estimated_size_gb,
@@ -290,7 +300,10 @@ class ModelSyncService:
 
         for model_metadata in models:
             try:
-                existing_model = self.db_repository.get_model_by_name(model_metadata["name"])
+                # ADR 0023 Phase 1.11 (Issue #238): sync key を name → litellm_model_id に切替
+                existing_model = self.db_repository.get_model_by_litellm_id(
+                    model_metadata["litellm_model_id"]
+                )
 
                 if existing_model is None:
                     logger.debug(f"新規アノテーションモデルを登録: {model_metadata['name']}")
@@ -299,7 +312,7 @@ class ModelSyncService:
                         name=model_metadata["name"],
                         provider=model_metadata.get("provider"),
                         model_types=model_metadata["model_types"],
-                        litellm_model_id=model_metadata.get("litellm_model_id"),
+                        litellm_model_id=model_metadata["litellm_model_id"],
                         estimated_size_gb=model_metadata.get("estimated_size_gb"),
                         requires_api_key=model_metadata.get("requires_api_key", False),
                         discontinued_at=model_metadata.get("discontinued_at"),
@@ -332,7 +345,10 @@ class ModelSyncService:
 
         for model_metadata in models:
             try:
-                existing_model = self.db_repository.get_model_by_name(model_metadata["name"])
+                # ADR 0023 Phase 1.11 (Issue #238): sync key を name → litellm_model_id に切替
+                existing_model = self.db_repository.get_model_by_litellm_id(
+                    model_metadata["litellm_model_id"]
+                )
 
                 if existing_model is not None:
                     logger.debug(f"既存アノテーションモデルの更新チェック: {model_metadata['name']}")
@@ -341,7 +357,7 @@ class ModelSyncService:
                         model_id=existing_model.id,
                         provider=model_metadata.get("provider"),
                         model_types=model_metadata["model_types"],
-                        litellm_model_id=model_metadata.get("litellm_model_id"),
+                        litellm_model_id=model_metadata["litellm_model_id"],
                         estimated_size_gb=model_metadata.get("estimated_size_gb"),
                         requires_api_key=model_metadata.get("requires_api_key", False),
                         discontinued_at=model_metadata.get("discontinued_at"),

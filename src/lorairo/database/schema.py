@@ -21,6 +21,14 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
+# ADR 0023 Phase 1.11 (Issue #238): MANUAL_EDIT 行は推論経路に乗らない特殊行のため、
+# `litellm_model_id` UNIQUE NOT NULL 制約を満たす sentinel 値を予約する。
+# `provider/<model>` 形式と衝突しないよう先頭/末尾を `__` で囲んだ非 LiteLLM ID にする。
+MANUAL_EDIT_NAME = "MANUAL_EDIT"
+MANUAL_EDIT_PROVIDER = "user"
+MANUAL_EDIT_LITELLM_ID = "__manual_edit__"
+
+
 # --- Base Class ---
 class Base(DeclarativeBase):
     """SQLAlchemy モデルの基底クラス"""
@@ -69,12 +77,16 @@ class Model(Base):
     __tablename__ = "models"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    # ADR 0023 Phase 1.11 (Issue #238): 役割分担を以下に再構成
+    #   name: 表示名 (非 UNIQUE) — 例 "gpt-4.1"
+    #   provider: ルーティング元 (非 UNIQUE) — 例 "openrouter" / "openai"
+    #   litellm_model_id: ルーティングキー (UNIQUE NOT NULL) — 例 "openrouter/openai/gpt-4.1"
+    name: Mapped[str] = mapped_column(String, nullable=False)
     provider: Mapped[str | None] = mapped_column(String)
     discontinued_at: Mapped[datetime.datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     # Model metadata fields for annotation processing integration
-    litellm_model_id: Mapped[str | None] = mapped_column(String)
+    litellm_model_id: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     estimated_size_gb: Mapped[float | None] = mapped_column(Float)
     requires_api_key: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 

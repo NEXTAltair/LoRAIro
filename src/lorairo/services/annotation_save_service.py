@@ -329,7 +329,10 @@ class AnnotationSaveService:
         phash_to_image_id = self._repository.find_image_ids_by_phashes(set(results.keys()))
 
         all_model_names, all_raw_tags = self._collect_names_and_tags(results)
-        models_cache = self._repository.get_models_by_names(all_model_names)
+        # ADR 0023 Phase 1.11 (Issue #238): registry key (= AnnotatorInfo.name) を
+        # litellm_model_id SSoT に直接マップする。Phase 1.10 後は registry key と
+        # litellm_model_id が一致するため (WebAPI 完全 ID / ローカル ML bare name)。
+        models_cache = self._repository.get_models_by_litellm_ids(all_model_names)
         tag_id_cache = self._resolve_tag_ids(all_raw_tags)
 
         success_count = 0

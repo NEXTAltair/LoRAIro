@@ -784,11 +784,12 @@ def then_manual_rating_is_null(
     test_db_manager: ImageDatabaseManager, register_image_result: dict[str, Any]
 ):
     """登録された画像の MANUAL_EDIT Rating レコードが存在しないことを確認"""
-    from lorairo.database.schema import Model, Rating
+    from lorairo.database.schema import MANUAL_EDIT_LITELLM_ID, Model, Rating
 
     image_id = register_image_result["image_id"]
     with test_db_manager.repository.session_factory() as session:
-        manual_model = session.query(Model).filter_by(name="MANUAL_EDIT").first()
+        # ADR 0023 Phase 1.11 (Issue #238): MANUAL_EDIT 行は sentinel litellm_model_id で lookup
+        manual_model = session.query(Model).filter_by(litellm_model_id=MANUAL_EDIT_LITELLM_ID).first()
         if manual_model is None:
             return  # MANUAL_EDIT モデル自体がなければレコードも存在しない
         rating_count = session.query(Rating).filter_by(image_id=image_id, model_id=manual_model.id).count()

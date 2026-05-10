@@ -10,7 +10,12 @@ import pytest
 from sqlalchemy.orm import sessionmaker
 
 from lorairo.database.db_repository import ImageRepository
-from lorairo.database.schema import Image, Model, Rating
+from lorairo.database.schema import (
+    MANUAL_EDIT_LITELLM_ID,
+    Image,
+    Model,
+    Rating,
+)
 
 
 @pytest.fixture
@@ -46,7 +51,7 @@ class TestUpdateManualRatingWritesToRatingTable:
 
         assert result is True
         with db_session_factory() as session:
-            manual_model = session.query(Model).filter_by(name="MANUAL_EDIT").first()
+            manual_model = session.query(Model).filter_by(litellm_model_id=MANUAL_EDIT_LITELLM_ID).first()
             assert manual_model is not None, "MANUAL_EDIT モデルが作成されていない"
             ratings = session.query(Rating).filter_by(image_id=image_id, model_id=manual_model.id).all()
             assert len(ratings) == 1, f"Rating レコードが 1 件のはずが {len(ratings)} 件"
@@ -61,7 +66,7 @@ class TestUpdateManualRatingWritesToRatingTable:
 
         assert result is True
         with db_session_factory() as session:
-            manual_model = session.query(Model).filter_by(name="MANUAL_EDIT").first()
+            manual_model = session.query(Model).filter_by(litellm_model_id=MANUAL_EDIT_LITELLM_ID).first()
             if manual_model is None:
                 return  # モデルがなければレコードもない
             ratings = session.query(Rating).filter_by(image_id=image_id, model_id=manual_model.id).all()
@@ -75,7 +80,7 @@ class TestUpdateManualRatingWritesToRatingTable:
         test_repository.update_manual_rating(image_id, "R")
 
         with db_session_factory() as session:
-            manual_model = session.query(Model).filter_by(name="MANUAL_EDIT").first()
+            manual_model = session.query(Model).filter_by(litellm_model_id=MANUAL_EDIT_LITELLM_ID).first()
             assert manual_model is not None
             ratings = session.query(Rating).filter_by(image_id=image_id, model_id=manual_model.id).all()
             assert len(ratings) == 1, f"最新値 1 件のはずが {len(ratings)} 件"

@@ -77,7 +77,7 @@ class TestAnnotationWorkerExecute:
 
         mock_db_manager = Mock()
         mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"test_phash": 1}
-        mock_db_manager.repository.get_models_by_names.return_value = {"gpt-4o-mini": Mock(id=1)}
+        mock_db_manager.repository.get_models_by_litellm_ids.return_value = {"gpt-4o-mini": Mock(id=1)}
         mock_db_manager.repository.save_annotations = Mock()
 
         worker = AnnotationWorker(
@@ -111,7 +111,7 @@ class TestAnnotationWorkerExecute:
 
         mock_db_manager = Mock()
         mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"phash1": 1}
-        mock_db_manager.repository.get_models_by_names.return_value = {
+        mock_db_manager.repository.get_models_by_litellm_ids.return_value = {
             "gpt-4o-mini": Mock(id=1),
             "claude-3-haiku-20240307": Mock(id=2),
         }
@@ -164,7 +164,7 @@ class TestAnnotationWorkerExecute:
 
         mock_db_manager = Mock()
         mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"phash1": 1}
-        mock_db_manager.repository.get_models_by_names.return_value = {
+        mock_db_manager.repository.get_models_by_litellm_ids.return_value = {
             "gpt-4o-mini": Mock(id=1),
             "gemini-1.5-flash-latest": Mock(id=3),
         }
@@ -210,7 +210,7 @@ class TestAnnotationWorkerExecute:
 
         mock_db_manager = Mock()
         mock_db_manager.repository.find_image_ids_by_phashes.return_value = {}
-        mock_db_manager.repository.get_models_by_names.return_value = {}
+        mock_db_manager.repository.get_models_by_litellm_ids.return_value = {}
         mock_db_manager.repository.save_annotations = Mock()
         mock_db_manager.get_image_id_by_filepath.return_value = 1
 
@@ -244,7 +244,7 @@ class TestAnnotationWorkerExecute:
         mock_model = Mock(id=1)
         mock_db_manager = Mock()
         mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"test_phash": 1}
-        mock_db_manager.repository.get_models_by_names.return_value = {"gpt-4o-mini": mock_model}
+        mock_db_manager.repository.get_models_by_litellm_ids.return_value = {"gpt-4o-mini": mock_model}
         mock_db_manager.repository.save_annotations = Mock()
 
         worker = AnnotationWorker(
@@ -258,7 +258,7 @@ class TestAnnotationWorkerExecute:
         worker.execute()
 
         assert mock_db_manager.repository.find_image_ids_by_phashes.call_count == 2
-        mock_db_manager.repository.get_models_by_names.assert_called_once()
+        mock_db_manager.repository.get_models_by_litellm_ids.assert_called_once()
         mock_db_manager.repository.find_duplicate_image_by_phash.assert_not_called()
         mock_db_manager.repository.get_model_by_name.assert_not_called()
 

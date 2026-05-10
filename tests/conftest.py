@@ -325,19 +325,47 @@ def test_engine_with_schema(test_db_url: str):
             # --- 初期 Model データの挿入 ---
             print("[test_engine_with_schema] Inserting initial model data...")
             # 関連付けるタイプ名をリストで持つように変更
+            # ADR 0023 Phase 1.11 (Issue #238): litellm_model_id は UNIQUE NOT NULL。
+            # WebAPI モデルは LiteLLM 完全 ID、ローカル ML モデルは bare name (= name) を SSoT として持つ。
             initial_models_data: list[dict[str, Any]] = [
-                {"name": "wd-vit-large-tagger-v3", "provider": "SmilingWolf", "type_names": ["tagger"]},
+                {
+                    "name": "wd-vit-large-tagger-v3",
+                    "provider": "SmilingWolf",
+                    "litellm_model_id": "wd-vit-large-tagger-v3",
+                    "type_names": ["tagger"],
+                },
                 # 修正: 'multimodal' は llm も兼ねるケースが多いので llm も追加、または要件に応じて調整
                 {
                     "name": "GPT-4o",
                     "provider": "OpenAI",
+                    "litellm_model_id": "openai/gpt-4o",
                     "type_names": ["multimodal", "llm", "captioner"],
                 },  # 複数のタイプを持つ例
-                {"name": "cafe_aesthetic", "provider": "cafe", "type_names": ["score"]},
-                {"name": "classification_ViT-L-14_openai", "provider": "openai", "type_names": ["rating"]},
+                {
+                    "name": "cafe_aesthetic",
+                    "provider": "cafe",
+                    "litellm_model_id": "cafe_aesthetic",
+                    "type_names": ["score"],
+                },
+                {
+                    "name": "classification_ViT-L-14_openai",
+                    "provider": "openai",
+                    "litellm_model_id": "classification_ViT-L-14_openai",
+                    "type_names": ["rating"],
+                },
                 # 他のテストで必要になる可能性のあるモデルタイプも追加
-                {"name": "RealESRGAN_x4plus", "provider": "esrgan", "type_names": ["upscaler"]},
-                {"name": "wd-swinv2-tagger-v3", "provider": "SmilingWolf", "type_names": ["tagger"]},
+                {
+                    "name": "RealESRGAN_x4plus",
+                    "provider": "esrgan",
+                    "litellm_model_id": "RealESRGAN_x4plus",
+                    "type_names": ["upscaler"],
+                },
+                {
+                    "name": "wd-swinv2-tagger-v3",
+                    "provider": "SmilingWolf",
+                    "litellm_model_id": "wd-swinv2-tagger-v3",
+                    "type_names": ["tagger"],
+                },
                 # 必要に応じて他のデフォルトモデルを追加
             ]
 
