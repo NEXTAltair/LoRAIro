@@ -906,6 +906,88 @@ ADR 0023 本文の以下の記述は **Phase 1.8 (Issue #46) で更新**:
 将来 halt-on-exceed (Retry-After > max_wait の即 error 化) や session-scoped
 HTTP connection pool は別 ADR で扱う。
 
+## Phase 1.9 完了 (Issue #51 — LiteLLM 完全 ID を registry SSoT に統一)
+
+ADR 0023 line 65-77 の ID 境界規定に基づき、`api_model_discovery._format_litellm_metadata()`
+が返す `model_name_short` を **LiteLLM 同梱 DB のオリジナルキーと同一の完全 ID** に
+揃える修正を実施した (2026-05 完了)。
+
+### 背景
+
+旧実装は `model_id.split("/", 1)[1]` で provider prefix を剥がした文字列を
+`model_name_short` としていたため、`openrouter/z-ai/glm-4.7` のような nested
+LiteLLM ID では `model_name_short = "z-ai/glm-4.7"` となり、registry キー /
+CLI 表示 / LoRAIro DB `litellm_model_id` 列に prefix 欠落形が伝播していた。
+推論時の `resolve_model_ref()` は `_BUILDER_DISPATCH` にない `z-ai` を未知
+provider として `UnknownProviderError` で弾く構造だった。
+
+### 実装サマリー (image-annotator-lib PR #51 系)
+
+1. **`_format_litellm_metadata()` の修正**: `core/api_model_discovery.py:55-82`
+   の `model_name_short` を `model_id` (= LiteLLM オリジナルキー) そのものに変更。
+   `display_name` も同一値となるが既存呼び出し側互換のため両 field を残す
+   (将来の Phase で field 統合は別 ADR で検討)。
+2. **registry / CLI / LoRAIro DB の SSoT 統一**: `_register_webapi_models_from_discovery()`
+   は変更不要。`model_name_short` を辞書値からそのままキーとして登録するため、
+   `_MODEL_CLASS_OBJ_REGISTRY` / `_WEBAPI_MODEL_METADATA` のキーが完全 ID
+   (`openai/gpt-4o`, `openrouter/z-ai/glm-4.7` 等) に揃う。`AnnotatorInfo.name` /
+   LoRAIro CLI の `info.name` も同一値となる。
+3. **discovery filter は無変更**: `is_allowed_provider()` は line 126-138 通り
+   `_BUILDER_DISPATCH.keys()` (= `SUPPORTED_PROVIDERS`) の第 1 要素照合のみで
+   判定。`openrouter/<inner>/<model>` の inner provider 別フィルタは行わない
+   (Issue #51 本文「discovery フィルタ: `openrouter/` 配下は全て表示」を遵守)。
+   未知 inner provider (`z-ai`, `qwen`, `mistralai`, `moonshotai` 等) も
+   そのまま OpenRouter 経由で推論ルーティングされる。
+
+### Decision section の更新差分
+
+ADR 0023 本文の以下の記述は **Phase 1.9 (Issue #51) で更新**:
+
+| ADR 本文 | 旧方針 | Phase 1.9 で更新後 |
+|---|---|---|
+| line 70-74 ID 用語表 (`litellm_model_id` の例) | `openai/gpt-4o`, `anthropic/claude-...`, `gemini/gemini-...` | **OpenRouter nested 形式 `openrouter/<inner>/<model>` (例: `openrouter/openai/gpt-4.1`, `openrouter/z-ai/glm-4.7`, `openrouter/qwen/qwen3.5-...`) も `litellm_model_id` の有効形式である** ことを明記。inner provider が `_BUILDER_DISPATCH` の直接プロバイダー集合に無い場合 (`z-ai`, `qwen` 等) でも `openrouter/` プレフィックスにより OpenRouter 経由でルーティング可能 |
+| (新規) | (記述なし) | **registry SSoT**: `_format_litellm_metadata()` が返す `model_name_short` は LiteLLM オリジナルキーと同一の完全 ID。registry キー / CLI 表示 / LoRAIro DB `litellm_model_id` 列に同一値が伝播する |
+
+なお ADR 0023 の **本文 line 70-74 の ID 用語表自体は書き換えない**。
+Phase 1.5〜1.8 の前例に倣い、本 Phase 1.9 完了セクションの「Decision section
+の更新差分」表で解釈拡張を文書化するのみ。本文を歴史的記録として保つことで
+ADR の trace 性を維持する。
+
+### 検証
+
+- 新規 unit test 5 件:
+  - `tests/unit/core/test_api_model_discovery_filter.py:TestFormatLitellmMetadata`
+    に 3 ケース追加 (openrouter/<inner>/<model>, openrouter/openai/<model>,
+    openai/<model> 直接形式)
+  - `tests/unit/core/test_model_id.py::TestResolveModelRef` の parametrize に
+    2 ケース追加 (`openrouter/z-ai/glm-4.7`, `openrouter/qwen/qwen2-vl-72b-instruct`)
+- 全既存テスト PASS (603 passed, 18 skipped)。残る 1 件 failure
+  (`test_tagger_transformers.py::test_toriigate_tagger_format_with_assistant_prefix`)
+  および 5 件 BDD features failure は main ブランチでも再現する pre-existing
+  failure であり、本修正とは無関係 (transformers ライブラリ版の互換性問題)
+- `lorairo-cli models list` 手動確認: `openrouter/z-ai/glm-4.7`,
+  `openrouter/qwen/qwen3.5-...`, `openrouter/anthropic/claude-opus-4.6`
+  などが完全 ID で 71 件表示。旧 prefix 欠落形 (`z-ai/glm-4.7` 単体等) は消失
+
+### LoRAIro 側影響
+
+- `Model.litellm_model_id` 列に格納される文字列が完全 ID に揃う (DB 既存
+  データの扱いは LoRAIro Issue #238 のスキーマ変更時に migration で扱う)
+- LoRAIro CLI (`lorairo/cli/commands/models.py`) の `is_model_deprecated(info.name)`
+  は `info.name` が完全 ID になることで自動的に LiteLLM 内部キーと一致するため、
+  LoRAIro 側の追加変更は不要
+
+### 関連 (未対応)
+
+- Issue #39 (image-annotator-lib): OpenRouter 経由の `openai/...` `anthropic/...`
+  と直接プロバイダー版が両方 registry に登録される重複問題。本 Phase で
+  完全 ID 表示が確定したことで重複が CLI 上で可視化された。別 Issue で対応
+- 新規 Issue (image-annotator-lib): LiteLLM JSON の bare Anthropic 名
+  (`claude-opus-4-6` 等、`/` 無し) が `is_allowed_provider()` で全除外される
+  問題。Anthropic 直接モデル経路の復活は Phase 1.10 として連動 PR で対応予定
+- LoRAIro Issue #238: `schema.Model` の `name` UNIQUE 制約撤去 +
+  `litellm_model_id` UNIQUE NOT NULL 化 + Alembic migration
+
 ## References
 
 - [PydanticAI Output](https://pydantic.dev/docs/ai/core-concepts/output/)
@@ -922,3 +1004,4 @@ HTTP connection pool は別 ADR で扱う。
 - [Issue #45 — Phase 1.6 capability check 集約 + direct LiteLLM ID dispatch 廃止](https://github.com/NEXTAltair/image-annotator-lib/issues/45)
 - [Issue #47 — Phase 1.7 PydanticAI output 処理での軽微正規化集約](https://github.com/NEXTAltair/image-annotator-lib/issues/47)
 - [Issue #46 — Phase 1.8 PydanticAI HTTP transport retry の集約](https://github.com/NEXTAltair/image-annotator-lib/issues/46)
+- [Issue #51 — Phase 1.9 LiteLLM 完全 ID を registry SSoT に統一](https://github.com/NEXTAltair/image-annotator-lib/issues/51)
