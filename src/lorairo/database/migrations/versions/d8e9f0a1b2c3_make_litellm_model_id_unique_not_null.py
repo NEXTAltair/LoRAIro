@@ -72,6 +72,37 @@ def _old_models_table() -> sa.Table:
     )
 
 
+def _intermediate_models_table() -> sa.Table:
+    """中間 schema (name UNIQUE drop 済み, litellm_model_id nullable のまま) の Table 定義。
+
+    upgrade() で「name UNIQUE drop → data backfill → litellm_model_id UNIQUE NOT NULL 付与」
+    の 2 段階で batch_alter_table を呼ぶための中間状態。
+    """
+    return sa.Table(
+        "models",
+        sa.MetaData(),
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("name", sa.String, nullable=False),
+        sa.Column("provider", sa.String),
+        sa.Column("discontinued_at", sa.TIMESTAMP(timezone=True)),
+        sa.Column("litellm_model_id", sa.String),
+        sa.Column("estimated_size_gb", sa.Float),
+        sa.Column("requires_api_key", sa.Boolean, server_default="0", nullable=False),
+        sa.Column(
+            "created_at",
+            sa.TIMESTAMP(timezone=True),
+            server_default=sa.func.current_timestamp(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.TIMESTAMP(timezone=True),
+            server_default=sa.func.current_timestamp(),
+            nullable=False,
+        ),
+    )
+
+
 def _new_models_table() -> sa.Table:
     """新 schema (litellm_model_id UNIQUE NOT NULL, name 非 UNIQUE) を downgrade の copy_from に渡すための定義。"""
     return sa.Table(
@@ -103,6 +134,13 @@ def _new_models_table() -> sa.Table:
 def upgrade() -> None:
     """既存データを backfill した上で UNIQUE 制約を name → litellm_model_id に付替える。"""
     connection = op.get_bind()
+
+    # Step A: `name` UNIQUE 制約を data backfill より先に drop する。
+    # Step 3 (slash 込み name の分離) で `name='openai/gpt-4o'` を `name='gpt-4o'` に
+    # UPDATE する際、既存の `name='gpt-4o'` 行と衝突して name UNIQUE 違反になるため、
+    # backfill 前に制約を外しておく必要がある。
+    with op.batch_alter_table("models", copy_from=_old_models_table()) as batch_op:
+        batch_op.drop_constraint("uq_models_name", type_="unique")
 
     # 0. 旧 sync が `name` と同値の bare 名 (`/` なし) を `litellm_model_id` に書き込んだ
     # 行を NULL に戻し、後続ステップで Phase 1.10 後の正規 LiteLLM ID で補完する。
@@ -174,11 +212,27 @@ def upgrade() -> None:
         )
     )
 
-    # 6. schema 変更: copy_from で旧 schema を明示渡しして UNIQUE 制約を付替える
-    # (SQLAlchemy インライン unique=True で生成された anonymous UNIQUE 制約を
-    #  batch_alter_table 経由で drop できるように、明示的な制約名を持つ Table 定義を渡す)
-    with op.batch_alter_table("models", copy_from=_old_models_table()) as batch_op:
-        batch_op.drop_constraint("uq_models_name", type_="unique")
+    # 5.5. `litellm_model_id` 値の重複を解消する (UNIQUE 付与前の dedup)。
+    # 旧 DB は `name UNIQUE` だったため、`name='openai/gpt-4o'` (slash 形式) と
+    # `name='gpt-4o', provider='openai'` (bare 形式) が共存しうる。Step 2/4 で両行が
+    # 同じ `litellm_model_id='openai/gpt-4o'` を持つと UNIQUE 制約付与時に IntegrityError
+    # になる。最も古い (id 最小) 行のみ正規 ID を保持し、残りは `__legacy_<id>__` sentinel
+    # に変換することで競合を解消する。既存 annotation 結果の FK は履歴行として保持される。
+    connection.execute(
+        sa.text(
+            "UPDATE models "
+            "SET litellm_model_id = '__legacy_' || id || '__' "
+            "WHERE id NOT IN ("
+            "    SELECT MIN(id) FROM models "
+            "    WHERE litellm_model_id IS NOT NULL "
+            "    GROUP BY litellm_model_id"
+            ")"
+        )
+    )
+
+    # Step B: data backfill 完了後、`litellm_model_id` を NOT NULL + UNIQUE 化する。
+    # 中間 schema (name UNIQUE drop 済み、litellm_model_id nullable) を copy_from に渡す。
+    with op.batch_alter_table("models", copy_from=_intermediate_models_table()) as batch_op:
         batch_op.alter_column(
             "litellm_model_id",
             existing_type=sa.String(),
