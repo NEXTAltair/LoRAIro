@@ -9,7 +9,8 @@
   [#36](https://github.com/NEXTAltair/image-annotator-lib/issues/36),
   [#35](https://github.com/NEXTAltair/image-annotator-lib/issues/35),
   [#45](https://github.com/NEXTAltair/image-annotator-lib/issues/45),
-  [#47](https://github.com/NEXTAltair/image-annotator-lib/issues/47)
+  [#47](https://github.com/NEXTAltair/image-annotator-lib/issues/47),
+  [#46](https://github.com/NEXTAltair/image-annotator-lib/issues/46)
 
 ## Context
 
@@ -825,6 +826,86 @@ ADR 0023 本文の以下の記述は **Phase 1.7 (Issue #47) で更新**:
 
 将来 score range constraint や Issue #46 の transport retry 集約は別 issue で扱う。
 
+## Phase 1.8 完了 (Issue #46 — PydanticAI HTTP transport retry の集約)
+
+ADR 0023 line 304-329 で確定済の HTTP/API transient failure retry policy を
+`pydantic_ai.retries.AsyncTenacityTransport` を介して provider HTTP client 層に
+組み込む実装を完了した (2026-05 完了)。Phase 1 残タスクの最後の項目。
+
+### 実装サマリー (image-annotator-lib PR #50)
+
+1. **transport retry 経路の新設**: `core/http_retry.py` に
+   `build_retry_transport()` / `build_retry_http_client()` を新設し、
+   PydanticAI `AsyncTenacityTransport` + `RetryConfig` でラップした
+   `httpx.AsyncClient` を返す。retry 対象は status code 7 種 (`408`, `409`, `429`,
+   `500`, `502`, `503`, `504`) と httpx の transient 例外
+   (`TimeoutException` 階層 = `ConnectTimeout` / `ReadTimeout` / `WriteTimeout` /
+   `PoolTimeout` および `ConnectError` / `RemoteProtocolError`)。`RetryConfig(reraise=True)`
+   で原因例外をそのまま伝搬させ、`_classify_refusal()` の判定経路を保つ。
+2. **provider object への http_client 注入**: `core/model_id.py:build_pydantic_model()`
+   に keyword-only `http_client: httpx.AsyncClient | None = None` を追加し、
+   OpenAI / Anthropic / Google / OpenRouter の 4 provider 全てで
+   `*Provider(api_key=..., http_client=http_client)` 形式で注入する。
+3. **AsyncClient lifecycle**: `provider_manager.run_inference_with_model_async()` で
+   `build_retry_http_client()` を毎回新規生成し、`try/finally` で
+   `await http_client.aclose()` する。Agent / Provider / Model キャッシュなし方針
+   (Agent ライフサイクル節) と一貫させる。
+4. **HTTP timeout の明示**: `httpx.Timeout(timeout=120.0, connect=10.0, read=120.0,
+   write=30.0, pool=10.0)` を `HTTP_CLIENT_TIMEOUT` constant として定義し
+   `build_retry_http_client()` 内で AsyncClient に渡す。WebAPI vision model は
+   応答に数十秒かかるため read=120s を取り、connect/pool は短く 10s で fail-fast する。
+   timeout 発火時は retry tuple の `TimeoutException` 経由で 3 attempts まで救済される。
+5. **依存の明示化**: `pyproject.toml` の `dependencies` に `tenacity>=9.0` を
+   transitive 経由から explicit 依存に昇格 (`pydantic_ai.retries` モジュールが要求)。
+
+### 設計上の本決定 (Decision section の更新差分)
+
+ADR 0023 本文の以下の記述は **Phase 1.8 (Issue #46) で更新**:
+
+| ADR 本文 | 旧方針 | Phase 1.8 で更新後 |
+|---|---|---|
+| line 308 「最大待機は 60 秒までとし」 | 60s が magic number | **60s 採用根拠を明示**: OpenAI / Anthropic の token bucket は分単位で補充され、典型 Retry-After は 60s 以内 (Anthropic 公式 "continuously replenished" 記述、OpenAI RPM/ITPM/OTPM)。3 attempts × 60s = worst 120s 待機後に error 伝播 → Qt batch worker のキャンセル応答性を確保。pydantic-ai default 300s は CLI 想定で Qt UI には過大 |
+| line 308-310 「それを超える場合は retry せず error として返す」 | halt-on-exceed | Phase 1 では **cap-only** (PydanticAI 標準 `wait_retry_after(max_wait=60)`)。halt-on-exceed は Phase 2 に繰り延べ。`Retry-After > 60s` のケースは daily quota 超過が主で、3 attempts 後の error 経路で実質同等の運用結果になるため Phase 1 では実装しない |
+| line 309 「retry 対象 HTTP status は 408, 409, 429, 500, 502, 503, 504」 | status code のみ | **network 例外も追加**: `httpx.TimeoutException` 階層 (`ConnectTimeout` / `ReadTimeout` / `WriteTimeout` / `PoolTimeout`) と `httpx.ConnectError` / `httpx.RemoteProtocolError`。一時的な接続切断・DNS 一時障害・connect 段階の TLS timeout も transient failure として扱う (Codex P1 review で `ConnectTimeout` が漏れていた点を修正済) |
+| (新規) | (記述なし) | **AsyncClient lifecycle**: 推論呼び出しごとに `httpx.AsyncClient(transport=AsyncTenacityTransport(...), timeout=HTTP_CLIENT_TIMEOUT)` を新規生成し try/finally で `aclose()`。Agent/Provider/Model のキャッシュなし方針と一致 |
+| (新規) | (記述なし) | **HTTP timeout 明示**: `connect=10s` / `read=120s` / `write=30s` / `pool=10s` を constant `HTTP_CLIENT_TIMEOUT` で定義。WebAPI vision model の応答は数十秒オーダーなので read を長めに、connect / pool は fail-fast |
+| (新規) | (記述なし) | **依存**: `tenacity>=9.0` を `image-annotator-lib` の `dependencies` に明示追加 (PydanticAI `retries` モジュールが要求) |
+
+### 実装しない補正 (Phase 1.8 スコープ外)
+
+- model fallback / routing (ADR line 313-314 で採用しない決定)
+- LiteLLM Router retry (同上)
+- halt-on-exceed (Retry-After > max_wait なら retry せず即 error) — Phase 2
+- 推論を跨いだ HTTP connection pool 共有 — Agent キャッシュなし方針 (Agent ライフサイクル節) と整合させるため
+
+### 根拠
+
+- **transient failure の包括的救済**: ADR line 305 の「HTTP/API transient failure」を
+  status code だけでなく network 例外 (timeout / connect / protocol) も含めて解釈し、
+  実運用で頻発する DNS 一時障害 / TLS handshake 一時失敗 / read timeout / pool 枯渇を
+  retry で吸収する。`HTTPStatusError` だけ retry すると connection 段階で
+  落ちるケースで救済機構が機能せず、ユーザの手動再実行が必要になる。
+- **`HTTP_CLIENT_TIMEOUT` の値設計**: `connect=10s` は TCP 接続が 10s で確立しなければ
+  上流障害と判断して fail-fast (リトライで救済)。`read=120s` は WebAPI vision model
+  (例: GPT-4o, Claude Sonnet) の典型応答時間 (5-30s) の余裕を持たせた値。`pool=10s`
+  は pool acquire 段階の hang を fail-fast。`write=30s` は image upload (数 MB) の余裕。
+- **`tenacity` 明示依存の理由**: PydanticAI の `pydantic_ai.retries` は `tenacity` を
+  optional `[retries]` group としてのみ提供する。transitive で入っていても暗黙依存は
+  壊れる余地があるため、image-annotator-lib 側で `dependencies` に直接列挙する。
+
+### 検証
+
+- image-annotator-lib unit test: 新規 51 ケース (`test_http_retry.py` 27 ケース +
+  `test_http_retry_transport.py` 24 ケース) PASS。`ConnectTimeout` / `PoolTimeout` /
+  `ReadTimeout` / `WriteTimeout` の 4 timeout subclass の retry 振る舞いを parametrize
+  で網羅。既存 unit test は 559 PASS / 1 件 deselect (pre-existing failure)。
+- LoRAIro 側影響なし (`InferenceError` / `WebApiError` の直接 import なし、retry
+  exhaustion error は既存 `UnifiedAnnotationResult.error` 文字列 prefix mechanism
+  でそのまま LoRAIro 側に伝搬する。Phase 1.5 / Issue #42 と同じ疎結合契約)。
+
+将来 halt-on-exceed (Retry-After > max_wait の即 error 化) や session-scoped
+HTTP connection pool は別 ADR で扱う。
+
 ## References
 
 - [PydanticAI Output](https://pydantic.dev/docs/ai/core-concepts/output/)
@@ -839,3 +920,5 @@ ADR 0023 本文の以下の記述は **Phase 1.7 (Issue #47) で更新**:
 - [Issue #41 — AnnotatorInfo.api_model_id を litellm_model_id field にリネーム](https://github.com/NEXTAltair/image-annotator-lib/issues/41)
 - [Issue #42 — Phase 1.5 SafetyRefusalError / ContentPolicyRefusalError 統合](https://github.com/NEXTAltair/image-annotator-lib/issues/42)
 - [Issue #45 — Phase 1.6 capability check 集約 + direct LiteLLM ID dispatch 廃止](https://github.com/NEXTAltair/image-annotator-lib/issues/45)
+- [Issue #47 — Phase 1.7 PydanticAI output 処理での軽微正規化集約](https://github.com/NEXTAltair/image-annotator-lib/issues/47)
+- [Issue #46 — Phase 1.8 PydanticAI HTTP transport retry の集約](https://github.com/NEXTAltair/image-annotator-lib/issues/46)
