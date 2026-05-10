@@ -16,11 +16,11 @@ claude_key = ""
 google_key = ""
 
 [directories]
-database_dir = "lorairo_data/main_dataset_20250707_001"
-database_base_dir = "lorairo_data"
-database_project_name = "main_dataset"
-export_dir = "export"
-batch_results_dir = "batch_results"
+database_dir = ""
+database_base_dir = ""
+database_project_name = ""
+export_dir = ""
+batch_results_dir = ""
 
 [image_processing]
 upscaler = "RealESRGAN_x4plus"
@@ -29,11 +29,11 @@ upscaler = "RealESRGAN_x4plus"
 additional = ""
 
 [database]
-image_db_filename = "image_database.db"
+image_db_filename = ""
 
 [log]
 level = "DEBUG"
-file_path = "C:\\LoRAIro\\logs\\lorairo.log"
+file_path = ""
 rotation = "25 MB"
 
 [qt]
