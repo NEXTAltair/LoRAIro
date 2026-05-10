@@ -988,6 +988,88 @@ ADR の trace 性を維持する。
 - LoRAIro Issue #238: `schema.Model` の `name` UNIQUE 制約撤去 +
   `litellm_model_id` UNIQUE NOT NULL 化 + Alembic migration
 
+## Phase 1.10 完了 (Issue #52 — Anthropic bare 名を `anthropic/<bare>` に正規化)
+
+ADR 0023 line 109 の prefix 解析対象規定の解釈拡張として、LiteLLM 同梱 DB の bare
+Anthropic 名 (`claude-*`、計 19 件) を `anthropic/<bare>` 形式に正規化して
+`litellm_model_id` の有効形式として扱う修正を実施した (2026-05 完了)。
+
+### 背景
+
+LiteLLM 同梱 DB は Anthropic 直接モデルを `claude-opus-4-6`, `claude-sonnet-4-6`,
+`claude-haiku-4-5` 等の bare 名 (`/` 無し) で格納している。Issue #51 (Phase 1.9)
+で完全 ID 保持に修正後も、`is_allowed_provider()` の `if "/" not in model_id:
+return False` チェックが bare 名を全除外していたため、Anthropic 直接プロバイダー
+経路が registry に登録されず、`lorairo-cli models list` には OpenRouter 経由
+(`openrouter/anthropic/claude-*`) のみ表示されていた。`_BUILDER_DISPATCH["anthropic"]`
+(= `_build_anthropic_ref`) は既に `anthropic/<model>` 形式をサポートしていたため、
+discovery 段階での正規化のみで Anthropic 直接経路を復活できる構造だった。
+
+### 実装サマリー (image-annotator-lib PR #YY)
+
+1. **`_canonicalize_litellm_id()` ヘルパーを新設** (`core/api_model_discovery.py`):
+   `_ANTHROPIC_BARE_PREFIXES = ("claude-",)` で始まる bare ID を `anthropic/<bare>`
+   に補完。slash 入り ID は素通り。スコープ外の bare 名 (例: `gpt-4o`,
+   Bedrock 形式 `anthropic.claude-*`) は None を返す
+2. **`is_allowed_provider()` を refactor**: ヘルパー経由で判定。bare `claude-*`
+   が SUPPORTED_PROVIDERS 通過するようになる
+3. **`_format_litellm_metadata()` を修正**: ヘルパーで正規化後の ID を
+   `model_name_short` / `display_name` に格納。`provider` は capitalize 規則で
+   `"Anthropic"` になる (Phase 1.9 で確立した規則)
+4. **`_collect_models()` の dict キーを正規化後 ID に統一**:
+   `metadata[model_id] = formatted` → `metadata[formatted["model_name_short"]] =
+   formatted`。これにより `discover_available_vision_models()` の戻り値
+   `{"models": [...], "metadata": {...}}` も正規化後 ID で一貫する
+5. **変更不要箇所** (確認済): `is_model_deprecated()` は `litellm.get_model_info()`
+   が bare/slash 両形式で同一 metadata を返すためそのまま動作。`_BUILDER_DISPATCH` /
+   `core/model_id.py` も `anthropic/<model>` 形式を既存サポート
+
+### Decision section の更新差分
+
+ADR 0023 本文の以下の記述は **Phase 1.10 (Issue #52) で更新**:
+
+| ADR 本文 | 旧方針 | Phase 1.10 で更新後 |
+|---|---|---|
+| line 109 prefix 解析対象 (`openai/...`, `anthropic/...`, `gemini/...`, `openrouter/...`) | `provider/model` 形式の slash 入り ID のみ | LiteLLM 同梱 DB の bare Anthropic 名 (`claude-*`、19 件) は `anthropic/` プレフィックスを補完して `litellm_model_id` の有効形式として扱う。registry / CLI / DB SSoT には正規化後 ID で乗せる |
+| (新規) | (記述なし) | スコープは `claude-*` プレフィックスのみ。Bedrock/Vertex 経由の `anthropic.*` 形式 bare 名 (約 178 件、`_BUILDER_DISPATCH` に builder 無し) は除外維持。これらの追加対応は新 builder の追加が必要なため別 ADR で扱う |
+
+本文 line 109 自体は書き換えず Phase 1.10 完了セクション内の表で文書化
+(Phase 1.5〜1.9 と同じ運用)。
+
+### 検証
+
+- 新規 unit test 10 件 (`tests/unit/core/test_api_model_discovery_filter.py`):
+  - `TestCanonicalizeLitellmId` 4 ケース (slash passthrough / claude bare / 非 claude bare / 空文字)
+  - `TestIsAllowedProviderBareName` 3 ケース (bare claude allow / 非 claude bare reject / slash unchanged)
+  - `TestFormatLitellmMetadata` に 3 ケース追加 (bare claude / 日付 suffix / 非 claude bare)
+- 全既存テスト PASS (Phase 1.9 と同じ pre-existing failures は除く)。
+  全 lib test: 613 passed, 18 skipped, 1 failure (pre-existing `test_tagger_transformers`)
+- `lorairo-cli models list` 手動確認: registry 登録 webapi モデル 71 件 → 90 件
+  (+19 件)、総モデル数 104 → 123 件。`anthropic/claude-opus-4-6`,
+  `anthropic/claude-sonnet-4-6`, `anthropic/claude-haiku-4-5` 等が完全 ID で
+  追加表示されることを確認
+
+### LoRAIro 側影響
+
+- `Model.litellm_model_id` 列に `anthropic/claude-*` の新規行が追加される (DB
+  既存データへの影響なし、新規モデル追加と等価)
+- LoRAIro CLI / GUI / annotator_adapter のコード変更は不要
+- Anthropic 直接モデル経由の推論には `api_keys["anthropic"]` が必要。LoRAIro 側
+  config の Anthropic API key 設定経路 (`config/lorairo.toml [api] claude_key`) は
+  既存のまま機能する
+
+### 関連 (未対応)
+
+- Issue #39 (image-annotator-lib): Anthropic 直接 (`anthropic/claude-opus-4-6`)
+  と OpenRouter 経由 (`openrouter/anthropic/claude-opus-4-6`) の重複登録。
+  Phase 1.10 で重複が CLI 上で更に可視化されるが本 Issue では触らない。
+  運用上の選択 (低レイテンシの直接経路 vs マルチプロバイダー一元化の OpenRouter
+  経路) は LoRAIro 側で解決する設計余地として残す
+- LoRAIro Issue #238: `schema.Model.litellm_model_id` 列 UNIQUE NOT NULL 化 +
+  Alembic migration
+- 他プロバイダー bare 名対応 (Bedrock/Vertex 経由 `anthropic.*` 等 約 178 件):
+  `_BUILDER_DISPATCH` に builder 追加が必要なため別 ADR で扱う
+
 ## References
 
 - [PydanticAI Output](https://pydantic.dev/docs/ai/core-concepts/output/)
@@ -1005,3 +1087,4 @@ ADR の trace 性を維持する。
 - [Issue #47 — Phase 1.7 PydanticAI output 処理での軽微正規化集約](https://github.com/NEXTAltair/image-annotator-lib/issues/47)
 - [Issue #46 — Phase 1.8 PydanticAI HTTP transport retry の集約](https://github.com/NEXTAltair/image-annotator-lib/issues/46)
 - [Issue #51 — Phase 1.9 LiteLLM 完全 ID を registry SSoT に統一](https://github.com/NEXTAltair/image-annotator-lib/issues/51)
+- [Issue #52 — Phase 1.10 Anthropic bare 名を `anthropic/<bare>` に正規化](https://github.com/NEXTAltair/image-annotator-lib/issues/52)
