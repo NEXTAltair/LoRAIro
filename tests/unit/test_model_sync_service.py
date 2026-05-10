@@ -254,7 +254,7 @@ class TestModelSyncServiceWithRealDB:
                 "name": "test-model-new-1",
                 "provider": "openai",
                 "class_name": "TestAnnotator",
-                "litellm_model_id": "test-1",
+                "litellm_model_id": "openai/test-model-new-1",
                 "model_type": "vision",
                 "model_types": ["llm", "captioner"],
                 "estimated_size_gb": None,
@@ -265,7 +265,7 @@ class TestModelSyncServiceWithRealDB:
                 "name": "test-model-new-2",
                 "provider": None,
                 "class_name": "LocalTagger",
-                "litellm_model_id": None,
+                "litellm_model_id": "test-model-new-2",
                 "model_type": "tagger",
                 "model_types": ["tagger"],
                 "estimated_size_gb": 1.5,
@@ -278,13 +278,13 @@ class TestModelSyncServiceWithRealDB:
 
         assert count == 2
 
-        registered_model_1 = temp_db_repository.get_model_by_name("test-model-new-1")
+        registered_model_1 = temp_db_repository.get_model_by_litellm_id("openai/test-model-new-1")
         assert registered_model_1 is not None
         assert registered_model_1.provider == "openai"
         assert len(registered_model_1.model_types) == 2
         assert {mt.name for mt in registered_model_1.model_types} == {"llm", "captioner"}
 
-        registered_model_2 = temp_db_repository.get_model_by_name("test-model-new-2")
+        registered_model_2 = temp_db_repository.get_model_by_litellm_id("test-model-new-2")
         assert registered_model_2 is not None
         assert registered_model_2.estimated_size_gb == 1.5
         assert len(registered_model_2.model_types) == 1
@@ -298,7 +298,7 @@ class TestModelSyncServiceWithRealDB:
                 "name": "discontinued-model",
                 "provider": "openai",
                 "class_name": "DiscontinuedAnnotator",
-                "litellm_model_id": "discontinued-1",
+                "litellm_model_id": "openai/discontinued-model",
                 "model_type": "vision",
                 "model_types": ["captioner"],
                 "estimated_size_gb": None,
@@ -310,7 +310,7 @@ class TestModelSyncServiceWithRealDB:
         count = model_sync_service.register_new_models_to_db(test_models)
         assert count == 1
 
-        registered_model = temp_db_repository.get_model_by_name("discontinued-model")
+        registered_model = temp_db_repository.get_model_by_litellm_id("openai/discontinued-model")
         assert registered_model is not None
         assert registered_model.discontinued_at is not None
         assert registered_model.discontinued_at == discontinued_date.replace(tzinfo=None)
@@ -318,7 +318,11 @@ class TestModelSyncServiceWithRealDB:
     def test_register_new_models_existing_models_skip(self, model_sync_service, temp_db_repository):
         """既存モデル存在時のDB登録スキップ"""
         temp_db_repository.insert_model(
-            name="existing-model-test", provider="openai", model_types=["llm"], requires_api_key=True
+            name="existing-model-test",
+            provider="openai",
+            model_types=["llm"],
+            litellm_model_id="openai/existing-model-test",
+            requires_api_key=True,
         )
 
         test_models: list[ModelMetadata] = [
@@ -326,7 +330,7 @@ class TestModelSyncServiceWithRealDB:
                 "name": "existing-model-test",
                 "provider": "openai",
                 "class_name": "TestAnnotator",
-                "litellm_model_id": "existing",
+                "litellm_model_id": "openai/existing-model-test",
                 "model_type": "vision",
                 "model_types": ["llm"],
                 "estimated_size_gb": None,
@@ -341,7 +345,11 @@ class TestModelSyncServiceWithRealDB:
     def test_update_existing_models_success(self, model_sync_service, temp_db_repository):
         """既存モデル更新処理（実DB操作）"""
         temp_db_repository.insert_model(
-            name="update-test-model", provider="openai", model_types=["captioner"], estimated_size_gb=1.0
+            name="update-test-model",
+            provider="openai",
+            model_types=["captioner"],
+            litellm_model_id="openai/update-test-model",
+            estimated_size_gb=1.0,
         )
 
         test_models: list[ModelMetadata] = [
@@ -349,7 +357,7 @@ class TestModelSyncServiceWithRealDB:
                 "name": "update-test-model",
                 "provider": "openai",
                 "class_name": "UpdatedAnnotator",
-                "litellm_model_id": "updated",
+                "litellm_model_id": "openai/update-test-model",
                 "model_type": "vision",
                 "model_types": ["llm", "captioner"],
                 "estimated_size_gb": 2.5,
@@ -361,7 +369,7 @@ class TestModelSyncServiceWithRealDB:
         count = model_sync_service.update_existing_models(test_models)
         assert count == 1
 
-        updated_model = temp_db_repository.get_model_by_name("update-test-model")
+        updated_model = temp_db_repository.get_model_by_litellm_id("openai/update-test-model")
         assert updated_model is not None
         assert updated_model.estimated_size_gb == 2.5
         assert len(updated_model.model_types) == 2
@@ -370,7 +378,11 @@ class TestModelSyncServiceWithRealDB:
     def test_update_existing_models_no_changes(self, model_sync_service, temp_db_repository):
         """既存モデル更新処理（変更なし）"""
         temp_db_repository.insert_model(
-            name="no-change-model", provider="openai", model_types=["llm"], estimated_size_gb=1.0
+            name="no-change-model",
+            provider="openai",
+            model_types=["llm"],
+            litellm_model_id="openai/no-change-model",
+            estimated_size_gb=1.0,
         )
 
         test_models: list[ModelMetadata] = [
@@ -378,7 +390,7 @@ class TestModelSyncServiceWithRealDB:
                 "name": "no-change-model",
                 "provider": "openai",
                 "class_name": "TestAnnotator",
-                "litellm_model_id": None,
+                "litellm_model_id": "openai/no-change-model",
                 "model_type": "vision",
                 "model_types": ["llm"],
                 "estimated_size_gb": 1.0,
@@ -393,7 +405,11 @@ class TestModelSyncServiceWithRealDB:
     def test_update_existing_models_with_discontinued_at(self, model_sync_service, temp_db_repository):
         """既存モデルのdiscontinued_at更新（Issue #5対応）"""
         temp_db_repository.insert_model(
-            name="to-be-discontinued", provider="openai", model_types=["captioner"], discontinued_at=None
+            name="to-be-discontinued",
+            provider="openai",
+            model_types=["captioner"],
+            litellm_model_id="openai/to-be-discontinued",
+            discontinued_at=None,
         )
 
         discontinued_date = datetime.datetime(2025, 6, 30, tzinfo=datetime.UTC)
@@ -402,7 +418,7 @@ class TestModelSyncServiceWithRealDB:
                 "name": "to-be-discontinued",
                 "provider": "openai",
                 "class_name": "DiscontinuedAnnotator",
-                "litellm_model_id": "discontinued",
+                "litellm_model_id": "openai/to-be-discontinued",
                 "model_type": "vision",
                 "model_types": ["captioner"],
                 "estimated_size_gb": None,
@@ -414,7 +430,7 @@ class TestModelSyncServiceWithRealDB:
         count = model_sync_service.update_existing_models(test_models)
         assert count == 1
 
-        updated_model = temp_db_repository.get_model_by_name("to-be-discontinued")
+        updated_model = temp_db_repository.get_model_by_litellm_id("openai/to-be-discontinued")
         assert updated_model is not None
         assert updated_model.discontinued_at == discontinued_date.replace(tzinfo=None)
 

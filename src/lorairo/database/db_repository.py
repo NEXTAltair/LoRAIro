@@ -45,6 +45,11 @@ from .schema import (
 from .schema import (
     TagAnnotationData as TagAnnotationData,
 )
+from .schema import (
+    MANUAL_EDIT_LITELLM_ID,
+    MANUAL_EDIT_NAME,
+    MANUAL_EDIT_PROVIDER,
+)
 
 
 class ImageRepository:
@@ -119,74 +124,96 @@ class ImageRepository:
             logger.warning(f"Failed to initialize TagRegisterService: {e}", exc_info=True)
             return None  # エラー時はNoneで継続
 
-    def _get_model_id(self, model_name: str) -> int | None:
-        """モデル名からモデルIDを取得します。
+    def _get_model_id(self, litellm_model_id: str) -> int | None:
+        """`litellm_model_id` (registry key SSoT) から Model.id を取得する。
+
+        ADR 0023 Phase 1.11 (Issue #238) 以降、モデルの一意キーは
+        `Model.litellm_model_id` (UNIQUE NOT NULL)。`Model.name` は表示名 (非 UNIQUE)
+        になったため lookup には使えない。
 
         Args:
-            model_name (str): 検索するモデル名。
+            litellm_model_id: 検索する registry key (例: `openai/gpt-4o`,
+                `wd-vit-tagger-v3`, `__manual_edit__`)。
 
         Returns:
             int | None: 見つかったモデルのID。見つからない場合はNone。
-
         """
         with self.session_factory() as session:
             try:
-                stmt = select(Model.id).where(Model.name == model_name)
+                stmt = select(Model.id).where(Model.litellm_model_id == litellm_model_id)
                 result = session.execute(stmt).scalar_one_or_none()
                 if result is None:
-                    logger.warning(f"モデル名 '{model_name}' がデータベースに見つかりません。")
+                    logger.warning(
+                        f"litellm_model_id '{litellm_model_id}' がデータベースに見つかりません。"
+                    )
                 return result
             except SQLAlchemyError as e:
                 logger.error(f"モデルIDの取得中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
-    def get_model_by_name(self, name: str) -> Model | None:
-        """モデル名からModelオブジェクトを取得（公開API）
+    def get_model_by_litellm_id(self, litellm_model_id: str) -> Model | None:
+        """`litellm_model_id` (registry key SSoT) から Model オブジェクトを取得する。
+
+        ADR 0023 Phase 1.11 (Issue #238): 旧 `get_model_by_name` を本 API に置換。
+        registry key は WebAPI モデルで LiteLLM 完全 ID (`anthropic/claude-3-5-sonnet-...`)、
+        ローカル ML モデルで bare name (`wd-vit-tagger-v3`)、特殊行で sentinel
+        (`__manual_edit__`, `__legacy_<id>__`) を取る。
 
         Args:
-            name: モデル名
+            litellm_model_id: registry key (UNIQUE)。
 
         Returns:
-            Model | None: 見つかった場合はModelオブジェクト（model_types eager load済み）、なければNone
+            Model | None: 見つかった場合は Model (model_types eager load 済み)、
+                なければ None。
 
         Raises:
-            SQLAlchemyError: DB操作エラー
-
+            SQLAlchemyError: DB 操作エラー。
         """
         with self.session_factory() as session:
             try:
-                # model_typesを eager loadingで取得（N+1クエリ回避）
-                stmt = select(Model).options(selectinload(Model.model_types)).where(Model.name == name)
+                stmt = (
+                    select(Model)
+                    .options(selectinload(Model.model_types))
+                    .where(Model.litellm_model_id == litellm_model_id)
+                )
                 result = session.execute(stmt).scalar_one_or_none()
                 if result is None:
-                    logger.debug(f"モデル '{name}' は登録されていません")
+                    logger.debug(f"モデル '{litellm_model_id}' は登録されていません")
                 return result
             except SQLAlchemyError as e:
-                logger.error(f"モデル取得エラー (name={name}): {e}", exc_info=True)
+                logger.error(
+                    f"モデル取得エラー (litellm_model_id={litellm_model_id}): {e}",
+                    exc_info=True,
+                )
                 raise
 
-    def get_models_by_names(self, names: set[str]) -> dict[str, Model]:
-        """複数モデル名からModelオブジェクトを一括取得する。
+    def get_models_by_litellm_ids(self, litellm_model_ids: set[str]) -> dict[str, Model]:
+        """複数の `litellm_model_id` から Model オブジェクトを一括取得する。
+
+        ADR 0023 Phase 1.11 (Issue #238): 旧 `get_models_by_names` を本 API に置換。
 
         Args:
-            names: 取得するモデル名のセット。
+            litellm_model_ids: 取得する registry key のセット。
 
         Returns:
-            モデル名 → Model のマッピング。見つからなかった名前は含まれない。
+            litellm_model_id → Model のマッピング。見つからなかった key は含まれない。
 
         Raises:
             SQLAlchemyError: データベース操作でエラーが発生した場合。
-
         """
-        if not names:
+        if not litellm_model_ids:
             return {}
 
         with self.session_factory() as session:
             try:
-                stmt = select(Model).options(selectinload(Model.model_types)).where(Model.name.in_(names))
+                stmt = (
+                    select(Model)
+                    .options(selectinload(Model.model_types))
+                    .where(Model.litellm_model_id.in_(litellm_model_ids))
+                )
                 results = session.execute(stmt).scalars().all()
-                models_map = {model.name: model for model in results}
-                logger.debug(f"モデル一括取得: {len(models_map)}/{len(names)}件見つかりました")
+                models_map = {model.litellm_model_id: model for model in results}
+                logger.debug(f"モデル一括取得: {len(models_map)}/{len(litellm_model_ids)}件見つかりました")
                 return models_map
             except SQLAlchemyError as e:
                 logger.error(f"モデル一括取得エラー: {e}", exc_info=True)
@@ -252,28 +279,33 @@ class ImageRepository:
     def _get_or_create_manual_edit_model(self, session: Session) -> int:
         """手動編集用のモデルIDを取得または作成します。
 
-        MANUAL_EDITという名前のモデルが存在しない場合は新規作成します。
-        model_typesテーブルへの関連付けは行いません（手動編集はAIカテゴリに属さない）。
+        ADR 0023 Phase 1.11 (Issue #238): `litellm_model_id` UNIQUE NOT NULL 化に伴い、
+        MANUAL_EDIT 行は sentinel `__manual_edit__` で lookup・作成する。
+        model_types テーブルへの関連付けは行わない (手動編集は AI カテゴリに属さない)。
 
         Args:
-            session (Session): データベースセッション
+            session: データベースセッション。
 
         Returns:
-            int: MANUAL_EDITモデルのID
+            int: MANUAL_EDIT モデルの ID。
 
         Raises:
-            SQLAlchemyError: データベース操作中にエラーが発生した場合
+            SQLAlchemyError: データベース操作中にエラーが発生した場合。
 
         """
         try:
-            stmt = select(Model).where(Model.name == "MANUAL_EDIT")
+            stmt = select(Model).where(Model.litellm_model_id == MANUAL_EDIT_LITELLM_ID)
             existing_model = session.execute(stmt).scalar_one_or_none()
 
             if existing_model:
                 logger.debug(f"既存のMANUAL_EDITモデルを使用: ID={existing_model.id}")
                 return existing_model.id
 
-            manual_edit_model = Model(name="MANUAL_EDIT", provider="user")
+            manual_edit_model = Model(
+                name=MANUAL_EDIT_NAME,
+                provider=MANUAL_EDIT_PROVIDER,
+                litellm_model_id=MANUAL_EDIT_LITELLM_ID,
+            )
             session.add(manual_edit_model)
             session.flush()
             logger.info(f"MANUAL_EDITモデルを新規作成: ID={manual_edit_model.id}")
@@ -288,29 +320,34 @@ class ImageRepository:
         name: str,
         provider: str | None,
         model_types: list[str],
-        litellm_model_id: str | None = None,
+        litellm_model_id: str,
         estimated_size_gb: float | None = None,
         requires_api_key: bool = False,
         discontinued_at: datetime.datetime | None = None,
     ) -> int:
-        """新規モデルをDBに登録
+        """新規モデルをDBに登録する。
+
+        ADR 0023 Phase 1.11 (Issue #238): `litellm_model_id` は registry key SSoT
+        として必須 (UNIQUE NOT NULL)。`name` は表示名 (非 UNIQUE) になった。
 
         Args:
-            name: モデル名（一意）
-            provider: プロバイダー名（openai, anthropic, google, None）
-            model_types: LoRAIroのmodel_typeリスト（["captioner"], ["llm", "captioner"], ["score"], ["tagger"]等）
-            litellm_model_id: API呼び出し時のモデルID
-            estimated_size_gb: ローカルモデルの推定サイズ（GB）
-            requires_api_key: APIキー要否
-            discontinued_at: 廃止日時（該当する場合）
+            name: 表示名 (例: `gpt-4.1`)。
+            provider: ルーティング元プロバイダー (例: `openai`, `anthropic`,
+                `openrouter`)。ローカル ML モデルは None。
+            model_types: LoRAIro の model_type リスト (`["captioner"]`,
+                `["llm", "captioner"]`, `["score"]`, `["tagger"]` 等)。
+            litellm_model_id: registry key (UNIQUE)。WebAPI では LiteLLM 完全 ID
+                (`openai/gpt-4o`)、ローカル ML では bare name (`wd-vit-tagger-v3`)。
+            estimated_size_gb: ローカルモデルの推定サイズ (GB)。
+            requires_api_key: API キー要否。
+            discontinued_at: 廃止日時 (該当する場合)。
 
         Returns:
-            int: 登録されたモデルのID
+            登録されたモデルのID。
 
         Raises:
-            IntegrityError: 同名モデルが既に存在する場合
-            ValueError: model_typesが無効な場合（存在しないmodel_type名）
-
+            IntegrityError: `litellm_model_id` が既存モデルと重複する場合。
+            ValueError: model_types が無効な場合 (存在しない model_type 名)。
         """
         with self.session_factory() as session:
             try:

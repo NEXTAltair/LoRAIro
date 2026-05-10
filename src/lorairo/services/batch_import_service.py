@@ -287,25 +287,32 @@ class BatchImportService:
         return results, model_name
 
     def _resolve_model_id(self, model_name: str) -> int:
-        """モデル名からmodel_idを解決する。未登録なら自動登録する。
+        """OpenAI Batch JSON の `body.model` 値から model_id を解決する。未登録なら自動登録。
+
+        ADR 0023 Phase 1.11 (Issue #238): `litellm_model_id` SSoT に整合させるため、
+        bare 名 (`gpt-4o` 等) は `openai/<bare>` に正規化して lookup・登録する。
+        slash 入り入力 (例: 既に `openai/gpt-4o`) はそのまま使う。
 
         Args:
-            model_name: モデル名。
+            model_name: OpenAI Batch JSON の `body.model` フィールド値。
 
         Returns:
             モデルID。
         """
-        existing = self._repository.get_model_by_name(model_name)
+        litellm_model_id = model_name if "/" in model_name else f"openai/{model_name}"
+        display_name = model_name.split("/", 1)[-1] if "/" in model_name else model_name
+
+        existing = self._repository.get_model_by_litellm_id(litellm_model_id)
         if existing:
             return existing.id
 
         # 自動登録
-        logger.info(f"モデル '{model_name}' を自動登録します")
+        logger.info(f"モデル '{litellm_model_id}' を自動登録します")
         return self._repository.insert_model(
-            name=model_name,
+            name=display_name,
             provider="openai",
             model_types=["multimodal", "caption", "tags"],
-            litellm_model_id=model_name,
+            litellm_model_id=litellm_model_id,
             requires_api_key=True,
         )
 

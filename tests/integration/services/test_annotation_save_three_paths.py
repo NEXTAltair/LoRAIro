@@ -61,7 +61,7 @@ def registered_model_and_image(session_factory) -> dict[str, Any]:
     """モデルと画像をDBに登録し、phashとimage_idを返す。"""
     with session_factory() as session:
         tagger_type = session.query(ModelType).filter_by(name="tagger").first()
-        model = Model(name=TEST_MODEL_NAME)
+        model = Model(name=TEST_MODEL_NAME, litellm_model_id=TEST_MODEL_NAME)
         session.add(model)
         session.flush()
         if tagger_type:
@@ -174,7 +174,7 @@ class TestAnnotationSaveThreePaths:
             sf = sessionmaker(bind=eng)
             with sf() as session:
                 tagger_type = session.query(ModelType).filter_by(name="tagger").first()
-                model = Model(name=TEST_MODEL_NAME)
+                model = Model(name=TEST_MODEL_NAME, litellm_model_id=TEST_MODEL_NAME)
                 session.add(model)
                 session.flush()
                 if tagger_type:

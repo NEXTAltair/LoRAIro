@@ -422,8 +422,8 @@ class TestFindImageIdsByPhashes:
             repository.find_image_ids_by_phashes({"abc"})
 
 
-class TestGetModelsByNames:
-    """get_models_by_names メソッドのテスト"""
+class TestGetModelsByLitellmIds:
+    """get_models_by_litellm_ids メソッドのテスト (ADR 0023 Phase 1.11 / Issue #238)"""
 
     @pytest.fixture
     def repository(self):
@@ -433,40 +433,40 @@ class TestGetModelsByNames:
 
     def test_empty_set_returns_empty_dict(self, repository):
         """空セットを渡すと空dictが返る"""
-        result = repository.get_models_by_names(set())
+        result = repository.get_models_by_litellm_ids(set())
         assert result == {}
 
-    def test_returns_name_to_model_mapping(self, repository):
-        """モデル名→Modelのマッピングを返す"""
+    def test_returns_litellm_id_to_model_mapping(self, repository):
+        """litellm_model_id → Model のマッピングを返す"""
         mock_session = MagicMock()
         repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
 
         model1 = Mock(spec=Model)
-        model1.name = "gpt4"
+        model1.litellm_model_id = "openai/gpt4"
         model2 = Mock(spec=Model)
-        model2.name = "claude"
+        model2.litellm_model_id = "anthropic/claude"
         mock_session.execute.return_value.scalars.return_value.all.return_value = [
             model1,
             model2,
         ]
 
-        result = repository.get_models_by_names({"gpt4", "claude"})
-        assert result == {"gpt4": model1, "claude": model2}
+        result = repository.get_models_by_litellm_ids({"openai/gpt4", "anthropic/claude"})
+        assert result == {"openai/gpt4": model1, "anthropic/claude": model2}
 
-    def test_missing_name_not_in_result(self, repository):
-        """存在しないモデル名は結果に含まれない"""
+    def test_missing_id_not_in_result(self, repository):
+        """存在しない litellm_model_id は結果に含まれない"""
         mock_session = MagicMock()
         repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
 
         model1 = Mock(spec=Model)
-        model1.name = "gpt4"
+        model1.litellm_model_id = "openai/gpt4"
         mock_session.execute.return_value.scalars.return_value.all.return_value = [model1]
 
-        result = repository.get_models_by_names({"gpt4", "unknown"})
-        assert "gpt4" in result
-        assert "unknown" not in result
+        result = repository.get_models_by_litellm_ids({"openai/gpt4", "unknown/model"})
+        assert "openai/gpt4" in result
+        assert "unknown/model" not in result
 
 
 class TestGetBatchAvailableResolutions:

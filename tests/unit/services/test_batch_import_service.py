@@ -22,7 +22,7 @@ def mock_repository() -> MagicMock:
     # モデル検索
     model = MagicMock()
     model.id = 100
-    repo.get_model_by_name.return_value = model
+    repo.get_model_by_litellm_id.return_value = model
     # タグID解決
     repo.batch_resolve_tag_ids.return_value = {
         "1girl": 10,
@@ -184,8 +184,12 @@ class TestBatchImportServiceSingleFile:
         assert result.saved == 0
 
     def test_auto_register_model(self, tmp_path: Path, mock_repository: MagicMock) -> None:
-        """未登録モデルが自動登録される。"""
-        mock_repository.get_model_by_name.return_value = None
+        """未登録モデルが自動登録される。
+
+        ADR 0023 Phase 1.11 (Issue #238): bare 名 (`gpt-4-turbo-2024-04-09`) は
+        `openai/<bare>` に正規化されて lookup・登録される。
+        """
+        mock_repository.get_model_by_litellm_id.return_value = None
         mock_repository.insert_model.return_value = 200
         records = [
             _make_batch_record("0262_1227", "Tags: 1girl\n\nCaption: text"),
@@ -199,7 +203,7 @@ class TestBatchImportServiceSingleFile:
             name="gpt-4-turbo-2024-04-09",
             provider="openai",
             model_types=["multimodal", "caption", "tags"],
-            litellm_model_id="gpt-4-turbo-2024-04-09",
+            litellm_model_id="openai/gpt-4-turbo-2024-04-09",
             requires_api_key=True,
         )
 

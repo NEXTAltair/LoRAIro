@@ -1070,6 +1070,92 @@ ADR 0023 本文の以下の記述は **Phase 1.10 (Issue #52) で更新**:
 - 他プロバイダー bare 名対応 (Bedrock/Vertex 経由 `anthropic.*` 等 約 178 件):
   `_BUILDER_DISPATCH` に builder 追加が必要なため別 ADR で扱う
 
+## Phase 1.11 完了 (LoRAIro Issue #238 — `schema.Model.litellm_model_id` を UNIQUE NOT NULL 化、`name` を表示名に降格)
+
+Phase 1.9 / 1.10 (Issue #51, #52) で registry が「同一論理モデル × 経路違い」のエントリを
+完全 LiteLLM ID で並列保持するようになったことを受け、LoRAIro DB schema を SSoT 規約に
+整合させた (2026-05 完了)。`schema.Model` の責務を以下に再構成:
+
+| カラム | 値の例 | 役割 |
+|---|---|---|
+| `name` | `gpt-4.1` | 表示名 (非 UNIQUE) |
+| `provider` | `openrouter` / `openai` / `anthropic` | ルーティング元 (非 UNIQUE) |
+| `litellm_model_id` | `openrouter/openai/gpt-4.1` | **ルーティングキー (UNIQUE NOT NULL)** |
+
+### 背景
+
+ADR 0023 line 109 / 138 (`SUPPORTED_PROVIDERS` 規定) と Phase 1.9 / 1.10 の SSoT
+拡張により、registry には `anthropic/claude-3-5-sonnet-20241022` (直接) と
+`openrouter/anthropic/claude-3-5-sonnet-20241022` (OpenRouter 経由) が **別エントリ**
+として並列登録される。LoRAIro `schema.Model` の旧定義は:
+
+- `name` UNIQUE → 同一モデル名の複数経路を DB に保存できない (重複 INSERT で IntegrityError)
+- `litellm_model_id` nullable / 非 UNIQUE → ルーティングキーとして信頼できず、
+  `model_sync_service` は `name` を一意キーとして lookup していたため経路違いを区別できない
+- `provider` の意味が緩く、`name="openai/gpt-4.1"` のスラッシュ込み形式が混在する余地
+
+Phase 1.10 完了後の registry は 123 件のモデルを返すが、LoRAIro DB に流し込もうとすると
+直接版と OpenRouter 版の `name` 衝突で sync が破綻する。
+
+### 実装サマリー (LoRAIro PR #ZZZ)
+
+1. **`schema.Model` 定義変更**:
+   - `name` の `unique=True` を削除 (非 UNIQUE NOT NULL 表示名)
+   - `litellm_model_id` を `Mapped[str]` (NOT NULL) + `unique=True` に昇格
+   - `provider`, `discontinued_at`, `estimated_size_gb`, `requires_api_key`, relationships は据え置き
+2. **Alembic migration 新規作成**:
+   - `MANUAL_EDIT` 行: `litellm_model_id = '__manual_edit__'` (sentinel) を埋める
+   - スラッシュ込み `name` 行: `name` をそのまま `litellm_model_id` にコピーし、
+     `provider` / 表示名を `instr(name, '/')` で先頭 `/` 区切りに分離
+     (例: `openrouter/openai/gpt-4o` → `provider='openrouter'`, `name='openai/gpt-4o'`)
+   - スラッシュなし `name` で `provider IS NOT NULL` 行: `litellm_model_id = provider || '/' || name` で補完
+   - 残存 NULL 行は `__legacy_<id>__` sentinel で fallback して NOT NULL 化失敗を防ぐ
+   - `batch_alter_table` で `name` UNIQUE drop + `litellm_model_id` NOT NULL UNIQUE 化
+3. **`model_sync_service` の同期キーを `litellm_model_id` に切替**:
+   - `register_new_models_to_db` / `update_existing_models` の lookup を
+     `get_model_by_name` → `get_model_by_litellm_id` に変更
+   - 旧 `metadata["litellm_model_id"]` None フォールバックを削除 (Phase 1.10 完了で不要)
+   - 経路違いの並列登録は UNIQUE 制約に委譲 (DB 側 IntegrityError をログのみで握る)
+4. **`db_repository` の lookup API 改修**:
+   - `get_model_by_litellm_id`, `get_models_by_litellm_ids` を新設
+   - `get_model_by_name`, `get_models_by_names` は重複可能性のため削除し、呼び出し元を移行
+   - `_get_or_create_manual_edit_model` を sentinel `__manual_edit__` 経由に変更
+5. **MANUAL_EDIT の扱い**: `name="MANUAL_EDIT"`, `provider="user"`,
+   `litellm_model_id="__manual_edit__"` の sentinel 値で UNIQUE NOT NULL 制約を満たす。
+   推論経路には乗らないため副作用なし
+
+### Decision section の更新差分
+
+ADR 0023 本文の以下の記述は **Phase 1.11 (LoRAIro Issue #238) で更新**:
+
+| ADR 本文 | 旧方針 | Phase 1.11 で更新後 |
+|---|---|---|
+| line 137-150 「LoRAIro DB との責務境界」 (ADR 0021 由来) の `models` テーブル保存項目 | `name` (UNIQUE 想定), `provider`, `api_model_id`, ... | `litellm_model_id` を UNIQUE NOT NULL のルーティングキー、`name` を非 UNIQUE 表示名、`provider` を非 UNIQUE ルーティング元に再定義。registry → DB sync キーは `litellm_model_id` 一本 |
+| (新規) | (記述なし) | MANUAL_EDIT 行は sentinel `litellm_model_id="__manual_edit__"` で UNIQUE NOT NULL に整合 |
+
+本文 line 137-150 自体は書き換えず Phase 1.11 完了セクション内の表で文書化
+(Phase 1.5〜1.10 と同じ運用)。
+
+### 検証
+
+- 新規 unit test:
+  - `get_model_by_litellm_id` (通常モデル / MANUAL_EDIT sentinel / 不在 ID)
+  - migration data backfill 検証 (旧形式データ `name='openai/gpt-4.1', litellm_model_id=NULL` を含む test DB に upgrade を流して期待値検証)
+- 既存テスト修正:
+  - `test_manual_rating_unification.py` の `filter_by(name="MANUAL_EDIT")` を sentinel ベースに更新
+  - `tests/bdd/steps/test_database_management.py` の name lookup を `litellm_model_id` ベースに書き換え
+  - `test_model_sync_service.py` の lookup mock を更新
+- Alembic upgrade/downgrade ラウンドトリップ確認
+- `lorairo-cli models refresh` → `lorairo-cli models list` で 123 件 (Phase 1.10 後の registry 全件) が DB に並列登録されることを確認
+
+### 関連 (未対応)
+
+- LoRAIro Issue #241: API key 状況に応じたモデル表示フィルタ
+  (`openrouter/` prefix 有無で経路判別、CLI/GUI 表示制御を追加)
+- image-annotator-lib Issue #39 (close 済み): OpenRouter / 直接プロバイダーの
+  経路選択ロジックは prefix 文字列マッチで機械的に判別可能と確定。ライブラリ側
+  修正なしで close、表示制御は呼び出し側 (LoRAIro #241) で扱う
+
 ## References
 
 - [PydanticAI Output](https://pydantic.dev/docs/ai/core-concepts/output/)
@@ -1088,3 +1174,5 @@ ADR 0023 本文の以下の記述は **Phase 1.10 (Issue #52) で更新**:
 - [Issue #46 — Phase 1.8 PydanticAI HTTP transport retry の集約](https://github.com/NEXTAltair/image-annotator-lib/issues/46)
 - [Issue #51 — Phase 1.9 LiteLLM 完全 ID を registry SSoT に統一](https://github.com/NEXTAltair/image-annotator-lib/issues/51)
 - [Issue #52 — Phase 1.10 Anthropic bare 名を `anthropic/<bare>` に正規化](https://github.com/NEXTAltair/image-annotator-lib/issues/52)
+- [LoRAIro Issue #238 — Phase 1.11 `schema.Model.litellm_model_id` を UNIQUE NOT NULL 化、`name` を表示名に降格](https://github.com/NEXTAltair/LoRAIro/issues/238)
+- [LoRAIro Issue #241 — API key 状況に応じたモデル表示フィルタ (Phase 1.11 後続)](https://github.com/NEXTAltair/LoRAIro/issues/241)
