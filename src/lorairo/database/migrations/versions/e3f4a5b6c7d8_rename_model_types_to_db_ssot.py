@@ -37,22 +37,20 @@ _RENAMES: tuple[tuple[str, str], ...] = (
 
 
 def upgrade() -> None:
-    """model_types テーブルの旧名を本番 SSoT 値に rename する (該当行のみ更新)。"""
+    """model_types テーブルの旧名を本番 SSoT 値に rename する (該当行のみ更新)。
+
+    旧名/新名の共存ケースは想定しない:
+    - 本番 DB は既に新 SSoT 値で正規化済み → UPDATE は 0 行ヒットで no-op
+    - 新規ユーザー DB は既存 migration 履歴 (`a860e469d0c4` + `fda27f4584ec`) 経由で
+      旧名のみ存在 → UPDATE で正常に rename
+    共存状態 (`tagger` と `tags` 両方が同 DB に存在) は不正な手動操作の結果でしか
+    起きず、その場合は UNIQUE 違反で migration が fail する。
+    """
     for old, new in _RENAMES:
-        # 既に新 SSoT 値の行があれば旧名行は重複になるため、先に旧名行を削除して
-        # 新名行が存在しないケースのみ rename する。UNIQUE 制約違反を回避。
-        op.execute(
-            f"DELETE FROM model_types WHERE name = '{old}' "
-            f"AND EXISTS (SELECT 1 FROM model_types WHERE name = '{new}')"
-        )
         op.execute(f"UPDATE model_types SET name = '{new}' WHERE name = '{old}'")
 
 
 def downgrade() -> None:
     """旧名に戻す (ベストエフォート)。"""
     for old, new in _RENAMES:
-        op.execute(
-            f"DELETE FROM model_types WHERE name = '{new}' "
-            f"AND EXISTS (SELECT 1 FROM model_types WHERE name = '{old}')"
-        )
         op.execute(f"UPDATE model_types SET name = '{old}' WHERE name = '{new}'")

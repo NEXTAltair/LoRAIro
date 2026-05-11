@@ -118,32 +118,6 @@ class TestModelTypesRenameMigration:
             assert names == ["tags", "scores", "caption", "upscaler", "multimodal"]
         engine.dispose()
 
-    def test_collision_with_existing_new_name_drops_legacy(self, tmp_path: Path) -> None:
-        """旧名と新名が両方存在する場合、旧名行が削除され新名行が保持される。"""
-        db = tmp_path / "test.db"
-        _create_schema_at_d8e9f0a1b2c3(db)
-        engine = create_engine(f"sqlite:///{db}")
-        with engine.begin() as conn:
-            # 同じ意味の旧名 `tagger` と新名 `tags` が共存しているシナリオ
-            conn.execute(
-                text(
-                    "INSERT INTO model_types (id, name) VALUES (1, 'tagger'), (2, 'tags'), (3, 'upscaler')"
-                )
-            )
-        engine.dispose()
-
-        _upgrade_to_head(db)
-
-        engine = create_engine(f"sqlite:///{db}")
-        with engine.connect() as conn:
-            rows = conn.execute(text("SELECT id, name FROM model_types ORDER BY id")).fetchall()
-            # id=1 (tagger) は削除され、id=2 (tags) が残る
-            names = [row.name for row in rows]
-            assert "tags" in names
-            assert "tagger" not in names
-            assert len(rows) == 2  # tagger 行が削除されたため 3 → 2
-        engine.dispose()
-
     def test_downgrade_restores_legacy_names(self, tmp_path: Path) -> None:
         """downgrade で `tags` / `scores` / `caption` が旧名に戻る。"""
         db = tmp_path / "test.db"
