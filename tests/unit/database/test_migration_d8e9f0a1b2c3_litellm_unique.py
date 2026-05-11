@@ -25,10 +25,11 @@ def _make_alembic_config(db_path: Path) -> Config:
 
 
 def _create_legacy_schema(db_path: Path) -> None:
-    """`c4d5e6f7a8b9` (本 migration の直前 head) 相当の `models` テーブルを直接 CREATE する。
+    """`c4d5e6f7a8b9` 相当の `models` テーブル + `model_types` を CREATE する。
 
     旧 schema (`name UNIQUE`, `litellm_model_id` nullable) を再現し、
-    Alembic version table も整える。
+    Alembic version table も整える。`model_types` は後段の migration
+    `e3f4a5b6c7d8` (Issue #243) で UPDATE 対象になるため事前作成しておく。
     """
     engine = create_engine(f"sqlite:///{db_path}")
     with engine.begin() as conn:
@@ -50,7 +51,18 @@ def _create_legacy_schema(db_path: Path) -> None:
                 """
             )
         )
-        # Alembic version table を直前 head に固定 (本 migration のみ流す)
+        # Issue #243 の migration `e3f4a5b6c7d8` が UPDATE 対象とするため事前作成
+        conn.execute(
+            text(
+                """
+                CREATE TABLE model_types (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    name VARCHAR NOT NULL UNIQUE
+                )
+                """
+            )
+        )
+        # Alembic version table を直前 head に固定
         conn.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"))
         conn.execute(text("INSERT INTO alembic_version (version_num) VALUES ('c4d5e6f7a8b9')"))
     engine.dispose()

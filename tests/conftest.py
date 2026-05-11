@@ -299,15 +299,15 @@ def test_engine_with_schema(test_db_url: str):
         with SessionLocal() as session:
             # --- ModelType の初期データ挿入 ---
             print("[test_engine_with_schema] Inserting initial model types...")
-            # schema.py やマイグレーションスクリプトで定義されているタイプ名を列挙
+            # Issue #243: model_types テーブルの SSoT 値は migration `e3f4a5b6c7d8`
+            # 適用後と同じ `tags` / `scores` / `caption` / `upscaler` / `multimodal`。
+            # 旧名 (`tagger`, `score`, `captioner`, `llm`, `rating`) は本番 DB に存在しない。
             initial_model_types = [
-                "tagger",
-                "multimodal",
-                "score",
-                "rating",
-                "captioner",
+                "tags",
+                "scores",
+                "caption",
                 "upscaler",
-                "llm",
+                "multimodal",
             ]
             type_map: dict[str, ModelType] = {}
             for type_name in initial_model_types:
@@ -332,26 +332,26 @@ def test_engine_with_schema(test_db_url: str):
                     "name": "wd-vit-large-tagger-v3",
                     "provider": "SmilingWolf",
                     "litellm_model_id": "wd-vit-large-tagger-v3",
-                    "type_names": ["tagger"],
+                    "type_names": ["tags"],
                 },
-                # 修正: 'multimodal' は llm も兼ねるケースが多いので llm も追加、または要件に応じて調整
+                # Issue #243: WebAPI vision モデル (PydanticAI 経由) は multimodal カテゴリ
                 {
                     "name": "GPT-4o",
                     "provider": "OpenAI",
                     "litellm_model_id": "openai/gpt-4o",
-                    "type_names": ["multimodal", "llm", "captioner"],
-                },  # 複数のタイプを持つ例
+                    "type_names": ["multimodal"],
+                },
                 {
                     "name": "cafe_aesthetic",
                     "provider": "cafe",
                     "litellm_model_id": "cafe_aesthetic",
-                    "type_names": ["score"],
+                    "type_names": ["scores"],
                 },
                 {
                     "name": "classification_ViT-L-14_openai",
                     "provider": "openai",
                     "litellm_model_id": "classification_ViT-L-14_openai",
-                    "type_names": ["rating"],
+                    "type_names": ["scores"],  # 品質判定モデルなので scores カテゴリ
                 },
                 # 他のテストで必要になる可能性のあるモデルタイプも追加
                 {
@@ -364,7 +364,7 @@ def test_engine_with_schema(test_db_url: str):
                     "name": "wd-swinv2-tagger-v3",
                     "provider": "SmilingWolf",
                     "litellm_model_id": "wd-swinv2-tagger-v3",
-                    "type_names": ["tagger"],
+                    "type_names": ["tags"],
                 },
                 # 必要に応じて他のデフォルトモデルを追加
             ]

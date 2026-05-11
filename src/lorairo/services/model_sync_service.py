@@ -174,31 +174,37 @@ class ModelSyncService:
     def _map_library_model_type_to_db(self, info: AnnotatorInfo) -> list[str]:
         """`AnnotatorInfo.model_type` を LoRAIro DB の `model_types` リストに変換する。
 
+        Issue #243 (Phase 1.11 後続): DB `model_types` テーブルの SSoT 値
+        (`tags` / `scores` / `caption` / `upscaler` / `multimodal`) に揃える。
+        旧マッピング (`llm` / `captioner` / `score` / `tagger`) は ADR 0017 の
+        正規化以前の値で、`models_function_associations` を介した FK 制約に違反していた。
+
         Args:
             info: アノテーター情報
 
         Returns:
-            list[str]: LoRAIro DB の model_types リスト
+            list[str]: LoRAIro DB の `model_types.name` に一致するリスト
 
         Mapping Rules:
-            - "vision" → ["captioner"] (`info.is_api=True` の場合は ["llm", "captioner"])
-            - "captioner" → ["captioner"]
-            - "scorer" → ["score"]
-            - "tagger" → ["tagger"]
-            - その他 → ["captioner"] (警告ログ付き)
+            - "vision" → ["multimodal"]  (WebAPI vision = LLM + Vision)
+            - "captioner" → ["caption"]
+            - "scorer" → ["scores"]
+            - "tagger" → ["tags"]
+            - その他 → ["caption"] (警告ログ付き)
         """
         model_type = info.model_type
         if model_type == "vision":
-            # WebAPI vision モデル (PydanticAI 経由) は LLM としても機能する
-            return ["llm", "captioner"] if info.is_api else ["captioner"]
+            # WebAPI vision モデル (PydanticAI 経由) は LLM + Vision を兼ねるため
+            # DB の `multimodal` カテゴリに該当する
+            return ["multimodal"]
         if model_type == "captioner":
-            return ["captioner"]
+            return ["caption"]
         if model_type == "scorer":
-            return ["score"]
+            return ["scores"]
         if model_type == "tagger":
-            return ["tagger"]
-        logger.warning(f"Unknown library model_type: {model_type}, defaulting to ['captioner']")
-        return ["captioner"]
+            return ["tags"]
+        logger.warning(f"Unknown library model_type: {model_type}, defaulting to ['caption']")
+        return ["caption"]
 
     def sync_available_models(self) -> ModelSyncResult:
         """利用可能モデルの自動同期
