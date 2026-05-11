@@ -638,31 +638,31 @@ class ImageDatabaseManager:
             return []
 
     def get_tagger_models(self) -> list[dict[str, Any]]:
-        """Taggerタイプのモデル情報を取得します。"""
+        """Tagger タイプのモデル情報を取得する (Issue #243: SSoT は `tags`)。"""
         try:
-            return self.repository.get_models_by_type("tagger")
+            return self.repository.get_models_by_type("tags")
         except Exception as e:
             logger.error(f"Taggerモデル情報の取得中にエラー: {e}", exc_info=True)
             return []
 
     def get_score_models(self) -> list[dict[str, Any]]:
-        """Scoreタイプのモデル情報を取得します。"""
+        """Score タイプのモデル情報を取得する (Issue #243: SSoT は `scores`)。"""
         try:
-            return self.repository.get_models_by_type("score")
+            return self.repository.get_models_by_type("scores")
         except Exception as e:
             logger.error(f"Scoreモデル情報の取得中にエラー: {e}", exc_info=True)
             return []
 
     def get_captioner_models(self) -> list[dict[str, Any]]:
-        """Captionerタイプのモデル情報を取得します。"""
+        """Captioner タイプのモデル情報を取得する (Issue #243: SSoT は `caption`)。"""
         try:
-            return self.repository.get_models_by_type("captioner")
+            return self.repository.get_models_by_type("caption")
         except Exception as e:
             logger.error(f"Captionerモデル情報の取得中にエラー: {e}", exc_info=True)
             return []
 
     def get_upscaler_models(self) -> list[dict[str, Any]]:
-        """Upscalerタイプのモデル情報を取得します。"""
+        """Upscaler タイプのモデル情報を取得する (SSoT は `upscaler` のまま)。"""
         try:
             return self.repository.get_models_by_type("upscaler")
         except Exception as e:
@@ -670,9 +670,9 @@ class ImageDatabaseManager:
             return []
 
     def get_llm_models(self) -> list[dict[str, Any]]:
-        """LLMタイプのモデル情報を取得します。"""
+        """LLM タイプのモデル情報を取得する (Issue #243: SSoT は `multimodal` に統合済み)。"""
         try:
-            return self.repository.get_models_by_type("llm")
+            return self.repository.get_models_by_type("multimodal")
         except Exception as e:
             logger.error(f"LLMモデル情報の取得中にエラー: {e}", exc_info=True)
             return []
