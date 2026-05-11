@@ -53,15 +53,13 @@ def test_engine_with_schema(test_db_url: str):
     # 初期 ModelType データ挿入
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     with SessionLocal() as session:
-        # 標準的なモデルタイプを挿入
+        # Issue #243: 本番 SSoT に揃える (5 値、`rating`/`llm` は廃止)
         initial_model_types = [
-            "tagger",
-            "multimodal",
-            "score",
-            "rating",
-            "captioner",
+            "tags",
+            "scores",
+            "caption",
             "upscaler",
-            "llm",
+            "multimodal",
         ]
 
         for type_name in initial_model_types:

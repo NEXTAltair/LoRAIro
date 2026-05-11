@@ -113,18 +113,15 @@ def given_models_registered(test_db_manager: ImageDatabaseManager):
     """初期データとしてモデルが登録されていることを確認する"""
     all_models = test_db_manager.get_models()  # model_types を含む辞書のリストを返すはず
     assert all_models, "モデルがDBに登録されていません"
-    # 正しいアサーション: 各タイプが存在するかチェック
-    assert any("tagger" in m.get("model_types", []) for m in all_models), (
-        "初期データに 'tagger' タイプが見つかりません"
+    # 正しいアサーション: 各タイプが存在するかチェック (Issue #243: SSoT 値に揃え)
+    assert any("tags" in m.get("model_types", []) for m in all_models), (
+        "初期データに 'tags' タイプが見つかりません"
     )
-    assert any("score" in m.get("model_types", []) for m in all_models), (
-        "初期データに 'score' タイプが見つかりません"
+    assert any("scores" in m.get("model_types", []) for m in all_models), (
+        "初期データに 'scores' タイプが見つかりません"
     )
-    assert any("rating" in m.get("model_types", []) for m in all_models), (
-        "初期データに 'rating' タイプが見つかりません"
-    )
-    assert any("captioner" in m.get("model_types", []) for m in all_models), (
-        "初期データに 'captioner' タイプが見つかりません"
+    assert any("multimodal" in m.get("model_types", []) for m in all_models), (
+        "初期データに 'multimodal' タイプが見つかりません"
     )
 
 

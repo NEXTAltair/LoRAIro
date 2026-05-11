@@ -25,7 +25,7 @@ class TestGetModelByLitellmId:
         temp_db_repository.insert_model(
             name="gpt-4o",
             provider="openai",
-            model_types=["llm", "captioner"],
+            model_types=["multimodal"],
             litellm_model_id="openai/phase111-gpt-4o",
             requires_api_key=True,
         )
@@ -47,14 +47,14 @@ class TestGetModelByLitellmId:
         temp_db_repository.insert_model(
             name="claude-3-5-sonnet-20241022",
             provider="anthropic",
-            model_types=["llm", "captioner"],
+            model_types=["multimodal"],
             litellm_model_id="anthropic/claude-3-5-sonnet-20241022",
             requires_api_key=True,
         )
         temp_db_repository.insert_model(
             name="anthropic/claude-3-5-sonnet-20241022",
             provider="openrouter",
-            model_types=["llm", "captioner"],
+            model_types=["multimodal"],
             litellm_model_id="openrouter/anthropic/claude-3-5-sonnet-20241022",
             requires_api_key=True,
         )
@@ -82,7 +82,7 @@ class TestGetModelsByLitellmIds:
         temp_db_repository.insert_model(
             name="gpt-4o",
             provider="openai",
-            model_types=["llm"],
+            model_types=["multimodal"],
             litellm_model_id="openai/phase111-gpt-4o",
             requires_api_key=True,
         )

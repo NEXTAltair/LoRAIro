@@ -334,8 +334,8 @@ class ImageRepository:
             name: 表示名 (例: `gpt-4.1`)。
             provider: ルーティング元プロバイダー (例: `openai`, `anthropic`,
                 `openrouter`)。ローカル ML モデルは None。
-            model_types: LoRAIro の model_type リスト (`["captioner"]`,
-                `["llm", "captioner"]`, `["score"]`, `["tagger"]` 等)。
+            model_types: LoRAIro の model_type リスト (`["caption"]`,
+                `["multimodal"]`, `["scores"]`, `["tags"]`, `["upscaler"]` のいずれか)。
             litellm_model_id: registry key (UNIQUE)。WebAPI では LiteLLM 完全 ID
                 (`openai/gpt-4o`)、ローカル ML では bare name (`wd-vit-tagger-v3`)。
             estimated_size_gb: ローカルモデルの推定サイズ (GB)。

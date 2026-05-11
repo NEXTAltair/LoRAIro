@@ -42,7 +42,7 @@ class TestModelMetadata:
             "class_name": "PydanticAIWebAPIAnnotator",
             "litellm_model_id": "gpt-4o",
             "model_type": "vision",
-            "model_types": ["llm", "captioner"],
+            "model_types": ["multimodal"],
             "estimated_size_gb": None,
             "requires_api_key": True,
             "discontinued_at": None,
@@ -51,7 +51,7 @@ class TestModelMetadata:
         assert metadata["name"] == "gpt-4o"
         assert metadata["provider"] == "openai"
         assert metadata["model_type"] == "vision"
-        assert metadata["model_types"] == ["llm", "captioner"]
+        assert metadata["model_types"] == ["multimodal"]
         assert metadata["requires_api_key"] is True
 
 
@@ -139,35 +139,35 @@ class TestModelTypeMapping:
             db_repository=temp_db_repository, config_service=mock_config_service, annotator_library=Mock()
         )
 
-    def test_vision_api_maps_to_llm_captioner(self, service_with_mock):
-        """vision タイプの WebAPI モデルは ['llm', 'captioner'] にマッピングされる"""
+    def test_vision_maps_to_multimodal(self, service_with_mock):
+        """vision タイプは ['multimodal'] にマッピングされる (Issue #243)。"""
         info = _info(
             "gpt-4o", "vision", is_api=True, capabilities={TaskCapability.TAGS, TaskCapability.CAPTIONS}
         )
-        assert service_with_mock._map_library_model_type_to_db(info) == ["llm", "captioner"]
+        assert service_with_mock._map_library_model_type_to_db(info) == ["multimodal"]
 
-    def test_vision_local_maps_to_captioner(self, service_with_mock):
-        """vision タイプのローカルモデルは ['captioner'] にマッピングされる"""
+    def test_vision_local_also_maps_to_multimodal(self, service_with_mock):
+        """vision タイプのローカルモデルも ['multimodal'] にマッピングされる (is_api 値に依存しない)。"""
         info = _info("local-vision", "vision", is_api=False, capabilities={TaskCapability.CAPTIONS})
-        assert service_with_mock._map_library_model_type_to_db(info) == ["captioner"]
+        assert service_with_mock._map_library_model_type_to_db(info) == ["multimodal"]
 
-    def test_captioner_maps_to_captioner(self, service_with_mock):
-        """captioner タイプは ['captioner'] にマッピングされる"""
+    def test_captioner_maps_to_caption(self, service_with_mock):
+        """captioner タイプは DB の `caption` (単数) にマッピングされる (Issue #243)。"""
         info = _info("blip-captioner", "captioner", is_api=False, capabilities={TaskCapability.CAPTIONS})
-        assert service_with_mock._map_library_model_type_to_db(info) == ["captioner"]
+        assert service_with_mock._map_library_model_type_to_db(info) == ["caption"]
 
-    def test_scorer_maps_to_score(self, service_with_mock):
-        """scorer タイプは ['score'] にマッピングされる (DB 側カラム名整合)"""
+    def test_scorer_maps_to_scores(self, service_with_mock):
+        """scorer タイプは DB の `scores` (複数) にマッピングされる (Issue #243)。"""
         info = _info("aesthetic", "scorer", is_api=False, capabilities={TaskCapability.SCORES})
-        assert service_with_mock._map_library_model_type_to_db(info) == ["score"]
+        assert service_with_mock._map_library_model_type_to_db(info) == ["scores"]
 
-    def test_tagger_maps_to_tagger(self, service_with_mock):
-        """tagger タイプは ['tagger'] にマッピングされる"""
+    def test_tagger_maps_to_tags(self, service_with_mock):
+        """tagger タイプは DB の `tags` (複数) にマッピングされる (Issue #243)。"""
         info = _info("wd-tagger", "tagger", is_api=False, capabilities={TaskCapability.TAGS})
-        assert service_with_mock._map_library_model_type_to_db(info) == ["tagger"]
+        assert service_with_mock._map_library_model_type_to_db(info) == ["tags"]
 
-    def test_unknown_type_falls_back_to_captioner(self, service_with_mock):
-        """未知のタイプは ['captioner'] にフォールバック (警告ログ付き)"""
+    def test_unknown_type_falls_back_to_caption(self, service_with_mock):
+        """未知のタイプは ['caption'] にフォールバック (警告ログ付き、Issue #243)。"""
         # AnnotatorInfo の Literal を回避するため type: ignore 経由で生成
         info = AnnotatorInfo(
             name="weird",
@@ -177,7 +177,7 @@ class TestModelTypeMapping:
             is_api=False,
             device="cuda",
         )
-        assert service_with_mock._map_library_model_type_to_db(info) == ["captioner"]
+        assert service_with_mock._map_library_model_type_to_db(info) == ["caption"]
 
 
 class TestModelSyncServiceWithRealDB:
@@ -209,10 +209,10 @@ class TestModelSyncServiceWithRealDB:
         assert "model_types" in first_model
         assert "discontinued_at" in first_model
 
-        # PydanticAI WebAPIモデル（gpt-4o）のマッピング確認
+        # PydanticAI WebAPIモデル（gpt-4o）のマッピング確認 (Issue #243: vision → multimodal)
         gpt4o_model = next((m for m in metadata_list if m["name"] == "gpt-4o"), None)
         assert gpt4o_model is not None
-        assert gpt4o_model["model_types"] == ["llm", "captioner"]
+        assert gpt4o_model["model_types"] == ["multimodal"]
         assert gpt4o_model["provider"] == "openai"
         assert gpt4o_model["class_name"] is None  # Phase 2: AnnotatorInfo に class_name なし
 
@@ -256,7 +256,7 @@ class TestModelSyncServiceWithRealDB:
                 "class_name": "TestAnnotator",
                 "litellm_model_id": "openai/test-model-new-1",
                 "model_type": "vision",
-                "model_types": ["llm", "captioner"],
+                "model_types": ["multimodal"],  # Issue #243: vision → multimodal
                 "estimated_size_gb": None,
                 "requires_api_key": True,
                 "discontinued_at": None,
@@ -267,7 +267,7 @@ class TestModelSyncServiceWithRealDB:
                 "class_name": "LocalTagger",
                 "litellm_model_id": "test-model-new-2",
                 "model_type": "tagger",
-                "model_types": ["tagger"],
+                "model_types": ["tags"],  # Issue #243: tagger → tags
                 "estimated_size_gb": 1.5,
                 "requires_api_key": False,
                 "discontinued_at": None,
@@ -281,14 +281,14 @@ class TestModelSyncServiceWithRealDB:
         registered_model_1 = temp_db_repository.get_model_by_litellm_id("openai/test-model-new-1")
         assert registered_model_1 is not None
         assert registered_model_1.provider == "openai"
-        assert len(registered_model_1.model_types) == 2
-        assert {mt.name for mt in registered_model_1.model_types} == {"llm", "captioner"}
+        assert len(registered_model_1.model_types) == 1
+        assert {mt.name for mt in registered_model_1.model_types} == {"multimodal"}
 
         registered_model_2 = temp_db_repository.get_model_by_litellm_id("test-model-new-2")
         assert registered_model_2 is not None
         assert registered_model_2.estimated_size_gb == 1.5
         assert len(registered_model_2.model_types) == 1
-        assert registered_model_2.model_types[0].name == "tagger"
+        assert registered_model_2.model_types[0].name == "tags"
 
     def test_register_new_models_to_db_with_discontinued_at(self, model_sync_service, temp_db_repository):
         """discontinued_atフィールド付き新規モデル登録（Issue #5対応）"""
@@ -300,7 +300,7 @@ class TestModelSyncServiceWithRealDB:
                 "class_name": "DiscontinuedAnnotator",
                 "litellm_model_id": "openai/discontinued-model",
                 "model_type": "vision",
-                "model_types": ["captioner"],
+                "model_types": ["caption"],
                 "estimated_size_gb": None,
                 "requires_api_key": True,
                 "discontinued_at": discontinued_date,
@@ -320,7 +320,7 @@ class TestModelSyncServiceWithRealDB:
         temp_db_repository.insert_model(
             name="existing-model-test",
             provider="openai",
-            model_types=["llm"],
+            model_types=["multimodal"],
             litellm_model_id="openai/existing-model-test",
             requires_api_key=True,
         )
@@ -332,7 +332,7 @@ class TestModelSyncServiceWithRealDB:
                 "class_name": "TestAnnotator",
                 "litellm_model_id": "openai/existing-model-test",
                 "model_type": "vision",
-                "model_types": ["llm"],
+                "model_types": ["multimodal"],
                 "estimated_size_gb": None,
                 "requires_api_key": True,
                 "discontinued_at": None,
@@ -347,7 +347,7 @@ class TestModelSyncServiceWithRealDB:
         temp_db_repository.insert_model(
             name="update-test-model",
             provider="openai",
-            model_types=["captioner"],
+            model_types=["caption"],
             litellm_model_id="openai/update-test-model",
             estimated_size_gb=1.0,
         )
@@ -359,7 +359,7 @@ class TestModelSyncServiceWithRealDB:
                 "class_name": "UpdatedAnnotator",
                 "litellm_model_id": "openai/update-test-model",
                 "model_type": "vision",
-                "model_types": ["llm", "captioner"],
+                "model_types": ["multimodal"],
                 "estimated_size_gb": 2.5,
                 "requires_api_key": True,
                 "discontinued_at": None,
@@ -372,15 +372,15 @@ class TestModelSyncServiceWithRealDB:
         updated_model = temp_db_repository.get_model_by_litellm_id("openai/update-test-model")
         assert updated_model is not None
         assert updated_model.estimated_size_gb == 2.5
-        assert len(updated_model.model_types) == 2
-        assert {mt.name for mt in updated_model.model_types} == {"llm", "captioner"}
+        assert len(updated_model.model_types) == 1
+        assert {mt.name for mt in updated_model.model_types} == {"multimodal"}
 
     def test_update_existing_models_no_changes(self, model_sync_service, temp_db_repository):
         """既存モデル更新処理（変更なし）"""
         temp_db_repository.insert_model(
             name="no-change-model",
             provider="openai",
-            model_types=["llm"],
+            model_types=["multimodal"],
             litellm_model_id="openai/no-change-model",
             estimated_size_gb=1.0,
         )
@@ -392,7 +392,7 @@ class TestModelSyncServiceWithRealDB:
                 "class_name": "TestAnnotator",
                 "litellm_model_id": "openai/no-change-model",
                 "model_type": "vision",
-                "model_types": ["llm"],
+                "model_types": ["multimodal"],
                 "estimated_size_gb": 1.0,
                 "requires_api_key": False,
                 "discontinued_at": None,
@@ -407,7 +407,7 @@ class TestModelSyncServiceWithRealDB:
         temp_db_repository.insert_model(
             name="to-be-discontinued",
             provider="openai",
-            model_types=["captioner"],
+            model_types=["caption"],
             litellm_model_id="openai/to-be-discontinued",
             discontinued_at=None,
         )
@@ -420,7 +420,7 @@ class TestModelSyncServiceWithRealDB:
                 "class_name": "DiscontinuedAnnotator",
                 "litellm_model_id": "openai/to-be-discontinued",
                 "model_type": "vision",
-                "model_types": ["captioner"],
+                "model_types": ["caption"],
                 "estimated_size_gb": None,
                 "requires_api_key": True,
                 "discontinued_at": discontinued_date,
@@ -518,9 +518,9 @@ class TestModelSyncServiceEdgeCases:
                 "name": "",  # 空の名前
                 "provider": "openai",
                 "class_name": "TestAnnotator",
-                "litellm_model_id": None,
+                "litellm_model_id": "",  # 空の litellm_model_id (Phase 1.11 NOT NULL の境界値)
                 "model_type": "unknown",
-                "model_types": ["captioner"],
+                "model_types": ["caption"],
                 "estimated_size_gb": -1.0,
                 "requires_api_key": True,
                 "discontinued_at": None,

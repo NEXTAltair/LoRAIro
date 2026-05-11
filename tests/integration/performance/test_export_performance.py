@@ -47,7 +47,7 @@ class TestExportPerformance:
 
         with SessionLocal() as session:
             # ModelType 初期データ
-            for tname in ["tagger", "multimodal", "score", "rating"]:
+            for tname in ["tags", "scores", "caption", "upscaler", "multimodal"]:
                 session.add(ModelType(name=tname))
             session.flush()
 

@@ -399,7 +399,7 @@ class TestExportFullScanGuard:
         # ModelType 初期データ挿入
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
         with SessionLocal() as session:
-            for type_name in ["tagger", "multimodal", "score", "rating"]:
+            for type_name in ["tags", "scores", "caption", "upscaler", "multimodal"]:
                 if not session.query(ModelType).filter_by(name=type_name).first():
                     session.add(ModelType(name=type_name))
             session.commit()

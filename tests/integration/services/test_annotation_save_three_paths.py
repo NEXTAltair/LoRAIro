@@ -35,7 +35,8 @@ def engine():
     # ModelType初期データ
     SessionLocal = sessionmaker(bind=_engine)
     with SessionLocal() as session:
-        for type_name in ("tagger", "score", "captioner", "rating", "multimodal", "llm", "upscaler"):
+        # Issue #243: SSoT 5 値に揃える
+        for type_name in ("tags", "scores", "caption", "upscaler", "multimodal"):
             if not session.query(ModelType).filter_by(name=type_name).first():
                 session.add(ModelType(name=type_name))
         session.commit()
@@ -60,7 +61,7 @@ def repository(session_factory):
 def registered_model_and_image(session_factory) -> dict[str, Any]:
     """モデルと画像をDBに登録し、phashとimage_idを返す。"""
     with session_factory() as session:
-        tagger_type = session.query(ModelType).filter_by(name="tagger").first()
+        tagger_type = session.query(ModelType).filter_by(name="tags").first()
         model = Model(name=TEST_MODEL_NAME, litellm_model_id=TEST_MODEL_NAME)
         session.add(model)
         session.flush()
@@ -173,7 +174,7 @@ class TestAnnotationSaveThreePaths:
             """エンジンにモデルと画像を登録してphash/image_idを返す。"""
             sf = sessionmaker(bind=eng)
             with sf() as session:
-                tagger_type = session.query(ModelType).filter_by(name="tagger").first()
+                tagger_type = session.query(ModelType).filter_by(name="tags").first()
                 model = Model(name=TEST_MODEL_NAME, litellm_model_id=TEST_MODEL_NAME)
                 session.add(model)
                 session.flush()
@@ -210,7 +211,7 @@ class TestAnnotationSaveThreePaths:
         engine_a = create_engine("sqlite:///:memory:", echo=False)
         Base.metadata.create_all(engine_a)
         with sessionmaker(bind=engine_a)() as s:
-            for t in ("tagger", "score", "captioner", "rating", "multimodal", "llm", "upscaler"):
+            for t in ("tags", "scores", "caption", "upscaler", "multimodal"):
                 s.add(ModelType(name=t))
             s.commit()
         sf_a, image_id_a = setup_db(engine_a)
@@ -222,7 +223,7 @@ class TestAnnotationSaveThreePaths:
         engine_b = create_engine("sqlite:///:memory:", echo=False)
         Base.metadata.create_all(engine_b)
         with sessionmaker(bind=engine_b)() as s:
-            for t in ("tagger", "score", "captioner", "rating", "multimodal", "llm", "upscaler"):
+            for t in ("tags", "scores", "caption", "upscaler", "multimodal"):
                 s.add(ModelType(name=t))
             s.commit()
         sf_b, image_id_b = setup_db(engine_b)
