@@ -53,6 +53,13 @@ dependencies = [
     "rembg>=2.0.67",
     "pymatting>=1.1.15",
     "torchvision>=0.25.0",
+    # 2026-05-12: PyPI で `mistralai` パッケージが quarantined され、`pydantic-ai`
+    # 1.93.0 までに含まれていた `mistral` extra (= `pydantic-ai-slim[mistral]` →
+    # `mistralai>=1.x` 依存) が universal lock の解決を不能にした。`pydantic-ai`
+    # 1.94.0+ では `mistral` extra が削除済みのため、最低バージョンを 1.94.0 に
+    # pin して回避する。LoRAIro / image-annotator-lib は Mistral プロバイダーを
+    # 使わない (実装コードに該当プロバイダー参照ゼロ) ため機能影響なし。
+    "pydantic-ai>=1.94.0",
 ]
 
 

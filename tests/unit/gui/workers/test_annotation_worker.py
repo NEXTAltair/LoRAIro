@@ -260,7 +260,9 @@ class TestAnnotationWorkerExecute:
         assert mock_db_manager.repository.find_image_ids_by_phashes.call_count == 2
         mock_db_manager.repository.get_models_by_litellm_ids.assert_called_once()
         mock_db_manager.repository.find_duplicate_image_by_phash.assert_not_called()
-        mock_db_manager.repository.get_model_by_name.assert_not_called()
+        # Phase 1.11 (#238) で `get_model_by_name` は `get_model_by_litellm_id` に置換。
+        # 旧 API への単体クエリが復活していないことを保証 (batch lookup のみ使う設計)。
+        mock_db_manager.repository.get_model_by_litellm_id.assert_not_called()
 
 
 # ==============================================================================
