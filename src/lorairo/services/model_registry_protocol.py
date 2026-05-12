@@ -99,7 +99,15 @@ def selection_includes_webapi_model(
     """
     if not litellm_model_ids:
         return False
-    available = {info.name: info for info in model_registry.get_available_models()}
+    # Issue #245 PR #246 review: lookup map のキーも registry key SSoT
+    # (litellm_model_id with bare-name fallback) に揃える。`info.name` をキーに
+    # していた旧実装は WebAPI で `name == litellm_model_id` が成立する現状の
+    # データに対して偶然動いていただけで、ライブラリ側で `name != litellm_model_id`
+    # が許容された瞬間に WebAPI 検出漏れ → refusal filter skip → 不要な API 課金
+    # に繋がる。`_build_model_statistics` (annotation_worker.py) と同じ規約。
+    available = {
+        (info.litellm_model_id or info.name): info for info in model_registry.get_available_models()
+    }
     return any(
         (info := available.get(key)) is not None and info.requires_api_key for key in litellm_model_ids
     )

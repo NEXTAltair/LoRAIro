@@ -391,12 +391,20 @@ class TestApplyRefusalPrefilter:
 
     @staticmethod
     def _registry_with_models(model_specs):
+        """`ModelInfo` 互換 Mock を返す。
+
+        Issue #245 PR #246 review: lookup map のキーは
+        `info.litellm_model_id or info.name`。Mock のデフォルト child attribute
+        は truthy になり実値で keying できないため、Phase 1.10 規約
+        (`name == litellm_model_id` for WebAPI) に従い明示的に同値を設定する。
+        """
         registry = Mock()
         infos = []
         for name, requires_api_key in model_specs:
             info = Mock()
             info.name = name
             info.requires_api_key = requires_api_key
+            info.litellm_model_id = name
             infos.append(info)
         registry.get_available_models.return_value = infos
         return registry
