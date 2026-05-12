@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.codex/hooks/hook_pre_commands.py"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.codex/hooks/hook_response_monitor.py"
+          }
+        ]
+      }
+    ]
+  }
+}
