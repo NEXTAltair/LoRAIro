@@ -175,13 +175,16 @@ class WorkerService(QObject):
     def start_enhanced_batch_annotation(
         self,
         image_paths: list[str],
-        models: list[str],
+        litellm_model_ids: list[str],
     ) -> str:
         """バッチアノテーション開始（新API）
 
+        Issue #245 / ADR 0023 Phase 1.11: モデル指定は `Model.litellm_model_id`
+        (registry key SSoT) で受け取る。
+
         Args:
             image_paths: 画像パスリスト
-            models: 使用モデル名リスト
+            litellm_model_ids: 使用モデルの `litellm_model_id` リスト
 
         Returns:
             str: ワーカーID
@@ -191,12 +194,14 @@ class WorkerService(QObject):
         # で N+1 DB クエリを避け (大量画像選択時の UI freeze 防止)、Worker 内で
         # async / 進捗シグナル経由で実行する。filter ロジック自体は Worker
         # 内 `_apply_refusal_prefilter()` 参照。
-        logger.debug(f"バッチアノテーション準備: models={models}, 画像数={len(image_paths)}")
+        logger.debug(
+            f"バッチアノテーション準備: litellm_model_ids={litellm_model_ids}, 画像数={len(image_paths)}"
+        )
 
         worker = AnnotationWorker(
             annotation_logic=self.annotation_logic,
             image_paths=image_paths,
-            models=models,
+            litellm_model_ids=litellm_model_ids,
             db_manager=self.db_manager,
             model_registry=get_service_container().model_registry,
         )
@@ -210,10 +215,10 @@ class WorkerService(QObject):
         if self.worker_manager.start_worker(worker_id, worker):
             logger.info(
                 f"バッチアノテーション開始: {len(image_paths)}画像 (filter 前), "
-                f"{len(models)}モデル (ID: {worker_id})"
+                f"{len(litellm_model_ids)}モデル (ID: {worker_id})"
             )
             logger.debug("  refusal filter は Worker 内で実行 (Codex P2 対応)")
-            logger.debug(f"  ワーカーID={worker_id}, モデル=[{', '.join(models)}]")
+            logger.debug(f"  ワーカーID={worker_id}, litellm_model_ids=[{', '.join(litellm_model_ids)}]")
             return worker_id
         else:
             raise RuntimeError(f"アノテーションワーカー開始失敗: {worker_id}")

@@ -22,6 +22,7 @@ from rich.progress import (
 from rich.table import Table
 
 if TYPE_CHECKING:
+    from lorairo.database.db_repository import ImageRepository
     from lorairo.services.batch_import_service import BatchImportResult
 
 from lorairo.api.batch_import import import_batch_annotations
@@ -162,6 +163,57 @@ def _get_deprecated_models_best_effort(annotator: Any, model_names: list[str]) -
         return []
 
 
+def _resolve_model_identifier(repository: ImageRepository, identifier: str) -> str:
+    """ユーザー入力を canonical `litellm_model_id` に解決する (Issue #245)。
+
+    解決順:
+      1. `litellm_model_id` 完全一致 → そのまま返す (推奨経路)
+      2. `name` 一致が単一 → その行の `litellm_model_id` を返す (convenience)
+      3. `name` 一致が複数 → typer.Exit(code=1) で候補一覧を表示して中断
+      4. 一致なし → typer.Exit(code=1) で `models list` を案内して中断
+
+    ADR 0023 Phase 1.11: `Model.name` は非 UNIQUE、`Model.litellm_model_id` は
+    UNIQUE NOT NULL の registry key SSoT。同一 name で route の異なる行が
+    共存しうるため、曖昧マッチは silent な誤 route を生まないよう abort する。
+
+    Args:
+        repository: LoRAIro DB リポジトリ (active project に設定済み)。
+        identifier: ユーザー入力文字列 (litellm_model_id または name)。
+
+    Returns:
+        str: 解決後の `litellm_model_id`。
+
+    Raises:
+        typer.Exit: 曖昧マッチまたは一致なしの場合 (code=1)。
+    """
+    by_litellm = repository.get_model_by_litellm_id(identifier)
+    if by_litellm is not None:
+        return by_litellm.litellm_model_id
+
+    by_name = repository.get_models_by_name(identifier)
+    if len(by_name) == 1:
+        resolved = by_name[0].litellm_model_id
+        logger.debug(f"--model '{identifier}' を name 経由で {resolved} に解決")
+        return resolved
+
+    if len(by_name) > 1:
+        candidate_lines = "\n".join(
+            f"  - {m.litellm_model_id} (provider: {m.provider or 'unknown'})" for m in by_name
+        )
+        console.print(
+            f"[red]Error:[/red] Ambiguous model '{identifier}':\n"
+            f"{candidate_lines}\n"
+            "Use the full LiteLLM model ID. Run `lorairo-cli models list` to see available IDs."
+        )
+        raise typer.Exit(code=1)
+
+    console.print(
+        f"[red]Error:[/red] Unknown model '{identifier}'. "
+        "Run `lorairo-cli models list` to see available IDs."
+    )
+    raise typer.Exit(code=1)
+
+
 @app.command("run")
 def run(
     project: str = typer.Option(
@@ -174,7 +226,11 @@ def run(
         ...,
         "--model",
         "-m",
-        help="Model name(s) to use for annotation",
+        help=(
+            "LiteLLM model ID (e.g., openrouter/openai/gpt-4o, openai/gpt-4o, "
+            "wd-vit-tagger-v3). Use `lorairo-cli models list` to see available IDs. "
+            "Name-only input is accepted only when it uniquely matches a single row."
+        ),
     ),
     output: str | None = typer.Option(
         None,
@@ -192,11 +248,16 @@ def run(
     """Run annotation on project images.
 
     プロジェクトの画像に対してアノテーションを実行します。
-    使用可能なモデル名は 'lorairo-cli models list' で確認してください。
+    使用可能なモデル ID は 'lorairo-cli models list' で確認してください。
+
+    Issue #245 / ADR 0023 Phase 1.11: `--model` には `litellm_model_id` (registry
+    key SSoT) を渡すこと。display 名 (`Model.name`) は同一値で複数 route の行が
+    共存しうるため、曖昧時は Error で abort し候補一覧を表示する。
 
     Examples:
-        lorairo-cli annotate run --project myproject --model gpt-4o
-        lorairo-cli annotate run --project myproject --model gpt-4o --model claude-3-5-sonnet-20241022
+        lorairo-cli annotate run --project myproject --model openai/gpt-4o
+        lorairo-cli annotate run --project myproject \\
+            --model openrouter/openai/gpt-4o --model openrouter/anthropic/claude-3-5-sonnet
     """
     try:
         # API層経由でプロジェクト確認 & DB 接続切り替え
@@ -211,6 +272,11 @@ def run(
 
         # DB からプロジェクトの登録済み画像を取得
         repository = container.image_repository
+
+        # Issue #245: --model 入力を canonical litellm_model_id に解決
+        # (曖昧マッチは Error で abort、ここで raise した typer.Exit は外側 except で素通り)
+        resolved_litellm_ids = [_resolve_model_identifier(repository, ident) for ident in model]
+
         criteria = ImageFilterCriteria(include_nsfw=True)
         image_records, total_in_db = repository.get_images_by_filter(criteria)
 
@@ -229,13 +295,13 @@ def run(
             raise typer.Exit(code=1)
 
         console.print(f"[cyan]Found {total_in_db} image(s) in DB[/cyan]")
-        console.print(f"[cyan]Using model(s): {', '.join(model)}[/cyan]")
+        console.print(f"[cyan]Using model(s): {', '.join(resolved_litellm_ids)}[/cyan]")
         console.print(f"[green]Loaded {loaded_count} image(s) ({failed_count} failed)[/green]")
 
         annotator = container.annotator_library
         config = container.config_service
 
-        deprecated_models = _get_deprecated_models_best_effort(annotator, model)
+        deprecated_models = _get_deprecated_models_best_effort(annotator, resolved_litellm_ids)
         for deprecated_model in deprecated_models:
             console.print(f"[yellow]Warning: Model '{deprecated_model}' is deprecated[/yellow]")
 
@@ -267,7 +333,8 @@ def run(
             ) as progress:
                 task = progress.add_task("Running annotation...", total=len(pil_images))
 
-                results = annotator.annotate(pil_images, model)
+                # Issue #245: AnnotatorLibraryAdapter.annotate は kwarg `litellm_model_ids` を受け取る
+                results = annotator.annotate(pil_images, litellm_model_ids=resolved_litellm_ids)
 
                 progress.update(task, completed=len(pil_images))
 
@@ -295,7 +362,7 @@ def run(
         summary_table.add_column("Value", style="green")
 
         summary_table.add_row("Total Images", str(len(pil_images)))
-        summary_table.add_row("Models Used", ", ".join(model))
+        summary_table.add_row("Models Used", ", ".join(resolved_litellm_ids))
         summary_table.add_row("Results", str(len(results)))
         summary_table.add_row("Saved to DB", str(save_result.success_count))
         summary_table.add_row("Skipped", str(save_result.skip_count))

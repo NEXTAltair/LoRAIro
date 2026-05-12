@@ -1409,11 +1409,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             )
             return
 
-        # batchModelSelectionから選択されたモデルを取得
-        selected_models: list[str] = []
+        # batchModelSelectionから選択されたモデルを取得 (Issue #245: litellm_model_id ベース)
+        selected_litellm_model_ids: list[str] = []
         if hasattr(self, "batchModelSelection") and self.batchModelSelection:
-            selected_models = self.batchModelSelection.get_selected_models()
-            logger.debug(f"batchModelSelectionから選択されたモデル: {selected_models}")
+            selected_litellm_model_ids = self.batchModelSelection.get_selected_models()
+            logger.debug(
+                f"batchModelSelectionから選択されたモデル (litellm_model_ids): {selected_litellm_model_ids}"
+            )
 
         # バッチタグタブの場合はステージング画像を使用
         override_image_paths: list[str] | None = None
@@ -1430,8 +1432,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # AnnotationWorkflowControllerに委譲（チェックボックスから選択されたモデルを優先）
         self.annotation_workflow_controller.start_annotation_workflow(
-            selected_models=selected_models if selected_models else None,
-            model_selection_callback=self._show_model_selection_dialog if not selected_models else None,
+            selected_litellm_model_ids=selected_litellm_model_ids if selected_litellm_model_ids else None,
+            model_selection_callback=self._show_model_selection_dialog
+            if not selected_litellm_model_ids
+            else None,
             image_paths=override_image_paths,
         )
 

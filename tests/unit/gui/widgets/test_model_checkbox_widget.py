@@ -16,6 +16,7 @@ class TestModelCheckboxWidget:
             name="gpt-4-vision-preview",
             provider="openai",
             capabilities=["caption", "tags"],
+            litellm_model_id="openai/gpt-4-vision-preview",
             is_local=False,
             requires_api_key=True,
         )
@@ -27,6 +28,7 @@ class TestModelCheckboxWidget:
             name="wd-v1-4-swin-v2-tagger-v3",
             provider="local",
             capabilities=["tags"],
+            litellm_model_id="wd-v1-4-swin-v2-tagger-v3",
             is_local=True,
             requires_api_key=False,
         )
@@ -38,6 +40,7 @@ class TestModelCheckboxWidget:
             name="claude-3-sonnet",
             provider="anthropic",
             capabilities=["caption", "tags", "analysis"],
+            litellm_model_id="anthropic/claude-3-sonnet",
             is_local=False,
             requires_api_key=True,
         )
@@ -49,6 +52,7 @@ class TestModelCheckboxWidget:
             name="gemini-pro-vision",
             provider="google",
             capabilities=["caption", "tags", "scores"],
+            litellm_model_id="gemini/gemini-pro-vision",
             is_local=False,
             requires_api_key=True,
         )
@@ -76,8 +80,40 @@ class TestModelCheckboxWidget:
         assert hasattr(widget_openai, "labelCapabilities")
 
     def test_model_name_display(self, widget_openai):
-        """モデル名表示テスト"""
-        assert widget_openai.labelModelName.text() == "gpt-4-vision-preview"
+        """モデル名表示テスト (Issue #245: ラベルは "{name} ({provider})" 形式)"""
+        assert widget_openai.labelModelName.text() == "gpt-4-vision-preview (openai)"
+
+    def test_model_name_tooltip_is_litellm_id(self, widget_openai):
+        """tooltip には正規ルーティングキー (litellm_model_id) が出る (Issue #245)"""
+        assert widget_openai.labelModelName.toolTip() == "openai/gpt-4-vision-preview"
+
+    def test_label_distinguishes_same_name_different_provider(self, qtbot):
+        """同 name 異 provider の行が UI 上で視覚的に区別できる (Issue #245)"""
+        openrouter_route = ModelInfo(
+            name="openai/gpt-4o",
+            provider="openrouter",
+            capabilities=["caption", "tags"],
+            litellm_model_id="openrouter/openai/gpt-4o",
+            is_local=False,
+            requires_api_key=True,
+        )
+        direct_route = ModelInfo(
+            name="openai/gpt-4o",
+            provider="openai",
+            capabilities=["caption", "tags"],
+            litellm_model_id="openai/gpt-4o",
+            is_local=False,
+            requires_api_key=True,
+        )
+        w_router = ModelCheckboxWidget(openrouter_route)
+        w_direct = ModelCheckboxWidget(direct_route)
+        qtbot.addWidget(w_router)
+        qtbot.addWidget(w_direct)
+
+        # ラベルが異なる (provider 併記)
+        assert w_router.labelModelName.text() != w_direct.labelModelName.text()
+        # tooltip も異なる (litellm_model_id)
+        assert w_router.labelModelName.toolTip() != w_direct.labelModelName.toolTip()
 
     def test_provider_display_openai(self, widget_openai):
         """OpenAIプロバイダー表示テスト"""
@@ -147,6 +183,7 @@ class TestModelCheckboxWidget:
             name="unknown-model",
             provider="unknown",
             capabilities=["test"],
+            litellm_model_id="unknown/unknown-model",
             is_local=False,
             requires_api_key=True,
         )
@@ -183,7 +220,7 @@ class TestModelCheckboxWidget:
         assert widget_openai.checkboxModel.isChecked() is False
 
     def test_selection_changed_signal_on_check(self, widget_openai, qtbot):
-        """チェック時のシグナル発火テスト"""
+        """チェック時のシグナル発火テスト (Issue #245: 第1引数は litellm_model_id)"""
         # 初期状態を確認
         assert widget_openai.checkboxModel.isChecked() is False
 
@@ -192,17 +229,17 @@ class TestModelCheckboxWidget:
             widget_openai.checkboxModel.setCheckState(Qt.CheckState.Checked)
 
         # シグナルの引数確認
-        assert blocker.args == ["gpt-4-vision-preview", True]
+        assert blocker.args == ["openai/gpt-4-vision-preview", True]
 
     def test_selection_changed_signal_on_uncheck(self, widget_openai, qtbot):
-        """チェック解除時のシグナル発火テスト"""
+        """チェック解除時のシグナル発火テスト (Issue #245: 第1引数は litellm_model_id)"""
         widget_openai.checkboxModel.setChecked(True)
 
         with qtbot.waitSignal(widget_openai.selection_changed, timeout=1000) as blocker:
             widget_openai.checkboxModel.setChecked(False)
 
         # シグナルの引数確認
-        assert blocker.args == ["gpt-4-vision-preview", False]
+        assert blocker.args == ["openai/gpt-4-vision-preview", False]
 
     def test_set_selected_blocks_signal(self, widget_openai, qtbot):
         """set_selected()はシグナルをブロックすることを確認"""
@@ -225,8 +262,12 @@ class TestModelCheckboxWidget:
         assert signal_emitted is True
 
     def test_get_model_name(self, widget_openai):
-        """モデル名取得テスト"""
+        """表示用モデル名取得テスト (Issue #245: get_model_name は表示名)"""
         assert widget_openai.get_model_name() == "gpt-4-vision-preview"
+
+    def test_get_model_litellm_id(self, widget_openai):
+        """内部キー取得テスト (Issue #245: 新規 API)"""
+        assert widget_openai.get_model_litellm_id() == "openai/gpt-4-vision-preview"
 
     def test_get_model_info(self, widget_openai, openai_model_info):
         """モデル情報取得テスト"""

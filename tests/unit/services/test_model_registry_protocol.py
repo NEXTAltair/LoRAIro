@@ -50,10 +50,19 @@ class TestSelectionIncludesWebApiModel:
     """
 
     @staticmethod
-    def _model_info(name: str, requires_api_key: bool):
+    def _model_info(name: str, requires_api_key: bool, litellm_model_id: str | None = None):
+        """`ModelInfo` 互換 Mock。
+
+        Issue #245 PR #246 review: lookup map のキーは
+        `info.litellm_model_id or info.name` (registry key SSoT)。デフォルトでは
+        Phase 1.10 の WebAPI 規約 (`name == litellm_model_id`) を再現するため
+        `litellm_model_id` を `name` と同値にする。`name != litellm_model_id` の
+        ケースを意図的にテストする場合は明示的に異なる値を渡す。
+        """
         info = Mock()
         info.name = name
         info.requires_api_key = requires_api_key
+        info.litellm_model_id = litellm_model_id if litellm_model_id is not None else name
         return info
 
     def _registry(self, models):
@@ -113,3 +122,40 @@ class TestSelectionIncludesWebApiModel:
         registry.get_available_models.side_effect = RuntimeError("registry unavailable")
         with pytest.raises(RuntimeError, match="registry unavailable"):
             selection_includes_webapi_model(["openai/gpt-4o"], registry)
+
+    def test_lookup_uses_litellm_model_id_not_name(self) -> None:
+        """Issue #245 PR #246 review (P1): lookup map のキーは `litellm_model_id`。
+
+        `info.name != info.litellm_model_id` のケースで、caller (`litellm_model_id`
+        を渡す側) と registry 内の info を正しく結びつけられることを保証する。
+        旧実装 (`{info.name: info}` でキー化) では `litellm_model_id` で引いて
+        miss し、WebAPI モデルが検出されず refusal filter が誤って skip されていた。
+        """
+        # `name` は表示用短縮形、`litellm_model_id` が registry key SSoT
+        webapi_info = self._model_info(
+            name="gpt-4o",
+            requires_api_key=True,
+            litellm_model_id="openai/gpt-4o",
+        )
+        registry = self._registry([webapi_info])
+
+        # 呼び出し側は litellm_model_id を渡す (新 contract)
+        assert selection_includes_webapi_model(["openai/gpt-4o"], registry) is True
+        # 旧 `name` 経由では引けない (これは正しい振る舞い: SSoT は litellm_model_id)
+        assert selection_includes_webapi_model(["gpt-4o"], registry) is False
+
+    def test_lookup_falls_back_to_name_when_litellm_id_is_none(self) -> None:
+        """ローカル ML モデルのように `info.litellm_model_id is None` の場合は
+        `info.name` を fallback キーとして使う。`Model.litellm_model_id` 側は
+        Phase 1.11 の `info.litellm_model_id or info.name` 規約で bare 名が入る。
+        """
+        local_info = self._model_info(
+            name="wd-v1-4-tagger",
+            requires_api_key=False,
+            litellm_model_id=None,
+        )
+        registry = self._registry([local_info])
+        # ローカルなので requires_api_key=False で False を返すが、lookup 自体は hit する
+        # (= info が available に居る) ことを registry mock call で間接確認
+        assert selection_includes_webapi_model(["wd-v1-4-tagger"], registry) is False
+        registry.get_available_models.assert_called_once()

@@ -8,6 +8,16 @@ from typer.testing import CliRunner
 
 from lorairo.cli.main import app
 
+
+@pytest.fixture(autouse=True)
+def _wide_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #245: Rich Table が Provider/Litellm ID 列を加えても全列が描画される
+    十分な幅を CLI テスト環境で確保する。デフォルト 80 col では Status 列が
+    truncate される or Model 列が改行を挿入して substring 検証が壊れる。
+    """
+    monkeypatch.setenv("COLUMNS", "200")
+
+
 runner = CliRunner()
 
 
@@ -21,6 +31,9 @@ class _FakeAnnotatorInfo:
     is_api: bool
     capabilities: frozenset = field(default_factory=frozenset)
     device: str | None = None
+    # Issue #245: models list 出力に Provider / Litellm ID 列を追加した
+    provider: str | None = None
+    litellm_model_id: str | None = None
 
 
 def _make_infos() -> list[_FakeAnnotatorInfo]:

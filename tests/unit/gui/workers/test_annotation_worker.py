@@ -55,14 +55,14 @@ class TestAnnotationWorkerInitialization:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=image_paths,
-            models=models,
+            litellm_model_ids=models,
             db_manager=mock_db_manager,
             model_registry=mock_model_registry,
         )
 
         assert worker.annotation_logic is mock_annotation_logic
         assert worker.image_paths == image_paths
-        assert worker.models == models
+        assert worker.litellm_model_ids == models
         assert worker.db_manager is mock_db_manager
         assert worker.model_registry is mock_model_registry
 
@@ -83,7 +83,7 @@ class TestAnnotationWorkerExecute:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=image_paths,
-            models=models,
+            litellm_model_ids=models,
             db_manager=mock_db_manager,
             model_registry=mock_model_registry,
         )
@@ -92,7 +92,7 @@ class TestAnnotationWorkerExecute:
 
         mock_annotation_logic.execute_annotation.assert_called_once_with(
             image_paths=image_paths,
-            model_names=["gpt-4o-mini"],
+            litellm_model_ids=["gpt-4o-mini"],
             phash_list=None,
         )
 
@@ -141,7 +141,7 @@ class TestAnnotationWorkerExecute:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=image_paths,
-            models=models,
+            litellm_model_ids=models,
             db_manager=mock_db_manager,
             model_registry=mock_model_registry,
         )
@@ -184,7 +184,7 @@ class TestAnnotationWorkerExecute:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=image_paths,
-            models=models,
+            litellm_model_ids=models,
             db_manager=mock_db_manager,
             model_registry=mock_model_registry,
         )
@@ -222,7 +222,7 @@ class TestAnnotationWorkerExecute:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=image_paths,
-            models=models,
+            litellm_model_ids=models,
             db_manager=mock_db_manager,
             model_registry=mock_model_registry,
         )
@@ -250,7 +250,7 @@ class TestAnnotationWorkerExecute:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=image_paths,
-            models=models,
+            litellm_model_ids=models,
             db_manager=mock_db_manager,
             model_registry=mock_model_registry,
         )
@@ -260,7 +260,9 @@ class TestAnnotationWorkerExecute:
         assert mock_db_manager.repository.find_image_ids_by_phashes.call_count == 2
         mock_db_manager.repository.get_models_by_litellm_ids.assert_called_once()
         mock_db_manager.repository.find_duplicate_image_by_phash.assert_not_called()
-        mock_db_manager.repository.get_model_by_name.assert_not_called()
+        # Phase 1.11 (#238) で `get_model_by_name` は `get_model_by_litellm_id` に置換。
+        # 旧 API への単体クエリが復活していないことを保証 (batch lookup のみ使う設計)。
+        mock_db_manager.repository.get_model_by_litellm_id.assert_not_called()
 
 
 # ==============================================================================
@@ -276,7 +278,7 @@ class TestExtractField:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=[],
-            models=[],
+            litellm_model_ids=[],
             db_manager=Mock(),
             model_registry=mock_model_registry,
         )
@@ -290,7 +292,7 @@ class TestExtractField:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=[],
-            models=[],
+            litellm_model_ids=[],
             db_manager=Mock(),
             model_registry=mock_model_registry,
         )
@@ -314,7 +316,7 @@ class TestSaveErrorRecords:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=[],
-            models=[],
+            litellm_model_ids=[],
             db_manager=mock_db,
             model_registry=mock_model_registry,
         )
@@ -328,7 +330,7 @@ class TestSaveErrorRecords:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=["/test/img.jpg"],
-            models=[],
+            litellm_model_ids=[],
             db_manager=mock_db,
             model_registry=mock_model_registry,
         )
@@ -346,7 +348,7 @@ class TestSaveErrorRecords:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=["/img1.jpg", "/img2.jpg"],
-            models=[],
+            litellm_model_ids=[],
             db_manager=mock_db,
             model_registry=mock_model_registry,
         )
@@ -362,7 +364,7 @@ class TestSaveErrorRecords:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=["/test/img.jpg"],
-            models=[],
+            litellm_model_ids=[],
             db_manager=mock_db,
             model_registry=mock_model_registry,
         )
@@ -384,19 +386,27 @@ class TestApplyRefusalPrefilter:
         return AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=image_paths,
-            models=models,
+            litellm_model_ids=models,
             db_manager=db_manager,
             model_registry=model_registry,
         )
 
     @staticmethod
     def _registry_with_models(model_specs):
+        """`ModelInfo` 互換 Mock を返す。
+
+        Issue #245 PR #246 review: lookup map のキーは
+        `info.litellm_model_id or info.name`。Mock のデフォルト child attribute
+        は truthy になり実値で keying できないため、Phase 1.10 規約
+        (`name == litellm_model_id` for WebAPI) に従い明示的に同値を設定する。
+        """
         registry = Mock()
         infos = []
         for name, requires_api_key in model_specs:
             info = Mock()
             info.name = name
             info.requires_api_key = requires_api_key
+            info.litellm_model_id = name
             infos.append(info)
         registry.get_available_models.return_value = infos
         return registry

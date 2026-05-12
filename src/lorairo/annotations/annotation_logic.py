@@ -44,17 +44,21 @@ class AnnotationLogic:
     def execute_annotation(
         self,
         image_paths: list[str],
-        model_names: list[str],
+        litellm_model_ids: list[str],
         phash_list: list[str] | None = None,
     ) -> "PHashAnnotationResults":
         """アノテーション実行
 
-        画像パスリストとモデル名リストを受け取り、アノテーションを実行する。
+        画像パスリストと `litellm_model_id` リストを受け取り、アノテーションを実行する。
         結果はPHashAnnotationResults（pHashをキーとする辞書）として返される。
+
+        Issue #245 / ADR 0023 Phase 1.11: 引数は `Model.litellm_model_id` (registry
+        key SSoT)。同 `Model.name` で異なる `provider`/route の行が共存しうるため、
+        registry lookup を経由する送信値は必ず `litellm_model_id` を使う。
 
         Args:
             image_paths: アノテーション対象画像パスリスト
-            model_names: 使用モデル名リスト
+            litellm_model_ids: 使用モデルの `litellm_model_id` リスト
             phash_list: 画像のpHashリスト（省略時はライブラリ側で自動計算）
 
         Returns:
@@ -66,8 +70,8 @@ class AnnotationLogic:
             Exception: アノテーション実行エラー
         """
         try:
-            logger.info(f"アノテーション処理開始: {len(image_paths)}画像, {len(model_names)}モデル")
-            logger.debug(f"  モデル名: {model_names}")
+            logger.info(f"アノテーション処理開始: {len(image_paths)}画像, {len(litellm_model_ids)}モデル")
+            logger.debug(f"  litellm_model_ids: {litellm_model_ids}")
             logger.debug(f"  pHashリスト指定: {'あり' if phash_list else 'なし（自動計算）'}")
 
             # 画像読み込み
@@ -77,7 +81,7 @@ class AnnotationLogic:
             # アノテーション実行（AnnotatorLibraryAdapter経由）
             results = self.annotator_adapter.annotate(
                 images=images,
-                model_names=model_names,
+                litellm_model_ids=litellm_model_ids,
                 phash_list=phash_list,  # NEW: 呼び出し元から渡されたpHashを使用
             )
 

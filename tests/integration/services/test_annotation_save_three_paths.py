@@ -151,7 +151,7 @@ class TestAnnotationSaveThreePaths:
         worker = AnnotationWorker(
             annotation_logic=mock_logic,
             image_paths=["/test/cat.jpg"],
-            models=[TEST_MODEL_NAME],
+            litellm_model_ids=[TEST_MODEL_NAME],
             db_manager=mock_db_manager,
             model_registry=NullModelRegistry(),
         )
@@ -239,7 +239,7 @@ class TestAnnotationSaveThreePaths:
         AnnotationWorker(
             annotation_logic=mock_logic,
             image_paths=["/test/cat.jpg"],
-            models=[TEST_MODEL_NAME],
+            litellm_model_ids=[TEST_MODEL_NAME],
             db_manager=mock_db,
             model_registry=NullModelRegistry(),
         ).execute()

@@ -142,7 +142,7 @@ class TestAnnotationWorkerErrorRecording:
         worker = AnnotationWorker(
             annotation_logic=mock_logic,
             image_paths=["/test/image1.jpg"],
-            models=["test-model"],
+            litellm_model_ids=["test-model"],
             db_manager=db_manager,
             model_registry=NullModelRegistry(),
         )
@@ -174,7 +174,7 @@ class TestAnnotationWorkerErrorRecording:
         worker = AnnotationWorker(
             annotation_logic=mock_logic,
             image_paths=["/test/image1.jpg"],
-            models=["test-model"],
+            litellm_model_ids=["test-model"],
             db_manager=db_manager,
             model_registry=NullModelRegistry(),
         )

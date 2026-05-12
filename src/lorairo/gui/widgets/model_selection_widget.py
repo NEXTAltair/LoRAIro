@@ -76,8 +76,8 @@ if not __name__ == "__main__":
         - プロバイダー・機能別フィルタリング
         """
 
-        # シグナル定義
-        model_selection_changed = Signal(list)  # selected_model_names
+        # シグナル定義 (Issue #245: selected_litellm_model_ids を emit)
+        model_selection_changed = Signal(list)  # selected_litellm_model_ids
         selection_count_changed = Signal(int, int)  # selected_count, total_count
 
         # UI elements type hints (from Ui_ModelSelectionWidget via multi-inheritance)
@@ -386,6 +386,10 @@ if not __name__ == "__main__":
             self.dynamicContentLayout.addWidget(provider_label)
 
             # ModelCheckboxWidget作成と追加
+            # Issue #245: dict key は model.litellm_model_id (UNIQUE registry key)。
+            # 旧実装は model.name をキーにしていたが、Phase 1.11 migration 経由の
+            # OpenRouter 行は name が縮退 (`openai/gpt-4o`) して新規 sync 経路の
+            # 直接版と衝突するため、ルーティングキーである litellm_model_id を使う。
             for model in models:
                 model_info = self._convert_model_to_info(model)
                 checkbox_widget = ModelCheckboxWidget(model_info)
@@ -393,18 +397,22 @@ if not __name__ == "__main__":
                 # シグナル接続
                 checkbox_widget.selection_changed.connect(self._on_model_selection_changed)
 
-                self.model_checkbox_widgets[model.name] = checkbox_widget
+                self.model_checkbox_widgets[model.litellm_model_id] = checkbox_widget
                 self.dynamicContentLayout.addWidget(checkbox_widget)
 
             # レイアウト再計算（フィルタリング後のウィジェットサイズ安定化）
             self.dynamicContentLayout.invalidate()
 
         def _convert_model_to_info(self, model: Model) -> ModelInfo:
-            """Database Model を ModelInfo に変換"""
+            """Database Model を ModelInfo に変換
+
+            Issue #245: 表示名 (`name`) と内部キー (`litellm_model_id`) を分離する。
+            """
             return ModelInfo(
                 name=model.name,
                 provider=model.provider or "local",
                 capabilities=model.capabilities,
+                litellm_model_id=model.litellm_model_id,
                 is_local=not model.requires_api_key,
                 requires_api_key=model.requires_api_key,
             )
@@ -441,20 +449,24 @@ if not __name__ == "__main__":
             logger.debug(f"Execution environment filter changed: {execution_env}")
 
         @Slot(str, bool)
-        def _on_model_selection_changed(self, model_name: str, is_selected: bool) -> None:
-            """モデル選択変更時の処理"""
-            selected_models = self.get_selected_models()
+        def _on_model_selection_changed(self, litellm_model_id: str, is_selected: bool) -> None:
+            """モデル選択変更時の処理 (Issue #245: 引数は litellm_model_id)"""
+            selected_litellm_model_ids = self.get_selected_models()
             self._update_selection_count()
-            self.model_selection_changed.emit(selected_models)
+            self.model_selection_changed.emit(selected_litellm_model_ids)
 
-            logger.debug(f"Model selection changed: {model_name} = {is_selected}")
+            logger.debug(f"Model selection changed: {litellm_model_id} = {is_selected}")
 
         def get_selected_models(self) -> list[str]:
-            """選択されたモデル名のリストを取得"""
+            """選択されたモデルの `litellm_model_id` リストを取得 (Issue #245)。
+
+            戻り値の semantic は Phase 1.11 (#238) で `Model.name` から
+            `Model.litellm_model_id` (registry key SSoT) に切替えた。
+            """
             selected: list[str] = []
-            for model_name, widget in self.model_checkbox_widgets.items():
+            for litellm_model_id, widget in self.model_checkbox_widgets.items():
                 if widget.is_selected():
-                    selected.append(model_name)
+                    selected.append(litellm_model_id)
             return selected
 
         def _update_selection_count(self) -> None:
@@ -483,29 +495,32 @@ if not __name__ == "__main__":
 
         @Slot()
         def select_recommended_models(self) -> None:
-            """推奨モデル選択"""
+            """推奨モデル選択 (Issue #245: litellm_model_id ベースで一致判定)"""
             try:
                 recommended_models = self.model_selection_service.get_recommended_models()
-                recommended_names = {model.name for model in recommended_models}
+                recommended_keys = {model.litellm_model_id for model in recommended_models}
 
-                for model_name, widget in self.model_checkbox_widgets.items():
-                    if model_name in recommended_names:
+                for litellm_model_id, widget in self.model_checkbox_widgets.items():
+                    if litellm_model_id in recommended_keys:
                         widget.set_selected(True)
 
-                logger.debug(f"Selected {len(recommended_names)} recommended models")
+                logger.debug(f"Selected {len(recommended_keys)} recommended models")
 
             except Exception as e:
                 logger.error(f"Failed to select recommended models: {e}")
-                # Fallback: check based on is_recommended property
-                for model_name, widget in self.model_checkbox_widgets.items():
-                    model = next((m for m in self.all_models if m.name == model_name), None)
+                # Fallback: check based on is_recommended property (litellm_model_id ベース)
+                for litellm_model_id, widget in self.model_checkbox_widgets.items():
+                    model = next(
+                        (m for m in self.all_models if m.litellm_model_id == litellm_model_id),
+                        None,
+                    )
                     if model and model.is_recommended:
                         widget.set_selected(True)
 
-        def set_selected_models(self, model_names: list[str]) -> None:
-            """指定されたモデルを選択状態に設定"""
-            for model_name, widget in self.model_checkbox_widgets.items():
-                widget.set_selected(model_name in model_names)
+        def set_selected_models(self, litellm_model_ids: list[str]) -> None:
+            """指定された `litellm_model_id` のモデルを選択状態に設定 (Issue #245)。"""
+            for litellm_model_id, widget in self.model_checkbox_widgets.items():
+                widget.set_selected(litellm_model_id in litellm_model_ids)
 
         def get_selection_info(self) -> dict[str, int]:
             """選択情報を取得"""

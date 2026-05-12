@@ -141,7 +141,7 @@ class TestStartAnnotationWorkflow:
             "/path/to/image1.jpg",
             "/path/to/image2.jpg",
         ]
-        assert call_args[1]["models"] == ["gpt-4o-mini"]
+        assert call_args[1]["litellm_model_ids"] == ["gpt-4o-mini"]
 
     def test_start_annotation_workflow_no_images_selected(
         self,
@@ -325,12 +325,12 @@ class TestStartAnnotationWorkflow:
         selected_models = ["gpt-4o-mini", "claude-3-haiku-20240307"]
 
         # Execute - model_selection_callbackなしで実行
-        controller.start_annotation_workflow(selected_models=selected_models)
+        controller.start_annotation_workflow(selected_litellm_model_ids=selected_models)
 
         # Assert - WorkerServiceが選択されたモデルで呼ばれる
         mock_worker_service.start_enhanced_batch_annotation.assert_called_once()
         call_args = mock_worker_service.start_enhanced_batch_annotation.call_args
-        assert call_args[1]["models"] == selected_models
+        assert call_args[1]["litellm_model_ids"] == selected_models
 
     def test_start_annotation_workflow_with_selected_models_priority(
         self,
@@ -349,14 +349,14 @@ class TestStartAnnotationWorkflow:
 
         # Execute - selected_modelsを優先
         controller.start_annotation_workflow(
-            selected_models=selected_models,
+            selected_litellm_model_ids=selected_models,
             model_selection_callback=model_selection_callback,
         )
 
         # Assert - callbackは呼ばれず、selected_modelsが使用される
         assert not callback_called
         call_args = mock_worker_service.start_enhanced_batch_annotation.call_args
-        assert call_args[1]["models"] == selected_models
+        assert call_args[1]["litellm_model_ids"] == selected_models
 
     @patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox.warning")
     @patch("lorairo.gui.controllers.annotation_workflow_controller.get_service_container")
@@ -377,7 +377,7 @@ class TestStartAnnotationWorkflow:
         mock_get_container.return_value = mock_container
         mock_warning.return_value = QMessageBox.StandardButton.Ok
 
-        controller.start_annotation_workflow(selected_models=["openai/old-model"])
+        controller.start_annotation_workflow(selected_litellm_model_ids=["openai/old-model"])
 
         mock_warning.assert_called_once()
         mock_worker_service.start_enhanced_batch_annotation.assert_called_once()
@@ -399,7 +399,7 @@ class TestStartAnnotationWorkflow:
         mock_get_container.return_value = mock_container
         mock_warning.return_value = QMessageBox.StandardButton.Cancel
 
-        controller.start_annotation_workflow(selected_models=["openai/old-model"])
+        controller.start_annotation_workflow(selected_litellm_model_ids=["openai/old-model"])
 
         mock_warning.assert_called_once()
         mock_worker_service.start_enhanced_batch_annotation.assert_not_called()

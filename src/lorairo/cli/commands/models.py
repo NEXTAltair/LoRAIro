@@ -94,7 +94,7 @@ def list_models(
         annotator = container.annotator_library
         infos = annotator.list_annotator_info()
 
-        rows: list[tuple[str, str, str, bool]] = []
+        rows: list[tuple[str, str, str, str, str, bool]] = []
         for info in infos:
             if type_filter is ModelTypeFilter.webapi and not info.is_api:
                 continue
@@ -113,21 +113,30 @@ def list_models(
                 continue
 
             type_label = "webapi" if info.is_api else "local"
-            rows.append((info.name, type_label, info.model_type, deprecated))
+            # Issue #245: Provider と Litellm ID を表示し、route の区別を可能にする。
+            provider_label = info.provider or ("local" if info.is_local else "unknown")
+            litellm_id = info.litellm_model_id or info.name
+            rows.append((info.name, provider_label, litellm_id, type_label, info.model_type, deprecated))
 
         # 長いモデル名 (例: "vercel_ai_gateway/openai/o1") で固定幅未指定のままだと
         # Rich Table が Type/Category/Status を 0 幅に collapse させて Issue #220 の
         # 主要機能 (Type 列で local/webapi 区別) が視認できなくなる。各カラムに
-        # min_width を指定し、Model カラムは折返し許容で長さに対応する。
+        # min_width を指定し、Model/Provider/Litellm ID カラムは折返し許容で長さに対応する。
+        # Issue #245: Provider/Litellm ID 列を追加。80 col 端末でも Status 列まで表示
+        # されるよう全列 min_width 合計を 70 以下に抑える。
         table = Table(title="Available Models")
-        table.add_column("Model", style="cyan", overflow="fold", min_width=20)
+        table.add_column("Model", style="cyan", overflow="fold", min_width=10)
+        table.add_column("Provider", style="bright_magenta", overflow="fold", min_width=8)
+        table.add_column("Litellm ID", style="bright_cyan", overflow="fold", min_width=10)
         table.add_column("Type", style="magenta", min_width=6, no_wrap=True)
-        table.add_column("Category", style="blue", min_width=9, no_wrap=True)
+        table.add_column("Category", style="blue", min_width=8, no_wrap=True)
         table.add_column("Status", style="green", min_width=10, no_wrap=True)
 
-        for name, type_label, model_category, deprecated in rows:
+        for name, provider_label, litellm_id, type_label, model_category, deprecated in rows:
             table.add_row(
                 name,
+                provider_label,
+                litellm_id,
                 type_label,
                 model_category,
                 "[yellow]deprecated[/yellow]" if deprecated else "active",

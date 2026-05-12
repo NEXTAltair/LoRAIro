@@ -3,6 +3,7 @@
 ModelSelectionService をモックして get_service_container() の呼び出しを回避。
 """
 
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -10,6 +11,32 @@ from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QProgressBar, QPushButton
 
 from lorairo.gui.widgets.model_selection_widget import ModelSelectionWidget
+
+
+def _fake_db_model(
+    *,
+    name: str,
+    provider: str,
+    litellm_model_id: str,
+    requires_api_key: bool = True,
+    capabilities: list[str] | None = None,
+    is_recommended: bool = False,
+    available: bool = True,
+) -> SimpleNamespace:
+    """`schema.Model` 互換の軽量 fake (Issue #245)。
+
+    `_convert_model_to_info` と `_group_models_by_provider` と
+    `select_recommended_models` が参照する属性のみを再現する。
+    """
+    return SimpleNamespace(
+        name=name,
+        provider=provider,
+        litellm_model_id=litellm_model_id,
+        requires_api_key=requires_api_key,
+        capabilities=capabilities or ["caption", "tags"],
+        is_recommended=is_recommended,
+        available=available,
+    )
 
 
 @pytest.fixture
@@ -125,3 +152,72 @@ class TestModelSelectionWidgetRefreshThread:
 
         mock_warning.assert_called_once()
         assert event.isAccepted() is False
+
+
+class TestModelSelectionWidgetLitellmIdKeying:
+    """Issue #245 リグレッション防止: 同 name 異 provider の行が共存しても
+    `get_selected_models()` は `litellm_model_id` を返し、ルーティングミスを起こさない。
+    """
+
+    @pytest.fixture
+    def widget_with_dual_routes(self, qtbot, mock_model_service):
+        """migration 経路 (OpenRouter, name 縮退) と新規 sync 経路 (OpenAI 直接版)
+        の両方を含む DB fixture を simple ではなく advanced モードでロードする。
+        """
+        migration_route = _fake_db_model(
+            name="openai/gpt-4o",
+            provider="openrouter",
+            litellm_model_id="openrouter/openai/gpt-4o",
+            is_recommended=False,
+        )
+        new_sync_direct = _fake_db_model(
+            name="openai/gpt-4o",
+            provider="openai",
+            litellm_model_id="openai/gpt-4o",
+            is_recommended=True,
+        )
+
+        # advanced モードでは filter_models が表示対象を決める
+        mock_model_service.filter_models.return_value = [migration_route, new_sync_direct]
+        mock_model_service.load_models.return_value = [migration_route, new_sync_direct]
+        mock_model_service.get_recommended_models.return_value = [new_sync_direct]
+
+        w = ModelSelectionWidget(model_selection_service=mock_model_service, mode="advanced")
+        qtbot.addWidget(w)
+        return w, migration_route, new_sync_direct
+
+    def test_get_selected_models_returns_litellm_ids(self, widget_with_dual_routes):
+        """選択結果は `Model.litellm_model_id` の値で返す (#245 のコア要件)"""
+        w, migration_route, new_sync_direct = widget_with_dual_routes
+
+        # 両方選択
+        w.set_selected_models([migration_route.litellm_model_id, new_sync_direct.litellm_model_id])
+
+        selected = w.get_selected_models()
+        assert set(selected) == {
+            "openrouter/openai/gpt-4o",
+            "openai/gpt-4o",
+        }
+        # 旧バグでは `name` ベースだったため両者とも "openai/gpt-4o" になり、
+        # set にすると 1 要素に縮退してしまっていた。
+        assert len(selected) == 2
+
+    def test_set_selected_models_targets_specific_route(self, widget_with_dual_routes):
+        """`set_selected_models` は `litellm_model_id` で特定 route のみ選択できる"""
+        w, migration_route, _ = widget_with_dual_routes
+
+        w.set_selected_models([migration_route.litellm_model_id])
+
+        selected = w.get_selected_models()
+        assert selected == [migration_route.litellm_model_id]
+
+    def test_select_recommended_models_uses_litellm_id_match(self, widget_with_dual_routes):
+        """推奨選択は litellm_model_id で一致判定する (name 同値でも誤マッチしない)"""
+        w, migration_route, new_sync_direct = widget_with_dual_routes
+
+        w.select_recommended_models()
+
+        selected = w.get_selected_models()
+        # 推奨は new_sync_direct (openai 直接版) のみ
+        assert selected == [new_sync_direct.litellm_model_id]
+        assert migration_route.litellm_model_id not in selected
