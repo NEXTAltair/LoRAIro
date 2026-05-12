@@ -1,40 +1,133 @@
 {
   "version": 1,
   "skills": {
+    "context7-openclaw-research": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
     "database-migration": {
       "source": "wshobson/agents",
       "sourceType": "github",
+      "skillPath": "plugins/framework-migration/skills/database-migration/SKILL.md",
       "computedHash": "3a6d0247e741eb8822fa05dc50cdb71a56d717bfacd265262e506d710ff5afc4"
+    },
+    "deploy-to-vercel": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/deploy-to-vercel/SKILL.md",
+      "computedHash": "03e0eaaa9bf13ba1e7ffa387f5893de6f324c0868c627001f179395a8feaa7c9"
     },
     "e2e-testing-patterns": {
       "source": "wshobson/agents",
       "sourceType": "github",
       "computedHash": "3425e335940b8f1f4881452603252385f9119159632dc211bc8c8a375f4619cd"
     },
+    "interface-design": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "lorairo-mem": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "lorairo-qt-widget": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "lorairo-test-generator": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "prompt-optimizer": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
     "python-error-handling": {
       "source": "wshobson/agents",
       "sourceType": "github",
+      "skillPath": "plugins/python-development/skills/python-error-handling/SKILL.md",
       "computedHash": "c82529570288890c2af08bb197239e74ce56caec6576ccbfab5973dc24941dcc"
     },
     "python-performance-optimization": {
       "source": "wshobson/agents",
       "sourceType": "github",
+      "skillPath": "plugins/python-development/skills/python-performance-optimization/SKILL.md",
       "computedHash": "6390615b25e5922057b15eb900d69a90db563c5f2d6bd3182be707592fc25f09"
     },
     "python-testing-patterns": {
       "source": "wshobson/agents",
       "sourceType": "github",
+      "skillPath": "plugins/python-development/skills/python-testing-patterns/SKILL.md",
       "computedHash": "a16a6d7d7e0a5154a5058fd9aacf8e675368b2a4a0dc5edf0fee775169c6abe0"
     },
     "python-type-safety": {
       "source": "wshobson/agents",
       "sourceType": "github",
+      "skillPath": "plugins/python-development/skills/python-type-safety/SKILL.md",
       "computedHash": "76e08740199869de7af1224f1c3e69b0dd1d8f46e82276ba20530e657234fb73"
+    },
+    "skill-creator": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "source-command-save-session": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "sql-optimization-patterns": {
       "source": "wshobson/agents",
       "sourceType": "github",
+      "skillPath": "plugins/developer-essentials/skills/sql-optimization-patterns/SKILL.md",
       "computedHash": "7d20c24c6f52da9697d3e1c7d2f25cc560150de643d044a5f45e300bb78884fd"
+    },
+    "sqlalchemy-query-patterns": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "vercel-cli-with-tokens": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/vercel-cli-with-tokens/SKILL.md",
+      "computedHash": "eb16b20dcbe6ce51e0372083d624e0847af1b09487ec99249227d5a8eddebfc0"
+    },
+    "vercel-composition-patterns": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/composition-patterns/SKILL.md",
+      "computedHash": "575757e3e25761c8c562d6e395d29f0b76c98b1273c0bd72d88e6ab1bc9c7d42"
+    },
+    "vercel-react-best-practices": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/react-best-practices/SKILL.md",
+      "computedHash": "ca7b0c0c6e5f2750043f7f0cd72d16ac4e2abc48f9b5500d047a4b77a2506212"
+    },
+    "vercel-react-native-skills": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/react-native-skills/SKILL.md",
+      "computedHash": "41d24eafa7c3d82e270439808f7cfbc4d51aeb2d14f2809a2267c16275784d06"
+    },
+    "vercel-react-view-transitions": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/react-view-transitions/SKILL.md",
+      "computedHash": "c8952fc9127fa0564d0cb71dccb4215a5608ac933b5831104f09173a97a46f85"
+    },
+    "web-design-guidelines": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/web-design-guidelines/SKILL.md",
+      "computedHash": "f3bc47f890f42a44db1007ab390709ec368e4b8c089baee6b0007182236ac474"
     }
   }
 }

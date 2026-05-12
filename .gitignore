@@ -126,7 +126,6 @@ dev_config/
 !.roo/mcp.json.example
 .claude/logs/
 .claude/skills/
-.agents/
 .claude/settings.local.json
 
 # システム固有
