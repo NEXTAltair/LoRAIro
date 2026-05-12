@@ -62,7 +62,7 @@ class NullModelRegistry(ModelRegistryServiceProtocol):
 
 
 def selection_includes_webapi_model(
-    model_names: list[str],
+    litellm_model_ids: list[str],
     model_registry: ModelRegistryServiceProtocol,
 ) -> bool:
     """選択されたモデルに WebAPI モデル (`requires_api_key=True`) が含まれるか判定。
@@ -78,20 +78,28 @@ def selection_includes_webapi_model(
     (Codex P2 review feedback, PR #233 r3209342204: filter を Worker 内で実行する
     設計に伴う再配置)。
 
+    Issue #245 / ADR 0023 Phase 1.11: lookup キーは `Model.litellm_model_id`
+    (registry key SSoT)。`ModelInfo.name` は `AnnotatorInfo.name` をそのまま受け
+    継ぐため、WebAPI 経路では `litellm_model_id == ModelInfo.name`、ローカル ML
+    経路でも bare 名で同値となる。
+
     Args:
-        model_names: 選択されたモデル名のリスト。
+        litellm_model_ids: 選択されたモデルの `litellm_model_id` リスト。
         model_registry: モデル情報を引ける Protocol 実装。
 
     Returns:
         bool: 1 つでも `requires_api_key=True` のモデルがあれば True。
-            registry に未登録のモデル名は WebAPI ではないと扱う (defensive default)。
+            registry に未登録の litellm_model_id は WebAPI ではないと扱う
+            (defensive default)。
 
     Raises:
         例外は呼び出し元で吸収する契約 (Codex P2 review feedback,
         PR #233 r3208793528)。registry の一時的な障害は filter skip の signal と
         して扱い、annotation 全体を abort させない。
     """
-    if not model_names:
+    if not litellm_model_ids:
         return False
     available = {info.name: info for info in model_registry.get_available_models()}
-    return any((info := available.get(name)) is not None and info.requires_api_key for name in model_names)
+    return any(
+        (info := available.get(key)) is not None and info.requires_api_key for key in litellm_model_ids
+    )

@@ -20,7 +20,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-
 # ADR 0023 Phase 1.11 (Issue #238): MANUAL_EDIT 行は推論経路に乗らない特殊行のため、
 # `litellm_model_id` UNIQUE NOT NULL 制約を満たす sentinel 値を予約する。
 # `provider/<model>` 形式と衝突しないよう先頭/末尾を `__` で囲んだ非 LiteLLM ID にする。

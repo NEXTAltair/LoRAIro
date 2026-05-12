@@ -99,16 +99,21 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         self,
         annotation_logic: AnnotationLogic,
         image_paths: list[str],
-        models: list[str],
+        litellm_model_ids: list[str],
         db_manager: "ImageDatabaseManager",
         model_registry: ModelRegistryServiceProtocol,
     ):
         """AnnotationWorker初期化
 
+        Issue #245 / ADR 0023 Phase 1.11: 使用モデルは `Model.litellm_model_id`
+        (registry key SSoT) で受け取る。同 `Model.name` 異 `provider` 行の混在
+        (migration 経由 OpenRouter vs 新規 sync 直接版) に対しても確実に
+        registry lookup hit するように設計されている。
+
         Args:
             annotation_logic: アノテーション業務ロジック
             image_paths: 画像パスリスト
-            models: 使用モデル名リスト
+            litellm_model_ids: 使用モデルの `litellm_model_id` リスト
             db_manager: データベースマネージャ（必須: DB保存・エラー記録用）
             model_registry: モデルレジストリ (provider/capabilities 取得用、Issue #225)
         """
@@ -116,12 +121,15 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
         self.annotation_logic = annotation_logic
         self.image_paths = image_paths
-        self.models = models
+        self.litellm_model_ids = litellm_model_ids
         self.db_manager = db_manager
         self.model_registry = model_registry
 
-        logger.info(f"AnnotationWorker初期化 - Images: {len(self.image_paths)}, Models: {len(self.models)}")
-        logger.debug(f"  選択モデル: {self.models}")
+        logger.info(
+            f"AnnotationWorker初期化 - Images: {len(self.image_paths)}, "
+            f"Models: {len(self.litellm_model_ids)}"
+        )
+        logger.debug(f"  選択モデル (litellm_model_ids): {self.litellm_model_ids}")
         logger.debug(f"  対象画像パス: {self.image_paths[:5]}{'...' if len(self.image_paths) > 5 else ''}")
 
     def _save_error_records(
@@ -165,30 +173,30 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         """
         merged_results: PHashAnnotationResults = PHashAnnotationResults()
         model_errors: list[ModelErrorDetail] = []
-        total_models = len(self.models)
+        total_models = len(self.litellm_model_ids)
 
-        logger.debug(f"モデル順次実行開始: {total_models}モデル = {self.models}")
+        logger.debug(f"モデル順次実行開始: {total_models}モデル = {self.litellm_model_ids}")
 
-        for model_idx, model_name in enumerate(self.models):
+        for model_idx, litellm_model_id in enumerate(self.litellm_model_ids):
             self._check_cancellation()
 
             progress = 10 + int((model_idx / total_models) * 70)
             self._report_progress(
                 progress,
-                f"AIモデル実行中: {model_name} ({model_idx + 1}/{total_models})",
+                f"AIモデル実行中: {litellm_model_id} ({model_idx + 1}/{total_models})",
                 processed_count=model_idx,
                 total_count=total_models,
             )
 
             try:
                 logger.debug(
-                    f"モデル実行開始: {model_name} ({model_idx + 1}/{total_models}), "
+                    f"モデル実行開始: {litellm_model_id} ({model_idx + 1}/{total_models}), "
                     f"対象画像数={len(self.image_paths)}"
                 )
 
                 model_results = self.annotation_logic.execute_annotation(
                     image_paths=self.image_paths,
-                    model_names=[model_name],
+                    litellm_model_ids=[litellm_model_id],
                     phash_list=None,
                 )
 
@@ -198,18 +206,21 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                     merged_results[phash].update(annotations)
 
                 logger.debug(
-                    f"モデル実行完了: {model_name}, 結果={len(model_results)}件, "
+                    f"モデル実行完了: {litellm_model_id}, 結果={len(model_results)}件, "
                     f"マージ後合計={len(merged_results)}件"
                 )
 
             except Exception as e:
-                logger.error(f"モデル {model_name} でエラー: {e}", exc_info=True)
-                self._save_error_records(e, self.image_paths, model_name=model_name)
+                logger.error(f"モデル {litellm_model_id} でエラー: {e}", exc_info=True)
+                self._save_error_records(e, self.image_paths, model_name=litellm_model_id)
                 # エラー詳細を収集（全画像に対するモデルレベルエラー）
+                # NOTE: ModelErrorDetail.model_name はサマリー表示用ラベルとして
+                # litellm_model_id 値をそのまま入れる (登録 ID と一致するため
+                # ユーザーが models list の結果と照合可能)。
                 for image_path in self.image_paths:
                     model_errors.append(
                         ModelErrorDetail(
-                            model_name=model_name,
+                            model_name=litellm_model_id,
                             image_path=Path(image_path).name,
                             error_message=str(e),
                         )
@@ -231,7 +242,9 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         Raises:
             Exception: アノテーション実行エラー
         """
-        logger.info(f"アノテーション処理開始 - {len(self.image_paths)}画像, {len(self.models)}モデル")
+        logger.info(
+            f"アノテーション処理開始 - {len(self.image_paths)}画像, {len(self.litellm_model_ids)}モデル"
+        )
 
         try:
             # Phase 0: refusal 送信前 filter (5%)
@@ -280,7 +293,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             return AnnotationExecutionResult(
                 results=merged_results,
                 total_images=len(self.image_paths),
-                models_used=list(self.models),
+                models_used=list(self.litellm_model_ids),
                 db_save_success=db_save_success,
                 db_save_skip=db_save_skip,
                 model_errors=model_errors,
@@ -307,7 +320,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         副作用: `self.image_paths` を filter 結果で in-place 置換する。
         """
         try:
-            should_filter = selection_includes_webapi_model(self.models, self.model_registry)
+            should_filter = selection_includes_webapi_model(self.litellm_model_ids, self.model_registry)
         except Exception as exc:
             logger.warning(
                 f"Model registry lookup failed; refusal prefilter を skip して annotation 続行: {exc}",
@@ -317,7 +330,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
         if not should_filter:
             logger.debug(
-                f"refusal filter スキップ (WebAPI 不在 or registry lookup 失敗): models={self.models}"
+                "refusal filter スキップ (WebAPI 不在 or registry lookup 失敗): "
+                f"litellm_model_ids={self.litellm_model_ids}"
             )
             return
 
@@ -472,11 +486,16 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         resultsからモデル別の成功/エラー件数、タグ数、キャプション数を集計し、
         ModelRegistry からprovider情報とcapabilitiesを取得する (Issue #225)。
 
+        Issue #245 / ADR 0023 Phase 1.11: `results` のモデルキーは
+        `AnnotatorInfo.name` (= `litellm_model_id` for WebAPI / bare 名 for ローカル ML)
+        となるため、`info_map` のキーも `litellm_model_id` (fallback: `info.name`) に
+        揃え、registry key SSoT に統一する。
+
         Args:
-            results: PHashAnnotationResults (phash → model_name → UnifiedResult)
+            results: PHashAnnotationResults (phash → litellm_model_id → UnifiedResult)
 
         Returns:
-            モデル名 → ModelStatistics のマッピング。
+            litellm_model_id → ModelStatistics のマッピング。
 
         Note:
             - メタデータは ModelRegistryServiceProtocol.get_available_models() から取得
@@ -485,7 +504,10 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         """
         try:
             model_info_list = self.model_registry.get_available_models()
-            info_map: dict[str, ModelInfo] = {info.name: info for info in model_info_list}
+            # registry key (= litellm_model_id with bare-name fallback) でマップ
+            info_map: dict[str, ModelInfo] = {
+                (info.litellm_model_id or info.name): info for info in model_info_list
+            }
         except Exception as e:
             logger.warning(f"モデルメタデータ取得エラー: {e}")
             info_map = {}

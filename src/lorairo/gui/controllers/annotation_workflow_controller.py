@@ -49,7 +49,7 @@ class AnnotationWorkflowController:
 
     def start_annotation_workflow(
         self,
-        selected_models: list[str] | None = None,
+        selected_litellm_model_ids: list[str] | None = None,
         model_selection_callback: Callable[[list[str]], str | None] | None = None,
         image_paths: list[str] | None = None,
     ) -> None:
@@ -58,13 +58,17 @@ class AnnotationWorkflowController:
         ワークフロー:
         1. サービス検証
         2. 選択画像取得（image_paths指定時はそれを使用、なければSelectionStateService経由）
-        3. モデル選択（selected_models優先、なければcallback呼び出し）
+        3. モデル選択（selected_litellm_model_ids優先、なければcallback呼び出し）
         4. バッチアノテーション開始（WorkerService経由）
 
+        Issue #245 / ADR 0023 Phase 1.11: モデル指定は `Model.litellm_model_id`
+        (registry key SSoT) で受け取る。
+
         Args:
-            selected_models: 事前選択されたモデルリスト（チェックボックスから）
+            selected_litellm_model_ids: 事前選択されたモデルの `litellm_model_id`
+                リスト（チェックボックスから）
             model_selection_callback: モデル選択ダイアログ表示callback（フォールバック用）
-                利用可能モデルリストを受け取り、選択されたモデル名を返す。
+                利用可能モデルリストを受け取り、選択された `litellm_model_id` を返す。
                 キャンセル時はNone。
             image_paths: 明示的に指定する画像パスリスト（バッチタグタブから使用）
                 指定時はSelectionStateServiceをバイパスしてこのリストを使用。
@@ -84,8 +88,10 @@ class AnnotationWorkflowController:
                     return
             image_paths = paths_to_use
 
-            # Step 3: モデル選択（selected_models優先）
-            models_to_use = self._resolve_models_to_use(selected_models, model_selection_callback)
+            # Step 3: モデル選択（selected_litellm_model_ids優先）
+            models_to_use = self._resolve_models_to_use(
+                selected_litellm_model_ids, model_selection_callback
+            )
             if not models_to_use:
                 return
 
@@ -107,13 +113,15 @@ class AnnotationWorkflowController:
 
     def _resolve_models_to_use(
         self,
-        selected_models: list[str] | None,
+        selected_litellm_model_ids: list[str] | None,
         model_selection_callback: Callable[[list[str]], str | None] | None,
     ) -> list[str]:
-        """アノテーションに使用するモデルを決定する。"""
-        if selected_models:
-            logger.info(f"チェックボックスから選択されたモデル: {selected_models}")
-            return selected_models
+        """アノテーションに使用するモデルを決定する (戻り値は `litellm_model_id` リスト)。"""
+        if selected_litellm_model_ids:
+            logger.info(
+                f"チェックボックスから選択されたモデル (litellm_model_ids): {selected_litellm_model_ids}"
+            )
+            return selected_litellm_model_ids
 
         if model_selection_callback:
             available_models = self._get_available_models()
@@ -219,8 +227,11 @@ class AnnotationWorkflowController:
 
         return self.config_service.get_available_annotation_models()
 
-    def _warn_deprecated_models(self, models: list[str]) -> bool:
+    def _warn_deprecated_models(self, litellm_model_ids: list[str]) -> bool:
         """廃止済みモデルが選択されている場合に警告する。
+
+        Issue #245: 入力は `litellm_model_id` (registry key)。
+        `is_model_deprecated()` は registry key を受け取る前提のためそのまま渡せる。
 
         Returns:
             bool: 処理継続する場合True。
@@ -228,7 +239,7 @@ class AnnotationWorkflowController:
         try:
             annotator = get_service_container().annotator_library
             deprecated_models = [
-                model_name for model_name in models if annotator.is_model_deprecated(model_name) is True
+                key for key in litellm_model_ids if annotator.is_model_deprecated(key) is True
             ]
         except Exception as e:
             logger.warning(f"廃止モデル判定をスキップ: {e}")
@@ -256,25 +267,27 @@ class AnnotationWorkflowController:
         )
         return reply == QMessageBox.StandardButton.Ok
 
-    def _start_batch_annotation(self, image_paths: list[str], models: list[str]) -> None:
+    def _start_batch_annotation(self, image_paths: list[str], litellm_model_ids: list[str]) -> None:
         """バッチアノテーション開始
 
         Args:
             image_paths: 画像パスリスト
-            models: モデル名リスト
+            litellm_model_ids: モデルの `litellm_model_id` リスト
         """
         try:
-            logger.info(f"バッチアノテーション処理開始: {len(image_paths)}画像, {len(models)}モデル")
+            logger.info(
+                f"バッチアノテーション処理開始: {len(image_paths)}画像, {len(litellm_model_ids)}モデル"
+            )
 
             # WorkerService.start_enhanced_batch_annotation()を呼び出し
             # Signal経由で進捗・完了・エラーがハンドラに通知される
             self.worker_service.start_enhanced_batch_annotation(
                 image_paths=image_paths,
-                models=models,
+                litellm_model_ids=litellm_model_ids,
             )
 
             # 非ブロッキング通知
-            status_msg = f"アノテーション処理を開始: {len(image_paths)}画像, モデル: {models[0]}"
+            status_msg = f"アノテーション処理を開始: {len(image_paths)}画像, モデル: {litellm_model_ids[0]}"
             logger.info(status_msg)
 
         except Exception as e:

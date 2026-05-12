@@ -15,6 +15,24 @@ from lorairo.services.service_container import ServiceContainer
 runner = CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def _bypass_model_resolver(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`annotate run` コマンドテスト群で `_resolve_model_identifier` を bypass する。
+
+    Issue #245 で導入した DB lookup ベースの解決処理は、本ファイル既存テストの
+    MagicMock 化された ServiceContainer では正しく動かない (MagicMock が
+    `get_model_by_litellm_id` から返り、`by_litellm.litellm_model_id` が
+    MagicMock のまま下流に流れる)。resolver 単体の挙動は
+    `tests/unit/cli/test_annotate_model_resolution.py` でカバー済みのため、
+    ここでは resolver を identity 関数に差し替えて従来の `--model X` → そのまま
+    送信のテスト前提を維持する。
+    """
+    monkeypatch.setattr(
+        "lorairo.cli.commands.annotate._resolve_model_identifier",
+        lambda _repo, identifier: identifier,
+    )
+
+
 @pytest.fixture
 def mock_projects_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """ProjectManagementService のプロジェクトディレクトリをモック。

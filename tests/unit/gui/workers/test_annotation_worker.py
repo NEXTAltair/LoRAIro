@@ -55,14 +55,14 @@ class TestAnnotationWorkerInitialization:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=image_paths,
-            models=models,
+            litellm_model_ids=models,
             db_manager=mock_db_manager,
             model_registry=mock_model_registry,
         )
 
         assert worker.annotation_logic is mock_annotation_logic
         assert worker.image_paths == image_paths
-        assert worker.models == models
+        assert worker.litellm_model_ids == models
         assert worker.db_manager is mock_db_manager
         assert worker.model_registry is mock_model_registry
 
@@ -83,7 +83,7 @@ class TestAnnotationWorkerExecute:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=image_paths,
-            models=models,
+            litellm_model_ids=models,
             db_manager=mock_db_manager,
             model_registry=mock_model_registry,
         )
@@ -92,7 +92,7 @@ class TestAnnotationWorkerExecute:
 
         mock_annotation_logic.execute_annotation.assert_called_once_with(
             image_paths=image_paths,
-            model_names=["gpt-4o-mini"],
+            litellm_model_ids=["gpt-4o-mini"],
             phash_list=None,
         )
 
@@ -141,7 +141,7 @@ class TestAnnotationWorkerExecute:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=image_paths,
-            models=models,
+            litellm_model_ids=models,
             db_manager=mock_db_manager,
             model_registry=mock_model_registry,
         )
@@ -184,7 +184,7 @@ class TestAnnotationWorkerExecute:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=image_paths,
-            models=models,
+            litellm_model_ids=models,
             db_manager=mock_db_manager,
             model_registry=mock_model_registry,
         )
@@ -222,7 +222,7 @@ class TestAnnotationWorkerExecute:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=image_paths,
-            models=models,
+            litellm_model_ids=models,
             db_manager=mock_db_manager,
             model_registry=mock_model_registry,
         )
@@ -250,7 +250,7 @@ class TestAnnotationWorkerExecute:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=image_paths,
-            models=models,
+            litellm_model_ids=models,
             db_manager=mock_db_manager,
             model_registry=mock_model_registry,
         )
@@ -276,7 +276,7 @@ class TestExtractField:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=[],
-            models=[],
+            litellm_model_ids=[],
             db_manager=Mock(),
             model_registry=mock_model_registry,
         )
@@ -290,7 +290,7 @@ class TestExtractField:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=[],
-            models=[],
+            litellm_model_ids=[],
             db_manager=Mock(),
             model_registry=mock_model_registry,
         )
@@ -314,7 +314,7 @@ class TestSaveErrorRecords:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=[],
-            models=[],
+            litellm_model_ids=[],
             db_manager=mock_db,
             model_registry=mock_model_registry,
         )
@@ -328,7 +328,7 @@ class TestSaveErrorRecords:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=["/test/img.jpg"],
-            models=[],
+            litellm_model_ids=[],
             db_manager=mock_db,
             model_registry=mock_model_registry,
         )
@@ -346,7 +346,7 @@ class TestSaveErrorRecords:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=["/img1.jpg", "/img2.jpg"],
-            models=[],
+            litellm_model_ids=[],
             db_manager=mock_db,
             model_registry=mock_model_registry,
         )
@@ -362,7 +362,7 @@ class TestSaveErrorRecords:
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=["/test/img.jpg"],
-            models=[],
+            litellm_model_ids=[],
             db_manager=mock_db,
             model_registry=mock_model_registry,
         )
@@ -384,7 +384,7 @@ class TestApplyRefusalPrefilter:
         return AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=image_paths,
-            models=models,
+            litellm_model_ids=models,
             db_manager=db_manager,
             model_registry=model_registry,
         )

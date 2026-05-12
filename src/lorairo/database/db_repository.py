@@ -18,9 +18,9 @@ from ..utils.log import logger
 from .db_core import DefaultSessionLocal
 from .filter_criteria import ImageFilterCriteria
 from .schema import (
-    AnnotationsDict as AnnotationsDict,
-)
-from .schema import (
+    MANUAL_EDIT_LITELLM_ID,
+    MANUAL_EDIT_NAME,
+    MANUAL_EDIT_PROVIDER,
     Caption,
     ErrorRecord,
     Image,
@@ -34,6 +34,9 @@ from .schema import (
     Tag,
 )
 from .schema import (
+    AnnotationsDict as AnnotationsDict,
+)
+from .schema import (
     CaptionAnnotationData as CaptionAnnotationData,
 )
 from .schema import (
@@ -44,11 +47,6 @@ from .schema import (
 )
 from .schema import (
     TagAnnotationData as TagAnnotationData,
-)
-from .schema import (
-    MANUAL_EDIT_LITELLM_ID,
-    MANUAL_EDIT_NAME,
-    MANUAL_EDIT_PROVIDER,
 )
 
 
@@ -185,6 +183,33 @@ class ImageRepository:
                     f"モデル取得エラー (litellm_model_id={litellm_model_id}): {e}",
                     exc_info=True,
                 )
+                raise
+
+    def get_models_by_name(self, name: str) -> list[Model]:
+        """`Model.name` に完全一致する全行を返す (Issue #245)。
+
+        ADR 0023 Phase 1.11 以降、`Model.name` は非 UNIQUE となり、同一表示名で
+        provider/route の異なる行が共存しうる (例: migration 経由 OpenRouter 行と
+        新規 sync 経路の直接版が両方 `name='openai/gpt-4o'`)。CLI `--model` 入力で
+        ユーザーが name を打ったときの曖昧マッチ検出に使う。
+
+        Args:
+            name: `Model.name` 値 (表示名)。
+
+        Returns:
+            list[Model]: 一致した行のリスト。0 件なら空リスト。
+
+        Raises:
+            SQLAlchemyError: DB 操作エラー。
+        """
+        with self.session_factory() as session:
+            try:
+                stmt = select(Model).options(selectinload(Model.model_types)).where(Model.name == name)
+                results = session.execute(stmt).scalars().all()
+                logger.debug(f"name='{name}' に一致するモデル: {len(results)}件")
+                return list(results)
+            except SQLAlchemyError as e:
+                logger.error(f"モデル取得エラー (name={name}): {e}", exc_info=True)
                 raise
 
     def get_models_by_litellm_ids(self, litellm_model_ids: set[str]) -> dict[str, Model]:

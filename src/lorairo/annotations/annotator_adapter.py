@@ -138,7 +138,7 @@ class AnnotatorLibraryAdapter:
     def annotate(
         self,
         images: list[Image.Image],
-        model_names: list[str],
+        litellm_model_ids: list[str],
         phash_list: list[str] | None = None,
     ) -> PHashAnnotationResults:
         """アノテーション実行
@@ -146,9 +146,15 @@ class AnnotatorLibraryAdapter:
         image-annotator-libの`annotate()`を呼び出し、画像にアノテーションを付与する。
         APIキーは引数として明示的に渡す（グローバル環境変数を汚染しない）。
 
+        Issue #245 / ADR 0023 Phase 1.11: 引数の `litellm_model_ids` は LoRAIro 側の
+        `Model.litellm_model_id` (registry key SSoT)。ライブラリ側の `model_name_list`
+        は `AnnotatorInfo.name` (= WebAPI で LiteLLM 完全 ID、ローカル ML で bare 名)
+        を取るが、両者は Phase 1.10 / 1.11 で一致する値域に収束済みのためそのまま
+        forward する。
+
         Args:
             images: アノテーション対象画像リスト
-            model_names: 使用モデル名リスト
+            litellm_model_ids: 使用モデルの `litellm_model_id` リスト
             phash_list: 画像のpHashリスト（省略時は自動計算）
 
         Returns:
@@ -159,7 +165,8 @@ class AnnotatorLibraryAdapter:
         """
         try:
             logger.debug(
-                f"アノテーション実行開始: {len(images)}画像, モデル={model_names}, "
+                f"アノテーション実行開始: {len(images)}画像, "
+                f"litellm_model_ids={litellm_model_ids}, "
                 f"pHash指定={'あり' if phash_list else 'なし'}"
             )
 
@@ -170,11 +177,11 @@ class AnnotatorLibraryAdapter:
             # image-annotator-lib API呼び出し
             from image_annotator_lib import annotate
 
-            logger.debug(f"image-annotator-lib.annotate() 呼び出し: model_name_list={model_names}")
+            logger.debug(f"image-annotator-lib.annotate() 呼び出し: model_name_list={litellm_model_ids}")
 
             results = annotate(
                 images_list=images,
-                model_name_list=model_names,
+                model_name_list=litellm_model_ids,
                 phash_list=phash_list,
                 api_keys=api_keys,  # 明示的に引数として渡す
             )

@@ -22,11 +22,18 @@ from ...utils.log import logger
 
 @dataclass
 class ModelInfo:
-    """モデル情報データクラス"""
+    """モデル情報データクラス
+
+    Issue #245 / ADR 0023 Phase 1.11: `name` は表示用 (`Model.name`、非 UNIQUE)、
+    `litellm_model_id` は registry/route 判別キー (`Model.litellm_model_id`、UNIQUE)。
+    同 `name` で `provider` が異なる行 (migration 経由 OpenRouter vs 新規 sync 直接版)
+    が共存しうるため、内部キーは `litellm_model_id` を使うこと。
+    """
 
     name: str
     provider: str
     capabilities: list[str]
+    litellm_model_id: str
     is_local: bool = False
     requires_api_key: bool = True
 
@@ -88,8 +95,8 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
     - プロバイダー別スタイリング
     """
 
-    # シグナル定義
-    selection_changed = Signal(str, bool)  # model_name, is_selected
+    # シグナル定義 (Issue #245: 引数は litellm_model_id、is_selected)
+    selection_changed = Signal(str, bool)  # litellm_model_id, is_selected
 
     def __init__(self, model_info: ModelInfo, parent: QWidget | None = None):
         super().__init__(parent)
@@ -105,10 +112,17 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
         logger.debug(f"ModelCheckboxWidget initialized for model: {model_info.name}")
 
     def _setup_model_display(self) -> None:
-        """モデル情報をUIに表示"""
+        """モデル情報をUIに表示
+
+        Issue #245: 同じ表示名 `Model.name` を持つ行が異なる `provider`/route で
+        共存しうる (migration 経由 OpenRouter vs 新規 sync 直接版)。視覚的に
+        区別できるよう、ラベル末尾に `(provider)` を併記し、tooltip に正規
+        ルーティングキー `litellm_model_id` を載せる。
+        """
         try:
-            # モデル名設定
-            self.labelModelName.setText(self.model_info.name)
+            # モデル名設定 (provider 併記で同 name 異 route 行を区別)
+            self.labelModelName.setText(f"{self.model_info.name} ({self.model_info.provider})")
+            self.labelModelName.setToolTip(self.model_info.litellm_model_id)
 
             # プロバイダー表示設定
             provider_display = "ローカル" if self.model_info.is_local else self.model_info.provider.title()
@@ -156,16 +170,16 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
 
     @Slot(int)
     def _on_checkbox_changed(self, state: int) -> None:
-        """チェックボックス状態変更時の処理"""
+        """チェックボックス状態変更時の処理 (Issue #245: emit する文字列は litellm_model_id)"""
         try:
             # stateはint値なので、.valueで比較
             is_selected = state == Qt.CheckState.Checked.value
-            self.selection_changed.emit(self.model_info.name, is_selected)
+            self.selection_changed.emit(self.model_info.litellm_model_id, is_selected)
 
-            logger.debug(f"Model selection changed: {self.model_info.name} = {is_selected}")
+            logger.debug(f"Model selection changed: {self.model_info.litellm_model_id} = {is_selected}")
 
         except Exception as e:
-            logger.error(f"Error handling checkbox change for {self.model_info.name}: {e}")
+            logger.error(f"Error handling checkbox change for {self.model_info.litellm_model_id}: {e}")
 
     def set_selected(self, selected: bool) -> None:
         """チェックボックスの選択状態を設定"""
@@ -185,8 +199,12 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
         return self.checkboxModel.isChecked()
 
     def get_model_name(self) -> str:
-        """モデル名を取得"""
+        """モデルの表示名を取得 (Issue #245: 内部キーは get_model_litellm_id() を使用)"""
         return self.model_info.name
+
+    def get_model_litellm_id(self) -> str:
+        """モデルの内部キー (litellm_model_id) を取得"""
+        return self.model_info.litellm_model_id
 
     def get_model_info(self) -> ModelInfo:
         """モデル情報を取得"""
@@ -230,6 +248,7 @@ if __name__ == "__main__":
             name="gpt-4-vision-preview",
             provider="openai",
             capabilities=["caption", "tags"],
+            litellm_model_id="openai/gpt-4-vision-preview",
             requires_api_key=True,
             is_local=False,
         ),
@@ -237,6 +256,7 @@ if __name__ == "__main__":
             name="claude-3-sonnet",
             provider="anthropic",
             capabilities=["caption", "tags"],
+            litellm_model_id="anthropic/claude-3-sonnet",
             requires_api_key=True,
             is_local=False,
         ),
@@ -244,6 +264,7 @@ if __name__ == "__main__":
             name="wd-v1-4-swin-v2-tagger-v3",
             provider="local",
             capabilities=["tags"],
+            litellm_model_id="wd-v1-4-swin-v2-tagger-v3",
             requires_api_key=False,
             is_local=True,
         ),
@@ -251,6 +272,7 @@ if __name__ == "__main__":
             name="gemini-pro-vision",
             provider="google",
             capabilities=["caption", "tags", "scores"],
+            litellm_model_id="gemini/gemini-pro-vision",
             requires_api_key=True,
             is_local=False,
         ),
