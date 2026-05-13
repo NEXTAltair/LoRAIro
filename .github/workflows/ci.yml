@@ -193,7 +193,10 @@ jobs:
     name: genai-tag-db-tools Tests (Package Root)
     # ADR 0024: pytest セッション境界 = package 境界。
     # LoRAIro 本体 CI からは独立した pytest セッションで実行する。
+    # hang 防止は job-level timeout-minutes に委譲 (package 側 dev deps に
+    # pytest-timeout が無いため pytest フラグは使わない)。
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: local_packages/genai-tag-db-tools
@@ -234,8 +237,7 @@ jobs:
             --cov=src \
             --cov-report=xml:coverage-genai-tag-db-tools.xml \
             --cov-report=term-missing \
-            --cov-fail-under=0 \
-            --timeout=120
+            --cov-fail-under=0
 
       - name: Upload coverage XML
         uses: actions/upload-artifact@v4
@@ -249,7 +251,10 @@ jobs:
     # ADR 0024: pytest セッション境界 = package 境界。
     # image-annotator-lib は requires-python = ">=3.12,<3.13" のため Python 3.12 で固定実行。
     # 初期段階は fast/standard marker のみ。real_api / heavy / system_integration は除外。
+    # hang 防止は job-level timeout-minutes に委譲 (package 側 dev deps に
+    # pytest-timeout が無いため pytest フラグは使わない)。
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: local_packages/image-annotator-lib
@@ -292,8 +297,7 @@ jobs:
             --cov=image_annotator_lib \
             --cov-report=xml:coverage-image-annotator-lib.xml \
             --cov-report=term-missing \
-            --cov-fail-under=0 \
-            --timeout=300
+            --cov-fail-under=0
 
       - name: Upload coverage XML
         uses: actions/upload-artifact@v4
