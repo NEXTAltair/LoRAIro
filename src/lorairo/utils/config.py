@@ -104,6 +104,10 @@ DEFAULT_CONFIG = {
         # Tag databases are now managed via genai-tag-db-tools public API (initialize_databases)
     },
     "log": {"level": "INFO", "file_path": str(DEFAULT_LOG_PATH), "rotation": "25 MB", "levels": {}},
+    "model_selection": {
+        # Issue #249: route preference の永続化。auto | direct | openrouter | all
+        "route_preference": "auto",
+    },
 }
 
 

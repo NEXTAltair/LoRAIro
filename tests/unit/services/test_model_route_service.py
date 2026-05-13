@@ -11,12 +11,14 @@ from types import SimpleNamespace
 import pytest
 
 from lorairo.services.model_route_service import (
+    DisplayModelOption,
     ModelRouteCandidate,
     build_available_providers,
     build_display_options,
     canonical_key,
     detect_route,
     group_model_routes,
+    parse_route_preference,
     required_provider_for,
     select_preferred_route,
     validate_api_keys_for_models,
@@ -325,3 +327,81 @@ class TestValidateApiKeysForModels:
         """`gemini/` prefix は google key を要求 (alias 解決)"""
         missing = validate_api_keys_for_models(["gemini/gemini-pro"], {})
         assert missing == [("gemini/gemini-pro", "google")]
+
+
+@pytest.mark.unit
+class TestParseRoutePreference:
+    """Issue #249: config から取得した raw 値の正規化 + 不正値フォールバック"""
+
+    @pytest.mark.parametrize("raw", ["auto", "direct", "openrouter", "all"])
+    def test_valid_values_returned_as_is(self, raw: str) -> None:
+        assert parse_route_preference(raw) == raw
+
+    def test_none_falls_back_to_auto(self) -> None:
+        assert parse_route_preference(None) == "auto"
+
+    def test_empty_string_falls_back_to_auto(self) -> None:
+        assert parse_route_preference("") == "auto"
+
+    def test_whitespace_only_falls_back_to_auto(self) -> None:
+        assert parse_route_preference("   ") == "auto"
+
+    def test_invalid_value_falls_back_to_auto(self) -> None:
+        """不正値は 'auto' に fallback (warning log 経路)"""
+        assert parse_route_preference("bogus") == "auto"
+
+    def test_uppercase_normalized(self) -> None:
+        """大文字 / strip も正規化される"""
+        assert parse_route_preference("  DIRECT  ") == "direct"
+
+    def test_non_string_falls_back_to_auto(self) -> None:
+        """isinstance ガードで int / None 以外も safe fallback"""
+        assert parse_route_preference(123) == "auto"  # type: ignore[arg-type]  # 防御テスト
+
+
+@pytest.mark.unit
+class TestDisplayModelOptionAvailable:
+    """Issue #249: DisplayModelOption.available field 動作"""
+
+    def test_default_is_true(self) -> None:
+        """field default は True (既存呼び出し元の後方互換)"""
+        m = _fake_model("openai/gpt-4o", "gpt-4o", "openai")
+        candidate = ModelRouteCandidate(
+            litellm_model_id="openai/gpt-4o",
+            route="direct",
+            required_provider="openai",
+            model=m,
+        )
+        opt = DisplayModelOption(
+            canonical_key="openai/gpt-4o",
+            display_name="gpt-4o",
+            capabilities=(),
+            preferred=candidate,
+        )
+        assert opt.available is True
+
+    def test_build_display_options_marks_available_when_key_present(self) -> None:
+        """API key 設定済み provider の preferred は available=True"""
+        m = _fake_model("openai/gpt-4o", "gpt-4o", "openai")
+        options = build_display_options([m], {"openai"}, "auto")
+        assert options[0].available is True
+
+    def test_build_display_options_marks_unavailable_when_no_key(self) -> None:
+        """API key 未設定環境では preferred (disabled fallback) は available=False"""
+        m = _fake_model("openai/gpt-4o", "gpt-4o", "openai")
+        options = build_display_options([m], set(), "auto")
+        assert len(options) == 1
+        # disabled fallback (auto preference の最後のケース) でも option は返される
+        assert options[0].available is False
+
+    def test_build_display_options_local_model_always_available(self) -> None:
+        """ローカル ML モデル (required_provider == 'local') は API key 不要、常に available"""
+        m = _fake_model("wd-v1-4-tagger", "wd-v1-4-tagger", None, requires_api_key=False)
+        options = build_display_options([m], set(), "auto")
+        assert options[0].available is True
+
+    def test_build_display_options_treat_all_available_when_no_providers_filter(self) -> None:
+        """available_providers=None (= 全 available 扱い) では常に available=True"""
+        m = _fake_model("openai/gpt-4o", "gpt-4o", "openai")
+        options = build_display_options([m], None, "auto")
+        assert options[0].available is True

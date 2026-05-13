@@ -1392,7 +1392,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def open_settings(self) -> None:
         """設定ウィンドウを開く（SettingsControllerに委譲）"""
         if self.settings_controller:
-            self.settings_controller.open_settings_dialog()
+            settings_applied = self.settings_controller.open_settings_dialog()
+            # Issue #249: route_preference 等の保存値を ModelSelectionWidget に即時反映
+            if settings_applied:
+                batch_widget = getattr(self, "batchModelSelection", None)
+                if batch_widget is not None:
+                    try:
+                        batch_widget.update_model_display()
+                        logger.debug("設定変更を反映してモデル選択ウィジェットを更新しました")
+                    except Exception as e:
+                        logger.warning(f"モデル選択ウィジェットの更新に失敗 (継続可): {e}")
         else:
             logger.error("SettingsControllerが初期化されていません")
             QMessageBox.warning(

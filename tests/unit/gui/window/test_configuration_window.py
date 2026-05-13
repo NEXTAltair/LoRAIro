@@ -97,9 +97,16 @@ class TestConfigurationWindow:
         assert project_name.text() == "test_project"
 
     def test_collect_settings_returns_all_sections(self, dialog: ConfigurationWindow) -> None:
-        """全セクション含む辞書を返す。"""
+        """全セクション含む辞書を返す (Issue #249 で model_selection を追加)。"""
         settings = dialog._collect_settings()
-        expected_sections = {"api", "directories", "log", "image_processing", "prompts"}
+        expected_sections = {
+            "api",
+            "directories",
+            "log",
+            "image_processing",
+            "prompts",
+            "model_selection",
+        }
         assert set(settings.keys()) == expected_sections
 
     def test_populate_and_collect_roundtrip(self, dialog: ConfigurationWindow) -> None:
@@ -155,3 +162,86 @@ class TestConfigurationWindow:
         items = [upscaler.itemText(i) for i in range(upscaler.count())]
         assert "RealESRGAN_x4plus" in items
         assert "RealESRGAN_x4plus_anime_6B" in items
+
+
+@pytest.mark.gui
+class TestConfigurationWindowRoutePreference:
+    """Issue #249: route_preference ComboBox の populate / collect / fallback。"""
+
+    def test_route_preference_combobox_populated_with_four_values(
+        self, dialog: ConfigurationWindow
+    ) -> None:
+        """ComboBox に auto/direct/openrouter/all の 4 値が並ぶ。"""
+        combo = dialog.findChild(QComboBox, "comboBoxRoutePreference")
+        assert combo is not None
+        items = [combo.itemText(i) for i in range(combo.count())]
+        assert items == ["auto", "direct", "openrouter", "all"]
+
+    def test_route_preference_default_to_auto_when_section_missing(
+        self, dialog: ConfigurationWindow
+    ) -> None:
+        """model_selection section が config に無い場合、auto がセットされる。"""
+        combo = dialog.findChild(QComboBox, "comboBoxRoutePreference")
+        assert combo is not None
+        # _make_mock_config_service は model_selection を返さないため auto fallback
+        assert combo.currentText() == "auto"
+
+    def test_route_preference_populated_from_config(self, qtbot, config_service: MagicMock) -> None:
+        """config の model_selection.route_preference が ComboBox に反映される。"""
+        config_service.get_all_settings.return_value = {
+            "api": {},
+            "directories": {},
+            "log": {"level": "INFO"},
+            "image_processing": {"upscaler": "RealESRGAN_x4plus"},
+            "prompts": {"additional": ""},
+            "model_selection": {"route_preference": "openrouter"},
+        }
+        dlg = ConfigurationWindow(config_service=config_service)
+        qtbot.addWidget(dlg)
+        combo = dlg.findChild(QComboBox, "comboBoxRoutePreference")
+        assert combo is not None
+        assert combo.currentText() == "openrouter"
+
+    def test_route_preference_invalid_config_falls_back_to_auto(
+        self, qtbot, config_service: MagicMock
+    ) -> None:
+        """config の不正値は parse_route_preference 経由で auto に fallback。"""
+        config_service.get_all_settings.return_value = {
+            "api": {},
+            "directories": {},
+            "log": {"level": "INFO"},
+            "image_processing": {"upscaler": "RealESRGAN_x4plus"},
+            "prompts": {"additional": ""},
+            "model_selection": {"route_preference": "bogus"},
+        }
+        dlg = ConfigurationWindow(config_service=config_service)
+        qtbot.addWidget(dlg)
+        combo = dlg.findChild(QComboBox, "comboBoxRoutePreference")
+        assert combo is not None
+        assert combo.currentText() == "auto"
+
+    def test_collect_settings_includes_model_selection(self, dialog: ConfigurationWindow) -> None:
+        """_collect_settings に model_selection.route_preference が含まれる。"""
+        settings = dialog._collect_settings()
+        assert "model_selection" in settings
+        assert settings["model_selection"]["route_preference"] in {
+            "auto",
+            "direct",
+            "openrouter",
+            "all",
+        }
+
+    def test_ok_saves_route_preference(
+        self, dialog: ConfigurationWindow, config_service: MagicMock, qtbot
+    ) -> None:
+        """OK で model_selection.route_preference が update_setting されて save される。"""
+        combo = dialog.findChild(QComboBox, "comboBoxRoutePreference")
+        assert combo is not None
+        combo.setCurrentText("direct")
+        with qtbot.waitSignal(dialog.accepted, timeout=3000):
+            dialog._on_accepted()
+        # update_setting が ("model_selection", "route_preference", "direct") で呼ばれている
+        update_calls = config_service.update_setting.call_args_list
+        assert any(
+            call.args == ("model_selection", "route_preference", "direct") for call in update_calls
+        ), f"expected update_setting('model_selection', 'route_preference', 'direct') in {update_calls}"

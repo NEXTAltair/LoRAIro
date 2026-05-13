@@ -228,3 +228,55 @@ class TestModelSelectionWidgetLitellmIdKeying:
         # 推奨は new_sync_direct (openai 直接版) のみ
         assert selected == [new_sync_direct.litellm_model_id]
         assert migration_route.litellm_model_id not in selected
+
+
+class TestModelSelectionWidgetRoutePreference:
+    """Issue #249: route_preference を config から読み込む挙動。"""
+
+    def test_get_route_preference_uses_config_value(self, qtbot, mock_model_service, monkeypatch) -> None:
+        """config の model_selection.route_preference が ``_get_route_preference`` に反映される。"""
+        mock_container = Mock()
+        mock_container.config_service.get_setting.return_value = "direct"
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.model_selection_widget.get_service_container",
+            lambda: mock_container,
+        )
+
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        assert w._get_route_preference() == "direct"
+
+    def test_get_route_preference_invalid_value_falls_back_to_auto(
+        self, qtbot, mock_model_service, monkeypatch
+    ) -> None:
+        """config 不正値は parse_route_preference 経由で auto fallback。"""
+        mock_container = Mock()
+        mock_container.config_service.get_setting.return_value = "bogus"
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.model_selection_widget.get_service_container",
+            lambda: mock_container,
+        )
+
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        assert w._get_route_preference() == "auto"
+
+    def test_get_route_preference_falls_back_on_container_exception(
+        self, qtbot, mock_model_service, monkeypatch
+    ) -> None:
+        """get_service_container が例外を投げた場合は auto に fallback。"""
+
+        def _raise() -> None:
+            raise RuntimeError("container not initialized")
+
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.model_selection_widget.get_service_container",
+            _raise,
+        )
+
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        assert w._get_route_preference() == "auto"

@@ -336,6 +336,19 @@ def _api_key_lookup(keys: dict[str, str]):
     return _lookup
 
 
+def _config_lookup(api_keys: dict[str, str], route_preference: str = "auto"):
+    """Issue #249: api section + model_selection section の両方に反応する side_effect。"""
+
+    def _lookup(section: str, key: str, default: str = "") -> str:
+        if section == "api":
+            return api_keys.get(key, default)
+        if section == "model_selection" and key == "route_preference":
+            return route_preference
+        return default
+
+    return _lookup
+
+
 @pytest.mark.unit
 @pytest.mark.cli
 @patch("lorairo.cli.commands.models.get_service_container")
@@ -386,11 +399,17 @@ def test_models_list_route_auto_falls_back_to_openrouter_when_only_openrouter_ke
 @pytest.mark.cli
 @patch("lorairo.cli.commands.models.get_service_container")
 def test_models_list_route_all_expands_both_routes(mock_get_container) -> None:
-    """--route all は各 candidate を 1 行ずつ展開する"""
+    """--route all は各 candidate を 1 行ずつ展開する。
+
+    Issue #249: 両方の key が設定済みでなければ available=False で filter される。
+    本テストでは route 展開挙動のみ検証するため両 key を mock に持たせる。
+    """
     mock_container = MagicMock()
     mock_container.annotator_library.list_annotator_info.return_value = _make_duplicate_route_infos()
     mock_container.annotator_library.is_model_deprecated.return_value = False
-    mock_container.config_service.get_setting.side_effect = _api_key_lookup({})
+    mock_container.config_service.get_setting.side_effect = _api_key_lookup(
+        {"openai_key": "sk-1", "openrouter_key": "sk-or"}
+    )
     mock_get_container.return_value = mock_container
 
     result = runner.invoke(app, ["models", "list", "--route", "all"])
@@ -406,11 +425,15 @@ def test_models_list_route_all_expands_both_routes(mock_get_container) -> None:
 @pytest.mark.cli
 @patch("lorairo.cli.commands.models.get_service_container")
 def test_models_list_route_direct_filters_to_direct_only(mock_get_container) -> None:
-    """--route direct は direct route のみ表示"""
+    """--route direct は direct route のみ表示。
+
+    Issue #249: openai_key を設定しないと available=False で行が消えるため、
+    direct route の表示挙動を検証するために key を入れる。
+    """
     mock_container = MagicMock()
     mock_container.annotator_library.list_annotator_info.return_value = _make_duplicate_route_infos()
     mock_container.annotator_library.is_model_deprecated.return_value = False
-    mock_container.config_service.get_setting.side_effect = _api_key_lookup({})
+    mock_container.config_service.get_setting.side_effect = _api_key_lookup({"openai_key": "sk-1"})
     mock_get_container.return_value = mock_container
 
     result = runner.invoke(app, ["models", "list", "--route", "direct"])
@@ -425,11 +448,15 @@ def test_models_list_route_direct_filters_to_direct_only(mock_get_container) -> 
 @pytest.mark.cli
 @patch("lorairo.cli.commands.models.get_service_container")
 def test_models_list_route_openrouter_filters_to_openrouter_only(mock_get_container) -> None:
-    """--route openrouter は openrouter route のみ表示"""
+    """--route openrouter は openrouter route のみ表示。
+
+    Issue #249: openrouter_key を設定しないと available=False で行が消えるため、
+    openrouter route の表示挙動を検証するために key を入れる。
+    """
     mock_container = MagicMock()
     mock_container.annotator_library.list_annotator_info.return_value = _make_duplicate_route_infos()
     mock_container.annotator_library.is_model_deprecated.return_value = False
-    mock_container.config_service.get_setting.side_effect = _api_key_lookup({})
+    mock_container.config_service.get_setting.side_effect = _api_key_lookup({"openrouter_key": "sk-or"})
     mock_get_container.return_value = mock_container
 
     result = runner.invoke(app, ["models", "list", "--route", "openrouter"])
@@ -437,6 +464,116 @@ def test_models_list_route_openrouter_filters_to_openrouter_only(mock_get_contai
     assert result.exit_code == 0
     assert "1 model(s)" in result.stdout
     assert "openrouter/openai/gpt-4o" in result.stdout
+
+
+# --- Issue #249: --show-unavailable / config 由来 default ---
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.models.get_service_container")
+def test_models_list_show_unavailable_displays_disabled_rows(mock_get_container) -> None:
+    """--show-unavailable は API key 未設定の行を 'disabled' Status で表示する"""
+    mock_container = MagicMock()
+    mock_container.annotator_library.list_annotator_info.return_value = _make_duplicate_route_infos()
+    mock_container.annotator_library.is_model_deprecated.return_value = False
+    mock_container.config_service.get_setting.side_effect = _api_key_lookup({})
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["models", "list", "--show-unavailable"])
+
+    assert result.exit_code == 0
+    # 全 row が disabled でも表示される
+    assert "1 model(s)" in result.stdout
+    assert "disabled" in result.stdout
+    assert "unavailable=1" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.models.get_service_container")
+def test_models_list_show_unavailable_with_route_all(mock_get_container) -> None:
+    """--show-unavailable + --route all で全 candidate を disabled 状態で表示"""
+    mock_container = MagicMock()
+    mock_container.annotator_library.list_annotator_info.return_value = _make_duplicate_route_infos()
+    mock_container.annotator_library.is_model_deprecated.return_value = False
+    mock_container.config_service.get_setting.side_effect = _api_key_lookup({})
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["models", "list", "--route", "all", "--show-unavailable"])
+
+    assert result.exit_code == 0
+    assert "2 model(s)" in result.stdout
+    assert "disabled" in result.stdout
+    assert "openai/gpt-4o" in result.stdout
+    assert "openrouter/openai/gpt-4o" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.models.get_service_container")
+def test_models_list_route_default_reads_from_config(mock_get_container) -> None:
+    """--route 未指定時は config の model_selection.route_preference を default として使う"""
+    mock_container = MagicMock()
+    mock_container.annotator_library.list_annotator_info.return_value = _make_duplicate_route_infos()
+    mock_container.annotator_library.is_model_deprecated.return_value = False
+    # config に "direct" を入れる、両方の key を available にして filter で消えないようにする
+    mock_container.config_service.get_setting.side_effect = _config_lookup(
+        {"openai_key": "sk-1", "openrouter_key": "sk-or"},
+        route_preference="direct",
+    )
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["models", "list"])  # --route 未指定
+
+    assert result.exit_code == 0
+    # config 値 "direct" が default として効く
+    assert "preference=direct from config" in result.stdout
+    assert "openai/gpt-4o" in result.stdout
+    # openrouter route は preference=direct で除外される
+    assert "openrouter/openai/gpt-4o" not in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.models.get_service_container")
+def test_models_list_explicit_route_overrides_config(mock_get_container) -> None:
+    """--route 明示指定は config 値を上書きする (preference_source=explicit)"""
+    mock_container = MagicMock()
+    mock_container.annotator_library.list_annotator_info.return_value = _make_duplicate_route_infos()
+    mock_container.annotator_library.is_model_deprecated.return_value = False
+    mock_container.config_service.get_setting.side_effect = _config_lookup(
+        {"openai_key": "sk-1"},
+        route_preference="openrouter",  # config では openrouter
+    )
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["models", "list", "--route", "direct"])
+
+    assert result.exit_code == 0
+    # 明示指定 "direct" が config 値 "openrouter" を上書き
+    assert "preference=direct from explicit" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.models.get_service_container")
+def test_models_list_route_invalid_config_falls_back_to_auto(mock_get_container) -> None:
+    """config の route_preference が不正値の場合 'auto' に fallback"""
+    mock_container = MagicMock()
+    mock_container.annotator_library.list_annotator_info.return_value = _make_duplicate_route_infos()
+    mock_container.annotator_library.is_model_deprecated.return_value = False
+    mock_container.config_service.get_setting.side_effect = _config_lookup(
+        {"openai_key": "sk-1"},
+        route_preference="bogus_value",
+    )
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["models", "list"])
+
+    assert result.exit_code == 0
+    # 不正値は auto fallback
+    assert "preference=auto from config" in result.stdout
 
 
 @pytest.mark.unit
@@ -464,7 +601,10 @@ def test_models_list_long_model_names_keep_columns_visible(mock_get_container) -
     mock_container.annotator_library.is_model_deprecated.return_value = False
     mock_get_container.return_value = mock_container
 
-    result = runner.invoke(app, ["models", "list"])
+    # Issue #249: webapi モデルの provider が None だと available=False で filter される。
+    # 本テストは表示列の collapse 防止 (Issue #220) を検証するため --show-unavailable で
+    # 表示自体を保証する。
+    result = runner.invoke(app, ["models", "list", "--show-unavailable"])
 
     assert result.exit_code == 0
     # Type 値 (webapi/local) が空 collapse せずに描画されること
@@ -473,6 +613,6 @@ def test_models_list_long_model_names_keep_columns_visible(mock_get_container) -
     # Category 値 (vision/tagger) が空 collapse せずに描画されること
     assert "vision" in result.stdout
     assert "tagger" in result.stdout
-    # Status 値 (active) が空 collapse せずに描画されること
+    # ローカルモデルは常に available なため active (webapi は disabled で表示される)
     assert "active" in result.stdout
     assert "2 model(s)" in result.stdout

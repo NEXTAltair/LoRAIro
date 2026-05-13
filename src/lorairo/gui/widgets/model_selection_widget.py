@@ -29,8 +29,10 @@ else:
     from ...services import get_service_container
     from ...services.model_route_service import (
         DisplayModelOption,
+        RoutePreference,
         build_available_providers,
         build_display_options,
+        parse_route_preference,
     )
     from ...services.model_selection_service import ModelSelectionCriteria, ModelSelectionService
     from ...utils.log import logger
@@ -294,11 +296,16 @@ if not __name__ == "__main__":
             self.update_model_display()
 
         def update_model_display(self) -> None:
-            """モデル表示更新 (Issue #241: route 畳み込み済み view model 経由)。"""
+            """モデル表示更新 (Issue #241: route 畳み込み済み view model 経由)。
+
+            Issue #249: ``route_preference`` を config から読み込み、永続化された
+            ユーザー設定を反映する (旧実装は ``"auto"`` ハードコード)。
+            """
             # 現在の表示をクリア
             self._clear_model_display()
 
             available_providers = self._build_available_providers()
+            route_preference = self._get_route_preference()
 
             # フィルタリング実行 -> DisplayModelOption 群を構築
             if self.mode == "simple":
@@ -310,10 +317,10 @@ if not __name__ == "__main__":
                 options = build_display_options(
                     recommended_models,
                     available_providers=available_providers,
-                    preference="auto",
+                    preference=route_preference,
                 )
             else:
-                options = self._apply_advanced_filters(available_providers)
+                options = self._apply_advanced_filters(available_providers, route_preference)
 
             self.filtered_options = options
             self.filtered_models = [opt.preferred.model for opt in options]
@@ -352,7 +359,26 @@ if not __name__ == "__main__":
                 logger.warning(f"API key 状態取得に失敗 (auto route 選択 fallback): {e}")
                 return set()
 
-        def _apply_advanced_filters(self, available_providers: set[str]) -> list[DisplayModelOption]:
+        def _get_route_preference(self) -> RoutePreference:
+            """config から route_preference を取得 (Issue #249)。
+
+            不正値・取得失敗時は ``parse_route_preference`` 経由で
+            ``"auto"`` に安全 fallback する。
+            """
+            try:
+                container = get_service_container()
+                config = container.config_service
+                raw = config.get_setting("model_selection", "route_preference", "auto")
+                return parse_route_preference(raw)
+            except Exception as e:
+                logger.warning(f"route_preference 取得失敗、auto fallback: {e}")
+                return "auto"
+
+        def _apply_advanced_filters(
+            self,
+            available_providers: set[str],
+            route_preference: RoutePreference = "auto",
+        ) -> list[DisplayModelOption]:
             """詳細モード用フィルタリング (Issue #241: route 畳み込み済み view model を返す)"""
             try:
                 criteria = ModelSelectionCriteria(
@@ -369,7 +395,7 @@ if not __name__ == "__main__":
 
                 options = self.model_selection_service.load_grouped_models(
                     criteria,
-                    route_preference="auto",
+                    route_preference=route_preference,
                     available_providers=available_providers,
                 )
                 logger.debug(
@@ -383,7 +409,7 @@ if not __name__ == "__main__":
                 return build_display_options(
                     fallback_models,
                     available_providers=available_providers,
-                    preference="auto",
+                    preference=route_preference,
                 )
 
         def _apply_basic_filters(self) -> list[Model]:
