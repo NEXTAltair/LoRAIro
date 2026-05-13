@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Agent harness validation script.
 
-Validates that Claude Code skills, hooks, and settings are internally consistent:
-- Skills: each skill directory has a SKILL.md with required frontmatter fields
+Validates that Claude Code/Codex skills, hooks, and settings are internally consistent:
+- Skills: each shared skill directory has a SKILL.md with required frontmatter fields
+- Claude skill links: .claude/skills/<name> points at .agents/skills/<name>
+- Skills lock: skills-lock.json entries match installed shared skills
 - Hooks: hook script files referenced in settings.local.json exist on disk
 - Settings: settings.local.json has required structural fields
 
@@ -15,6 +17,9 @@ import re
 import sys
 from pathlib import Path
 
+SHARED_SKILLS_DIR = ".agents/skills"
+CLAUDE_SKILLS_DIR = ".claude/skills"
+
 
 def validate_skills(project_root: Path) -> list[str]:
     """Validate that all skill directories contain a valid SKILL.md.
@@ -26,14 +31,13 @@ def validate_skills(project_root: Path) -> list[str]:
         List of error messages (empty if all pass).
     """
     errors: list[str] = []
-    skills_dir = project_root / ".github" / "skills"
+    skills_dir = project_root / SHARED_SKILLS_DIR
 
     if not skills_dir.exists():
         return []
 
     # Find all SKILL.md files recursively (directories without SKILL.md are containers)
     for skill_md in sorted(skills_dir.rglob("SKILL.md")):
-        skill_dir = skill_md.parent
         content = skill_md.read_text(encoding="utf-8")
 
         # Check for frontmatter block
@@ -57,7 +61,79 @@ def validate_skills(project_root: Path) -> list[str]:
     return errors
 
 
-def validate_hooks(project_root: Path) -> list[str]:
+def validate_claude_skill_links(project_root: Path) -> list[str]:
+    """Validate Claude Code skill symlinks point to shared skill directories."""
+    errors: list[str] = []
+    shared_skills_dir = project_root / SHARED_SKILLS_DIR
+    claude_skills_dir = project_root / CLAUDE_SKILLS_DIR
+
+    if not shared_skills_dir.exists() or not claude_skills_dir.exists():
+        return []
+
+    shared_skill_names = {
+        skill_dir.name
+        for skill_dir in shared_skills_dir.iterdir()
+        if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists()
+    }
+    claude_skill_names = {
+        skill_link.name
+        for skill_link in claude_skills_dir.iterdir()
+        if skill_link.is_dir() or skill_link.is_symlink()
+    }
+
+    missing_links = sorted(shared_skill_names - claude_skill_names)
+    extra_links = sorted(claude_skill_names - shared_skill_names)
+    for name in missing_links:
+        errors.append(f"Claude skills: missing symlink for shared skill: {name}")
+    for name in extra_links:
+        errors.append(f"Claude skills: symlink has no shared skill target: {name}")
+
+    for skill_link in sorted(claude_skills_dir.iterdir()):
+        if not skill_link.is_symlink():
+            errors.append(f"Claude skills: expected symlink, found real path: {skill_link.name}")
+            continue
+        target = skill_link.resolve()
+        expected = (shared_skills_dir / skill_link.name).resolve()
+        if target != expected:
+            errors.append(f"Claude skills: {skill_link.name} points to {target}, expected {expected}")
+
+    return errors
+
+
+def validate_skills_lock(project_root: Path) -> list[str]:
+    """Validate skills-lock.json matches the shared skills installed on disk."""
+    errors: list[str] = []
+    skills_dir = project_root / SHARED_SKILLS_DIR
+    lock_path = project_root / "skills-lock.json"
+
+    if not skills_dir.exists() or not lock_path.exists():
+        return []
+
+    try:
+        lock_data = json.loads(lock_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        return [f"Skills lock: skills-lock.json is invalid JSON: {e}"]
+
+    lock_skills = lock_data.get("skills")
+    if not isinstance(lock_skills, dict):
+        return ["Skills lock: skills-lock.json must contain a 'skills' object"]
+
+    installed_skill_names = {
+        skill_dir.name
+        for skill_dir in skills_dir.iterdir()
+        if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists()
+    }
+    locked_skill_names = set(lock_skills)
+
+    for name in sorted(installed_skill_names - locked_skill_names):
+        errors.append(f"Skills lock: installed skill missing from lock: {name}")
+    for name in sorted(locked_skill_names - installed_skill_names):
+        errors.append(f"Skills lock: lock entry has no installed skill: {name}")
+
+    return errors
+
+
+def validate_hooks(project_root: Path) -> list[str]:  # noqa: C901
     """Validate that hook scripts referenced in settings.local.json exist.
 
     Args:
@@ -148,6 +224,12 @@ def main() -> int:
 
     print("Validating skills...")
     all_errors.extend(validate_skills(project_root))
+
+    print("Validating Claude skill symlinks...")
+    all_errors.extend(validate_claude_skill_links(project_root))
+
+    print("Validating skills lock...")
+    all_errors.extend(validate_skills_lock(project_root))
 
     print("Validating hook scripts...")
     all_errors.extend(validate_hooks(project_root))

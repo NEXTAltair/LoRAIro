@@ -4,19 +4,21 @@ on:
   push:
     branches: [main]
     paths:
+      - ".agents/skills/**"
       - ".claude/**"
-      - ".github/skills/**"
       - "CLAUDE.md"
       - "scripts/validate_docs.py"
       - "scripts/validate_harness.py"
+      - "skills-lock.json"
   pull_request:
     branches: [main]
     paths:
+      - ".agents/skills/**"
       - ".claude/**"
-      - ".github/skills/**"
       - "CLAUDE.md"
       - "scripts/validate_docs.py"
       - "scripts/validate_harness.py"
+      - "skills-lock.json"
 
 jobs:
   validate-harness:

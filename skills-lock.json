@@ -6,6 +6,11 @@
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
+    "claude-md-progressive-disclosurer": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
     "database-migration": {
       "source": "wshobson/agents",
       "sourceType": "github",
@@ -18,10 +23,10 @@
       "skillPath": "skills/deploy-to-vercel/SKILL.md",
       "computedHash": "03e0eaaa9bf13ba1e7ffa387f5893de6f324c0868c627001f179395a8feaa7c9"
     },
-    "e2e-testing-patterns": {
-      "source": "wshobson/agents",
-      "sourceType": "github",
-      "computedHash": "3425e335940b8f1f4881452603252385f9119159632dc211bc8c8a375f4619cd"
+    "github-ops": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "interface-design": {
       "source": "/workspaces/LoRAIro/.agents/skills",
@@ -34,6 +39,11 @@
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "lorairo-qt-widget": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "lorairo-repository-pattern": {
       "source": "/workspaces/LoRAIro/.agents/skills",
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -72,12 +82,12 @@
       "skillPath": "plugins/python-development/skills/python-type-safety/SKILL.md",
       "computedHash": "76e08740199869de7af1224f1c3e69b0dd1d8f46e82276ba20530e657234fb73"
     },
-    "skill-creator": {
+    "qa-expert": {
       "source": "/workspaces/LoRAIro/.agents/skills",
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
-    "source-command-save-session": {
+    "skill-creator": {
       "source": "/workspaces/LoRAIro/.agents/skills",
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"

@@ -1156,6 +1156,152 @@ ADR 0023 本文の以下の記述は **Phase 1.11 (LoRAIro Issue #238) で更新
   経路選択ロジックは prefix 文字列マッチで機械的に判別可能と確定。ライブラリ側
   修正なしで close、表示制御は呼び出し側 (LoRAIro #241) で扱う
 
+## Phase 1.12 方針 (LoRAIro Issue #241 — モデル route 表示の畳み込みと実行時 route 確定)
+
+Phase 1.9 / 1.10 / 1.11 で registry と LoRAIro DB は「同一論理モデル × 経路違い」
+を完全 `litellm_model_id` で並列保持できるようになった。一方で、GUI / CLI のモデル一覧で
+直接プロバイダー経路と OpenRouter 経由がそのまま複数行に並ぶと、ユーザーがどちらを選ぶべきか
+判断しづらい。
+
+Issue #241 では、**実行時の SSoT は `litellm_model_id` のまま維持しつつ、表示時だけ route を
+畳み込む** 方針を採用する。
+
+### 責務境界
+
+1. **image-annotator-lib 側**:
+   - registry には direct / OpenRouter route を dedup せず並列登録する
+   - `image_annotator_lib.annotate(..., model_name_list=...)` は完全 `litellm_model_id` を受け取る
+   - OpenRouter / direct の経路判別は `openrouter/` prefix を持つ ID mapping で機械的に行う
+2. **LoRAIro 側**:
+   - GUI / CLI 一覧では同一論理モデルの route 候補を 1 行に畳み込む
+   - ユーザー選択値は最終的に完全 `Model.litellm_model_id` に解決してから annotation library に渡す
+   - API key 状況に応じて preferred route を選ぶ
+   - 実行直前に `litellm_model_id` が要求する provider key の有無を検証し、不足時は
+     library に投げる前に LoRAIro 側で分かりやすく失敗させる
+
+### canonical model key
+
+表示用の同一論理モデル判定では、`openrouter/` prefix を route として取り除いた
+canonical key を使う。
+
+| `litellm_model_id` | 表示用 canonical key |
+|---|---|
+| `anthropic/claude-3-5-sonnet-20241022` | `anthropic/claude-3-5-sonnet-20241022` |
+| `openrouter/anthropic/claude-3-5-sonnet-20241022` | `anthropic/claude-3-5-sonnet-20241022` |
+| `openai/gpt-4o` | `openai/gpt-4o` |
+| `openrouter/openai/gpt-4o` | `openai/gpt-4o` |
+
+`openrouter/<inner>/<model>` の `<inner>` が direct provider として LoRAIro で扱えない場合
+(`openrouter/z-ai/...` 等) は、その canonical key に direct 候補が存在しないため
+OpenRouter route が主候補になる。
+
+### route 優先順位
+
+永続設定は汎用 enum (`auto | direct | openrouter | all`) ではなく、
+`prefer_openrouter: bool` の 1 つだけにする。デフォルトは `false` で、
+direct provider route を優先する。
+
+| `prefer_openrouter` | direct key | OpenRouter key | direct route | OpenRouter route | 選択 |
+|---|---:|---:|---:|---:|---|
+| `false` | yes | yes | yes | yes | direct |
+| `true` | yes | yes | yes | yes | OpenRouter |
+| 任意 | yes | no | yes | yes/no | direct |
+| 任意 | no | yes | yes/no | yes | OpenRouter |
+| 任意 | yes | yes | yes | no | direct |
+| 任意 | yes | yes | no | yes | OpenRouter |
+| 任意 | no | no | yes/no | yes/no | preferred fallback を disabled / unavailable 表示 |
+
+永続設定を boolean に絞る理由:
+
+- ユーザーが現時点で決めたいのは「直接 provider API に寄せるか、OpenRouter API に寄せるか」
+  であり、モデル別 route preference は過剰設計になりやすい
+- GUI では checkbox 1 個で表現でき、dropdown と補足説明が不要
+- `all` は選択 policy ではなく表示/debug mode に近いため、永続設定に混ぜると責務が曖昧になる
+- モデル別 preference は canonical key の安定性、モデル廃止、DB sync との整合、GUI 設定 UI、
+  テストケースを大きく増やすため、実需要が出るまで採用しない
+
+ただし実行時には選択済み `selected_litellm_model_id` をそのまま渡すため、表示上 direct を
+優先しても route 情報は失われない。
+
+### API key 設定
+
+LoRAIro の `config/lorairo.toml [api]` に OpenRouter key を追加する。
+
+```toml
+[api]
+openai_key = ""
+claude_key = ""
+google_key = ""
+openrouter_key = ""
+```
+
+annotation library に渡す `api_keys` は provider 名を key にする。
+
+```python
+{
+    "openai": "...",
+    "anthropic": "...",
+    "google": "...",
+    "openrouter": "...",
+}
+```
+
+`ConfigurationService.get_api_keys()` が設定ファイル上の key 名 (`openai_key`,
+`claude_key` 等) を返す経路と、annotation library 用の provider key dict を返す経路は
+混同しない。実装時は provider 名ベースの helper を用意し、`AnnotatorLibraryAdapter` /
+`cli annotate` / 実行直前 validation で同じ helper を使う。
+
+### 表示設定
+
+永続設定は `[model_selection]` に分離し、OpenRouter API を優先するかだけを持つ。
+
+```toml
+[model_selection]
+prefer_openrouter = false
+```
+
+`[api]` は credential のみ、`[model_selection]` は UI/CLI route 選択ポリシーのみを持つ。
+route 詳細をすべて見る debug / display option (`--show-routes` 等) は永続設定とは分離する。
+
+### LoRAIro 実装方針
+
+- `src/lorairo/services/model_route_service.py` を追加し、pure helper と view model を集約する
+  - `get_provider_route(litellm_model_id)`
+  - `get_required_api_provider(litellm_model_id)`
+  - `get_canonical_model_key(litellm_model_id)`
+  - `group_model_routes(...)`
+  - `select_preferred_route(...)`
+- `ModelSelectionService` は GUI / CLI 共通の表示用畳み込みを提供する
+- `lorairo-cli models list` の default は route を畳んだ一覧とする
+  - config の `prefer_openrouter` を使う
+  - 一時上書きが必要なら `--prefer-openrouter` / `--no-prefer-openrouter`
+  - route 詳細表示が必要なら永続設定ではなく `--show-routes` 等の表示 option として扱う
+- GUI `ModelSelectionWidget` は通常 1 モデル 1 行表示とし、route badge (`direct` /
+  `openrouter`) を提供する。設定 UI は dropdown ではなく「OpenRouter API を優先する」
+  checkbox とする
+- `AnnotatorLibraryAdapter._prepare_api_keys()` と `cli annotate` は `openrouter` key を含める
+- annotation 実行直前に選択済み `litellm_model_id` の required provider key を検証する
+
+### Decision section の更新差分
+
+ADR 0023 本文の以下の記述は **Phase 1.12 (LoRAIro Issue #241) で解釈拡張**:
+
+| ADR 本文 | 既存方針 | Phase 1.12 で追加する解釈 |
+|---|---|---|
+| ID 境界: `litellm_model_id` は LiteLLM DB / metadata 用 ID | registry / DB / 実行指定の SSoT | LoRAIro GUI / CLI の表示上は route 候補を canonical key で畳むが、annotation library へ渡す実行指定は完全 `litellm_model_id` のまま維持する |
+| API key / provider config は明示注入 | `api_keys` dict を唯一の入力経路とする | `openrouter/*` の required provider は `openrouter`。LoRAIro は `[api].openrouter_key` を provider key dict に含め、実行前 validation で不足を検出する |
+| OpenRouter / direct route は prefix で判別可能 | lib 側は dedup しない | route 選択・表示畳み込みは LoRAIro 側の責務とする。永続設定は `prefer_openrouter` boolean のみで、モデル別 preference / 4値 enum は採用しない |
+
+### スコープ外
+
+- image-annotator-lib 側の registry dedup
+- モデル別 / provider 別 route preference
+- `route_preference = auto | direct | openrouter | all` の永続化
+- `show_route_alternatives` の永続化
+- 経路ごとのコスト / レイテンシ自動推奨
+- LiteLLM Router / Proxy を使った runtime fallback
+- direct provider が存在しない OpenRouter inner provider (`z-ai`, `qwen` 等) を direct route 化すること
+
 ## References
 
 - [PydanticAI Output](https://pydantic.dev/docs/ai/core-concepts/output/)
@@ -1175,4 +1321,4 @@ ADR 0023 本文の以下の記述は **Phase 1.11 (LoRAIro Issue #238) で更新
 - [Issue #51 — Phase 1.9 LiteLLM 完全 ID を registry SSoT に統一](https://github.com/NEXTAltair/image-annotator-lib/issues/51)
 - [Issue #52 — Phase 1.10 Anthropic bare 名を `anthropic/<bare>` に正規化](https://github.com/NEXTAltair/image-annotator-lib/issues/52)
 - [LoRAIro Issue #238 — Phase 1.11 `schema.Model.litellm_model_id` を UNIQUE NOT NULL 化、`name` を表示名に降格](https://github.com/NEXTAltair/LoRAIro/issues/238)
-- [LoRAIro Issue #241 — API key 状況に応じたモデル表示フィルタ (Phase 1.11 後続)](https://github.com/NEXTAltair/LoRAIro/issues/241)
+- [LoRAIro Issue #241 — モデル route 表示の畳み込みと実行時 route 確定 (Phase 1.12)](https://github.com/NEXTAltair/LoRAIro/issues/241)

@@ -78,7 +78,7 @@ class DocValidator:
             content = doc_file.read_text()
 
             # Extract file paths (pattern: src/lorairo/...)
-            path_pattern = r'`(src/lorairo/[^`]+\.py)`'
+            path_pattern = r"`(src/lorairo/[^`]+\.py)`"
             paths = re.findall(path_pattern, content)
 
             for path_str in paths:
@@ -95,9 +95,7 @@ class DocValidator:
                 details=missing_paths,
             )
 
-        return ValidationResult(
-            passed=True, message=f"All {total_paths} file paths are valid"
-        )
+        return ValidationResult(passed=True, message=f"All {total_paths} file paths are valid")
 
     def validate_service_counts(self) -> ValidationResult:
         """Validate service count matches actual files.
@@ -112,9 +110,7 @@ class DocValidator:
         gui_services_dir = self.project_root / "src" / "lorairo" / "gui" / "services"
 
         business_services = [
-            f
-            for f in services_dir.glob("*.py")
-            if f.name != "__init__.py" and not f.name.startswith("_")
+            f for f in services_dir.glob("*.py") if f.name != "__init__.py" and not f.name.startswith("_")
         ]
 
         gui_services = [
@@ -126,21 +122,26 @@ class DocValidator:
         actual_count = len(business_services) + len(gui_services)
 
         # Expected count from actual codebase
-        expected_count = 32  # 24 business + 8 GUI
+        expected_business_count = 25
+        expected_gui_count = 8
+        expected_count = expected_business_count + expected_gui_count
 
         if actual_count != expected_count:
             return ValidationResult(
                 passed=False,
                 message=f"Service count mismatch: expected {expected_count}, found {actual_count}",
                 details=[
-                    f"Business services: {len(business_services)} (expected 24)",
-                    f"GUI services: {len(gui_services)} (expected 8)",
+                    f"Business services: {len(business_services)} (expected {expected_business_count})",
+                    f"GUI services: {len(gui_services)} (expected {expected_gui_count})",
                 ],
             )
 
         return ValidationResult(
             passed=True,
-            message=f"Service count matches: {actual_count} services (24 business + 8 GUI)",
+            message=(
+                f"Service count matches: {actual_count} services "
+                f"({expected_business_count} business + {expected_gui_count} GUI)"
+            ),
         )
 
     def validate_integration_points(self) -> ValidationResult:
