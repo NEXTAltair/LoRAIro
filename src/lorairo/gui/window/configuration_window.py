@@ -21,11 +21,18 @@ from PySide6.QtWidgets import (
 )
 
 from ...services.configuration_service import ConfigurationService
+from ...services.model_route_service import parse_route_preference
 from ...utils.log import initialize_logging, logger
 from ..widgets.directory_picker import DirectoryPickerWidget
 
 # ログレベル選択肢
 _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
+# Issue #249: モデル経路の優先設定値域 (GUI 公開分)。
+# "all" は CLI 専用 (--route all): 同一モデルの全 candidate を 1 行ずつ展開する用途で、
+# GUI checkbox UI では preferred のみ描画する設計と整合しないため、GUI dropdown からは除外。
+# CLI 経路 (--route all) と config 手動編集 ("all") の値は parse_route_preference で
+# 受理し続けるが、GUI から保存できる値は auto / direct / openrouter のみ。
+_ROUTE_PREFERENCES = ["auto", "direct", "openrouter"]
 
 
 class ConfigurationWindow(QDialog):
@@ -160,6 +167,22 @@ class ConfigurationWindow(QDialog):
 
         tab_layout.addWidget(image_group)
 
+        # モデル選択設定 (Issue #249)
+        model_group = QGroupBox("モデル選択")
+        model_layout = QFormLayout(model_group)
+
+        self._combo_box_route_preference = QComboBox()
+        self._combo_box_route_preference.setObjectName("comboBoxRoutePreference")
+        self._combo_box_route_preference.addItems(_ROUTE_PREFERENCES)
+        self._combo_box_route_preference.setToolTip(
+            "モデル経路の優先設定。auto: API key 状況に応じて direct を優先 / "
+            "direct: 直接プロバイダー経路のみ / openrouter: OpenRouter 経由のみ。"
+            "全 route 一覧表示は CLI 専用 (lorairo-cli models list --route all)。"
+        )
+        model_layout.addRow("経路の優先設定:", self._combo_box_route_preference)
+
+        tab_layout.addWidget(model_group)
+
         # プロンプト設定
         prompt_group = QGroupBox("プロンプト")
         prompt_layout = QVBoxLayout(prompt_group)
@@ -210,6 +233,24 @@ class ConfigurationWindow(QDialog):
         if idx >= 0:
             self._combo_box_upscaler.setCurrentIndex(idx)
 
+        # モデル選択設定 (Issue #249): 不正値・None・空文字は parse_route_preference で auto fallback。
+        # "all" は CLI 専用のため GUI ComboBox には項目が無い → findText が -1 を返す。
+        # その場合 auto にフォールバックして警告ログを残す (silently overwrite を避けるための明示通知)。
+        model_selection = config.get("model_selection", {})
+        normalized_preference = parse_route_preference(model_selection.get("route_preference"))
+        idx = self._combo_box_route_preference.findText(normalized_preference)
+        if idx >= 0:
+            self._combo_box_route_preference.setCurrentIndex(idx)
+        else:
+            logger.warning(
+                "route_preference=%r は GUI 設定では選択できないため auto にフォールバック表示します "
+                "(OK 押下時に auto で上書き保存)。CLI でのみ利用する場合は GUI で変更しないでください。",
+                normalized_preference,
+            )
+            auto_idx = self._combo_box_route_preference.findText("auto")
+            if auto_idx >= 0:
+                self._combo_box_route_preference.setCurrentIndex(auto_idx)
+
         # プロンプト設定
         prompts = config.get("prompts", {})
         self._text_edit_prompt.setPlainText(prompts.get("additional", ""))
@@ -237,6 +278,11 @@ class ConfigurationWindow(QDialog):
             },
             "image_processing": {
                 "upscaler": self._combo_box_upscaler.currentText(),
+            },
+            "model_selection": {
+                # Issue #249: ComboBox の値域は _ROUTE_PREFERENCES なので
+                # parse_route_preference を通さなくても常に valid だが、防御的に正規化。
+                "route_preference": parse_route_preference(self._combo_box_route_preference.currentText()),
             },
             "prompts": {
                 "additional": self._text_edit_prompt.toPlainText(),

@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, cast, get_args
 
 from ..database.schema import Model
 from ..utils.log import logger
@@ -38,6 +38,8 @@ RoutePreference = Literal["auto", "direct", "openrouter", "all"]
 _OPENROUTER_PREFIX = "openrouter/"
 _LOCAL_PROVIDER = "local"
 _UNKNOWN_PROVIDERS = frozenset({"", "unknown"})
+# Issue #249: parse_route_preference の validation 集合 (Literal 値域と完全一致)
+_VALID_ROUTE_PREFERENCES: frozenset[str] = frozenset(get_args(RoutePreference))
 
 # litellm_model_id 先頭セグメントに対する provider 別名の正規化マップ。
 # 例: "gemini/..." は "google" key を要求する。
@@ -129,6 +131,10 @@ class DisplayModelOption:
     capabilities: tuple[str, ...]
     preferred: ModelRouteCandidate
     alternatives: tuple[ModelRouteCandidate, ...] = field(default_factory=tuple)
+    # Issue #249: preferred の required_provider が API key 未設定で disabled
+    # fallback として返された場合は False。CLI `--show-unavailable` で活用。
+    # default True は既存呼び出し元 (preference="all" や key 状況非考慮) の後方互換。
+    available: bool = True
 
     @property
     def all_candidates(self) -> tuple[ModelRouteCandidate, ...]:
@@ -272,6 +278,15 @@ def build_display_options(
                     tuple(alt.model.capabilities),
                 )
 
+        # Issue #249: preferred の required_provider が API key 設定済みかで available 判定。
+        # ローカル ML モデルは API key 不要のため常に available。
+        # caller が available_providers を渡さない場合 (= treat_all_available)
+        # は全 candidate を available 扱い (従来挙動と同等)。
+        if treat_all_available or preferred.required_provider == _LOCAL_PROVIDER:
+            is_available = True
+        else:
+            is_available = preferred.required_provider in available_providers
+
         options.append(
             DisplayModelOption(
                 canonical_key=ckey,
@@ -279,11 +294,42 @@ def build_display_options(
                 capabilities=preferred_caps,
                 preferred=preferred,
                 alternatives=alternatives,
+                available=is_available,
             )
         )
 
     options.sort(key=lambda o: o.display_name.lower())
     return options
+
+
+def parse_route_preference(raw: str | None) -> RoutePreference:
+    """config から取得した raw 値を ``RoutePreference`` Literal に正規化。
+
+    Issue #249: GUI / CLI の双方が config 由来 default を扱うため、不正値・None・
+    空文字を ``"auto"`` に安全 fallback する共通 helper。不正値は warning log。
+
+    Args:
+        raw: ``ConfigurationService.get_setting("model_selection", "route_preference", ...)``
+            の戻り値。型契約は ``str | None`` だが、Mock 経由など想定外の型が
+            紛れ込んでもクラッシュしないよう ``isinstance(str)`` ガードで弾く。
+
+    Returns:
+        正規化された ``RoutePreference``。値域は
+        ``Literal["auto", "direct", "openrouter", "all"]`` と完全一致。
+    """
+    if not isinstance(raw, str):
+        return "auto"
+    normalized = raw.strip().lower()
+    if normalized == "":
+        return "auto"
+    if normalized in _VALID_ROUTE_PREFERENCES:
+        return cast(RoutePreference, normalized)
+    logger.warning(
+        "Invalid route_preference value %r, falling back to 'auto'. Valid values: %s",
+        raw,
+        sorted(_VALID_ROUTE_PREFERENCES),
+    )
+    return "auto"
 
 
 def validate_api_keys_for_models(
@@ -334,6 +380,7 @@ __all__ = [
     "canonical_key",
     "detect_route",
     "group_model_routes",
+    "parse_route_preference",
     "required_provider_for",
     "select_preferred_route",
     "validate_api_keys_for_models",

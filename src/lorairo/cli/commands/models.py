@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -12,6 +13,7 @@ from lorairo.services.model_route_service import (
     build_available_providers,
     canonical_key,
     detect_route,
+    parse_route_preference,
     required_provider_for,
 )
 from lorairo.services.service_container import get_service_container
@@ -102,8 +104,8 @@ def list_models(
         case_sensitive=False,
         help="Filter by model category (all / tagger / scorer / captioner / vision)",
     ),
-    route: RouteFilter = typer.Option(
-        RouteFilter.auto,
+    route: RouteFilter | None = typer.Option(
+        None,
         "--route",
         case_sensitive=False,
         help=(
@@ -111,7 +113,16 @@ def list_models(
             "auto: API key 設定済み provider に応じて direct を優先 / "
             "direct: 直接プロバイダー経路のみ / "
             "openrouter: OpenRouter 経由のみ / "
-            "all: 同一モデルの全 route を 1 行ずつ表示"
+            "all: 同一モデルの全 route を 1 行ずつ表示。"
+            "未指定時は config の [model_selection].route_preference を使う (Issue #249)。"
+        ),
+    ),
+    show_unavailable: bool = typer.Option(
+        False,
+        "--show-unavailable",
+        help=(
+            "API key 未設定で利用不可な行も表示する (Issue #249)。"
+            "default は available な行のみ。ローカル ML モデルは常に available 扱い。"
         ),
     ),
 ) -> None:
@@ -120,6 +131,9 @@ def list_models(
     Issue #241: 同一モデルが direct / openrouter 経路で 2 行並ぶ重複を畳み込み、
     API key 設定済み provider を優先 route として 1 行にまとめる。
     ``--route all`` を指定した場合のみ全 candidate を 1 行ずつ表示する。
+
+    Issue #249: ``--route`` 未指定時は config の ``[model_selection].route_preference``
+    を default として読み込み、``--show-unavailable`` で API key 未設定の行も表示する。
     """
     try:
         container = get_service_container()
@@ -135,45 +149,29 @@ def list_models(
         }
         available_providers = build_available_providers(api_keys)
 
-        rows: list[dict[str, str | bool]] = []
-        for info in infos:
-            if type_filter is ModelTypeFilter.webapi and not info.is_api:
-                continue
-            if type_filter is ModelTypeFilter.local and not info.is_local:
-                continue
-            if category is not ModelCategoryFilter.all and info.model_type != category.value:
-                continue
+        # Issue #249: --route 未指定時は config 値を使う。明示指定は config 上書き。
+        if route is None:
+            raw_preference = config.get_setting("model_selection", "route_preference", "auto")
+            route = RouteFilter(parse_route_preference(raw_preference))
+            preference_source = "config"
+        else:
+            preference_source = "explicit"
 
-            try:
-                deprecated = annotator.is_model_deprecated(info.name)
-            except Exception as e:
-                logger.warning(f"Deprecated check failed for {info.name}: {e}")
-                deprecated = False
-
-            if deprecated and not include_deprecated:
-                continue
-
-            type_label = "webapi" if info.is_api else "local"
-            # Issue #245: Provider と Litellm ID を表示し、route の区別を可能にする。
-            provider_label = info.provider or ("local" if info.is_local else "unknown")
-            litellm_id = info.litellm_model_id or info.name
-            row_route = detect_route(litellm_id)
-            row_required = required_provider_for(litellm_id, info.provider)
-            rows.append(
-                {
-                    "name": info.name,
-                    "provider": provider_label,
-                    "litellm_id": litellm_id,
-                    "type_label": type_label,
-                    "category": info.model_type,
-                    "deprecated": deprecated,
-                    "route": row_route,
-                    "required_provider": row_required,
-                }
-            )
+        rows = _build_rows_from_infos(
+            infos=infos,
+            type_filter=type_filter,
+            category=category,
+            include_deprecated=include_deprecated,
+            annotator=annotator,
+            available_providers=available_providers,
+        )
 
         # Issue #241: canonical_key で grouping し、--route preference に従って絞り込む。
         display_rows = _apply_route_filter(rows, route, available_providers)
+
+        # Issue #249: --show-unavailable 未指定時は available 行のみに絞る。
+        if not show_unavailable:
+            display_rows = [r for r in display_rows if r.get("available", True)]
 
         # 長いモデル名 (例: "vercel_ai_gateway/openai/o1") で固定幅未指定のままだと
         # Rich Table が Type/Category/Status を 0 幅に collapse させて Issue #220 の
@@ -191,6 +189,13 @@ def list_models(
         table.add_column("Status", style="green", min_width=10, no_wrap=True)
 
         for row in display_rows:
+            # Issue #249: available=False は deprecated より優先して disabled 表示。
+            if not row.get("available", True):
+                status_label = "[red]disabled[/red]"
+            elif row["deprecated"]:
+                status_label = "[yellow]deprecated[/yellow]"
+            else:
+                status_label = "active"
             table.add_row(
                 str(row["name"]),
                 str(row["provider"]),
@@ -198,11 +203,17 @@ def list_models(
                 str(row["route"]),
                 str(row["type_label"]),
                 str(row["category"]),
-                "[yellow]deprecated[/yellow]" if row["deprecated"] else "active",
+                status_label,
             )
 
         console.print(table)
-        console.print(f"[dim]{len(display_rows)} model(s) (preference={route.value})[/dim]")
+        # Issue #249: preference の取得元と unavailable 件数も表示
+        unavailable_count = sum(1 for r in display_rows if not r.get("available", True))
+        unavailable_suffix = f", unavailable={unavailable_count}" if unavailable_count > 0 else ""
+        console.print(
+            f"[dim]{len(display_rows)} model(s) "
+            f"(preference={route.value} from {preference_source}{unavailable_suffix})[/dim]"
+        )
     except Exception as e:
         console.print(f"[red]Error:[/red] Failed to list models: {e}")
         logger.error(f"Model list command failed: {e}", exc_info=True)
@@ -253,6 +264,65 @@ def _group_rows_by_canonical_key(
             order.append(ckey)
         grouped[ckey].append(row)
     return grouped, order
+
+
+def _build_rows_from_infos(
+    *,
+    infos: list[Any],
+    type_filter: ModelTypeFilter,
+    category: ModelCategoryFilter,
+    include_deprecated: bool,
+    annotator: Any,
+    available_providers: set[str],
+) -> list[dict[str, str | bool]]:
+    """AnnotatorInfo リストから表示用 row dict 群を構築する。
+
+    Issue #249: ``list_models`` の cyclomatic complexity を下げるための切り出し。
+    type/category/deprecated フィルタ + provider / route / available 判定までを担当。
+    """
+    rows: list[dict[str, str | bool]] = []
+    for info in infos:
+        if type_filter is ModelTypeFilter.webapi and not info.is_api:
+            continue
+        if type_filter is ModelTypeFilter.local and not info.is_local:
+            continue
+        if category is not ModelCategoryFilter.all and info.model_type != category.value:
+            continue
+
+        try:
+            deprecated = annotator.is_model_deprecated(info.name)
+        except Exception as e:
+            logger.warning(f"Deprecated check failed for {info.name}: {e}")
+            deprecated = False
+
+        if deprecated and not include_deprecated:
+            continue
+
+        type_label = "webapi" if info.is_api else "local"
+        # Issue #245: Provider と Litellm ID を表示し、route の区別を可能にする。
+        provider_label = info.provider or ("local" if info.is_local else "unknown")
+        litellm_id = info.litellm_model_id or info.name
+        row_route = detect_route(litellm_id)
+        row_required = required_provider_for(litellm_id, info.provider)
+        # Issue #249: ローカル ML モデルは API key 不要のため常に available。
+        # info.is_local も加味する: provider 未設定 + slash 入り bare ID のローカルモデル
+        # (例: "some/local-tagger") は required_provider_for だと "some" になるため、
+        # info.is_local フラグを優先して available 判定する。
+        row_available = info.is_local or row_required == "local" or row_required in available_providers
+        rows.append(
+            {
+                "name": info.name,
+                "provider": provider_label,
+                "litellm_id": litellm_id,
+                "type_label": type_label,
+                "category": info.model_type,
+                "deprecated": deprecated,
+                "route": row_route,
+                "required_provider": row_required,
+                "available": row_available,
+            }
+        )
+    return rows
 
 
 def _pick_row_for_route(

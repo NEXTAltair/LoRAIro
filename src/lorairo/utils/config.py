@@ -104,6 +104,14 @@ DEFAULT_CONFIG = {
         # Tag databases are now managed via genai-tag-db-tools public API (initialize_databases)
     },
     "log": {"level": "INFO", "file_path": str(DEFAULT_LOG_PATH), "rotation": "25 MB", "levels": {}},
+    "model_selection": {
+        # Issue #249: route preference の永続化。
+        # auto | direct | openrouter (GUI dropdown で選択可)
+        # all は CLI 専用 (--route all): GUI checkbox UI は preferred 1 行のみ描画する設計と
+        # 整合しないため GUI dropdown では未提供。手動で "all" を書いた場合 GUI 起動時に
+        # warning log + auto 表示にフォールバックする (configuration_window.py 参照)。
+        "route_preference": "auto",
+    },
 }
 
 

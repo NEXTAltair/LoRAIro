@@ -53,16 +53,22 @@ class SettingsController:
 
         return True
 
-    def open_settings_dialog(self) -> None:
+    def open_settings_dialog(self) -> bool:
         """設定ダイアログを開く
 
         ConfigurationServiceを使用して設定ダイアログを表示します。
+
+        Returns:
+            bool: ユーザーが OK で確定し設定が保存された場合 True、
+                Cancel・ImportError・例外で確定しなかった場合 False。
+                Issue #249: 呼び出し元 (MainWindow) が True 時に依存ウィジェット
+                (ModelSelectionWidget 等) を reload するための戻り値。
         """
         logger.info("設定ダイアログを開きます")
 
         # Step 1: サービス検証
         if not self._validate_services():
-            return
+            return False
 
         try:
             # ConfigurationWindow実装を使用
@@ -75,12 +81,14 @@ class SettingsController:
 
             if result == QDialog.DialogCode.Accepted:
                 logger.info("設定が保存されました")
-            else:
-                logger.info("設定ダイアログがキャンセルされました")
+                return True
+            logger.info("設定ダイアログがキャンセルされました")
+            return False
 
         except ImportError:
             logger.warning("ConfigurationWindowが見つかりません - 代替実装を使用します")
             self._show_simple_settings_dialog()
+            return False
         except Exception as e:
             logger.error(f"設定ダイアログの表示に失敗しました: {e}", exc_info=True)
             from PySide6.QtWidgets import QMessageBox
@@ -88,6 +96,7 @@ class SettingsController:
             QMessageBox.critical(
                 self.parent, "エラー", f"設定ダイアログの表示中にエラーが発生しました:\n\n{e}"
             )
+            return False
 
     def _show_simple_settings_dialog(self) -> None:
         """シンプルな設定ダイアログを表示（フォールバック）
