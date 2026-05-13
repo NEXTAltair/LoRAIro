@@ -34,6 +34,7 @@ from lorairo.api.exceptions import (
 )
 from lorairo.api.project import get_project as api_get_project
 from lorairo.database.filter_criteria import ImageFilterCriteria
+from lorairo.services.model_route_service import validate_api_keys_for_models
 from lorairo.services.service_container import get_service_container
 from lorairo.utils.log import logger
 
@@ -214,6 +215,57 @@ def _resolve_model_identifier(repository: ImageRepository, identifier: str) -> s
     raise typer.Exit(code=1)
 
 
+def _validate_required_api_keys(
+    repository: ImageRepository,
+    config: Any,
+    resolved_litellm_ids: list[str],
+) -> None:
+    """Issue #241: 実行直前に API key 不足を検出し、不足時は ``typer.Exit(1)``。
+
+    旧実装は「3 種類キー全部無いとき警告」だけで、片方の provider key のみ設定
+    された環境で OpenRouter 経由モデルを選ぶと library 内で ``MissingApiKeyError``
+    が出てから失敗していた。本 helper は registry key (litellm_model_id) の prefix
+    と DB ``Model.provider`` を hint として provider 別の不足を列挙する。
+
+    Args:
+        repository: LoRAIro DB リポジトリ (Model.provider 解決用)。
+        config: ``ConfigurationService`` 互換 (``get_setting`` を持つ)。
+        resolved_litellm_ids: ``_resolve_model_identifier()`` で解決済みの
+            ``litellm_model_id`` リスト。
+
+    Raises:
+        typer.Exit: 不足ありの場合 (code=1)。エラーメッセージに不足 provider と
+            litellm_id を列挙する。
+    """
+    api_keys = {
+        "openai": config.get_setting("api", "openai_key", ""),
+        "anthropic": config.get_setting("api", "claude_key", ""),
+        "google": config.get_setting("api", "google_key", ""),
+        "openrouter": config.get_setting("api", "openrouter_key", ""),
+    }
+
+    provider_hints: dict[str, str] = {}
+    for litellm_id in resolved_litellm_ids:
+        db_model = repository.get_model_by_litellm_id(litellm_id)
+        if db_model is not None and db_model.provider:
+            provider_hints[litellm_id] = db_model.provider
+
+    missing = validate_api_keys_for_models(resolved_litellm_ids, api_keys, provider_hints)
+    if not missing:
+        return
+
+    console.print("[red]Error:[/red] Missing API keys for selected models:")
+    for litellm_id, missing_provider in missing:
+        console.print(f"  - {missing_provider}: required for {litellm_id}")
+    # Rich console は `[api]` のような bracket を tag として解釈するので、開く側のみ `\[` で escape する。
+    console.print(
+        "\nConfigure the missing keys in config/lorairo.toml \\[api] section, "
+        "or pick a different route (e.g. `--model openai/...` instead of "
+        "`--model openrouter/openai/...`)."
+    )
+    raise typer.Exit(code=1)
+
+
 @app.command("run")
 def run(
     project: str = typer.Option(
@@ -305,19 +357,11 @@ def run(
         for deprecated_model in deprecated_models:
             console.print(f"[yellow]Warning: Model '{deprecated_model}' is deprecated[/yellow]")
 
-        # APIキー確認
-        api_keys = {
-            "openai": config.get_setting("api", "openai_key", ""),
-            "anthropic": config.get_setting("api", "claude_key", ""),
-            "google": config.get_setting("api", "google_key", ""),
-        }
-        api_keys = {k: v for k, v in api_keys.items() if v and v.strip()}
-
-        if not api_keys:
-            console.print(
-                "[yellow]Warning:[/yellow] No API keys configured. "
-                "Consider setting API keys in config/lorairo.toml"
-            )
+        # Issue #241: 実行直前に LoRAIro 側で API key 不足を事前検出する。
+        # 旧実装は「3 種類キー全部無いとき警告」だけで、片方の provider key だけ
+        # 設定されていて選択モデルがもう片方を要求する場合に library 内で
+        # MissingApiKeyError が出てから初めて失敗していた。
+        _validate_required_api_keys(repository, config, resolved_litellm_ids)
 
         # アノテーション実行
         console.print("[cyan]Starting annotation...[/cyan]")

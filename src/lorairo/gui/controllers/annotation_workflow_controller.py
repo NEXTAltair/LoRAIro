@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QMessageBox, QWidget
 
 from lorairo.gui.services.worker_service import WorkerService
 from lorairo.services.configuration_service import ConfigurationService
+from lorairo.services.model_route_service import validate_api_keys_for_models
 from lorairo.services.selection_state_service import SelectionStateService
 from lorairo.services.service_container import get_service_container
 
@@ -96,6 +97,13 @@ class AnnotationWorkflowController:
                 return
 
             if self._warn_deprecated_models(models_to_use) is False:
+                return
+
+            # Issue #241: 実行直前に API key 不足を検出する。
+            # 旧実装は WorkerService 内で library 呼び出し時に MissingApiKeyError が
+            # 出るまで失敗を検出できなかった。直接プロバイダー key のみ持つ環境で
+            # `openrouter/...` モデルを誤選択した場合などをここで止める。
+            if self._validate_api_keys_for_models(models_to_use) is False:
                 return
 
             # Step 4: バッチアノテーション開始
@@ -266,6 +274,59 @@ class AnnotationWorkflowController:
             QMessageBox.StandardButton.Ok,
         )
         return reply == QMessageBox.StandardButton.Ok
+
+    def _validate_api_keys_for_models(self, litellm_model_ids: list[str]) -> bool:
+        """Issue #241: 実行直前に API key 不足を検出し、不足時は QMessageBox.warning を表示。
+
+        ``selection_includes_webapi_model`` のような registry 経由判定とは異なり、
+        provider 単位の不足を ``(litellm_model_id, missing_provider)`` ペアで列挙する。
+        DB から ``Model.provider`` を hint として取得して判定精度を上げる。
+
+        Args:
+            litellm_model_ids: 実行直前に検証するモデルの ``litellm_model_id`` リスト。
+
+        Returns:
+            bool: 不足なしの場合 True、不足ありで abort する場合 False。
+        """
+        try:
+            api_keys = {
+                "openai": self.config_service.get_setting("api", "openai_key", ""),
+                "anthropic": self.config_service.get_setting("api", "claude_key", ""),
+                "google": self.config_service.get_setting("api", "google_key", ""),
+                "openrouter": self.config_service.get_setting("api", "openrouter_key", ""),
+            }
+
+            repository = get_service_container().image_repository
+            provider_hints: dict[str, str] = {}
+            for litellm_id in litellm_model_ids:
+                model = repository.get_model_by_litellm_id(litellm_id)
+                if model is not None and model.provider:
+                    provider_hints[litellm_id] = model.provider
+
+            missing = validate_api_keys_for_models(litellm_model_ids, api_keys, provider_hints)
+        except Exception as e:
+            logger.warning(f"API key validation 中にエラー発生、検証 skip して続行: {e}")
+            return True
+
+        if not missing:
+            return True
+
+        lines = "\n".join(f"  - {provider}: {litellm_id}" for litellm_id, provider in missing)
+        message = (
+            "選択されたモデルに必要な API キーが設定されていません。\n\n"
+            f"{lines}\n\n"
+            "config/lorairo.toml の [api] セクションに該当プロバイダーのキーを設定するか、"
+            "別の route のモデル (例: openrouter/... の代わりに直接プロバイダーのモデル) を選択してください。"
+        )
+        logger.warning(f"API key 不足 (実行中止): {missing}")
+
+        if self.parent is not None:
+            QMessageBox.warning(
+                self.parent,
+                "API キー未設定",
+                message,
+            )
+        return False
 
     def _start_batch_annotation(self, image_paths: list[str], litellm_model_ids: list[str]) -> None:
         """バッチアノテーション開始

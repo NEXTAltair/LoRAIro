@@ -202,7 +202,7 @@ class AnnotatorLibraryAdapter:
 
         Returns:
             dict[str, str]: APIキー辞書
-                - キー: プロバイダー名（"openai", "anthropic", "google"）
+                - キー: プロバイダー名（"openai", "anthropic", "google", "openrouter"）
                 - 値: APIキー文字列
 
         Note:
@@ -210,10 +210,12 @@ class AnnotatorLibraryAdapter:
             ログ出力時はマスキングされる。
         """
         # ConfigurationServiceから各プロバイダーのAPIキーを取得
+        # Issue #241: openrouter は同一モデルを別 route で扱うため独立した key として保持
         api_keys = {
             "openai": self.config_service.get_setting("api", "openai_key", ""),
             "anthropic": self.config_service.get_setting("api", "claude_key", ""),
             "google": self.config_service.get_setting("api", "google_key", ""),
+            "openrouter": self.config_service.get_setting("api", "openrouter_key", ""),
         }
 
         # 空のキーを除外（空文字列や空白のみの文字列を除く）

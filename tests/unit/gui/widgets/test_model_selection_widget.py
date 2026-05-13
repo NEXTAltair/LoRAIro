@@ -187,29 +187,36 @@ class TestModelSelectionWidgetLitellmIdKeying:
         return w, migration_route, new_sync_direct
 
     def test_get_selected_models_returns_litellm_ids(self, widget_with_dual_routes):
-        """選択結果は `Model.litellm_model_id` の値で返す (#245 のコア要件)"""
-        w, migration_route, new_sync_direct = widget_with_dual_routes
+        """選択結果は `Model.litellm_model_id` の値で返す (#245 のコア要件)。
 
-        # 両方選択
-        w.set_selected_models([migration_route.litellm_model_id, new_sync_direct.litellm_model_id])
+        Issue #241 で挙動が変化: 同一 canonical_key (``openai/gpt-4o``) を持つ
+        ``migration_route`` (OpenRouter, name 縮退) と ``new_sync_direct``
+        (OpenAI 直接版) は UI 上 1 行に畳まれ、preferred (= direct) のみ表示
+        される。それでも戻り値の semantic ``litellm_model_id`` ベースは維持される。
+        """
+        w, _migration_route, new_sync_direct = widget_with_dual_routes
 
-        selected = w.get_selected_models()
-        assert set(selected) == {
-            "openrouter/openai/gpt-4o",
-            "openai/gpt-4o",
-        }
-        # 旧バグでは `name` ベースだったため両者とも "openai/gpt-4o" になり、
-        # set にすると 1 要素に縮退してしまっていた。
-        assert len(selected) == 2
-
-    def test_set_selected_models_targets_specific_route(self, widget_with_dual_routes):
-        """`set_selected_models` は `litellm_model_id` で特定 route のみ選択できる"""
-        w, migration_route, _ = widget_with_dual_routes
-
-        w.set_selected_models([migration_route.litellm_model_id])
+        # Issue #241: 1 行に畳まれているので、preferred (direct) のみ選択可能
+        w.set_selected_models([new_sync_direct.litellm_model_id])
 
         selected = w.get_selected_models()
-        assert selected == [migration_route.litellm_model_id]
+        # litellm_model_id ベースで返る (Issue #245 SSoT)
+        # 旧バグでは `name` ベースだったため "openai/gpt-4o" に縮退していた。
+        assert selected == [new_sync_direct.litellm_model_id]
+
+    def test_set_selected_models_targets_preferred_route(self, widget_with_dual_routes):
+        """Issue #241: 1 行畳み込み環境で preferred route の litellm_id で選択できる。
+
+        旧テスト (Issue #245 単独時) は migration_route も独立行として表示・選択
+        可能だったが、Issue #241 で同一 canonical_key の 2 経路は preferred (direct)
+        の 1 行に集約される。alternatives は tooltip で確認できる。
+        """
+        w, _migration_route, new_sync_direct = widget_with_dual_routes
+
+        w.set_selected_models([new_sync_direct.litellm_model_id])
+
+        selected = w.get_selected_models()
+        assert selected == [new_sync_direct.litellm_model_id]
 
     def test_select_recommended_models_uses_litellm_id_match(self, widget_with_dual_routes):
         """推奨選択は litellm_model_id で一致判定する (name 同値でも誤マッチしない)"""
