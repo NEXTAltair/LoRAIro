@@ -112,6 +112,27 @@ class TestRequiredProviderFor:
         """大文字 provider hint は lowercase 正規化"""
         assert required_provider_for("openai/gpt-4o", "OpenAI") == "openai"
 
+    def test_namespaced_local_model_returns_local(self) -> None:
+        """Codex P2 (PR #248): namespaced ID を持つローカルモデルは local 扱い。
+
+        ``some/very/deep/local-tagger`` のように `/` を含むローカルモデル名でも、
+        最初のセグメント `some` が WebAPI whitelist にないため local 扱いになり、
+        validation で abort しない。
+        """
+        assert required_provider_for("some/very/deep/local-tagger", None) == "local"
+
+    def test_unknown_provider_prefix_returns_local(self) -> None:
+        """未知の provider prefix は defensive に local 扱い。
+
+        将来 lib が新 provider を追加して LoRAIro 側 whitelist が未更新でも、
+        library 側で `MissingApiKeyError` を出させる graceful degradation を選択。
+        """
+        assert required_provider_for("mistral/mistral-large", None) == "local"
+
+    def test_hint_with_unknown_provider_falls_back_to_local(self) -> None:
+        """``Model.provider`` が unknown / 未登録の場合も defensive に local 扱い"""
+        assert required_provider_for("some/local-model", "custom-namespace") == "local"
+
 
 @pytest.mark.unit
 class TestBuildAvailableProviders:
