@@ -16,6 +16,7 @@ LoRAIro 開発で得られた教訓。バグパターン・設計ミス・解決
 - **カバレッジ閾値は CI で検証しないと aspirational 値のまま**: `fail_under=75` が長期間 CI で未検証のまま放置され、実測 58% が顕在化（Issue #131 で coverage-gate 新設後に判明）。新しい閾値を設定する際は必ず PR で CI 実測値と同時に設定し、aspirational な値のまま設定だけして放置しないこと。
 - **デッドコードはカバレッジ分母を汚染して測定値を押し下げる**: Issue #138 で `src/` 本体から未参照の 9 モジュール / 3,957 LOC を削除して +17pt を達成。`grep` ベースの import graph 解析による定期的な dead code audit がカバレッジ改善に効果的（ADR 0016参照）。
 - **Qt 描画専用コードと torch/ML ライブラリは coverage から除外が合理的**: ADR-0016 でコアサービス層の omit を禁止しつつ、Qt 描画専用 GUI の `omit` 基準と image-annotator-lib の `source` 除外基準を確立。headless CI では torch 初期化が困難なため、ML バックエンドは `[tool.coverage.run] source` から除外して計測対象外にするのが正しい（Issue #135）。
+- **`sys.modules` ベースの lib mock を `tests/conftest.py` で行う場合、その lib の `tests/` を pytest `testpaths` に含めてはならない** (Issue #247, ADR 0024): `tests/conftest.py` がモジュールレベルで `sys.modules["image_annotator_lib"]` を `types.ModuleType` モックに差し替えていると、ルート pytest が `local_packages/image-annotator-lib/tests/` まで collection した瞬間に mock が lib 自身のテストに継承され、`parent_module = <MagicMock>` で `AttributeError: __spec__` が collection 時点で 29 件発生する。さらに submodule の同名テスト (`test_worker_service.py`) との basename 衝突も単一 pytest セッションでは `import file mismatch` になる。教訓: **conftest の責務境界 = pytest セッション境界 = package 境界を一致させる**。conftest mock を維持したまま、`testpaths = ["tests"]` に限定し local package のテストは package root の独立 pytest セッション (別 CI job / `make test-iam-lib` / `make test-genai-tag`) で実行する。条件分岐 conftest や `--ignore` 局所回避は根本解にならない。
 
 ## PySide6 / Qt
 

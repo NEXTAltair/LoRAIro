@@ -90,7 +90,7 @@ def mock_openai(monkeypatch):
 
 ### 基本コマンド
 ```bash
-# 全テスト実行
+# LoRAIro 本体テスト (testpaths = ["tests"], ADR 0024)
 uv run pytest
 
 # ユニットテストのみ
@@ -104,6 +104,23 @@ uv run pytest --cov=src --cov-report=html
 
 # 特定ファイル
 uv run pytest tests/unit/path/to/test_file.py
+```
+
+### local package テスト (独立 pytest セッション)
+
+ADR 0024 で pytest セッション境界 = package 境界に分離している。
+local package のテストはルート `uv run pytest` では実行されず、package root の
+独立した pytest セッションで起動する。
+
+```bash
+# image-annotator-lib (Python 3.12 制約)
+make test-iam-lib
+
+# genai-tag-db-tools
+make test-genai-tag
+
+# 3 セッションを順次実行 (単一 pytest invocation に混ぜない)
+make test-all
 ```
 
 ### GUI テスト環境

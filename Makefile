@@ -1,7 +1,7 @@
 # LoRAIro Project Makefile
 # Development task automation
 
-.PHONY: help test mypy format install install-dev clean run-gui generate-ui skills-update venv-rebuild
+.PHONY: help test test-iam-lib test-genai-tag test-all mypy format install install-dev clean run-gui generate-ui skills-update venv-rebuild
 
 # Default target
 help:
@@ -12,7 +12,10 @@ help:
 	@echo "  install-dev  Install development dependencies"
 	@echo "  run-gui      Run LoRAIro GUI application"
 	@echo "  generate-ui  Generate Python files from Qt Designer .ui files"
-	@echo "  test         Run tests"
+	@echo "  test         Run LoRAIro main tests only (uv run pytest, ADR 0024)"
+	@echo "  test-iam-lib Run image-annotator-lib tests in its package root"
+	@echo "  test-genai-tag Run genai-tag-db-tools tests in its package root"
+	@echo "  test-all     Run all 3 package test sessions sequentially"
 	@echo "  mypy         Run code check (mypy)"
 	@echo "  format       Format code (ruff format)"
 	@echo "  clean        Clean build artifacts"
@@ -37,8 +40,22 @@ generate-ui:
 	uv run python scripts/generate_ui.py
 
 test:
-	@echo "Running tests..."
+	@echo "Running LoRAIro main tests (testpaths=[\"tests\"], ADR 0024)..."
 	uv run pytest
+
+test-iam-lib:
+	@echo "Running image-annotator-lib tests in its package root..."
+	cd local_packages/image-annotator-lib && uv run pytest
+
+test-genai-tag:
+	@echo "Running genai-tag-db-tools tests in its package root..."
+	cd local_packages/genai-tag-db-tools && uv run pytest
+
+test-all:
+	@echo "Running all package test sessions sequentially (ADR 0024)..."
+	$(MAKE) test
+	$(MAKE) test-iam-lib
+	$(MAKE) test-genai-tag
 
 mypy:
 	@echo "Running mypy..."

@@ -18,13 +18,17 @@ NEVER proactively create documentation files (*.md) or README files. Only create
 
 **Examples:**
 ```bash
-# ✅ CORRECT: From project root
+# ✅ CORRECT: LoRAIro 本体テストはプロジェクトルートから
 cd /workspaces/LoRAIro
-uv run pytest local_packages/image-annotator-lib/tests/
+uv run pytest                                # tests/ のみ collection (ADR 0024)
 
-# ❌ WRONG: From local package directory (creates separate .venv)
+# ✅ CORRECT: local package テストは package root へ cd して同じ .venv で実行
+make test-iam-lib    # cd local_packages/image-annotator-lib && uv run pytest
+make test-genai-tag  # cd local_packages/genai-tag-db-tools  && uv run pytest
+
+# ❌ WRONG: local package 配下で `uv sync` すると別 .venv が作られる
 cd /workspaces/LoRAIro/local_packages/image-annotator-lib
-uv run pytest tests/
+uv sync                                      # ← 禁止
 ```
 
 **並列実行**: 複数の `uv run` を同時に走らせる場合は [.claude/rules/parallel-execution.md](.claude/rules/parallel-execution.md) を参照。`uv run --active` は Hook で自動ブロックされる。
@@ -52,12 +56,18 @@ make run-gui              # Alternative via Makefile
 ### Testing
 
 ```bash
+# LoRAIro 本体テストのみ (testpaths = ["tests"], ADR 0024)
 uv run pytest
 uv run pytest -m unit              # Unit tests only
 uv run pytest -m integration       # Integration tests only
 uv run pytest -m gui               # GUI tests (headless)
 uv run pytest -m bdd               # BDD tests (pytest-bdd)
 uv run pytest --cov=src --cov-report=xml
+
+# local package のテストは package root で独立した pytest セッション
+make test-iam-lib                  # image-annotator-lib (Python 3.12)
+make test-genai-tag                # genai-tag-db-tools
+make test-all                      # 3 セッションを順次実行
 ```
 
 ### Code Quality

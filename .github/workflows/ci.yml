@@ -100,13 +100,12 @@ jobs:
         run: uv run python scripts/generate_ui.py
 
       - name: Run unit tests
+        # LoRAIro 本体のみ (ADR 0024: pytest セッション境界 = package 境界)。
+        # local_packages の単体テストは別 job (test-genai-tag-db-tools / test-image-annotator-lib) で実行する。
         run: |
           uv run pytest tests/unit \
-            local_packages/genai-tag-db-tools/tests/ \
-            --ignore=local_packages/genai-tag-db-tools/tests/gui/unit/test_worker_service.py \
             -m "not gui_show and not real_api and not slow" \
             --cov=src \
-            --cov=local_packages/genai-tag-db-tools/src/genai_tag_db_tools \
             --cov-report=xml:coverage-unit.xml \
             --cov-report=term-missing \
             --cov-fail-under=0 \
@@ -164,11 +163,11 @@ jobs:
         run: uv run python scripts/generate_ui.py
 
       - name: Run integration tests
+        # LoRAIro 本体のみ (ADR 0024)。
         run: |
           uv run pytest tests/integration tests/bdd \
             -m "not gui_show and not real_api and not slow" \
             --cov=src \
-            --cov=local_packages/genai-tag-db-tools/src/genai_tag_db_tools \
             --cov-report=xml:coverage-integration.xml \
             --cov-report=term-missing \
             --cov-fail-under=0 \
@@ -190,8 +189,123 @@ jobs:
           path: .coverage
           include-hidden-files: true
 
+  test-genai-tag-db-tools:
+    name: genai-tag-db-tools Tests (Package Root)
+    # ADR 0024: pytest セッション境界 = package 境界。
+    # LoRAIro 本体 CI からは独立した pytest セッションで実行する。
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: local_packages/genai-tag-db-tools
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "local_packages/genai-tag-db-tools/pyproject.toml"
+
+      - name: Install Qt system dependencies
+        working-directory: ${{ github.workspace }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 libgl1-mesa-dri libegl1 \
+            libglib2.0-0 libxrender1 libxtst6 libxi6 libxrandr2 \
+            libxkbcommon0 libxkbcommon-x11-0 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xfixes0 \
+            libdbus-1-3 libgtk-3-0 \
+            fonts-noto-cjk
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Run genai-tag-db-tools tests
+        run: |
+          uv run pytest \
+            -m "not slow and not network" \
+            --cov=src \
+            --cov-report=xml:coverage-genai-tag-db-tools.xml \
+            --cov-report=term-missing \
+            --cov-fail-under=0 \
+            --timeout=120
+
+      - name: Upload coverage XML
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-genai-tag-db-tools
+          path: local_packages/genai-tag-db-tools/coverage-genai-tag-db-tools.xml
+
+  test-image-annotator-lib:
+    name: image-annotator-lib Tests (Package Root, Python 3.12)
+    # ADR 0024: pytest セッション境界 = package 境界。
+    # image-annotator-lib は requires-python = ">=3.12,<3.13" のため Python 3.12 で固定実行。
+    # 初期段階は fast/standard marker のみ。real_api / heavy / system_integration は除外。
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: local_packages/image-annotator-lib
+    env:
+      HF_HUB_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "local_packages/image-annotator-lib/pyproject.toml"
+
+      - name: Install Qt system dependencies
+        working-directory: ${{ github.workspace }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 libgl1-mesa-dri libegl1 \
+            libglib2.0-0 libxrender1 libxtst6 libxi6 libxrandr2 \
+            libxkbcommon0 libxkbcommon-x11-0 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xfixes0 \
+            libdbus-1-3 libgtk-3-0 \
+            fonts-noto-cjk
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Run image-annotator-lib tests
+        run: |
+          uv run pytest \
+            -m "not real_api and not heavy and not system_integration" \
+            --cov=image_annotator_lib \
+            --cov-report=xml:coverage-image-annotator-lib.xml \
+            --cov-report=term-missing \
+            --cov-fail-under=0 \
+            --timeout=300
+
+      - name: Upload coverage XML
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-image-annotator-lib
+          path: local_packages/image-annotator-lib/coverage-image-annotator-lib.xml
+
   coverage-gate:
-    name: Coverage Gate (Combined ≥ 75%)
+    name: Coverage Gate (LoRAIro Main ≥ 75%)
+    # ADR 0024: coverage gate は LoRAIro 本体のみを対象とする。
+    # local_packages の coverage は別 job artifact として保持し、ここでは combine しない。
     needs: [test-unit, test-integration]
     runs-on: ubuntu-latest
     steps:
