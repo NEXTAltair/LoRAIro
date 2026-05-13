@@ -46,22 +46,6 @@ _PROVIDER_ALIAS_MAP: dict[str, str] = {
     "vertex_ai": "google",
 }
 
-# 既知 WebAPI provider whitelist。
-# ローカル ML モデルでも namespaced な ID (例: ``some/very/deep/local-tagger``) を
-# 持ちうるため、prefix から無条件に provider を抽出すると "some" key を要求する誤判定
-# になる (Codex P2: PR #248 r3230850133)。whitelist に含まれる prefix のみ WebAPI
-# provider として扱い、それ以外は ``"local"`` に倒して validation を skip する。
-# 新しい WebAPI provider を追加するときは alias map (gemini -> google など) と
-# 併せてここに追記する。
-_WEBAPI_PROVIDERS: frozenset[str] = frozenset(
-    {
-        "openai",
-        "anthropic",
-        "google",
-        "openrouter",
-    }
-)
-
 
 def detect_route(litellm_model_id: str) -> Route:
     """litellm_model_id の prefix から route を判定。
@@ -94,45 +78,36 @@ def required_provider_for(litellm_model_id: str, provider_hint: str | None = Non
 
     解決順序:
         1. ``provider_hint`` (= ``Model.provider``) が信頼できる ``str`` なら採用
-           (ただし WebAPI provider whitelist または ``"local"`` のみ受け入れる)
-        2. fallback: ``litellm_model_id`` の最初のセグメントが WebAPI provider
-           whitelist に該当する場合のみ provider 名を返す
-        3. それ以外 (slash 無し bare 名 / 未知の namespaced ID) は ``"local"``
+        2. fallback: ``litellm_model_id`` の最初のセグメント
+        3. slash 無し (= bare 名、ローカル ML モデル) なら ``"local"``
 
-    Codex P2 (PR #248 r3230850133): ローカル ML モデルでも namespaced ID
-    (例: ``"some/very/deep/local-tagger"``) を持ちうる。prefix を無条件に
-    provider として採用すると、存在しない provider key を要求して validation
-    abort してしまうため、whitelist 照合で defensive に弾く。
+    image-annotator-lib の規約上、ローカル ML モデルの ID は bare 名 (slash 無し)
+    のみで、``provider/model`` 形式は LiteLLM 経由 WebAPI / OpenRouter 経路に
+    限られる。よって最初の slash セグメントは常に WebAPI provider 名として扱える。
 
     Args:
-        litellm_model_id: 例 ``"openrouter/openai/gpt-4o"`` /
-            ``"some/very/deep/local-tagger"``。
+        litellm_model_id: 例 ``"openrouter/openai/gpt-4o"``。
         provider_hint: ``Model.provider`` の値 (任意)。型契約は ``str | None`` だが、
             テストの Mock 経由で別型が紛れ込んでもクラッシュしないよう
             ``isinstance(str)`` ガードで防御的に弾く。
 
     Returns:
         provider 名。``"openrouter"`` / ``"openai"`` / ``"anthropic"`` /
-        ``"google"`` / ``"local"`` のいずれか。
+        ``"google"`` / ``"local"`` など。
     """
-    if isinstance(provider_hint, str) and provider_hint.strip():
-        p_normalized = provider_hint.strip().lower()
-        if p_normalized not in _UNKNOWN_PROVIDERS:
-            canonical = _PROVIDER_ALIAS_MAP.get(p_normalized, p_normalized)
-            # 既知 WebAPI provider または local のみ採用、それ以外は fallback へ
-            if canonical in _WEBAPI_PROVIDERS or canonical == _LOCAL_PROVIDER:
-                return canonical
+    if (
+        isinstance(provider_hint, str)
+        and provider_hint.strip()
+        and provider_hint.strip().lower() not in _UNKNOWN_PROVIDERS
+    ):
+        return provider_hint.strip().lower()
 
     head, sep, _ = litellm_model_id.partition("/")
     if sep == "":
         return _LOCAL_PROVIDER
 
     head_normalized = head.strip().lower()
-    canonical = _PROVIDER_ALIAS_MAP.get(head_normalized, head_normalized)
-    # 既知 WebAPI provider のみ採用、未知 prefix は local 扱い (namespaced local model 対応)
-    if canonical in _WEBAPI_PROVIDERS:
-        return canonical
-    return _LOCAL_PROVIDER
+    return _PROVIDER_ALIAS_MAP.get(head_normalized, head_normalized)
 
 
 @dataclass(frozen=True)
