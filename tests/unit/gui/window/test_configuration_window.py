@@ -168,14 +168,19 @@ class TestConfigurationWindow:
 class TestConfigurationWindowRoutePreference:
     """Issue #249: route_preference ComboBox の populate / collect / fallback。"""
 
-    def test_route_preference_combobox_populated_with_four_values(
+    def test_route_preference_combobox_populated_with_three_values(
         self, dialog: ConfigurationWindow
     ) -> None:
-        """ComboBox に auto/direct/openrouter/all の 4 値が並ぶ。"""
+        """ComboBox に auto/direct/openrouter の 3 値が並ぶ (Issue #249 PR #250 review)。
+
+        ``all`` は CLI 専用 (--route all)。GUI checkbox UI は preferred 1 行のみ
+        描画する設計と整合しないため、GUI dropdown には含めない。
+        """
         combo = dialog.findChild(QComboBox, "comboBoxRoutePreference")
         assert combo is not None
         items = [combo.itemText(i) for i in range(combo.count())]
-        assert items == ["auto", "direct", "openrouter", "all"]
+        assert items == ["auto", "direct", "openrouter"]
+        assert "all" not in items
 
     def test_route_preference_default_to_auto_when_section_missing(
         self, dialog: ConfigurationWindow
@@ -218,6 +223,30 @@ class TestConfigurationWindowRoutePreference:
         qtbot.addWidget(dlg)
         combo = dlg.findChild(QComboBox, "comboBoxRoutePreference")
         assert combo is not None
+        assert combo.currentText() == "auto"
+
+    def test_route_preference_all_config_falls_back_to_auto_in_gui(
+        self, qtbot, config_service: MagicMock
+    ) -> None:
+        """config に "all" がある場合、GUI ComboBox には項目が無いため auto fallback (PR #250 review)。
+
+        CLI 経路では "all" は valid だが、GUI dropdown には項目が無いため
+        ``findText("all") == -1`` で auto fallback。warning log が出ること自体は
+        loguru 経路で副作用、本テストでは ComboBox の最終状態のみ検証。
+        """
+        config_service.get_all_settings.return_value = {
+            "api": {},
+            "directories": {},
+            "log": {"level": "INFO"},
+            "image_processing": {"upscaler": "RealESRGAN_x4plus"},
+            "prompts": {"additional": ""},
+            "model_selection": {"route_preference": "all"},
+        }
+        dlg = ConfigurationWindow(config_service=config_service)
+        qtbot.addWidget(dlg)
+        combo = dlg.findChild(QComboBox, "comboBoxRoutePreference")
+        assert combo is not None
+        # GUI 上は auto として表示 (CLI 専用値のため)
         assert combo.currentText() == "auto"
 
     def test_collect_settings_includes_model_selection(self, dialog: ConfigurationWindow) -> None:

@@ -38,7 +38,9 @@ file_path = ""
 rotation = "25 MB"
 
 [model_selection]
-# Issue #249: モデル経路の優先設定 (auto | direct | openrouter | all)
+# Issue #249: モデル経路の優先設定。
+# auto | direct | openrouter (GUI 設定 dropdown で選択可)
+# all は CLI 専用: lorairo-cli models list --route all
 route_preference = "auto"
 
 [qt]

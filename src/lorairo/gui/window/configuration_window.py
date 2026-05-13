@@ -27,8 +27,12 @@ from ..widgets.directory_picker import DirectoryPickerWidget
 
 # ログレベル選択肢
 _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
-# Issue #249: モデル経路の優先設定値域 (RoutePreference Literal と完全一致)
-_ROUTE_PREFERENCES = ["auto", "direct", "openrouter", "all"]
+# Issue #249: モデル経路の優先設定値域 (GUI 公開分)。
+# "all" は CLI 専用 (--route all): 同一モデルの全 candidate を 1 行ずつ展開する用途で、
+# GUI checkbox UI では preferred のみ描画する設計と整合しないため、GUI dropdown からは除外。
+# CLI 経路 (--route all) と config 手動編集 ("all") の値は parse_route_preference で
+# 受理し続けるが、GUI から保存できる値は auto / direct / openrouter のみ。
+_ROUTE_PREFERENCES = ["auto", "direct", "openrouter"]
 
 
 class ConfigurationWindow(QDialog):
@@ -172,8 +176,8 @@ class ConfigurationWindow(QDialog):
         self._combo_box_route_preference.addItems(_ROUTE_PREFERENCES)
         self._combo_box_route_preference.setToolTip(
             "モデル経路の優先設定。auto: API key 状況に応じて direct を優先 / "
-            "direct: 直接プロバイダー経路のみ / openrouter: OpenRouter 経由のみ / "
-            "all: 全 route を表示"
+            "direct: 直接プロバイダー経路のみ / openrouter: OpenRouter 経由のみ。"
+            "全 route 一覧表示は CLI 専用 (lorairo-cli models list --route all)。"
         )
         model_layout.addRow("経路の優先設定:", self._combo_box_route_preference)
 
@@ -229,12 +233,23 @@ class ConfigurationWindow(QDialog):
         if idx >= 0:
             self._combo_box_upscaler.setCurrentIndex(idx)
 
-        # モデル選択設定 (Issue #249): 不正値・None・空文字は parse_route_preference で auto fallback
+        # モデル選択設定 (Issue #249): 不正値・None・空文字は parse_route_preference で auto fallback。
+        # "all" は CLI 専用のため GUI ComboBox には項目が無い → findText が -1 を返す。
+        # その場合 auto にフォールバックして警告ログを残す (silently overwrite を避けるための明示通知)。
         model_selection = config.get("model_selection", {})
         normalized_preference = parse_route_preference(model_selection.get("route_preference"))
         idx = self._combo_box_route_preference.findText(normalized_preference)
         if idx >= 0:
             self._combo_box_route_preference.setCurrentIndex(idx)
+        else:
+            logger.warning(
+                "route_preference=%r は GUI 設定では選択できないため auto にフォールバック表示します "
+                "(OK 押下時に auto で上書き保存)。CLI でのみ利用する場合は GUI で変更しないでください。",
+                normalized_preference,
+            )
+            auto_idx = self._combo_box_route_preference.findText("auto")
+            if auto_idx >= 0:
+                self._combo_box_route_preference.setCurrentIndex(auto_idx)
 
         # プロンプト設定
         prompts = config.get("prompts", {})
