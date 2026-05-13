@@ -392,7 +392,14 @@ def test_annotate_run_no_api_keys(
     mock_get_container,
     test_project_with_images: tuple[Path, list[Path]],
 ) -> None:
-    """Test: annotate run - APIキーなし（WARNINGメッセージ確認）。"""
+    """Test: annotate run - APIキー不足検出で実行中止 (Issue #241)。
+
+    Issue #241 で挙動が変更: 旧仕様は「全 key 空でも警告のみ + 続行」だったが、
+    library 内で MissingApiKeyError が出てから初めて失敗していた。新仕様では
+    LoRAIro 側で事前に provider 別の不足を検出し ``typer.Exit(1)`` で abort する。
+    """
+    from types import SimpleNamespace
+
     _project_dir, image_files = test_project_with_images
 
     # ServiceContainer をモック
@@ -403,12 +410,17 @@ def test_annotate_run_no_api_keys(
     # APIキーなし（空文字列）
     mock_config.get_setting.return_value = ""
 
-    # アノテーション結果をモック
-    mock_annotator.annotate.return_value = {
-        "hash1": {"tags": ["tag1"]},
-        "hash2": {"tags": ["tag2"]},
-        "hash3": {"tags": ["tag3"]},
-    }
+    # Issue #241: _resolve_model_identifier と _validate_required_api_keys は
+    # repository.get_model_by_litellm_id() の結果から Model.provider を hint として
+    # 引く。MagicMock の default は MagicMock を返すため、Model 互換 fake (str provider)
+    # を明示的に渡して validation 経路が安定動作するようにする。
+    mock_container.image_repository.get_model_by_litellm_id.return_value = SimpleNamespace(
+        litellm_model_id="openai/gpt-4o-mini",
+        name="gpt-4o-mini",
+        provider="openai",
+    )
+
+    mock_annotator.annotate.return_value = {}
 
     image_records = [
         {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
@@ -427,13 +439,14 @@ def test_annotate_run_no_api_keys(
             "--project",
             "test_dataset",
             "--model",
-            "gpt-4o-mini",
+            "openai/gpt-4o-mini",
         ],
     )
 
-    assert result.exit_code == 0
-    # WARNING メッセージが含まれるか確認
-    assert "Warning" in result.stdout and "API keys" in result.stdout
+    # Issue #241: 不足検出で exit 1 + Missing API keys メッセージ
+    assert result.exit_code == 1
+    assert "Missing API keys" in result.stdout
+    assert "openai" in result.stdout
 
 
 @pytest.mark.unit

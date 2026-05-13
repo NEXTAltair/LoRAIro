@@ -273,6 +273,50 @@ class TestModelCheckboxWidget:
         """モデル情報取得テスト"""
         assert widget_openai.get_model_info() == openai_model_info
 
+    # --- Issue #241: route badge / alternative tooltip ---
+
+    def test_route_badge_shown_for_openrouter_route(self, qtbot):
+        """preferred route が openrouter の場合、ラベル末尾に [openrouter] badge"""
+        info = ModelInfo(
+            name="claude-3-5-sonnet",
+            provider="openrouter",
+            capabilities=["caption"],
+            litellm_model_id="openrouter/anthropic/claude-3-5-sonnet",
+            is_local=False,
+            requires_api_key=True,
+            route="openrouter",
+        )
+        widget = ModelCheckboxWidget(info)
+        qtbot.addWidget(widget)
+        assert "[openrouter]" in widget.labelModelName.text()
+
+    def test_route_badge_absent_for_direct_route(self, widget_openai):
+        """direct route はラベルに badge が付かない (Issue #245 の表記を維持)"""
+        assert "[openrouter]" not in widget_openai.labelModelName.text()
+        assert "[direct]" not in widget_openai.labelModelName.text()
+
+    def test_alternative_tooltip_lists_alternatives(self, qtbot):
+        """alternatives がある場合、tooltip に Alternative 行が追加される"""
+        info = ModelInfo(
+            name="claude-3-5-sonnet",
+            provider="anthropic",
+            capabilities=["caption"],
+            litellm_model_id="anthropic/claude-3-5-sonnet-20241022",
+            is_local=False,
+            requires_api_key=True,
+            route="direct",
+            alternatives=("openrouter/anthropic/claude-3-5-sonnet-20241022",),
+        )
+        widget = ModelCheckboxWidget(info)
+        qtbot.addWidget(widget)
+        tooltip = widget.labelModelName.toolTip()
+        assert "anthropic/claude-3-5-sonnet-20241022" in tooltip
+        assert "Alternative: openrouter/anthropic/claude-3-5-sonnet-20241022" in tooltip
+
+    def test_tooltip_without_alternatives_is_just_litellm_id(self, widget_openai):
+        """alternatives が空の場合、tooltip は litellm_model_id のみ"""
+        assert widget_openai.labelModelName.toolTip() == "openai/gpt-4-vision-preview"
+
 
 class TestProviderStylesConstant:
     """PROVIDER_STYLES定数のテスト"""

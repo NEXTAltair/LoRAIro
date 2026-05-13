@@ -34,6 +34,7 @@ DEFAULT_CONFIG = {
         "openai_key": "",
         "claude_key": "",
         "google_key": "",
+        "openrouter_key": "",
     },
     "directories": {
         "database_dir": "",  # 空文字列 = 自動生成 (日付+連番プロジェクト)

@@ -300,6 +300,145 @@ def test_models_list_empty_registry_returns_zero(mock_get_container) -> None:
     assert "0 model(s)" in result.stdout
 
 
+# --- Issue #241: --route option / route 畳み込み ---
+
+
+def _make_duplicate_route_infos() -> list[_FakeAnnotatorInfo]:
+    """同一 canonical_key (gpt-4o) を direct / openrouter 2 経路で持つテスト用 infos。"""
+    return [
+        _FakeAnnotatorInfo(
+            name="gpt-4o",
+            model_type="vision",
+            is_local=False,
+            is_api=True,
+            provider="openai",
+            litellm_model_id="openai/gpt-4o",
+        ),
+        _FakeAnnotatorInfo(
+            name="gpt-4o",
+            model_type="vision",
+            is_local=False,
+            is_api=True,
+            provider="openrouter",
+            litellm_model_id="openrouter/openai/gpt-4o",
+        ),
+    ]
+
+
+def _api_key_lookup(keys: dict[str, str]):
+    """ConfigurationService.get_setting 互換 side_effect (api section のみ反応)。"""
+
+    def _lookup(section: str, key: str, default: str = "") -> str:
+        if section != "api":
+            return default
+        return keys.get(key, default)
+
+    return _lookup
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.models.get_service_container")
+def test_models_list_route_auto_collapses_duplicate_to_direct(mock_get_container) -> None:
+    """--route auto: openai key 設定済み環境では direct route のみ表示 (1 行畳み込み)"""
+    mock_container = MagicMock()
+    mock_container.annotator_library.list_annotator_info.return_value = _make_duplicate_route_infos()
+    mock_container.annotator_library.is_model_deprecated.return_value = False
+    mock_container.config_service.get_setting.side_effect = _api_key_lookup({"openai_key": "sk-openai"})
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["models", "list"])  # default --route=auto
+
+    assert result.exit_code == 0
+    # 2 経路あったが auto で 1 行に畳まれる
+    assert "1 model(s)" in result.stdout
+    assert "preference=auto" in result.stdout
+    # direct route が選ばれた (Route 列)
+    assert "direct" in result.stdout
+    assert "openai/gpt-4o" in result.stdout
+    # openrouter route の litellm_id は表示されない
+    assert "openrouter/openai/gpt-4o" not in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.models.get_service_container")
+def test_models_list_route_auto_falls_back_to_openrouter_when_only_openrouter_key(
+    mock_get_container,
+) -> None:
+    """openrouter key のみ設定環境では openrouter route が preferred になる"""
+    mock_container = MagicMock()
+    mock_container.annotator_library.list_annotator_info.return_value = _make_duplicate_route_infos()
+    mock_container.annotator_library.is_model_deprecated.return_value = False
+    mock_container.config_service.get_setting.side_effect = _api_key_lookup({"openrouter_key": "sk-or-x"})
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["models", "list"])
+
+    assert result.exit_code == 0
+    assert "1 model(s)" in result.stdout
+    # openrouter route が選ばれる
+    assert "openrouter/openai/gpt-4o" in result.stdout
+    assert "openrouter" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.models.get_service_container")
+def test_models_list_route_all_expands_both_routes(mock_get_container) -> None:
+    """--route all は各 candidate を 1 行ずつ展開する"""
+    mock_container = MagicMock()
+    mock_container.annotator_library.list_annotator_info.return_value = _make_duplicate_route_infos()
+    mock_container.annotator_library.is_model_deprecated.return_value = False
+    mock_container.config_service.get_setting.side_effect = _api_key_lookup({})
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["models", "list", "--route", "all"])
+
+    assert result.exit_code == 0
+    assert "2 model(s)" in result.stdout
+    assert "preference=all" in result.stdout
+    assert "openai/gpt-4o" in result.stdout
+    assert "openrouter/openai/gpt-4o" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.models.get_service_container")
+def test_models_list_route_direct_filters_to_direct_only(mock_get_container) -> None:
+    """--route direct は direct route のみ表示"""
+    mock_container = MagicMock()
+    mock_container.annotator_library.list_annotator_info.return_value = _make_duplicate_route_infos()
+    mock_container.annotator_library.is_model_deprecated.return_value = False
+    mock_container.config_service.get_setting.side_effect = _api_key_lookup({})
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["models", "list", "--route", "direct"])
+
+    assert result.exit_code == 0
+    assert "1 model(s)" in result.stdout
+    assert "openai/gpt-4o" in result.stdout
+    assert "openrouter/openai/gpt-4o" not in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.models.get_service_container")
+def test_models_list_route_openrouter_filters_to_openrouter_only(mock_get_container) -> None:
+    """--route openrouter は openrouter route のみ表示"""
+    mock_container = MagicMock()
+    mock_container.annotator_library.list_annotator_info.return_value = _make_duplicate_route_infos()
+    mock_container.annotator_library.is_model_deprecated.return_value = False
+    mock_container.config_service.get_setting.side_effect = _api_key_lookup({})
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["models", "list", "--route", "openrouter"])
+
+    assert result.exit_code == 0
+    assert "1 model(s)" in result.stdout
+    assert "openrouter/openai/gpt-4o" in result.stdout
+
+
 @pytest.mark.unit
 @pytest.mark.cli
 @patch("lorairo.cli.commands.models.get_service_container")

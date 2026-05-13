@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from ..database.db_repository import ImageRepository
 from ..database.schema import Model
 from ..utils.log import logger
+from .model_route_service import DisplayModelOption, RoutePreference, build_display_options
 
 
 @dataclass
@@ -159,6 +160,42 @@ class ModelSelectionService:
                 groups[provider] = []
             groups[provider].append(model)
         return groups
+
+    def load_grouped_models(
+        self,
+        criteria: ModelSelectionCriteria | None = None,
+        route_preference: RoutePreference = "auto",
+        available_providers: set[str] | None = None,
+    ) -> list[DisplayModelOption]:
+        """Issue #241: フィルタ後の Model を canonical_key で畳んで 1 モデル 1 行に。
+
+        既存 ``load_models()`` / ``filter_models()`` の結果に対し、
+        ``model_route_service.build_display_options()`` を適用して
+        direct / openrouter 経路を ``DisplayModelOption`` に集約する。
+
+        Args:
+            criteria: 既存のフィルタ条件 (provider / capabilities など)。
+            route_preference: ``"auto"`` / ``"direct"`` / ``"openrouter"`` / ``"all"``。
+            available_providers: API key 設定済み provider 集合。None の場合は
+                「全 provider が available」として扱い、route 畳み込みのみ行う
+                (CLI でテスト時など key 状況を考慮しないケース用)。
+
+        Returns:
+            DisplayModelOption リスト (display_name 昇順ソート済み)。
+            ``route_preference="all"`` 時は alternatives に残り全 candidate が
+            含まれるので、caller は ``option.all_candidates`` で展開する。
+        """
+        self.load_models()  # _all_models のキャッシュを populate
+        filtered = self.filter_models(criteria)
+        options = build_display_options(filtered, available_providers, route_preference)
+        logger.debug(
+            "load_grouped_models: filtered=%d, options=%d, preference=%s, available=%s",
+            len(filtered),
+            len(options),
+            route_preference,
+            sorted(available_providers) if available_providers else None,
+        )
+        return options
 
     # create_model_tooltip メソッド削除 - Widgetに移動
 

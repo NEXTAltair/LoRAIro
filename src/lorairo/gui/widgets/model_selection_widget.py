@@ -27,6 +27,11 @@ else:
     # 通常実行時は相対インポート使用
     from ...gui.designer.ModelSelectionWidget_ui import Ui_ModelSelectionWidget
     from ...services import get_service_container
+    from ...services.model_route_service import (
+        DisplayModelOption,
+        build_available_providers,
+        build_display_options,
+    )
     from ...services.model_selection_service import ModelSelectionCriteria, ModelSelectionService
     from ...utils.log import logger
     from .model_checkbox_widget import ModelCheckboxWidget, ModelInfo
@@ -114,6 +119,8 @@ if not __name__ == "__main__":
             # データ管理
             self.all_models: list[Model] = []
             self.filtered_models: list[Model] = []
+            # Issue #241: 表示用 view model (route 畳み込み済み)
+            self.filtered_options: list[DisplayModelOption] = []
             self.model_checkbox_widgets: dict[str, ModelCheckboxWidget] = {}
             self._refresh_thread: QThread | None = None
             self._refresh_worker: _ModelRefreshWorker | None = None
@@ -287,23 +294,32 @@ if not __name__ == "__main__":
             self.update_model_display()
 
         def update_model_display(self) -> None:
-            """モデル表示更新"""
+            """モデル表示更新 (Issue #241: route 畳み込み済み view model 経由)。"""
             # 現在の表示をクリア
             self._clear_model_display()
 
-            # フィルタリング実行
+            available_providers = self._build_available_providers()
+
+            # フィルタリング実行 -> DisplayModelOption 群を構築
             if self.mode == "simple":
                 try:
                     recommended_models = self.model_selection_service.get_recommended_models()
-                    self.filtered_models = recommended_models
                 except Exception as e:
                     logger.error(f"Failed to get recommended models: {e}")
-                    self.filtered_models = [m for m in self.all_models if m.is_recommended]
+                    recommended_models = [m for m in self.all_models if m.is_recommended]
+                options = build_display_options(
+                    recommended_models,
+                    available_providers=available_providers,
+                    preference="auto",
+                )
             else:
-                self.filtered_models = self._apply_advanced_filters()
+                options = self._apply_advanced_filters(available_providers)
+
+            self.filtered_options = options
+            self.filtered_models = [opt.preferred.model for opt in options]
 
             # フィルタされたモデルがない場合
-            if not self.filtered_models:
+            if not options:
                 self.placeholderLabel.setVisible(True)
                 self._update_selection_count()
                 return
@@ -311,17 +327,33 @@ if not __name__ == "__main__":
             # プレースホルダーを非表示
             self.placeholderLabel.setVisible(False)
 
-            # プロバイダー別にグループ化して表示
-            provider_groups = self._group_models_by_provider()
+            # プロバイダー別にグループ化して表示 (preferred の表示プロバイダー基準)
+            provider_groups = self._group_options_by_provider(options)
 
-            for provider, models in provider_groups.items():
-                if models:
-                    self._add_provider_group(provider, models)
+            for provider, group_options in provider_groups.items():
+                if group_options:
+                    self._add_provider_group(provider, group_options)
 
             self._update_selection_count()
 
-        def _apply_advanced_filters(self) -> list[Model]:
-            """詳細モード用フィルタリング"""
+        def _build_available_providers(self) -> set[str]:
+            """config から API key 設定済み provider 集合を構築 (Issue #241)。"""
+            try:
+                container = get_service_container()
+                config = container.config_service
+                api_keys = {
+                    "openai": config.get_setting("api", "openai_key", ""),
+                    "anthropic": config.get_setting("api", "claude_key", ""),
+                    "google": config.get_setting("api", "google_key", ""),
+                    "openrouter": config.get_setting("api", "openrouter_key", ""),
+                }
+                return build_available_providers(api_keys)
+            except Exception as e:
+                logger.warning(f"API key 状態取得に失敗 (auto route 選択 fallback): {e}")
+                return set()
+
+        def _apply_advanced_filters(self, available_providers: set[str]) -> list[DisplayModelOption]:
+            """詳細モード用フィルタリング (Issue #241: route 畳み込み済み view model を返す)"""
             try:
                 criteria = ModelSelectionCriteria(
                     provider=self.current_provider_filter
@@ -335,13 +367,24 @@ if not __name__ == "__main__":
                     execution_env=self.current_execution_env,
                 )
 
-                filtered = self.model_selection_service.filter_models(criteria)
-                logger.debug(f"Applied advanced filters: {len(self.all_models)} -> {len(filtered)} models")
-                return filtered
+                options = self.model_selection_service.load_grouped_models(
+                    criteria,
+                    route_preference="auto",
+                    available_providers=available_providers,
+                )
+                logger.debug(
+                    f"Applied advanced filters: {len(self.all_models)} models -> {len(options)} options"
+                )
+                return options
 
             except Exception as e:
                 logger.error(f"Advanced filtering error: {e}")
-                return self._apply_basic_filters()
+                fallback_models = self._apply_basic_filters()
+                return build_display_options(
+                    fallback_models,
+                    available_providers=available_providers,
+                    preference="auto",
+                )
 
         def _apply_basic_filters(self) -> list[Model]:
             """基本フィルタリング（フォールバック用）"""
@@ -363,18 +406,22 @@ if not __name__ == "__main__":
 
             return filtered
 
-        def _group_models_by_provider(self) -> dict[str, list[Model]]:
-            """プロバイダー別にモデルをグループ化"""
-            groups: dict[str, list[Model]] = {}
-            for model in self.filtered_models:
-                provider = model.provider or "local"
-                if provider not in groups:
-                    groups[provider] = []
-                groups[provider].append(model)
+        def _group_options_by_provider(
+            self, options: list[DisplayModelOption]
+        ) -> dict[str, list[DisplayModelOption]]:
+            """Issue #241: DisplayModelOption を preferred の表示 provider 別にグループ化。
+
+            表示用 provider は ``preferred.model.provider`` を使う (UI ラベル
+            "OpenAI Models" などの分類軸として既存の表示挙動を維持)。
+            """
+            groups: dict[str, list[DisplayModelOption]] = {}
+            for option in options:
+                provider = option.preferred.model.provider or "local"
+                groups.setdefault(provider, []).append(option)
             return groups
 
-        def _add_provider_group(self, provider: str, models: list[Model]) -> None:
-            """プロバイダーグループをUIに追加"""
+        def _add_provider_group(self, provider: str, options: list[DisplayModelOption]) -> None:
+            """プロバイダーグループをUIに追加 (Issue #241: DisplayModelOption 経由)"""
             # プロバイダーラベル
             provider_icons = {"openai": "🤖", "anthropic": "🧠", "google": "🌟", "local": "💻"}
             icon = provider_icons.get(provider.lower(), "🔧")
@@ -386,35 +433,40 @@ if not __name__ == "__main__":
             self.dynamicContentLayout.addWidget(provider_label)
 
             # ModelCheckboxWidget作成と追加
-            # Issue #245: dict key は model.litellm_model_id (UNIQUE registry key)。
+            # Issue #245 / #241: dict key は preferred.litellm_model_id (UNIQUE registry key)。
             # 旧実装は model.name をキーにしていたが、Phase 1.11 migration 経由の
             # OpenRouter 行は name が縮退 (`openai/gpt-4o`) して新規 sync 経路の
             # 直接版と衝突するため、ルーティングキーである litellm_model_id を使う。
-            for model in models:
-                model_info = self._convert_model_to_info(model)
+            for option in options:
+                model_info = self._convert_option_to_info(option)
                 checkbox_widget = ModelCheckboxWidget(model_info)
 
                 # シグナル接続
                 checkbox_widget.selection_changed.connect(self._on_model_selection_changed)
 
-                self.model_checkbox_widgets[model.litellm_model_id] = checkbox_widget
+                self.model_checkbox_widgets[option.preferred.litellm_model_id] = checkbox_widget
                 self.dynamicContentLayout.addWidget(checkbox_widget)
 
             # レイアウト再計算（フィルタリング後のウィジェットサイズ安定化）
             self.dynamicContentLayout.invalidate()
 
-        def _convert_model_to_info(self, model: Model) -> ModelInfo:
-            """Database Model を ModelInfo に変換
+        def _convert_option_to_info(self, option: DisplayModelOption) -> ModelInfo:
+            """Issue #241: DisplayModelOption (route 畳み込み済み) を ModelInfo に変換。
 
-            Issue #245: 表示名 (`name`) と内部キー (`litellm_model_id`) を分離する。
+            表示名は ``preferred.model.name``、内部キーは ``preferred.litellm_model_id``。
+            ``route`` / ``alternatives`` を ModelInfo に伝搬し、UI で badge と
+            tooltip を構築する。
             """
+            model = option.preferred.model
             return ModelInfo(
                 name=model.name,
                 provider=model.provider or "local",
-                capabilities=model.capabilities,
-                litellm_model_id=model.litellm_model_id,
+                capabilities=list(option.capabilities),
+                litellm_model_id=option.preferred.litellm_model_id,
                 is_local=not model.requires_api_key,
                 requires_api_key=model.requires_api_key,
+                route=option.preferred.route,
+                alternatives=tuple(c.litellm_model_id for c in option.alternatives),
             )
 
         def _clear_model_display(self) -> None:

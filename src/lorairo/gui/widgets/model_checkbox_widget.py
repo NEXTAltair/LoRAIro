@@ -11,7 +11,7 @@ ModelSelectionWidgetから分離された機能を提供
 - 機能タグの表示
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import QWidget
@@ -28,6 +28,11 @@ class ModelInfo:
     `litellm_model_id` は registry/route 判別キー (`Model.litellm_model_id`、UNIQUE)。
     同 `name` で `provider` が異なる行 (migration 経由 OpenRouter vs 新規 sync 直接版)
     が共存しうるため、内部キーは `litellm_model_id` を使うこと。
+
+    Issue #241: 同一モデルが direct / openrouter 経路で別エントリ登録される
+    仕様 (image-annotator-lib #39 / #51 / #52) に対し、UI 表示は preferred route の
+    1 行に畳む。``route`` は preferred の経路 ("direct" / "openrouter")、
+    ``alternatives`` は同一 canonical key の代替 route の litellm_model_id 群。
     """
 
     name: str
@@ -36,6 +41,8 @@ class ModelInfo:
     litellm_model_id: str
     is_local: bool = False
     requires_api_key: bool = True
+    route: str = "direct"
+    alternatives: tuple[str, ...] = field(default_factory=tuple)
 
 
 # プロバイダー別スタイル定義（PySide6パレット機能でダークモード自動対応）
@@ -118,11 +125,23 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
         共存しうる (migration 経由 OpenRouter vs 新規 sync 直接版)。視覚的に
         区別できるよう、ラベル末尾に `(provider)` を併記し、tooltip に正規
         ルーティングキー `litellm_model_id` を載せる。
+
+        Issue #241: 同一モデルの 2 経路を 1 行に畳んだ後、preferred が OpenRouter
+        経由の場合は ``[openrouter]`` badge をラベルに付与し、tooltip に
+        ``Alternative: <litellm_id>`` 行を追加して代替 route を提示する。
         """
         try:
-            # モデル名設定 (provider 併記で同 name 異 route 行を区別)
-            self.labelModelName.setText(f"{self.model_info.name} ({self.model_info.provider})")
-            self.labelModelName.setToolTip(self.model_info.litellm_model_id)
+            # モデル名設定 (provider 併記 + Issue #241: openrouter 経路の場合は badge)
+            base_label = f"{self.model_info.name} ({self.model_info.provider})"
+            if self.model_info.route == "openrouter":
+                base_label = f"{base_label} [openrouter]"
+            self.labelModelName.setText(base_label)
+
+            # tooltip: litellm_model_id + alternatives
+            tooltip_lines = [self.model_info.litellm_model_id]
+            for alt_id in self.model_info.alternatives:
+                tooltip_lines.append(f"Alternative: {alt_id}")
+            self.labelModelName.setToolTip("\n".join(tooltip_lines))
 
             # プロバイダー表示設定
             provider_display = "ローカル" if self.model_info.is_local else self.model_info.provider.title()
