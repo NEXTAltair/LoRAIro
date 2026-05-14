@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [manifest]
-overrides = [{ name = "triton", marker = "sys_platform != 'linux'" }]
+excludes = ["triton"]
 
 [[package]]
 name = "absl-py"
@@ -4513,7 +4513,6 @@ dependencies = [
     { name = "nvidia-nvshmem-cu13", marker = "sys_platform == 'linux'" },
     { name = "setuptools" },
     { name = "sympy" },
-    { name = "triton", marker = "sys_platform != 'linux'" },
     { name = "typing-extensions" },
 ]
 wheels = [
@@ -4580,11 +4579,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/e7/e6/4134ea2fbea322cdd
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fc/b1/8be7e7ef0b5200491312201918b6125ef9c9df9dd0f0240ccef9ac824e6b/transformers-5.8.1-py3-none-any.whl", hash = "sha256:5340fb95962162cdfdae5cc91d7f8fedd92ed75216c1154c5e1f590fcf56dd0e", size = 10632882, upload-time = "2026-05-13T03:21:52.876Z" },
 ]
-
-[[package]]
-name = "triton"
-version = "3.7.0"
-source = { registry = "https://pypi.org/simple" }
 
 [[package]]
 name = "typer"
