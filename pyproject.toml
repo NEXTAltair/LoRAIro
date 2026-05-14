@@ -71,6 +71,22 @@ lorairo-cli = "lorairo.cli.main:main"
 "Homepage" = "https://github.com/NEXTAltair/lorairo"
 "Bug Tracker" = "https://github.com/NEXTAltair/lorairo/issues"
 
+[tool.uv]
+# `exclude-dependencies` は古い uv では unknown key として silent ignore される。
+# 古い uv で lock を再生成すると triton 除外が効かず SIGSEGV が再発するため、
+# 本機能の動作を確認した uv 0.11.6 以上を要求して silent regression を防ぐ。
+required-version = ">=0.11.6"
+
+# image-annotator-lib#59: Linux + CUDA driver 不在 + triton 存在で
+# `import image_annotator_lib` 経由 torch._dynamo 経路が SIGSEGV する。
+# torch が transitive で要求する triton を resolution から完全除外することで
+# どの OS でも triton が install されないようにする。
+# - Windows / macOS は元から triton wheel が無く、挙動不変
+# - Linux は本除外で triton 不在となり SIGSEGV 経路 (has_triton_package=False) を回避
+# LoRAIro は torch.compile / torch._dynamo を使っていないため機能影響なし
+# (本 PR の Phase 1 で grep 確認済)。
+exclude-dependencies = ["triton"]
+
 [[tool.uv.index]]
 name = "pytorch"
 url = "https://download.pytorch.org/whl/cu130"
