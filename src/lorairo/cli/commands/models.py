@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
 
 import typer
@@ -167,11 +168,13 @@ def list_models(
         )
 
         # Issue #241: canonical_key で grouping し、--route preference に従って絞り込む。
-        display_rows = _apply_route_filter(rows, route, available_providers)
+        display_rows_pre_unavailable = _apply_route_filter(rows, route, available_providers)
 
         # Issue #249: --show-unavailable 未指定時は available 行のみに絞る。
         if not show_unavailable:
-            display_rows = [r for r in display_rows if r.get("available", True)]
+            display_rows = [r for r in display_rows_pre_unavailable if r.get("available", True)]
+        else:
+            display_rows = display_rows_pre_unavailable
 
         # 長いモデル名 (例: "vercel_ai_gateway/openai/o1") で固定幅未指定のままだと
         # Rich Table が Type/Category/Status を 0 幅に collapse させて Issue #220 の
@@ -214,6 +217,26 @@ def list_models(
             f"[dim]{len(display_rows)} model(s) "
             f"(preference={route.value} from {preference_source}{unavailable_suffix})[/dim]"
         )
+
+        # Issue #253: silent 0 件問題の切り分けのため DEBUG 診断を出し、
+        # 0 件のときは原因に応じた hint を画面に表示する。
+        _log_models_list_diagnostic(
+            container=container,
+            api_keys=api_keys,
+            available_providers=available_providers,
+            infos=infos,
+            rows_count=len(rows),
+            display_rows_pre_unavailable_count=len(display_rows_pre_unavailable),
+            display_rows_count=len(display_rows),
+            route=route,
+            preference_source=preference_source,
+        )
+        if not display_rows:
+            _emit_zero_count_hint(
+                console=console,
+                api_keys_configured=bool(available_providers),
+                show_unavailable=show_unavailable,
+            )
     except Exception as e:
         console.print(f"[red]Error:[/red] Failed to list models: {e}")
         logger.error(f"Model list command failed: {e}", exc_info=True)
@@ -350,3 +373,111 @@ def _pick_row_for_route(
     if openrouter is not None and str(openrouter["required_provider"]) in available_providers:
         return openrouter
     return direct or openrouter
+
+
+def _resolve_active_config_path(container: Any) -> str:
+    """Issue #253: 実際に読まれている config file の absolute path を返す。
+
+    ``ConfigurationService.__init__`` は ``config_path`` 引数を ``self._config_path``
+    に保持している。本番経路は引数なしで ``DEFAULT_CONFIG_PATH`` 固定だが、テストの
+    ``MagicMock`` 等で属性が無い場合は ``DEFAULT_CONFIG_PATH`` への直 fallback で
+    ``<default: ...>`` ラベル付き表示にする (実 path とは限らないことを明示する)。
+    """
+    config_service = container.config_service
+    config_path = getattr(config_service, "_config_path", None)
+    if config_path is not None:
+        try:
+            return str(Path(config_path).resolve())
+        except (OSError, TypeError):
+            pass
+    try:
+        from lorairo.utils.config import DEFAULT_CONFIG_PATH
+
+        return f"<default: {DEFAULT_CONFIG_PATH.resolve()}>"
+    except ImportError:
+        return "<unknown>"
+
+
+def _log_models_list_diagnostic(
+    *,
+    container: Any,
+    api_keys: dict[str, str],
+    available_providers: set[str],
+    infos: list[Any],
+    rows_count: int,
+    display_rows_pre_unavailable_count: int,
+    display_rows_count: int,
+    route: RouteFilter,
+    preference_source: str,
+) -> None:
+    """Issue #253: ``models list`` の切り分け用 DEBUG diagnostic を 1 行で出す。
+
+    key 値は出さず ``*_loaded`` boolean のみ。
+    ``--log-level DEBUG`` 起動時のみ表示。
+    """
+    config_path = _resolve_active_config_path(container)
+    api_key_status = {
+        "openai_key_loaded": bool(api_keys.get("openai") and api_keys["openai"].strip()),
+        "claude_key_loaded": bool(api_keys.get("anthropic") and api_keys["anthropic"].strip()),
+        "google_key_loaded": bool(api_keys.get("google") and api_keys["google"].strip()),
+        "openrouter_key_loaded": bool(api_keys.get("openrouter") and api_keys["openrouter"].strip()),
+    }
+    is_api_count = sum(1 for i in infos if getattr(i, "is_api", False))
+    is_local_count = sum(1 for i in infos if getattr(i, "is_local", False))
+    logger.debug(
+        f"models list diagnostic: "
+        f"config_path={config_path}, "
+        f"api_key_status={api_key_status}, "
+        f"available_providers={sorted(available_providers) or 'NONE'}, "
+        f"total_infos={len(infos)}, "
+        f"is_api_count={is_api_count}, is_local_count={is_local_count}, "
+        f"rows_after_type_filter={rows_count}, "
+        f"rows_after_route_filter={display_rows_pre_unavailable_count}, "
+        f"rows_after_show_unavailable_filter={display_rows_count}, "
+        f"preference={route.value} from {preference_source}"
+    )
+
+
+def _emit_zero_count_hint(
+    *,
+    console: Console,
+    api_keys_configured: bool,
+    show_unavailable: bool,
+) -> None:
+    """Issue #253: 0 件表示時に原因と次の手を提示する hint。
+
+    ADR 0020 英日併記 (英 1 行目 / 日 2 行目)。Rich ``[yellow]`` スタイル、
+    exit code は 0 維持。``--log-level DEBUG`` 案内は含めず 2 行に収める。
+    """
+    if not api_keys_configured and not show_unavailable:
+        # シナリオ A: API key が 1 つも読み込まれていない (未設定 or 読まれていない)
+        console.print(
+            "[yellow]Hint: No API keys were loaded from config. "
+            "Either no keys are set, or the config file is not being read. "
+            "Pass --show-unavailable to list all registered models regardless.[/yellow]"
+        )
+        console.print(
+            "[yellow]ヒント: config から API キーを 1 つも読み込めませんでした。"
+            "未設定か、config ファイルが読まれていない可能性があります。"
+            "--show-unavailable で登録済みの全モデルを表示できます。[/yellow]"
+        )
+    elif not show_unavailable:
+        # シナリオ B: API key は読み込めているが filter で全件消えた
+        console.print(
+            "[yellow]Hint: No models matched the current filters. "
+            "Try --show-unavailable, --type all, or --route all.[/yellow]"
+        )
+        console.print(
+            "[yellow]ヒント: 現在のフィルタ条件に一致するモデルがありません。"
+            "--show-unavailable / --type all / --route all を試してください。[/yellow]"
+        )
+    else:
+        # シナリオ C: --show-unavailable 付きでも 0 件 = registry 自体が空
+        console.print(
+            "[yellow]Hint: No entries in the registry match --type/--category. "
+            "Run 'lorairo-cli models refresh' to update the model registry.[/yellow]"
+        )
+        console.print(
+            "[yellow]ヒント: --type / --category 条件に一致するモデルが registry に"
+            "ありません。'lorairo-cli models refresh' で registry を更新してください。[/yellow]"
+        )

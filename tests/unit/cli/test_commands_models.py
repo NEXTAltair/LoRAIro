@@ -616,3 +616,103 @@ def test_models_list_long_model_names_keep_columns_visible(mock_get_container) -
     # ローカルモデルは常に available なため active (webapi は disabled で表示される)
     assert "active" in result.stdout
     assert "2 model(s)" in result.stdout
+
+
+# --- Issue #253: 0 件 hint + DEBUG diagnostic ---
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.models.get_service_container")
+def test_models_list_zero_count_hint_when_no_api_keys_loaded(mock_get_container) -> None:
+    """Issue #253 シナリオ A: API key 全空 + show_unavailable 無で 0 件 → 中立 hint を出す."""
+    mock_container = MagicMock()
+    mock_container.annotator_library.list_annotator_info.return_value = _make_duplicate_route_infos()
+    mock_container.annotator_library.is_model_deprecated.return_value = False
+    mock_container.config_service.get_setting.side_effect = _api_key_lookup({})
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["models", "list", "--type", "webapi", "--route", "auto"])
+
+    assert result.exit_code == 0
+    assert "0 model(s)" in result.stdout
+    # 中立的な文言: "No API keys are configured" のような断定ではない
+    assert "No API keys were loaded from config" in result.stdout
+    assert "--show-unavailable" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.models.get_service_container")
+def test_models_list_zero_count_hint_when_filters_eliminate_all(mock_get_container) -> None:
+    """Issue #253 シナリオ B: API key 設定済みだが filter で 0 件 → 'No models matched' hint."""
+    # ローカルモデルのみ。--type webapi で 0 件
+    mock_container = MagicMock()
+    mock_container.annotator_library.list_annotator_info.return_value = [
+        _FakeAnnotatorInfo(
+            name="wd-v1-4-tagger", model_type="tagger", is_local=True, is_api=False, device="cuda"
+        ),
+    ]
+    mock_container.annotator_library.is_model_deprecated.return_value = False
+    mock_container.config_service.get_setting.side_effect = _api_key_lookup({"openai_key": "sk-openai"})
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["models", "list", "--type", "webapi"])
+
+    assert result.exit_code == 0
+    assert "0 model(s)" in result.stdout
+    assert "No models matched the current filters" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.models.get_service_container")
+def test_models_list_zero_count_hint_with_show_unavailable_empty_registry(mock_get_container) -> None:
+    """Issue #253 シナリオ C: show_unavailable=True でも 0 件 → 'No entries in registry' hint."""
+    mock_container = MagicMock()
+    mock_container.annotator_library.list_annotator_info.return_value = []
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["models", "list", "--show-unavailable"])
+
+    assert result.exit_code == 0
+    assert "0 model(s)" in result.stdout
+    assert "No entries in the registry" in result.stdout
+    assert "models refresh" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.models.get_service_container")
+def test_models_list_diagnostic_log_includes_config_and_key_status(mock_get_container) -> None:
+    """Issue #253: DEBUG diagnostic に config_path + per-provider key loaded 状況が含まれる.
+
+    loguru sink を StringIO に追加して capture する (conftest にブリッジ helper が
+    無いため、本 test 内で自己完結する方式を採用)。
+    """
+    from io import StringIO
+
+    from loguru import logger as loguru_logger
+
+    mock_container = MagicMock()
+    mock_container.annotator_library.list_annotator_info.return_value = _make_duplicate_route_infos()
+    mock_container.annotator_library.is_model_deprecated.return_value = False
+    mock_container.config_service.get_setting.side_effect = _api_key_lookup({"openai_key": "sk-openai"})
+    # MagicMock では _config_path が無いので DEFAULT_CONFIG_PATH fallback (<default: ...>) になる前提
+    mock_get_container.return_value = mock_container
+
+    buffer = StringIO()
+    handler_id = loguru_logger.add(buffer, format="{message}", level="DEBUG")
+    try:
+        result = runner.invoke(app, ["models", "list", "--show-unavailable"])
+    finally:
+        loguru_logger.remove(handler_id)
+
+    assert result.exit_code == 0
+    log_output = buffer.getvalue()
+    assert "models list diagnostic" in log_output
+    assert "config_path=" in log_output
+    assert "openai_key_loaded': True" in log_output or "openai_key_loaded=True" in log_output
+    assert "claude_key_loaded': False" in log_output or "claude_key_loaded=False" in log_output
+    # key 値そのものは出ていないこと (security 要件)
+    assert "sk-openai" not in log_output
