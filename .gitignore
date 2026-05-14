@@ -29,9 +29,6 @@ venv/
 env/
 ENV/
 
-# 依存関係管理
-uv.lock
-
 # テスト関連
 .pytest_cache/
 .coverage
@@ -128,9 +125,8 @@ dev_config/
 .claude/skills/
 .claude/settings.local.json
 
-# システム固有
+# システム固有 (uv.lock は ADR 0025 で tracked。広域 *.lock glob は使わない)
 *.pid
-*.lock
 
 # 開発用ツール（サードパーティ）
 data/

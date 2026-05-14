@@ -18,13 +18,20 @@ NEVER proactively create documentation files (*.md) or README files. Only create
 
 **Examples:**
 ```bash
-# ✅ CORRECT: From project root
+# ✅ CORRECT: LoRAIro 本体テストはプロジェクトルートから
 cd /workspaces/LoRAIro
-uv run pytest local_packages/image-annotator-lib/tests/
+uv run pytest                                # tests/ のみ collection (ADR 0024)
 
-# ❌ WRONG: From local package directory (creates separate .venv)
-cd /workspaces/LoRAIro/local_packages/image-annotator-lib
-uv run pytest tests/
+# ✅ CORRECT: local package テストは package root への cd 経由で独立 venv に隔離
+#   (ADR 0024: package ごとに独立 .venv が作られるが、make チェーン順次実行 +
+#    CI runner 隔離で Issue #222 の並列 drift は再発しない)
+make test-iam-lib    # cd local_packages/image-annotator-lib && uv run pytest
+make test-genai-tag  # cd local_packages/genai-tag-db-tools  && uv run pytest
+
+# ❌ WRONG: 並列で複数 package の `uv sync` を同時実行 (Issue #222 の温床)
+(cd local_packages/image-annotator-lib && uv sync) &
+(cd local_packages/genai-tag-db-tools  && uv sync) &
+wait
 ```
 
 **並列実行**: 複数の `uv run` を同時に走らせる場合は [.claude/rules/parallel-execution.md](.claude/rules/parallel-execution.md) を参照。`uv run --active` は Hook で自動ブロックされる。
@@ -52,12 +59,18 @@ make run-gui              # Alternative via Makefile
 ### Testing
 
 ```bash
+# LoRAIro 本体テストのみ (testpaths = ["tests"], ADR 0024)
 uv run pytest
 uv run pytest -m unit              # Unit tests only
 uv run pytest -m integration       # Integration tests only
 uv run pytest -m gui               # GUI tests (headless)
 uv run pytest -m bdd               # BDD tests (pytest-bdd)
 uv run pytest --cov=src --cov-report=xml
+
+# local package のテストは package root で独立した pytest セッション
+make test-iam-lib                  # image-annotator-lib (Python 3.12)
+make test-genai-tag                # genai-tag-db-tools
+make test-all                      # 3 セッションを順次実行
 ```
 
 ### Code Quality
@@ -137,6 +150,8 @@ make clean                 # Remove build artifacts and caches
 **Database:** Alembic migrations in `src/lorairo/database/migrations/`
 
 **Logging:** Loguru. INFO: batch summaries only. DEBUG: per-item details. See `.claude/rules/logging.md`
+
+**Dependency management:** `uv.lock` is tracked in git (ADR 0025, uv 公式推奨). Commit lockfile alongside `pyproject.toml` / submodule pin updates.
 
 ## Problem-Solving Approach
 

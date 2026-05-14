@@ -136,11 +136,12 @@ pythonpath = [
     "local_packages/image-annotator-lib/src",
     "local_packages/genai-tag-db-tools/src",
 ] # テストするコードのディレクトリ
-testpaths = [
-    "tests",
-    "local_packages/image-annotator-lib/tests",
-    "local_packages/genai-tag-db-tools/tests",
-]
+# pytest セッション境界は LoRAIro 本体テストのみに固定する (Issue #247, ADR 0024)。
+# local_packages/*/tests は各 package の root で独立した pytest セッションで実行する:
+#   cd local_packages/image-annotator-lib && uv run pytest
+#   cd local_packages/genai-tag-db-tools  && uv run pytest
+# (詳細は Makefile の test-iam-lib / test-genai-tag / test-all 参照)
+testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -183,12 +184,13 @@ markers = [
 
 
 [tool.coverage.run]
-source = [
-    "src",
-    "local_packages/genai-tag-db-tools/src/genai_tag_db_tools",
-    # image-annotator-lib は tests/conftest.py でモジュールレベルにモック化されているため
-    # CI では 0% となり計測対象から除外する（torch/ML モデルは headless CI でテスト不可）
-]
+# coverage 計測対象は LoRAIro 本体のみ。
+# local_packages は別 pytest セッション (別 CI job) で独立 coverage を計測する
+# (ADR 0024: pytest セッション境界 = coverage 境界 = package 境界)。
+# - image-annotator-lib は tests/conftest.py でモジュールレベルにモック化されているため
+#   本体セッションでは 0% となり計測対象外。lib 自身の CI job で計測する。
+# - genai-tag-db-tools も別 job で独立 coverage 計測 (ADR 0016 を ADR 0024 が更新)。
+source = ["src"]
 omit = [
     "*/shibokensupport/*",
     "*/site-packages/*",
