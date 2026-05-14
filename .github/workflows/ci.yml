@@ -291,13 +291,9 @@ jobs:
         run: uv sync --dev
 
       - name: Run image-annotator-lib tests
-        # --deselect: image-annotator-lib#57 (test_toriigate_tagger_format_with_assistant_prefix
-        # が _format_predictions の戻り値型変更に追従していない既存バグ) を暫定回避。
-        # lib 側修正 + submodule pin 更新後に撤去する。
         run: |
           uv run pytest \
             -m "not real_api and not heavy and not system_integration" \
-            --deselect tests/unit/model_class/test_tagger_transformers.py::test_toriigate_tagger_format_with_assistant_prefix \
             --cov=image_annotator_lib \
             --cov-report=xml:coverage-image-annotator-lib.xml \
             --cov-report=term-missing \
