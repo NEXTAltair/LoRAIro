@@ -151,6 +151,8 @@ make clean                 # Remove build artifacts and caches
 
 **Logging:** Loguru. INFO: batch summaries only. DEBUG: per-item details. See `.claude/rules/logging.md`
 
+**Dependency management:** `uv.lock` is tracked in git (ADR 0025, uv 公式推奨). Commit lockfile alongside `pyproject.toml` / submodule pin updates.
+
 ## Problem-Solving Approach
 
 **Design Principles:** YAGNI, Readability First, Single Responsibility
