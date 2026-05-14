@@ -71,6 +71,18 @@ lorairo-cli = "lorairo.cli.main:main"
 "Homepage" = "https://github.com/NEXTAltair/lorairo"
 "Bug Tracker" = "https://github.com/NEXTAltair/lorairo/issues"
 
+[tool.uv]
+# image-annotator-lib#59: Linux + CUDA driver 不在 + triton 存在で
+# `import image_annotator_lib` 経由 torch._dynamo 経路が SIGSEGV する。
+# torch wheel が宣言する `Requires-Dist: triton ; sys_platform == 'linux'` を
+# 逆転 marker で上書きして、Linux でも triton を install しないようにする。
+# Windows / macOS では元から triton wheel が無く、挙動不変。
+# LoRAIro は torch.compile / torch._dynamo を使っていないため機能影響なし
+# (本 PR の Phase 1 で grep 確認済)。
+override-dependencies = [
+    "triton ; sys_platform != 'linux'",
+]
+
 [[tool.uv.index]]
 name = "pytorch"
 url = "https://download.pytorch.org/whl/cu130"
