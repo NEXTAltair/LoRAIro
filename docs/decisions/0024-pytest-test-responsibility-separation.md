@@ -87,6 +87,7 @@ Issue #247 で、ルート `/workspaces/LoRAIro` から引数なしの `uv run p
 - Python 3.12/3.13 二系統管理が必要 (lib CI のみ Python 3.12)。将来 lib を 3.13 対応にする別 Issue が必要。
 - ローカル開発者は「全テスト確認 = `make test-all`」と「本体だけ = `make test`」の使い分けを意識する必要がある。Makefile help と CLAUDE.md でガイドする。
 - `local_packages/genai-tag-db-tools` は submodule のため、CI checkout で `submodules: recursive` を明示する必要がある (既に lint / typecheck / test-unit / test-integration は対応済み)。
+- **`make test-iam-lib` / `make test-genai-tag` は package 配下に独立 `.venv` を作成する** (Codex P2 r3236152479): `cd <pkg> && uv run pytest` は uv project resolution により package の `pyproject.toml` を root とみなし、独立 `.venv` を作る。これは Issue #222 で問題になった「並列 uv sync による `.venv` 破損」とは異なる順次実行パターン (`make` チェーン + CI runner 隔離) のため drift は再発しないが、ディスク容量と初回 install 時間が増える。`pytest-timeout` 等の各 package の dev deps を尊重するために独立 venv は妥当な代償。完全な single-venv 化を行うには (a) lib の missing dev deps (pytest-clarity / pytest-mock 等) を LoRAIro root の `[dependency-groups] dev` に統合、(b) image-annotator-lib の collection で torch/torchvision が即時ロードされる問題 (lazy import 化) を解決、の 2 点が必要であり、本 ADR の scope を超える別 Issue 候補。
 
 ### 運用ルール
 
@@ -100,6 +101,7 @@ Issue #247 で、ルート `/workspaces/LoRAIro` から引数なしの `uv run p
 - **Issue**: #247 (uv run pytest 全 testpaths 実行が collection error で停止する)
 - **更新する ADR**: 0016 (Coverage Threshold Policy) — `genai-tag-db-tools` の `source` 包含判断を更新
 - **前提となる ADR**: 0016 (`image-annotator-lib` の `source` 除外判断)
+- **関連 PR review**: PR #251 Codex P2 r3236152479 — multi-venv 懸念。順次実行前提 + CI runner 隔離で本 ADR では WontFix、完全 single-venv 化は別 Issue 候補。
 - **関連ファイル**:
   - `pyproject.toml` (`testpaths` / `coverage.run.source`)
   - `Makefile` (`test` / `test-iam-lib` / `test-genai-tag` / `test-all`)

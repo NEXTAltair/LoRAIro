@@ -22,13 +22,16 @@ NEVER proactively create documentation files (*.md) or README files. Only create
 cd /workspaces/LoRAIro
 uv run pytest                                # tests/ のみ collection (ADR 0024)
 
-# ✅ CORRECT: local package テストは package root へ cd して同じ .venv で実行
+# ✅ CORRECT: local package テストは package root への cd 経由で独立 venv に隔離
+#   (ADR 0024: package ごとに独立 .venv が作られるが、make チェーン順次実行 +
+#    CI runner 隔離で Issue #222 の並列 drift は再発しない)
 make test-iam-lib    # cd local_packages/image-annotator-lib && uv run pytest
 make test-genai-tag  # cd local_packages/genai-tag-db-tools  && uv run pytest
 
-# ❌ WRONG: local package 配下で `uv sync` すると別 .venv が作られる
-cd /workspaces/LoRAIro/local_packages/image-annotator-lib
-uv sync                                      # ← 禁止
+# ❌ WRONG: 並列で複数 package の `uv sync` を同時実行 (Issue #222 の温床)
+(cd local_packages/image-annotator-lib && uv sync) &
+(cd local_packages/genai-tag-db-tools  && uv sync) &
+wait
 ```
 
 **並列実行**: 複数の `uv run` を同時に走らせる場合は [.claude/rules/parallel-execution.md](.claude/rules/parallel-execution.md) を参照。`uv run --active` は Hook で自動ブロックされる。

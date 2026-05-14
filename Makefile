@@ -43,12 +43,18 @@ test:
 	@echo "Running LoRAIro main tests (testpaths=[\"tests\"], ADR 0024)..."
 	uv run pytest
 
+# NOTE (ADR 0024 / Codex P2 r3236152479): `cd <pkg> && uv run pytest` は uv が
+# パッケージ配下に独立した `.venv` を作成する (e.g. `local_packages/image-annotator-lib/.venv`)。
+# これは Issue #222 の「並列 uv sync で `.venv` 破損」と異なる順次実行パターンであり、
+# `test-all` は `$(MAKE)` チェーンで順次実行・CI は runner 隔離されているため
+# multi-venv drift は再発しない。完全な single-venv 化は image-annotator-lib の
+# torch lazy import 等を要するため別 Issue 候補。
 test-iam-lib:
-	@echo "Running image-annotator-lib tests in its package root..."
+	@echo "Running image-annotator-lib tests (creates local_packages/image-annotator-lib/.venv)..."
 	cd local_packages/image-annotator-lib && uv run pytest
 
 test-genai-tag:
-	@echo "Running genai-tag-db-tools tests in its package root..."
+	@echo "Running genai-tag-db-tools tests (creates local_packages/genai-tag-db-tools/.venv)..."
 	cd local_packages/genai-tag-db-tools && uv run pytest
 
 test-all:
