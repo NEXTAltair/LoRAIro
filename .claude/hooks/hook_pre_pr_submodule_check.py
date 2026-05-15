@@ -78,19 +78,29 @@ def get_submodule_changes() -> list[str]:
             log_debug(f"git diff failed: {result.stderr[:200]}")
             return []
         changed = result.stdout.strip().split("\n")
-        # local_packages/<pkg>/ 配下の変更のみ抽出
-        return [f for f in changed if f.startswith("local_packages/") and "/" in f[len("local_packages/") :]]
+        # submodule pin 更新は gitlink path (例: "local_packages/image-annotator-lib") として
+        # 単一 entry で記録される。package 内ファイル変更は "local_packages/<pkg>/<file>" 形式。
+        # 両ケースを accept する (codex review #3247949569 で gitlink ケースが drop される P1 bug を検出)。
+        return [
+            f for f in changed
+            if f.startswith("local_packages/") and f != "local_packages/" and f != "local_packages"
+        ]
     except (subprocess.TimeoutExpired, OSError) as e:
         log_debug(f"git diff exception: {e}")
         return []
 
 
 def identify_affected_packages(changes: list[str], packages: dict[str, Any]) -> set[str]:
-    """変更パスから影響を受ける package path を特定"""
+    """変更パスから影響を受ける package path を特定。
+
+    マッチ条件 (false positive 回避のため厳密):
+    - path == pkg_path (submodule pin 更新の gitlink path)
+    - path.startswith(pkg_path + "/") (package 内ファイル変更)
+    """
     affected: set[str] = set()
     for path in changes:
         for pkg_path in packages:
-            if path.startswith(pkg_path):
+            if path == pkg_path or path.startswith(pkg_path + "/"):
                 affected.add(pkg_path)
     return affected
 
