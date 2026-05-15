@@ -250,3 +250,167 @@ def test_ensure_stdout_utf8_handles_missing_reconfigure(monkeypatch: pytest.Monk
 
     # 例外で落ちないこと (reconfigure 不在をハンドル)
     _ensure_stdout_utf8()
+
+
+# --- Issue #254 (reopen): Windows console code page 切替 ---
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_ensure_stdout_utf8_skips_console_cp_on_linux(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #254: 非 Windows 環境では console code page 切替を呼ばない。"""
+    import sys
+
+    import lorairo.cli.main as cli_main
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    called: list[None] = []
+    monkeypatch.setattr(cli_main, "_set_windows_console_utf8", lambda: called.append(None))
+
+    cli_main._ensure_stdout_utf8()
+
+    assert called == []
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_ensure_stdout_utf8_invokes_console_cp_on_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #254: Windows 環境では console code page 切替が呼ばれる。"""
+    import sys
+
+    import lorairo.cli.main as cli_main
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    called: list[None] = []
+    monkeypatch.setattr(cli_main, "_set_windows_console_utf8", lambda: called.append(None))
+
+    cli_main._ensure_stdout_utf8()
+
+    assert called == [None]
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_set_windows_console_utf8_calls_set_console_output_cp(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #254: cp932 console で SetConsoleOutputCP(65001) と SetConsoleCP(65001) が呼ばれる。"""
+    import ctypes
+    import sys
+
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    kernel32 = MagicMock()
+    kernel32.GetConsoleOutputCP.return_value = 932
+    kernel32.GetConsoleCP.return_value = 932
+    kernel32.SetConsoleOutputCP.return_value = 1  # 成功 (non-zero)
+
+    windll = MagicMock()
+    windll.kernel32 = kernel32
+    monkeypatch.setattr(ctypes, "windll", windll, raising=False)
+
+    registered: list = []
+    monkeypatch.setattr("atexit.register", lambda f: registered.append(f))
+
+    from lorairo.cli.main import _set_windows_console_utf8
+
+    _set_windows_console_utf8()
+
+    kernel32.SetConsoleOutputCP.assert_called_once_with(65001)
+    kernel32.SetConsoleCP.assert_called_once_with(65001)
+    assert len(registered) == 1  # 復元 callback が atexit に登録される
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_set_windows_console_utf8_noop_when_already_utf8(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #254: 既に code page 65001 の console では SetConsoleOutputCP を呼ばない。"""
+    import ctypes
+    import sys
+
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    kernel32 = MagicMock()
+    kernel32.GetConsoleOutputCP.return_value = 65001
+    kernel32.GetConsoleCP.return_value = 65001
+
+    windll = MagicMock()
+    windll.kernel32 = kernel32
+    monkeypatch.setattr(ctypes, "windll", windll, raising=False)
+
+    registered: list = []
+    monkeypatch.setattr("atexit.register", lambda f: registered.append(f))
+
+    from lorairo.cli.main import _set_windows_console_utf8
+
+    _set_windows_console_utf8()
+
+    kernel32.SetConsoleOutputCP.assert_not_called()
+    kernel32.SetConsoleCP.assert_not_called()
+    assert registered == []
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_set_windows_console_utf8_skips_on_set_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #254: SetConsoleOutputCP が 0 (失敗) を返す場合は atexit 復元を登録しない。"""
+    import ctypes
+    import sys
+
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    kernel32 = MagicMock()
+    kernel32.GetConsoleOutputCP.return_value = 932
+    kernel32.GetConsoleCP.return_value = 932
+    kernel32.SetConsoleOutputCP.return_value = 0  # 失敗 (console 不在等)
+
+    windll = MagicMock()
+    windll.kernel32 = kernel32
+    monkeypatch.setattr(ctypes, "windll", windll, raising=False)
+
+    registered: list = []
+    monkeypatch.setattr("atexit.register", lambda f: registered.append(f))
+
+    from lorairo.cli.main import _set_windows_console_utf8
+
+    _set_windows_console_utf8()
+
+    kernel32.SetConsoleOutputCP.assert_called_once_with(65001)
+    kernel32.SetConsoleCP.assert_not_called()  # output 失敗時は input も呼ばない
+    assert registered == []  # 復元 callback も登録しない
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_set_windows_console_utf8_restores_original_on_exit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #254: atexit hook が元の code page を SetConsoleOutputCP / SetConsoleCP で復元する。"""
+    import ctypes
+    import sys
+
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    kernel32 = MagicMock()
+    kernel32.GetConsoleOutputCP.return_value = 932
+    kernel32.GetConsoleCP.return_value = 850  # 異なる initial CP
+    kernel32.SetConsoleOutputCP.return_value = 1
+
+    windll = MagicMock()
+    windll.kernel32 = kernel32
+    monkeypatch.setattr(ctypes, "windll", windll, raising=False)
+
+    registered: list = []
+    monkeypatch.setattr("atexit.register", lambda f: registered.append(f))
+
+    from lorairo.cli.main import _set_windows_console_utf8
+
+    _set_windows_console_utf8()
+
+    # 切替直後: SetConsoleOutputCP(65001), SetConsoleCP(65001)
+    assert kernel32.SetConsoleOutputCP.call_args_list == [((65001,),)]
+    assert kernel32.SetConsoleCP.call_args_list == [((65001,),)]
+
+    # 登録された atexit callback を実行 → 元の code page に戻る
+    assert len(registered) == 1
+    registered[0]()
+
+    # SetConsoleOutputCP / SetConsoleCP の最終呼び出しが original
+    kernel32.SetConsoleOutputCP.assert_called_with(932)
+    kernel32.SetConsoleCP.assert_called_with(850)

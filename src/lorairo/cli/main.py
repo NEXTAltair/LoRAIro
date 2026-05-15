@@ -115,15 +115,18 @@ def status() -> None:
 
 
 def _ensure_stdout_utf8() -> None:
-    """Issue #254: Windows cp932 等の非 UTF-8 環境で stdout/stderr を UTF-8 に切り替える。
+    """Issue #254: cp932 環境で stdout/stderr UTF-8 化 + Windows console code page 切替。
 
-    ``✓`` (U+2713) / ``✗`` (U+2717) 等の cp932 で encode 不能な文字を CLI 出力に
-    含む際 ``UnicodeEncodeError`` で起動失敗するのを防ぐ。Python 3.7+ の
-    ``io.TextIOWrapper.reconfigure`` を使う。
+    2 段階対策:
 
-    既に UTF-8 環境 (Linux / macOS / Windows Terminal の標準) では no-op。
-    cmd.exe 等のレガシー Windows ターミナルでは ``errors="replace"`` で encode 不能
-    文字を ``?`` に置換し、CLI 起動失敗より優先する。
+    1. Python ``sys.stdout`` / ``sys.stderr`` の ``TextIOWrapper`` を UTF-8 に
+       reconfigure し ``UnicodeEncodeError`` 例外を防ぐ。
+    2. Windows console output/input code page を 65001 (UTF-8) に切り替え、
+       Python が UTF-8 bytes を console に書き込んだ際に active code page (cp932 等)
+       として bytes が解釈されて mojibake する問題を防ぐ。
+
+    Step 2 は ``sys.platform == "win32"`` でのみ実行。atexit で元の code page を
+    復元し parent shell の状態を変更しない。
 
     Rich ``Console`` は ``sys.stdout`` を出力時に lazy 参照するため、module-level
     で生成済の Console 群に対しても本関数を ``main()`` 冒頭で呼べば反映される。
@@ -139,6 +142,53 @@ def _ensure_stdout_utf8() -> None:
             # 想定外の stream 種別 (pytest capture 等) は skip
             continue
         reconfigure(encoding="utf-8", errors="replace")
+
+    if sys.platform == "win32":
+        _set_windows_console_utf8()
+
+
+def _set_windows_console_utf8() -> None:
+    """Issue #254: Windows console output/input code page を UTF-8 (65001) に切替。
+
+    cp932 等の非 UTF-8 active code page で Python が UTF-8 bytes を console に
+    書き込むと、bytes が active code page として解釈され mojibake する。Win32
+    ``SetConsoleOutputCP`` / ``SetConsoleCP`` を ctypes 経由で呼び、console 自体の
+    code page を UTF-8 に切り替えてこれを解消する。
+
+    atexit で元の code page を復元することで、parent shell (PowerShell / cmd.exe) の
+    code page 状態を CLI 終了後も変更しないようにする。
+
+    Should be called only when ``sys.platform == "win32"``. console 不在 (redirect 中等)
+    で ``SetConsoleOutputCP`` が失敗した場合は silent skip し、本来の出力経路に任せる。
+    """
+    import sys
+
+    if sys.platform != "win32":
+        return
+
+    import atexit
+    import ctypes
+
+    kernel32 = ctypes.windll.kernel32
+    utf8_cp = 65001
+
+    original_output_cp = kernel32.GetConsoleOutputCP()
+    original_input_cp = kernel32.GetConsoleCP()
+
+    if original_output_cp == utf8_cp and original_input_cp == utf8_cp:
+        # 既に UTF-8 (Windows Terminal の utf-8 default 等)
+        return
+
+    if not kernel32.SetConsoleOutputCP(utf8_cp):
+        # console 不在で失敗 → 何もせず復元 hook も登録しない
+        return
+    kernel32.SetConsoleCP(utf8_cp)
+
+    def _restore_console_cp() -> None:
+        kernel32.SetConsoleOutputCP(original_output_cp)
+        kernel32.SetConsoleCP(original_input_cp)
+
+    atexit.register(_restore_console_cp)
 
 
 def main() -> None:
