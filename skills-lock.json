@@ -33,6 +33,11 @@
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
+    "lazy-import-refactor": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
     "lorairo-mem": {
       "source": "/workspaces/LoRAIro/.agents/skills",
       "sourceType": "local",

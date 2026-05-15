@@ -271,3 +271,43 @@ def clean_state():
 - `tests/unit/conftest.py`: ユニットテスト専用
 - `tests/integration/conftest.py`: 統合テスト専用
 - `tests/bdd/conftest.py`: BDDマーカー自動付与
+
+## CI-equivalent filter で local 検証する
+
+ローカルでの test 検証は CI workflow の pytest filter と **完全一致** の filter で実行する。短縮 filter (`-m unit` 等) のみで「regression なし」と結論しない。
+
+### 理由
+
+pytest markers は独立した分類 (`unit`, `standard`, `fast`, `heavy` 等)。`-m unit` で検証しても `-m standard` の test は collect されないため、CI 失敗を local 再現できない。
+
+実証例: iam-lib PR #62 (lazy torch refactor) merge 前検証で `-m unit` を使用し `@pytest.mark.standard` の `test_run_inference_generate_and_logits` を見逃し、下流 LoRAIro #260 CI で初検出 (hot-fix PR #63 を後追い起票)。
+
+### Filter 一覧 (`.github/workflows/ci.yml` から抽出、変更時は本表も更新)
+
+| Job | working-directory | pytest filter |
+|---|---|---|
+| LoRAIro Unit Tests | repo root | `-m "not gui_show and not real_api and not slow"` |
+| LoRAIro Integration Tests | repo root (paths: `tests/integration tests/bdd`) | 同上 |
+| image-annotator-lib Tests | `local_packages/image-annotator-lib` | `-m "not real_api and not heavy and not system_integration"` |
+| genai-tag-db-tools Tests | `local_packages/genai-tag-db-tools` | `-m "not slow and not network"` |
+
+### 適用タイミング
+
+- submodule pin 更新 PR 起票 **前**
+- lib 側 API 変更 / refactor PR 起票 **前**
+- "regression なし" を user に報告する **前**
+
+### 例 (iam-lib)
+
+```bash
+cd local_packages/image-annotator-lib
+uv run pytest -m "not real_api and not heavy and not system_integration"
+```
+
+### Hook gate
+
+`gh pr create` 実行時に `local_packages/*` の submodule pin 変更を含む場合、`.claude/hooks/hook_pre_pr_submodule_check.py` が CI-equivalent test 実行確認を要求する。bypass は command 内に `CI-EQUIV-TESTED` marker comment を含める。詳細は hook script ヘッダー参照。
+
+### Lazy import refactor との関係
+
+torch / tensorflow 等 heavy native dep の lazy import 化を行う場合は SKILL `lazy-import-refactor` が test 副作用 (`@patch("module.torch")` 等) を予測し、本セクションの filter で検証することを義務付ける。
