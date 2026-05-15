@@ -5,12 +5,21 @@ Typer ベースの CLI フレームワークで LoRAIro コマンドを実装。
 
 from __future__ import annotations
 
+# Issue #254: 他モジュール (typer / rich / loguru / commands → image-annotator-lib /
+# LiteLLM) の import より前に stdio reconfigure / Windows console code page 切替 /
+# LiteLLM 抑制 / loguru default sink 削除を行う。順序を変えると import 時 mojibake が
+# 再発するため、本 import + early_init() 呼び出しは module 先頭から動かさない。
+from lorairo.cli._early_init import early_init
+
+early_init()
+
 from typing import TYPE_CHECKING, Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
+from lorairo.cli._console import make_console
+from lorairo.cli._glyphs import FAIL, OK
 from lorairo.cli.commands import annotate, export, images, models, project
 from lorairo.services.service_container import get_service_container
 from lorairo.utils.config import DEFAULT_CONFIG_PATH
@@ -35,8 +44,8 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-# Rich console（カラー出力・テーブル表示用）
-console = Console()
+# Rich console (Issue #254: Windows では safe_box=True で ASCII 罫線)
+console = make_console()
 
 # ===== サブコマンドグループ登録 =====
 app.add_typer(project.app, name="project", help="Project management commands")
@@ -61,7 +70,7 @@ def _show_cli_status(container: ServiceContainer) -> None:
     table.add_column("Status", style="green")
 
     config_file_found = DEFAULT_CONFIG_PATH.exists()
-    table.add_row("Config File", "✓ Found" if config_file_found else "✗ Not Found")
+    table.add_row("Config File", f"{OK} Found" if config_file_found else f"{FAIL} Not Found")
 
     if config_file_found:
         config = container.config_service
@@ -72,7 +81,7 @@ def _show_cli_status(container: ServiceContainer) -> None:
         }
         for provider, key in api_providers.items():
             configured = bool(key and key.strip())
-            table.add_row(f"API Key ({provider})", "✓ Configured" if configured else "✗ Not set")
+            table.add_row(f"API Key ({provider})", f"{OK} Configured" if configured else f"{FAIL} Not set")
 
     console.print(table)
     console.print("\n[dim]Services initialize on demand when commands are executed.[/dim]")
@@ -87,7 +96,7 @@ def _show_gui_status(summary: dict[str, Any]) -> None:
 
     if "initialized_services" in summary:
         for service, is_initialized in summary["initialized_services"].items():
-            status_str = "✓ Ready" if is_initialized else "✗ Not Ready"
+            status_str = f"{OK} Ready" if is_initialized else f"{FAIL} Not Ready"
             table.add_row(service, status_str)
 
     console.print(table)
@@ -114,92 +123,15 @@ def status() -> None:
         raise typer.Exit(code=1) from e
 
 
-def _ensure_stdout_utf8() -> None:
-    """Issue #254: cp932 環境で stdout/stderr UTF-8 化 + Windows console code page 切替。
-
-    2 段階対策:
-
-    1. Python ``sys.stdout`` / ``sys.stderr`` の ``TextIOWrapper`` を UTF-8 に
-       reconfigure し ``UnicodeEncodeError`` 例外を防ぐ。
-    2. Windows console output/input code page を 65001 (UTF-8) に切り替え、
-       Python が UTF-8 bytes を console に書き込んだ際に active code page (cp932 等)
-       として bytes が解釈されて mojibake する問題を防ぐ。
-
-    Step 2 は ``sys.platform == "win32"`` でのみ実行。atexit で元の code page を
-    復元し parent shell の状態を変更しない。
-
-    Rich ``Console`` は ``sys.stdout`` を出力時に lazy 参照するため、module-level
-    で生成済の Console 群に対しても本関数を ``main()`` 冒頭で呼べば反映される。
-    """
-    import sys
-
-    for stream in (sys.stdout, sys.stderr):
-        encoding = getattr(stream, "encoding", None)
-        if encoding is None or encoding.lower() == "utf-8":
-            continue
-        reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is None:
-            # 想定外の stream 種別 (pytest capture 等) は skip
-            continue
-        reconfigure(encoding="utf-8", errors="replace")
-
-    if sys.platform == "win32":
-        _set_windows_console_utf8()
-
-
-def _set_windows_console_utf8() -> None:
-    """Issue #254: Windows console output/input code page を UTF-8 (65001) に切替。
-
-    cp932 等の非 UTF-8 active code page で Python が UTF-8 bytes を console に
-    書き込むと、bytes が active code page として解釈され mojibake する。Win32
-    ``SetConsoleOutputCP`` / ``SetConsoleCP`` を ctypes 経由で呼び、console 自体の
-    code page を UTF-8 に切り替えてこれを解消する。
-
-    atexit で元の code page を復元することで、parent shell (PowerShell / cmd.exe) の
-    code page 状態を CLI 終了後も変更しないようにする。
-
-    Should be called only when ``sys.platform == "win32"``. console 不在 (redirect 中等)
-    で ``SetConsoleOutputCP`` が失敗した場合は silent skip し、本来の出力経路に任せる。
-    """
-    import sys
-
-    if sys.platform != "win32":
-        return
-
-    import atexit
-    import ctypes
-
-    kernel32 = ctypes.windll.kernel32
-    utf8_cp = 65001
-
-    original_output_cp = kernel32.GetConsoleOutputCP()
-    original_input_cp = kernel32.GetConsoleCP()
-
-    if original_output_cp == utf8_cp and original_input_cp == utf8_cp:
-        # 既に UTF-8 (Windows Terminal の utf-8 default 等)
-        return
-
-    if not kernel32.SetConsoleOutputCP(utf8_cp):
-        # console 不在で失敗 → 何もせず復元 hook も登録しない
-        return
-    kernel32.SetConsoleCP(utf8_cp)
-
-    def _restore_console_cp() -> None:
-        kernel32.SetConsoleOutputCP(original_output_cp)
-        kernel32.SetConsoleCP(original_input_cp)
-
-    atexit.register(_restore_console_cp)
-
-
 def main() -> None:
     """CLIメインエントリポイント。
 
     ServiceContainer が NoOpSignalManager を自動選択するよう
     LORAIRO_CLI_MODE を設定してから app を起動する。
+    stdio 初期化は module top-level の ``early_init()`` で完了済。
     """
     import os
 
-    _ensure_stdout_utf8()  # Issue #254: cp932 環境での UnicodeEncodeError 防止
     os.environ.setdefault("LORAIRO_CLI_MODE", "true")
     initialize_logging({"level": "WARNING"})  # CLI モード: DEBUG/INFO を抑制
     app()

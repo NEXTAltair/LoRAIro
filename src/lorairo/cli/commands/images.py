@@ -7,13 +7,14 @@ API層（lorairo.api）を経由してService層を利用する。
 from pathlib import Path
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
 from lorairo.api.exceptions import ImageRegistrationError, ProjectNotFoundError
 from lorairo.api.images import register_images as api_register_images
 from lorairo.api.project import get_project as api_get_project
 from lorairo.api.types import RegistrationResult
+from lorairo.cli._console import make_console
+from lorairo.cli._glyphs import OK
 from lorairo.database.db_repository import ImageRepository
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.services.service_container import get_service_container
@@ -21,8 +22,8 @@ from lorairo.services.service_container import get_service_container
 # サブコマンドアプリ定義
 app = typer.Typer(help="Image management commands")
 
-# Rich console（出力用）
-console = Console()
+# Rich console (Issue #254: Windows では safe_box=True で ASCII 罫線)
+console = make_console()
 
 
 def _print_registration_summary(result: RegistrationResult, project: str) -> None:
@@ -46,7 +47,7 @@ def _print_registration_summary(result: RegistrationResult, project: str) -> Non
             console.print(f"  - {err}")
 
     if result.successful > 0:
-        console.print(f"\n[green]✓[/green] Images registered to project: {project}")
+        console.print(f"\n[green]{OK}[/green] Images registered to project: {project}")
 
 
 def _apply_tags_to_images(
@@ -102,7 +103,7 @@ def _print_update_summary(
     console.print(table)
 
     if not failed_tags:
-        console.print(f"\n[green]✓[/green] Updated {target_count} image(s) in project: {project}")
+        console.print(f"\n[green]{OK}[/green] Updated {target_count} image(s) in project: {project}")
 
 
 @app.command("register")

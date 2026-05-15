@@ -8,7 +8,6 @@ from pathlib import Path
 
 import click
 import typer
-from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeRemainingColumn
 from rich.table import Table
 
@@ -16,6 +15,7 @@ from lorairo.api.exceptions import (
     ProjectNotFoundError,
 )
 from lorairo.api.project import get_project as api_get_project
+from lorairo.cli._console import make_console
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.services.service_container import get_service_container
 from lorairo.utils.log import logger
@@ -23,8 +23,8 @@ from lorairo.utils.log import logger
 # サブコマンドアプリ定義
 app = typer.Typer(help="Dataset export commands")
 
-# Rich console（出力用）
-console = Console()
+# Rich console (Issue #254: Windows では safe_box=True で ASCII 罫線)
+console = make_console()
 
 # 手動・AI レーティング共通の有効値（Civitai 基準 + UNRATED）
 VALID_RATINGS = {"PG", "PG-13", "R", "X", "XXX", "UNRATED"}
