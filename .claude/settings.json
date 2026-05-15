@@ -68,6 +68,10 @@
           {
             "type": "command",
             "command": "/workspaces/LoRAIro/.claude/hooks/hook_pre_commands.py"
+          },
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.claude/hooks/hook_pre_pr_submodule_check.py"
           }
         ]
       }

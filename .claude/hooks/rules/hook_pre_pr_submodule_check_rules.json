@@ -1,0 +1,14 @@
+{
+  "bypass_marker": "CI-EQUIV-TESTED",
+  "packages": {
+    "local_packages/image-annotator-lib": {
+      "working_directory": "local_packages/image-annotator-lib",
+      "ci_filter": "-m \"not real_api and not heavy and not system_integration\""
+    },
+    "local_packages/genai-tag-db-tools": {
+      "working_directory": "local_packages/genai-tag-db-tools",
+      "ci_filter": "-m \"not slow and not network\""
+    }
+  },
+  "description": "Block `gh pr create` on submodule changes without CI-equivalent test confirmation. Bypass by including the marker in the command (e.g., as a leading shell comment). Filters mirror .github/workflows/ci.yml; update both when CI filters change."
+}
