@@ -167,3 +167,86 @@ def test_main_configures_logging_warning_level() -> None:
     mock_init_log.assert_called_once()
     config_arg = mock_init_log.call_args[0][0]
     assert config_arg["level"] == "WARNING"
+
+
+# --- Issue #254: cp932 環境での stdout/stderr UTF-8 reconfigure ---
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_ensure_stdout_utf8_reconfigures_cp932(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #254: cp932 stream は UTF-8 に reconfigure される。"""
+    import io
+    import sys
+
+    from lorairo.cli.main import _ensure_stdout_utf8
+
+    mock_stdout = io.TextIOWrapper(io.BytesIO(), encoding="cp932")
+    mock_stderr = io.TextIOWrapper(io.BytesIO(), encoding="cp932")
+    monkeypatch.setattr(sys, "stdout", mock_stdout)
+    monkeypatch.setattr(sys, "stderr", mock_stderr)
+
+    _ensure_stdout_utf8()
+
+    assert sys.stdout.encoding.lower() == "utf-8"
+    assert sys.stderr.encoding.lower() == "utf-8"
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_ensure_stdout_utf8_no_op_for_utf8(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #254: 既に UTF-8 環境では reconfigure を呼ばない (no-op)。"""
+    import io
+    import sys
+
+    from lorairo.cli.main import _ensure_stdout_utf8
+
+    mock_stdout = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+    monkeypatch.setattr(sys, "stdout", mock_stdout)
+
+    called: list[tuple] = []
+    original_reconfigure = mock_stdout.reconfigure
+
+    def spy_reconfigure(*args, **kwargs):
+        called.append((args, kwargs))
+        return original_reconfigure(*args, **kwargs)
+
+    monkeypatch.setattr(mock_stdout, "reconfigure", spy_reconfigure)
+
+    _ensure_stdout_utf8()
+
+    assert called == []  # reconfigure 未呼び出し
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_ensure_stdout_utf8_handles_missing_encoding(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #254: encoding 属性が None の stream は skip して落ちない。"""
+    import sys
+
+    from lorairo.cli.main import _ensure_stdout_utf8
+
+    mock_stdout = MagicMock(spec=["encoding", "reconfigure"])
+    mock_stdout.encoding = None
+    monkeypatch.setattr(sys, "stdout", mock_stdout)
+
+    # 例外で落ちないこと
+    _ensure_stdout_utf8()
+    mock_stdout.reconfigure.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_ensure_stdout_utf8_handles_missing_reconfigure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #254: reconfigure 不能な stream (pytest capture 等) も skip。"""
+    import sys
+
+    from lorairo.cli.main import _ensure_stdout_utf8
+
+    # reconfigure attribute を持たない stream
+    mock_stdout = MagicMock(spec=["encoding"])
+    mock_stdout.encoding = "cp932"
+    monkeypatch.setattr(sys, "stdout", mock_stdout)
+
+    # 例外で落ちないこと (reconfigure 不在をハンドル)
+    _ensure_stdout_utf8()
