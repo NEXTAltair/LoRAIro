@@ -12,7 +12,7 @@ from lorairo.cli.main import app
 @pytest.fixture(autouse=True)
 def _wide_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
     """Issue #245: Rich Table が Provider/Litellm ID 列を加えても全列が描画される
-    十分な幅を CLI テスト環境で確保する。デフォルト 80 col では Status 列が
+    十分な幅を CLI テスト環境で確保する。デフォルト 80 col では表示列が
     truncate される or Model 列が改行を挿入して substring 検証が壊れる。
     """
     monkeypatch.setenv("COLUMNS", "200")
@@ -121,8 +121,12 @@ def test_models_list_shows_local_and_webapi_with_type_column(mock_get_container)
     assert "gpt-4o" in result.stdout
     assert "claude-3-5-sonnet" in result.stdout
     # Type カラムの値
+    assert "Type" in result.stdout
     assert "local" in result.stdout
     assert "webapi" in result.stdout
+    # Issue #270: default では active だけの Status 列を出さない
+    assert "Status" not in result.stdout
+    assert "active" not in result.stdout
     # 件数
     assert "5 model(s)" in result.stdout
 
@@ -152,7 +156,7 @@ def test_models_list_filter_type_local_only(mock_get_container) -> None:
 @pytest.mark.cli
 @patch("lorairo.cli.commands.models.get_service_container")
 def test_models_list_filter_type_webapi_only(mock_get_container) -> None:
-    """--type webapi は WebAPI モデルのみ表示する。"""
+    """--type webapi は WebAPI モデルのみを簡潔な列で表示する。"""
     mock_container = MagicMock()
     mock_container.annotator_library.list_annotator_info.return_value = _make_infos()
     mock_container.annotator_library.is_model_deprecated.return_value = False
@@ -164,7 +168,48 @@ def test_models_list_filter_type_webapi_only(mock_get_container) -> None:
     assert "gpt-4o" in result.stdout
     assert "claude-3-5-sonnet" in result.stdout
     assert "wd-v1-4-tagger" not in result.stdout
+    assert "Model ID" in result.stdout
+    assert "Type" not in result.stdout
+    assert "Category" not in result.stdout
+    assert "Status" not in result.stdout
     assert "2 model(s)" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.models.get_service_container")
+def test_models_list_webapi_shows_gemini_when_google_key_configured(mock_get_container) -> None:
+    """LiteLLM discovery の provider=Gemini は google key 設定済みなら表示する。"""
+    mock_container = MagicMock()
+    mock_container.annotator_library.list_annotator_info.return_value = [
+        _FakeAnnotatorInfo(
+            name="gemini/gemini-2.5-pro",
+            model_type="vision",
+            is_local=False,
+            is_api=True,
+            provider="Gemini",
+            litellm_model_id="gemini/gemini-2.5-pro",
+        ),
+    ]
+    mock_container.annotator_library.is_model_deprecated.return_value = False
+
+    def get_setting(section: str, key: str, default: str = "") -> str:
+        values = {
+            ("api", "google_key"): "configured-google-key",
+            ("model_selection", "route_preference"): "auto",
+        }
+        return values.get((section, key), default)
+
+    mock_container.config_service.get_setting.side_effect = get_setting
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["models", "list", "--type", "webapi"])
+
+    assert result.exit_code == 0
+    assert "google" in result.stdout
+    assert "gemini/gemini-2.5-pro" in result.stdout
+    assert "missing_key" not in result.stdout
+    assert "1 model(s)" in result.stdout
 
 
 @pytest.mark.unit
@@ -231,7 +276,7 @@ def test_models_list_excludes_deprecated_by_default(mock_get_container) -> None:
 @pytest.mark.unit
 @pytest.mark.cli
 @patch("lorairo.cli.commands.models.get_service_container")
-def test_models_list_include_deprecated_shows_status(mock_get_container) -> None:
+def test_models_list_include_deprecated_shows_availability(mock_get_container) -> None:
     """--include-deprecated は廃止済みモデルも表示する。"""
     mock_container = MagicMock()
     mock_container.annotator_library.list_annotator_info.return_value = [
@@ -246,6 +291,7 @@ def test_models_list_include_deprecated_shows_status(mock_get_container) -> None
     result = runner.invoke(app, ["models", "list", "--include-deprecated"])
 
     assert result.exit_code == 0
+    assert "Availability" in result.stdout
     assert "gpt-4o" in result.stdout
     assert "gpt-4-vision-preview" in result.stdout
     assert "deprecated" in result.stdout
@@ -281,7 +327,7 @@ def test_models_list_handles_deprecated_check_failure(mock_get_container) -> Non
 
     assert result.exit_code == 0
     assert "gpt-4o" in result.stdout
-    assert "active" in result.stdout
+    assert "active" not in result.stdout
     assert "1 model(s)" in result.stdout
 
 
@@ -472,8 +518,8 @@ def test_models_list_route_openrouter_filters_to_openrouter_only(mock_get_contai
 @pytest.mark.unit
 @pytest.mark.cli
 @patch("lorairo.cli.commands.models.get_service_container")
-def test_models_list_show_unavailable_displays_disabled_rows(mock_get_container) -> None:
-    """--show-unavailable は API key 未設定の行を 'disabled' Status で表示する"""
+def test_models_list_show_unavailable_displays_missing_key_rows(mock_get_container) -> None:
+    """--show-unavailable は API key 未設定の行を Availability で表示する"""
     mock_container = MagicMock()
     mock_container.annotator_library.list_annotator_info.return_value = _make_duplicate_route_infos()
     mock_container.annotator_library.is_model_deprecated.return_value = False
@@ -485,7 +531,8 @@ def test_models_list_show_unavailable_displays_disabled_rows(mock_get_container)
     assert result.exit_code == 0
     # 全 row が disabled でも表示される
     assert "1 model(s)" in result.stdout
-    assert "disabled" in result.stdout
+    assert "Availability" in result.stdout
+    assert "missing_key" in result.stdout
     assert "unavailable=1" in result.stdout
 
 
@@ -493,7 +540,7 @@ def test_models_list_show_unavailable_displays_disabled_rows(mock_get_container)
 @pytest.mark.cli
 @patch("lorairo.cli.commands.models.get_service_container")
 def test_models_list_show_unavailable_with_route_all(mock_get_container) -> None:
-    """--show-unavailable + --route all で全 candidate を disabled 状態で表示"""
+    """--show-unavailable + --route all で全 candidate を missing_key 状態で表示"""
     mock_container = MagicMock()
     mock_container.annotator_library.list_annotator_info.return_value = _make_duplicate_route_infos()
     mock_container.annotator_library.is_model_deprecated.return_value = False
@@ -504,7 +551,7 @@ def test_models_list_show_unavailable_with_route_all(mock_get_container) -> None
 
     assert result.exit_code == 0
     assert "2 model(s)" in result.stdout
-    assert "disabled" in result.stdout
+    assert "missing_key" in result.stdout
     assert "openai/gpt-4o" in result.stdout
     assert "openrouter/openai/gpt-4o" in result.stdout
 
@@ -580,7 +627,7 @@ def test_models_list_route_invalid_config_falls_back_to_auto(mock_get_container)
 @pytest.mark.cli
 @patch("lorairo.cli.commands.models.get_service_container")
 def test_models_list_long_model_names_keep_columns_visible(mock_get_container) -> None:
-    """長いモデル名でも Type/Category/Status カラムが collapse されない (Issue #220 表示バグ regression)."""
+    """長いモデル ID でも主要カラムが collapse されない (Issue #220/#270 regression)."""
     long_infos = [
         _FakeAnnotatorInfo(
             name="vercel_ai_gateway/openai/o1-very-long-model-name-2025-04-16",
@@ -607,14 +654,20 @@ def test_models_list_long_model_names_keep_columns_visible(mock_get_container) -
     result = runner.invoke(app, ["models", "list", "--show-unavailable"])
 
     assert result.exit_code == 0
+    # 主要列が空 collapse せずに描画されること
+    assert "Provider" in result.stdout
+    assert "Route" in result.stdout
+    assert "Model ID" in result.stdout
+    assert "Availability" in result.stdout
     # Type 値 (webapi/local) が空 collapse せずに描画されること
     assert "webapi" in result.stdout
     assert "local" in result.stdout
     # Category 値 (vision/tagger) が空 collapse せずに描画されること
     assert "vision" in result.stdout
     assert "tagger" in result.stdout
-    # ローカルモデルは常に available なため active (webapi は disabled で表示される)
-    assert "active" in result.stdout
+    # ローカルモデルは ready、webapi は key 未設定で missing_key 表示
+    assert "ready" in result.stdout
+    assert "missing_key" in result.stdout
     assert "2 model(s)" in result.stdout
 
 
