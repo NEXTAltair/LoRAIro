@@ -180,39 +180,13 @@ def list_models(
         else:
             display_rows = display_rows_pre_unavailable
 
-        # 長いモデル名 (例: "vercel_ai_gateway/openai/o1") で固定幅未指定のままだと
-        # Rich Table が Type/Category/Status を 0 幅に collapse させて Issue #220 の
-        # 主要機能 (Type 列で local/webapi 区別) が視認できなくなる。各カラムに
-        # min_width を指定し、Model/Provider/Litellm ID カラムは折返し許容で長さに対応する。
-        # Issue #245: Provider/Litellm ID 列を追加。
-        # Issue #241: Route 列を追加 (direct / openrouter)。
-        table = Table(title="Available Models")
-        table.add_column("Model", style="cyan", overflow="fold", min_width=10)
-        table.add_column("Provider", style="bright_magenta", overflow="fold", min_width=8)
-        table.add_column("Litellm ID", style="bright_cyan", overflow="fold", min_width=10)
-        table.add_column("Route", style="bright_blue", min_width=8, no_wrap=True)
-        table.add_column("Type", style="magenta", min_width=6, no_wrap=True)
-        table.add_column("Category", style="blue", min_width=8, no_wrap=True)
-        table.add_column("Status", style="green", min_width=10, no_wrap=True)
-
-        for row in display_rows:
-            # Issue #249: available=False は deprecated より優先して disabled 表示。
-            if not row.get("available", True):
-                status_label = "[red]disabled[/red]"
-            elif row["deprecated"]:
-                status_label = "[yellow]deprecated[/yellow]"
-            else:
-                status_label = "active"
-            table.add_row(
-                str(row["name"]),
-                str(row["provider"]),
-                str(row["litellm_id"]),
-                str(row["route"]),
-                str(row["type_label"]),
-                str(row["category"]),
-                status_label,
-            )
-
+        table = _build_available_models_table(
+            display_rows=display_rows,
+            type_filter=type_filter,
+            category=category,
+            show_unavailable=show_unavailable,
+            include_deprecated=include_deprecated,
+        )
         console.print(table)
         # Issue #249: preference の取得元と unavailable 件数も表示
         unavailable_count = sum(1 for r in display_rows if not r.get("available", True))
@@ -245,6 +219,61 @@ def list_models(
         console.print(f"[red]Error:[/red] Failed to list models: {e}")
         logger.error(f"Model list command failed: {e}", exc_info=True)
         raise typer.Exit(code=1) from e
+
+
+def _build_available_models_table(
+    *,
+    display_rows: list[dict[str, str | bool]],
+    type_filter: ModelTypeFilter,
+    category: ModelCategoryFilter,
+    show_unavailable: bool,
+    include_deprecated: bool,
+) -> Table:
+    """models list の表示用 Rich table を構築する。"""
+    table = Table(title="Available Models")
+    table.add_column("Provider", style="bright_magenta", min_width=8, no_wrap=True)
+    table.add_column("Route", style="bright_blue", min_width=8, no_wrap=True)
+    table.add_column("Model ID", style="bright_cyan", overflow="fold", min_width=32, ratio=1)
+
+    show_type_column = type_filter is ModelTypeFilter.all
+    show_category_column = type_filter is ModelTypeFilter.all and category is ModelCategoryFilter.all
+    show_availability_column = show_unavailable or include_deprecated
+
+    if show_type_column:
+        table.add_column("Type", style="magenta", min_width=6, no_wrap=True)
+    if show_category_column:
+        table.add_column("Category", style="blue", min_width=8, no_wrap=True)
+    if show_availability_column:
+        table.add_column("Availability", style="green", min_width=12, no_wrap=True)
+
+    for row in display_rows:
+        table_row = [
+            str(row["provider"]),
+            str(row["route"]),
+            str(row["litellm_id"]),
+        ]
+        if show_type_column:
+            table_row.append(str(row["type_label"]))
+        if show_category_column:
+            table_row.append(str(row["category"]))
+        if show_availability_column:
+            table_row.append(_format_availability(row))
+        table.add_row(*table_row)
+
+    return table
+
+
+def _format_availability(row: dict[str, str | bool]) -> str:
+    """ユーザー向けの利用可否ラベルを返す。
+
+    ``models list`` の default は利用可能な行だけを表示するため、この列は
+    ``--show-unavailable`` や ``--include-deprecated`` のときだけ表示する。
+    """
+    if not row.get("available", True):
+        return "[red]missing_key[/red]"
+    if row["deprecated"]:
+        return "[yellow]deprecated[/yellow]"
+    return "ready"
 
 
 def _apply_route_filter(
@@ -326,11 +355,11 @@ def _build_rows_from_infos(
             continue
 
         type_label = "webapi" if info.is_api else "local"
-        # Issue #245: Provider と Litellm ID を表示し、route の区別を可能にする。
-        provider_label = info.provider or ("local" if info.is_local else "unknown")
         litellm_id = info.litellm_model_id or info.name
         row_route = detect_route(litellm_id)
         row_required = required_provider_for(litellm_id, info.provider)
+        # Provider 列は LiteLLM の raw prefix ではなく、実際に必要な API key provider を表示する。
+        provider_label = "local" if info.is_local else row_required
         # Issue #249: ローカル ML モデルは API key 不要のため常に available。
         # info.is_local も加味する: provider 未設定 + slash 入り bare ID のローカルモデル
         # (例: "some/local-tagger") は required_provider_for だと "some" になるため、

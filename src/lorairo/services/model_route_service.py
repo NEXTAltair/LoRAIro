@@ -102,7 +102,8 @@ def required_provider_for(litellm_model_id: str, provider_hint: str | None = Non
         and provider_hint.strip()
         and provider_hint.strip().lower() not in _UNKNOWN_PROVIDERS
     ):
-        return provider_hint.strip().lower()
+        provider_normalized = provider_hint.strip().lower()
+        return _PROVIDER_ALIAS_MAP.get(provider_normalized, provider_normalized)
 
     head, sep, _ = litellm_model_id.partition("/")
     if sep == "":

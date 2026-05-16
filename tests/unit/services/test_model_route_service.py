@@ -103,6 +103,10 @@ class TestRequiredProviderFor:
         """LiteLLM の `gemini/` prefix は Google API key 要求"""
         assert required_provider_for("gemini/gemini-pro-vision", None) == "google"
 
+    def test_gemini_provider_hint_alias_maps_to_google(self) -> None:
+        """LiteLLM discovery の `provider=Gemini` も Google API key 要求として扱う。"""
+        assert required_provider_for("gemini/gemini-2.5-pro", "Gemini") == "google"
+
     def test_vertex_ai_alias_maps_to_google(self) -> None:
         assert required_provider_for("vertex_ai/gemini-pro", None) == "google"
 
