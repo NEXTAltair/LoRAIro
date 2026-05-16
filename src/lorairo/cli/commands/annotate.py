@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any
 
 import typer
 from PIL import Image
-from rich.console import Console
 from rich.progress import (
     BarColumn,
     Progress,
@@ -33,6 +32,7 @@ from lorairo.api.exceptions import (
     ProjectNotFoundError,
 )
 from lorairo.api.project import get_project as api_get_project
+from lorairo.cli._console import make_console
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.services.model_route_service import validate_api_keys_for_models
 from lorairo.services.service_container import get_service_container
@@ -41,8 +41,8 @@ from lorairo.utils.log import logger
 # サブコマンドアプリ定義
 app = typer.Typer(help="Annotation commands")
 
-# Rich console（出力用）
-console = Console()
+# Rich console (Issue #254: Windows では safe_box=True で ASCII 罫線)
+console = make_console()
 
 
 def _load_images_from_db(

@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
+from lorairo.cli._console import make_console
+
+if TYPE_CHECKING:
+    from rich.console import Console
 from lorairo.services.model_route_service import (
     build_available_providers,
     canonical_key,
@@ -21,7 +24,8 @@ from lorairo.services.service_container import get_service_container
 from lorairo.utils.log import logger
 
 app = typer.Typer(help="Model registry commands")
-console = Console()
+# Rich console (Issue #254: Windows では safe_box=True で ASCII 罫線)
+console = make_console()
 
 
 class ModelTypeFilter(StrEnum):

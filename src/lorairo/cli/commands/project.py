@@ -5,7 +5,6 @@ API層（lorairo.api）を経由してService層を利用する。
 """
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
 from lorairo.api.exceptions import (
@@ -23,12 +22,14 @@ from lorairo.api.project import (
     list_projects as api_list_projects,
 )
 from lorairo.api.types import ProjectCreateRequest
+from lorairo.cli._console import make_console
+from lorairo.cli._glyphs import OK
 
 # サブコマンドアプリ定義
 app = typer.Typer(help="Project management commands")
 
-# Rich console（出力用）
-console = Console()
+# Rich console (Issue #254: Windows では safe_box=True で ASCII 罫線)
+console = make_console()
 
 
 @app.command("create")
@@ -40,7 +41,7 @@ def create(
     try:
         request = ProjectCreateRequest(name=name, description=description or None)
         project = api_create_project(request)
-        console.print(f"[green]✓[/green] Project created: [bold]{project.name}[/bold]")
+        console.print(f"[green]{OK}[/green] Project created: [bold]{project.name}[/bold]")
         console.print(f"[dim]Location: {project.path}[/dim]")
 
     except ProjectAlreadyExistsError as e:
@@ -111,7 +112,7 @@ def delete(
                 raise typer.Exit(code=0)
 
         api_delete_project(name)
-        console.print(f"[green]✓[/green] Project deleted: [bold]{name}[/bold]")
+        console.print(f"[green]{OK}[/green] Project deleted: [bold]{name}[/bold]")
 
     except ProjectNotFoundError as e:
         console.print(f"[red]Error:[/red] Project not found: {name}")
