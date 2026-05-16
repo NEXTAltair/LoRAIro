@@ -60,6 +60,7 @@ dependencies = [
     # pin して回避する。LoRAIro / image-annotator-lib は Mistral プロバイダーを
     # 使わない (実装コードに該当プロバイダー参照ゼロ) ため機能影響なし。
     "pydantic-ai>=1.94.0",
+    "litellm>=1.84.0",
 ]
 
 
