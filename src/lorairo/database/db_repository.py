@@ -1,14 +1,11 @@
 """DBリポジトリ"""
 
+from __future__ import annotations
+
 import datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
-from genai_tag_db_tools import search_tags
-from genai_tag_db_tools.db.repository import MergedTagReader, get_default_reader
-from genai_tag_db_tools.models import TagRegisterRequest, TagSearchRequest
-from genai_tag_db_tools.services.tag_register import TagRegisterService
-from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 from sqlalchemy import Select, and_, delete, exists, func, not_, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -48,6 +45,33 @@ from .schema import (
 from .schema import (
     TagAnnotationData as TagAnnotationData,
 )
+
+if TYPE_CHECKING:
+    # Issue #264: genai-tag-db-tools の eager import (= polars eager import) を回避する。
+    # 古い CPU の Windows native 環境で polars._cpu_check が "unknown feature flag: 'sse3'"
+    # で起動失敗するため、type 参照のみ TYPE_CHECKING で保ち、実装は使用時に
+    # function-level で import する (タグ操作実行時のみ polars がロードされる)。
+    from genai_tag_db_tools.db.repository import MergedTagReader
+    from genai_tag_db_tools.models import TagSearchRequest
+    from genai_tag_db_tools.services.tag_register import TagRegisterService
+
+
+# Issue #264: lazy proxy for genai-tag-db-tools 公開 API。
+# - module-level に function を残すことで test の ``patch("...db_repository.search_tags", ...)``
+#   と ``patch("...db_repository.get_default_reader", ...)`` 互換を保つ
+# - 実装は呼び出し時に lazy-import (polars eager 読み込みを回避)
+def search_tags(*args: Any, **kwargs: Any) -> Any:
+    """Lazy proxy to ``genai_tag_db_tools.search_tags`` (Issue #264)。"""
+    from genai_tag_db_tools import search_tags as _impl
+
+    return _impl(*args, **kwargs)
+
+
+def get_default_reader(*args: Any, **kwargs: Any) -> Any:
+    """Lazy proxy to ``genai_tag_db_tools.db.repository.get_default_reader`` (Issue #264)。"""
+    from genai_tag_db_tools.db.repository import get_default_reader as _impl
+
+    return _impl(*args, **kwargs)
 
 
 class ImageRepository:
@@ -90,6 +114,7 @@ class ImageRepository:
             - LoRAIroは外部タグDB無しでも動作可能（tag_id=None許容設計）
 
         """
+        # Issue #264: get_default_reader は module-level lazy proxy 経由 (search_tags 同様)
         try:
             return get_default_reader()
         except Exception as e:
@@ -115,6 +140,9 @@ class ImageRepository:
         if self.merged_reader is None:
             logger.warning("MergedTagReader unavailable, cannot initialize TagRegisterService")
             return None
+
+        # Issue #264: lazy import (genai-tag-db-tools → polars chain を遅延)
+        from genai_tag_db_tools.services.tag_register import TagRegisterService
 
         try:
             return TagRegisterService(reader=self.merged_reader)
@@ -1061,6 +1089,10 @@ class ImageRepository:
             見つかった/登録したtag_id。エラー時はNone。
 
         """
+        # Issue #264: TagSearchRequest / TagCleaner は lazy import (search_tags は module-level proxy)
+        from genai_tag_db_tools.models import TagSearchRequest
+        from genai_tag_db_tools.utils.cleanup_str import TagCleaner
+
         # 1. タグの正規化（ExistingFileReaderと同一処理）
         normalized_tag = TagCleaner.clean_format(tag_string).strip()
 
@@ -1107,7 +1139,7 @@ class ImageRepository:
         self,
         normalized_tag: str,
         source_tag: str,
-        search_request: "TagSearchRequest",
+        search_request: TagSearchRequest,
     ) -> int | None:
         """外部tag_dbに新規タグを登録する。競合時はリトライ検索を行う。
 
@@ -1120,6 +1152,9 @@ class ImageRepository:
             登録されたtag_id。エラー時はNone。
 
         """
+        # Issue #264: TagRegisterRequest は lazy import (search_tags は module-level proxy)
+        from genai_tag_db_tools.models import TagRegisterRequest
+
         logger.debug(f"Tag '{normalized_tag}' not found in external tag_db. Attempting registration...")
 
         # TagRegisterService遅延初期化
@@ -1247,6 +1282,9 @@ class ImageRepository:
             登録されたtag_id。失敗時はNone。
 
         """
+        # Issue #264: lazy import (genai-tag-db-tools → polars chain を遅延)
+        from genai_tag_db_tools.models import TagRegisterRequest
+
         assert self.tag_register_service is not None
         try:
             register_request = TagRegisterRequest(
@@ -1277,6 +1315,9 @@ class ImageRepository:
             見つかったtag_id。失敗時はNone。
 
         """
+        # Issue #264: TagSearchRequest は lazy import (search_tags は module-level proxy)
+        from genai_tag_db_tools.models import TagSearchRequest
+
         try:
             retry_request = TagSearchRequest(
                 query=tag_str,
@@ -1313,6 +1354,9 @@ class ImageRepository:
                 従来通り_get_or_create_tag_id_external()にフォールバック。
 
         """
+        # Issue #264: lazy import (genai-tag-db-tools → polars chain を遅延)
+        from genai_tag_db_tools.utils.cleanup_str import TagCleaner
+
         logger.debug(f"Saving/Updating {len(tags_data)} tags for image_id {image_id}")
 
         # 既存のタグを image_id と tag 文字列で取得 (効率化のため)
