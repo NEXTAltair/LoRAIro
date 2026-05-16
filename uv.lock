@@ -1476,7 +1476,7 @@ requires-dist = [
     { name = "torch", specifier = ">=2.6.0" },
     { name = "torchvision", specifier = ">=0.21.0" },
     { name = "tqdm", specifier = ">=4.66.0" },
-    { name = "transformers", specifier = ">=4.27.4" },
+    { name = "transformers", specifier = ">=4.50.0" },
 ]
 
 [package.metadata.requires-dev]
