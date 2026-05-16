@@ -1302,6 +1302,50 @@ ADR 0023 本文の以下の記述は **Phase 1.12 (LoRAIro Issue #241) で解釈
 - LiteLLM Router / Proxy を使った runtime fallback
 - direct provider が存在しない OpenRouter inner provider (`z-ai`, `qwen` 等) を direct route 化すること
 
+## Phase 1.13 完了 (LoRAIro Issue #265 — discovery で `litellm_provider` を SSoT にして provider 推論を廃止)
+
+### 問題
+
+`lorairo-cli status` / `lorairo-cli models list --type webapi` 実行時に、LiteLLM の
+provider 推論失敗で `Provider List: https://docs.litellm.ai/docs/providers` が多数回出力
+されていた。
+
+原因は `api_model_discovery.py` の `_collect_models()` / `is_model_deprecated()` が
+`litellm.get_model_info(model_id)` を bare ID のみで呼んでいたこと。LiteLLM 内部の
+`get_llm_provider_logic.py:505` は `custom_llm_provider` が無い場合に provider 推論を
+試み、推論失敗時に `Provider List:` を print() して `BadRequestError` を raise する。
+
+### 修正方針
+
+`litellm.model_cost` の各 entry は `litellm_provider` field を既に持つ。discovery は
+LiteLLM DB を走査しているため、provider の決定は `litellm_provider` field で完結する。
+`litellm.get_model_info()` 等の LiteLLM API 呼び出しには `custom_llm_provider=provider`
+を明示し、provider 推論経路に入らないようにする。
+
+```python
+# _collect_models() 修正前
+info = litellm.get_model_info(model_id)
+
+# _collect_models() 修正後
+provider = info_cost.get("litellm_provider")   # info_cost = litellm.model_cost のループ変数
+info = litellm.get_model_info(model_id, custom_llm_provider=provider)
+```
+
+```python
+# is_model_deprecated() 修正後
+info_cost = litellm.model_cost.get(model_id) or {}
+provider = info_cost.get("litellm_provider")
+info = litellm.get_model_info(model_id, custom_llm_provider=provider)
+```
+
+`litellm.suppress_debug_info = True` は global state 変更であるため採用しない。
+
+### Decision section の更新差分
+
+| ADR 本文 | 旧方針 | Phase 1.13 で更新後の方針 |
+|---|---|---|
+| `api_model_discovery.py` — LiteLLM 同梱 DB の runtime query | `litellm.get_model_info(model_id)` で provider は LiteLLM に推論させる | `litellm.model_cost[model_id]["litellm_provider"]` を SSoT として取得し、`litellm.get_model_info(model_id, custom_llm_provider=provider)` を明示渡しする |
+
 ## References
 
 - [PydanticAI Output](https://pydantic.dev/docs/ai/core-concepts/output/)
@@ -1322,3 +1366,4 @@ ADR 0023 本文の以下の記述は **Phase 1.12 (LoRAIro Issue #241) で解釈
 - [Issue #52 — Phase 1.10 Anthropic bare 名を `anthropic/<bare>` に正規化](https://github.com/NEXTAltair/image-annotator-lib/issues/52)
 - [LoRAIro Issue #238 — Phase 1.11 `schema.Model.litellm_model_id` を UNIQUE NOT NULL 化、`name` を表示名に降格](https://github.com/NEXTAltair/LoRAIro/issues/238)
 - [LoRAIro Issue #241 — モデル route 表示の畳み込みと実行時 route 確定 (Phase 1.12)](https://github.com/NEXTAltair/LoRAIro/issues/241)
+- [LoRAIro Issue #265 — discovery で `litellm_provider` を SSoT にして provider 推論廃止 (Phase 1.13)](https://github.com/NEXTAltair/LoRAIro/issues/265)
