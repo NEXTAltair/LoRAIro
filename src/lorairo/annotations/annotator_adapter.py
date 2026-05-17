@@ -32,10 +32,12 @@ if TYPE_CHECKING:
 
 # AnnotatorInfo.capabilities (frozenset[TaskCapability]) → ModelInfo.capabilities (list[str])
 # の変換テーブル。TaskCapability.value をそのまま採用する。
+# iam-lib ADR 0002: SCORE_LABELS は canonical scorer (aesthetic_shadow / cafe) が宣言する。
 _CAPABILITY_VALUES: dict[TaskCapability, str] = {
     TaskCapability.TAGS: "tags",
     TaskCapability.CAPTIONS: "captions",
     TaskCapability.SCORES: "scores",
+    TaskCapability.SCORE_LABELS: "score_labels",
 }
 
 __all__ = ["AnnotatorLibraryAdapter"]
