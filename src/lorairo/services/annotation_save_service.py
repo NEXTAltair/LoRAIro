@@ -61,16 +61,27 @@ class AnnotationSaveService:
         self,
         model_id: int,
         scores: dict[str, float] | None,
+        score_labels: list[str] | None,
         tags: list[str] | None,
         captions: list[str] | None,
         ratings: Any,
         result: AnnotationsDict,
     ) -> None:
-        """モデルの1件分アノテーション結果をAnnotationsDictに追加する。"""
+        """モデルの1件分アノテーション結果をAnnotationsDictに追加する。
+
+        ADR 0027 / iam-lib ADR 0002: ``score_labels`` は canonical scorer の
+        categorical label (例: "very aesthetic", "aesthetic")。``tags`` フィールドとは
+        独立に保持する (content tag との混入を避ける)。
+        """
         if scores:
             for _name, value in scores.items():
                 result["scores"].append(
                     {"model_id": model_id, "score": float(value), "is_edited_manually": False}
+                )
+        if score_labels:
+            for label in score_labels:
+                result["score_labels"].append(
+                    {"model_id": model_id, "label": label, "is_edited_manually": False}
                 )
         if tags:
             for tag in tags:
@@ -193,6 +204,7 @@ class AnnotationSaveService:
         self._append_model_result(
             model.id,
             self._extract_field(unified_result, "scores"),
+            self._extract_field(unified_result, "score_labels"),
             self._extract_field(unified_result, "tags"),
             self._extract_field(unified_result, "captions"),
             self._extract_field(unified_result, "ratings"),
@@ -215,7 +227,13 @@ class AnnotationSaveService:
         Returns:
             DB保存用のAnnotationsDict。
         """
-        result: AnnotationsDict = {"scores": [], "tags": [], "captions": [], "ratings": []}
+        result: AnnotationsDict = {
+            "scores": [],
+            "score_labels": [],
+            "tags": [],
+            "captions": [],
+            "ratings": [],
+        }
         for model_name, unified_result in phash_annotations.items():
             self._process_model_result(model_name, unified_result, models_cache, result, image_id=image_id)
         return result

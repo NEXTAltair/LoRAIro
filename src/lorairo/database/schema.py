@@ -109,6 +109,7 @@ class Model(Base):
     tags: Mapped[list[Tag]] = relationship("Tag", back_populates="model")
     captions: Mapped[list[Caption]] = relationship("Caption", back_populates="model")
     scores: Mapped[list[Score]] = relationship("Score", back_populates="model")
+    score_labels: Mapped[list[ScoreLabel]] = relationship("ScoreLabel", back_populates="model")
     ratings: Mapped[list[Rating]] = relationship("Rating", back_populates="model")
 
     def __repr__(self) -> str:
@@ -208,6 +209,9 @@ class Image(Base):
     )
     scores: Mapped[list[Score]] = relationship(
         "Score", back_populates="image", cascade="all, delete-orphan"
+    )
+    score_labels: Mapped[list[ScoreLabel]] = relationship(
+        "ScoreLabel", back_populates="image", cascade="all, delete-orphan"
     )
     ratings: Mapped[list[Rating]] = relationship(
         "Rating", back_populates="image", cascade="all, delete-orphan"
@@ -350,6 +354,42 @@ class Score(Base):
 
     def __repr__(self) -> str:
         return f"<Score(id={self.id}, image_id={self.image_id}, score={self.score})>"
+
+
+class ScoreLabel(Base):
+    """canonical scorer による categorical 分類ラベル (ADR 0027 / iam-lib ADR 0002)。
+
+    aesthetic_shadow_v1/v2 や cafe_aesthetic 等、配布元が canonical な分類ラベルを
+    提供する scorer モデルの出力 (例: ``"very aesthetic"`` / ``"aesthetic"``) を、
+    数値 ``Score`` とは独立に保持する。``tags`` テーブルは content tag (WDTagger 等)
+    専用に純化され、scorer 由来の categorical label は本テーブルで扱う。
+
+    AestheticShadow が ``scores={"hq": x, "lq": 1-x}`` で 2 行の Score を返す一方、
+    score_label は 1 image × 1 model に 1 行のみ。
+    """
+
+    __tablename__ = "score_labels"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    image_id: Mapped[int] = mapped_column(ForeignKey("images.id", ondelete="CASCADE"), nullable=False)
+    model_id: Mapped[int] = mapped_column(ForeignKey("models.id", ondelete="CASCADE"), nullable=False)
+    label: Mapped[str] = mapped_column(String, nullable=False)
+    is_edited_manually: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    # Relationships
+    image: Mapped[Image] = relationship("Image", back_populates="score_labels")
+    model: Mapped[Model] = relationship("Model", back_populates="score_labels")
+
+    __table_args__ = (Index("ix_score_labels_image_id", "image_id"),)
+
+    def __repr__(self) -> str:
+        return f"<ScoreLabel(id={self.id}, image_id={self.image_id}, label='{self.label}')>"
 
 
 class Rating(Base):
@@ -529,6 +569,18 @@ class ScoreAnnotationData(TypedDict):
     updated_at: NotRequired[datetime.datetime]
 
 
+class ScoreLabelAnnotationData(TypedDict):
+    """canonical scorer の score_labels 永続化用 TypedDict (ADR 0027)。"""
+
+    id: NotRequired[int]
+    image_id: NotRequired[int]  # Set by save_annotations
+    model_id: int  # Must be provided
+    label: str
+    is_edited_manually: bool | None
+    created_at: NotRequired[datetime.datetime]
+    updated_at: NotRequired[datetime.datetime]
+
+
 class RatingAnnotationData(TypedDict):
     id: NotRequired[int]
     image_id: NotRequired[int]  # Set by save_annotations
@@ -544,6 +596,7 @@ class AnnotationsDict(TypedDict):
     tags: NotRequired[list[TagAnnotationData]]
     captions: NotRequired[list[CaptionAnnotationData]]
     scores: NotRequired[list[ScoreAnnotationData]]
+    score_labels: NotRequired[list[ScoreLabelAnnotationData]]
     ratings: NotRequired[list[RatingAnnotationData]]
 
 
