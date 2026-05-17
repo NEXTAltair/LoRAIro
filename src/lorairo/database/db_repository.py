@@ -31,6 +31,7 @@ from .schema import (
     Project,
     Rating,
     Score,
+    ScoreLabel,
     Tag,
 )
 from .schema import (
@@ -44,6 +45,9 @@ from .schema import (
 )
 from .schema import (
     ScoreAnnotationData as ScoreAnnotationData,
+)
+from .schema import (
+    ScoreLabelAnnotationData as ScoreLabelAnnotationData,
 )
 from .schema import (
     TagAnnotationData as TagAnnotationData,
@@ -934,6 +938,8 @@ class ImageRepository:
                     self._save_captions(session, image_id, annotations["captions"])
                 if annotations.get("scores"):
                     self._save_scores(session, image_id, annotations["scores"])
+                if annotations.get("score_labels"):
+                    self._save_score_labels(session, image_id, annotations["score_labels"])
                 if annotations.get("ratings"):
                     self._save_ratings(session, image_id, annotations["ratings"])
 
@@ -1447,6 +1453,48 @@ class ImageRepository:
                 )
                 session.add(new_score)
                 existing_scores_map[model_id] = new_score
+
+    def _save_score_labels(
+        self,
+        session: Session,
+        image_id: int,
+        score_labels_data: list[ScoreLabelAnnotationData],
+    ) -> None:
+        """canonical scorer の score_label を保存・更新 (Upsert by model_id).
+
+        ADR 0027 / iam-lib ADR 0002: aesthetic_shadow / cafe_aesthetic 等の
+        canonical scorer は ``(image, model)`` 単位で単一 label を返す契約のため、
+        ``_save_ratings`` と同じ ``model_id`` キーの Upsert pattern を採る。
+        同一 model_id で複数 label が渡された場合は最後の値で確定する。
+        """
+        logger.debug(f"Saving/Updating {len(score_labels_data)} score_labels for image_id {image_id}")
+
+        # 既存 score_label を image_id で取得
+        existing_stmt = select(ScoreLabel).where(ScoreLabel.image_id == image_id)
+        existing_records = session.execute(existing_stmt).scalars().all()
+        existing_map: dict[int, ScoreLabel] = {r.model_id: r for r in existing_records}
+
+        for label_info in score_labels_data:
+            model_id = label_info["model_id"]
+            label = label_info["label"]
+            is_edited = label_info.get("is_edited_manually")
+
+            existing_record = existing_map.get(model_id)
+
+            if existing_record:
+                logger.debug(f"Updating existing score_label: id={existing_record.id}")
+                existing_record.label = label
+                existing_record.is_edited_manually = is_edited
+            else:
+                logger.debug(f"Adding new score_label: model_id={model_id}, label='{label}'")
+                new_record = ScoreLabel(
+                    image_id=image_id,
+                    model_id=model_id,
+                    label=label,
+                    is_edited_manually=is_edited,
+                )
+                session.add(new_record)
+                existing_map[model_id] = new_record
 
     def _save_ratings(
         self,
