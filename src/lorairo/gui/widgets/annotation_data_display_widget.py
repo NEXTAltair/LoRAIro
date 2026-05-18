@@ -33,6 +33,8 @@ class AnnotationData:
     aesthetic_score: float | None = None
     overall_score: int = 0
     score_type: str = "Aesthetic"
+    # ADR 0028: canonical scorer の categorical label を {model, label, ...} ペアで保持
+    score_labels: list[dict[str, Any]] = field(default_factory=list)
     # 翻訳データ: {tag_id: {language: translated_text}}
     tag_translations: dict[int, dict[str, str]] = field(default_factory=dict)
     # 利用可能な言語リスト（get_tag_languages()から取得）
@@ -85,6 +87,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._setup_widget_properties()
         self._setup_tags_compact_view()
         self._setup_caption_compact_view()
+        self._setup_score_labels_compact_view()
         self._adjust_content_heights()
 
         # 言語コンボボックスのシグナル接続
@@ -130,6 +133,21 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self.verticalLayoutCaption.insertWidget(0, self._caption_compact_label)
         self.textEditCaption.setVisible(False)
 
+    def _setup_score_labels_compact_view(self) -> None:
+        """スコアラベル compact pill コンテナの初期化 (ADR 0028)。
+
+        各 scorer model 1 pill で `[model] label` 形式の QLabel を動的に配置する。
+        score_labels が空のときは placeholder ("-") のみ表示し、container を hide する。
+        """
+        self._score_labels_container = QWidget(self.groupBoxScoreLabels)
+        layout = QHBoxLayout(self._score_labels_container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        layout.addStretch(1)  # pill を左寄せするための末尾 stretch
+        self._score_labels_layout = layout
+        self._score_labels_container.setVisible(False)
+        self.verticalLayoutScoreLabels.addWidget(self._score_labels_container)
+
     def update_data(self, data: AnnotationData) -> None:
         """アノテーションデータで表示を更新"""
         try:
@@ -144,10 +162,16 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             # スコア表示更新
             self._update_scores_display(data.aesthetic_score, data.overall_score, data.score_type)
 
+            # スコアラベル表示更新 (ADR 0028)
+            self._update_score_labels_display(data.score_labels)
+
             self._adjust_content_heights()
 
             self.data_loaded.emit(data)
-            logger.debug(f"Annotation data updated - tags: {len(data.tags)}, caption: {bool(data.caption)}")
+            logger.debug(
+                f"Annotation data updated - tags: {len(data.tags)}, "
+                f"caption: {bool(data.caption)}, score_labels: {len(data.score_labels)}"
+            )
 
         except Exception as e:
             logger.error(f"Error updating annotation data: {e}", exc_info=True)
@@ -303,6 +327,56 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         except Exception as e:
             logger.error(f"Error updating scores display: {e}")
 
+    def _update_score_labels_display(self, score_labels: list[dict[str, Any]]) -> None:
+        """スコアラベル compact pill 表示を更新する (ADR 0028)。
+
+        各 scorer model 1 pill で ``[model] label`` 形式の QLabel を生成する。
+        ADR 0028 に従い scalar shorthand は持たず、全 scorer を並列に列挙する
+        (UC-C 不一致発見 / UC-A 多数決の前提)。
+
+        Args:
+            score_labels: ``[{"label": str, "model": str, ...}, ...]`` 構造の list。
+                          空 list の場合は placeholder を表示し container を hide する。
+        """
+        try:
+            layout = self._score_labels_layout
+            # 既存 pill を削除 (末尾の stretch だけ残す)
+            while layout.count() > 1:
+                item = layout.takeAt(0)
+                pill_widget = item.widget()
+                if pill_widget is not None:
+                    pill_widget.deleteLater()
+
+            if not score_labels:
+                self.labelScoreLabelsPlaceholder.setVisible(True)
+                self._score_labels_container.setVisible(False)
+                return
+
+            self.labelScoreLabelsPlaceholder.setVisible(False)
+            self._score_labels_container.setVisible(True)
+
+            for entry in score_labels:
+                model = entry.get("model", "Unknown")
+                label = entry.get("label", "-")
+                pill = QLabel(f"[{model}] {label}", self._score_labels_container)
+                pill.setStyleSheet(
+                    "QLabel { "
+                    "background-color: palette(light); "
+                    "border: 1px solid palette(mid); "
+                    "border-radius: 8px; "
+                    "padding: 2px 8px; "
+                    "font-size: 10px; "
+                    "color: palette(text); "
+                    "}"
+                )
+                # stretch の前 (= layout 末尾) に挿入
+                layout.insertWidget(layout.count() - 1, pill)
+
+            logger.debug(f"Updated score_labels display: {len(score_labels)} pills")
+
+        except Exception as e:
+            logger.error(f"Error updating score_labels display: {e}")
+
     @Slot()
     def clear_data(self) -> None:
         """表示データをクリア"""
@@ -319,6 +393,9 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
 
             self.labelScoreTypeValue.setText("-")
             self.labelOverallValue.setText("0")
+
+            # スコアラベル pill もクリア
+            self._update_score_labels_display([])
 
             self._tags_compact_label.setText("-")
             self._adjust_content_heights()
@@ -339,12 +416,17 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self.textEditCaption.setReadOnly(read_only)
 
     def set_group_box_visibility(
-        self, tags: bool = True, caption: bool = True, scores: bool = True
+        self,
+        tags: bool = True,
+        caption: bool = True,
+        scores: bool = True,
+        score_labels: bool = True,
     ) -> None:
-        """各グループボックスの表示/非表示制御"""
+        """各グループボックスの表示/非表示制御 (Issue #284 で score_labels を追加)。"""
         self.groupBoxTags.setVisible(tags)
         self.groupBoxCaption.setVisible(caption)
         self.groupBoxScores.setVisible(scores)
+        self.groupBoxScoreLabels.setVisible(score_labels)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)

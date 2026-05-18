@@ -27,6 +27,7 @@ class TestFormatAnnotationsForMetadata:
         image.tags = []
         image.captions = []
         image.scores = []
+        image.score_labels = []
         image.ratings = []
         return image
 
@@ -79,6 +80,7 @@ class TestFormatAnnotationsForMetadata:
         image.tags = [tag1]
         image.captions = [caption1]
         image.scores = [score1]
+        image.score_labels = []
         image.ratings = [rating1]
 
         return image
@@ -94,6 +96,7 @@ class TestFormatAnnotationsForMetadata:
             "caption_text": "",
             "scores": [],
             "score_value": 0.0,
+            "score_labels": [],
             "ratings": [],
             "rating_value": "",  # Issue #4: Rating値は文字列型
         }
@@ -168,6 +171,7 @@ class TestFormatAnnotationsForMetadata:
         image.tags = [tag1]
         image.captions = []
         image.scores = []
+        image.score_labels = []
         image.ratings = []
 
         result = repository._format_annotations_for_metadata(image)
@@ -178,6 +182,7 @@ class TestFormatAnnotationsForMetadata:
         assert result["caption_text"] == ""
         assert len(result["scores"]) == 0
         assert result["score_value"] == 0.0
+        assert len(result["score_labels"]) == 0
         assert len(result["ratings"]) == 0
         assert result["rating_value"] == ""  # Issue #4: Rating値は文字列型
 
@@ -211,6 +216,7 @@ class TestFormatAnnotationsForMetadata:
         image.tags = [tag1, tag2]
         image.captions = []
         image.scores = []
+        image.score_labels = []
         image.ratings = []
 
         result = repository._format_annotations_for_metadata(image)

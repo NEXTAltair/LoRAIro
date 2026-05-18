@@ -192,3 +192,84 @@ class TestAnnotationDataDisplayWidget:
         widget.update_data(data)
 
         assert "1人の女の子" in widget._tags_compact_label.text()
+
+    # ─── score_labels compact pill display (Issue #284 / ADR 0028) ─────
+
+    @pytest.fixture
+    def sample_score_labels(self):
+        """canonical scorer の score_labels (ADR 0028 のデータ形状)"""
+        return [
+            {
+                "label": "very aesthetic",
+                "model": "aesthetic_shadow_v1",
+                "model_id": 1,
+                "is_edited_manually": False,
+            },
+            {
+                "label": "aesthetic",
+                "model": "cafe_aesthetic",
+                "model_id": 2,
+                "is_edited_manually": False,
+            },
+        ]
+
+    def test_score_labels_empty_shows_placeholder(self, widget):
+        """score_labels 空時、container が hidden で placeholder のみ。"""
+        widget.update_data(AnnotationData(score_labels=[]))
+        # placeholder は visible 設定で残る (qtbot 上は親 invisible だが isHidden() は False)
+        assert not widget.labelScoreLabelsPlaceholder.isHidden()
+        assert widget._score_labels_container.isHidden()
+
+    def test_score_labels_single_pill(self, widget):
+        """1 scorer で 1 pill が描画され、[model] label を含む。"""
+        data = AnnotationData(
+            score_labels=[
+                {
+                    "label": "very aesthetic",
+                    "model": "aesthetic_shadow_v1",
+                    "model_id": 1,
+                    "is_edited_manually": False,
+                }
+            ]
+        )
+        widget.update_data(data)
+
+        # pill (1) + stretch (1)
+        assert widget._score_labels_layout.count() == 2
+        pill = widget._score_labels_layout.itemAt(0).widget()
+        assert pill is not None
+        assert "aesthetic_shadow_v1" in pill.text()
+        assert "very aesthetic" in pill.text()
+        # container は visible 設定、placeholder は hidden 設定
+        assert not widget._score_labels_container.isHidden()
+        assert widget.labelScoreLabelsPlaceholder.isHidden()
+
+    def test_score_labels_multi_pills(self, widget, sample_score_labels):
+        """複数 scorer で複数 pill が描画される。"""
+        widget.update_data(AnnotationData(score_labels=sample_score_labels))
+
+        # 2 pill + 1 stretch
+        assert widget._score_labels_layout.count() == 3
+        pill_texts = [widget._score_labels_layout.itemAt(i).widget().text() for i in range(2)]
+        assert any("aesthetic_shadow_v1" in t for t in pill_texts)
+        assert any("cafe_aesthetic" in t for t in pill_texts)
+
+    def test_score_labels_re_render_clears_previous(self, widget, sample_score_labels):
+        """update_data 再呼出しで前 pill がクリアされて再描画される。"""
+        widget.update_data(AnnotationData(score_labels=sample_score_labels))
+        assert widget._score_labels_layout.count() == 3
+
+        widget.update_data(AnnotationData(score_labels=[sample_score_labels[0]]))
+        # 1 pill + 1 stretch
+        assert widget._score_labels_layout.count() == 2
+
+    def test_set_group_box_visibility_score_labels_false(self, widget):
+        """score_labels=False で groupBoxScoreLabels が hidden になる。"""
+        widget.set_group_box_visibility(score_labels=False)
+        assert widget.groupBoxScoreLabels.isHidden()
+
+    def test_set_group_box_visibility_backward_compatible(self, widget):
+        """score_labels 省略時 (既存 caller) は default True で表示維持。"""
+        widget.set_group_box_visibility(tags=False)
+        # score_labels は default で visible 設定 → isHidden() は False
+        assert not widget.groupBoxScoreLabels.isHidden()

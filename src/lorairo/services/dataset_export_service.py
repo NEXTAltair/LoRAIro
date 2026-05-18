@@ -203,8 +203,21 @@ class DatasetExportService:
                     if image_data["captions"]
                     else ""
                 )
+                # ADR 0028: score_labels は {model, label} を主とする JSON-safe な形で埋め込む
+                score_labels = [
+                    {
+                        "model": sl.get("model", "Unknown"),
+                        "label": sl.get("label", ""),
+                        "is_edited_manually": bool(sl.get("is_edited_manually")),
+                    }
+                    for sl in image_data.get("score_labels", [])
+                ]
 
-                metadata[str(output_image_path)] = {"tags": tags, "caption": captions}
+                metadata[str(output_image_path)] = {
+                    "tags": tags,
+                    "caption": captions,
+                    "score_labels": score_labels,
+                }
 
                 exported_count += 1
                 logger.debug(f"Exported image {image_id}: {processed_image_path.name}")
@@ -369,6 +382,8 @@ class DatasetExportService:
                 "metadata": metadata,
                 "tags": annotations.get("tags", []),
                 "captions": annotations.get("captions", []),
+                # ADR 0028: canonical scorer の categorical label を {model, label} ペアで保持
+                "score_labels": annotations.get("score_labels", []),
             }
 
         except Exception as e:

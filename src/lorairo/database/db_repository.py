@@ -2450,6 +2450,33 @@ class ImageRepository:
             annotations["scores"] = []
             annotations["score_value"] = 0.0
 
+    def _format_score_labels(self, image: Image, annotations: dict[str, Any]) -> None:
+        """スコアラベル (canonical scorer の categorical 分類) をフォーマットする。
+
+        ADR 0028 に基づき、各 entry は {model, label} ペアで保持し、scalar shorthand
+        は持たない (multi-scorer の集約 / 多数決方式の前提)。
+
+        Args:
+            image: 画像オブジェクト。
+            annotations: フォーマット結果を格納する辞書（直接更新される）。
+
+        """
+        if image.score_labels:
+            annotations["score_labels"] = [
+                {
+                    "id": sl.id,
+                    "label": sl.label,
+                    "model_id": sl.model_id,
+                    "model": sl.model.name if sl.model else "Unknown",
+                    "is_edited_manually": sl.is_edited_manually,
+                    "created_at": sl.created_at,
+                    "updated_at": sl.updated_at,
+                }
+                for sl in image.score_labels
+            ]
+        else:
+            annotations["score_labels"] = []
+
     def _format_ratings(self, image: Image, annotations: dict[str, Any]) -> None:
         """レーティングアノテーション情報をフォーマットする。
 
@@ -2492,12 +2519,14 @@ class ImageRepository:
         self._format_tags(image, annotations)
         self._format_captions(image, annotations)
         self._format_scores(image, annotations)
+        self._format_score_labels(image, annotations)
         self._format_ratings(image, annotations)
 
         logger.debug(
             f"Formatted annotations: tags={len(annotations.get('tags', []))}, "
             f"captions={len(annotations.get('captions', []))}, "
             f"scores={len(annotations.get('scores', []))}, "
+            f"score_labels={len(annotations.get('score_labels', []))}, "
             f"ratings={len(annotations.get('ratings', []))}",
         )
 
@@ -2527,6 +2556,7 @@ class ImageRepository:
                 selectinload(Image.tags).selectinload(Tag.model),
                 selectinload(Image.captions).selectinload(Caption.model),
                 selectinload(Image.scores).selectinload(Score.model),
+                selectinload(Image.score_labels).selectinload(ScoreLabel.model),
                 selectinload(Image.ratings),
             )
         )
@@ -2569,6 +2599,7 @@ class ImageRepository:
                 selectinload(Image.tags).selectinload(Tag.model),
                 selectinload(Image.captions).selectinload(Caption.model),
                 selectinload(Image.scores).selectinload(Score.model),
+                selectinload(Image.score_labels).selectinload(ScoreLabel.model),
                 selectinload(Image.ratings),
             )
         )
