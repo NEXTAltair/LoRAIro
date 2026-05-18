@@ -394,24 +394,34 @@ class TestDatasetExportService:
     def test_export_dataset_json_format_includes_score_labels(
         self,
         dataset_export_service,
+        mock_db_manager,
         mock_file_system_manager,
         sample_image_data,
         sample_score_labels,
     ):
-        """JSON Export の metadata に score_labels が構造化 list で含まれる (ADR 0028)。"""
+        """JSON Export の metadata に score_labels が構造化 list で含まれる (ADR 0028)。
+
+        silent バグ防止: ``db_manager.get_image_annotations`` 経由で score_labels が
+        取れる経路まで含めて検証する (Codex 指摘の盲点を mock レベルで塞ぐ)。
+        """
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / "export"
             output_path.mkdir()
             processed_image_path = Path("/mock/processed/test_project_00001.webp")
 
-            export_data = {**sample_image_data, "score_labels": sample_score_labels}
-            with (
-                patch.object(
-                    dataset_export_service,
-                    "_resolve_processed_image_path",
-                    return_value=processed_image_path,
-                ),
-                patch.object(dataset_export_service, "_get_image_export_data", return_value=export_data),
+            # _get_image_export_data は mock しない (実経路を test)
+            mock_db_manager.get_image_metadata.return_value = sample_image_data["metadata"]
+            mock_db_manager.get_image_annotations.return_value = {
+                "tags": sample_image_data["tags"],
+                "captions": sample_image_data["captions"],
+                "scores": [],
+                "score_labels": sample_score_labels,
+                "ratings": [],
+            }
+            with patch.object(
+                dataset_export_service,
+                "_resolve_processed_image_path",
+                return_value=processed_image_path,
             ):
                 dataset_export_service.export_dataset_json_format(
                     image_ids=[1], output_path=output_path, resolution=512
@@ -434,7 +444,11 @@ class TestDatasetExportService:
             assert "aesthetic" in labels
 
     def test_export_dataset_json_format_empty_score_labels(
-        self, dataset_export_service, mock_file_system_manager, sample_image_data
+        self,
+        dataset_export_service,
+        mock_db_manager,
+        mock_file_system_manager,
+        sample_image_data,
     ):
         """JSON Export で score_labels が空の場合、metadata の値は [] となる。"""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -442,14 +456,18 @@ class TestDatasetExportService:
             output_path.mkdir()
             processed_image_path = Path("/mock/processed/test_project_00001.webp")
 
-            export_data = {**sample_image_data, "score_labels": []}
-            with (
-                patch.object(
-                    dataset_export_service,
-                    "_resolve_processed_image_path",
-                    return_value=processed_image_path,
-                ),
-                patch.object(dataset_export_service, "_get_image_export_data", return_value=export_data),
+            mock_db_manager.get_image_metadata.return_value = sample_image_data["metadata"]
+            mock_db_manager.get_image_annotations.return_value = {
+                "tags": sample_image_data["tags"],
+                "captions": sample_image_data["captions"],
+                "scores": [],
+                "score_labels": [],
+                "ratings": [],
+            }
+            with patch.object(
+                dataset_export_service,
+                "_resolve_processed_image_path",
+                return_value=processed_image_path,
             ):
                 dataset_export_service.export_dataset_json_format(
                     image_ids=[1], output_path=output_path, resolution=512
@@ -461,9 +479,52 @@ class TestDatasetExportService:
             expected_image_path = str(output_path / "test_project_00001.webp")
             assert metadata[expected_image_path]["score_labels"] == []
 
+    def test_export_dataset_json_format_silent_drop_regression(
+        self,
+        dataset_export_service,
+        mock_db_manager,
+        mock_file_system_manager,
+        sample_image_data,
+    ):
+        """Regression: get_image_annotations が score_labels key を返却しない場合に
+        export が key 欠落で KeyError 等の悪化を起こさず、graceful に [] へ
+        fallback することを検証する (PR #286 Codex 指摘の核)。
+
+        将来 ``get_image_annotations`` の戻り値仕様変更時にこの test が早期警告となる。
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "export"
+            output_path.mkdir()
+
+            # 旧仕様 (score_labels key 欠落) を mock で再現
+            mock_db_manager.get_image_metadata.return_value = sample_image_data["metadata"]
+            mock_db_manager.get_image_annotations.return_value = {
+                "tags": sample_image_data["tags"],
+                "captions": sample_image_data["captions"],
+                "scores": [],
+                "ratings": [],
+                # score_labels key は意図的に欠落
+            }
+            with patch.object(
+                dataset_export_service,
+                "_resolve_processed_image_path",
+                return_value=Path("/mock/processed/test_project_00001.webp"),
+            ):
+                dataset_export_service.export_dataset_json_format(
+                    image_ids=[1], output_path=output_path, resolution=512
+                )
+
+            metadata_file = output_path / "metadata.json"
+            with open(metadata_file, encoding="utf-8") as f:
+                metadata = json.load(f)
+            entry = metadata[str(output_path / "test_project_00001.webp")]
+            assert "score_labels" in entry
+            assert entry["score_labels"] == []
+
     def test_export_dataset_txt_format_excludes_score_labels(
         self,
         dataset_export_service,
+        mock_db_manager,
         mock_file_system_manager,
         sample_image_data,
         sample_score_labels,
@@ -474,14 +535,18 @@ class TestDatasetExportService:
             output_path.mkdir()
             processed_image_path = Path("/mock/processed/test_project_00001.webp")
 
-            export_data = {**sample_image_data, "score_labels": sample_score_labels}
-            with (
-                patch.object(
-                    dataset_export_service,
-                    "_resolve_processed_image_path",
-                    return_value=processed_image_path,
-                ),
-                patch.object(dataset_export_service, "_get_image_export_data", return_value=export_data),
+            mock_db_manager.get_image_metadata.return_value = sample_image_data["metadata"]
+            mock_db_manager.get_image_annotations.return_value = {
+                "tags": sample_image_data["tags"],
+                "captions": sample_image_data["captions"],
+                "scores": [],
+                "score_labels": sample_score_labels,
+                "ratings": [],
+            }
+            with patch.object(
+                dataset_export_service,
+                "_resolve_processed_image_path",
+                return_value=processed_image_path,
             ):
                 dataset_export_service.export_dataset_txt_format(
                     image_ids=[1], output_path=output_path, resolution=512, merge_caption=False

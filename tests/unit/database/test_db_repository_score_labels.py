@@ -240,3 +240,105 @@ class TestFormatScoreLabels:
         assert "score_labels" in annotations
         assert annotations["score_labels"][0]["label"] == "very aesthetic"
         assert annotations["score_labels"][0]["model"] == "aesthetic_shadow_v1"
+
+
+class TestGetImageAnnotationsScoreLabels:
+    """``get_image_annotations`` 経由で score_labels が読まれることを検証する (ADR 0028)。
+
+    PR #286 レビューで指摘された silent バグ防止: 過去 ``get_image_annotations`` は
+    tags/captions/scores/ratings のみ返却で score_labels を silent drop していた。
+    本テストは ``_get_image_export_data`` 等の downstream が score_labels を取得
+    できる経路を保証する。
+    """
+
+    @pytest.fixture
+    def repository(self) -> ImageRepository:
+        """テスト用 ImageRepository。"""
+        mock_session_factory = MagicMock()
+        return ImageRepository(session_factory=mock_session_factory)
+
+    def _setup_session_with_image(
+        self, repository: ImageRepository, image: SimpleNamespace | None
+    ) -> MagicMock:
+        """session_factory を mock してテスト用 Image を返すように設定。"""
+        mock_session = MagicMock()
+        mock_session.__enter__ = Mock(return_value=mock_session)
+        mock_session.__exit__ = Mock(return_value=False)
+
+        mock_result = MagicMock()
+        mock_result.unique.return_value.scalar_one_or_none.return_value = image
+        mock_session.execute.return_value = mock_result
+
+        repository.session_factory = MagicMock(return_value=mock_session)
+        return mock_session
+
+    def test_get_image_annotations_includes_score_labels_key_when_empty(
+        self, repository: ImageRepository
+    ) -> None:
+        """画像なしでも score_labels: [] が返値に含まれる (key 欠落で silent fail しない)。"""
+        self._setup_session_with_image(repository, None)
+
+        annotations = repository.get_image_annotations(image_id=100)
+
+        assert "score_labels" in annotations
+        assert annotations["score_labels"] == []
+
+    def test_get_image_annotations_returns_score_labels_from_db(self, repository: ImageRepository) -> None:
+        """DB に score_labels がある場合、{model, label, ...} 構造で返値に含まれる。"""
+        sl = SimpleNamespace(
+            id=1,
+            image_id=100,
+            model_id=42,
+            label="very aesthetic",
+            is_edited_manually=False,
+            created_at=datetime.datetime(2026, 5, 18, 10, 0, 0),
+            updated_at=datetime.datetime(2026, 5, 18, 10, 0, 0),
+            model=SimpleNamespace(name="aesthetic_shadow_v1"),
+        )
+        image = SimpleNamespace(
+            tags=[],
+            captions=[],
+            scores=[],
+            ratings=[],
+            score_labels=[sl],
+        )
+        self._setup_session_with_image(repository, image)
+
+        annotations = repository.get_image_annotations(image_id=100)
+
+        assert len(annotations["score_labels"]) == 1
+        entry = annotations["score_labels"][0]
+        assert entry["label"] == "very aesthetic"
+        # ADR 0028: model 名と組で保持
+        assert entry["model"] == "aesthetic_shadow_v1"
+        assert entry["model_id"] == 42
+
+    def test_get_image_annotations_multi_scorer_score_labels(self, repository: ImageRepository) -> None:
+        """複数 scorer の score_labels が list 順序で全件返る (UC-A 多数決の前提)。"""
+        labels = [
+            SimpleNamespace(
+                id=i,
+                image_id=100,
+                model_id=40 + i,
+                label=label,
+                is_edited_manually=False,
+                created_at=datetime.datetime(2026, 5, 18, 10, 0, 0),
+                updated_at=datetime.datetime(2026, 5, 18, 10, 0, 0),
+                model=SimpleNamespace(name=model_name),
+            )
+            for i, (model_name, label) in enumerate(
+                [
+                    ("aesthetic_shadow_v1", "very aesthetic"),
+                    ("aesthetic_shadow_v2", "aesthetic"),
+                    ("cafe_aesthetic", "very aesthetic"),
+                ]
+            )
+        ]
+        image = SimpleNamespace(tags=[], captions=[], scores=[], ratings=[], score_labels=labels)
+        self._setup_session_with_image(repository, image)
+
+        annotations = repository.get_image_annotations(image_id=100)
+
+        assert len(annotations["score_labels"]) == 3
+        models = [e["model"] for e in annotations["score_labels"]]
+        assert models == ["aesthetic_shadow_v1", "aesthetic_shadow_v2", "cafe_aesthetic"]
