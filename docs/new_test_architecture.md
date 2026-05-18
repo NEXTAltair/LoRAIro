@@ -3,6 +3,7 @@
 **作成日**: 2026-02-10
 **対象**: テスト構成リファクタリング
 **ステータス**: 部分実装済み（unit/integration conftest 分割完了、root conftest.py 分割は未完了）
+**更新**: 2026-05-17 — ADR 0026 により E2E / real runtime validation の marker 方針を更新
 
 ---
 
@@ -11,7 +12,7 @@
 ### 原則 1: CLAUDE.md 準拠
 
 - テストレイヤー: unit / integration / gui / bdd の 4層
-- pytest マーカー統一: `@pytest.mark.unit` | `integration` | `gui` | `bdd`
+- pytest マーカー統一: `@pytest.mark.unit` | `integration` | `gui` | `bdd` を基本とし、実行レーン制御として `e2e` / `real_api` / `slow` 等を併用
 - 最小カバレッジ 75% 維持
 - モック対象: 外部API、ファイルシステム、ネットワークのみ（内部サービス間はモック不可）
 
@@ -113,7 +114,7 @@ tests/
 │   ├── services/                 # サービス統合テスト (1 file)
 │   └── *.py                      # ルートレベル統合テスト (10 files)
 │
-├── bdd/                           # BDD E2E テスト層（新規ディレクトリ）
+├── bdd/                           # BDD 振る舞い仕様テスト層（新規ディレクトリ）
 │   ├── conftest.py               # BDD 用フィクスチャ
 │   ├── features/                 # Gherkin シナリオ (2 files: 移動元 tests/features/)
 │   │   ├── database_management.feature
@@ -129,28 +130,33 @@ tests/
 
 ## テストマーカー統一
 
-### pyproject.toml マーカー定義（整理後）
+### pyproject.toml マーカー定義（整理方針）
+
+このセクションの初期案では marker を 6 種へ削減する想定だったが、ADR 0026 により、runtime validation と deterministic E2E を区別する marker を維持する方針に更新する。
+
+`unit` / `integration` / `gui` / `bdd` はテストの構造レイヤーを表す。`e2e` / `cli` / `real_api` / `webapi` / `slow` / domain marker は実行レーンや外部依存特性を表す。
 
 ```toml
 [tool.pytest.ini_options]
 markers = [
-    "unit: ユニットテスト（外部依存はモック）",
-    "integration: 統合テスト（内部コンポーネント結合）",
-    "gui: Qt GUI アクセスを含むテスト（ヘッドレス実行可能）",
-    "bdd: BDD E2E テスト（pytest-bdd シナリオ）",
-    "slow: 遅いテスト（5秒以上）",
-    "webapi: Web API ベースのアノテーターテスト",
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "gui: GUIアクセスを含むが表示を必要としないテスト",
+    "bdd: BDD scenarios (pytest-bdd)",
+    "e2e: End-to-end tests using deterministic local fixtures or fake backends",
+    "cli: CLI tests",
+    "real_api: Real API tests (for validation)",
+    "webapi: Tests related to Web API based annotators",
+    "slow: Tests that take more time",
 ]
 ```
 
-**削除対象マーカー** (未使用・過度に細分化):
-- `fast_integration` -> `integration` に統合
-- `gui_show` -> `gui` に統合（offscreen 対応済み）
-- `scorer`, `tagger`, `model_factory` -> テスト内コメントで分類
-- `fast`, `standard` -> `unit` に統合
-- `real_api` -> `webapi` に統合
-- `bdd_core` -> `bdd` に統合
-- `api_model_discovery` -> `webapi` に統合
+**ADR 0026 による確定事項**:
+- `e2e` は CI で deterministic に実行できる E2E を表す。実 API や実モデル download を意味しない。
+- `real_api` は実 provider API key を使う on-demand validation として維持する。`webapi` に統合しない。
+- `slow` は通常 CI から除外する重い validation に付ける。
+- `scorer` / `tagger` / `model_factory` は model loading / inference domain の分類として維持してよい。
+- BDD は E2E 専用レイヤーではない。Given/When/Then で仕様表現する価値があるシナリオに限定する。
 
 ### マーカー適用ルール
 
@@ -161,6 +167,9 @@ markers = [
 | `tests/integration/` (Qt不使用) | `@pytest.mark.integration` | `@pytest.mark.slow` |
 | `tests/integration/gui/` (Qt使用) | `@pytest.mark.integration`, `@pytest.mark.gui` | `@pytest.mark.slow` |
 | `tests/bdd/` | `@pytest.mark.bdd` | なし |
+| `tests/integration/` の deterministic E2E | `@pytest.mark.integration`, `@pytest.mark.e2e` | `@pytest.mark.cli` |
+| 実 API validation | domain に応じた marker | `@pytest.mark.real_api`, `@pytest.mark.webapi` |
+| 実モデル download / 実推論 validation | domain に応じた marker | `@pytest.mark.slow`, `@pytest.mark.model_factory` / `scorer` / `tagger` |
 
 ### 実行コマンド
 

@@ -132,18 +132,27 @@ rmdir tests/features/ tests/step_defs/
 
 #### 1.7 pyproject.toml マーカー定義の整理
 
-現在の 16 マーカーを 6 マーカーに整理:
+ADR 0026 により、当初案の「16 マーカーを 6 マーカーに整理」は更新する。構造レイヤー marker と実行レーン marker を分け、`real_api` と `e2e` を明示的に維持する。
 
 ```toml
 markers = [
-    "unit: ユニットテスト（外部依存はモック）",
-    "integration: 統合テスト（内部コンポーネント結合）",
-    "gui: Qt GUI アクセスを含むテスト（ヘッドレス実行可能）",
-    "bdd: BDD E2E テスト（pytest-bdd シナリオ）",
-    "slow: 遅いテスト（5秒以上）",
-    "webapi: Web API ベースのアノテーターテスト",
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "gui: GUIアクセスを含むが表示を必要としないテスト",
+    "bdd: BDD scenarios (pytest-bdd)",
+    "e2e: End-to-end tests using deterministic local fixtures or fake backends",
+    "cli: CLI tests",
+    "real_api: Real API tests (for validation)",
+    "webapi: Tests related to Web API based annotators",
+    "slow: Tests that take more time",
 ]
 ```
+
+運用上の注意:
+- `e2e` は CI で deterministic に実行できる E2E を表す。
+- 実 provider API key を使う検証は `real_api` を付け、通常 CI から除外する。
+- 実モデル download / 実推論を伴う検証は `slow` や domain marker を併用し、on-demand validation として扱う。
+- BDD は E2E 専用ではなく、仕様表現として有効なシナリオに限定する。
 
 #### 1.8 全テスト実行・成功確認
 

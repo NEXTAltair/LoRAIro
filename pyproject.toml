@@ -198,6 +198,7 @@ markers = [
     "bdd_core: Core BDD scenarios (SimplifiedAgentWrapper, Factory)",
     "api_model_discovery: API model discovery tests",
     "cli: CLI tests",
+    "e2e: End-to-end tests using deterministic local fixtures or fake backends",
 ]
 
 # VS Code settings moved to lorairo.code-workspace
