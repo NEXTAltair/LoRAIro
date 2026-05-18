@@ -151,7 +151,7 @@ make clean                 # Remove build artifacts and caches
 
 **Logging:** Loguru. INFO: batch summaries only. DEBUG: per-item details. See `.claude/rules/logging.md`
 
-**Dependency management:** `uv.lock` is tracked in git (ADR 0025, uv 公式推奨). Commit lockfile alongside `pyproject.toml` / submodule pin updates.
+**Dependency management:** `uv.lock` is tracked in git (ADR 0025, uv 公式推奨). Commit lockfile alongside `pyproject.toml` / submodule pin updates. **AI 推論 SDK (`pydantic-ai` / `anthropic` / `openai` / `google-genai` / `litellm` / `transformers` / `huggingface-hub` / `torch`) は常に最新の安定版を使う**: `pyproject.toml` は lower bound (`>=`) のみ、upper bound (`<X.Y`) は付けない。新モデル対応 / WebAPI バグ修正 / 月次 review で `uv lock --upgrade-package <name>` で bump する。詳細は [.claude/rules/dependency-management.md](.claude/rules/dependency-management.md)。
 
 ## Problem-Solving Approach
 
