@@ -343,6 +343,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             # 既存 pill を削除 (末尾の stretch だけ残す)
             while layout.count() > 1:
                 item = layout.takeAt(0)
+                if item is None:
+                    break
                 pill_widget = item.widget()
                 if pill_widget is not None:
                     pill_widget.deleteLater()
