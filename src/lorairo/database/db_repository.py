@@ -1900,8 +1900,32 @@ class ImageRepository:
             "updated_at": rating.updated_at,
         }
 
+    @staticmethod
+    def _format_score_label_annotation(sl: Any) -> dict[str, Any]:
+        """スコアラベルアノテーション (ADR 0028) を dict 形式にフォーマットする。
+
+        ADR 0028 で「常に model 名と組で保持」と決定したため、他 per-item helper と
+        異なり ``model`` (model.name) を含める。``sl.model`` relationship が eager
+        load されている前提 (``joinedload(ScoreLabel.model)`` 等)。
+
+        Args:
+            sl: ScoreLabel ORM オブジェクト。
+
+        Returns:
+            フォーマット済み辞書 (model 含む)。
+        """
+        return {
+            "id": sl.id,
+            "label": sl.label,
+            "model_id": sl.model_id,
+            "model": sl.model.name if sl.model else "Unknown",
+            "is_edited_manually": sl.is_edited_manually,
+            "created_at": sl.created_at,
+            "updated_at": sl.updated_at,
+        }
+
     def get_image_annotations(self, image_id: int) -> dict[str, list[dict[str, Any]]]:
-        """指定された画像IDのアノテーション(タグ、キャプション、スコア、レーティング)を取得する。
+        """指定された画像IDのアノテーション(タグ、キャプション、スコア、スコアラベル、レーティング)を取得する。
 
         Eager Loadingを使用して関連データを効率的に取得する。
 
@@ -1910,7 +1934,7 @@ class ImageRepository:
 
         Returns:
             アノテーションデータを含む辞書。
-            キー: 'tags', 'captions', 'scores', 'ratings'
+            キー: 'tags', 'captions', 'scores', 'score_labels', 'ratings'
             画像が存在しない場合は空のリストを持つ辞書を返す。
 
         Raises:
@@ -1924,6 +1948,7 @@ class ImageRepository:
             "tags": [],
             "captions": [],
             "scores": [],
+            "score_labels": [],
             "ratings": [],
         }
 
@@ -1936,6 +1961,9 @@ class ImageRepository:
                         joinedload(Image.tags),
                         joinedload(Image.captions),
                         joinedload(Image.scores),
+                        # ADR 0028: score_labels は model 名と組で返すため
+                        # ScoreLabel.model も eager load する
+                        joinedload(Image.score_labels).joinedload(ScoreLabel.model),
                         joinedload(Image.ratings),
                         joinedload(Image.processed_images),
                     )
@@ -1952,12 +1980,17 @@ class ImageRepository:
                     annotations["captions"] = [self._format_caption_annotation(c) for c in image.captions]
                 if image.scores:
                     annotations["scores"] = [self._format_score_annotation(s) for s in image.scores]
+                if image.score_labels:
+                    annotations["score_labels"] = [
+                        self._format_score_label_annotation(sl) for sl in image.score_labels
+                    ]
                 if image.ratings:
                     annotations["ratings"] = [self._format_rating_annotation(r) for r in image.ratings]
 
                 logger.info(
                     f"取得したアノテーション数: tags={len(annotations['tags'])}, "
                     f"captions={len(annotations['captions'])}, scores={len(annotations['scores'])}, "
+                    f"score_labels={len(annotations['score_labels'])}, "
                     f"ratings={len(annotations['ratings'])} for image_id={image_id}",
                 )
                 return annotations
@@ -2450,6 +2483,24 @@ class ImageRepository:
             annotations["scores"] = []
             annotations["score_value"] = 0.0
 
+    def _format_score_labels(self, image: Image, annotations: dict[str, Any]) -> None:
+        """スコアラベル (canonical scorer の categorical 分類) をフォーマットする。
+
+        ADR 0028 に基づき、各 entry は {model, label} ペアで保持し、scalar shorthand
+        は持たない (multi-scorer の集約 / 多数決方式の前提)。
+
+        Args:
+            image: 画像オブジェクト。
+            annotations: フォーマット結果を格納する辞書（直接更新される）。
+
+        """
+        if image.score_labels:
+            annotations["score_labels"] = [
+                self._format_score_label_annotation(sl) for sl in image.score_labels
+            ]
+        else:
+            annotations["score_labels"] = []
+
     def _format_ratings(self, image: Image, annotations: dict[str, Any]) -> None:
         """レーティングアノテーション情報をフォーマットする。
 
@@ -2492,12 +2543,14 @@ class ImageRepository:
         self._format_tags(image, annotations)
         self._format_captions(image, annotations)
         self._format_scores(image, annotations)
+        self._format_score_labels(image, annotations)
         self._format_ratings(image, annotations)
 
         logger.debug(
             f"Formatted annotations: tags={len(annotations.get('tags', []))}, "
             f"captions={len(annotations.get('captions', []))}, "
             f"scores={len(annotations.get('scores', []))}, "
+            f"score_labels={len(annotations.get('score_labels', []))}, "
             f"ratings={len(annotations.get('ratings', []))}",
         )
 
@@ -2527,6 +2580,7 @@ class ImageRepository:
                 selectinload(Image.tags).selectinload(Tag.model),
                 selectinload(Image.captions).selectinload(Caption.model),
                 selectinload(Image.scores).selectinload(Score.model),
+                selectinload(Image.score_labels).selectinload(ScoreLabel.model),
                 selectinload(Image.ratings),
             )
         )
@@ -2569,6 +2623,7 @@ class ImageRepository:
                 selectinload(Image.tags).selectinload(Tag.model),
                 selectinload(Image.captions).selectinload(Caption.model),
                 selectinload(Image.scores).selectinload(Score.model),
+                selectinload(Image.score_labels).selectinload(ScoreLabel.model),
                 selectinload(Image.ratings),
             )
         )

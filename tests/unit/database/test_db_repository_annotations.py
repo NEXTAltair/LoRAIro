@@ -27,6 +27,7 @@ class TestFormatAnnotationsForMetadata:
         image.tags = []
         image.captions = []
         image.scores = []
+        image.score_labels = []
         image.ratings = []
         return image
 
@@ -79,6 +80,7 @@ class TestFormatAnnotationsForMetadata:
         image.tags = [tag1]
         image.captions = [caption1]
         image.scores = [score1]
+        image.score_labels = []
         image.ratings = [rating1]
 
         return image
@@ -94,6 +96,7 @@ class TestFormatAnnotationsForMetadata:
             "caption_text": "",
             "scores": [],
             "score_value": 0.0,
+            "score_labels": [],
             "ratings": [],
             "rating_value": "",  # Issue #4: Rating値は文字列型
         }
@@ -168,6 +171,7 @@ class TestFormatAnnotationsForMetadata:
         image.tags = [tag1]
         image.captions = []
         image.scores = []
+        image.score_labels = []
         image.ratings = []
 
         result = repository._format_annotations_for_metadata(image)
@@ -178,6 +182,7 @@ class TestFormatAnnotationsForMetadata:
         assert result["caption_text"] == ""
         assert len(result["scores"]) == 0
         assert result["score_value"] == 0.0
+        assert len(result["score_labels"]) == 0
         assert len(result["ratings"]) == 0
         assert result["rating_value"] == ""  # Issue #4: Rating値は文字列型
 
@@ -211,6 +216,7 @@ class TestFormatAnnotationsForMetadata:
         image.tags = [tag1, tag2]
         image.captions = []
         image.scores = []
+        image.score_labels = []
         image.ratings = []
 
         result = repository._format_annotations_for_metadata(image)
@@ -418,6 +424,40 @@ class TestAnnotationFormatters:
         assert result["raw_rating_value"] == "PG"
         assert result["normalized_rating"] == "pg"
         assert result["confidence_score"] == 0.92
+
+    def test_format_score_label_annotation(self):
+        """スコアラベルアノテーション (ADR 0028) のフォーマット - model 名と組で返ること。"""
+        sl = Mock()
+        sl.id = 5
+        sl.label = "very aesthetic"
+        sl.model_id = 42
+        sl.is_edited_manually = False
+        sl.created_at = datetime(2026, 5, 18)
+        sl.updated_at = datetime(2026, 5, 18)
+        sl.model = Mock()
+        sl.model.name = "aesthetic_shadow_v1"
+
+        result = ImageRepository._format_score_label_annotation(sl)
+        assert result["id"] == 5
+        assert result["label"] == "very aesthetic"
+        assert result["model_id"] == 42
+        # ADR 0028: model 名を常に含める
+        assert result["model"] == "aesthetic_shadow_v1"
+        assert result["is_edited_manually"] is False
+
+    def test_format_score_label_annotation_no_model_relationship(self):
+        """model relationship が None の場合は 'Unknown' が埋まる。"""
+        sl = Mock()
+        sl.id = 6
+        sl.label = "aesthetic"
+        sl.model_id = 99
+        sl.is_edited_manually = False
+        sl.created_at = datetime(2026, 5, 18)
+        sl.updated_at = datetime(2026, 5, 18)
+        sl.model = None
+
+        result = ImageRepository._format_score_label_annotation(sl)
+        assert result["model"] == "Unknown"
 
 
 # ==============================================================================

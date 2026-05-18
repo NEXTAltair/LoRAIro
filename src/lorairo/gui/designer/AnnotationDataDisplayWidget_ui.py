@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'AnnotationDataDisplayWidget.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.11.0
+## Created by: Qt User Interface Compiler version 6.11.1
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -117,6 +117,25 @@ class Ui_AnnotationDataDisplayWidget(object):
 
         self.verticalLayoutMain.addWidget(self.groupBoxScores)
 
+        self.groupBoxScoreLabels = QGroupBox(AnnotationDataDisplayWidget)
+        self.groupBoxScoreLabels.setObjectName(u"groupBoxScoreLabels")
+        self.verticalLayoutScoreLabels = QVBoxLayout(self.groupBoxScoreLabels)
+        self.verticalLayoutScoreLabels.setSpacing(4)
+        self.verticalLayoutScoreLabels.setObjectName(u"verticalLayoutScoreLabels")
+        self.labelScoreLabelsPlaceholder = QLabel(self.groupBoxScoreLabels)
+        self.labelScoreLabelsPlaceholder.setObjectName(u"labelScoreLabelsPlaceholder")
+        self.labelScoreLabelsPlaceholder.setWordWrap(True)
+        sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        sizePolicy2.setHorizontalStretch(0)
+        sizePolicy2.setVerticalStretch(0)
+        sizePolicy2.setHeightForWidth(self.labelScoreLabelsPlaceholder.sizePolicy().hasHeightForWidth())
+        self.labelScoreLabelsPlaceholder.setSizePolicy(sizePolicy2)
+
+        self.verticalLayoutScoreLabels.addWidget(self.labelScoreLabelsPlaceholder)
+
+
+        self.verticalLayoutMain.addWidget(self.groupBoxScoreLabels)
+
 
         self.retranslateUi(AnnotationDataDisplayWidget)
 
@@ -153,5 +172,8 @@ class Ui_AnnotationDataDisplayWidget(object):
         self.labelOverallScore.setText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"\u30b9\u30b3\u30a2:", None))
         self.labelOverallValue.setText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"0", None))
         self.labelOverallValue.setStyleSheet(QCoreApplication.translate("AnnotationDataDisplayWidget", u"font-size: 10px; font-weight: bold; color: palette(text);", None))
+        self.groupBoxScoreLabels.setTitle(QCoreApplication.translate("AnnotationDataDisplayWidget", u"\u30b9\u30b3\u30a2\u30e9\u30d9\u30eb", None))
+        self.labelScoreLabelsPlaceholder.setText(QCoreApplication.translate("AnnotationDataDisplayWidget", u"-", None))
+        self.labelScoreLabelsPlaceholder.setStyleSheet(QCoreApplication.translate("AnnotationDataDisplayWidget", u"font-size: 10px; color: palette(text);", None))
     # retranslateUi
 

@@ -412,6 +412,8 @@ class SelectedImageDetailsWidget(QWidget):
         tags_list = metadata.get("tags", [])
         caption_text = metadata.get("caption_text", "")
         tags_text = metadata.get("tags_text", "")
+        # ADR 0028: canonical scorer の score_labels を AnnotationData に渡す
+        score_labels_list = metadata.get("score_labels", [])
 
         # 翻訳データ取得（N+1回避のためバッチ取得）
         tag_translations: dict[int, dict[str, str]] = {}
@@ -430,6 +432,7 @@ class SelectedImageDetailsWidget(QWidget):
             caption=caption_text,
             aesthetic_score=score_value,
             overall_score=0,  # Rating値は文字列なのでoverall_scoreには使用しない
+            score_labels=score_labels_list,
             tag_translations=tag_translations,
             available_languages=self._available_languages,
         )

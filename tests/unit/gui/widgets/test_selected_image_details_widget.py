@@ -276,3 +276,55 @@ class TestSelectedImageDetailsWidget:
         mock_reader.get_translations_batch.assert_called_once()
         call_args = mock_reader.get_translations_batch.call_args[0][0]
         assert len(call_args) == 10
+
+    def test_build_metadata_populates_score_labels(self, widget):
+        """metadata の score_labels が AnnotationData に渡されること (ADR 0028)。
+
+        PR #286 Codex 指摘の核: producer 側で score_labels を埋めないと、
+        consumer 側の pill 表示が常に空になる silent バグの回帰防止。
+        """
+        score_labels = [
+            {
+                "label": "very aesthetic",
+                "model": "aesthetic_shadow_v1",
+                "model_id": 1,
+                "is_edited_manually": False,
+            },
+            {
+                "label": "aesthetic",
+                "model": "cafe_aesthetic",
+                "model_id": 2,
+                "is_edited_manually": False,
+            },
+        ]
+        metadata = {
+            "id": 1,
+            "file_path": "/test/img.jpg",
+            "tags": [],
+            "caption_text": "",
+            "tags_text": "",
+            "score_value": 0,
+            "rating_value": "",
+            "score_labels": score_labels,
+        }
+        details = widget._build_image_details_from_metadata(metadata)
+
+        assert details.annotation_data is not None
+        assert details.annotation_data.score_labels == score_labels
+
+    def test_build_metadata_score_labels_missing_defaults_empty(self, widget):
+        """metadata に score_labels key が無い場合は default [] になる (旧データ互換)。"""
+        metadata = {
+            "id": 1,
+            "file_path": "/test/img.jpg",
+            "tags": [],
+            "caption_text": "",
+            "tags_text": "",
+            "score_value": 0,
+            "rating_value": "",
+            # score_labels なし
+        }
+        details = widget._build_image_details_from_metadata(metadata)
+
+        assert details.annotation_data is not None
+        assert details.annotation_data.score_labels == []

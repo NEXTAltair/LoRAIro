@@ -338,6 +338,232 @@ class TestDatasetExportService:
         # Then: Noneが返される
         assert result is None
 
+    # ─── score_labels Export (Issue #284 / ADR 0028) ───────────────────────
+
+    @pytest.fixture
+    def sample_score_labels(self):
+        """canonical scorer の score_labels (ADR 0028 の構造化形式)"""
+        return [
+            {
+                "label": "very aesthetic",
+                "model": "aesthetic_shadow_v1",
+                "model_id": 1,
+                "is_edited_manually": False,
+            },
+            {
+                "label": "aesthetic",
+                "model": "cafe_aesthetic",
+                "model_id": 2,
+                "is_edited_manually": False,
+            },
+        ]
+
+    def test_get_image_export_data_includes_score_labels(
+        self, dataset_export_service, mock_db_manager, sample_image_data, sample_score_labels
+    ):
+        """_get_image_export_data の return に score_labels が含まれる (ADR 0028)。"""
+        mock_db_manager.get_image_metadata.return_value = sample_image_data["metadata"]
+        mock_db_manager.get_image_annotations.return_value = {
+            "tags": sample_image_data["tags"],
+            "captions": sample_image_data["captions"],
+            "score_labels": sample_score_labels,
+        }
+
+        result = dataset_export_service._get_image_export_data(1)
+
+        assert result is not None
+        assert "score_labels" in result
+        assert result["score_labels"] == sample_score_labels
+
+    def test_get_image_export_data_empty_score_labels(
+        self, dataset_export_service, mock_db_manager, sample_image_data
+    ):
+        """annotations に score_labels key がない場合 (旧データ互換) は空 list を返す。"""
+        mock_db_manager.get_image_metadata.return_value = sample_image_data["metadata"]
+        mock_db_manager.get_image_annotations.return_value = {
+            "tags": sample_image_data["tags"],
+            "captions": sample_image_data["captions"],
+            # score_labels なし
+        }
+
+        result = dataset_export_service._get_image_export_data(1)
+
+        assert result is not None
+        assert result["score_labels"] == []
+
+    def test_export_dataset_json_format_includes_score_labels(
+        self,
+        dataset_export_service,
+        mock_db_manager,
+        mock_file_system_manager,
+        sample_image_data,
+        sample_score_labels,
+    ):
+        """JSON Export の metadata に score_labels が構造化 list で含まれる (ADR 0028)。
+
+        silent バグ防止: ``db_manager.get_image_annotations`` 経由で score_labels が
+        取れる経路まで含めて検証する (Codex 指摘の盲点を mock レベルで塞ぐ)。
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "export"
+            output_path.mkdir()
+            processed_image_path = Path("/mock/processed/test_project_00001.webp")
+
+            # _get_image_export_data は mock しない (実経路を test)
+            mock_db_manager.get_image_metadata.return_value = sample_image_data["metadata"]
+            mock_db_manager.get_image_annotations.return_value = {
+                "tags": sample_image_data["tags"],
+                "captions": sample_image_data["captions"],
+                "scores": [],
+                "score_labels": sample_score_labels,
+                "ratings": [],
+            }
+            with patch.object(
+                dataset_export_service,
+                "_resolve_processed_image_path",
+                return_value=processed_image_path,
+            ):
+                dataset_export_service.export_dataset_json_format(
+                    image_ids=[1], output_path=output_path, resolution=512
+                )
+
+            metadata_file = output_path / "metadata.json"
+            with open(metadata_file, encoding="utf-8") as f:
+                metadata = json.load(f)
+            expected_image_path = str(output_path / "test_project_00001.webp")
+            entry = metadata[expected_image_path]
+
+            assert "score_labels" in entry
+            assert len(entry["score_labels"]) == 2
+            # ADR 0028: model 名と label を常に組で保持
+            models = [sl["model"] for sl in entry["score_labels"]]
+            labels = [sl["label"] for sl in entry["score_labels"]]
+            assert "aesthetic_shadow_v1" in models
+            assert "cafe_aesthetic" in models
+            assert "very aesthetic" in labels
+            assert "aesthetic" in labels
+
+    def test_export_dataset_json_format_empty_score_labels(
+        self,
+        dataset_export_service,
+        mock_db_manager,
+        mock_file_system_manager,
+        sample_image_data,
+    ):
+        """JSON Export で score_labels が空の場合、metadata の値は [] となる。"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "export"
+            output_path.mkdir()
+            processed_image_path = Path("/mock/processed/test_project_00001.webp")
+
+            mock_db_manager.get_image_metadata.return_value = sample_image_data["metadata"]
+            mock_db_manager.get_image_annotations.return_value = {
+                "tags": sample_image_data["tags"],
+                "captions": sample_image_data["captions"],
+                "scores": [],
+                "score_labels": [],
+                "ratings": [],
+            }
+            with patch.object(
+                dataset_export_service,
+                "_resolve_processed_image_path",
+                return_value=processed_image_path,
+            ):
+                dataset_export_service.export_dataset_json_format(
+                    image_ids=[1], output_path=output_path, resolution=512
+                )
+
+            metadata_file = output_path / "metadata.json"
+            with open(metadata_file, encoding="utf-8") as f:
+                metadata = json.load(f)
+            expected_image_path = str(output_path / "test_project_00001.webp")
+            assert metadata[expected_image_path]["score_labels"] == []
+
+    def test_export_dataset_json_format_silent_drop_regression(
+        self,
+        dataset_export_service,
+        mock_db_manager,
+        mock_file_system_manager,
+        sample_image_data,
+    ):
+        """Regression: get_image_annotations が score_labels key を返却しない場合に
+        export が key 欠落で KeyError 等の悪化を起こさず、graceful に [] へ
+        fallback することを検証する (PR #286 Codex 指摘の核)。
+
+        将来 ``get_image_annotations`` の戻り値仕様変更時にこの test が早期警告となる。
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "export"
+            output_path.mkdir()
+
+            # 旧仕様 (score_labels key 欠落) を mock で再現
+            mock_db_manager.get_image_metadata.return_value = sample_image_data["metadata"]
+            mock_db_manager.get_image_annotations.return_value = {
+                "tags": sample_image_data["tags"],
+                "captions": sample_image_data["captions"],
+                "scores": [],
+                "ratings": [],
+                # score_labels key は意図的に欠落
+            }
+            with patch.object(
+                dataset_export_service,
+                "_resolve_processed_image_path",
+                return_value=Path("/mock/processed/test_project_00001.webp"),
+            ):
+                dataset_export_service.export_dataset_json_format(
+                    image_ids=[1], output_path=output_path, resolution=512
+                )
+
+            metadata_file = output_path / "metadata.json"
+            with open(metadata_file, encoding="utf-8") as f:
+                metadata = json.load(f)
+            entry = metadata[str(output_path / "test_project_00001.webp")]
+            assert "score_labels" in entry
+            assert entry["score_labels"] == []
+
+    def test_export_dataset_txt_format_excludes_score_labels(
+        self,
+        dataset_export_service,
+        mock_db_manager,
+        mock_file_system_manager,
+        sample_image_data,
+        sample_score_labels,
+    ):
+        """TXT Export では score_labels が tags / caption ファイルに混入しない (ADR 0028)。"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "export"
+            output_path.mkdir()
+            processed_image_path = Path("/mock/processed/test_project_00001.webp")
+
+            mock_db_manager.get_image_metadata.return_value = sample_image_data["metadata"]
+            mock_db_manager.get_image_annotations.return_value = {
+                "tags": sample_image_data["tags"],
+                "captions": sample_image_data["captions"],
+                "scores": [],
+                "score_labels": sample_score_labels,
+                "ratings": [],
+            }
+            with patch.object(
+                dataset_export_service,
+                "_resolve_processed_image_path",
+                return_value=processed_image_path,
+            ):
+                dataset_export_service.export_dataset_txt_format(
+                    image_ids=[1], output_path=output_path, resolution=512, merge_caption=False
+                )
+
+            txt_file = output_path / "test_project_00001.txt"
+            caption_file = output_path / "test_project_00001.caption"
+            tags_content = txt_file.read_text(encoding="utf-8")
+            caption_content = caption_file.read_text(encoding="utf-8")
+
+            # ADR 0028 / 0027: content tag 専用 file に score_labels 混入禁止
+            for label in ["very aesthetic", "aesthetic"]:
+                assert label not in tags_content
+            for model in ["aesthetic_shadow_v1", "cafe_aesthetic"]:
+                assert model not in tags_content
+                assert model not in caption_content
+
     def test_get_available_resolutions(self, dataset_export_service, mock_db_manager):
         """利用可能解像度取得テスト"""
 
