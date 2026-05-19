@@ -3,7 +3,7 @@
   "packages": {
     "local_packages/image-annotator-lib": {
       "working_directory": "local_packages/image-annotator-lib",
-      "ci_filter": "-m \"not real_api and not heavy and not system_integration\""
+      "ci_filter": "-m \"not downloads_and_runs_model and not calls_real_webapi\""
     },
     "local_packages/genai-tag-db-tools": {
       "working_directory": "local_packages/genai-tag-db-tools",
