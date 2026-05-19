@@ -210,7 +210,7 @@ def setup_connections(self) -> None:
 - `@pytest.mark.gui` - GUI テスト（qtbot + ウィジェット操作）
 - `@pytest.mark.fast` - 高速テスト（CI 用）
 - `@pytest.mark.standard` - 標準テスト
-- `@pytest.mark.real_api` - 実 API 呼び出しテスト
+- `@pytest.mark.calls_real_webapi` - 実 API 呼び出しテスト
 
 ### 4.2. クロスプラットフォーム対応
 

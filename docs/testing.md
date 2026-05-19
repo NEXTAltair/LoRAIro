@@ -23,6 +23,29 @@ make test-runtime-local
 
 ADR 0026 / iam-lib ADR 0001 amended (2026-05-18) により、この validation は CI に含めません。GitHub Actions workflow、`workflow_dispatch`、`schedule`、CI cache、repo secret を追加しないでください。
 
+## Tier 2: Real WebAPI integration
+
+Tier 2 は image-annotator-lib の `tests/runtime_validation/test_real_webapi_runtime.py` に集約した、実 provider API key で実 WebAPI request を送るローカル専用 validation です。LoRAIro 側には実 WebAPI test を置かず、LoRAIro の実運用 config 経路で API key を読み込む runner から iam-lib の runtime validation を間接実行します。
+
+```bash
+make test-runtime-webapi
+```
+
+この target は `ConfigurationService` 経由で `config/lorairo.toml` の `[api]` セクションを読み、subprocess 環境変数として iam-lib test に渡します。
+
+| LoRAIro config key | child env var | Provider |
+|---|---|---|
+| `openai_key` | `OPENAI_API_KEY` | OpenAI |
+| `claude_key` | `ANTHROPIC_API_KEY` | Anthropic |
+| `google_key` | `GEMINI_API_KEY` | Google |
+| `openrouter_key` | `OPENROUTER_API_KEY` | OpenRouter |
+
+API key 値は stdout / log に出しません。runner は provider ごとの configured / missing のみを表示します。未設定 provider は iam-lib 側で `pytest.skip` されます。
+
+対象モデルは Google / OpenAI / Anthropic / OpenRouter の各 1 model です。#274 が未解決の間、`OPENAI_API_KEY` が設定された環境では OpenAI case が fail する可能性があります。その failure は #274 の再現として扱い、#278 では skip / xfail しません。
+
+ADR 0026 / iam-lib ADR 0001 amended (2026-05-18) により、この validation も CI に含めません。GitHub Actions workflow、`workflow_dispatch`、`schedule`、repo secret を追加しないでください。
+
 **Testing Framework:**
 - pytest (test runner)
 - pytest-qt (Qt GUI testing)
@@ -86,9 +109,9 @@ def test_cli_workflow_with_fake_backend():
     pass
 
 # On-demand real API validation, excluded from normal CI
-@pytest.mark.real_api
+@pytest.mark.calls_real_webapi
 @pytest.mark.webapi
-def test_provider_contract_with_real_api():
+def test_provider_contract_with_real_webapi():
     pass
 ```
 
@@ -99,10 +122,10 @@ uv run pytest -m integration       # Integration tests only
 uv run pytest -m gui               # GUI tests only
 uv run pytest -m e2e               # Deterministic E2E tests
 uv run pytest -m "not slow"        # Exclude slow tests
-uv run pytest -m real_api          # On-demand real API validation
+uv run pytest -m calls_real_webapi # On-demand real API validation
 ```
 
-`e2e` は実外部依存を使うという意味ではありません。CI で安定実行できる E2E を表します。実 API や実モデルを使うテストには `real_api` / `slow` / `model_factory` / `scorer` / `tagger` などを併用し、通常 CI から除外します。
+`e2e` は実外部依存を使うという意味ではありません。CI で安定実行できる E2E を表します。実 API key を使うテストには `calls_real_webapi`、実モデル download / 実推論を使うテストには `downloads_and_runs_model` を付け、通常 CI から除外します。
 
 ## pytest-qtベストプラクティス
 

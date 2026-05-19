@@ -68,11 +68,11 @@ SDK bump 前後で **CI-equivalent filter** を必ず実行 (`.claude/rules/test
 
 ```bash
 # LoRAIro 本体
-.venv/bin/pytest -m "not gui_show and not real_api and not slow" --timeout=60
+.venv/bin/pytest -m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow" --timeout=60
 
 # image-annotator-lib
 .venv/bin/pytest local_packages/image-annotator-lib/tests/ \
-  -m "not real_api and not heavy and not system_integration" --timeout=60
+  -m "not downloads_and_runs_model and not calls_real_webapi" --timeout=60
 ```
 
 実 API での挙動確認は ADR 0026 (On-Demand Runtime Validation) に従い手動 smoke で行う。

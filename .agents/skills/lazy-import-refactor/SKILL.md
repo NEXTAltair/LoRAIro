@@ -107,7 +107,7 @@ iam-lib の場合:
 
 ```bash
 cd local_packages/image-annotator-lib
-uv run pytest -m "not real_api and not heavy and not system_integration"
+uv run pytest -m "not downloads_and_runs_model and not calls_real_webapi"
 ```
 
 ## Step 5: Cross-repo PR 順序

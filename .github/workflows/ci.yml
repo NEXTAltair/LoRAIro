@@ -104,7 +104,7 @@ jobs:
         # local_packages の単体テストは別 job (test-genai-tag-db-tools / test-image-annotator-lib) で実行する。
         run: |
           uv run pytest tests/unit \
-            -m "not gui_show and not real_api and not slow" \
+            -m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow" \
             --cov=src \
             --cov-report=xml:coverage-unit.xml \
             --cov-report=term-missing \
@@ -166,7 +166,7 @@ jobs:
         # LoRAIro 本体のみ (ADR 0024)。
         run: |
           uv run pytest tests/integration tests/bdd \
-            -m "not gui_show and not real_api and not slow" \
+            -m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow" \
             --cov=src \
             --cov-report=xml:coverage-integration.xml \
             --cov-report=term-missing \
