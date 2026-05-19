@@ -282,6 +282,28 @@ def create_session_factory(engine: Engine) -> sessionmaker[Session]:
     return sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+def _ensure_model_types_seeded(engine: Engine) -> None:
+    """Ensure canonical model type rows exist after create_all().
+
+    Alembic migrations seed these rows for migrated databases, but project DBs
+    created with ``Base.metadata.create_all()`` need the same baseline data.
+    """
+    from sqlalchemy import select
+
+    from .schema import ModelType
+
+    canonical_model_types = ("tags", "scores", "caption", "upscaler", "multimodal")
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        existing = set(session.execute(select(ModelType.name)).scalars())
+        missing = [ModelType(name=name) for name in canonical_model_types if name not in existing]
+        if not missing:
+            return
+        session.add_all(missing)
+        session.commit()
+        logger.info("Seeded model_types rows: %s", ", ".join(model.name for model in missing))
+
+
 def create_project_session_factory(project_db_path: Path) -> sessionmaker[Session]:
     """指定プロジェクト DB 用セッションファクトリを生成。
 
@@ -299,6 +321,7 @@ def create_project_session_factory(project_db_path: Path) -> sessionmaker[Sessio
     db_url = f"sqlite:///{project_db_path.resolve()}?check_same_thread=False"
     engine = create_db_engine(db_url)
     Base.metadata.create_all(engine)
+    _ensure_model_types_seeded(engine)
     return create_session_factory(engine)
 
 
