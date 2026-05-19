@@ -247,9 +247,10 @@ jobs:
           path: local_packages/genai-tag-db-tools/coverage-genai-tag-db-tools.xml
 
   test-image-annotator-lib:
-    name: image-annotator-lib Tests (Package Root, Python 3.12)
+    name: image-annotator-lib Tests (Package Root, Python 3.13)
     # ADR 0024: pytest セッション境界 = package 境界。
-    # image-annotator-lib は requires-python = ">=3.12,<3.13" のため Python 3.12 で固定実行。
+    # image-annotator-lib は requires-python = ">=3.12,<3.14" (iam-lib #74、PR #75 merged)。
+    # LoRAIro 本体と同じ Python 3.13 で実行する (ADR 0024 amended #291)。
     # ADR 0001 amended (2026-05-18): real_api/heavy/system_integration を
     # downloads_and_runs_model/calls_real_webapi に rename。CI 不経由 marker は除外。
     # hang 防止は job-level timeout-minutes に委譲 (package 側 dev deps に
@@ -268,7 +269,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - uses: astral-sh/setup-uv@v6
         with:

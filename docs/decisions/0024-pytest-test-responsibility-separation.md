@@ -1,6 +1,6 @@
 # ADR 0024: pytest Test Responsibility Separation by Package
 
-- **日付**: 2026-05-13
+- **日付**: 2026-05-13 (created), 2026-05-19 (amended #291: single-venv via UV_PROJECT_ENVIRONMENT)
 - **ステータス**: Accepted
 
 ## Context
@@ -29,7 +29,7 @@ Issue #247 で、ルート `/workspaces/LoRAIro` から引数なしの `uv run p
 | セッション | working-directory | testpaths | Python | 起動方法 |
 |---|---|---|---|---|
 | LoRAIro 本体 | `/workspaces/LoRAIro` | `["tests"]` | 3.13 | `uv run pytest` / `make test` |
-| image-annotator-lib | `local_packages/image-annotator-lib` | `["tests"]` | **3.12** | `make test-iam-lib` |
+| image-annotator-lib | `local_packages/image-annotator-lib` | `["tests"]` | 3.13 | `make test-iam-lib` (LoRAIro root `.venv` 共有 + `--no-sync`) |
 | genai-tag-db-tools | `local_packages/genai-tag-db-tools` | `["tests"]` | 3.13 | `make test-genai-tag` |
 
 具体的に固定する事項:
@@ -87,7 +87,12 @@ Issue #247 で、ルート `/workspaces/LoRAIro` から引数なしの `uv run p
 - Python 3.12/3.13 二系統管理が必要 (lib CI のみ Python 3.12)。将来 lib を 3.13 対応にする別 Issue が必要。
 - ローカル開発者は「全テスト確認 = `make test-all`」と「本体だけ = `make test`」の使い分けを意識する必要がある。Makefile help と CLAUDE.md でガイドする。
 - `local_packages/genai-tag-db-tools` は submodule のため、CI checkout で `submodules: recursive` を明示する必要がある (既に lint / typecheck / test-unit / test-integration は対応済み)。
-- **`make test-iam-lib` / `make test-genai-tag` は package 配下に独立 `.venv` を作成する** (Codex P2 r3236152479): `cd <pkg> && uv run pytest` は uv project resolution により package の `pyproject.toml` を root とみなし、独立 `.venv` を作る。これは Issue #222 で問題になった「並列 uv sync による `.venv` 破損」とは異なる順次実行パターン (`make` チェーン + CI runner 隔離) のため drift は再発しないが、ディスク容量と初回 install 時間が増える。`pytest-timeout` 等の各 package の dev deps を尊重するために独立 venv は妥当な代償。完全な single-venv 化を行うには (a) lib の missing dev deps (pytest-clarity / pytest-mock 等) を LoRAIro root の `[dependency-groups] dev` に統合、(b) image-annotator-lib の collection で torch/torchvision が即時ロードされる問題 (lazy import 化) を解決、の 2 点が必要であり、本 ADR の scope を超える別 Issue 候補。
+- **`make test-iam-lib` は LoRAIro root `.venv` を共有する** (#291 amendment 2026-05-19): `cd local_packages/image-annotator-lib && UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv run --no-sync pytest` で LoRAIro `.venv` (Python 3.13、named volume) を共有。bind mount I/O 制約 (LoRAIro #288) を解消、tensorflow 重複 install を回避。
+  - iam-lib dev deps (`pytest-clarity` / `pytest-mock` / `pytest-xdist`) は LoRAIro `[dependency-groups] dev` に統合済 (ADR 0024 L90 (a) を解決)。
+  - `--no-sync` フラグで LoRAIro `.venv` が iam-lib pyproject に合わせて re-sync されるのを防止。
+  - pytest セッション境界 = package 境界 の invariant は維持 (cwd = package root、conftest は iam-lib 側、coverage 計測は package 自身の `fail_under`)。
+  - **`make test-genai-tag` は本 amendment scope 外**、現状の `cd <pkg> && uv run pytest` (package 配下に独立 `.venv`) を維持。
+- (b) torch/torchvision の collection lazy import 問題は pytest セッション境界維持で回避できるため、本 amendment では未対応。完全な single pytest invocation 化 (`uv run pytest` でルートから lib tests も collect) は依然として scope 外。
 
 ### 運用ルール
 
