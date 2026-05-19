@@ -32,6 +32,12 @@
 - PRs should include a clear description, test results, and screenshots for GUI changes.
 - Link related issues and note any migration or config changes.
 
+## Agent Git Workflow
+- Issue resolution, feature work, PR preparation, and any multi-file implementation must start from a dedicated git worktree under `/tmp/worktrees/`.
+- Do not edit, stage, commit, rebase, or push from the shared main checkout at `/workspaces/LoRAIro` for implementation work.
+- Create worktrees from the current remote base, for example: `git fetch origin && git worktree add /tmp/worktrees/issue-123 -b fix/issue-123 origin/main`.
+- Keep agent-specific rules as references to this file and `.claude/rules/git-workflow.md` rather than duplicating conflicting workflow text.
+
 ## Security & Configuration Tips
 - Store API keys in a local `.env` (see `.env.example`). Never commit secrets.
 - Keep local data and logs out of version control (`logs/`, `lorairo_data/`).
