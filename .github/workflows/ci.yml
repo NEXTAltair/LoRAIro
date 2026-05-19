@@ -250,7 +250,8 @@ jobs:
     name: image-annotator-lib Tests (Package Root, Python 3.12)
     # ADR 0024: pytest セッション境界 = package 境界。
     # image-annotator-lib は requires-python = ">=3.12,<3.13" のため Python 3.12 で固定実行。
-    # 初期段階は fast/standard marker のみ。real_api / heavy / system_integration は除外。
+    # ADR 0001 amended (2026-05-18): real_api/heavy/system_integration を
+    # downloads_and_runs_model/calls_real_webapi に rename。CI 不経由 marker は除外。
     # hang 防止は job-level timeout-minutes に委譲 (package 側 dev deps に
     # pytest-timeout が無いため pytest フラグは使わない)。
     runs-on: ubuntu-latest
@@ -293,7 +294,7 @@ jobs:
       - name: Run image-annotator-lib tests
         run: |
           uv run pytest \
-            -m "not real_api and not heavy and not system_integration" \
+            -m "not downloads_and_runs_model and not calls_real_webapi" \
             --cov=image_annotator_lib \
             --cov-report=xml:coverage-image-annotator-lib.xml \
             --cov-report=term-missing \
