@@ -322,16 +322,19 @@ LoRAIro #288 で判明した制約。`.claude/rules/parallel-execution.md` の w
 
 #### 回避策
 
-1. **Worktree 内で test 実行** (current best practice):
+1. **LoRAIro root `.venv` 共有** (current best practice、ADR 0024 amended #291):
+
+   `make test-iam-lib` は `UV_PROJECT_ENVIRONMENT=$(CURDIR)/.venv uv run --no-sync pytest` 経由で LoRAIro root の named volume `.venv` を共有する。`$(CURDIR)` は make 起動時の repo root に動的解決されるため devcontainer (`/workspaces/LoRAIro/`) でも worktree (`/tmp/worktrees/<wt>/`) でも同一 target が動作する。bind mount I/O 問題は発生しない。
 
    ```bash
-   # worktree は /tmp/worktrees/ 配下 (named volume)
-   cd /tmp/worktrees/<wt>
-   make test-iam-lib
-   # → /tmp/worktrees/<wt>/local_packages/image-annotator-lib/.venv が named volume 上に作成、I/O 高速
+   make test-iam-lib    # LoRAIro .venv (named volume、Python 3.13) で iam-lib pytest を実行
    ```
 
-2. **将来: LoRAIro root `.venv` 共有** ([NEXTAltair/image-annotator-lib#74](https://github.com/NEXTAltair/image-annotator-lib/issues/74), [NEXTAltair/LoRAIro#291](https://github.com/NEXTAltair/LoRAIro/issues/291)): iam-lib `requires-python` を `>=3.12` に拡張し、`UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv` で venv 共有。pytest セッション境界 (ADR 0024) は維持しつつ I/O 問題を完全解消する計画。
+   iam-lib の dev deps (`pytest-clarity` / `pytest-mock` / `pytest-xdist`) は LoRAIro `[dependency-groups] dev` に統合済。`make test-iam-lib` は内部で `_ensure-root-venv` (= `uv sync --dev`) を prerequisite として実行し、fresh checkout / new dev deps pull 直後の install 漏れを防ぐ。
+
+2. **Worktree 内で test 実行** (代替、worktree 専用 venv):
+
+   worktree (`/tmp/worktrees/`) は named volume なので worktree 内で `cd local_packages/image-annotator-lib && uv sync` し、独立 venv を作っても I/O 高速。複数 worktree で異なる iam-lib HEAD を test したい場合に有用。
 
 #### Hook との関係
 
