@@ -308,6 +308,40 @@ uv run pytest -m "not downloads_and_runs_model and not calls_real_webapi"
 
 `gh pr create` 実行時に `local_packages/*` の submodule pin 変更を含む場合、`.claude/hooks/hook_pre_pr_submodule_check.py` が CI-equivalent test 実行確認を要求する。bypass は command 内に `CI-EQUIV-TESTED` marker comment を含める。詳細は hook script ヘッダー参照。
 
+### Worktree / bind mount I/O 制約 と local package test
+
+LoRAIro #288 で判明した制約。`.claude/rules/parallel-execution.md` の worktree 配置ルールと合わせて運用する。
+
+#### devcontainer mount 構成
+
+- `/workspaces/LoRAIro/` 全体: Windows 9p **bind mount** (低速 I/O)
+- `/workspaces/LoRAIro/.venv`: **named volume** `lorairo-venv` (高速 I/O)
+- `/tmp/worktrees/`: **named volume** `lorairo-worktrees` (高速 I/O)
+
+`/workspaces/LoRAIro/local_packages/<pkg>/.venv` を `cd <pkg> && uv sync` 等で作ると bind mount 上に作成され、test 実行が極端に遅くなる (実用不能)。
+
+#### 回避策
+
+1. **Worktree 内で test 実行** (current best practice):
+
+   ```bash
+   # worktree は /tmp/worktrees/ 配下 (named volume)
+   cd /tmp/worktrees/<wt>
+   make test-iam-lib
+   # → /tmp/worktrees/<wt>/local_packages/image-annotator-lib/.venv が named volume 上に作成、I/O 高速
+   ```
+
+2. **将来: LoRAIro root `.venv` 共有** ([NEXTAltair/image-annotator-lib#74](https://github.com/NEXTAltair/image-annotator-lib/issues/74), [NEXTAltair/LoRAIro#291](https://github.com/NEXTAltair/LoRAIro/issues/291)): iam-lib `requires-python` を `>=3.12` に拡張し、`UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv` で venv 共有。pytest セッション境界 (ADR 0024) は維持しつつ I/O 問題を完全解消する計画。
+
+#### Hook との関係
+
+`.claude/hooks/rules/hook_pre_commands_rules.json` から `cd...local_packages...uv run` block rule を削除 (Issue #288 fix)。ADR 0024 で `cd <pkg> && uv run pytest` は正規運用、`make test-iam-lib` も同 pattern を内部実行する。
+
+並列 `uv sync` (Issue #222 教訓) のガードは引き続き以下で担保:
+
+- `.claude/hooks/rules/hook_pre_commands_rules.json` の `uv\s+run.*--active` block
+- `.claude/rules/parallel-execution.md` の worktree 分離 rule
+
 ### Lazy import refactor との関係
 
 torch / tensorflow 等 heavy native dep の lazy import 化を行う場合は SKILL `lazy-import-refactor` が test 副作用 (`@patch("module.torch")` 等) を予測し、本セクションの filter で検証することを義務付ける。

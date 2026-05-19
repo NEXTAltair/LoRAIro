@@ -11,11 +11,6 @@
       "suggestion": "make clean or confirm with user"
     },
     {
-      "pattern": "cd.*local_packages/[^/]+.*[;&].*uv run",
-      "reason": "Creates separate .venv in local package",
-      "suggestion": "Run from project root: uv run pytest local_packages/<pkg>/tests/"
-    },
-    {
       "pattern": "uv\\s+run\\s+(--[\\w-]+\\s+)*--active",
       "reason": "並列実行時に .venv を破損させる原因（Issue #222）。--active は単一プロセスかつ VIRTUAL_ENV と pyproject.toml の Python が完全一致する場合のみ安全",
       "suggestion": "通常は --active を外して `uv run` を使用（uv-managed venv で並列セーフ）。意図的に使う場合は .venv/bin/python を直接呼ぶか .claude/rules/parallel-execution.md を参照"
