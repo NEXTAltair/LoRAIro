@@ -1,7 +1,7 @@
 # LoRAIro Project Makefile
 # Development task automation
 
-.PHONY: help test test-iam-lib test-genai-tag test-all mypy format install install-dev clean run-gui generate-ui skills-update venv-rebuild
+.PHONY: help test test-iam-lib test-runtime-local test-genai-tag test-all mypy format install install-dev clean run-gui generate-ui skills-update venv-rebuild
 
 # Default target
 help:
@@ -14,6 +14,7 @@ help:
 	@echo "  generate-ui  Generate Python files from Qt Designer .ui files"
 	@echo "  test         Run LoRAIro main tests only (uv run pytest, ADR 0024)"
 	@echo "  test-iam-lib Run image-annotator-lib tests in its package root"
+	@echo "  test-runtime-local Run local-only iam-lib real model runtime smoke tests"
 	@echo "  test-genai-tag Run genai-tag-db-tools tests in its package root"
 	@echo "  test-all     Run all 3 package test sessions sequentially"
 	@echo "  mypy         Run code check (mypy)"
@@ -52,6 +53,10 @@ test:
 test-iam-lib:
 	@echo "Running image-annotator-lib tests (creates local_packages/image-annotator-lib/.venv)..."
 	cd local_packages/image-annotator-lib && uv run pytest
+
+test-runtime-local:
+	@echo "Running local-only image-annotator-lib real model runtime smoke tests..."
+	cd local_packages/image-annotator-lib && uv run pytest tests/runtime_validation/test_real_model_runtime.py -m downloads_and_runs_model
 
 test-genai-tag:
 	@echo "Running genai-tag-db-tools tests (creates local_packages/genai-tag-db-tools/.venv)..."
