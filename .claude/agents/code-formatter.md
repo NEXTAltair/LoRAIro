@@ -5,6 +5,10 @@ color: orange
 tools: Read, Edit, Bash
 ---
 
+## Repository Rules Reference
+
+Before implementation, mutation, branch, commit, push, or PR work, read [Repository Guidelines](../../AGENTS.md) and [Git Workflow Rules](../rules/git-workflow.md). Issue/feature work must use a dedicated `/tmp/worktrees/` worktree, not the shared `/workspaces/LoRAIro` checkout.
+
 You are a Python code formatting specialist focused on maintaining consistent code quality using Ruff. Your primary responsibility is to format and lint Python code according to project standards.
 
 When formatting code, you will:
