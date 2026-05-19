@@ -324,13 +324,13 @@ LoRAIro #288 で判明した制約。`.claude/rules/parallel-execution.md` の w
 
 1. **LoRAIro root `.venv` 共有** (current best practice、ADR 0024 amended #291):
 
-   `make test-iam-lib` は `UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv run --no-sync pytest` 経由で LoRAIro root の named volume `.venv` を共有する。bind mount I/O 問題は発生しない。
+   `make test-iam-lib` は `UV_PROJECT_ENVIRONMENT=$(CURDIR)/.venv uv run --no-sync pytest` 経由で LoRAIro root の named volume `.venv` を共有する。`$(CURDIR)` は make 起動時の repo root に動的解決されるため devcontainer (`/workspaces/LoRAIro/`) でも worktree (`/tmp/worktrees/<wt>/`) でも同一 target が動作する。bind mount I/O 問題は発生しない。
 
    ```bash
    make test-iam-lib    # LoRAIro .venv (named volume、Python 3.13) で iam-lib pytest を実行
    ```
 
-   iam-lib の dev deps (`pytest-clarity` / `pytest-mock` / `pytest-xdist`) は LoRAIro `[dependency-groups] dev` に統合済。
+   iam-lib の dev deps (`pytest-clarity` / `pytest-mock` / `pytest-xdist`) は LoRAIro `[dependency-groups] dev` に統合済。`make test-iam-lib` は内部で `_ensure-root-venv` (= `uv sync --dev`) を prerequisite として実行し、fresh checkout / new dev deps pull 直後の install 漏れを防ぐ。
 
 2. **Worktree 内で test 実行** (代替、worktree 専用 venv):
 

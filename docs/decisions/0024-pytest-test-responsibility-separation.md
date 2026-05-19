@@ -87,9 +87,11 @@ Issue #247 で、ルート `/workspaces/LoRAIro` から引数なしの `uv run p
 - Python 3.12/3.13 二系統管理が必要 (lib CI のみ Python 3.12)。将来 lib を 3.13 対応にする別 Issue が必要。
 - ローカル開発者は「全テスト確認 = `make test-all`」と「本体だけ = `make test`」の使い分けを意識する必要がある。Makefile help と CLAUDE.md でガイドする。
 - `local_packages/genai-tag-db-tools` は submodule のため、CI checkout で `submodules: recursive` を明示する必要がある (既に lint / typecheck / test-unit / test-integration は対応済み)。
-- **`make test-iam-lib` は LoRAIro root `.venv` を共有する** (#291 amendment 2026-05-19): `cd local_packages/image-annotator-lib && UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv run --no-sync pytest` で LoRAIro `.venv` (Python 3.13、named volume) を共有。bind mount I/O 制約 (LoRAIro #288) を解消、tensorflow 重複 install を回避。
+- **`make test-iam-lib` は LoRAIro root `.venv` を共有する** (#291 amendment 2026-05-19): `cd local_packages/image-annotator-lib && UV_PROJECT_ENVIRONMENT=$(CURDIR)/.venv uv run --no-sync pytest` で LoRAIro `.venv` (Python 3.13、named volume) を共有。bind mount I/O 制約 (LoRAIro #288) を解消、tensorflow 重複 install を回避。
+  - `$(CURDIR)/.venv` は Makefile 内で動的解決されるため、devcontainer (`/workspaces/LoRAIro/`) と worktree (`/tmp/worktrees/<wt>/`) の両方で同一 target が動作する。
+  - `make test-iam-lib` は内部で `_ensure-root-venv` (`uv sync --dev`) を prerequisite として実行、fresh checkout / new dev deps pull 直後の install 漏れを防止。
   - iam-lib dev deps (`pytest-clarity` / `pytest-mock` / `pytest-xdist`) は LoRAIro `[dependency-groups] dev` に統合済 (ADR 0024 L90 (a) を解決)。
-  - `--no-sync` フラグで LoRAIro `.venv` が iam-lib pyproject に合わせて re-sync されるのを防止。
+  - `--no-sync` フラグで LoRAIro `.venv` が iam-lib pyproject に合わせて re-sync されるのを防止 (cwd = iam-lib root 状態の auto-sync を抑制)。
   - pytest セッション境界 = package 境界 の invariant は維持 (cwd = package root、conftest は iam-lib 側、coverage 計測は package 自身の `fail_under`)。
   - **`make test-genai-tag` は本 amendment scope 外**、現状の `cd <pkg> && uv run pytest` (package 配下に独立 `.venv`) を維持。
 - (b) torch/torchvision の collection lazy import 問題は pytest セッション境界維持で回避できるため、本 amendment では未対応。完全な single pytest invocation 化 (`uv run pytest` でルートから lib tests も collect) は依然として scope 外。

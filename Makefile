@@ -1,7 +1,7 @@
 # LoRAIro Project Makefile
 # Development task automation
 
-.PHONY: help test test-iam-lib test-runtime-local test-genai-tag test-all mypy format install install-dev clean run-gui generate-ui skills-update venv-rebuild
+.PHONY: help test test-iam-lib test-runtime-local test-genai-tag test-all mypy format install install-dev clean run-gui generate-ui skills-update venv-rebuild _ensure-root-venv
 
 # Default target
 help:
@@ -44,16 +44,22 @@ test:
 	@echo "Running LoRAIro main tests (testpaths=[\"tests\"], ADR 0024)..."
 	uv run pytest
 
-# NOTE (ADR 0024 amended #291): `cd <pkg> && UV_PROJECT_ENVIRONMENT=... uv run --no-sync pytest`
+# NOTE (ADR 0024 amended #291): `cd <pkg> && UV_PROJECT_ENVIRONMENT=$(CURDIR)/.venv uv run --no-sync pytest`
 # で LoRAIro root `.venv` を共有 (bind mount I/O 制約回避、ADR 0024 amendment 参照)。
+# `$(CURDIR)` で動的解決するため devcontainer 外 checkout や worktree (`/tmp/worktrees/<wt>`) でも動作。
+# `_ensure-root-venv` prerequisite で dev deps の install を保証 (fresh checkout / new dev deps pull 直後でも fail しない)。
 # `--no-sync` は LoRAIro `.venv` が iam-lib pyproject に合わせて re-sync されるのを防ぐ。
 # iam-lib dev deps (pytest-clarity / pytest-mock / pytest-xdist) は LoRAIro [dependency-groups] dev に統合済。
 # pytest セッション境界 = package 境界 は維持 (cwd = package root、conftest は iam-lib 側、coverage は package 自身)。
-test-iam-lib:
+_ensure-root-venv:
+	@uv sync --dev
+
+test-iam-lib: _ensure-root-venv
 	@echo "Running image-annotator-lib tests (sharing LoRAIro root .venv via UV_PROJECT_ENVIRONMENT)..."
 	cd local_packages/image-annotator-lib && \
-		UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv \
-		uv run --no-sync pytest
+		UV_PROJECT_ENVIRONMENT=$(CURDIR)/.venv \
+		uv run --no-sync pytest \
+		-m "not downloads_and_runs_model and not calls_real_webapi"
 
 test-runtime-local:
 	@echo "Running local-only image-annotator-lib real model runtime smoke tests..."
