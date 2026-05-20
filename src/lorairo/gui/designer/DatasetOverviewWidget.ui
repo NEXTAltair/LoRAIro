@@ -49,16 +49,6 @@
       </property>
       <layout class="QVBoxLayout" name="verticalLayout_2">
        <item>
-        <widget class="TagFilterWidget" name="dbSearchWidget" native="true">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-           <horstretch>1</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
-         </property>
-        </widget>
-       </item>
-       <item>
         <widget class="QSplitter" name="infoSplitter">
          <property name="sizePolicy">
           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
@@ -402,12 +392,6 @@
     <signal>on_thumbnail_clicked()</signal>
     <signal>imageSelected()</signal>
    </slots>
-  </customwidget>
-  <customwidget>
-   <class>TagFilterWidget</class>
-   <extends>QWidget</extends>
-   <header>..widgets.filter</header>
-   <container>1</container>
   </customwidget>
  </customwidgets>
  <resources />

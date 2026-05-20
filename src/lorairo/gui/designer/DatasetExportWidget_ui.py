@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QGroupBox,
     QVBoxLayout, QWidget)
 
 from ..widgets.directory_picker import DirectoryPickerWidget
-from ..widgets.filter import TagFilterWidget
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.thumbnail import ThumbnailSelectorWidget
 
@@ -40,13 +39,6 @@ class Ui_DatasetExportWidget(object):
         self.leftPanelLayout = QVBoxLayout(self.leftPanel)
         self.leftPanelLayout.setObjectName(u"leftPanelLayout")
         self.leftPanelLayout.setContentsMargins(0, 0, 0, 0)
-        self.dbSearchWidget = TagFilterWidget(self.leftPanel)
-        self.dbSearchWidget.setObjectName(u"dbSearchWidget")
-        self.filterLayout = QVBoxLayout(self.dbSearchWidget)
-        self.filterLayout.setObjectName(u"filterLayout")
-
-        self.leftPanelLayout.addWidget(self.dbSearchWidget)
-
         self.thumbnailSelector = ThumbnailSelectorWidget(self.leftPanel)
         self.thumbnailSelector.setObjectName(u"thumbnailSelector")
         sizePolicy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
