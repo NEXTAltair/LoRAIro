@@ -1,13 +1,14 @@
 # LoRAIro Project Makefile
 # Development task automation
 
-.PHONY: help test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format install install-dev clean run-gui generate-ui skills-update venv-rebuild _ensure-root-venv
+.PHONY: help setup test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format install install-dev clean run-gui generate-ui skills-update venv-rebuild _ensure-root-venv
 
 # Default target
 help:
 	@echo "LoRAIro Project - Available Commands:"
 	@echo ""
 	@echo "Development:"
+	@echo "  setup        Fetch submodules + install dev dependencies (recommended entry point)"
 	@echo "  install      Install project dependencies"
 	@echo "  install-dev  Install development dependencies"
 	@echo "  run-gui      Run LoRAIro GUI application"
@@ -25,6 +26,13 @@ help:
 	@echo "  skills-update Update community skills in .github/skills/"
 
 # Development targets
+# setup: 開発環境セットアップの唯一の人間向け入口。submodule 取得 + dev 依存インストール。
+# devcontainer の postCreateCommand.sh もコンテナ固有処理の後にこの target を呼ぶ。
+setup:
+	@echo "Setting up LoRAIro development environment..."
+	git submodule update --init --recursive
+	uv sync --dev
+
 install:
 	@echo "Installing project dependencies..."
 	uv sync

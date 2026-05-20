@@ -16,8 +16,8 @@ sudo chown -R vscode:vscode /workspaces/LoRAIro/.venv || true
 # 2) remove nested venvs (if any)
 find /workspaces/LoRAIro/local_packages -type d -name .venv -exec rm -rf {} + || true
 
-# 3) install python deps
-make install-dev
+# 3) fetch submodules + install python deps (single source of truth: `make setup`)
+make setup
 
 # 4) install Gemini CLI (Claude Code is pre-installed in Dockerfile)
 npm i -g @google/gemini-cli
