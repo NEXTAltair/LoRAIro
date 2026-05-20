@@ -22,11 +22,6 @@
      <widget class="QWidget" name="leftPanel">
       <layout class="QVBoxLayout" name="leftPanelLayout">
        <item>
-        <widget class="TagFilterWidget" name="dbSearchWidget" native="true">
-         <layout class="QVBoxLayout" name="filterLayout" />
-        </widget>
-       </item>
-       <item>
         <widget class="ThumbnailSelectorWidget" name="thumbnailSelector" native="true">
          <property name="sizePolicy">
           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
@@ -372,11 +367,6 @@
    <extends>QWidget</extends>
    <header>..widgets.directory_picker</header>
    <container>1</container>
-  </customwidget>
-  <customwidget>
-   <class>TagFilterWidget</class>
-   <extends>QWidget</extends>
-   <header>..widgets.filter</header>
   </customwidget>
  </customwidgets>
  <resources />

@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (QApplication, QFormLayout, QGridLayout, QGroupBox
     QLabel, QSizePolicy, QSplitter, QTextEdit,
     QVBoxLayout, QWidget)
 
-from ..widgets.filter import TagFilterWidget
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.thumbnail import ThumbnailSelectorWidget
 
@@ -54,13 +53,6 @@ class Ui_DatasetOverviewWidget(object):
         self.infoContainer.setMinimumSize(QSize(0, 0))
         self.verticalLayout_2 = QVBoxLayout(self.infoContainer)
         self.verticalLayout_2.setObjectName(u"verticalLayout_2")
-        self.dbSearchWidget = TagFilterWidget(self.infoContainer)
-        self.dbSearchWidget.setObjectName(u"dbSearchWidget")
-        sizePolicy.setHeightForWidth(self.dbSearchWidget.sizePolicy().hasHeightForWidth())
-        self.dbSearchWidget.setSizePolicy(sizePolicy)
-
-        self.verticalLayout_2.addWidget(self.dbSearchWidget)
-
         self.infoSplitter = QSplitter(self.infoContainer)
         self.infoSplitter.setObjectName(u"infoSplitter")
         sizePolicy3 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
