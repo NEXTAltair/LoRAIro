@@ -38,6 +38,18 @@
 - Create worktrees from the current remote base, for example: `git fetch origin && git worktree add /tmp/worktrees/issue-123 -b fix/issue-123 origin/main`.
 - Keep agent-specific rules as references to this file and `.claude/rules/git-workflow.md` rather than duplicating conflicting workflow text.
 
+## Codex Parallel Agent Workflow
+- For large, multi-issue, multi-PR, or broad refactoring work, Codex should proactively use sub-agents instead of serializing all work in one session.
+- Use parallel workers when tasks can be split by issue, module, ownership boundary, or test/verification responsibility.
+- Each worker must use its own dedicated git worktree under `/tmp/worktrees/`; do not let multiple workers edit the same worktree.
+- Assign each worker a clear branch name and file/module ownership before implementation starts, for example:
+  `git worktree add /tmp/worktrees/issue-304 -b fix/issue-304-thumbnail origin/main`.
+- Keep worker write scopes disjoint whenever possible. If two workers must touch the same file, the lead agent should sequence those changes or handle that integration directly.
+- The lead Codex session is responsible for coordination: defining worker scope, checking for overlapping edits, reviewing diffs, running or confirming tests, creating PRs, and updating parent issue checklists after merge.
+- Prefer worker agents for implementation, explorer agents for codebase investigation, test-runner agents for verification, and code-reviewer agents for PR review when those roles can run independently.
+- Do not spawn sub-agents for trivial single-file fixes, one-command tasks, or changes where coordination overhead is larger than the work.
+- When a parent issue has a checklist of independent sub-issues, treat it as a default candidate for parallel workers and one PR per sub-issue unless the issue text explicitly requests a combined PR.
+
 ## Security & Configuration Tips
 - Store API keys in a local `.env` (see `.env.example`). Never commit secrets.
 - Keep local data and logs out of version control (`logs/`, `lorairo_data/`).
