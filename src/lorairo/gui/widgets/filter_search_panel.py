@@ -889,64 +889,14 @@ class FilterSearchPanel(QScrollArea):
             return
         self._realtime_count_timer.start()
 
-    def _build_current_search_conditions(self) -> "SearchConditions":
-        """現在のUI状態からSearchConditionsを組み立てる。"""
-        assert self.search_filter_service is not None, "SearchFilterService が設定されていません"
-        search_text = self.ui.lineEditSearch.text().strip()
-        keywords, excluded_keywords = (
-            self.search_filter_service.parse_search_input(search_text) if search_text else ([], [])
-        )
-        date_range_start, date_range_end = self.get_date_range_from_slider()
-        rating_filter = self._get_rating_filter_value()
-        ai_rating_filter = self._get_ai_rating_filter_value()
-        include_nsfw = self._resolve_include_nsfw(rating_filter, ai_rating_filter)
-        score_min, score_max = self._get_score_filter_values()
-
-        return self.search_filter_service.create_search_conditions(
-            search_type=self._get_primary_search_type(),
-            keywords=keywords,
-            excluded_keywords=excluded_keywords if excluded_keywords else None,
-            tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
-            resolution_filter=self.ui.comboResolution.currentText(),
-            aspect_ratio_filter=self.ui.comboAspectRatio.currentText(),
-            date_filter_enabled=self.ui.checkboxDateFilter.isChecked(),
-            date_range_start=date_range_start,
-            date_range_end=date_range_end,
-            only_untagged=self.ui.checkboxOnlyUntagged.isChecked(),
-            only_uncaptioned=self.ui.checkboxOnlyUncaptioned.isChecked(),
-            exclude_duplicates=False,
-            include_nsfw=include_nsfw,
-            rating_filter=rating_filter,
-            ai_rating_filter=ai_rating_filter,
-            include_unrated=self.ui.checkboxIncludeUnrated.isChecked(),
-            score_min=score_min,
-            score_max=score_max,
-        )
-
     def _update_realtime_count(self) -> None:
         """現在のフィルター条件に対する推定件数を更新する。"""
         if not self.search_filter_service:
             return
 
         try:
-            conditions = self._build_current_search_conditions()
-
-            # 有効なフィルター条件がない場合はクエリをスキップ
-            has_condition = bool(conditions.keywords) or any(
-                [
-                    conditions.only_untagged,
-                    conditions.only_uncaptioned,
-                    conditions.date_filter_enabled,
-                    conditions.resolution_filter not in (None, "全て"),
-                    conditions.aspect_ratio_filter not in (None, "全て"),
-                    conditions.rating_filter is not None,
-                    conditions.ai_rating_filter is not None,
-                    not conditions.include_unrated,
-                    conditions.score_min is not None,
-                    conditions.score_max is not None,
-                ],
-            )
-            if not has_condition:
+            conditions = self._build_search_conditions_from_ui(show_status=False)
+            if conditions is None:
                 self._estimated_count_label.setText("該当件数: -")
                 return
 
@@ -1205,7 +1155,7 @@ class FilterSearchPanel(QScrollArea):
 
         logger.error("\n".join(error_details))
 
-    def _build_search_conditions_from_ui(self) -> "SearchConditions | None":
+    def _build_search_conditions_from_ui(self, *, show_status: bool = True) -> "SearchConditions | None":
         """UI 入力から SearchConditions を構築する。検証失敗時は None を返す。"""
         if self.search_filter_service is None:
             return None
@@ -1231,13 +1181,15 @@ class FilterSearchPanel(QScrollArea):
             ],
         ):
             logger.debug("検索条件が未指定のため検索をスキップ")
-            self._show_status_message("検索条件が未指定です", auto_hide_ms=3000)
+            if show_status:
+                self._show_status_message("検索条件が未指定です", auto_hide_ms=3000)
             return None
 
         date_range_start, date_range_end = self.get_date_range_from_slider()
         if self.ui.checkboxDateFilter.isChecked() and (date_range_start is None or date_range_end is None):
             logger.warning("日付範囲フィルターエラー: 有効だが範囲が無効")
-            self._show_status_message("日付範囲が無効です", auto_hide_ms=3000)
+            if show_status:
+                self._show_status_message("日付範囲が無効です", auto_hide_ms=3000)
             return None
 
         rating_filter = self._get_rating_filter_value()
@@ -1318,43 +1270,9 @@ class FilterSearchPanel(QScrollArea):
         logger.warning("フォールバック: 同期検索を実行")
 
         try:
-            # 検索テキストをキーワードリストに変換
-            search_text = self.ui.lineEditSearch.text().strip()
-            keywords, excluded_keywords = (
-                self.search_filter_service.parse_search_input(search_text) if search_text else ([], [])
-            )
-
-            # 日付範囲を取得
-            date_range_start, date_range_end = self.get_date_range_from_slider()
-
-            rating_filter = self._get_rating_filter_value()
-            ai_rating_filter = self._get_ai_rating_filter_value()
-            include_nsfw = self._resolve_include_nsfw(rating_filter, ai_rating_filter)
-
-            # スコア範囲を取得（全範囲の場合はNoneでフィルター無効化）
-            score_min, score_max = self._get_score_filter_values()
-
-            # SearchFilterServiceを使用して検索条件を作成
-            conditions = self.search_filter_service.create_search_conditions(
-                search_type=self._get_primary_search_type(),
-                keywords=keywords,
-                excluded_keywords=excluded_keywords,
-                tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
-                resolution_filter=self.ui.comboResolution.currentText(),
-                aspect_ratio_filter=self.ui.comboAspectRatio.currentText(),
-                date_filter_enabled=self.ui.checkboxDateFilter.isChecked(),
-                date_range_start=date_range_start,
-                date_range_end=date_range_end,
-                only_untagged=self.ui.checkboxOnlyUntagged.isChecked(),
-                only_uncaptioned=self.ui.checkboxOnlyUncaptioned.isChecked(),
-                exclude_duplicates=False,
-                include_nsfw=include_nsfw,
-                rating_filter=rating_filter,
-                ai_rating_filter=ai_rating_filter,
-                include_unrated=self.ui.checkboxIncludeUnrated.isChecked(),
-                score_min=score_min,
-                score_max=score_max,
-            )
+            conditions = self._build_search_conditions_from_ui()
+            if conditions is None:
+                return
 
             # 検索実行
             results, count = self.search_filter_service.execute_search_with_filters(conditions)
