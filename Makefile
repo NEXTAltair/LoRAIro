@@ -1,7 +1,7 @@
 # LoRAIro Project Makefile
 # Development task automation
 
-.PHONY: help test test-iam-lib test-runtime-local test-genai-tag test-all mypy format install install-dev clean run-gui generate-ui skills-update venv-rebuild _ensure-root-venv
+.PHONY: help test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format install install-dev clean run-gui generate-ui skills-update venv-rebuild _ensure-root-venv
 
 # Default target
 help:
@@ -15,6 +15,7 @@ help:
 	@echo "  test         Run LoRAIro main tests only (uv run pytest, ADR 0024)"
 	@echo "  test-iam-lib Run image-annotator-lib tests in its package root"
 	@echo "  test-runtime-local Run local-only iam-lib real model runtime smoke tests"
+	@echo "  test-runtime-webapi Run local-only iam-lib real WebAPI runtime validation"
 	@echo "  test-genai-tag Run genai-tag-db-tools tests in its package root"
 	@echo "  test-all     Run all 3 package test sessions sequentially"
 	@echo "  mypy         Run code check (mypy)"
@@ -64,6 +65,10 @@ test-iam-lib: _ensure-root-venv
 test-runtime-local:
 	@echo "Running local-only image-annotator-lib real model runtime smoke tests..."
 	cd local_packages/image-annotator-lib && uv run pytest tests/runtime_validation/test_real_model_runtime.py -m downloads_and_runs_model
+
+test-runtime-webapi: _ensure-root-venv
+	@echo "Running local-only image-annotator-lib real WebAPI runtime validation..."
+	uv run python scripts/run_runtime_webapi_tests.py
 
 test-genai-tag:
 	@echo "Running genai-tag-db-tools tests (creates local_packages/genai-tag-db-tools/.venv)..."

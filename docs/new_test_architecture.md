@@ -12,7 +12,7 @@
 ### 原則 1: CLAUDE.md 準拠
 
 - テストレイヤー: unit / integration / gui / bdd の 4層
-- pytest マーカー統一: `@pytest.mark.unit` | `integration` | `gui` | `bdd` を基本とし、実行レーン制御として `e2e` / `real_api` / `slow` 等を併用
+- pytest マーカー統一: `@pytest.mark.unit` | `integration` | `gui` | `bdd` を基本とし、実行レーン制御として `e2e` / `calls_real_webapi` / `downloads_and_runs_model` / `slow` 等を併用
 - 最小カバレッジ 75% 維持
 - モック対象: 外部API、ファイルシステム、ネットワークのみ（内部サービス間はモック不可）
 
@@ -134,7 +134,7 @@ tests/
 
 このセクションの初期案では marker を 6 種へ削減する想定だったが、ADR 0026 により、runtime validation と deterministic E2E を区別する marker を維持する方針に更新する。
 
-`unit` / `integration` / `gui` / `bdd` はテストの構造レイヤーを表す。`e2e` / `cli` / `real_api` / `webapi` / `slow` / domain marker は実行レーンや外部依存特性を表す。
+`unit` / `integration` / `gui` / `bdd` はテストの構造レイヤーを表す。`e2e` / `cli` / `calls_real_webapi` / `downloads_and_runs_model` / `webapi` / `slow` / domain marker は実行レーンや外部依存特性を表す。
 
 ```toml
 [tool.pytest.ini_options]
@@ -145,7 +145,8 @@ markers = [
     "bdd: BDD scenarios (pytest-bdd)",
     "e2e: End-to-end tests using deterministic local fixtures or fake backends",
     "cli: CLI tests",
-    "real_api: Real API tests (for validation)",
+    "calls_real_webapi: Tests that send real requests using provider API keys",
+    "downloads_and_runs_model: Tests that download and run real local models",
     "webapi: Tests related to Web API based annotators",
     "slow: Tests that take more time",
 ]
@@ -153,7 +154,8 @@ markers = [
 
 **ADR 0026 による確定事項**:
 - `e2e` は CI で deterministic に実行できる E2E を表す。実 API や実モデル download を意味しない。
-- `real_api` は実 provider API key を使う on-demand validation として維持する。`webapi` に統合しない。
+- `calls_real_webapi` は実 provider API key を使う on-demand validation を表す。`webapi` に統合しない。
+- `downloads_and_runs_model` は実モデル download / 実推論を伴う on-demand validation を表す。
 - `slow` は通常 CI から除外する重い validation に付ける。
 - `scorer` / `tagger` / `model_factory` は model loading / inference domain の分類として維持してよい。
 - BDD は E2E 専用レイヤーではない。Given/When/Then で仕様表現する価値があるシナリオに限定する。
@@ -168,8 +170,8 @@ markers = [
 | `tests/integration/gui/` (Qt使用) | `@pytest.mark.integration`, `@pytest.mark.gui` | `@pytest.mark.slow` |
 | `tests/bdd/` | `@pytest.mark.bdd` | なし |
 | `tests/integration/` の deterministic E2E | `@pytest.mark.integration`, `@pytest.mark.e2e` | `@pytest.mark.cli` |
-| 実 API validation | domain に応じた marker | `@pytest.mark.real_api`, `@pytest.mark.webapi` |
-| 実モデル download / 実推論 validation | domain に応じた marker | `@pytest.mark.slow`, `@pytest.mark.model_factory` / `scorer` / `tagger` |
+| 実 API validation | domain に応じた marker | `@pytest.mark.calls_real_webapi`, `@pytest.mark.webapi` |
+| 実モデル download / 実推論 validation | domain に応じた marker | `@pytest.mark.downloads_and_runs_model`, `@pytest.mark.model_factory` / `scorer` / `tagger` |
 
 ### 実行コマンド
 

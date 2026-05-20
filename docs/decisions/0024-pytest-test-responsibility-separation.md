@@ -40,6 +40,8 @@ Issue #247 で、ルート `/workspaces/LoRAIro` から引数なしの `uv run p
    - `test-unit` / `test-integration`: LoRAIro 本体のみを対象 (`local_packages/*/tests` 引き渡しと `--cov=...genai-tag-db-tools/src/...` を削除、`--ignore=...test_worker_service.py` の局所回避を撤去)。
    - `test-genai-tag-db-tools` (新規): `working-directory: local_packages/genai-tag-db-tools` で独立実行。
    - `test-image-annotator-lib` (新規): `working-directory: local_packages/image-annotator-lib` + Python 3.12 で独立実行。初期段階は marker `-m "not real_api and not heavy and not system_integration"` で fast/standard のみ。
+
+   Note: ADR 0026 / iam-lib ADR 0001 amended (2026-05-18) により、現行運用では旧 `real_api` / `heavy` / `system_integration` marker は `calls_real_webapi` / `downloads_and_runs_model` に置換済み。最新の CI filter は `.github/workflows/ci.yml` と `docs/testing.md` を参照する。
    - `coverage-gate`: LoRAIro 本体の `coverage-unit` / `coverage-integration` のみを `coverage combine` 対象とする。local package coverage は別 artifact として保持し本体の `fail_under=75` には混ぜない。
 4. **basename 衝突対応は別 pytest セッションへの自然分離で済ませる。** rename / namespace 強制は行わない。
 5. **Makefile target**:
