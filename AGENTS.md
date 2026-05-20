@@ -50,6 +50,14 @@
 - Do not spawn sub-agents for trivial single-file fixes, one-command tasks, or changes where coordination overhead is larger than the work.
 - When a parent issue has a checklist of independent sub-issues, treat it as a default candidate for parallel workers and one PR per sub-issue unless the issue text explicitly requests a combined PR.
 
+## Codex tmux Monitoring Workflow
+- For large parallel work, Codex may create a `tmux` session to monitor worker progress in split panes.
+- Prefer one pane per worker worktree when practical, plus one lead pane for coordination.
+- Each worker pane should show the worker name, worktree path, branch, git status, latest commit, and current validation command or log.
+- `tmux` monitoring is observational; it does not replace the rule that each worker must use a dedicated `/tmp/worktrees/` checkout.
+- Use stable session names tied to the parent issue or branch, for example `codex-308` or `codex-agent-rules`.
+- Do not leave required long-running `tmux` sessions active without reporting the session name, active panes, and commands to the user.
+
 ## Security & Configuration Tips
 - Store API keys in a local `.env` (see `.env.example`). Never commit secrets.
 - Keep local data and logs out of version control (`logs/`, `lorairo_data/`).
