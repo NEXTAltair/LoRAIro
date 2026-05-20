@@ -23,6 +23,16 @@ class WidgetSetupService:
     """
 
     @staticmethod
+    def _build_model_selection_filters(filters: dict[str, Any]) -> dict[str, Any]:
+        """AnnotationFilterWidget の出力を ModelSelectionWidget.apply_filters 引数へ変換する。"""
+        environment = filters.get("environment")
+        return {
+            "provider": "local" if environment == "local" else None,
+            "capabilities": filters.get("capabilities", []),
+            "exclude_local": environment == "api",
+        }
+
+    @staticmethod
     def setup_thumbnail_selector(
         main_window: Any, dataset_state_manager: DatasetStateManager | None
     ) -> None:
@@ -357,9 +367,7 @@ class WidgetSetupService:
         ):
             main_window.batchAnnotationFilter.filter_changed.connect(
                 lambda filters: main_window.batchModelSelection.apply_filters(
-                    provider="local" if filters.get("environment") == "local" else None,
-                    capabilities=filters.get("capabilities", []) or ["caption", "tags", "scores"],
-                    exclude_local=filters.get("environment") == "api",
+                    **WidgetSetupService._build_model_selection_filters(filters)
                 )
             )
             # アノテーション走査用デフォルトフィルター（upscaler除外）
