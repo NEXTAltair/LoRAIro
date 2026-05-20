@@ -17,14 +17,11 @@ from ...services.service_container import get_service_container
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
 from ..workers.annotation_worker import AnnotationWorker
-from ..workers.database_worker import (
-    DatabaseRegistrationWorker,
-    SearchResult,
-    SearchWorker,
-    ThumbnailWorker,
-)
 from ..workers.manager import WorkerManager
 from ..workers.modern_progress_manager import ModernProgressManager, create_worker_id
+from ..workers.registration_worker import DatabaseRegistrationWorker
+from ..workers.search_worker import SearchResult, SearchWorker
+from ..workers.thumbnail_worker import ThumbnailWorker
 
 
 class WorkerService(QObject):

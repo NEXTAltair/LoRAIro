@@ -22,7 +22,9 @@ src/lorairo/gui/
 └── workers/
     ├── base.py               # 基底クラスとQt統合
     ├── manager.py            # QThreadPool管理
-    ├── database_worker.py    # DB操作ワーカー
+    ├── registration_worker.py # DB登録ワーカー
+    ├── search_worker.py       # DB検索ワーカー
+    ├── thumbnail_worker.py    # サムネイル読み込みワーカー
     ├── annotation_worker.py  # AI処理ワーカー
     └── ...
 ```

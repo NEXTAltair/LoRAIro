@@ -172,7 +172,9 @@ src/lorairo/gui/
 │   └── worker_service.py            (290行) → ✅ 新規
 └── workers/
     ├── base.py                      (167行) → ✅ 新規
-    ├── database_worker.py           (318行) → ✅ 新規
+    ├── registration_worker.py       → ✅ 新規
+    ├── search_worker.py             → ✅ 新規
+    ├── thumbnail_worker.py          → ✅ 新規
     ├── manager.py                   (262行) → ✅ 新規
     └── progress_manager.py          (115行) → ✅ 新規
 合計: ~4,054行 新規作成

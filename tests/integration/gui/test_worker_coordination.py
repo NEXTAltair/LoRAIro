@@ -9,7 +9,7 @@ import pytest
 from PySide6.QtCore import QEventLoop, QThread, QTimer
 
 from lorairo.gui.services.worker_service import WorkerService
-from lorairo.gui.workers.database_worker import SearchResult, SearchWorker
+from lorairo.gui.workers.search_worker import SearchResult, SearchWorker
 from lorairo.services.search_models import SearchConditions
 
 
