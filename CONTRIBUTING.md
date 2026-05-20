@@ -5,8 +5,8 @@ LoRAIro への貢献ガイド。詳細は各リンク先のドキュメントに
 ## 開発環境セットアップ
 
 ```bash
-uv sync --dev          # 依存関係をインストール (dev 含む)
-./scripts/setup.sh     # サブモジュールを含むセットアップ
+git submodule update --init --recursive   # サブモジュール (local_packages/*) を取得
+uv sync --dev                             # 依存関係をインストール (dev 含む)
 ```
 
 仮想環境ルール・開発コマンドの詳細は [CLAUDE.md](CLAUDE.md) を参照。

@@ -41,9 +41,9 @@ wait
 ### Environment Setup
 
 ```bash
+git submodule update --init --recursive  # Fetch submodules (local_packages/*)
 uv sync                    # Install dependencies
 uv sync --dev              # Install with dev dependencies
-./scripts/setup.sh         # Run setup script (includes submodules)
 
 # UI Generation (required after .ui file changes)
 uv run python scripts/generate_ui.py

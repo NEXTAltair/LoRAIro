@@ -53,7 +53,7 @@ assignees: ''
 - [ ] `lorairo-cli images register <dir> --project <name>`
 - [ ] `lorairo-cli models list` / `lorairo-cli models list --type webapi`
 - [ ] `lorairo-cli annotate run --project <name> --model <m>`
-- [ ] `lorairo-cli export create --project <name> --output <dir>`
+- [ ] `lorairo-cli export create --project <name> --output <dir> --tags <tag>` (export はフィルタ必須 / ADR 0019)
 
 ## F. プラットフォーム別動作
 
