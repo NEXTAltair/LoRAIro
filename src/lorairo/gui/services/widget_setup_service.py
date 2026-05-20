@@ -23,6 +23,33 @@ class WidgetSetupService:
     """
 
     @staticmethod
+    def _build_model_selection_filters(filters: dict[str, Any]) -> dict[str, Any]:
+        """AnnotationFilterWidget の出力を ModelSelectionWidget.apply_filters 引数へ変換する。"""
+        environment = filters.get("environment")
+        if not isinstance(environment, str):
+            environment = None
+        execution_env = (
+            {
+                "api": "APIモデルのみ",
+                "local": "ローカルモデルのみ",
+            }.get(environment)
+            if environment is not None
+            else None
+        )
+        return {
+            "provider": None,
+            "capabilities": filters.get("capabilities", []),
+            "exclude_local": False,
+            "execution_env": execution_env,
+        }
+
+    @staticmethod
+    def _configure_batch_model_selection_widget(model_widget: Any) -> None:
+        """Batch annotation では外側の環境フィルターを唯一の操作面にする。"""
+        if hasattr(model_widget, "executionEnvCombo"):
+            model_widget.executionEnvCombo.setVisible(False)
+
+    @staticmethod
     def setup_thumbnail_selector(
         main_window: Any, dataset_state_manager: DatasetStateManager | None
     ) -> None:
@@ -347,6 +374,8 @@ class WidgetSetupService:
             main_window.batchModelSelection = model_widget
             logger.info("✅ ModelSelectionWidget を追加完了 (mode=advanced)")
 
+        WidgetSetupService._configure_batch_model_selection_widget(main_window.batchModelSelection)
+
         # Signal接続
         if (
             hasattr(main_window, "batchAnnotationFilter")
@@ -357,9 +386,7 @@ class WidgetSetupService:
         ):
             main_window.batchAnnotationFilter.filter_changed.connect(
                 lambda filters: main_window.batchModelSelection.apply_filters(
-                    provider="local" if filters.get("environment") == "local" else None,
-                    capabilities=filters.get("capabilities", []) or ["caption", "tags", "scores"],
-                    exclude_local=filters.get("environment") == "api",
+                    **WidgetSetupService._build_model_selection_filters(filters)
                 )
             )
             # アノテーション走査用デフォルトフィルター（upscaler除外）
