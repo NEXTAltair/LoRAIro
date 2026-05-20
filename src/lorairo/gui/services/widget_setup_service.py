@@ -26,10 +26,16 @@ class WidgetSetupService:
     def _build_model_selection_filters(filters: dict[str, Any]) -> dict[str, Any]:
         """AnnotationFilterWidget の出力を ModelSelectionWidget.apply_filters 引数へ変換する。"""
         environment = filters.get("environment")
-        execution_env = {
-            "api": "APIモデルのみ",
-            "local": "ローカルモデルのみ",
-        }.get(environment)
+        if not isinstance(environment, str):
+            environment = None
+        execution_env = (
+            {
+                "api": "APIモデルのみ",
+                "local": "ローカルモデルのみ",
+            }.get(environment)
+            if environment is not None
+            else None
+        )
         return {
             "provider": None,
             "capabilities": filters.get("capabilities", []),
