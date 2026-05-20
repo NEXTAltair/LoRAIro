@@ -49,12 +49,11 @@ class SearchFilterService:
         """SearchFilterServiceを初期化(純化版)
 
         Args:
-            db_manager: 後方互換性のために保持(将来的に削除予定)
+            db_manager: 件数見積もりと検索処理委譲に使うDBマネージャー
             model_selection_service: モデル選択サービス
             model_registry: モデルレジストリ(オプション)
 
         """
-        # 後方互換性のために一時的に保持
         self.db_manager = db_manager
         self.model_selection_service = model_selection_service
         self.model_registry = model_registry or NullModelRegistry()
