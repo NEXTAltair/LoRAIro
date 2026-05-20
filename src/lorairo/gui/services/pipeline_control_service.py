@@ -14,7 +14,7 @@ from typing import Any
 from loguru import logger
 
 from lorairo.gui.services.worker_service import WorkerService
-from lorairo.gui.workers.database_worker import SearchResult
+from lorairo.gui.workers.search_worker import SearchResult
 
 
 class PipelineControlService:

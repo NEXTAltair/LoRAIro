@@ -150,7 +150,7 @@ class TestThumbnailSelectorWidgetQPixmapConversion:
         """テスト用のThumbnailLoadResult"""
         from PySide6.QtGui import QImage
 
-        from lorairo.gui.workers.database_worker import ThumbnailLoadResult
+        from lorairo.gui.workers.thumbnail_worker import ThumbnailLoadResult
 
         # テスト用のQImageを作成
         test_qimage = QImage(100, 100, QImage.Format.Format_RGB32)
@@ -214,7 +214,7 @@ class TestThumbnailSelectorWidgetQPixmapConversion:
 
     def test_load_thumbnails_from_result_empty_result(self, widget):
         """空のThumbnailLoadResultでのテスト"""
-        from lorairo.gui.workers.database_worker import ThumbnailLoadResult
+        from lorairo.gui.workers.thumbnail_worker import ThumbnailLoadResult
 
         empty_result = ThumbnailLoadResult(
             loaded_thumbnails=[], failed_count=0, total_count=0, processing_time=0.0

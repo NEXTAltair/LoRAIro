@@ -76,8 +76,8 @@
 from .progress import Worker, ProgressWidget
 worker = Worker(function, args)
 
-# 新実装  
-from ...workers.database_worker import DatabaseRegistrationWorker
+# 新実装
+from ...workers.registration_worker import DatabaseRegistrationWorker
 worker = DatabaseRegistrationWorker(directory, db_manager, fsm)
 ```
 

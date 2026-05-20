@@ -1,6 +1,5 @@
-# tests/unit/workers/test_database_worker.py
 """
-DatabaseWorkerの改善されたユニットテスト
+分割済みデータベース関連ワーカーの改善されたユニットテスト
 - 過度なMockを避け、実際のオブジェクトを使用
 - 外部依存（ファイルシステム）のみMock化
 - API名やインポートパスの問題を検出可能
@@ -14,11 +13,11 @@ import pytest
 
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.db_repository import ImageRepository
-from lorairo.gui.workers.database_worker import (
+from lorairo.gui.workers.registration_worker import (
     DatabaseRegistrationResult,
     DatabaseRegistrationWorker,
-    SearchWorker,
 )
+from lorairo.gui.workers.search_worker import SearchWorker
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.search_models import SearchConditions
 from lorairo.storage.file_system import FileSystemManager
@@ -87,11 +86,11 @@ class TestDatabaseRegistrationWorker:
         インポートパスが正しいことをテスト
         - このテストは実際の...database.db_coreインポートエラーを検出できる
         """
-        # DatabaseWorkerがインポート可能であることを確認
+        # 分割済みworkerがインポート可能であることを確認
         # 依存するモジュールがインポート可能であることを確認
         from lorairo.database.db_core import resolve_stored_path  # インポートエラーを検出
         from lorairo.database.db_repository import CaptionAnnotationData, TagAnnotationData
-        from lorairo.gui.workers.database_worker import DatabaseRegistrationWorker
+        from lorairo.gui.workers.registration_worker import DatabaseRegistrationWorker
 
         # クラスが正しく定義されていることを確認
         assert DatabaseRegistrationWorker is not None

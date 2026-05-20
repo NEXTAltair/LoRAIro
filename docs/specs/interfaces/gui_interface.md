@@ -415,16 +415,16 @@ def test_dataset_selection_signal(self, main_window, qtbot):
 - **PreviewDetailPanel:** `/src/lorairo/gui/widgets/preview_detail_panel.py`
 
 ### 7.3. ワーカー実装
-- **DatabaseRegistrationWorker:** `/src/lorairo/gui/workers/database_worker.py`
+- **DatabaseRegistrationWorker:** `/src/lorairo/gui/workers/registration_worker.py`
 - **AnnotationWorker:** `/src/lorairo/gui/workers/annotation_worker.py`
-- **SearchWorker:** `/src/lorairo/gui/workers/database_worker.py`
-- **ThumbnailWorker:** `/src/lorairo/gui/workers/database_worker.py`
+- **SearchWorker:** `/src/lorairo/gui/workers/search_worker.py`
+- **ThumbnailWorker:** `/src/lorairo/gui/workers/thumbnail_worker.py`
 
 ### 7.4. テスト実装
 
 **単体テスト (Unit Tests):**
 - **MainWindow Tests:** `/tests/unit/gui/window/test_main_window.py`
-- **DatabaseWorker Tests:** `/tests/unit/workers/test_database_worker.py`
+- **Database-related Worker Tests:** `/tests/unit/workers/test_database_related_workers.py`
 - **MainWindow Integration Tests:** `/tests/integration/gui/window/test_main_window_integration.py`
 
 **統合テスト (Integration Tests):**
@@ -436,7 +436,7 @@ def test_dataset_selection_signal(self, main_window, qtbot):
 
 **テスト品質改善の実装例:**
 ```python
-# tests/unit/workers/test_database_worker.py
+# tests/unit/workers/test_database_related_workers.py
 class TestDatabaseRegistrationWorker:
     def test_api_method_names_are_correct(self, real_db_manager):
         """実際のAPIメソッド名検証 - バグ検出可能"""

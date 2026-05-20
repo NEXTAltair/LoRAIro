@@ -21,12 +21,9 @@ from lorairo.annotations.annotation_logic import AnnotationLogic
 from lorairo.database.db_core import create_db_engine, create_session_factory
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.db_repository import ImageRepository
-from lorairo.gui.workers.database_worker import (
-    DatabaseRegistrationWorker,
-    SearchResult,
-    SearchWorker,
-    ThumbnailWorker,
-)
+from lorairo.gui.workers.registration_worker import DatabaseRegistrationWorker
+from lorairo.gui.workers.search_worker import SearchResult, SearchWorker
+from lorairo.gui.workers.thumbnail_worker import ThumbnailWorker
 from lorairo.services.search_models import SearchConditions
 from lorairo.storage.file_system import FileSystemManager
 
