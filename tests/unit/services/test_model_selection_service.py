@@ -82,7 +82,7 @@ class TestModelSelectionService:
 
         clip_model = Model(
             name="clip-aesthetic",
-            provider="local",
+            provider=None,
             litellm_model_id=None,
             requires_api_key=False,
             estimated_size_gb=1.2,
@@ -237,6 +237,15 @@ class TestModelSelectionService:
         assert len(grouped["anthropic"]) == 1
         assert len(grouped["local"]) == 2
 
+    def test_filter_models_provider_local_includes_none_provider(self, service):
+        """provider=None のローカルモデルは provider='local' 指定で一致する"""
+        service.load_models()
+
+        criteria = ModelSelectionCriteria(provider="local")
+        local_models = service.filter_models(criteria)
+
+        assert {model.name for model in local_models} == {"wd-v1-4", "clip-aesthetic"}
+
     # create_model_tooltip, create_model_display_name, _is_recommended_model メソッドは
     # DB中心アーキテクチャでWidgetに移動されたため、テストを削除
 
@@ -260,14 +269,25 @@ class TestModelSelectionService:
         criteria = ModelSelectionCriteria(exclude_local=True)
         api_models = service.filter_models(criteria)
 
-        # local provider を除外
+        # local provider と provider=None のローカルモデルを除外
         for model in api_models:
             assert model.provider != "local"
+            assert model.provider is not None
 
         # OpenAI, Anthropic のみが返される
         assert len(api_models) == 2
         provider_names = {m.provider for m in api_models}
         assert provider_names == {"openai", "anthropic"}
+
+    def test_filter_models_execution_env_uses_requires_api_key(self, service):
+        """execution_env は provider ではなく requires_api_key で分類する"""
+        service.load_models()
+
+        api_models = service.filter_models(ModelSelectionCriteria(execution_env="APIモデルのみ"))
+        local_models = service.filter_models(ModelSelectionCriteria(execution_env="ローカルモデルのみ"))
+
+        assert {model.name for model in api_models} == {"gpt-4o", "claude-3-5-sonnet"}
+        assert {model.name for model in local_models} == {"wd-v1-4", "clip-aesthetic"}
 
     def test_filter_models_with_user_provider(self, service, mock_db_repository):
         """provider='user'を持つモデルがフィルタリングされることをテスト"""

@@ -259,9 +259,8 @@ class ModelSyncService:
                 db_model_types = self._map_library_model_type_to_db(info)
 
                 # API モデルで provider 不明 (PydanticAI 直接モデル等) は "unknown" に
-                # フォールバック。ローカルモデルは provider=None のままにし
-                # 既存の「provider=None → local」解釈 (model_selection_service の
-                # exclude_local / "provider or 'local'") を維持する。
+                # フォールバック。ローカルモデルは provider=None のままにし、
+                # model_selection_service の provider 正規化で local 扱いする。
                 provider = info.provider or ("unknown" if info.is_api else None)
 
                 # ADR 0023 Phase 1.11 (Issue #238): litellm_model_id は registry key
