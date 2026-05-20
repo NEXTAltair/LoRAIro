@@ -4,10 +4,14 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QObject, Signal
 
 from lorairo.gui.widgets.annotation_data_display_widget import AnnotationData, ImageDetails
 from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetailsWidget
+
+
+class FakeDatasetStateManager(QObject):
+    current_image_data_changed = Signal(dict)
 
 
 class TestSelectedImageDetailsWidget:
@@ -161,6 +165,30 @@ class TestSelectedImageDetailsWidget:
         # 表示がクリアされる
         assert widget.current_image_id is None
         assert widget.current_details is None
+
+    def test_connect_to_dataset_state_manager(self, qtbot, widget):
+        """DatasetStateManagerの正規データ経路に接続できること"""
+        state_manager = FakeDatasetStateManager()
+        widget.connect_to_dataset_state_manager(state_manager)
+
+        image_data = {
+            "id": 789,
+            "file_path": "/test/path/connected_image.jpg",
+            "width": 640,
+            "height": 480,
+            "file_size": 1024,
+            "tags": [],
+            "caption_text": "",
+            "tags_text": "",
+            "score_value": 0,
+            "rating_value": "",
+        }
+
+        with qtbot.waitSignal(widget.image_details_loaded, timeout=1000) as blocker:
+            state_manager.current_image_data_changed.emit(image_data)
+
+        assert blocker.args[0].image_id == 789
+        assert widget.current_image_id == 789
 
     def test_set_merged_reader_none_hides_language_selector(self, widget):
         """set_merged_reader(None)でコンボボックスが非表示になること"""

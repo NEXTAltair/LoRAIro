@@ -144,7 +144,7 @@ class WidgetSetupService:
                 else:
                     logger.info("✅ DatasetStateManager インスタンス一致確認完了")
 
-            widget.connect_to_data_signals(dataset_state_manager)
+            widget.connect_to_dataset_state_manager(dataset_state_manager)
             logger.info("✅ シグナル接続処理完了")
         else:
             logger.warning("⚠️ DatasetStateManager が None - 接続スキップ")
