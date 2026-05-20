@@ -26,11 +26,22 @@ class WidgetSetupService:
     def _build_model_selection_filters(filters: dict[str, Any]) -> dict[str, Any]:
         """AnnotationFilterWidget の出力を ModelSelectionWidget.apply_filters 引数へ変換する。"""
         environment = filters.get("environment")
+        execution_env = {
+            "api": "APIモデルのみ",
+            "local": "ローカルモデルのみ",
+        }.get(environment)
         return {
-            "provider": "local" if environment == "local" else None,
+            "provider": None,
             "capabilities": filters.get("capabilities", []),
-            "exclude_local": environment == "api",
+            "exclude_local": False,
+            "execution_env": execution_env,
         }
+
+    @staticmethod
+    def _configure_batch_model_selection_widget(model_widget: Any) -> None:
+        """Batch annotation では外側の環境フィルターを唯一の操作面にする。"""
+        if hasattr(model_widget, "executionEnvCombo"):
+            model_widget.executionEnvCombo.setVisible(False)
 
     @staticmethod
     def setup_thumbnail_selector(
@@ -356,6 +367,8 @@ class WidgetSetupService:
 
             main_window.batchModelSelection = model_widget
             logger.info("✅ ModelSelectionWidget を追加完了 (mode=advanced)")
+
+        WidgetSetupService._configure_batch_model_selection_widget(main_window.batchModelSelection)
 
         # Signal接続
         if (
