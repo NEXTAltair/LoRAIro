@@ -14,6 +14,7 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 
+from ..domain.quality_tier import compute_quality_summary
 from ..utils.log import logger
 from .db_core import DefaultSessionLocal
 from .filter_criteria import ImageFilterCriteria
@@ -1924,7 +1925,7 @@ class ImageRepository:
             "updated_at": sl.updated_at,
         }
 
-    def get_image_annotations(self, image_id: int) -> dict[str, list[dict[str, Any]]]:
+    def get_image_annotations(self, image_id: int) -> dict[str, Any]:
         """指定された画像IDのアノテーション(タグ、キャプション、スコア、スコアラベル、レーティング)を取得する。
 
         Eager Loadingを使用して関連データを効率的に取得する。
@@ -1934,7 +1935,8 @@ class ImageRepository:
 
         Returns:
             アノテーションデータを含む辞書。
-            キー: 'tags', 'captions', 'scores', 'score_labels', 'ratings'
+            キー: 'tags', 'captions', 'scores', 'score_labels', 'ratings',
+            'quality_summary' (ADR 0029、derived view)
             画像が存在しない場合は空のリストを持つ辞書を返す。
 
         Raises:
@@ -1944,12 +1946,13 @@ class ImageRepository:
         from sqlalchemy.orm import joinedload
 
         logger.debug(f"Getting annotations for image_id: {image_id}")
-        annotations: dict[str, list[dict[str, Any]]] = {
+        annotations: dict[str, Any] = {
             "tags": [],
             "captions": [],
             "scores": [],
             "score_labels": [],
             "ratings": [],
+            "quality_summary": {},
         }
 
         with self.session_factory() as session:
@@ -1986,6 +1989,11 @@ class ImageRepository:
                     ]
                 if image.ratings:
                     annotations["ratings"] = [self._format_rating_annotation(r) for r in image.ratings]
+
+                # ADR 0029: derived view、永続化しない。raw annotation から毎回計算する。
+                annotations["quality_summary"] = compute_quality_summary(
+                    annotations["score_labels"], annotations["scores"]
+                )
 
                 logger.info(
                     f"取得したアノテーション数: tags={len(annotations['tags'])}, "
@@ -2545,6 +2553,12 @@ class ImageRepository:
         self._format_scores(image, annotations)
         self._format_score_labels(image, annotations)
         self._format_ratings(image, annotations)
+
+        # ADR 0029: derived view。GUI のメタデータ経路 (SelectedImageDetailsWidget) も
+        # quality_summary を受け取れるよう、get_image_annotations と同じく派生計算する。
+        annotations["quality_summary"] = compute_quality_summary(
+            annotations.get("score_labels", []), annotations.get("scores", [])
+        )
 
         logger.debug(
             f"Formatted annotations: tags={len(annotations.get('tags', []))}, "

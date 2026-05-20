@@ -273,3 +273,113 @@ class TestAnnotationDataDisplayWidget:
         widget.set_group_box_visibility(tags=False)
         # score_labels は default で visible 設定 → isHidden() は False
         assert not widget.groupBoxScoreLabels.isHidden()
+
+
+class TestQualityTierBadge:
+    """ADR 0029: 統一品質 tier badge の表示挙動。"""
+
+    @pytest.fixture
+    def widget(self, qtbot):
+        w = AnnotationDataDisplayWidget()
+        qtbot.addWidget(w)
+        return w
+
+    def test_badge_hidden_initially(self, widget):
+        """初期状態で badge が hidden。"""
+        assert widget._quality_tier_label.isHidden()
+
+    def test_badge_hidden_when_quality_summary_empty(self, widget):
+        """quality_summary が空 dict のとき badge は hidden (旧データ互換)。"""
+        widget.update_data(AnnotationData(quality_summary={}))
+        assert widget._quality_tier_label.isHidden()
+
+    def test_badge_shows_no_score_sentinel(self, widget):
+        """tier='no score' のとき badge が表示され known_count=0 用の text を出す。"""
+        widget.update_data(
+            AnnotationData(
+                quality_summary={
+                    "tier": "no score",
+                    "is_unanimous": False,
+                    "known_count": 0,
+                    "unknown_count": 0,
+                    "no_score": True,
+                    "votes": [],
+                }
+            )
+        )
+        assert not widget._quality_tier_label.isHidden()
+        assert "no score" in widget._quality_tier_label.text()
+
+    def test_badge_shows_unknown_sentinel(self, widget):
+        """tier='unknown' のとき badge が表示される。"""
+        widget.update_data(
+            AnnotationData(
+                quality_summary={
+                    "tier": "unknown",
+                    "is_unanimous": False,
+                    "known_count": 0,
+                    "unknown_count": 1,
+                    "no_score": False,
+                    "votes": [],
+                }
+            )
+        )
+        assert not widget._quality_tier_label.isHidden()
+        assert "unknown" in widget._quality_tier_label.text()
+
+    def test_badge_shows_tier_with_count(self, widget):
+        """known_count >= 1 のとき '品質: <tier> (<n> scorer)' フォーマット。"""
+        widget.update_data(
+            AnnotationData(
+                quality_summary={
+                    "tier": "best quality",
+                    "is_unanimous": False,
+                    "known_count": 2,
+                    "unknown_count": 0,
+                    "no_score": False,
+                    "votes": [],
+                }
+            )
+        )
+        text = widget._quality_tier_label.text()
+        assert "best quality" in text
+        assert "2 scorer" in text
+        assert "一致" not in text
+
+    def test_badge_shows_unanimous_suffix(self, widget):
+        """is_unanimous=True で全 scorer 一致 suffix が付与される。"""
+        widget.update_data(
+            AnnotationData(
+                quality_summary={
+                    "tier": "masterpiece",
+                    "is_unanimous": True,
+                    "known_count": 3,
+                    "unknown_count": 0,
+                    "no_score": False,
+                    "votes": [],
+                }
+            )
+        )
+        text = widget._quality_tier_label.text()
+        assert "masterpiece" in text
+        assert "3 scorer" in text
+        assert "全 scorer 一致" in text
+
+    def test_badge_clear_data_hides_badge(self, widget):
+        """clear_data で badge が hidden に戻る。"""
+        widget.update_data(
+            AnnotationData(
+                quality_summary={
+                    "tier": "best quality",
+                    "is_unanimous": True,
+                    "known_count": 1,
+                    "unknown_count": 0,
+                    "no_score": False,
+                    "votes": [],
+                }
+            )
+        )
+        assert not widget._quality_tier_label.isHidden()
+
+        widget.clear_data()
+        assert widget._quality_tier_label.isHidden()

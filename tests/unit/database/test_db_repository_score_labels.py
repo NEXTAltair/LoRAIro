@@ -342,3 +342,84 @@ class TestGetImageAnnotationsScoreLabels:
         assert len(annotations["score_labels"]) == 3
         models = [e["model"] for e in annotations["score_labels"]]
         assert models == ["aesthetic_shadow_v1", "aesthetic_shadow_v2", "cafe_aesthetic"]
+
+
+class TestGetImageAnnotationsQualitySummary:
+    """``get_image_annotations`` が ADR 0029 の ``quality_summary`` を含む。"""
+
+    @pytest.fixture
+    def repository(self) -> ImageRepository:
+        mock_session_factory = MagicMock()
+        return ImageRepository(session_factory=mock_session_factory)
+
+    def _setup_session_with_image(
+        self, repository: ImageRepository, image: SimpleNamespace | None
+    ) -> MagicMock:
+        mock_session = MagicMock()
+        mock_session.__enter__ = Mock(return_value=mock_session)
+        mock_session.__exit__ = Mock(return_value=False)
+        mock_result = MagicMock()
+        mock_result.unique.return_value.scalar_one_or_none.return_value = image
+        mock_session.execute.return_value = mock_result
+        repository.session_factory = MagicMock(return_value=mock_session)
+        return mock_session
+
+    def test_quality_summary_no_score_when_empty(self, repository: ImageRepository) -> None:
+        """画像なしでも ``quality_summary`` キーが空 dict で返る。"""
+        self._setup_session_with_image(repository, None)
+
+        annotations = repository.get_image_annotations(image_id=100)
+
+        assert "quality_summary" in annotations
+        assert annotations["quality_summary"] == {}
+
+    def test_quality_summary_no_score_when_image_has_no_annotations(
+        self, repository: ImageRepository
+    ) -> None:
+        """画像はあるが score 系が空の場合、quality_summary.tier == 'no score'。"""
+        image = SimpleNamespace(tags=[], captions=[], scores=[], ratings=[], score_labels=[])
+        self._setup_session_with_image(repository, image)
+
+        annotations = repository.get_image_annotations(image_id=100)
+
+        assert annotations["quality_summary"]["tier"] == "no score"
+        assert annotations["quality_summary"]["no_score"] is True
+
+    def test_quality_summary_with_score_labels(self, repository: ImageRepository) -> None:
+        """score_labels あり -> mapped tier が返る。"""
+        sl = SimpleNamespace(
+            id=1,
+            image_id=100,
+            model_id=42,
+            label="aesthetic",
+            is_edited_manually=False,
+            created_at=datetime.datetime(2026, 5, 19, 10, 0, 0),
+            updated_at=datetime.datetime(2026, 5, 19, 10, 0, 0),
+            model=SimpleNamespace(name="aesthetic_shadow_v2"),
+        )
+        image = SimpleNamespace(tags=[], captions=[], scores=[], ratings=[], score_labels=[sl])
+        self._setup_session_with_image(repository, image)
+
+        annotations = repository.get_image_annotations(image_id=100)
+
+        assert annotations["quality_summary"]["tier"] == "best quality"
+        assert annotations["quality_summary"]["known_count"] == 1
+        assert annotations["quality_summary"]["is_unanimous"] is True
+
+    def test_quality_summary_includes_manual_score(self, repository: ImageRepository) -> None:
+        """manual score (is_edited_manually=True) が tier に反映される。"""
+        score = SimpleNamespace(
+            id=1,
+            score=9.5,
+            model_id=99,
+            is_edited_manually=True,
+            created_at=datetime.datetime(2026, 5, 19, 10, 0, 0),
+            updated_at=datetime.datetime(2026, 5, 19, 10, 0, 0),
+        )
+        image = SimpleNamespace(tags=[], captions=[], scores=[score], ratings=[], score_labels=[])
+        self._setup_session_with_image(repository, image)
+
+        annotations = repository.get_image_annotations(image_id=100)
+
+        assert annotations["quality_summary"]["tier"] == "masterpiece"
+        assert annotations["quality_summary"]["known_count"] == 1

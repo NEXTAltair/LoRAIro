@@ -35,6 +35,8 @@ class AnnotationData:
     score_type: str = "Aesthetic"
     # ADR 0028: canonical scorer の categorical label を {model, label, ...} ペアで保持
     score_labels: list[dict[str, Any]] = field(default_factory=list)
+    # ADR 0029: 統一品質 tier (raw annotation からの derived view)
+    quality_summary: dict[str, Any] = field(default_factory=dict)
     # 翻訳データ: {tag_id: {language: translated_text}}
     tag_translations: dict[int, dict[str, str]] = field(default_factory=dict)
     # 利用可能な言語リスト（get_tag_languages()から取得）
@@ -88,6 +90,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._setup_tags_compact_view()
         self._setup_caption_compact_view()
         self._setup_score_labels_compact_view()
+        self._setup_quality_tier_badge()
         self._adjust_content_heights()
 
         # 言語コンボボックスのシグナル接続
@@ -148,6 +151,18 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._score_labels_container.setVisible(False)
         self.verticalLayoutScoreLabels.addWidget(self._score_labels_container)
 
+    def _setup_quality_tier_badge(self) -> None:
+        """品質 tier badge の初期化 (ADR 0029)。
+
+        ``groupBoxScoreLabels`` 内、per-scorer pill コンテナの上に単一 QLabel を配置する。
+        ``quality_summary`` が空のときは hide する。
+        """
+        self._quality_tier_label = QLabel(self.groupBoxScoreLabels)
+        self._quality_tier_label.setText("品質: -")
+        self._quality_tier_label.setVisible(False)
+        # pill コンテナの前 (上) に挿入
+        self.verticalLayoutScoreLabels.insertWidget(0, self._quality_tier_label)
+
     def update_data(self, data: AnnotationData) -> None:
         """アノテーションデータで表示を更新"""
         try:
@@ -164,6 +179,9 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
 
             # スコアラベル表示更新 (ADR 0028)
             self._update_score_labels_display(data.score_labels)
+
+            # 品質 tier badge 更新 (ADR 0029)
+            self._update_quality_tier_display(data.quality_summary)
 
             self._adjust_content_heights()
 
@@ -379,6 +397,38 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         except Exception as e:
             logger.error(f"Error updating score_labels display: {e}")
 
+    def _update_quality_tier_display(self, summary: dict[str, Any]) -> None:
+        """品質 tier badge を更新する (ADR 0029)。
+
+        ``quality_summary`` は ``lorairo.domain.quality_tier.compute_quality_summary``
+        が返す形状の dict。空 dict / ``no_score`` / ``unknown`` / 通常 tier の各ケースを
+        graceful に扱う。
+
+        Args:
+            summary: ``compute_quality_summary`` 戻り値の dict。空 dict (= フィールド
+                自体が無い旧データ互換) のときは badge を hide する。
+        """
+        try:
+            tier = summary.get("tier") if summary else None
+            if not tier:
+                self._quality_tier_label.setVisible(False)
+                return
+
+            known_count = summary.get("known_count", 0)
+            is_unanimous = summary.get("is_unanimous", False)
+
+            if known_count == 0:
+                # tier は "no score" / "unknown" sentinel
+                self._quality_tier_label.setText(f"品質: {tier}")
+            else:
+                suffix = " (全 scorer 一致)" if is_unanimous else ""
+                self._quality_tier_label.setText(f"品質: {tier} ({known_count} scorer){suffix}")
+
+            self._quality_tier_label.setVisible(True)
+
+        except Exception as e:
+            logger.error(f"Error updating quality tier display: {e}")
+
     @Slot()
     def clear_data(self) -> None:
         """表示データをクリア"""
@@ -398,6 +448,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
 
             # スコアラベル pill もクリア
             self._update_score_labels_display([])
+            # 品質 tier badge もクリア (ADR 0029)
+            self._update_quality_tier_display({})
 
             self._tags_compact_label.setText("-")
             self._adjust_content_heights()

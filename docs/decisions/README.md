@@ -32,6 +32,7 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0026](0026-on-demand-runtime-validation-strategy.md) | On-Demand Runtime Validation Strategy | 2026-05-17 | Accepted |
 | [0027](0027-score-labels-db-storage.md) | Score Labels DB Storage | 2026-05-17 | Accepted |
 | [0028](0028-score-labels-usage-and-display.md) | Score Labels Usage and Display Strategy | 2026-05-18 | Accepted |
+| [0029](0029-unified-dataset-quality-tier.md) | Unified Dataset Quality Tier | 2026-05-19 | Accepted |
 
 ## ADR テンプレート
 

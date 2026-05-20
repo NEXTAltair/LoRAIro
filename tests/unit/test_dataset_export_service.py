@@ -521,6 +521,127 @@ class TestDatasetExportService:
             assert "score_labels" in entry
             assert entry["score_labels"] == []
 
+    def test_get_image_export_data_includes_quality_summary(
+        self, dataset_export_service, mock_db_manager, sample_image_data, sample_score_labels
+    ):
+        """_get_image_export_data の return に quality_summary が含まれる (ADR 0029)。"""
+        mock_db_manager.get_image_metadata.return_value = sample_image_data["metadata"]
+        mock_db_manager.get_image_annotations.return_value = {
+            "tags": sample_image_data["tags"],
+            "captions": sample_image_data["captions"],
+            "score_labels": sample_score_labels,
+            "quality_summary": {
+                "mapping_version": "quality-tier-v1",
+                "tier": "best quality",
+                "is_unanimous": False,
+                "known_count": 2,
+                "unknown_count": 0,
+                "no_score": False,
+                "votes": [],
+            },
+        }
+
+        result = dataset_export_service._get_image_export_data(1)
+
+        assert result is not None
+        assert "quality_summary" in result
+        assert result["quality_summary"]["tier"] == "best quality"
+
+    def test_export_dataset_json_format_includes_quality_summary(
+        self,
+        dataset_export_service,
+        mock_db_manager,
+        mock_file_system_manager,
+        sample_image_data,
+        sample_score_labels,
+    ):
+        """JSON Export の metadata に quality_summary が構造化 dict で含まれる (ADR 0029)。"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "export"
+            output_path.mkdir()
+            processed_image_path = Path("/mock/processed/test_project_00001.webp")
+
+            quality_summary = {
+                "mapping_version": "quality-tier-v1",
+                "tier": "masterpiece",
+                "is_unanimous": True,
+                "known_count": 2,
+                "unknown_count": 0,
+                "no_score": False,
+                "votes": [
+                    {
+                        "model": "aesthetic_shadow_v1",
+                        "source": "score_label",
+                        "raw_label": "very aesthetic",
+                        "quality_tier": "masterpiece",
+                    },
+                ],
+            }
+            mock_db_manager.get_image_metadata.return_value = sample_image_data["metadata"]
+            mock_db_manager.get_image_annotations.return_value = {
+                "tags": sample_image_data["tags"],
+                "captions": sample_image_data["captions"],
+                "scores": [],
+                "score_labels": sample_score_labels,
+                "ratings": [],
+                "quality_summary": quality_summary,
+            }
+            with patch.object(
+                dataset_export_service,
+                "_resolve_processed_image_path",
+                return_value=processed_image_path,
+            ):
+                dataset_export_service.export_dataset_json_format(
+                    image_ids=[1], output_path=output_path, resolution=512
+                )
+
+            metadata_file = output_path / "metadata.json"
+            with open(metadata_file, encoding="utf-8") as f:
+                metadata = json.load(f)
+            entry = metadata[str(output_path / "test_project_00001.webp")]
+
+            assert "quality_summary" in entry
+            assert entry["quality_summary"]["tier"] == "masterpiece"
+            assert entry["quality_summary"]["is_unanimous"] is True
+            assert entry["quality_summary"]["mapping_version"] == "quality-tier-v1"
+
+    def test_export_dataset_json_format_missing_quality_summary_fallback(
+        self,
+        dataset_export_service,
+        mock_db_manager,
+        mock_file_system_manager,
+        sample_image_data,
+    ):
+        """get_image_annotations が quality_summary key を欠落しても KeyError しない (graceful fallback)。"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "export"
+            output_path.mkdir()
+
+            mock_db_manager.get_image_metadata.return_value = sample_image_data["metadata"]
+            mock_db_manager.get_image_annotations.return_value = {
+                "tags": sample_image_data["tags"],
+                "captions": sample_image_data["captions"],
+                "scores": [],
+                "score_labels": [],
+                "ratings": [],
+                # quality_summary 欠落 (旧仕様互換)
+            }
+            with patch.object(
+                dataset_export_service,
+                "_resolve_processed_image_path",
+                return_value=Path("/mock/processed/test_project_00001.webp"),
+            ):
+                dataset_export_service.export_dataset_json_format(
+                    image_ids=[1], output_path=output_path, resolution=512
+                )
+
+            metadata_file = output_path / "metadata.json"
+            with open(metadata_file, encoding="utf-8") as f:
+                metadata = json.load(f)
+            entry = metadata[str(output_path / "test_project_00001.webp")]
+            assert "quality_summary" in entry
+            assert entry["quality_summary"] == {}
+
     def test_export_dataset_txt_format_excludes_score_labels(
         self,
         dataset_export_service,

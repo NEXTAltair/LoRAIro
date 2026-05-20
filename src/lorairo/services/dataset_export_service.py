@@ -217,6 +217,8 @@ class DatasetExportService:
                     "tags": tags,
                     "caption": captions,
                     "score_labels": score_labels,
+                    # ADR 0029: 統一品質 tier (derived view)
+                    "quality_summary": image_data.get("quality_summary", {}),
                 }
 
                 exported_count += 1
@@ -384,6 +386,8 @@ class DatasetExportService:
                 "captions": annotations.get("captions", []),
                 # ADR 0028: canonical scorer の categorical label を {model, label} ペアで保持
                 "score_labels": annotations.get("score_labels", []),
+                # ADR 0029: 統一品質 tier (derived view)
+                "quality_summary": annotations.get("quality_summary", {}),
             }
 
         except Exception as e:
