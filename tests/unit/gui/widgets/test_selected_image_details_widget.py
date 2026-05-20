@@ -328,3 +328,51 @@ class TestSelectedImageDetailsWidget:
 
         assert details.annotation_data is not None
         assert details.annotation_data.score_labels == []
+
+    def test_build_metadata_populates_quality_summary(self, widget):
+        """metadata の quality_summary が AnnotationData に渡されること (ADR 0029)。
+
+        PR #297 Codex P1 の核: GUI のメタデータ経路で quality_summary を埋めないと、
+        統一 tier badge が常に hidden になる silent バグの回帰防止。
+        """
+        quality_summary = {
+            "mapping_version": "quality-tier-v1",
+            "tier": "best quality",
+            "is_unanimous": True,
+            "known_count": 2,
+            "unknown_count": 0,
+            "no_score": False,
+            "votes": [],
+        }
+        metadata = {
+            "id": 1,
+            "file_path": "/test/img.jpg",
+            "tags": [],
+            "caption_text": "",
+            "tags_text": "",
+            "score_value": 0,
+            "rating_value": "",
+            "score_labels": [],
+            "quality_summary": quality_summary,
+        }
+        details = widget._build_image_details_from_metadata(metadata)
+
+        assert details.annotation_data is not None
+        assert details.annotation_data.quality_summary == quality_summary
+
+    def test_build_metadata_quality_summary_missing_defaults_empty(self, widget):
+        """metadata に quality_summary key が無い場合は default {} になる (旧データ互換)。"""
+        metadata = {
+            "id": 1,
+            "file_path": "/test/img.jpg",
+            "tags": [],
+            "caption_text": "",
+            "tags_text": "",
+            "score_value": 0,
+            "rating_value": "",
+            # quality_summary なし
+        }
+        details = widget._build_image_details_from_metadata(metadata)
+
+        assert details.annotation_data is not None
+        assert details.annotation_data.quality_summary == {}

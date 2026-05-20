@@ -2554,6 +2554,12 @@ class ImageRepository:
         self._format_score_labels(image, annotations)
         self._format_ratings(image, annotations)
 
+        # ADR 0029: derived view。GUI のメタデータ経路 (SelectedImageDetailsWidget) も
+        # quality_summary を受け取れるよう、get_image_annotations と同じく派生計算する。
+        annotations["quality_summary"] = compute_quality_summary(
+            annotations.get("score_labels", []), annotations.get("scores", [])
+        )
+
         logger.debug(
             f"Formatted annotations: tags={len(annotations.get('tags', []))}, "
             f"captions={len(annotations.get('captions', []))}, "

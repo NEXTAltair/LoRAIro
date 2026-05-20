@@ -99,6 +99,16 @@ class TestFormatAnnotationsForMetadata:
             "score_labels": [],
             "ratings": [],
             "rating_value": "",  # Issue #4: Rating値は文字列型
+            # ADR 0029: derived view。score 系が空なので tier="no score"
+            "quality_summary": {
+                "mapping_version": "quality-tier-v1",
+                "tier": "no score",
+                "is_unanimous": False,
+                "known_count": 0,
+                "unknown_count": 0,
+                "no_score": True,
+                "votes": [],
+            },
         }
 
         assert result == expected
@@ -227,6 +237,39 @@ class TestFormatAnnotationsForMetadata:
         assert result["tags"][0]["confidence_score"] == 0.95
         assert result["tags"][1]["confidence_score"] == 0.85
         assert result["tags_text"] == "tag1, tag2"
+
+    def test_format_annotations_includes_quality_summary(self, repository):
+        """ADR 0029: score_labels がある場合、quality_summary が derived 計算される。
+
+        GUI のメタデータ経路 (SelectedImageDetailsWidget) も _format_annotations_for_metadata
+        を経由するため、quality tier badge が機能するには本経路での計算が必須 (PR #297 Codex P1)。
+        """
+        from types import SimpleNamespace
+
+        image = Mock(spec=Image)
+        image.tags = []
+        image.captions = []
+        image.scores = []
+        image.ratings = []
+        image.score_labels = [
+            SimpleNamespace(
+                id=1,
+                image_id=100,
+                model_id=42,
+                label="aesthetic",
+                is_edited_manually=False,
+                created_at=datetime(2026, 5, 19, 10, 0, 0),
+                updated_at=datetime(2026, 5, 19, 10, 0, 0),
+                model=SimpleNamespace(name="aesthetic_shadow_v2"),
+            )
+        ]
+
+        result = repository._format_annotations_for_metadata(image)
+
+        assert "quality_summary" in result
+        assert result["quality_summary"]["tier"] == "best quality"
+        assert result["quality_summary"]["known_count"] == 1
+        assert result["quality_summary"]["is_unanimous"] is True
 
 
 class TestFetchFilteredMetadataAnnotations:
