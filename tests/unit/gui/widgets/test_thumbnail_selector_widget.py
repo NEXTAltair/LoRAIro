@@ -34,7 +34,6 @@ class TestThumbnailSelectorWidgetBasic:
         """初期化テスト"""
         assert widget is not None
         assert widget.thumbnail_size == QSize(128, 128)  # 実際のデフォルトサイズ
-        assert len(widget.image_data) == 0
         assert len(widget.thumbnail_items) == 0
 
     def test_set_thumbnail_size(self, widget):
@@ -46,17 +45,17 @@ class TestThumbnailSelectorWidgetBasic:
     def test_clear_thumbnails(self, widget):
         """サムネイルクリアテスト"""
         # テストデータを設定
-        widget.image_data = [(Path("test.jpg"), 1)]
+        widget._explicit_path_items = [(Path("test.jpg"), 1)]
         widget.thumbnail_items = [Mock()]
 
         widget.clear_thumbnails()
 
-        assert len(widget.image_data) == 0
+        assert len(widget._explicit_path_items) == 0
         assert len(widget.thumbnail_items) == 0
 
 
 class TestThumbnailSelectorWidgetLoadImages:
-    """ThumbnailSelectorWidget 画像読み込みテスト"""
+    """ThumbnailSelectorWidget 明示パス表示テスト"""
 
     @pytest.fixture
     def widget(self, qtbot):
@@ -65,46 +64,26 @@ class TestThumbnailSelectorWidgetLoadImages:
         qtbot.addWidget(widget)
         return widget
 
-    def test_direct_image_data_setting(self, widget):
-        """画像データの直接設定"""
-        test_image_data = [
+    def test_load_thumbnails_from_paths_tracks_explicit_paths(self, widget):
+        """staging用の明示パス表示は private な明示パスリストで管理される"""
+        widget.load_thumbnails_from_paths([("test1.jpg", 1), ("test2.jpg", 2), ("test3.jpg", 3)])
+
+        assert widget._explicit_path_items == [
             (Path("test1.jpg"), 1),
             (Path("test2.jpg"), 2),
             (Path("test3.jpg"), 3),
         ]
+        assert [item.image_id for item in widget.thumbnail_items] == [1, 2, 3]
 
-        widget.image_data = test_image_data
-
-        # 画像データが正しく設定されているか
-        assert len(widget.image_data) == 3
-        assert widget.image_data[0] == (Path("test1.jpg"), 1)
-        assert widget.image_data[1] == (Path("test2.jpg"), 2)
-        assert widget.image_data[2] == (Path("test3.jpg"), 3)
-
-    def test_direct_metadata_setting_with_custom_ids(self, widget):
-        """カスタムIDつきメタデータの直接設定"""
-        test_image_data = [
-            (Path("image1.jpg"), 101),
-            (Path("image2.jpg"), 102),
-            (Path("image3.jpg"), 103),
-        ]
-
-        widget.image_data = test_image_data
-
-        # 画像データが正しく設定されているか
-        assert len(widget.image_data) == 3
-        assert widget.image_data[0] == (Path("image1.jpg"), 101)
-        assert widget.image_data[1] == (Path("image2.jpg"), 102)
-        assert widget.image_data[2] == (Path("image3.jpg"), 103)
-
-    def test_empty_image_data(self, widget):
-        """空の画像データ設定"""
-        widget.image_data = []
-        assert len(widget.image_data) == 0
+    def test_empty_explicit_path_items(self, widget):
+        """空の明示パス表示"""
+        widget.load_thumbnails_from_paths([])
+        assert widget._explicit_path_items == []
+        assert widget.thumbnail_items == []
 
     @patch("lorairo.gui.widgets.thumbnail.QPixmap")
-    def test_add_thumbnail_item_uses_direct_path(self, mock_pixmap_class, widget):
-        """add_thumbnail_itemが渡されたパスを直接使用することをテスト"""
+    def test_load_thumbnails_from_paths_uses_direct_path(self, mock_pixmap_class, widget):
+        """staging用の明示パス表示は渡されたパスを直接使用する"""
         # モックPixmapの設定
         mock_pixmap = Mock()
         mock_pixmap.scaled.return_value = mock_pixmap
@@ -120,7 +99,7 @@ class TestThumbnailSelectorWidgetLoadImages:
             mock_item = Mock()
             mock_item_class.return_value = mock_item
 
-            widget.add_thumbnail_item(Path("test_image.jpg"), 123, 0, 3)
+            widget.load_thumbnails_from_paths([("test_image.jpg", 123)])
 
             # QPixmapがパスで呼び出されることを確認
             mock_pixmap_class.assert_called_with("test_image.jpg")
@@ -141,7 +120,7 @@ class TestThumbnailSelectorWidgetQPixmapConversion:
     @pytest.fixture
     def widget(self, qtbot):
         """テスト用ウィジェット"""
-        widget = ThumbnailSelectorWidget()
+        widget = ThumbnailSelectorWidget(dataset_state=DatasetStateManager())
         qtbot.addWidget(widget)
         return widget
 
@@ -195,8 +174,8 @@ class TestThumbnailSelectorWidgetQPixmapConversion:
             # load_thumbnails_from_result実行
             widget.load_thumbnails_from_result(mock_thumbnail_result)
 
-            # シーンがクリアされることを確認
-            mock_clear.assert_called_once()
+            # リセットと再表示でシーンがクリアされることを確認
+            assert mock_clear.call_count >= 1
 
             # QPixmap.fromImage が各QImageに対して呼び出されることを確認
             assert mock_pixmap_class.fromImage.call_count == 3
@@ -253,9 +232,9 @@ class TestThumbnailSelectorWidgetQPixmapConversion:
             # fromImageが3回呼び出されることを確認
             assert mock_pixmap_class.fromImage.call_count == 3
 
-            # null pixmapはキャッシュに保存されない
+            # null pixmapはページキャッシュには空ページとして保存され、表示はプレースホルダーになる
             cache_info = widget.cache_usage_info()
-            assert cache_info["original_cache_count"] == 0
+            assert cache_info["page_cache_count"] == 1
 
 
 class TestThumbnailSelectorWidgetResponsibilitySeparation:
@@ -277,8 +256,7 @@ class TestThumbnailSelectorWidgetResponsibilitySeparation:
         """データベースマネージャーへの依存がないことを確認（シンプル版）"""
         # 通常の操作でエラーが発生しないことを確認（データベースアクセスなし）
         try:
-            test_image_data = [(Path("test.jpg"), 1)]
-            widget.image_data = test_image_data
+            widget.load_thumbnails_from_paths([("test.jpg", 1)])
             widget.clear_thumbnails()
         except Exception as e:
             pytest.fail(f"データベース依存のないシンプルな操作でエラーが発生: {e}")
@@ -288,8 +266,8 @@ class TestThumbnailSelectorWidgetResponsibilitySeparation:
         # 表示関連のメソッドのみ持つことを確認
         display_methods = [
             "load_thumbnails_from_result",
+            "load_thumbnails_from_paths",
             "clear_thumbnails",
-            "add_thumbnail_item",
             "get_selected_images",
         ]
 
@@ -318,10 +296,9 @@ class TestThumbnailSelectorWidgetSelection:
         selected = widget.get_selected_images()
         assert selected == []
 
-    def test_get_current_image_data(self, widget):
-        """get_current_image_data は deprecated で空リストを返す"""
-        current_data = widget.get_current_image_data()
-        assert current_data == []
+    def test_deprecated_current_image_data_api_removed(self, widget):
+        """ThumbnailSelectorWidget の deprecated な get_current_image_data は削除済み"""
+        assert not hasattr(widget, "get_current_image_data")
 
 
 class TestThumbnailSelectorWidgetLayout:
@@ -334,36 +311,40 @@ class TestThumbnailSelectorWidgetLayout:
         qtbot.addWidget(widget)
         return widget
 
-    def test_update_thumbnail_layout(self, widget):
-        """サムネイルレイアウト更新テスト - ウィジェットサイズ変更時のレイアウト再計算"""
-        # テストデータを準備
-        test_data = [(Path("image1.jpg"), 1), (Path("image2.jpg"), 2), (Path("image3.jpg"), 3)]
-        widget.image_data = test_data
+    @patch("lorairo.gui.widgets.thumbnail.ThumbnailItem")
+    def test_update_thumbnail_layout_uses_page_cache(self, mock_item_class, qtbot):
+        """検索結果のレイアウト更新はページキャッシュから再表示する"""
+        state = DatasetStateManager()
+        state.update_from_search_results(
+            [
+                {"id": 1, "stored_image_path": "image1.jpg"},
+                {"id": 2, "stored_image_path": "image2.jpg"},
+                {"id": 3, "stored_image_path": "image3.jpg"},
+            ]
+        )
+        widget = ThumbnailSelectorWidget(dataset_state=state)
+        qtbot.addWidget(widget)
 
-        # add_thumbnail_itemをモック化してGUI処理をスキップ
-        with patch.object(widget, "add_thumbnail_item") as mock_add_item:
-            # 初期サイズでのレイアウト更新
-            widget.scrollAreaThumbnails.resize(400, 300)  # 幅400px
-            widget.thumbnail_size = QSize(128, 128)  # サムネイルサイズ128px
+        pixmap = Mock()
+        pixmap.scaled.return_value = pixmap
+        pixmap.rect.return_value = Mock(width=lambda: 128, height=lambda: 128)
+        widget.page_cache.set_page(1, [(1, pixmap), (2, pixmap), (3, pixmap)])
+
+        created_items = []
+
+        def make_item(*_args):
+            item = Mock()
+            item.image_id = _args[2]
+            created_items.append(item)
+            return item
+
+        mock_item_class.side_effect = make_item
+        widget.scrollAreaThumbnails.resize(200, 300)
+        with patch.object(widget.scene, "addItem"):
             widget.update_thumbnail_layout()
 
-            # 幅400px ÷ 128px = 3カラムになることを確認
-            initial_calls = mock_add_item.call_count
-            assert initial_calls == 3  # 3つのアイテムが配置される
-
-            mock_add_item.reset_mock()
-
-            # ウィジェットサイズを変更（幅を狭める）
-            widget.scrollAreaThumbnails.resize(200, 300)  # 幅200px
-            widget.update_thumbnail_layout()
-
-            # 幅200px ÷ 128px = 1カラムになることを確認
-            assert mock_add_item.call_count == 3  # 同じ数のアイテムが再配置される
-
-            # カラム数が1になっていることを確認（各呼び出しの4番目の引数）
-            for call in mock_add_item.call_args_list:
-                column_count = call[0][3]  # add_thumbnail_item(path, id, index, column_count)
-                assert column_count == 1  # 1カラムレイアウト
+        assert mock_item_class.call_count == 3
+        assert [item.image_id for item in created_items] == [1, 2, 3]
 
 
 class TestThumbnailSelectorWidgetWorkflow:
@@ -379,11 +360,7 @@ class TestThumbnailSelectorWidgetWorkflow:
     def test_full_workflow_without_database(self, widget):
         """データベースなしでの完全ワークフロー（ユニットテスト）"""
         # 1. 画像データを設定
-        test_image_data = [
-            (Path("test1.jpg"), 1),
-            (Path("test2.jpg"), 2),
-        ]
-        widget.image_data = test_image_data
+        widget.load_thumbnails_from_paths([("test1.jpg", 1), ("test2.jpg", 2)])
 
         # 2. サムネイルサイズ変更（直接設定 - 責任分離後）
         widget.thumbnail_size = QSize(100, 100)
@@ -392,7 +369,7 @@ class TestThumbnailSelectorWidgetWorkflow:
         widget.clear_thumbnails()
 
         # データベースアクセスなしで正常に動作することを確認
-        assert len(widget.image_data) == 0
+        assert len(widget._explicit_path_items) == 0
         # pytest-qtがqtbot.addWidget()を使用している場合、自動クリーンアップされる
 
 
@@ -807,7 +784,7 @@ class TestThumbnailSelectorWidgetPagination:
 
         assert widget.page_cache.has_page(1)
         assert len(widget.thumbnail_items) == 1
-        assert widget.image_data[0][1] == 1
+        assert widget.thumbnail_items[0].image_id == 1
 
     def test_set_dataset_state_rebinds_pagination_state(self, widget_with_state):
         widget, _ = widget_with_state

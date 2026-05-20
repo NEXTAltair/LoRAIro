@@ -213,7 +213,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     Attributes:
         dataset_state (DatasetStateManager): データセット状態管理オブジェクト
         thumbnail_size (QSize): サムネイル画像のサイズ
-        image_data (list[tuple[Path, int]]): 表示中の画像データ（パスとID）
         thumbnail_items (list[ThumbnailItem]): 表示中のサムネイルアイテム
     """
 
@@ -264,10 +263,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         layout.addWidget(self.graphics_view)
         self.widgetThumbnailsContent.setLayout(layout)
 
-        # キャッシュ機構
-        self.image_cache: dict[int, QPixmap] = {}  # legacy互換（平坦キャッシュ）
+        # ページ単位キャッシュ（検索結果サムネイル表示のSSoT）
         self.page_cache = ThumbnailPageCache(max_pages=5)  # ページ単位キャッシュ
-        self.image_metadata: dict[int, dict[str, Any]] = {}  # image_id -> メタデータ
 
         # ページネーション状態
         self.pagination_state: PaginationStateManager | None = None
@@ -282,10 +279,9 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self._prefetch_queue: list[int] = []
         self._suspend_page_change: bool = False
 
-        # レガシー互換（段階的廃止予定）
-        self.image_data: list[tuple[Path, int]] = []  # (image_path, image_id)
-        self.current_image_metadata: list[dict[str, Any]] = []  # フィルタリング用の画像メタデータ
+        # 表示中アイテム状態
         self.thumbnail_items: list[ThumbnailItem] = []  # ThumbnailItem のリスト
+        self._explicit_path_items: list[tuple[Path, int]] = []  # stagingなど小規模明示パス表示用
         self.last_selected_item: ThumbnailItem | None = None
 
         # ページロード中オーバーレイ（新ページ確定まで旧ページ表示維持）
@@ -381,9 +377,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         self._cancel_pending_thumbnail_requests()
         self.page_cache.clear()
-        self.image_cache.clear()
-        self.image_metadata.clear()
-        self.image_data.clear()
+        self._explicit_path_items.clear()
+        self.thumbnail_items.clear()
         self._prefetch_queue.clear()
         self._prefetch_request_ids.clear()
         self._request_id_to_page.clear()
@@ -551,7 +546,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         if not image_ids:
             self.scene.clear()
             self.thumbnail_items.clear()
-            self.image_data.clear()
+            self._explicit_path_items.clear()
             self._update_image_count_display()
             self._hide_loading_overlay()
             return
@@ -641,7 +636,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         self.scene.clear()
         self.thumbnail_items.clear()
-        self.image_data.clear()
+        self._explicit_path_items.clear()
 
         button_width = self.thumbnail_size.width()
         grid_width = max(self.scrollAreaThumbnails.viewport().width(), self.thumbnail_size.width())
@@ -651,7 +646,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             metadata = self.dataset_state.get_image_by_id(image_id) if self.dataset_state else None
             stored_path = metadata.get("stored_image_path") if metadata else ""
             image_path = Path(stored_path) if stored_path else Path()
-            self.image_data.append((image_path, image_id))
 
             pixmap = page_pixmap_map.get(image_id)
             if pixmap is None:
@@ -694,42 +688,21 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     def _on_thumbnail_size_slider_changed(self, value: int) -> None:
         """
-        サムネイルサイズスライダーの値変更を処理する（高速キャッシュ版）。
-
-        キャッシュされた元画像から新サイズにスケールし、ファイルI/Oを
-        完全回避した高速なサイズ変更を実現する。
+        サムネイルサイズスライダーの値変更を処理する。
 
         Args:
             value (int): 新しいサムネイルサイズ値
         """
-        old_size = self.thumbnail_size
         self.thumbnail_size = QSize(value, value)
 
         # 画像件数表示を更新
         self._update_image_count_display()
 
-        # ページキャッシュから再表示
+        # 検索結果はページキャッシュから再表示する。staging等の明示パス表示は小規模用途として再構築する。
         if self.pagination_state and self.page_cache.has_page(self._current_display_page):
             self._display_page(self._current_display_page)
-        # レガシーキャッシュから高速再表示（ファイルI/O完全回避）
-        elif self.image_cache:
-            logger.debug(f"サムネイルサイズ変更: {old_size.width()}x{old_size.height()} → {value}x{value}")
-            # UI要素クリア（古い画像残存問題の修正）
-            self.scene.clear()
-            self.thumbnail_items.clear()
-
-            # 選択状態同期（ImagePreview警告解決）
-            if self.dataset_state:
-                self.dataset_state.clear_current_image()
-                self.dataset_state.clear_selection()
-
-            self._display_cached_thumbnails()
-        else:
-            # キャッシュが空の場合は従来方式（フォールバック）
-            if len(self.image_data) <= 50:
-                self.update_thumbnail_layout()
-            # 大量データの場合は何もしない（Worker再実行待ち）
-        # 大量データの場合、既存のWorkerワークフローに依存（何もしない）
+        elif self._explicit_path_items:
+            self._display_explicit_path_items()
 
     def _update_image_count_display(self) -> None:
         """
@@ -738,7 +711,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         現在読み込まれている画像数をヘッダーに表示する。
         """
         if hasattr(self, "labelThumbnailCount"):
-            count = len(self.image_data)
+            count = len(self.thumbnail_items)
             self.labelThumbnailCount.setText(f"画像: {count}件")
 
     def _on_context_menu_requested(self, pos: QPoint) -> None:
@@ -801,55 +774,14 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.dataset_state.clear_selection()
         logger.debug("Deselected all items")
 
-    def cache_thumbnail(self, image_id: int, pixmap: QPixmap, metadata: dict[str, Any]) -> None:
-        """
-        サムネイル画像をキャッシュに保存する。
-
-        ThumbnailWorkerからの結果やファイル読み込み結果を効率的にキャッシュし、
-        サイズ変更時の高速処理を可能にする。
-
-        Args:
-            image_id (int): 画像ID
-            pixmap (QPixmap): キャッシュする元画像のQPixmap
-            metadata (dict): 画像メタデータ
-        """
-        if not pixmap.isNull():
-            self.image_cache[image_id] = pixmap
-            self.image_metadata[image_id] = metadata.copy()
-
-    def get_cached_thumbnail(self, image_id: int, target_size: QSize) -> QPixmap | None:
-        """
-        指定サイズのサムネイルをキャッシュから取得する。
-
-        元画像キャッシュからその都度スケールして返す。
-
-        Args:
-            image_id (int): 画像ID
-            target_size (QSize): 目標サイズ
-
-        Returns:
-            QPixmap | None: スケール済みQPixmap、またはキャッシュにない場合None
-        """
-        if image_id in self.image_cache:
-            original_pixmap = self.image_cache[image_id]
-            return original_pixmap.scaled(
-                target_size,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-
-        return None
-
     def clear_cache(self) -> None:
         """
-        全てのキャッシュをクリアする。
+        ページキャッシュと未完了リクエスト状態をクリアする。
 
         メモリ効率化のため、新しい検索結果受信時や
         大きな状態変更時に呼び出される。
         """
-        self.image_cache.clear()
         self.page_cache.clear()
-        self.image_metadata.clear()
         self._cancel_pending_thumbnail_requests()
         self._prefetch_queue.clear()
         self._prefetch_request_ids.clear()
@@ -866,51 +798,38 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             dict: キャッシュ統計情報
         """
         return {
-            "original_cache_count": len(self.image_cache),
             "page_cache_count": self.page_cache.cache_size,
-            "metadata_count": len(self.image_metadata),
         }
 
-    def _display_cached_thumbnails(self) -> None:
-        """
-        キャッシュされた画像からサムネイル表示を構築する。
+    def _display_explicit_path_items(self) -> None:
+        """stagingなど小規模な明示パスリストからサムネイル表示を構築する。"""
+        self.scene.clear()
+        self.thumbnail_items.clear()
 
-        image_data の順序に従って、キャッシュから適切なサイズの
-        サムネイルを取得してUIに配置する。
-
-        注意: 呼び出し元で事前にscene.clear()とthumbnail_items.clear()が
-        実行されている前提で動作する。
-        """
-
-        if not self.image_data:
+        if not self._explicit_path_items:
+            self._update_image_count_display()
             return
 
         button_width = self.thumbnail_size.width()
         grid_width = max(self.scrollAreaThumbnails.viewport().width(), self.thumbnail_size.width())
         column_count = max(grid_width // button_width, 1)
 
-        displayed_count = 0
-        for i, (image_path, image_id) in enumerate(self.image_data):
-            # キャッシュから適切サイズのサムネイルを取得
-            scaled_pixmap = self.get_cached_thumbnail(image_id, self.thumbnail_size)
+        for index, (image_path, image_id) in enumerate(self._explicit_path_items):
+            pixmap = QPixmap(str(image_path)).scaled(
+                self.thumbnail_size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            if pixmap.isNull():
+                logger.warning(f"Failed to load staging thumbnail from image path: {image_path}")
+                pixmap = QPixmap(self.thumbnail_size)
+                pixmap.fill(Qt.GlobalColor.gray)
+            self._add_thumbnail_item_from_cache(image_path, image_id, index, column_count, pixmap)
 
-            if scaled_pixmap and not scaled_pixmap.isNull():
-                self._add_thumbnail_item_from_cache(image_path, image_id, i, column_count, scaled_pixmap)
-                displayed_count += 1
-            else:
-                # キャッシュにない場合のフォールバック（プレースホルダー）
-                placeholder_pixmap = QPixmap(self.thumbnail_size)
-                placeholder_pixmap.fill(Qt.GlobalColor.lightGray)
-                self._add_thumbnail_item_from_cache(
-                    image_path, image_id, i, column_count, placeholder_pixmap
-                )
-
-        # シーンサイズを調整
-        row_count = (len(self.image_data) + column_count - 1) // column_count
+        row_count = (len(self._explicit_path_items) + column_count - 1) // column_count
         scene_height = row_count * self.thumbnail_size.height()
         self.scene.setSceneRect(0, 0, grid_width, scene_height)
-
-        logger.debug(f"キャッシュからサムネイル表示: {displayed_count}/{len(self.image_data)}件")
+        self._update_image_count_display()
 
     def _add_thumbnail_item_from_cache(
         self, image_path: Path, image_id: int, index: int, column_count: int, pixmap: QPixmap
@@ -1001,25 +920,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     @Slot(list)
     def _on_images_filtered(self, image_metadata: list[dict[str, Any]]) -> None:
-        """
-        データセット状態管理からの画像フィルタリング通知（互換性維持）
-
-        Args:
-            image_metadata: 画像メタデータリスト
-        """
-        logger.debug("_on_images_filtered 呼び出し - apply_filtered_metadata() 削除により処理をスキップ")
-        # Note: apply_filtered_metadata() は削除されました
-
-    def get_current_image_data(self) -> list[dict[str, Any]]:
-        """
-        [DEPRECATED] 冗長データ管理のため削除予定
-
-        DatasetStateManager.all_images プロパティを直接使用してください。
-        """
-        logger.warning(
-            "get_current_image_data() は非推奨です。DatasetStateManager.all_images を直接使用してください。"
-        )
-        return []
+        """DatasetStateManagerの画像更新通知を受ける。表示更新はページネーション経路で行う。"""
+        logger.debug(f"DatasetStateManager images_filtered received: {len(image_metadata)} images")
 
     @Slot(list)
     def _on_state_selection_changed(self, selected_image_ids: list[int]) -> None:
@@ -1091,7 +993,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.scene.clear()
         self.thumbnail_items.clear()
         self.clear_cache()
-        self.image_data.clear()
+        self._explicit_path_items.clear()
         if self.pagination_nav:
             self.pagination_nav.setVisible(False)
 
@@ -1105,48 +1007,36 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             self.dataset_state.update_from_search_results(thumbnail_result.image_metadata)
             logger.debug("検索結果をDatasetStateManagerに同期完了")
 
-    def _build_image_data_from_result(self, thumbnail_result: Any) -> None:
-        """thumbnail_result の image_metadata から self.image_data を構築する。"""
-        if hasattr(thumbnail_result, "image_metadata") and thumbnail_result.image_metadata:
-            self.image_data = [
-                (Path(item["stored_image_path"]), item["id"])
-                for item in thumbnail_result.image_metadata
-                if "stored_image_path" in item and "id" in item
-            ]
-
-    def _cache_single_thumbnail(self, image_id: int, qimage: Any) -> bool:
-        """単一の QImage を QPixmap に変換してキャッシュに格納する。
+    def _pixmaps_from_result(self, thumbnail_result: Any) -> list[tuple[int, QPixmap]]:
+        """ThumbnailLoadResultのQImageリストをページキャッシュ用QPixmapリストへ変換する。
 
         Args:
-            image_id: 画像 ID。
-            qimage: 変換元の QImage オブジェクト。
+            thumbnail_result: ThumbnailLoadResultオブジェクト。
 
         Returns:
-            変換・キャッシュ成功時 True、失敗時 False。
+            (image_id, QPixmap) のリスト。
         """
-        try:
-            qpixmap = QPixmap.fromImage(qimage)
-            if not qpixmap.isNull():
-                metadata = {}
-                if self.dataset_state:
-                    metadata = self.dataset_state.get_image_by_id(image_id) or {}
-                self.cache_thumbnail(image_id, qpixmap, metadata)
-                return True
-            else:
+        pixmaps: list[tuple[int, QPixmap]] = []
+        for image_id, qimage in thumbnail_result.loaded_thumbnails:
+            try:
+                qpixmap = QPixmap.fromImage(qimage)
+            except Exception as e:
+                logger.error(f"QImage→QPixmap変換エラー image_id={image_id}: {e}")
+                continue
+
+            if qpixmap.isNull():
                 logger.warning(f"QPixmap変換失敗: image_id={image_id}")
-                return False
-        except Exception as e:
-            logger.error(f"QImage→QPixmap変換エラー image_id={image_id}: {e}")
-            return False
+                continue
+
+            pixmaps.append((image_id, qpixmap))
+        return pixmaps
 
     def load_thumbnails_from_result(self, thumbnail_result: Any) -> None:
         """
-        ThumbnailLoadResultからサムネイルをロード（クリーンアーキテクチャ版）
+        ページ情報を持たないThumbnailLoadResultを1ページ表示としてロードする。
 
-        **新設計原則**:
-        - DatasetStateManagerによる統一データ管理
-        - ThumbnailSelectorWidgetは表示のみに専念
-        - 冗長なデータ管理の完全削除
+        通常の検索結果表示は initialize_pagination_search() と handle_thumbnail_page_result()
+        を使う。このメソッドはページ情報なしの既存呼び出しを page cache 経路に寄せる。
 
         Args:
             thumbnail_result: ThumbnailLoadResultオブジェクト
@@ -1167,30 +1057,26 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             return
 
         self._sync_dataset_state_from_result(thumbnail_result)
-        self._build_image_data_from_result(thumbnail_result)
+        if self.dataset_state:
+            self._ensure_pagination_state()
 
-        valid_thumbnails = sum(
-            1
-            for image_id, qimage in thumbnail_result.loaded_thumbnails
-            if self._cache_single_thumbnail(image_id, qimage)
-        )
-
-        self._display_cached_thumbnails()
+        pixmaps = self._pixmaps_from_result(thumbnail_result)
+        self.page_cache.set_page(1, pixmaps)
+        self._current_display_page = 1
+        self._display_page(1)
         self._update_image_count_display()
         if hasattr(self, "graphics_view"):
             self.graphics_view.viewport().update()
 
-        cache_info = self.cache_usage_info()
         logger.info(
-            f"サムネイル表示完了: {valid_thumbnails}件表示, "
-            f"キャッシュ: {cache_info['original_cache_count']}件"
+            f"サムネイル表示完了: {len(pixmaps)}件表示, page_cache={self.page_cache.cache_size}ページ"
         )
 
         # 選択状態はThumbnailItem.isSelected()で動的取得
 
     def load_thumbnails_from_paths(self, items: list[tuple[str, int]]) -> None:
         """
-        ファイルパスとIDの一覧からサムネイルをロードする（簡易表示用）。
+        ファイルパスとIDの一覧からサムネイルをロードする（stagingなど小規模表示用）。
 
         Args:
             items: [(stored_path, image_id), ...]
@@ -1198,16 +1084,16 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.scene.clear()
         self.thumbnail_items.clear()
         self.clear_cache()
-        self.image_data.clear()
+        self._explicit_path_items.clear()
         self._active_search_result = None
         if self.pagination_nav:
             self.pagination_nav.setVisible(False)
 
         for path_str, image_id in items:
             path = Path(path_str) if path_str else Path()
-            self.image_data.append((path, image_id))
+            self._explicit_path_items.append((path, image_id))
 
-        self.update_thumbnail_layout()
+        self._display_explicit_path_items()
         self._update_image_count_display()
         if hasattr(self, "graphics_view"):
             self.graphics_view.viewport().update()
@@ -1224,12 +1110,12 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         **使用意図**: 検索処理の開始・終了・エラー時の表示リセット
         **新設計**: キャッシュも含めた完全クリアによるメモリ効率化
 
-        GraphicsSceneとthumbnail_items、image_data、および新しいキャッシュを
-        完全にクリアし、新しい検索結果受信に備える。
+        GraphicsSceneとthumbnail_items、およびページキャッシュを完全にクリアし、
+        新しい検索結果受信に備える。
         """
         self.scene.clear()
         self.thumbnail_items.clear()
-        self.image_data.clear()
+        self._explicit_path_items.clear()
         self._current_display_page = 1
 
         # 新しいキャッシュもクリア（メモリ効率化）
@@ -1240,32 +1126,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             self.pagination_nav.setVisible(False)
 
         logger.debug("サムネイル表示とキャッシュをクリアしました")
-
-    def _setup_placeholder_layout(self) -> None:
-        """大量データ用のプレースホルダーレイアウトを設定"""
-        self.scene.clear()
-        self.thumbnail_items.clear()
-
-        if not self.image_data:
-            return
-
-        # プレースホルダーメッセージを表示
-        from PySide6.QtGui import QFont
-        from PySide6.QtWidgets import QGraphicsTextItem
-
-        text_item = QGraphicsTextItem(f"サムネイル読み込み中... ({len(self.image_data)}件)")
-        font = QFont()
-        font.setPointSize(12)
-        text_item.setFont(font)
-
-        # 中央に配置
-        text_rect = text_item.boundingRect()
-        scene_width = self.scrollAreaThumbnails.viewport().width()
-        x = (scene_width - text_rect.width()) / 2
-        text_item.setPos(x, 50)
-
-        self.scene.addItem(text_item)
-        self.scene.setSceneRect(0, 0, scene_width, 150)
 
     # === UI Event Handlers ===
 
@@ -1365,100 +1225,20 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     def update_thumbnail_layout(self) -> None:
         """
-        現在のimage_dataに基づいてサムネイルグリッドレイアウトを更新する（キャッシュ優先版）。
+        現在表示中サムネイルのグリッドレイアウトを更新する。
 
         **呼び出し箇所**:
         - QTimer.timeout Signal (thumbnail.py:183) - リサイズ遅延実行
         - _on_thumbnail_size_changed (thumbnail.py:296) - サムネイルサイズ変更時
         - _on_images_filtered (thumbnail.py:260) - 少量データフィルタ結果表示時
-        **新設計**: キャッシュ優先でファイルI/O最小化
-
-        キャッシュが利用可能な場合は高速表示、なければ従来のファイル読み込みに
-        フォールバック。段階的にキャッシュベース処理への移行を図る。
+        検索結果はページキャッシュから再表示する。staging等の明示パス表示は
+        小規模用途として private な明示パスリストから再構築する。
         """
-        self.scene.clear()
-        self.thumbnail_items.clear()
-
-        if not self.image_data:
-            return
-
-        # ページキャッシュが利用可能かチェック
         if self.pagination_state and self.page_cache.has_page(self._current_display_page):
             logger.debug(f"ページキャッシュからレイアウト更新: page={self._current_display_page}")
             self._display_page(self._current_display_page)
-        # レガシーキャッシュが利用可能かチェック
-        elif self.image_cache:
-            logger.debug("キャッシュからレイアウト更新を実行")
-            self._display_cached_thumbnails()
-        else:
-            logger.debug("キャッシュなし - ファイルから直接読み込み（レガシーパス）")
-            self._legacy_file_based_layout()
-
-    def _legacy_file_based_layout(self) -> None:
-        """
-        レガシーファイル読み込みベースのレイアウト処理（フォールバック用）
-
-        段階的廃止予定だが、キャッシュが利用できない場合の
-        後方互換性確保のため一時的に維持。
-        """
-        button_width = self.thumbnail_size.width()
-        grid_width = max(self.scrollAreaThumbnails.viewport().width(), self.thumbnail_size.width())
-        column_count = max(grid_width // button_width, 1)
-
-        for i, (image_path, image_id) in enumerate(self.image_data):
-            self.add_thumbnail_item(image_path, image_id, i, column_count)
-
-        row_count = (len(self.image_data) + column_count - 1) // column_count
-        scene_height = row_count * self.thumbnail_size.height()
-        self.scene.setSceneRect(0, 0, grid_width, scene_height)
-
-    def add_thumbnail_item(self, image_path: Path, image_id: int, index: int, column_count: int) -> None:
-        """
-        指定されたパスから直接ファイルを読み込んでサムネイルアイテムを作成する。
-
-        **呼び出し箇所**: update_thumbnail_layout (thumbnail.py:525内のループ)
-        **使用意図**: 小〜中規模データの直接ファイル読み込みによる即座表示
-        **アーキテクチャ連携**:
-        - update_thumbnail_layout → add_thumbnail_item のシーケンシャル実行
-        - メインスレッド同期処理による即座UI反映
-        - load_thumbnails_from_result（ワーカー版）との役割分担
-
-        与えられたパスからQPixmapを作成し、サムネイルサイズにスケール。
-        ファイル読み込みに失敗した場合は灰色のプレースホルダーを作成。
-        メインスレッドでの同期処理のため、大量の画像ではUIフリーズの原因となる。
-        レスポンシブレイアウト更新や少量データの即座表示が主な用途。
-
-        Args:
-            image_path (Path): 読み込む画像ファイルのパス
-            image_id (int): データベース内の画像ID
-            index (int): グリッド内での順序インデックス
-            column_count (int): グリッドの列数（位置計算用）
-        """
-        # 渡されたパスをそのまま使用（最適化は呼び出し側で実施済み）
-        pixmap = QPixmap(str(image_path)).scaled(
-            self.thumbnail_size,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-
-        # Critical Fix: Null pixmap validation for legacy direct loading path
-        if pixmap.isNull():
-            logger.warning(f"Failed to load pixmap from image path: {image_path}")
-            # Create a placeholder pixmap to maintain UI consistency
-            pixmap = QPixmap(self.thumbnail_size)
-            pixmap.fill(Qt.GlobalColor.gray)  # Gray placeholder for failed loads
-
-        item = ThumbnailItem(pixmap, image_path, image_id, self)
-        self.scene.addItem(item)
-        self.thumbnail_items.append(item)
-
-        row = index // column_count
-        col = index % column_count
-        x = col * self.thumbnail_size.width()
-        y = row * self.thumbnail_size.height()
-        item.setPos(x, y)
-
-        # 選択状態はThumbnailItem.isSelected()で動的取得
+        elif self._explicit_path_items:
+            self._display_explicit_path_items()
 
     # === Utility Methods ===
 
@@ -1510,8 +1290,7 @@ if __name__ == "__main__":
         Path("tests/resources/img/1_img/file08.webp"),
         Path("tests/resources/img/1_img/file09.webp"),
     ]
-    # Convert paths to image_data format
-    widget.image_data = [(path, i) for i, path in enumerate(image_paths)]
+    widget.load_thumbnails_from_paths([(str(path), i) for i, path in enumerate(image_paths)])
     widget.setMinimumSize(400, 300)  # ウィジェットの最小サイズを設定
     widget.show()
     sys.exit(app.exec())
