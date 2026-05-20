@@ -86,15 +86,15 @@ class TestMainWindowThumbnailIntegration:
             {"stored_image_path": "/processed/image2.jpg", "id": 2},
         ]
 
-        # 画像データとメタデータを直接設定（現行API）
+        # stagingなどの小規模明示パス表示APIで表示
         optimal_paths = [(Path(item["stored_image_path"]), item["id"]) for item in optimal_metadata]
-        thumbnail_widget.image_data = optimal_paths
-        thumbnail_widget.current_image_metadata = optimal_metadata
+        thumbnail_widget.load_thumbnails_from_paths(
+            [(str(path), image_id) for path, image_id in optimal_paths]
+        )
 
         # 実際の統合結果を検証
-        assert len(thumbnail_widget.image_data) == 2
-        assert thumbnail_widget.image_data[0] == (Path("/processed/image1.jpg"), 1)
-        assert thumbnail_widget.image_data[1] == (Path("/processed/image2.jpg"), 2)
+        assert thumbnail_widget._explicit_path_items == optimal_paths
+        assert [item.image_id for item in thumbnail_widget.thumbnail_items] == [1, 2]
 
     def test_dataset_state_integration(self, real_main_window, temp_dir):
         """
@@ -135,8 +135,8 @@ class TestMainWindowThumbnailIntegration:
         # ThumbnailSelectorWidgetの責任：表示のみ
         display_methods = [
             "load_thumbnails_from_result",
+            "load_thumbnails_from_paths",
             "clear_thumbnails",
-            "get_current_image_data",
         ]
 
         for method in display_methods:
@@ -192,12 +192,13 @@ class TestMainWindowThumbnailIntegration:
         optimal_paths = [(Path(m["stored_image_path"]), m["id"]) for m in image_metadata]
 
         # サムネイル表示（ThumbnailWidgetの責任）
-        thumbnail_widget.image_data = optimal_paths
-        thumbnail_widget.current_image_metadata = image_metadata
+        thumbnail_widget.load_thumbnails_from_paths(
+            [(str(path), image_id) for path, image_id in optimal_paths]
+        )
 
         # 統合結果の検証
-        assert len(thumbnail_widget.image_data) == 2
-        assert thumbnail_widget.image_data == optimal_paths
+        assert thumbnail_widget._explicit_path_items == optimal_paths
+        assert [item.image_id for item in thumbnail_widget.thumbnail_items] == [1, 2]
 
 
 if __name__ == "__main__":
