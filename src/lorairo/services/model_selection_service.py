@@ -18,7 +18,7 @@ class ModelSelectionCriteria:
     capabilities: list[str] | None = None
     only_recommended: bool = False
     only_available: bool = True
-    exclude_local: bool = False  # True の場合、provider="local" を除外（API モデルのみ表示）
+    exclude_local: bool = False  # True の場合、provider が local/None のモデルを除外
     execution_env: str | None = None  # "APIモデルのみ" or "ローカルモデルのみ" or None/"すべて"
 
 
@@ -87,6 +87,13 @@ class ModelSelectionService:
         """推奨モデルのみを取得（DB Modelプロパティ使用）"""
         return [m for m in self._all_models if m.is_recommended]
 
+    @staticmethod
+    def _provider_key(provider: str | None) -> str:
+        """フィルタ比較用の provider 正規化キーを返す。"""
+        if not provider:
+            return "local"
+        return provider.lower()
+
     def filter_models(
         self,
         criteria: ModelSelectionCriteria | None = None,
@@ -117,14 +124,13 @@ class ModelSelectionService:
 
         # プロバイダーフィルタ
         if criteria.provider and criteria.provider != "すべて":
-            filtered = [
-                m for m in filtered if m.provider and m.provider.lower() == criteria.provider.lower()
-            ]
+            provider_key = self._provider_key(criteria.provider)
+            filtered = [m for m in filtered if self._provider_key(m.provider) == provider_key]
             logger.debug(f"  プロバイダーフィルタ後: {len(filtered)}件 (provider={criteria.provider})")
 
-        # ローカルモデル除外フィルタ（API モデルのみ表示）
+        # ローカルモデル除外フィルタ（provider=None はローカルモデル扱い）
         if criteria.exclude_local:
-            filtered = [m for m in filtered if m.provider and m.provider.lower() != "local"]
+            filtered = [m for m in filtered if self._provider_key(m.provider) != "local"]
             logger.debug(f"  ローカルモデル除外後: {len(filtered)}件")
 
         # 機能フィルタ
@@ -155,7 +161,7 @@ class ModelSelectionService:
         """プロバイダー別にモデルをグループ化（DB Model使用）"""
         groups: dict[str, list[Model]] = {}
         for model in models:
-            provider = model.provider or "local"
+            provider = self._provider_key(model.provider)
             if provider not in groups:
                 groups[provider] = []
             groups[provider].append(model)
