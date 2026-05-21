@@ -27,6 +27,12 @@
 - Coverage: fails under 75% (`coverage` config in `pyproject.toml`).
 - Example: `uv run pytest -m "fast"` to run quick unit tests.
 
+## Diagnostic Log Context
+- `logs/lorairo.log` and `logs/image-annotator-lib.log` are intentionally gitignored, but they are first-class debugging context.
+- When investigating runtime errors, failed GUI flows, annotation/model issues, worker failures, or test failures that may involve app behavior, inspect these logs proactively even if the user did not attach or mention them.
+- Prefer bounded reads such as `tail -200 logs/lorairo.log` and `tail -200 logs/image-annotator-lib.log`; if a file is missing, note that and continue.
+- Do not add these logs to git or include large log dumps in responses; summarize only the relevant lines.
+
 ## Commit & Pull Request Guidelines
 - Commit messages follow Conventional Commits: `feat: ...`, `refactor: ...`, `docs: ...`, `test: ...`, `chore: ...`.
 - PRs should include a clear description, test results, and screenshots for GUI changes.
