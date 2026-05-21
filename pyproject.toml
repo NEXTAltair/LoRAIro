@@ -90,7 +90,7 @@ exclude-dependencies = ["triton"]
 
 [[tool.uv.index]]
 name = "pytorch"
-url = "https://download.pytorch.org/whl/cu130"
+url = "https://download.pytorch.org/whl/cu132"
 explicit = true
 
 [tool.ruff]

@@ -22,9 +22,10 @@
 
 ### 必要条件
 
-- Python 3.12（3.13は未対応）
+- Python 3.13（uv による自動インストールを推奨）
 - Git (Git LFSを含む)
 - uv (Pythonパッケージマネージャー)
+- NVIDIA GPU / CUDA 13.2 対応ドライバー（標準の PyTorch GPU wheel を使う場合）
 
 ### インストール手順
 
@@ -44,8 +45,22 @@
 3. 環境セットアップ：
 
    ```bash
+   uv python install 3.13
    uv sync
    ```
+
+   LoRAIro は PyTorch / torchvision を `https://download.pytorch.org/whl/cu132` から取得する設定です。
+   `uv sync` または初回の `uv run lorairo` 時に、CUDA 13.2 向けの PyTorch wheel が仮想環境へインストールされます。
+
+   Windows ネイティブ環境では、GPU 実行環境を次のコマンドで確認できます：
+
+   ```powershell
+   nvidia-smi
+   uv run python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.version.cuda)"
+   ```
+
+   `torch.cuda.is_available()` が `False` の場合は、NVIDIA ドライバーや GPU 互換性が標準環境と合っていない可能性があります。
+   CPU 版 PyTorch や別 CUDA バージョンを使う場合は、`pyproject.toml` の PyTorch index と lockfile を環境に合わせて更新してください。
 
 ## 使用方法
 
