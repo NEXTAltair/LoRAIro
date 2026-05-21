@@ -6,7 +6,7 @@
 """
 
 import logging
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -308,11 +308,11 @@ def _make_alembic_config(project_db_path: Path) -> Any:
     """Create an Alembic config pinned to the given project database."""
     from alembic.config import Config
 
-    project_root = Path(__file__).resolve().parents[3]
-    alembic_config = Config(str(project_root / "alembic.ini"))
+    migrations_dir = Path(__file__).resolve().parent / "migrations"
+    alembic_config = Config()
     alembic_config.set_main_option(
         "script_location",
-        str(project_root / "src/lorairo/database/migrations"),
+        str(migrations_dir),
     )
     alembic_config.set_main_option(
         "sqlalchemy.url",
@@ -400,15 +400,29 @@ def create_project_session_factory(project_db_path: Path) -> sessionmaker[Sessio
 
 # --- デフォルトの Engine と Session Factory --- #
 # 通常のアプリケーション実行時に使用される
-default_engine = _prepare_project_database(IMG_DB_PATH)
-DefaultSessionLocal = create_session_factory(default_engine)
+default_engine = create_db_engine(DATABASE_URL)
+_default_session_factory: sessionmaker[Session] | None = None
 logger.info(f"Default database core initialized. Image DB: {IMG_DB_PATH} (Tag DB managed via public API)")
+
+
+def _get_default_session_factory() -> sessionmaker[Session]:
+    """Prepare the default project DB lazily and return its session factory."""
+    global default_engine, _default_session_factory
+    if _default_session_factory is None:
+        default_engine = _prepare_project_database(IMG_DB_PATH)
+        _default_session_factory = create_session_factory(default_engine)
+    return _default_session_factory
+
+
+def DefaultSessionLocal() -> Session:
+    """Return a session for the default project DB, preparing migrations on first use."""
+    return _get_default_session_factory()()
 
 
 # --- セッションコンテキストマネージャ (ファクトリを受け取るように変更) --- #
 @contextmanager
 def get_db_session(
-    session_factory: sessionmaker[Session] = DefaultSessionLocal,
+    session_factory: Callable[[], Session] = DefaultSessionLocal,
 ) -> Generator[Session, None, None]:
     """
     指定されたセッションファクトリを使用して、一連の操作に対するトランザクションスコープを提供します。
