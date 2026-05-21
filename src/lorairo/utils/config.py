@@ -27,6 +27,7 @@ def get_project_root() -> Path:
 PROJECT_ROOT = get_project_root()
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "lorairo.toml"
 DEFAULT_LOG_PATH = PROJECT_ROOT / "logs" / "lorairo.log"
+DEFAULT_CLI_LOG_PATH = PROJECT_ROOT / "logs" / "lorairo-cli.log"
 
 # デフォルト設定
 DEFAULT_CONFIG = {

@@ -1,5 +1,6 @@
 """CLI メインモジュール テスト。"""
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -159,7 +160,7 @@ def test_project_help() -> None:
 @pytest.mark.unit
 @pytest.mark.cli
 def test_main_configures_logging_warning_level() -> None:
-    """Test: main() が CLI モードで loguru を WARNING レベルに設定する。"""
+    """Test: main() が CLI モードで専用ログファイルを WARNING レベルに設定する。"""
     with patch("lorairo.cli.main.initialize_logging") as mock_init_log, patch("lorairo.cli.main.app"):
         from lorairo.cli.main import main
 
@@ -167,6 +168,9 @@ def test_main_configures_logging_warning_level() -> None:
     mock_init_log.assert_called_once()
     config_arg = mock_init_log.call_args[0][0]
     assert config_arg["level"] == "WARNING"
+    log_path = Path(config_arg["file_path"])
+    assert log_path.name == "lorairo-cli.log"
+    assert log_path.parent.name == "logs"
 
 
 # Issue #254: stdio init / Windows console code page / loguru sink クリア の test は
