@@ -304,9 +304,15 @@ class RatingScoreEditWidget(QWidget):
 
         単一選択時: rating_changed/score_changed シグナル発行
         複数選択時: batch_rating_changed/batch_score_changed シグナル発行
+
+        Rating が未設定プレースホルダ (`----`) の場合は「Rating 変更なし」と
+        みなし、rating シグナルを発行しない。意図しない Rating 書き込みと
+        書き込み層での無効値リジェクト (偽の ERROR ログ) を防ぐ。
         """
         rating = self.ui.comboBoxRating.currentText()
         score = self.ui.sliderScore.value()
+        # プレースホルダ選択時は Rating 変更なし扱い
+        rating_changed = rating in self._VALID_RATINGS
 
         if self._is_batch_mode:
             # バッチモード: 複数画像を一括更新
@@ -316,11 +322,12 @@ class RatingScoreEditWidget(QWidget):
 
             logger.info(
                 f"Batch save requested: {len(self._selected_image_ids)} images, "
-                f"rating={rating}, score={score}"
+                f"rating={rating if rating_changed else '(unchanged)'}, score={score}"
             )
 
             # バッチシグナルを発行
-            self.batch_rating_changed.emit(self._selected_image_ids, rating)
+            if rating_changed:
+                self.batch_rating_changed.emit(self._selected_image_ids, rating)
             self.batch_score_changed.emit(self._selected_image_ids, score)
 
         else:
@@ -330,9 +337,11 @@ class RatingScoreEditWidget(QWidget):
                 return
 
             logger.info(
-                f"Save requested for image_id={self._current_image_id}, rating={rating}, score={score}"
+                f"Save requested for image_id={self._current_image_id}, "
+                f"rating={rating if rating_changed else '(unchanged)'}, score={score}"
             )
 
             # 単一画像シグナルを発行
-            self.rating_changed.emit(self._current_image_id, rating)
+            if rating_changed:
+                self.rating_changed.emit(self._current_image_id, rating)
             self.score_changed.emit(self._current_image_id, score)

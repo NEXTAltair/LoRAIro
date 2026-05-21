@@ -119,6 +119,27 @@ class TestRatingScoreEditWidget:
         assert widget.ui.sliderScore.value() == 500
         assert widget.ui.labelScoreValue.text() == "5.00"
 
+    def test_save_unrated_image_does_not_emit_rating(self, widget, qtbot):
+        """未設定画像の保存ではrating_changedを発行しない（scoreのみ発行）"""
+        # rating 未設定の画像 → コンボボックスは "----"
+        widget.populate_from_image_data({"id": 555, "score_value": 6.0})
+        assert widget.ui.comboBoxRating.currentText() == "----"
+
+        rating_emitted = False
+
+        def on_rating_signal(*args):
+            nonlocal rating_emitted
+            rating_emitted = True
+
+        widget.rating_changed.connect(on_rating_signal)
+
+        # score_changed は発行される
+        with qtbot.waitSignal(widget.score_changed, timeout=1000) as score_blocker:
+            widget.ui.pushButtonSave.click()
+
+        assert rating_emitted is False
+        assert score_blocker.args == [555, 600]
+
     def test_edge_case_min_value(self, widget):
         """最小値（0.0）のテスト"""
         image_data = {
@@ -251,6 +272,31 @@ class TestRatingScoreEditWidgetBatchMode:
             widget.ui.pushButtonSave.click()
 
         assert rating_blocker.args == [[10, 20], "PG-13"]
+        assert score_blocker.args == [[10, 20], 500]
+
+    def test_batch_save_placeholder_rating_does_not_emit_rating(self, widget, mock_db_manager, qtbot):
+        """mixed Rating選択時の保存ではbatch_rating_changedを発行しない（scoreのみ発行）"""
+        mock_db_manager.repository.get_image_metadata.side_effect = [
+            {"rating": "PG", "score_value": 5.0},
+            {"rating": "X", "score_value": 5.0},
+        ]
+
+        widget.populate_from_selection([10, 20], mock_db_manager)
+        # mixed Rating → プレースホルダ表示
+        assert widget.ui.comboBoxRating.currentText() == "----"
+
+        rating_emitted = False
+
+        def on_rating_signal(*args):
+            nonlocal rating_emitted
+            rating_emitted = True
+
+        widget.batch_rating_changed.connect(on_rating_signal)
+
+        with qtbot.waitSignal(widget.batch_score_changed, timeout=1000) as score_blocker:
+            widget.ui.pushButtonSave.click()
+
+        assert rating_emitted is False
         assert score_blocker.args == [[10, 20], 500]
 
     def test_single_mode_save_does_not_emit_batch_signals(self, widget, qtbot):
