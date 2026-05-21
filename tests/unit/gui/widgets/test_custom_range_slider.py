@@ -697,6 +697,50 @@ class TestFilterSearchPanel:
         # 入力が有効のままであることを確認
         filter_panel.ui.lineEditSearch.setEnabled.assert_called_with(True)
 
+    def test_realtime_count_update_requests_async_estimate(self, filter_panel):
+        """リアルタイム件数更新は同期DB集計を直接呼ばず、非同期見積もりを予約する。"""
+        conditions = Mock()
+        filter_panel._build_search_conditions_from_ui = Mock(return_value=conditions)
+        filter_panel._request_count_estimate = Mock()
+        filter_panel.search_filter_service.get_estimated_count.side_effect = AssertionError(
+            "get_estimated_count must not run on the UI thread"
+        )
+
+        filter_panel._update_realtime_count()
+
+        filter_panel._estimated_count_label.setText.assert_called_with("該当件数: 計算中...")
+        filter_panel._request_count_estimate.assert_called_once_with(conditions)
+        filter_panel.search_filter_service.get_estimated_count.assert_not_called()
+
+    def test_count_estimate_request_coalesces_while_in_flight(self, filter_panel):
+        """件数見積もり実行中の変更は最新条件だけを保留する。"""
+        first_conditions = Mock()
+        latest_conditions = Mock()
+        filter_panel._count_estimate_in_flight = True
+        filter_panel._start_count_estimate_task = Mock()
+
+        filter_panel._request_count_estimate(first_conditions)
+        filter_panel._request_count_estimate(latest_conditions)
+
+        filter_panel._start_count_estimate_task.assert_not_called()
+        pending_request_id, pending_conditions = filter_panel._pending_count_estimate
+        assert pending_request_id == filter_panel._latest_count_estimate_request_id
+        assert pending_conditions is latest_conditions
+
+    def test_finish_count_estimate_starts_pending_latest_request(self, filter_panel):
+        """実行中の件数見積もり完了後、保留中の最新リクエストを開始する。"""
+        pending_conditions = Mock()
+        filter_panel._count_estimate_in_flight = True
+        filter_panel._active_count_estimate_request_id = 10
+        filter_panel._pending_count_estimate = (11, pending_conditions)
+        filter_panel._start_count_estimate_task = Mock()
+
+        filter_panel._finish_count_estimate_request(10)
+
+        assert filter_panel._count_estimate_in_flight is False
+        filter_panel._start_count_estimate_task.assert_called_once_with(11, pending_conditions)
+        assert filter_panel._pending_count_estimate is None
+
 
 class TestFilterWidgetIntegration:
     """フィルターウィジェット統合テスト"""
