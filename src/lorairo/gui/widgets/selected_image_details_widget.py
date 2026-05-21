@@ -501,7 +501,7 @@ class SelectedImageDetailsWidget(QWidget):
         self._rating_score_widget.populate_from_image_data(
             {
                 "id": details.image_id,
-                "rating": details.rating_value or "PG-13",
+                "rating": details.rating_value or "----",
                 "score_value": details.score_value,
             }
         )
@@ -540,7 +540,7 @@ class SelectedImageDetailsWidget(QWidget):
         self._rating_score_widget.populate_from_image_data(
             {
                 "id": None,
-                "rating": "PG-13",
+                "rating": "----",
                 "score": 0,
             }
         )
