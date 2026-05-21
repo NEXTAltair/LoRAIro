@@ -105,6 +105,7 @@ class TestFilterSearchIntegration:
     def test_service_layer_integration(self, integrated_services, mock_dependencies):
         """サービス層統合テスト"""
         search_filter_service = integrated_services["search_filter_service"]
+        criteria_processor = integrated_services["criteria_processor"]
         mock_images = mock_dependencies["mock_images"]
 
         # 検索条件作成
@@ -113,7 +114,7 @@ class TestFilterSearchIntegration:
         )
 
         # 検索実行（新しいサービス層経由）
-        results, count = search_filter_service.execute_search_with_filters(conditions)
+        results, count = criteria_processor.execute_search_with_filters(conditions)
 
         # 結果確認
         assert len(results) == 2
