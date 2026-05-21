@@ -2,7 +2,7 @@
 name: security-reviewer
 description: セキュリティ脆弱性分析とOWASP Top 10コンプライアンス検査を行う専門エージェント。API Key漏洩、インジェクション攻撃、危険な関数使用を検出します。
 color: red
-tools: Read, Grep, Glob
+tools: Read, Grep, Glob, SendMessage, TaskList, TaskGet, TaskUpdate, TaskCreate
 ---
 
 ## Repository Rules Reference

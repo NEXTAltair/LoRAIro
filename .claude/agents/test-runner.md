@@ -2,7 +2,7 @@
 name: test-runner
 description: テスト実行・結果解析を行う専門エージェント。pytest実行、失敗分析、カバレッジレポートを提供します。Agent Teamsのチームメートとして並列テスト検証に特化しています。
 color: yellow
-tools: Read, Bash, Grep, Glob
+tools: Read, Bash, Grep, Glob, SendMessage, TaskList, TaskGet, TaskUpdate, TaskCreate
 ---
 
 ## Repository Rules Reference

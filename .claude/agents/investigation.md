@@ -2,7 +2,7 @@
 name: investigation
 description: コードベース調査・分析・アーキテクチャ理解を行う専門エージェント。シンボル検索、依存関係分析、プロジェクト構造把握を高速・高精度で実行します。
 color: purple
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, SendMessage, TaskList, TaskGet, TaskUpdate, TaskCreate
 ---
 
 ## Repository Rules Reference

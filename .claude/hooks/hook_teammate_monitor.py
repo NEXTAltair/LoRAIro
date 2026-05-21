@@ -132,24 +132,35 @@ def handle_task_created(data: dict[str, Any], rules: dict[str, Any]) -> None:
 
 
 def handle_teammate_idle(data: dict[str, Any], rules: dict[str, Any]) -> None:
-    """TeammateIdle: 成果物の存在確認"""
+    """TeammateIdle: 成果物の存在確認（警告ログのみ、ブロックしない）
+
+    重要: TeammateIdle で sys.exit(2) によるブロックを行ってはならない。
+    変更ファイルを生成しない read-only エージェント（investigation /
+    code-reviewer / security-reviewer 等）は設計上 .py を一切変更しないため、
+    変更ファイル数 0 でブロックすると「idle → ブロック → 再起動 → やること
+    なし → 再 idle」の無限ループに陥る。これらのエージェントは Edit/Write を
+    持たず、条件を永久に満たせない。idle はブロックで解消できる状態ではない
+    ため、本ハンドラは exit 2 を返さず、ログ記録のみ行う。
+    """
     teammate_name = data.get("teammate_name", "unknown")
 
     log_debug(f"TeammateIdle: teammate={teammate_name}")
 
     idle_config = rules.get("teammate_idle", {})
-    if not idle_config.get("require_changes", True):
+    if not idle_config.get("warn_on_no_changes", False):
         log_debug("成果物チェック無効（ルール設定）")
         return
 
     changed_files = get_changed_python_files()
     if not changed_files:
-        msg = f"チームメート '{teammate_name}' の成果物（変更ファイル）が見つかりません。作業が完了しているか確認してください。"
-        log_debug(f"TeammateIdle ブロック: {msg}")
-        print(msg, file=sys.stderr)
-        sys.exit(2)
+        # 警告のみ。ブロック（sys.exit(2)）は無限ループを招くため禁止。
+        log_debug(
+            f"TeammateIdle 警告: '{teammate_name}' の変更ファイルなし"
+            "（read-only タスクの可能性。ブロックはしない）"
+        )
+        return
 
-    log_debug(f"TeammateIdle 通過: {len(changed_files)}件の変更あり")
+    log_debug(f"TeammateIdle: {len(changed_files)}件の変更あり")
 
 
 def main() -> None:

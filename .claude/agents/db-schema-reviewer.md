@@ -2,7 +2,7 @@
 name: db-schema-reviewer
 description: SQLAlchemyスキーマ定義とAlembicマイグレーションの整合性・品質検査を行う専門エージェント。スキーマ変更時のレビューやマイグレーション計画の検証に特化しています。
 color: pink
-tools: Read, Grep, Glob
+tools: Read, Grep, Glob, SendMessage, TaskList, TaskGet, TaskUpdate, TaskCreate
 ---
 
 ## Repository Rules Reference

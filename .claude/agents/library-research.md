@@ -3,7 +3,7 @@
 name: library-research
 description: ライブラリ調査・技術選定・API仕様確認を行う専門エージェント。web検索とドキュメント確認とローカル実装分析を組み合わせた包括的研究を実行します。
 color: blue
-tools: WebFetch, WebSearch, Read, Bash
+tools: WebFetch, WebSearch, Read, Bash, SendMessage, TaskList, TaskGet, TaskUpdate, TaskCreate
 ---
 
 ## Repository Rules Reference

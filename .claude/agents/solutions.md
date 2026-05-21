@@ -2,7 +2,7 @@
 name: solutions
 description: 問題解決策の包括的検討・評価・選択を行う専門エージェント。複数のアプローチを生成し、技術的制約、実装コスト、リスクを総合的に評価して最適解を特定します。
 color: green
-tools: Read, WebFetch, Grep, Glob, Bash
+tools: Read, WebFetch, Grep, Glob, Bash, SendMessage, TaskList, TaskGet, TaskUpdate, TaskCreate
 ---
 
 ## Repository Rules Reference

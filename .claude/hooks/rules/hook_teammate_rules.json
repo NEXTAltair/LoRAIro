@@ -10,7 +10,7 @@
     "description": "TaskCreated時のバリデーション。タスク名の最小文字数チェック"
   },
   "teammate_idle": {
-    "require_changes": true,
-    "description": "TeammateIdle時の成果物確認。require_changesをtrueにすると変更なしでアイドルを阻止"
+    "warn_on_no_changes": false,
+    "description": "TeammateIdle時の成果物確認。warn_on_no_changesをtrueにすると変更ファイルなし時に警告ログを出す（警告のみ・ブロックなし）。旧require_changesによるidleブロックは、変更ファイルを生成しないread-onlyエージェント（investigation等）を無限ループに陥らせるため廃止した"
   }
 }

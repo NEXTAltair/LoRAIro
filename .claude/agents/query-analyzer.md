@@ -2,7 +2,7 @@
 name: query-analyzer
 description: SQLAlchemyクエリの分析・最適化提案を行う専門エージェント。既存クエリのN+1検出、EXPLAIN解析、インデックス提案、バルク操作への変換提案を実行します。
 color: cyan
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, SendMessage, TaskList, TaskGet, TaskUpdate, TaskCreate
 ---
 
 ## Repository Rules Reference

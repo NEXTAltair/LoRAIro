@@ -2,7 +2,7 @@
 name: code-reviewer
 description: コード品質、可読性、LoRAIro規約準拠の自動レビューを行う専門エージェント。Ruff/mypy統合、型ヒント検証、アーキテクチャパターン準拠を確認します。
 color: blue
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, SendMessage, TaskList, TaskGet, TaskUpdate, TaskCreate
 ---
 
 ## Repository Rules Reference

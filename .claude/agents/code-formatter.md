@@ -2,7 +2,7 @@
 name: code-formatter
 description: コードフォーマット・整形・品質改善を行う専門エージェント。Ruffを使用したPythonコードの自動フォーマット、リント修正、コード品質向上を実行します。
 color: orange
-tools: Read, Edit, Bash
+tools: Read, Edit, Bash, SendMessage, TaskList, TaskGet, TaskUpdate, TaskCreate
 ---
 
 ## Repository Rules Reference
