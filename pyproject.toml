@@ -88,6 +88,19 @@ required-version = ">=0.11.6"
 # (本 PR の Phase 1 で grep 確認済)。
 exclude-dependencies = ["triton"]
 
+# diffusers の `trust_remote_code` バイパス脆弱性 (CVE-2026-44513 / CVE-2026-45804)
+# 修正版は 0.38.0。image-annotator-lib の `diffusers>=0.24.0` は下限が緩いため、
+# root resolution で 0.38.0 以上を強制する。
+constraint-dependencies = ["diffusers>=0.38.0"]
+
+# diffusers 0.38.0 は `safetensors>=0.8.0rc0` (プレリリース) を要求する。
+# safetensors 安定版 0.8.0 が出るまでの暫定措置。`explicit` は first-party
+# パッケージ専用で transitive dep の safetensors には効かないため `allow` を設定。
+# uv resolver は安定版を優先するため、実際にプレリリースが入るのは安定版が
+# 存在しない safetensors (0.8.0rc0) のみ。
+# safetensors 0.8.0 安定版リリース後は本設定を削除して通常運用に戻す。
+prerelease = "allow"
+
 [[tool.uv.index]]
 name = "pytorch"
 url = "https://download.pytorch.org/whl/cu132"
