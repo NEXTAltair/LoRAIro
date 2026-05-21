@@ -1,7 +1,7 @@
 ---
 name: qa-expert
 version: "1.0.0"
-description: Establish QA testing processes: test strategies, Google Testing Standards, P0-P4 bug tracking, OWASP security, quality metrics, 90% coverage targets. Includes master prompts for autonomous execution and third-party QA team handoff documentation.
+description: "Establish QA testing processes: test strategies, Google Testing Standards, P0-P4 bug tracking, OWASP security, quality metrics, 90% coverage targets. Includes master prompts for autonomous execution and third-party QA team handoff documentation."
 keywords: [qa, testing, test-cases, bug-tracking, google-standards, owasp, security, automation, quality-gates, metrics]
 ---
 
