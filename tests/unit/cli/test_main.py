@@ -1,5 +1,6 @@
 """CLI メインモジュール テスト。"""
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -167,8 +168,9 @@ def test_main_configures_logging_warning_level() -> None:
     mock_init_log.assert_called_once()
     config_arg = mock_init_log.call_args[0][0]
     assert config_arg["level"] == "WARNING"
-    assert config_arg["file_path"].endswith("logs/lorairo-cli.log")
-    assert "lorairo.log" not in config_arg["file_path"]
+    log_path = Path(config_arg["file_path"])
+    assert log_path.name == "lorairo-cli.log"
+    assert log_path.parent.name == "logs"
 
 
 # Issue #254: stdio init / Windows console code page / loguru sink クリア の test は
