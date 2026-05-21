@@ -10,11 +10,11 @@ resolution-markers = [
     "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
-[options]
-prerelease-mode = "allow"
-
 [manifest]
-constraints = [{ name = "diffusers", specifier = ">=0.38.0" }]
+constraints = [
+    { name = "diffusers", specifier = ">=0.38.0" },
+    { name = "safetensors", specifier = ">=0.8.0rc0" },
+]
 excludes = ["triton"]
 
 [[package]]
