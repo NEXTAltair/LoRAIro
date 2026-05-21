@@ -929,6 +929,8 @@ class FilterSearchPanel(QScrollArea):
         del args
         if not self.search_filter_service:
             return
+        self._pending_count_estimate = None
+        self._invalidate_count_estimate_requests()
         self._realtime_count_timer.start()
 
     def _update_realtime_count(self) -> None:

@@ -733,6 +733,26 @@ class TestFilterSearchPanel:
         filter_panel._estimated_count_label.setText.assert_not_called()
         assert filter_panel._count_estimate_in_flight is False
 
+    def test_filter_value_changed_invalidates_active_estimate_before_debounce(self, filter_panel):
+        """条件変更直後、デバウンス実行前でも古い件数見積もり結果を反映しない。"""
+        filter_panel._active_count_estimate_request_id = 1
+        filter_panel._latest_count_estimate_request_id = 1
+        filter_panel._count_estimate_request_seq = 1
+        filter_panel._count_estimate_in_flight = True
+        filter_panel._pending_count_estimate = (2, Mock())
+        filter_panel._realtime_count_timer = Mock()
+
+        filter_panel._on_filter_value_changed()
+
+        assert filter_panel._pending_count_estimate is None
+        assert filter_panel._latest_count_estimate_request_id == 2
+        filter_panel._realtime_count_timer.start.assert_called_once_with()
+
+        filter_panel._on_count_estimate_finished(1, 1234)
+
+        filter_panel._estimated_count_label.setText.assert_not_called()
+        assert filter_panel._count_estimate_in_flight is False
+
     def test_count_estimate_request_coalesces_while_in_flight(self, filter_panel):
         """件数見積もり実行中の変更は最新条件だけを保留する。"""
         first_conditions = Mock()
