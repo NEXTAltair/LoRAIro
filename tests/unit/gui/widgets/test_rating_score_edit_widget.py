@@ -115,7 +115,7 @@ class TestRatingScoreEditWidget:
         widget.populate_from_image_data(image_data)
 
         # デフォルト値が適用されることを確認
-        assert widget.ui.comboBoxRating.currentText() == "PG-13"
+        assert widget.ui.comboBoxRating.currentText() == "----"
         assert widget.ui.sliderScore.value() == 500
         assert widget.ui.labelScoreValue.text() == "5.00"
 
@@ -202,8 +202,8 @@ class TestRatingScoreEditWidgetBatchMode:
         widget.populate_from_selection([1, 2], mock_db_manager)
 
         assert widget._is_batch_mode is True
-        # デフォルト: PG-13（index=1）
-        assert widget.ui.comboBoxRating.currentText() == "PG-13"
+        # デフォルト: 未設定（----）
+        assert widget.ui.comboBoxRating.currentText() == "----"
 
     def test_populate_from_selection_common_score(self, widget, mock_db_manager):
         """全画像が同じScoreの場合、共通値が表示される"""
