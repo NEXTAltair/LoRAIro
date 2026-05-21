@@ -1,6 +1,7 @@
 """DBリポジトリ"""
 
 import datetime
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -12,7 +13,7 @@ from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 from sqlalchemy import Select, and_, delete, exists, func, not_, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import Session, selectinload, sessionmaker
+from sqlalchemy.orm import Session, selectinload
 
 from ..domain.quality_tier import compute_quality_summary
 from ..utils.log import logger
@@ -64,7 +65,7 @@ class ImageRepository:
     # IN句以外にもクエリ内で変数を使うため余裕を持たせる
     BATCH_CHUNK_SIZE = 15000
 
-    def __init__(self, session_factory: sessionmaker[Session] = DefaultSessionLocal):
+    def __init__(self, session_factory: Callable[[], Session] = DefaultSessionLocal):
         """ImageRepositoryのコンストラクタ。
 
         Args:

@@ -144,3 +144,44 @@ def test_project_database_prepare_upgrades_alembic_managed_db(tmp_path: Path) ->
 
     assert version == "a7b8c9d0e1f2"
     assert score_label_count == 0
+
+
+@pytest.mark.unit
+def test_alembic_config_uses_package_relative_migrations(tmp_path: Path) -> None:
+    """Runtime Alembic config does not depend on a source checkout alembic.ini."""
+    from lorairo.database import db_core
+
+    cfg = db_core._make_alembic_config(tmp_path / "project.db")
+
+    assert cfg.config_file_name is None
+    assert Path(cfg.get_main_option("script_location")) == Path(db_core.__file__).parent / "migrations"
+
+
+@pytest.mark.unit
+def test_default_session_local_prepares_database_lazily(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Importing db_core should not run migrations; first session creation should."""
+    from lorairo.database import db_core
+
+    calls: list[Path] = []
+    session = object()
+
+    def fake_prepare_project_database(db_path: Path) -> object:
+        calls.append(db_path)
+        return object()
+
+    def fake_create_session_factory(_engine: object) -> object:
+        return lambda: session
+
+    db_path = tmp_path / "image_database.db"
+    monkeypatch.setattr(db_core, "IMG_DB_PATH", db_path)
+    monkeypatch.setattr(db_core, "_default_session_factory", None)
+    monkeypatch.setattr(db_core, "_prepare_project_database", fake_prepare_project_database)
+    monkeypatch.setattr(db_core, "create_session_factory", fake_create_session_factory)
+
+    assert calls == []
+    assert db_core.DefaultSessionLocal() is session
+    assert calls == [db_path]
+    assert db_core.DefaultSessionLocal() is session
+    assert calls == [db_path]
