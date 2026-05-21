@@ -10,10 +10,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from lorairo.database.db_repository import ImageRepository
+from lorairo.domain.rating_mapper import map_rating
 from lorairo.utils.log import logger
 
 if TYPE_CHECKING:
-    from lorairo.database.schema import AnnotationsDict
+    from lorairo.database.schema import AnnotationsDict, RatingAnnotationData
 
 
 @dataclass(frozen=True)
@@ -106,14 +107,108 @@ class AnnotationSaveService:
                     }
                 )
         if ratings:
-            result["ratings"].append(
-                {
-                    "model_id": model_id,
-                    "raw_rating_value": str(ratings),
-                    "normalized_rating": str(ratings),
-                    "confidence_score": None,
-                }
-            )
+            self._append_rating_row(model_id, ratings, result)
+
+    def _append_rating_row(self, model_id: int, ratings: Any, result: AnnotationsDict) -> None:
+        """rating を canonical 値に変換して result["ratings"] へ追加する (変換不能なら無視)。"""
+        rating_row = self._build_rating_row(model_id, ratings)
+        if rating_row is not None:
+            result["ratings"].append(rating_row)
+
+    # canonical rating の有効値 (後方互換 str 経路の検証用)。
+    # api/types.py の _VALID_RATINGS から保存対象外の UNRATED を除いた集合。
+    _CANONICAL_RATINGS: frozenset[str] = frozenset({"PG", "PG-13", "R", "X", "XXX"})
+
+    @staticmethod
+    def _extract_prediction_attr(prediction: Any, name: str) -> Any:
+        """RatingPrediction (Pydantic モデル) / 辞書の両対応で属性を取得する。"""
+        if isinstance(prediction, dict):
+            return prediction.get(name)
+        return getattr(prediction, name, None)
+
+    def _confidence_sort_key(self, prediction: Any) -> float:
+        """confidence_score の sort key。欠損 (None) は最下位扱い、実値 0.0 はそのまま保持する。"""
+        score = self._extract_prediction_attr(prediction, "confidence_score")
+        return -1.0 if score is None else float(score)
+
+    def _select_rating_prediction(self, ratings: Any) -> Any | None:
+        """structured rating 群から最高 confidence の予測を 1 件選ぶ。
+
+        ``list[RatingPrediction]`` が主経路。``confidence_score`` が None の予測は
+        最下位扱い。全 None / 同値の場合は ``max`` の安定性により先頭 (top-1) を選ぶ。
+
+        Args:
+            ratings: image-annotator-lib の ``UnifiedAnnotationResult.ratings`` 相当。
+
+        Returns:
+            選択された RatingPrediction 相当のオブジェクト。候補が無ければ None。
+        """
+        candidates = ratings if isinstance(ratings, list) else [ratings]
+        predictions = [p for p in candidates if isinstance(p, dict) or hasattr(p, "raw_label")]
+        if not predictions:
+            return None
+        return max(predictions, key=self._confidence_sort_key)
+
+    def _build_canonical_str_row(self, model_id: int, value: str) -> RatingAnnotationData | None:
+        """後方互換: source_scheme を持たない str rating を canonical 値として保存する。
+
+        ``source_scheme`` が無いため変換できず、値が canonical rating
+        (``PG/PG-13/R/X/XXX``) であればそのまま保存、そうでなければスキップする。
+        """
+        normalized = value.strip().upper()
+        if normalized not in self._CANONICAL_RATINGS:
+            logger.warning(f"canonical でない str rating をスキップ: {value!r}")
+            return None
+        return {
+            "model_id": model_id,
+            "raw_rating_value": value.strip(),
+            "normalized_rating": normalized,
+            "confidence_score": None,
+        }
+
+    def _build_rating_row(self, model_id: int, ratings: Any) -> RatingAnnotationData | None:
+        """``ratings`` を canonical rating 1 行 (RatingAnnotationData) に変換する。
+
+        ``Rating`` テーブルは ``(image_id, model_id)`` で upsert されるため、list が
+        来ても 1 行に絞る。マッピング不能・未知スキーマの場合は None を返す
+        (壊れた値を保存せずスキップ)。
+
+        Args:
+            model_id: rating を出力したモデルの DB ID。
+            ratings: image-annotator-lib 由来の rating (structured / str 後方互換)。
+
+        Returns:
+            保存用 RatingAnnotationData。変換不能なら None。
+        """
+        # 後方互換: str / list[str] は source_scheme を持たないため canonical 値とみなす
+        if isinstance(ratings, str):
+            return self._build_canonical_str_row(model_id, ratings)
+        if isinstance(ratings, list) and ratings and all(isinstance(r, str) for r in ratings):
+            return self._build_canonical_str_row(model_id, ratings[0])
+
+        prediction = self._select_rating_prediction(ratings)
+        if prediction is None:
+            logger.warning(f"rating 予測を抽出できません: {ratings!r}")
+            return None
+
+        raw_label = self._extract_prediction_attr(prediction, "raw_label")
+        source_scheme = self._extract_prediction_attr(prediction, "source_scheme")
+        confidence = self._extract_prediction_attr(prediction, "confidence_score")
+        if not raw_label or not source_scheme:
+            logger.warning(f"rating 予測に raw_label / source_scheme が欠落: {prediction!r}")
+            return None
+
+        normalized = map_rating(str(raw_label), str(source_scheme))
+        if normalized is None:
+            logger.warning(f"rating マッピング不能: scheme={source_scheme!r} label={raw_label!r}")
+            return None
+
+        return {
+            "model_id": model_id,
+            "raw_rating_value": str(raw_label),
+            "normalized_rating": normalized,
+            "confidence_score": confidence,
+        }
 
     # ADR 0023 Phase 1.5 (Issue #42): image-annotator-lib 側で refusal を検出した
     # 場合、UnifiedAnnotationResult.error は f"{type(refusal_exc).__name__}: {msg}"
