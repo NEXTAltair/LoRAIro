@@ -48,6 +48,11 @@ ADR 0015 で manual rating を `ratings` テーブルに統一する判断と同
 **「異なる意味を持つアノテーション系は独立テーブルに分離する」**。
 score (数値) と label (categorical) は意味が異なる別 dimension のため分離。
 
+この方針は「外部モデルごとの label scheme ごとに新テーブルを作る」という意味ではない。
+ADR 0031 の model-native rating は、Danbooru / e621 / Sankaku / binary NSFW のように
+scheme が異なっても rating という同一 dimension であり、既存 `ratings` テーブルに保存する。
+LoRAIro canonical rating への変換は mapper の責務で、DB schema の追加では扱わない。
+
 ### iam-lib ADR 0002 との対称性
 
 iam-lib ADR 0002 で `tags` field と `score_labels` field を独立に保つ判断と
@@ -104,5 +109,6 @@ iam-lib ADR 0002 で「整数 bin tag (`[CAFE]score_N` / `[IAP]score_N` /
 - **LoRAIro 先例 ADR**:
   - 0015 (Manual Rating Storage Unification) — 別テーブル化の先例
   - 0023 (PydanticAI/LiteLLM WebAPI Inference Boundary) — annotation result contract
+  - 0031 (AI Rating Mapping to Canonical Rating) — model-native rating は既存 `ratings` テーブルに保存
 - **LoRAIro 起源 issue**: #273 (closed/migrated to iam-lib #66)
 - **submodule pin update PR (merged)**: #282

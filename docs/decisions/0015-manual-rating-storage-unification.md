@@ -62,9 +62,17 @@
 - Alembic マイグレーション 1 回が必要（既存データを Rating テーブルへ移行）。
 - 「解除」操作が DELETE のため、過去の手動評価履歴は残らない（ADR 0002 の明示例外）。
 
+### 後続 ADR との関係
+
+ADR 0031 は、AI モデルが返す model-native rating も同じ `ratings` テーブルに保存する方針を
+追加する。これは本 ADR の「manual rating を `Rating` テーブルへ一元化する」判断を拡張する
+ものであり、手動評価は引き続き `model_id = MANUAL_EDIT` と DELETE による解除を使う。
+モデル出力の mapping / confidence / raw label の扱いは ADR 0031 に従う。
+
 ## Related
 
 - ADR 0002: Database Schema Decisions（履歴保持方針）
+- ADR 0031: AI Rating Mapping to Canonical Rating
 - Issue #118: NSFW フィルタの類似バグ
 - Issue #119: manual_rating フィルタのバグ
 - `src/lorairo/database/migrations/versions/e4a8f1b2c3d5_remove_image_manual_rating_unify_to_.py`
