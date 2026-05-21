@@ -126,6 +126,11 @@ class AnnotationSaveService:
             return prediction.get(name)
         return getattr(prediction, name, None)
 
+    def _confidence_sort_key(self, prediction: Any) -> float:
+        """confidence_score の sort key。欠損 (None) は最下位扱い、実値 0.0 はそのまま保持する。"""
+        score = self._extract_prediction_attr(prediction, "confidence_score")
+        return -1.0 if score is None else float(score)
+
     def _select_rating_prediction(self, ratings: Any) -> Any | None:
         """structured rating 群から最高 confidence の予測を 1 件選ぶ。
 
@@ -142,10 +147,7 @@ class AnnotationSaveService:
         predictions = [p for p in candidates if isinstance(p, dict) or hasattr(p, "raw_label")]
         if not predictions:
             return None
-        return max(
-            predictions,
-            key=lambda p: self._extract_prediction_attr(p, "confidence_score") or -1.0,
-        )
+        return max(predictions, key=self._confidence_sort_key)
 
     def _build_canonical_str_row(self, model_id: int, value: str) -> RatingAnnotationData | None:
         """後方互換: source_scheme を持たない str rating を canonical 値として保存する。

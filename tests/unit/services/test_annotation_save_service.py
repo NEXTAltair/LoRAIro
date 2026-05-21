@@ -324,6 +324,24 @@ def test_build_rating_row_picks_highest_confidence(service: AnnotationSaveServic
 
 
 @pytest.mark.unit
+def test_build_rating_row_real_zero_confidence_beats_missing(
+    service: AnnotationSaveService,
+) -> None:
+    """confidence 0.0 (実値) は欠損 (None) より高位扱いで選ばれる。"""
+    ratings = [
+        _rating("explicit", "danbooru4", None),
+        _rating("general", "danbooru4", 0.0),
+    ]
+
+    row = service._build_rating_row(model_id=5, ratings=ratings)
+
+    assert row is not None
+    assert row["raw_rating_value"] == "general"
+    assert row["normalized_rating"] == "PG"
+    assert row["confidence_score"] == 0.0
+
+
+@pytest.mark.unit
 def test_build_rating_row_accepts_dict_prediction(service: AnnotationSaveService) -> None:
     """辞書形式の RatingPrediction も変換できる。"""
     ratings = [{"raw_label": "safe", "source_scheme": "e6213", "confidence_score": 0.5}]
