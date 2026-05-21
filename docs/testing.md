@@ -691,13 +691,24 @@ def main_window(qtbot):
 ## BDD振る舞い仕様テスト
 
 BDDはE2Eに限定せず「振る舞い仕様の表現形式」としてService層以上に適用する。
+ツールは **pytest-bdd (>=8.1)**。適用レイヤーの判断基準（◎ ユーザー向けフロー / ○ Service層 / △ Repository CRUD / ✕ 内部ロジック）は `.claude/rules/testing.md` の「BDD テスト」セクションを参照。
 
 ### 実装済みシナリオ
 
-| Feature | シナリオ数 | 内容 |
-|---------|-----------|------|
-| `database_management.feature` | 10 | 画像登録、アノテーション保存、検索（タグ/キャプション/日付/NSFW/手動編集） |
-| `logging.feature` | 4+2 Outline | ログレベル制御、モジュール固有レベル、例外ログ記録 |
+| Feature | 内容 |
+|---------|------|
+| `database_management.feature` | 画像登録、アノテーション保存、検索（タグ/キャプション/日付/NSFW/手動編集/レーティング） |
+| `export_filter_required.feature` | `DatasetExportService.export_with_criteria()` の criteria/image_ids 分岐 |
+| `logging.feature` | ログレベル制御、モジュール固有レベル、例外ログ記録 |
+
+### ディレクトリ構成
+
+```
+tests/bdd/
+├── conftest.py     # tests/bdd 配下に @pytest.mark.bdd を自動付与
+├── features/       # Gherkin .feature ファイル（日本語Gherkin可）
+└── steps/          # test_<feature名>.py — ステップ定義
+```
 
 ### フィーチャーファイル例
 
@@ -717,6 +728,8 @@ Feature: 画像データベース管理機能
     And 画像のUUIDが生成される
 ```
 
+先頭に `# language: ja` を置くと Gherkin キーワード自体も日本語化できる（`機能`/`シナリオ`/`前提`/`もし`/`ならば`/`かつ`）。`export_filter_required.feature` がその例。
+
 ### ステップ実装パターン
 
 **File**: `tests/bdd/steps/test_database_management.py`
@@ -725,17 +738,69 @@ Feature: 画像データベース管理機能
 from pathlib import Path
 from pytest_bdd import given, when, then, scenarios, parsers
 
+# feature パスは __file__ 基準で絶対解決（cwd 依存を避ける）
 _FEATURE_FILE = Path(__file__).parent.parent / "features" / "database_management.feature"
-scenarios(str(_FEATURE_FILE))
+scenarios(str(_FEATURE_FILE))  # feature 内の全シナリオを一括登録
 
 @given("データベースが初期化されている")
-def given_db_initialized(test_db_manager):
+def given_db_initialized(test_db_manager):  # conftest.py の fixture を注入
     assert test_db_manager is not None
 
 @when("画像を登録する")
 def when_register_image(test_db_manager, fs_manager, test_image_path):
-    # 実装...
+    # 実装は Service/Repository を呼ぶだけに留める
+    ...
 ```
+
+### pytest-bdd の使い方
+
+#### scenarios() でシナリオを登録
+
+`scenarios(str(_FEATURE_FILE))` をステップファイル先頭に 1 行書けば feature 内の全シナリオがテスト関数に変換される。LoRAIro では個別の `@scenario()` デコレータは使わず、常に `scenarios()` 一括登録を使う。
+
+#### given / when / then と target_fixture
+
+- `@given` = 事前条件、`@when` = 操作、`@then` = 検証。
+- ステップ間で値を引き継ぐには `target_fixture` を使う。戻り値が同名の fixture として後続ステップに渡る。
+- 既存の pytest fixture は `given`/`when`/`then` の引数名で直接注入できる。
+
+```python
+@given(parsers.parse("there are {start:d} cucumbers"), target_fixture="cucumbers")
+def given_cucumbers(start):
+    return {"start": start, "eat": 0}  # → 後続ステップが引数 cucumbers で受け取る
+
+@when(parsers.parse("I eat {eat:d} cucumbers"))
+def eat_cucumbers(cucumbers, eat):
+    cucumbers["eat"] += eat
+```
+
+`target_fixture` は既存 fixture の上書きにも使える（特定シナリオだけ値を差し替えたいとき）。
+
+#### ステップ引数のパース
+
+| パーサ | 用途 |
+|--------|------|
+| `parsers.parse("... {n:d} ...")` | 基本。`{name:d}` `{name:f}` で型変換。まずこれを使う |
+| `parsers.cfparse(..., extra_types={...})` | カスタム型が必要なとき |
+| `parsers.re(r"...(?P<n>\d+)...")`, `converters={...}` | 正規表現が必要なとき |
+
+#### Background / Scenario Outline / datatable
+
+- **Background**: 各シナリオ実行前に共通の `Given` を流す。複数シナリオで重複する前提をまとめる。
+- **Scenario Outline + Examples**: `<変数>` プレースホルダと `Examples` テーブルでデータ駆動。`Examples` ブロックにタグを付ければ `pytest -m <tag>` で絞り込める。
+- **datatable**: ステップ直下の表は `datatable` 引数で `list[list[str]]` として受け取る（`database_management.feature` の「以下の画像とアノテーションが登録されている:」が該当）。
+
+### LoRAIro でのベストプラクティス
+
+- **`scenarios()` 一括登録を徹底** — `@scenario()` 個別指定は使わない。
+- **feature パスは `__file__` 基準で解決** — `Path(__file__).parent.parent / "features" / ...`。
+- **ステップ間状態は `target_fixture` か Context クラスで持ち回す** — モジュールグローバル変数で共有しない（並列実行・テスト間汚染の温床）。`database_management.py` の `SearchContext` が Context クラスの例。
+- **ステップ実装は薄く** — `given`/`when`/`then` は Service/Repository を呼ぶだけ。ビジネスロジックをステップに書かない。
+- **既存 pytest fixture を再利用** — DB マネージャや `FileSystemManager` は `conftest.py` の fixture を引数で注入する。
+- **`bdd` マーカーは自動付与** — `tests/bdd/conftest.py` の `pytest_collection_modifyitems` が付与する。手動で `@pytest.mark.bdd` を書かない。
+- **粒度を守る** — Repository 層の単純 CRUD に BDD を広げない（Gherkin が冗長になる）。`.claude/rules/testing.md` の適用表に従う。
+- **タグの扱い** — feature 内タグは既定で pytest マーカーになる。`skip` 等のカスタム挙動は `conftest.py` の `pytest_bdd_apply_tag` で実装する。
+- **未実装ステップの検出** — `uv run pytest --generate-missing --feature tests/bdd/features tests/bdd/steps/` で feature にあって未実装のステップを洗い出せる。
 
 ### テスト実行
 
