@@ -713,10 +713,12 @@ class TestFilterSearchPanel:
         filter_panel.search_filter_service.get_estimated_count.assert_not_called()
 
     def test_realtime_count_update_invalidates_active_estimate_when_conditions_empty(self, filter_panel):
-        """条件なしになったら実行中の古い件数見積もり結果を無効化する。"""
+        """条件なしになったら実行中の古い件数見積もり結果を無効化して反映しない。"""
         filter_panel._build_search_conditions_from_ui = Mock(return_value=None)
+        filter_panel._active_count_estimate_request_id = 1
         filter_panel._latest_count_estimate_request_id = 1
         filter_panel._count_estimate_request_seq = 1
+        filter_panel._count_estimate_in_flight = True
         filter_panel._pending_count_estimate = (2, Mock())
 
         filter_panel._update_realtime_count()
@@ -725,12 +727,7 @@ class TestFilterSearchPanel:
         assert filter_panel._pending_count_estimate is None
         assert filter_panel._latest_count_estimate_request_id == 2
 
-    def test_stale_count_estimate_does_not_update_label_after_invalidation(self, filter_panel):
-        """無効化後に古い件数見積もりが完了してもラベルを上書きしない。"""
-        filter_panel._active_count_estimate_request_id = 1
-        filter_panel._latest_count_estimate_request_id = 2
-        filter_panel._count_estimate_in_flight = True
-
+        filter_panel._estimated_count_label.setText.reset_mock()
         filter_panel._on_count_estimate_finished(1, 1234)
 
         filter_panel._estimated_count_label.setText.assert_not_called()
