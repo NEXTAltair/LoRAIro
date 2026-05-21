@@ -1,7 +1,7 @@
 # LoRAIro Project Makefile
 # Development task automation
 
-.PHONY: help setup test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format install install-dev clean run-gui generate-ui skills-update venv-rebuild _ensure-root-venv
+.PHONY: help setup test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format install install-dev clean run-gui generate-ui skills-update venv-rebuild _ensure-submodules _ensure-root-venv
 
 # Default target
 help:
@@ -28,28 +28,27 @@ help:
 # Development targets
 # setup: 開発環境セットアップの唯一の人間向け入口。submodule 取得 + dev 依存インストール。
 # devcontainer の postCreateCommand.sh もコンテナ固有処理の後にこの target を呼ぶ。
-setup:
+setup: _ensure-submodules
 	@echo "Setting up LoRAIro development environment..."
-	git submodule update --init --recursive
 	uv sync --dev
 
-install:
+install: _ensure-submodules
 	@echo "Installing project dependencies..."
 	uv sync
 
-install-dev:
+install-dev: _ensure-submodules
 	@echo "Installing development dependencies..."
 	uv sync --dev
 
-run-gui:
+run-gui: _ensure-submodules
 	@echo "Running LoRAIro GUI..."
 	uv run lorairo
 
-generate-ui:
+generate-ui: _ensure-submodules
 	@echo "Generating Python files from Qt Designer UI files..."
 	uv run python scripts/generate_ui.py
 
-test:
+test: _ensure-submodules
 	@echo "Running LoRAIro main tests (testpaths=[\"tests\"], ADR 0024)..."
 	uv run pytest
 
@@ -60,7 +59,17 @@ test:
 # `--no-sync` は LoRAIro `.venv` が iam-lib pyproject に合わせて re-sync されるのを防ぐ。
 # iam-lib dev deps (pytest-clarity / pytest-mock / pytest-xdist) は LoRAIro [dependency-groups] dev に統合済。
 # pytest セッション境界 = package 境界 は維持 (cwd = package root、conftest は iam-lib 側、coverage は package 自身)。
-_ensure-root-venv:
+_ensure-submodules:
+	@if git submodule status --recursive | grep -q '^U'; then \
+		echo "Submodule conflict detected. Resolve it before running this target."; \
+		exit 1; \
+	fi
+	@if git submodule status --recursive | grep -q '^-'; then \
+		echo "Initializing git submodules..."; \
+		git submodule update --init --recursive; \
+	fi
+
+_ensure-root-venv: _ensure-submodules
 	@uv sync --dev
 
 test-iam-lib: _ensure-root-venv
@@ -70,7 +79,7 @@ test-iam-lib: _ensure-root-venv
 		uv run --no-sync pytest \
 		-m "not downloads_and_runs_model and not calls_real_webapi"
 
-test-runtime-local:
+test-runtime-local: _ensure-submodules
 	@echo "Running local-only image-annotator-lib real model runtime smoke tests..."
 	cd local_packages/image-annotator-lib && uv run pytest tests/runtime_validation/test_real_model_runtime.py -m downloads_and_runs_model
 
@@ -78,21 +87,21 @@ test-runtime-webapi: _ensure-root-venv
 	@echo "Running local-only image-annotator-lib real WebAPI runtime validation..."
 	uv run python scripts/run_runtime_webapi_tests.py
 
-test-genai-tag:
+test-genai-tag: _ensure-submodules
 	@echo "Running genai-tag-db-tools tests (creates local_packages/genai-tag-db-tools/.venv)..."
 	cd local_packages/genai-tag-db-tools && uv run pytest
 
-test-all:
+test-all: _ensure-submodules
 	@echo "Running all package test sessions sequentially (ADR 0024)..."
 	$(MAKE) test
 	$(MAKE) test-iam-lib
 	$(MAKE) test-genai-tag
 
-mypy:
+mypy: _ensure-submodules
 	@echo "Running mypy..."
 	uv run mypy -p lorairo
 
-format:
+format: _ensure-submodules
 	@echo "Formatting code..."
 	uv run ruff format src/ tests/
 	uv run ruff check src/ tests/ --fix
@@ -108,7 +117,7 @@ skills-update:
 	done
 	@echo "Skills updated. Review changes and commit."
 
-venv-rebuild:
+venv-rebuild: _ensure-submodules
 	@echo "Rebuilding .venv from scratch (Issue #222 recovery)..."
 	rm -rf .venv
 	uv sync --dev
