@@ -1274,8 +1274,11 @@ class FilterSearchPanel(QScrollArea):
             if conditions is None:
                 return
 
-            # 検索実行
-            results, count = self.search_filter_service.execute_search_with_filters(conditions)
+            # 検索実行は SearchCriteriaProcessor を正規経路とする。
+            # SearchFilterService の旧委譲 API は #308 完了条件に従って削除済み。
+            results, count = self.search_filter_service.criteria_processor.execute_search_with_filters(
+                conditions
+            )
 
             # プレビュー更新
             self.update_search_preview(count)

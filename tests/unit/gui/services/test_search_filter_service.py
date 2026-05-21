@@ -341,30 +341,6 @@ class TestSearchFilterServiceDatabase:
         assert service_with_db.db_manager == mock_db_manager
         assert service_with_db.current_conditions is None
 
-    def test_execute_search_with_filters_success(self, service_with_db, mock_db_manager):
-        """検索実行成功テスト"""
-        # モックデータベースマネージャーの設定
-        mock_images = [
-            {"id": 1, "width": 1024, "height": 768, "created_at": "2023-01-01T00:00:00Z"},
-            {"id": 2, "width": 512, "height": 512, "created_at": "2023-06-01T00:00:00Z"},
-        ]
-        mock_db_manager.get_images_by_filter.return_value = (mock_images, 2)
-
-        # 検索条件作成
-        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
-
-        # 検索実行
-        results, count = service_with_db.execute_search_with_filters(conditions)
-
-        # 結果検証
-        assert len(results) == 2
-        assert count == 2
-        assert results[0]["id"] == 1
-        assert results[1]["id"] == 2
-
-        # データベースマネージャーが正しく呼ばれたことを確認
-        mock_db_manager.get_images_by_filter.assert_called_once()
-
 
 class TestSearchFilterServiceAnnotation:
     """SearchFilterService のアノテーション系機能テスト（Phase 2拡張）"""
@@ -376,17 +352,14 @@ class TestSearchFilterServiceAnnotation:
 
         return Mock()
 
-    def test_get_annotation_models_list_modernized(self, mock_db_manager):
-        """現代化されたSearchFilterServiceでのモデル一覧取得テスト"""
+    def test_annotation_model_filter_service_is_not_exposed(self, mock_db_manager):
+        """SearchFilterService はモデル一覧互換ラッパーを公開しない。"""
         from unittest.mock import Mock
 
-        # NullModelRegistryを使用する現代化されたSearchFilterService
         mock_model_selection_service = Mock()
         service = SearchFilterService(
             db_manager=mock_db_manager, model_selection_service=mock_model_selection_service
         )
 
-        models = service.get_annotation_models_list()
-
-        # NullModelRegistryでは空リストが返される
-        assert models == []
+        assert not hasattr(service, "get_annotation_models_list")
+        assert not hasattr(service, "validate_annotation_settings")

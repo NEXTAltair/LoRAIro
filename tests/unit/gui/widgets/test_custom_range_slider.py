@@ -555,7 +555,7 @@ class TestFilterSearchPanel:
             "search_text": "test",
             "search_type": "tags",
         }
-        mock_search_service.execute_search_with_filters.return_value = ([], 0)
+        mock_search_service.criteria_processor.execute_search_with_filters.return_value = ([], 0)
         filter_panel.search_filter_service = mock_search_service
 
         # UI状態をセットアップ（直接モックされた要素を使用、チェックボックス更新）

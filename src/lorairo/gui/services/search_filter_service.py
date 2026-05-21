@@ -58,12 +58,10 @@ class SearchFilterService:
         self.model_selection_service = model_selection_service
         self.model_registry = model_registry or NullModelRegistry()
 
-        # 新しいサービス層(依存性注入)
-        from ...services.model_filter_service import ModelFilterService
+        # 検索実行は SearchCriteriaProcessor を正規経路とし、GUI サービスは条件構築に寄せる。
         from ...services.search_criteria_processor import SearchCriteriaProcessor
 
         self.criteria_processor = SearchCriteriaProcessor(db_manager)
-        self.model_filter_service = ModelFilterService(db_manager, model_selection_service)
 
         # UI状態管理
         self.current_conditions: SearchConditions | None = None
@@ -326,8 +324,6 @@ class SearchFilterService:
         """UI状態管理:現在の検索条件を取得"""
         return self.current_conditions
 
-    # === 後方互換性ラッパーメソッド(段階的移行用) ===
-
     def get_estimated_count(self, conditions: SearchConditions) -> int:
         """現在の検索条件に対する概算件数を取得する。"""
         try:
@@ -335,18 +331,6 @@ class SearchFilterService:
         except Exception as e:
             logger.error(f"概算件数の取得中にエラーが発生しました: {e}", exc_info=True)
             return 0
-
-    def execute_search_with_filters(self, conditions: SearchConditions) -> tuple[list[dict[str, Any]], int]:
-        """後方互換性ラッパー:SearchCriteriaProcessorに委譲"""
-        return self.criteria_processor.execute_search_with_filters(conditions)
-
-    def get_annotation_models_list(self) -> list[dict[str, Any]]:
-        """後方互換性ラッパー:ModelFilterServiceに委譲"""
-        return self.model_filter_service.get_annotation_models_list()
-
-    def validate_annotation_settings(self, settings: dict[str, Any]) -> ValidationResult:
-        """後方互換性ラッパー:ModelFilterServiceに委譲"""
-        return self.model_filter_service.validate_annotation_settings(settings)
 
     def filter_models_by_criteria(
         self,
