@@ -60,8 +60,12 @@ test: _ensure-submodules
 # iam-lib dev deps (pytest-clarity / pytest-mock / pytest-xdist) は LoRAIro [dependency-groups] dev に統合済。
 # pytest セッション境界 = package 境界 は維持 (cwd = package root、conftest は iam-lib 側、coverage は package 自身)。
 _ensure-submodules:
-	@if git submodule status --recursive | grep -q '^[+-]'; then \
-		echo "Initializing/updating git submodules..."; \
+	@if git submodule status --recursive | grep -q '^U'; then \
+		echo "Submodule conflict detected. Resolve it before running this target."; \
+		exit 1; \
+	fi
+	@if git submodule status --recursive | grep -q '^-'; then \
+		echo "Initializing git submodules..."; \
 		git submodule update --init --recursive; \
 	fi
 
