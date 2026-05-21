@@ -45,6 +45,37 @@ class _TagSuggestionTask(QRunnable):
             self.signals.failed.emit(self._request_id, self._query, str(e))
 
 
+class _CountEstimateTaskSignals(QObject):
+    """件数見積もりタスク用シグナル。"""
+
+    finished = Signal(int, int)  # request_id, estimated_count
+    failed = Signal(int, str)  # request_id, error_message
+
+
+class _CountEstimateTask(QRunnable):
+    """SearchFilterService.get_estimated_count をバックグラウンドで実行するタスク。"""
+
+    def __init__(
+        self,
+        request_id: int,
+        conditions: "SearchConditions",
+        service: "SearchFilterService",
+    ) -> None:
+        super().__init__()
+        self._request_id = request_id
+        self._conditions = conditions
+        self._service = service
+        self.signals = _CountEstimateTaskSignals()
+
+    def run(self) -> None:
+        """バックグラウンドで件数を取得して UI スレッドへ通知する。"""
+        try:
+            estimated_count = self._service.get_estimated_count(self._conditions)
+            self.signals.finished.emit(self._request_id, estimated_count)
+        except Exception as e:
+            self.signals.failed.emit(self._request_id, str(e))
+
+
 class PipelineState(Enum):
     """Pipeline state machine for search-thumbnail integration (Phase 3)"""
 
@@ -109,6 +140,13 @@ class FilterSearchPanel(QScrollArea):
         self._realtime_count_timer.setSingleShot(True)
         self._realtime_count_timer.setInterval(500)
         self._realtime_count_timer.timeout.connect(self._update_realtime_count)
+        self._count_estimate_pool = QThreadPool(self)
+        self._count_estimate_pool.setMaxThreadCount(1)
+        self._count_estimate_request_seq = 0
+        self._latest_count_estimate_request_id = 0
+        self._active_count_estimate_request_id = 0
+        self._count_estimate_in_flight = False
+        self._pending_count_estimate: tuple[int, SearchConditions] | None = None
 
         # Phase 3: Pipeline State Management
         self._current_state: PipelineState = PipelineState.IDLE
@@ -364,11 +402,15 @@ class FilterSearchPanel(QScrollArea):
         self.ui.lineEditSearch.setCursorPosition(len(new_text))
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        """ウィジェット破棄時にタグ候補検索リソースをクリーンアップする。"""
+        """ウィジェット破棄時にバックグラウンド検索リソースをクリーンアップする。"""
         self._tag_suggestion_timer.stop()
         self._pending_tag_token = None
         self._tag_lookup_pool.clear()
         self._tag_lookup_pool.waitForDone(1000)
+        self._realtime_count_timer.stop()
+        self._pending_count_estimate = None
+        self._count_estimate_pool.clear()
+        self._count_estimate_pool.waitForDone(1000)
         super().closeEvent(event)
 
     def setup_favorite_filters_ui(self) -> None:
@@ -887,6 +929,8 @@ class FilterSearchPanel(QScrollArea):
         del args
         if not self.search_filter_service:
             return
+        self._pending_count_estimate = None
+        self._invalidate_count_estimate_requests()
         self._realtime_count_timer.start()
 
     def _update_realtime_count(self) -> None:
@@ -898,13 +942,78 @@ class FilterSearchPanel(QScrollArea):
             conditions = self._build_search_conditions_from_ui(show_status=False)
             if conditions is None:
                 self._estimated_count_label.setText("該当件数: -")
+                self._pending_count_estimate = None
+                self._invalidate_count_estimate_requests()
                 return
 
-            estimated_count = self.search_filter_service.get_estimated_count(conditions)
-            self._estimated_count_label.setText(f"該当件数: {estimated_count:,}件")
+            self._estimated_count_label.setText("該当件数: 計算中...")
+            self._request_count_estimate(conditions)
         except Exception as e:
             logger.debug(f"推定件数更新に失敗: {e}")
             self._estimated_count_label.setText("該当件数: -")
+
+    def _request_count_estimate(self, conditions: "SearchConditions") -> None:
+        """件数見積もりをバックグラウンド実行する。実行中なら最新条件だけを保留する。"""
+        if self.search_filter_service is None:
+            return
+
+        self._count_estimate_request_seq += 1
+        request_id = self._count_estimate_request_seq
+        self._latest_count_estimate_request_id = request_id
+
+        if self._count_estimate_in_flight:
+            self._pending_count_estimate = (request_id, conditions)
+            return
+
+        self._start_count_estimate_task(request_id, conditions)
+
+    def _invalidate_count_estimate_requests(self) -> None:
+        """実行中・保留中の件数見積もり結果を無効化する。"""
+        self._count_estimate_request_seq += 1
+        self._latest_count_estimate_request_id = self._count_estimate_request_seq
+
+    def _start_count_estimate_task(self, request_id: int, conditions: "SearchConditions") -> None:
+        """件数見積もりタスクを開始する。"""
+        if self.search_filter_service is None:
+            return
+
+        self._count_estimate_in_flight = True
+        self._active_count_estimate_request_id = request_id
+
+        task = _CountEstimateTask(request_id, conditions, self.search_filter_service)
+        task.signals.finished.connect(self._on_count_estimate_finished)
+        task.signals.failed.connect(self._on_count_estimate_failed)
+        self._count_estimate_pool.start(task)
+
+    def _on_count_estimate_finished(self, request_id: int, estimated_count: int) -> None:
+        """件数見積もり完了時に最新リクエストだけ UI に反映する。"""
+        if request_id == self._latest_count_estimate_request_id:
+            self._estimated_count_label.setText(f"該当件数: {estimated_count:,}件")
+
+        self._finish_count_estimate_request(request_id)
+
+    def _on_count_estimate_failed(self, request_id: int, error_message: str) -> None:
+        """件数見積もり失敗時に最新リクエストだけ UI に反映する。"""
+        logger.debug(f"推定件数更新に失敗: {error_message}")
+        if request_id == self._latest_count_estimate_request_id:
+            self._estimated_count_label.setText("該当件数: -")
+
+        self._finish_count_estimate_request(request_id)
+
+    def _finish_count_estimate_request(self, request_id: int) -> None:
+        """完了した件数見積もりの後処理と保留中リクエストの起動を行う。"""
+        if request_id != self._active_count_estimate_request_id:
+            return
+
+        self._count_estimate_in_flight = False
+        self._active_count_estimate_request_id = 0
+
+        if self._pending_count_estimate is None:
+            return
+
+        pending_request_id, pending_conditions = self._pending_count_estimate
+        self._pending_count_estimate = None
+        self._start_count_estimate_task(pending_request_id, pending_conditions)
 
     def get_date_range_from_slider(self) -> tuple[datetime | None, datetime | None]:
         """CustomRangeSliderから日付範囲を取得してdatetimeオブジェクトに変換
