@@ -1,10 +1,16 @@
 """AnnotationSaveService ユニットテスト。"""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
 from lorairo.services.annotation_save_service import AnnotationSaveResult, AnnotationSaveService
+
+
+def _rating(raw_label: str, source_scheme: str, confidence: float | None) -> SimpleNamespace:
+    """RatingPrediction 相当のテストダブル (raw_label / source_scheme / confidence_score)。"""
+    return SimpleNamespace(raw_label=raw_label, source_scheme=source_scheme, confidence_score=confidence)
 
 
 @pytest.fixture
@@ -280,3 +286,107 @@ def test_save_score_labels_skipped_when_error_present(
 
     # error 検出時は _save_single 内で空 dict 判定で skip され save_annotations は呼ばれない
     mock_repository.save_annotations.assert_not_called()
+
+
+# === rating マッピング (Issue #333) ===
+
+
+@pytest.mark.unit
+def test_build_rating_row_maps_structured_prediction(service: AnnotationSaveService) -> None:
+    """list[RatingPrediction] が canonical rating 1 行に変換される。"""
+    ratings = [_rating("explicit", "danbooru4", 0.92)]
+
+    row = service._build_rating_row(model_id=5, ratings=ratings)
+
+    assert row == {
+        "model_id": 5,
+        "raw_rating_value": "explicit",
+        "normalized_rating": "X",
+        "confidence_score": 0.92,
+    }
+
+
+@pytest.mark.unit
+def test_build_rating_row_picks_highest_confidence(service: AnnotationSaveService) -> None:
+    """複数候補のうち最高 confidence の予測が選ばれる。"""
+    ratings = [
+        _rating("general", "danbooru4", 0.10),
+        _rating("questionable", "danbooru4", 0.75),
+        _rating("sensitive", "danbooru4", 0.40),
+    ]
+
+    row = service._build_rating_row(model_id=5, ratings=ratings)
+
+    assert row is not None
+    assert row["raw_rating_value"] == "questionable"
+    assert row["normalized_rating"] == "R"
+    assert row["confidence_score"] == 0.75
+
+
+@pytest.mark.unit
+def test_build_rating_row_accepts_dict_prediction(service: AnnotationSaveService) -> None:
+    """辞書形式の RatingPrediction も変換できる。"""
+    ratings = [{"raw_label": "safe", "source_scheme": "e6213", "confidence_score": 0.5}]
+
+    row = service._build_rating_row(model_id=7, ratings=ratings)
+
+    assert row is not None
+    assert row["normalized_rating"] == "PG"
+
+
+@pytest.mark.unit
+def test_build_rating_row_unknown_scheme_returns_none(service: AnnotationSaveService) -> None:
+    """未知 source_scheme はマッピング不能のため None (保存しない)。"""
+    ratings = [_rating("general", "unknown", 0.9)]
+
+    assert service._build_rating_row(model_id=5, ratings=ratings) is None
+
+
+@pytest.mark.unit
+def test_build_rating_row_backward_compat_canonical_str(service: AnnotationSaveService) -> None:
+    """後方互換: canonical な str rating はそのまま 1 行で保存される。"""
+    row = service._build_rating_row(model_id=3, ratings="R")
+
+    assert row == {
+        "model_id": 3,
+        "raw_rating_value": "R",
+        "normalized_rating": "R",
+        "confidence_score": None,
+    }
+
+
+@pytest.mark.unit
+def test_build_rating_row_backward_compat_noncanonical_str_returns_none(
+    service: AnnotationSaveService,
+) -> None:
+    """後方互換: canonical でない str rating は None (保存しない)。"""
+    assert service._build_rating_row(model_id=3, ratings="general") is None
+
+
+@pytest.mark.unit
+def test_save_annotation_results_persists_mapped_rating(
+    service: AnnotationSaveService,
+    mock_repository: MagicMock,
+) -> None:
+    """structured ratings が save_annotations に canonical 値で渡る (end-to-end)。"""
+    mock_model = MagicMock()
+    mock_model.id = 42
+    mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1}
+    mock_repository.get_models_by_litellm_ids.return_value = {"wd-vit-tagger-v3": mock_model}
+
+    rating_result = _make_success_result()
+    rating_result.ratings = [_rating("questionable", "danbooru4", 0.81)]
+
+    results = {"phash001": {"wd-vit-tagger-v3": rating_result}}
+
+    service.save_annotation_results(results)
+
+    annotations_arg = mock_repository.save_annotations.call_args[0][1]
+    assert annotations_arg["ratings"] == [
+        {
+            "model_id": 42,
+            "raw_rating_value": "questionable",
+            "normalized_rating": "R",
+            "confidence_score": 0.81,
+        }
+    ]
