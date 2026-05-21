@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 # SQLAlchemy imports
-from sqlalchemy import StaticPool, create_engine, event
+from sqlalchemy import StaticPool, create_engine, event, inspect
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -304,11 +304,89 @@ def _ensure_model_types_seeded(engine: Engine) -> None:
         logger.info("Seeded model_types rows: %s", ", ".join(model.name for model in missing))
 
 
+def _make_alembic_config(project_db_path: Path) -> Any:
+    """Create an Alembic config pinned to the given project database."""
+    from alembic.config import Config
+
+    project_root = Path(__file__).resolve().parents[3]
+    alembic_config = Config(str(project_root / "alembic.ini"))
+    alembic_config.set_main_option(
+        "script_location",
+        str(project_root / "src/lorairo/database/migrations"),
+    )
+    alembic_config.set_main_option(
+        "sqlalchemy.url",
+        f"sqlite:///{project_db_path.resolve()}?check_same_thread=False",
+    )
+    return alembic_config
+
+
+def _user_table_names(engine: Engine) -> set[str]:
+    """Return application table names, excluding Alembic's version table."""
+    return set(inspect(engine).get_table_names()) - {"alembic_version"}
+
+
+def _has_alembic_version_table(engine: Engine) -> bool:
+    """Return whether this DB is already tracked by Alembic."""
+    return inspect(engine).has_table("alembic_version")
+
+
+def _stamp_alembic_head(project_db_path: Path) -> None:
+    """Mark a metadata-created DB as current with the migration graph."""
+    from alembic import command
+
+    command.stamp(_make_alembic_config(project_db_path), "head")
+
+
+def _upgrade_alembic_head(project_db_path: Path) -> None:
+    """Apply pending migrations to an Alembic-managed project database."""
+    from alembic import command
+
+    command.upgrade(_make_alembic_config(project_db_path), "head")
+
+
+def _prepare_project_database(project_db_path: Path) -> Engine:
+    """Create or migrate a project image DB before repositories use it.
+
+    New DBs are still initialized from SQLAlchemy metadata for compatibility with
+    the existing project creation flow, then stamped to the current Alembic head.
+    Existing Alembic-managed DBs are upgraded before ``create_all`` can mask
+    missing tables, which prevents stale production DBs from failing later during
+    search result loading.
+    """
+    from .schema import Base
+
+    project_db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_url = f"sqlite:///{project_db_path.resolve()}?check_same_thread=False"
+    engine = create_db_engine(db_url)
+
+    if not _user_table_names(engine):
+        Base.metadata.create_all(engine)
+        _ensure_model_types_seeded(engine)
+        _stamp_alembic_head(project_db_path)
+        logger.info("Initialized new project DB schema and stamped Alembic head: %s", project_db_path)
+        return engine
+
+    if _has_alembic_version_table(engine):
+        _upgrade_alembic_head(project_db_path)
+        logger.info("Applied pending Alembic migrations for project DB: %s", project_db_path)
+    else:
+        logger.warning(
+            "Project DB has existing tables but no alembic_version table; "
+            "leaving migration state unchanged: %s",
+            project_db_path,
+        )
+
+    Base.metadata.create_all(engine)
+    _ensure_model_types_seeded(engine)
+    return engine
+
+
 def create_project_session_factory(project_db_path: Path) -> sessionmaker[Session]:
     """指定プロジェクト DB 用セッションファクトリを生成。
 
     新規 DB（touch で空ファイル）の場合はスキーマを初期化する。
-    既存テーブルは変更しない（create_all は冪等）。
+    Alembic 管理済みの既存 DB は利用前に head まで migration する。
 
     Args:
         project_db_path: プロジェクト DB ファイルの絶対パス。
@@ -316,18 +394,13 @@ def create_project_session_factory(project_db_path: Path) -> sessionmaker[Sessio
     Returns:
         sessionmaker[Session]: プロジェクト専用セッションファクトリ。
     """
-    from .schema import Base
-
-    db_url = f"sqlite:///{project_db_path.resolve()}?check_same_thread=False"
-    engine = create_db_engine(db_url)
-    Base.metadata.create_all(engine)
-    _ensure_model_types_seeded(engine)
+    engine = _prepare_project_database(project_db_path)
     return create_session_factory(engine)
 
 
 # --- デフォルトの Engine と Session Factory --- #
 # 通常のアプリケーション実行時に使用される
-default_engine = create_db_engine(DATABASE_URL)
+default_engine = _prepare_project_database(IMG_DB_PATH)
 DefaultSessionLocal = create_session_factory(default_engine)
 logger.info(f"Default database core initialized. Image DB: {IMG_DB_PATH} (Tag DB managed via public API)")
 
