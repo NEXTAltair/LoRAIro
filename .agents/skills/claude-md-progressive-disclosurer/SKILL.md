@@ -1,7 +1,7 @@
 ---
 name: claude-md-progressive-disclosurer
 version: "1.0.0"
-description: Optimize CLAUDE.md files using progressive disclosure: reduce bloat, move details to references, extract reusable patterns into skills, improve context efficiency. Use when CLAUDE.md is too long or needs restructuring.
+description: "Optimize CLAUDE.md files using progressive disclosure: reduce bloat, move details to references, extract reusable patterns into skills, improve context efficiency. Use when CLAUDE.md is too long or needs restructuring."
 ---
 
 # CLAUDE.md Progressive Disclosure Optimizer
