@@ -74,6 +74,19 @@ make test-genai-tag                # genai-tag-db-tools
 make test-all                      # 3 セッションを順次実行
 ```
 
+### Diagnostic Logs
+
+`logs/lorairo.log` and `logs/image-annotator-lib.log` are intentionally gitignored, but they are first-class debugging context. When investigating runtime errors, failed GUI flows, annotation/model issues, worker failures, or test failures that may involve app behavior, inspect them proactively even if the user did not attach or mention them.
+
+Use bounded reads:
+
+```bash
+tail -200 logs/lorairo.log
+tail -200 logs/image-annotator-lib.log
+```
+
+If a log file is missing, note that and continue. Do not add these logs to git or paste large log dumps in responses; summarize only relevant lines.
+
 ### Code Quality
 
 ```bash
