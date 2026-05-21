@@ -941,6 +941,7 @@ class FilterSearchPanel(QScrollArea):
             if conditions is None:
                 self._estimated_count_label.setText("該当件数: -")
                 self._pending_count_estimate = None
+                self._invalidate_count_estimate_requests()
                 return
 
             self._estimated_count_label.setText("該当件数: 計算中...")
@@ -963,6 +964,11 @@ class FilterSearchPanel(QScrollArea):
             return
 
         self._start_count_estimate_task(request_id, conditions)
+
+    def _invalidate_count_estimate_requests(self) -> None:
+        """実行中・保留中の件数見積もり結果を無効化する。"""
+        self._count_estimate_request_seq += 1
+        self._latest_count_estimate_request_id = self._count_estimate_request_seq
 
     def _start_count_estimate_task(self, request_id: int, conditions: "SearchConditions") -> None:
         """件数見積もりタスクを開始する。"""
