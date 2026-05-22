@@ -143,6 +143,36 @@ def given_image_registered(
     return result[0]
 
 
+# pHash 重複再登録: 同じ画像をもう一度登録する
+@when("同じ画像をもう一度登録する", target_fixture="reregister_result")
+def when_reregister_same_image(
+    test_db_manager: ImageDatabaseManager,
+    fs_manager: FileSystemManager,
+    image_registered: int,
+    test_image_path: Path,
+):
+    """既に登録済みの画像と同一の画像を再登録し、結果を返す。"""
+    result = test_db_manager.register_original_image(test_image_path, fs_manager)
+    assert result is not None, f"再登録に失敗: {test_image_path}"
+    return {"image_id": result[0], "first_image_id": image_registered}
+
+
+@then("再登録結果の画像IDは最初の登録と一致する")
+def then_reregister_id_matches(reregister_result: dict[str, int]):
+    """pHash 重複として既存 image_id が返ることを確認する。"""
+    assert reregister_result["image_id"] == reregister_result["first_image_id"], (
+        f"再登録で新規IDが発行されました。"
+        f"最初: {reregister_result['first_image_id']}, 再登録: {reregister_result['image_id']}"
+    )
+
+
+@then("データベースの画像件数は1件のままである")
+def then_image_count_unchanged(test_db_manager: ImageDatabaseManager):
+    """重複登録で画像件数が増えていないことを確認する。"""
+    total = test_db_manager.get_total_image_count()
+    assert total == 1, f"重複登録で画像件数が増加しました。期待: 1, 実際: {total}"
+
+
 def _prepare_annotations_from_row(
     row_data: dict[str, Any], dummy_model_id_map: dict[str, int]
 ) -> tuple[AnnotationsDict, dict[str, Any]]:
