@@ -342,6 +342,128 @@ class TestSearchFilterServiceDatabase:
         assert service_with_db.current_conditions is None
 
 
+class TestSearchFilterServiceValidateUiInputs:
+    """SearchFilterService.validate_ui_inputs のユニットテスト
+
+    検索条件未指定時の警告は BDD 対象外（内部ロジック）のため unit テストで代替する。
+    """
+
+    @pytest.fixture
+    def service(self):
+        from unittest.mock import Mock
+
+        return SearchFilterService(db_manager=Mock(), model_selection_service=Mock())
+
+    def test_validate_ui_inputs_no_conditions_returns_warning(self, service):
+        """検索条件未指定時は警告を返し is_valid は True"""
+        result = service.validate_ui_inputs({"keywords": []})
+
+        assert result.is_valid is True
+        assert result.warnings is not None
+        assert any("検索条件が指定されていません" in w for w in result.warnings)
+        assert result.errors == []
+
+    def test_validate_ui_inputs_with_keywords_no_warning(self, service):
+        """キーワード指定時は警告を出さない"""
+        result = service.validate_ui_inputs({"keywords": ["1girl"]})
+
+        assert result.is_valid is True
+        assert result.warnings == []
+        assert result.errors == []
+
+    def test_validate_ui_inputs_only_untagged_suppresses_warning(self, service):
+        """キーワードが無くても only_untagged 指定時は警告を出さない"""
+        result = service.validate_ui_inputs({"keywords": [], "only_untagged": True})
+
+        assert result.is_valid is True
+        assert result.warnings == []
+
+    def test_validate_ui_inputs_resolution_filter_suppresses_warning(self, service):
+        """キーワードが無くても resolution_filter 指定時は警告を出さない"""
+        result = service.validate_ui_inputs({"keywords": [], "resolution_filter": "1024x1024"})
+
+        assert result.is_valid is True
+        assert result.warnings == []
+
+    def test_validate_ui_inputs_invalid_date_range_returns_error(self, service):
+        """開始日付が終了日付より後の場合はエラーを返し is_valid は False"""
+        result = service.validate_ui_inputs(
+            {
+                "keywords": ["tag"],
+                "date_filter_enabled": True,
+                "date_range_start": datetime(2023, 12, 31),
+                "date_range_end": datetime(2023, 1, 1),
+            }
+        )
+
+        assert result.is_valid is False
+        assert result.errors is not None
+        assert any("開始日付は終了日付より前" in e for e in result.errors)
+
+    def test_validate_ui_inputs_valid_date_range_no_error(self, service):
+        """開始日付が終了日付より前の場合はエラーを出さない"""
+        result = service.validate_ui_inputs(
+            {
+                "keywords": ["tag"],
+                "date_filter_enabled": True,
+                "date_range_start": datetime(2023, 1, 1),
+                "date_range_end": datetime(2023, 12, 31),
+            }
+        )
+
+        assert result.is_valid is True
+        assert result.errors == []
+
+
+class TestSearchFilterServiceGetEstimatedCount:
+    """SearchFilterService.get_estimated_count のユニットテスト"""
+
+    def test_get_estimated_count_returns_db_count(self):
+        """DB マネージャーの件数をそのまま返す"""
+        from unittest.mock import Mock
+
+        mock_db_manager = Mock()
+        mock_db_manager.get_images_count_only.return_value = 42
+        service = SearchFilterService(db_manager=mock_db_manager, model_selection_service=Mock())
+        conditions = SearchConditions(search_type="tags", keywords=["1girl"], tag_logic="and")
+
+        count = service.get_estimated_count(conditions)
+
+        assert count == 42
+        mock_db_manager.get_images_count_only.assert_called_once()
+
+    def test_get_estimated_count_passes_filter_criteria(self):
+        """to_filter_criteria() の結果が criteria 引数として渡される"""
+        from unittest.mock import Mock
+
+        mock_db_manager = Mock()
+        mock_db_manager.get_images_count_only.return_value = 0
+        service = SearchFilterService(db_manager=mock_db_manager, model_selection_service=Mock())
+        conditions = SearchConditions(
+            search_type="tags", keywords=["cat"], tag_logic="and", excluded_keywords=["dog"]
+        )
+
+        service.get_estimated_count(conditions)
+
+        _, kwargs = mock_db_manager.get_images_count_only.call_args
+        criteria = kwargs["criteria"]
+        assert criteria.tags == ["cat"]
+        assert criteria.excluded_tags == ["dog"]
+
+    def test_get_estimated_count_returns_zero_on_error(self):
+        """DB エラー時は 0 を返す（例外を伝播しない）"""
+        from unittest.mock import Mock
+
+        mock_db_manager = Mock()
+        mock_db_manager.get_images_count_only.side_effect = RuntimeError("DB error")
+        service = SearchFilterService(db_manager=mock_db_manager, model_selection_service=Mock())
+        conditions = SearchConditions(search_type="tags", keywords=["tag"], tag_logic="and")
+
+        count = service.get_estimated_count(conditions)
+
+        assert count == 0
+
+
 class TestSearchFilterServiceAnnotation:
     """SearchFilterService のアノテーション系機能テスト（Phase 2拡張）"""
 
