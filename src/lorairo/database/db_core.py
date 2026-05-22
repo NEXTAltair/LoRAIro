@@ -292,7 +292,7 @@ def _ensure_model_types_seeded(engine: Engine) -> None:
 
     from .schema import ModelType
 
-    canonical_model_types = ("tags", "scores", "caption", "upscaler", "multimodal")
+    canonical_model_types = ("tags", "scores", "caption", "upscaler", "multimodal", "ratings")
     session_factory = create_session_factory(engine)
     with session_factory() as session:
         existing = set(session.execute(select(ModelType.name)).scalars())

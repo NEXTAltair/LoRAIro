@@ -161,10 +161,25 @@ class TestModelTypeMapping:
         info = _info("aesthetic", "scorer", is_api=False, capabilities={TaskCapability.SCORES})
         assert service_with_mock._map_library_model_type_to_db(info) == ["scores"]
 
+    def test_scorer_with_ratings_capability_maps_to_scores_and_ratings(self, service_with_mock):
+        """ratings capability を持つ scorer は rating フィルタ対象にもなる。"""
+        info = _info("anime-rating", "scorer", is_api=False, capabilities={TaskCapability.RATINGS})
+        assert service_with_mock._map_library_model_type_to_db(info) == ["scores", "ratings"]
+
     def test_tagger_maps_to_tags(self, service_with_mock):
         """tagger タイプは DB の `tags` (複数) にマッピングされる (Issue #243)。"""
         info = _info("wd-tagger", "tagger", is_api=False, capabilities={TaskCapability.TAGS})
         assert service_with_mock._map_library_model_type_to_db(info) == ["tags"]
+
+    def test_tagger_with_ratings_capability_maps_to_tags_and_ratings(self, service_with_mock):
+        """WD系など rating も返す tagger は tags と ratings の両方に分類される。"""
+        info = _info(
+            "wd-tagger",
+            "tagger",
+            is_api=False,
+            capabilities={TaskCapability.TAGS, TaskCapability.RATINGS},
+        )
+        assert service_with_mock._map_library_model_type_to_db(info) == ["tags", "ratings"]
 
     def test_unknown_type_falls_back_to_caption(self, service_with_mock):
         """未知のタイプは ['caption'] にフォールバック (警告ログ付き、Issue #243)。"""

@@ -298,6 +298,36 @@ class TestModelSelectionService:
 
         assert [model.name for model in filtered] == ["ratings-model"]
 
+    def test_local_ratings_filter_matches_model_types(self, service):
+        """ローカル + ratings 条件は DB model_types に ratings を持つモデルを返す"""
+        ratings_model = SimpleNamespace(
+            name="ratings-model",
+            provider=None,
+            requires_api_key=False,
+            model_types=[SimpleNamespace(name="scores"), SimpleNamespace(name="ratings")],
+            is_recommended=False,
+            available=True,
+        )
+        tags_model = SimpleNamespace(
+            name="tags-model",
+            provider=None,
+            requires_api_key=False,
+            model_types=[SimpleNamespace(name="tags")],
+            is_recommended=False,
+            available=True,
+        )
+        service._all_models = [ratings_model, tags_model]
+
+        filtered = service.filter_models(
+            ModelSelectionCriteria(
+                execution_env="ローカルモデルのみ",
+                capabilities=["ratings"],
+                annotation_only=True,
+            )
+        )
+
+        assert [model.name for model in filtered] == ["ratings-model"]
+
     # create_model_tooltip, create_model_display_name, _is_recommended_model メソッドは
     # DB中心アーキテクチャでWidgetに移動されたため、テストを削除
 

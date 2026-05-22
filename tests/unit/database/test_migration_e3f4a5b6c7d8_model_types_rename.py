@@ -91,7 +91,7 @@ class TestModelTypesRenameMigration:
         with engine.connect() as conn:
             rows = conn.execute(text("SELECT name FROM model_types ORDER BY id")).fetchall()
             names = [row.name for row in rows]
-            assert names == ["tags", "scores", "caption", "upscaler", "multimodal"]
+            assert names == ["tags", "scores", "caption", "upscaler", "multimodal", "ratings"]
         engine.dispose()
 
     def test_already_normalized_db_is_noop(self, tmp_path: Path) -> None:
@@ -115,7 +115,7 @@ class TestModelTypesRenameMigration:
         with engine.connect() as conn:
             rows = conn.execute(text("SELECT name FROM model_types ORDER BY id")).fetchall()
             names = [row.name for row in rows]
-            assert names == ["tags", "scores", "caption", "upscaler", "multimodal"]
+            assert names == ["tags", "scores", "caption", "upscaler", "multimodal", "ratings"]
         engine.dispose()
 
     def test_downgrade_restores_legacy_names(self, tmp_path: Path) -> None:
