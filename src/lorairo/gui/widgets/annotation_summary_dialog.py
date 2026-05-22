@@ -440,6 +440,8 @@ class AnnotationSummaryDialog(QDialog):
         for phash, model_results in self._result.results.items():
             filename = self._result.phash_to_filename.get(phash, phash[:12] + "...")
             for model_name, result in model_results.items():
+                if self._get_result_attr(result, "error", None):
+                    continue
                 ratings = self._get_result_attr(result, "ratings", None)
                 for raw_label, source_scheme, confidence in self._iter_rating_rows(ratings):
                     rating_rows.append((filename, model_name, raw_label, source_scheme, confidence))

@@ -345,6 +345,25 @@ class TestAnnotationSummaryDialogRatingsTab:
         assert table.item(1, 1).text() == "legacy"
         assert table.item(1, 2).text() == "PG"
 
+    def test_ratings_table_excludes_errored_results(self, qtbot, rating_result, find_child_widget):
+        """error result の ratings はレーティングタブに表示しない"""
+        rating_result.results["phash1"]["failed-model"] = {
+            "ratings": [
+                {
+                    "raw_label": "questionable",
+                    "source_scheme": "danbooru4",
+                    "confidence_score": 0.9,
+                }
+            ],
+            "error": "model failed",
+        }
+        dialog = AnnotationSummaryDialog(rating_result)
+        qtbot.addWidget(dialog)
+
+        table = find_child_widget(dialog, QTableWidget, "ratingsTable")
+        model_names = [table.item(row, 1).text() for row in range(table.rowCount())]
+        assert model_names == ["wd-tagger", "legacy"]
+
     def test_ratings_placeholder_when_empty(self, qtbot, success_result):
         """レーティングがない場合はプレースホルダーを表示する"""
         success_result.results = {"phash1": {"gpt-4o-mini": {"tags": ["cat"]}}}

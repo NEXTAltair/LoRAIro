@@ -331,6 +331,32 @@ class TestBuildImageSummary:
         assert summary.tag_count == 1
         assert summary.rating == "safe (danbooru4, 0.99)"
 
+    def test_build_image_summary_uses_highest_confidence_rating(self):
+        """structured ratings は保存処理と同じく confidence 最大を代表表示に使う"""
+        summary = AnnotationWorker._build_image_summary(
+            "phash1",
+            {"phash1": "image_001.png"},
+            {
+                "wd-tagger": {
+                    "ratings": [
+                        {
+                            "raw_label": "general",
+                            "source_scheme": "civitai5",
+                            "confidence_score": 0.12,
+                        },
+                        {
+                            "raw_label": "x",
+                            "source_scheme": "civitai5",
+                            "confidence_score": 0.88,
+                        },
+                    ],
+                    "error": None,
+                }
+            },
+        )
+
+        assert summary.rating == "x (civitai5, 0.88)"
+
     def test_build_image_summary_uses_object_rating(self):
         """RatingPrediction風オブジェクトにも対応する"""
         summary = AnnotationWorker._build_image_summary(

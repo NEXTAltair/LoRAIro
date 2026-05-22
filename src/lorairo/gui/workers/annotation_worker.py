@@ -478,7 +478,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
     @staticmethod
     def _format_rating_summary(ratings: Any) -> str | None:
         """ratings から完了ダイアログ用の代表表示を作る。"""
-        prediction = AnnotationWorker._select_first_rating(ratings)
+        prediction = AnnotationWorker._select_rating_prediction(ratings)
         if prediction is None:
             return None
         if isinstance(prediction, str):
@@ -499,15 +499,33 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         return str(raw_label)
 
     @staticmethod
-    def _select_first_rating(ratings: Any) -> Any | None:
-        """str / list / structured rating から最初の表示対象を取り出す。"""
+    def _select_rating_prediction(ratings: Any) -> Any | None:
+        """str / list / structured rating から代表表示対象を取り出す。
+
+        structured rating は保存処理と同じく confidence 最大を代表にする。
+        confidence 欠損は最下位扱いで、同値の場合は先頭を維持する。
+        """
         if not ratings:
             return None
         if isinstance(ratings, str):
             return ratings
-        if isinstance(ratings, list):
-            return ratings[0] if ratings else None
-        return ratings
+        candidates = ratings if isinstance(ratings, list) else [ratings]
+        if candidates and all(isinstance(candidate, str) for candidate in candidates):
+            return candidates[0]
+        predictions = [
+            candidate
+            for candidate in candidates
+            if isinstance(candidate, dict) or hasattr(candidate, "raw_label")
+        ]
+        if not predictions:
+            return None
+        return max(predictions, key=AnnotationWorker._rating_confidence_sort_key)
+
+    @staticmethod
+    def _rating_confidence_sort_key(prediction: Any) -> float:
+        """confidence_score の sort key。None は最下位扱い。"""
+        score = AnnotationWorker._extract_rating_attr(prediction, "confidence_score")
+        return -1.0 if score is None else float(score)
 
     @staticmethod
     def _extract_rating_attr(prediction: Any, name: str) -> Any:
