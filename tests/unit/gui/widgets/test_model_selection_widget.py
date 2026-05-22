@@ -100,6 +100,42 @@ class TestModelSelectionWidgetFilters:
     def test_set_selected_models_does_not_crash_with_empty_list(self, widget):
         widget.set_selected_models([])
 
+    def test_batch_web_api_only_shows_placeholder_without_model_rows(self, qtbot, mock_model_service):
+        """Batch annotation の Web API only では通常モデル行を表示しない"""
+        mock_model_service.load_grouped_models.return_value = []
+        w = ModelSelectionWidget(model_selection_service=mock_model_service, mode="advanced")
+        qtbot.addWidget(w)
+
+        w.apply_filters(execution_env="APIモデルのみ", annotation_only=True)
+
+        assert not w.placeholderLabel.isHidden()
+        assert w.placeholderLabel.text() == ModelSelectionWidget.WEB_API_BATCH_PLACEHOLDER
+        assert w.model_checkbox_widgets == {}
+        assert w.get_selected_models() == []
+
+    def test_non_batch_web_api_only_uses_normal_filtering(self, qtbot, mock_model_service):
+        """通常利用時の Web API only は batch placeholder 分岐に入らない"""
+        mock_model_service.load_grouped_models.return_value = []
+        w = ModelSelectionWidget(model_selection_service=mock_model_service, mode="advanced")
+        qtbot.addWidget(w)
+
+        w.apply_filters(execution_env="APIモデルのみ")
+
+        assert w.placeholderLabel.text() != ModelSelectionWidget.WEB_API_BATCH_PLACEHOLDER
+        assert mock_model_service.load_grouped_models.call_args[0][0].execution_env == "APIモデルのみ"
+
+    def test_batch_annotation_filtering_passes_annotation_only_criteria(self, qtbot, mock_model_service):
+        """Batch annotation opt-in 時だけ annotation_only criteria を渡す"""
+        mock_model_service.load_grouped_models.return_value = []
+        w = ModelSelectionWidget(model_selection_service=mock_model_service, mode="advanced")
+        qtbot.addWidget(w)
+
+        w.apply_filters(execution_env="ローカルモデルのみ", annotation_only=True)
+
+        criteria = mock_model_service.load_grouped_models.call_args[0][0]
+        assert criteria.annotation_only is True
+        assert criteria.execution_env == "ローカルモデルのみ"
+
 
 class TestModelSelectionWidgetRefreshThread:
     def test_stop_refresh_thread_quits_and_waits(self, widget):

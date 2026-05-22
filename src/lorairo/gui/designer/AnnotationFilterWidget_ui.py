@@ -22,38 +22,11 @@ class Ui_AnnotationFilterWidget(object):
     def setupUi(self, AnnotationFilterWidget: QWidget) -> None:
         if not AnnotationFilterWidget.objectName():
             AnnotationFilterWidget.setObjectName(u"AnnotationFilterWidget")
-        AnnotationFilterWidget.resize(300, 120)
+        AnnotationFilterWidget.resize(300, 150)
         self.mainLayout = QVBoxLayout(AnnotationFilterWidget)
         self.mainLayout.setSpacing(6)
         self.mainLayout.setObjectName(u"mainLayout")
         self.mainLayout.setContentsMargins(0, 0, 0, 0)
-        self.groupBoxFunctionType = QGroupBox(AnnotationFilterWidget)
-        self.groupBoxFunctionType.setObjectName(u"groupBoxFunctionType")
-        self.horizontalLayoutFunctionType = QHBoxLayout(self.groupBoxFunctionType)
-        self.horizontalLayoutFunctionType.setSpacing(6)
-        self.horizontalLayoutFunctionType.setObjectName(u"horizontalLayoutFunctionType")
-        self.checkBoxCaption = QCheckBox(self.groupBoxFunctionType)
-        self.checkBoxCaption.setObjectName(u"checkBoxCaption")
-
-        self.horizontalLayoutFunctionType.addWidget(self.checkBoxCaption)
-
-        self.checkBoxTags = QCheckBox(self.groupBoxFunctionType)
-        self.checkBoxTags.setObjectName(u"checkBoxTags")
-
-        self.horizontalLayoutFunctionType.addWidget(self.checkBoxTags)
-
-        self.checkBoxScore = QCheckBox(self.groupBoxFunctionType)
-        self.checkBoxScore.setObjectName(u"checkBoxScore")
-
-        self.horizontalLayoutFunctionType.addWidget(self.checkBoxScore)
-
-        self.horizontalSpacerFunctionType = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-
-        self.horizontalLayoutFunctionType.addItem(self.horizontalSpacerFunctionType)
-
-
-        self.mainLayout.addWidget(self.groupBoxFunctionType)
-
         self.groupBoxEnvironment = QGroupBox(AnnotationFilterWidget)
         self.groupBoxEnvironment.setObjectName(u"groupBoxEnvironment")
         self.horizontalLayoutEnvironment = QHBoxLayout(self.groupBoxEnvironment)
@@ -76,6 +49,37 @@ class Ui_AnnotationFilterWidget(object):
 
         self.mainLayout.addWidget(self.groupBoxEnvironment)
 
+        self.groupBoxFunctionType = QGroupBox(AnnotationFilterWidget)
+        self.groupBoxFunctionType.setObjectName(u"groupBoxFunctionType")
+        self.horizontalLayoutFunctionType = QHBoxLayout(self.groupBoxFunctionType)
+        self.horizontalLayoutFunctionType.setSpacing(6)
+        self.horizontalLayoutFunctionType.setObjectName(u"horizontalLayoutFunctionType")
+        self.checkBoxTags = QCheckBox(self.groupBoxFunctionType)
+        self.checkBoxTags.setObjectName(u"checkBoxTags")
+
+        self.horizontalLayoutFunctionType.addWidget(self.checkBoxTags)
+
+        self.checkBoxCaption = QCheckBox(self.groupBoxFunctionType)
+        self.checkBoxCaption.setObjectName(u"checkBoxCaption")
+
+        self.horizontalLayoutFunctionType.addWidget(self.checkBoxCaption)
+
+        self.checkBoxScore = QCheckBox(self.groupBoxFunctionType)
+        self.checkBoxScore.setObjectName(u"checkBoxScore")
+
+        self.horizontalLayoutFunctionType.addWidget(self.checkBoxScore)
+
+        self.checkBoxRating = QCheckBox(self.groupBoxFunctionType)
+        self.checkBoxRating.setObjectName(u"checkBoxRating")
+
+        self.horizontalLayoutFunctionType.addWidget(self.checkBoxRating)
+
+        self.horizontalSpacerFunctionType = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+        self.horizontalLayoutFunctionType.addItem(self.horizontalSpacerFunctionType)
+
+
+        self.mainLayout.addWidget(self.groupBoxFunctionType)
 
         self.retranslateUi(AnnotationFilterWidget)
 
@@ -84,11 +88,12 @@ class Ui_AnnotationFilterWidget(object):
 
     def retranslateUi(self, AnnotationFilterWidget: QWidget) -> None:
         AnnotationFilterWidget.setWindowTitle(QCoreApplication.translate("AnnotationFilterWidget", u"Annotation Filter", None))
-        self.groupBoxFunctionType.setTitle(QCoreApplication.translate("AnnotationFilterWidget", u"\u6a5f\u80fd\u30bf\u30a4\u30d7", None))
-        self.checkBoxCaption.setText(QCoreApplication.translate("AnnotationFilterWidget", u"Caption\u751f\u6210", None))
-        self.checkBoxTags.setText(QCoreApplication.translate("AnnotationFilterWidget", u"Tag\u751f\u6210", None))
-        self.checkBoxScore.setText(QCoreApplication.translate("AnnotationFilterWidget", u"\u54c1\u8cea\u30b9\u30b3\u30a2", None))
         self.groupBoxEnvironment.setTitle(QCoreApplication.translate("AnnotationFilterWidget", u"\u5b9f\u884c\u74b0\u5883\u9078\u629e", None))
         self.checkBoxWebAPI.setText(QCoreApplication.translate("AnnotationFilterWidget", u"Web API", None))
         self.checkBoxLocal.setText(QCoreApplication.translate("AnnotationFilterWidget", u"\u30ed\u30fc\u30ab\u30eb\u30e2\u30c7\u30eb", None))
+        self.groupBoxFunctionType.setTitle(QCoreApplication.translate("AnnotationFilterWidget", u"\u30ed\u30fc\u30ab\u30eb\u30e2\u30c7\u30eb\u5bfe\u5fdc\u6a5f\u80fd", None))
+        self.checkBoxTags.setText(QCoreApplication.translate("AnnotationFilterWidget", u"\u30bf\u30b0\u5bfe\u5fdc", None))
+        self.checkBoxCaption.setText(QCoreApplication.translate("AnnotationFilterWidget", u"\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3\u5bfe\u5fdc", None))
+        self.checkBoxScore.setText(QCoreApplication.translate("AnnotationFilterWidget", u"\u30b9\u30b3\u30a2\u5bfe\u5fdc", None))
+        self.checkBoxRating.setText(QCoreApplication.translate("AnnotationFilterWidget", u"\u30ec\u30fc\u30c6\u30a3\u30f3\u30b0\u5bfe\u5fdc", None))
     # retranslateUi

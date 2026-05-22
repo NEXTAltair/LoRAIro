@@ -20,6 +20,7 @@ class ModelSelectionCriteria:
     only_available: bool = True
     exclude_local: bool = False  # True の場合、provider が local/None のモデルを除外
     execution_env: str | None = None  # "APIモデルのみ" or "ローカルモデルのみ" or None/"すべて"
+    annotation_only: bool = False  # True の場合、batch annotation 対象モデルだけに絞る
 
 
 class ModelSelectionService:
@@ -94,6 +95,39 @@ class ModelSelectionService:
             return "local"
         return provider.lower()
 
+    @staticmethod
+    def _model_capability_names(model: Model) -> set[str]:
+        """Model capabilities/model_types から構造化された capability 名を取得する。"""
+        capabilities = getattr(model, "capabilities", None)
+        if capabilities is not None:
+            return {str(capability) for capability in capabilities}
+
+        model_types = getattr(model, "model_types", [])
+        return {
+            str(getattr(model_type, "name", model_type))
+            for model_type in model_types
+            if getattr(model_type, "name", model_type) is not None
+        }
+
+    @classmethod
+    def _is_annotation_eligible_model(cls, model: Model) -> bool:
+        """Batch annotation に使える model_types/capabilities を持つか判定する。"""
+        annotation_types = {"caption", "tags", "scores", "ratings", "multimodal"}
+        return bool(cls._model_capability_names(model) & annotation_types)
+
+    @classmethod
+    def _filter_annotation_eligible(
+        cls,
+        models: list[Model],
+        annotation_only: bool,
+    ) -> list[Model]:
+        """annotation_only が有効な場合だけ batch annotation 対象モデルに絞る。"""
+        if not annotation_only:
+            return models
+        filtered = [model for model in models if cls._is_annotation_eligible_model(model)]
+        logger.debug(f"  アノテーション対象フィルタ後: {len(filtered)}件")
+        return filtered
+
     def filter_models(
         self,
         criteria: ModelSelectionCriteria | None = None,
@@ -107,6 +141,7 @@ class ModelSelectionService:
             f"モデルフィルタリング開始: provider={criteria.provider}, "
             f"exclude_local={criteria.exclude_local}, execution_env={criteria.execution_env}, "
             f"capabilities={criteria.capabilities}, "
+            f"annotation_only={criteria.annotation_only}, "
             f"only_recommended={criteria.only_recommended}, only_available={criteria.only_available}, "
             f"対象モデル数={len(self._all_models)}"
         )
@@ -133,9 +168,16 @@ class ModelSelectionService:
             filtered = [m for m in filtered if self._provider_key(m.provider) != "local"]
             logger.debug(f"  ローカルモデル除外後: {len(filtered)}件")
 
+        # Batch annotation 対象モデルのみ: upscaler 専用など annotation 非対応モデルを除外
+        filtered = self._filter_annotation_eligible(filtered, criteria.annotation_only)
+
         # 機能フィルタ
         if criteria.capabilities:
-            filtered = [m for m in filtered if any(cap in m.capabilities for cap in criteria.capabilities)]
+            filtered = [
+                m
+                for m in filtered
+                if any(cap in self._model_capability_names(m) for cap in criteria.capabilities)
+            ]
             logger.debug(f"  機能フィルタ後: {len(filtered)}件 (capabilities={criteria.capabilities})")
 
         # 推奨フィルタ（DB Modelプロパティ使用）

@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>300</width>
-    <height>120</height>
+    <height>150</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -29,52 +29,6 @@
    <property name="bottomMargin">
     <number>0</number>
    </property>
-   <item>
-    <widget class="QGroupBox" name="groupBoxFunctionType">
-     <property name="title">
-      <string>機能タイプ</string>
-     </property>
-     <layout class="QHBoxLayout" name="horizontalLayoutFunctionType">
-      <property name="spacing">
-       <number>6</number>
-      </property>
-      <item>
-       <widget class="QCheckBox" name="checkBoxCaption">
-        <property name="text">
-         <string>Caption生成</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QCheckBox" name="checkBoxTags">
-        <property name="text">
-         <string>Tag生成</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QCheckBox" name="checkBoxScore">
-        <property name="text">
-         <string>品質スコア</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <spacer name="horizontalSpacerFunctionType">
-        <property name="orientation">
-         <enum>Qt::Orientation::Horizontal</enum>
-        </property>
-        <property name="sizeHint" stdset="0">
-         <size>
-          <width>40</width>
-          <height>20</height>
-         </size>
-        </property>
-       </spacer>
-      </item>
-     </layout>
-    </widget>
-   </item>
    <item>
     <widget class="QGroupBox" name="groupBoxEnvironment">
      <property name="title">
@@ -100,6 +54,59 @@
       </item>
       <item>
        <spacer name="horizontalSpacerEnvironment">
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBoxFunctionType">
+     <property name="title">
+      <string>ローカルモデル対応機能</string>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayoutFunctionType">
+      <property name="spacing">
+       <number>6</number>
+      </property>
+      <item>
+       <widget class="QCheckBox" name="checkBoxTags">
+        <property name="text">
+         <string>タグ対応</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBoxCaption">
+        <property name="text">
+         <string>キャプション対応</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBoxScore">
+        <property name="text">
+         <string>スコア対応</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBoxRating">
+        <property name="text">
+         <string>レーティング対応</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacerFunctionType">
         <property name="orientation">
          <enum>Qt::Orientation::Horizontal</enum>
         </property>

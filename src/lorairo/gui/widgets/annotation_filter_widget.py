@@ -1,7 +1,7 @@
 """
 Annotation Filter Widget - アノテーションフィルターウィジェット
 
-アノテーション機能タイプ（Caption/Tag/Score）と実行環境（Web API/ローカル）の
+ローカルモデル対応機能（Caption/Tag/Score/Rating）と実行環境（Web API/ローカル）の
 フィルタリングUIを提供する。ModelSelectionWidget と連携してモデル一覧を
 動的にフィルタリングする。
 
@@ -36,7 +36,7 @@ class AnnotationFilterWidget(QWidget, Ui_AnnotationFilterWidget):
     """
     アノテーションフィルターウィジェット
 
-    機能タイプ（Caption生成、Tag生成、品質スコア）と実行環境（Web API、ローカルモデル）の
+    ローカルモデル対応機能と実行環境（Web API、ローカルモデル）の
     チェックボックスによるフィルタリングUIを提供。
 
     Signals:
@@ -58,6 +58,7 @@ class AnnotationFilterWidget(QWidget, Ui_AnnotationFilterWidget):
         checkBoxCaption: QCheckBox
         checkBoxTags: QCheckBox
         checkBoxScore: QCheckBox
+        checkBoxRating: QCheckBox
         checkBoxWebAPI: QCheckBox
         checkBoxLocal: QCheckBox
 
@@ -72,6 +73,7 @@ class AnnotationFilterWidget(QWidget, Ui_AnnotationFilterWidget):
         self.setupUi(self)
 
         self._connect_signals()
+        self._update_capability_controls()
         logger.debug("AnnotationFilterWidget initialized")
 
     def _connect_signals(self) -> None:
@@ -80,6 +82,7 @@ class AnnotationFilterWidget(QWidget, Ui_AnnotationFilterWidget):
         self.checkBoxCaption.stateChanged.connect(self._on_filter_changed)
         self.checkBoxTags.stateChanged.connect(self._on_filter_changed)
         self.checkBoxScore.stateChanged.connect(self._on_filter_changed)
+        self.checkBoxRating.stateChanged.connect(self._on_filter_changed)
 
         # 実行環境チェックボックス
         self.checkBoxWebAPI.stateChanged.connect(self._on_filter_changed)
@@ -92,9 +95,26 @@ class AnnotationFilterWidget(QWidget, Ui_AnnotationFilterWidget):
         Args:
             _state: チェックボックスの状態（未使用、シグナル接続用）
         """
+        self._update_capability_controls()
         filters = self.get_current_filters()
         logger.debug(f"Filter changed: {filters}")
         self.filter_changed.emit(filters)
+
+    def _is_local_only_environment(self) -> bool:
+        """Capability filter is meaningful only when the environment is local-only."""
+        return self.checkBoxLocal.isChecked() and not self.checkBoxWebAPI.isChecked()
+
+    def _update_capability_controls(self) -> None:
+        """ローカル専用時だけ capability control を有効化する。"""
+        enabled = self._is_local_only_environment()
+        self.groupBoxFunctionType.setEnabled(enabled)
+        for checkbox in (
+            self.checkBoxTags,
+            self.checkBoxCaption,
+            self.checkBoxScore,
+            self.checkBoxRating,
+        ):
+            checkbox.setEnabled(enabled)
 
     def get_current_filters(self) -> dict[str, Any]:
         """
@@ -102,18 +122,9 @@ class AnnotationFilterWidget(QWidget, Ui_AnnotationFilterWidget):
 
         Returns:
             dict: フィルター状態
-                - capabilities: list[str] - 選択された機能タイプ ('caption', 'tags', 'scores')
+                - capabilities: list[str] - 選択された対応機能 ('caption', 'tags', 'scores', 'ratings')
                 - environment: str | None - 実行環境 ('local', 'api', None)
         """
-        # 機能タイプ: DB ModelType.name 値と一致させる ('caption', 'tags', 'scores')
-        capabilities: list[str] = []
-        if self.checkBoxCaption.isChecked():
-            capabilities.append("caption")
-        if self.checkBoxTags.isChecked():
-            capabilities.append("tags")
-        if self.checkBoxScore.isChecked():
-            capabilities.append("scores")
-
         # 実行環境
         environment: str | None = None
         web_api = self.checkBoxWebAPI.isChecked()
@@ -124,6 +135,18 @@ class AnnotationFilterWidget(QWidget, Ui_AnnotationFilterWidget):
         elif web_api and not local:
             environment = "api"
         # 両方チェックまたは両方未チェック → None (フィルターなし)
+
+        # ローカルモデル対応機能: DB ModelType.name 値と一致させる。
+        capabilities: list[str] = []
+        if environment == "local":
+            if self.checkBoxTags.isChecked():
+                capabilities.append("tags")
+            if self.checkBoxCaption.isChecked():
+                capabilities.append("caption")
+            if self.checkBoxScore.isChecked():
+                capabilities.append("scores")
+            if self.checkBoxRating.isChecked():
+                capabilities.append("ratings")
 
         return {"capabilities": capabilities, "environment": environment}
 
@@ -136,7 +159,7 @@ class AnnotationFilterWidget(QWidget, Ui_AnnotationFilterWidget):
         フィルター状態を設定
 
         Args:
-            capabilities: 機能タイプリスト ('caption', 'tags', 'scores')、None でクリア
+            capabilities: 対応機能リスト ('caption', 'tags', 'scores', 'ratings')、None でクリア
             environment: 実行環境 ('local', 'api')、None でクリア
 
         Note:
@@ -146,12 +169,13 @@ class AnnotationFilterWidget(QWidget, Ui_AnnotationFilterWidget):
         self.blockSignals(True)
 
         try:
-            # 機能タイプ設定 (DB ModelType.name 値と一致: 'caption', 'tags', 'scores')
+            # 機能タイプ設定 (DB ModelType.name 値と一致)
             if capabilities is not _UNSET:
                 caps = cast("list[str]", capabilities if capabilities is not None else [])
                 self.checkBoxCaption.setChecked("caption" in caps)
                 self.checkBoxTags.setChecked("tags" in caps)
                 self.checkBoxScore.setChecked("scores" in caps)
+                self.checkBoxRating.setChecked("ratings" in caps)
 
             # 実行環境設定
             if environment is not _UNSET:
@@ -166,6 +190,7 @@ class AnnotationFilterWidget(QWidget, Ui_AnnotationFilterWidget):
         finally:
             self.blockSignals(False)
 
+        self._update_capability_controls()
         # 設定後にシグナルを発火
         self.filter_changed.emit(self.get_current_filters())
 
@@ -177,11 +202,13 @@ class AnnotationFilterWidget(QWidget, Ui_AnnotationFilterWidget):
             self.checkBoxCaption.setChecked(False)
             self.checkBoxTags.setChecked(False)
             self.checkBoxScore.setChecked(False)
+            self.checkBoxRating.setChecked(False)
             self.checkBoxWebAPI.setChecked(False)
             self.checkBoxLocal.setChecked(False)
 
         finally:
             self.blockSignals(False)
 
+        self._update_capability_controls()
         self.filter_changed.emit(self.get_current_filters())
         logger.debug("All filters cleared")

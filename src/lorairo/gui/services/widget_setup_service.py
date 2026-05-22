@@ -41,6 +41,7 @@ class WidgetSetupService:
             "capabilities": filters.get("capabilities", []),
             "exclude_local": False,
             "execution_env": execution_env,
+            "annotation_only": True,
         }
 
     @staticmethod
@@ -48,6 +49,8 @@ class WidgetSetupService:
         """Batch annotation では外側の環境フィルターを唯一の操作面にする。"""
         if hasattr(model_widget, "executionEnvCombo"):
             model_widget.executionEnvCombo.setVisible(False)
+        if hasattr(model_widget, "set_annotation_only_filtering"):
+            model_widget.set_annotation_only_filtering(True)
 
     @staticmethod
     def setup_thumbnail_selector(
@@ -391,7 +394,7 @@ class WidgetSetupService:
             )
             # アノテーション走査用デフォルトフィルター（upscaler除外）
             # 初期状態でアップスケーラーモデルを表示しない
-            main_window.batchModelSelection.apply_filters(capabilities=["caption", "tags", "scores"])
+            main_window.batchModelSelection.apply_filters(annotation_only=True)
             main_window._annotation_filter_connected = True
             logger.info("✅ フィルター → モデル選択 Signal接続完了")
 
