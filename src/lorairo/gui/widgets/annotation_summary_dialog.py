@@ -7,6 +7,7 @@
 from typing import Any
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QTextOption
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QTabWidget,
     QTextBrowser,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -63,6 +65,7 @@ class AnnotationSummaryDialog(QDialog):
         tabs.addTab(self._create_tags_tab(), "タグ")
         tabs.addTab(self._create_captions_tab(), "キャプション")
         tabs.addTab(self._create_scores_tab(), "スコア")
+        tabs.addTab(self._create_ratings_tab(), "レーティング")
         tabs.addTab(self._create_model_details_tab(), "モデル詳細")
 
         layout.addWidget(tabs)
@@ -139,7 +142,7 @@ class AnnotationSummaryDialog(QDialog):
         form = QFormLayout(group)
 
         form.addRow("対象画像:", QLabel(f"{self._result.total_images}件"))
-        form.addRow("使用モデル:", QLabel(", ".join(self._result.models_used)))
+        form.addRow("使用モデル:", self._create_models_used_view())
         form.addRow("DB保存成功:", QLabel(f"{self._result.db_save_success}件"))
 
         if self._result.db_save_skip > 0:
@@ -159,6 +162,21 @@ class AnnotationSummaryDialog(QDialog):
 
         return group
 
+    def _create_models_used_view(self) -> QTextBrowser:
+        """使用モデル一覧を横に伸びないスクロール表示で作成する。"""
+        browser = QTextBrowser()
+        browser.setObjectName("modelsUsedView")
+        browser.setPlainText("\n".join(self._result.models_used) if self._result.models_used else "-")
+        browser.setOpenExternalLinks(False)
+        browser.setReadOnly(True)
+        browser.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        browser.setWordWrapMode(QTextOption.WrapMode.WrapAnywhere)
+        browser.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        browser.setMaximumHeight(96)
+        browser.setMinimumHeight(48)
+        browser.setToolTip("\n".join(self._result.models_used))
+        return browser
+
     def _create_results_group(self) -> QGroupBox:
         """保存結果一覧セクションを作成する。
 
@@ -172,13 +190,14 @@ class AnnotationSummaryDialog(QDialog):
         group = QGroupBox(f"保存結果一覧 ({total}件)")
         layout = QVBoxLayout(group)
 
-        table = QTableWidget(display_count, 4)
+        table = QTableWidget(display_count, 5)
         table.setObjectName("resultsTable")
-        table.setHorizontalHeaderLabels(["画像名", "タグ数", "キャプション", "スコア"])
+        table.setHorizontalHeaderLabels(["画像名", "タグ数", "キャプション", "スコア", "レーティング"])
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         table.verticalHeader().setVisible(False)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -199,6 +218,10 @@ class AnnotationSummaryDialog(QDialog):
             score_item = QTableWidgetItem(score_text)
             score_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, 3, score_item)
+
+            rating_item = QTableWidgetItem(summary.rating or "-")
+            rating_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            table.setItem(row, 4, rating_item)
 
         layout.addWidget(table)
 
@@ -267,6 +290,13 @@ class AnnotationSummaryDialog(QDialog):
         if isinstance(result, dict):
             return result.get(key, default)
         return getattr(result, key, default)
+
+    @staticmethod
+    def _get_rating_attr(rating: object, key: str, default: object = None) -> Any:
+        """RatingPrediction相当からキーに対応する値を取得する。"""
+        if isinstance(rating, dict):
+            return rating.get(key, default)
+        return getattr(rating, key, default)
 
     def _create_tags_tab(self) -> QWidget:
         """タグタブを作成する。
@@ -396,6 +426,74 @@ class AnnotationSummaryDialog(QDialog):
             layout.addWidget(QLabel("スコアデータがありません。"))
 
         return widget
+
+    def _create_ratings_tab(self) -> QWidget:
+        """レーティングタブを作成する。
+
+        Returns:
+            レーティングタブウィジェット。
+        """
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        rating_rows: list[tuple[str, str, str, str, str]] = []
+        for phash, model_results in self._result.results.items():
+            filename = self._result.phash_to_filename.get(phash, phash[:12] + "...")
+            for model_name, result in model_results.items():
+                ratings = self._get_result_attr(result, "ratings", None)
+                for raw_label, source_scheme, confidence in self._iter_rating_rows(ratings):
+                    rating_rows.append((filename, model_name, raw_label, source_scheme, confidence))
+
+        table = QTableWidget(len(rating_rows), 5)
+        table.setObjectName("ratingsTable")
+        table.setHorizontalHeaderLabels(["pHash/ファイル", "モデル名", "raw label", "scheme", "confidence"])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+
+        for row, (filename, model_name, raw_label, source_scheme, confidence) in enumerate(rating_rows):
+            table.setItem(row, 0, QTableWidgetItem(filename))
+            table.setItem(row, 1, QTableWidgetItem(model_name))
+            table.setItem(row, 2, QTableWidgetItem(raw_label))
+            table.setItem(row, 3, QTableWidgetItem(source_scheme))
+            confidence_item = QTableWidgetItem(confidence)
+            confidence_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            table.setItem(row, 4, confidence_item)
+
+        layout.addWidget(table)
+
+        if not rating_rows:
+            layout.addWidget(QLabel("レーティングデータがありません。"))
+
+        return widget
+
+    def _iter_rating_rows(self, ratings: object) -> list[tuple[str, str, str]]:
+        """ratings を詳細タブ表示用の行に変換する。"""
+        if not ratings:
+            return []
+        if isinstance(ratings, str):
+            return [(ratings, "-", "-")]
+
+        candidates = ratings if isinstance(ratings, list) else [ratings]
+        rows: list[tuple[str, str, str]] = []
+        for rating in candidates:
+            if isinstance(rating, str):
+                rows.append((rating, "-", "-"))
+                continue
+
+            raw_label = self._get_rating_attr(rating, "raw_label")
+            if not raw_label:
+                continue
+            source_scheme = self._get_rating_attr(rating, "source_scheme", "-") or "-"
+            confidence = self._get_rating_attr(rating, "confidence_score")
+            confidence_text = f"{float(confidence):.4f}" if confidence is not None else "-"
+            rows.append((str(raw_label), str(source_scheme), confidence_text))
+        return rows
 
     def _create_model_details_tab(self) -> QWidget:
         """モデル詳細タブを作成する。

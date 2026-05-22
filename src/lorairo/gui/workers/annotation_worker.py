@@ -43,6 +43,7 @@ class ImageResultSummary:
     tag_count: int = 0
     has_caption: bool = False
     score: float | None = None
+    rating: str | None = None
 
 
 @dataclass
@@ -428,6 +429,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         tag_count = 0
         has_caption = False
         score: float | None = None
+        rating: str | None = None
         for unified_result in raw_annotations.values():
             error = (
                 unified_result.get("error")
@@ -458,12 +460,61 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 )
                 if isinstance(raw_scores, dict) and raw_scores:
                     score = float(next(iter(raw_scores.values())))
+            if rating is None:
+                raw_ratings = (
+                    unified_result.get("ratings")
+                    if isinstance(unified_result, dict)
+                    else getattr(unified_result, "ratings", None)
+                )
+                rating = AnnotationWorker._format_rating_summary(raw_ratings)
         return ImageResultSummary(
             file_name=file_name,
             tag_count=tag_count,
             has_caption=has_caption,
             score=score,
+            rating=rating,
         )
+
+    @staticmethod
+    def _format_rating_summary(ratings: Any) -> str | None:
+        """ratings から完了ダイアログ用の代表表示を作る。"""
+        prediction = AnnotationWorker._select_first_rating(ratings)
+        if prediction is None:
+            return None
+        if isinstance(prediction, str):
+            return prediction
+
+        raw_label = AnnotationWorker._extract_rating_attr(prediction, "raw_label")
+        if not raw_label:
+            return None
+
+        source_scheme = AnnotationWorker._extract_rating_attr(prediction, "source_scheme")
+        confidence = AnnotationWorker._extract_rating_attr(prediction, "confidence_score")
+        if source_scheme and confidence is not None:
+            return f"{raw_label} ({source_scheme}, {float(confidence):.2f})"
+        if source_scheme:
+            return f"{raw_label} ({source_scheme})"
+        if confidence is not None:
+            return f"{raw_label} ({float(confidence):.2f})"
+        return str(raw_label)
+
+    @staticmethod
+    def _select_first_rating(ratings: Any) -> Any | None:
+        """str / list / structured rating から最初の表示対象を取り出す。"""
+        if not ratings:
+            return None
+        if isinstance(ratings, str):
+            return ratings
+        if isinstance(ratings, list):
+            return ratings[0] if ratings else None
+        return ratings
+
+    @staticmethod
+    def _extract_rating_attr(prediction: Any, name: str) -> Any:
+        """RatingPrediction / dict の両方から属性を読む。"""
+        if isinstance(prediction, dict):
+            return prediction.get(name)
+        return getattr(prediction, name, None)
 
     @staticmethod
     def _extract_field(result: Any, field_name: str) -> Any:

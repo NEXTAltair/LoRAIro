@@ -302,6 +302,91 @@ class TestExtractField:
         assert worker._extract_field(obj, "nonexistent") is None
 
 
+class TestBuildImageSummary:
+    """_build_image_summary の表示用集計テスト"""
+
+    def test_build_image_summary_uses_structured_rating(self):
+        """structured ratings から代表レーティング表示を作る"""
+        summary = AnnotationWorker._build_image_summary(
+            "phash1",
+            {"phash1": "image_001.png"},
+            {
+                "wd-tagger": {
+                    "tags": ["cat"],
+                    "captions": None,
+                    "scores": None,
+                    "ratings": [
+                        {
+                            "raw_label": "safe",
+                            "source_scheme": "danbooru4",
+                            "confidence_score": 0.9876,
+                        }
+                    ],
+                    "error": None,
+                }
+            },
+        )
+
+        assert summary.file_name == "image_001.png"
+        assert summary.tag_count == 1
+        assert summary.rating == "safe (danbooru4, 0.99)"
+
+    def test_build_image_summary_uses_object_rating(self):
+        """RatingPrediction風オブジェクトにも対応する"""
+        summary = AnnotationWorker._build_image_summary(
+            "phash1",
+            {"phash1": "image_001.png"},
+            {
+                "wd-tagger": SimpleNamespace(
+                    tags=[],
+                    captions=None,
+                    scores=None,
+                    ratings=[
+                        SimpleNamespace(
+                            raw_label="questionable",
+                            source_scheme="danbooru4",
+                            confidence_score=None,
+                        )
+                    ],
+                    error=None,
+                )
+            },
+        )
+
+        assert summary.rating == "questionable (danbooru4)"
+
+    def test_build_image_summary_uses_string_rating(self):
+        """後方互換のstr ratingにも対応する"""
+        summary = AnnotationWorker._build_image_summary(
+            "phash1",
+            {"phash1": "image_001.png"},
+            {"legacy": {"ratings": ["PG"], "error": None}},
+        )
+
+        assert summary.rating == "PG"
+
+    def test_build_image_summary_ignores_error_rating(self):
+        """error result の ratings は代表表示に使わない"""
+        summary = AnnotationWorker._build_image_summary(
+            "phash1",
+            {"phash1": "image_001.png"},
+            {
+                "failed-model": {
+                    "ratings": [
+                        {
+                            "raw_label": "safe",
+                            "source_scheme": "danbooru4",
+                            "confidence_score": 0.9,
+                        }
+                    ],
+                    "error": "model failed",
+                }
+            },
+        )
+
+        assert summary.rating is None
+
+
 # ==============================================================================
 # Test _save_error_records
 # ==============================================================================
