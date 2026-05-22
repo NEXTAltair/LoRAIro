@@ -175,7 +175,7 @@ class ModelSyncService:
         """`AnnotatorInfo.model_type` を LoRAIro DB の `model_types` リストに変換する。
 
         Issue #243 (Phase 1.11 後続): DB `model_types` テーブルの SSoT 値
-        (`tags` / `scores` / `caption` / `upscaler` / `multimodal`) に揃える。
+        (`tags` / `scores` / `caption` / `upscaler` / `multimodal` / `ratings`) に揃える。
         旧マッピング (`llm` / `captioner` / `score` / `tagger`) は ADR 0017 の
         正規化以前の値で、`models_function_associations` を介した FK 制約に違反していた。
 
@@ -190,21 +190,28 @@ class ModelSyncService:
             - "captioner" → ["caption"]
             - "scorer" → ["scores"]
             - "tagger" → ["tags"]
+            - TaskCapability.RATINGS を持つモデルは上記に加えて "ratings" を付与
             - その他 → ["caption"] (警告ログ付き)
         """
         model_type = info.model_type
         if model_type == "vision":
             # WebAPI vision モデル (PydanticAI 経由) は LLM + Vision を兼ねるため
             # DB の `multimodal` カテゴリに該当する
-            return ["multimodal"]
-        if model_type == "captioner":
-            return ["caption"]
-        if model_type == "scorer":
-            return ["scores"]
-        if model_type == "tagger":
-            return ["tags"]
-        logger.warning(f"Unknown library model_type: {model_type}, defaulting to ['caption']")
-        return ["caption"]
+            db_model_types = ["multimodal"]
+        elif model_type == "captioner":
+            db_model_types = ["caption"]
+        elif model_type == "scorer":
+            db_model_types = ["scores"]
+        elif model_type == "tagger":
+            db_model_types = ["tags"]
+        else:
+            logger.warning(f"Unknown library model_type: {model_type}, defaulting to ['caption']")
+            db_model_types = ["caption"]
+
+        if TaskCapability.RATINGS in info.capabilities and "ratings" not in db_model_types:
+            db_model_types.append("ratings")
+
+        return db_model_types
 
     def sync_available_models(self) -> ModelSyncResult:
         """利用可能モデルの自動同期

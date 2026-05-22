@@ -300,7 +300,7 @@ def test_engine_with_schema(test_db_url: str):
             # --- ModelType の初期データ挿入 ---
             print("[test_engine_with_schema] Inserting initial model types...")
             # Issue #243: model_types テーブルの SSoT 値は migration `e3f4a5b6c7d8`
-            # 適用後と同じ `tags` / `scores` / `caption` / `upscaler` / `multimodal`。
+            # 適用後と同じ `tags` / `scores` / `caption` / `upscaler` / `multimodal` / `ratings`。
             # 旧名 (`tagger`, `score`, `captioner`, `llm`, `rating`) は本番 DB に存在しない。
             initial_model_types = [
                 "tags",
@@ -308,6 +308,7 @@ def test_engine_with_schema(test_db_url: str):
                 "caption",
                 "upscaler",
                 "multimodal",
+                "ratings",
             ]
             type_map: dict[str, ModelType] = {}
             for type_name in initial_model_types:
