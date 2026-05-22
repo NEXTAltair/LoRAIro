@@ -136,7 +136,10 @@ def display_model_name_for(
     """
     if not is_webapi_model_id(litellm_model_id, provider_hint, requires_api_key):
         return fallback_name
-    _, _, model_name = display_key_for(litellm_model_id).rpartition("/")
+    display_key = display_key_for(litellm_model_id)
+    if "/" not in display_key:
+        return fallback_name
+    _, _, model_name = display_key.rpartition("/")
     return model_name or fallback_name
 
 
@@ -154,7 +157,11 @@ def display_family_for(
     if not is_webapi_model_id(litellm_model_id, provider_hint, requires_api_key):
         return provider_hint or _LOCAL_PROVIDER
 
-    family_key, _, _ = display_key_for(litellm_model_id).partition("/")
+    display_key = display_key_for(litellm_model_id)
+    if "/" not in display_key:
+        return provider_hint or _LOCAL_PROVIDER
+
+    family_key, _, _ = display_key.partition("/")
     family_key = family_key.strip().lower()
     if not family_key:
         return provider_hint or _LOCAL_PROVIDER

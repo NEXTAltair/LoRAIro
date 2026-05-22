@@ -109,6 +109,9 @@ class TestDisplayHelpers:
             == "Local Tagger"
         )
 
+    def test_bare_webapi_display_name_uses_fallback_name(self) -> None:
+        assert display_model_name_for("gpt-4o", "GPT-4o", "openai", True) == "GPT-4o"
+
     def test_openrouter_family_uses_canonical_provider(self) -> None:
         assert display_family_for("openrouter/qwen/qwen3.7-max", "openrouter", True) == "Qwen"
 
@@ -117,6 +120,9 @@ class TestDisplayHelpers:
 
     def test_direct_webapi_family_uses_provider_segment(self) -> None:
         assert display_family_for("openai/gpt-4o", "openai", True) == "OpenAI"
+
+    def test_bare_webapi_family_uses_provider_hint(self) -> None:
+        assert display_family_for("gpt-4o", "openai", True) == "openai"
 
     def test_local_family_uses_provider_hint(self) -> None:
         assert display_family_for("wd-v1-4-tagger", "local", False) == "local"
@@ -335,6 +341,16 @@ class TestBuildDisplayOptions:
         options = build_display_options([m], None, "auto")
         assert options[0].display_name == "o1-very-long-model-name-2025-04-16"
         assert options[0].display_family == "OpenAI"
+
+    def test_bare_webapi_id_keeps_curated_name_and_provider_family(self) -> None:
+        m = _fake_model(
+            "gpt-4o",
+            "GPT-4o Vision",
+            "openai",
+        )
+        options = build_display_options([m], {"openai"}, "auto")
+        assert options[0].display_name == "GPT-4o Vision"
+        assert options[0].display_family == "openai"
 
     def test_slash_qualified_local_model_keeps_library_name(self) -> None:
         m = _fake_model(
