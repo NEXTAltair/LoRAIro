@@ -122,6 +122,14 @@ def display_key_for(litellm_model_id: str) -> str:
     return display_key
 
 
+def display_family_name_for(provider_key: str) -> str:
+    """provider key を UI 表示用 family 名へ正規化する。"""
+    family_key = provider_key.strip().lower()
+    if not family_key:
+        return _LOCAL_PROVIDER
+    return _DISPLAY_FAMILY_NAMES.get(family_key, family_key.title())
+
+
 def display_model_name_for(
     litellm_model_id: str,
     fallback_name: str,
@@ -159,13 +167,12 @@ def display_family_for(
 
     display_key = display_key_for(litellm_model_id)
     if "/" not in display_key:
-        return provider_hint or _LOCAL_PROVIDER
+        return display_family_name_for(provider_hint or _LOCAL_PROVIDER)
 
     family_key, _, _ = display_key.partition("/")
-    family_key = family_key.strip().lower()
     if not family_key:
-        return provider_hint or _LOCAL_PROVIDER
-    return _DISPLAY_FAMILY_NAMES.get(family_key, family_key.title())
+        return display_family_name_for(provider_hint or _LOCAL_PROVIDER)
+    return display_family_name_for(family_key)
 
 
 def required_provider_for(litellm_model_id: str, provider_hint: str | None = None) -> str:

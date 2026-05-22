@@ -122,7 +122,7 @@ class TestDisplayHelpers:
         assert display_family_for("openai/gpt-4o", "openai", True) == "OpenAI"
 
     def test_bare_webapi_family_uses_provider_hint(self) -> None:
-        assert display_family_for("gpt-4o", "openai", True) == "openai"
+        assert display_family_for("gpt-4o", "openai", True) == "OpenAI"
 
     def test_local_family_uses_provider_hint(self) -> None:
         assert display_family_for("wd-v1-4-tagger", "local", False) == "local"
@@ -350,7 +350,7 @@ class TestBuildDisplayOptions:
         )
         options = build_display_options([m], {"openai"}, "auto")
         assert options[0].display_name == "GPT-4o Vision"
-        assert options[0].display_family == "openai"
+        assert options[0].display_family == "OpenAI"
 
     def test_slash_qualified_local_model_keeps_library_name(self) -> None:
         m = _fake_model(
