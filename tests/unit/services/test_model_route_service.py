@@ -17,7 +17,10 @@ from lorairo.services.model_route_service import (
     build_display_options,
     canonical_key,
     detect_route,
+    display_family_for,
+    display_model_name_for,
     group_model_routes,
+    is_webapi_model_id,
     parse_route_preference,
     required_provider_for,
     select_preferred_route,
@@ -81,6 +84,32 @@ class TestCanonicalKey:
     def test_idempotent(self) -> None:
         """canonical_key を 2 回適用しても同じ結果"""
         assert canonical_key(canonical_key("openrouter/openai/gpt-4o")) == "openai/gpt-4o"
+
+
+@pytest.mark.unit
+class TestDisplayHelpers:
+    def test_webapi_display_name_uses_last_segment(self) -> None:
+        display_name = display_model_name_for(
+            "openrouter/qwen/qwen3.7-max",
+            "openrouter/qwen/qwen3.7-max",
+        )
+        assert display_name == "qwen3.7-max"
+
+    def test_local_display_name_uses_fallback_name(self) -> None:
+        assert display_model_name_for("wd-v1-4-tagger", "WD Tagger") == "WD Tagger"
+
+    def test_openrouter_family_uses_canonical_provider(self) -> None:
+        assert display_family_for("openrouter/qwen/qwen3.7-max", "openrouter") == "Qwen"
+
+    def test_direct_webapi_family_uses_provider_segment(self) -> None:
+        assert display_family_for("openai/gpt-4o", "openai") == "OpenAI"
+
+    def test_local_family_uses_provider_hint(self) -> None:
+        assert display_family_for("wd-v1-4-tagger", "local") == "local"
+
+    def test_is_webapi_model_id_checks_slash(self) -> None:
+        assert is_webapi_model_id("openrouter/qwen/qwen3.7-max") is True
+        assert is_webapi_model_id("wd-v1-4-tagger") is False
 
 
 @pytest.mark.unit
@@ -264,10 +293,20 @@ class TestBuildDisplayOptions:
         assert options[0].preferred.route == "direct"
 
     def test_sorts_by_display_name(self) -> None:
-        m1 = _fake_model("openai/zebra", "zebra", "openai")
-        m2 = _fake_model("openai/alpha", "alpha", "openai")
+        m1 = _fake_model("openai/zebra", "openai/zebra", "openai")
+        m2 = _fake_model("openai/alpha", "openai/alpha", "openai")
         options = build_display_options([m1, m2], None, "auto")
         assert [o.display_name for o in options] == ["alpha", "zebra"]
+
+    def test_openrouter_raw_id_is_not_primary_display_name(self) -> None:
+        m = _fake_model(
+            "openrouter/qwen/qwen3.7-max",
+            "openrouter/qwen/qwen3.7-max",
+            "openrouter",
+        )
+        options = build_display_options([m], {"openrouter"}, "auto")
+        assert options[0].display_name == "qwen3.7-max"
+        assert options[0].display_family == "Qwen"
 
     def test_all_candidates_property_returns_preferred_first(self) -> None:
         m_direct = _fake_model("openai/gpt-4o", "gpt-4o", "openai")
@@ -379,6 +418,7 @@ class TestDisplayModelOptionAvailable:
         opt = DisplayModelOption(
             canonical_key="openai/gpt-4o",
             display_name="gpt-4o",
+            display_family="OpenAI",
             capabilities=(),
             preferred=candidate,
         )

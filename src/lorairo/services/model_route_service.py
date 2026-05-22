@@ -48,6 +48,11 @@ _PROVIDER_ALIAS_MAP: dict[str, str] = {
     "vertex_ai": "google",
 }
 
+_DISPLAY_FAMILY_NAMES: dict[str, str] = {
+    "openai": "OpenAI",
+    "qwen": "Qwen",
+}
+
 
 def detect_route(litellm_model_id: str) -> Route:
     """litellm_model_id の prefix から route を判定。
@@ -73,6 +78,41 @@ def canonical_key(litellm_model_id: str) -> str:
         prefix を除去した文字列。例 ``"anthropic/claude-3-5-sonnet"``。
     """
     return litellm_model_id.removeprefix(_OPENROUTER_PREFIX)
+
+
+def is_webapi_model_id(litellm_model_id: str) -> bool:
+    """litellm_model_id が Web API 経路 ID かを slash 有無で判定する。"""
+    return "/" in litellm_model_id
+
+
+def display_model_name_for(litellm_model_id: str, fallback_name: str) -> str:
+    """UI の primary label に使う短いモデル名を返す。
+
+    Web API モデルは ``provider/model`` または ``openrouter/provider/model``
+    形式のため、実行経路を含む raw ID ではなく最後の segment を表示する。
+    slash 無しのローカルモデルは既存表示を維持する。
+    """
+    if not is_webapi_model_id(litellm_model_id):
+        return fallback_name
+    _, _, model_name = canonical_key(litellm_model_id).rpartition("/")
+    return model_name or fallback_name
+
+
+def display_family_for(litellm_model_id: str, provider_hint: str | None = None) -> str:
+    """UI grouping/provider label に使う capability family 名を返す。
+
+    OpenRouter は実行経路なので family には出さず、canonical ID の provider
+    segment (例: ``openrouter/qwen/...`` -> ``Qwen``) を使う。
+    ローカルモデルは従来どおり local として扱う。
+    """
+    if not is_webapi_model_id(litellm_model_id):
+        return provider_hint or _LOCAL_PROVIDER
+
+    family_key, _, _ = canonical_key(litellm_model_id).partition("/")
+    family_key = family_key.strip().lower()
+    if not family_key:
+        return provider_hint or _LOCAL_PROVIDER
+    return _DISPLAY_FAMILY_NAMES.get(family_key, family_key.title())
 
 
 def required_provider_for(litellm_model_id: str, provider_hint: str | None = None) -> str:
@@ -129,6 +169,7 @@ class DisplayModelOption:
 
     canonical_key: str
     display_name: str
+    display_family: str
     capabilities: tuple[str, ...]
     preferred: ModelRouteCandidate
     alternatives: tuple[ModelRouteCandidate, ...] = field(default_factory=tuple)
@@ -291,7 +332,14 @@ def build_display_options(
         options.append(
             DisplayModelOption(
                 canonical_key=ckey,
-                display_name=preferred.model.name,
+                display_name=display_model_name_for(
+                    preferred.litellm_model_id,
+                    preferred.model.name,
+                ),
+                display_family=display_family_for(
+                    preferred.litellm_model_id,
+                    preferred.model.provider,
+                ),
                 capabilities=preferred_caps,
                 preferred=preferred,
                 alternatives=alternatives,
@@ -380,7 +428,10 @@ __all__ = [
     "build_display_options",
     "canonical_key",
     "detect_route",
+    "display_family_for",
+    "display_model_name_for",
     "group_model_routes",
+    "is_webapi_model_id",
     "parse_route_preference",
     "required_provider_for",
     "select_preferred_route",

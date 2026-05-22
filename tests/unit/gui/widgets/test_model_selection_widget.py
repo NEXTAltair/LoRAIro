@@ -230,6 +230,57 @@ class TestModelSelectionWidgetLitellmIdKeying:
         assert migration_route.litellm_model_id not in selected
 
 
+class TestModelSelectionWidgetWebApiDisplay:
+    """Issue #343: Web API の primary display は raw route ID ではなく表示名/family を使う。"""
+
+    def test_openrouter_qwen_display_name_and_group_use_canonical_model_family(
+        self, qtbot, mock_model_service
+    ) -> None:
+        model = _fake_db_model(
+            name="openrouter/qwen/qwen3.7-max",
+            provider="openrouter",
+            litellm_model_id="openrouter/qwen/qwen3.7-max",
+            is_recommended=True,
+        )
+        mock_model_service.load_models.return_value = [model]
+        mock_model_service.get_recommended_models.return_value = [model]
+
+        w = ModelSelectionWidget(model_selection_service=mock_model_service, mode="simple")
+        qtbot.addWidget(w)
+
+        checkbox = w.model_checkbox_widgets["openrouter/qwen/qwen3.7-max"]
+        assert checkbox.labelModelName.text() == "qwen3.7-max (Qwen)"
+        assert "openrouter/qwen/qwen3.7-max" not in checkbox.labelModelName.text()
+        assert "Model ID: openrouter/qwen/qwen3.7-max" in checkbox.labelModelName.toolTip()
+        assert "Route: openrouter via OpenRouter" in checkbox.labelModelName.toolTip()
+
+        group_labels = [
+            w.dynamicContentLayout.itemAt(i).widget().text()
+            for i in range(w.dynamicContentLayout.count())
+            if w.dynamicContentLayout.itemAt(i).widget()
+            and hasattr(w.dynamicContentLayout.itemAt(i).widget(), "text")
+        ]
+        assert any("Qwen Models" in label for label in group_labels)
+
+    def test_selection_still_returns_raw_litellm_id_for_short_display_name(
+        self, qtbot, mock_model_service
+    ) -> None:
+        model = _fake_db_model(
+            name="openrouter/qwen/qwen3.7-max",
+            provider="openrouter",
+            litellm_model_id="openrouter/qwen/qwen3.7-max",
+            is_recommended=True,
+        )
+        mock_model_service.load_models.return_value = [model]
+        mock_model_service.get_recommended_models.return_value = [model]
+
+        w = ModelSelectionWidget(model_selection_service=mock_model_service, mode="simple")
+        qtbot.addWidget(w)
+        w.set_selected_models(["openrouter/qwen/qwen3.7-max"])
+
+        assert w.get_selected_models() == ["openrouter/qwen/qwen3.7-max"]
+
+
 class TestModelSelectionWidgetRoutePreference:
     """Issue #249: route_preference を config から読み込む挙動。"""
 
