@@ -4,7 +4,7 @@
 """
 
 import pytest
-from PySide6.QtWidgets import QGroupBox, QLabel, QTableWidget
+from PySide6.QtWidgets import QGroupBox, QLabel, QTableWidget, QTextBrowser, QTextEdit
 
 from lorairo.gui.widgets.annotation_summary_dialog import AnnotationSummaryDialog
 from lorairo.gui.workers.annotation_worker import (
@@ -25,10 +25,52 @@ def success_result() -> AnnotationExecutionResult:
         db_save_skip=0,
         model_errors=[],
         image_summaries=[
-            ImageResultSummary(file_name="image_001.png", tag_count=15, has_caption=True, score=0.85),
+            ImageResultSummary(
+                file_name="image_001.png",
+                tag_count=15,
+                has_caption=True,
+                score=0.85,
+                rating="safe (danbooru4, 0.98)",
+            ),
             ImageResultSummary(file_name="image_002.png", tag_count=12, has_caption=True, score=None),
             ImageResultSummary(file_name="image_003.png", tag_count=8, has_caption=False, score=0.72),
         ],
+    )
+
+
+@pytest.fixture
+def rating_result() -> AnnotationExecutionResult:
+    """レーティングを含むアノテーション結果"""
+    return AnnotationExecutionResult(
+        results={
+            "phash1": {
+                "wd-tagger": {
+                    "ratings": [
+                        {
+                            "raw_label": "safe",
+                            "source_scheme": "danbooru4",
+                            "confidence_score": 0.9876,
+                        }
+                    ]
+                },
+                "legacy": {"ratings": ["PG"]},
+            }
+        },
+        total_images=1,
+        models_used=["wd-tagger", "legacy"],
+        db_save_success=1,
+        db_save_skip=0,
+        model_errors=[],
+        image_summaries=[
+            ImageResultSummary(
+                file_name="image_001.png",
+                tag_count=10,
+                has_caption=False,
+                score=None,
+                rating="safe (danbooru4, 0.99)",
+            )
+        ],
+        phash_to_filename={"phash1": "image_001.png"},
     )
 
 
@@ -139,9 +181,30 @@ class TestAnnotationSummaryDialogLayout:
         dialog = AnnotationSummaryDialog(partial_error_result)
         qtbot.addWidget(dialog)
 
-        labels = dialog.findChildren(QLabel)
-        label_texts = [label.text() for label in labels]
-        assert any("gpt-4o-mini" in text and "claude-3-haiku" in text for text in label_texts)
+        model_view = dialog.findChild(QTextBrowser, "modelsUsedView")
+        assert model_view is not None
+        assert "gpt-4o-mini" in model_view.toPlainText()
+        assert "claude-3-haiku" in model_view.toPlainText()
+
+    def test_summary_model_names_use_scrollable_view(self, qtbot):
+        """多数の長いモデル名でも概要欄を単一行QLabelにしない"""
+        long_models = [
+            f"openrouter/provider/very-long-model-name-{i:02d}-with-extra-suffix" for i in range(12)
+        ]
+        result = AnnotationExecutionResult(
+            results={},
+            total_images=1,
+            models_used=long_models,
+            db_save_success=0,
+        )
+        dialog = AnnotationSummaryDialog(result)
+        qtbot.addWidget(dialog)
+
+        model_view = dialog.findChild(QTextBrowser, "modelsUsedView")
+        assert model_view is not None
+        assert model_view.lineWrapMode() == QTextEdit.LineWrapMode.WidgetWidth
+        assert model_view.maximumHeight() <= 96
+        assert long_models[0] in model_view.toPlainText()
 
     def test_skip_count_shown_when_nonzero(self, qtbot, partial_error_result):
         """スキップ件数が0でない場合に表示される"""
@@ -251,3 +314,62 @@ class TestAnnotationSummaryDialogResultsTable:
         assert results_table.item(0, 3).text() == "0.85"
         assert results_table.item(1, 3).text() == "-"  # score=None
         assert results_table.item(2, 3).text() == "0.72"
+
+    def test_results_table_has_rating_column(self, qtbot, success_result, find_child_widget):
+        """保存結果テーブルにレーティング列が表示される"""
+        dialog = AnnotationSummaryDialog(success_result)
+        qtbot.addWidget(dialog)
+
+        results_table = find_child_widget(dialog, QTableWidget, "resultsTable")
+        assert results_table.columnCount() == 5
+        assert results_table.horizontalHeaderItem(4).text() == "レーティング"
+        assert results_table.item(0, 4).text() == "safe (danbooru4, 0.98)"
+        assert results_table.item(1, 4).text() == "-"
+
+
+class TestAnnotationSummaryDialogRatingsTab:
+    """レーティングタブのテスト"""
+
+    def test_ratings_table_content(self, qtbot, rating_result, find_child_widget):
+        """レーティングタブに詳細が表示される"""
+        dialog = AnnotationSummaryDialog(rating_result)
+        qtbot.addWidget(dialog)
+
+        table = find_child_widget(dialog, QTableWidget, "ratingsTable")
+        assert table.rowCount() == 2
+        assert table.item(0, 0).text() == "image_001.png"
+        assert table.item(0, 1).text() == "wd-tagger"
+        assert table.item(0, 2).text() == "safe"
+        assert table.item(0, 3).text() == "danbooru4"
+        assert table.item(0, 4).text() == "0.9876"
+        assert table.item(1, 1).text() == "legacy"
+        assert table.item(1, 2).text() == "PG"
+
+    def test_ratings_table_excludes_errored_results(self, qtbot, rating_result, find_child_widget):
+        """error result の ratings はレーティングタブに表示しない"""
+        rating_result.results["phash1"]["failed-model"] = {
+            "ratings": [
+                {
+                    "raw_label": "questionable",
+                    "source_scheme": "danbooru4",
+                    "confidence_score": 0.9,
+                }
+            ],
+            "error": "model failed",
+        }
+        dialog = AnnotationSummaryDialog(rating_result)
+        qtbot.addWidget(dialog)
+
+        table = find_child_widget(dialog, QTableWidget, "ratingsTable")
+        model_names = [table.item(row, 1).text() for row in range(table.rowCount())]
+        assert model_names == ["wd-tagger", "legacy"]
+
+    def test_ratings_placeholder_when_empty(self, qtbot, success_result):
+        """レーティングがない場合はプレースホルダーを表示する"""
+        success_result.results = {"phash1": {"gpt-4o-mini": {"tags": ["cat"]}}}
+        dialog = AnnotationSummaryDialog(success_result)
+        qtbot.addWidget(dialog)
+
+        labels = dialog.findChildren(QLabel)
+        label_texts = [label.text() for label in labels]
+        assert "レーティングデータがありません。" in label_texts
