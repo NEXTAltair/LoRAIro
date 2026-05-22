@@ -15,6 +15,7 @@ from lorairo.services.model_route_service import (
     ModelRouteCandidate,
     build_available_providers,
     build_display_options,
+    build_model_route_identity,
     canonical_key,
     detect_route,
     display_family_for,
@@ -137,6 +138,149 @@ class TestDisplayHelpers:
 
 
 @pytest.mark.unit
+class TestBuildModelRouteIdentity:
+    @pytest.mark.parametrize(
+        (
+            "litellm_id",
+            "name",
+            "provider",
+            "requires_api_key",
+            "expected",
+        ),
+        [
+            (
+                "wd-v1-4-tagger",
+                "WD Tagger",
+                "local",
+                False,
+                {
+                    "route": "direct",
+                    "canonical_key": "wd-v1-4-tagger",
+                    "required_provider": "local",
+                    "display_name": "WD Tagger",
+                    "display_family": "local",
+                    "is_webapi": False,
+                },
+            ),
+            (
+                "some/very/deep/local-tagger",
+                "Namespaced Local Tagger",
+                "local",
+                False,
+                {
+                    "route": "direct",
+                    "canonical_key": "some/very/deep/local-tagger",
+                    "required_provider": "local",
+                    "display_name": "Namespaced Local Tagger",
+                    "display_family": "local",
+                    "is_webapi": False,
+                },
+            ),
+            (
+                "gpt-4o",
+                "GPT-4o Vision",
+                "openai",
+                True,
+                {
+                    "route": "direct",
+                    "canonical_key": "gpt-4o",
+                    "required_provider": "openai",
+                    "display_name": "GPT-4o Vision",
+                    "display_family": "OpenAI",
+                    "is_webapi": True,
+                },
+            ),
+            (
+                "openai/gpt-4o",
+                "openai/gpt-4o",
+                "openai",
+                True,
+                {
+                    "route": "direct",
+                    "canonical_key": "openai/gpt-4o",
+                    "required_provider": "openai",
+                    "display_name": "gpt-4o",
+                    "display_family": "OpenAI",
+                    "is_webapi": True,
+                },
+            ),
+            (
+                "openrouter/openai/gpt-4o",
+                "openrouter/openai/gpt-4o",
+                "openrouter",
+                True,
+                {
+                    "route": "openrouter",
+                    "canonical_key": "openai/gpt-4o",
+                    "required_provider": "openrouter",
+                    "display_name": "gpt-4o",
+                    "display_family": "OpenAI",
+                    "is_webapi": True,
+                },
+            ),
+            (
+                "vercel_ai_gateway/openai/o1",
+                "vercel_ai_gateway/openai/o1",
+                "vercel_ai_gateway",
+                True,
+                {
+                    "route": "direct",
+                    "canonical_key": "vercel_ai_gateway/openai/o1",
+                    "required_provider": "vercel_ai_gateway",
+                    "display_name": "o1",
+                    "display_family": "OpenAI",
+                    "is_webapi": True,
+                },
+            ),
+            (
+                "gemini/gemini-2.5-pro",
+                "gemini/gemini-2.5-pro",
+                "Gemini",
+                True,
+                {
+                    "route": "direct",
+                    "canonical_key": "gemini/gemini-2.5-pro",
+                    "required_provider": "google",
+                    "display_name": "gemini-2.5-pro",
+                    "display_family": "Gemini",
+                    "is_webapi": True,
+                },
+            ),
+            (
+                "vertex_ai/gemini-pro",
+                "vertex_ai/gemini-pro",
+                None,
+                True,
+                {
+                    "route": "direct",
+                    "canonical_key": "vertex_ai/gemini-pro",
+                    "required_provider": "google",
+                    "display_name": "gemini-pro",
+                    "display_family": "Vertex_Ai",
+                    "is_webapi": True,
+                },
+            ),
+        ],
+    )
+    def test_identity_matrix(
+        self,
+        litellm_id: str,
+        name: str,
+        provider: str | None,
+        requires_api_key: bool,
+        expected: dict[str, str | bool],
+    ) -> None:
+        identity = build_model_route_identity(litellm_id, name, provider, requires_api_key)
+
+        assert identity.route == expected["route"]
+        assert identity.canonical_key == expected["canonical_key"]
+        assert identity.required_provider == expected["required_provider"]
+        assert identity.display_name == expected["display_name"]
+        assert identity.display_family == expected["display_family"]
+        assert identity.is_webapi is expected["is_webapi"]
+
+
+@pytest.mark.unit
 class TestRequiredProviderFor:
     def test_provider_hint_takes_priority(self) -> None:
         """hint があれば信頼する (migration 経由で name と provider が食い違うケース)"""
@@ -238,6 +382,7 @@ class TestSelectPreferredRoute:
                 litellm_model_id=lid,
                 route=r,
                 required_provider=p,
+                identity=build_model_route_identity(lid, "x", p, p != "local"),
                 model=_fake_model(lid, "x", p),
             )
             for lid, r, p in configs
@@ -468,6 +613,7 @@ class TestDisplayModelOptionAvailable:
             litellm_model_id="openai/gpt-4o",
             route="direct",
             required_provider="openai",
+            identity=build_model_route_identity("openai/gpt-4o", "gpt-4o", "openai", True),
             model=m,
         )
         opt = DisplayModelOption(
