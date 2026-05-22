@@ -36,6 +36,7 @@ Route = Literal["direct", "openrouter"]
 RoutePreference = Literal["auto", "direct", "openrouter", "all"]
 
 _OPENROUTER_PREFIX = "openrouter/"
+_DISPLAY_GATEWAY_PREFIXES = frozenset({"openrouter", "vercel_ai_gateway"})
 _LOCAL_PROVIDER = "local"
 _UNKNOWN_PROVIDERS = frozenset({"", "unknown"})
 # Issue #249: parse_route_preference の validation 集合 (Literal 値域と完全一致)
@@ -80,35 +81,80 @@ def canonical_key(litellm_model_id: str) -> str:
     return litellm_model_id.removeprefix(_OPENROUTER_PREFIX)
 
 
-def is_webapi_model_id(litellm_model_id: str) -> bool:
-    """litellm_model_id が Web API 経路 ID かを slash 有無で判定する。"""
+def _normalized_provider_hint(provider_hint: str | None) -> str | None:
+    """信頼できる provider hint を lowercase で返す。unknown/空は None。"""
+    if not isinstance(provider_hint, str):
+        return None
+    normalized = provider_hint.strip().lower()
+    if normalized in _UNKNOWN_PROVIDERS:
+        return None
+    return normalized
+
+
+def is_webapi_model_id(
+    litellm_model_id: str,
+    provider_hint: str | None = None,
+    requires_api_key: bool | None = None,
+) -> bool:
+    """litellm_model_id が Web API 経路 ID かを判定する。
+
+    ``requires_api_key`` が分かる caller ではそれを一次ソースにする。local model の
+    ``info.name`` には slash 付き namespace が入り得るため、slash の有無だけでは判定しない。
+    """
+    if requires_api_key is not None:
+        return requires_api_key
+
+    normalized_provider = _normalized_provider_hint(provider_hint)
+    if normalized_provider == _LOCAL_PROVIDER:
+        return False
+    if normalized_provider is not None:
+        return True
+
     return "/" in litellm_model_id
 
 
-def display_model_name_for(litellm_model_id: str, fallback_name: str) -> str:
+def display_key_for(litellm_model_id: str) -> str:
+    """UI 表示用に execution gateway prefix を除いた model key を返す。"""
+    display_key = canonical_key(litellm_model_id)
+    head, sep, tail = display_key.partition("/")
+    if sep and head.strip().lower() in _DISPLAY_GATEWAY_PREFIXES:
+        return tail
+    return display_key
+
+
+def display_model_name_for(
+    litellm_model_id: str,
+    fallback_name: str,
+    provider_hint: str | None = None,
+    requires_api_key: bool | None = None,
+) -> str:
     """UI の primary label に使う短いモデル名を返す。
 
-    Web API モデルは ``provider/model`` または ``openrouter/provider/model``
-    形式のため、実行経路を含む raw ID ではなく最後の segment を表示する。
-    slash 無しのローカルモデルは既存表示を維持する。
+    Web API モデルは ``provider/model`` または ``gateway/provider/model`` 形式のため、
+    実行経路を含む raw ID ではなく最後の segment を表示する。ローカルモデルは slash
+    付き namespace を持つ可能性があるため既存表示を維持する。
     """
-    if not is_webapi_model_id(litellm_model_id):
+    if not is_webapi_model_id(litellm_model_id, provider_hint, requires_api_key):
         return fallback_name
-    _, _, model_name = canonical_key(litellm_model_id).rpartition("/")
+    _, _, model_name = display_key_for(litellm_model_id).rpartition("/")
     return model_name or fallback_name
 
 
-def display_family_for(litellm_model_id: str, provider_hint: str | None = None) -> str:
+def display_family_for(
+    litellm_model_id: str,
+    provider_hint: str | None = None,
+    requires_api_key: bool | None = None,
+) -> str:
     """UI grouping/provider label に使う capability family 名を返す。
 
-    OpenRouter は実行経路なので family には出さず、canonical ID の provider
-    segment (例: ``openrouter/qwen/...`` -> ``Qwen``) を使う。
-    ローカルモデルは従来どおり local として扱う。
+    OpenRouter / Vercel AI Gateway などの execution gateway は family には出さず、
+    実モデル側の provider segment (例: ``openrouter/qwen/...`` -> ``Qwen``) を使う。
+    ローカルモデルは従来どおり provider hint/local として扱う。
     """
-    if not is_webapi_model_id(litellm_model_id):
+    if not is_webapi_model_id(litellm_model_id, provider_hint, requires_api_key):
         return provider_hint or _LOCAL_PROVIDER
 
-    family_key, _, _ = canonical_key(litellm_model_id).partition("/")
+    family_key, _, _ = display_key_for(litellm_model_id).partition("/")
     family_key = family_key.strip().lower()
     if not family_key:
         return provider_hint or _LOCAL_PROVIDER
@@ -335,10 +381,13 @@ def build_display_options(
                 display_name=display_model_name_for(
                     preferred.litellm_model_id,
                     preferred.model.name,
+                    preferred.model.provider,
+                    preferred.model.requires_api_key,
                 ),
                 display_family=display_family_for(
                     preferred.litellm_model_id,
                     preferred.model.provider,
+                    preferred.model.requires_api_key,
                 ),
                 capabilities=preferred_caps,
                 preferred=preferred,

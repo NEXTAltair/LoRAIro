@@ -98,18 +98,36 @@ class TestDisplayHelpers:
     def test_local_display_name_uses_fallback_name(self) -> None:
         assert display_model_name_for("wd-v1-4-tagger", "WD Tagger") == "WD Tagger"
 
+    def test_local_slash_display_name_uses_fallback_name(self) -> None:
+        assert (
+            display_model_name_for(
+                "some/very/deep/namespace/local-tagger-v3",
+                "Local Tagger",
+                "local",
+                False,
+            )
+            == "Local Tagger"
+        )
+
     def test_openrouter_family_uses_canonical_provider(self) -> None:
-        assert display_family_for("openrouter/qwen/qwen3.7-max", "openrouter") == "Qwen"
+        assert display_family_for("openrouter/qwen/qwen3.7-max", "openrouter", True) == "Qwen"
+
+    def test_gateway_family_uses_real_provider_segment(self) -> None:
+        assert display_family_for("vercel_ai_gateway/openai/o1", "vercel_ai_gateway", True) == "OpenAI"
 
     def test_direct_webapi_family_uses_provider_segment(self) -> None:
-        assert display_family_for("openai/gpt-4o", "openai") == "OpenAI"
+        assert display_family_for("openai/gpt-4o", "openai", True) == "OpenAI"
 
     def test_local_family_uses_provider_hint(self) -> None:
-        assert display_family_for("wd-v1-4-tagger", "local") == "local"
+        assert display_family_for("wd-v1-4-tagger", "local", False) == "local"
 
     def test_is_webapi_model_id_checks_slash(self) -> None:
         assert is_webapi_model_id("openrouter/qwen/qwen3.7-max") is True
         assert is_webapi_model_id("wd-v1-4-tagger") is False
+
+    def test_is_webapi_model_id_prefers_requires_api_key(self) -> None:
+        assert is_webapi_model_id("some/very/deep/local-tagger", "local", False) is False
+        assert is_webapi_model_id("gpt-4o", "openai", True) is True
 
 
 @pytest.mark.unit
@@ -307,6 +325,27 @@ class TestBuildDisplayOptions:
         options = build_display_options([m], {"openrouter"}, "auto")
         assert options[0].display_name == "qwen3.7-max"
         assert options[0].display_family == "Qwen"
+
+    def test_gateway_raw_id_uses_real_family_for_display(self) -> None:
+        m = _fake_model(
+            "vercel_ai_gateway/openai/o1-very-long-model-name-2025-04-16",
+            "vercel_ai_gateway/openai/o1-very-long-model-name-2025-04-16",
+            "vercel_ai_gateway",
+        )
+        options = build_display_options([m], None, "auto")
+        assert options[0].display_name == "o1-very-long-model-name-2025-04-16"
+        assert options[0].display_family == "OpenAI"
+
+    def test_slash_qualified_local_model_keeps_library_name(self) -> None:
+        m = _fake_model(
+            "some/very/deep/namespace/local-tagger-v3",
+            "some/very/deep/namespace/local-tagger-v3",
+            "local",
+            requires_api_key=False,
+        )
+        options = build_display_options([m], set(), "auto")
+        assert options[0].display_name == "some/very/deep/namespace/local-tagger-v3"
+        assert options[0].display_family == "local"
 
     def test_all_candidates_property_returns_preferred_first(self) -> None:
         m_direct = _fake_model("openai/gpt-4o", "gpt-4o", "openai")
