@@ -29,10 +29,11 @@ class ModelInfo:
     同 `name` で `provider` が異なる行 (migration 経由 OpenRouter vs 新規 sync 直接版)
     が共存しうるため、内部キーは `litellm_model_id` を使うこと。
 
-    Issue #241: 同一モデルが direct / openrouter 経路で別エントリ登録される
-    仕様 (image-annotator-lib #39 / #51 / #52) に対し、UI 表示は preferred route の
-    1 行に畳む。``route`` は preferred の経路 ("direct" / "openrouter")、
-    ``alternatives`` は同一 canonical key の代替 route の litellm_model_id 群。
+    Issue #241/#343: 同一モデルが direct / openrouter 経路で別エントリ登録される
+    仕様に対し、UI 表示は preferred route の 1 行に畳む。``route`` は preferred
+    の経路 ("direct" / "openrouter")、``alternatives`` は同一 canonical key の
+    代替 route の litellm_model_id 群。OpenRouter は実行経路なので primary label
+    には出さず、tooltip に raw ID と route 情報を載せる。
     """
 
     name: str
@@ -121,24 +122,23 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
     def _setup_model_display(self) -> None:
         """モデル情報をUIに表示
 
-        Issue #245: 同じ表示名 `Model.name` を持つ行が異なる `provider`/route で
-        共存しうる (migration 経由 OpenRouter vs 新規 sync 直接版)。視覚的に
-        区別できるよう、ラベル末尾に `(provider)` を併記し、tooltip に正規
-        ルーティングキー `litellm_model_id` を載せる。
+        Issue #245: 同じ表示名 `Model.name` を持つ行が異なる `provider`/family で
+        共存しうるため、ラベル末尾に `(provider)` を併記する。
 
-        Issue #241: 同一モデルの 2 経路を 1 行に畳んだ後、preferred が OpenRouter
-        経由の場合は ``[openrouter]`` badge をラベルに付与し、tooltip に
-        ``Alternative: <litellm_id>`` 行を追加して代替 route を提示する。
+        Issue #343: direct/openrouter は execution route metadata であり annotation
+        capability ではないため、primary label には ``[openrouter]`` を出さない。
+        raw ``litellm_model_id`` と route/via 情報は tooltip に載せる。
         """
         try:
-            # モデル名設定 (provider 併記 + Issue #241: openrouter 経路の場合は badge)
+            # モデル名設定 (provider/family 併記)
             base_label = f"{self.model_info.name} ({self.model_info.provider})"
-            if self.model_info.route == "openrouter":
-                base_label = f"{base_label} [openrouter]"
             self.labelModelName.setText(base_label)
 
-            # tooltip: litellm_model_id + alternatives
-            tooltip_lines = [self.model_info.litellm_model_id]
+            # tooltip: raw litellm_model_id + route/via + alternatives
+            tooltip_lines = [
+                f"Model ID: {self.model_info.litellm_model_id}",
+                f"Route: {self._format_route_tooltip(self.model_info.route)}",
+            ]
             for alt_id in self.model_info.alternatives:
                 tooltip_lines.append(f"Alternative: {alt_id}")
             self.labelModelName.setToolTip("\n".join(tooltip_lines))
@@ -160,6 +160,13 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
 
         except Exception as e:
             logger.error(f"Error setting up model display for {self.model_info.name}: {e}", exc_info=True)
+
+    @staticmethod
+    def _format_route_tooltip(route: str) -> str:
+        """tooltip 用の route/via 表記を返す。"""
+        if route == "openrouter":
+            return "openrouter via OpenRouter"
+        return route
 
     def _apply_provider_styling(self, provider_display: str) -> None:
         """プロバイダー別スタイリング適用（辞書ベース）"""

@@ -85,7 +85,8 @@ class TestModelCheckboxWidget:
 
     def test_model_name_tooltip_is_litellm_id(self, widget_openai):
         """tooltip には正規ルーティングキー (litellm_model_id) が出る (Issue #245)"""
-        assert widget_openai.labelModelName.toolTip() == "openai/gpt-4-vision-preview"
+        assert "Model ID: openai/gpt-4-vision-preview" in widget_openai.labelModelName.toolTip()
+        assert "Route: direct" in widget_openai.labelModelName.toolTip()
 
     def test_label_distinguishes_same_name_different_provider(self, qtbot):
         """同 name 異 provider の行が UI 上で視覚的に区別できる (Issue #245)"""
@@ -275,11 +276,11 @@ class TestModelCheckboxWidget:
 
     # --- Issue #241: route badge / alternative tooltip ---
 
-    def test_route_badge_shown_for_openrouter_route(self, qtbot):
-        """preferred route が openrouter の場合、ラベル末尾に [openrouter] badge"""
+    def test_route_badge_not_shown_for_openrouter_route(self, qtbot):
+        """preferred route が openrouter の場合も primary label に route badge を出さない"""
         info = ModelInfo(
             name="claude-3-5-sonnet",
-            provider="openrouter",
+            provider="Anthropic",
             capabilities=["caption"],
             litellm_model_id="openrouter/anthropic/claude-3-5-sonnet",
             is_local=False,
@@ -288,7 +289,9 @@ class TestModelCheckboxWidget:
         )
         widget = ModelCheckboxWidget(info)
         qtbot.addWidget(widget)
-        assert "[openrouter]" in widget.labelModelName.text()
+        assert widget.labelModelName.text() == "claude-3-5-sonnet (Anthropic)"
+        assert "[openrouter]" not in widget.labelModelName.text()
+        assert "Route: openrouter via OpenRouter" in widget.labelModelName.toolTip()
 
     def test_route_badge_absent_for_direct_route(self, widget_openai):
         """direct route はラベルに badge が付かない (Issue #245 の表記を維持)"""
@@ -310,12 +313,32 @@ class TestModelCheckboxWidget:
         widget = ModelCheckboxWidget(info)
         qtbot.addWidget(widget)
         tooltip = widget.labelModelName.toolTip()
-        assert "anthropic/claude-3-5-sonnet-20241022" in tooltip
+        assert "Model ID: anthropic/claude-3-5-sonnet-20241022" in tooltip
         assert "Alternative: openrouter/anthropic/claude-3-5-sonnet-20241022" in tooltip
 
-    def test_tooltip_without_alternatives_is_just_litellm_id(self, widget_openai):
-        """alternatives が空の場合、tooltip は litellm_model_id のみ"""
-        assert widget_openai.labelModelName.toolTip() == "openai/gpt-4-vision-preview"
+    def test_tooltip_without_alternatives_has_model_id_and_route(self, widget_openai):
+        """alternatives が空の場合も tooltip は raw ID と route を含む"""
+        assert widget_openai.labelModelName.toolTip() == (
+            "Model ID: openai/gpt-4-vision-preview\nRoute: direct"
+        )
+
+    def test_openrouter_raw_id_not_primary_visible_name(self, qtbot):
+        """長い OpenRouter raw ID は primary visible name に使わない (Issue #343)"""
+        info = ModelInfo(
+            name="qwen3.7-max",
+            provider="Qwen",
+            capabilities=["caption"],
+            litellm_model_id="openrouter/qwen/qwen3.7-max",
+            is_local=False,
+            requires_api_key=True,
+            route="openrouter",
+        )
+        widget = ModelCheckboxWidget(info)
+        qtbot.addWidget(widget)
+
+        assert widget.labelModelName.text() == "qwen3.7-max (Qwen)"
+        assert "openrouter/qwen/qwen3.7-max" not in widget.labelModelName.text()
+        assert "Model ID: openrouter/qwen/qwen3.7-max" in widget.labelModelName.toolTip()
 
 
 class TestProviderStylesConstant:

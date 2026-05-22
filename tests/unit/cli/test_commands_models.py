@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
+from lorairo.cli.commands.models import ModelCategoryFilter, ModelTypeFilter, _build_rows_from_infos
 from lorairo.cli.main import app
 
 
@@ -669,6 +670,49 @@ def test_models_list_long_model_names_keep_columns_visible(mock_get_container) -
     assert "ready" in result.stdout
     assert "missing_key" in result.stdout
     assert "2 model(s)" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_models_list_rows_use_shared_identity_for_display_metadata() -> None:
+    """CLI row 生成も GUI と同じ identity 解析を使う。"""
+    infos = [
+        _FakeAnnotatorInfo(
+            name="GPT-4o Vision",
+            model_type="vision",
+            is_local=False,
+            is_api=True,
+            provider="openai",
+            litellm_model_id="gpt-4o",
+        ),
+        _FakeAnnotatorInfo(
+            name="some/very/deep/namespace/local-tagger",
+            model_type="tagger",
+            is_local=True,
+            is_api=False,
+            device="cuda",
+        ),
+    ]
+    annotator = MagicMock()
+    annotator.is_model_deprecated.return_value = False
+
+    rows = _build_rows_from_infos(
+        infos=infos,
+        type_filter=ModelTypeFilter.all,
+        category=ModelCategoryFilter.all,
+        include_deprecated=False,
+        annotator=annotator,
+        available_providers={"openai"},
+    )
+
+    assert rows[0]["display_name"] == "GPT-4o Vision"
+    assert rows[0]["display_family"] == "OpenAI"
+    assert rows[0]["required_provider"] == "openai"
+    assert rows[0]["available"] is True
+    assert rows[1]["display_name"] == "some/very/deep/namespace/local-tagger"
+    assert rows[1]["display_family"] == "local"
+    assert rows[1]["required_provider"] == "local"
+    assert rows[1]["available"] is True
 
 
 # --- Issue #253: 0 件 hint + DEBUG diagnostic ---

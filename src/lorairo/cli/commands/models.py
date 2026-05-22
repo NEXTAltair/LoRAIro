@@ -15,10 +15,8 @@ if TYPE_CHECKING:
     from rich.console import Console
 from lorairo.services.model_route_service import (
     build_available_providers,
-    canonical_key,
-    detect_route,
+    build_model_route_identity,
     parse_route_preference,
-    required_provider_for,
 )
 from lorairo.services.service_container import get_service_container
 from lorairo.utils.log import logger
@@ -313,8 +311,7 @@ def _group_rows_by_canonical_key(
     grouped: dict[str, list[dict[str, str | bool]]] = {}
     order: list[str] = []
     for row in rows:
-        litellm_id = str(row["litellm_id"])
-        ckey = canonical_key(litellm_id)
+        ckey = str(row["canonical_key"])
         if ckey not in grouped:
             grouped[ckey] = []
             order.append(ckey)
@@ -356,25 +353,36 @@ def _build_rows_from_infos(
 
         type_label = "webapi" if info.is_api else "local"
         litellm_id = info.litellm_model_id or info.name
-        row_route = detect_route(litellm_id)
-        row_required = required_provider_for(litellm_id, info.provider)
+        identity = build_model_route_identity(
+            litellm_id,
+            info.name,
+            info.provider,
+            info.is_api,
+        )
         # Provider 列は LiteLLM の raw prefix ではなく、実際に必要な API key provider を表示する。
-        provider_label = "local" if info.is_local else row_required
+        provider_label = "local" if info.is_local else identity.required_provider
         # Issue #249: ローカル ML モデルは API key 不要のため常に available。
         # info.is_local も加味する: provider 未設定 + slash 入り bare ID のローカルモデル
         # (例: "some/local-tagger") は required_provider_for だと "some" になるため、
         # info.is_local フラグを優先して available 判定する。
-        row_available = info.is_local or row_required == "local" or row_required in available_providers
+        row_available = (
+            info.is_local
+            or identity.required_provider == "local"
+            or identity.required_provider in available_providers
+        )
         rows.append(
             {
                 "name": info.name,
                 "provider": provider_label,
                 "litellm_id": litellm_id,
+                "canonical_key": identity.canonical_key,
+                "display_name": identity.display_name,
+                "display_family": identity.display_family,
                 "type_label": type_label,
                 "category": info.model_type,
                 "deprecated": deprecated,
-                "route": row_route,
-                "required_provider": row_required,
+                "route": identity.route,
+                "required_provider": identity.required_provider,
                 "available": row_available,
             }
         )

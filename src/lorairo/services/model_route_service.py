@@ -36,6 +36,7 @@ Route = Literal["direct", "openrouter"]
 RoutePreference = Literal["auto", "direct", "openrouter", "all"]
 
 _OPENROUTER_PREFIX = "openrouter/"
+_DISPLAY_GATEWAY_PREFIXES = frozenset({"openrouter", "vercel_ai_gateway"})
 _LOCAL_PROVIDER = "local"
 _UNKNOWN_PROVIDERS = frozenset({"", "unknown"})
 # Issue #249: parse_route_preference の validation 集合 (Literal 値域と完全一致)
@@ -46,6 +47,11 @@ _VALID_ROUTE_PREFERENCES: frozenset[str] = frozenset(get_args(RoutePreference))
 _PROVIDER_ALIAS_MAP: dict[str, str] = {
     "gemini": "google",
     "vertex_ai": "google",
+}
+
+_DISPLAY_FAMILY_NAMES: dict[str, str] = {
+    "openai": "OpenAI",
+    "qwen": "Qwen",
 }
 
 
@@ -73,6 +79,163 @@ def canonical_key(litellm_model_id: str) -> str:
         prefix を除去した文字列。例 ``"anthropic/claude-3-5-sonnet"``。
     """
     return litellm_model_id.removeprefix(_OPENROUTER_PREFIX)
+
+
+@dataclass(frozen=True)
+class ModelRouteIdentity:
+    """1 モデル行の route / provider / display 解釈結果。
+
+    `litellm_model_id` の文字列解析と `Model.provider` / `requires_api_key`
+    による補正を一箇所に集約し、GUI / CLI の表示判定を揃える。
+    """
+
+    litellm_model_id: str
+    route: Route
+    canonical_key: str
+    required_provider: str
+    display_name: str
+    display_family: str
+    is_webapi: bool
+
+
+def _normalized_provider_hint(provider_hint: str | None) -> str | None:
+    """信頼できる provider hint を lowercase で返す。unknown/空は None。"""
+    if not isinstance(provider_hint, str):
+        return None
+    normalized = provider_hint.strip().lower()
+    if normalized in _UNKNOWN_PROVIDERS:
+        return None
+    return normalized
+
+
+def is_webapi_model_id(
+    litellm_model_id: str,
+    provider_hint: str | None = None,
+    requires_api_key: bool | None = None,
+) -> bool:
+    """litellm_model_id が Web API 経路 ID かを判定する。
+
+    ``requires_api_key`` が分かる caller ではそれを一次ソースにする。local model の
+    ``info.name`` には slash 付き namespace が入り得るため、slash の有無だけでは判定しない。
+    """
+    if requires_api_key is not None:
+        return requires_api_key
+
+    normalized_provider = _normalized_provider_hint(provider_hint)
+    if normalized_provider == _LOCAL_PROVIDER:
+        return False
+    if normalized_provider is not None:
+        return True
+
+    return "/" in litellm_model_id
+
+
+def display_key_for(litellm_model_id: str) -> str:
+    """UI 表示用に execution gateway prefix を除いた model key を返す。"""
+    display_key = canonical_key(litellm_model_id)
+    head, sep, tail = display_key.partition("/")
+    if sep and head.strip().lower() in _DISPLAY_GATEWAY_PREFIXES:
+        return tail
+    return display_key
+
+
+def display_family_name_for(provider_key: str) -> str:
+    """provider key を UI 表示用 family 名へ正規化する。"""
+    family_key = provider_key.strip().lower()
+    if not family_key:
+        return _LOCAL_PROVIDER
+    return _DISPLAY_FAMILY_NAMES.get(family_key, family_key.title())
+
+
+def build_model_route_identity(
+    litellm_model_id: str,
+    name: str,
+    provider_hint: str | None = None,
+    requires_api_key: bool | None = None,
+) -> ModelRouteIdentity:
+    """1 モデル行の route / canonical / display identity を構築する。
+
+    `requires_api_key` が分かる場合は local/WebAPI 判定の一次情報として扱う。
+    slash の有無は WebAPI 判定には使わず、WebAPI と判定された後の表示 key
+    解析にだけ使う。
+    """
+    route = detect_route(litellm_model_id)
+    ckey = canonical_key(litellm_model_id)
+    normalized_provider = _normalized_provider_hint(provider_hint)
+    is_webapi = is_webapi_model_id(litellm_model_id, provider_hint, requires_api_key)
+
+    if not is_webapi:
+        return ModelRouteIdentity(
+            litellm_model_id=litellm_model_id,
+            route=route,
+            canonical_key=ckey,
+            required_provider=_LOCAL_PROVIDER,
+            display_name=name,
+            display_family=_LOCAL_PROVIDER,
+            is_webapi=False,
+        )
+
+    required_provider = required_provider_for(litellm_model_id, provider_hint)
+    display_key = display_key_for(litellm_model_id)
+    provider_for_display = normalized_provider or required_provider
+
+    if "/" not in display_key:
+        display_name = name
+        display_family = display_family_name_for(provider_for_display)
+    else:
+        family_key, _, _ = display_key.partition("/")
+        _, _, model_name = display_key.rpartition("/")
+        display_name = model_name or name
+        display_family = display_family_name_for(family_key or provider_for_display)
+
+    return ModelRouteIdentity(
+        litellm_model_id=litellm_model_id,
+        route=route,
+        canonical_key=ckey,
+        required_provider=required_provider,
+        display_name=display_name,
+        display_family=display_family,
+        is_webapi=True,
+    )
+
+
+def display_model_name_for(
+    litellm_model_id: str,
+    fallback_name: str,
+    provider_hint: str | None = None,
+    requires_api_key: bool | None = None,
+) -> str:
+    """UI の primary label に使う短いモデル名を返す。
+
+    Web API モデルは ``provider/model`` または ``gateway/provider/model`` 形式のため、
+    実行経路を含む raw ID ではなく最後の segment を表示する。ローカルモデルは slash
+    付き namespace を持つ可能性があるため既存表示を維持する。
+    """
+    return build_model_route_identity(
+        litellm_model_id,
+        fallback_name,
+        provider_hint,
+        requires_api_key,
+    ).display_name
+
+
+def display_family_for(
+    litellm_model_id: str,
+    provider_hint: str | None = None,
+    requires_api_key: bool | None = None,
+) -> str:
+    """UI grouping/provider label に使う capability family 名を返す。
+
+    OpenRouter / Vercel AI Gateway などの execution gateway は family には出さず、
+    実モデル側の provider segment (例: ``openrouter/qwen/...`` -> ``Qwen``) を使う。
+    ローカルモデルは従来どおり provider hint/local として扱う。
+    """
+    return build_model_route_identity(
+        litellm_model_id,
+        litellm_model_id,
+        provider_hint,
+        requires_api_key,
+    ).display_family
 
 
 def required_provider_for(litellm_model_id: str, provider_hint: str | None = None) -> str:
@@ -120,6 +283,7 @@ class ModelRouteCandidate:
     litellm_model_id: str
     route: Route
     required_provider: str
+    identity: ModelRouteIdentity
     model: Model
 
 
@@ -129,6 +293,7 @@ class DisplayModelOption:
 
     canonical_key: str
     display_name: str
+    display_family: str
     capabilities: tuple[str, ...]
     preferred: ModelRouteCandidate
     alternatives: tuple[ModelRouteCandidate, ...] = field(default_factory=tuple)
@@ -169,15 +334,20 @@ def group_model_routes(models: Iterable[Model]) -> dict[str, list[ModelRouteCand
     """
     grouped: dict[str, list[ModelRouteCandidate]] = {}
     for model in models:
-        route = detect_route(model.litellm_model_id)
-        required = required_provider_for(model.litellm_model_id, model.provider)
+        identity = build_model_route_identity(
+            model.litellm_model_id,
+            model.name,
+            model.provider,
+            model.requires_api_key,
+        )
         candidate = ModelRouteCandidate(
             litellm_model_id=model.litellm_model_id,
-            route=route,
-            required_provider=required,
+            route=identity.route,
+            required_provider=identity.required_provider,
+            identity=identity,
             model=model,
         )
-        grouped.setdefault(canonical_key(model.litellm_model_id), []).append(candidate)
+        grouped.setdefault(identity.canonical_key, []).append(candidate)
 
     # direct -> openrouter の順に並べる (UI 表示と select_preferred_route の挙動を安定させる)
     for candidates in grouped.values():
@@ -291,7 +461,8 @@ def build_display_options(
         options.append(
             DisplayModelOption(
                 canonical_key=ckey,
-                display_name=preferred.model.name,
+                display_name=preferred.identity.display_name,
+                display_family=preferred.identity.display_family,
                 capabilities=preferred_caps,
                 preferred=preferred,
                 alternatives=alternatives,
@@ -374,13 +545,18 @@ def validate_api_keys_for_models(
 __all__ = [
     "DisplayModelOption",
     "ModelRouteCandidate",
+    "ModelRouteIdentity",
     "Route",
     "RoutePreference",
     "build_available_providers",
     "build_display_options",
+    "build_model_route_identity",
     "canonical_key",
     "detect_route",
+    "display_family_for",
+    "display_model_name_for",
     "group_model_routes",
+    "is_webapi_model_id",
     "parse_route_preference",
     "required_provider_for",
     "select_preferred_route",

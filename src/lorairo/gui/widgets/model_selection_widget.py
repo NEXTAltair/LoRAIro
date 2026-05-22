@@ -358,7 +358,7 @@ if not __name__ == "__main__":
             # プレースホルダーを非表示
             self.placeholderLabel.setVisible(False)
 
-            # プロバイダー別にグループ化して表示 (preferred の表示プロバイダー基準)
+            # プロバイダー/family 別にグループ化して表示
             provider_groups = self._group_options_by_provider(options)
 
             for provider, group_options in provider_groups.items():
@@ -469,14 +469,14 @@ if not __name__ == "__main__":
         def _group_options_by_provider(
             self, options: list[DisplayModelOption]
         ) -> dict[str, list[DisplayModelOption]]:
-            """Issue #241: DisplayModelOption を preferred の表示 provider 別にグループ化。
+            """DisplayModelOption を表示 family/provider 別にグループ化。
 
-            表示用 provider は ``preferred.model.provider`` を使う (UI ラベル
-            "OpenAI Models" などの分類軸として既存の表示挙動を維持)。
+            OpenRouter は execution route なので、Web API 表示では
+            ``openrouter`` ではなく canonical provider/family (例: Qwen) で分類する。
             """
             groups: dict[str, list[DisplayModelOption]] = {}
             for option in options:
-                provider = option.preferred.model.provider or "local"
+                provider = option.display_family or "local"
                 groups.setdefault(provider, []).append(option)
             return groups
 
@@ -513,14 +513,13 @@ if not __name__ == "__main__":
         def _convert_option_to_info(self, option: DisplayModelOption) -> ModelInfo:
             """Issue #241: DisplayModelOption (route 畳み込み済み) を ModelInfo に変換。
 
-            表示名は ``preferred.model.name``、内部キーは ``preferred.litellm_model_id``。
-            ``route`` / ``alternatives`` を ModelInfo に伝搬し、UI で badge と
-            tooltip を構築する。
+            表示名は ``option.display_name``、内部キーは ``preferred.litellm_model_id``。
+            ``route`` / ``alternatives`` を ModelInfo に伝搬し、UI で tooltip を構築する。
             """
             model = option.preferred.model
             return ModelInfo(
-                name=model.name,
-                provider=model.provider or "local",
+                name=option.display_name,
+                provider=option.display_family or model.provider or "local",
                 capabilities=list(option.capabilities),
                 litellm_model_id=option.preferred.litellm_model_id,
                 is_local=not model.requires_api_key,
