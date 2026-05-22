@@ -21,6 +21,7 @@ class TestWidgetSetupServiceModelSelectionFilters:
             "capabilities": [],
             "exclude_local": False,
             "execution_env": "APIモデルのみ",
+            "annotation_only": True,
         }
 
     def test_local_environment_keeps_empty_capabilities(self) -> None:
@@ -34,6 +35,7 @@ class TestWidgetSetupServiceModelSelectionFilters:
             "capabilities": [],
             "exclude_local": False,
             "execution_env": "ローカルモデルのみ",
+            "annotation_only": True,
         }
 
     def test_capabilities_are_not_replaced_with_defaults(self) -> None:
@@ -47,6 +49,7 @@ class TestWidgetSetupServiceModelSelectionFilters:
             "capabilities": ["caption"],
             "exclude_local": False,
             "execution_env": None,
+            "annotation_only": True,
         }
 
     def test_missing_capabilities_defaults_to_empty_list(self) -> None:
@@ -58,6 +61,7 @@ class TestWidgetSetupServiceModelSelectionFilters:
             "capabilities": [],
             "exclude_local": False,
             "execution_env": None,
+            "annotation_only": True,
         }
 
     def test_batch_model_selection_hides_internal_execution_env_combo(self) -> None:
@@ -67,3 +71,4 @@ class TestWidgetSetupServiceModelSelectionFilters:
         WidgetSetupService._configure_batch_model_selection_widget(model_widget)
 
         model_widget.executionEnvCombo.setVisible.assert_called_once_with(False)
+        model_widget.set_annotation_only_filtering.assert_called_once_with(True)

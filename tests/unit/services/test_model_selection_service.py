@@ -1,5 +1,6 @@
 # tests/unit/services/test_model_selection_service.py
 
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -245,6 +246,57 @@ class TestModelSelectionService:
         local_models = service.filter_models(criteria)
 
         assert {model.name for model in local_models} == {"wd-v1-4", "clip-aesthetic"}
+
+    def test_annotation_only_filter_excludes_pure_upscaler(self, service):
+        """annotation_only は model_types/capabilities で pure upscaler を除外する"""
+        caption_model = SimpleNamespace(
+            name="caption-model",
+            provider="local",
+            capabilities=["caption"],
+            is_recommended=False,
+            available=True,
+        )
+        multimodal_model = SimpleNamespace(
+            name="multimodal-model",
+            provider="local",
+            capabilities=["multimodal", "upscaler"],
+            is_recommended=False,
+            available=True,
+        )
+        upscaler_model = SimpleNamespace(
+            name="upscaler-model",
+            provider="local",
+            capabilities=["upscaler"],
+            is_recommended=False,
+            available=True,
+        )
+        service._all_models = [caption_model, multimodal_model, upscaler_model]
+
+        filtered = service.filter_models(ModelSelectionCriteria(annotation_only=True))
+
+        assert {model.name for model in filtered} == {"caption-model", "multimodal-model"}
+
+    def test_annotation_only_filter_accepts_ratings_capability(self, service):
+        """ratings は batch annotation 対象 capability として扱う"""
+        ratings_model = SimpleNamespace(
+            name="ratings-model",
+            provider="local",
+            capabilities=["ratings"],
+            is_recommended=False,
+            available=True,
+        )
+        upscaler_model = SimpleNamespace(
+            name="upscaler-model",
+            provider="local",
+            capabilities=["upscaler"],
+            is_recommended=False,
+            available=True,
+        )
+        service._all_models = [ratings_model, upscaler_model]
+
+        filtered = service.filter_models(ModelSelectionCriteria(annotation_only=True))
+
+        assert [model.name for model in filtered] == ["ratings-model"]
 
     # create_model_tooltip, create_model_display_name, _is_recommended_model メソッドは
     # DB中心アーキテクチャでWidgetに移動されたため、テストを削除

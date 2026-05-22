@@ -86,6 +86,10 @@ if not __name__ == "__main__":
         # シグナル定義 (Issue #245: selected_litellm_model_ids を emit)
         model_selection_changed = Signal(list)  # selected_litellm_model_ids
         selection_count_changed = Signal(int, int)  # selected_count, total_count
+        WEB_API_BATCH_PLACEHOLDER = (
+            "Web APIモデルはローカルモデル絞り込みの対象外です。"
+            "開始時のモデル選択ダイアログで使用モデルを選択します。"
+        )
 
         # UI elements type hints (from Ui_ModelSelectionWidget via multi-inheritance)
         if TYPE_CHECKING:
@@ -132,6 +136,8 @@ if not __name__ == "__main__":
             self.current_capability_filters: list[str] = []
             self.current_exclude_local: bool = False
             self.current_execution_env: str | None = None  # "すべて", "APIモデルのみ", "ローカルモデルのみ"
+            self.annotation_only_filtering: bool = False
+            self._default_placeholder_text = self.placeholderLabel.text()
 
             # executionEnvCombo シグナル接続
             if hasattr(self, "executionEnvCombo"):
@@ -280,6 +286,7 @@ if not __name__ == "__main__":
             capabilities: list[str] | None = None,
             exclude_local: bool = False,
             execution_env: str | None = None,
+            annotation_only: bool | None = None,
         ) -> None:
             """フィルタリング適用
 
@@ -288,12 +295,19 @@ if not __name__ == "__main__":
                 capabilities: 機能フィルタ（["caption", "tags", "scores"]）
                 exclude_local: True の場合、ローカルモデルを除外（API モデルのみ表示）
                 execution_env: 実行環境フィルタ（"すべて", "APIモデルのみ", "ローカルモデルのみ"）
+                annotation_only: True の場合、batch annotation 対象モデルだけを表示
             """
             self.current_provider_filter = provider
             self.current_capability_filters = capabilities or []
             self.current_exclude_local = exclude_local
             self.current_execution_env = execution_env
+            if annotation_only is not None:
+                self.annotation_only_filtering = annotation_only
             self.update_model_display()
+
+        def set_annotation_only_filtering(self, enabled: bool) -> None:
+            """Batch annotation 用の annotation-eligible モデル絞り込みを切り替える。"""
+            self.annotation_only_filtering = enabled
 
         def update_model_display(self) -> None:
             """モデル表示更新 (Issue #241: route 畳み込み済み view model 経由)。
@@ -303,6 +317,16 @@ if not __name__ == "__main__":
             """
             # 現在の表示をクリア
             self._clear_model_display()
+
+            if self._should_show_web_api_batch_placeholder():
+                self.filtered_options = []
+                self.filtered_models = []
+                self.placeholderLabel.setText(self.WEB_API_BATCH_PLACEHOLDER)
+                self.placeholderLabel.setVisible(True)
+                self._update_selection_count()
+                return
+
+            self.placeholderLabel.setText(self._default_placeholder_text)
 
             available_providers = self._build_available_providers()
             route_preference = self._get_route_preference()
@@ -391,6 +415,7 @@ if not __name__ == "__main__":
                     only_available=True,
                     exclude_local=self.current_exclude_local,
                     execution_env=self.current_execution_env,
+                    annotation_only=self.annotation_only_filtering,
                 )
 
                 options = self.model_selection_service.load_grouped_models(
@@ -430,7 +455,16 @@ if not __name__ == "__main__":
                     if any(cap in m.capabilities for cap in self.current_capability_filters)
                 ]
 
+            if self.annotation_only_filtering:
+                filtered = [
+                    m for m in filtered if self.model_selection_service._is_annotation_eligible_model(m)
+                ]
+
             return filtered
+
+        def _should_show_web_api_batch_placeholder(self) -> bool:
+            """Batch annotation の Web API only ではローカルモデル一覧を表示しない。"""
+            return self.annotation_only_filtering and self.current_execution_env == "APIモデルのみ"
 
         def _group_options_by_provider(
             self, options: list[DisplayModelOption]
