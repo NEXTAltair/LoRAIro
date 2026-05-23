@@ -123,6 +123,14 @@ class TestSelectedImageDetailsWidget:
             assert label.textInteractionFlags() & flags == flags
             assert label.focusPolicy() == Qt.FocusPolicy.StrongFocus
 
+    def test_label_clipboard_text_prefers_selected_text(self, widget):
+        """QLabelのcontext copyは選択範囲を優先すること"""
+        label = widget.ui.labelFileNameValue
+        label.setText("sample_image.jpg")
+        label.setSelection(0, 6)
+
+        assert widget._label_clipboard_text(label) == "sample"
+
     def test_copy_current_details_to_clipboard(self, widget, sample_image_details):
         """表示中の詳細情報全体をクリップボードへコピーできること"""
         widget._update_details_display(sample_image_details)
@@ -143,7 +151,7 @@ class TestSelectedImageDetailsWidget:
         assert widget.copy_current_details_to_clipboard() is True
         clipboard_text = QApplication.clipboard().text()
         assert "Rating: R" in clipboard_text
-        assert "Score: 920" in clipboard_text
+        assert "Score: 9.20" in clipboard_text
 
     def test_copy_current_details_without_selection_noops(self, widget):
         """未選択時は詳細全体コピーを行わないこと"""

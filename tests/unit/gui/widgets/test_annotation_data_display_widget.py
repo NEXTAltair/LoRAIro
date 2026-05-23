@@ -101,6 +101,13 @@ class TestAnnotationDataDisplayWidget:
         assert widget._tags_compact_label.focusPolicy() == Qt.FocusPolicy.StrongFocus
         assert widget._caption_compact_label.focusPolicy() == Qt.FocusPolicy.StrongFocus
 
+    def test_label_clipboard_text_prefers_selected_text(self, widget):
+        """QLabelのcontext copyは選択範囲を優先すること"""
+        widget._tags_compact_label.setText("1girl, flower, solo")
+        widget._tags_compact_label.setSelection(7, 6)
+
+        assert widget._label_clipboard_text(widget._tags_compact_label) == "flower"
+
     def test_copy_selected_tag_cells_to_clipboard(self, widget, sample_tags):
         """タグテーブル選択範囲をTSVとしてコピーできること"""
         widget.update_data(AnnotationData(tags=sample_tags))

@@ -189,9 +189,17 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     def _show_label_context_menu(self, label: QLabel, position: QPoint) -> None:
         menu = QMenu(label)
         copy_action = menu.addAction("コピー")
-        copy_action.setEnabled(bool(label.text()))
-        copy_action.triggered.connect(lambda: QApplication.clipboard().setText(label.text()))
+        copy_action.setEnabled(bool(self._label_clipboard_text(label)))
+        copy_action.triggered.connect(
+            lambda: QApplication.clipboard().setText(self._label_clipboard_text(label))
+        )
         menu.exec(label.mapToGlobal(position))
+
+    @staticmethod
+    def _label_clipboard_text(label: QLabel) -> str:
+        """QLabel の選択テキストを優先し、未選択時は全テキストを返す。"""
+        selected_text = label.selectedText()
+        return selected_text if selected_text else label.text()
 
     @Slot(QPoint)
     def _show_tags_table_context_menu(self, position: QPoint) -> None:

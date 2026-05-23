@@ -264,9 +264,17 @@ class SelectedImageDetailsWidget(QWidget):
     def _show_label_context_menu(self, label: QLabel, position: QPoint) -> None:
         menu = QMenu(label)
         copy_action = menu.addAction("コピー")
-        copy_action.setEnabled(bool(label.text()))
-        copy_action.triggered.connect(lambda: QApplication.clipboard().setText(label.text()))
+        copy_action.setEnabled(bool(self._label_clipboard_text(label)))
+        copy_action.triggered.connect(
+            lambda: QApplication.clipboard().setText(self._label_clipboard_text(label))
+        )
         menu.exec(label.mapToGlobal(position))
+
+    @staticmethod
+    def _label_clipboard_text(label: QLabel) -> str:
+        """QLabel の選択テキストを優先し、未選択時は全テキストを返す。"""
+        selected_text = label.selectedText()
+        return selected_text if selected_text else label.text()
 
     def _toggle_image_info_section(self, expanded: bool) -> None:
         if self._image_info_toggle:
@@ -681,19 +689,19 @@ class SelectedImageDetailsWidget(QWidget):
         logger.debug(f"画像詳細をクリップボードへコピー: image_id={self.current_details.image_id}")
         return True
 
-    def _get_live_rating_score_for_clipboard(self) -> tuple[str, int]:
+    def _get_live_rating_score_for_clipboard(self) -> tuple[str, str]:
         """現在表示中のRating/Score編集ウィジェット値をコピー用に取得する。"""
         rating = self._rating_score_widget.ui.comboBoxRating.currentText()
         if rating == RatingScoreEditWidget._NO_RATING_TEXT:
             rating = ""
-        return rating, self._rating_score_widget.ui.sliderScore.value()
+        return rating, self._rating_score_widget.ui.labelScoreValue.text()
 
     @staticmethod
     def _format_current_details_for_clipboard(
         details: ImageDetails,
         *,
         rating_value: str | None = None,
-        score_value: int | None = None,
+        score_value: str | int | float | None = None,
     ) -> str:
         display_rating = details.rating_value if rating_value is None else rating_value
         display_score = details.score_value if score_value is None else score_value
