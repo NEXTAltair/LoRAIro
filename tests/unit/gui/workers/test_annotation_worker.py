@@ -653,3 +653,109 @@ class TestApplyRefusalPrefilter:
         worker._apply_refusal_prefilter()
 
         assert worker.image_paths == ["/path/img1.jpg", "/path/img2.jpg"]
+
+
+class TestRefusalPrefilterRatingsCapability:
+    """Issue #367 回帰防止: ratings capability を含むモデル選択で
+    `selection_includes_webapi_model()` が KeyError を投げず、refusal prefilter
+    が "Model registry lookup failed" warning なしに正常判定されることを検証する。
+
+    Issue #366 の `_CAPABILITY_VALUES` 欠落が adapter 経路で表面化したのは
+    statistics 構築 (`_build_model_statistics`) と refusal prefilter
+    (`selection_includes_webapi_model` 経由の `get_available_models`) の双方。
+    本テストは後者の経路を ratings capability 含むモデル情報で固定する。
+    """
+
+    @staticmethod
+    def _ratings_model_info(name: str, requires_api_key: bool, *, litellm_model_id: str | None = None):
+        """`ModelInfo` 互換 Mock。capabilities に "ratings" を含める。"""
+        info = Mock()
+        info.name = name
+        info.requires_api_key = requires_api_key
+        info.litellm_model_id = litellm_model_id or name
+        info.capabilities = ["ratings", "tags"]
+        return info
+
+    @pytest.mark.unit
+    def test_selection_includes_webapi_model_handles_ratings_capability_local_only(self, caplog):
+        """ratings capability を含むローカルモデルのみの選択で warning が出ず False を返す。"""
+        import logging
+
+        from lorairo.services.model_registry_protocol import selection_includes_webapi_model
+
+        registry = Mock()
+        registry.get_available_models.return_value = [
+            self._ratings_model_info("wd-rating-v3", requires_api_key=False),
+        ]
+
+        with caplog.at_level(logging.WARNING):
+            result = selection_includes_webapi_model(["wd-rating-v3"], registry)
+
+        assert result is False
+        # registry lookup が成功しているので prefilter skip warning は出ない
+        assert "Model registry lookup failed" not in caplog.text
+
+    @pytest.mark.unit
+    def test_selection_includes_webapi_model_handles_ratings_capability_with_webapi(self, caplog):
+        """ratings capability を含むモデルと WebAPI モデルの混在で True を返し warning なし。"""
+        import logging
+
+        from lorairo.services.model_registry_protocol import selection_includes_webapi_model
+
+        registry = Mock()
+        registry.get_available_models.return_value = [
+            self._ratings_model_info("wd-rating-v3", requires_api_key=False),
+            self._ratings_model_info("openai/gpt-4o", requires_api_key=True),
+        ]
+
+        with caplog.at_level(logging.WARNING):
+            result = selection_includes_webapi_model(
+                ["wd-rating-v3", "openai/gpt-4o"],
+                registry,
+            )
+
+        assert result is True
+        assert "Model registry lookup failed" not in caplog.text
+
+    @pytest.mark.unit
+    def test_apply_refusal_prefilter_does_not_skip_for_ratings_local_only(
+        self, mock_annotation_logic, monkeypatch, caplog
+    ):
+        """ratings capability を含むローカル単独選択で prefilter skip warning が出ない。
+
+        Issue #367 の元症状 (`Model registry lookup failed; refusal prefilter を
+        skip して annotation 続行: <TaskCapability.RATINGS: 'ratings'>`) を回帰防止。
+        """
+        import logging
+
+        from lorairo.gui.workers import annotation_worker as aw_mod
+
+        registry = Mock()
+        registry.get_available_models.return_value = [
+            TestRefusalPrefilterRatingsCapability._ratings_model_info(
+                "wd-rating-v3", requires_api_key=False
+            ),
+        ]
+
+        mock_db = Mock()
+        mock_db.repository = Mock()
+
+        mock_save_service = Mock()
+        mock_save_service.filter_refused_image_paths = Mock()
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda repo: mock_save_service)
+
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=["/path/img1.jpg"],
+            litellm_model_ids=["wd-rating-v3"],
+            db_manager=mock_db,
+            model_registry=registry,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            worker._apply_refusal_prefilter()
+
+        # ローカル単独 → filter スキップ (ただし registry lookup 失敗 warning は出さない)
+        mock_save_service.filter_refused_image_paths.assert_not_called()
+        assert worker.image_paths == ["/path/img1.jpg"]
+        assert "Model registry lookup failed" not in caplog.text
