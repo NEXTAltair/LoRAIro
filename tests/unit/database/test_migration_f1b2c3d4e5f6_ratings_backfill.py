@@ -113,7 +113,7 @@ def test_ratings_backfill_adds_associations_for_known_rating_models(tmp_path: Pa
         version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
     engine.dispose()
 
-    assert version == "a3b4c5d6e7f8"
+    assert version == "b4c5d6e7f8a9"
     assert rows == [
         ("wd-vit-tagger-v3", "tags,ratings"),
         ("Z3D-E621-Convnext", "tags,ratings"),

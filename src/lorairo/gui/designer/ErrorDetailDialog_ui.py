@@ -102,27 +102,16 @@ class Ui_ErrorDetailDialog(object):
 
         self.formLayoutBasicInfo.setWidget(5, QFormLayout.ItemRole.FieldRole, self.lineEditCreatedAt)
 
-        self.labelRetryCountText = QLabel(self.groupBoxBasicInfo)
-        self.labelRetryCountText.setObjectName(u"labelRetryCountText")
-
-        self.formLayoutBasicInfo.setWidget(6, QFormLayout.ItemRole.LabelRole, self.labelRetryCountText)
-
-        self.lineEditRetryCount = QLineEdit(self.groupBoxBasicInfo)
-        self.lineEditRetryCount.setObjectName(u"lineEditRetryCount")
-        self.lineEditRetryCount.setReadOnly(True)
-
-        self.formLayoutBasicInfo.setWidget(6, QFormLayout.ItemRole.FieldRole, self.lineEditRetryCount)
-
         self.labelResolvedAtText = QLabel(self.groupBoxBasicInfo)
         self.labelResolvedAtText.setObjectName(u"labelResolvedAtText")
 
-        self.formLayoutBasicInfo.setWidget(7, QFormLayout.ItemRole.LabelRole, self.labelResolvedAtText)
+        self.formLayoutBasicInfo.setWidget(6, QFormLayout.ItemRole.LabelRole, self.labelResolvedAtText)
 
         self.lineEditResolvedAt = QLineEdit(self.groupBoxBasicInfo)
         self.lineEditResolvedAt.setObjectName(u"lineEditResolvedAt")
         self.lineEditResolvedAt.setReadOnly(True)
 
-        self.formLayoutBasicInfo.setWidget(7, QFormLayout.ItemRole.FieldRole, self.lineEditResolvedAt)
+        self.formLayoutBasicInfo.setWidget(6, QFormLayout.ItemRole.FieldRole, self.lineEditResolvedAt)
 
 
         self.verticalLayoutMain.addWidget(self.groupBoxBasicInfo)
@@ -192,7 +181,6 @@ class Ui_ErrorDetailDialog(object):
         self.labelFilePathText.setText(QCoreApplication.translate("ErrorDetailDialog", u"\u753b\u50cf\u30d1\u30b9:", None))
         self.labelModelNameText.setText(QCoreApplication.translate("ErrorDetailDialog", u"\u30e2\u30c7\u30eb\u540d:", None))
         self.labelCreatedAtText.setText(QCoreApplication.translate("ErrorDetailDialog", u"\u4f5c\u6210\u65e5\u6642:", None))
-        self.labelRetryCountText.setText(QCoreApplication.translate("ErrorDetailDialog", u"\u518d\u8a66\u884c\u56de\u6570:", None))
         self.labelResolvedAtText.setText(QCoreApplication.translate("ErrorDetailDialog", u"\u89e3\u6c7a\u65e5\u6642:", None))
         self.groupBoxStackTrace.setTitle(QCoreApplication.translate("ErrorDetailDialog", u"\u30b9\u30bf\u30c3\u30af\u30c8\u30ec\u30fc\u30b9", None))
         self.groupBoxImagePreview.setTitle(QCoreApplication.translate("ErrorDetailDialog", u"\u753b\u50cf\u30d7\u30ec\u30d3\u30e5\u30fc", None))
@@ -200,3 +188,4 @@ class Ui_ErrorDetailDialog(object):
         self.buttonMarkResolved.setText(QCoreApplication.translate("ErrorDetailDialog", u"\u89e3\u6c7a\u6e08\u307f\u306b\u30de\u30fc\u30af", None))
         self.buttonClose.setText(QCoreApplication.translate("ErrorDetailDialog", u"\u9589\u3058\u308b", None))
     # retranslateUi
+

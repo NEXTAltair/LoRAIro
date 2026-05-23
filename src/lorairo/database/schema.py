@@ -446,8 +446,8 @@ class ErrorRecord(Base):
     file_path: Mapped[str | None] = mapped_column(String)
     model_name: Mapped[str | None] = mapped_column(String)
 
-    # 再試行管理
-    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # 手動「解決済みマーク」管理 (Error Log Viewer / Detail Dialog で利用)
+    # ADR 0033 Decision 8: retry_count は drop 済み (LoRAIro 側で自動 retry はしない)
     resolved_at: Mapped[datetime.datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     # タイムスタンプ
@@ -611,6 +611,5 @@ class ErrorRecordData(TypedDict):
     stack_trace: NotRequired[str | None]
     file_path: NotRequired[str | None]
     model_name: NotRequired[str | None]
-    retry_count: NotRequired[int]
     resolved_at: NotRequired[datetime.datetime | None]
     created_at: NotRequired[datetime.datetime]
