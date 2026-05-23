@@ -4,7 +4,8 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtWidgets import QApplication
 
 from lorairo.gui.widgets.annotation_data_display_widget import AnnotationData, ImageDetails
 from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetailsWidget
@@ -106,6 +107,78 @@ class TestSelectedImageDetailsWidget:
         # 実際の実装により具体的な検証項目は変わる
         # UIラベルの内容更新等を確認
         pass
+
+    def test_summary_value_labels_are_selectable(self, widget):
+        """画像情報の値ラベルは選択・コピー可能であること"""
+        flags = (
+            Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+
+        for label in (
+            widget.ui.labelFileNameValue,
+            widget.ui.labelImageSizeValue,
+            widget.ui.labelFileSizeValue,
+            widget.ui.labelCreatedDateValue,
+        ):
+            assert label.textInteractionFlags() & flags == flags
+            assert label.focusPolicy() == Qt.FocusPolicy.StrongFocus
+
+    def test_label_clipboard_text_prefers_selected_text(self, widget):
+        """QLabelのcontext copyは選択範囲を優先すること"""
+        label = widget.ui.labelFileNameValue
+        label.setText("sample_image.jpg")
+        label.setSelection(0, 6)
+
+        assert widget._label_clipboard_text(label) == "sample"
+
+    def test_copy_current_details_to_clipboard(self, widget, sample_image_details):
+        """表示中の詳細情報全体をクリップボードへコピーできること"""
+        widget._update_details_display(sample_image_details)
+
+        assert widget.copy_current_details_to_clipboard() is True
+        clipboard_text = QApplication.clipboard().text()
+        assert "Image ID: 123" in clipboard_text
+        assert "File name: sample_image.jpg" in clipboard_text
+        assert "Tags: 1girl, long hair, blue eyes" in clipboard_text
+        assert "Caption: A beautiful anime girl with long hair" in clipboard_text
+
+    def test_copy_current_details_uses_live_rating_score_widget_values(self, widget, sample_image_details):
+        """編集後metadata refresh前でも表示中のRating/Scoreをコピーすること"""
+        widget._update_details_display(sample_image_details)
+        widget._rating_score_widget.ui.comboBoxRating.setCurrentText("R")
+        widget._rating_score_widget.ui.sliderScore.setValue(920)
+
+        assert widget.copy_current_details_to_clipboard() is True
+        clipboard_text = QApplication.clipboard().text()
+        assert "Rating: R" in clipboard_text
+        assert "Score: 9.20" in clipboard_text
+
+    def test_copy_current_details_uses_displayed_tag_language(self, widget, sample_image_details):
+        """言語切り替え後は表示中のタグ言語で詳細をコピーすること"""
+        sample_image_details.annotation_data.tag_translations = {
+            10: {"japanese": "1人の女の子"},
+            20: {"japanese": "長い髪"},
+            30: {"japanese": "青い目"},
+        }
+        for tag, tag_id in zip(sample_image_details.annotation_data.tags, (10, 20, 30), strict=True):
+            tag["tag_id"] = tag_id
+        sample_image_details.annotation_data.available_languages = ["japanese"]
+
+        widget._update_details_display(sample_image_details)
+        widget.annotation_display.initialize_language_selector(["japanese"])
+        widget.annotation_display._lang_combo.setCurrentText("japanese")
+
+        assert widget.copy_current_details_to_clipboard() is True
+        clipboard_text = QApplication.clipboard().text()
+        assert "Tags: 1人の女の子, 長い髪, 青い目" in clipboard_text
+        assert "Tags: 1girl, long hair, blue eyes" not in clipboard_text
+
+    def test_copy_current_details_without_selection_noops(self, widget):
+        """未選択時は詳細全体コピーを行わないこと"""
+        QApplication.clipboard().setText("")
+
+        assert widget.copy_current_details_to_clipboard() is False
+        assert QApplication.clipboard().text() == ""
 
     def test_annotation_data_loaded_slot(self, widget):
         """アノテーションデータ読み込み完了スロットテスト"""
