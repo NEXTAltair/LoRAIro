@@ -205,8 +205,53 @@ Batch annotation の一次判断は `requires_api_key` に近い。UI は provid
 4. `ModelSelectionService` 側は `environment` を `requires_api_key` 判定へ変換し、provider 直指定に依存しない。
 5. 既存テストを二段階フィルタ仕様へ更新する。
 
+## Amendment: Issue #339 実装結果 (2026-05-22)
+
+Issue #339 では、本 ADR の「環境を先に選ぶ」「Batch annotation のフィルタ UI を唯一の入力源に
+寄せる」方針を維持しつつ、実装範囲をより局所的な UX 整理として確定した。
+
+### 確定した仕様
+
+- Batch annotation UI では、実行環境をローカルモデル capability 絞り込みより上に表示する。
+- 旧「機能タイプ」表記は使わず、ローカルモデルの対応能力を絞り込む UI として表示する。
+- capability 絞り込みはローカルモデル向けの絞り込みであり、ローカル選択時だけ操作可能にする。
+- Web API 選択時は通常のモデル一覧を表示せず、API 設定と利用可能モデルに従うことを示す
+  placeholder を表示する。
+- Batch annotation のモデル選択では、`upscaler` などアノテーション用途ではないモデルを
+  構造化された model type / capability 情報で除外する。表示名文字列には依存しない。
+- Web API モデルの主表示では、`openrouter/...` などの経路込み ID を前面に出さない。
+  `litellm_model_id` は実行用 ID として保持し、raw route / provider 情報は tooltip などの
+  補助情報で確認できるようにする。
+- OpenRouter 経由モデルの provider / family 表示は、`Model.provider` 列だけに依存せず、
+  route ID から導出した canonical identity を使う。
+
+### 実装上の決定
+
+- #340, #341, #342 は PR #345 で実装した。
+- #343 は PR #346 で実装した。
+- #343 の route / 表示名 / canonical key / provider family 判定は、共有の
+  `ModelRouteIdentity` に集約した。GUI と CLI は同じ解釈を使う。
+- 実行時のモデル指定は引き続き `Model.litellm_model_id` を正本とし、表示名とは分離する。
+
+### 本文からの差分
+
+本 ADR 本文では `task_filter = Literal["all", "caption", "tags", "scores"]` として
+単一値のタスクフィルタ化を想定していたが、Issue #339 では既存 checkbox ベースの capability
+絞り込みを維持したまま、ローカルモデル用フィルタであることを UI 上明確化する方針に変更した。
+
+また、Web API は capability 別の通常モデル一覧としては扱わず、Batch annotation UI では
+placeholder 表示にする。Web API の利用可否と route preference は API 設定・provider availability
+側の責務とし、Batch annotation のローカルモデル絞り込み UI には混ぜない。
+
 ## Related
 
 - ADR 0023: PydanticAI / LiteLLM WebAPI Inference Boundary
 - ADR 0026: On-Demand Runtime Validation Strategy
 - ADR 0029: Unified Dataset Quality Tier
+- LoRAIro #339: GUI: バッチアノテーションのモデル選択UXを整理する
+- LoRAIro #340: GUI: バッチアノテーションの実行環境とローカルモデル絞り込みを整理する
+- LoRAIro #341: GUI: Web API選択時のモデル一覧をプレースホルダー表示にする
+- LoRAIro #342: GUI: アノテーションモデル選択からアップスケーラーモデルを除外する
+- LoRAIro #343: GUI: Web APIモデル名をprovider単位で見やすく表示する
+- LoRAIro PR #345: fix: refine batch annotation model filtering
+- LoRAIro PR #346: fix: improve web api model display names
