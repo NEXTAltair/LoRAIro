@@ -1,6 +1,8 @@
 # tests/unit/gui/widgets/test_annotation_data_display_widget.py
 
 import pytest
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QTableWidgetSelectionRange
 
 from lorairo.gui.widgets.annotation_data_display_widget import AnnotationData, AnnotationDataDisplayWidget
 
@@ -87,6 +89,25 @@ class TestAnnotationDataDisplayWidget:
         widget.update_data(data)
         assert "1girl" in widget._tags_compact_label.text()
         assert "flower" in widget._tags_compact_label.text()
+
+    def test_compact_labels_are_selectable(self, widget):
+        """compact表示のQLabelは選択・コピー可能であること"""
+        flags = (
+            Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+
+        assert widget._tags_compact_label.textInteractionFlags() & flags == flags
+        assert widget._caption_compact_label.textInteractionFlags() & flags == flags
+        assert widget._tags_compact_label.focusPolicy() == Qt.FocusPolicy.StrongFocus
+        assert widget._caption_compact_label.focusPolicy() == Qt.FocusPolicy.StrongFocus
+
+    def test_copy_selected_tag_cells_to_clipboard(self, widget, sample_tags):
+        """タグテーブル選択範囲をTSVとしてコピーできること"""
+        widget.update_data(AnnotationData(tags=sample_tags))
+        widget.tableWidgetTags.setRangeSelected(QTableWidgetSelectionRange(0, 0, 1, 1), True)
+
+        assert widget.copy_selected_tag_cells_to_clipboard() is True
+        assert QApplication.clipboard().text() == "1girl\twd\nflower\twd"
 
     def test_compact_label_switches_to_japanese(self, widget, sample_tags):
         """japanese選択でラベルが翻訳テキストに切り替わること"""

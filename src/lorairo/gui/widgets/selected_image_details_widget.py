@@ -19,8 +19,18 @@ DatasetStateManager.current_image_data_changedを正規経路としてUI更新�
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtWidgets import QFrame, QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtCore import QPoint, Qt, Signal, Slot
+from PySide6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QLabel,
+    QMenu,
+    QScrollArea,
+    QSizePolicy,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ...gui.designer.SelectedImageDetailsWidget_ui import Ui_SelectedImageDetailsWidget
 from ...services.date_formatter import format_datetime_for_display
@@ -105,6 +115,7 @@ class SelectedImageDetailsWidget(QWidget):
         self.current_image_id: int | None = None
         self._summary_layout: QVBoxLayout | None = None
         self._image_info_toggle: QToolButton | None = None
+        self._copy_details_button: QToolButton | None = None
 
         # UI設定
         self.ui = Ui_SelectedImageDetailsWidget()
@@ -141,6 +152,7 @@ class SelectedImageDetailsWidget(QWidget):
     def _apply_readable_layout(self) -> None:
         """読みやすさ優先のレイアウトに調整する。"""
         self._align_summary_labels()
+        self._setup_copyable_summary_labels()
 
         container = QWidget(self)
         layout = QVBoxLayout(container)
@@ -158,17 +170,25 @@ class SelectedImageDetailsWidget(QWidget):
         self._image_info_toggle.setStyleSheet("text-align: left;")
         self._image_info_toggle.toggled.connect(self._toggle_image_info_section)
 
+        self._copy_details_button = QToolButton(container)
+        self._copy_details_button.setText("詳細をコピー")
+        self._copy_details_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self._copy_details_button.setEnabled(False)
+        self._copy_details_button.clicked.connect(self.copy_current_details_to_clipboard)
+
         self.ui.groupBoxImageInfo.setTitle("")
         self.ui.groupBoxImageInfo.setVisible(False)
 
         layout.addWidget(self._image_info_toggle)
+        layout.addWidget(self._copy_details_button)
         layout.addWidget(self.ui.groupBoxImageInfo)
         layout.addWidget(self.ui.annotationDataDisplay)
         layout.addWidget(self._rating_score_widget)
         layout.setStretch(0, 0)  # _image_info_toggle
-        layout.setStretch(1, 0)  # groupBoxImageInfo
-        layout.setStretch(2, 1)  # annotationDataDisplay
-        layout.setStretch(3, 0)  # _rating_score_widget
+        layout.setStretch(1, 0)  # _copy_details_button
+        layout.setStretch(2, 0)  # groupBoxImageInfo
+        layout.setStretch(3, 1)  # annotationDataDisplay
+        layout.setStretch(4, 0)  # _rating_score_widget
 
         scroll_area = QScrollArea(self)
         scroll_area.setFrameShape(QFrame.Shape.NoFrame)
@@ -218,6 +238,35 @@ class SelectedImageDetailsWidget(QWidget):
         if hasattr(self.annotation_display, "verticalLayoutMain"):
             self.annotation_display.verticalLayoutMain.setContentsMargins(0, 0, 0, 0)
             self.annotation_display.verticalLayoutMain.setSpacing(4)
+
+    def _setup_copyable_summary_labels(self) -> None:
+        for label in (
+            self.ui.labelFileNameValue,
+            self.ui.labelImageSizeValue,
+            self.ui.labelFileSizeValue,
+            self.ui.labelCreatedDateValue,
+            self.ui.labelTagsContent,
+        ):
+            self._make_label_copyable(label)
+
+        self.ui.textEditCaptionsContent.setReadOnly(True)
+
+    def _make_label_copyable(self, label: QLabel) -> None:
+        label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        label.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        label.customContextMenuRequested.connect(
+            lambda position, target=label: self._show_label_context_menu(target, position)
+        )
+
+    def _show_label_context_menu(self, label: QLabel, position: QPoint) -> None:
+        menu = QMenu(label)
+        copy_action = menu.addAction("コピー")
+        copy_action.setEnabled(bool(label.text()))
+        copy_action.triggered.connect(lambda: QApplication.clipboard().setText(label.text()))
+        menu.exec(label.mapToGlobal(position))
 
     def _toggle_image_info_section(self, expanded: bool) -> None:
         if self._image_info_toggle:
@@ -536,6 +585,8 @@ class SelectedImageDetailsWidget(QWidget):
             self.annotation_display.update_data(details.annotation_data)
 
         logger.info(f"✅ SelectedImageDetailsWidget表示更新完了: image_id={details.image_id}")
+        if self._copy_details_button:
+            self._copy_details_button.setEnabled(True)
         self.image_details_loaded.emit(details)
 
     def _update_rating_score_display(self, details: ImageDetails) -> None:
@@ -603,12 +654,58 @@ class SelectedImageDetailsWidget(QWidget):
 
         # AnnotationDataDisplayWidgetのクリア
         self.annotation_display.clear_data()
+        if self._copy_details_button:
+            self._copy_details_button.setEnabled(False)
 
         logger.debug("SelectedImageDetailsWidget display cleared")
 
     def get_current_details(self) -> ImageDetails | None:
         """現在表示中の画像詳細情報を返す"""
         return self.current_details
+
+    @Slot()
+    def copy_current_details_to_clipboard(self) -> bool:
+        """現在表示中の画像詳細全体をクリップボードへコピーする。"""
+        if self.current_details is None:
+            logger.debug("詳細コピー要求: current_details がありません")
+            return False
+
+        QApplication.clipboard().setText(self._format_current_details_for_clipboard(self.current_details))
+        logger.debug(f"画像詳細をクリップボードへコピー: image_id={self.current_details.image_id}")
+        return True
+
+    @staticmethod
+    def _format_current_details_for_clipboard(details: ImageDetails) -> str:
+        lines = [
+            f"Image ID: {details.image_id if details.image_id is not None else '-'}",
+            f"File name: {details.file_name or '-'}",
+            f"File path: {details.file_path or '-'}",
+            f"Resolution: {details.image_size or '-'}",
+            f"File size: {details.file_size or '-'}",
+            f"Created date: {details.created_date or '-'}",
+            f"Rating: {details.rating_value or '-'}",
+            f"Score: {details.score_value if details.score_value is not None else '-'}",
+        ]
+
+        if details.annotation_data is not None:
+            quality_tier = details.annotation_data.quality_summary.get("tier")
+            if quality_tier:
+                lines.append(f"Quality tier: {quality_tier}")
+
+            if details.annotation_data.score_labels:
+                score_labels = [
+                    f"{entry.get('model', 'Unknown')}: {entry.get('label', '-')}"
+                    for entry in details.annotation_data.score_labels
+                ]
+                lines.append(f"Score labels: {', '.join(score_labels)}")
+
+        lines.extend(
+            [
+                f"Tags: {details.tags or '-'}",
+                f"Caption: {details.caption or '-'}",
+            ]
+        )
+        return "\n".join(lines)
 
 
 if __name__ == "__main__":

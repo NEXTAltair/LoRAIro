@@ -4,7 +4,8 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtWidgets import QApplication
 
 from lorairo.gui.widgets.annotation_data_display_widget import AnnotationData, ImageDetails
 from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetailsWidget
@@ -106,6 +107,39 @@ class TestSelectedImageDetailsWidget:
         # 実際の実装により具体的な検証項目は変わる
         # UIラベルの内容更新等を確認
         pass
+
+    def test_summary_value_labels_are_selectable(self, widget):
+        """画像情報の値ラベルは選択・コピー可能であること"""
+        flags = (
+            Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+
+        for label in (
+            widget.ui.labelFileNameValue,
+            widget.ui.labelImageSizeValue,
+            widget.ui.labelFileSizeValue,
+            widget.ui.labelCreatedDateValue,
+        ):
+            assert label.textInteractionFlags() & flags == flags
+            assert label.focusPolicy() == Qt.FocusPolicy.StrongFocus
+
+    def test_copy_current_details_to_clipboard(self, widget, sample_image_details):
+        """表示中の詳細情報全体をクリップボードへコピーできること"""
+        widget._update_details_display(sample_image_details)
+
+        assert widget.copy_current_details_to_clipboard() is True
+        clipboard_text = QApplication.clipboard().text()
+        assert "Image ID: 123" in clipboard_text
+        assert "File name: sample_image.jpg" in clipboard_text
+        assert "Tags: 1girl, long hair, blue eyes" in clipboard_text
+        assert "Caption: A beautiful anime girl with long hair" in clipboard_text
+
+    def test_copy_current_details_without_selection_noops(self, widget):
+        """未選択時は詳細全体コピーを行わないこと"""
+        QApplication.clipboard().setText("")
+
+        assert widget.copy_current_details_to_clipboard() is False
+        assert QApplication.clipboard().text() == ""
 
     def test_annotation_data_loaded_slot(self, widget):
         """アノテーションデータ読み込み完了スロットテスト"""

@@ -8,13 +8,16 @@ Annotation Data Display Widget
 from dataclasses import dataclass, field
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import QPoint, Qt, Signal, Slot
 from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QAbstractScrollArea,
+    QApplication,
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QSizePolicy,
     QTableWidgetItem,
     QWidget,
@@ -105,7 +108,13 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self.textEditCaption.setReadOnly(True)
         self.tableWidgetTags.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         self.tableWidgetTags.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.tableWidgetTags.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.tableWidgetTags.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
+        self.tableWidgetTags.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tableWidgetTags.customContextMenuRequested.connect(self._show_tags_table_context_menu)
         self.textEditCaption.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._make_label_copyable(self.labelScoreTypeValue)
+        self._make_label_copyable(self.labelOverallValue)
 
     def _setup_tags_compact_view(self) -> None:
         # 言語切り替えバー（コンボボックス付き）を先頭に動的追加
@@ -124,6 +133,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._tags_compact_label.setWordWrap(True)
         self._tags_compact_label.setText("-")
         self._tags_compact_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self._make_label_copyable(self._tags_compact_label)
         self.verticalLayoutTags.insertWidget(1, self._tags_compact_label)
 
         self.tableWidgetTags.setVisible(False)
@@ -133,6 +143,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._caption_compact_label.setWordWrap(True)
         self._caption_compact_label.setText("キャプションが表示されます")
         self._caption_compact_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self._make_label_copyable(self._caption_compact_label)
         self.verticalLayoutCaption.insertWidget(0, self._caption_compact_label)
         self.textEditCaption.setVisible(False)
 
@@ -160,8 +171,54 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._quality_tier_label = QLabel(self.groupBoxScoreLabels)
         self._quality_tier_label.setText("品質: -")
         self._quality_tier_label.setVisible(False)
+        self._make_label_copyable(self._quality_tier_label)
         # pill コンテナの前 (上) に挿入
         self.verticalLayoutScoreLabels.insertWidget(0, self._quality_tier_label)
+
+    def _make_label_copyable(self, label: QLabel) -> None:
+        """読み取り専用 QLabel を選択・コピー可能にする。"""
+        label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        label.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        label.customContextMenuRequested.connect(
+            lambda position, target=label: self._show_label_context_menu(target, position)
+        )
+
+    def _show_label_context_menu(self, label: QLabel, position: QPoint) -> None:
+        menu = QMenu(label)
+        copy_action = menu.addAction("コピー")
+        copy_action.setEnabled(bool(label.text()))
+        copy_action.triggered.connect(lambda: QApplication.clipboard().setText(label.text()))
+        menu.exec(label.mapToGlobal(position))
+
+    @Slot(QPoint)
+    def _show_tags_table_context_menu(self, position: QPoint) -> None:
+        menu = QMenu(self.tableWidgetTags)
+        copy_action = menu.addAction("選択範囲をコピー")
+        copy_action.setEnabled(bool(self.tableWidgetTags.selectedRanges()))
+        copy_action.triggered.connect(self.copy_selected_tag_cells_to_clipboard)
+        menu.exec(self.tableWidgetTags.viewport().mapToGlobal(position))
+
+    @Slot()
+    def copy_selected_tag_cells_to_clipboard(self) -> bool:
+        """タグテーブルの選択セルを TSV としてクリップボードへコピーする。"""
+        ranges = self.tableWidgetTags.selectedRanges()
+        if not ranges:
+            return False
+
+        lines: list[str] = []
+        for selected_range in ranges:
+            for row in range(selected_range.topRow(), selected_range.bottomRow() + 1):
+                values: list[str] = []
+                for column in range(selected_range.leftColumn(), selected_range.rightColumn() + 1):
+                    item = self.tableWidgetTags.item(row, column)
+                    values.append(item.text() if item is not None else "")
+                lines.append("\t".join(values))
+
+        QApplication.clipboard().setText("\n".join(lines))
+        return True
 
     def update_data(self, data: AnnotationData) -> None:
         """アノテーションデータで表示を更新"""
@@ -379,6 +436,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
                 model = entry.get("model", "Unknown")
                 label = entry.get("label", "-")
                 pill = QLabel(f"[{model}] {label}", self._score_labels_container)
+                self._make_label_copyable(pill)
                 pill.setStyleSheet(
                     "QLabel { "
                     "background-color: palette(light); "
