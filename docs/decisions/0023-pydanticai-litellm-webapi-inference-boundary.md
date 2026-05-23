@@ -1072,6 +1072,13 @@ ADR 0023 本文の以下の記述は **Phase 1.10 (Issue #52) で更新**:
 
 ## Phase 1.11 完了 (LoRAIro Issue #238 — `schema.Model.litellm_model_id` を UNIQUE NOT NULL 化、`name` を表示名に降格)
 
+> **注意 (2026-05-23 追記)**: 本 Phase で導入した `__legacy_<id>__` sentinel の
+> 「履歴行として保持」運用契約は **[ADR 0033](0033-annotation-worker-batch-execution-contract.md) Decision 7 で撤回**された。
+> 撤回理由: LoRAIro は開発フェーズで過去 DB 互換性が不要、かつ sentinel 行が
+> name 一致経由のクエリで推論経路に流入する脆弱性を抱えていた。
+> sentinel 行は migration `a3b4c5d6e7f8` で削除済 (2026-05-23)。
+> `__manual_edit__` sentinel (推論経路に乗らない正規利用) は引き続き保持する。
+
 Phase 1.9 / 1.10 (Issue #51, #52) で registry が「同一論理モデル × 経路違い」のエントリを
 完全 LiteLLM ID で並列保持するようになったことを受け、LoRAIro DB schema を SSoT 規約に
 整合させた (2026-05 完了)。`schema.Model` の責務を以下に再構成:
@@ -1110,6 +1117,7 @@ Phase 1.10 完了後の registry は 123 件のモデルを返すが、LoRAIro D
      (例: `openrouter/openai/gpt-4o` → `provider='openrouter'`, `name='openai/gpt-4o'`)
    - スラッシュなし `name` で `provider IS NOT NULL` 行: `litellm_model_id = provider || '/' || name` で補完
    - 残存 NULL 行は `__legacy_<id>__` sentinel で fallback して NOT NULL 化失敗を防ぐ
+     (**ADR 0033 Decision 7 で撤回**: sentinel 行は migration `a3b4c5d6e7f8` で削除済)
    - `batch_alter_table` で `name` UNIQUE drop + `litellm_model_id` NOT NULL UNIQUE 化
 3. **`model_sync_service` の同期キーを `litellm_model_id` に切替**:
    - `register_new_models_to_db` / `update_existing_models` の lookup を
