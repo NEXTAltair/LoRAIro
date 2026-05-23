@@ -153,6 +153,81 @@ class TestSelectedImageDetailsWidget:
         if widget.current_details.score_value:
             assert widget.current_details.score_value == 750
 
+    def test_build_metadata_uses_stored_image_path_for_file_name(self, widget):
+        """stored_image_path のみでもファイル名が表示されること"""
+        metadata = {
+            "id": 1,
+            "stored_image_path": "/test/dataset/stored_image.webp",
+            "width": 512,
+            "height": 768,
+            "file_size": 2048,
+            "tags": [],
+            "caption_text": "",
+            "tags_text": "",
+            "score_value": 0,
+            "rating_value": "",
+        }
+
+        details = widget._build_image_details_from_metadata(metadata)
+
+        assert details.file_name == "stored_image.webp"
+        assert details.file_path == "/test/dataset/stored_image.webp"
+        assert details.file_size == "2.00 KB"
+
+    def test_build_metadata_falls_back_to_file_path_for_file_name(self, widget):
+        """旧 metadata の file_path fallback が維持されること"""
+        metadata = {
+            "id": 1,
+            "file_path": "/test/dataset/legacy_image.png",
+            "tags": [],
+            "caption_text": "",
+            "tags_text": "",
+            "score_value": 0,
+            "rating_value": "",
+        }
+
+        details = widget._build_image_details_from_metadata(metadata)
+
+        assert details.file_name == "legacy_image.png"
+        assert details.file_path == "/test/dataset/legacy_image.png"
+        assert details.file_size == ""
+
+    def test_build_metadata_uses_stored_path_stat_when_file_size_missing(self, widget, tmp_path):
+        """file_size が無い場合は stored_image_path の実ファイルサイズで補完すること"""
+        image_path = tmp_path / "stat_size_image.jpg"
+        image_path.write_bytes(b"x" * 1536)
+        metadata = {
+            "id": 1,
+            "stored_image_path": str(image_path),
+            "tags": [],
+            "caption_text": "",
+            "tags_text": "",
+            "score_value": 0,
+            "rating_value": "",
+        }
+
+        details = widget._build_image_details_from_metadata(metadata)
+
+        assert details.file_name == "stat_size_image.jpg"
+        assert details.file_size == "1.50 KB"
+
+    def test_build_metadata_file_size_missing_for_missing_file_stays_empty(self, widget, tmp_path):
+        """ファイルサイズが本当に取得できない場合のみ空表示にすること"""
+        metadata = {
+            "id": 1,
+            "stored_image_path": str(tmp_path / "missing.jpg"),
+            "tags": [],
+            "caption_text": "",
+            "tags_text": "",
+            "score_value": 0,
+            "rating_value": "",
+        }
+
+        details = widget._build_image_details_from_metadata(metadata)
+
+        assert details.file_name == "missing.jpg"
+        assert details.file_size == ""
+
     def test_on_image_data_received_empty(self, widget):
         """Enhanced Event-Driven Pattern: 空データ受信テスト"""
         # 初期状態設定
