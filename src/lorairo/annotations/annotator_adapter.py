@@ -38,6 +38,7 @@ _CAPABILITY_VALUES: dict[TaskCapability, str] = {
     TaskCapability.CAPTIONS: "captions",
     TaskCapability.SCORES: "scores",
     TaskCapability.SCORE_LABELS: "score_labels",
+    TaskCapability.RATINGS: "ratings",
 }
 
 __all__ = ["AnnotatorLibraryAdapter"]

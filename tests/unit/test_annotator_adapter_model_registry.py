@@ -167,3 +167,45 @@ def test_get_available_models_with_metadata_alias() -> None:
 
     with patch("lorairo.annotations.annotator_adapter.list_annotator_info", return_value=[]):
         assert adapter.get_available_models_with_metadata() == adapter.get_available_models()
+
+
+# ---- Issue #366 regression: TaskCapability.RATINGS mapping ----
+
+
+@pytest.mark.unit
+def test_capability_values_includes_ratings() -> None:
+    """`_CAPABILITY_VALUES` に `TaskCapability.RATINGS` mapping が存在することを保証する。
+
+    Issue #366 回帰防止: ratings capability を宣言するモデル (canonical rater 等) で
+    `_to_model_info()` が KeyError を投げ、`get_available_models()` が落ちて
+    annotation 全体が degraded mode に入る事象を防ぐ。
+    """
+    from lorairo.annotations.annotator_adapter import _CAPABILITY_VALUES
+
+    assert _CAPABILITY_VALUES[TaskCapability.RATINGS] == "ratings"
+
+
+@pytest.mark.unit
+def test_get_available_models_includes_ratings_capability() -> None:
+    """ratings capability を含む AnnotatorInfo が KeyError なく ModelInfo へ変換される。
+
+    Issue #366 回帰防止: `AnnotatorInfo.capabilities = {RATINGS, TAGS}` の
+    フィクスチャを与え、`get_available_models()` が例外を出さず
+    `ModelInfo.capabilities` に `"ratings"` を含むことを assert する。
+    """
+    adapter = AnnotatorLibraryAdapter(MagicMock())
+    fake_infos = [
+        _make_info(
+            "wd-rating-v3",
+            is_api=False,
+            model_type="tagger",
+            capabilities={TaskCapability.RATINGS, TaskCapability.TAGS},
+            provider="smilingwolf",
+        )
+    ]
+
+    with patch("lorairo.annotations.annotator_adapter.list_annotator_info", return_value=fake_infos):
+        models = adapter.get_available_models()
+
+    assert len(models) == 1
+    assert set(models[0].capabilities) == {"ratings", "tags"}
