@@ -298,6 +298,44 @@ class TestModelSelectionService:
 
         assert [model.name for model in filtered] == ["ratings-model"]
 
+    def test_annotation_only_filter_excludes_legacy_sentinel(self, service):
+        """legacy sentinel 命名 (`__legacy_*__`) は annotation 用フィルタで除外する。"""
+        legacy_model = SimpleNamespace(
+            name="__legacy_17__",
+            provider="openai",
+            capabilities=["caption"],
+            is_recommended=False,
+            available=True,
+        )
+        normal_model = SimpleNamespace(
+            name="caption-model",
+            provider="local",
+            capabilities=["caption"],
+            is_recommended=False,
+            available=True,
+        )
+        service._all_models = [legacy_model, normal_model]
+
+        filtered = service.filter_models(ModelSelectionCriteria(annotation_only=True))
+
+        assert len(filtered) == 1
+        assert filtered[0].name == "caption-model"
+
+    def test_annotation_only_false_keeps_legacy_sentinel(self, service):
+        """annotation_only が false の場合は legacy sentinel も現状仕様どおり残す。"""
+        legacy_model = SimpleNamespace(
+            name="__legacy_17__",
+            provider="openai",
+            capabilities=[],
+            is_recommended=False,
+            available=True,
+        )
+        service._all_models = [legacy_model]
+
+        filtered = service.filter_models(ModelSelectionCriteria(annotation_only=False))
+
+        assert filtered[0].name == "__legacy_17__"
+
     def test_local_ratings_filter_matches_model_types(self, service):
         """ローカル + ratings 条件は DB model_types に ratings を持つモデルを返す"""
         ratings_model = SimpleNamespace(

@@ -39,6 +39,9 @@ class ModelSelectionService:
         self._all_models: list[Model] = []
         self._cached_models: list[Model] | None = None
 
+    _LEGACY_SENTINEL_PREFIX = "__legacy_"
+    _LEGACY_SENTINEL_SUFFIX = "__"
+
     @classmethod
     def create(cls, db_repository: ImageRepository) -> ModelSelectionService:
         """Create ModelSelectionService with DB-centric architecture."""
@@ -96,6 +99,21 @@ class ModelSelectionService:
         return provider.lower()
 
     @staticmethod
+    def _is_legacy_sentinel_model_name(model_name: str | None) -> bool:
+        """legacy fallback sentinel (`__legacy_<id>__`) モデル名か判定する。"""
+        if not isinstance(model_name, str):
+            return False
+        if not (
+            model_name.startswith(ModelSelectionService._LEGACY_SENTINEL_PREFIX)
+            and model_name.endswith(ModelSelectionService._LEGACY_SENTINEL_SUFFIX)
+        ):
+            return False
+        body = model_name[len(ModelSelectionService._LEGACY_SENTINEL_PREFIX) : -len(
+            ModelSelectionService._LEGACY_SENTINEL_SUFFIX
+        )]
+        return body.isdecimal()
+
+    @staticmethod
     def _model_capability_names(model: Model) -> set[str]:
         """Model capabilities/model_types から構造化された capability 名を取得する。"""
         capabilities = getattr(model, "capabilities", None)
@@ -112,6 +130,8 @@ class ModelSelectionService:
     @classmethod
     def _is_annotation_eligible_model(cls, model: Model) -> bool:
         """Batch annotation に使える model_types/capabilities を持つか判定する。"""
+        if cls._is_legacy_sentinel_model_name(model.name):
+            return False
         annotation_types = {"caption", "tags", "scores", "ratings", "multimodal"}
         return bool(cls._model_capability_names(model) & annotation_types)
 
