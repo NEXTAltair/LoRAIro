@@ -95,6 +95,20 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
     """
 
     _OPERATION_TYPE = "annotation"
+    _LEGACY_SENTINEL_PREFIX = "__legacy_"
+    _LEGACY_SENTINEL_SUFFIX = "__"
+
+    @staticmethod
+    def _is_legacy_sentinel_model_id(model_name: str) -> bool:
+        if not (
+            model_name.startswith(AnnotationWorker._LEGACY_SENTINEL_PREFIX)
+            and model_name.endswith(AnnotationWorker._LEGACY_SENTINEL_SUFFIX)
+        ):
+            return False
+        body = model_name[
+            len(AnnotationWorker._LEGACY_SENTINEL_PREFIX) : -len(AnnotationWorker._LEGACY_SENTINEL_SUFFIX)
+        ]
+        return body.isdecimal()
 
     def __init__(
         self,
@@ -122,7 +136,12 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
         self.annotation_logic = annotation_logic
         self.image_paths = image_paths
-        self.litellm_model_ids = litellm_model_ids
+        self.litellm_model_ids = [
+            model_id for model_id in litellm_model_ids if not self._is_legacy_sentinel_model_id(model_id)
+        ]
+        dropped = len(litellm_model_ids) - len(self.litellm_model_ids)
+        if dropped:
+            logger.info(f"AnnotationWorker初期化: legacy sentinel を除外しました: {dropped}件")
         self.db_manager = db_manager
         self.model_registry = model_registry
 
@@ -586,6 +605,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
         for annotations in results.values():
             for model_name, unified_result in annotations.items():
+                if self._is_legacy_sentinel_model_id(model_name):
+                    continue
                 if model_name not in model_stats:
                     info = info_map.get(model_name)
                     provider_name = info.provider if info else None

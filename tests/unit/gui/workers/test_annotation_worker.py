@@ -66,6 +66,24 @@ class TestAnnotationWorkerInitialization:
         assert worker.db_manager is mock_db_manager
         assert worker.model_registry is mock_model_registry
 
+    def test_initialization_filters_legacy_sentinel_models(
+        self, mock_annotation_logic, mock_model_registry
+    ):
+        """legacy sentinel を受け取ると初期化時に除外して保持する。"""
+        image_paths = ["/path/to/image1.jpg"]
+        models = ["__legacy_17__", "gpt-4o-mini"]
+        mock_db_manager = Mock()
+
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=image_paths,
+            litellm_model_ids=models,
+            db_manager=mock_db_manager,
+            model_registry=mock_model_registry,
+        )
+
+        assert worker.litellm_model_ids == ["gpt-4o-mini"]
+
 
 class TestAnnotationWorkerExecute:
     """AnnotationWorker execute()テスト"""
@@ -156,6 +174,30 @@ class TestAnnotationWorkerExecute:
         assert "claude-3-haiku-20240307" in result.results["phash1"]
         assert result.total_images == 1
         assert result.models_used == ["gpt-4o-mini", "claude-3-haiku-20240307"]
+
+    def test_execute_skips_legacy_sentinel_models(self, mock_annotation_logic, mock_model_registry):
+        """legacy sentinel は execute 時の対象モデルから除外される。"""
+        image_paths = ["/path/to/image.jpg"]
+        models = ["__legacy_17__", "gpt-4o-mini"]
+
+        mock_db_manager = Mock()
+        mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"phash1": 1}
+        mock_db_manager.repository.get_models_by_litellm_ids.return_value = {"gpt-4o-mini": Mock(id=1)}
+        mock_db_manager.repository.save_annotations = Mock()
+
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=image_paths,
+            litellm_model_ids=models,
+            db_manager=mock_db_manager,
+            model_registry=mock_model_registry,
+        )
+        result = worker.execute()
+
+        mock_annotation_logic.execute_annotation.assert_called_once()
+        assert result.models_used == ["gpt-4o-mini"]
+        called_kwargs = mock_annotation_logic.execute_annotation.call_args.kwargs
+        assert called_kwargs["litellm_model_ids"] == ["gpt-4o-mini"]
 
     def test_execute_model_error_partial_success(self, mock_annotation_logic, mock_model_registry):
         """モデルエラー時の部分的成功"""

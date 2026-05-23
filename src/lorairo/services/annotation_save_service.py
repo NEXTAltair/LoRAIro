@@ -219,6 +219,26 @@ class AnnotationSaveService:
         "ContentPolicyRefusalError:",
     )
 
+    # legacy migration 行の fallback sentinel: __legacy_<id>__.
+    # runtime 保存経路では通常モデルとして扱わず必ずスキップする。
+    _LEGACY_SENTINEL_PREFIX = "__legacy_"
+    _LEGACY_SENTINEL_SUFFIX = "__"
+
+    @classmethod
+    def _is_legacy_sentinel_model_id(cls, model_name: str) -> bool:
+        """モデル名が legacy fallback sentinel (`__legacy_<id>__`) かどうかを判定する。"""
+        if not (
+            model_name.startswith(cls._LEGACY_SENTINEL_PREFIX)
+            and model_name.endswith(cls._LEGACY_SENTINEL_SUFFIX)
+        ):
+            return False
+
+        if len(model_name) <= len(cls._LEGACY_SENTINEL_PREFIX) + len(cls._LEGACY_SENTINEL_SUFFIX):
+            return False
+
+        model_id = model_name[len(cls._LEGACY_SENTINEL_PREFIX) : -len(cls._LEGACY_SENTINEL_SUFFIX)]
+        return model_id.isdecimal()
+
     @classmethod
     def _detect_refusal_error_type(cls, error: Any) -> str | None:
         """`UnifiedAnnotationResult.error` から refusal exception type 名を抽出する。
@@ -263,6 +283,12 @@ class AnnotationSaveService:
             result: 追記先の AnnotationsDict。
             image_id: 対象画像 ID。refusal を error_records に記録する際に必要。
         """
+        if self._is_legacy_sentinel_model_id(model_name):
+            logger.warning(
+                f"legacy sentinel モデルID {model_name} を保存対象外としてスキップ: image_id={image_id}"
+            )
+            return
+
         error = self._extract_field(unified_result, "error")
         if error:
             refusal_type = self._detect_refusal_error_type(error)
@@ -346,6 +372,8 @@ class AnnotationSaveService:
         all_raw_tags: set[str] = set()
         for phash_annotations in results.values():
             for model_name, unified_result in phash_annotations.items():
+                if self._is_legacy_sentinel_model_id(model_name):
+                    continue
                 if self._extract_field(unified_result, "error"):
                     continue
                 all_model_names.add(model_name)

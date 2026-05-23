@@ -1,7 +1,7 @@
 """AnnotationSaveService ユニットテスト。"""
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -113,6 +113,69 @@ def test_save_annotation_results_with_unknown_phash_skips_silently(
 
 
 @pytest.mark.unit
+def test_save_annotation_results_excludes_legacy_sentinel_from_lookup(
+    service: AnnotationSaveService,
+    mock_repository: MagicMock,
+) -> None:
+    """sentinel モデルは lookup 対象外になり、通常モデルのみ保存する。"""
+    mock_model = MagicMock()
+    mock_model.id = 10
+
+    mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1}
+    mock_repository.get_models_by_litellm_ids.return_value = {"wdtagger": mock_model}
+    mock_repository.batch_resolve_tag_ids.return_value = {}
+
+    results = {
+        "phash001": {
+            "__legacy_17__": _make_success_result(tags=["legacy"]),
+            "wdtagger": _make_success_result(tags=["tag1"]),
+        },
+    }
+
+    result = service.save_annotation_results(results)
+
+    assert result.success_count == 1
+    assert result.skip_count == 0
+    assert result.error_count == 0
+    assert result.total_count == 1
+    mock_repository.get_models_by_litellm_ids.assert_called_once_with({"wdtagger"})
+    mock_repository.save_annotations.assert_called_once()
+    annotations_dict = mock_repository.save_annotations.call_args[0][1]
+    assert annotations_dict["tags"] == [
+        {
+            "model_id": 10,
+            "tag": "tag1",
+            "existing": False,
+            "is_edited_manually": False,
+            "confidence_score": None,
+            "tag_id": None,
+        }
+    ]
+
+
+@pytest.mark.unit
+def test_save_annotation_results_legacy_sentinel_only_is_skipped(
+    service: AnnotationSaveService,
+    mock_repository: MagicMock,
+) -> None:
+    """legacy sentinel のみなら保存対象がなく、スキップ件数に集計される。"""
+    mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1}
+    mock_repository.get_models_by_litellm_ids.return_value = {}
+    mock_repository.batch_resolve_tag_ids.return_value = {}
+
+    results = {"phash001": {"__legacy_17__": _make_success_result(tags=["legacy"])}}
+
+    result = service.save_annotation_results(results)
+
+    assert result.success_count == 0
+    assert result.skip_count == 1
+    assert result.error_count == 0
+    assert result.total_count == 1
+    mock_repository.get_models_by_litellm_ids.assert_called_once_with(set())
+    mock_repository.save_annotations.assert_not_called()
+
+
+@pytest.mark.unit
 def test_save_annotation_results_handles_partial_save_failure(
     service: AnnotationSaveService,
     mock_repository: MagicMock,
@@ -135,6 +198,33 @@ def test_save_annotation_results_handles_partial_save_failure(
     assert result.skip_count == 0
     assert len(result.error_details) == 1
     assert "phash001" in result.error_details[0]
+
+
+@pytest.mark.unit
+def test_process_model_result_legacy_sentinel_is_skipped_with_warning(
+    service: AnnotationSaveService,
+    mock_repository: MagicMock,
+) -> None:
+    """legacy sentinel は refusal/error 処理を経ず警告してスキップする。"""
+    unified_result = MagicMock()
+    unified_result.error = "ApiTimeoutError: timeout"
+    result_dict = {"scores": [], "score_labels": [], "tags": [], "captions": [], "ratings": []}
+
+    with patch("lorairo.services.annotation_save_service.logger.warning") as warn_mock:
+        service._process_model_result(
+            "__legacy_17__",
+            unified_result,
+            {},
+            result_dict,
+            image_id=1,
+        )
+        assert warn_mock.call_count >= 1
+        warn_mock.assert_any_call(
+            "legacy sentinel モデルID __legacy_17__ を保存対象外としてスキップ: image_id=1"
+        )
+
+    mock_repository.save_error_record.assert_not_called()
+    assert result_dict["tags"] == []
 
 
 @pytest.mark.unit
