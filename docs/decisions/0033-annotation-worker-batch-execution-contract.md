@@ -17,8 +17,8 @@
 - 進捗指標がモデル進行ベースと画像数ベースで混在
 - `_save_error_records` の保存単位 (per-image-path × per-model) が暗黙
 - `phash_list` 引き渡しが常に `None` で lib 側計算に委ねている
-- `ErrorRecord` テーブルに未使用の `retry_count` / `resolved_at` カラムが存在し、設計意図と
-  実装が乖離している
+- `ErrorRecord` テーブルに未使用の `retry_count` カラムが存在し、設計意図と実装が乖離している
+  (`resolved_at` は Error Log Viewer の手動「解決済みマーク」UX で live、削除対象外)
 
 本 ADR は **LoRAIro 内部 Worker レイヤー** の契約に絞る (用語注: 「バッチAPI」= プロバイダ提供
 Batch WebAPI のことを指す → 別 ADR #395)。lib `model_name_list` 一括渡し最適化は #396。
@@ -35,7 +35,8 @@ Batch WebAPI のことを指す → 別 ADR #395)。lib `model_name_list` 一括
 | 致命例外 (Worker 全体) | outer try で全画像エラー記録 + raise |
 | error_records 単位 | (image_path, model_name) ペア。model_name=None は全体エラー |
 | `__legacy_*__` sentinel | Worker `__init__` で除外、`_build_model_statistics` でも除外 (Phase 1.11 残骸) |
-| `retry_count` / `resolved_at` | スキーマに存在するが Worker / Service 共に未使用 (dead column) |
+| `retry_count` | スキーマに存在するが Worker / Service 共に未使用 (`retry_count=0` 固定 INSERT のみ、参照なし) |
+| `resolved_at` | Error Log Viewer / Detail Dialog の手動「解決済みマーク」UX で live (Decision 2 の自動 retry 不在とは独立) |
 | API key | `AnnotatorLibraryAdapter` が ConfigurationService から取得して lib に渡す (Worker は無関与) |
 | pHash | `phash_list=None` 固定。lib 側自動計算 |
 
@@ -127,15 +128,19 @@ Batch WebAPI のことを指す → 別 ADR #395)。lib `model_name_list` 一括
 - 残存 sentinel は `__manual_edit__` のみとなる。これは推論結果保存先として正規利用される
   ため、整合性違反ではない
 
-### 8. `ErrorRecord` から未使用カラムを削除する
+### 8. `ErrorRecord.retry_count` カラムを削除する
 
-**`retry_count`, `resolved_at` カラムを削除する。**
+**`retry_count` カラムを削除する。`resolved_at` は残す。**
 
-- 両カラムは「Worker レイヤーで retry / 解消トラッキングする」設計を見越して用意されたが、
+- `retry_count`: 「Worker レイヤーで retry トラッキングする」設計を見越して用意されたが、
   Decision 2 のとおり **LoRAIro 側で自動 retry はしない**ため、永続的に未使用
+  (`db_repository.py` で `retry_count=0` 固定 INSERT のみ、参照箇所なし)
+- `resolved_at`: **残す**。Error Log Viewer / Error Detail Dialog で手動「解決済みマーク」
+  機能 (`mark_error_resolved` / `mark_errors_resolved_batch`) が live。Decision 2 の
+  「自動 retry はしない」とは独立した手動 UX 機能
 - ユーザー起点の再実行機能 (失敗モデルのみ rerun 等) は別 ADR / 別 Issue で再検討する。
-  そのときに必要なカラムは新規追加し直す
-- migration で `error_records` テーブルから両カラムを drop
+  そのときに必要なら `retry_count` を新規追加し直す
+- migration で `error_records` テーブルから `retry_count` のみ drop
 
 ## Rationale
 
@@ -180,12 +185,16 @@ error_records に保存すると、データの出所が辿れなくなり「lib
 乗らない」運用契約は name 一致経由のクエリ (後続 migration の `WHERE m.name IN (...)` 等) で
 容易に破られる脆弱性も抱えていた。検知機構を増やすより、行自体を削除する方が構造的に安全。
 
-### なぜ ErrorRecord の未使用カラムを消すか
+### なぜ ErrorRecord の `retry_count` を消すか
 
-`retry_count` / `resolved_at` は「LoRAIro 側で retry / 解消管理する」設計仮説の遺物。
-Decision 2 で「LoRAIro 側で自動 retry はしない」と確定するため、これらのカラムは永続的に使われ
-ない。dead column を残すと将来「retry できる前提のコード」が誤って書かれるリスクがある。
-必要になったときに改めて追加し直す方が、設計意図の追跡が容易。
+`retry_count` は「LoRAIro 側で retry 管理する」設計仮説の遺物。Decision 2 で「LoRAIro 側で
+自動 retry はしない」と確定するため、このカラムは永続的に使われない (現状も `retry_count=0`
+固定 INSERT のみで、参照箇所なし)。dead column を残すと将来「retry できる前提のコード」が誤って
+書かれるリスクがある。必要になったときに改めて追加し直す方が、設計意図の追跡が容易。
+
+なお `resolved_at` は Error Log Viewer / Detail Dialog で手動「解決済みマーク」UX として live で
+使われているため、本 ADR の削除対象外。Decision 2 (自動 retry 不在) と「手動 resolved マーク」は
+独立した責務。
 
 ### なぜ進捗を `(画像 × モデル)` で算定するか
 
@@ -207,7 +216,7 @@ LoRAIro DB には既に `phash` カラムがあり、画像登録時に計算済
 - 内部整合性違反が `error_type='integrity_violation'` で集計可能になる
 - error_records テーブルが「Worker 観測の失敗」のみになり、責務が明確
 - `__legacy_*__` sentinel が DB から消え、name 一致による推論経路流入の脆弱性が根絶される
-- `retry_count` / `resolved_at` 削除で設計意図と実装が一致する
+- `retry_count` 削除で設計意図と実装が一致する (`resolved_at` は手動 UX のため維持)
 - 進捗算定が `(画像 × モデル)` で統一され、lib 一括渡し移行時も契約変更不要
 - pHash 二重計算が解消 (登録済み画像)
 - スキーマ変更は legacy 行削除 + 未使用カラム drop のみ。severity 新設のような追加カラムなし
@@ -226,7 +235,7 @@ LoRAIro DB には既に `phash` カラムがあり、画像登録時に計算済
 
 1. **migration A**: `models WHERE litellm_model_id LIKE '__legacy_%'` と子テーブルの参照行を
    削除
-2. **migration B**: `error_records` から `retry_count`, `resolved_at` カラムを drop
+2. **migration B**: `error_records` から `retry_count` カラムを drop (`resolved_at` は GUI live のため保持)
 3. **Worker 修正**: `_is_legacy_sentinel_model_id` フィルタを削除 (migration A 後に不要)
 4. **Worker 修正**: L1 (lib `result.error`) を `_save_error_records` 対象から外す
 5. **Worker 修正**: 内部整合性違反検知時に `error_type='integrity_violation'` で記録
