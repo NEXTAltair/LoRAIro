@@ -32,7 +32,6 @@ def sample_error_record():
         error_message="Test error message for unit testing",
         file_path="/path/to/test_image.jpg",
         model_name="test-model-v1",
-        retry_count=2,
         resolved_at=None,
         created_at=datetime.datetime(2025, 11, 24, 12, 0, 0),
         stack_trace="Traceback (most recent call last):\n  File test.py, line 10\n    raise APIError()",
@@ -49,7 +48,6 @@ def resolved_error_record():
         error_message="File not accessible",
         file_path="/path/to/missing.jpg",
         model_name=None,
-        retry_count=0,
         resolved_at=datetime.datetime(2025, 11, 24, 13, 0, 0),
         created_at=datetime.datetime(2025, 11, 24, 12, 30, 0),
         stack_trace=None,
@@ -113,7 +111,6 @@ class TestErrorDetailDialogUIUpdate:
         assert dialog.lineEditErrorType.text() == "APIError"
         assert dialog.lineEditFilePath.text() == "/path/to/test_image.jpg"
         assert dialog.lineEditModelName.text() == "test-model-v1"
-        assert dialog.lineEditRetryCount.text() == "2"
         assert dialog.lineEditResolvedAt.text() == "未解決"
 
         # 解決マークボタン有効確認
@@ -225,7 +222,6 @@ class TestErrorDetailDialogImagePreview:
             error_message="No file path",
             file_path=None,
             model_name=None,
-            retry_count=0,
             resolved_at=None,
             created_at=datetime.datetime(2025, 11, 24, 12, 0, 0),
         )

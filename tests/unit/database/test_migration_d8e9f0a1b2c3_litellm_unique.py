@@ -201,7 +201,11 @@ class TestLitellmModelIdMigration:
         engine.dispose()
 
     def test_unknown_provider_falls_back_to_legacy_sentinel(self, tmp_path: Path) -> None:
-        """ローカル ML モデル (`provider=None`/`xinntao` 等) は `__legacy_<id>__` sentinel に落ちる。"""
+        """ローカル ML モデル (`provider=None`/`xinntao` 等) は `__legacy_<id>__` sentinel に落ちる。
+
+        Note: ADR 0033 Decision 7 (migration a3b4c5d6e7f8) で legacy sentinel 行は最終的に
+        削除されるため、本テストでは d8e9f0a1b2c3 までの状態で sentinel 割り当てを検証する。
+        """
         db = tmp_path / "test.db"
         _create_legacy_schema(db)
         engine = create_engine(f"sqlite:///{db}")
@@ -212,7 +216,8 @@ class TestLitellmModelIdMigration:
             )
         engine.dispose()
 
-        _upgrade_to_head(db)
+        # d8e9f0a1b2c3 まで upgrade (legacy sentinel が割り当てられる時点で停止)
+        command.upgrade(_make_alembic_config(db), "d8e9f0a1b2c3")
 
         engine = create_engine(f"sqlite:///{db}")
         with engine.connect() as conn:
@@ -232,6 +237,9 @@ class TestLitellmModelIdMigration:
         `name='openai/gpt-4o'` (slash) と `name='gpt-4o', provider='openai'` (bare) が
         共存していた場合、Step 2/4 で両行が同じ `litellm_model_id='openai/gpt-4o'` を持つ。
         Step 5.5 (dedup) で最古 (id 最小) のみ正規 ID を保持し、残りは sentinel に変換される。
+
+        Note: ADR 0033 Decision 7 (migration a3b4c5d6e7f8) で sentinel 行は最終的に削除される。
+        本テストでは衝突解消挙動 (d8e9f0a1b2c3) を検証するため、d8 までで停止する。
         """
         db = tmp_path / "test.db"
         _create_legacy_schema(db)
@@ -242,7 +250,8 @@ class TestLitellmModelIdMigration:
             conn.execute(text("INSERT INTO models (id, name, provider) VALUES (2, 'gpt-4o', 'openai')"))
         engine.dispose()
 
-        _upgrade_to_head(db)
+        # d8e9f0a1b2c3 まで upgrade (sentinel 衝突解消挙動を保持)
+        command.upgrade(_make_alembic_config(db), "d8e9f0a1b2c3")
 
         engine = create_engine(f"sqlite:///{db}")
         with engine.connect() as conn:

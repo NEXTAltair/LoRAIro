@@ -121,7 +121,7 @@ def test_score_labels_migration_converges_when_table_was_precreated(tmp_path: Pa
         version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
     engine.dispose()
 
-    assert version == "f1b2c3d4e5f6"
+    assert version == "b4c5d6e7f8a9"
     assert "ix_score_labels_image_id" in indexes
 
 
@@ -142,7 +142,7 @@ def test_project_database_prepare_upgrades_alembic_managed_db(tmp_path: Path) ->
         score_label_count = conn.execute(text("SELECT count(*) FROM score_labels")).scalar_one()
     engine.dispose()
 
-    assert version == "f1b2c3d4e5f6"
+    assert version == "b4c5d6e7f8a9"
     assert score_label_count == 0
 
 

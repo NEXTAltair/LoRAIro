@@ -108,7 +108,6 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
         self.lineEditFilePath.setText(record.file_path if record.file_path else "N/A")
         self.lineEditModelName.setText(record.model_name if record.model_name else "N/A")
         self.lineEditCreatedAt.setText(record.created_at.strftime("%Y-%m-%d %H:%M:%S"))
-        self.lineEditRetryCount.setText(str(record.retry_count))
 
         # 解決日時
         if record.resolved_at:

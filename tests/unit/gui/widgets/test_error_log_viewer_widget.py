@@ -42,7 +42,6 @@ def sample_error_record():
         error_message="Test error message",
         file_path="/path/to/image.jpg",
         model_name="test-model",
-        retry_count=0,
         resolved_at=None,
         created_at=datetime.datetime(2025, 11, 24, 12, 0, 0),
     )
@@ -248,7 +247,6 @@ class TestErrorLogViewerWidgetActions:
             error_message="Resolved error",
             file_path="/path/to/file.jpg",
             model_name=None,
-            retry_count=0,
             resolved_at=datetime.datetime(2025, 11, 24, 13, 0, 0),
             created_at=datetime.datetime(2025, 11, 24, 12, 0, 0),
         )
@@ -302,7 +300,6 @@ class TestMarkResolvedMultiSelect:
             error_message="Second error message",
             file_path=None,
             model_name=None,
-            retry_count=0,
             resolved_at=None,
             created_at=datetime.datetime(2025, 11, 25, 12, 0, 0),
         )
@@ -432,7 +429,6 @@ class TestErrorLogViewerWidgetTableDisplay:
             error_message="File not found",
             file_path="/path/to/missing.jpg",
             model_name=None,
-            retry_count=1,
             resolved_at=datetime.datetime(2025, 11, 24, 13, 0, 0),
             created_at=datetime.datetime(2025, 11, 24, 12, 0, 0),
         )

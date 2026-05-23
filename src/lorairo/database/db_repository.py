@@ -3333,7 +3333,6 @@ class ImageRepository:
                     stack_trace=stack_trace,
                     file_path=file_path,
                     model_name=model_name,
-                    retry_count=0,
                 )
                 session.add(record)
                 session.flush()
