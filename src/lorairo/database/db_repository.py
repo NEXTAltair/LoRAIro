@@ -1566,7 +1566,7 @@ class ImageRepository:
                     select(Image)
                     .where(Image.id == image_id)
                     .options(
-                        selectinload(Image.ratings),
+                        selectinload(Image.ratings).selectinload(Rating.model),
                         selectinload(Image.scores),
                     )
                 )
@@ -1892,11 +1892,17 @@ class ImageRepository:
             フォーマット済み辞書。
 
         """
+        model_name = rating.model.name if rating.model else "Unknown"
+        litellm_model_id = rating.model.litellm_model_id if rating.model else None
+        is_manual = litellm_model_id == MANUAL_EDIT_LITELLM_ID or model_name == MANUAL_EDIT_NAME
         return {
             "id": rating.id,
             "raw_rating_value": rating.raw_rating_value,
             "normalized_rating": rating.normalized_rating,
             "model_id": rating.model_id,
+            "model": model_name,
+            "model_name": model_name,
+            "source": "Manual" if is_manual else "AI",
             "confidence_score": rating.confidence_score,
             "created_at": rating.created_at,
             "updated_at": rating.updated_at,
@@ -1968,7 +1974,7 @@ class ImageRepository:
                         # ADR 0028: score_labels は model 名と組で返すため
                         # ScoreLabel.model も eager load する
                         joinedload(Image.score_labels).joinedload(ScoreLabel.model),
-                        joinedload(Image.ratings),
+                        joinedload(Image.ratings).joinedload(Rating.model),
                         joinedload(Image.processed_images),
                     )
                 )
@@ -2519,18 +2525,7 @@ class ImageRepository:
 
         """
         if image.ratings:
-            annotations["ratings"] = [
-                {
-                    "id": rating.id,
-                    "raw_rating_value": rating.raw_rating_value,
-                    "normalized_rating": rating.normalized_rating,
-                    "model_id": rating.model_id,
-                    "confidence_score": rating.confidence_score,
-                    "created_at": rating.created_at,
-                    "updated_at": rating.updated_at,
-                }
-                for rating in image.ratings
-            ]
+            annotations["ratings"] = [self._format_rating_annotation(rating) for rating in image.ratings]
             latest_rating = max(image.ratings, key=lambda r: r.created_at)
             annotations["rating_value"] = latest_rating.normalized_rating
         else:
@@ -2596,7 +2591,7 @@ class ImageRepository:
                 selectinload(Image.captions).selectinload(Caption.model),
                 selectinload(Image.scores).selectinload(Score.model),
                 selectinload(Image.score_labels).selectinload(ScoreLabel.model),
-                selectinload(Image.ratings),
+                selectinload(Image.ratings).selectinload(Rating.model),
             )
         )
         orig_results: list[Image] = list(session.execute(orig_stmt).scalars().all())
@@ -2639,7 +2634,7 @@ class ImageRepository:
                 selectinload(Image.captions).selectinload(Caption.model),
                 selectinload(Image.scores).selectinload(Score.model),
                 selectinload(Image.score_labels).selectinload(ScoreLabel.model),
-                selectinload(Image.ratings),
+                selectinload(Image.ratings).selectinload(Rating.model),
             )
         )
         orig_images = session.execute(orig_annotations_stmt).scalars().all()
@@ -3450,7 +3445,7 @@ class ImageRepository:
                         joinedload(Image.tags).joinedload(Tag.model),
                         joinedload(Image.captions).joinedload(Caption.model),
                         joinedload(Image.scores).joinedload(Score.model),
-                        joinedload(Image.ratings),
+                        joinedload(Image.ratings).joinedload(Rating.model),
                     )
                 )
                 images = session.execute(stmt).unique().scalars().all()

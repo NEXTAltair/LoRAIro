@@ -9,17 +9,21 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from PySide6.QtCore import QPoint, Qt, Signal, Slot
-from PySide6.QtGui import QResizeEvent
+from PySide6.QtGui import QKeySequence, QResizeEvent, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractScrollArea,
     QApplication,
     QComboBox,
+    QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QMenu,
     QSizePolicy,
+    QTableWidget,
     QTableWidgetItem,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -38,6 +42,8 @@ class AnnotationData:
     score_type: str = "Aesthetic"
     # ADR 0028: canonical scorer の categorical label を {model, label, ...} ペアで保持
     score_labels: list[dict[str, Any]] = field(default_factory=list)
+    # Issue #334: model-native rating record を model 別に保持
+    ratings: list[dict[str, Any]] = field(default_factory=list)
     # ADR 0029: 統一品質 tier (raw annotation からの derived view)
     quality_summary: dict[str, Any] = field(default_factory=dict)
     # 翻訳データ: {tag_id: {language: translated_text}}
@@ -94,6 +100,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._setup_caption_compact_view()
         self._setup_score_labels_compact_view()
         self._setup_quality_tier_badge()
+        self._setup_ratings_table_view()
         self._adjust_content_heights()
 
         # 言語コンボボックスのシグナル接続
@@ -175,6 +182,43 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         # pill コンテナの前 (上) に挿入
         self.verticalLayoutScoreLabels.insertWidget(0, self._quality_tier_label)
 
+    def _setup_ratings_table_view(self) -> None:
+        """モデル別 rating record の read-only table を初期化する (Issue #334)。"""
+        self.groupBoxRatings = QGroupBox("レーティング詳細", self)
+        ratings_layout = QVBoxLayout(self.groupBoxRatings)
+        ratings_layout.setSpacing(4)
+        ratings_layout.setObjectName("verticalLayoutRatings")
+
+        self.labelRatingsPlaceholder = QLabel("-", self.groupBoxRatings)
+        self.labelRatingsPlaceholder.setWordWrap(True)
+        self.labelRatingsPlaceholder.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self._make_label_copyable(self.labelRatingsPlaceholder)
+        ratings_layout.addWidget(self.labelRatingsPlaceholder)
+
+        self.tableWidgetRatings = QTableWidget(self.groupBoxRatings)
+        self.tableWidgetRatings.setObjectName("tableWidgetRatings")
+        self.tableWidgetRatings.setColumnCount(5)
+        for column, label in enumerate(["Model", "Normalized", "Raw", "Confidence", "Source"]):
+            self.tableWidgetRatings.setHorizontalHeaderItem(column, QTableWidgetItem(label))
+        self.tableWidgetRatings.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tableWidgetRatings.setAlternatingRowColors(True)
+        self.tableWidgetRatings.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.tableWidgetRatings.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
+        self.tableWidgetRatings.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
+        self.tableWidgetRatings.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.tableWidgetRatings.horizontalHeader().setStretchLastSection(True)
+        self.tableWidgetRatings.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.tableWidgetRatings.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tableWidgetRatings.customContextMenuRequested.connect(self._show_ratings_table_context_menu)
+        self._ratings_copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self.tableWidgetRatings)
+        self._ratings_copy_shortcut.activated.connect(self.copy_selected_rating_cells_to_clipboard)
+        self.tableWidgetRatings.setVisible(False)
+        ratings_layout.addWidget(self.tableWidgetRatings)
+
+        self.verticalLayoutMain.addWidget(self.groupBoxRatings)
+
     def _make_label_copyable(self, label: QLabel) -> None:
         """読み取り専用 QLabel を選択・コピー可能にする。"""
         label.setTextInteractionFlags(
@@ -213,10 +257,32 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         copy_action.triggered.connect(self.copy_selected_tag_cells_to_clipboard)
         menu.exec(self.tableWidgetTags.viewport().mapToGlobal(position))
 
+    @Slot(QPoint)
+    def _show_ratings_table_context_menu(self, position: QPoint) -> None:
+        menu = QMenu(self.tableWidgetRatings)
+        copy_action = menu.addAction("選択範囲をコピー")
+        copy_action.setEnabled(bool(self.tableWidgetRatings.selectedRanges()))
+        copy_action.triggered.connect(self.copy_selected_rating_cells_to_clipboard)
+        menu.exec(self.tableWidgetRatings.viewport().mapToGlobal(position))
+
     @Slot()
     def copy_selected_tag_cells_to_clipboard(self) -> bool:
         """タグテーブルの選択セルを TSV としてクリップボードへコピーする。"""
-        ranges = self.tableWidgetTags.selectedRanges()
+        return self._copy_selected_table_cells_to_clipboard(
+            self.tableWidgetTags, self._tag_table_item_clipboard_text
+        )
+
+    @Slot()
+    def copy_selected_rating_cells_to_clipboard(self) -> bool:
+        """rating 詳細テーブルの選択セルを TSV としてクリップボードへコピーする。"""
+        return self._copy_selected_table_cells_to_clipboard(self.tableWidgetRatings)
+
+    def _copy_selected_table_cells_to_clipboard(
+        self,
+        table: QTableWidget,
+        formatter: Any | None = None,
+    ) -> bool:
+        ranges = table.selectedRanges()
         if not ranges:
             return False
 
@@ -225,8 +291,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             for row in range(selected_range.topRow(), selected_range.bottomRow() + 1):
                 values: list[str] = []
                 for column in range(selected_range.leftColumn(), selected_range.rightColumn() + 1):
-                    item = self.tableWidgetTags.item(row, column)
-                    values.append(self._tag_table_item_clipboard_text(item, column))
+                    item = table.item(row, column)
+                    values.append(formatter(item, column) if formatter else (item.text() if item else ""))
                 lines.append("\t".join(values))
 
         QApplication.clipboard().setText("\n".join(lines))
@@ -258,6 +324,9 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             # スコアラベル表示更新 (ADR 0028)
             self._update_score_labels_display(data.score_labels)
 
+            # レーティング詳細表示更新 (Issue #334)
+            self._update_ratings_display(data.ratings)
+
             # 品質 tier badge 更新 (ADR 0029)
             self._update_quality_tier_display(data.quality_summary)
 
@@ -266,7 +335,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             self.data_loaded.emit(data)
             logger.debug(
                 f"Annotation data updated - tags: {len(data.tags)}, "
-                f"caption: {bool(data.caption)}, score_labels: {len(data.score_labels)}"
+                f"caption: {bool(data.caption)}, score_labels: {len(data.score_labels)}, "
+                f"ratings: {len(data.ratings)}"
             )
 
         except Exception as e:
@@ -508,6 +578,45 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         except Exception as e:
             logger.error(f"Error updating quality tier display: {e}")
 
+    def _update_ratings_display(self, ratings: list[dict[str, Any]]) -> None:
+        """モデル別 rating record を table 表示する (Issue #334)。"""
+        try:
+            self.tableWidgetRatings.setRowCount(len(ratings))
+            self.tableWidgetRatings.setSortingEnabled(False)
+
+            if not ratings:
+                self.labelRatingsPlaceholder.setVisible(True)
+                self.tableWidgetRatings.setVisible(False)
+                return
+
+            self.labelRatingsPlaceholder.setVisible(False)
+            self.tableWidgetRatings.setVisible(True)
+
+            for row, entry in enumerate(ratings):
+                confidence = entry.get("confidence_score")
+                confidence_text = f"{confidence:.2f}" if confidence is not None else "-"
+                values = [
+                    entry.get("model") or entry.get("model_name") or "Unknown",
+                    entry.get("normalized_rating") or "-",
+                    entry.get("raw_rating_value") or "-",
+                    confidence_text,
+                    entry.get("source") or "AI",
+                ]
+                for column, value in enumerate(values):
+                    item = QTableWidgetItem(str(value))
+                    if column == 3:
+                        item.setData(Qt.ItemDataRole.UserRole, confidence if confidence is not None else -1)
+                    self.tableWidgetRatings.setItem(row, column, item)
+
+            self.tableWidgetRatings.setSortingEnabled(True)
+            self.tableWidgetRatings.resizeColumnsToContents()
+            self._adjust_ratings_height()
+
+            logger.debug(f"Updated ratings display: {len(ratings)} rows")
+
+        except Exception as e:
+            logger.error(f"Error updating ratings display: {e}")
+
     @Slot()
     def clear_data(self) -> None:
         """表示データをクリア"""
@@ -527,6 +636,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
 
             # スコアラベル pill もクリア
             self._update_score_labels_display([])
+            self._update_ratings_display([])
             # 品質 tier badge もクリア (ADR 0029)
             self._update_quality_tier_display({})
 
@@ -554,12 +664,14 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         caption: bool = True,
         scores: bool = True,
         score_labels: bool = True,
+        ratings: bool = True,
     ) -> None:
-        """各グループボックスの表示/非表示制御 (Issue #284 で score_labels を追加)。"""
+        """各グループボックスの表示/非表示制御 (Issue #284 / #334)。"""
         self.groupBoxTags.setVisible(tags)
         self.groupBoxCaption.setVisible(caption)
         self.groupBoxScores.setVisible(scores)
         self.groupBoxScoreLabels.setVisible(score_labels)
+        self.groupBoxRatings.setVisible(ratings)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
@@ -568,6 +680,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     def _adjust_content_heights(self) -> None:
         self._adjust_tags_height()
         self._adjust_caption_height()
+        self._adjust_ratings_height()
 
     def _adjust_tags_height(self) -> None:
         if not self.tableWidgetTags.isVisible():
@@ -584,6 +697,22 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         if target < min_height:
             target = min_height
         self.tableWidgetTags.setFixedHeight(target)
+
+    def _adjust_ratings_height(self) -> None:
+        if not self.tableWidgetRatings.isVisible():
+            return
+        self.tableWidgetRatings.resizeRowsToContents()
+        header_height = self.tableWidgetRatings.horizontalHeader().height()
+        rows_height = sum(
+            self.tableWidgetRatings.rowHeight(row) for row in range(self.tableWidgetRatings.rowCount())
+        )
+        frame = self.tableWidgetRatings.frameWidth() * 2
+        padding = 6
+        target = header_height + rows_height + frame + padding
+        min_height = header_height + frame + padding
+        if target < min_height:
+            target = min_height
+        self.tableWidgetRatings.setFixedHeight(target)
 
     def _adjust_caption_height(self) -> None:
         if not self.textEditCaption.isVisible():

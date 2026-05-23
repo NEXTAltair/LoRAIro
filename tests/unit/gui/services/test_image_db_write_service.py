@@ -49,6 +49,17 @@ class TestImageDBWriteService:
             "tags": [{"content": "1girl"}, {"content": "long hair"}],
             "captions": [{"content": "A beautiful anime girl"}],
             "scores": [{"value": 0.85}],
+            "score_labels": [{"model": "aesthetic_shadow_v1", "label": "aesthetic"}],
+            "ratings": [
+                {
+                    "model": "wd-vit-tagger-v3",
+                    "normalized_rating": "R",
+                    "raw_rating_value": "questionable",
+                    "confidence_score": 0.91,
+                    "source": "AI",
+                }
+            ],
+            "quality_summary": {"tier": "high"},
         }
 
         mock_db_manager.repository.get_image_metadata.return_value = mock_image_metadata
@@ -73,6 +84,19 @@ class TestImageDBWriteService:
         assert result.annotation_data.tags == ["1girl", "long hair"]
         assert result.annotation_data.caption == "A beautiful anime girl"
         assert result.annotation_data.aesthetic_score == 0.85
+        assert result.annotation_data.score_labels == [
+            {"model": "aesthetic_shadow_v1", "label": "aesthetic"}
+        ]
+        assert result.annotation_data.ratings == [
+            {
+                "model": "wd-vit-tagger-v3",
+                "normalized_rating": "R",
+                "raw_rating_value": "questionable",
+                "confidence_score": 0.91,
+                "source": "AI",
+            }
+        ]
+        assert result.annotation_data.quality_summary == {"tier": "high"}
 
         # モックメソッドの呼び出し確認
         mock_db_manager.repository.get_image_metadata.assert_called_once_with(image_id)
