@@ -126,6 +126,9 @@ class ImageDBWriteService:
                 aesthetic_score=aesthetic_score,
                 overall_score=0,
                 score_type="Aesthetic",
+                score_labels=annotations.get("score_labels", []),
+                ratings=annotations.get("ratings", []),
+                quality_summary=annotations.get("quality_summary", {}),
             )
 
             logger.debug(f"Annotation data retrieved for ID: {image_id}")

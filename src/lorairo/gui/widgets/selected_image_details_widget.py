@@ -438,6 +438,8 @@ class SelectedImageDetailsWidget(QWidget):
         tags_text = metadata.get("tags_text", "")
         # ADR 0028: canonical scorer の score_labels を AnnotationData に渡す
         score_labels_list = metadata.get("score_labels", [])
+        # Issue #334: model 別 rating record を詳細表示へ渡す
+        ratings_list = metadata.get("ratings", [])
         # ADR 0029: 統一品質 tier (derived view) を AnnotationData に渡す
         quality_summary = metadata.get("quality_summary", {})
 
@@ -459,6 +461,7 @@ class SelectedImageDetailsWidget(QWidget):
             aesthetic_score=score_value,
             overall_score=0,  # Rating値は文字列なのでoverall_scoreには使用しない
             score_labels=score_labels_list,
+            ratings=ratings_list,
             quality_summary=quality_summary,
             tag_translations=tag_translations,
             available_languages=self._available_languages,
@@ -730,6 +733,20 @@ class SelectedImageDetailsWidget(QWidget):
                     for entry in details.annotation_data.score_labels
                 ]
                 lines.append(f"Score labels: {', '.join(score_labels)}")
+
+            if details.annotation_data.ratings:
+                ratings = []
+                for entry in details.annotation_data.ratings:
+                    model = entry.get("model") or entry.get("model_name") or "Unknown"
+                    normalized = entry.get("normalized_rating", "-")
+                    raw = entry.get("raw_rating_value", "-")
+                    confidence = entry.get("confidence_score")
+                    confidence_text = f"{confidence:.2f}" if confidence is not None else "-"
+                    source = entry.get("source", "AI")
+                    ratings.append(
+                        f"{model}: {normalized} (raw={raw}, confidence={confidence_text}, source={source})"
+                    )
+                lines.append(f"Ratings: {', '.join(ratings)}")
 
         lines.extend(
             [

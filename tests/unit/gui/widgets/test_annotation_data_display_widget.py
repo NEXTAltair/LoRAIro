@@ -326,6 +326,74 @@ class TestAnnotationDataDisplayWidget:
         # score_labels は default で visible 設定 → isHidden() は False
         assert not widget.groupBoxScoreLabels.isHidden()
 
+    @pytest.fixture
+    def sample_ratings(self):
+        """Issue #334: model 別 rating record のデータ形状。"""
+        return [
+            {
+                "model": "wd-vit-tagger-v3",
+                "model_id": 42,
+                "normalized_rating": "R",
+                "raw_rating_value": "questionable",
+                "confidence_score": 0.91,
+                "source": "AI",
+            },
+            {
+                "model": "MANUAL_EDIT",
+                "model_id": 1,
+                "normalized_rating": "PG",
+                "raw_rating_value": "PG",
+                "confidence_score": None,
+                "source": "Manual",
+            },
+        ]
+
+    def test_ratings_empty_shows_placeholder(self, widget):
+        """ratings 空時、table が hidden で placeholder のみ。"""
+        widget.update_data(AnnotationData(ratings=[]))
+
+        assert not widget.labelRatingsPlaceholder.isHidden()
+        assert widget.tableWidgetRatings.isHidden()
+
+    def test_ratings_table_rows(self, widget, sample_ratings):
+        """複数 rating record を model 別 table として表示する。"""
+        widget.update_data(AnnotationData(ratings=sample_ratings))
+
+        assert widget.tableWidgetRatings.rowCount() == 2
+        assert widget.tableWidgetRatings.item(0, 0).text() == "wd-vit-tagger-v3"
+        assert widget.tableWidgetRatings.item(0, 1).text() == "R"
+        assert widget.tableWidgetRatings.item(0, 2).text() == "questionable"
+        assert widget.tableWidgetRatings.item(0, 3).text() == "0.91"
+        assert widget.tableWidgetRatings.item(0, 4).text() == "AI"
+        assert widget.tableWidgetRatings.item(1, 0).text() == "MANUAL_EDIT"
+        assert widget.tableWidgetRatings.item(1, 3).text() == "-"
+        assert widget.tableWidgetRatings.item(1, 4).text() == "Manual"
+        assert not widget.tableWidgetRatings.isHidden()
+        assert widget.labelRatingsPlaceholder.isHidden()
+
+    def test_ratings_re_render_clears_previous(self, widget, sample_ratings):
+        """update_data 再呼出しで前 rating rows がクリアされる。"""
+        widget.update_data(AnnotationData(ratings=sample_ratings))
+        assert widget.tableWidgetRatings.rowCount() == 2
+
+        widget.update_data(AnnotationData(ratings=[sample_ratings[0]]))
+
+        assert widget.tableWidgetRatings.rowCount() == 1
+        assert widget.tableWidgetRatings.item(0, 0).text() == "wd-vit-tagger-v3"
+
+    def test_set_group_box_visibility_ratings_false(self, widget):
+        """ratings=False で groupBoxRatings が hidden になる。"""
+        widget.set_group_box_visibility(ratings=False)
+        assert widget.groupBoxRatings.isHidden()
+
+    def test_copy_selected_rating_cells_to_clipboard(self, widget, sample_ratings):
+        """rating 詳細テーブルの選択セルを TSV としてコピーする。"""
+        widget.update_data(AnnotationData(ratings=sample_ratings))
+        widget.tableWidgetRatings.setRangeSelected(QTableWidgetSelectionRange(0, 0, 0, 2), True)
+
+        assert widget.copy_selected_rating_cells_to_clipboard() is True
+        assert QApplication.clipboard().text() == "wd-vit-tagger-v3\tR\tquestionable"
+
 
 class TestQualityTierBadge:
     """ADR 0029: 統一品質 tier badge の表示挙動。"""

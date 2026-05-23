@@ -423,3 +423,89 @@ class TestGetImageAnnotationsQualitySummary:
 
         assert annotations["quality_summary"]["tier"] == "masterpiece"
         assert annotations["quality_summary"]["known_count"] == 1
+
+
+class TestFormatRatings:
+    """Issue #334: model 別 rating record の formatting 動作テスト。"""
+
+    @pytest.fixture
+    def repository(self) -> ImageRepository:
+        mock_session_factory = Mock()
+        return ImageRepository(session_factory=mock_session_factory)
+
+    def _make_rating(
+        self,
+        rating_id: int,
+        model_id: int,
+        model_name: str,
+        raw_rating_value: str,
+        normalized_rating: str,
+        confidence_score: float | None,
+        litellm_model_id: str = "wd-vit-tagger-v3",
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            id=rating_id,
+            image_id=100,
+            model_id=model_id,
+            raw_rating_value=raw_rating_value,
+            normalized_rating=normalized_rating,
+            confidence_score=confidence_score,
+            created_at=datetime.datetime(2026, 5, 21, 10, rating_id, 0),
+            updated_at=datetime.datetime(2026, 5, 21, 10, rating_id, 0),
+            model=SimpleNamespace(name=model_name, litellm_model_id=litellm_model_id),
+        )
+
+    def test_format_ratings_multi_models(self, repository: ImageRepository) -> None:
+        ratings = [
+            self._make_rating(1, 42, "wd-vit-tagger-v3", "questionable", "R", 0.91),
+            self._make_rating(2, 43, "z3d-e621-convnext", "safe", "PG", 0.84),
+        ]
+        image = SimpleNamespace(ratings=ratings)
+        annotations: dict = {}
+
+        repository._format_ratings(image, annotations)
+
+        assert len(annotations["ratings"]) == 2
+        assert annotations["ratings"][0]["model"] == "wd-vit-tagger-v3"
+        assert annotations["ratings"][0]["model_name"] == "wd-vit-tagger-v3"
+        assert annotations["ratings"][0]["raw_rating_value"] == "questionable"
+        assert annotations["ratings"][0]["normalized_rating"] == "R"
+        assert annotations["ratings"][0]["confidence_score"] == 0.91
+        assert annotations["ratings"][0]["source"] == "AI"
+        assert annotations["rating_value"] == "PG"
+
+    def test_format_ratings_manual_edit_source(self, repository: ImageRepository) -> None:
+        rating = self._make_rating(
+            1,
+            1,
+            "MANUAL_EDIT",
+            "PG",
+            "PG",
+            None,
+            litellm_model_id="__manual_edit__",
+        )
+        image = SimpleNamespace(ratings=[rating])
+        annotations: dict = {}
+
+        repository._format_ratings(image, annotations)
+
+        assert annotations["ratings"][0]["source"] == "Manual"
+
+    def test_format_rating_annotation_unknown_model(self, repository: ImageRepository) -> None:
+        rating = SimpleNamespace(
+            id=1,
+            image_id=100,
+            model_id=99,
+            raw_rating_value="explicit",
+            normalized_rating="X",
+            confidence_score=0.88,
+            created_at=datetime.datetime(2026, 5, 21, 10, 0, 0),
+            updated_at=datetime.datetime(2026, 5, 21, 10, 0, 0),
+            model=None,
+        )
+
+        entry = repository._format_rating_annotation(rating)
+
+        assert entry["model"] == "Unknown"
+        assert entry["model_name"] == "Unknown"
+        assert entry["source"] == "AI"

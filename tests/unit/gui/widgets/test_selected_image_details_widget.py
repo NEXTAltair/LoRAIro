@@ -56,6 +56,15 @@ class TestSelectedImageDetailsWidget:
             aesthetic_score=0.85,
             overall_score=850,
             score_type="Aesthetic",
+            ratings=[
+                {
+                    "model": "wd-vit-tagger-v3",
+                    "normalized_rating": "R",
+                    "raw_rating_value": "questionable",
+                    "confidence_score": 0.91,
+                    "source": "AI",
+                }
+            ],
         )
 
         return ImageDetails(
@@ -139,6 +148,9 @@ class TestSelectedImageDetailsWidget:
         clipboard_text = QApplication.clipboard().text()
         assert "Image ID: 123" in clipboard_text
         assert "File name: sample_image.jpg" in clipboard_text
+        assert (
+            "Ratings: wd-vit-tagger-v3: R (raw=questionable, confidence=0.91, source=AI)" in clipboard_text
+        )
         assert "Tags: 1girl, long hair, blue eyes" in clipboard_text
         assert "Caption: A beautiful anime girl with long hair" in clipboard_text
 
