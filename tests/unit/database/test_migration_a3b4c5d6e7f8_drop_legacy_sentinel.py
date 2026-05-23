@@ -51,16 +51,16 @@ def test_sentinel_rows_are_removed_and_non_sentinel_preserved(tmp_path: Path) ->
                 """
             )
         )
-        # 削除対象: legacy sentinel
+        # 削除対象: canonical sentinel (`__legacy_<digits>__`)
         conn.execute(
             text("INSERT INTO models (id, name, litellm_model_id) VALUES (1, 'a', '__legacy_17__')")
         )
         conn.execute(
             text("INSERT INTO models (id, name, litellm_model_id) VALUES (2, 'b', '__legacy_22__')")
         )
-        # 削除されてはいけない: `_` をワイルドカード扱いすると `__legacy_` プレフィックス
-        # でないが `_` 含む ID が誤マッチする可能性。これらが残ることで ESCAPE が効いている
-        # ことを保証する (Codex P1-1 regression test)。
+        # 削除されてはいけない (Codex P1-1 / P2 regression):
+        # - `_` をワイルドカード扱いすると `mylegacy-foo` 等が誤マッチ (P1-1)
+        # - 末尾 `__` を見ない / middle が digits 以外でも誤マッチ (P2)
         conn.execute(
             text("INSERT INTO models (id, name, litellm_model_id) VALUES (3, 'c', 'mylegacy-model')")
         )
@@ -69,6 +69,14 @@ def test_sentinel_rows_are_removed_and_non_sentinel_preserved(tmp_path: Path) ->
         )
         conn.execute(
             text("INSERT INTO models (id, name, litellm_model_id) VALUES (5, 'e', 'openai/gpt-4o')")
+        )
+        # P2: prefix だけ満たすが non-canonical (suffix `__` 無し / middle が non-digit)
+        conn.execute(
+            text("INSERT INTO models (id, name, litellm_model_id) VALUES (6, 'f', '__legacy_foo__')")
+        )
+        conn.execute(text("INSERT INTO models (id, name, litellm_model_id) VALUES (7, 'g', '__legacy_99')"))
+        conn.execute(
+            text("INSERT INTO models (id, name, litellm_model_id) VALUES (8, 'h', '__legacy_22_extra__')")
         )
         # alembic_version を `f1b2c3d4e5f6` (a3b4c5d6e7f8 の down_revision) に
         # 直接スタンプして、対象 migration だけを走らせる
@@ -85,10 +93,14 @@ def test_sentinel_rows_are_removed_and_non_sentinel_preserved(tmp_path: Path) ->
         }
     engine.dispose()
 
-    # legacy sentinel は両方削除
+    # canonical sentinel は削除
     assert "__legacy_17__" not in remaining
     assert "__legacy_22__" not in remaining
-    # 非 sentinel は残る (ESCAPE で wildcard 誤マッチを防ぐ)
+    # 非 sentinel は残る (P1-1: ESCAPE wildcard / P2: canonical filter)
     assert "mylegacy-model" in remaining
     assert "xxlegacyZmodel" in remaining
     assert "openai/gpt-4o" in remaining
+    # P2: prefix だけ満たすが non-canonical (middle non-digit / 末尾 __ 無し / extra _)
+    assert "__legacy_foo__" in remaining
+    assert "__legacy_99" in remaining
+    assert "__legacy_22_extra__" in remaining
