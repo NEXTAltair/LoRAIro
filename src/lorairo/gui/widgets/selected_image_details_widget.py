@@ -353,15 +353,15 @@ class SelectedImageDetailsWidget(QWidget):
         """
         # 基本情報
         image_id = metadata.get("id")
-        file_path_str = metadata.get("file_path", "")
+        file_path_str = self._get_display_file_path(metadata)
         file_name = Path(file_path_str).name if file_path_str else ""
 
         width = metadata.get("width", 0)
         height = metadata.get("height", 0)
         image_size = f"{width} x {height}" if width and height else ""
 
-        file_size = metadata.get("file_size", 0)
-        if file_size:
+        file_size = self._get_file_size_bytes(metadata, image_id)
+        if file_size is not None and file_size > 0:
             size_kb = file_size / 1024
             file_size_str = f"{size_kb / 1024:.2f} MB" if size_kb >= 1024 else f"{size_kb:.2f} KB"
         else:
@@ -427,6 +427,62 @@ class SelectedImageDetailsWidget(QWidget):
         )
 
         return details
+
+    @staticmethod
+    def _get_display_file_path(metadata: dict[str, Any]) -> str:
+        """表示用ファイルパスを metadata から取得する。
+
+        DatasetStateManager の正規キーは stored_image_path。file_path は旧経路との
+        互換 fallback として扱う。
+        """
+        stored_path = metadata.get("stored_image_path")
+        if stored_path:
+            return str(stored_path).replace("\\", "/")
+
+        file_path = metadata.get("file_path")
+        if file_path:
+            logger.debug(
+                "metadata に stored_image_path が無いため file_path を使用: "
+                f"image_id={metadata.get('id')}, file_path={file_path}"
+            )
+            return str(file_path).replace("\\", "/")
+
+        logger.debug(
+            "metadata に表示可能な画像パスがありません: "
+            f"image_id={metadata.get('id')}, keys={list(metadata.keys())}"
+        )
+        return ""
+
+    @staticmethod
+    def _get_file_size_bytes(metadata: dict[str, Any], image_id: Any) -> int | None:
+        """metadata または stored_image_path の実ファイルからファイルサイズを取得する。"""
+        raw_file_size = metadata.get("file_size")
+        if isinstance(raw_file_size, int | float) and raw_file_size > 0:
+            return int(raw_file_size)
+
+        stored_path = metadata.get("stored_image_path")
+        if not stored_path:
+            logger.debug(
+                "file_size 補完不可: stored_image_path がありません: "
+                f"image_id={image_id}, keys={list(metadata.keys())}"
+            )
+            return None
+
+        try:
+            from ...database.db_core import resolve_stored_path
+
+            resolved_path = resolve_stored_path(str(stored_path))
+            if resolved_path.exists():
+                return resolved_path.stat().st_size
+            logger.debug(
+                f"file_size 補完不可: ファイルが存在しません: image_id={image_id}, path={resolved_path}"
+            )
+        except OSError as e:
+            logger.debug(
+                f"file_size 補完不可: stat 失敗: image_id={image_id}, path={stored_path}, error={e}"
+            )
+
+        return None
 
     def _update_details_display(self, details: ImageDetails) -> None:
         """
