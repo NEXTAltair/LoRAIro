@@ -236,9 +236,7 @@ class AnnotationSaveService:
         if len(model_name) <= len(cls._LEGACY_SENTINEL_PREFIX) + len(cls._LEGACY_SENTINEL_SUFFIX):
             return False
 
-        model_id = model_name[
-            len(cls._LEGACY_SENTINEL_PREFIX) : -len(cls._LEGACY_SENTINEL_SUFFIX)
-        ]
+        model_id = model_name[len(cls._LEGACY_SENTINEL_PREFIX) : -len(cls._LEGACY_SENTINEL_SUFFIX)]
         return model_id.isdecimal()
 
     @classmethod

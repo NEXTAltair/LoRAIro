@@ -108,9 +108,11 @@ class ModelSelectionService:
             and model_name.endswith(ModelSelectionService._LEGACY_SENTINEL_SUFFIX)
         ):
             return False
-        body = model_name[len(ModelSelectionService._LEGACY_SENTINEL_PREFIX) : -len(
-            ModelSelectionService._LEGACY_SENTINEL_SUFFIX
-        )]
+        body = model_name[
+            len(ModelSelectionService._LEGACY_SENTINEL_PREFIX) : -len(
+                ModelSelectionService._LEGACY_SENTINEL_SUFFIX
+            )
+        ]
         return body.isdecimal()
 
     @staticmethod

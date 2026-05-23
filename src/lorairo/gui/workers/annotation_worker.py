@@ -105,9 +105,9 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             and model_name.endswith(AnnotationWorker._LEGACY_SENTINEL_SUFFIX)
         ):
             return False
-        body = model_name[len(AnnotationWorker._LEGACY_SENTINEL_PREFIX) : -len(
-            AnnotationWorker._LEGACY_SENTINEL_SUFFIX
-        )]
+        body = model_name[
+            len(AnnotationWorker._LEGACY_SENTINEL_PREFIX) : -len(AnnotationWorker._LEGACY_SENTINEL_SUFFIX)
+        ]
         return body.isdecimal()
 
     def __init__(
@@ -141,9 +141,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         ]
         dropped = len(litellm_model_ids) - len(self.litellm_model_ids)
         if dropped:
-            logger.info(
-                f"AnnotationWorker初期化: legacy sentinel を除外しました: {dropped}件"
-            )
+            logger.info(f"AnnotationWorker初期化: legacy sentinel を除外しました: {dropped}件")
         self.db_manager = db_manager
         self.model_registry = model_registry
 
