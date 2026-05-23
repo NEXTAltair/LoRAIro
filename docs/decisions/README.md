@@ -36,6 +36,7 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0030](0030-batch-annotation-model-selection-ui.md) | Batch Annotation Model Selection UI | 2026-05-20 | Accepted |
 | [0031](0031-ai-rating-mapping.md) | AI Rating Mapping to Canonical Rating | 2026-05-21 | Accepted |
 | [0032](0032-copyable-readonly-text-display.md) | Copyable Read-Only Text Display Policy | 2026-05-23 | Accepted |
+| [0033](0033-annotation-worker-batch-execution-contract.md) | AnnotationWorker Batch Execution Contract | 2026-05-23 | Accepted |
 
 ## ADR テンプレート
 
