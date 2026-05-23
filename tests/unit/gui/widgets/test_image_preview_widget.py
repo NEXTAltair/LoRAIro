@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
+from PySide6.QtCore import Qt
 
 from lorairo.gui.widgets.image_preview import ImagePreviewWidget
 
@@ -23,6 +24,7 @@ class TestImagePreviewWidget:
         assert widget.pixmap_item is None
         assert hasattr(widget, "graphics_scene")
         assert hasattr(widget, "previewGraphicsView")
+        assert widget.previewGraphicsView.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu
 
     def test_adjust_view_size_skips_when_no_pixmap(self, widget):
         """Issue #52リグレッション: pixmap_item が None の場合は fitInView を呼ばない"""
@@ -49,6 +51,8 @@ class TestImagePreviewWidget:
         """プレビュークリア・メモリ最適化テスト"""
         # テストデータ設定
         widget.pixmap_item = Mock()
+        widget._current_image_path = Path("/test/image.jpg")
+        widget._current_pixmap = Mock()
 
         with patch("lorairo.gui.widgets.image_preview.logger") as mock_logger:
             widget._clear_preview()
@@ -58,6 +62,8 @@ class TestImagePreviewWidget:
 
             # PixmapItemがクリアされる
             assert widget.pixmap_item is None
+            assert widget._current_image_path is None
+            assert widget._current_pixmap is None
 
             # ログ確認
             mock_logger.debug.assert_called_with("Preview cleared and memory optimized")
@@ -150,6 +156,7 @@ class TestImagePreviewWidget:
         test_path = Path("/test/image.jpg")
 
         mock_pixmap = Mock()
+        mock_pixmap.isNull.return_value = False
         mock_pixmap.rect.return_value = QRectF(0, 0, 100, 100)
 
         with patch("lorairo.gui.widgets.image_preview.QPixmap", return_value=mock_pixmap):
@@ -161,17 +168,98 @@ class TestImagePreviewWidget:
 
                 # pixmap_item が設定される
                 assert widget.pixmap_item is not None
+                assert widget._current_image_path == test_path
+                assert widget._current_pixmap is mock_pixmap
 
     def test_load_image_clears_before_loading(self, widget):
         """新しい画像読み込み前に既存をクリアするテスト"""
         test_path = Path("/test/image.jpg")
+        mock_pixmap = Mock()
+        mock_pixmap.isNull.return_value = False
 
         with patch.object(widget, "_clear_preview") as mock_clear:
-            with patch("lorairo.gui.widgets.image_preview.QPixmap", return_value=Mock()):
+            with patch("lorairo.gui.widgets.image_preview.QPixmap", return_value=mock_pixmap):
                 widget.load_image(test_path)
 
                 # クリアが呼ばれる
                 mock_clear.assert_called()
+
+    def test_load_image_null_pixmap_keeps_copy_disabled(self, widget):
+        """読み込み結果がnull pixmapならコピー可能状態にしない"""
+        test_path = Path("/test/corrupt.jpg")
+
+        mock_pixmap = Mock()
+        mock_pixmap.isNull.return_value = True
+
+        with patch("lorairo.gui.widgets.image_preview.QPixmap", return_value=mock_pixmap):
+            with patch.object(widget.graphics_scene, "addPixmap") as mock_add:
+                widget.load_image(test_path)
+
+        mock_add.assert_not_called()
+        assert widget.pixmap_item is None
+        assert widget._current_image_path is None
+        assert widget._current_pixmap is None
+        assert widget._create_copy_image_action(widget).isEnabled() is False
+
+    def test_copy_current_image_to_clipboard_no_image_noops(self, widget):
+        """画像未表示時はクリップボードへコピーしない"""
+        with patch("lorairo.gui.widgets.image_preview.QApplication.clipboard") as mock_clipboard:
+            assert widget.copy_current_image_to_clipboard() is False
+
+            mock_clipboard.assert_not_called()
+
+    def test_copy_current_image_to_clipboard_prefers_loaded_original_path(self, widget):
+        """表示時に保持したresolved pathから元画像をコピーする"""
+        resolved_path = Mock()
+        resolved_path.exists.return_value = True
+
+        original_pixmap = Mock()
+        original_pixmap.isNull.return_value = False
+        displayed_pixmap = Mock()
+        displayed_pixmap.isNull.return_value = False
+        clipboard = Mock()
+
+        widget._current_image_path = resolved_path
+        widget._current_pixmap = displayed_pixmap
+
+        with (
+            patch(
+                "lorairo.gui.widgets.image_preview.QPixmap", return_value=original_pixmap
+            ) as mock_qpixmap,
+            patch("lorairo.gui.widgets.image_preview.QApplication.clipboard", return_value=clipboard),
+        ):
+            assert widget.copy_current_image_to_clipboard() is True
+
+        mock_qpixmap.assert_called_once_with(str(resolved_path))
+        clipboard.setPixmap.assert_called_once_with(original_pixmap)
+
+    def test_copy_current_image_to_clipboard_falls_back_to_displayed_pixmap(self, widget):
+        """元画像が使えない場合は表示中のpixmapをコピーする"""
+        resolved_path = Mock()
+        resolved_path.exists.return_value = False
+
+        displayed_pixmap = Mock()
+        displayed_pixmap.isNull.return_value = False
+        clipboard = Mock()
+
+        widget._current_image_path = resolved_path
+        widget._current_pixmap = displayed_pixmap
+
+        with (
+            patch("lorairo.gui.widgets.image_preview.QPixmap") as mock_qpixmap,
+            patch("lorairo.gui.widgets.image_preview.QApplication.clipboard", return_value=clipboard),
+        ):
+            assert widget.copy_current_image_to_clipboard() is True
+
+        mock_qpixmap.assert_not_called()
+        clipboard.setPixmap.assert_called_once_with(displayed_pixmap)
+
+    def test_copy_image_action_disabled_without_image(self, widget):
+        """画像未表示時のコンテキストメニュー用コピー操作を無効化する"""
+        action = widget._create_copy_image_action(widget)
+
+        assert action.text() == "画像をコピー"
+        assert action.isEnabled() is False
 
     def test_load_image_exception(self, widget):
         """画像読み込み例外処理テスト"""

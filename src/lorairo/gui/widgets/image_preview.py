@@ -2,9 +2,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from PIL import Image
-from PySide6.QtCore import Qt, QTimer, Slot
-from PySide6.QtGui import QPainter, QPixmap, QResizeEvent, QShowEvent
-from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QWidget
+from PySide6.QtCore import QPoint, Qt, QTimer, Slot
+from PySide6.QtGui import QAction, QPainter, QPixmap, QResizeEvent, QShowEvent
+from PySide6.QtWidgets import QApplication, QGraphicsPixmapItem, QGraphicsScene, QMenu, QWidget
 
 from ...gui.designer.ImagePreviewWidget_ui import Ui_ImagePreviewWidget
 from ...utils.log import logger
@@ -29,6 +29,11 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
             QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform
         )
         self.pixmap_item: QGraphicsPixmapItem | None = None
+        self._current_image_path: Path | None = None
+        self._current_pixmap: QPixmap | None = None
+
+        self.previewGraphicsView.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.previewGraphicsView.customContextMenuRequested.connect(self._show_preview_context_menu)
 
         # Phase 3.3: Enhanced Event-Driven Pattern (状態管理なし)
 
@@ -43,9 +48,14 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         try:
             # 画像を読み込み
             pixmap = QPixmap(str(image_path))
+            if pixmap.isNull():
+                logger.warning(f"画像の読み込みに失敗しました（null pixmap）: {image_path}")
+                return
 
             # 画像をシーンに追加
             self.pixmap_item = self.graphics_scene.addPixmap(pixmap)
+            self._current_image_path = image_path
+            self._current_pixmap = pixmap
 
             # シーンの矩形を画像のサイズに設定
             self.graphics_scene.setSceneRect(pixmap.rect())
@@ -73,6 +83,8 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
 
             # 画像をシーンに追加
             self.pixmap_item = self.graphics_scene.addPixmap(pixmap)
+            self._current_image_path = None
+            self._current_pixmap = pixmap
 
             # シーンの矩形を画像のサイズに設定
             self.graphics_scene.setSceneRect(pixmap.rect())
@@ -108,6 +120,51 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
             self.previewGraphicsView.fitInView(
                 self.graphics_scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio
             )
+
+    def _show_preview_context_menu(self, position: QPoint) -> None:
+        """プレビュー用コンテキストメニューを表示する"""
+        menu = QMenu(self.previewGraphicsView)
+        menu.addAction(self._create_copy_image_action(menu))
+        menu.exec(self.previewGraphicsView.mapToGlobal(position))
+
+    def _create_copy_image_action(self, parent: QWidget) -> QAction:
+        """現在画像コピー用アクションを作成する"""
+        copy_action = QAction("画像をコピー", parent)
+        copy_action.setEnabled(self._has_current_image())
+        copy_action.triggered.connect(self.copy_current_image_to_clipboard)
+        return copy_action
+
+    def _has_current_image(self) -> bool:
+        """コピー可能な画像状態があるか判定する"""
+        return self._current_pixmap is not None and not self._current_pixmap.isNull()
+
+    def copy_current_image_to_clipboard(self) -> bool:
+        """現在表示中の画像をクリップボードへコピーする"""
+        if not self._has_current_image():
+            logger.debug("Copy preview image requested without a current image")
+            return False
+
+        pixmap = self._load_current_original_pixmap()
+        if pixmap is None and self._current_pixmap is not None and not self._current_pixmap.isNull():
+            pixmap = self._current_pixmap
+
+        if pixmap is None or pixmap.isNull():
+            logger.debug("Copy preview image skipped because no valid pixmap is available")
+            return False
+
+        QApplication.clipboard().setPixmap(pixmap)
+        logger.debug("Current preview image copied to clipboard")
+        return True
+
+    def _load_current_original_pixmap(self) -> QPixmap | None:
+        """保存パスから元画像を読み直す。失敗時は None を返す。"""
+        if self._current_image_path is None or not self._current_image_path.exists():
+            return None
+
+        pixmap = QPixmap(str(self._current_image_path))
+        if pixmap.isNull():
+            return None
+        return pixmap
 
     # resizeEvent をオーバーライドしてウィンドウサイズ変更時にサイズ調整
     def resizeEvent(self, event: QResizeEvent) -> None:
@@ -212,6 +269,8 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
 
             # PixmapItemの参照もクリア
             self.pixmap_item = None
+            self._current_image_path = None
+            self._current_pixmap = None
 
             logger.debug("Preview cleared and memory optimized")
 
