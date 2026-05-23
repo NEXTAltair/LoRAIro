@@ -134,6 +134,17 @@ class TestSelectedImageDetailsWidget:
         assert "Tags: 1girl, long hair, blue eyes" in clipboard_text
         assert "Caption: A beautiful anime girl with long hair" in clipboard_text
 
+    def test_copy_current_details_uses_live_rating_score_widget_values(self, widget, sample_image_details):
+        """編集後metadata refresh前でも表示中のRating/Scoreをコピーすること"""
+        widget._update_details_display(sample_image_details)
+        widget._rating_score_widget.ui.comboBoxRating.setCurrentText("R")
+        widget._rating_score_widget.ui.sliderScore.setValue(920)
+
+        assert widget.copy_current_details_to_clipboard() is True
+        clipboard_text = QApplication.clipboard().text()
+        assert "Rating: R" in clipboard_text
+        assert "Score: 920" in clipboard_text
+
     def test_copy_current_details_without_selection_noops(self, widget):
         """未選択時は詳細全体コピーを行わないこと"""
         QApplication.clipboard().setText("")

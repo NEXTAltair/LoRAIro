@@ -670,12 +670,33 @@ class SelectedImageDetailsWidget(QWidget):
             logger.debug("詳細コピー要求: current_details がありません")
             return False
 
-        QApplication.clipboard().setText(self._format_current_details_for_clipboard(self.current_details))
+        rating_value, score_value = self._get_live_rating_score_for_clipboard()
+        QApplication.clipboard().setText(
+            self._format_current_details_for_clipboard(
+                self.current_details,
+                rating_value=rating_value,
+                score_value=score_value,
+            )
+        )
         logger.debug(f"画像詳細をクリップボードへコピー: image_id={self.current_details.image_id}")
         return True
 
+    def _get_live_rating_score_for_clipboard(self) -> tuple[str, int]:
+        """現在表示中のRating/Score編集ウィジェット値をコピー用に取得する。"""
+        rating = self._rating_score_widget.ui.comboBoxRating.currentText()
+        if rating == RatingScoreEditWidget._NO_RATING_TEXT:
+            rating = ""
+        return rating, self._rating_score_widget.ui.sliderScore.value()
+
     @staticmethod
-    def _format_current_details_for_clipboard(details: ImageDetails) -> str:
+    def _format_current_details_for_clipboard(
+        details: ImageDetails,
+        *,
+        rating_value: str | None = None,
+        score_value: int | None = None,
+    ) -> str:
+        display_rating = details.rating_value if rating_value is None else rating_value
+        display_score = details.score_value if score_value is None else score_value
         lines = [
             f"Image ID: {details.image_id if details.image_id is not None else '-'}",
             f"File name: {details.file_name or '-'}",
@@ -683,8 +704,8 @@ class SelectedImageDetailsWidget(QWidget):
             f"Resolution: {details.image_size or '-'}",
             f"File size: {details.file_size or '-'}",
             f"Created date: {details.created_date or '-'}",
-            f"Rating: {details.rating_value or '-'}",
-            f"Score: {details.score_value if details.score_value is not None else '-'}",
+            f"Rating: {display_rating or '-'}",
+            f"Score: {display_score if display_score is not None else '-'}",
         ]
 
         if details.annotation_data is not None:
