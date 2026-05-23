@@ -153,6 +153,26 @@ class TestSelectedImageDetailsWidget:
         assert "Rating: R" in clipboard_text
         assert "Score: 9.20" in clipboard_text
 
+    def test_copy_current_details_uses_displayed_tag_language(self, widget, sample_image_details):
+        """言語切り替え後は表示中のタグ言語で詳細をコピーすること"""
+        sample_image_details.annotation_data.tag_translations = {
+            10: {"japanese": "1人の女の子"},
+            20: {"japanese": "長い髪"},
+            30: {"japanese": "青い目"},
+        }
+        for tag, tag_id in zip(sample_image_details.annotation_data.tags, (10, 20, 30), strict=True):
+            tag["tag_id"] = tag_id
+        sample_image_details.annotation_data.available_languages = ["japanese"]
+
+        widget._update_details_display(sample_image_details)
+        widget.annotation_display.initialize_language_selector(["japanese"])
+        widget.annotation_display._lang_combo.setCurrentText("japanese")
+
+        assert widget.copy_current_details_to_clipboard() is True
+        clipboard_text = QApplication.clipboard().text()
+        assert "Tags: 1人の女の子, 長い髪, 青い目" in clipboard_text
+        assert "Tags: 1girl, long hair, blue eyes" not in clipboard_text
+
     def test_copy_current_details_without_selection_noops(self, widget):
         """未選択時は詳細全体コピーを行わないこと"""
         QApplication.clipboard().setText("")

@@ -201,6 +201,10 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         selected_text = label.selectedText()
         return selected_text if selected_text else label.text()
 
+    def displayed_tags_text(self) -> str:
+        """現在の言語選択で表示されているタグ文字列を返す。"""
+        return self._tags_compact_label.text()
+
     @Slot(QPoint)
     def _show_tags_table_context_menu(self, position: QPoint) -> None:
         menu = QMenu(self.tableWidgetTags)

@@ -684,6 +684,7 @@ class SelectedImageDetailsWidget(QWidget):
                 self.current_details,
                 rating_value=rating_value,
                 score_value=score_value,
+                tags_value=self.annotation_display.displayed_tags_text(),
             )
         )
         logger.debug(f"画像詳細をクリップボードへコピー: image_id={self.current_details.image_id}")
@@ -702,9 +703,11 @@ class SelectedImageDetailsWidget(QWidget):
         *,
         rating_value: str | None = None,
         score_value: str | int | float | None = None,
+        tags_value: str | None = None,
     ) -> str:
         display_rating = details.rating_value if rating_value is None else rating_value
         display_score = details.score_value if score_value is None else score_value
+        display_tags = details.tags if tags_value is None else tags_value
         lines = [
             f"Image ID: {details.image_id if details.image_id is not None else '-'}",
             f"File name: {details.file_name or '-'}",
@@ -730,7 +733,7 @@ class SelectedImageDetailsWidget(QWidget):
 
         lines.extend(
             [
-                f"Tags: {details.tags or '-'}",
+                f"Tags: {display_tags or '-'}",
                 f"Caption: {details.caption or '-'}",
             ]
         )

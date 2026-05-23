@@ -108,6 +108,20 @@ class TestAnnotationDataDisplayWidget:
 
         assert widget._label_clipboard_text(widget._tags_compact_label) == "flower"
 
+    def test_displayed_tags_text_returns_current_compact_label(self, widget, sample_tags):
+        """現在表示中のタグ文字列を取得できること"""
+        translations = {10: {"japanese": "1人の女の子"}, 20: {"japanese": "花"}}
+        data = AnnotationData(
+            tags=sample_tags,
+            tag_translations=translations,
+            available_languages=["japanese"],
+        )
+        widget.update_data(data)
+        widget.initialize_language_selector(["japanese"])
+        widget._lang_combo.setCurrentText("japanese")
+
+        assert widget.displayed_tags_text() == "1人の女の子, 花, solo"
+
     def test_copy_selected_tag_cells_to_clipboard(self, widget, sample_tags):
         """タグテーブル選択範囲をTSVとしてコピーできること"""
         widget.update_data(AnnotationData(tags=sample_tags))
