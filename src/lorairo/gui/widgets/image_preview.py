@@ -30,7 +30,6 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         )
         self.pixmap_item: QGraphicsPixmapItem | None = None
         self._current_image_path: Path | None = None
-        self._current_stored_image_path: str | None = None
         self._current_pixmap: QPixmap | None = None
 
         self.previewGraphicsView.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -49,6 +48,9 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         try:
             # 画像を読み込み
             pixmap = QPixmap(str(image_path))
+            if pixmap.isNull():
+                logger.warning(f"画像の読み込みに失敗しました（null pixmap）: {image_path}")
+                return
 
             # 画像をシーンに追加
             self.pixmap_item = self.graphics_scene.addPixmap(pixmap)
@@ -82,7 +84,6 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
             # 画像をシーンに追加
             self.pixmap_item = self.graphics_scene.addPixmap(pixmap)
             self._current_image_path = None
-            self._current_stored_image_path = None
             self._current_pixmap = pixmap
 
             # シーンの矩形を画像のサイズに設定
@@ -135,7 +136,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
 
     def _has_current_image(self) -> bool:
         """コピー可能な画像状態があるか判定する"""
-        return self._current_image_path is not None or self._current_pixmap is not None
+        return self._current_pixmap is not None and not self._current_pixmap.isNull()
 
     def copy_current_image_to_clipboard(self) -> bool:
         """現在表示中の画像をクリップボードへコピーする"""
@@ -157,22 +158,13 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
 
     def _load_current_original_pixmap(self) -> QPixmap | None:
         """保存パスから元画像を読み直す。失敗時は None を返す。"""
-        image_path = self._resolve_current_image_path()
-        if image_path is None or not image_path.exists():
+        if self._current_image_path is None or not self._current_image_path.exists():
             return None
 
-        pixmap = QPixmap(str(image_path))
+        pixmap = QPixmap(str(self._current_image_path))
         if pixmap.isNull():
             return None
         return pixmap
-
-    def _resolve_current_image_path(self) -> Path | None:
-        """現在画像の保存パスをLoRAIro標準パス解決で取得する。"""
-        if self._current_stored_image_path:
-            from ...database.db_core import resolve_stored_path
-
-            return resolve_stored_path(self._current_stored_image_path)
-        return self._current_image_path
 
     # resizeEvent をオーバーライドしてウィンドウサイズ変更時にサイズ調整
     def resizeEvent(self, event: QResizeEvent) -> None:
@@ -257,7 +249,6 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
                 return
 
             self.load_image(image_path)
-            self._current_stored_image_path = image_path_str
 
             logger.info(
                 f"✅ プレビュー表示成功: ID={image_id}, path={image_path.name} - Enhanced Event-Driven Pattern 完全動作"
@@ -279,7 +270,6 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
             # PixmapItemの参照もクリア
             self.pixmap_item = None
             self._current_image_path = None
-            self._current_stored_image_path = None
             self._current_pixmap = None
 
             logger.debug("Preview cleared and memory optimized")

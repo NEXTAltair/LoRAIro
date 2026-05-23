@@ -52,7 +52,6 @@ class TestImagePreviewWidget:
         # テストデータ設定
         widget.pixmap_item = Mock()
         widget._current_image_path = Path("/test/image.jpg")
-        widget._current_stored_image_path = "image.jpg"
         widget._current_pixmap = Mock()
 
         with patch("lorairo.gui.widgets.image_preview.logger") as mock_logger:
@@ -64,7 +63,6 @@ class TestImagePreviewWidget:
             # PixmapItemがクリアされる
             assert widget.pixmap_item is None
             assert widget._current_image_path is None
-            assert widget._current_stored_image_path is None
             assert widget._current_pixmap is None
 
             # ログ確認
@@ -150,7 +148,6 @@ class TestImagePreviewWidget:
                 widget._on_image_data_received(image_data)
 
                 mock_load.assert_called_once_with(mock_path)
-                assert widget._current_stored_image_path == "/valid/image.jpg"
 
     def test_load_image_success(self, widget):
         """画像読み込み成功テスト"""
@@ -159,6 +156,7 @@ class TestImagePreviewWidget:
         test_path = Path("/test/image.jpg")
 
         mock_pixmap = Mock()
+        mock_pixmap.isNull.return_value = False
         mock_pixmap.rect.return_value = QRectF(0, 0, 100, 100)
 
         with patch("lorairo.gui.widgets.image_preview.QPixmap", return_value=mock_pixmap):
@@ -176,13 +174,32 @@ class TestImagePreviewWidget:
     def test_load_image_clears_before_loading(self, widget):
         """新しい画像読み込み前に既存をクリアするテスト"""
         test_path = Path("/test/image.jpg")
+        mock_pixmap = Mock()
+        mock_pixmap.isNull.return_value = False
 
         with patch.object(widget, "_clear_preview") as mock_clear:
-            with patch("lorairo.gui.widgets.image_preview.QPixmap", return_value=Mock()):
+            with patch("lorairo.gui.widgets.image_preview.QPixmap", return_value=mock_pixmap):
                 widget.load_image(test_path)
 
                 # クリアが呼ばれる
                 mock_clear.assert_called()
+
+    def test_load_image_null_pixmap_keeps_copy_disabled(self, widget):
+        """読み込み結果がnull pixmapならコピー可能状態にしない"""
+        test_path = Path("/test/corrupt.jpg")
+
+        mock_pixmap = Mock()
+        mock_pixmap.isNull.return_value = True
+
+        with patch("lorairo.gui.widgets.image_preview.QPixmap", return_value=mock_pixmap):
+            with patch.object(widget.graphics_scene, "addPixmap") as mock_add:
+                widget.load_image(test_path)
+
+        mock_add.assert_not_called()
+        assert widget.pixmap_item is None
+        assert widget._current_image_path is None
+        assert widget._current_pixmap is None
+        assert widget._create_copy_image_action(widget).isEnabled() is False
 
     def test_copy_current_image_to_clipboard_no_image_noops(self, widget):
         """画像未表示時はクリップボードへコピーしない"""
@@ -191,8 +208,8 @@ class TestImagePreviewWidget:
 
             mock_clipboard.assert_not_called()
 
-    def test_copy_current_image_to_clipboard_prefers_resolved_original(self, widget):
-        """保存パス解決で元画像が取得できる場合は元画像をコピーする"""
+    def test_copy_current_image_to_clipboard_prefers_loaded_original_path(self, widget):
+        """表示時に保持したresolved pathから元画像をコピーする"""
         resolved_path = Mock()
         resolved_path.exists.return_value = True
 
@@ -202,13 +219,10 @@ class TestImagePreviewWidget:
         displayed_pixmap.isNull.return_value = False
         clipboard = Mock()
 
-        widget._current_stored_image_path = "stored/image.jpg"
+        widget._current_image_path = resolved_path
         widget._current_pixmap = displayed_pixmap
 
         with (
-            patch(
-                "lorairo.database.db_core.resolve_stored_path", return_value=resolved_path
-            ) as mock_resolve,
             patch(
                 "lorairo.gui.widgets.image_preview.QPixmap", return_value=original_pixmap
             ) as mock_qpixmap,
@@ -216,7 +230,6 @@ class TestImagePreviewWidget:
         ):
             assert widget.copy_current_image_to_clipboard() is True
 
-        mock_resolve.assert_called_once_with("stored/image.jpg")
         mock_qpixmap.assert_called_once_with(str(resolved_path))
         clipboard.setPixmap.assert_called_once_with(original_pixmap)
 
@@ -229,11 +242,10 @@ class TestImagePreviewWidget:
         displayed_pixmap.isNull.return_value = False
         clipboard = Mock()
 
-        widget._current_stored_image_path = "stored/missing.jpg"
+        widget._current_image_path = resolved_path
         widget._current_pixmap = displayed_pixmap
 
         with (
-            patch("lorairo.database.db_core.resolve_stored_path", return_value=resolved_path),
             patch("lorairo.gui.widgets.image_preview.QPixmap") as mock_qpixmap,
             patch("lorairo.gui.widgets.image_preview.QApplication.clipboard", return_value=clipboard),
         ):
