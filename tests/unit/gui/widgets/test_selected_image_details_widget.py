@@ -174,6 +174,24 @@ class TestSelectedImageDetailsWidget:
         assert details.file_path == "/test/dataset/stored_image.webp"
         assert details.file_size == "2.00 KB"
 
+    def test_build_metadata_normalizes_windows_stored_image_path_for_file_name(self, widget):
+        """Windows形式のstored_image_pathでもファイル名だけを表示できること"""
+        metadata = {
+            "id": 1,
+            "stored_image_path": r"C:\test\dataset\windows_image.webp",
+            "file_size": 2048,
+            "tags": [],
+            "caption_text": "",
+            "tags_text": "",
+            "score_value": 0,
+            "rating_value": "",
+        }
+
+        details = widget._build_image_details_from_metadata(metadata)
+
+        assert details.file_name == "windows_image.webp"
+        assert details.file_path == "C:/test/dataset/windows_image.webp"
+
     def test_build_metadata_falls_back_to_file_path_for_file_name(self, widget):
         """旧 metadata の file_path fallback が維持されること"""
         metadata = {

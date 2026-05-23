@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import QFrame, QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 
-from ...database.db_core import resolve_stored_path
 from ...gui.designer.SelectedImageDetailsWidget_ui import Ui_SelectedImageDetailsWidget
 from ...services.date_formatter import format_datetime_for_display
 from ...utils.log import logger
@@ -438,7 +437,7 @@ class SelectedImageDetailsWidget(QWidget):
         """
         stored_path = metadata.get("stored_image_path")
         if stored_path:
-            return str(stored_path)
+            return str(stored_path).replace("\\", "/")
 
         file_path = metadata.get("file_path")
         if file_path:
@@ -446,7 +445,7 @@ class SelectedImageDetailsWidget(QWidget):
                 "metadata に stored_image_path が無いため file_path を使用: "
                 f"image_id={metadata.get('id')}, file_path={file_path}"
             )
-            return str(file_path)
+            return str(file_path).replace("\\", "/")
 
         logger.debug(
             "metadata に表示可能な画像パスがありません: "
@@ -470,6 +469,8 @@ class SelectedImageDetailsWidget(QWidget):
             return None
 
         try:
+            from ...database.db_core import resolve_stored_path
+
             resolved_path = resolve_stored_path(str(stored_path))
             if resolved_path.exists():
                 return resolved_path.stat().st_size
