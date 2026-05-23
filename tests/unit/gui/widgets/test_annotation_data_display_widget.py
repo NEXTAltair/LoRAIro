@@ -130,6 +130,16 @@ class TestAnnotationDataDisplayWidget:
         assert widget.copy_selected_tag_cells_to_clipboard() is True
         assert QApplication.clipboard().text() == "1girl\twd\nflower\twd"
 
+    def test_copy_selected_tag_cells_exports_edited_checkbox_state(self, widget, sample_tags):
+        """Edited列はcheckbox状態をTSVへ出力すること"""
+        sample_tags[0]["is_edited_manually"] = True
+        sample_tags[1]["is_edited_manually"] = False
+        widget.update_data(AnnotationData(tags=sample_tags))
+        widget.tableWidgetTags.setRangeSelected(QTableWidgetSelectionRange(0, 4, 1, 4), True)
+
+        assert widget.copy_selected_tag_cells_to_clipboard() is True
+        assert QApplication.clipboard().text() == "true\nfalse"
+
     def test_compact_label_switches_to_japanese(self, widget, sample_tags):
         """japanese選択でラベルが翻訳テキストに切り替わること"""
         translations = {10: {"japanese": "1人の女の子"}, 20: {"japanese": "花"}}

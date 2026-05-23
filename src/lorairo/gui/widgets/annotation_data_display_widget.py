@@ -226,11 +226,20 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
                 values: list[str] = []
                 for column in range(selected_range.leftColumn(), selected_range.rightColumn() + 1):
                     item = self.tableWidgetTags.item(row, column)
-                    values.append(item.text() if item is not None else "")
+                    values.append(self._tag_table_item_clipboard_text(item, column))
                 lines.append("\t".join(values))
 
         QApplication.clipboard().setText("\n".join(lines))
         return True
+
+    @staticmethod
+    def _tag_table_item_clipboard_text(item: QTableWidgetItem | None, column: int) -> str:
+        """タグテーブルセルのコピー用文字列を返す。"""
+        if item is None:
+            return ""
+        if column == 4:
+            return "true" if item.checkState() == Qt.CheckState.Checked else "false"
+        return item.text()
 
     def update_data(self, data: AnnotationData) -> None:
         """アノテーションデータで表示を更新"""
