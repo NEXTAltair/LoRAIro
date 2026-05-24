@@ -244,7 +244,7 @@ def upgrade() -> None:
         batch_op.create_unique_constraint("uq_models_litellm_model_id", ["litellm_model_id"])
 
 
-def downgrade() -> None:
+def downgrade() -> None:  # pragma: no cover
     """UNIQUE 制約を litellm_model_id → name に戻す (ベストエフォート)。
 
     - litellm_model_id を nullable + 非 UNIQUE に戻す

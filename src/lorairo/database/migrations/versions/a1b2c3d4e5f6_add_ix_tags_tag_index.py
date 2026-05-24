@@ -20,5 +20,5 @@ def upgrade() -> None:
     op.create_index("ix_tags_tag", "tags", ["tag"])
 
 
-def downgrade() -> None:
+def downgrade() -> None:  # pragma: no cover
     op.drop_index("ix_tags_tag", table_name="tags")

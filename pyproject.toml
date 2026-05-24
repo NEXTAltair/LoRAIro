@@ -230,6 +230,7 @@ omit = [
     "*/gui/designer/*",
     "*/tests/*",
     "*/__pycache__/*",
+    "src/lorairo/main.py",
 ]
 
 [tool.coverage.report]

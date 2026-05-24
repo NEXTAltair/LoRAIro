@@ -97,3 +97,118 @@ class TestSettingsControllerDialog:
         controller.open_settings_dialog()
 
         mock_dialog.exec.assert_called_once()
+
+    def test_open_settings_dialog_returns_true_when_accepted(self, qtbot):
+        """設定ダイアログが Accepted を返す場合、True を返す"""
+        parent = QWidget()
+        qtbot.addWidget(parent)
+
+        mock_config = Mock()
+        controller = SettingsController(config_service=mock_config, parent=parent)
+
+        mock_dialog = Mock()
+        mock_dialog.exec.return_value = QDialog.DialogCode.Accepted
+
+        # ConfigurationWindow は open_settings_dialog 内で from ... import される
+        with patch(
+            "lorairo.gui.window.configuration_window.ConfigurationWindow",
+            return_value=mock_dialog,
+        ):
+            result = controller.open_settings_dialog()
+
+        # Accepted → True
+        assert result is True
+
+    def test_open_settings_dialog_returns_false_when_rejected(self, qtbot):
+        """設定ダイアログが Rejected を返す場合、False を返す"""
+        parent = QWidget()
+        qtbot.addWidget(parent)
+
+        mock_config = Mock()
+        controller = SettingsController(config_service=mock_config, parent=parent)
+
+        mock_dialog = Mock()
+        mock_dialog.exec.return_value = QDialog.DialogCode.Rejected
+
+        with patch(
+            "lorairo.gui.window.configuration_window.ConfigurationWindow",
+            return_value=mock_dialog,
+        ):
+            result = controller.open_settings_dialog()
+
+        assert result is False
+
+    def test_open_settings_dialog_import_error_uses_fallback(self, qtbot, monkeypatch):
+        """ConfigurationWindow の ImportError 時はフォールバックダイアログを表示して False を返す。
+
+        sys.modules に None をセットすることで open_settings_dialog() 内の
+        `from ..window.configuration_window import ConfigurationWindow` を
+        ImportError に変換し、実際の except ImportError パスを通る。
+        """
+        import sys
+
+        parent = QWidget()
+        qtbot.addWidget(parent)
+
+        mock_config = Mock()
+        controller = SettingsController(config_service=mock_config, parent=parent)
+
+        information_called = []
+        monkeypatch.setattr(QMessageBox, "information", lambda *args: information_called.append(args))
+
+        # sys.modules[key] = None は Python が ImportError を raise するネガティブキャッシュ
+        # monkeypatch.setitem でテスト終了時に自動的に元の値へ復元される
+        monkeypatch.setitem(sys.modules, "lorairo.gui.window.configuration_window", None)
+
+        result = controller.open_settings_dialog()
+
+        assert result is False
+        assert len(information_called) == 1
+
+    def test_open_settings_dialog_general_exception_shows_critical(self, qtbot, monkeypatch):
+        """一般的な例外が発生したとき critical ダイアログを表示して False を返す。
+
+        ConfigurationWindow.exec() が RuntimeError を投げるシナリオを検証する。
+        """
+        parent = QWidget()
+        qtbot.addWidget(parent)
+
+        mock_config = Mock()
+        controller = SettingsController(config_service=mock_config, parent=parent)
+
+        critical_called = []
+        monkeypatch.setattr(QMessageBox, "critical", lambda *args: critical_called.append(args))
+
+        mock_dialog = Mock()
+        mock_dialog.exec.side_effect = RuntimeError("Unexpected error")
+
+        with patch(
+            "lorairo.gui.window.configuration_window.ConfigurationWindow",
+            return_value=mock_dialog,
+        ):
+            result = controller.open_settings_dialog()
+
+        assert result is False
+        assert len(critical_called) == 1
+
+
+class TestSettingsControllerInit:
+    """初期化テスト"""
+
+    def test_init_stores_config_service(self):
+        """ConfigurationService が正しく格納される"""
+        mock_config = Mock()
+        controller = SettingsController(config_service=mock_config)
+        assert controller.config_service is mock_config
+
+    def test_init_stores_parent(self, qtbot):
+        """parent ウィジェットが正しく格納される"""
+        parent = QWidget()
+        qtbot.addWidget(parent)
+        controller = SettingsController(config_service=None, parent=parent)
+        assert controller.parent is parent
+
+    def test_init_defaults_parent_to_none(self):
+        """parent のデフォルトは None"""
+        controller = SettingsController(config_service=None)
+        assert controller.parent is None

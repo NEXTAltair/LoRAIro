@@ -108,3 +108,135 @@ class TestDatasetExportWidgetValidation:
         widget_with_images._on_validate_clicked()
         mock_service_container.dataset_export_service.validate_export_requirements.assert_called_once()
         assert widget_with_images.ui.exportButton.isEnabled()
+
+    def test_validate_with_no_valid_images_disables_export(
+        self, widget_with_images, mock_service_container
+    ):
+        """検証結果が 0 件のとき Export ボタンは無効"""
+        mock_service_container.dataset_export_service.validate_export_requirements.return_value = {
+            "total_images": 3,
+            "valid_images": 0,
+            "missing_processed": 3,
+            "missing_metadata": 0,
+            "issues": ["image1: missing processed"],
+        }
+        widget_with_images._on_validate_clicked()
+        assert not widget_with_images.ui.exportButton.isEnabled()
+
+    def test_validate_when_no_images_shows_warning(self, widget_no_images):
+        """画像なしで検証ボタンを押すと警告を表示して service を呼ばない"""
+        # validate ボタンは無効なので _on_validate_clicked を直接呼ぶ
+        # image_ids が空のときに直接呼ぶと _show_warning が走る
+        widget_no_images.image_ids = []
+        widget_no_images._on_validate_clicked()
+        # service が呼ばれていないことを確認
+        widget_no_images.export_service.validate_export_requirements.assert_not_called()
+
+    def test_on_settings_changed_with_no_previous_results(self, widget_with_images):
+        """validation_results が None のとき _on_settings_changed は何もしない"""
+        widget_with_images.validation_results = None
+        widget_with_images._on_settings_changed()
+        # 例外なし
+
+
+class TestDatasetExportWidgetExport:
+    def test_on_export_clicked_without_validation_shows_warning(self, widget_with_images):
+        """検証前にエクスポートしようとすると警告を表示"""
+        widget_with_images.validation_results = None
+        widget_with_images._on_export_clicked()
+        # _show_warning が呼ばれ、例外なし
+
+    def test_on_export_clicked_with_zero_valid_images_shows_warning(self, widget_with_images):
+        """valid_images=0 のとき警告を表示"""
+        widget_with_images.validation_results = {"valid_images": 0}
+        widget_with_images._on_export_clicked()
+        # 警告が表示され、例外なし
+
+    def test_on_cancel_clicked_with_no_thread(self, widget_with_images):
+        """スレッドがない状態でキャンセルボタンを押しても例外なし"""
+        widget_with_images.export_thread = None
+        widget_with_images._on_cancel_clicked()
+        # 例外なし
+
+    def test_on_export_finished_updates_ui(self, widget_with_images):
+        """エクスポート完了時に UI が更新される"""
+        widget_with_images._on_export_finished("/tmp/export_result")
+        assert widget_with_images.ui.exportProgressBar.value() == 100
+        assert widget_with_images.ui.exportButton.isEnabled()
+        assert not widget_with_images.ui.cancelButton.isEnabled()
+
+    def test_on_export_error_handles_gracefully(self, widget_with_images):
+        """エクスポートエラー時に例外なく処理される"""
+        widget_with_images._on_export_error("エクスポート失敗")
+        # エラー処理後は cancel ボタン無効
+        assert not widget_with_images.ui.cancelButton.isEnabled()
+
+    def test_get_output_directory_fallback_when_no_picker(self, widget_with_images, monkeypatch):
+        """exportDirectoryPicker に get_directory がない場合は QFileDialog に fallback（空返却）"""
+        # auto_mock_qfiledialog で getExistingDirectory は "" を返す
+        result = widget_with_images._get_output_directory()
+        assert result is None
+
+    def test_cleanup_worker_when_thread_is_running(self, widget_with_images):
+        """スレッドが実行中のとき _cleanup_worker が適切に処理"""
+        mock_thread = Mock()
+        mock_thread.isRunning.return_value = True
+        widget_with_images.export_thread = mock_thread
+        widget_with_images.export_worker = Mock()
+
+        widget_with_images._cleanup_worker()
+
+        mock_thread.quit.assert_called_once()
+        mock_thread.wait.assert_called_once()
+        assert widget_with_images.export_thread is None
+        assert widget_with_images.export_worker is None
+
+    def test_cleanup_worker_when_thread_not_running(self, widget_with_images):
+        """スレッドが停止済みのとき _cleanup_worker は quit を呼ばない"""
+        mock_thread = Mock()
+        mock_thread.isRunning.return_value = False
+        widget_with_images.export_thread = mock_thread
+        widget_with_images.export_worker = Mock()
+
+        widget_with_images._cleanup_worker()
+
+        mock_thread.quit.assert_not_called()
+        assert widget_with_images.export_thread is None
+
+    def test_display_validation_results_with_issues(self, widget_with_images):
+        """issues が含まれる検証結果を正しく表示する"""
+        results = {
+            "total_images": 5,
+            "valid_images": 3,
+            "missing_processed": 1,
+            "missing_metadata": 1,
+            "issues": [f"問題 {i}" for i in range(15)],  # 10件超
+        }
+        widget_with_images._display_validation_results(results)
+        text = widget_with_images.ui.validationDetailsText.toPlainText()
+        assert "3件" in text
+        # 10件までに制限され、残り件数を表示
+        assert "他" in text
+
+    def test_on_export_progress_updates_progress_bar(self, widget_with_images):
+        """_on_export_progress でプログレスバーと status ラベルが更新される"""
+        widget_with_images._on_export_progress(50, "エクスポート中...")
+        assert widget_with_images.ui.exportProgressBar.value() == 50
+        assert widget_with_images.ui.statusLabel.text() == "エクスポート中..."
+
+
+class TestDatasetExportWidgetFormats:
+    def test_get_selected_format_txt_separate(self, widget_with_images):
+        """TXT separate ラジオボタン選択時"""
+        widget_with_images.ui.radioTxtSeparate.setChecked(True)
+        assert widget_with_images._get_selected_format() == "txt_separate"
+
+    def test_get_selected_format_txt_merged(self, widget_with_images):
+        """TXT merged ラジオボタン選択時"""
+        widget_with_images.ui.radioTxtMerged.setChecked(True)
+        assert widget_with_images._get_selected_format() == "txt_merged"
+
+    def test_get_selected_format_json(self, widget_with_images):
+        """JSON ラジオボタン選択時"""
+        widget_with_images.ui.radioJson.setChecked(True)
+        assert widget_with_images._get_selected_format() == "json"

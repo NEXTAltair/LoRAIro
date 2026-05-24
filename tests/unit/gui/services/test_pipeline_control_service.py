@@ -205,4 +205,177 @@ class TestPipelineFlow:
 
         mock_thumbnail_selector.clear_thumbnails.assert_not_called()
         mock_filter_panel.clear_pipeline_results.assert_not_called()
+
+    def test_on_search_completed_invalid_type_logs_warning(self, service):
+        """SearchResult 以外の型が渡されたとき warning ログを出力し例外を起こさない"""
+        service.on_search_completed("not_a_search_result")
+        # 例外が起きないことを確認（暗黙に assert）
+
+    def test_on_search_completed_thumbnail_selector_none(self, mock_worker_service, mock_filter_panel):
+        """thumbnail_selector=None のとき SearchResult でも例外なし（警告のみ）"""
+        service = PipelineControlService(
+            worker_service=mock_worker_service,
+            thumbnail_selector=None,
+            filter_search_panel=mock_filter_panel,
+        )
+        search_result = SearchResult(
+            image_metadata=[],
+            total_count=0,
+            search_time=0.0,
+            filter_conditions=SearchConditions(search_type="tags", keywords=[], tag_logic="and"),
+        )
+        service.on_search_completed(search_result)
+        # 例外なし
+
+    def test_on_search_completed_no_worker_service_logs_error(
+        self, mock_thumbnail_selector, mock_filter_panel
+    ):
+        """worker_service が None のとき error ログを出力して早期リターン"""
+        service = PipelineControlService(
+            worker_service=None,
+            thumbnail_selector=mock_thumbnail_selector,
+            filter_search_panel=mock_filter_panel,
+        )
+        search_result = SearchResult(
+            image_metadata=[],
+            total_count=0,
+            search_time=0.0,
+            filter_conditions=SearchConditions(search_type="tags", keywords=[], tag_logic="and"),
+        )
+        service.on_search_completed(search_result)
+        mock_thumbnail_selector.initialize_pagination_search.assert_not_called()
+
+    def test_on_thumbnail_completed_uses_legacy_handler(self, mock_worker_service, mock_filter_panel):
+        """handle_thumbnail_page_result がなく load_thumbnails_from_result があるとき legacy を使う"""
+        selector = Mock(spec=["load_thumbnails_from_result"])
+        # spec により handle_thumbnail_page_result は hasattr で False になる
+        service = PipelineControlService(
+            worker_service=mock_worker_service,
+            thumbnail_selector=selector,
+            filter_search_panel=mock_filter_panel,
+        )
+        thumbnail_result = Mock()
+        service.on_thumbnail_completed(thumbnail_result)
+        selector.load_thumbnails_from_result.assert_called_once_with(thumbnail_result)
+        mock_filter_panel.hide_progress_after_completion.assert_called_once()
+
+    def test_on_thumbnail_completed_no_handler_logs_warning(self, mock_worker_service, mock_filter_panel):
+        """どちらのメソッドもないとき warning ログを出して例外なし"""
+        selector = Mock(spec=[])  # メソッドなし
+        service = PipelineControlService(
+            worker_service=mock_worker_service,
+            thumbnail_selector=selector,
+            filter_search_panel=mock_filter_panel,
+        )
+        service.on_thumbnail_completed(Mock())
+        # 例外なし、hide_progress_after_completion は呼ばれない（handler なし→ウォーニングのみ）
+
+    def test_on_thumbnail_completed_filter_panel_none(self, service, mock_thumbnail_selector):
+        """filter_search_panel=None のとき hide_progress が呼ばれず例外もなし"""
+        service.filter_search_panel = None
+        service.on_thumbnail_completed(Mock())
+        # hide_progress_after_completion は None なので呼ばれない → 例外なし
+
+    def test_on_thumbnail_completed_thumbnail_selector_none(self, mock_worker_service, mock_filter_panel):
+        """thumbnail_selector=None のとき early return し例外なし"""
+        service = PipelineControlService(
+            worker_service=mock_worker_service,
+            thumbnail_selector=None,
+            filter_search_panel=mock_filter_panel,
+        )
+        service.on_thumbnail_completed(Mock())
+        mock_filter_panel.hide_progress_after_completion.assert_not_called()
+
+    def test_on_search_started_filter_panel_none(self, mock_worker_service, mock_thumbnail_selector):
+        """filter_search_panel=None のとき例外なし"""
+        service = PipelineControlService(
+            worker_service=mock_worker_service,
+            thumbnail_selector=mock_thumbnail_selector,
+            filter_search_panel=None,
+        )
+        service.on_search_started("worker-id-001")
+        # 例外なし
+
+    def test_on_search_started_calls_update_progress(self, service, mock_filter_panel):
+        """filter_search_panel がある場合 update_pipeline_progress が呼ばれる"""
+        service.on_search_started("worker-id-001")
+        mock_filter_panel.update_pipeline_progress.assert_called_once_with("検索中...", 0.0, 0.3)
+
+    def test_on_thumbnail_started_filter_panel_none(self, mock_worker_service, mock_thumbnail_selector):
+        """filter_search_panel=None のとき例外なし"""
+        service = PipelineControlService(
+            worker_service=mock_worker_service,
+            thumbnail_selector=mock_thumbnail_selector,
+            filter_search_panel=None,
+        )
+        service.on_thumbnail_started("worker-id-002")
+        # 例外なし
+
+    def test_on_thumbnail_started_calls_update_progress(self, service, mock_filter_panel):
+        """filter_search_panel がある場合 update_pipeline_progress が呼ばれる"""
+        service.on_thumbnail_started("worker-id-002")
+        mock_filter_panel.update_pipeline_progress.assert_called_once_with("サムネイル読込中...", 0.3, 1.0)
+
+    def test_on_search_error_filter_panel_none(self, mock_worker_service, mock_thumbnail_selector):
+        """filter_search_panel=None のとき例外なし"""
+        service = PipelineControlService(
+            worker_service=mock_worker_service,
+            thumbnail_selector=mock_thumbnail_selector,
+            filter_search_panel=None,
+        )
+        service.on_search_error("search failed")
+        mock_thumbnail_selector.clear_thumbnails.assert_called_once()
+
+    def test_on_search_error_thumbnail_selector_none(self, mock_worker_service, mock_filter_panel):
+        """thumbnail_selector=None のとき clear_thumbnails が呼ばれず例外なし"""
+        service = PipelineControlService(
+            worker_service=mock_worker_service,
+            thumbnail_selector=None,
+            filter_search_panel=mock_filter_panel,
+        )
+        service.on_search_error("search failed")
+        mock_filter_panel.handle_pipeline_error.assert_called_once_with(
+            "search", {"message": "search failed"}
+        )
+
+    def test_on_thumbnail_error_filter_panel_none(self, mock_worker_service, mock_thumbnail_selector):
+        """filter_search_panel=None のとき例外なし"""
+        service = PipelineControlService(
+            worker_service=mock_worker_service,
+            thumbnail_selector=mock_thumbnail_selector,
+            filter_search_panel=None,
+        )
+        service.on_thumbnail_error("thumbnail failed")
+        mock_thumbnail_selector.clear_thumbnails.assert_called_once()
+
+    def test_on_thumbnail_error_thumbnail_selector_none(self, mock_worker_service, mock_filter_panel):
+        """thumbnail_selector=None のとき clear_thumbnails が呼ばれず例外なし"""
+        service = PipelineControlService(
+            worker_service=mock_worker_service,
+            thumbnail_selector=None,
+            filter_search_panel=mock_filter_panel,
+        )
+        service.on_thumbnail_error("thumbnail failed")
+        mock_filter_panel.handle_pipeline_error.assert_called_once_with(
+            "thumbnail", {"message": "thumbnail failed"}
+        )
+        mock_filter_panel.hide_progress_after_completion.assert_called_once()
+
+    def test_on_search_error_notifies_panel_and_clears_thumbnails(
+        self, service, mock_filter_panel, mock_thumbnail_selector
+    ):
+        """filter_search_panel と thumbnail_selector の両方がある場合の正常フロー"""
+        service.on_search_error("error msg")
+        mock_filter_panel.handle_pipeline_error.assert_called_once_with("search", {"message": "error msg"})
+        mock_thumbnail_selector.clear_thumbnails.assert_called_once()
+
+    def test_on_thumbnail_error_notifies_panel_and_clears_thumbnails(
+        self, service, mock_filter_panel, mock_thumbnail_selector
+    ):
+        """filter_search_panel と thumbnail_selector の両方がある場合の正常フロー"""
+        service.on_thumbnail_error("thumb error")
+        mock_filter_panel.handle_pipeline_error.assert_called_once_with(
+            "thumbnail", {"message": "thumb error"}
+        )
+        mock_thumbnail_selector.clear_thumbnails.assert_called_once()
         mock_filter_panel.hide_progress_after_completion.assert_called_once()

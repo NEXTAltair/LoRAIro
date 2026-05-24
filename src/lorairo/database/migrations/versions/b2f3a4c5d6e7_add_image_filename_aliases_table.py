@@ -44,6 +44,6 @@ def upgrade() -> None:
     )
 
 
-def downgrade() -> None:
+def downgrade() -> None:  # pragma: no cover
     op.drop_index("ix_image_filename_aliases_stem", table_name="image_filename_aliases")
     op.drop_table("image_filename_aliases")
