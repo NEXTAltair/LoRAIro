@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...services.search_criteria_processor import SearchCriteriaProcessor
 from ...utils.log import logger
-from .base import LoRAIroWorkerBase
+from .base import CancellationError, LoRAIroWorkerBase
 
 if TYPE_CHECKING:
     from ...database.db_manager import ImageDatabaseManager
@@ -83,6 +83,10 @@ class SearchWorker(LoRAIroWorkerBase[SearchResult]):
             logger.info(f"検索完了: {total_count}件, 処理時間={search_time:.3f}秒")
 
             return result
+
+        except CancellationError:
+            logger.info("検索処理がキャンセルされました")
+            raise
 
         except Exception as e:
             logger.error(f"検索処理エラー: {e}", exc_info=True)

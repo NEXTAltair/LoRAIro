@@ -318,14 +318,21 @@ class TestMainWindowAnnotationCompletion:
             "search_finished",
             "search_started",
             "search_error",
+            "search_canceled",
             "thumbnail_finished",
             "thumbnail_started",
             "thumbnail_error",
+            "thumbnail_canceled",
             "batch_registration_started",
             "batch_registration_finished",
             "batch_registration_error",
+            "batch_registration_canceled",
+            "batch_import_finished",
+            "batch_import_error",
+            "batch_import_canceled",
             "enhanced_annotation_finished",
             "enhanced_annotation_error",
+            "enhanced_annotation_canceled",
             "worker_progress_updated",
             "worker_batch_progress",
         ]:
@@ -334,11 +341,29 @@ class TestMainWindowAnnotationCompletion:
         with patch("lorairo.gui.window.main_window.logger"):
             MainWindow._setup_worker_pipeline_signals(mock_window)
 
-            # enhanced_annotation_finished シグナルが接続される
-            mock_window.worker_service.enhanced_annotation_finished.connect.assert_called_once()
-
-            # enhanced_annotation_error シグナルが接続される
-            mock_window.worker_service.enhanced_annotation_error.connect.assert_called_once()
+            for signal_name in [
+                "search_finished",
+                "search_started",
+                "search_error",
+                "search_canceled",
+                "thumbnail_finished",
+                "thumbnail_started",
+                "thumbnail_error",
+                "thumbnail_canceled",
+                "batch_registration_started",
+                "batch_registration_finished",
+                "batch_registration_error",
+                "batch_registration_canceled",
+                "batch_import_finished",
+                "batch_import_error",
+                "batch_import_canceled",
+                "enhanced_annotation_finished",
+                "enhanced_annotation_error",
+                "enhanced_annotation_canceled",
+                "worker_progress_updated",
+                "worker_batch_progress",
+            ]:
+                getattr(mock_window.worker_service, signal_name).connect.assert_called_once()
 
 
 class TestMainWindowTagAddFeedback:

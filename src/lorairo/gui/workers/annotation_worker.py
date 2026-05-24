@@ -20,7 +20,7 @@ from lorairo.services.model_registry_protocol import (
 )
 from lorairo.utils.log import logger
 
-from .base import LoRAIroWorkerBase
+from .base import CancellationError, LoRAIroWorkerBase
 
 if TYPE_CHECKING:
     from lorairo.database.db_manager import ImageDatabaseManager
@@ -230,6 +230,10 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                     f"マージ後合計={len(merged_results)}件"
                 )
 
+            except CancellationError:
+                logger.info(f"モデル {litellm_model_id} のアノテーション処理がキャンセルされました")
+                raise
+
             except Exception as e:
                 logger.error(f"モデル {litellm_model_id} でエラー: {e}", exc_info=True)
                 self._save_error_records(e, self.image_paths, model_name=litellm_model_id)
@@ -322,6 +326,10 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 phash_to_filename=phash_to_filename,
                 total_processing_time_sec=0.0,
             )
+
+        except CancellationError:
+            logger.info("アノテーション処理がキャンセルされました")
+            raise
 
         except Exception as e:
             logger.error(f"アノテーション処理エラー: {e}", exc_info=True)

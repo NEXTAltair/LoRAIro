@@ -647,14 +647,21 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             "search_finished",
             "search_started",
             "search_error",
+            "search_canceled",
             "thumbnail_finished",
             "thumbnail_started",
             "thumbnail_error",
+            "thumbnail_canceled",
             "batch_registration_started",
             "batch_registration_finished",
             "batch_registration_error",
+            "batch_registration_canceled",
+            "batch_import_finished",
+            "batch_import_error",
+            "batch_import_canceled",
             "enhanced_annotation_finished",
             "enhanced_annotation_error",
+            "enhanced_annotation_canceled",
             "worker_progress_updated",
             "worker_batch_progress",
         ]
@@ -678,25 +685,30 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # Error handling connections
         self.worker_service.search_error.connect(self._on_pipeline_search_error)
         self.worker_service.thumbnail_error.connect(self._on_pipeline_thumbnail_error)
+        self.worker_service.search_canceled.connect(self._on_pipeline_search_canceled)
+        self.worker_service.thumbnail_canceled.connect(self._on_pipeline_thumbnail_canceled)
 
         # Batch registration connections
         self.worker_service.batch_registration_started.connect(self._on_batch_registration_started)
         self.worker_service.batch_registration_finished.connect(self._on_batch_registration_finished)
         self.worker_service.batch_registration_error.connect(self._on_batch_registration_error)
+        self.worker_service.batch_registration_canceled.connect(self._on_batch_registration_canceled)
 
         # Batch import connections
         self.worker_service.batch_import_finished.connect(self._on_batch_import_finished)
         self.worker_service.batch_import_error.connect(self._on_batch_import_error)
+        self.worker_service.batch_import_canceled.connect(self._on_batch_import_canceled)
 
         # Annotation connections
         self.worker_service.enhanced_annotation_finished.connect(self._on_annotation_finished)
         self.worker_service.enhanced_annotation_error.connect(self._on_annotation_error)
+        self.worker_service.enhanced_annotation_canceled.connect(self._on_annotation_canceled)
 
         # Progress feedback connections
         self.worker_service.worker_progress_updated.connect(self._on_worker_progress_updated)
         self.worker_service.worker_batch_progress.connect(self._on_worker_batch_progress)
 
-        logger.info("WorkerService pipeline signals connected (15 connections)")
+        logger.info("WorkerService pipeline signals connected (18 connections)")
 
     def _delegate_to_pipeline_control(self, method_name: str, *args: Any) -> None:
         """PipelineControlServiceへのイベント委譲ヘルパー"""
@@ -728,6 +740,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # エラー通知Widget更新
         if self.error_notification_widget:
             self.error_notification_widget.update_error_count()
+
+    def _on_pipeline_search_canceled(self, worker_id: str) -> None:
+        self._delegate_to_pipeline_control("on_search_canceled", worker_id)
+
+    def _on_pipeline_thumbnail_canceled(self, worker_id: str) -> None:
+        self._delegate_to_pipeline_control("on_thumbnail_canceled", worker_id)
 
     def _delegate_to_progress_state(self, method_name: str, *args: Any) -> None:
         """ProgressStateServiceへのイベント委譲ヘルパー"""
@@ -763,6 +781,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # エラー通知Widget更新
         if self.error_notification_widget:
             self.error_notification_widget.update_error_count()
+
+    def _on_batch_registration_canceled(self, worker_id: str) -> None:
+        """Batch registration canceled signal handler（エラー通知は出さない）"""
+        self._delegate_to_progress_state("on_batch_registration_canceled", worker_id)
 
     def _on_worker_progress_updated(self, worker_id: str, progress: Any) -> None:
         self._delegate_to_progress_state("on_worker_progress_updated", worker_id, progress)
@@ -836,6 +858,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # エラー通知Widget更新
         if self.error_notification_widget:
             self.error_notification_widget.update_error_count()
+
+    def _on_annotation_canceled(self, worker_id: str) -> None:
+        """Annotation canceled signal handler（エラー通知は出さない）"""
+        self._delegate_to_progress_state("on_batch_annotation_canceled", worker_id)
 
     def _on_batch_annotation_finished(self, result: Any) -> None:
         self._delegate_to_result_handler(
@@ -1851,3 +1877,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         )
         if self.error_notification_widget:
             self.error_notification_widget.update_error_count()
+
+    def _on_batch_import_canceled(self, worker_id: str) -> None:
+        """バッチインポートキャンセルハンドラ（エラー通知は出さない）。"""
+        self._delegate_to_progress_state("on_batch_import_canceled", worker_id)

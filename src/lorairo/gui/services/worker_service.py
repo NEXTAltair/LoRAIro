@@ -34,22 +34,27 @@ class WorkerService(QObject):
     batch_registration_started = Signal(str)  # worker_id
     batch_registration_finished = Signal(object)  # DatabaseRegistrationResult
     batch_registration_error = Signal(str)  # error_message
+    batch_registration_canceled = Signal(str)  # worker_id
 
     enhanced_annotation_started = Signal(str)  # worker_id
     enhanced_annotation_finished = Signal(object)  # Enhanced annotation results
     enhanced_annotation_error = Signal(str)  # error_message
+    enhanced_annotation_canceled = Signal(str)  # worker_id
 
     search_started = Signal(str)  # worker_id
     search_finished = Signal(object)  # SearchResult
     search_error = Signal(str)  # error_message
+    search_canceled = Signal(str)  # worker_id
 
     thumbnail_started = Signal(str)  # worker_id
     thumbnail_finished = Signal(object)  # ThumbnailLoadResult
     thumbnail_error = Signal(str)  # error_message
+    thumbnail_canceled = Signal(str)  # worker_id
 
     batch_import_started = Signal(str)  # worker_id
     batch_import_finished = Signal(object)  # BatchImportResult
     batch_import_error = Signal(str)  # error_message
+    batch_import_canceled = Signal(str)  # worker_id
 
     # === 進捗シグナル ===
     worker_progress_updated = Signal(str, object)  # worker_id, WorkerProgress
@@ -85,6 +90,7 @@ class WorkerService(QObject):
         self.worker_manager.worker_started.connect(self._on_worker_started)
         self.worker_manager.worker_finished.connect(self._on_worker_finished)
         self.worker_manager.worker_error.connect(self._on_worker_error)
+        self.worker_manager.worker_canceled.connect(self._on_worker_canceled)
         self.worker_manager.active_worker_count_changed.connect(self.active_worker_count_changed)
         self.worker_manager.all_workers_finished.connect(self.all_workers_finished)
 
@@ -156,6 +162,7 @@ class WorkerService(QObject):
         )
 
         if self.worker_manager.start_worker(worker_id, worker):
+            self.current_registration_worker_id = worker_id
             logger.info(f"バッチ登録開始: {directory} (ID: {worker_id})")
             return worker_id
         else:
@@ -210,6 +217,7 @@ class WorkerService(QObject):
         )
 
         if self.worker_manager.start_worker(worker_id, worker):
+            self.current_annotation_worker_id = worker_id
             logger.info(
                 f"バッチアノテーション開始: {len(image_paths)}画像 (filter 前), "
                 f"{len(litellm_model_ids)}モデル (ID: {worker_id})"
@@ -247,7 +255,6 @@ class WorkerService(QObject):
 
         worker = SearchWorker(self.db_manager, search_conditions)
         worker_id = f"search_{uuid.uuid4().hex[:8]}"
-        self.current_search_worker_id = worker_id
 
         # 進捗シグナル接続
         worker.progress_updated.connect(
@@ -260,6 +267,7 @@ class WorkerService(QObject):
         )
 
         if self.worker_manager.start_worker(worker_id, worker):
+            self.current_search_worker_id = worker_id
             logger.info(f"検索開始: {search_conditions} (ID: {worker_id})")
             return worker_id
         else:
@@ -424,10 +432,12 @@ class WorkerService(QObject):
         )
 
         mode = "DRY-RUN" if dry_run else "LIVE"
-        logger.info(f"バッチインポート開始: {len(jsonl_files)}ファイル ({mode}) (ID: {worker_id})")
-        self.worker_manager.start_worker(worker_id, worker)
-        self.current_batch_import_worker_id = worker_id
-        return worker_id
+        if self.worker_manager.start_worker(worker_id, worker):
+            logger.info(f"バッチインポート開始: {len(jsonl_files)}ファイル ({mode}) (ID: {worker_id})")
+            self.current_batch_import_worker_id = worker_id
+            return worker_id
+
+        raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
 
     def cancel_batch_import(self, worker_id: str) -> None:
         """バッチインポートワーカーをキャンセルする。
@@ -555,3 +565,24 @@ class WorkerService(QObject):
                 setattr(self, attr, None)
 
         logger.info(f"ワーカーエラーとプログレス終了: {worker_id}")
+
+    def _on_worker_canceled(self, worker_id: str) -> None:
+        """ワーカーキャンセルハンドラ - エラー扱いせずプログレスを終了"""
+        logger.info(f"ワーカーキャンセル完了: {worker_id}")
+
+        worker_type = self._resolve_worker_type(worker_id)
+        if worker_type != "thumbnail":
+            self.progress_manager.finish_worker_progress(worker_id, success=False)
+
+        canceled_dispatch: dict[str, tuple[Any, str | None]] = {
+            "batch_reg": (self.batch_registration_canceled, "current_registration_worker_id"),
+            "batch_import": (self.batch_import_canceled, "current_batch_import_worker_id"),
+            "annotation": (self.enhanced_annotation_canceled, "current_annotation_worker_id"),
+            "search": (self.search_canceled, "current_search_worker_id"),
+            "thumbnail": (self.thumbnail_canceled, "current_thumbnail_worker_id"),
+        }
+        if worker_type in canceled_dispatch:
+            signal, attr = canceled_dispatch[worker_type]
+            signal.emit(worker_id)
+            if attr and getattr(self, attr) == worker_id:
+                setattr(self, attr, None)

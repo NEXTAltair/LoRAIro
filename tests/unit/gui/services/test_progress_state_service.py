@@ -53,6 +53,34 @@ class TestBatchRegistrationError:
         assert "テストエラー" in args[0]
 
 
+class TestBatchRegistrationCanceled:
+    @pytest.mark.parametrize(
+        "method_name",
+        [
+            "on_batch_registration_canceled",
+            "on_batch_annotation_canceled",
+            "on_batch_import_canceled",
+        ],
+    )
+    def test_no_statusbar(self, service_no_statusbar, method_name):
+        getattr(service_no_statusbar, method_name)("worker_001")
+
+    @pytest.mark.parametrize(
+        "method_name",
+        [
+            "on_batch_registration_canceled",
+            "on_batch_annotation_canceled",
+            "on_batch_import_canceled",
+        ],
+    )
+    def test_with_statusbar(self, service_with_statusbar, mock_statusbar, method_name):
+        getattr(service_with_statusbar, method_name)("worker_001")
+        mock_statusbar.showMessage.assert_called_once()
+        args = mock_statusbar.showMessage.call_args[0]
+        assert "キャンセル" in args[0]
+        assert args[1] == 5000
+
+
 class TestWorkerProgressUpdated:
     def test_no_statusbar_returns_early(self, service_no_statusbar):
         progress = SimpleNamespace(current=5, total=10)

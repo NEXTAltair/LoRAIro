@@ -8,6 +8,7 @@ from PySide6.QtCore import QObject, QThread
 
 from lorairo.gui.workers.base import (
     CancellationController,
+    CancellationError,
     LoRAIroWorkerBase,
     ProgressReporter,
     WorkerProgress,
@@ -53,6 +54,7 @@ class TestWorkerStatus:
         assert WorkerStatus.CANCELING.value == "canceling"
         assert WorkerStatus.COMPLETED.value == "completed"
         assert WorkerStatus.FAILED.value == "failed"
+        assert WorkerStatus.CANCELED.value == "canceled"
 
 
 class TestCancellationController:
@@ -234,7 +236,7 @@ class TestLoRAIroWorkerBase:
 
         # キャンセル後は例外発生
         worker.cancel()
-        with pytest.raises(RuntimeError, match="処理がキャンセルされました"):
+        with pytest.raises(CancellationError, match="処理がキャンセルされました"):
             worker._check_cancellation()
 
     def test_progress_report_helper(self, worker):
@@ -298,6 +300,26 @@ class ConcreteWorkerWithDb(LoRAIroWorkerBase[str]):
         if self.should_fail:
             raise RuntimeError("テスト例外")
         return "completed"
+
+
+class ConcreteWorkerCanceled(LoRAIroWorkerBase[str]):
+    """キャンセル例外を発生させるテスト用ワーカー"""
+
+    _OPERATION_TYPE = "test_cancel"
+
+    def __init__(self, db_manager=None):
+        super().__init__(db_manager=db_manager)
+
+    def execute(self) -> str:
+        raise CancellationError("処理がキャンセルされました")
+
+
+class ConcreteWorkerReturnsAfterCancel(LoRAIroWorkerBase[str]):
+    """キャンセルフラグ設定後に値を返すテスト用ワーカー"""
+
+    def execute(self) -> str:
+        self.cancellation.cancel()
+        return "ignored"
 
 
 class ConcreteWorkerPreRecords(LoRAIroWorkerBase[str]):
@@ -378,6 +400,44 @@ class TestLoRAIroWorkerBaseUnhandledError:
         worker.run()
 
         assert mock_db.save_error_record.call_count == 1
+
+    def test_run_treats_cancellation_as_non_error(self):
+        """CancellationError はエラーシグナルやDB記録を発生させない"""
+        mock_db = Mock()
+        worker = ConcreteWorkerCanceled(db_manager=mock_db)
+        error_mock = Mock()
+        canceled_mock = Mock()
+        status_mock = Mock()
+        worker.error_occurred.connect(error_mock)
+        worker.canceled.connect(canceled_mock)
+        worker.status_changed.connect(status_mock)
+
+        worker.run()
+
+        error_mock.assert_not_called()
+        canceled_mock.assert_called_once()
+        mock_db.save_error_record.assert_not_called()
+        status_calls = [call[0][0] for call in status_mock.call_args_list]
+        assert WorkerStatus.CANCELED in status_calls
+        assert WorkerStatus.FAILED not in status_calls
+
+    def test_run_treats_return_after_cancel_as_canceled_terminal(self):
+        """キャンセルフラグ後にexecuteが戻ってもfinishedではなくcanceledを発行する"""
+        worker = ConcreteWorkerReturnsAfterCancel()
+        finished_mock = Mock()
+        canceled_mock = Mock()
+        status_mock = Mock()
+        worker.finished.connect(finished_mock)
+        worker.canceled.connect(canceled_mock)
+        worker.status_changed.connect(status_mock)
+
+        worker.run()
+
+        finished_mock.assert_not_called()
+        canceled_mock.assert_called_once()
+        assert worker.status == WorkerStatus.CANCELED
+        status_calls = [call[0][0] for call in status_mock.call_args_list]
+        assert WorkerStatus.CANCELED in status_calls
 
 
 class TestLoRAIroWorkerBaseAlias:

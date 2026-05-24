@@ -33,7 +33,7 @@ src/lorairo/gui/
 - **基底クラス:** 全てのワーカーは、`src.lorairo.gui.workers.base.LoRAIroWorkerBase` クラスを継承します。
 - **`LoRAIroWorkerBase` の役割:**
     - `QObject` + `Generic[T]` を継承し、型安全な結果を提供します。
-    - 標準シグナル (`finished(result: T)`, `error(message: str)`) を定義します。
+    - 標準シグナル (`finished(result: T)`, `error_occurred(message: str)`, `canceled()`) を定義します。
     - 進捗報告とキャンセレーション機能を統合します。
     - 基本的なキャンセル処理 (`cancel()` メソッド、`_is_cancelled` フラグ) の枠組みを提供します。
     - スレッドプールまたは個別の `QThread` 上で実行されるエントリーポイント (`run()` メソッド) を提供します。`run()` はキャンセルチェック、抽象メソッド `run_task()` の呼び出し、例外処理、`finished` シグナルの発行を行います。
@@ -44,15 +44,16 @@ src/lorairo/gui/
 - **サービスとの連携:**
     - `WorkerService` は、対応するワーカークラス（例: `AnnotationWorker`, `SearchWorker`）のインスタンスを生成します。
     - `WorkerService` は `WorkerManager` 経由で `QThreadPool` でワーカーを実行します。
-    - ワーカーの `finished` および `progress` シグナルを、`WorkerService` 内の適切なスロット（またはUIコンポーネントのスロット）に接続して、結果や進捗を処理します。
+    - ワーカーの `finished` / `error_occurred` / `canceled` および `progress` シグナルを、`WorkerService` 内の適切なスロット（またはUIコンポーネントのスロット）に接続して、結果や進捗を処理します。
     - `WorkerService` はワーカーの `cancel()` メソッドを呼び出して、タスクの中断を要求できます。
 
 ## 3. 責務
 
 - **タスク実行:** 割り当てられた特定の非同期タスク（AI アノテーション、画像読み込み、設定の保存など）を実行します。
-- **結果通知:** タスク完了時、`finished` シグナルを通じて結果オブジェクトまたは発生した例外をサービスに通知します。
+- **結果通知:** タスク完了時、`finished` / `error_occurred` / `canceled` のいずれか一つの終端シグナルでサービスに通知します。
 - **進捗通知:** (任意) タスク実行中に、`progress` シグナルを通じて進捗状況（通常 0-100 のパーセンテージ）を通知します。
-- **キャンセル処理:** サービスからのキャンセル要求を受け付け、可能な範囲でタスクを安全に中断します。中断した場合も `finished` シグナルは発行されます（結果は `None` や特定のキャンセル状態を示すオブジェクトになる場合があります）。
+- **キャンセル処理:** サービスからのキャンセル要求を受け付け、可能な範囲でタスクを安全に中断します。中断した場合は `canceled` シグナルを発行します。キャンセルは failure ではない第三の終端状態であり、ErrorLogViewer 用のエラーレコードには記録しません。
+    - 将来的に user requested / superseded / shutdown などを区別する必要が出た場合は、`canceled` の横に reason を後付けするのではなく、統一 terminal event と cancel reason の設計を別ADRで検討します。
 
 ## 4. 実装ガイドライン
 
@@ -61,7 +62,8 @@ src/lorairo/gui/
     - 正常完了時は結果オブジェクトを返します。
     - 処理中にエラーが発生した場合は、例外を送出します (`BaseWorker.run` で捕捉されます)。特定のビジネスロジックエラーは、`run_task` 内で捕捉し、エラーを示す特定のオブジェクトを返すことも可能です。
 - **エラーハンドリング:**
-    - `BaseWorker.run()` が一般的な `Exception` を捕捉し、`finished` シグナルで通知します。
+    - `BaseWorker.run()` が一般的な `Exception` を捕捉し、`error_occurred` シグナルで通知します。
+    - キャンセルは `CancellationError` またはキャンセルフラグで検出し、`WorkerStatus.CANCELED` と `canceled` シグナルで通知します。
     - `run_task()` 内で、特定の予期される例外（例: `FileNotFoundError`, `ValueError`）を捕捉し、より具体的なエラー情報を含む結果を返すことも検討します。
 - **状態管理:** ワーカーは自身の状態（実行中、キャンセル済みなど）を管理しますが、サービスやUIに直接依存しないようにします。状態の通知はシグナルを使用します。
 - **リソース管理:** ワーカーがファイルハンドルやネットワーク接続などのリソースを使用する場合、`run_task()` 内または `finally` ブロックで適切に解放するようにします。

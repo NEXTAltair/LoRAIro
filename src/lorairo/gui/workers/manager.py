@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QCoreApplication, QObject, QThread, Signal
 
 from ...utils.log import logger
 from .base import LoRAIroWorkerBase
@@ -60,12 +60,15 @@ class WorkerManager(QObject):
         thread.started.connect(worker.run)
         worker.finished.connect(lambda result: self._on_worker_finished(worker_id, result))
         worker.error_occurred.connect(lambda error: self._on_worker_error(worker_id, error))
+        worker.canceled.connect(lambda: self._on_worker_canceled(worker_id))
 
         if auto_cleanup:
             worker.finished.connect(thread.quit)
             worker.finished.connect(worker.deleteLater)
             worker.error_occurred.connect(thread.quit)
             worker.error_occurred.connect(worker.deleteLater)
+            worker.canceled.connect(thread.quit)
+            worker.canceled.connect(worker.deleteLater)
             # スレッドの適切な終了処理
             thread.finished.connect(lambda: self._cleanup_thread(worker_id, thread))
             thread.finished.connect(thread.deleteLater)
@@ -105,12 +108,15 @@ class WorkerManager(QObject):
         thread = worker_info["thread"]
         if thread.isRunning():
             thread.quit()
-            if not thread.wait(2000):  # 2秒待機
+            if thread.wait(2000):  # 2秒待機
+                self._finalize_canceled_if_no_terminal_signal(worker_id)
+            else:
                 logger.warning(f"キャンセルされたワーカーの終了タイムアウト: {worker_id}")
                 thread.terminate()
-                thread.wait(1000)  # 強制終了後も1秒待機
-
-        self.worker_canceled.emit(worker_id)
+                if thread.wait(1000):  # 強制終了後も1秒待機
+                    self._finalize_canceled_if_no_terminal_signal(worker_id)
+                else:
+                    logger.error(f"キャンセルされたワーカーの強制終了失敗: {worker_id}")
 
         logger.info(f"ワーカーキャンセル: {worker_id}")
         return True
@@ -184,15 +190,8 @@ class WorkerManager(QObject):
 
     def _on_worker_finished(self, worker_id: str, result: Any) -> None:
         """ワーカー完了イベントハンドラー"""
-        if worker_id in self.active_workers:
-            self.active_workers.pop(worker_id)
+        if self._pop_active_worker(worker_id):
             self.worker_finished.emit(worker_id, result)
-            self.active_worker_count_changed.emit(len(self.active_workers))
-
-            # 全ワーカー完了チェック
-            if len(self.active_workers) == 0:
-                self.all_workers_finished.emit()
-
             logger.info(f"ワーカー完了: {worker_id}")
 
     def _cleanup_thread(self, worker_id: str, thread: QThread) -> None:
@@ -210,16 +209,37 @@ class WorkerManager(QObject):
 
     def _on_worker_error(self, worker_id: str, error: str) -> None:
         """ワーカーエラーイベントハンドラー"""
-        if worker_id in self.active_workers:
-            self.active_workers.pop(worker_id)
+        if self._pop_active_worker(worker_id):
             self.worker_error.emit(worker_id, error)
-            self.active_worker_count_changed.emit(len(self.active_workers))
-
-            # 全ワーカー完了チェック
-            if len(self.active_workers) == 0:
-                self.all_workers_finished.emit()
-
             logger.error(f"ワーカーエラー: {worker_id} - {error}")
+
+    def _on_worker_canceled(self, worker_id: str) -> None:
+        """ワーカーキャンセル完了イベントハンドラー"""
+        if self._pop_active_worker(worker_id):
+            self.worker_canceled.emit(worker_id)
+            logger.info(f"ワーカーキャンセル完了: {worker_id}")
+
+    def _finalize_canceled_if_no_terminal_signal(self, worker_id: str) -> None:
+        """queued terminal signal を優先し、未確定なら cancel fallback で終端する。"""
+        app = QCoreApplication.instance()
+        if app is not None:
+            app.processEvents()
+
+        if worker_id in self.active_workers:
+            self._on_worker_canceled(worker_id)
+
+    def _pop_active_worker(self, worker_id: str) -> bool:
+        """ワーカー終端を一度だけ確定し、管理状態を更新する。"""
+        if worker_id not in self.active_workers:
+            return False
+
+        self.active_workers.pop(worker_id)
+        self.active_worker_count_changed.emit(len(self.active_workers))
+
+        if len(self.active_workers) == 0:
+            self.all_workers_finished.emit()
+
+        return True
 
     # === Utility Methods ===
 

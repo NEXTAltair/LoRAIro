@@ -13,6 +13,7 @@ import pytest
 
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.db_repository import ImageRepository
+from lorairo.gui.workers.base import CancellationError
 from lorairo.gui.workers.registration_worker import (
     DatabaseRegistrationResult,
     DatabaseRegistrationWorker,
@@ -167,7 +168,7 @@ class TestDatabaseRegistrationWorker:
         worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
         worker.cancel()
 
-        with pytest.raises(RuntimeError, match="処理がキャンセルされました"):
+        with pytest.raises(CancellationError, match="処理がキャンセルされました"):
             worker.execute()
 
     def test_empty_directory_handling(self, temp_dir, real_db_manager):
@@ -313,7 +314,7 @@ class TestSearchWorker:
         worker = SearchWorker(real_db_manager, search_conditions)
         worker.cancel()
 
-        with pytest.raises(RuntimeError, match="処理がキャンセルされました"):
+        with pytest.raises(CancellationError, match="処理がキャンセルされました"):
             worker.execute()
 
     def test_empty_search_result_handling(self, real_db_manager, search_conditions):
@@ -852,11 +853,11 @@ class TestRegistrationErrorHandling:
         return worker, real_db_manager, mock_fsm
 
     def test_cancellation_during_execution(self, worker_setup):
-        """キャンセル実行時にRuntimeErrorが発生することを確認"""
+        """キャンセル実行時にCancellationErrorが発生することを確認"""
         worker, _, _ = worker_setup
         worker.cancel()
 
-        with pytest.raises(RuntimeError, match="処理がキャンセルされました"):
+        with pytest.raises(CancellationError, match="処理がキャンセルされました"):
             worker.execute()
 
     def test_cancellation_mid_loop(self, temp_dir, real_db_manager, mock_fsm):
@@ -883,11 +884,11 @@ class TestRegistrationErrorHandling:
             # 2回目のチェック時にキャンセル
             def cancel_on_second_call():
                 if mock_cancel.call_count >= 2:
-                    raise RuntimeError("処理がキャンセルされました")
+                    raise CancellationError("処理がキャンセルされました")
 
             mock_cancel.side_effect = cancel_on_second_call
 
-            with pytest.raises(RuntimeError, match="処理がキャンセルされました"):
+            with pytest.raises(CancellationError, match="処理がキャンセルされました"):
                 worker.execute()
 
     def test_exception_in_db_registration(self, temp_dir, real_db_manager, mock_fsm):

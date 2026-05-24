@@ -117,6 +117,15 @@ class TestPipelineEventHandlers:
         mock_window.error_notification_widget = None
         MainWindow._on_pipeline_search_error(mock_window, "search error")
 
+    def test_on_pipeline_search_canceled_delegates_without_error_notification(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        MainWindow._on_pipeline_search_canceled(mock_window, "search-123")
+        mock_window._delegate_to_pipeline_control.assert_called_once_with(
+            "on_search_canceled", "search-123"
+        )
+
     def test_on_pipeline_thumbnail_error_updates_notification_widget(self):
         from lorairo.gui.window.main_window import MainWindow
 
@@ -127,6 +136,15 @@ class TestPipelineEventHandlers:
             "on_thumbnail_error", "thumb error"
         )
         mock_window.error_notification_widget.update_error_count.assert_called_once()
+
+    def test_on_pipeline_thumbnail_canceled_delegates_without_error_notification(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        MainWindow._on_pipeline_thumbnail_canceled(mock_window, "thumbnail-123")
+        mock_window._delegate_to_pipeline_control.assert_called_once_with(
+            "on_thumbnail_canceled", "thumbnail-123"
+        )
 
 
 class TestBatchRegistrationHandlers:
@@ -180,6 +198,15 @@ class TestBatchRegistrationHandlers:
         with patch("lorairo.gui.window.main_window.QMessageBox"):
             MainWindow._on_batch_registration_error(mock_window, "エラー")
         mock_window.error_notification_widget.update_error_count.assert_called_once()
+
+    def test_on_batch_registration_canceled_delegates_without_error_notification(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        MainWindow._on_batch_registration_canceled(mock_window, "worker_1")
+        mock_window._delegate_to_progress_state.assert_called_once_with(
+            "on_batch_registration_canceled", "worker_1"
+        )
 
 
 class TestWorkerProgressHandlers:
@@ -238,6 +265,15 @@ class TestResultHandlerDelegates:
         mock_window = Mock()
         mock_window.error_notification_widget = None
         MainWindow._on_annotation_error(mock_window, "エラー")
+
+    def test_on_annotation_canceled_delegates_without_error_notification(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        MainWindow._on_annotation_canceled(mock_window, "annotation_123")
+        mock_window._delegate_to_progress_state.assert_called_once_with(
+            "on_batch_annotation_canceled", "annotation_123"
+        )
 
     def test_on_batch_annotation_finished_delegates(self):
         from lorairo.gui.window.main_window import MainWindow
@@ -952,6 +988,15 @@ class TestErrorHandlers:
         mock_window.error_notification_widget = None
         with patch("lorairo.gui.window.main_window.QMessageBox"):
             MainWindow._on_batch_import_error(mock_window, "エラー")
+
+    def test_on_batch_import_canceled_delegates_without_error_notification(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        MainWindow._on_batch_import_canceled(mock_window, "batch_import_123")
+        mock_window._delegate_to_progress_state.assert_called_once_with(
+            "on_batch_import_canceled", "batch_import_123"
+        )
 
 
 class TestDatabaseStatusLabel:

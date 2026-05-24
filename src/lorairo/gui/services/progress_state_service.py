@@ -70,6 +70,32 @@ class ProgressStateService:
             except Exception as e:
                 logger.debug(f"Status bar update failed: {e}")
 
+    def on_batch_registration_canceled(self, worker_id: str) -> None:
+        """バッチ登録キャンセル時の進捗表示"""
+        logger.info(f"バッチ登録キャンセル: worker_id={worker_id}")
+
+        self._show_canceled_message("バッチ登録")
+
+    def on_batch_annotation_canceled(self, worker_id: str) -> None:
+        """バッチアノテーションキャンセル時の進捗表示"""
+        logger.info(f"バッチアノテーションキャンセル: worker_id={worker_id}")
+
+        self._show_canceled_message("アノテーション処理")
+
+    def on_batch_import_canceled(self, worker_id: str) -> None:
+        """バッチインポートキャンセル時の進捗表示"""
+        logger.info(f"バッチインポートキャンセル: worker_id={worker_id}")
+
+        self._show_canceled_message("バッチインポート")
+
+    def _show_canceled_message(self, operation_name: str) -> None:
+        """キャンセル完了メッセージをステータスバーへ表示する。"""
+        if self.status_bar:
+            try:
+                self.status_bar.showMessage(f"{operation_name}をキャンセルしました", 5000)
+            except Exception as e:
+                logger.debug(f"Status bar update failed: {e}")
+
     # ============================================================
     # Worker進捗管理
     # ============================================================
