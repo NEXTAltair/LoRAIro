@@ -751,8 +751,8 @@ class TestModelFilterServiceExceptionPaths:
         settings.get が例外を投げることで except に到達する。
         """
         bad_settings = Mock()
-        # selected_models アクセスで例外を投げる
-        type(bad_settings).get = Mock(side_effect=RuntimeError("settings broken"))
+        # selected_models アクセスで例外を投げる (インスタンス属性を使い Mock クラスを汚染しない)
+        bad_settings.get.side_effect = RuntimeError("settings broken")
 
         result = service.validate_annotation_settings(bad_settings)
 
@@ -805,7 +805,7 @@ class TestModelFilterServiceExceptionPaths:
         """_model_matches_provider_filter の except ブロック (356-358) をカバー。"""
         # provider_filter が str でも list でもない値 + str() が例外を投げるよう model を壊す
         model = Mock()
-        type(model).get = Mock(side_effect=RuntimeError("model get error"))
+        model.get.side_effect = RuntimeError("model get error")
         criteria = {"provider_filter": "openai"}
 
         result = service._model_matches_provider_filter(model, criteria)

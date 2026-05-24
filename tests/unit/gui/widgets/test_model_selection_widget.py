@@ -391,18 +391,16 @@ class TestModelSelectionWidgetRefreshRegistry:
 
     def test_refresh_model_registry_disables_button_and_shows_progress(self, widget, monkeypatch) -> None:
         """refresh_model_registry() でボタン無効化 + プログレスバー表示（line 229-250）"""
-        # QThread.start() が呼ばれると実スレッドが起動するため、
-        # _ModelRefreshWorker.run() 内の get_service_container() をモックする
-        mock_container = Mock()
-        mock_container.annotator_library.refresh_available_models.return_value = []
-        mock_sync = Mock()
-        mock_sync.errors = []
-        mock_sync.summary = "ok"
-        mock_container.model_sync_service.sync_available_models.return_value = mock_sync
-
+        # QThread と _ModelRefreshWorker をモックしてスレッドが実際には起動しないようにする
+        mock_thread = Mock()
+        mock_worker = Mock()
         monkeypatch.setattr(
-            "lorairo.gui.widgets.model_selection_widget.get_service_container",
-            lambda: mock_container,
+            "lorairo.gui.widgets.model_selection_widget.QThread",
+            Mock(return_value=mock_thread),
+        )
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.model_selection_widget._ModelRefreshWorker",
+            Mock(return_value=mock_worker),
         )
 
         # btnRefreshModels が有効な状態から開始

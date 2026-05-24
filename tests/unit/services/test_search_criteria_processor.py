@@ -409,16 +409,13 @@ class TestSearchCriteriaProcessorErrorPaths:
     @patch("lorairo.services.search_criteria_processor.logger")
     def test_process_date_filter_exception_returns_empty_dict(self, mock_logger, processor) -> None:
         """process_date_filter で例外が起きた場合、空辞書を返してエラーログを出す。"""
-        # conditions.date_filter_enabled を property でエラーにする
-        bad_conditions = Mock()
-        bad_conditions.date_filter_enabled = property(
-            lambda self: (_ for _ in ()).throw(RuntimeError("boom"))
-        )
-        type(bad_conditions).date_filter_enabled = property(
-            lambda self: (_ for _ in ()).throw(RuntimeError("boom"))
-        )
 
-        result = processor.process_date_filter(bad_conditions)
+        class _BrokenConditions:
+            @property
+            def date_filter_enabled(self) -> bool:
+                raise RuntimeError("boom")
+
+        result = processor.process_date_filter(_BrokenConditions())
 
         assert result == {}
         mock_logger.error.assert_called_once()
@@ -426,12 +423,13 @@ class TestSearchCriteriaProcessorErrorPaths:
     @patch("lorairo.services.search_criteria_processor.logger")
     def test_apply_untagged_filter_exception_returns_empty_dict(self, mock_logger, processor) -> None:
         """apply_untagged_filter で例外が起きた場合、空辞書を返してエラーログを出す。"""
-        bad_conditions = Mock()
-        type(bad_conditions).only_untagged = property(
-            lambda self: (_ for _ in ()).throw(RuntimeError("fail"))
-        )
 
-        result = processor.apply_untagged_filter(bad_conditions)
+        class _BrokenConditions:
+            @property
+            def only_untagged(self) -> bool:
+                raise RuntimeError("fail")
+
+        result = processor.apply_untagged_filter(_BrokenConditions())
 
         assert result == {}
         mock_logger.error.assert_called_once()
@@ -439,10 +437,13 @@ class TestSearchCriteriaProcessorErrorPaths:
     @patch("lorairo.services.search_criteria_processor.logger")
     def test_apply_tagged_filter_logic_exception_returns_empty_dict(self, mock_logger, processor) -> None:
         """apply_tagged_filter_logic で例外が起きた場合、空辞書を返してエラーログを出す。"""
-        bad_conditions = Mock()
-        type(bad_conditions).keywords = property(lambda self: (_ for _ in ()).throw(RuntimeError("fail")))
 
-        result = processor.apply_tagged_filter_logic(bad_conditions)
+        class _BrokenConditions:
+            @property
+            def keywords(self) -> list:
+                raise RuntimeError("fail")
+
+        result = processor.apply_tagged_filter_logic(_BrokenConditions())
 
         assert result == {}
         mock_logger.error.assert_called_once()
@@ -453,12 +454,13 @@ class TestSearchCriteriaProcessorErrorPaths:
     ) -> None:
         """_apply_simple_frontend_filters で例外が起きた場合、元リストを返してエラーログを出す。"""
         images = [{"id": 1}, {"id": 2}]
-        bad_conditions = Mock()
-        type(bad_conditions).aspect_ratio_filter = property(
-            lambda self: (_ for _ in ()).throw(RuntimeError("crash"))
-        )
 
-        result = processor._apply_simple_frontend_filters(images, bad_conditions)
+        class _BrokenConditions:
+            @property
+            def aspect_ratio_filter(self) -> str:
+                raise RuntimeError("crash")
+
+        result = processor._apply_simple_frontend_filters(images, _BrokenConditions())
 
         assert result == images
         mock_logger.error.assert_called_once()
