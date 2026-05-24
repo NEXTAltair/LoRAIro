@@ -176,6 +176,21 @@ class TestWorkerManagerCancellation:
         assert event.cancel_reason is CancelReason.USER_REQUESTED
         assert "worker-1" not in manager.active_workers
 
+    def test_worker_terminal_precedes_derived_compat_signal(self, manager):
+        manager.active_workers["worker-1"] = {"worker": Mock(), "thread": Mock(), "auto_cleanup": True}
+        calls = []
+        manager.worker_terminal.connect(lambda event: calls.append(("terminal", event.outcome)))
+        manager.worker_error.connect(
+            lambda worker_id, error: calls.append(("compat_error", worker_id, error))
+        )
+
+        manager._on_worker_error("worker-1", "boom")
+
+        assert calls == [
+            ("terminal", WorkerOutcome.FAILED),
+            ("compat_error", "worker-1", "boom"),
+        ]
+
     def test_cancel_worker_timeout_terminate_wait_failure_emits_unresponsive(self, manager):
         worker = Mock()
         thread = Mock()
