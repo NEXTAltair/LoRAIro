@@ -354,13 +354,17 @@ class TestMainWindowAnnotationCompletion:
 
     def test_worker_operation_event_updates_error_notification_for_current_failure(self):
         """current な operation failure は pipeline 委譲後にエラー通知を更新する"""
-        from lorairo.gui.services.operation_events import OperationOutcome
+        from lorairo.gui.services.operation_events import OperationOutcome, OperationType
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         mock_window.error_notification_widget = Mock()
         mock_window._delegate_to_pipeline_control = Mock()
-        event = SimpleNamespace(outcome=OperationOutcome.FAILED, is_current=True)
+        event = SimpleNamespace(
+            operation_type=OperationType.SEARCH,
+            outcome=OperationOutcome.FAILED,
+            is_current=True,
+        )
 
         MainWindow._on_worker_operation_event(mock_window, event)
 
@@ -369,13 +373,36 @@ class TestMainWindowAnnotationCompletion:
 
     def test_worker_operation_event_ignores_superseded_failure_notification(self):
         """superseded operation failure は stale なのでエラー通知数を更新しない"""
-        from lorairo.gui.services.operation_events import OperationOutcome
+        from lorairo.gui.services.operation_events import OperationOutcome, OperationType
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         mock_window.error_notification_widget = Mock()
         mock_window._delegate_to_pipeline_control = Mock()
-        event = SimpleNamespace(outcome=OperationOutcome.FAILED, is_current=False)
+        event = SimpleNamespace(
+            operation_type=OperationType.SEARCH,
+            outcome=OperationOutcome.FAILED,
+            is_current=False,
+        )
+
+        MainWindow._on_worker_operation_event(mock_window, event)
+
+        mock_window._delegate_to_pipeline_control.assert_called_once_with("on_operation_event", event)
+        mock_window.error_notification_widget.update_error_count.assert_not_called()
+
+    def test_worker_operation_event_ignores_non_pipeline_failure_notification(self):
+        """batch/annotation/import failure は dedicated handler 側でエラー通知を更新する"""
+        from lorairo.gui.services.operation_events import OperationOutcome, OperationType
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.error_notification_widget = Mock()
+        mock_window._delegate_to_pipeline_control = Mock()
+        event = SimpleNamespace(
+            operation_type=OperationType.BATCH_REGISTRATION,
+            outcome=OperationOutcome.FAILED,
+            is_current=True,
+        )
 
         MainWindow._on_worker_operation_event(mock_window, event)
 

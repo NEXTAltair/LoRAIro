@@ -736,8 +736,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _on_worker_operation_event(self, event: Any) -> None:
         """Route operation lifecycle events to pipeline control."""
         self._delegate_to_pipeline_control("on_operation_event", event)
+        operation_type = getattr(getattr(event, "operation_type", None), "value", None)
         if (
-            getattr(event, "is_current", False)
+            operation_type in {"search", "thumbnail"}
+            and getattr(event, "is_current", False)
             and getattr(event, "outcome", None)
             and getattr(event.outcome, "value", None)
             in {
