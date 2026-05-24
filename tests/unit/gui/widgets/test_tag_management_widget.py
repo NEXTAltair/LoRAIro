@@ -172,3 +172,227 @@ class TestTagManagementWidget:
 
         assert 1 in widget._type_selections
         assert widget._type_selections[1] == "character"
+
+    def test_load_unknown_tags_no_service(self, qtbot, monkeypatch) -> None:
+        """tag_service が未設定の場合に警告ダイアログを表示する（line 84-86）"""
+        widget = TagManagementWidget()
+        qtbot.addWidget(widget)
+        # tag_service を設定しない
+        assert widget.tag_service is None
+
+        warning_called = []
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.tag_management_widget.QMessageBox.warning",
+            lambda *a: warning_called.append(True),
+        )
+
+        widget.load_unknown_tags()
+
+        assert warning_called, "QMessageBox.warning should have been called"
+
+    def test_load_unknown_tags_exception(
+        self, widget: TagManagementWidget, mock_service: Mock, monkeypatch
+    ) -> None:
+        """get_unknown_tags が例外を投げた場合に critical ダイアログを表示する（line 101-103）"""
+        mock_service.get_unknown_tags.side_effect = RuntimeError("DB error")
+
+        critical_called = []
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.tag_management_widget.QMessageBox.critical",
+            lambda *a: critical_called.append(True),
+        )
+
+        widget.load_unknown_tags()
+
+        assert critical_called, "QMessageBox.critical should have been called"
+
+    def test_type_deselection_removes_from_tracking(
+        self, widget: TagManagementWidget, mock_service: Mock
+    ) -> None:
+        """Type選択を(選択してください)に戻すと追跡から削除される（line 164）"""
+        mock_tags = [
+            TagRecordPublic(
+                tag="test_tag",
+                tag_id=1,
+                source_tag="test_tag",
+                type_name="unknown",
+                format_name="Lorairo",
+            ),
+        ]
+        mock_service.get_unknown_tags.return_value = mock_tags
+        mock_service.get_all_available_types.return_value = ["character", "general"]
+
+        widget.load_unknown_tags()
+
+        combobox = widget.tableWidgetTags.cellWidget(0, 4)
+        assert isinstance(combobox, QComboBox)
+
+        # まず type を選択して追跡させる
+        combobox.setCurrentIndex(1)  # "character"
+        assert 1 in widget._type_selections
+
+        # "(選択してください)" に戻す (index 0, data=None)
+        combobox.setCurrentIndex(0)
+        assert 1 not in widget._type_selections
+
+    def test_on_update_clicked_no_service(self, qtbot) -> None:
+        """tag_service 未設定時の更新ボタンクリックは早期リターン（line 184-186）"""
+        widget = TagManagementWidget()
+        qtbot.addWidget(widget)
+        assert widget.tag_service is None
+
+        # クラッシュしないことを確認
+        widget._on_update_clicked()
+
+    def test_on_update_clicked_no_selections(
+        self, widget: TagManagementWidget, mock_service: Mock, monkeypatch
+    ) -> None:
+        """選択タグがない場合に警告ダイアログを表示する（line 199-204）"""
+        mock_tags = [
+            TagRecordPublic(
+                tag="test_tag",
+                tag_id=1,
+                source_tag="test_tag",
+                type_name="unknown",
+                format_name="Lorairo",
+            ),
+        ]
+        mock_service.get_unknown_tags.return_value = mock_tags
+        mock_service.get_all_available_types.return_value = ["character"]
+        widget.load_unknown_tags()
+
+        warning_called = []
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.tag_management_widget.QMessageBox.warning",
+            lambda *a: warning_called.append(True),
+        )
+
+        # チェックボックスを未選択のままクリック
+        widget._on_update_clicked()
+
+        assert warning_called, "QMessageBox.warning should have been called when no tags selected"
+
+    def test_on_update_clicked_confirmed_starts_thread(
+        self, widget: TagManagementWidget, mock_service: Mock, monkeypatch, qtbot
+    ) -> None:
+        """確認ダイアログでYesを押すとスレッドが起動し update_tag_types が呼ばれる（line 206-236）"""
+        from genai_tag_db_tools.models import TagTypeUpdate
+
+        mock_tags = [
+            TagRecordPublic(
+                tag="test_tag",
+                tag_id=1,
+                source_tag="test_tag",
+                type_name="unknown",
+                format_name="Lorairo",
+            ),
+        ]
+        mock_service.get_unknown_tags.return_value = mock_tags
+        mock_service.get_all_available_types.return_value = ["character"]
+        widget.load_unknown_tags()
+
+        # チェックボックスにチェックを入れ type を選択
+        checkbox = widget.tableWidgetTags.cellWidget(0, 0)
+        combobox = widget.tableWidgetTags.cellWidget(0, 4)
+        assert isinstance(checkbox, QCheckBox)
+        assert isinstance(combobox, QComboBox)
+        combobox.setCurrentIndex(1)  # "character"
+        checkbox.setChecked(True)
+
+        # QMessageBox.question は conftest.py の auto_mock_qmessagebox で Yes を返す
+        # update_tag_types は正常完了させる
+        mock_service.update_tag_types.return_value = None
+
+        # update_completed シグナルを waitSignal で捉える
+        # (情報ダイアログも conftest.py でモック済み)
+        with qtbot.waitSignal(widget.update_completed, timeout=3000):
+            widget._on_update_clicked()
+
+        # update_tag_types が呼ばれたことを確認
+        mock_service.update_tag_types.assert_called_once()
+        call_args = mock_service.update_tag_types.call_args[0][0]
+        assert len(call_args) == 1
+        assert call_args[0].tag_id == 1
+
+    def test_on_update_clicked_cancelled(
+        self, widget: TagManagementWidget, mock_service: Mock, monkeypatch
+    ) -> None:
+        """確認ダイアログでNoを押すと更新されない（line 214-215）"""
+        from PySide6.QtWidgets import QMessageBox as _QMB
+
+        mock_tags = [
+            TagRecordPublic(
+                tag="test_tag",
+                tag_id=1,
+                source_tag="test_tag",
+                type_name="unknown",
+                format_name="Lorairo",
+            ),
+        ]
+        mock_service.get_unknown_tags.return_value = mock_tags
+        mock_service.get_all_available_types.return_value = ["character"]
+        widget.load_unknown_tags()
+
+        checkbox = widget.tableWidgetTags.cellWidget(0, 0)
+        combobox = widget.tableWidgetTags.cellWidget(0, 4)
+        assert isinstance(checkbox, QCheckBox)
+        assert isinstance(combobox, QComboBox)
+        combobox.setCurrentIndex(1)
+        checkbox.setChecked(True)
+
+        # Noを返すようにオーバーライド
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.tag_management_widget.QMessageBox.question",
+            lambda *a, **kw: _QMB.StandardButton.No,
+        )
+
+        widget._on_update_clicked()
+
+        # update_tag_types は呼ばれない
+        mock_service.update_tag_types.assert_not_called()
+
+    def test_on_update_failed_handler(self, widget: TagManagementWidget, qtbot, monkeypatch) -> None:
+        """_on_update_failed がボタンを再有効化しステータスを更新する（line 251-263）"""
+        critical_called = []
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.tag_management_widget.QMessageBox.critical",
+            lambda *a: critical_called.append(True),
+        )
+
+        # ボタンを無効化した状態から開始
+        widget.buttonUpdate.setEnabled(False)
+
+        widget._on_update_failed("some error")
+
+        assert critical_called
+        assert widget.buttonUpdate.isEnabled()
+        assert "failed" in widget.labelStatus.text().lower()
+
+    def test_on_update_thread_emits_failed_on_exception(
+        self, widget: TagManagementWidget, mock_service: Mock, monkeypatch, qtbot
+    ) -> None:
+        """update_tag_types が例外を投げると update_failed シグナルが発火する（line 229-231）"""
+        mock_tags = [
+            TagRecordPublic(
+                tag="test_tag",
+                tag_id=1,
+                source_tag="test_tag",
+                type_name="unknown",
+                format_name="Lorairo",
+            ),
+        ]
+        mock_service.get_unknown_tags.return_value = mock_tags
+        mock_service.get_all_available_types.return_value = ["character"]
+        widget.load_unknown_tags()
+
+        checkbox = widget.tableWidgetTags.cellWidget(0, 0)
+        combobox = widget.tableWidgetTags.cellWidget(0, 4)
+        assert isinstance(checkbox, QCheckBox)
+        assert isinstance(combobox, QComboBox)
+        combobox.setCurrentIndex(1)
+        checkbox.setChecked(True)
+
+        mock_service.update_tag_types.side_effect = RuntimeError("update failed")
+
+        with qtbot.waitSignal(widget.update_failed, timeout=3000):
+            widget._on_update_clicked()

@@ -259,3 +259,165 @@ class TestProjectCrud:
             service.update_project("nonexistent", "anything")
 
         assert exc_info.value.project_name == "nonexistent"
+
+    # ---------- list_projects: non-directory entries are skipped ----------
+
+    def test_list_projects_skips_non_directory_entries(self, service: ProjectManagementService) -> None:
+        """list_projects: ディレクトリではないエントリをスキップする (line 293)。"""
+        service.projects_base_dir.mkdir(parents=True, exist_ok=True)
+        # プロジェクトを1件作成
+        service.create_project("real_project")
+        # ベースディレクトリ内にファイルも置く
+        (service.projects_base_dir / "not_a_dir.txt").write_text("content")
+
+        projects = service.list_projects()
+
+        assert len(projects) == 1
+        assert projects[0].name == "real_project"
+
+    # ---------- _find_project_directory: exact match path ----------
+
+    def test_find_project_directory_returns_path_for_matching_project(
+        self, service: ProjectManagementService
+    ) -> None:
+        """_find_project_directory: 名前が一致するディレクトリを返す (line 300-301)。"""
+        info = service.create_project("find_me")
+        result = service._find_project_directory("find_me")
+        assert result == info.path
+
+    def test_find_project_directory_returns_none_when_base_dir_missing(
+        self, service: ProjectManagementService
+    ) -> None:
+        """_find_project_directory: ベースディレクトリ未存在 → None (line 283-284)。"""
+        assert not service.projects_base_dir.exists()
+        result = service._find_project_directory("any")
+        assert result is None
+
+    # ---------- _read_project_info: missing metadata file ----------
+
+    def test_read_project_info_returns_none_when_metadata_missing(
+        self, service: ProjectManagementService
+    ) -> None:
+        """_read_project_info: .lorairo-project が存在しない → None (lines 322-323)。"""
+        # メタデータなしのディレクトリを直接作成
+        project_dir = service.projects_base_dir / "naked_dir"
+        project_dir.mkdir(parents=True, exist_ok=True)
+
+        result = service._read_project_info(project_dir)
+        assert result is None
+
+    def test_read_project_info_handles_suffix_date_format(self, service: ProjectManagementService) -> None:
+        """_read_project_info: created に _NNN サフィックスが付いた日付を正常パースする (lines 331-336)。"""
+        # 通常の create_project を使い、後でメタデータを上書き
+        info = service.create_project("suffix_test")
+        metadata_file = info.path / ".lorairo-project"
+        metadata = json.loads(metadata_file.read_text())
+        # _NNN サフィックス付きの日付文字列にする
+        metadata["created"] = "20250522_153045_1"
+        metadata_file.write_text(json.dumps(metadata, indent=2))
+
+        result = service._read_project_info(info.path)
+        assert result is not None
+        assert result.name == "suffix_test"
+
+    def test_read_project_info_falls_back_to_now_for_unparseable_date(
+        self, service: ProjectManagementService
+    ) -> None:
+        """_read_project_info: created が解析不能な場合は datetime.now() にフォールバック (line 337)。"""
+        info = service.create_project("bad_date_project")
+        metadata_file = info.path / ".lorairo-project"
+        metadata = json.loads(metadata_file.read_text())
+        metadata["created"] = "not-a-date-at-all"
+        metadata_file.write_text(json.dumps(metadata, indent=2))
+
+        result = service._read_project_info(info.path)
+        assert result is not None
+        assert result.name == "bad_date_project"
+
+    def test_read_project_info_returns_none_on_exception(self, service: ProjectManagementService) -> None:
+        """_read_project_info: 読み込み例外 → None (lines 353-358)。"""
+        info = service.create_project("exception_project")
+        metadata_file = info.path / ".lorairo-project"
+        # 不正な JSON を書き込む
+        metadata_file.write_text("{ invalid json }")
+
+        result = service._read_project_info(info.path)
+        assert result is None
+
+    # ---------- create_project: exception wrapping ----------
+
+    def test_create_project_wraps_unexpected_exception_as_project_operation_error(
+        self, service: ProjectManagementService
+    ) -> None:
+        """create_project: _project_exists が例外 → ProjectOperationError に変換 (lines 129-131)。
+
+        Path.mkdir は Python 3.13 で read-only のためパッチ不可。
+        代わりに _project_exists を OSError を投げるようにモックして
+        except Exception -> raise ProjectOperationError パスを通す。
+        """
+        from lorairo.api.exceptions import ProjectOperationError
+        from unittest.mock import patch
+
+        with patch.object(service, "_project_exists", side_effect=OSError("permission denied")):
+            with pytest.raises(ProjectOperationError) as exc_info:
+                service.create_project("will_fail")
+
+        assert exc_info.value.operation == "作成"
+
+    # ---------- get_project: second ProjectNotFoundError path ----------
+
+    def test_get_project_raises_not_found_when_metadata_unreadable(
+        self, service: ProjectManagementService
+    ) -> None:
+        """get_project: ディレクトリは存在するがメタデータが壊れている → ProjectNotFoundError (line 180)。"""
+        info = service.create_project("corrupted_project")
+        # メタデータを壊す
+        (info.path / ".lorairo-project").write_text("{ invalid json }")
+
+        with pytest.raises(ProjectNotFoundError) as exc_info:
+            service.get_project("corrupted_project")
+
+        assert exc_info.value.project_name == "corrupted_project"
+
+    # ---------- delete_project: exception wrapping ----------
+
+    def test_delete_project_wraps_unexpected_exception_as_project_operation_error(
+        self, service: ProjectManagementService
+    ) -> None:
+        """delete_project: rmtree が OSError → ProjectOperationError (lines 214-216)。"""
+        import shutil
+        from lorairo.api.exceptions import ProjectOperationError
+        from unittest.mock import patch
+
+        service.create_project("to_fail_delete")
+
+        with patch(
+            "lorairo.services.project_management_service.shutil.rmtree", side_effect=OSError("busy")
+        ):
+            with pytest.raises(ProjectOperationError) as exc_info:
+                service.delete_project("to_fail_delete")
+
+        assert exc_info.value.operation == "削除"
+
+    # ---------- update_project: exception wrapping ----------
+
+    def test_update_project_wraps_unexpected_exception_as_project_operation_error(
+        self, service: ProjectManagementService
+    ) -> None:
+        """update_project: json.dumps が例外 → ProjectOperationError (lines 253-255)。
+
+        Path.write_text は Python 3.13 でインスタンスレベルのパッチ不可。
+        代わりに json.dumps をモックして例外を起こす。
+        """
+        from lorairo.api.exceptions import ProjectOperationError
+        from unittest.mock import patch
+
+        service.create_project("to_fail_update")
+
+        with patch(
+            "lorairo.services.project_management_service.json.dumps", side_effect=OSError("disk full")
+        ):
+            with pytest.raises(ProjectOperationError) as exc_info:
+                service.update_project("to_fail_update", "new desc")
+
+        assert exc_info.value.operation == "更新"

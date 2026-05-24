@@ -319,3 +319,122 @@ class TestFavoriteFiltersServiceEdgeCases:
 
         loaded = service.load_filter("Large Filter")
         assert loaded == large_filter
+
+
+@pytest.mark.unit
+class TestFavoriteFiltersServiceExceptionPaths:
+    """FavoriteFiltersService の例外パスカバレッジテスト。
+
+    _load_all_filters や write_text が OS エラーを起こすシナリオをモックし、
+    各メソッドの except ブランチを網羅する。
+    """
+
+    @pytest.fixture
+    def service(self, tmp_path: "Path") -> "FavoriteFiltersService":
+        """一時ディレクトリを使って独立した FavoriteFiltersService を返す。"""
+        from pathlib import Path
+        from unittest.mock import patch
+
+        svc = FavoriteFiltersService(organization="LoRAIroExcTest", application="ExcTest")
+        # _config_dir / _filters_file を tmp_path 内に付け替える
+        svc._config_dir = tmp_path / "config"
+        svc._config_dir.mkdir(parents=True, exist_ok=True)
+        svc._filters_file = svc._config_dir / "favorite_filters.json"
+        return svc
+
+    def test_save_filter_generic_exception_returns_false(self, service: "FavoriteFiltersService") -> None:
+        """save_filter: write_text が OSError → except Exception → False。
+
+        Lines 68-70 をカバー。
+        Path インスタンスの read-only 制約を回避するため pathlib.Path.write_text をクラスレベルでパッチ。
+        """
+        from unittest.mock import patch
+
+        # _filters_file の write_text をクラスレベルでパッチ
+        with patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
+            result = service.save_filter("Test", {"key": "value"})
+
+        assert result is False
+
+    def test_load_filter_invalid_dict_type_returns_none(self, service: "FavoriteFiltersService") -> None:
+        """load_filter: フィルターの値が dict ではない → None を返す。
+
+        Lines 95-96 をカバー。
+        """
+        import json
+
+        # フィルターとしてリスト値を JSON に書き込む
+        service._filters_file.write_text(json.dumps({"BadType": ["not", "a", "dict"]}), encoding="utf-8")
+        result = service.load_filter("BadType")
+        assert result is None
+
+    def test_load_filter_generic_exception_returns_none(self, service: "FavoriteFiltersService") -> None:
+        """load_filter: _load_all_filters が予期しない例外 → None を返す。
+
+        Lines 104-106 をカバー。
+        """
+        from unittest.mock import patch
+
+        with patch.object(service, "_load_all_filters", side_effect=RuntimeError("unexpected")):
+            result = service.load_filter("AnyFilter")
+
+        assert result is None
+
+    def test_list_filters_generic_exception_returns_empty_list(
+        self, service: "FavoriteFiltersService"
+    ) -> None:
+        """list_filters: _load_all_filters が予期しない例外 → 空リストを返す。
+
+        Lines 121-123 をカバー。
+        """
+        from unittest.mock import patch
+
+        with patch.object(service, "_load_all_filters", side_effect=RuntimeError("unexpected")):
+            result = service.list_filters()
+
+        assert result == []
+
+    def test_delete_filter_generic_exception_returns_false(self, service: "FavoriteFiltersService") -> None:
+        """delete_filter: write_text が OSError → except Exception → False。
+
+        Lines 157-159 をカバー。
+        Path インスタンスの read-only 制約を回避するため pathlib.Path.write_text をクラスレベルでパッチ。
+        ただし最初の登録は直接書き込み、2回目以降のみエラーにするため side_effect リストを使う。
+        """
+        import json
+        from unittest.mock import patch
+
+        # フィルターを一件登録しておく（パッチなし）
+        service._filters_file.write_text(json.dumps({"ToDelete": {"k": "v"}}), encoding="utf-8")
+
+        # 削除時の write_text だけ OSError にする
+        with patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
+            result = service.delete_filter("ToDelete")
+
+        assert result is False
+
+    def test_filter_exists_generic_exception_returns_false(self, service: "FavoriteFiltersService") -> None:
+        """filter_exists: _load_all_filters が例外 → False を返す。
+
+        Lines 176-178 をカバー。
+        """
+        from unittest.mock import patch
+
+        with patch.object(service, "_load_all_filters", side_effect=RuntimeError("unexpected")):
+            result = service.filter_exists("AnyFilter")
+
+        assert result is False
+
+    def test_clear_all_filters_generic_exception_returns_false(
+        self, service: "FavoriteFiltersService"
+    ) -> None:
+        """clear_all_filters: write_text が OSError → except Exception → False。
+
+        Lines 193-195 をカバー。
+        """
+        from unittest.mock import patch
+
+        with patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
+            result = service.clear_all_filters()
+
+        assert result is False

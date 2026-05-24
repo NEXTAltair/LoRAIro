@@ -367,3 +367,415 @@ class TestModelSelectionWidgetRoutePreference:
         qtbot.addWidget(w)
 
         assert w._get_route_preference() == "auto"
+
+
+class TestModelSelectionWidgetLoadModelsException:
+    """load_models() 例外パスのテスト（line 221-224）"""
+
+    def test_load_models_exception_sets_empty_list(self, qtbot, mock_model_service) -> None:
+        """load_models が例外を投げると all_models が空リストになる"""
+        mock_model_service.load_models.side_effect = RuntimeError("DB unavailable")
+
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        # コンストラクタで既に呼ばれているが、明示的に再呼び出しもテスト
+        mock_model_service.load_models.side_effect = RuntimeError("DB error")
+        w.load_models()
+
+        assert w.all_models == []
+
+
+class TestModelSelectionWidgetRefreshRegistry:
+    """refresh_model_registry() 関連テスト（line 229-281）"""
+
+    def test_refresh_model_registry_disables_button_and_shows_progress(self, widget, monkeypatch) -> None:
+        """refresh_model_registry() でボタン無効化 + プログレスバー表示（line 229-250）"""
+        # QThread.start() が呼ばれると実スレッドが起動するため、
+        # _ModelRefreshWorker.run() 内の get_service_container() をモックする
+        mock_container = Mock()
+        mock_container.annotator_library.refresh_available_models.return_value = []
+        mock_sync = Mock()
+        mock_sync.errors = []
+        mock_sync.summary = "ok"
+        mock_container.model_sync_service.sync_available_models.return_value = mock_sync
+
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.model_selection_widget.get_service_container",
+            lambda: mock_container,
+        )
+
+        # btnRefreshModels が有効な状態から開始
+        assert widget.btnRefreshModels.isEnabled() is True
+
+        widget.refresh_model_registry()
+
+        # ボタンが無効化されている（スレッド起動後）
+        assert widget.btnRefreshModels.isEnabled() is False
+        # _refresh_thread が設定されている
+        assert widget._refresh_thread is not None
+
+    def test_refresh_model_registry_skips_when_thread_running(self, widget) -> None:
+        """スレッドが既に実行中の場合は早期リターン（line 229-230）"""
+        widget._refresh_thread = Mock()
+
+        # btnRefreshModels は変化しない
+        widget.refresh_model_registry()
+
+        # スレッドは変わらない（新しいスレッドが起動されない）
+        assert widget._refresh_thread is not None
+
+    def test_on_model_refresh_succeeded(self, widget, monkeypatch) -> None:
+        """成功時に情報ダイアログと load_models が呼ばれる（line 253-262）"""
+        info_called = []
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.model_selection_widget.QMessageBox.information",
+            lambda *a: info_called.append(True),
+        )
+
+        widget._on_model_refresh_succeeded(5, "summary text")
+
+        assert info_called
+        # load_models が呼ばれた（model_selection_service.load_models 呼び出し確認）
+        widget.model_selection_service.load_models.assert_called()
+
+    def test_on_model_refresh_failed(self, widget, monkeypatch) -> None:
+        """失敗時に警告ダイアログが表示される（line 265-272）"""
+        warning_called = []
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.model_selection_widget.QMessageBox.warning",
+            lambda *a: warning_called.append(True),
+        )
+
+        widget._on_model_refresh_failed("connection error")
+
+        assert warning_called
+
+    def test_on_model_refresh_finished_restores_ui(self, widget) -> None:
+        """完了時に UI が復帰する（line 275-281）"""
+        widget.btnRefreshModels.setEnabled(False)
+        widget.refreshProgressBar.setVisible(True)
+        widget._refresh_thread = Mock()
+        widget._refresh_worker = Mock()
+
+        widget._on_model_refresh_finished()
+
+        assert widget.btnRefreshModels.isEnabled() is True
+        assert widget.refreshProgressBar.isVisible() is False
+        assert widget._refresh_thread is None
+        assert widget._refresh_worker is None
+
+
+class TestModelSelectionWidgetSimpleMode:
+    """simple モードの update_model_display テスト（line 338-340, 544）"""
+
+    def test_update_model_display_simple_mode_exception_fallback(
+        self, qtbot, mock_model_service, monkeypatch
+    ) -> None:
+        """simple モードで get_recommended_models 例外時に is_recommended フォールバック（line 338-340）"""
+        from types import SimpleNamespace
+
+        model = SimpleNamespace(
+            name="test-model",
+            provider="openai",
+            litellm_model_id="openai/test-model",
+            requires_api_key=True,
+            capabilities=["caption"],
+            is_recommended=True,
+            available=True,
+        )
+
+        mock_model_service.load_models.return_value = [model]
+        mock_model_service.get_recommended_models.side_effect = RuntimeError("service error")
+
+        w = ModelSelectionWidget(model_selection_service=mock_model_service, mode="simple")
+        qtbot.addWidget(w)
+
+        # クラッシュしないことを確認
+        assert w is not None
+
+    def test_update_selection_count_simple_mode_label(self, qtbot, mock_model_service) -> None:
+        """simple モードの statusLabel は "(推奨)" を含む（line 589）"""
+        w = ModelSelectionWidget(model_selection_service=mock_model_service, mode="simple")
+        qtbot.addWidget(w)
+
+        w._update_selection_count()
+
+        assert "推奨" in w.statusLabel.text()
+
+    def test_update_selection_count_advanced_mode_label(self, qtbot, mock_model_service) -> None:
+        """advanced モードの statusLabel は "(フィルタ後)" を含む（line 591）"""
+        mock_model_service.load_grouped_models.return_value = []
+        w = ModelSelectionWidget(model_selection_service=mock_model_service, mode="advanced")
+        qtbot.addWidget(w)
+
+        w._update_selection_count()
+
+        assert "フィルタ後" in w.statusLabel.text()
+
+
+class TestModelSelectionWidgetExecutionEnvChanged:
+    """_on_execution_env_changed テスト（line 558-560）"""
+
+    def test_on_execution_env_changed_updates_filter(self, qtbot, mock_model_service) -> None:
+        """executionEnvCombo 変更で current_execution_env が更新される"""
+        mock_model_service.load_grouped_models.return_value = []
+        w = ModelSelectionWidget(model_selection_service=mock_model_service, mode="advanced")
+        qtbot.addWidget(w)
+
+        w._on_execution_env_changed("ローカルモデルのみ")
+
+        assert w.current_execution_env == "ローカルモデルのみ"
+
+
+class TestModelSelectionWidgetModelSelectionChanged:
+    """_on_model_selection_changed テスト（line 563-569）"""
+
+    def test_on_model_selection_changed_emits_signal(self, qtbot, mock_model_service) -> None:
+        """モデル選択変更でシグナルが発火する"""
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        received_ids: list[list[str]] = []
+        w.model_selection_changed.connect(lambda ids: received_ids.append(ids))
+
+        with qtbot.waitSignal(w.model_selection_changed, timeout=1000):
+            w._on_model_selection_changed("openai/gpt-4o", True)
+
+        assert received_ids[0] == []
+
+
+class TestModelSelectionWidgetSelectAllDeselect:
+    """select_all/deselect_all テスト（line 596-605）"""
+
+    @pytest.fixture
+    def widget_with_checkboxes(self, qtbot, mock_model_service) -> ModelSelectionWidget:
+        """ModelCheckboxWidget が1件ある状態の widget を作成"""
+        from lorairo.gui.widgets.model_checkbox_widget import ModelCheckboxWidget, ModelInfo
+
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        # ModelCheckboxWidget を手動で追加
+        info = ModelInfo(
+            name="test-model",
+            provider="openai",
+            capabilities=["caption"],
+            litellm_model_id="openai/test-model",
+            is_local=False,
+            requires_api_key=True,
+        )
+        checkbox_widget = ModelCheckboxWidget(info)
+        qtbot.addWidget(checkbox_widget)
+        w.model_checkbox_widgets["openai/test-model"] = checkbox_widget
+
+        return w
+
+    def test_select_all_models_selects_all(self, widget_with_checkboxes: ModelSelectionWidget) -> None:
+        """select_all_models() で全チェックボックスが選択される（line 596-599）"""
+        widget_with_checkboxes.select_all_models()
+
+        assert "openai/test-model" in widget_with_checkboxes.get_selected_models()
+
+    def test_deselect_all_models_deselects_all(self, widget_with_checkboxes: ModelSelectionWidget) -> None:
+        """deselect_all_models() で全チェックボックスの選択が解除される（line 601-605）"""
+        widget_with_checkboxes.select_all_models()
+        widget_with_checkboxes.deselect_all_models()
+
+        assert widget_with_checkboxes.get_selected_models() == []
+
+
+class TestModelSelectionWidgetSelectRecommendedFallback:
+    """select_recommended_models() 例外フォールバックのテスト（line 620-629）"""
+
+    @pytest.fixture
+    def widget_with_model(self, qtbot, mock_model_service) -> ModelSelectionWidget:
+        """all_models に is_recommended=True のモデルがある widget を作成"""
+        from types import SimpleNamespace
+
+        from lorairo.gui.widgets.model_checkbox_widget import ModelCheckboxWidget, ModelInfo
+
+        model = SimpleNamespace(
+            name="rec-model",
+            provider="openai",
+            litellm_model_id="openai/rec-model",
+            requires_api_key=True,
+            capabilities=["caption"],
+            is_recommended=True,
+            available=True,
+        )
+        mock_model_service.load_models.return_value = [model]
+        mock_model_service.get_recommended_models.side_effect = RuntimeError("service down")
+
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        # ModelCheckboxWidget を手動追加
+        info = ModelInfo(
+            name="rec-model",
+            provider="openai",
+            capabilities=["caption"],
+            litellm_model_id="openai/rec-model",
+            is_local=False,
+            requires_api_key=True,
+        )
+        checkbox_widget = ModelCheckboxWidget(info)
+        qtbot.addWidget(checkbox_widget)
+        w.model_checkbox_widgets["openai/rec-model"] = checkbox_widget
+        w.all_models = [model]
+
+        return w
+
+    def test_select_recommended_fallback_uses_is_recommended(
+        self, widget_with_model: ModelSelectionWidget
+    ) -> None:
+        """get_recommended_models が例外を投げると is_recommended フォールバックで選択する（line 620-629）"""
+        widget_with_model.select_recommended_models()
+
+        assert "openai/rec-model" in widget_with_model.get_selected_models()
+
+
+class TestModelRefreshWorker:
+    """_ModelRefreshWorker の run メソッドのテスト（line 57-72）"""
+
+    def test_run_emits_succeeded_on_success(self, qtbot) -> None:
+        """正常終了時に succeeded と finished が発火する（line 57-67, 71-72）"""
+        from unittest.mock import Mock, patch
+
+        from lorairo.gui.widgets.model_selection_widget import _ModelRefreshWorker
+
+        worker = _ModelRefreshWorker()
+
+        mock_models = [Mock(), Mock()]
+        mock_sync_result = Mock()
+        mock_sync_result.errors = []
+        mock_sync_result.summary = "2 models synced"
+
+        mock_container = Mock()
+        mock_container.annotator_library.refresh_available_models.return_value = mock_models
+        mock_container.model_sync_service.sync_available_models.return_value = mock_sync_result
+
+        succeeded_args: list[tuple[int, str]] = []
+        finished_called: list[bool] = []
+
+        worker.succeeded.connect(lambda count, summary: succeeded_args.append((count, summary)))
+        worker.finished.connect(lambda: finished_called.append(True))
+
+        with patch(
+            "lorairo.gui.widgets.model_selection_widget.get_service_container",
+            return_value=mock_container,
+        ):
+            worker.run()
+
+        assert succeeded_args == [(2, "2 models synced")]
+        assert finished_called
+
+    def test_run_emits_failed_when_sync_has_errors(self, qtbot) -> None:
+        """sync_result に errors があると failed が発火する（line 63-65）"""
+        from unittest.mock import Mock, patch
+
+        from lorairo.gui.widgets.model_selection_widget import _ModelRefreshWorker
+
+        worker = _ModelRefreshWorker()
+
+        mock_sync_result = Mock()
+        mock_sync_result.errors = ["error1", "error2"]
+
+        mock_container = Mock()
+        mock_container.annotator_library.refresh_available_models.return_value = []
+        mock_container.model_sync_service.sync_available_models.return_value = mock_sync_result
+
+        failed_args: list[str] = []
+        finished_called: list[bool] = []
+
+        worker.failed.connect(lambda msg: failed_args.append(msg))
+        worker.finished.connect(lambda: finished_called.append(True))
+
+        with patch(
+            "lorairo.gui.widgets.model_selection_widget.get_service_container",
+            return_value=mock_container,
+        ):
+            worker.run()
+
+        assert "error1" in failed_args[0]
+        assert "error2" in failed_args[0]
+        assert finished_called
+
+    def test_run_emits_failed_on_exception(self, qtbot) -> None:
+        """例外発生時に failed と finished が発火する（line 68-72）"""
+        from unittest.mock import patch
+
+        from lorairo.gui.widgets.model_selection_widget import _ModelRefreshWorker
+
+        worker = _ModelRefreshWorker()
+
+        failed_args: list[str] = []
+        finished_called: list[bool] = []
+
+        worker.failed.connect(lambda msg: failed_args.append(msg))
+        worker.finished.connect(lambda: finished_called.append(True))
+
+        with patch(
+            "lorairo.gui.widgets.model_selection_widget.get_service_container",
+            side_effect=RuntimeError("container error"),
+        ):
+            worker.run()
+
+        assert failed_args[0] == "container error"
+        assert finished_called
+
+
+class TestApplyBasicFilters:
+    """_apply_basic_filters() のブランチテスト（line 444-462）"""
+
+    @pytest.fixture
+    def widget_advanced(self, qtbot, mock_model_service) -> ModelSelectionWidget:
+        from types import SimpleNamespace
+
+        model_openai = SimpleNamespace(
+            name="gpt-4",
+            provider="openai",
+            litellm_model_id="openai/gpt-4",
+            requires_api_key=True,
+            capabilities=["caption", "tags"],
+            is_recommended=False,
+            available=True,
+        )
+        model_anthropic = SimpleNamespace(
+            name="claude-3",
+            provider="anthropic",
+            litellm_model_id="anthropic/claude-3",
+            requires_api_key=True,
+            capabilities=["caption"],
+            is_recommended=False,
+            available=True,
+        )
+        mock_model_service.load_models.return_value = [model_openai, model_anthropic]
+        mock_model_service.load_grouped_models.side_effect = RuntimeError("force fallback")
+        mock_model_service._is_annotation_eligible_model.side_effect = lambda m: True
+
+        w = ModelSelectionWidget(model_selection_service=mock_model_service, mode="advanced")
+        qtbot.addWidget(w)
+        return w
+
+    def test_apply_basic_filters_provider_filter(self, widget_advanced: ModelSelectionWidget) -> None:
+        """provider フィルタが _apply_basic_filters で適用される（line 444-449）"""
+        widget_advanced.current_provider_filter = "openai"
+        result = widget_advanced._apply_basic_filters()
+
+        assert all(m.provider == "openai" for m in result)
+
+    def test_apply_basic_filters_capability_filter(self, widget_advanced: ModelSelectionWidget) -> None:
+        """capability フィルタが _apply_basic_filters で適用される（line 451-456）"""
+        widget_advanced.current_capability_filters = ["tags"]
+        result = widget_advanced._apply_basic_filters()
+
+        assert all("tags" in m.capabilities for m in result)
+
+    def test_apply_basic_filters_annotation_only(self, widget_advanced: ModelSelectionWidget) -> None:
+        """annotation_only フィルタが _apply_basic_filters で適用される（line 458-461）"""
+        widget_advanced.annotation_only_filtering = True
+        result = widget_advanced._apply_basic_filters()
+
+        # _is_annotation_eligible_model が呼ばれている
+        widget_advanced.model_selection_service._is_annotation_eligible_model.assert_called()

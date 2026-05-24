@@ -331,3 +331,179 @@ class TestAdjustViewSizeRegressionIssue52:
 
             # setSizePolicy は呼ばれない（縮小バグの根本原因だったため）
             mock_policy.assert_not_called()
+
+
+@pytest.mark.unit
+class TestImagePreviewWidgetPilImage:
+    """PIL画像読み込みのテスト（line 73-115）"""
+
+    @pytest.fixture
+    def widget(self, qtbot) -> ImagePreviewWidget:
+        w = ImagePreviewWidget()
+        qtbot.addWidget(w)
+        return w
+
+    def test_load_image_from_pil_success(self, widget: ImagePreviewWidget) -> None:
+        """PILイメージから正常に読み込めることを確認（line 73-97）"""
+        from PIL import Image as PilImage
+        from PySide6.QtCore import QRectF
+
+        pil_img = PilImage.new("RGB", (100, 100), color=(255, 0, 0))
+
+        mock_pixmap = Mock()
+        mock_pixmap.isNull.return_value = False
+        mock_pixmap.rect.return_value = QRectF(0, 0, 100, 100)
+
+        with patch.object(widget, "_pil_to_qpixmap", return_value=mock_pixmap):
+            with patch.object(widget.graphics_scene, "addPixmap", return_value=Mock()):
+                widget.load_image_from_pil(pil_img, "test_image.png")
+
+        assert widget._current_pixmap is mock_pixmap
+        assert widget._current_image_path is None  # PILから読んだ場合はパス無し
+
+    def test_load_image_from_pil_null_pixmap(self, widget: ImagePreviewWidget) -> None:
+        """PIL変換失敗時（null pixmap）は pixmap_item が設定されない（line 80-82）"""
+        from PIL import Image as PilImage
+
+        pil_img = PilImage.new("RGB", (10, 10))
+
+        mock_pixmap = Mock()
+        mock_pixmap.isNull.return_value = True
+
+        with patch.object(widget, "_pil_to_qpixmap", return_value=mock_pixmap):
+            widget.load_image_from_pil(pil_img, "bad.png")
+
+        assert widget.pixmap_item is None
+        assert widget._current_pixmap is None
+
+    def test_load_image_from_pil_exception(self, widget: ImagePreviewWidget) -> None:
+        """_pil_to_qpixmap が例外を投げた場合にプレビューがクリアされる（line 95-97）"""
+        from PIL import Image as PilImage
+
+        pil_img = PilImage.new("RGB", (10, 10))
+
+        with patch.object(widget, "_pil_to_qpixmap", side_effect=RuntimeError("conv error")):
+            with patch.object(widget, "_clear_preview") as mock_clear:
+                widget.load_image_from_pil(pil_img, "bad.png")
+
+        mock_clear.assert_called()
+
+    def test_pil_to_qpixmap_rgb_image(self, widget: ImagePreviewWidget) -> None:
+        """RGB PILイメージをQPixmapに変換できる（line 99-115）"""
+        from PIL import Image as PilImage
+
+        pil_img = PilImage.new("RGB", (50, 50), color=(128, 64, 32))
+        pixmap = widget._pil_to_qpixmap(pil_img)
+
+        # 変換後は null でないこと
+        assert not pixmap.isNull()
+
+    def test_pil_to_qpixmap_rgba_image(self, widget: ImagePreviewWidget) -> None:
+        """RGBA PILイメージをQPixmapに変換できる（line 102-103 スキップ）"""
+        from PIL import Image as PilImage
+
+        pil_img = PilImage.new("RGBA", (50, 50), color=(128, 64, 32, 200))
+        pixmap = widget._pil_to_qpixmap(pil_img)
+
+        assert not pixmap.isNull()
+
+    def test_pil_to_qpixmap_converts_palette_image(self, widget: ImagePreviewWidget) -> None:
+        """パレット画像 (P モード) は RGB に変換される（line 102-103）"""
+        from PIL import Image as PilImage
+
+        pil_img = PilImage.new("P", (50, 50))
+        # P モードは RGB/RGBA でないので変換が走る
+        pixmap = widget._pil_to_qpixmap(pil_img)
+
+        assert not pixmap.isNull()
+
+
+@pytest.mark.unit
+class TestImagePreviewWidgetShowEvent:
+    """showEvent とコンテキストメニューのテスト"""
+
+    @pytest.fixture
+    def widget(self, qtbot) -> ImagePreviewWidget:
+        w = ImagePreviewWidget()
+        qtbot.addWidget(w)
+        return w
+
+    def test_show_event_calls_adjust_view_size(self, widget: ImagePreviewWidget) -> None:
+        """showEvent で _adjust_view_size が呼ばれる（line 175-176）"""
+        from PySide6.QtGui import QShowEvent
+
+        with patch.object(widget, "_adjust_view_size") as mock_adjust:
+            event = QShowEvent()
+            widget.showEvent(event)
+
+        mock_adjust.assert_called_once()
+
+    def test_show_preview_context_menu(self, widget: ImagePreviewWidget, qtbot) -> None:
+        """コンテキストメニューが表示される（line 126-128）"""
+        from PySide6.QtCore import QPoint
+
+        # メニュー exec をモックして実際にウィンドウを開かない
+        with patch("lorairo.gui.widgets.image_preview.QMenu") as mock_menu_cls:
+            mock_menu = Mock()
+            mock_menu_cls.return_value = mock_menu
+            mock_action = Mock()
+            mock_action.isEnabled.return_value = False
+
+            with patch.object(widget, "_create_copy_image_action", return_value=mock_action):
+                widget._show_preview_context_menu(QPoint(10, 10))
+
+        mock_menu.addAction.assert_called_once_with(mock_action)
+        mock_menu.exec.assert_called_once()
+
+    def test_load_current_original_pixmap_null_result(self, widget: ImagePreviewWidget) -> None:
+        """元画像の読み直しで null pixmap が返る場合 None を返す（line 165-166）"""
+        mock_path = Mock()
+        mock_path.exists.return_value = True
+
+        widget._current_image_path = mock_path
+
+        mock_null_pixmap = Mock()
+        mock_null_pixmap.isNull.return_value = True
+
+        with patch("lorairo.gui.widgets.image_preview.QPixmap", return_value=mock_null_pixmap):
+            result = widget._load_current_original_pixmap()
+
+        assert result is None
+
+    def test_copy_current_image_no_valid_pixmap(self, widget: ImagePreviewWidget) -> None:
+        """_load_current_original_pixmap も _current_pixmap もない場合は False（line 151-153）"""
+        # _has_current_image() が True になるよう _current_pixmap を設定するが isNull=False にする
+        mock_displayed_pixmap = Mock()
+        mock_displayed_pixmap.isNull.return_value = False
+        widget._current_pixmap = mock_displayed_pixmap
+
+        # _load_current_original_pixmap が None を返し
+        # _current_pixmap の isNull が True になるケースを作る
+        mock_null_display = Mock()
+        mock_null_display.isNull.return_value = True
+        widget._current_pixmap = mock_null_display
+
+        # _has_current_image は False になるので False が返る
+        result = widget.copy_current_image_to_clipboard()
+        assert result is False
+
+    def test_on_image_data_received_exception(self, widget: ImagePreviewWidget) -> None:
+        """_on_image_data_received で予期しない例外が発生してもクリアされる（line 257-262）"""
+        image_data = {"id": 99, "stored_image_path": "/some/path.jpg"}
+
+        with patch("lorairo.database.db_core.resolve_stored_path", side_effect=RuntimeError("oops")):
+            with patch.object(widget, "_clear_preview") as mock_clear:
+                widget._on_image_data_received(image_data)
+
+        mock_clear.assert_called()
+
+    def test_connect_to_data_signals_invalid_connection(self, widget: ImagePreviewWidget) -> None:
+        """connect() が falsy を返す場合にエラーログが出る（line 204-206）"""
+        mock_state_manager = Mock()
+        mock_state_manager.current_image_data_changed = Mock()
+        mock_state_manager.current_image_data_changed.connect = Mock(return_value=False)
+
+        with patch("lorairo.gui.widgets.image_preview.logger") as mock_logger:
+            widget.connect_to_data_signals(mock_state_manager)
+
+        mock_logger.error.assert_called()
