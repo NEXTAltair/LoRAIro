@@ -95,6 +95,10 @@ class TestAnnotationWorkerExecute:
 
         mock_db_manager = Mock()
         mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"test_phash": 1}
+        mock_db_manager.repository.get_image_ids_by_filepaths.return_value = {
+            "/path/to/image1.jpg": 1,
+            "/path/to/image2.jpg": 2,
+        }
         mock_db_manager.repository.get_models_by_litellm_ids.return_value = {"gpt-4o-mini": Mock(id=1)}
         mock_db_manager.repository.save_annotations = Mock()
 
@@ -129,6 +133,7 @@ class TestAnnotationWorkerExecute:
 
         mock_db_manager = Mock()
         mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"phash1": 1}
+        mock_db_manager.repository.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
         mock_db_manager.repository.get_models_by_litellm_ids.return_value = {
             "gpt-4o-mini": Mock(id=1),
             "claude-3-haiku-20240307": Mock(id=2),
@@ -182,6 +187,7 @@ class TestAnnotationWorkerExecute:
 
         mock_db_manager = Mock()
         mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"phash1": 1}
+        mock_db_manager.repository.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
         mock_db_manager.repository.get_models_by_litellm_ids.return_value = {"gpt-4o-mini": Mock(id=1)}
         mock_db_manager.repository.save_annotations = Mock()
 
@@ -206,6 +212,7 @@ class TestAnnotationWorkerExecute:
 
         mock_db_manager = Mock()
         mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"phash1": 1}
+        mock_db_manager.repository.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
         mock_db_manager.repository.get_models_by_litellm_ids.return_value = {
             "gpt-4o-mini": Mock(id=1),
             "gemini-1.5-flash-latest": Mock(id=3),
@@ -252,6 +259,7 @@ class TestAnnotationWorkerExecute:
 
         mock_db_manager = Mock()
         mock_db_manager.repository.find_image_ids_by_phashes.return_value = {}
+        mock_db_manager.repository.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
         mock_db_manager.repository.get_models_by_litellm_ids.return_value = {}
         mock_db_manager.repository.save_annotations = Mock()
         mock_db_manager.get_image_id_by_filepath.return_value = 1
@@ -286,6 +294,7 @@ class TestAnnotationWorkerExecute:
         mock_model = Mock(id=1)
         mock_db_manager = Mock()
         mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"test_phash": 1}
+        mock_db_manager.repository.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
         mock_db_manager.repository.get_models_by_litellm_ids.return_value = {"gpt-4o-mini": mock_model}
         mock_db_manager.repository.save_annotations = Mock()
 
@@ -453,6 +462,49 @@ class TestBuildImageSummary:
         )
 
         assert summary.rating is None
+
+
+class TestBuildPhashToFilenameMap:
+    """_build_phash_to_filename_map の filename 解決テスト"""
+
+    def test_uses_batch_path_lookup_once(self, mock_annotation_logic, mock_model_registry):
+        """summary filename 解決は path の batch lookup を1回だけ使う。"""
+        mock_db = Mock()
+        mock_db.repository.get_image_ids_by_filepaths.return_value = {
+            "/images/cat.png": 10,
+            "/images/dog.png": 20,
+        }
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=["/images/cat.png", "/images/dog.png"],
+            litellm_model_ids=[],
+            db_manager=mock_db,
+            model_registry=mock_model_registry,
+        )
+
+        result = worker._build_phash_to_filename_map({"phash-cat": 10, "phash-dog": 20})
+
+        assert result == {"phash-cat": "cat.png", "phash-dog": "dog.png"}
+        mock_db.repository.get_image_ids_by_filepaths.assert_called_once_with(
+            ["/images/cat.png", "/images/dog.png"]
+        )
+        mock_db.get_image_id_by_filepath.assert_not_called()
+
+    def test_unresolved_phash_uses_short_fallback(self, mock_annotation_logic, mock_model_registry):
+        """image_id が input path に対応しない pHash は短縮 fallback 表示にする。"""
+        mock_db = Mock()
+        mock_db.repository.get_image_ids_by_filepaths.return_value = {"/images/cat.png": 10}
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=["/images/cat.png"],
+            litellm_model_ids=[],
+            db_manager=mock_db,
+            model_registry=mock_model_registry,
+        )
+
+        result = worker._build_phash_to_filename_map({"abcdefghijklmnop": 999})
+
+        assert result == {"abcdefghijklmnop": "abcdefghijkl..."}
 
 
 # ==============================================================================

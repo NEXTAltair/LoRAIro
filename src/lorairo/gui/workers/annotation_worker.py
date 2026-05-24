@@ -421,11 +421,12 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             pHash → ファイル名のマッピング。
         """
         # image_id → file_path マッピングを構築
-        image_id_to_path: dict[int, str] = {}
-        for image_path in self.image_paths:
-            image_id = self.db_manager.get_image_id_by_filepath(image_path)
-            if image_id is not None:
-                image_id_to_path[image_id] = image_path
+        path_to_image_id = self.db_manager.repository.get_image_ids_by_filepaths(self.image_paths)
+        image_id_to_path: dict[int, str] = {
+            image_id: image_path
+            for image_path, image_id in path_to_image_id.items()
+            if image_id is not None
+        }
 
         # phash → filename マッピング
         result: dict[str, str] = {}
