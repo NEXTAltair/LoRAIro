@@ -23,6 +23,7 @@ class WorkerStatus(Enum):
     CANCELING = "canceling"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELED = "canceled"
 
 
 @dataclass
@@ -53,6 +54,10 @@ class CancellationController:
     def reset(self) -> None:
         """キャンセル状態リセット"""
         self._is_canceled = False
+
+
+class CancellationError(Exception):
+    """ユーザー操作によるワーカーキャンセルを表す例外。"""
 
 
 class ProgressReporter(QObject):
@@ -100,6 +105,7 @@ class LoRAIroWorkerBase[T](QObject):
     status_changed = Signal(WorkerStatus)
     finished = Signal(object)  # result: T
     error_occurred = Signal(str)
+    canceled = Signal()
 
     _OPERATION_TYPE: ClassVar[str] = ""
 
@@ -140,7 +146,14 @@ class LoRAIroWorkerBase[T](QObject):
                 self.finished.emit(result)
                 logger.info(f"ワーカー実行完了: {self.__class__.__name__}")
             else:
+                self._set_status(WorkerStatus.CANCELED)
+                self.canceled.emit()
                 logger.info(f"ワーカー実行キャンセル: {self.__class__.__name__}")
+
+        except CancellationError as e:
+            logger.info(f"ワーカー実行キャンセル: {self.__class__.__name__}: {e}")
+            self._set_status(WorkerStatus.CANCELED)
+            self.canceled.emit()
 
         except Exception as e:
             self._set_status(WorkerStatus.FAILED)
@@ -185,7 +198,7 @@ class LoRAIroWorkerBase[T](QObject):
     def _check_cancellation(self) -> None:
         """キャンセルチェック（サブクラスで使用）"""
         if self.cancellation.is_canceled():
-            raise RuntimeError("処理がキャンセルされました")
+            raise CancellationError("処理がキャンセルされました")
 
     def _report_progress(
         self,

@@ -151,6 +151,31 @@ class PipelineControlService:
         if self.filter_search_panel and hasattr(self.filter_search_panel, "hide_progress_after_completion"):
             self.filter_search_panel.hide_progress_after_completion()
 
+    def on_search_canceled(self, worker_id: str) -> None:
+        """Pipeline検索キャンセル時の処理（エラー扱いしない）"""
+        logger.info(f"Pipeline search canceled: {worker_id}")
+
+        if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
+            self.thumbnail_selector.clear_thumbnails()
+
+        if self.filter_search_panel and hasattr(self.filter_search_panel, "clear_pipeline_results"):
+            self.filter_search_panel.clear_pipeline_results()
+
+        if self.filter_search_panel and hasattr(self.filter_search_panel, "hide_progress_after_completion"):
+            self.filter_search_panel.hide_progress_after_completion()
+
+    def on_thumbnail_canceled(self, worker_id: str) -> None:
+        """Pipelineサムネイル読み込みキャンセル時の処理（エラー扱いしない）。
+
+        thumbnail worker はページ切替や prefetch 整理でも通常運用としてキャンセルされるため、
+        ここでは検索結果を破棄しない。明示的な pipeline cancel の結果破棄は
+        cancel_current_pipeline() 側で行う。
+        """
+        logger.info(f"Pipeline thumbnail canceled: {worker_id}")
+
+        if self.filter_search_panel and hasattr(self.filter_search_panel, "hide_progress_after_completion"):
+            self.filter_search_panel.hide_progress_after_completion()
+
     # ============================================================
     # 進捗状態管理統合
     # ============================================================
@@ -210,6 +235,9 @@ class PipelineControlService:
             # キャンセル時の結果破棄（要求仕様通り）
             if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
                 self.thumbnail_selector.clear_thumbnails()
+
+            if self.filter_search_panel and hasattr(self.filter_search_panel, "clear_pipeline_results"):
+                self.filter_search_panel.clear_pipeline_results()
 
             # キャンセル時もプログレスバーを非表示
             if self.filter_search_panel and hasattr(

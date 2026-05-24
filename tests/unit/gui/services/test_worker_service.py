@@ -47,6 +47,7 @@ class TestWorkerService:
         assert worker_service.current_registration_worker_id is None
         assert worker_service.current_annotation_worker_id is None
         assert worker_service.current_thumbnail_worker_id is None
+        assert worker_service.current_batch_import_worker_id is None
 
     def test_signal_definitions(self, worker_service):
         """シグナル定義テスト"""
@@ -54,18 +55,27 @@ class TestWorkerService:
         assert hasattr(worker_service, "batch_registration_started")
         assert hasattr(worker_service, "batch_registration_finished")
         assert hasattr(worker_service, "batch_registration_error")
+        assert hasattr(worker_service, "batch_registration_canceled")
 
         assert hasattr(worker_service, "enhanced_annotation_started")
         assert hasattr(worker_service, "enhanced_annotation_finished")
         assert hasattr(worker_service, "enhanced_annotation_error")
+        assert hasattr(worker_service, "enhanced_annotation_canceled")
 
         assert hasattr(worker_service, "search_started")
         assert hasattr(worker_service, "search_finished")
         assert hasattr(worker_service, "search_error")
+        assert hasattr(worker_service, "search_canceled")
 
         assert hasattr(worker_service, "thumbnail_started")
         assert hasattr(worker_service, "thumbnail_finished")
         assert hasattr(worker_service, "thumbnail_error")
+        assert hasattr(worker_service, "thumbnail_canceled")
+
+        assert hasattr(worker_service, "batch_import_started")
+        assert hasattr(worker_service, "batch_import_finished")
+        assert hasattr(worker_service, "batch_import_error")
+        assert hasattr(worker_service, "batch_import_canceled")
 
         # 進捗・管理シグナル
         assert hasattr(worker_service, "worker_progress_updated")
@@ -99,6 +109,7 @@ class TestWorkerService:
         assert worker_id.startswith("batch_reg_")
         suffix = worker_id.split("_")[-1]
         assert len(suffix) == 8 and bool(re.match(r"^[0-9a-f]{8}$", suffix))
+        assert worker_service.current_registration_worker_id == worker_id
 
     @patch("lorairo.gui.services.worker_service.DatabaseRegistrationWorker")
     def test_start_batch_registration_failure(self, mock_worker_class, worker_service):
@@ -107,12 +118,15 @@ class TestWorkerService:
         mock_worker = Mock()
         mock_worker_class.return_value = mock_worker
         worker_service.worker_manager.start_worker.return_value = False
+        worker_service.current_registration_worker_id = "batch_reg_existing"
 
         directory = Path("/test/directory")
 
         # 例外発生確認
         with pytest.raises(RuntimeError, match="ワーカー開始失敗"):
             worker_service.start_batch_registration(directory)
+
+        assert worker_service.current_registration_worker_id == "batch_reg_existing"
 
     def test_cancel_batch_registration(self, worker_service):
         """バッチ登録キャンセルテスト"""
@@ -161,6 +175,22 @@ class TestWorkerService:
 
         # 現在の検索ワーカーID設定確認
         assert worker_service.current_search_worker_id == worker_id
+
+    @patch("lorairo.gui.services.worker_service.SearchWorker")
+    def test_start_search_failure_after_cancel_clears_current_worker_id(
+        self, mock_worker_class, worker_service
+    ):
+        """既存検索キャンセル後の検索開始失敗時は stale id を残さない"""
+        mock_worker_class.return_value = Mock()
+        worker_service.worker_manager.start_worker.return_value = False
+        worker_service.current_search_worker_id = "search_existing"
+
+        with pytest.raises(RuntimeError, match="ワーカー開始失敗"):
+            worker_service.start_search(
+                SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+            )
+
+        assert worker_service.current_search_worker_id is None
 
     @patch("lorairo.gui.services.worker_service.SearchWorker")
     def test_start_search_cancels_existing(self, mock_worker_class, worker_service):
@@ -379,6 +409,24 @@ class TestWorkerService:
         assert hasattr(worker_service, "_on_worker_started")
         assert hasattr(worker_service, "_on_worker_finished")
         assert hasattr(worker_service, "_on_worker_error")
+        assert hasattr(worker_service, "_on_worker_canceled")
+
+    def test_on_worker_canceled_clears_current_id_and_finishes_progress(self, worker_service):
+        """キャンセル完了時はエラーシグナルなしで進捗とcurrent idを片付ける"""
+        worker_id = "search_cancelled"
+        worker_service.current_search_worker_id = worker_id
+        error_mock = Mock()
+        canceled_mock = Mock()
+        worker_service.search_error.connect(error_mock)
+        worker_service.search_canceled.connect(canceled_mock)
+
+        with patch.object(worker_service.progress_manager, "finish_worker_progress") as mock_finish:
+            worker_service._on_worker_canceled(worker_id)
+
+        mock_finish.assert_called_once_with(worker_id, success=False)
+        assert worker_service.current_search_worker_id is None
+        error_mock.assert_not_called()
+        canceled_mock.assert_called_once_with(worker_id)
 
     def test_worker_id_uniqueness(self, worker_service):
         """ワーカーID一意性テスト"""
@@ -452,6 +500,7 @@ class TestWorkerService:
         assert worker_service.current_registration_worker_id is None
         assert worker_service.current_annotation_worker_id is None
         assert worker_service.current_thumbnail_worker_id is None
+        assert worker_service.current_batch_import_worker_id is None
 
     @patch("lorairo.gui.services.worker_service.AnnotationWorker")
     @patch.object(WorkerService, "annotation_logic", create=True)
@@ -490,6 +539,162 @@ class TestWorkerService:
 
         # 進捗シグナル接続確認
         mock_worker.progress_updated.connect.assert_called()
+        assert worker_service.current_annotation_worker_id == worker_id
+
+    @patch("lorairo.gui.services.worker_service.AnnotationWorker")
+    @patch.object(WorkerService, "annotation_logic", create=True)
+    def test_start_enhanced_batch_annotation_failure_keeps_current_worker_id(
+        self, mock_annotation_logic, mock_worker_class, worker_service
+    ):
+        """アノテーション開始失敗時に current_annotation_worker_id を上書きしない"""
+        mock_worker_class.return_value = Mock()
+        worker_service.worker_manager.start_worker.return_value = False
+        worker_service.current_annotation_worker_id = "annotation_existing"
+
+        with pytest.raises(RuntimeError, match="アノテーションワーカー開始失敗"):
+            worker_service.start_enhanced_batch_annotation(
+                image_paths=["/path/to/image.jpg"], litellm_model_ids=["gpt-4o-mini"]
+            )
+
+        assert worker_service.current_annotation_worker_id == "annotation_existing"
+
+    @patch("lorairo.gui.services.worker_service.get_service_container")
+    @patch("lorairo.gui.workers.batch_import_worker.BatchImportWorker")
+    def test_start_batch_import_success_sets_current_worker_id(
+        self, mock_worker_class, mock_container, worker_service
+    ):
+        """バッチインポート開始成功時にcurrent worker idを設定する"""
+        mock_container.return_value.image_repository = Mock()
+        mock_worker = Mock()
+        mock_worker_class.return_value = mock_worker
+        worker_service.worker_manager.start_worker.return_value = True
+
+        worker_id = worker_service.start_batch_import([Path("/tmp/test.jsonl")], dry_run=True)
+
+        assert worker_id.startswith("batch_import_")
+        assert worker_service.current_batch_import_worker_id == worker_id
+        worker_service.worker_manager.start_worker.assert_called_once_with(worker_id, mock_worker)
+
+    @patch("lorairo.gui.services.worker_service.get_service_container")
+    @patch("lorairo.gui.workers.batch_import_worker.BatchImportWorker")
+    def test_start_batch_import_failure_keeps_current_worker_id(
+        self, mock_worker_class, mock_container, worker_service
+    ):
+        """バッチインポート開始失敗時に current_batch_import_worker_id を上書きしない"""
+        mock_container.return_value.image_repository = Mock()
+        mock_worker_class.return_value = Mock()
+        worker_service.worker_manager.start_worker.return_value = False
+        worker_service.current_batch_import_worker_id = "batch_import_existing"
+
+        with pytest.raises(RuntimeError, match="ワーカー開始失敗"):
+            worker_service.start_batch_import([Path("/tmp/test.jsonl")])
+
+        assert worker_service.current_batch_import_worker_id == "batch_import_existing"
+
+    @pytest.mark.parametrize(
+        ("worker_id", "terminal", "signal_name", "current_attr", "payload"),
+        [
+            (
+                "batch_reg_abc12345",
+                "finished",
+                "batch_registration_finished",
+                "current_registration_worker_id",
+                {"ok": True},
+            ),
+            (
+                "batch_reg_abc12345",
+                "error",
+                "batch_registration_error",
+                "current_registration_worker_id",
+                "boom",
+            ),
+            (
+                "batch_reg_abc12345",
+                "canceled",
+                "batch_registration_canceled",
+                "current_registration_worker_id",
+                None,
+            ),
+            (
+                "batch_import_abc12345",
+                "finished",
+                "batch_import_finished",
+                "current_batch_import_worker_id",
+                {"ok": True},
+            ),
+            (
+                "batch_import_abc12345",
+                "error",
+                "batch_import_error",
+                "current_batch_import_worker_id",
+                "boom",
+            ),
+            (
+                "batch_import_abc12345",
+                "canceled",
+                "batch_import_canceled",
+                "current_batch_import_worker_id",
+                None,
+            ),
+            (
+                "annotation_abc12345",
+                "finished",
+                "enhanced_annotation_finished",
+                "current_annotation_worker_id",
+                {"ok": True},
+            ),
+            (
+                "annotation_abc12345",
+                "error",
+                "enhanced_annotation_error",
+                "current_annotation_worker_id",
+                "boom",
+            ),
+            (
+                "annotation_abc12345",
+                "canceled",
+                "enhanced_annotation_canceled",
+                "current_annotation_worker_id",
+                None,
+            ),
+            ("search_abc12345", "finished", "search_finished", "current_search_worker_id", {"ok": True}),
+            ("search_abc12345", "error", "search_error", "current_search_worker_id", "boom"),
+            ("search_abc12345", "canceled", "search_canceled", "current_search_worker_id", None),
+            (
+                "thumbnail_abc12345",
+                "finished",
+                "thumbnail_finished",
+                "current_thumbnail_worker_id",
+                {"ok": True},
+            ),
+            ("thumbnail_abc12345", "error", "thumbnail_error", "current_thumbnail_worker_id", "boom"),
+            ("thumbnail_abc12345", "canceled", "thumbnail_canceled", "current_thumbnail_worker_id", None),
+        ],
+    )
+    def test_worker_terminal_dispatch_table(
+        self, worker_service, worker_id, terminal, signal_name, current_attr, payload
+    ):
+        """全worker種別の終端signalとcurrent id cleanupを表で検証する"""
+        setattr(worker_service, current_attr, worker_id)
+        terminal_mock = Mock()
+        getattr(worker_service, signal_name).connect(terminal_mock)
+
+        with patch.object(worker_service.progress_manager, "finish_worker_progress") as mock_finish:
+            if terminal == "finished":
+                worker_service._on_worker_finished(worker_id, payload)
+                terminal_mock.assert_called_once_with(payload)
+            elif terminal == "error":
+                worker_service._on_worker_error(worker_id, payload)
+                terminal_mock.assert_called_once_with(payload)
+            else:
+                worker_service._on_worker_canceled(worker_id)
+                terminal_mock.assert_called_once_with(worker_id)
+
+        assert getattr(worker_service, current_attr) is None
+        if not worker_id.startswith("thumbnail_"):
+            mock_finish.assert_called_once()
+        else:
+            mock_finish.assert_not_called()
 
     def test_modern_progress_manager_integration(self, worker_service):
         """ModernProgressManager統合検証

@@ -36,6 +36,7 @@ def mock_filter_panel():
     """フィルターパネルのモック"""
     panel = Mock()
     panel.hide_progress_after_completion = Mock()
+    panel.clear_pipeline_results = Mock()
     return panel
 
 
@@ -87,6 +88,7 @@ class TestCancelCurrentPipeline:
         mock_worker_service.cancel_search.assert_called_once_with("search-123")
         mock_worker_service.cancel_thumbnail_load.assert_called_once_with("thumb-456")
         mock_thumbnail_selector.clear_thumbnails.assert_called_once()
+        mock_filter_panel.clear_pipeline_results.assert_called_once()
         mock_filter_panel.hide_progress_after_completion.assert_called_once()
 
     def test_cancel_pipeline_without_worker_service(self, mock_thumbnail_selector, mock_filter_panel):
@@ -123,6 +125,7 @@ class TestCancelCurrentPipeline:
         mock_worker_service.cancel_search.assert_not_called()
         mock_worker_service.cancel_thumbnail_load.assert_not_called()
         mock_thumbnail_selector.clear_thumbnails.assert_called_once()
+        mock_filter_panel.clear_pipeline_results.assert_called_once()
 
     def test_cancel_pipeline_without_thumbnail_selector(self, mock_worker_service, mock_filter_panel):
         """サムネイルセレクター無し"""
@@ -184,4 +187,22 @@ class TestPipelineFlow:
         service.on_thumbnail_completed(thumbnail_result)
 
         mock_thumbnail_selector.handle_thumbnail_page_result.assert_called_once_with(thumbnail_result)
+        mock_filter_panel.hide_progress_after_completion.assert_called_once()
+
+    def test_on_search_canceled_clears_results_without_error(
+        self, service, mock_thumbnail_selector, mock_filter_panel
+    ):
+        service.on_search_canceled("search-123")
+
+        mock_thumbnail_selector.clear_thumbnails.assert_called_once()
+        mock_filter_panel.clear_pipeline_results.assert_called_once()
+        mock_filter_panel.hide_progress_after_completion.assert_called_once()
+
+    def test_on_thumbnail_canceled_keeps_pipeline_results_without_error(
+        self, service, mock_thumbnail_selector, mock_filter_panel
+    ):
+        service.on_thumbnail_canceled("thumbnail-123")
+
+        mock_thumbnail_selector.clear_thumbnails.assert_not_called()
+        mock_filter_panel.clear_pipeline_results.assert_not_called()
         mock_filter_panel.hide_progress_after_completion.assert_called_once()

@@ -21,6 +21,7 @@ from lorairo.annotations.annotation_logic import AnnotationLogic
 from lorairo.database.db_core import create_db_engine, create_session_factory
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.db_repository import ImageRepository
+from lorairo.gui.workers.base import CancellationError
 from lorairo.gui.workers.registration_worker import DatabaseRegistrationWorker
 from lorairo.gui.workers.search_worker import SearchResult, SearchWorker
 from lorairo.gui.workers.thumbnail_worker import ThumbnailWorker
@@ -310,6 +311,22 @@ class TestSearchWorkerErrorRecording:
         assert len(error_records) > 0
         assert error_records[0].error_type == "Exception"
         assert "Database Error" in error_records[0].error_message
+
+    def test_search_cancellation_does_not_create_error_record(self, db_manager):
+        """検索キャンセル時はエラーレコードを作成しない"""
+        conditions = SearchConditions(
+            search_type="tags",
+            keywords=[],
+            tag_logic="and",
+        )
+        worker = SearchWorker(db_manager=db_manager, search_conditions=conditions)
+        worker.cancel()
+
+        with pytest.raises(CancellationError, match="処理がキャンセルされました"):
+            worker.execute()
+
+        error_count = db_manager.repository.get_error_count_unresolved(operation_type="search")
+        assert error_count == 0
 
 
 class TestBatchImportWorkerErrorRecording:

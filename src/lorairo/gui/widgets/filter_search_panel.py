@@ -735,6 +735,7 @@ class FilterSearchPanel(QScrollArea):
         if self.worker_service:
             self.worker_service.search_finished.connect(self._on_search_finished)
             self.worker_service.search_error.connect(self._on_search_error)
+            self.worker_service.search_canceled.connect(self._on_search_canceled)
 
             # Option B: バッチ進捗シグナル接続を追加
             self.worker_service.worker_batch_progress.connect(self._on_worker_batch_progress)
@@ -791,6 +792,13 @@ class FilterSearchPanel(QScrollArea):
         self._transition_to_state(PipelineState.ERROR)
 
         self.search_completed.emit({"results": [], "count": 0, "error": error})
+
+    def _on_search_canceled(self, worker_id: str) -> None:
+        """検索キャンセルイベント処理"""
+        logger.info(f"検索キャンセル: {worker_id}")
+        self._current_search_worker_id = None
+        self._transition_to_state(PipelineState.CANCELED)
+        self.search_completed.emit({"results": [], "count": 0, "canceled": True})
 
     def _on_worker_batch_progress(self, worker_id: str, current: int, total: int, filename: str) -> None:
         """ワーカーのバッチ進捗処理（Option B: 動的進捗計算）"""
