@@ -122,6 +122,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
             failed_count += batch_failed
 
             # バッチ境界での進捗報告（重要：シグナル発行はここのみ）
+            force_progress_emit = batch_idx == 0 or batch_idx + 1 == total_batches
             percentage = ProgressHelper.calculate_percentage(end_idx, total_count, 5, 90)  # 5-95%
             current_item = f"バッチ {batch_idx + 1}/{total_batches}"
 
@@ -131,10 +132,13 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
                 current_item=current_item,
                 processed_count=end_idx,
                 total_count=total_count,
+                force_emit=force_progress_emit,
             )
 
             # バッチ進捗も報告
-            self._report_batch_progress(end_idx, total_count, current_item)
+            self._report_batch_progress_throttled(
+                end_idx, total_count, current_item, force_emit=force_progress_emit
+            )
 
             logger.debug(
                 f"バッチ {batch_idx + 1}/{total_batches} 完了: 成功={batch_loaded}, 失敗={batch_failed}"

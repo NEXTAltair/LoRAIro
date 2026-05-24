@@ -346,9 +346,9 @@ class TestRegisterSingleImage:
 
         worker = DatabaseRegistrationWorker(temp_dir, mock_db_manager, mock_fsm)
 
-        # _report_batch_progress と _report_progress をモック
-        worker._report_batch_progress = Mock()
-        worker._report_progress = Mock()
+        # ループ内のスロットリング付き進捗報告をモック
+        worker._report_batch_progress_throttled = Mock()
+        worker._report_progress_throttled = Mock()
 
         return worker, mock_db_manager, mock_fsm
 
@@ -373,8 +373,8 @@ class TestRegisterSingleImage:
             assert image_id == 1
             mock_db_manager.detect_duplicate_image.assert_called_once_with(image_path)
             mock_db_manager.register_original_image.assert_called_once()
-            worker._report_batch_progress.assert_called_once()
-            worker._report_progress.assert_called_once()
+            worker._report_batch_progress_throttled.assert_called_once()
+            worker._report_progress_throttled.assert_called_once()
 
     def test_register_single_image_duplicate_detection(self, temp_dir, worker_setup):
         """pHash一致で重複検出 → スキップ"""
@@ -397,8 +397,8 @@ class TestRegisterSingleImage:
             assert image_id == 42
             mock_db_manager.detect_duplicate_image.assert_called_once_with(image_path)
             mock_db_manager.register_original_image.assert_not_called()
-            worker._report_batch_progress.assert_called_once()
-            worker._report_progress.assert_called_once()
+            worker._report_batch_progress_throttled.assert_called_once()
+            worker._report_progress_throttled.assert_called_once()
 
     def test_register_single_image_with_tags_only(self, temp_dir, worker_setup):
         """ ".txt 存在、.caption 不在"""
@@ -520,7 +520,7 @@ class TestRegisterSingleImage:
             mock_db_manager.save_captions.assert_not_called()
 
     def test_register_single_image_progress_reporting(self, temp_dir, worker_setup):
-        """_report_batch_progress() と _report_progress() が呼ばれる"""
+        """スロットリング付き進捗報告が呼ばれる"""
         worker, mock_db_manager, _mock_fsm = worker_setup
 
         image_path = temp_dir / "test.jpg"
@@ -536,12 +536,14 @@ class TestRegisterSingleImage:
 
             _result_type, _image_id = worker._register_single_image(image_path, 5, 100)
 
-            # _report_batch_progress の呼び出しを確認
-            worker._report_batch_progress.assert_called_once_with(6, 100, image_path.name)
+            # バッチ進捗報告の呼び出しを確認
+            worker._report_batch_progress_throttled.assert_called_once_with(
+                6, 100, image_path.name, force_emit=False
+            )
 
-            # _report_progress の呼び出しを確認
-            worker._report_progress.assert_called_once()
-            call_args = worker._report_progress.call_args
+            # 通常進捗報告の呼び出しを確認
+            worker._report_progress_throttled.assert_called_once()
+            call_args = worker._report_progress_throttled.call_args
             assert call_args[0][0] > 10  # percentage >= 10
 
     def test_register_single_image_associated_file_processing_error(self, temp_dir, worker_setup):
@@ -941,7 +943,8 @@ class TestRegistrationErrorHandling:
             patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
             patch.object(real_db_manager, "register_original_image") as mock_register,
             patch.object(worker, "_report_progress") as mock_progress,
-            patch.object(worker, "_report_batch_progress") as mock_batch,
+            patch.object(worker, "_report_progress_throttled") as mock_progress_throttled,
+            patch.object(worker, "_report_batch_progress_throttled") as mock_batch,
         ):
             mock_detect.return_value = None
             mock_register.return_value = (1, {})
@@ -950,6 +953,7 @@ class TestRegistrationErrorHandling:
 
             # 進捗報告が呼ばれたことを確認
             assert mock_progress.called
+            assert mock_progress_throttled.called
             # 最初の呼び出しで "画像ファイルを検索中..." を確認
             first_call = mock_progress.call_args_list[0]
             assert "画像ファイルを検索中" in first_call[0][1]
@@ -1089,7 +1093,8 @@ class TestRegistrationErrorHandling:
             patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
             patch.object(real_db_manager, "register_original_image") as mock_register,
             patch.object(worker, "_report_progress") as mock_progress,
-            patch.object(worker, "_report_batch_progress") as mock_batch,
+            patch.object(worker, "_report_progress_throttled") as mock_progress_throttled,
+            patch.object(worker, "_report_batch_progress_throttled") as mock_batch,
         ):
             mock_detect.return_value = None
             mock_register.return_value = (1, {})
@@ -1099,7 +1104,8 @@ class TestRegistrationErrorHandling:
             # _report_progress の呼び出し回数：開始 + ループ内 + 完了
             # 最低3回（開始、開始2、完了）以上
             assert mock_progress.call_count >= 3
-            # _report_batch_progress は画像ごとに1回呼ばれる（3回）
+            assert mock_progress_throttled.call_count == 3
+            # _report_batch_progress_throttled は画像ごとに1回呼ばれる（3回）
             assert mock_batch.call_count == 3
 
 
@@ -1120,9 +1126,9 @@ class TestRegisterSingleImageUnits:
 
         worker = DatabaseRegistrationWorker(temp_dir, mock_db_manager, mock_fsm)
 
-        # _report_batch_progress と _report_progress をモック
-        worker._report_batch_progress = Mock()
-        worker._report_progress = Mock()
+        # ループ内のスロットリング付き進捗報告をモック
+        worker._report_batch_progress_throttled = Mock()
+        worker._report_progress_throttled = Mock()
 
         return worker, mock_db_manager, mock_fsm
 
@@ -1270,7 +1276,7 @@ class TestRegisterSingleImageUnits:
             mock_calc.assert_called_once_with(6, 100, 10, 85)
 
     def test_batch_progress_reporting(self, temp_dir, worker_setup):
-        """8. _report_batch_progress() が (i+1, total_count, image_path.name) で呼ばれる"""
+        """8. _report_batch_progress_throttled() が (i+1, total_count, image_path.name) で呼ばれる"""
         worker, mock_db_manager, _ = worker_setup
         image_path = temp_dir / "batch_report.jpg"
         image_path.write_bytes(b"fake_image")
@@ -1283,7 +1289,9 @@ class TestRegisterSingleImageUnits:
 
             worker._register_single_image(image_path, 7, 50)
 
-            worker._report_batch_progress.assert_called_once_with(8, 50, "batch_report.jpg")
+            worker._report_batch_progress_throttled.assert_called_once_with(
+                8, 50, "batch_report.jpg", force_emit=False
+            )
 
     def test_associated_files_error_handling(self, temp_dir, worker_setup):
         """9. save_tags() で例外 → エラーログ出力、処理継続"""
