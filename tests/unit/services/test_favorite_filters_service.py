@@ -1,6 +1,7 @@
 """FavoriteFiltersServiceの単体テスト"""
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -22,7 +23,7 @@ class TestFavoriteFiltersService:
         return service
 
     @pytest.fixture
-    def sample_filter(self) -> dict[str, str | bool]:
+    def sample_filter(self) -> dict[str, Any]:
         """サンプルフィルター条件"""
         return {
             "search_type": "tags",
@@ -33,7 +34,7 @@ class TestFavoriteFiltersService:
         }
 
     def test_save_filter_success(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """フィルター保存成功"""
         result = service.save_filter("Test Filter", sample_filter)
@@ -42,7 +43,7 @@ class TestFavoriteFiltersService:
         assert service.filter_exists("Test Filter") is True
 
     def test_save_filter_empty_name(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """空のフィルター名でエラー"""
         with pytest.raises(ValueError, match="Filter name cannot be empty"):
@@ -52,7 +53,7 @@ class TestFavoriteFiltersService:
             service.save_filter("   ", sample_filter)
 
     def test_save_filter_overwrite(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """フィルター上書き保存"""
         # 初回保存
@@ -73,13 +74,13 @@ class TestFavoriteFiltersService:
     def test_save_filter_serialization_error(self, service: FavoriteFiltersService) -> None:
         """シリアライズ不可能なデータでエラー"""
         # JSONシリアライズ不可能なオブジェクト
-        invalid_filter = {"func": lambda x: x}  # type: ignore[dict-item]
+        invalid_filter: dict[str, Any] = {"func": lambda x: x}
 
         result = service.save_filter("Invalid Filter", invalid_filter)
         assert result is False
 
     def test_load_filter_success(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """フィルター読み込み成功"""
         service.save_filter("Test Filter", sample_filter)
@@ -114,7 +115,7 @@ class TestFavoriteFiltersService:
         assert loaded is None
 
     def test_list_filters_success(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """フィルター一覧取得成功"""
         # 複数保存
@@ -134,7 +135,7 @@ class TestFavoriteFiltersService:
         assert filters == []
 
     def test_delete_filter_success(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """フィルター削除成功"""
         service.save_filter("Test Filter", sample_filter)
@@ -159,7 +160,7 @@ class TestFavoriteFiltersService:
         assert result is False
 
     def test_filter_exists_true(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """フィルター存在確認：存在する"""
         service.save_filter("Test Filter", sample_filter)
@@ -176,7 +177,7 @@ class TestFavoriteFiltersService:
         assert service.filter_exists("   ") is False
 
     def test_clear_all_filters(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """全フィルタークリア"""
         # 複数保存
@@ -192,7 +193,7 @@ class TestFavoriteFiltersService:
         assert len(service.list_filters()) == 0
 
     def test_save_load_roundtrip(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """保存→読み込みのラウンドトリップテスト"""
         service.save_filter("Roundtrip Filter", sample_filter)
@@ -203,7 +204,7 @@ class TestFavoriteFiltersService:
         assert loaded == sample_filter
 
     def test_unicode_filter_name(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """日本語フィルター名の保存・読み込み"""
         japanese_name = "お気に入りフィルター１"
@@ -231,7 +232,7 @@ class TestFavoriteFiltersService:
         assert loaded is not None
         assert loaded == special_filter
 
-    def test_service_persistence_across_instances(self, sample_filter: dict[str, str | bool]) -> None:
+    def test_service_persistence_across_instances(self, sample_filter: dict[str, Any]) -> None:
         """別インスタンスでの永続性確認"""
         # インスタンス1で保存
         service1 = FavoriteFiltersService(organization="LoRAIroTest", application="PersistenceTest")

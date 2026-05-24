@@ -206,23 +206,32 @@ class TestWorkerManagerCancellation:
         assert manager.get_active_worker_count() == 0
 
 
+def _make_worker_mock() -> Mock:
+    """WorkerManager.start_worker() が期待するシグナルを持つ Mock を返す。"""
+    worker = Mock()
+    worker.finished = Mock()
+    worker.finished.connect = Mock()
+    worker.error_occurred = Mock()
+    worker.error_occurred.connect = Mock()
+    worker.canceled = Mock()
+    worker.canceled.connect = Mock()
+    return worker
+
+
+def _make_thread_mock() -> MagicMock:
+    thread = MagicMock()
+    thread.started = Mock()
+    thread.started.connect = Mock()
+    thread.finished = Mock()
+    thread.finished.connect = Mock()
+    return thread
+
+
 @pytest.mark.unit
 class TestStartWorker:
     def test_start_worker_registers_and_starts_thread(self, manager: WorkerManager) -> None:
-        worker = Mock()
-        worker.__class__.__name__ = "MockWorker"
-        worker.finished = Mock()
-        worker.finished.connect = Mock()
-        worker.error_occurred = Mock()
-        worker.error_occurred.connect = Mock()
-        worker.canceled = Mock()
-        worker.canceled.connect = Mock()
-
-        thread = MagicMock()
-        thread.started = Mock()
-        thread.started.connect = Mock()
-        thread.finished = Mock()
-        thread.finished.connect = Mock()
+        worker = _make_worker_mock()
+        thread = _make_thread_mock()
 
         with patch("lorairo.gui.workers.manager.QThread", return_value=thread):
             result = manager.start_worker("worker-1", worker)
@@ -232,20 +241,8 @@ class TestStartWorker:
         thread.start.assert_called_once()
 
     def test_start_worker_emits_started_signal(self, manager: WorkerManager, qtbot) -> None:
-        worker = Mock()
-        worker.__class__.__name__ = "MockWorker"
-        worker.finished = Mock()
-        worker.finished.connect = Mock()
-        worker.error_occurred = Mock()
-        worker.error_occurred.connect = Mock()
-        worker.canceled = Mock()
-        worker.canceled.connect = Mock()
-
-        thread = MagicMock()
-        thread.started = Mock()
-        thread.started.connect = Mock()
-        thread.finished = Mock()
-        thread.finished.connect = Mock()
+        worker = _make_worker_mock()
+        thread = _make_thread_mock()
 
         started_ids: list[str] = []
         manager.worker_started.connect(started_ids.append)
@@ -263,20 +260,8 @@ class TestStartWorker:
         assert result is False
 
     def test_start_worker_increments_active_count_signal(self, manager: WorkerManager) -> None:
-        worker = Mock()
-        worker.__class__.__name__ = "MockWorker"
-        worker.finished = Mock()
-        worker.finished.connect = Mock()
-        worker.error_occurred = Mock()
-        worker.error_occurred.connect = Mock()
-        worker.canceled = Mock()
-        worker.canceled.connect = Mock()
-
-        thread = MagicMock()
-        thread.started = Mock()
-        thread.started.connect = Mock()
-        thread.finished = Mock()
-        thread.finished.connect = Mock()
+        worker = _make_worker_mock()
+        thread = _make_thread_mock()
 
         count_values: list[int] = []
         manager.active_worker_count_changed.connect(count_values.append)
@@ -416,11 +401,14 @@ class TestWaitForAllWorkers:
         thread.wait.assert_not_called()
 
 
+class AnnotationWorker:
+    """get_worker_summary テスト用スタブ。クラス名 "AnnotationWorker" を保持する。"""
+
+
 @pytest.mark.unit
 class TestGetWorkerSummary:
     def test_get_worker_summary_with_active_workers(self, manager: WorkerManager) -> None:
-        worker = Mock()
-        worker.__class__.__name__ = "AnnotationWorker"
+        worker = Mock(spec=AnnotationWorker)
         worker.status = Mock()
         worker.status.value = "running"
         manager.active_workers["w1"] = {"worker": worker, "thread": Mock(), "auto_cleanup": True}
