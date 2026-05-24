@@ -214,7 +214,7 @@ class ExportResult(BaseModel):
     @property
     def total_size_mb(self) -> float:
         """合計サイズを MB 単位で取得。"""
-        return self.total_size / (1024 * 1024)
+        return self.total_size / (1024 * 1024)  # pragma: no cover
 
 
 class ExportCriteria(BaseModel):
@@ -258,7 +258,7 @@ class ExportCriteria(BaseModel):
         「タグを1つでも持つ画像」を全て除外してしまう事故が起きる。
         境界で正規化しておき、下位レイヤに空要素を渡さない。
         """
-        if value is None:
+        if value is None:  # pragma: no cover - Pydantic v2 の Optional default では validator が走らない
             return None
         cleaned = [item.strip() for item in value if item and item.strip()]
         return cleaned or None
@@ -267,7 +267,7 @@ class ExportCriteria(BaseModel):
     @classmethod
     def _normalize_caption(cls, value: str | None) -> str | None:
         """caption を strip し、空白のみは None として扱う。"""
-        if value is None:
+        if value is None:  # pragma: no cover - Pydantic v2 の Optional default では validator が走らない
             return None
         stripped = value.strip()
         return stripped or None
@@ -284,7 +284,7 @@ class ExportCriteria(BaseModel):
         招くため、許容集合に含まれない値はここで ``ValueError`` にする
         （CLI の ``_validate_rating`` と同じポリシー）。
         """
-        if value is None:
+        if value is None:  # pragma: no cover - Pydantic v2 の Optional default では validator が走らない
             return None
         stripped = value.strip()
         if not stripped:

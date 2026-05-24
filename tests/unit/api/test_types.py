@@ -10,6 +10,7 @@ from lorairo.api.types import (
     DuplicateInfo,
     ExportCriteria,
     ExportResult,
+    PaginationInfo,
     ProjectInfo,
     RegistrationResult,
     TagInfo,
@@ -72,6 +73,16 @@ class TestRegistrationResult:
         assert result.error_details is not None
         assert len(result.error_details) == 2
 
+    def test_success_rate_normal(self) -> None:
+        """success_rate は successful/total を返す。"""
+        result = RegistrationResult(total=10, successful=8, failed=1, skipped=1)
+        assert result.success_rate == 0.8
+
+    def test_success_rate_zero_total(self) -> None:
+        """空ディレクトリ登録など total=0 でも ZeroDivisionError を起こさず 0.0 を返す。"""
+        result = RegistrationResult(total=0, successful=0, failed=0, skipped=0)
+        assert result.success_rate == 0.0
+
 
 @pytest.mark.unit
 class TestAnnotationResult:
@@ -87,6 +98,16 @@ class TestAnnotationResult:
         )
         assert result.image_count == 5
         assert result.results is None
+
+    def test_success_rate_normal(self) -> None:
+        """success_rate は successful_annotations/image_count を返す。"""
+        result = AnnotationResult(image_count=4, successful_annotations=3, failed_annotations=1)
+        assert result.success_rate == 0.75
+
+    def test_success_rate_zero_image_count(self) -> None:
+        """image_count=0 でも ZeroDivisionError を起こさず 0.0 を返す。"""
+        result = AnnotationResult(image_count=0, successful_annotations=0, failed_annotations=0)
+        assert result.success_rate == 0.0
 
 
 @pytest.mark.unit
@@ -386,3 +407,33 @@ class TestExportCriteria:
         """score_max=10.0 は境界値として有効。"""
         criteria = ExportCriteria(score_max=10.0)
         assert criteria.score_max == 10.0
+
+
+@pytest.mark.unit
+class TestPaginationInfo:
+    """PaginationInfo テスト。"""
+
+    def test_total_pages_normal(self) -> None:
+        """通常の total_pages 計算（切り上げ）。"""
+        info = PaginationInfo(total=25, per_page=10)
+        assert info.total_pages == 3
+
+    def test_total_pages_exact_division(self) -> None:
+        """total が per_page の倍数の場合の境界値。"""
+        info = PaginationInfo(total=20, per_page=10)
+        assert info.total_pages == 2
+
+    def test_total_pages_zero_total(self) -> None:
+        """total=0 でも 0 ではなく 1 を返す（空ページも 1 ページ扱い）。"""
+        info = PaginationInfo(total=0, per_page=10)
+        assert info.total_pages == 1
+
+    def test_offset_first_page(self) -> None:
+        """ページ 1 の offset は 0。"""
+        info = PaginationInfo(total=100, page=1, per_page=20)
+        assert info.offset == 0
+
+    def test_offset_later_page(self) -> None:
+        """ページ N の offset は (N-1)*per_page。"""
+        info = PaginationInfo(total=100, page=3, per_page=20)
+        assert info.offset == 40
