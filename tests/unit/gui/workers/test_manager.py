@@ -156,7 +156,7 @@ class TestWorkerManagerCancellation:
         worker = Mock()
         thread = Mock()
         thread.isRunning.return_value = True
-        thread.wait.side_effect = [False, True]
+        thread.wait.side_effect = [False, False, True]
         manager.active_workers["worker-1"] = {"worker": worker, "thread": thread, "auto_cleanup": True}
         canceled_mock = Mock()
         error_mock = Mock()
@@ -169,11 +169,32 @@ class TestWorkerManagerCancellation:
 
         assert result is True
         thread.terminate.assert_called_once()
+        assert [call.args for call in thread.wait.call_args_list] == [(2000,), (250,), (1000,)]
         canceled_mock.assert_not_called()
         error_mock.assert_called_once()
         event = terminal_mock.call_args.args[0]
         assert event.outcome is WorkerOutcome.TERMINATED
         assert event.cancel_reason is CancelReason.USER_REQUESTED
+        assert "worker-1" not in manager.active_workers
+
+    def test_cancel_worker_timeout_extends_cooperative_wait_before_terminate(self, manager):
+        worker = Mock()
+        thread = Mock()
+        thread.isRunning.return_value = True
+        thread.wait.side_effect = [False, True]
+        manager.active_workers["worker-1"] = {"worker": worker, "thread": thread, "auto_cleanup": True}
+        canceled_mock = Mock()
+        terminal_mock = Mock()
+        manager.worker_canceled.connect(canceled_mock)
+        manager.worker_terminal.connect(terminal_mock)
+
+        result = manager.cancel_worker("worker-1")
+
+        assert result is True
+        assert [call.args for call in thread.wait.call_args_list] == [(2000,), (250,)]
+        thread.terminate.assert_not_called()
+        canceled_mock.assert_called_once_with("worker-1")
+        assert terminal_mock.call_args.args[0].outcome is WorkerOutcome.CANCELED
         assert "worker-1" not in manager.active_workers
 
     def test_worker_terminal_precedes_derived_compat_signal(self, manager):
@@ -195,7 +216,7 @@ class TestWorkerManagerCancellation:
         worker = Mock()
         thread = Mock()
         thread.isRunning.return_value = True
-        thread.wait.side_effect = [False, False]
+        thread.wait.side_effect = [False, False, False]
         manager.active_workers["worker-1"] = {"worker": worker, "thread": thread, "auto_cleanup": True}
         canceled_mock = Mock()
         error_mock = Mock()
@@ -212,6 +233,7 @@ class TestWorkerManagerCancellation:
 
         assert result is True
         thread.terminate.assert_called_once()
+        assert [call.args for call in thread.wait.call_args_list] == [(2000,), (250,), (1000,)]
         canceled_mock.assert_not_called()
         error_mock.assert_called_once()
         assert terminal_mock.call_args.args[0].outcome is WorkerOutcome.UNRESPONSIVE

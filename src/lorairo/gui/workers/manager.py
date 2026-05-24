@@ -24,6 +24,11 @@ class WorkerManager(QObject):
     worker_canceled = Signal(str)  # worker_id
     worker_terminal = Signal(object)  # WorkerTerminalEvent
 
+    _CANCEL_GRACE_MS = 2000
+    _CANCEL_DRAIN_GRACE_MS = 250
+    _TERMINATE_WAIT_MS = 1000
+    _CLEANUP_GRACE_MS = 1000
+
     # === 全体管理シグナル ===
     all_workers_finished = Signal()
     active_worker_count_changed = Signal(int)  # active_count
@@ -120,12 +125,19 @@ class WorkerManager(QObject):
         thread = worker_info["thread"]
         if thread.isRunning():
             thread.quit()
-            if thread.wait(2000):  # 2秒待機
+            if thread.wait(self._CANCEL_GRACE_MS):
                 self._finalize_canceled_if_no_terminal_signal(worker_id)
             else:
-                logger.warning(f"キャンセルされたワーカーの終了タイムアウト: {worker_id}")
-                thread.terminate()
-                if thread.wait(1000):  # 強制終了後も1秒待機
+                logger.warning(
+                    f"キャンセルされたワーカーの終了待機がタイムアウト: {worker_id}; "
+                    "queued terminal event を確認して cooperative wait を延長します"
+                )
+                self._process_pending_events()
+                if worker_id not in self.active_workers:
+                    logger.info(f"キャンセル中の queued terminal event を優先しました: {worker_id}")
+                elif thread.wait(self._CANCEL_DRAIN_GRACE_MS):
+                    self._finalize_canceled_if_no_terminal_signal(worker_id)
+                elif self._terminate_thread_last_resort(worker_id, thread):
                     self._finalize_canceled_if_no_terminal_signal(
                         worker_id,
                         fallback_outcome=WorkerOutcome.TERMINATED,
@@ -221,10 +233,9 @@ class WorkerManager(QObject):
         try:
             if thread.isRunning():
                 # スレッドが まだ実行中の場合は適切に終了を待機
-                if not thread.wait(1000):  # 1秒待機
+                if not thread.wait(self._CLEANUP_GRACE_MS):
                     logger.warning(f"スレッド終了タイムアウト: {worker_id}")
-                    thread.terminate()
-                    thread.wait(1000)  # 強制終了後も1秒待機
+                    self._terminate_thread_last_resort(worker_id, thread)
             logger.debug(f"スレッドクリーンアップ完了: {worker_id}")
         except Exception as cleanup_error:
             logger.error(f"スレッドクリーンアップエラー ({worker_id}): {cleanup_error}")
@@ -252,9 +263,7 @@ class WorkerManager(QObject):
         fallback_error: str | None = None,
     ) -> None:
         """queued terminal signal を優先し、未確定なら cancel fallback で終端する。"""
-        app = QCoreApplication.instance()
-        if app is not None:
-            app.processEvents()
+        self._process_pending_events()
 
         if worker_id in self.active_workers:
             self._finalize_terminal(
@@ -263,6 +272,23 @@ class WorkerManager(QObject):
                 error=fallback_error,
                 cancel_reason=self._get_cancel_reason(worker_id),
             )
+
+    def _process_pending_events(self) -> None:
+        """Process queued Qt signals before falling back to synthetic terminal outcomes."""
+        app = QCoreApplication.instance()
+        if app is not None:
+            app.processEvents()
+
+    def _terminate_thread_last_resort(self, worker_id: str, thread: QThread) -> bool:
+        """Terminate a thread only after cooperative cancellation and queued events did not finish it."""
+        logger.error(f"最終手段としてワーカースレッドを強制終了します: {worker_id}")
+        thread.terminate()
+        stopped = thread.wait(self._TERMINATE_WAIT_MS)
+        if stopped:
+            logger.warning(f"ワーカー強制終了後に停止確認: {worker_id}")
+        else:
+            logger.error(f"ワーカー強制終了後も停止確認できません: {worker_id}")
+        return stopped
 
     def _finalize_terminal(
         self,
