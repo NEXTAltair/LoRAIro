@@ -12,7 +12,6 @@ from PIL import Image
 
 from lorairo.annotations.annotation_logic import AnnotationLogic
 
-
 # ---- フィクスチャ ----
 
 
@@ -54,7 +53,7 @@ def test_execute_annotation_calls_adapter_with_correct_args(logic, mock_adapter,
     image_paths = [str(test_image_path)]
     model_ids = ["openai/gpt-4o"]
 
-    result = logic.execute_annotation(image_paths, model_ids)
+    logic.execute_annotation(image_paths, model_ids)
 
     mock_adapter.annotate.assert_called_once()
     call_kwargs = mock_adapter.annotate.call_args.kwargs
