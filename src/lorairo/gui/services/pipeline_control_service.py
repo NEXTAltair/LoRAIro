@@ -15,6 +15,7 @@ from loguru import logger
 
 from lorairo.gui.services.worker_service import WorkerService
 from lorairo.gui.workers.search_worker import SearchResult
+from lorairo.gui.workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 
 
 class PipelineControlService:
@@ -151,30 +152,83 @@ class PipelineControlService:
         if self.filter_search_panel and hasattr(self.filter_search_panel, "hide_progress_after_completion"):
             self.filter_search_panel.hide_progress_after_completion()
 
-    def on_search_canceled(self, worker_id: str) -> None:
+    def on_search_canceled(self, terminal: str | WorkerTerminalEvent) -> None:
         """Pipeline検索キャンセル時の処理（エラー扱いしない）"""
+        worker_id = terminal.worker_id if isinstance(terminal, WorkerTerminalEvent) else terminal
+        reason = terminal.cancel_reason if isinstance(terminal, WorkerTerminalEvent) else None
         logger.info(f"Pipeline search canceled: {worker_id}")
 
-        if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):
+        should_clear_results = reason in {
+            None,
+            CancelReason.USER_REQUESTED,
+            CancelReason.PIPELINE_CANCEL,
+            CancelReason.PROGRESS_DIALOG,
+            CancelReason.SHUTDOWN,
+        }
+
+        if (
+            should_clear_results
+            and self.thumbnail_selector
+            and hasattr(self.thumbnail_selector, "clear_thumbnails")
+        ):
             self.thumbnail_selector.clear_thumbnails()
 
-        if self.filter_search_panel and hasattr(self.filter_search_panel, "clear_pipeline_results"):
+        if (
+            should_clear_results
+            and self.filter_search_panel
+            and hasattr(self.filter_search_panel, "clear_pipeline_results")
+        ):
             self.filter_search_panel.clear_pipeline_results()
 
         if self.filter_search_panel and hasattr(self.filter_search_panel, "hide_progress_after_completion"):
             self.filter_search_panel.hide_progress_after_completion()
 
-    def on_thumbnail_canceled(self, worker_id: str) -> None:
+    def on_thumbnail_canceled(self, terminal: str | WorkerTerminalEvent) -> None:
         """Pipelineサムネイル読み込みキャンセル時の処理（エラー扱いしない）。
 
         thumbnail worker はページ切替や prefetch 整理でも通常運用としてキャンセルされるため、
         ここでは検索結果を破棄しない。明示的な pipeline cancel の結果破棄は
         cancel_current_pipeline() 側で行う。
         """
+        worker_id = terminal.worker_id if isinstance(terminal, WorkerTerminalEvent) else terminal
         logger.info(f"Pipeline thumbnail canceled: {worker_id}")
 
         if self.filter_search_panel and hasattr(self.filter_search_panel, "hide_progress_after_completion"):
             self.filter_search_panel.hide_progress_after_completion()
+
+    def on_worker_terminal(self, event: WorkerTerminalEvent) -> None:
+        """Handle search/thumbnail terminal events with outcome and cancel reason."""
+        if event.worker_type not in {"search", "thumbnail"}:
+            return
+
+        if event.outcome is WorkerOutcome.CANCELED:
+            if event.worker_type == "search":
+                self.on_search_canceled(event)
+            else:
+                self.on_thumbnail_canceled(event)
+            return
+
+        if event.outcome in {
+            WorkerOutcome.CANCEL_TIMEOUT,
+            WorkerOutcome.TERMINATED,
+            WorkerOutcome.UNRESPONSIVE,
+        }:
+            if event.cancel_reason in {
+                CancelReason.SEARCH_REPLACED,
+                CancelReason.THUMBNAIL_REPLACED,
+                CancelReason.PREFETCH_REPLACED,
+            }:
+                logger.info(
+                    f"Pipeline replacement worker ended abnormally without cleanup: "
+                    f"{event.worker_id}, outcome={event.outcome.value}, "
+                    f"reason={event.cancel_reason.value}"
+                )
+                return
+
+            logger.debug(
+                f"Pipeline abnormal terminal observed; compat error signal owns cleanup: "
+                f"{event.worker_id}, outcome={event.outcome.value}"
+            )
 
     # ============================================================
     # 進捗状態管理統合
@@ -222,14 +276,20 @@ class PipelineControlService:
                 hasattr(self.worker_service, "current_search_worker_id")
                 and self.worker_service.current_search_worker_id
             ):
-                self.worker_service.cancel_search(self.worker_service.current_search_worker_id)
+                self.worker_service.cancel_search(
+                    self.worker_service.current_search_worker_id,
+                    reason=CancelReason.PIPELINE_CANCEL,
+                )
                 logger.info("Search worker cancelled in pipeline")
 
             if (
                 hasattr(self.worker_service, "current_thumbnail_worker_id")
                 and self.worker_service.current_thumbnail_worker_id
             ):
-                self.worker_service.cancel_thumbnail_load(self.worker_service.current_thumbnail_worker_id)
+                self.worker_service.cancel_thumbnail_load(
+                    self.worker_service.current_thumbnail_worker_id,
+                    reason=CancelReason.PIPELINE_CANCEL,
+                )
                 logger.info("Thumbnail worker cancelled in pipeline")
 
             # キャンセル時の結果破棄（要求仕様通り）

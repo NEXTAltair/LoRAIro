@@ -5,6 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from lorairo.gui.workers.manager import WorkerManager
+from lorairo.gui.workers.terminal import CancelReason, WorkerOutcome
 
 
 @pytest.fixture
@@ -59,15 +60,22 @@ class TestWorkerManagerCancellation:
         thread.wait.return_value = True
         manager.active_workers["worker-1"] = {"worker": worker, "thread": thread, "auto_cleanup": True}
         canceled_mock = Mock()
+        terminal_mock = Mock()
         manager.worker_canceled.connect(canceled_mock)
+        manager.worker_terminal.connect(terminal_mock)
 
-        result = manager.cancel_worker("worker-1")
+        result = manager.cancel_worker("worker-1", reason=CancelReason.PIPELINE_CANCEL)
 
         assert result is True
         worker.cancel.assert_called_once()
         thread.quit.assert_called_once()
         thread.wait.assert_called_once_with(2000)
         canceled_mock.assert_called_once_with("worker-1")
+        terminal_mock.assert_called_once()
+        event = terminal_mock.call_args.args[0]
+        assert event.worker_id == "worker-1"
+        assert event.outcome is WorkerOutcome.CANCELED
+        assert event.cancel_reason is CancelReason.PIPELINE_CANCEL
         assert "worker-1" not in manager.active_workers
 
     def test_cancel_worker_wait_success_prefers_queued_finished_signal(self, manager, monkeypatch):
@@ -80,6 +88,8 @@ class TestWorkerManagerCancellation:
         canceled_mock = Mock()
         manager.worker_finished.connect(finished_mock)
         manager.worker_canceled.connect(canceled_mock)
+        terminal_mock = Mock()
+        manager.worker_terminal.connect(terminal_mock)
         app = Mock()
         app.processEvents.side_effect = lambda: manager._on_worker_finished("worker-1", {"ok": True})
         monkeypatch.setattr("lorairo.gui.workers.manager.QCoreApplication.instance", Mock(return_value=app))
@@ -89,6 +99,7 @@ class TestWorkerManagerCancellation:
         assert result is True
         finished_mock.assert_called_once_with("worker-1", {"ok": True})
         canceled_mock.assert_not_called()
+        assert terminal_mock.call_args.args[0].outcome is WorkerOutcome.SUCCEEDED
         assert "worker-1" not in manager.active_workers
 
     def test_cancel_worker_wait_success_prefers_queued_error_signal(self, manager, monkeypatch):
@@ -101,6 +112,8 @@ class TestWorkerManagerCancellation:
         canceled_mock = Mock()
         manager.worker_error.connect(error_mock)
         manager.worker_canceled.connect(canceled_mock)
+        terminal_mock = Mock()
+        manager.worker_terminal.connect(terminal_mock)
         app = Mock()
         app.processEvents.side_effect = lambda: manager._on_worker_error("worker-1", "boom")
         monkeypatch.setattr("lorairo.gui.workers.manager.QCoreApplication.instance", Mock(return_value=app))
@@ -110,6 +123,7 @@ class TestWorkerManagerCancellation:
         assert result is True
         error_mock.assert_called_once_with("worker-1", "boom")
         canceled_mock.assert_not_called()
+        assert terminal_mock.call_args.args[0].outcome is WorkerOutcome.FAILED
         assert "worker-1" not in manager.active_workers
 
     def test_finished_after_cancel_request_wins_over_canceled(self, manager):
@@ -138,37 +152,80 @@ class TestWorkerManagerCancellation:
         error_mock.assert_called_once_with("worker-1", "boom")
         canceled_mock.assert_not_called()
 
-    def test_cancel_worker_timeout_forces_canceled_cleanup(self, manager):
+    def test_cancel_worker_timeout_terminate_success_emits_terminated(self, manager):
         worker = Mock()
         thread = Mock()
         thread.isRunning.return_value = True
         thread.wait.side_effect = [False, True]
         manager.active_workers["worker-1"] = {"worker": worker, "thread": thread, "auto_cleanup": True}
         canceled_mock = Mock()
+        error_mock = Mock()
+        terminal_mock = Mock()
         manager.worker_canceled.connect(canceled_mock)
-
-        result = manager.cancel_worker("worker-1")
-
-        assert result is True
-        thread.terminate.assert_called_once()
-        canceled_mock.assert_called_once_with("worker-1")
-        assert "worker-1" not in manager.active_workers
-
-    def test_cancel_worker_timeout_does_not_finalize_when_terminate_wait_fails(self, manager):
-        worker = Mock()
-        thread = Mock()
-        thread.isRunning.return_value = True
-        thread.wait.side_effect = [False, False]
-        manager.active_workers["worker-1"] = {"worker": worker, "thread": thread, "auto_cleanup": True}
-        canceled_mock = Mock()
-        manager.worker_canceled.connect(canceled_mock)
+        manager.worker_error.connect(error_mock)
+        manager.worker_terminal.connect(terminal_mock)
 
         result = manager.cancel_worker("worker-1")
 
         assert result is True
         thread.terminate.assert_called_once()
         canceled_mock.assert_not_called()
+        error_mock.assert_called_once()
+        event = terminal_mock.call_args.args[0]
+        assert event.outcome is WorkerOutcome.TERMINATED
+        assert event.cancel_reason is CancelReason.USER_REQUESTED
+        assert "worker-1" not in manager.active_workers
+
+    def test_cancel_worker_timeout_terminate_wait_failure_emits_unresponsive(self, manager):
+        worker = Mock()
+        thread = Mock()
+        thread.isRunning.return_value = True
+        thread.wait.side_effect = [False, False]
+        manager.active_workers["worker-1"] = {"worker": worker, "thread": thread, "auto_cleanup": True}
+        canceled_mock = Mock()
+        error_mock = Mock()
+        terminal_mock = Mock()
+        count_mock = Mock()
+        all_finished_mock = Mock()
+        manager.worker_canceled.connect(canceled_mock)
+        manager.worker_error.connect(error_mock)
+        manager.worker_terminal.connect(terminal_mock)
+        manager.active_worker_count_changed.connect(count_mock)
+        manager.all_workers_finished.connect(all_finished_mock)
+
+        result = manager.cancel_worker("worker-1")
+
+        assert result is True
+        thread.terminate.assert_called_once()
+        canceled_mock.assert_not_called()
+        error_mock.assert_called_once()
+        assert terminal_mock.call_args.args[0].outcome is WorkerOutcome.UNRESPONSIVE
         assert "worker-1" in manager.active_workers
+        assert manager.active_workers["worker-1"]["unresponsive"] is True
+        count_mock.assert_not_called()
+        all_finished_mock.assert_not_called()
+
+    def test_late_terminal_after_unresponsive_removes_active_worker_without_duplicate_event(self, manager):
+        manager.active_workers["worker-1"] = {
+            "worker": Mock(),
+            "thread": Mock(),
+            "auto_cleanup": True,
+            "terminal_emitted": True,
+            "unresponsive": True,
+        }
+        terminal_mock = Mock()
+        count_mock = Mock()
+        all_finished_mock = Mock()
+        manager.worker_terminal.connect(terminal_mock)
+        manager.active_worker_count_changed.connect(count_mock)
+        manager.all_workers_finished.connect(all_finished_mock)
+
+        manager._on_worker_finished("worker-1", {"ok": True})
+
+        terminal_mock.assert_not_called()
+        assert "worker-1" not in manager.active_workers
+        count_mock.assert_called_once_with(0)
+        all_finished_mock.assert_called_once()
 
     def test_on_worker_canceled_removes_active_worker_and_emits_terminal_signals(self, manager):
         manager.active_workers["worker-1"] = {"worker": Mock(), "thread": Mock(), "auto_cleanup": True}
@@ -176,6 +233,8 @@ class TestWorkerManagerCancellation:
         count_mock = Mock()
         all_finished_mock = Mock()
         manager.worker_canceled.connect(canceled_mock)
+        terminal_mock = Mock()
+        manager.worker_terminal.connect(terminal_mock)
         manager.active_worker_count_changed.connect(count_mock)
         manager.all_workers_finished.connect(all_finished_mock)
 
@@ -183,5 +242,6 @@ class TestWorkerManagerCancellation:
 
         assert manager.active_workers == {}
         canceled_mock.assert_called_once_with("worker-1")
+        assert terminal_mock.call_args.args[0].outcome is WorkerOutcome.CANCELED
         count_mock.assert_called_once_with(0)
         all_finished_mock.assert_called_once()

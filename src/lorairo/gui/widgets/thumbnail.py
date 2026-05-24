@@ -26,6 +26,7 @@ from ...utils.log import logger
 from ..cache.thumbnail_page_cache import ThumbnailPageCache
 from ..state.dataset_state import DatasetStateManager
 from ..state.pagination_state import PaginationStateManager
+from ..workers.terminal import CancelReason
 from ..workers.thumbnail_worker import ThumbnailLoadResult
 from .pagination_nav_widget import PaginationNavWidget
 
@@ -516,7 +517,12 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             if not worker_id:
                 continue
             try:
-                self._worker_service.cancel_thumbnail_load(worker_id)
+                reason = (
+                    CancelReason.PREFETCH_REPLACED
+                    if request_id in self._prefetch_request_ids
+                    else CancelReason.THUMBNAIL_REPLACED
+                )
+                self._worker_service.cancel_thumbnail_load(worker_id, reason=reason)
                 canceled_any = True
             except Exception:
                 logger.exception(f"Failed to cancel thumbnail worker: worker_id={worker_id}")
@@ -526,7 +532,10 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             current_worker_id = getattr(self._worker_service, "current_thumbnail_worker_id", None)
             if current_worker_id:
                 try:
-                    self._worker_service.cancel_thumbnail_load(current_worker_id)
+                    self._worker_service.cancel_thumbnail_load(
+                        current_worker_id,
+                        reason=CancelReason.THUMBNAIL_REPLACED,
+                    )
                 except Exception:
                     logger.exception(
                         f"Failed to cancel current thumbnail worker: worker_id={current_worker_id}"

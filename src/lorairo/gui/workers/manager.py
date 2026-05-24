@@ -6,6 +6,7 @@ from PySide6.QtCore import QCoreApplication, QObject, QThread, Signal
 
 from ...utils.log import logger
 from .base import LoRAIroWorkerBase
+from .terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 
 
 class WorkerManager(QObject):
@@ -19,6 +20,7 @@ class WorkerManager(QObject):
     worker_finished = Signal(str, object)  # worker_id, result
     worker_error = Signal(str, str)  # worker_id, error_message
     worker_canceled = Signal(str)  # worker_id
+    worker_terminal = Signal(object)  # WorkerTerminalEvent
 
     # === 全体管理シグナル ===
     all_workers_finished = Signal()
@@ -78,6 +80,9 @@ class WorkerManager(QObject):
             "worker": worker,
             "thread": thread,
             "auto_cleanup": auto_cleanup,
+            "cancel_reason": None,
+            "terminal_emitted": False,
+            "unresponsive": False,
         }
 
         thread.start()
@@ -87,7 +92,11 @@ class WorkerManager(QObject):
         logger.info(f"ワーカー開始: {worker_id} ({worker.__class__.__name__})")
         return True
 
-    def cancel_worker(self, worker_id: str) -> bool:
+    def cancel_worker(
+        self,
+        worker_id: str,
+        reason: CancelReason = CancelReason.USER_REQUESTED,
+    ) -> bool:
         """
         指定ワーカーをキャンセル
 
@@ -102,6 +111,7 @@ class WorkerManager(QObject):
             return False
 
         worker_info = self.active_workers[worker_id]
+        worker_info["cancel_reason"] = reason
         worker_info["worker"].cancel()
 
         # スレッドの適切な終了
@@ -114,18 +124,29 @@ class WorkerManager(QObject):
                 logger.warning(f"キャンセルされたワーカーの終了タイムアウト: {worker_id}")
                 thread.terminate()
                 if thread.wait(1000):  # 強制終了後も1秒待機
-                    self._finalize_canceled_if_no_terminal_signal(worker_id)
+                    self._finalize_canceled_if_no_terminal_signal(
+                        worker_id,
+                        fallback_outcome=WorkerOutcome.TERMINATED,
+                        fallback_error=f"ワーカーを強制終了しました: {worker_id}",
+                    )
                 else:
                     logger.error(f"キャンセルされたワーカーの強制終了失敗: {worker_id}")
+                    self._mark_worker_unresponsive(
+                        worker_id,
+                        error=f"ワーカー強制終了後も停止確認できませんでした: {worker_id}",
+                        cancel_reason=reason,
+                    )
+        else:
+            self._finalize_canceled_if_no_terminal_signal(worker_id)
 
         logger.info(f"ワーカーキャンセル: {worker_id}")
         return True
 
-    def cancel_all_workers(self) -> None:
+    def cancel_all_workers(self, reason: CancelReason = CancelReason.SHUTDOWN) -> None:
         """全ワーカーをキャンセル"""
         worker_ids = list(self.active_workers.keys())
         for worker_id in worker_ids:
-            self.cancel_worker(worker_id)
+            self.cancel_worker(worker_id, reason=reason)
 
         logger.info(f"全ワーカーキャンセル: {len(worker_ids)}個")
 
@@ -190,8 +211,7 @@ class WorkerManager(QObject):
 
     def _on_worker_finished(self, worker_id: str, result: Any) -> None:
         """ワーカー完了イベントハンドラー"""
-        if self._pop_active_worker(worker_id):
-            self.worker_finished.emit(worker_id, result)
+        if self._finalize_terminal(worker_id, WorkerOutcome.SUCCEEDED, result=result):
             logger.info(f"ワーカー完了: {worker_id}")
 
     def _cleanup_thread(self, worker_id: str, thread: QThread) -> None:
@@ -209,24 +229,134 @@ class WorkerManager(QObject):
 
     def _on_worker_error(self, worker_id: str, error: str) -> None:
         """ワーカーエラーイベントハンドラー"""
-        if self._pop_active_worker(worker_id):
-            self.worker_error.emit(worker_id, error)
+        if self._finalize_terminal(worker_id, WorkerOutcome.FAILED, error=error):
             logger.error(f"ワーカーエラー: {worker_id} - {error}")
 
     def _on_worker_canceled(self, worker_id: str) -> None:
         """ワーカーキャンセル完了イベントハンドラー"""
-        if self._pop_active_worker(worker_id):
-            self.worker_canceled.emit(worker_id)
+        cancel_reason = self._get_cancel_reason(worker_id)
+        if self._finalize_terminal(
+            worker_id,
+            WorkerOutcome.CANCELED,
+            cancel_reason=cancel_reason,
+        ):
             logger.info(f"ワーカーキャンセル完了: {worker_id}")
 
-    def _finalize_canceled_if_no_terminal_signal(self, worker_id: str) -> None:
+    def _finalize_canceled_if_no_terminal_signal(
+        self,
+        worker_id: str,
+        *,
+        fallback_outcome: WorkerOutcome = WorkerOutcome.CANCELED,
+        fallback_error: str | None = None,
+    ) -> None:
         """queued terminal signal を優先し、未確定なら cancel fallback で終端する。"""
         app = QCoreApplication.instance()
         if app is not None:
             app.processEvents()
 
         if worker_id in self.active_workers:
-            self._on_worker_canceled(worker_id)
+            self._finalize_terminal(
+                worker_id,
+                fallback_outcome,
+                error=fallback_error,
+                cancel_reason=self._get_cancel_reason(worker_id),
+            )
+
+    def _finalize_terminal(
+        self,
+        worker_id: str,
+        outcome: WorkerOutcome,
+        *,
+        result: Any | None = None,
+        error: str | None = None,
+        cancel_reason: CancelReason | None = None,
+    ) -> bool:
+        """Emit exactly one terminal event for a worker and compatibility signals."""
+        worker_info = self.active_workers.get(worker_id)
+        if worker_info is None:
+            return False
+
+        worker_type = self._resolve_worker_type(worker_id)
+        if cancel_reason is None:
+            cancel_reason = worker_info.get("cancel_reason")
+
+        if worker_info.get("terminal_emitted"):
+            self._pop_active_worker(worker_id)
+            return False
+
+        event = WorkerTerminalEvent(
+            worker_id=worker_id,
+            worker_type=worker_type,
+            outcome=outcome,
+            result=result,
+            error=error,
+            cancel_reason=cancel_reason,
+        )
+        if not self._emit_terminal_once(worker_id, event):
+            return False
+
+        if not self._pop_active_worker(worker_id):
+            return False
+
+        if outcome is WorkerOutcome.SUCCEEDED:
+            self.worker_finished.emit(worker_id, result)
+        elif outcome is WorkerOutcome.FAILED:
+            self.worker_error.emit(worker_id, error or "")
+        elif outcome is WorkerOutcome.CANCELED:
+            self.worker_canceled.emit(worker_id)
+        else:
+            self.worker_error.emit(worker_id, error or f"ワーカー異常終了: {outcome.value}")
+
+        return True
+
+    def _mark_worker_unresponsive(
+        self,
+        worker_id: str,
+        *,
+        error: str,
+        cancel_reason: CancelReason | None = None,
+    ) -> bool:
+        """Emit an abnormal observation but keep the still-running worker tracked."""
+        worker_info = self.active_workers.get(worker_id)
+        if worker_info is None:
+            return False
+
+        worker_info["unresponsive"] = True
+        worker_type = self._resolve_worker_type(worker_id)
+        if cancel_reason is None:
+            cancel_reason = worker_info.get("cancel_reason")
+
+        event = WorkerTerminalEvent(
+            worker_id=worker_id,
+            worker_type=worker_type,
+            outcome=WorkerOutcome.UNRESPONSIVE,
+            error=error,
+            cancel_reason=cancel_reason,
+        )
+        if not self._emit_terminal_once(worker_id, event):
+            return False
+
+        self.worker_error.emit(worker_id, error)
+        return True
+
+    def _emit_terminal_once(self, worker_id: str, event: WorkerTerminalEvent) -> bool:
+        worker_info = self.active_workers.get(worker_id)
+        if worker_info is None or worker_info.get("terminal_emitted"):
+            return False
+
+        worker_info["terminal_emitted"] = True
+        self.worker_terminal.emit(event)
+        return True
+
+    def _get_cancel_reason(self, worker_id: str) -> CancelReason | None:
+        worker_info = self.active_workers.get(worker_id)
+        return worker_info.get("cancel_reason") if worker_info else None
+
+    def _resolve_worker_type(self, worker_id: str) -> str:
+        for prefix in ("batch_reg_", "batch_import_", "annotation_", "search_", "thumbnail_"):
+            if worker_id.startswith(prefix):
+                return prefix.rstrip("_")
+        return "unknown"
 
     def _pop_active_worker(self, worker_id: str) -> bool:
         """ワーカー終端を一度だけ確定し、管理状態を更新する。"""
@@ -276,6 +406,7 @@ class WorkerManager(QObject):
                     "class_name": worker_info["worker"].__class__.__name__,
                     "status": worker_info["worker"].status.value,
                     "auto_cleanup": worker_info["auto_cleanup"],
+                    "unresponsive": worker_info.get("unresponsive", False),
                 }
                 for worker_id, worker_info in self.active_workers.items()
             },

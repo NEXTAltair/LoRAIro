@@ -16,6 +16,7 @@ from PySide6.QtGui import QImage
 from lorairo.gui.state.dataset_state import DatasetStateManager
 from lorairo.gui.widgets.thumbnail import ThumbnailSelectorWidget
 from lorairo.gui.workers.search_worker import SearchResult
+from lorairo.gui.workers.terminal import CancelReason
 from lorairo.gui.workers.thumbnail_worker import ThumbnailLoadResult
 from lorairo.services.search_models import SearchConditions
 
@@ -809,7 +810,10 @@ class TestThumbnailSelectorWidgetPagination:
         widget.page_cache.set_page(1, [])
         widget._display_or_request_page(1, cancel_previous=True)
 
-        worker_service.cancel_thumbnail_load.assert_called_with("thumbnail_req_1")
+        worker_service.cancel_thumbnail_load.assert_called_with(
+            "thumbnail_req_1",
+            reason=CancelReason.THUMBNAIL_REPLACED,
+        )
         assert widget._display_request_id is None
         assert widget._request_id_to_page == {}
         assert widget._request_id_to_worker_id == {}
