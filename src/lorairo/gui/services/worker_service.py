@@ -270,6 +270,8 @@ class WorkerService(QObject):
         worker_id = f"search_{uuid.uuid4().hex[:8]}"
         self._search_generation += 1
         self._register_operation(worker_id, OperationType.SEARCH, generation=self._search_generation)
+        previous_search_worker_id = self.current_search_worker_id
+        self.current_search_worker_id = worker_id
 
         # 進捗シグナル接続
         worker.progress_updated.connect(
@@ -282,11 +284,12 @@ class WorkerService(QObject):
         )
 
         if self.worker_manager.start_worker(worker_id, worker):
-            self.current_search_worker_id = worker_id
             logger.info(f"検索開始: {search_conditions} (ID: {worker_id})")
             return worker_id
         else:
             self._worker_operations.pop(worker_id, None)
+            if self.current_search_worker_id == worker_id:
+                self.current_search_worker_id = previous_search_worker_id
             raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
 
     def cancel_search(
@@ -331,6 +334,8 @@ class WorkerService(QObject):
         worker_id = f"thumbnail_{uuid.uuid4().hex[:8]}"
         self._thumbnail_generation += 1
         self._register_operation(worker_id, OperationType.THUMBNAIL, generation=self._thumbnail_generation)
+        previous_thumbnail_worker_id = self.current_thumbnail_worker_id
+        self.current_thumbnail_worker_id = worker_id
 
         # 進捗シグナル接続
         worker.progress_updated.connect(
@@ -338,7 +343,6 @@ class WorkerService(QObject):
         )
 
         if self.worker_manager.start_worker(worker_id, worker):
-            self.current_thumbnail_worker_id = worker_id
             logger.info(
                 f"サムネイル読み込み開始: {len(search_result.image_metadata)}件, "
                 f"サイズ={thumbnail_size.width()}x{thumbnail_size.height()} (ID: {worker_id})"
@@ -346,6 +350,8 @@ class WorkerService(QObject):
             return worker_id
         else:
             self._worker_operations.pop(worker_id, None)
+            if self.current_thumbnail_worker_id == worker_id:
+                self.current_thumbnail_worker_id = previous_thumbnail_worker_id
             raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
 
     def cancel_thumbnail_load(
@@ -413,13 +419,14 @@ class WorkerService(QObject):
             request_id=request_id,
             generation=self._thumbnail_generation,
         )
+        previous_thumbnail_worker_id = self.current_thumbnail_worker_id
+        self.current_thumbnail_worker_id = worker_id
 
         worker.progress_updated.connect(
             lambda progress: self.worker_progress_updated.emit(worker_id, progress)
         )
 
         if self.worker_manager.start_worker(worker_id, worker):
-            self.current_thumbnail_worker_id = worker_id
             logger.info(
                 f"ページサムネイル読み込み開始: page={page_num}, count={len(image_ids)}, "
                 f"request_id={request_id}, cancel_previous={cancel_previous} (ID: {worker_id})"
@@ -427,6 +434,8 @@ class WorkerService(QObject):
             return worker_id
 
         self._worker_operations.pop(worker_id, None)
+        if self.current_thumbnail_worker_id == worker_id:
+            self.current_thumbnail_worker_id = previous_thumbnail_worker_id
         raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
 
     def start_batch_import(

@@ -9,6 +9,7 @@ from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QCompleter, QScrollArea, QWidget
 
 from ...gui.designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
+from ...gui.services.operation_events import OperationOutcome, OperationType, WorkerOperationEvent
 from ...utils.log import logger
 from .custom_range_slider import CustomRangeSlider
 
@@ -733,14 +734,28 @@ class FilterSearchPanel(QScrollArea):
 
         # WorkerServiceのシグナル接続（検索専用）
         if self.worker_service:
-            self.worker_service.search_finished.connect(self._on_search_finished)
-            self.worker_service.search_error.connect(self._on_search_error)
-            self.worker_service.search_canceled.connect(self._on_search_canceled)
+            self.worker_service.operation_event.connect(self._on_worker_operation_event)
 
             # Option B: バッチ進捗シグナル接続を追加
             self.worker_service.worker_batch_progress.connect(self._on_worker_batch_progress)
 
         logger.debug("WorkerService set for FilterSearchPanel")
+
+    def _on_worker_operation_event(self, event: WorkerOperationEvent) -> None:
+        """検索 operation event から検索パネル状態を更新する。"""
+        if event.operation_type is not OperationType.SEARCH or not event.is_current:
+            return
+
+        if event.outcome is OperationOutcome.SUCCEEDED:
+            self._on_search_finished(event.result)
+        elif event.outcome in {
+            OperationOutcome.FAILED,
+            OperationOutcome.TERMINATED,
+            OperationOutcome.UNRESPONSIVE,
+        }:
+            self._on_search_error(event.error or f"検索処理が終了しました: {event.outcome.value}")
+        elif event.outcome is OperationOutcome.CANCELED:
+            self._on_search_canceled(event.worker_id)
 
     def _on_search_finished(self, result: Any) -> None:
         """検索完了イベント処理（SearchResult/dataclass想定）"""

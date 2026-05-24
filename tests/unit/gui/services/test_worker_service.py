@@ -181,6 +181,37 @@ class TestWorkerService:
         assert worker_service.current_search_worker_id == worker_id
 
     @patch("lorairo.gui.services.worker_service.SearchWorker")
+    def test_start_search_marks_current_before_fast_terminal_event(self, mock_worker_class, worker_service):
+        """start_worker 中に即完了しても operation event は current として扱う"""
+        mock_worker_class.return_value = Mock()
+        operation_mock = Mock()
+        worker_service.operation_event.connect(operation_mock)
+
+        def finish_during_start(worker_id, _worker):
+            worker_service._on_worker_terminal(
+                WorkerTerminalEvent(
+                    worker_id=worker_id,
+                    worker_type="search",
+                    outcome=WorkerOutcome.SUCCEEDED,
+                    result={"ok": True},
+                )
+            )
+            return True
+
+        worker_service.worker_manager.start_worker.side_effect = finish_during_start
+
+        worker_id = worker_service.start_search(
+            SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+        )
+
+        operation_event = operation_mock.call_args.args[0]
+        assert operation_event.worker_id == worker_id
+        assert operation_event.operation_type is OperationType.SEARCH
+        assert operation_event.outcome is OperationOutcome.SUCCEEDED
+        assert operation_event.is_current is True
+        assert worker_service.current_search_worker_id is None
+
+    @patch("lorairo.gui.services.worker_service.SearchWorker")
     def test_start_search_failure_after_cancel_clears_current_worker_id(
         self, mock_worker_class, worker_service
     ):
@@ -265,6 +296,43 @@ class TestWorkerService:
         suffix = worker_id.split("_")[-1]
         assert len(suffix) == 8 and bool(re.match(r"^[0-9a-f]{8}$", suffix))
         assert worker_service.current_thumbnail_worker_id == worker_id
+
+    @patch("lorairo.gui.services.worker_service.ThumbnailWorker")
+    def test_start_thumbnail_loading_marks_current_before_fast_terminal_event(
+        self, mock_worker_class, worker_service
+    ):
+        """start_worker 中に即完了しても thumbnail operation event は current として扱う"""
+        mock_worker_class.return_value = Mock()
+        operation_mock = Mock()
+        worker_service.operation_event.connect(operation_mock)
+        search_result = SearchResult(
+            image_metadata=[{"id": 1, "path": "/test/image1.jpg"}],
+            total_count=1,
+            search_time=0.1,
+            filter_conditions=SearchConditions(search_type="tags", keywords=[], tag_logic="and"),
+        )
+
+        def finish_during_start(worker_id, _worker):
+            worker_service._on_worker_terminal(
+                WorkerTerminalEvent(
+                    worker_id=worker_id,
+                    worker_type="thumbnail",
+                    outcome=WorkerOutcome.SUCCEEDED,
+                    result={"page": 1},
+                )
+            )
+            return True
+
+        worker_service.worker_manager.start_worker.side_effect = finish_during_start
+
+        worker_id = worker_service.start_thumbnail_load(search_result, QSize(150, 150))
+
+        operation_event = operation_mock.call_args.args[0]
+        assert operation_event.worker_id == worker_id
+        assert operation_event.operation_type is OperationType.THUMBNAIL
+        assert operation_event.outcome is OperationOutcome.SUCCEEDED
+        assert operation_event.is_current is True
+        assert worker_service.current_thumbnail_worker_id is None
 
     @patch("lorairo.gui.services.worker_service.ThumbnailWorker")
     def test_start_thumbnail_loading_returns_new_worker_id(self, mock_worker_class, worker_service):
