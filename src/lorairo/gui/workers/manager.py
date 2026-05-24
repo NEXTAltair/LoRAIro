@@ -17,6 +17,8 @@ class WorkerManager(QObject):
 
     # === ワーカー管理シグナル ===
     worker_started = Signal(str)  # worker_id
+    # Compatibility signals derived from worker_terminal. New code should consume
+    # worker_terminal so it can inspect outcome and cancel_reason.
     worker_finished = Signal(str, object)  # worker_id, result
     worker_error = Signal(str, str)  # worker_id, error_message
     worker_canceled = Signal(str)  # worker_id
@@ -271,7 +273,7 @@ class WorkerManager(QObject):
         error: str | None = None,
         cancel_reason: CancelReason | None = None,
     ) -> bool:
-        """Emit exactly one terminal event for a worker and compatibility signals."""
+        """Emit exactly one worker fact terminal event and derived compatibility signals."""
         worker_info = self.active_workers.get(worker_id)
         if worker_info is None:
             return False
@@ -298,14 +300,7 @@ class WorkerManager(QObject):
         if not self._pop_active_worker(worker_id):
             return False
 
-        if outcome is WorkerOutcome.SUCCEEDED:
-            self.worker_finished.emit(worker_id, result)
-        elif outcome is WorkerOutcome.FAILED:
-            self.worker_error.emit(worker_id, error or "")
-        elif outcome is WorkerOutcome.CANCELED:
-            self.worker_canceled.emit(worker_id)
-        else:
-            self.worker_error.emit(worker_id, error or f"ワーカー異常終了: {outcome.value}")
+        self._emit_compat_terminal_signal(event)
 
         return True
 
@@ -336,7 +331,7 @@ class WorkerManager(QObject):
         if not self._emit_terminal_once(worker_id, event):
             return False
 
-        self.worker_error.emit(worker_id, error)
+        self._emit_compat_terminal_signal(event)
         return True
 
     def _emit_terminal_once(self, worker_id: str, event: WorkerTerminalEvent) -> bool:
@@ -347,6 +342,18 @@ class WorkerManager(QObject):
         worker_info["terminal_emitted"] = True
         self.worker_terminal.emit(event)
         return True
+
+    def _emit_compat_terminal_signal(self, event: WorkerTerminalEvent) -> None:
+        """Emit legacy manager signals from the canonical worker terminal fact."""
+        if event.outcome is WorkerOutcome.SUCCEEDED:
+            self.worker_finished.emit(event.worker_id, event.result)
+        elif event.outcome is WorkerOutcome.CANCELED:
+            self.worker_canceled.emit(event.worker_id)
+        else:
+            self.worker_error.emit(
+                event.worker_id,
+                event.error or f"ワーカー異常終了: {event.outcome.value}",
+            )
 
     def _get_cancel_reason(self, worker_id: str) -> CancelReason | None:
         worker_info = self.active_workers.get(worker_id)

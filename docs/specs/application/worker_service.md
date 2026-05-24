@@ -50,6 +50,11 @@ src/lorairo/gui/
 
 ## 3. 責務
 
+Worker 系 signal の lifecycle 境界は [ADR 0034](../../decisions/0034-worker-operation-pipeline-lifecycle.md)
+に従います。`WorkerManager` は worker の事実イベントだけを扱い、`WorkerService` が
+operation/request lifecycle へ変換し、pipeline UI は operation event を authoritative input として
+扱います。
+
 - **タスク実行:** 割り当てられた特定の非同期タスク（AI アノテーション、画像読み込み、設定の保存など）を実行します。
 - **結果通知:** タスク完了時、`WorkerManager.worker_terminal` が `WorkerTerminalEvent` を一度だけ通知します。既存の `worker_finished` / `worker_error` / `worker_canceled` は互換用 signal です。
 - **進捗通知:** (任意) タスク実行中に、`progress` シグナルを通じて進捗状況（通常 0-100 のパーセンテージ）を通知します。
@@ -63,6 +68,24 @@ src/lorairo/gui/
 - `CancelReason` は `USER_REQUESTED`, `PIPELINE_CANCEL`, `SEARCH_REPLACED`, `THUMBNAIL_REPLACED`, `PREFETCH_REPLACED`, `PROGRESS_DIALOG`, `SHUTDOWN`, `TIMEOUT_FALLBACK` を定義します。
 - `WorkerManager` は worker ごとに terminal event を一度だけ確定します。cancel 要求後に queued `finished` / `error_occurred` が届いている場合は、その terminal を cancel fallback より優先します。
 - thumbnail replacement / prefetch cancellation は検索結果を破棄しません。明示的な pipeline cancel は検索結果とサムネイル表示を破棄します。
+
+### 3.2 Operation Event Migration Contract
+
+- `WorkerTerminalEvent` は UI cleanup の所有者ではありません。worker の事実を `WorkerService` へ渡すための event です。
+- `WorkerService` は `operation_id` / `request_id` / `generation` により current operation と superseded operation を区別します。
+- `search_error(str)` / `thumbnail_error(str)` などの worker 種別別 signal は移行用 adapter です。新規 UI は operation event を購読します。
+- compat signal から UI cleanup を直接増やしてはいけません。search/thumbnail pipeline cleanup は operation event 経路へ集約します。
+- progress dialog close は terminal handling 側で一度だけ実行します。compat signal の購読者は progress close の所有者ではありません。
+
+### 3.3 Compat Signal Audit
+
+`WorkerService` が公開する `search_error(str)` / `thumbnail_error(str)` などの既存 signal は、
+`WorkerTerminalEvent` から派生する移行用 adapter です。#434 の operation lifecycle 移行で
+search / thumbnail pipeline は operation event 主導へ移し、batch registration / batch import /
+enhanced annotation は後続 issue まで adapter 維持とします。
+
+詳細な購読者、役割、移行判断は
+[`worker_signal_compat_audit.md`](worker_signal_compat_audit.md) を参照してください。
 
 ## 4. 実装ガイドライン
 

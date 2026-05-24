@@ -13,6 +13,7 @@ from typing import Any
 
 from loguru import logger
 
+from lorairo.gui.services.operation_events import OperationOutcome, OperationType, WorkerOperationEvent
 from lorairo.gui.services.worker_service import WorkerService
 from lorairo.gui.workers.search_worker import SearchResult
 from lorairo.gui.workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
@@ -45,6 +46,53 @@ class PipelineControlService:
     # ============================================================
     # パイプライン連鎖ロジック
     # ============================================================
+
+    def on_operation_event(self, event: WorkerOperationEvent) -> None:
+        """Handle search/thumbnail pipeline lifecycle from operation events."""
+        if event.operation_type is OperationType.SEARCH:
+            self._handle_search_operation_event(event)
+        elif event.operation_type is OperationType.THUMBNAIL:
+            self._handle_thumbnail_operation_event(event)
+
+    def _handle_search_operation_event(self, event: WorkerOperationEvent) -> None:
+        if event.outcome is OperationOutcome.STARTED:
+            self.on_search_started(event.worker_id)
+        elif event.outcome is OperationOutcome.SUCCEEDED and event.is_current:
+            self.on_search_completed(event.result)
+        elif (
+            event.outcome
+            in {
+                OperationOutcome.FAILED,
+                OperationOutcome.TERMINATED,
+                OperationOutcome.UNRESPONSIVE,
+            }
+            and event.is_current
+        ):
+            self.on_search_error(event.error or f"Search operation ended: {event.outcome.value}")
+        elif event.outcome is OperationOutcome.CANCELED and event.is_current:
+            self.on_search_canceled(event.worker_id)
+        elif event.outcome is OperationOutcome.SUPERSEDED:
+            logger.debug(f"Superseded search operation ignored: {event.worker_id}")
+
+    def _handle_thumbnail_operation_event(self, event: WorkerOperationEvent) -> None:
+        if event.outcome is OperationOutcome.STARTED:
+            self.on_thumbnail_started(event.worker_id)
+        elif event.outcome is OperationOutcome.SUCCEEDED and event.is_current:
+            self.on_thumbnail_completed(event.result)
+        elif (
+            event.outcome
+            in {
+                OperationOutcome.FAILED,
+                OperationOutcome.TERMINATED,
+                OperationOutcome.UNRESPONSIVE,
+            }
+            and event.is_current
+        ):
+            self.on_thumbnail_error(event.error or f"Thumbnail operation ended: {event.outcome.value}")
+        elif event.outcome is OperationOutcome.CANCELED and event.is_current:
+            self.on_thumbnail_canceled(event.worker_id)
+        elif event.outcome is OperationOutcome.SUPERSEDED:
+            logger.debug(f"Superseded thumbnail operation ignored: {event.worker_id}")
 
     def on_search_completed(self, search_result: Any) -> None:
         """SearchWorker完了時にページネーション初期化を実行

@@ -7,6 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from lorairo.gui.services.operation_events import OperationOutcome, OperationType, WorkerOperationEvent
 from lorairo.gui.services.pipeline_control_service import PipelineControlService
 from lorairo.gui.workers.search_worker import SearchResult
 from lorairo.gui.workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
@@ -436,3 +437,62 @@ class TestPipelineFlow:
         mock_thumbnail_selector.clear_thumbnails.assert_not_called()
         mock_filter_panel.clear_pipeline_results.assert_not_called()
         mock_filter_panel.hide_progress_after_completion.assert_not_called()
+
+    def test_on_operation_event_current_search_success_starts_thumbnail(
+        self, service, mock_thumbnail_selector
+    ):
+        result = SearchResult(
+            image_metadata=[{"id": 1}],
+            total_count=1,
+            search_time=0.1,
+            filter_conditions=SearchConditions(search_type="tags", keywords=["x"], tag_logic="and"),
+        )
+        event = WorkerOperationEvent(
+            operation_id="search_1",
+            operation_type=OperationType.SEARCH,
+            worker_id="search-1",
+            outcome=OperationOutcome.SUCCEEDED,
+            is_current=True,
+            result=result,
+        )
+
+        service.on_operation_event(event)
+
+        mock_thumbnail_selector.initialize_pagination_search.assert_called_once()
+
+    def test_on_operation_event_superseded_search_does_not_clear_results(
+        self, service, mock_thumbnail_selector, mock_filter_panel
+    ):
+        event = WorkerOperationEvent(
+            operation_id="search_1",
+            operation_type=OperationType.SEARCH,
+            worker_id="search-old",
+            outcome=OperationOutcome.SUPERSEDED,
+            is_current=False,
+            error="old failed",
+        )
+
+        service.on_operation_event(event)
+
+        mock_thumbnail_selector.clear_thumbnails.assert_not_called()
+        mock_filter_panel.clear_pipeline_results.assert_not_called()
+        mock_filter_panel.handle_pipeline_error.assert_not_called()
+
+    def test_on_operation_event_current_thumbnail_failure_cleans_once(
+        self, service, mock_thumbnail_selector, mock_filter_panel
+    ):
+        event = WorkerOperationEvent(
+            operation_id="thumbnail_1",
+            operation_type=OperationType.THUMBNAIL,
+            worker_id="thumbnail-current",
+            outcome=OperationOutcome.FAILED,
+            is_current=True,
+            error="thumb failed",
+        )
+
+        service.on_operation_event(event)
+
+        mock_thumbnail_selector.clear_thumbnails.assert_called_once()
+        mock_filter_panel.handle_pipeline_error.assert_called_once_with(
+            "thumbnail", {"message": "thumb failed"}
+        )

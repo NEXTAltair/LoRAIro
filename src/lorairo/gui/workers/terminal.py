@@ -6,7 +6,7 @@ from typing import Any
 
 
 class WorkerOutcome(Enum):
-    """Authoritative terminal outcome for a worker."""
+    """Authoritative worker lifecycle outcome observed by WorkerManager."""
 
     SUCCEEDED = "succeeded"
     FAILED = "failed"
@@ -31,7 +31,7 @@ class CancelReason(Enum):
 
 @dataclass(frozen=True)
 class WorkerTerminalEvent:
-    """Single terminal event emitted once per worker."""
+    """Single worker fact event emitted once per worker observation."""
 
     worker_id: str
     worker_type: str

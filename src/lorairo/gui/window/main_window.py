@@ -644,14 +644,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # Verify WorkerService has required signals
         required_signals = [
-            "search_finished",
-            "search_started",
-            "search_error",
-            "search_canceled",
-            "thumbnail_finished",
-            "thumbnail_started",
-            "thumbnail_error",
-            "thumbnail_canceled",
             "batch_registration_started",
             "batch_registration_finished",
             "batch_registration_error",
@@ -664,7 +656,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             "enhanced_annotation_canceled",
             "worker_progress_updated",
             "worker_batch_progress",
-            "worker_terminal",
+            "operation_event",
         ]
 
         missing_signals = [
@@ -675,18 +667,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"WorkerService missing required signals: {missing_signals}")
             return
 
-        # Core pipeline connections
-        self.worker_service.search_finished.connect(self._on_search_completed_start_thumbnail)
-        self.worker_service.thumbnail_finished.connect(self._on_thumbnail_completed_update_display)
-
-        # Progress tracking connections
-        self.worker_service.search_started.connect(self._on_pipeline_search_started)
-        self.worker_service.thumbnail_started.connect(self._on_pipeline_thumbnail_started)
-
-        # Error handling connections
-        self.worker_service.search_error.connect(self._on_pipeline_search_error)
-        self.worker_service.thumbnail_error.connect(self._on_pipeline_thumbnail_error)
-        self.worker_service.worker_terminal.connect(self._on_worker_terminal)
+        # Search/thumbnail pipeline lifecycle is driven by operation events.
+        self.worker_service.operation_event.connect(self._on_worker_operation_event)
 
         # Batch registration connections
         self.worker_service.batch_registration_started.connect(self._on_batch_registration_started)
@@ -708,7 +690,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.worker_service.worker_progress_updated.connect(self._on_worker_progress_updated)
         self.worker_service.worker_batch_progress.connect(self._on_worker_batch_progress)
 
-        logger.info("WorkerService pipeline signals connected (17 connections)")
+        logger.info("WorkerService pipeline signals connected")
 
     def _delegate_to_pipeline_control(self, method_name: str, *args: Any) -> None:
         """PipelineControlServiceへのイベント委譲ヘルパー"""
@@ -750,6 +732,24 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _on_worker_terminal(self, event: Any) -> None:
         """Route terminal events with outcome and reason details."""
         self._delegate_to_pipeline_control("on_worker_terminal", event)
+
+    def _on_worker_operation_event(self, event: Any) -> None:
+        """Route operation lifecycle events to pipeline control."""
+        self._delegate_to_pipeline_control("on_operation_event", event)
+        operation_type = getattr(getattr(event, "operation_type", None), "value", None)
+        if (
+            operation_type in {"search", "thumbnail"}
+            and getattr(event, "is_current", False)
+            and getattr(event, "outcome", None)
+            and getattr(event.outcome, "value", None)
+            in {
+                "failed",
+                "terminated",
+                "unresponsive",
+            }
+        ):
+            if self.error_notification_widget:
+                self.error_notification_widget.update_error_count()
 
     def _delegate_to_progress_state(self, method_name: str, *args: Any) -> None:
         """ProgressStateServiceへのイベント委譲ヘルパー"""
