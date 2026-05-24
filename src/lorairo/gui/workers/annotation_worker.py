@@ -88,7 +88,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
     ビジネスロジックはAnnotationLogicに委譲
 
     主要機能:
-    - Qt QRunnableベースの非同期実行
+    - QObject + QThreadベースの非同期実行
     - 進捗レポート（Signal経由）
     - キャンセル対応
     - AnnotationLogic呼び出し
