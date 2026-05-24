@@ -185,7 +185,7 @@ class ModernProgressManager(QObject):
         dialog = self._progress_dialogs.get(worker_id)
         if dialog:
             dialog.setLabelText("キャンセル処理中...")
-            dialog.setCancelButton(None)  # キャンセルボタン無効化  # キャンセルボタン無効化
+            dialog.setCancelButton(None)  # キャンセルボタン無効化
 
     def _close_dialog(self, worker_id: str) -> None:
         """ダイアログクローズとリソース解放"""
