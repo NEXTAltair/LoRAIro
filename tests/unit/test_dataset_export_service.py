@@ -875,3 +875,404 @@ class TestExportWithCriteria:
                 criteria=criteria,
                 image_ids=[1, 2, 3],
             )
+
+
+# ---------------------------------------------------------------------------
+# 追加フィクスチャ・ヘルパー (エラーパステスト用)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def mock_config_service() -> MagicMock:
+    """ConfigurationService のモック。"""
+    return MagicMock()
+
+
+@pytest.fixture()
+def mock_file_system_manager() -> MagicMock:
+    """FileSystemManager のモック。"""
+    return MagicMock()
+
+
+@pytest.fixture()
+def mock_db_manager() -> MagicMock:
+    """ImageDatabaseManager のモック。"""
+    return MagicMock()
+
+
+@pytest.fixture()
+def mock_search_processor() -> MagicMock:
+    """SearchCriteriaProcessor のモック。"""
+    return MagicMock()
+
+
+@pytest.fixture()
+def service(
+    mock_config_service: MagicMock,
+    mock_file_system_manager: MagicMock,
+    mock_db_manager: MagicMock,
+    mock_search_processor: MagicMock,
+) -> DatasetExportService:
+    """DatasetExportService インスタンスを返す。"""
+    return DatasetExportService(
+        config_service=mock_config_service,
+        file_system_manager=mock_file_system_manager,
+        db_manager=mock_db_manager,
+        search_processor=mock_search_processor,
+    )
+
+
+def _make_processed_metadata(path: str) -> dict:
+    """check_processed_image_exists が返す辞書を生成する。"""
+    return {"stored_image_path": path}
+
+
+def _make_image_annotations(
+    tags: list[str] | None = None,
+    captions: list[str] | None = None,
+) -> dict:
+    """get_image_annotations が返す辞書を生成する。"""
+    tag_list = [{"tag": t} for t in (tags or ["1girl"])]
+    caption_list = [{"caption": c} for c in (captions or [])]
+    return {
+        "tags": tag_list,
+        "captions": caption_list,
+        "score_labels": [],
+        "quality_summary": {},
+    }
+
+
+# ---------------------------------------------------------------------------
+# export_dataset_txt_format
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestExportDatasetTxtFormat:
+    """export_dataset_txt_format のテスト。"""
+
+    def test_raises_value_error_when_image_ids_empty(
+        self, service: DatasetExportService, tmp_path: Path
+    ) -> None:
+        """image_ids が空リストのとき ValueError を送出する。"""
+        with pytest.raises(ValueError, match="image_ids list cannot be empty"):
+            service.export_dataset_txt_format([], tmp_path)
+
+    def test_creates_output_directory_when_missing(
+        self,
+        service: DatasetExportService,
+        mock_db_manager: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """output_path が存在しない場合は自動作成される (line 82)。"""
+        output_path = tmp_path / "new_output"
+        assert not output_path.exists()
+        mock_db_manager.check_processed_image_exists.return_value = None
+        result = service.export_dataset_txt_format([1], output_path)
+        assert output_path.exists()
+        assert result == output_path
+
+    def test_skips_image_when_no_export_data(
+        self,
+        service: DatasetExportService,
+        mock_db_manager: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """export data が取得できない場合はスキップされる (lines 100-101)。"""
+        processed_path = tmp_path / "img.png"
+        processed_path.touch()
+        mock_db_manager.check_processed_image_exists.return_value = _make_processed_metadata(
+            str(processed_path)
+        )
+        mock_db_manager.get_image_metadata.return_value = None
+        with patch(
+            "lorairo.services.dataset_export_service.resolve_stored_path",
+            return_value=processed_path,
+        ):
+            result = service.export_dataset_txt_format([1], tmp_path)
+        assert result == tmp_path
+
+    def test_continues_on_per_image_exception(
+        self,
+        service: DatasetExportService,
+        mock_db_manager: MagicMock,
+        mock_file_system_manager: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """個別画像の処理で例外が起きても continue して完了する (lines 134-136)。"""
+        processed_path = tmp_path / "img.png"
+        processed_path.touch()
+        mock_db_manager.check_processed_image_exists.return_value = _make_processed_metadata(
+            str(processed_path)
+        )
+        mock_db_manager.get_image_metadata.return_value = {"id": 1}
+        mock_db_manager.get_image_annotations.return_value = _make_image_annotations()
+        mock_file_system_manager.copy_file.side_effect = OSError("copy failed")
+        with patch(
+            "lorairo.services.dataset_export_service.resolve_stored_path",
+            return_value=processed_path,
+        ):
+            result = service.export_dataset_txt_format([1], tmp_path)
+        assert result == tmp_path
+
+
+# ---------------------------------------------------------------------------
+# export_dataset_json_format
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestExportDatasetJsonFormat:
+    """export_dataset_json_format のテスト。"""
+
+    def test_raises_value_error_when_image_ids_empty(
+        self, service: DatasetExportService, tmp_path: Path
+    ) -> None:
+        """image_ids が空リストのとき ValueError を送出する。"""
+        with pytest.raises(ValueError, match="image_ids list cannot be empty"):
+            service.export_dataset_json_format([], tmp_path)
+
+    def test_creates_output_directory_when_missing(
+        self,
+        service: DatasetExportService,
+        mock_db_manager: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """output_path が存在しない場合は自動作成される (line 170)。"""
+        output_path = tmp_path / "new_json_output"
+        assert not output_path.exists()
+        mock_db_manager.check_processed_image_exists.return_value = None
+        result = service.export_dataset_json_format([1], output_path)
+        assert output_path.exists()
+        assert result == output_path
+
+    def test_skips_image_when_no_export_data(
+        self,
+        service: DatasetExportService,
+        mock_db_manager: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """export data が取得できない場合はスキップされる (lines 192-193)。"""
+        processed_path = tmp_path / "img.png"
+        processed_path.touch()
+        mock_db_manager.check_processed_image_exists.return_value = _make_processed_metadata(
+            str(processed_path)
+        )
+        mock_db_manager.get_image_metadata.return_value = None
+        with patch(
+            "lorairo.services.dataset_export_service.resolve_stored_path",
+            return_value=processed_path,
+        ):
+            result = service.export_dataset_json_format([1], tmp_path)
+        assert result == tmp_path
+
+    def test_continues_on_per_image_exception(
+        self,
+        service: DatasetExportService,
+        mock_db_manager: MagicMock,
+        mock_file_system_manager: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """個別画像の処理で例外が起きても continue して完了する (lines 227-229)。"""
+        processed_path = tmp_path / "img.png"
+        processed_path.touch()
+        mock_db_manager.check_processed_image_exists.return_value = _make_processed_metadata(
+            str(processed_path)
+        )
+        mock_db_manager.get_image_metadata.return_value = {"id": 1}
+        mock_db_manager.get_image_annotations.return_value = _make_image_annotations()
+        mock_file_system_manager.copy_file.side_effect = OSError("copy failed")
+        with patch(
+            "lorairo.services.dataset_export_service.resolve_stored_path",
+            return_value=processed_path,
+        ):
+            result = service.export_dataset_json_format([1], tmp_path)
+        assert (tmp_path / "metadata.json").exists()
+        assert result == tmp_path
+
+
+# ---------------------------------------------------------------------------
+# _resolve_processed_image_path
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestResolveProcessedImagePath:
+    """_resolve_processed_image_path の境界ケースをテスト。"""
+
+    def test_returns_none_when_no_processed_metadata(
+        self, service: DatasetExportService, mock_db_manager: MagicMock
+    ) -> None:
+        """check_processed_image_exists が None → None を返す。"""
+        mock_db_manager.check_processed_image_exists.return_value = None
+        result = service._resolve_processed_image_path(1, 512)
+        assert result is None
+
+    def test_returns_none_when_stored_path_missing_from_metadata(
+        self, service: DatasetExportService, mock_db_manager: MagicMock
+    ) -> None:
+        """stored_image_path キーなし → None を返す (lines 351-352)。"""
+        mock_db_manager.check_processed_image_exists.return_value = {"other_key": "value"}
+        result = service._resolve_processed_image_path(1, 512)
+        assert result is None
+
+    def test_returns_none_when_resolved_path_does_not_exist(
+        self, service: DatasetExportService, mock_db_manager: MagicMock, tmp_path: Path
+    ) -> None:
+        """resolve_stored_path が存在しないパスを返す → None (lines 356-357)。"""
+        nonexistent = tmp_path / "ghost_image.png"
+        assert not nonexistent.exists()
+        mock_db_manager.check_processed_image_exists.return_value = _make_processed_metadata(
+            str(nonexistent)
+        )
+        with patch(
+            "lorairo.services.dataset_export_service.resolve_stored_path",
+            return_value=nonexistent,
+        ):
+            result = service._resolve_processed_image_path(1, 512)
+        assert result is None
+
+    def test_returns_none_on_exception(
+        self, service: DatasetExportService, mock_db_manager: MagicMock
+    ) -> None:
+        """check_processed_image_exists が例外 → None を返す (lines 361-363)。"""
+        mock_db_manager.check_processed_image_exists.side_effect = RuntimeError("db error")
+        result = service._resolve_processed_image_path(1, 512)
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _get_image_export_data
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestGetImageExportData:
+    """_get_image_export_data のテスト。"""
+
+    def test_returns_none_when_metadata_missing(
+        self, service: DatasetExportService, mock_db_manager: MagicMock
+    ) -> None:
+        """get_image_metadata が None → None を返す。"""
+        mock_db_manager.get_image_metadata.return_value = None
+        result = service._get_image_export_data(1)
+        assert result is None
+
+    def test_returns_none_on_exception(
+        self, service: DatasetExportService, mock_db_manager: MagicMock
+    ) -> None:
+        """get_image_metadata が例外 → None を返す (lines 393-395)。"""
+        mock_db_manager.get_image_metadata.side_effect = RuntimeError("db error")
+        result = service._get_image_export_data(1)
+        assert result is None
+
+    def test_returns_data_dict_on_success(
+        self, service: DatasetExportService, mock_db_manager: MagicMock
+    ) -> None:
+        """正常ケース: metadata + annotations を辞書で返す。"""
+        mock_db_manager.get_image_metadata.return_value = {"id": 1, "file_path": "/img.png"}
+        mock_db_manager.get_image_annotations.return_value = _make_image_annotations(
+            tags=["1girl"], captions=["caption"]
+        )
+        result = service._get_image_export_data(1)
+        assert result is not None
+        assert result["tags"] == [{"tag": "1girl"}]
+        assert result["captions"] == [{"caption": "caption"}]
+        assert "metadata" in result
+
+
+# ---------------------------------------------------------------------------
+# export_filtered_dataset
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestExportFilteredDataset:
+    """export_filtered_dataset のテスト。"""
+
+    def test_returns_output_path_when_no_image_ids(
+        self, service: DatasetExportService, tmp_path: Path
+    ) -> None:
+        """image_ids が空リストのとき output_path をそのまま返す。"""
+        result = service.export_filtered_dataset([], tmp_path)
+        assert result == tmp_path
+
+    def test_raises_value_error_for_unsupported_format(
+        self, service: DatasetExportService, tmp_path: Path
+    ) -> None:
+        """未対応 format_type で ValueError。"""
+        with pytest.raises(ValueError, match="Unsupported format_type"):
+            service.export_filtered_dataset([1], tmp_path, format_type="csv")
+
+    def test_delegates_to_txt_format(self, service: DatasetExportService, tmp_path: Path) -> None:
+        """format_type='txt' のとき export_dataset_txt_format を呼ぶ。"""
+        with patch.object(service, "export_dataset_txt_format", return_value=tmp_path) as mock_txt:
+            result = service.export_filtered_dataset([1, 2], tmp_path, format_type="txt")
+        mock_txt.assert_called_once()
+        assert result == tmp_path
+
+    def test_delegates_to_json_format(self, service: DatasetExportService, tmp_path: Path) -> None:
+        """format_type='json' のとき export_dataset_json_format を呼ぶ。"""
+        with patch.object(service, "export_dataset_json_format", return_value=tmp_path) as mock_json:
+            result = service.export_filtered_dataset([1], tmp_path, format_type="json")
+        mock_json.assert_called_once()
+        assert result == tmp_path
+
+
+# ---------------------------------------------------------------------------
+# validate_export_requirements
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestValidateExportRequirements:
+    """validate_export_requirements のテスト。"""
+
+    def test_missing_processed_image_is_counted(
+        self, service: DatasetExportService, mock_db_manager: MagicMock
+    ) -> None:
+        """処理済み画像なし → missing_processed がカウントされる (lines 438-442)。"""
+        mock_db_manager.check_processed_image_exists.return_value = None
+        report = service.validate_export_requirements([1, 2], 512)
+        assert report["missing_processed"] == 2
+        assert report["valid_images"] == 0
+        assert len(report["issues"]) == 2
+
+    def test_missing_export_data_is_counted(
+        self, service: DatasetExportService, mock_db_manager: MagicMock, tmp_path: Path
+    ) -> None:
+        """処理済み画像あり・export data なし → missing_metadata がカウントされる (lines 446-449)。"""
+        processed_path = tmp_path / "img.png"
+        processed_path.touch()
+        mock_db_manager.check_processed_image_exists.return_value = _make_processed_metadata(
+            str(processed_path)
+        )
+        mock_db_manager.get_image_metadata.return_value = None
+        with patch(
+            "lorairo.services.dataset_export_service.resolve_stored_path",
+            return_value=processed_path,
+        ):
+            report = service.validate_export_requirements([1], 512)
+        assert report["missing_metadata"] == 1
+        assert report["valid_images"] == 0
+        assert len(report["issues"]) == 1
+
+    def test_valid_image_is_counted(
+        self, service: DatasetExportService, mock_db_manager: MagicMock, tmp_path: Path
+    ) -> None:
+        """処理済み画像あり・export data あり → valid_images がカウントされる。"""
+        processed_path = tmp_path / "img.png"
+        processed_path.touch()
+        mock_db_manager.check_processed_image_exists.return_value = _make_processed_metadata(
+            str(processed_path)
+        )
+        mock_db_manager.get_image_metadata.return_value = {"id": 1}
+        mock_db_manager.get_image_annotations.return_value = _make_image_annotations()
+        with patch(
+            "lorairo.services.dataset_export_service.resolve_stored_path",
+            return_value=processed_path,
+        ):
+            report = service.validate_export_requirements([1], 512)
+        assert report["valid_images"] == 1
+        assert report["missing_processed"] == 0
+        assert report["missing_metadata"] == 0

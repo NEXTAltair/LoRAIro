@@ -702,6 +702,154 @@ class TestModelFilterServiceAdditional:
         assert result is False
 
 
+@pytest.mark.unit
+class TestModelFilterServiceExceptionPaths:
+    """ModelFilterService の例外パスカバレッジテスト。"""
+
+    @pytest.fixture
+    def mock_db_manager(self):
+        return Mock()
+
+    @pytest.fixture
+    def mock_model_selection_service(self):
+        mock_service = Mock()
+        mock_models = [
+            {
+                "name": "gpt-4-vision",
+                "provider": "openai",
+                "capabilities": ["image_analysis"],
+                "requires_api_key": True,
+                "estimated_size_gb": 0,
+                "is_recommended": True,
+            },
+        ]
+        mock_service.load_models.return_value = mock_models
+        return mock_service
+
+    @pytest.fixture
+    def service(self, mock_db_manager, mock_model_selection_service):
+        return ModelFilterService(mock_db_manager, mock_model_selection_service)
+
+    @patch("lorairo.services.model_filter_service.logger")
+    def test_filter_models_by_criteria_inner_exception_returns_empty_list(
+        self, mock_logger, service
+    ) -> None:
+        """filter_models_by_criteria の except ブロックをカバー: _model_matches_criteria が例外を投げる。"""
+        with patch.object(service, "_model_matches_criteria", side_effect=RuntimeError("crash")):
+            result = service.filter_models_by_criteria({"provider_filter": "openai"})
+
+        assert result == []
+        mock_logger.error.assert_called_once()
+
+    @patch("lorairo.services.model_filter_service.logger")
+    def test_validate_annotation_settings_direct_exception_returns_invalid_result(
+        self, mock_logger, service
+    ) -> None:
+        """validate_annotation_settings の except ブロック (221-225) をカバー。
+
+        selected_models が空でない場合、available_models が定義されるが、
+        settings.get が例外を投げることで except に到達する。
+        """
+        bad_settings = Mock()
+        # selected_models アクセスで例外を投げる (インスタンス属性を使い Mock クラスを汚染しない)
+        bad_settings.get.side_effect = RuntimeError("settings broken")
+
+        result = service.validate_annotation_settings(bad_settings)
+
+        assert result.is_valid is False
+        assert len(result.errors) > 0
+        mock_logger.error.assert_called_once()
+
+    @patch("lorairo.services.model_filter_service.logger")
+    def test_apply_advanced_model_filters_exception_returns_original_images(
+        self, mock_logger, service
+    ) -> None:
+        """apply_advanced_model_filters の except ブロック (255-257) をカバー。"""
+        images = [{"id": 1}]
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+
+        with patch.object(service, "_has_advanced_model_filters", side_effect=RuntimeError("err")):
+            result = service.apply_advanced_model_filters(images, conditions)
+
+        assert result == images
+        mock_logger.error.assert_called_once()
+
+    @patch("lorairo.services.model_filter_service.logger")
+    def test_optimize_advanced_filtering_performance_exception_returns_original_images(
+        self, mock_logger, service
+    ) -> None:
+        """optimize_advanced_filtering_performance の except ブロック (291-293) をカバー。"""
+        images = [{"id": i} for i in range(10)]
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+
+        with patch.object(service, "apply_advanced_model_filters", side_effect=RuntimeError("perf crash")):
+            result = service.optimize_advanced_filtering_performance(images, conditions)
+
+        assert result == images
+        mock_logger.error.assert_called_once()
+
+    @patch("lorairo.services.model_filter_service.logger")
+    def test_model_matches_criteria_exception_returns_false(self, mock_logger, service) -> None:
+        """_model_matches_criteria の except ブロック (327-329) をカバー。"""
+        model = {"provider": "openai", "capabilities": []}
+        with patch.object(
+            service, "_model_matches_provider_filter", side_effect=RuntimeError("provider err")
+        ):
+            result = service._model_matches_criteria(model, {})
+
+        assert result is False
+        mock_logger.error.assert_called_once()
+
+    @patch("lorairo.services.model_filter_service.logger")
+    def test_model_matches_provider_filter_exception_returns_true(self, mock_logger, service) -> None:
+        """_model_matches_provider_filter の except ブロック (356-358) をカバー。"""
+        # provider_filter が str でも list でもない値 + str() が例外を投げるよう model を壊す
+        model = Mock()
+        model.get.side_effect = RuntimeError("model get error")
+        criteria = {"provider_filter": "openai"}
+
+        result = service._model_matches_provider_filter(model, criteria)
+
+        # except ブロックは True を返す
+        assert result is True
+        mock_logger.error.assert_called_once()
+
+    @patch("lorairo.services.model_filter_service.logger")
+    def test_model_matches_function_filter_exception_returns_true(self, mock_logger, service) -> None:
+        """_model_matches_function_filter の except ブロック (391-393) をカバー。"""
+        model = {"capabilities": ["img"], "provider": "openai", "name": "test"}
+        with patch.object(service, "infer_model_capabilities", side_effect=RuntimeError("infer err")):
+            result = service._model_matches_function_filter(model, {"function_filter": "img"})
+
+        assert result is True
+        mock_logger.error.assert_called_once()
+
+    @patch("lorairo.services.model_filter_service.logger")
+    def test_has_advanced_model_filters_exception_returns_false(self, mock_logger, service) -> None:
+        """_has_advanced_model_filters の except ブロック (415-417) をカバー。"""
+        bad_conditions = Mock()
+        # hasattr が RuntimeError を送出
+        with patch("builtins.hasattr", side_effect=RuntimeError("hasattr broken")):
+            result = service._has_advanced_model_filters(bad_conditions)
+
+        assert result is False
+        mock_logger.error.assert_called_once()
+
+    @patch("lorairo.services.model_filter_service.logger")
+    def test_image_matches_advanced_model_criteria_exception_returns_true(
+        self, mock_logger, service
+    ) -> None:
+        """_image_matches_advanced_model_criteria の except ブロック (454-456) をカバー。"""
+        image = {"id": 1}
+        bad_conditions = Mock()
+        # hasattr が例外を送出してエラーになる
+        with patch("builtins.hasattr", side_effect=RuntimeError("hasattr crash")):
+            result = service._image_matches_advanced_model_criteria(image, bad_conditions)
+
+        assert result is True
+        mock_logger.error.assert_called_once()
+
+
 class TestModelFilterServicePerformance:
     """ModelFilterService のパフォーマンステスト"""
 

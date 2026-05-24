@@ -1,5 +1,7 @@
 """FavoriteFiltersServiceの単体テスト"""
 
+from pathlib import Path
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -21,7 +23,7 @@ class TestFavoriteFiltersService:
         return service
 
     @pytest.fixture
-    def sample_filter(self) -> dict[str, str | bool]:
+    def sample_filter(self) -> dict[str, Any]:
         """サンプルフィルター条件"""
         return {
             "search_type": "tags",
@@ -32,7 +34,7 @@ class TestFavoriteFiltersService:
         }
 
     def test_save_filter_success(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """フィルター保存成功"""
         result = service.save_filter("Test Filter", sample_filter)
@@ -41,7 +43,7 @@ class TestFavoriteFiltersService:
         assert service.filter_exists("Test Filter") is True
 
     def test_save_filter_empty_name(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """空のフィルター名でエラー"""
         with pytest.raises(ValueError, match="Filter name cannot be empty"):
@@ -51,7 +53,7 @@ class TestFavoriteFiltersService:
             service.save_filter("   ", sample_filter)
 
     def test_save_filter_overwrite(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """フィルター上書き保存"""
         # 初回保存
@@ -72,13 +74,13 @@ class TestFavoriteFiltersService:
     def test_save_filter_serialization_error(self, service: FavoriteFiltersService) -> None:
         """シリアライズ不可能なデータでエラー"""
         # JSONシリアライズ不可能なオブジェクト
-        invalid_filter = {"func": lambda x: x}  # type: ignore[dict-item]
+        invalid_filter: dict[str, Any] = {"func": lambda x: x}
 
         result = service.save_filter("Invalid Filter", invalid_filter)
         assert result is False
 
     def test_load_filter_success(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """フィルター読み込み成功"""
         service.save_filter("Test Filter", sample_filter)
@@ -113,7 +115,7 @@ class TestFavoriteFiltersService:
         assert loaded is None
 
     def test_list_filters_success(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """フィルター一覧取得成功"""
         # 複数保存
@@ -133,7 +135,7 @@ class TestFavoriteFiltersService:
         assert filters == []
 
     def test_delete_filter_success(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """フィルター削除成功"""
         service.save_filter("Test Filter", sample_filter)
@@ -158,7 +160,7 @@ class TestFavoriteFiltersService:
         assert result is False
 
     def test_filter_exists_true(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """フィルター存在確認：存在する"""
         service.save_filter("Test Filter", sample_filter)
@@ -175,7 +177,7 @@ class TestFavoriteFiltersService:
         assert service.filter_exists("   ") is False
 
     def test_clear_all_filters(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """全フィルタークリア"""
         # 複数保存
@@ -191,7 +193,7 @@ class TestFavoriteFiltersService:
         assert len(service.list_filters()) == 0
 
     def test_save_load_roundtrip(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """保存→読み込みのラウンドトリップテスト"""
         service.save_filter("Roundtrip Filter", sample_filter)
@@ -202,7 +204,7 @@ class TestFavoriteFiltersService:
         assert loaded == sample_filter
 
     def test_unicode_filter_name(
-        self, service: FavoriteFiltersService, sample_filter: dict[str, str | bool]
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
         """日本語フィルター名の保存・読み込み"""
         japanese_name = "お気に入りフィルター１"
@@ -230,7 +232,7 @@ class TestFavoriteFiltersService:
         assert loaded is not None
         assert loaded == special_filter
 
-    def test_service_persistence_across_instances(self, sample_filter: dict[str, str | bool]) -> None:
+    def test_service_persistence_across_instances(self, sample_filter: dict[str, Any]) -> None:
         """別インスタンスでの永続性確認"""
         # インスタンス1で保存
         service1 = FavoriteFiltersService(organization="LoRAIroTest", application="PersistenceTest")
@@ -319,3 +321,113 @@ class TestFavoriteFiltersServiceEdgeCases:
 
         loaded = service.load_filter("Large Filter")
         assert loaded == large_filter
+
+
+@pytest.mark.unit
+class TestFavoriteFiltersServiceExceptionPaths:
+    """FavoriteFiltersService の例外パスカバレッジテスト。
+
+    _load_all_filters や write_text が OS エラーを起こすシナリオをモックし、
+    各メソッドの except ブランチを網羅する。
+    """
+
+    @pytest.fixture
+    def service(self, tmp_path: Path) -> "FavoriteFiltersService":
+        """一時ディレクトリを使って独立した FavoriteFiltersService を返す。"""
+        svc = FavoriteFiltersService(organization="LoRAIroExcTest", application="ExcTest")
+        # _config_dir / _filters_file を tmp_path 内に付け替える
+        svc._config_dir = tmp_path / "config"
+        svc._config_dir.mkdir(parents=True, exist_ok=True)
+        svc._filters_file = svc._config_dir / "favorite_filters.json"
+        return svc
+
+    def test_save_filter_generic_exception_returns_false(self, service: "FavoriteFiltersService") -> None:
+        """save_filter: write_text が OSError → except Exception → False。
+
+        Lines 68-70 をカバー。
+        Path インスタンスの read-only 制約を回避するため pathlib.Path.write_text をクラスレベルでパッチ。
+        """
+
+        # _filters_file の write_text をクラスレベルでパッチ
+        with patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
+            result = service.save_filter("Test", {"key": "value"})
+
+        assert result is False
+
+    def test_load_filter_invalid_dict_type_returns_none(self, service: "FavoriteFiltersService") -> None:
+        """load_filter: フィルターの値が dict ではない → None を返す。
+
+        Lines 95-96 をカバー。
+        """
+        import json
+
+        # フィルターとしてリスト値を JSON に書き込む
+        service._filters_file.write_text(json.dumps({"BadType": ["not", "a", "dict"]}), encoding="utf-8")
+        result = service.load_filter("BadType")
+        assert result is None
+
+    def test_load_filter_generic_exception_returns_none(self, service: "FavoriteFiltersService") -> None:
+        """load_filter: _load_all_filters が予期しない例外 → None を返す。
+
+        Lines 104-106 をカバー。
+        """
+
+        with patch.object(service, "_load_all_filters", side_effect=RuntimeError("unexpected")):
+            result = service.load_filter("AnyFilter")
+
+        assert result is None
+
+    def test_list_filters_generic_exception_returns_empty_list(
+        self, service: "FavoriteFiltersService"
+    ) -> None:
+        """list_filters: _load_all_filters が予期しない例外 → 空リストを返す。
+
+        Lines 121-123 をカバー。
+        """
+
+        with patch.object(service, "_load_all_filters", side_effect=RuntimeError("unexpected")):
+            result = service.list_filters()
+
+        assert result == []
+
+    def test_delete_filter_generic_exception_returns_false(self, service: "FavoriteFiltersService") -> None:
+        """delete_filter: write_text が OSError → except Exception → False。
+
+        Lines 157-159 をカバー。
+        Path インスタンスの read-only 制約を回避するため pathlib.Path.write_text をクラスレベルでパッチ。
+        ただし最初の登録は直接書き込み、2回目以降のみエラーにするため side_effect リストを使う。
+        """
+        import json
+
+        # フィルターを一件登録しておく（パッチなし）
+        service._filters_file.write_text(json.dumps({"ToDelete": {"k": "v"}}), encoding="utf-8")
+
+        # 削除時の write_text だけ OSError にする
+        with patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
+            result = service.delete_filter("ToDelete")
+
+        assert result is False
+
+    def test_filter_exists_generic_exception_returns_false(self, service: "FavoriteFiltersService") -> None:
+        """filter_exists: _load_all_filters が例外 → False を返す。
+
+        Lines 176-178 をカバー。
+        """
+
+        with patch.object(service, "_load_all_filters", side_effect=RuntimeError("unexpected")):
+            result = service.filter_exists("AnyFilter")
+
+        assert result is False
+
+    def test_clear_all_filters_generic_exception_returns_false(
+        self, service: "FavoriteFiltersService"
+    ) -> None:
+        """clear_all_filters: write_text が OSError → except Exception → False。
+
+        Lines 193-195 をカバー。
+        """
+
+        with patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
+            result = service.clear_all_filters()
+
+        assert result is False
