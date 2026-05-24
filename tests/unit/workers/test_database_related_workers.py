@@ -328,6 +328,23 @@ class TestSearchWorker:
             assert result.total_count == 0
             assert len(result.image_metadata) == 0
 
+    def test_successful_search_does_not_emit_fake_batch_progress(self, real_db_manager, search_conditions):
+        """検索成功時に fake search_batch_* の batch_progress を emit しない"""
+        image_metadata = [{"id": i, "stored_image_path": f"/test/image{i}.jpg"} for i in range(1, 126)]
+
+        with patch.object(real_db_manager, "get_images_by_filter") as mock_search:
+            mock_search.return_value = (image_metadata, len(image_metadata))
+
+            worker = SearchWorker(real_db_manager, search_conditions)
+            worker._report_batch_progress = Mock()
+
+            result = worker.execute()
+
+            assert result.total_count == len(image_metadata)
+            assert result.image_metadata == image_metadata
+            assert result.filter_conditions == search_conditions
+            worker._report_batch_progress.assert_not_called()
+
 
 class TestRegisterSingleImage:
     """_register_single_image() の単体テスト"""
