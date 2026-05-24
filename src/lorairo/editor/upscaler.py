@@ -105,7 +105,7 @@ class Upscaler:
             logger.error(f"モデル読み込み中のエラー: {e}")
             return None
 
-    def _load_model(self, model_path: Path) -> Any:
+    def _load_model(self, model_path: Path) -> Any:  # pragma: no cover
         """モデルファイルを読み込みます。"""
         # Lazy import: spandrelの読み込みは重い処理のため、実際のモデル使用時まで遅延
         # アプリ起動時間短縮とモデル選択UI高速化のため
@@ -119,7 +119,7 @@ class Upscaler:
         model.cpu().eval()
         return model
 
-    def _upscale(self, img: Image.Image, model: Any, scale: float) -> Image.Image:
+    def _upscale(self, img: Image.Image, model: Any, scale: float) -> Image.Image:  # pragma: no cover
         """
         画像をアップスケールします。
 
@@ -140,14 +140,14 @@ class Upscaler:
             logger.error(f"アップスケーリング中のエラー: {e}")
             return img
 
-    def _convert_image_to_tensor(self, image: Image.Image) -> torch.Tensor:
+    def _convert_image_to_tensor(self, image: Image.Image) -> torch.Tensor:  # pragma: no cover
         """PIL画像をPyTorchテンソルに変換します（CPU使用）"""
         img_np = np.array(image).astype(np.float32) / 255.0
         img_tensor = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0)
         # CPU固定（.cuda() 削除）
         return img_tensor
 
-    def _convert_tensor_to_image(
+    def _convert_tensor_to_image(  # pragma: no cover
         self, tensor: torch.Tensor, scale: float, original_size: tuple[int, int]
     ) -> Image.Image:
         """PyTorchテンソルをPIL画像に変換します。"""

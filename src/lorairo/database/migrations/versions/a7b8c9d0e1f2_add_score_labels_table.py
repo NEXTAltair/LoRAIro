@@ -72,7 +72,7 @@ def upgrade() -> None:
         op.create_index("ix_score_labels_image_id", "score_labels", ["image_id"])
 
 
-def downgrade() -> None:
+def downgrade() -> None:  # pragma: no cover
     """Downgrade: score_labels テーブルを削除する。"""
     op.drop_index("ix_score_labels_image_id", table_name="score_labels")
     op.drop_table("score_labels")

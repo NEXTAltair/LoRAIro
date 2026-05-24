@@ -475,6 +475,233 @@ class TestModelFilterService:
         assert result is False
 
 
+@pytest.mark.unit
+class TestModelFilterServiceAdditional:
+    """ModelFilterService の追加ブランチカバレッジテスト"""
+
+    @pytest.fixture
+    def mock_db_manager(self):
+        return Mock()
+
+    @pytest.fixture
+    def mock_model_selection_service(self):
+        mock_service = Mock()
+        mock_models = [
+            {
+                "name": "gpt-4-vision",
+                "provider": "openai",
+                "capabilities": ["image_analysis", "text_generation"],
+                "requires_api_key": True,
+                "estimated_size_gb": 0,
+                "is_recommended": True,
+            },
+            {
+                "name": "claude-3-sonnet",
+                "provider": "anthropic",
+                "capabilities": ["image_analysis", "advanced_reasoning"],
+                "requires_api_key": True,
+                "estimated_size_gb": 0,
+                "is_recommended": True,
+            },
+            {
+                "name": "local-llava",
+                "provider": "local",
+                "capabilities": ["image_analysis"],
+                "requires_api_key": False,
+                "estimated_size_gb": 7.5,
+                "is_recommended": False,
+            },
+        ]
+        mock_service.load_models.return_value = mock_models
+        return mock_service
+
+    @pytest.fixture
+    def service(self, mock_db_manager, mock_model_selection_service):
+        return ModelFilterService(mock_db_manager, mock_model_selection_service)
+
+    def test_get_annotation_models_list_with_model_objects(self, mock_db_manager):
+        """Model オブジェクト形式（辞書でない）でのモデル一覧取得テスト"""
+        mock_service = Mock()
+        # Mock objects (not dicts) - production path
+        mock_model = Mock()
+        mock_model.name = "test-model"
+        mock_model.provider = "openai"
+        mock_model.capabilities = ["image_analysis"]
+        mock_model.requires_api_key = True
+        mock_model.estimated_size_gb = 0.0
+        mock_model.is_recommended = True
+        mock_service.load_models.return_value = [mock_model]
+
+        service = ModelFilterService(mock_db_manager, mock_service)
+        models = service.get_annotation_models_list()
+
+        assert len(models) == 1
+        assert models[0]["name"] == "test-model"
+        assert models[0]["provider"] == "openai"
+        assert models[0]["is_local"] is False
+        assert models[0]["requires_api_key"] is True
+
+    def test_get_annotation_models_list_local_model_object(self, mock_db_manager):
+        """ローカルプロバイダーのModel オブジェクト形式でis_local=True になるテスト"""
+        mock_service = Mock()
+        mock_model = Mock()
+        mock_model.name = "local-model"
+        mock_model.provider = "local"
+        mock_model.capabilities = []
+        mock_model.requires_api_key = False
+        mock_model.estimated_size_gb = 5.0
+        mock_model.is_recommended = False
+        mock_service.load_models.return_value = [mock_model]
+
+        service = ModelFilterService(mock_db_manager, mock_service)
+        models = service.get_annotation_models_list()
+
+        assert models[0]["is_local"] is True
+
+    def test_filter_models_by_criteria_function_filter_string(self, service):
+        """function_filter が文字列のとき、その機能を持つモデルのみ返す"""
+        criteria = {"function_filter": "image_analysis"}
+        filtered = service.filter_models_by_criteria(criteria)
+        assert len(filtered) >= 1
+        # すべて image_analysis を含む (推定能力経由でも)
+
+    def test_filter_models_by_criteria_function_filter_list(self, service):
+        """function_filter がリストのとき、いずれかの機能を持つモデルを返す"""
+        criteria = {"function_filter": ["offline_processing"]}
+        filtered = service.filter_models_by_criteria(criteria)
+        # ローカルモデルのみが offline_processing を持つ
+        assert len(filtered) == 1
+        assert filtered[0]["provider"] == "local"
+
+    def test_filter_models_by_criteria_no_match(self, service):
+        """どの条件にも一致するモデルがない場合は空リストを返す"""
+        # 存在しないプロバイダーでフィルタリング
+        criteria = {"provider_filter": "nonexistent_provider"}
+        filtered = service.filter_models_by_criteria(criteria)
+        assert filtered == []
+
+    def test_model_matches_provider_filter_unexpected_type(self, service):
+        """provider_filter が文字列でもリストでもない場合はTrue を返す"""
+        model = {"provider": "openai"}
+        criteria = {"provider_filter": 42}  # 整数型 (予期しない型)
+        result = service._model_matches_provider_filter(model, criteria)
+        assert result is True
+
+    def test_model_matches_function_filter_non_list_capabilities(self, service):
+        """capabilities が非リスト型の場合でも安全に処理する"""
+        model = {
+            "provider": "openai",
+            "name": "test-model",
+            "capabilities": "not_a_list",  # 非リスト型
+            "is_local": False,
+        }
+        criteria = {"function_filter": "text_generation"}
+        # 例外なく処理され、推定能力でマッチ可能
+        result = service._model_matches_function_filter(model, criteria)
+        # openai プロバイダーなので text_generation が推定される
+        assert result is True
+
+    def test_has_advanced_model_filters_advanced_model_criteria(self, service):
+        """advanced_model_criteria 属性で高度なフィルター有効判定テスト"""
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+        conditions.advanced_model_criteria = {"threshold": 0.9}
+        result = service._has_advanced_model_filters(conditions)
+        assert result is True
+
+    def test_image_matches_advanced_model_criteria_with_annotation_model_filter(self, service):
+        """annotation_model_filter が設定されている場合の処理テスト（image_id あり）"""
+        image = {"id": 1, "quality_score": 0.9}
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+        conditions.annotation_model_filter = "gpt-4-vision"
+        # 実装では image_id 取得後 pass なので True が返る
+        result = service._image_matches_advanced_model_criteria(image, conditions)
+        assert result is True
+
+    def test_image_matches_advanced_model_criteria_no_image_id(self, service):
+        """annotation_model_filter で image_id がない場合のテスト"""
+        image = {"quality_score": 0.9}  # id キーなし
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+        conditions.annotation_model_filter = "gpt-4-vision"
+        result = service._image_matches_advanced_model_criteria(image, conditions)
+        assert result is True
+
+    def test_infer_model_capabilities_google_provider(self, service):
+        """Google プロバイダーの能力推定テスト"""
+        model_data = {
+            "name": "gemini-pro",
+            "provider": "google",
+            "capabilities": [],
+            "is_local": False,
+        }
+        capabilities = service.infer_model_capabilities(model_data)
+        # google プロバイダーなので text_generation が推定される
+        assert "text_generation" in capabilities
+        assert "description_generation" in capabilities
+        # gemini キーワードで高度な推論能力
+        assert "advanced_reasoning" in capabilities
+
+    def test_infer_model_capabilities_non_list_existing(self, service):
+        """既存能力が非リスト型でも安全に処理するテスト"""
+        model_data = {
+            "name": "simple-model",
+            "provider": "other",
+            "capabilities": None,  # None 型
+            "is_local": False,
+        }
+        # None は isinstance(None, list) が False なので extend されない
+        capabilities = service.infer_model_capabilities(model_data)
+        assert isinstance(capabilities, list)
+
+    def test_validate_annotation_settings_batch_size_too_small(self, service):
+        """バッチサイズが小さすぎる（0）場合のエラーテスト"""
+        settings = {
+            "selected_models": ["gpt-4-vision"],
+            "batch_size": 0,  # 最小値未満
+            "timeout": 30,
+        }
+        result = service.validate_annotation_settings(settings)
+        assert result.is_valid is False
+        assert "バッチサイズは1から100の間で設定してください" in result.errors
+
+    def test_validate_annotation_settings_timeout_too_small(self, service):
+        """タイムアウトが小さすぎる場合の警告テスト"""
+        settings = {
+            "selected_models": ["gpt-4-vision"],
+            "batch_size": 5,
+            "timeout": 3,  # 最小値未満
+        }
+        result = service.validate_annotation_settings(settings)
+        assert any("タイムアウトは5秒から300秒の間での設定を推奨します" in w for w in result.warnings)
+
+    def test_optimize_advanced_filtering_performance_progress_logging(self, mock_db_manager):
+        """500件の倍数でデバッグ進捗ログが出力されるテスト"""
+        mock_service = Mock()
+        mock_service.load_models.return_value = []
+        service = ModelFilterService(mock_db_manager, mock_service)
+
+        # 501 枚以上（batch_size=50, 10バッチ分 = 500件がちょうど 500件区切りログ対象）
+        images = [{"id": i} for i in range(501)]
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+
+        result = service.optimize_advanced_filtering_performance(images, conditions)
+        # 例外なく完了し、全件返る（フィルターなし）
+        assert len(result) == len(images)
+
+    def test_model_matches_criteria_local_only_false_model(self, service):
+        """local_only=True のとき is_local=False のモデルはフィルター除外される"""
+        model = {"provider": "openai", "is_local": False, "capabilities": []}
+        criteria = {"local_only": True}
+        result = service._model_matches_criteria(model, criteria)
+        assert result is False
+
+    def test_model_matches_criteria_recommended_only_false_model(self, service):
+        """recommended_only=True のとき is_recommended=False のモデルはフィルター除外される"""
+        model = {"provider": "openai", "is_local": False, "is_recommended": False, "capabilities": []}
+        criteria = {"recommended_only": True}
+        result = service._model_matches_criteria(model, criteria)
+        assert result is False
+
+
 class TestModelFilterServicePerformance:
     """ModelFilterService のパフォーマンステスト"""
 

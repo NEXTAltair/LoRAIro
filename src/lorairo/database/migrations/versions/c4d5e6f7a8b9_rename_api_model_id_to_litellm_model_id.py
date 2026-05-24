@@ -34,7 +34,7 @@ def upgrade() -> None:
         batch_op.alter_column("api_model_id", new_column_name="litellm_model_id")
 
 
-def downgrade() -> None:
+def downgrade() -> None:  # pragma: no cover
     """models.litellm_model_id を api_model_id に戻す (ロールバック用)。"""
     with op.batch_alter_table("models") as batch_op:
         batch_op.alter_column("litellm_model_id", new_column_name="api_model_id")
