@@ -55,19 +55,6 @@ class SearchWorker(LoRAIroWorkerBase[SearchResult]):
             )
             self._check_cancellation()
 
-            # バッチ進捗報告（検索結果処理）
-            if total_count > 0:
-                # 検索結果を一件ずつ処理するバッチ進捗として報告
-                batch_size = min(100, total_count)  # 100件ずつバッチ処理をシミュレート
-                for i in range(0, total_count, batch_size):
-                    self._check_cancellation()  # キャンセルチェック
-
-                    current_batch = min(i + batch_size, total_count)
-                    # ファイル名の代わりに件数情報を使用
-                    self._report_batch_progress(
-                        current_batch, total_count, f"search_batch_{i // batch_size + 1}"
-                    )
-
             search_time = time.time() - start_time
 
             # 完了
