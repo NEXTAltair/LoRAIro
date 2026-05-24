@@ -23,6 +23,7 @@ from ..workers.registration_worker import DatabaseRegistrationWorker
 from ..workers.search_worker import SearchResult, SearchWorker
 from ..workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 from ..workers.thumbnail_worker import ThumbnailWorker
+from .operation_events import OperationContext, OperationOutcome, OperationType, WorkerOperationEvent
 
 
 class WorkerService(QObject):
@@ -61,6 +62,7 @@ class WorkerService(QObject):
     worker_progress_updated = Signal(str, object)  # worker_id, WorkerProgress
     worker_batch_progress = Signal(str, int, int, str)  # worker_id, current, total, filename
     worker_terminal = Signal(object)  # WorkerTerminalEvent
+    operation_event = Signal(object)  # WorkerOperationEvent
 
     # === 全体管理シグナル ===
     active_worker_count_changed = Signal(int)
@@ -87,6 +89,10 @@ class WorkerService(QObject):
         self.current_annotation_worker_id: str | None = None
         self.current_thumbnail_worker_id: str | None = None
         self.current_batch_import_worker_id: str | None = None
+        self._worker_operations: dict[str, OperationContext] = {}
+        self._operation_sequence = 0
+        self._search_generation = 0
+        self._thumbnail_generation = 0
 
         # ワーカーマネージャーのシグナル接続
         self.worker_manager.worker_started.connect(self._on_worker_started)
@@ -150,6 +156,7 @@ class WorkerService(QObject):
         """
         worker = DatabaseRegistrationWorker(directory, self.db_manager, fsm)
         worker_id = f"batch_reg_{uuid.uuid4().hex[:8]}"
+        self._register_operation(worker_id, OperationType.BATCH_REGISTRATION)
 
         # 進捗シグナル接続
         worker.progress_updated.connect(
@@ -166,6 +173,7 @@ class WorkerService(QObject):
             logger.info(f"バッチ登録開始: {directory} (ID: {worker_id})")
             return worker_id
         else:
+            self._worker_operations.pop(worker_id, None)
             raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
 
     def cancel_batch_registration(self, worker_id: str) -> bool:
@@ -210,6 +218,7 @@ class WorkerService(QObject):
             model_registry=get_service_container().model_registry,
         )
         worker_id = f"annotation_{uuid.uuid4().hex[:8]}"
+        self._register_operation(worker_id, OperationType.ANNOTATION)
 
         # 進捗シグナル接続
         worker.progress_updated.connect(
@@ -226,6 +235,7 @@ class WorkerService(QObject):
             logger.debug(f"  ワーカーID={worker_id}, litellm_model_ids=[{', '.join(litellm_model_ids)}]")
             return worker_id
         else:
+            self._worker_operations.pop(worker_id, None)
             raise RuntimeError(f"アノテーションワーカー開始失敗: {worker_id}")
 
     def cancel_annotation(self, worker_id: str) -> bool:
@@ -258,6 +268,8 @@ class WorkerService(QObject):
 
         worker = SearchWorker(self.db_manager, search_conditions)
         worker_id = f"search_{uuid.uuid4().hex[:8]}"
+        self._search_generation += 1
+        self._register_operation(worker_id, OperationType.SEARCH, generation=self._search_generation)
 
         # 進捗シグナル接続
         worker.progress_updated.connect(
@@ -274,6 +286,7 @@ class WorkerService(QObject):
             logger.info(f"検索開始: {search_conditions} (ID: {worker_id})")
             return worker_id
         else:
+            self._worker_operations.pop(worker_id, None)
             raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
 
     def cancel_search(
@@ -316,6 +329,8 @@ class WorkerService(QObject):
         # ThumbnailWorker作成 - 正しいパラメータで初期化
         worker = ThumbnailWorker(search_result, thumbnail_size, self.db_manager)
         worker_id = f"thumbnail_{uuid.uuid4().hex[:8]}"
+        self._thumbnail_generation += 1
+        self._register_operation(worker_id, OperationType.THUMBNAIL, generation=self._thumbnail_generation)
 
         # 進捗シグナル接続
         worker.progress_updated.connect(
@@ -330,6 +345,7 @@ class WorkerService(QObject):
             )
             return worker_id
         else:
+            self._worker_operations.pop(worker_id, None)
             raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
 
     def cancel_thumbnail_load(
@@ -390,6 +406,13 @@ class WorkerService(QObject):
             page_num=page_num,
         )
         worker_id = f"thumbnail_{uuid.uuid4().hex[:8]}"
+        self._thumbnail_generation += 1
+        self._register_operation(
+            worker_id,
+            OperationType.THUMBNAIL,
+            request_id=request_id,
+            generation=self._thumbnail_generation,
+        )
 
         worker.progress_updated.connect(
             lambda progress: self.worker_progress_updated.emit(worker_id, progress)
@@ -403,6 +426,7 @@ class WorkerService(QObject):
             )
             return worker_id
 
+        self._worker_operations.pop(worker_id, None)
         raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
 
     def start_batch_import(
@@ -435,6 +459,7 @@ class WorkerService(QObject):
             db_manager=self.db_manager,
         )
         worker_id = f"batch_import_{uuid.uuid4().hex[:8]}"
+        self._register_operation(worker_id, OperationType.BATCH_IMPORT)
 
         worker.progress_updated.connect(
             lambda progress: self.worker_progress_updated.emit(worker_id, progress)
@@ -451,6 +476,7 @@ class WorkerService(QObject):
             self.current_batch_import_worker_id = worker_id
             return worker_id
 
+        self._worker_operations.pop(worker_id, None)
         raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
 
     def cancel_batch_import(self, worker_id: str) -> None:
@@ -527,6 +553,7 @@ class WorkerService(QObject):
                 parent=cast("QWidget | None", self.parent()),
             )
 
+        self._emit_operation_started(worker_id)
         logger.info(f"ワーカー開始: {operation_name} (ID: {worker_id})")
 
     def _resolve_worker_type(self, worker_id: str) -> str:
@@ -594,6 +621,7 @@ class WorkerService(QObject):
     def _on_worker_terminal(self, event: WorkerTerminalEvent) -> None:
         """Unified worker terminal event dispatcher."""
         self.worker_terminal.emit(event)
+        self._emit_operation_terminal(event)
 
         if event.outcome is WorkerOutcome.SUCCEEDED:
             self._on_worker_finished(event.worker_id, event.result)
@@ -681,6 +709,115 @@ class WorkerService(QObject):
         attr = attr_by_type.get(worker_type)
         if attr and getattr(self, attr) == worker_id:
             setattr(self, attr, None)
+
+    def _register_operation(
+        self,
+        worker_id: str,
+        operation_type: OperationType,
+        *,
+        request_id: str | None = None,
+        generation: int | None = None,
+    ) -> OperationContext:
+        self._operation_sequence += 1
+        context = OperationContext(
+            operation_id=f"{operation_type.value}_{self._operation_sequence}",
+            operation_type=operation_type,
+            worker_id=worker_id,
+            request_id=request_id,
+            generation=generation,
+        )
+        self._worker_operations[worker_id] = context
+        return context
+
+    def _emit_operation_started(self, worker_id: str) -> None:
+        context = self._operation_context_for_worker(worker_id)
+        self.operation_event.emit(
+            WorkerOperationEvent(
+                operation_id=context.operation_id,
+                operation_type=context.operation_type,
+                worker_id=worker_id,
+                outcome=OperationOutcome.STARTED,
+                is_current=self._is_current_operation(context),
+                request_id=context.request_id,
+                generation=context.generation,
+            )
+        )
+
+    def _emit_operation_terminal(self, event: WorkerTerminalEvent) -> None:
+        context = self._operation_context_for_worker(event.worker_id)
+        outcome = self._operation_outcome_for_terminal(event)
+        is_current = (
+            False if outcome is OperationOutcome.SUPERSEDED else self._is_current_operation(context)
+        )
+        self.operation_event.emit(
+            WorkerOperationEvent(
+                operation_id=context.operation_id,
+                operation_type=context.operation_type,
+                worker_id=event.worker_id,
+                outcome=outcome,
+                is_current=is_current,
+                request_id=context.request_id,
+                generation=context.generation,
+                result=event.result,
+                error=event.error,
+                cancel_reason=event.cancel_reason,
+                worker_terminal=event,
+            )
+        )
+        self._worker_operations.pop(event.worker_id, None)
+
+    def _operation_context_for_worker(self, worker_id: str) -> OperationContext:
+        context = self._worker_operations.get(worker_id)
+        if context is not None:
+            return context
+        operation_type = self._operation_type_from_worker_type(self._resolve_worker_type(worker_id))
+        return OperationContext(
+            operation_id=worker_id,
+            operation_type=operation_type,
+            worker_id=worker_id,
+        )
+
+    def _operation_outcome_for_terminal(self, event: WorkerTerminalEvent) -> OperationOutcome:
+        if self._is_replacement_terminal(event):
+            return OperationOutcome.SUPERSEDED
+        if event.outcome is WorkerOutcome.SUCCEEDED:
+            return OperationOutcome.SUCCEEDED
+        if event.outcome is WorkerOutcome.CANCELED:
+            return OperationOutcome.CANCELED
+        if event.outcome is WorkerOutcome.UNRESPONSIVE:
+            return OperationOutcome.UNRESPONSIVE
+        if event.outcome in {WorkerOutcome.CANCEL_TIMEOUT, WorkerOutcome.TERMINATED}:
+            return OperationOutcome.TERMINATED
+        return OperationOutcome.FAILED
+
+    def _is_current_operation(self, context: OperationContext) -> bool:
+        current_attr_by_type = {
+            OperationType.BATCH_REGISTRATION: "current_registration_worker_id",
+            OperationType.BATCH_IMPORT: "current_batch_import_worker_id",
+            OperationType.ANNOTATION: "current_annotation_worker_id",
+            OperationType.SEARCH: "current_search_worker_id",
+            OperationType.THUMBNAIL: "current_thumbnail_worker_id",
+        }
+        attr = current_attr_by_type.get(context.operation_type)
+        if attr is None or getattr(self, attr) != context.worker_id:
+            return False
+        if context.operation_type is OperationType.SEARCH and context.generation != self._search_generation:
+            return False
+        if (
+            context.operation_type is OperationType.THUMBNAIL
+            and context.generation != self._thumbnail_generation
+        ):
+            return False
+        return True
+
+    def _operation_type_from_worker_type(self, worker_type: str) -> OperationType:
+        return {
+            "batch_reg": OperationType.BATCH_REGISTRATION,
+            "batch_import": OperationType.BATCH_IMPORT,
+            "annotation": OperationType.ANNOTATION,
+            "search": OperationType.SEARCH,
+            "thumbnail": OperationType.THUMBNAIL,
+        }.get(worker_type, OperationType.UNKNOWN)
 
     def _cancel_worker(self, worker_id: str, reason: CancelReason) -> bool:
         if reason is CancelReason.USER_REQUESTED:
