@@ -77,6 +77,16 @@ operation/request lifecycle へ変換し、pipeline UI は operation event を a
 - compat signal から UI cleanup を直接増やしてはいけません。search/thumbnail pipeline cleanup は operation event 経路へ集約します。
 - progress dialog close は terminal handling 側で一度だけ実行します。compat signal の購読者は progress close の所有者ではありません。
 
+### 3.3 Compat Signal Audit
+
+`WorkerService` が公開する `search_error(str)` / `thumbnail_error(str)` などの既存 signal は、
+`WorkerTerminalEvent` から派生する移行用 adapter です。#434 の operation lifecycle 移行で
+search / thumbnail pipeline は operation event 主導へ移し、batch registration / batch import /
+enhanced annotation は後続 issue まで adapter 維持とします。
+
+詳細な購読者、役割、移行判断は
+[`worker_signal_compat_audit.md`](worker_signal_compat_audit.md) を参照してください。
+
 ## 4. 実装ガイドライン
 
 - **`execute()` の実装:**
