@@ -544,8 +544,8 @@ class WorkerService(QObject):
             operation_name = "サムネイル読み込み"
             self.thumbnail_started.emit(worker_id)
 
-        # サムネイル先読みはバックグラウンド処理のためプログレスダイアログ不要
-        if not worker_id.startswith("thumbnail_"):
+        # Thumbnail/page/prefetch workers never start modal progress; terminal close mirrors this policy.
+        if self._worker_uses_modal_progress(worker_id):
             self.progress_manager.start_worker_progress(
                 worker_id,
                 operation_name,
@@ -564,11 +564,8 @@ class WorkerService(QObject):
         return "unknown"
 
     def _on_worker_finished(self, worker_id: str, result: Any) -> None:
-        """ワーカー完了ハンドラ - プログレスダイアログ終了処理"""
+        """ワーカー完了ハンドラ - 互換シグナルとcurrent idの更新のみ行う"""
         worker_type = self._resolve_worker_type(worker_id)
-        if worker_type != "thumbnail":
-            self.progress_manager.finish_worker_progress(worker_id, success=True)
-
         finished_dispatch: dict[str, tuple[Any, str | None]] = {
             "batch_reg": (self.batch_registration_finished, "current_registration_worker_id"),
             "batch_import": (self.batch_import_finished, "current_batch_import_worker_id"),
@@ -585,13 +582,10 @@ class WorkerService(QObject):
         logger.info(f"ワーカー完了: {worker_id}")
 
     def _on_worker_error(self, worker_id: str, error: str) -> None:
-        """ワーカーエラーハンドラ - プログレスダイアログエラー処理"""
+        """ワーカーエラーハンドラ - 互換エラーシグナルとcurrent idの更新のみ行う"""
         logger.error(f"ワーカーエラー {worker_id}: {error}")
 
         worker_type = self._resolve_worker_type(worker_id)
-        if worker_type != "thumbnail":
-            self.progress_manager.finish_worker_progress(worker_id, success=False)
-
         error_dispatch: dict[str, tuple[Any, str | None]] = {
             "batch_reg": (self.batch_registration_error, "current_registration_worker_id"),
             "batch_import": (self.batch_import_error, "current_batch_import_worker_id"),
@@ -605,7 +599,7 @@ class WorkerService(QObject):
             if attr and getattr(self, attr) == worker_id:
                 setattr(self, attr, None)
 
-        logger.info(f"ワーカーエラーとプログレス終了: {worker_id}")
+        logger.info(f"ワーカーエラー処理完了: {worker_id}")
 
     def _on_worker_canceled(self, worker_id: str) -> None:
         """ワーカーキャンセルハンドラ - エラー扱いせずプログレスを終了"""
@@ -621,13 +615,13 @@ class WorkerService(QObject):
     def _on_worker_terminal(self, event: WorkerTerminalEvent) -> None:
         """Unified worker terminal event dispatcher."""
         self.worker_terminal.emit(event)
+        self._finish_worker_terminal_progress(event)
         self._emit_operation_terminal(event)
 
         if event.outcome is WorkerOutcome.SUCCEEDED:
             self._on_worker_finished(event.worker_id, event.result)
         elif event.outcome is WorkerOutcome.FAILED:
             if self._is_replacement_terminal(event):
-                self._finish_worker_terminal_progress(event, success=False)
                 self._clear_current_worker_id(event.worker_id)
                 return
             self._on_worker_error(event.worker_id, event.error or "")
@@ -645,9 +639,6 @@ class WorkerService(QObject):
         )
 
         worker_type = self._resolve_worker_type(worker_id)
-        if worker_type != "thumbnail":
-            self.progress_manager.finish_worker_progress(worker_id, success=False)
-
         canceled_dispatch: dict[str, tuple[Any, str | None]] = {
             "batch_reg": (self.batch_registration_canceled, "current_registration_worker_id"),
             "batch_import": (self.batch_import_canceled, "current_batch_import_worker_id"),
@@ -670,17 +661,22 @@ class WorkerService(QObject):
             f"reason={event.cancel_reason.value if event.cancel_reason else 'unknown'}, message={message}"
         )
         if self._is_replacement_terminal(event):
-            self._finish_worker_terminal_progress(event, success=False)
             self._clear_current_worker_id(event.worker_id)
             return
 
         self._on_worker_error(event.worker_id, message)
 
-    def _finish_worker_terminal_progress(self, event: WorkerTerminalEvent, *, success: bool) -> None:
-        """Close modal progress for terminal events that intentionally skip compat dispatch."""
-        worker_type = self._resolve_worker_type(event.worker_id)
-        if worker_type != "thumbnail":
-            self.progress_manager.finish_worker_progress(event.worker_id, success=success)
+    def _finish_worker_terminal_progress(self, event: WorkerTerminalEvent) -> None:
+        """Close modal progress exactly once from the canonical terminal fact."""
+        if self._worker_uses_modal_progress(event.worker_id):
+            self.progress_manager.finish_worker_progress(
+                event.worker_id,
+                success=event.outcome is WorkerOutcome.SUCCEEDED,
+            )
+
+    def _worker_uses_modal_progress(self, worker_id: str) -> bool:
+        """Return whether WorkerService starts modal progress for this worker."""
+        return self._resolve_worker_type(worker_id) != "thumbnail"
 
     def _should_emit_compat_canceled(self, event: WorkerTerminalEvent) -> bool:
         """Suppress normal UI cancellation signals for replacement-only cancellation."""

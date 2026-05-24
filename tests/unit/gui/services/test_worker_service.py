@@ -421,17 +421,23 @@ class TestWorkerService:
         assert hasattr(worker_service, "_on_worker_error")
         assert hasattr(worker_service, "_on_worker_canceled")
 
-    def test_on_worker_canceled_clears_current_id_and_finishes_progress(self, worker_service):
-        """キャンセル完了時はエラーシグナルなしで進捗とcurrent idを片付ける"""
+    def test_worker_terminal_canceled_clears_current_id_and_finishes_progress(self, worker_service):
+        """キャンセル終端時はエラーシグナルなしで進捗とcurrent idを片付ける"""
         worker_id = "search_cancelled"
         worker_service.current_search_worker_id = worker_id
         error_mock = Mock()
         canceled_mock = Mock()
         worker_service.search_error.connect(error_mock)
         worker_service.search_canceled.connect(canceled_mock)
+        event = WorkerTerminalEvent(
+            worker_id=worker_id,
+            worker_type="search",
+            outcome=WorkerOutcome.CANCELED,
+            cancel_reason=CancelReason.USER_REQUESTED,
+        )
 
         with patch.object(worker_service.progress_manager, "finish_worker_progress") as mock_finish:
-            worker_service._on_worker_canceled(worker_id)
+            worker_service._on_worker_terminal(event)
 
         mock_finish.assert_called_once_with(worker_id, success=False)
         assert worker_service.current_search_worker_id is None
@@ -624,6 +630,66 @@ class TestWorkerService:
         mock_finish.assert_called_once_with(old_worker_id, success=False)
         error_mock.assert_not_called()
         assert worker_service.current_search_worker_id is None
+
+    @pytest.mark.parametrize(
+        ("outcome", "cancel_reason", "expected_success"),
+        [
+            (WorkerOutcome.SUCCEEDED, None, True),
+            (WorkerOutcome.FAILED, None, False),
+            (WorkerOutcome.CANCELED, CancelReason.USER_REQUESTED, False),
+            (WorkerOutcome.TERMINATED, None, False),
+            (WorkerOutcome.UNRESPONSIVE, None, False),
+            (WorkerOutcome.CANCELED, CancelReason.SEARCH_REPLACED, False),
+            (WorkerOutcome.FAILED, CancelReason.SEARCH_REPLACED, False),
+        ],
+    )
+    def test_worker_terminal_progress_closes_once_for_terminal_outcomes(
+        self, worker_service, outcome, cancel_reason, expected_success
+    ):
+        """terminal outcome がcompat分岐に入ってもprogress closeはWorkerService terminalで1回だけ行う"""
+        worker_id = "search_terminal"
+        worker_service.current_search_worker_id = worker_id
+        event = WorkerTerminalEvent(
+            worker_id=worker_id,
+            worker_type="search",
+            outcome=outcome,
+            result={"ok": True} if outcome is WorkerOutcome.SUCCEEDED else None,
+            error="boom" if outcome is not WorkerOutcome.SUCCEEDED else None,
+            cancel_reason=cancel_reason,
+        )
+
+        with patch.object(worker_service.progress_manager, "finish_worker_progress") as mock_finish:
+            worker_service._on_worker_terminal(event)
+
+        mock_finish.assert_called_once_with(worker_id, success=expected_success)
+
+    @pytest.mark.parametrize(
+        "outcome",
+        [
+            WorkerOutcome.SUCCEEDED,
+            WorkerOutcome.FAILED,
+            WorkerOutcome.CANCELED,
+            WorkerOutcome.TERMINATED,
+            WorkerOutcome.UNRESPONSIVE,
+        ],
+    )
+    def test_thumbnail_terminal_never_closes_modal_progress(self, worker_service, outcome):
+        """thumbnail/page/prefetch workers never start modal progress, so terminal close skips them."""
+        worker_id = "thumbnail_terminal"
+        worker_service.current_thumbnail_worker_id = worker_id
+        event = WorkerTerminalEvent(
+            worker_id=worker_id,
+            worker_type="thumbnail",
+            outcome=outcome,
+            result={"ok": True} if outcome is WorkerOutcome.SUCCEEDED else None,
+            error="boom" if outcome is not WorkerOutcome.SUCCEEDED else None,
+            cancel_reason=CancelReason.PREFETCH_REPLACED if outcome is WorkerOutcome.CANCELED else None,
+        )
+
+        with patch.object(worker_service.progress_manager, "finish_worker_progress") as mock_finish:
+            worker_service._on_worker_terminal(event)
+
+        mock_finish.assert_not_called()
 
     def test_worker_id_uniqueness(self, worker_service):
         """ワーカーID一意性テスト"""
@@ -871,7 +937,7 @@ class TestWorkerService:
     def test_worker_terminal_dispatch_table(
         self, worker_service, worker_id, terminal, signal_name, current_attr, payload
     ):
-        """全worker種別の終端signalとcurrent id cleanupを表で検証する"""
+        """全worker種別の互換終端signalとcurrent id cleanupを表で検証する"""
         setattr(worker_service, current_attr, worker_id)
         terminal_mock = Mock()
         getattr(worker_service, signal_name).connect(terminal_mock)
@@ -888,10 +954,7 @@ class TestWorkerService:
                 terminal_mock.assert_called_once_with(worker_id)
 
         assert getattr(worker_service, current_attr) is None
-        if not worker_id.startswith("thumbnail_"):
-            mock_finish.assert_called_once()
-        else:
-            mock_finish.assert_not_called()
+        mock_finish.assert_not_called()
 
     def test_modern_progress_manager_integration(self, worker_service):
         """ModernProgressManager統合検証
