@@ -514,6 +514,46 @@ class TestWorkerService:
         error_mock.assert_not_called()
         assert worker_service.current_thumbnail_worker_id is None
 
+    def test_worker_terminal_replacement_abnormal_finishes_search_progress(self, worker_service):
+        old_worker_id = "search_replaced"
+        worker_service.current_search_worker_id = old_worker_id
+        error_mock = Mock()
+        worker_service.search_error.connect(error_mock)
+        event = WorkerTerminalEvent(
+            worker_id=old_worker_id,
+            worker_type="search",
+            outcome=WorkerOutcome.CANCEL_TIMEOUT,
+            error="cancel timed out",
+            cancel_reason=CancelReason.SEARCH_REPLACED,
+        )
+
+        with patch.object(worker_service.progress_manager, "finish_worker_progress") as mock_finish:
+            worker_service._on_worker_terminal(event)
+
+        mock_finish.assert_called_once_with(old_worker_id, success=False)
+        error_mock.assert_not_called()
+        assert worker_service.current_search_worker_id is None
+
+    def test_worker_terminal_replacement_failed_suppresses_compat_error(self, worker_service):
+        old_worker_id = "search_replaced"
+        worker_service.current_search_worker_id = old_worker_id
+        error_mock = Mock()
+        worker_service.search_error.connect(error_mock)
+        event = WorkerTerminalEvent(
+            worker_id=old_worker_id,
+            worker_type="search",
+            outcome=WorkerOutcome.FAILED,
+            error="superseded worker failed",
+            cancel_reason=CancelReason.SEARCH_REPLACED,
+        )
+
+        with patch.object(worker_service.progress_manager, "finish_worker_progress") as mock_finish:
+            worker_service._on_worker_terminal(event)
+
+        mock_finish.assert_called_once_with(old_worker_id, success=False)
+        error_mock.assert_not_called()
+        assert worker_service.current_search_worker_id is None
+
     def test_worker_id_uniqueness(self, worker_service):
         """ワーカーID一意性テスト"""
         with patch("lorairo.gui.services.worker_service.SearchWorker"):

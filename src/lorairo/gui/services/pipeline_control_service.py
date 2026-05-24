@@ -225,11 +225,10 @@ class PipelineControlService:
                 )
                 return
 
-            message = event.error or f"Worker ended abnormally: {event.outcome.value}"
-            if event.worker_type == "search":
-                self.on_search_error(message)
-            else:
-                self.on_thumbnail_error(message)
+            logger.debug(
+                f"Pipeline abnormal terminal observed; compat error signal owns cleanup: "
+                f"{event.worker_id}, outcome={event.outcome.value}"
+            )
 
     # ============================================================
     # 進捗状態管理統合

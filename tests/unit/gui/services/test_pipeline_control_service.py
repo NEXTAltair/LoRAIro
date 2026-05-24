@@ -403,7 +403,7 @@ class TestPipelineFlow:
         mock_thumbnail_selector.clear_thumbnails.assert_called_once()
         mock_filter_panel.hide_progress_after_completion.assert_called_once()
 
-    def test_on_worker_terminal_abnormal_thumbnail_clears_results(
+    def test_on_worker_terminal_abnormal_thumbnail_defers_cleanup_to_compat_error(
         self, service, mock_thumbnail_selector, mock_filter_panel
     ):
         event = WorkerTerminalEvent(
@@ -416,9 +416,9 @@ class TestPipelineFlow:
 
         service.on_worker_terminal(event)
 
-        mock_thumbnail_selector.clear_thumbnails.assert_called_once()
+        mock_thumbnail_selector.clear_thumbnails.assert_not_called()
         mock_filter_panel.clear_pipeline_results.assert_not_called()
-        mock_filter_panel.hide_progress_after_completion.assert_called_once()
+        mock_filter_panel.hide_progress_after_completion.assert_not_called()
 
     def test_on_worker_terminal_replacement_abnormal_keeps_results(
         self, service, mock_thumbnail_selector, mock_filter_panel

@@ -598,6 +598,10 @@ class WorkerService(QObject):
         if event.outcome is WorkerOutcome.SUCCEEDED:
             self._on_worker_finished(event.worker_id, event.result)
         elif event.outcome is WorkerOutcome.FAILED:
+            if self._is_replacement_terminal(event):
+                self._finish_worker_terminal_progress(event, success=False)
+                self._clear_current_worker_id(event.worker_id)
+                return
             self._on_worker_error(event.worker_id, event.error or "")
         elif event.outcome is WorkerOutcome.CANCELED:
             self._on_worker_canceled_event(event)
@@ -638,10 +642,17 @@ class WorkerService(QObject):
             f"reason={event.cancel_reason.value if event.cancel_reason else 'unknown'}, message={message}"
         )
         if self._is_replacement_terminal(event):
+            self._finish_worker_terminal_progress(event, success=False)
             self._clear_current_worker_id(event.worker_id)
             return
 
         self._on_worker_error(event.worker_id, message)
+
+    def _finish_worker_terminal_progress(self, event: WorkerTerminalEvent, *, success: bool) -> None:
+        """Close modal progress for terminal events that intentionally skip compat dispatch."""
+        worker_type = self._resolve_worker_type(event.worker_id)
+        if worker_type != "thumbnail":
+            self.progress_manager.finish_worker_progress(event.worker_id, success=success)
 
     def _should_emit_compat_canceled(self, event: WorkerTerminalEvent) -> bool:
         """Suppress normal UI cancellation signals for replacement-only cancellation."""
