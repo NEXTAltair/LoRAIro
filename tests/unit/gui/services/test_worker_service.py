@@ -631,6 +631,102 @@ class TestWorkerService:
         error_mock.assert_not_called()
         assert worker_service.current_search_worker_id is None
 
+    def test_stale_search_replacement_failure_preserves_current_search_operation(self, worker_service):
+        """古い search replacement failure は current search id を壊さず superseded operation になる"""
+        old_worker_id = "search_old"
+        current_worker_id = "search_current"
+        worker_service.current_search_worker_id = current_worker_id
+        worker_service._register_operation(old_worker_id, OperationType.SEARCH, generation=1)
+        worker_service._register_operation(current_worker_id, OperationType.SEARCH, generation=2)
+        worker_service._search_generation = 2
+        operation_mock = Mock()
+        error_mock = Mock()
+        worker_service.operation_event.connect(operation_mock)
+        worker_service.search_error.connect(error_mock)
+        event = WorkerTerminalEvent(
+            worker_id=old_worker_id,
+            worker_type="search",
+            outcome=WorkerOutcome.FAILED,
+            error="old search failed after replacement",
+            cancel_reason=CancelReason.SEARCH_REPLACED,
+        )
+
+        with patch.object(worker_service.progress_manager, "finish_worker_progress") as mock_finish:
+            worker_service._on_worker_terminal(event)
+
+        operation_event = operation_mock.call_args.args[0]
+        assert operation_event.worker_id == old_worker_id
+        assert operation_event.outcome is OperationOutcome.SUPERSEDED
+        assert operation_event.is_current is False
+        error_mock.assert_not_called()
+        mock_finish.assert_called_once_with(old_worker_id, success=False)
+        assert worker_service.current_search_worker_id == current_worker_id
+
+    def test_stale_prefetch_replacement_failure_preserves_current_thumbnail_operation(self, worker_service):
+        """prefetch replacement failure は current thumbnail id と表示要求を壊さない"""
+        old_worker_id = "thumbnail_prefetch_old"
+        current_worker_id = "thumbnail_current"
+        worker_service.current_thumbnail_worker_id = current_worker_id
+        worker_service._register_operation(
+            old_worker_id,
+            OperationType.THUMBNAIL,
+            request_id="prefetch-old",
+            generation=1,
+        )
+        worker_service._register_operation(
+            current_worker_id,
+            OperationType.THUMBNAIL,
+            request_id="visible-current",
+            generation=2,
+        )
+        worker_service._thumbnail_generation = 2
+        operation_mock = Mock()
+        error_mock = Mock()
+        worker_service.operation_event.connect(operation_mock)
+        worker_service.thumbnail_error.connect(error_mock)
+        event = WorkerTerminalEvent(
+            worker_id=old_worker_id,
+            worker_type="thumbnail",
+            outcome=WorkerOutcome.TERMINATED,
+            error="old prefetch terminated",
+            cancel_reason=CancelReason.PREFETCH_REPLACED,
+        )
+
+        with patch.object(worker_service.progress_manager, "finish_worker_progress") as mock_finish:
+            worker_service._on_worker_terminal(event)
+
+        operation_event = operation_mock.call_args.args[0]
+        assert operation_event.worker_id == old_worker_id
+        assert operation_event.request_id == "prefetch-old"
+        assert operation_event.outcome is OperationOutcome.SUPERSEDED
+        assert operation_event.is_current is False
+        error_mock.assert_not_called()
+        mock_finish.assert_not_called()
+        assert worker_service.current_thumbnail_worker_id == current_worker_id
+
+    def test_non_replacement_search_failure_closes_progress_and_dispatches_error_once(self, worker_service):
+        """通常 failure は terminal でprogress closeし、compat errorを一度だけdispatchする"""
+        worker_id = "search_failed"
+        worker_service.current_search_worker_id = worker_id
+        error_mock = Mock()
+        canceled_mock = Mock()
+        worker_service.search_error.connect(error_mock)
+        worker_service.search_canceled.connect(canceled_mock)
+        event = WorkerTerminalEvent(
+            worker_id=worker_id,
+            worker_type="search",
+            outcome=WorkerOutcome.FAILED,
+            error="search failed",
+        )
+
+        with patch.object(worker_service.progress_manager, "finish_worker_progress") as mock_finish:
+            worker_service._on_worker_terminal(event)
+
+        mock_finish.assert_called_once_with(worker_id, success=False)
+        error_mock.assert_called_once_with("search failed")
+        canceled_mock.assert_not_called()
+        assert worker_service.current_search_worker_id is None
+
     @pytest.mark.parametrize(
         ("outcome", "cancel_reason", "expected_success"),
         [
