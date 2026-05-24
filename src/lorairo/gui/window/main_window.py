@@ -664,6 +664,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             "enhanced_annotation_canceled",
             "worker_progress_updated",
             "worker_batch_progress",
+            "worker_terminal",
         ]
 
         missing_signals = [
@@ -685,8 +686,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # Error handling connections
         self.worker_service.search_error.connect(self._on_pipeline_search_error)
         self.worker_service.thumbnail_error.connect(self._on_pipeline_thumbnail_error)
-        self.worker_service.search_canceled.connect(self._on_pipeline_search_canceled)
-        self.worker_service.thumbnail_canceled.connect(self._on_pipeline_thumbnail_canceled)
+        self.worker_service.worker_terminal.connect(self._on_worker_terminal)
 
         # Batch registration connections
         self.worker_service.batch_registration_started.connect(self._on_batch_registration_started)
@@ -708,7 +708,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.worker_service.worker_progress_updated.connect(self._on_worker_progress_updated)
         self.worker_service.worker_batch_progress.connect(self._on_worker_batch_progress)
 
-        logger.info("WorkerService pipeline signals connected (18 connections)")
+        logger.info("WorkerService pipeline signals connected (17 connections)")
 
     def _delegate_to_pipeline_control(self, method_name: str, *args: Any) -> None:
         """PipelineControlServiceへのイベント委譲ヘルパー"""
@@ -746,6 +746,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def _on_pipeline_thumbnail_canceled(self, worker_id: str) -> None:
         self._delegate_to_pipeline_control("on_thumbnail_canceled", worker_id)
+
+    def _on_worker_terminal(self, event: Any) -> None:
+        """Route terminal events with outcome and reason details."""
+        self._delegate_to_pipeline_control("on_worker_terminal", event)
 
     def _delegate_to_progress_state(self, method_name: str, *args: Any) -> None:
         """ProgressStateServiceへのイベント委譲ヘルパー"""

@@ -11,6 +11,7 @@ from PySide6.QtCore import QSize
 
 from lorairo.gui.services.worker_service import WorkerService
 from lorairo.gui.workers.search_worker import SearchResult
+from lorairo.gui.workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 from lorairo.services.search_models import SearchConditions
 
 
@@ -80,6 +81,7 @@ class TestWorkerService:
         # 進捗・管理シグナル
         assert hasattr(worker_service, "worker_progress_updated")
         assert hasattr(worker_service, "worker_batch_progress")
+        assert hasattr(worker_service, "worker_terminal")
         assert hasattr(worker_service, "active_worker_count_changed")
         assert hasattr(worker_service, "all_workers_finished")
 
@@ -212,7 +214,10 @@ class TestWorkerService:
         new_worker_id = worker_service.start_search(filter_conditions)
 
         # 既存ワーカーのキャンセル確認
-        worker_service.worker_manager.cancel_worker.assert_called_once_with(existing_worker_id)
+        worker_service.worker_manager.cancel_worker.assert_called_once_with(
+            existing_worker_id,
+            reason=CancelReason.SEARCH_REPLACED,
+        )
 
         # 新しいワーカーID設定確認
         assert worker_service.current_search_worker_id == new_worker_id
@@ -366,7 +371,10 @@ class TestWorkerService:
             cancel_previous=True,
         )
 
-        worker_service.worker_manager.cancel_worker.assert_called_with("thumbnail_existing")
+        worker_service.worker_manager.cancel_worker.assert_called_with(
+            "thumbnail_existing",
+            reason=CancelReason.THUMBNAIL_REPLACED,
+        )
 
     @patch("lorairo.gui.services.worker_service.ThumbnailWorker")
     def test_start_thumbnail_page_load_failure_keeps_current_worker_id(
@@ -427,6 +435,84 @@ class TestWorkerService:
         assert worker_service.current_search_worker_id is None
         error_mock.assert_not_called()
         canceled_mock.assert_called_once_with(worker_id)
+
+    def test_worker_terminal_emits_rich_event_and_dispatches_compat_signal(self, worker_service):
+        worker_id = "search_cancelled"
+        worker_service.current_search_worker_id = worker_id
+        terminal_mock = Mock()
+        canceled_mock = Mock()
+        worker_service.worker_terminal.connect(terminal_mock)
+        worker_service.search_canceled.connect(canceled_mock)
+        event = WorkerTerminalEvent(
+            worker_id=worker_id,
+            worker_type="search",
+            outcome=WorkerOutcome.CANCELED,
+            cancel_reason=CancelReason.PIPELINE_CANCEL,
+        )
+
+        with patch.object(worker_service.progress_manager, "finish_worker_progress"):
+            worker_service._on_worker_terminal(event)
+
+        terminal_mock.assert_called_once_with(event)
+        canceled_mock.assert_called_once_with(worker_id)
+        assert worker_service.current_search_worker_id is None
+
+    def test_worker_terminal_suppresses_replacement_canceled_compat_signal(self, worker_service):
+        worker_id = "search_replaced"
+        worker_service.current_search_worker_id = worker_id
+        canceled_mock = Mock()
+        worker_service.search_canceled.connect(canceled_mock)
+        event = WorkerTerminalEvent(
+            worker_id=worker_id,
+            worker_type="search",
+            outcome=WorkerOutcome.CANCELED,
+            cancel_reason=CancelReason.SEARCH_REPLACED,
+        )
+
+        with patch.object(worker_service.progress_manager, "finish_worker_progress"):
+            worker_service._on_worker_terminal(event)
+
+        canceled_mock.assert_not_called()
+        assert worker_service.current_search_worker_id is None
+
+    def test_worker_terminal_abnormal_outcome_dispatches_error_not_canceled(self, worker_service):
+        worker_id = "thumbnail_timeout"
+        worker_service.current_thumbnail_worker_id = worker_id
+        error_mock = Mock()
+        canceled_mock = Mock()
+        worker_service.thumbnail_error.connect(error_mock)
+        worker_service.thumbnail_canceled.connect(canceled_mock)
+        event = WorkerTerminalEvent(
+            worker_id=worker_id,
+            worker_type="thumbnail",
+            outcome=WorkerOutcome.TERMINATED,
+            error="terminated",
+            cancel_reason=CancelReason.USER_REQUESTED,
+        )
+
+        worker_service._on_worker_terminal(event)
+
+        error_mock.assert_called_once_with("terminated")
+        canceled_mock.assert_not_called()
+        assert worker_service.current_thumbnail_worker_id is None
+
+    def test_worker_terminal_replacement_abnormal_suppresses_compat_error(self, worker_service):
+        old_worker_id = "thumbnail_replaced"
+        worker_service.current_thumbnail_worker_id = old_worker_id
+        error_mock = Mock()
+        worker_service.thumbnail_error.connect(error_mock)
+        event = WorkerTerminalEvent(
+            worker_id=old_worker_id,
+            worker_type="thumbnail",
+            outcome=WorkerOutcome.TERMINATED,
+            error="terminated",
+            cancel_reason=CancelReason.THUMBNAIL_REPLACED,
+        )
+
+        worker_service._on_worker_terminal(event)
+
+        error_mock.assert_not_called()
+        assert worker_service.current_thumbnail_worker_id is None
 
     def test_worker_id_uniqueness(self, worker_service):
         """ワーカーID一意性テスト"""
@@ -732,4 +818,7 @@ class TestWorkerService:
         worker_service._on_progress_cancellation_requested("test_worker_003")
 
         # WorkerManagerにキャンセルが要求されたことを確認
-        worker_service.worker_manager.cancel_worker.assert_called_with("test_worker_003")
+        worker_service.worker_manager.cancel_worker.assert_called_with(
+            "test_worker_003",
+            reason=CancelReason.PROGRESS_DIALOG,
+        )

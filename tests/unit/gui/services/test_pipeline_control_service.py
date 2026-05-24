@@ -9,6 +9,7 @@ import pytest
 
 from lorairo.gui.services.pipeline_control_service import PipelineControlService
 from lorairo.gui.workers.search_worker import SearchResult
+from lorairo.gui.workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 from lorairo.services.search_models import SearchConditions
 
 
@@ -85,8 +86,14 @@ class TestCancelCurrentPipeline:
         service.cancel_current_pipeline()
 
         # Assert
-        mock_worker_service.cancel_search.assert_called_once_with("search-123")
-        mock_worker_service.cancel_thumbnail_load.assert_called_once_with("thumb-456")
+        mock_worker_service.cancel_search.assert_called_once_with(
+            "search-123",
+            reason=CancelReason.PIPELINE_CANCEL,
+        )
+        mock_worker_service.cancel_thumbnail_load.assert_called_once_with(
+            "thumb-456",
+            reason=CancelReason.PIPELINE_CANCEL,
+        )
         mock_thumbnail_selector.clear_thumbnails.assert_called_once()
         mock_filter_panel.clear_pipeline_results.assert_called_once()
         mock_filter_panel.hide_progress_after_completion.assert_called_once()
@@ -196,6 +203,22 @@ class TestPipelineFlow:
 
         mock_thumbnail_selector.clear_thumbnails.assert_called_once()
         mock_filter_panel.clear_pipeline_results.assert_called_once()
+        mock_filter_panel.hide_progress_after_completion.assert_called_once()
+
+    def test_on_search_replaced_canceled_keeps_current_results(
+        self, service, mock_thumbnail_selector, mock_filter_panel
+    ):
+        event = WorkerTerminalEvent(
+            worker_id="search-123",
+            worker_type="search",
+            outcome=WorkerOutcome.CANCELED,
+            cancel_reason=CancelReason.SEARCH_REPLACED,
+        )
+
+        service.on_search_canceled(event)
+
+        mock_thumbnail_selector.clear_thumbnails.assert_not_called()
+        mock_filter_panel.clear_pipeline_results.assert_not_called()
         mock_filter_panel.hide_progress_after_completion.assert_called_once()
 
     def test_on_thumbnail_canceled_keeps_pipeline_results_without_error(
@@ -379,3 +402,37 @@ class TestPipelineFlow:
         )
         mock_thumbnail_selector.clear_thumbnails.assert_called_once()
         mock_filter_panel.hide_progress_after_completion.assert_called_once()
+
+    def test_on_worker_terminal_abnormal_thumbnail_clears_results(
+        self, service, mock_thumbnail_selector, mock_filter_panel
+    ):
+        event = WorkerTerminalEvent(
+            worker_id="thumbnail-123",
+            worker_type="thumbnail",
+            outcome=WorkerOutcome.TERMINATED,
+            error="terminated",
+            cancel_reason=CancelReason.USER_REQUESTED,
+        )
+
+        service.on_worker_terminal(event)
+
+        mock_thumbnail_selector.clear_thumbnails.assert_called_once()
+        mock_filter_panel.clear_pipeline_results.assert_not_called()
+        mock_filter_panel.hide_progress_after_completion.assert_called_once()
+
+    def test_on_worker_terminal_replacement_abnormal_keeps_results(
+        self, service, mock_thumbnail_selector, mock_filter_panel
+    ):
+        event = WorkerTerminalEvent(
+            worker_id="thumbnail-123",
+            worker_type="thumbnail",
+            outcome=WorkerOutcome.TERMINATED,
+            error="terminated",
+            cancel_reason=CancelReason.THUMBNAIL_REPLACED,
+        )
+
+        service.on_worker_terminal(event)
+
+        mock_thumbnail_selector.clear_thumbnails.assert_not_called()
+        mock_filter_panel.clear_pipeline_results.assert_not_called()
+        mock_filter_panel.hide_progress_after_completion.assert_not_called()

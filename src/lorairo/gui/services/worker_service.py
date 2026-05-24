@@ -21,6 +21,7 @@ from ..workers.manager import WorkerManager
 from ..workers.modern_progress_manager import ModernProgressManager, create_worker_id
 from ..workers.registration_worker import DatabaseRegistrationWorker
 from ..workers.search_worker import SearchResult, SearchWorker
+from ..workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 from ..workers.thumbnail_worker import ThumbnailWorker
 
 
@@ -59,6 +60,7 @@ class WorkerService(QObject):
     # === 進捗シグナル ===
     worker_progress_updated = Signal(str, object)  # worker_id, WorkerProgress
     worker_batch_progress = Signal(str, int, int, str)  # worker_id, current, total, filename
+    worker_terminal = Signal(object)  # WorkerTerminalEvent
 
     # === 全体管理シグナル ===
     active_worker_count_changed = Signal(int)
@@ -88,9 +90,7 @@ class WorkerService(QObject):
 
         # ワーカーマネージャーのシグナル接続
         self.worker_manager.worker_started.connect(self._on_worker_started)
-        self.worker_manager.worker_finished.connect(self._on_worker_finished)
-        self.worker_manager.worker_error.connect(self._on_worker_error)
-        self.worker_manager.worker_canceled.connect(self._on_worker_canceled)
+        self.worker_manager.worker_terminal.connect(self._on_worker_terminal)
         self.worker_manager.active_worker_count_changed.connect(self.active_worker_count_changed)
         self.worker_manager.all_workers_finished.connect(self.all_workers_finished)
 
@@ -250,7 +250,10 @@ class WorkerService(QObject):
         # 既存の検索をキャンセル
         if self.current_search_worker_id:
             logger.info(f"既存の検索をキャンセル: {self.current_search_worker_id}")
-            self.worker_manager.cancel_worker(self.current_search_worker_id)
+            self.worker_manager.cancel_worker(
+                self.current_search_worker_id,
+                reason=CancelReason.SEARCH_REPLACED,
+            )
             self.current_search_worker_id = None
 
         worker = SearchWorker(self.db_manager, search_conditions)
@@ -273,9 +276,13 @@ class WorkerService(QObject):
         else:
             raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
 
-    def cancel_search(self, worker_id: str) -> bool:
+    def cancel_search(
+        self,
+        worker_id: str,
+        reason: CancelReason = CancelReason.USER_REQUESTED,
+    ) -> bool:
         """検索キャンセル"""
-        return self.worker_manager.cancel_worker(worker_id)
+        return self._cancel_worker(worker_id, reason)
 
     # === Thumbnail ===
 
@@ -325,9 +332,13 @@ class WorkerService(QObject):
         else:
             raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
 
-    def cancel_thumbnail_load(self, worker_id: str) -> bool:
+    def cancel_thumbnail_load(
+        self,
+        worker_id: str,
+        reason: CancelReason = CancelReason.USER_REQUESTED,
+    ) -> bool:
         """サムネイル読み込みキャンセル"""
-        return self.worker_manager.cancel_worker(worker_id)
+        return self._cancel_worker(worker_id, reason)
 
     def start_thumbnail_page_load(
         self,
@@ -364,7 +375,10 @@ class WorkerService(QObject):
 
         if cancel_previous and self.current_thumbnail_worker_id:
             logger.debug(f"既存のサムネイル読み込みをキャンセル: {self.current_thumbnail_worker_id}")
-            self.worker_manager.cancel_worker(self.current_thumbnail_worker_id)
+            self.worker_manager.cancel_worker(
+                self.current_thumbnail_worker_id,
+                reason=CancelReason.THUMBNAIL_REPLACED,
+            )
             self.current_thumbnail_worker_id = None
 
         worker = ThumbnailWorker(
@@ -451,7 +465,7 @@ class WorkerService(QObject):
 
     def cancel_all_workers(self) -> None:
         """全ワーカーキャンセル"""
-        self.worker_manager.cancel_all_workers()
+        self.worker_manager.cancel_all_workers(reason=CancelReason.SHUTDOWN)
 
     def get_active_worker_count(self) -> int:
         """アクティブワーカー数取得"""
@@ -476,7 +490,7 @@ class WorkerService(QObject):
         logger.info(f"プログレスダイアログからキャンセル要求: {worker_id}")
 
         # 該当ワーカーをキャンセル
-        success = self.worker_manager.cancel_worker(worker_id)
+        success = self.worker_manager.cancel_worker(worker_id, reason=CancelReason.PROGRESS_DIALOG)
         if success:
             logger.info(f"ワーカーキャンセル実行: {worker_id}")
         else:
@@ -568,7 +582,35 @@ class WorkerService(QObject):
 
     def _on_worker_canceled(self, worker_id: str) -> None:
         """ワーカーキャンセルハンドラ - エラー扱いせずプログレスを終了"""
-        logger.info(f"ワーカーキャンセル完了: {worker_id}")
+        self._on_worker_canceled_event(
+            WorkerTerminalEvent(
+                worker_id=worker_id,
+                worker_type=self._resolve_worker_type(worker_id),
+                outcome=WorkerOutcome.CANCELED,
+                cancel_reason=CancelReason.USER_REQUESTED,
+            )
+        )
+
+    def _on_worker_terminal(self, event: WorkerTerminalEvent) -> None:
+        """Unified worker terminal event dispatcher."""
+        self.worker_terminal.emit(event)
+
+        if event.outcome is WorkerOutcome.SUCCEEDED:
+            self._on_worker_finished(event.worker_id, event.result)
+        elif event.outcome is WorkerOutcome.FAILED:
+            self._on_worker_error(event.worker_id, event.error or "")
+        elif event.outcome is WorkerOutcome.CANCELED:
+            self._on_worker_canceled_event(event)
+        else:
+            self._on_worker_abnormal_terminal(event)
+
+    def _on_worker_canceled_event(self, event: WorkerTerminalEvent) -> None:
+        """ワーカーキャンセルハンドラ - エラー扱いせずプログレスを終了"""
+        worker_id = event.worker_id
+        logger.info(
+            f"ワーカーキャンセル完了: {worker_id}"
+            f" (reason={event.cancel_reason.value if event.cancel_reason else 'unknown'})"
+        )
 
         worker_type = self._resolve_worker_type(worker_id)
         if worker_type != "thumbnail":
@@ -583,6 +625,53 @@ class WorkerService(QObject):
         }
         if worker_type in canceled_dispatch:
             signal, attr = canceled_dispatch[worker_type]
-            signal.emit(worker_id)
+            if self._should_emit_compat_canceled(event):
+                signal.emit(worker_id)
             if attr and getattr(self, attr) == worker_id:
                 setattr(self, attr, None)
+
+    def _on_worker_abnormal_terminal(self, event: WorkerTerminalEvent) -> None:
+        """Handle timeout/terminate outcomes as abnormal terminals, not normal cancellation."""
+        message = event.error or f"ワーカー異常終了: {event.outcome.value}"
+        logger.warning(
+            f"ワーカー異常終了: {event.worker_id}, outcome={event.outcome.value}, "
+            f"reason={event.cancel_reason.value if event.cancel_reason else 'unknown'}, message={message}"
+        )
+        if self._is_replacement_terminal(event):
+            self._clear_current_worker_id(event.worker_id)
+            return
+
+        self._on_worker_error(event.worker_id, message)
+
+    def _should_emit_compat_canceled(self, event: WorkerTerminalEvent) -> bool:
+        """Suppress normal UI cancellation signals for replacement-only cancellation."""
+        return event.cancel_reason not in {
+            CancelReason.SEARCH_REPLACED,
+            CancelReason.THUMBNAIL_REPLACED,
+            CancelReason.PREFETCH_REPLACED,
+        }
+
+    def _is_replacement_terminal(self, event: WorkerTerminalEvent) -> bool:
+        return event.cancel_reason in {
+            CancelReason.SEARCH_REPLACED,
+            CancelReason.THUMBNAIL_REPLACED,
+            CancelReason.PREFETCH_REPLACED,
+        }
+
+    def _clear_current_worker_id(self, worker_id: str) -> None:
+        worker_type = self._resolve_worker_type(worker_id)
+        attr_by_type = {
+            "batch_reg": "current_registration_worker_id",
+            "batch_import": "current_batch_import_worker_id",
+            "annotation": "current_annotation_worker_id",
+            "search": "current_search_worker_id",
+            "thumbnail": "current_thumbnail_worker_id",
+        }
+        attr = attr_by_type.get(worker_type)
+        if attr and getattr(self, attr) == worker_id:
+            setattr(self, attr, None)
+
+    def _cancel_worker(self, worker_id: str, reason: CancelReason) -> bool:
+        if reason is CancelReason.USER_REQUESTED:
+            return self.worker_manager.cancel_worker(worker_id)
+        return self.worker_manager.cancel_worker(worker_id, reason=reason)

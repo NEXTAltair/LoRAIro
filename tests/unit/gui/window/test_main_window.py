@@ -335,6 +335,7 @@ class TestMainWindowAnnotationCompletion:
             "enhanced_annotation_canceled",
             "worker_progress_updated",
             "worker_batch_progress",
+            "worker_terminal",
         ]:
             setattr(mock_window.worker_service, signal_name, Mock())
 
@@ -345,11 +346,9 @@ class TestMainWindowAnnotationCompletion:
                 "search_finished",
                 "search_started",
                 "search_error",
-                "search_canceled",
                 "thumbnail_finished",
                 "thumbnail_started",
                 "thumbnail_error",
-                "thumbnail_canceled",
                 "batch_registration_started",
                 "batch_registration_finished",
                 "batch_registration_error",
@@ -362,6 +361,7 @@ class TestMainWindowAnnotationCompletion:
                 "enhanced_annotation_canceled",
                 "worker_progress_updated",
                 "worker_batch_progress",
+                "worker_terminal",
             ]:
                 getattr(mock_window.worker_service, signal_name).connect.assert_called_once()
 

@@ -10,6 +10,7 @@ from PySide6.QtCore import QEventLoop, QThread, QTimer
 
 from lorairo.gui.services.worker_service import WorkerService
 from lorairo.gui.workers.search_worker import SearchResult, SearchWorker
+from lorairo.gui.workers.terminal import CancelReason
 from lorairo.services.search_models import SearchConditions
 
 
@@ -91,7 +92,10 @@ class TestWorkerSystemCoordination:
             )
 
             # 1番目のワーカーがキャンセルされたことを確認
-            worker_service.worker_manager.cancel_worker.assert_called_with(worker_id1)
+            worker_service.worker_manager.cancel_worker.assert_called_with(
+                worker_id1,
+                reason=CancelReason.SEARCH_REPLACED,
+            )
 
             # 現在のワーカーIDが更新されたことを確認
             assert worker_service.current_search_worker_id == worker_id2
@@ -261,7 +265,10 @@ class TestWorkerSystemCoordination:
             )
 
             # 古いワーカーがキャンセルされ、新しいIDが設定される
-            worker_service.worker_manager.cancel_worker.assert_called_with(worker_id)
+            worker_service.worker_manager.cancel_worker.assert_called_with(
+                worker_id,
+                reason=CancelReason.SEARCH_REPLACED,
+            )
             assert worker_service.current_search_worker_id == new_worker_id
 
 
