@@ -141,8 +141,9 @@ class TestSettingsControllerDialog:
     def test_open_settings_dialog_import_error_uses_fallback(self, qtbot, monkeypatch):
         """ConfigurationWindow の ImportError 時はフォールバックダイアログを表示して False を返す。
 
-        ConfigurationWindow が存在しないモジュール名でインポートエラーを発生させるため、
-        sys.modules を直接操作して ImportError を引き起こす。
+        sys.modules に None をセットすることで open_settings_dialog() 内の
+        `from ..window.configuration_window import ConfigurationWindow` を
+        ImportError に変換し、実際の except ImportError パスを通る。
         """
         import sys
 
@@ -155,16 +156,13 @@ class TestSettingsControllerDialog:
         information_called = []
         monkeypatch.setattr(QMessageBox, "information", lambda *args: information_called.append(args))
 
-        # lorairo.gui.window.configuration_window を sys.modules から除去して ImportError を誘発
-        original = sys.modules.pop("lorairo.gui.window.configuration_window", None)
-        # さらに parent package を一時的に None にして from ... import が失敗するようにする
-        # 代わりに、controller._show_simple_settings_dialog を直接呼ぶことで結果を検証
-        try:
-            controller._show_simple_settings_dialog()
-        finally:
-            if original is not None:
-                sys.modules["lorairo.gui.window.configuration_window"] = original
+        # sys.modules[key] = None は Python が ImportError を raise するネガティブキャッシュ
+        # monkeypatch.setitem でテスト終了時に自動的に元の値へ復元される
+        monkeypatch.setitem(sys.modules, "lorairo.gui.window.configuration_window", None)
 
+        result = controller.open_settings_dialog()
+
+        assert result is False
         assert len(information_called) == 1
 
     def test_open_settings_dialog_general_exception_shows_critical(self, qtbot, monkeypatch):
