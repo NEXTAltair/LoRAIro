@@ -392,6 +392,210 @@ class TestSearchCriteriaProcessorIntegration:
         assert results[0]["id"] == 1
 
 
+@pytest.mark.unit
+class TestSearchCriteriaProcessorErrorPaths:
+    """SearchCriteriaProcessor の例外パスカバレッジテスト。"""
+
+    @pytest.fixture
+    def mock_db_manager(self):
+        """モックデータベースマネージャー"""
+        return Mock()
+
+    @pytest.fixture
+    def processor(self, mock_db_manager):
+        """テスト用 SearchCriteriaProcessor"""
+        return SearchCriteriaProcessor(mock_db_manager)
+
+    @patch("lorairo.services.search_criteria_processor.logger")
+    def test_process_date_filter_exception_returns_empty_dict(self, mock_logger, processor) -> None:
+        """process_date_filter で例外が起きた場合、空辞書を返してエラーログを出す。"""
+
+        class _BrokenConditions:
+            @property
+            def date_filter_enabled(self) -> bool:
+                raise RuntimeError("boom")
+
+        result = processor.process_date_filter(_BrokenConditions())
+
+        assert result == {}
+        mock_logger.error.assert_called_once()
+
+    @patch("lorairo.services.search_criteria_processor.logger")
+    def test_apply_untagged_filter_exception_returns_empty_dict(self, mock_logger, processor) -> None:
+        """apply_untagged_filter で例外が起きた場合、空辞書を返してエラーログを出す。"""
+
+        class _BrokenConditions:
+            @property
+            def only_untagged(self) -> bool:
+                raise RuntimeError("fail")
+
+        result = processor.apply_untagged_filter(_BrokenConditions())
+
+        assert result == {}
+        mock_logger.error.assert_called_once()
+
+    @patch("lorairo.services.search_criteria_processor.logger")
+    def test_apply_tagged_filter_logic_exception_returns_empty_dict(self, mock_logger, processor) -> None:
+        """apply_tagged_filter_logic で例外が起きた場合、空辞書を返してエラーログを出す。"""
+
+        class _BrokenConditions:
+            @property
+            def keywords(self) -> list:
+                raise RuntimeError("fail")
+
+        result = processor.apply_tagged_filter_logic(_BrokenConditions())
+
+        assert result == {}
+        mock_logger.error.assert_called_once()
+
+    @patch("lorairo.services.search_criteria_processor.logger")
+    def test_apply_simple_frontend_filters_exception_returns_original_images(
+        self, mock_logger, processor
+    ) -> None:
+        """_apply_simple_frontend_filters で例外が起きた場合、元リストを返してエラーログを出す。"""
+        images = [{"id": 1}, {"id": 2}]
+
+        class _BrokenConditions:
+            @property
+            def aspect_ratio_filter(self) -> str:
+                raise RuntimeError("crash")
+
+        result = processor._apply_simple_frontend_filters(images, _BrokenConditions())
+
+        assert result == images
+        mock_logger.error.assert_called_once()
+
+    def test_resolve_target_aspect_ratio_denominator_zero(self, processor) -> None:
+        """分母がゼロのアスペクト比指定はフォールバックとして 1.0 を返す。"""
+        # "0:0" のように分母が 0 となるケース
+        result = processor._resolve_target_aspect_ratio("0:0")
+        # denominator == 0 のため ratio_match はマッチするが除算スキップ → 後続ブランチへ
+        # "0:0" に "正方形"/"風景"/"縦長" は含まれないのでデフォルト 1.0
+        assert result == 1.0
+
+    def test_resolve_target_aspect_ratio_縦長(self, processor) -> None:
+        """'縦長' を含む文字列は 9/16 を返す。"""
+        result = processor._resolve_target_aspect_ratio("縦長ポートレート")
+        assert result == pytest.approx(9 / 16)
+
+    def test_image_matches_aspect_ratio_zero_width_returns_false(self, processor) -> None:
+        """幅が 0 の画像は False を返す。"""
+        image = {"width": 0, "height": 100}
+        assert processor._image_matches_aspect_ratio(image, 1.0, 0.1) is False
+
+    def test_image_matches_aspect_ratio_zero_height_returns_false(self, processor) -> None:
+        """高さが 0 の画像は False を返す。"""
+        image = {"width": 100, "height": 0}
+        assert processor._image_matches_aspect_ratio(image, 1.0, 0.1) is False
+
+    @patch("lorairo.services.search_criteria_processor.logger")
+    def test_filter_by_aspect_ratio_exception_returns_original_images(self, mock_logger, processor) -> None:
+        """_filter_by_aspect_ratio で例外が起きた場合、元リストを返してエラーログを出す。"""
+        images = [{"id": 1}]
+        # _resolve_target_aspect_ratio が例外を投げるようにする
+        with patch.object(processor, "_resolve_target_aspect_ratio", side_effect=RuntimeError("bad")):
+            result = processor._filter_by_aspect_ratio(images, "some_filter")
+
+        assert result == images
+        mock_logger.error.assert_called_once()
+
+    def test_filter_by_date_range_with_timezone_aware_start_date(self, processor) -> None:
+        """タイムゾーン付き start_date を naive に変換してフィルタリングする。"""
+        from datetime import timezone
+
+        images = [{"created_at": "2023-06-15T00:00:00Z"}]
+        # start_date がタイムゾーン付き
+        start_date_aware = datetime(2023, 1, 1, tzinfo=timezone.utc)
+        date_filter = {"start_date": start_date_aware, "end_date": None}
+
+        result = processor._filter_by_date_range(images, date_filter)
+
+        # 日付は範囲内なので含まれる
+        assert len(result) == 1
+
+    def test_filter_by_date_range_with_timezone_aware_end_date(self, processor) -> None:
+        """タイムゾーン付き end_date を naive に変換してフィルタリングする。"""
+        from datetime import timezone
+
+        images = [{"created_at": "2024-06-15T00:00:00Z"}]
+        # end_date がタイムゾーン付きで画像の日付より前
+        end_date_aware = datetime(2023, 12, 31, tzinfo=timezone.utc)
+        date_filter = {"start_date": None, "end_date": end_date_aware}
+
+        result = processor._filter_by_date_range(images, date_filter)
+
+        # 2024年の画像は 2023年末より後なのでフィルターされる
+        assert len(result) == 0
+
+    @patch("lorairo.services.search_criteria_processor.logger")
+    def test_filter_by_date_range_exception_returns_original_images(self, mock_logger, processor) -> None:
+        """_filter_by_date_range で例外が起きた場合、元リストを返してエラーログを出す。"""
+        images = [{"id": 1, "created_at": "2023-06-15T00:00:00Z"}]
+        # start_date が tzinfo 属性アクセス時に例外を起こすオブジェクト
+        bad_start_date = Mock()
+        bad_start_date.tzinfo = True  # truthy → replace(tzinfo=None) が呼ばれる
+        bad_start_date.replace.side_effect = RuntimeError("replace error")
+        bad_date_filter = {"start_date": bad_start_date, "end_date": None}
+
+        result = processor._filter_by_date_range(images, bad_date_filter)
+
+        # エラー時は元リストが返る
+        assert result == images
+        mock_logger.error.assert_called_once()
+
+    def test_filter_by_duplicate_exclusion_with_no_phash_image(self, processor) -> None:
+        """phash キーがない画像は重複チェックなしで保持される。"""
+        images = [
+            {"id": 1},  # phash なし
+            {"id": 2, "phash": "abc123"},
+        ]
+        result = processor._filter_by_duplicate_exclusion(images)
+
+        assert len(result) == 2
+        assert result[0]["id"] == 1
+        assert result[1]["id"] == 2
+
+    def test_filter_by_duplicate_exclusion_with_empty_phash(self, processor) -> None:
+        """phash が空文字列の画像は重複チェックなしで保持される。"""
+        images = [
+            {"id": 1, "phash": ""},  # 空のphash
+            {"id": 2, "phash": "abc123"},
+        ]
+        result = processor._filter_by_duplicate_exclusion(images)
+
+        assert len(result) == 2
+
+    @patch("lorairo.services.search_criteria_processor.logger")
+    def test_filter_by_duplicate_exclusion_exception_returns_original_images(
+        self, mock_logger, processor
+    ) -> None:
+        """_filter_by_duplicate_exclusion で例外が起きた場合、元リストを返してエラーログを出す。"""
+
+        # list の iteration で例外を発生させる
+        class BrokenList(list):
+            def __iter__(self):
+                raise RuntimeError("iteration failed")
+
+        images_input = [{"id": 1, "phash": "abc"}]
+        broken = BrokenList(images_input)
+
+        result = processor._filter_by_duplicate_exclusion(broken)
+
+        assert result is broken
+        mock_logger.error.assert_called_once()
+
+    @patch("lorairo.services.search_criteria_processor.logger")
+    def test_parse_resolution_value_exception_returns_none_tuple(self, mock_logger, processor) -> None:
+        """_parse_resolution_value で例外が起きた場合、(None, None) を返してエラーログを出す。"""
+        # re.match が例外を投げるようにする
+        with patch("lorairo.services.search_criteria_processor.re") as mock_re:
+            mock_re.match.side_effect = RuntimeError("re error")
+            result = processor._parse_resolution_value("1920x1080")
+
+        assert result == (None, None)
+        mock_logger.error.assert_called_once()
+
+
 class TestDuplicateExclusionFilter:
     """重複除外フィルターのユニットテスト（Issue #6）"""
 
