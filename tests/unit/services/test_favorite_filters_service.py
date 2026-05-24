@@ -1,5 +1,6 @@
 """FavoriteFiltersServiceの単体テスト"""
 
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -330,11 +331,8 @@ class TestFavoriteFiltersServiceExceptionPaths:
     """
 
     @pytest.fixture
-    def service(self, tmp_path: "Path") -> "FavoriteFiltersService":
+    def service(self, tmp_path: Path) -> "FavoriteFiltersService":
         """一時ディレクトリを使って独立した FavoriteFiltersService を返す。"""
-        from pathlib import Path
-        from unittest.mock import patch
-
         svc = FavoriteFiltersService(organization="LoRAIroExcTest", application="ExcTest")
         # _config_dir / _filters_file を tmp_path 内に付け替える
         svc._config_dir = tmp_path / "config"
@@ -348,7 +346,6 @@ class TestFavoriteFiltersServiceExceptionPaths:
         Lines 68-70 をカバー。
         Path インスタンスの read-only 制約を回避するため pathlib.Path.write_text をクラスレベルでパッチ。
         """
-        from unittest.mock import patch
 
         # _filters_file の write_text をクラスレベルでパッチ
         with patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
@@ -373,7 +370,6 @@ class TestFavoriteFiltersServiceExceptionPaths:
 
         Lines 104-106 をカバー。
         """
-        from unittest.mock import patch
 
         with patch.object(service, "_load_all_filters", side_effect=RuntimeError("unexpected")):
             result = service.load_filter("AnyFilter")
@@ -387,7 +383,6 @@ class TestFavoriteFiltersServiceExceptionPaths:
 
         Lines 121-123 をカバー。
         """
-        from unittest.mock import patch
 
         with patch.object(service, "_load_all_filters", side_effect=RuntimeError("unexpected")):
             result = service.list_filters()
@@ -402,7 +397,6 @@ class TestFavoriteFiltersServiceExceptionPaths:
         ただし最初の登録は直接書き込み、2回目以降のみエラーにするため side_effect リストを使う。
         """
         import json
-        from unittest.mock import patch
 
         # フィルターを一件登録しておく（パッチなし）
         service._filters_file.write_text(json.dumps({"ToDelete": {"k": "v"}}), encoding="utf-8")
@@ -418,7 +412,6 @@ class TestFavoriteFiltersServiceExceptionPaths:
 
         Lines 176-178 をカバー。
         """
-        from unittest.mock import patch
 
         with patch.object(service, "_load_all_filters", side_effect=RuntimeError("unexpected")):
             result = service.filter_exists("AnyFilter")
@@ -432,7 +425,6 @@ class TestFavoriteFiltersServiceExceptionPaths:
 
         Lines 193-195 をカバー。
         """
-        from unittest.mock import patch
 
         with patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
             result = service.clear_all_filters()

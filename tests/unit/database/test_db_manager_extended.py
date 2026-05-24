@@ -32,7 +32,6 @@ from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.db_repository import ImageRepository
 from lorairo.services.configuration_service import ConfigurationService
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -176,7 +175,7 @@ class TestRegisterOriginalImageExtended:
                     result = manager.register_original_image(Path("/data/img.jpg"), mock_fsm)
 
         assert result is not None
-        image_id, metadata = result
+        image_id, _metadata = result
         assert image_id == 100
 
     def test_returns_existing_id_when_duplicate(
@@ -196,7 +195,7 @@ class TestRegisterOriginalImageExtended:
             result = manager.register_original_image(Path("/data/img.jpg"), mock_fsm)
 
         assert result is not None
-        existing_id, metadata = result
+        existing_id, _metadata = result
         assert existing_id == 5
 
     def test_returns_none_on_general_exception(
@@ -965,7 +964,7 @@ class TestRegisterOriginalImageProjectId:
                     result = manager.register_original_image(Path("/data/img.jpg"), mock_fsm)
 
         assert result is not None
-        image_id, metadata = result
+        image_id, _metadata = result
         assert image_id == 101
         # project_id が add_original_image に渡された metadata に付与されているはず
         call_args = mock_repository.add_original_image.call_args[0][0]

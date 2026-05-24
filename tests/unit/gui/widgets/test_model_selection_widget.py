@@ -773,7 +773,7 @@ class TestApplyBasicFilters:
     def test_apply_basic_filters_annotation_only(self, widget_advanced: ModelSelectionWidget) -> None:
         """annotation_only フィルタが _apply_basic_filters で適用される（line 458-461）"""
         widget_advanced.annotation_only_filtering = True
-        result = widget_advanced._apply_basic_filters()
+        widget_advanced._apply_basic_filters()
 
         # _is_annotation_eligible_model が呼ばれている
         widget_advanced.model_selection_service._is_annotation_eligible_model.assert_called()
