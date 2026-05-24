@@ -69,6 +69,7 @@ class BatchImportWorker(LoRAIroWorkerBase[BatchImportResult]):
         for i, jsonl_path in enumerate(self._jsonl_files):
             self._check_cancellation()
 
+            force_progress_emit = i == 0 or i + 1 == total_files
             percentage = 10 + int((i / total_files) * 85)
             self._report_progress_throttled(
                 percentage,
@@ -76,8 +77,11 @@ class BatchImportWorker(LoRAIroWorkerBase[BatchImportResult]):
                 current_item=str(jsonl_path),
                 processed_count=i,
                 total_count=total_files,
+                force_emit=force_progress_emit,
             )
-            self._report_batch_progress(i + 1, total_files, jsonl_path.name)
+            self._report_batch_progress_throttled(
+                i + 1, total_files, jsonl_path.name, force_emit=force_progress_emit
+            )
 
             result = service.import_from_jsonl(
                 jsonl_path,

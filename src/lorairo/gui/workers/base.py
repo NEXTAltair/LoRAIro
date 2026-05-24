@@ -69,6 +69,7 @@ class ProgressReporter(QObject):
     def __init__(self) -> None:
         super().__init__()
         self._last_emit_time = 0
+        self._last_batch_emit_time = 0
         self._min_interval_ms = 50  # 50ms間隔でスロットリング
 
     def report(self, progress: WorkerProgress) -> None:
@@ -91,6 +92,16 @@ class ProgressReporter(QObject):
     def report_batch(self, current: int, total: int, filename: str) -> None:
         """バッチ進捗報告"""
         self.batch_progress.emit(current, total, filename)
+
+    def report_batch_throttled(
+        self, current: int, total: int, filename: str, force_emit: bool = False
+    ) -> None:
+        """スロットリング付きバッチ進捗報告"""
+        current_time = time.monotonic_ns() // 1_000_000
+
+        if force_emit or (current_time - self._last_batch_emit_time >= self._min_interval_ms):
+            self.batch_progress.emit(current, total, filename)
+            self._last_batch_emit_time = current_time
 
 
 class LoRAIroWorkerBase[T](QObject):
@@ -249,3 +260,9 @@ class LoRAIroWorkerBase[T](QObject):
     def _report_batch_progress(self, current: int, total: int, filename: str) -> None:
         """バッチ進捗報告ヘルパー"""
         self.progress.report_batch(current, total, filename)
+
+    def _report_batch_progress_throttled(
+        self, current: int, total: int, filename: str, force_emit: bool = False
+    ) -> None:
+        """スロットリング付きバッチ進捗報告ヘルパー"""
+        self.progress.report_batch_throttled(current, total, filename, force_emit)

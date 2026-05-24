@@ -104,6 +104,41 @@ class TestProgressReporter:
         reporter.report_batch(1, 10, "file.jpg")
         batch_mock.assert_called_once_with(1, 10, "file.jpg")
 
+    def test_throttled_batch_signal_emission(self):
+        """バッチ進捗報告のスロットリングテスト"""
+        reporter = ProgressReporter()
+        batch_mock = Mock()
+        reporter.batch_progress.connect(batch_mock)
+
+        with patch("lorairo.gui.workers.base.time.monotonic_ns") as mock_monotonic:
+            mock_monotonic.return_value = 100_000_000
+            reporter.report_batch_throttled(1, 10, "first.jpg")
+
+            mock_monotonic.return_value = 120_000_000
+            reporter.report_batch_throttled(2, 10, "second.jpg")
+
+            mock_monotonic.return_value = 130_000_000
+            reporter.report_batch_throttled(3, 10, "forced.jpg", force_emit=True)
+
+        assert batch_mock.call_count == 2
+        batch_mock.assert_any_call(1, 10, "first.jpg")
+        batch_mock.assert_any_call(3, 10, "forced.jpg")
+
+    def test_progress_and_batch_throttle_windows_are_independent(self):
+        """通常進捗とバッチ進捗が別々にスロットリングされることを確認"""
+        reporter = ProgressReporter()
+        progress_mock = Mock()
+        batch_mock = Mock()
+        reporter.progress_updated.connect(progress_mock)
+        reporter.batch_progress.connect(batch_mock)
+
+        with patch("lorairo.gui.workers.base.time.monotonic_ns", return_value=100_000_000):
+            reporter.report_throttled(WorkerProgress(10, "progress"))
+            reporter.report_batch_throttled(1, 10, "file.jpg")
+
+        progress_mock.assert_called_once()
+        batch_mock.assert_called_once_with(1, 10, "file.jpg")
+
 
 class ConcreteWorker(LoRAIroWorkerBase[str]):
     """テスト用具象ワーカー"""
@@ -271,6 +306,15 @@ class TestLoRAIroWorkerBase:
         worker._report_batch_progress(5, 20, "test_file.jpg")
 
         # 呼び出し確認
+        batch_mock.assert_called_once_with(5, 20, "test_file.jpg")
+
+    def test_batch_progress_report_throttled_helper(self, worker):
+        """スロットリング付きバッチ進捗報告ヘルパーテスト"""
+        batch_mock = Mock()
+        worker.batch_progress.connect(batch_mock)
+
+        worker._report_batch_progress_throttled(5, 20, "test_file.jpg", force_emit=True)
+
         batch_mock.assert_called_once_with(5, 20, "test_file.jpg")
 
     def test_status_change_prevention(self, worker):

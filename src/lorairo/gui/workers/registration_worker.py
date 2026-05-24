@@ -177,8 +177,12 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
                 - result_type: "registered"|"skipped"|"error"
                 - image_id: 登録されたID、失敗時は-1
         """
+        force_progress_emit = i == 0 or i + 1 == total_count
+
         # バッチ進捗報告
-        self._report_batch_progress(i + 1, total_count, image_path.name)
+        self._report_batch_progress_throttled(
+            i + 1, total_count, image_path.name, force_emit=force_progress_emit
+        )
 
         # 重複チェック
         duplicate_image_id = self.db_manager.detect_duplicate_image(image_path)
@@ -214,12 +218,13 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
 
         # 進捗報告（ProgressHelper使用）
         percentage = ProgressHelper.calculate_percentage(i + 1, total_count, 10, 85)  # 10-95%
-        self._report_progress(
+        self._report_progress_throttled(
             percentage,
             f"登録中: {image_path.name}",
             current_item=str(image_path),
             processed_count=i + 1,
             total_count=total_count,
+            force_emit=force_progress_emit,
         )
 
         return result_type, image_id
