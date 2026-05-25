@@ -17,12 +17,18 @@ Follow ADR 0039 when maintaining a PR created by Codex or Claude Code.
 Use this skill after an agent creates a LoRAIro PR, or when asked to continue an agent-created PR through CI,
 review comments, repair commits, and merge.
 
+Also use this skill immediately after an agent-created draft PR becomes ready for review, even when the
+ready-for-review transition was performed manually by the user outside the agent session. Treat that transition
+as the start signal for CI and review-state monitoring.
+
 This skill is shared by Codex and Claude Code. GitHub I/O goes through `gh`; the agent-specific part is only
 the code-editing session that applies fixes in the existing worktree.
 
 ## Core Policy
 
 - Continue in the same agent session and same dedicated worktree used to create the PR.
+- Do not stop at the draft PR URL if the PR is already ready for review, or if the user says they manually
+  changed it from draft to ready; immediately enter the polling workflow.
 - Do not use `@codex fix` or GitHub comment-driven repair commands.
 - Poll for at most 20 minutes, every 3 minutes.
 - Use `gh` / `gh api` for PR state, checks, failed logs, comments, issue creation, labels, replies, and merge.
