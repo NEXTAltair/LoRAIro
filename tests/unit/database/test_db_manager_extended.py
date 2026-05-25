@@ -521,44 +521,53 @@ class TestGetManualEditModelId:
     """get_manual_edit_model_id メソッドのテスト"""
 
     def test_returns_model_id_from_session(self, mock_repository: Mock, mock_config_service: Mock) -> None:
-        """セッションを使って model_id を返す。"""
-        # session_factory は ImageRepository の __init__ で設定されるインスタンス属性。
-        # spec=ImageRepository の Mock では含まれないため、直接設定する。
+        """セッションを使って model_id を返す (ADR 0035 段階 1: model_repo 経由)。"""
+        # ADR 0035 段階 1: manual edit model は ModelRepository._get_or_create_manual_edit_model
+        # (static) で取得する。manager は self.model_repo.session_factory でセッションを開く。
         mock_session = MagicMock()
         mock_session_ctx = MagicMock()
         mock_session_ctx.__enter__ = Mock(return_value=mock_session)
         mock_session_ctx.__exit__ = Mock(return_value=False)
         mock_session_factory = Mock(return_value=mock_session_ctx)
-        mock_repository.session_factory = mock_session_factory
-        mock_repository._get_or_create_manual_edit_model.return_value = 99
+        mock_model_repo = Mock()
+        mock_model_repo.session_factory = mock_session_factory
 
         mgr = ImageDatabaseManager(
             repository=mock_repository,
             config_service=mock_config_service,
+            model_repo=mock_model_repo,
         )
-        result = mgr.get_manual_edit_model_id()
+        with patch(
+            "lorairo.database.db_manager.ModelRepository._get_or_create_manual_edit_model",
+            return_value=99,
+        ):
+            result = mgr.get_manual_edit_model_id()
 
         assert result == 99
 
     def test_caches_model_id_on_second_call(self, mock_repository: Mock, mock_config_service: Mock) -> None:
-        """2回目以降の呼び出しはキャッシュから返す。"""
+        """2回目以降の呼び出しはキャッシュから返す (ADR 0035 段階 1)。"""
         mock_session = MagicMock()
         mock_session_ctx = MagicMock()
         mock_session_ctx.__enter__ = Mock(return_value=mock_session)
         mock_session_ctx.__exit__ = Mock(return_value=False)
         mock_session_factory = Mock(return_value=mock_session_ctx)
-        mock_repository.session_factory = mock_session_factory
-        mock_repository._get_or_create_manual_edit_model.return_value = 55
+        mock_model_repo = Mock()
+        mock_model_repo.session_factory = mock_session_factory
 
         mgr = ImageDatabaseManager(
             repository=mock_repository,
             config_service=mock_config_service,
+            model_repo=mock_model_repo,
         )
-
-        # 1回目
-        result1 = mgr.get_manual_edit_model_id()
-        # 2回目
-        result2 = mgr.get_manual_edit_model_id()
+        with patch(
+            "lorairo.database.db_manager.ModelRepository._get_or_create_manual_edit_model",
+            return_value=55,
+        ):
+            # 1回目
+            result1 = mgr.get_manual_edit_model_id()
+            # 2回目
+            result2 = mgr.get_manual_edit_model_id()
 
         assert result1 == 55
         assert result2 == 55
