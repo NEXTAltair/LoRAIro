@@ -140,20 +140,26 @@ class TestAnnotationWorkerExecute:
         }
         mock_db_manager.repository.save_annotations = Mock()
 
-        mock_annotation_logic.execute_annotation.return_value = {
-            "phash1": {
-                "gpt-4o-mini": {
-                    "tags": ["cat"],
-                    "formatted_output": {},
-                    "error": None,
-                },
-                "claude-3-haiku-20240307": {
-                    "tags": ["feline"],
-                    "formatted_output": {},
-                    "error": None,
-                },
-            }
-        }
+        mock_annotation_logic.execute_annotation.side_effect = [
+            {
+                "phash1": {
+                    "gpt-4o-mini": {
+                        "tags": ["cat"],
+                        "formatted_output": {},
+                        "error": None,
+                    }
+                }
+            },
+            {
+                "phash1": {
+                    "claude-3-haiku-20240307": {
+                        "tags": ["feline"],
+                        "formatted_output": {},
+                        "error": None,
+                    }
+                }
+            },
+        ]
 
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
@@ -165,11 +171,7 @@ class TestAnnotationWorkerExecute:
 
         result = worker.execute()
 
-        mock_annotation_logic.execute_annotation.assert_called_once_with(
-            image_paths=image_paths,
-            litellm_model_ids=models,
-            phash_list=None,
-        )
+        assert mock_annotation_logic.execute_annotation.call_count == 2
 
         assert isinstance(result, AnnotationExecutionResult)
         assert "phash1" in result.results
@@ -200,10 +202,10 @@ class TestAnnotationWorkerExecute:
         )
         result = worker.execute()
 
-        mock_annotation_logic.execute_annotation.assert_called_once()
+        assert mock_annotation_logic.execute_annotation.call_count == 2
         assert result.models_used == models
-        call_kwargs = mock_annotation_logic.execute_annotation.call_args.kwargs
-        assert call_kwargs["litellm_model_ids"] == models
+        first_call_kwargs = mock_annotation_logic.execute_annotation.call_args_list[0].kwargs
+        assert first_call_kwargs["litellm_model_ids"] == ["__legacy_17__"]
 
     def test_execute_model_error_partial_success(self, mock_annotation_logic, mock_model_registry):
         """モデルエラー時の部分的成功"""
@@ -221,7 +223,6 @@ class TestAnnotationWorkerExecute:
         mock_db_manager.get_image_id_by_filepath.return_value = 1
 
         mock_annotation_logic.execute_annotation.side_effect = [
-            RuntimeError("bulk call failed"),
             {"phash1": {"gpt-4o-mini": {"tags": ["cat"], "formatted_output": {}, "error": None}}},
             RuntimeError("API Error"),
             {
@@ -241,9 +242,7 @@ class TestAnnotationWorkerExecute:
 
         result = worker.execute()
 
-        assert mock_annotation_logic.execute_annotation.call_count == 4
-        bulk_call_kwargs = mock_annotation_logic.execute_annotation.call_args_list[0].kwargs
-        assert bulk_call_kwargs["litellm_model_ids"] == models
+        assert mock_annotation_logic.execute_annotation.call_count == 3
 
         assert isinstance(result, AnnotationExecutionResult)
         assert "phash1" in result.results
@@ -269,12 +268,10 @@ class TestAnnotationWorkerExecute:
         mock_db_manager.repository.save_annotations = Mock()
         mock_db_manager.repository.get_phashes_by_filepaths.return_value = {}
 
-        mock_annotation_logic.execute_annotation.return_value = {
-            "phash1": {
-                "model-a": {"tags": [], "error": "rate_limited"},
-                "model-b": {"tags": ["cat"], "formatted_output": {}, "error": None},
-            }
-        }
+        mock_annotation_logic.execute_annotation.side_effect = [
+            {"phash1": {"model-a": {"tags": [], "error": "rate_limited"}}},
+            {"phash1": {"model-b": {"tags": ["cat"], "formatted_output": {}, "error": None}}},
+        ]
 
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
@@ -372,7 +369,6 @@ class TestAnnotationWorkerExecute:
         mock_db_manager.get_image_id_by_filepath.return_value = 1
 
         mock_annotation_logic.execute_annotation.side_effect = [
-            RuntimeError("bulk call failed"),
             RuntimeError("API Error 1"),
             RuntimeError("API Error 2"),
         ]

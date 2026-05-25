@@ -287,19 +287,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                     )
                 )
 
-    def _merge_annotation_results(
-        self,
-        destination: PHashAnnotationResults,
-        source: PHashAnnotationResults,
-    ) -> None:
-        """pHash -> model result の辞書を destination にマージする。"""
-        for phash, annotations in source.items():
-            if phash not in destination:
-                destination[phash] = {}
-            destination[phash].update(annotations)
-
     def _run_annotation(self) -> tuple[PHashAnnotationResults, list[ModelErrorDetail]]:
-        """選択モデルを一括渡ししてアノテーションを実行する。
+        """モデル単位でアノテーションを実行し、結果をマージする。
 
         Returns:
             (マージされたアノテーション結果, モデルエラー詳細リスト) のタプル。
@@ -309,63 +298,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         total_models = len(self.litellm_model_ids)
         phash_list = self._build_phash_list_for_current_paths()
 
-        if total_models == 0:
-            logger.debug("選択モデルなし: アノテーション実行をスキップ")
-            return merged_results, model_errors
-
-        logger.debug(f"モデル一括実行開始: {total_models}モデル = {self.litellm_model_ids}")
-
-        self._report_progress(
-            5,
-            f"AIモデル一括実行中: {total_models}モデル",
-            processed_count=0,
-            total_count=len(self.image_paths),
-        )
-
-        try:
-            self._check_cancellation()
-            bulk_results = self.annotation_logic.execute_annotation(
-                image_paths=self.image_paths,
-                litellm_model_ids=list(self.litellm_model_ids),
-                phash_list=phash_list,
-            )
-            valid_results = self._collect_valid_model_results(
-                bulk_results,
-                set(self.litellm_model_ids),
-                model_errors,
-            )
-            self._collect_l1_model_errors(valid_results, model_errors)
-            self._merge_annotation_results(merged_results, valid_results)
-
-            self._report_progress(
-                90,
-                f"AIモデル一括実行完了: {total_models}モデル",
-                processed_count=len(self.image_paths),
-                total_count=len(self.image_paths),
-            )
-            logger.debug(f"モデル一括実行完了: 結果={len(bulk_results)}件")
-            return merged_results, model_errors
-
-        except CancellationError:
-            logger.info("モデル一括アノテーション処理がキャンセルされました")
-            raise
-        except Exception as bulk_error:
-            logger.warning(
-                f"モデル一括実行に失敗したためモデル単位 fallback に切り替えます: {bulk_error}",
-                exc_info=True,
-            )
-            return self._run_annotation_per_model_fallback(phash_list)
-
-    def _run_annotation_per_model_fallback(
-        self,
-        phash_list: list[str] | None,
-    ) -> tuple[PHashAnnotationResults, list[ModelErrorDetail]]:
-        """一括呼び出し失敗時の互換 fallback としてモデル単位で実行する。"""
-        merged_results: PHashAnnotationResults = PHashAnnotationResults()
-        model_errors: list[ModelErrorDetail] = []
-        total_models = len(self.litellm_model_ids)
-
-        logger.debug(f"モデル単位 fallback 実行開始: {total_models}モデル = {self.litellm_model_ids}")
+        logger.debug(f"モデル順次実行開始: {total_models}モデル = {self.litellm_model_ids}")
 
         for model_idx, litellm_model_id in enumerate(self.litellm_model_ids):
             self._check_cancellation()
@@ -399,7 +332,10 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 )
                 self._collect_l1_model_errors(valid_model_results, model_errors)
 
-                self._merge_annotation_results(merged_results, valid_model_results)
+                for phash, annotations in valid_model_results.items():
+                    if phash not in merged_results:
+                        merged_results[phash] = {}
+                    merged_results[phash].update(annotations)
 
                 logger.debug(
                     f"モデル実行完了: {litellm_model_id}, 結果={len(model_results)}件, "
@@ -441,7 +377,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 total_count=len(self.image_paths),
             )
 
-        logger.debug(f"モデル単位 fallback 実行完了: 最終結果={len(merged_results)}件")
+        logger.debug(f"モデル順次実行完了: 最終結果={len(merged_results)}件")
         return merged_results, model_errors
 
     def execute(self) -> AnnotationExecutionResult:
