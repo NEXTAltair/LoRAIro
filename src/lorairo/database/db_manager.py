@@ -23,6 +23,7 @@ from .db_repository import (
 )
 from .filter_criteria import ImageFilterCriteria
 from .repository.model import ModelRepository
+from .repository.project import ProjectRepository
 
 if TYPE_CHECKING:
     from ..services.configuration_service import ConfigurationService
@@ -40,6 +41,7 @@ class ImageDatabaseManager:
         config_service: "ConfigurationService",
         fsm: FileSystemManager | None = None,
         model_repo: ModelRepository | None = None,
+        project_repo: ProjectRepository | None = None,
     ):
         """ImageDatabaseManagerのコンストラクタ。
 
@@ -48,6 +50,9 @@ class ImageDatabaseManager:
             config_service (ConfigurationService): 設定サービスインスタンス。
             fsm (FileSystemManager): ファイルシステムマネージャー（オプション）。
             model_repo (ModelRepository): Model 関連の Repository (ADR 0035 段階 1)。
+                None の場合は `repository` の `session_factory` を流用して生成する。
+                テスト時にモック化可能。
+            project_repo (ProjectRepository): Project 関連の Repository (ADR 0035 段階 2)。
                 None の場合は `repository` の `session_factory` を流用して生成する。
                 テスト時にモック化可能。
 
@@ -60,14 +65,19 @@ class ImageDatabaseManager:
         # `Mock(spec=ImageRepository)` で生成された mock には session_factory が無いため、
         # その場合は DefaultSessionLocal にフォールバックする (各テストは model_repo を明示
         # Mock 注入することで本フォールバック経路を経由してもテスト独立性を保てる)。
-        if model_repo is None:
-            session_factory = getattr(repository, "session_factory", None)
-            if session_factory is None:
-                from .db_core import DefaultSessionLocal
+        session_factory = getattr(repository, "session_factory", None)
+        if session_factory is None:
+            from .db_core import DefaultSessionLocal
 
-                session_factory = DefaultSessionLocal
+            session_factory = DefaultSessionLocal
+        if model_repo is None:
             model_repo = ModelRepository(session_factory=session_factory)
         self.model_repo: ModelRepository = model_repo
+        # ADR 0035 段階 2 (#423): Project 関連を ProjectRepository に集約。
+        # session_factory は ModelRepository と同様に repository から取得する。
+        if project_repo is None:
+            project_repo = ProjectRepository(session_factory=session_factory)
+        self.project_repo: ProjectRepository = project_repo
         self._cached_project_id: int | None = None
         logger.info("ImageDatabaseManager initialized.")
 
@@ -118,7 +128,8 @@ class ImageDatabaseManager:
             project_name = project_root.name
 
         try:
-            self._cached_project_id = self.repository.ensure_project(project_name, project_root)
+            # ADR 0035 段階 2 (#423): injected project_repo 経由で呼び出し DI contract を維持。
+            self._cached_project_id = self.project_repo.ensure_project(project_name, project_root)
         except SQLAlchemyError:
             logger.error(
                 f"ensure_project 失敗 (project_name={project_name}) — project_id 未設定で続行",
