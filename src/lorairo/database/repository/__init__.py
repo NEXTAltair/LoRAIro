@@ -5,15 +5,18 @@
 
 段階 1 (#423): `ModelRepository`
 段階 2 (#423): `ProjectRepository`
-段階 3 以降: `ErrorRecordRepository`, `ImageRepository`, `AnnotationRepository`
+段階 3 (#423): `ErrorRecordRepository`
+段階 4 以降: `ImageRepository`, `AnnotationRepository`
 """
 
 from .base import BaseRepository
+from .error_record import ErrorRecordRepository
 from .model import ModelRepository
 from .project import ProjectRepository
 
 __all__ = [
     "BaseRepository",
+    "ErrorRecordRepository",
     "ModelRepository",
     "ProjectRepository",
 ]
