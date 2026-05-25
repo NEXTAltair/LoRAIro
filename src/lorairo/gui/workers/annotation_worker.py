@@ -33,6 +33,7 @@ class ModelErrorDetail:
     model_name: str
     image_path: str
     error_message: str
+    error_type: str = "model_error"
 
 
 @dataclass
@@ -95,20 +96,9 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
     """
 
     _OPERATION_TYPE = "annotation"
-    _LEGACY_SENTINEL_PREFIX = "__legacy_"
-    _LEGACY_SENTINEL_SUFFIX = "__"
-
-    @staticmethod
-    def _is_legacy_sentinel_model_id(model_name: str) -> bool:
-        if not (
-            model_name.startswith(AnnotationWorker._LEGACY_SENTINEL_PREFIX)
-            and model_name.endswith(AnnotationWorker._LEGACY_SENTINEL_SUFFIX)
-        ):
-            return False
-        body = model_name[
-            len(AnnotationWorker._LEGACY_SENTINEL_PREFIX) : -len(AnnotationWorker._LEGACY_SENTINEL_SUFFIX)
-        ]
-        return body.isdecimal()
+    _ERROR_TYPE_L2 = "lib_call_exception"
+    _ERROR_TYPE_L3 = "fatal"
+    _ERROR_TYPE_INTEGRITY = "integrity_violation"
 
     def __init__(
         self,
@@ -136,14 +126,12 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
         self.annotation_logic = annotation_logic
         self.image_paths = image_paths
-        self.litellm_model_ids = [
-            model_id for model_id in litellm_model_ids if not self._is_legacy_sentinel_model_id(model_id)
-        ]
-        dropped = len(litellm_model_ids) - len(self.litellm_model_ids)
-        if dropped:
-            logger.info(f"AnnotationWorker初期化: legacy sentinel を除外しました: {dropped}件")
+        self.litellm_model_ids = list(litellm_model_ids)
         self.db_manager = db_manager
         self.model_registry = model_registry
+        self._path_to_phash: dict[str, str | None] = {}
+        self._phash_to_input_path: dict[str, str] = {}
+        self._phash_to_input_filename: dict[str, str] = {}
 
         logger.info(
             f"AnnotationWorker初期化 - Images: {len(self.image_paths)}, "
@@ -153,7 +141,11 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         logger.debug(f"  対象画像パス: {self.image_paths[:5]}{'...' if len(self.image_paths) > 5 else ''}")
 
     def _save_error_records(
-        self, error: Exception, image_paths: list[str], model_name: str | None = None
+        self,
+        error: Exception,
+        image_paths: list[str],
+        model_name: str | None = None,
+        error_type: str | None = None,
     ) -> None:
         """エラーレコードを各画像パスに対して保存する。
 
@@ -164,6 +156,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             error: 発生した例外。
             image_paths: エラー対象の画像パスリスト。
             model_name: エラー発生モデル名(全体エラーの場合はNone)。
+            error_type: ADR 0033 予約分類。省略時は例外型名を使う。
         """
         # 例外オブジェクトから直接トレースバックを取得(except外でも確実に動作)
         stack_trace = "".join(traceback.format_exception(error))
@@ -175,7 +168,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                     logger.warning(f"image_id取得失敗(file_pathで記録): {image_path}")
                 self.db_manager.save_error_record(
                     operation_type="annotation",
-                    error_type=type(error).__name__,
+                    error_type=error_type or type(error).__name__,
                     error_message=str(error),
                     image_id=image_id,
                     stack_trace=stack_trace,
@@ -184,6 +177,115 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 )
             except Exception as save_error:
                 logger.error(f"エラーレコード保存失敗: {image_path}, {save_error}")
+
+    def _refresh_input_phash_cache(self) -> None:
+        """現在の `image_paths` に対応する DB 登録済み pHash を一括取得する。"""
+        try:
+            path_to_phash = self.db_manager.repository.get_phashes_by_filepaths(self.image_paths)
+        except Exception as exc:
+            logger.warning(
+                f"pHash 一括取得に失敗しました。lib 側自動計算に委任します: {exc}", exc_info=True
+            )
+            path_to_phash = {}
+        self._path_to_phash = path_to_phash if isinstance(path_to_phash, dict) else {}
+
+        self._phash_to_input_path = {
+            phash: image_path for image_path, phash in self._path_to_phash.items() if phash is not None
+        }
+        self._phash_to_input_filename = {
+            phash: Path(image_path).name for phash, image_path in self._phash_to_input_path.items()
+        }
+
+    def _build_phash_list_for_current_paths(self) -> list[str] | None:
+        """lib に渡す pHash list を input path 順に構築する。
+
+        未登録画像が混ざる場合は alignment を壊さないため None を返し、lib 側計算へ
+        フォールバックする。
+        """
+        if not self.image_paths:
+            return []
+        if not self._path_to_phash:
+            return None
+        phash_list = [self._path_to_phash.get(image_path) for image_path in self.image_paths]
+        if any(phash is None for phash in phash_list):
+            return None
+        return [str(phash) for phash in phash_list]
+
+    def _collect_valid_model_results(
+        self,
+        model_results: PHashAnnotationResults,
+        expected_model_ids: set[str],
+        model_errors: list[ModelErrorDetail],
+    ) -> PHashAnnotationResults:
+        """選択外 model_id を integrity violation として除外した結果を返す。"""
+        valid_results: PHashAnnotationResults = PHashAnnotationResults()
+        for phash, annotations in model_results.items():
+            valid_annotations: dict[str, Any] = {}
+            for model_name, unified_result in annotations.items():
+                if model_name not in expected_model_ids:
+                    self._record_integrity_violation(phash, model_name, unified_result, model_errors)
+                    continue
+                valid_annotations[model_name] = unified_result
+            if valid_annotations:
+                valid_results[phash] = valid_annotations
+        return valid_results
+
+    def _record_integrity_violation(
+        self,
+        phash: str,
+        model_name: str,
+        unified_result: Any,
+        model_errors: list[ModelErrorDetail],
+    ) -> None:
+        """選択外 model_id が結果に混入したことを error_records と summary に記録する。"""
+        message = f"Annotation result contains unexpected model_id: {model_name}"
+        image_path = self._phash_to_input_path.get(phash)
+        image_label = Path(image_path).name if image_path else phash[:12] + "..."
+        model_errors.append(
+            ModelErrorDetail(
+                model_name=model_name,
+                image_path=image_label,
+                error_message=message,
+                error_type=self._ERROR_TYPE_INTEGRITY,
+            )
+        )
+
+        try:
+            image_id = None
+            if image_path is not None:
+                image_id = self.db_manager.get_image_id_by_filepath(image_path)
+            self.db_manager.save_error_record(
+                operation_type="annotation",
+                error_type=self._ERROR_TYPE_INTEGRITY,
+                error_message=message,
+                image_id=image_id,
+                stack_trace=f"phash={phash}, result={unified_result!r}",
+                file_path=image_path or image_label,
+                model_name=model_name,
+            )
+        except Exception as save_error:
+            logger.error(f"integrity_violation 保存失敗: phash={phash}, model={model_name}, {save_error}")
+
+    def _collect_l1_model_errors(
+        self,
+        model_results: PHashAnnotationResults,
+        model_errors: list[ModelErrorDetail],
+    ) -> None:
+        """lib `result.error` を DB 保存せず summary 用 model_errors に集約する。"""
+        for phash, annotations in model_results.items():
+            image_label = self._phash_to_input_filename.get(phash, phash[:12] + "...")
+            for model_name, unified_result in annotations.items():
+                error = self._extract_field(unified_result, "error")
+                if not error:
+                    continue
+                model_errors.append(
+                    ModelErrorDetail(
+                        model_name=model_name,
+                        image_path=image_label,
+                        error_message=str(error),
+                        error_type="result_error",
+                    )
+                )
 
     def _run_annotation(self) -> tuple[PHashAnnotationResults, list[ModelErrorDetail]]:
         """モデル単位でアノテーションを実行し、結果をマージする。
@@ -194,18 +296,21 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         merged_results: PHashAnnotationResults = PHashAnnotationResults()
         model_errors: list[ModelErrorDetail] = []
         total_models = len(self.litellm_model_ids)
+        phash_list = self._build_phash_list_for_current_paths()
 
         logger.debug(f"モデル順次実行開始: {total_models}モデル = {self.litellm_model_ids}")
 
         for model_idx, litellm_model_id in enumerate(self.litellm_model_ids):
             self._check_cancellation()
 
-            progress = 10 + int((model_idx / total_models) * 70)
+            processed_steps = model_idx * len(self.image_paths)
+            total_steps = max(total_models * len(self.image_paths), 1)
+            progress = 5 + int((processed_steps / total_steps) * 85)
             self._report_progress(
                 progress,
                 f"AIモデル実行中: {litellm_model_id} ({model_idx + 1}/{total_models})",
-                processed_count=model_idx,
-                total_count=total_models,
+                processed_count=min(processed_steps, len(self.image_paths)),
+                total_count=len(self.image_paths),
             )
 
             try:
@@ -217,10 +322,17 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 model_results = self.annotation_logic.execute_annotation(
                     image_paths=self.image_paths,
                     litellm_model_ids=[litellm_model_id],
-                    phash_list=None,
+                    phash_list=phash_list,
                 )
 
-                for phash, annotations in model_results.items():
+                valid_model_results = self._collect_valid_model_results(
+                    model_results,
+                    {litellm_model_id},
+                    model_errors,
+                )
+                self._collect_l1_model_errors(valid_model_results, model_errors)
+
+                for phash, annotations in valid_model_results.items():
                     if phash not in merged_results:
                         merged_results[phash] = {}
                     merged_results[phash].update(annotations)
@@ -236,7 +348,12 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
             except Exception as e:
                 logger.error(f"モデル {litellm_model_id} でエラー: {e}", exc_info=True)
-                self._save_error_records(e, self.image_paths, model_name=litellm_model_id)
+                self._save_error_records(
+                    e,
+                    self.image_paths,
+                    model_name=litellm_model_id,
+                    error_type=self._ERROR_TYPE_L2,
+                )
                 # エラー詳細を収集（全画像に対するモデルレベルエラー）
                 # NOTE: ModelErrorDetail.model_name はサマリー表示用ラベルとして
                 # litellm_model_id 値をそのまま入れる (登録 ID と一致するため
@@ -247,9 +364,18 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                             model_name=litellm_model_id,
                             image_path=Path(image_path).name,
                             error_message=str(e),
+                            error_type=self._ERROR_TYPE_L2,
                         )
                     )
                 # エラーでも次のモデルに進む(部分的成功を許容)
+
+            completed_steps = (model_idx + 1) * len(self.image_paths)
+            self._report_progress(
+                5 + int((completed_steps / max(total_models * len(self.image_paths), 1)) * 85),
+                f"AIモデル実行完了: {litellm_model_id} ({model_idx + 1}/{total_models})",
+                processed_count=len(self.image_paths),
+                total_count=len(self.image_paths),
+            )
 
         logger.debug(f"モデル順次実行完了: 最終結果={len(merged_results)}件")
         return merged_results, model_errors
@@ -284,15 +410,17 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             self._check_cancellation()
             self._apply_refusal_prefilter()
 
-            # Phase 1: アノテーション実行(10-80%)
-            self._report_progress(10, "アノテーション処理を開始...", total_count=len(self.image_paths))
+            self._refresh_input_phash_cache()
+
+            # Phase 1: アノテーション実行(5-90%)
+            self._report_progress(5, "アノテーション処理を開始...", total_count=len(self.image_paths))
             self._check_cancellation()
 
             merged_results, model_errors = self._run_annotation()
 
-            # Phase 2: DB保存(85%)
+            # Phase 2: DB保存(90-95%)
             self._report_progress(
-                85,
+                90,
                 "結果をDBに保存中...",
                 processed_count=len(self.image_paths),
                 total_count=len(self.image_paths),
@@ -303,7 +431,13 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 self._save_results_to_database(merged_results)
             )
 
-            # モデル統計を構築
+            # Phase 3: 統計集計(95-100%)
+            self._report_progress(
+                95,
+                "統計を集計中...",
+                processed_count=len(self.image_paths),
+                total_count=len(self.image_paths),
+            )
             model_statistics = self._build_model_statistics(merged_results)
 
             self._report_progress(
@@ -333,7 +467,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
         except Exception as e:
             logger.error(f"アノテーション処理エラー: {e}", exc_info=True)
-            self._save_error_records(e, self.image_paths, model_name=None)
+            self._save_error_records(e, self.image_paths, model_name=None, error_type=self._ERROR_TYPE_L3)
             self._error_already_recorded = True
             raise
 
@@ -422,6 +556,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         """
         # image_id → file_path マッピングを構築
         path_to_image_id = self.db_manager.repository.get_image_ids_by_filepaths(self.image_paths)
+        if not isinstance(path_to_image_id, dict):
+            path_to_image_id = {}
         image_id_to_path: dict[int, str] = {
             image_id: image_path
             for image_path, image_id in path_to_image_id.items()
@@ -614,8 +750,6 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
         for annotations in results.values():
             for model_name, unified_result in annotations.items():
-                if self._is_legacy_sentinel_model_id(model_name):
-                    continue
                 if model_name not in model_stats:
                     info = info_map.get(model_name)
                     provider_name = info.provider if info else None
