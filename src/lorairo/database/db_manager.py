@@ -93,8 +93,9 @@ class ImageDatabaseManager:
         metadata_file = project_root / ".lorairo-project"
         try:
             metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+            # JSON が dict でない場合 (list / string 等の malformed metadata) は AttributeError になる
             project_name = metadata.get("name") or project_root.name
-        except (OSError, json.JSONDecodeError, ValueError):
+        except (OSError, json.JSONDecodeError, ValueError, AttributeError):
             project_name = project_root.name
 
         try:
@@ -175,7 +176,10 @@ class ImageDatabaseManager:
         Returns:
             登録成功時は (image_id, original_metadata)、
             重複時は (existing_image_id, existing_metadata)、
-            入力起因の失敗 (ValueError / FileNotFoundError) 時は None。
+            入力起因の失敗 (ValueError / FileNotFoundError / OSError) 時は None。
+            OSError には PIL の UnidentifiedImageError や PermissionError 等の
+            ファイル読み取り / デコード失敗が含まれる (1 ファイル不正で worker 全体を
+            止めないための per-file tolerance)。
 
         Raises:
             SQLAlchemyError: DB 操作に失敗した場合は呼び出し元 (Worker boundary)
@@ -188,7 +192,7 @@ class ImageDatabaseManager:
             if prepare_result is None:
                 return None
             original_metadata, phash, db_stored_original_path = prepare_result
-        except (ValueError, FileNotFoundError):
+        except (ValueError, FileNotFoundError, OSError):
             # 入力起因のスキップは正常系扱い (既にログ出力済み)
             return None
 
@@ -809,7 +813,9 @@ class ImageDatabaseManager:
 
         Returns:
             int | None: 重複する画像が見つかった場合はそのimage_id、見つからない場合はNone。
-                pHash 計算に失敗した場合 (`ValueError` / `FileNotFoundError`) も None。
+                pHash 計算に失敗した場合 (`ValueError` / `FileNotFoundError` / `OSError`)
+                も None。OSError には PermissionError や PIL の UnidentifiedImageError 等が
+                含まれる (1 ファイル不正で directory scan 全体を止めないための per-file tolerance)。
 
         Raises:
             SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
@@ -820,7 +826,7 @@ class ImageDatabaseManager:
         # pHash 計算失敗は重複なしとして扱う (正常系扱い)
         try:
             phash = calculate_phash(image_path)
-        except (ValueError, FileNotFoundError) as e:
+        except (ValueError, FileNotFoundError, OSError) as e:
             logger.warning(f"画像をスキップ: {e}")
             return None
 

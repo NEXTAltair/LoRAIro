@@ -108,6 +108,28 @@ class TestGetCurrentProjectId:
         assert result == 7
         assert manager._cached_project_id == 7
 
+    def test_falls_back_to_project_root_name_on_non_dict_metadata(
+        self, manager: ImageDatabaseManager, mock_repository: Mock, tmp_path: Path
+    ) -> None:
+        """`.lorairo-project` が JSON object でない (list/string 等) なら project_root.name で fallback。
+
+        Regression test for PR #476 review (P2): 旧 silent return は AttributeError を
+        吸収していた。新仕様でも malformed metadata を recoverable に扱う。
+        """
+        project_root = tmp_path / "fake-project"
+        project_root.mkdir()
+        # 有効な JSON だが dict でない (list)
+        (project_root / ".lorairo-project").write_text("[]", encoding="utf-8")
+        mock_repository.ensure_project.return_value = 42
+
+        with patch("lorairo.database.db_core.get_current_project_root", return_value=project_root):
+            result = manager._get_current_project_id()
+
+        assert result == 42
+        # project_root.name でフォールバック呼び出し
+        args, _ = mock_repository.ensure_project.call_args
+        assert args[0] == "fake-project"
+
 
 # ---------------------------------------------------------------------------
 # register_processed_image
@@ -354,6 +376,21 @@ class TestDetectDuplicateImage:
             with pytest.raises(SQLAlchemyError):
                 manager.detect_duplicate_image(Path("/data/img.jpg"))
 
+    def test_returns_none_on_oserror(self, manager: ImageDatabaseManager, mock_repository: Mock) -> None:
+        """pHash 計算で OSError 系 (PermissionError, UnidentifiedImageError 等) が出たら None。
+
+        Regression test for PR #476 review (P2): 旧 silent return は OSError も
+        catch していた。新仕様でも per-file tolerance を維持し directory scan 全体を
+        止めない。
+        """
+        with patch(
+            "lorairo.database.db_manager.calculate_phash",
+            side_effect=PermissionError("cannot read"),
+        ):
+            result = manager.detect_duplicate_image(Path("/data/img.jpg"))
+        assert result is None
+        mock_repository.find_duplicate_image_by_phash.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # save_error_record
@@ -590,6 +627,24 @@ class TestRegisterOriginalImage:
             mock_repository.find_duplicate_image_by_phash.return_value = None
             result = manager.register_original_image(Path("/data/img.jpg"), mock_fsm)
         assert result is None
+
+    def test_returns_none_on_oserror_from_metadata_prep(
+        self, manager: ImageDatabaseManager, mock_repository: Mock
+    ) -> None:
+        """_prepare_image_metadata 経由で OSError (UnidentifiedImageError 等) が出たら None。
+
+        Regression test for PR #476 review (P1): 旧 silent return は OSError も
+        catch していた。新仕様でも per-file tolerance を維持し worker 全体を止めない。
+        PIL の UnidentifiedImageError は OSError サブクラス。
+        """
+        mock_fsm = Mock()
+        mock_fsm.get_image_info.side_effect = OSError("cannot identify image file")
+
+        result = manager.register_original_image(Path("/data/img.jpg"), mock_fsm)
+
+        assert result is None
+        mock_repository.find_duplicate_image_by_phash.assert_not_called()
+        mock_repository.add_original_image.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
