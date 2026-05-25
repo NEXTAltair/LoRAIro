@@ -138,7 +138,7 @@ Anthropic direct route は OpenAI MVP 後に追加する。理由:
 - API shape は比較的近いが、OpenAI の JSONL endpoint file とは異なり `requests` array と results stream
   を扱う
 - `custom_id` と LoRAIro image identity の対応設計は OpenAI と共通化できる
-- ZDR 対象外、results 29 日保持などの privacy / retention 表示が UI に必要
+- ZDR 対象外、results 29 日保持など privacy / retention policy が OpenAI と異なるため、docs で注意する
 
 #### Phase 3: Google Vertex AI Gemini
 
@@ -189,17 +189,21 @@ Provider 固有 status は raw JSON と `provider_status` に保持し、共通 
 Batch request の `custom_id` は次の規約にする。
 
 ```
-img-{image_id}-model-{model_id}-task-{task_type}-run-{short_uuid}
+img-{image_id}
 ```
 
 制約:
 - provider 制約に合わせて ASCII alphanumeric / hyphen / underscore のみ
 - Anthropic の 64 文字制限を下限として全 provider 共通で 64 文字以内
-- image_id / model_id / task_type は local DB 照合用
-- short_uuid は同じ画像・モデルを再投入した時の衝突回避用
+- `image_id` は LoRAIro DB の `images.id`
+- `custom_id` には image path / filename / model name / prompt name は含めない
+- job が異なれば `custom_id` 名前空間も別として扱う
 
-`custom_id` と request metadata は DB に保存する。結果 import は file name 推測ではなく
-`custom_id` mapping を優先する。既存 OpenAI import の file stem matching は fallback として残す。
+Provider Batch job は 1 job = 1 provider × 1 model × 1 endpoint × 1 prompt profile とする。
+同一 job 内で同じ `image_id` を複数回投入しない。モデルや prompt profile は job metadata に保持し、
+result import は job context の model と `custom_id` から復元した image_id で保存先を決定する。
+既存 OpenAI import の file stem matching は fallback として残すが、新規 submit/poll path では
+`custom_id = img-{image_id}` を SSoT にする。
 
 ### 6. DB スキーマは job / item / artifact を分ける
 
@@ -214,6 +218,8 @@ CREATE TABLE provider_batch_jobs (
     provider_status TEXT,
     endpoint TEXT,
     model_id INTEGER,
+    prompt_profile TEXT,
+    description TEXT,
     request_count INTEGER NOT NULL DEFAULT 0,
     succeeded_count INTEGER NOT NULL DEFAULT 0,
     failed_count INTEGER NOT NULL DEFAULT 0,
@@ -242,7 +248,6 @@ CREATE TABLE provider_batch_items (
     custom_id TEXT NOT NULL,
     image_id INTEGER REFERENCES images(id) ON DELETE SET NULL,
     model_id INTEGER REFERENCES models(id) ON DELETE SET NULL,
-    task_type TEXT NOT NULL,
     status TEXT NOT NULL,
     error_type TEXT,
     error_message TEXT,
@@ -276,11 +281,11 @@ Notes:
 
 UI 要件:
 - Batch job 作成ダイアログ
-  - provider / model / endpoint / 対象画像 / task / estimated request count
+  - provider / model / endpoint / 対象画像 / prompt profile / request count
   - `discontinued_at IS NULL` の direct provider route model だけを候補にし、Batch eligibility は
     image-annotator-lib へ都度問い合わせる
   - OpenRouter route と discontinued model は表示せず、同期 annotation または DB metadata 修正へ誘導
-  - provider retention / cost discount / expected delay の表示
+  - optional description (空文字可)
   - OpenAI: local JSONL upload 方式
   - Google: project / location / GCS or BigQuery 設定が必要なことを明示
 - Batch job list
@@ -292,6 +297,11 @@ UI 要件:
   - raw provider status inspection
 
 同期 `AnnotationWorker` の progress dialog に provider batch を押し込まない。
+
+MVP では cost / retention / completion prediction は UI 要件にしない。LoRAIro は pre-submit cost
+estimate、post-completion usage/cost、retention timeline、expected completion timestamp を計算・表示しない。
+provider が usage を返しても MVP では無視してよい。UI は対象画像数、provider/model、prompt profile、
+request count、optional description、job status、result import 操作に集中する。
 
 ### 8. LiteLLM / PydanticAI との関係
 
@@ -345,12 +355,13 @@ Google Gemini batch inference は GCS/BQ と Vertex AI project/region/IAM が前
 既存設定は API key ベースであり、Google Cloud resource 設定 UI と credential handling が別設計を
 要求する。OpenAI / Anthropic と同じ form に押し込むと UX と保守性が悪くなる。
 
-### なぜ `custom_id` mapping を DB に保存するか
+### なぜ `custom_id` を image_id のみにするか
 
 Batch result は request order を保証しない。provider docs でも meaningful `custom_id` による照合が
-推奨される。file stem や filename 推測だけでは、同名ファイル・再投入・リネームに弱い。LoRAIro
-の image_id / model_id / task_type を custom_id と item table に保持すれば、import が deterministic
-になる。
+推奨される。file stem や filename 推測だけでは、同名ファイル・再投入・リネームに弱い。一方で、
+dataset-relative path は長く、local path 構造を provider artifact に残すため `custom_id` には向かない。
+Batch job を 1 model / 1 prompt profile に固定すれば、result import に必要な request identity は
+image_id だけで足りる。model / endpoint / prompt profile は job metadata から取得する。
 
 ## Consequences
 
@@ -368,9 +379,9 @@ Batch result は request order を保証しない。provider docs でも meaning
 
 - DB migration と job queue UI が必要になり、単純な Worker 追加より実装量が多い
 - Provider ごとの result parser / status mapper が必要
-- Batch API は provider retention / privacy policy に依存するため、ユーザーへ明示する UI が必要
+- Batch API は provider retention / privacy policy に依存するため、docs で provider policy 差分に注意する
 - Google support は API key 設定だけでは完結せず、別途 GCP 設定 UX が必要
-- `custom_id` を 64 文字以内に収めるため、人間可読性と情報量に制約がある
+- `custom_id` は短く安定するが、artifact 単体では人間が画像を特定しづらく、LoRAIro DB/GUI 参照が必要
 - OpenRouter 経由でしか使っていない model は batch job 作成 UI では選べない
 - direct provider API key / credential を持たないユーザーは provider-native batch discount を使えない
 
@@ -387,7 +398,7 @@ Batch result は request order を保証しない。provider docs でも meaning
 8. **CLI**: submit/list/status/cancel/download/import subcommands を追加
 9. **Anthropic adapter**: Message Batches create/retrieve/cancel/results stream と parser を追加
 10. **Google investigation spike**: Vertex AI credential / GCS / region 設定 UX と schema 追加要否を検証
-11. **Docs**: Provider Batch API の利用条件、privacy / retention、cost tradeoff、同期 annotation との違いを記載
+11. **Docs**: Provider Batch API の利用条件、privacy、同期 annotation との違いを記載
 
 ## Related
 
