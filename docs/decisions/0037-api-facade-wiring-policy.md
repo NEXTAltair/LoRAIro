@@ -1,4 +1,4 @@
-# ADR 0036: api/ Public Facade Wiring Policy
+# ADR 0037: api/ Public Facade Wiring Policy
 
 - **日付**: 2026-05-25
 - **ステータス**: Accepted

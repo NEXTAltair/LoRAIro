@@ -1,4 +1,4 @@
-# ADR 0034: Repository Aggregate分割方針
+# ADR 0035: Repository Aggregate分割方針
 
 - **日付**: 2026-05-25
 - **ステータス**: Accepted

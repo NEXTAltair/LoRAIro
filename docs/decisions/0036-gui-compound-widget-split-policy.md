@@ -1,4 +1,4 @@
-# ADR 0035: GUI Compound Widget 分割方針
+# ADR 0036: GUI Compound Widget 分割方針
 
 - **日付**: 2026-05-25
 - **ステータス**: Accepted
