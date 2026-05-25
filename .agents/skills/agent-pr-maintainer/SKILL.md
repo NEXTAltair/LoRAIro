@@ -46,7 +46,7 @@ Commands to gather state:
 gh pr view "$PR" --json \
   number,title,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,reviewDecision,statusCheckRollup,labels
 
-gh pr checks "$PR" --json name,state,conclusion,link,startedAt,completedAt
+gh pr checks "$PR" --json name,state,bucket,link,startedAt,completedAt,workflow
 ```
 
 For failed CI jobs, use `gh` to fetch failed logs:
@@ -136,7 +136,7 @@ Before merge, verify:
 Then run:
 
 ```bash
-gh pr merge "$PR" --squash --auto --delete-branch
+gh pr merge "$PR" --squash --auto --delete-branch --match-head-commit "$HEAD_SHA"
 ```
 
 ## State
