@@ -17,6 +17,7 @@ from lorairo.gui.workers.annotation_worker import (
     AnnotationExecutionResult,
     AnnotationWorker,
 )
+from lorairo.gui.workers.base import CancellationError
 
 
 @pytest.fixture
@@ -177,6 +178,41 @@ class TestAnnotationWorkerExecute:
         assert "claude-3-haiku-20240307" in result.results["phash1"]
         assert result.total_images == 1
         assert result.models_used == ["gpt-4o-mini", "claude-3-haiku-20240307"]
+
+    def test_execute_bulk_model_iteration_checks_cancellation_between_models(
+        self, mock_annotation_logic, mock_model_registry
+    ):
+        """一括実行でも lib 内部のモデル間 iteration でキャンセルを検知する。"""
+        image_paths = ["/path/to/image.jpg"]
+        models = ["model-a", "model-b"]
+
+        mock_db_manager = Mock()
+        mock_db_manager.repository.get_phashes_by_filepaths.return_value = {}
+
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=image_paths,
+            litellm_model_ids=models,
+            db_manager=mock_db_manager,
+            model_registry=mock_model_registry,
+        )
+
+        processed_models: list[str] = []
+
+        def execute_annotation(*_args: object, **kwargs: object) -> object:
+            for model in kwargs["litellm_model_ids"]:
+                processed_models.append(model)
+                worker.cancel()
+            return {}
+
+        mock_annotation_logic.execute_annotation.side_effect = execute_annotation
+
+        with pytest.raises(CancellationError):
+            worker.execute()
+
+        assert processed_models == ["model-a"]
+        mock_annotation_logic.execute_annotation.assert_called_once()
+        mock_db_manager.save_error_record.assert_not_called()
 
     def test_execute_does_not_filter_legacy_sentinel_models(
         self, mock_annotation_logic, mock_model_registry
