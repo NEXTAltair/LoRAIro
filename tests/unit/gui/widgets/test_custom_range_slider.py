@@ -230,13 +230,16 @@ class _TestableFilterSearchPanel(FilterSearchPanel):
         self.date_range_slider.slider = Mock()
         self.score_range_slider = Mock()
         self.score_range_slider.get_range.return_value = (0, 1000)
-        self._estimated_count_label = Mock()
+        # _estimated_count_label / progress_bar / _status_label / progress_layout は
+        # CountEstimateWidget 経由でアクセスされるが、ここではテスト用に上書きする。
+        # CountEstimateWidget 自体の label を Mock に差し替える。
+        self._count_estimate._estimated_count_label = Mock()
         self.progress_bar = Mock()
         self._status_label = Mock()
         self.progress_layout = Mock()
 
-    def setup_favorite_filters_ui(self) -> None:
-        pass
+    def _setup_sub_components(self) -> None:
+        """テスト時は sub-component の依存設定をスキップする。"""
 
     def connect_signals(self) -> None:
         pass
@@ -710,89 +713,101 @@ class TestFilterSearchPanel:
         filter_panel.ui.lineEditSearch.setEnabled.assert_called_with(True)
 
     def test_realtime_count_update_requests_async_estimate(self, filter_panel):
-        """リアルタイム件数更新は同期DB集計を直接呼ばず、非同期見積もりを予約する。"""
+        """リアルタイム件数更新は同期DB集計を直接呼ばず、非同期見積もりを予約する。
+
+        ADR 0036 で件数見積もりは CountEstimateWidget に移譲済み。
+        """
+        ce = filter_panel._count_estimate
         conditions = Mock()
-        filter_panel._build_search_conditions_from_ui = Mock(return_value=conditions)
-        filter_panel._request_count_estimate = Mock()
+        ce.set_conditions_builder(lambda: conditions)
+        ce._request_count_estimate = Mock()
         filter_panel.search_filter_service.get_estimated_count.side_effect = AssertionError(
             "get_estimated_count must not run on the UI thread"
         )
+        ce.set_search_filter_service(filter_panel.search_filter_service)
 
-        filter_panel._update_realtime_count()
+        ce._update_realtime_count()
 
-        filter_panel._estimated_count_label.setText.assert_called_with("該当件数: 計算中...")
-        filter_panel._request_count_estimate.assert_called_once_with(conditions)
+        ce._estimated_count_label.setText.assert_called_with("該当件数: 計算中...")
+        ce._request_count_estimate.assert_called_once_with(conditions)
         filter_panel.search_filter_service.get_estimated_count.assert_not_called()
 
     def test_realtime_count_update_invalidates_active_estimate_when_conditions_empty(self, filter_panel):
         """条件なしになったら実行中の古い件数見積もり結果を無効化して反映しない。"""
-        filter_panel._build_search_conditions_from_ui = Mock(return_value=None)
-        filter_panel._active_count_estimate_request_id = 1
-        filter_panel._latest_count_estimate_request_id = 1
-        filter_panel._count_estimate_request_seq = 1
-        filter_panel._count_estimate_in_flight = True
-        filter_panel._pending_count_estimate = (2, Mock())
+        ce = filter_panel._count_estimate
+        ce.set_conditions_builder(lambda: None)
+        ce.set_search_filter_service(filter_panel.search_filter_service)
+        ce._active_count_estimate_request_id = 1
+        ce._latest_count_estimate_request_id = 1
+        ce._count_estimate_request_seq = 1
+        ce._count_estimate_in_flight = True
+        ce._pending_count_estimate = (2, Mock())
 
-        filter_panel._update_realtime_count()
+        ce._update_realtime_count()
 
-        filter_panel._estimated_count_label.setText.assert_called_with("該当件数: -")
-        assert filter_panel._pending_count_estimate is None
-        assert filter_panel._latest_count_estimate_request_id == 2
+        ce._estimated_count_label.setText.assert_called_with("該当件数: -")
+        assert ce._pending_count_estimate is None
+        assert ce._latest_count_estimate_request_id == 2
 
-        filter_panel._estimated_count_label.setText.reset_mock()
-        filter_panel._on_count_estimate_finished(1, 1234)
+        ce._estimated_count_label.setText.reset_mock()
+        ce._on_count_estimate_finished(1, 1234)
 
-        filter_panel._estimated_count_label.setText.assert_not_called()
-        assert filter_panel._count_estimate_in_flight is False
+        ce._estimated_count_label.setText.assert_not_called()
+        assert ce._count_estimate_in_flight is False
 
     def test_filter_value_changed_invalidates_active_estimate_before_debounce(self, filter_panel):
         """条件変更直後、デバウンス実行前でも古い件数見積もり結果を反映しない。"""
-        filter_panel._active_count_estimate_request_id = 1
-        filter_panel._latest_count_estimate_request_id = 1
-        filter_panel._count_estimate_request_seq = 1
-        filter_panel._count_estimate_in_flight = True
-        filter_panel._pending_count_estimate = (2, Mock())
-        filter_panel._realtime_count_timer = Mock()
+        ce = filter_panel._count_estimate
+        ce.set_search_filter_service(filter_panel.search_filter_service)
+        ce._active_count_estimate_request_id = 1
+        ce._latest_count_estimate_request_id = 1
+        ce._count_estimate_request_seq = 1
+        ce._count_estimate_in_flight = True
+        ce._pending_count_estimate = (2, Mock())
+        ce._realtime_count_timer = Mock()
 
         filter_panel._on_filter_value_changed()
 
-        assert filter_panel._pending_count_estimate is None
-        assert filter_panel._latest_count_estimate_request_id == 2
-        filter_panel._realtime_count_timer.start.assert_called_once_with()
+        assert ce._pending_count_estimate is None
+        assert ce._latest_count_estimate_request_id == 2
+        ce._realtime_count_timer.start.assert_called_once_with()
 
-        filter_panel._on_count_estimate_finished(1, 1234)
+        ce._on_count_estimate_finished(1, 1234)
 
-        filter_panel._estimated_count_label.setText.assert_not_called()
-        assert filter_panel._count_estimate_in_flight is False
+        ce._estimated_count_label.setText.assert_not_called()
+        assert ce._count_estimate_in_flight is False
 
     def test_count_estimate_request_coalesces_while_in_flight(self, filter_panel):
         """件数見積もり実行中の変更は最新条件だけを保留する。"""
+        ce = filter_panel._count_estimate
+        ce.set_search_filter_service(filter_panel.search_filter_service)
         first_conditions = Mock()
         latest_conditions = Mock()
-        filter_panel._count_estimate_in_flight = True
-        filter_panel._start_count_estimate_task = Mock()
+        ce._count_estimate_in_flight = True
+        ce._start_count_estimate_task = Mock()
 
-        filter_panel._request_count_estimate(first_conditions)
-        filter_panel._request_count_estimate(latest_conditions)
+        ce._request_count_estimate(first_conditions)
+        ce._request_count_estimate(latest_conditions)
 
-        filter_panel._start_count_estimate_task.assert_not_called()
-        pending_request_id, pending_conditions = filter_panel._pending_count_estimate
-        assert pending_request_id == filter_panel._latest_count_estimate_request_id
+        ce._start_count_estimate_task.assert_not_called()
+        pending_request_id, pending_conditions = ce._pending_count_estimate
+        assert pending_request_id == ce._latest_count_estimate_request_id
         assert pending_conditions is latest_conditions
 
     def test_finish_count_estimate_starts_pending_latest_request(self, filter_panel):
         """実行中の件数見積もり完了後、保留中の最新リクエストを開始する。"""
+        ce = filter_panel._count_estimate
         pending_conditions = Mock()
-        filter_panel._count_estimate_in_flight = True
-        filter_panel._active_count_estimate_request_id = 10
-        filter_panel._pending_count_estimate = (11, pending_conditions)
-        filter_panel._start_count_estimate_task = Mock()
+        ce._count_estimate_in_flight = True
+        ce._active_count_estimate_request_id = 10
+        ce._pending_count_estimate = (11, pending_conditions)
+        ce._start_count_estimate_task = Mock()
 
-        filter_panel._finish_count_estimate_request(10)
+        ce._finish_count_estimate_request(10)
 
-        assert filter_panel._count_estimate_in_flight is False
-        filter_panel._start_count_estimate_task.assert_called_once_with(11, pending_conditions)
-        assert filter_panel._pending_count_estimate is None
+        assert ce._count_estimate_in_flight is False
+        ce._start_count_estimate_task.assert_called_once_with(11, pending_conditions)
+        assert ce._pending_count_estimate is None
 
 
 class TestFilterWidgetIntegration:
