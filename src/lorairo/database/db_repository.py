@@ -20,6 +20,7 @@ from ..utils.log import logger
 from .db_core import DefaultSessionLocal
 from .filter_criteria import ImageFilterCriteria
 from .repository.model import ModelRepository
+from .repository.project import ProjectRepository
 from .schema import (
     MANUAL_EDIT_LITELLM_ID,
     MANUAL_EDIT_NAME,
@@ -117,6 +118,10 @@ class ImageRepository:
         # 段階 2 以降で各 Service / Worker が直接 ModelRepository を参照するようになれば、
         # 本 facade と _model_repo は削除可能。
         self._model_repo = ModelRepository(session_factory=session_factory)
+        # ADR 0035 段階 2 (#423): Project 関連は ProjectRepository に移設。
+        # 既存呼び出し (`image_repository.ensure_project()` 等) との互換性のため、
+        # ImageRepository は内部で ProjectRepository への delegating facade を保持する。
+        self._project_repo = ProjectRepository(session_factory=session_factory)
         logger.info("ImageRepository initialized.")
 
         # 外部tag_db統合（公開API経由、グレースフルデグラデーション対応）
@@ -2477,126 +2482,27 @@ class ImageRepository:
             logger.debug(f"Project filter applied: project_name='{project_name}'")
         return query
 
+    # --- Project methods (delegating facade, ADR 0035 段階 2) ---
+    # 実装は src/lorairo/database/repository/project.py の ProjectRepository に移設済み。
+    # 既存呼び出し (`image_repository.ensure_project()` 等) との互換性のため delegating
+    # wrapper を残す。段階 3 以降で各 Service / Worker が `manager.project_repo` 経由で
+    # 直接 ProjectRepository を参照するようになれば、本 facade は削除可能。
+
     def ensure_project(self, name: str, path: Path, description: str = "") -> int:
-        """プロジェクトを upsert して ID を返す（name UNIQUE）。
-
-        Args:
-            name: プロジェクト名（UNIQUE制約あり）。
-            path: プロジェクトの絶対パス。
-            description: プロジェクト説明（省略可）。
-
-        Returns:
-            int: プロジェクトID。
-
-        Raises:
-            SQLAlchemyError: DB操作エラー。
-        """
-        with self.session_factory() as session:
-            try:
-                existing = session.execute(select(Project).where(Project.name == name)).scalar_one_or_none()
-
-                if existing is not None:
-                    if str(existing.path) != str(path):
-                        existing.path = str(path)
-                        session.commit()
-                    return existing.id
-
-                project = Project(name=name, path=str(path), description=description or None)
-                session.add(project)
-                session.flush()
-                project_id = project.id
-                session.commit()
-                logger.info(f"Project created: name='{name}', id={project_id}")
-                return project_id
-            except IntegrityError:
-                session.rollback()
-                return session.execute(select(Project.id).where(Project.name == name)).scalar_one()
-            except SQLAlchemyError as e:
-                session.rollback()
-                logger.error(f"ensure_project エラー (name={name}): {e}", exc_info=True)
-                raise
+        """ProjectRepository.ensure_project への delegate (ADR 0035 段階 2)。"""
+        return self._project_repo.ensure_project(name, path, description)
 
     def get_image_ids_by_project(self, project_name: str) -> list[int]:
-        """プロジェクト名で画像ID一覧を取得する。
-
-        Args:
-            project_name: フィルタ対象プロジェクト名。
-
-        Returns:
-            list[int]: 画像IDのリスト。プロジェクトが存在しない場合は空リスト。
-
-        Raises:
-            SQLAlchemyError: DB操作エラー。
-        """
-        with self.session_factory() as session:
-            try:
-                stmt = (
-                    select(Image.id)
-                    .join(Project, Image.project_id == Project.id)
-                    .where(Project.name == project_name)
-                )
-                result = list(session.execute(stmt).scalars().all())
-                logger.debug(f"get_image_ids_by_project: name='{project_name}', count={len(result)}")
-                return result
-            except SQLAlchemyError as e:
-                logger.error(f"get_image_ids_by_project エラー: {e}", exc_info=True)
-                raise
+        """ProjectRepository.get_image_ids_by_project への delegate (ADR 0035 段階 2)。"""
+        return self._project_repo.get_image_ids_by_project(project_name)
 
     def get_image_ids_by_project_id(self, project_id: int) -> list[int]:
-        """プロジェクトIDで画像ID一覧を取得する。
-
-        Args:
-            project_id: フィルタ対象プロジェクトID。
-
-        Returns:
-            list[int]: 画像IDのリスト。
-
-        Raises:
-            SQLAlchemyError: DB操作エラー。
-        """
-        with self.session_factory() as session:
-            try:
-                stmt = select(Image.id).where(Image.project_id == project_id)
-                result = list(session.execute(stmt).scalars().all())
-                logger.debug(f"get_image_ids_by_project_id: id={project_id}, count={len(result)}")
-                return result
-            except SQLAlchemyError as e:
-                logger.error(f"get_image_ids_by_project_id エラー: {e}", exc_info=True)
-                raise
+        """ProjectRepository.get_image_ids_by_project_id への delegate (ADR 0035 段階 2)。"""
+        return self._project_repo.get_image_ids_by_project_id(project_id)
 
     def assign_images_to_project(self, image_ids: list[int], project_id: int) -> int:
-        """画像IDリストをプロジェクトに割り当てる。
-
-        Args:
-            image_ids: 割り当てる画像IDリスト。
-            project_id: 割り当て先プロジェクトID。
-
-        Returns:
-            int: 実際に更新された件数。
-
-        Raises:
-            SQLAlchemyError: DB操作エラー。
-        """
-        if not image_ids:
-            return 0
-
-        with self.session_factory() as session:
-            try:
-                total_updated = 0
-                for i in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
-                    chunk = image_ids[i : i + self.BATCH_CHUNK_SIZE]
-                    stmt = update(Image).where(Image.id.in_(chunk)).values(project_id=project_id)
-                    total_updated += cast("CursorResult[Any]", session.execute(stmt)).rowcount
-                session.commit()
-                logger.info(
-                    f"assign_images_to_project: {total_updated}/{len(image_ids)} images"
-                    f" → project_id={project_id}"
-                )
-                return total_updated
-            except SQLAlchemyError as e:
-                session.rollback()
-                logger.error(f"assign_images_to_project エラー: {e}", exc_info=True)
-                raise
+        """ProjectRepository.assign_images_to_project への delegate (ADR 0035 段階 2)。"""
+        return self._project_repo.assign_images_to_project(image_ids, project_id)
 
     # --- Main Filter Method ---
 

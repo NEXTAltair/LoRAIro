@@ -31,6 +31,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.project import ProjectRepository
 from lorairo.services.configuration_service import ConfigurationService
 
 # ---------------------------------------------------------------------------
@@ -53,12 +54,21 @@ def mock_config_service() -> Mock:
 
 
 @pytest.fixture
-def manager(mock_repository: Mock, mock_config_service: Mock) -> ImageDatabaseManager:
+def mock_project_repo() -> Mock:
+    """モック化された ProjectRepository を返す (ADR 0035 段階 2)。"""
+    return Mock(spec=ProjectRepository)
+
+
+@pytest.fixture
+def manager(
+    mock_repository: Mock, mock_config_service: Mock, mock_project_repo: Mock
+) -> ImageDatabaseManager:
     """ImageDatabaseManager のインスタンスを返す（依存はすべてモック）。"""
     return ImageDatabaseManager(
         repository=mock_repository,
         config_service=mock_config_service,
         fsm=None,
+        project_repo=mock_project_repo,
     )
 
 
@@ -94,10 +104,11 @@ class TestGetCurrentProjectIdMetadata:
     """_get_current_project_id のメタデータ読み込みパスのテスト"""
 
     def test_uses_name_from_metadata_file(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self, manager: ImageDatabaseManager, mock_project_repo: Mock
     ) -> None:
         """メタデータファイルが存在するとき、そのname フィールドを使用する。"""
-        mock_repository.ensure_project.return_value = 10
+        # ADR 0035 段階 2: ensure_project は project_repo 経由で呼ばれる (DI contract)
+        mock_project_repo.ensure_project.return_value = 10
         fake_root = Path("/tmp/fake_project")
 
         # .lorairo-project ファイルが読めるようにパッチ
@@ -107,13 +118,13 @@ class TestGetCurrentProjectIdMetadata:
                 result = manager._get_current_project_id()
 
         assert result == 10
-        mock_repository.ensure_project.assert_called_once_with("my_project", fake_root)
+        mock_project_repo.ensure_project.assert_called_once_with("my_project", fake_root)
 
     def test_falls_back_to_dir_name_on_json_error(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self, manager: ImageDatabaseManager, mock_project_repo: Mock
     ) -> None:
         """JSONDecodeError が発生したとき、ディレクトリ名にフォールバックする。"""
-        mock_repository.ensure_project.return_value = 20
+        mock_project_repo.ensure_project.return_value = 20
         fake_root = Path("/tmp/my_dir")
 
         with patch("lorairo.database.db_core.get_current_project_root", return_value=fake_root):
@@ -121,7 +132,7 @@ class TestGetCurrentProjectIdMetadata:
                 result = manager._get_current_project_id()
 
         assert result == 20
-        mock_repository.ensure_project.assert_called_once_with("my_dir", fake_root)
+        mock_project_repo.ensure_project.assert_called_once_with("my_dir", fake_root)
 
 
 # ---------------------------------------------------------------------------

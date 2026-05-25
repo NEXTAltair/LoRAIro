@@ -25,6 +25,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.db_repository import ImageRepository
 from lorairo.database.repository.model import ModelRepository
+from lorairo.database.repository.project import ProjectRepository
 from lorairo.services.configuration_service import ConfigurationService
 
 # ---------------------------------------------------------------------------
@@ -45,6 +46,12 @@ def mock_model_repo() -> Mock:
 
 
 @pytest.fixture
+def mock_project_repo() -> Mock:
+    """モック化された ProjectRepository を返す (ADR 0035 段階 2)。"""
+    return Mock(spec=ProjectRepository)
+
+
+@pytest.fixture
 def mock_config_service() -> Mock:
     """モック化された ConfigurationService を返す。"""
     svc = Mock(spec=ConfigurationService)
@@ -54,7 +61,10 @@ def mock_config_service() -> Mock:
 
 @pytest.fixture
 def manager(
-    mock_repository: Mock, mock_config_service: Mock, mock_model_repo: Mock
+    mock_repository: Mock,
+    mock_config_service: Mock,
+    mock_model_repo: Mock,
+    mock_project_repo: Mock,
 ) -> ImageDatabaseManager:
     """ImageDatabaseManager のインスタンスを返す（依存はすべてモック）。"""
     return ImageDatabaseManager(
@@ -62,6 +72,7 @@ def manager(
         config_service=mock_config_service,
         fsm=None,
         model_repo=mock_model_repo,
+        project_repo=mock_project_repo,
     )
 
 
@@ -75,13 +86,14 @@ class TestGetCurrentProjectId:
     """_get_current_project_id メソッドのテスト"""
 
     def test_returns_cached_value_without_db_access(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self, manager: ImageDatabaseManager, mock_project_repo: Mock
     ) -> None:
         """キャッシュ済みの場合はリポジトリを呼ばずにキャッシュ値を返す。"""
         manager._cached_project_id = 42
         result = manager._get_current_project_id()
         assert result == 42
-        mock_repository.ensure_project.assert_not_called()
+        # ADR 0035 段階 2: ensure_project は project_repo 経由で呼ばれる (DI contract)
+        mock_project_repo.ensure_project.assert_not_called()
 
     def test_returns_none_when_project_root_unavailable(self, manager: ImageDatabaseManager) -> None:
         """project root 取得に失敗 (RuntimeError) したとき None を返す。"""
@@ -95,20 +107,20 @@ class TestGetCurrentProjectId:
         assert result is None
 
     def test_returns_none_when_ensure_project_fails(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self, manager: ImageDatabaseManager, mock_project_repo: Mock
     ) -> None:
         """ensure_project が SQLAlchemyError を投げたとき None を返す (project_id 未設定で続行)。"""
-        mock_repository.ensure_project.side_effect = SQLAlchemyError("DB error")
+        mock_project_repo.ensure_project.side_effect = SQLAlchemyError("DB error")
         fake_root = Path("/fake/project")
         with patch("lorairo.database.db_core.get_current_project_root", return_value=fake_root):
             result = manager._get_current_project_id()
         assert result is None
 
     def test_caches_project_id_on_success(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self, manager: ImageDatabaseManager, mock_project_repo: Mock
     ) -> None:
         """正常取得後は _cached_project_id にキャッシュされる。"""
-        mock_repository.ensure_project.return_value = 7
+        mock_project_repo.ensure_project.return_value = 7
 
         fake_root = Path("/fake/project")
         with patch("lorairo.database.db_core.get_current_project_root", return_value=fake_root):
@@ -119,7 +131,7 @@ class TestGetCurrentProjectId:
         assert manager._cached_project_id == 7
 
     def test_falls_back_to_project_root_name_on_non_dict_metadata(
-        self, manager: ImageDatabaseManager, mock_repository: Mock, tmp_path: Path
+        self, manager: ImageDatabaseManager, mock_project_repo: Mock, tmp_path: Path
     ) -> None:
         """`.lorairo-project` が JSON object でない (list/string 等) なら project_root.name で fallback。
 
@@ -130,14 +142,15 @@ class TestGetCurrentProjectId:
         project_root.mkdir()
         # 有効な JSON だが dict でない (list)
         (project_root / ".lorairo-project").write_text("[]", encoding="utf-8")
-        mock_repository.ensure_project.return_value = 42
+        mock_project_repo.ensure_project.return_value = 42
 
         with patch("lorairo.database.db_core.get_current_project_root", return_value=project_root):
             result = manager._get_current_project_id()
 
         assert result == 42
         # project_root.name でフォールバック呼び出し
-        args, _ = mock_repository.ensure_project.call_args
+        # ADR 0035 段階 2: DI contract — project_repo 経由で呼ばれる
+        args, _ = mock_project_repo.ensure_project.call_args
         assert args[0] == "fake-project"
 
 
