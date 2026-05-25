@@ -127,6 +127,36 @@ class TestProviderBatchRepository:
         assert test_repository.list_provider_batch_items(job_id) == []
         assert test_repository.list_provider_batch_artifacts(job_id) == []
 
+    def test_create_job_with_items_rolls_back_atomically_on_item_failure(
+        self,
+        test_repository: ImageRepository,
+    ) -> None:
+        with pytest.raises(IntegrityError):
+            test_repository.create_provider_batch_job_with_items(
+                {
+                    "provider": "openai",
+                    "provider_job_id": "batch_atomic",
+                    "status": "submitted",
+                    "request_count": 2,
+                },
+                [
+                    {
+                        "job_id": 0,
+                        "custom_id": "img-1",
+                        "task_type": "annotation",
+                        "status": "submitted",
+                    },
+                    {
+                        "job_id": 0,
+                        "custom_id": "img-1",
+                        "task_type": "annotation",
+                        "status": "submitted",
+                    },
+                ],
+            )
+
+        assert test_repository.get_provider_batch_job_by_provider_id("openai", "batch_atomic") is None
+
     def test_update_rejects_unknown_fields(self, test_repository: ImageRepository) -> None:
         job_id = test_repository.create_provider_batch_job({"provider": "openai", "status": "draft"})
 

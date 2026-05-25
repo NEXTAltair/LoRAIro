@@ -281,7 +281,7 @@ class ProviderBatchJobService:
             submission.request_count if submission.request_count is not None else len(request.items)
         )
 
-        job_id = self._repository.create_provider_batch_job(
+        job_id = self._repository.create_provider_batch_job_with_items(
             {
                 "provider": request.provider,
                 "provider_job_id": submission.provider_job_id,
@@ -300,12 +300,10 @@ class ProviderBatchJobService:
                     if submission.raw_provider_payload is not None
                     else request.raw_provider_payload
                 ),
-            }
-        )
-        for item in request.items:
-            self._repository.create_provider_batch_item(
+            },
+            [
                 {
-                    "job_id": job_id,
+                    "job_id": 0,
                     "custom_id": item.custom_id,
                     "image_id": item.image_id,
                     "model_id": item.model_id if item.model_id is not None else request.model_id,
@@ -313,7 +311,9 @@ class ProviderBatchJobService:
                     "status": status,
                     "raw_request": self._serialize_payload(item.raw_request),
                 }
-            )
+                for item in request.items
+            ],
+        )
         logger.info(
             f"Provider batch job submitted: provider={request.provider}, "
             f"provider_job_id={submission.provider_job_id}, job_id={job_id}, status={status}, "
@@ -329,20 +329,11 @@ class ProviderBatchJobService:
         provider = self._normalize_provider_name(metadata.provider)
         adapter = self._get_adapter(provider)
         if not hasattr(adapter, "submit"):
-            request = BatchSubmitRequest(
-                provider=provider,
-                endpoint=metadata.endpoint or "",
-                litellm_model_id="",
-                prompt_profile="",
-                api_keys={},
-                items=(),
-                model_id=metadata.model_id,
-                request_artifact_path=request_file,
-                raw_provider_payload=metadata.raw_provider_payload,
+            raise ProviderBatchError(
+                "Legacy submit() requires a legacy adapter with submit(). "
+                "Use submit_batch() for ADR 0038 batch clients."
             )
-            submission = adapter.submit_batch(request)
-        else:
-            submission = adapter.submit(request_file, metadata)
+        submission = adapter.submit(request_file, metadata)
         status = self.normalize_status(
             provider,
             submission.status or submission.provider_status,

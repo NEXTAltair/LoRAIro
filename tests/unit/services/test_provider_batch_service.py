@@ -272,6 +272,18 @@ class TestProviderBatchJobService:
             job_id
         ]
 
+    def test_legacy_submit_rejects_new_batch_client_without_empty_item_fallback(
+        self,
+        test_repository: ImageRepository,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        service = ProviderBatchJobService(test_repository, {"openai": adapter})
+
+        with pytest.raises(ProviderBatchError, match="Use submit_batch"):
+            service.submit(Path("/tmp/input.jsonl"), BatchSubmitMetadata(provider="openai"))
+
+        assert test_repository.list_provider_batch_jobs(provider="openai") == []
+
     def test_refresh_updates_job_status_counts_and_raw_payload(
         self,
         test_repository: ImageRepository,

@@ -2882,6 +2882,33 @@ class ImageRepository:
                 logger.error(f"Provider batch job 作成中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
+    def create_provider_batch_job_with_items(
+        self,
+        job_data: ProviderBatchJobData,
+        items_data: list[ProviderBatchItemData],
+    ) -> int:
+        """Provider Batch API job と item 群を単一 transaction で作成する。"""
+        with self.session_factory() as session:
+            try:
+                job = ProviderBatchJob(**job_data)
+                session.add(job)
+                session.flush()
+                job_id = job.id
+                for item_data in items_data:
+                    item_values = dict(item_data)
+                    item_values["job_id"] = job_id
+                    session.add(ProviderBatchItem(**item_values))
+                session.commit()
+                logger.debug(
+                    f"Provider batch job/items を作成しました: ID={job_id}, "
+                    f"provider={job.provider}, status={job.status}, items={len(items_data)}",
+                )
+                return job_id
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"Provider batch job/items 作成中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
     def get_provider_batch_job(self, job_id: int) -> ProviderBatchJob | None:
         """Provider Batch API job を ID で取得する。"""
         with self.session_factory() as session:
