@@ -189,6 +189,7 @@ class BatchSubmitRequest:
     litellm_model_id: str
     prompt_profile: str
     description: str | None
+    api_keys: dict[str, str]
     items: list[BatchSubmitItem]
 
 class BatchSubmitItem:
@@ -197,12 +198,47 @@ class BatchSubmitItem:
     image_path: Path
 ```
 
-`image_path` は LoRAIro が管理する resized image path を渡す。OpenAI MVP では既存の長辺 512px resized
-image を使い、`detail: high` 等の provider image fidelity option は実装しない。
+API key は通常 annotation と同じ `api_keys` dict で渡す。`image_path` は LoRAIro が管理する resized
+image path を渡す。OpenAI MVP では既存の長辺 512px resized image を使い、`detail: high` 等の
+provider image fidelity option は実装しない。binary 化、MIME / format 判定、必要な format 変換、
+base64 / data URL 化、provider-specific image input fields は image-annotator-lib が担当する。
 
 ```text
 TODO: Consider provider image detail/fidelity options later. MVP uses existing resized image payloads.
 ```
+
+Submit 後に LoRAIro が保存する stable result は最小限にする。
+
+```python
+class BatchSubmitResult:
+    provider: str
+    provider_job_id: str
+    status: str
+    request_count: int
+
+class BatchJobHandle:
+    provider: str
+    provider_job_id: str
+    api_keys: dict[str, str]
+
+class BatchStatusResult:
+    provider: str
+    provider_job_id: str
+    status: str
+    request_count: int | None
+    succeeded_count: int | None
+    failed_count: int | None
+    canceled_count: int | None
+    expired_count: int | None
+    submitted_at: datetime | None
+    completed_at: datetime | None
+    expires_at: datetime | None
+```
+
+LoRAIro/lib の stable contract には `raw_provider_payload` や provider-specific handles を含めない。
+OpenAI `output_file_id` などの provider 固有補助 ID は library 内部で retrieve し直すか、必要なら
+library 側の実装詳細として扱う。LoRAIro は `provider` と provider が返す `provider_job_id` だけを
+status / cancel / fetch の安定 handle として扱う。
 
 `BatchFetchResult` は job 単位で返す。各 item の `annotation` は同期 annotation と同じ
 annotation result contract に正規化済みで、LoRAIro は provider-native batch response body を parse
@@ -214,7 +250,7 @@ class BatchFetchResult:
     provider_job_id: str
     status: str
     items: list[BatchResultItem]
-    artifacts: list[BatchArtifact]
+    artifacts: list[BatchArtifact] | None
 
 class BatchResultItem:
     custom_id: str
@@ -294,7 +330,6 @@ CREATE TABLE provider_batch_jobs (
     input_artifact_path TEXT,
     output_artifact_path TEXT,
     error_artifact_path TEXT,
-    raw_provider_payload TEXT,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL
 );
@@ -312,8 +347,6 @@ CREATE TABLE provider_batch_items (
     status TEXT NOT NULL,
     error_type TEXT,
     error_message TEXT,
-    raw_request TEXT,
-    raw_response TEXT,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     UNIQUE(job_id, custom_id)
@@ -332,11 +365,10 @@ CREATE TABLE provider_batch_artifacts (
 ```
 
 Notes:
-- `raw_provider_payload`, `raw_request`, `raw_response` は JSON text とする。SQLite 互換を優先し、
-  JSON 型にはしない
 - `provider_job_id` は submit 前の draft job では null を許容する
 - item status は provider 由来の per-request status を正規化する
 - provider result retention に依存しないよう、download 済み artifacts はローカルに保存する
+- provider 生 payload / request / response JSON は LoRAIro DB の stable schema には保存しない
 
 ### 7. UI は「実行中 progress」ではなく「job queue」中心にする
 
