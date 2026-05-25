@@ -125,6 +125,27 @@ class TestConfigurationService:
         assert api_keys == {"openai_key": "sk-test", "google_key": "ai-test"}
         assert "claude_key" not in api_keys  # 空文字列は除外
 
+    def test_get_provider_api_keys_with_keys(self):
+        """APIキーを provider 名キーで取得できる"""
+        config = {
+            "api": {
+                "openai_key": "sk-test",
+                "claude_key": "claude-test",
+                "google_key": "",
+                "openrouter_key": "or-test",
+            }
+        }
+        config_service = ConfigurationService(shared_config=config)
+
+        api_keys = config_service.get_provider_api_keys()
+
+        assert api_keys == {
+            "openai": "sk-test",
+            "anthropic": "claude-test",
+            "openrouter": "or-test",
+        }
+        assert "google" not in api_keys
+
     def test_is_provider_available(self):
         """プロバイダー可用性チェックテスト"""
         # Given: 一部のAPIキーが設定されている状態

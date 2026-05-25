@@ -207,11 +207,26 @@ class ConfigurationService:
         """全APIキーを取得（空文字列は除外）
 
         Returns:
-            dict[str, str]: プロバイダー名 → APIキーのマッピング
+            dict[str, str]: 設定キー名 → APIキーのマッピング
                            空文字列のキーは除外される
         """
         api_config = self._config.get("api", {})
         return {k: v for k, v in api_config.items() if v and v.strip()}
+
+    def get_provider_api_keys(self) -> dict[str, str]:
+        """全APIキーを provider 名キーで取得（空文字列は除外）。"""
+        api_config = self._config.get("api", {})
+        provider_key_map = {
+            "openai_key": "openai",
+            "claude_key": "anthropic",
+            "google_key": "google",
+            "openrouter_key": "openrouter",
+        }
+        return {
+            provider: api_config[key_name]
+            for key_name, provider in provider_key_map.items()
+            if api_config.get(key_name) and api_config[key_name].strip()
+        }
 
     def is_provider_available(self, provider: str) -> bool:
         """指定されたプロバイダーが利用可能かチェックします。"""
