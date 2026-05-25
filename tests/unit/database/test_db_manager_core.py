@@ -20,11 +20,11 @@ from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.db_repository import ImageRepository
 from lorairo.services.configuration_service import ConfigurationService
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -74,10 +74,23 @@ class TestGetCurrentProjectId:
         mock_repository.ensure_project.assert_not_called()
 
     def test_returns_none_when_project_root_unavailable(self, manager: ImageDatabaseManager) -> None:
-        """project root 取得に失敗したとき None を返す。"""
+        """project root 取得に失敗 (RuntimeError) したとき None を返す。"""
         # get_current_project_root は _get_current_project_id 内で lazy import されるため
-        # db_core モジュール上のシンボルをパッチする
-        with patch("lorairo.database.db_core.get_current_project_root", side_effect=Exception("no root")):
+        # db_core モジュール上のシンボルをパッチする。
+        # _get_current_project_id は (RuntimeError, OSError, ValueError) を catch する。
+        with patch(
+            "lorairo.database.db_core.get_current_project_root", side_effect=RuntimeError("no root")
+        ):
+            result = manager._get_current_project_id()
+        assert result is None
+
+    def test_returns_none_when_ensure_project_fails(
+        self, manager: ImageDatabaseManager, mock_repository: Mock
+    ) -> None:
+        """ensure_project が SQLAlchemyError を投げたとき None を返す (project_id 未設定で続行)。"""
+        mock_repository.ensure_project.side_effect = SQLAlchemyError("DB error")
+        fake_root = Path("/fake/project")
+        with patch("lorairo.database.db_core.get_current_project_root", return_value=fake_root):
             result = manager._get_current_project_id()
         assert result is None
 
@@ -94,6 +107,28 @@ class TestGetCurrentProjectId:
 
         assert result == 7
         assert manager._cached_project_id == 7
+
+    def test_falls_back_to_project_root_name_on_non_dict_metadata(
+        self, manager: ImageDatabaseManager, mock_repository: Mock, tmp_path: Path
+    ) -> None:
+        """`.lorairo-project` が JSON object でない (list/string 等) なら project_root.name で fallback。
+
+        Regression test for PR #476 review (P2): 旧 silent return は AttributeError を
+        吸収していた。新仕様でも malformed metadata を recoverable に扱う。
+        """
+        project_root = tmp_path / "fake-project"
+        project_root.mkdir()
+        # 有効な JSON だが dict でない (list)
+        (project_root / ".lorairo-project").write_text("[]", encoding="utf-8")
+        mock_repository.ensure_project.return_value = 42
+
+        with patch("lorairo.database.db_core.get_current_project_root", return_value=project_root):
+            result = manager._get_current_project_id()
+
+        assert result == 42
+        # project_root.name でフォールバック呼び出し
+        args, _ = mock_repository.ensure_project.call_args
+        assert args[0] == "fake-project"
 
 
 # ---------------------------------------------------------------------------
@@ -118,14 +153,12 @@ class TestRegisterProcessedImage:
         result = manager.register_processed_image(1, Path("/data/img.jpg"), info)
         assert result == 99
 
-    def test_returns_none_on_repository_exception(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
-    ) -> None:
-        """リポジトリが例外を送出したとき None を返す。"""
-        mock_repository.add_processed_image.side_effect = Exception("db error")
+    def test_raises_on_sqlalchemy_error(self, manager: ImageDatabaseManager, mock_repository: Mock) -> None:
+        """リポジトリが SQLAlchemyError を送出したとき呼び出し元に伝播 (silent return しない)。"""
+        mock_repository.add_processed_image.side_effect = SQLAlchemyError("db error")
         info = {"width": 512, "height": 512, "has_alpha": False}
-        result = manager.register_processed_image(1, Path("/data/img.jpg"), info)
-        assert result is None
+        with pytest.raises(SQLAlchemyError):
+            manager.register_processed_image(1, Path("/data/img.jpg"), info)
 
 
 # ---------------------------------------------------------------------------
@@ -157,9 +190,9 @@ class TestGetImageMetadata:
     def test_raises_on_repository_exception(
         self, manager: ImageDatabaseManager, mock_repository: Mock
     ) -> None:
-        """リポジトリが例外を送出したとき例外が伝播する。"""
-        mock_repository.get_image_metadata.side_effect = RuntimeError("db error")
-        with pytest.raises(RuntimeError):
+        """リポジトリが SQLAlchemyError を送出したとき例外が伝播する。"""
+        mock_repository.get_image_metadata.side_effect = SQLAlchemyError("db error")
+        with pytest.raises(SQLAlchemyError):
             manager.get_image_metadata(1)
 
 
@@ -172,13 +205,11 @@ class TestGetImageMetadata:
 class TestGetImageAnnotations:
     """get_image_annotations メソッドのテスト"""
 
-    def test_returns_empty_structure_on_exception(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
-    ) -> None:
-        """リポジトリが例外を送出したとき空の構造を返す。"""
-        mock_repository.get_image_annotations.side_effect = Exception("db error")
-        result = manager.get_image_annotations(1)
-        assert result == {"tags": [], "captions": [], "scores": [], "ratings": []}
+    def test_raises_on_sqlalchemy_error(self, manager: ImageDatabaseManager, mock_repository: Mock) -> None:
+        """リポジトリが SQLAlchemyError を送出したとき呼び出し元に伝播。"""
+        mock_repository.get_image_annotations.side_effect = SQLAlchemyError("db error")
+        with pytest.raises(SQLAlchemyError):
+            manager.get_image_annotations(1)
 
     def test_returns_repository_result_on_success(
         self, manager: ImageDatabaseManager, mock_repository: Mock
@@ -199,47 +230,53 @@ class TestGetImageAnnotations:
 class TestGetModels:
     """モデル取得メソッドのテスト"""
 
-    def test_get_models_returns_empty_list_on_exception(
+    def test_get_models_raises_on_sqlalchemy_error(
         self, manager: ImageDatabaseManager, mock_repository: Mock
     ) -> None:
-        """get_models: 例外時は空リストを返す。"""
-        mock_repository.get_models.side_effect = Exception("db error")
-        assert manager.get_models() == []
+        """get_models: SQLAlchemyError は呼び出し元に伝播 (silent return しない)。"""
+        mock_repository.get_models.side_effect = SQLAlchemyError("db error")
+        with pytest.raises(SQLAlchemyError):
+            manager.get_models()
 
-    def test_get_tagger_models_returns_empty_list_on_exception(
+    def test_get_tagger_models_raises_on_sqlalchemy_error(
         self, manager: ImageDatabaseManager, mock_repository: Mock
     ) -> None:
-        """get_tagger_models: 例外時は空リストを返す。"""
-        mock_repository.get_models_by_type.side_effect = Exception("db error")
-        assert manager.get_tagger_models() == []
+        """get_tagger_models: SQLAlchemyError は呼び出し元に伝播。"""
+        mock_repository.get_models_by_type.side_effect = SQLAlchemyError("db error")
+        with pytest.raises(SQLAlchemyError):
+            manager.get_tagger_models()
 
-    def test_get_score_models_returns_empty_list_on_exception(
+    def test_get_score_models_raises_on_sqlalchemy_error(
         self, manager: ImageDatabaseManager, mock_repository: Mock
     ) -> None:
-        """get_score_models: 例外時は空リストを返す。"""
-        mock_repository.get_models_by_type.side_effect = Exception("db error")
-        assert manager.get_score_models() == []
+        """get_score_models: SQLAlchemyError は呼び出し元に伝播。"""
+        mock_repository.get_models_by_type.side_effect = SQLAlchemyError("db error")
+        with pytest.raises(SQLAlchemyError):
+            manager.get_score_models()
 
-    def test_get_captioner_models_returns_empty_list_on_exception(
+    def test_get_captioner_models_raises_on_sqlalchemy_error(
         self, manager: ImageDatabaseManager, mock_repository: Mock
     ) -> None:
-        """get_captioner_models: 例外時は空リストを返す。"""
-        mock_repository.get_models_by_type.side_effect = Exception("db error")
-        assert manager.get_captioner_models() == []
+        """get_captioner_models: SQLAlchemyError は呼び出し元に伝播。"""
+        mock_repository.get_models_by_type.side_effect = SQLAlchemyError("db error")
+        with pytest.raises(SQLAlchemyError):
+            manager.get_captioner_models()
 
-    def test_get_upscaler_models_returns_empty_list_on_exception(
+    def test_get_upscaler_models_raises_on_sqlalchemy_error(
         self, manager: ImageDatabaseManager, mock_repository: Mock
     ) -> None:
-        """get_upscaler_models: 例外時は空リストを返す。"""
-        mock_repository.get_models_by_type.side_effect = Exception("db error")
-        assert manager.get_upscaler_models() == []
+        """get_upscaler_models: SQLAlchemyError は呼び出し元に伝播。"""
+        mock_repository.get_models_by_type.side_effect = SQLAlchemyError("db error")
+        with pytest.raises(SQLAlchemyError):
+            manager.get_upscaler_models()
 
-    def test_get_llm_models_returns_empty_list_on_exception(
+    def test_get_llm_models_raises_on_sqlalchemy_error(
         self, manager: ImageDatabaseManager, mock_repository: Mock
     ) -> None:
-        """get_llm_models: 例外時は空リストを返す。"""
-        mock_repository.get_models_by_type.side_effect = Exception("db error")
-        assert manager.get_llm_models() == []
+        """get_llm_models: SQLAlchemyError は呼び出し元に伝播。"""
+        mock_repository.get_models_by_type.side_effect = SQLAlchemyError("db error")
+        with pytest.raises(SQLAlchemyError):
+            manager.get_llm_models()
 
     def test_get_models_returns_list_on_success(
         self, manager: ImageDatabaseManager, mock_repository: Mock
@@ -275,12 +312,13 @@ class TestGetModels:
 class TestImageCounting:
     """画像件数取得メソッドのテスト"""
 
-    def test_get_total_image_count_returns_zero_on_exception(
+    def test_get_total_image_count_raises_on_sqlalchemy_error(
         self, manager: ImageDatabaseManager, mock_repository: Mock
     ) -> None:
-        """例外時は 0 を返す。"""
-        mock_repository.get_total_image_count.side_effect = Exception("db error")
-        assert manager.get_total_image_count() == 0
+        """SQLAlchemyError は呼び出し元に伝播 (silent return しない)。"""
+        mock_repository.get_total_image_count.side_effect = SQLAlchemyError("db error")
+        with pytest.raises(SQLAlchemyError):
+            manager.get_total_image_count()
 
     def test_get_total_image_count_returns_count_on_success(
         self, manager: ImageDatabaseManager, mock_repository: Mock
@@ -289,12 +327,13 @@ class TestImageCounting:
         mock_repository.get_total_image_count.return_value = 42
         assert manager.get_total_image_count() == 42
 
-    def test_get_images_count_only_returns_zero_on_exception(
+    def test_get_images_count_only_raises_on_sqlalchemy_error(
         self, manager: ImageDatabaseManager, mock_repository: Mock
     ) -> None:
-        """例外時は 0 を返す。"""
-        mock_repository.get_images_count_only.side_effect = Exception("db error")
-        assert manager.get_images_count_only() == 0
+        """SQLAlchemyError は呼び出し元に伝播 (silent return しない)。"""
+        mock_repository.get_images_count_only.side_effect = SQLAlchemyError("db error")
+        with pytest.raises(SQLAlchemyError):
+            manager.get_images_count_only()
 
 
 # ---------------------------------------------------------------------------
@@ -330,14 +369,27 @@ class TestDetectDuplicateImage:
             result = manager.detect_duplicate_image(Path("/data/img.jpg"))
         assert result == 5
 
-    def test_returns_none_on_repository_exception(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
-    ) -> None:
-        """リポジトリ例外時は None を返す。"""
+    def test_raises_on_sqlalchemy_error(self, manager: ImageDatabaseManager, mock_repository: Mock) -> None:
+        """リポジトリの SQLAlchemyError は呼び出し元に伝播 (silent return しない)。"""
         with patch("lorairo.database.db_manager.calculate_phash", return_value="aabbccdd"):
-            mock_repository.find_duplicate_image_by_phash.side_effect = Exception("db error")
+            mock_repository.find_duplicate_image_by_phash.side_effect = SQLAlchemyError("db error")
+            with pytest.raises(SQLAlchemyError):
+                manager.detect_duplicate_image(Path("/data/img.jpg"))
+
+    def test_returns_none_on_oserror(self, manager: ImageDatabaseManager, mock_repository: Mock) -> None:
+        """pHash 計算で OSError 系 (PermissionError, UnidentifiedImageError 等) が出たら None。
+
+        Regression test for PR #476 review (P2): 旧 silent return は OSError も
+        catch していた。新仕様でも per-file tolerance を維持し directory scan 全体を
+        止めない。
+        """
+        with patch(
+            "lorairo.database.db_manager.calculate_phash",
+            side_effect=PermissionError("cannot read"),
+        ):
             result = manager.detect_duplicate_image(Path("/data/img.jpg"))
         assert result is None
+        mock_repository.find_duplicate_image_by_phash.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -391,13 +443,11 @@ class TestMarkErrorsResolvedBatch:
         result = manager.mark_errors_resolved_batch([1, 2, 3])
         assert result == (True, 3)
 
-    def test_returns_failure_tuple_on_exception(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
-    ) -> None:
-        """例外時は (False, 0) を返す。"""
-        mock_repository.mark_errors_resolved_batch.side_effect = Exception("db error")
-        result = manager.mark_errors_resolved_batch([1, 2, 3])
-        assert result == (False, 0)
+    def test_raises_on_sqlalchemy_error(self, manager: ImageDatabaseManager, mock_repository: Mock) -> None:
+        """DB 失敗時は SQLAlchemyError を呼び出し元へ伝播させる。"""
+        mock_repository.mark_errors_resolved_batch.side_effect = SQLAlchemyError("db error")
+        with pytest.raises(SQLAlchemyError):
+            manager.mark_errors_resolved_batch([1, 2, 3])
 
 
 # ---------------------------------------------------------------------------
@@ -415,11 +465,11 @@ class TestGetImageIdByFilepath:
         result = manager.get_image_id_by_filepath("/data/img.jpg")
         assert result == 7
 
-    def test_returns_none_on_exception(self, manager: ImageDatabaseManager, mock_repository: Mock) -> None:
-        """例外時は None を返す。"""
-        mock_repository.get_image_id_by_filepath.side_effect = Exception("db error")
-        result = manager.get_image_id_by_filepath("/data/img.jpg")
-        assert result is None
+    def test_raises_on_sqlalchemy_error(self, manager: ImageDatabaseManager, mock_repository: Mock) -> None:
+        """DB 失敗時は SQLAlchemyError を呼び出し元へ伝播させる。"""
+        mock_repository.get_image_id_by_filepath.side_effect = SQLAlchemyError("db error")
+        with pytest.raises(SQLAlchemyError):
+            manager.get_image_id_by_filepath("/data/img.jpg")
 
     def test_returns_none_when_not_found(
         self, manager: ImageDatabaseManager, mock_repository: Mock
@@ -457,12 +507,12 @@ class TestGetDatasetStatus:
         assert result["status"] == "empty"
         assert result["total_images"] == 0
 
-    def test_returns_error_status_on_exception(self, manager: ImageDatabaseManager) -> None:
-        """get_total_image_count が例外を送出したとき status = 'error' を返す。
-        get_total_image_count 自体は例外を飲み込んで 0 を返すため、
-        get_dataset_status の except ブランチを踏むには get_total_image_count を直接モックする。
+    def test_returns_error_status_on_sqlalchemy_error(self, manager: ImageDatabaseManager) -> None:
+        """get_total_image_count が SQLAlchemyError を送出したとき status = 'error' を返す。
+
+        UI status バー向けの silent return を維持 (coding-style.md の境界層変換に該当)。
         """
-        with patch.object(manager, "get_total_image_count", side_effect=Exception("unexpected")):
+        with patch.object(manager, "get_total_image_count", side_effect=SQLAlchemyError("db error")):
             result = manager.get_dataset_status()
         assert result["status"] == "error"
         assert result["total_images"] == 0
@@ -491,11 +541,11 @@ class TestGetLowResImagePath:
         result = manager.get_low_res_image_path(1)
         assert result is None
 
-    def test_returns_none_on_exception(self, manager: ImageDatabaseManager, mock_repository: Mock) -> None:
-        """例外時は None を返す。"""
-        mock_repository.get_processed_image.side_effect = Exception("db error")
-        result = manager.get_low_res_image_path(1)
-        assert result is None
+    def test_raises_on_sqlalchemy_error(self, manager: ImageDatabaseManager, mock_repository: Mock) -> None:
+        """DB 失敗時は SQLAlchemyError を呼び出し元へ伝播させる。"""
+        mock_repository.get_processed_image.side_effect = SQLAlchemyError("db error")
+        with pytest.raises(SQLAlchemyError):
+            manager.get_low_res_image_path(1)
 
     def test_returns_none_when_path_missing_from_metadata(
         self, manager: ImageDatabaseManager, mock_repository: Mock
@@ -532,11 +582,11 @@ class TestCheckProcessedImageExists:
         result = manager.check_processed_image_exists(1, 512)
         assert result is None
 
-    def test_returns_none_on_exception(self, manager: ImageDatabaseManager, mock_repository: Mock) -> None:
-        """例外時は None を返す。"""
-        mock_repository.get_processed_image.side_effect = Exception("db error")
-        result = manager.check_processed_image_exists(1, 512)
-        assert result is None
+    def test_raises_on_sqlalchemy_error(self, manager: ImageDatabaseManager, mock_repository: Mock) -> None:
+        """DB 失敗時は SQLAlchemyError を呼び出し元へ伝播させる。"""
+        mock_repository.get_processed_image.side_effect = SQLAlchemyError("db error")
+        with pytest.raises(SQLAlchemyError):
+            manager.check_processed_image_exists(1, 512)
 
 
 # ---------------------------------------------------------------------------
@@ -577,6 +627,24 @@ class TestRegisterOriginalImage:
             mock_repository.find_duplicate_image_by_phash.return_value = None
             result = manager.register_original_image(Path("/data/img.jpg"), mock_fsm)
         assert result is None
+
+    def test_returns_none_on_oserror_from_metadata_prep(
+        self, manager: ImageDatabaseManager, mock_repository: Mock
+    ) -> None:
+        """_prepare_image_metadata 経由で OSError (UnidentifiedImageError 等) が出たら None。
+
+        Regression test for PR #476 review (P1): 旧 silent return は OSError も
+        catch していた。新仕様でも per-file tolerance を維持し worker 全体を止めない。
+        PIL の UnidentifiedImageError は OSError サブクラス。
+        """
+        mock_fsm = Mock()
+        mock_fsm.get_image_info.side_effect = OSError("cannot identify image file")
+
+        result = manager.register_original_image(Path("/data/img.jpg"), mock_fsm)
+
+        assert result is None
+        mock_repository.find_duplicate_image_by_phash.assert_not_called()
+        mock_repository.add_original_image.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -623,14 +691,13 @@ class TestFilterByAnnotationStatus:
         self, manager: ImageDatabaseManager, mock_repository: Mock
     ) -> None:
         """error=True かつエラー画像 ID が空のとき空リストを返す。"""
+        mock_repository.get_session.return_value = MagicMock()
         mock_repository.get_error_image_ids.return_value = []
         result = manager.filter_by_annotation_status(error=True)
         assert result == []
 
-    def test_returns_empty_list_on_exception(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
-    ) -> None:
-        """セッション取得で例外が発生したとき空リストを返す。"""
-        mock_repository.get_session.side_effect = Exception("db error")
-        result = manager.filter_by_annotation_status(completed=True)
-        assert result == []
+    def test_raises_on_sqlalchemy_error(self, manager: ImageDatabaseManager, mock_repository: Mock) -> None:
+        """セッション取得で SQLAlchemyError が発生したら呼び出し元へ伝播させる。"""
+        mock_repository.get_session.side_effect = SQLAlchemyError("db error")
+        with pytest.raises(SQLAlchemyError):
+            manager.filter_by_annotation_status(completed=True)
