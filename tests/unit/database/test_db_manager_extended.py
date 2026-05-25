@@ -520,10 +520,14 @@ class TestGetProcessedMetadata:
 class TestGetManualEditModelId:
     """get_manual_edit_model_id メソッドのテスト"""
 
-    def test_returns_model_id_from_session(self, mock_repository: Mock, mock_config_service: Mock) -> None:
-        """セッションを使って model_id を返す (ADR 0035 段階 1: model_repo 経由)。"""
-        # ADR 0035 段階 1: manual edit model は ModelRepository._get_or_create_manual_edit_model
-        # (static) で取得する。manager は self.model_repo.session_factory でセッションを開く。
+    def test_returns_model_id_via_injected_model_repo(
+        self, mock_repository: Mock, mock_config_service: Mock
+    ) -> None:
+        """injected model_repo の _get_or_create_manual_edit_model 経由で model_id を返す (DI contract)。
+
+        PR #477 review (P2): クラス経由 static 呼び出しではなく、injected instance 経由で
+        dispatch することを固定。test double / subclass override / tenant-aware wrapper を尊重する。
+        """
         mock_session = MagicMock()
         mock_session_ctx = MagicMock()
         mock_session_ctx.__enter__ = Mock(return_value=mock_session)
@@ -531,19 +535,19 @@ class TestGetManualEditModelId:
         mock_session_factory = Mock(return_value=mock_session_ctx)
         mock_model_repo = Mock()
         mock_model_repo.session_factory = mock_session_factory
+        # injected model_repo のメソッドが呼ばれることを直接固定
+        mock_model_repo._get_or_create_manual_edit_model = Mock(return_value=99)
 
         mgr = ImageDatabaseManager(
             repository=mock_repository,
             config_service=mock_config_service,
             model_repo=mock_model_repo,
         )
-        with patch(
-            "lorairo.database.db_manager.ModelRepository._get_or_create_manual_edit_model",
-            return_value=99,
-        ):
-            result = mgr.get_manual_edit_model_id()
+        result = mgr.get_manual_edit_model_id()
 
         assert result == 99
+        # injected method が session 引数で呼ばれた
+        mock_model_repo._get_or_create_manual_edit_model.assert_called_once_with(mock_session)
 
     def test_caches_model_id_on_second_call(self, mock_repository: Mock, mock_config_service: Mock) -> None:
         """2回目以降の呼び出しはキャッシュから返す (ADR 0035 段階 1)。"""
@@ -554,25 +558,24 @@ class TestGetManualEditModelId:
         mock_session_factory = Mock(return_value=mock_session_ctx)
         mock_model_repo = Mock()
         mock_model_repo.session_factory = mock_session_factory
+        mock_model_repo._get_or_create_manual_edit_model = Mock(return_value=55)
 
         mgr = ImageDatabaseManager(
             repository=mock_repository,
             config_service=mock_config_service,
             model_repo=mock_model_repo,
         )
-        with patch(
-            "lorairo.database.db_manager.ModelRepository._get_or_create_manual_edit_model",
-            return_value=55,
-        ):
-            # 1回目
-            result1 = mgr.get_manual_edit_model_id()
-            # 2回目
-            result2 = mgr.get_manual_edit_model_id()
+        # 1回目
+        result1 = mgr.get_manual_edit_model_id()
+        # 2回目
+        result2 = mgr.get_manual_edit_model_id()
 
         assert result1 == 55
         assert result2 == 55
-        # session_factory は1回だけ呼ばれる
+        # session_factory は1回だけ呼ばれる (キャッシュ機能)
         mock_session_factory.assert_called_once()
+        # injected method も1回だけ呼ばれる
+        mock_model_repo._get_or_create_manual_edit_model.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

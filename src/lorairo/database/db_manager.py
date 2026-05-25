@@ -796,7 +796,9 @@ class ImageDatabaseManager:
         """
         if not hasattr(self, "_manual_edit_model_id"):
             with self.model_repo.session_factory() as session:
-                self._manual_edit_model_id = ModelRepository._get_or_create_manual_edit_model(session)
+                # injected model_repo 経由で呼び出し DI contract を維持
+                # (test double / subclass override / tenant-aware wrapper を尊重)
+                self._manual_edit_model_id = self.model_repo._get_or_create_manual_edit_model(session)
                 session.commit()
             logger.debug(f"MANUAL_EDITモデルIDをキャッシュ: {self._manual_edit_model_id}")
         return self._manual_edit_model_id
