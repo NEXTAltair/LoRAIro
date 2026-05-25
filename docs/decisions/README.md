@@ -42,6 +42,7 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0036](0036-gui-compound-widget-split-policy.md) | GUI Compound Widget 分割方針 | 2026-05-25 | Accepted |
 | [0037](0037-api-facade-wiring-policy.md) | api/ Public Facade Wiring Policy | 2026-05-25 | Accepted |
 | [0038](0038-provider-batch-api-integration-strategy.md) | Provider Batch API Integration Strategy | 2026-05-25 | Proposed |
+| [0039](0039-agent-pr-maintenance-automation.md) | Agent PR Maintenance Automation | 2026-05-25 | Accepted |
 
 ## ADR テンプレート
 
