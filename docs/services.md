@@ -148,6 +148,12 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 
 ### バッチインポート
 
+#### ProviderBatchJobService
+- **Path**: `src/lorairo/services/provider_batch_service.py`
+- **Purpose**: Provider Batch API job lifecycle の共通 service boundary
+- **Operations**: submit / refresh / cancel / download_results
+- **User Guide**: [docs/provider-batch-api.md](provider-batch-api.md)
+
 #### BatchImportService
 - **Path**: `src/lorairo/services/batch_import_service.py`
 - **Purpose**: OpenAI Batch API JSONL結果の一括インポート処理

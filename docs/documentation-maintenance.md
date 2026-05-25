@@ -19,6 +19,7 @@ LoRAIro の3層ドキュメント構造の維持方針。
 | `docs/integrations.md` | 外部パッケージ統合パターン |
 | `docs/testing.md` | テスト戦略とベストプラクティス |
 | `docs/technical.md` | 実装仕様 |
+| `docs/provider-batch-api.md` | Provider Batch API 利用条件と運用ガイド |
 | `docs/decisions/README.md` | ADR インデックス |
 | `docs/lessons-learned.md` | バグパターン・教訓 |
 | `docs/development-workflow.md` | 開発プロセス（このファイルの姉妹）|
@@ -35,6 +36,7 @@ LoRAIro の3層ドキュメント構造の維持方針。
 **docs/*.md (Layer 2):**
 - 新サービス追加 → `docs/services.md` 更新
 - 外部パッケージ API 変更 → `docs/integrations.md` 更新
+- Provider Batch API の利用条件・運用変更 → `docs/provider-batch-api.md` 更新
 - 新テストパターン採用 → `docs/testing.md` 更新
 - 重要な設計判断 → `docs/decisions/` に ADR 追加
 - バグパターン・教訓 → `docs/lessons-learned.md` 更新

@@ -332,6 +332,16 @@ results = adapter.annotate_batch(
 )
 ```
 
+#### Provider Batch API
+
+Provider Batch API は同期 `annotate_batch()` とは別の非同期 job lifecycle です。OpenAI / Anthropic
+direct route の provider-specific payload 作成、submit、retrieve、cancel、result fetch、parse、
+normalized result 生成は `image-annotator-lib` が担当します。LoRAIro は job / item / artifact state を
+DB に保存し、library から返る normalized result を既存 annotation save path へ import します。
+
+ユーザー向けの利用条件と運用手順は
+[Provider Batch API 利用条件と運用ガイド](provider-batch-api.md) を参照してください。
+
 ### データ型
 
 #### PHashAnnotationResults

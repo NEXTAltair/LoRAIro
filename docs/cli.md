@@ -548,6 +548,16 @@ Results         150
 - 大量の画像をアノテーションする場合、API利用料金が発生します
 - アノテーション中にエラーが発生した場合は、ログファイルを確認してください
 
+#### Provider Batch API job 管理
+
+大量画像を OpenAI / Anthropic direct route の Provider Batch API に投入する場合は、同期
+`annotate run` ではなく Provider Batch job 管理 workflow を使います。job は submit 後に
+provider 側で非同期処理され、LoRAIro では list / status refresh / cancel / fetch / import の
+job lifecycle として扱います。
+
+利用条件、OpenAI / Anthropic の注意点、legacy/manual OpenAI JSONL import との違いは
+[Provider Batch API 利用条件と運用ガイド](provider-batch-api.md) を参照してください。
+
 ---
 
 ### export - データセットエクスポート
