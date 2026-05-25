@@ -136,7 +136,18 @@ def when_run_worker(worker_ctx: dict[str, object]) -> None:
     assert isinstance(behaviors, dict)
 
     def execute_annotation(*_args: object, **kwargs: object) -> object:
-        model = cast("list[str]", kwargs["litellm_model_ids"])[0]
+        models = cast("list[str]", kwargs["litellm_model_ids"])
+        if len(models) > 1:
+            merged: dict[str, dict[str, dict[str, Any]]] = {}
+            for model in models:
+                behavior = behaviors.get(model, _success_result(model))
+                if isinstance(behavior, Exception):
+                    raise behavior
+                for phash, annotations in behavior.items():
+                    merged.setdefault(phash, {}).update(annotations)
+            return merged
+
+        model = models[0]
         behavior = behaviors.get(model, _success_result(model))
         if isinstance(behavior, Exception):
             raise behavior
