@@ -155,7 +155,7 @@ class TestAnnotationWorkerErrorRecording:
         # エラーレコードの詳細を確認
         error_records = db_manager.repository.get_error_records(operation_type="annotation")
         assert len(error_records) > 0
-        assert error_records[0].error_type == "Exception"
+        assert error_records[0].error_type == "lib_call_exception"
         assert "API Error" in error_records[0].error_message
         assert error_records[0].model_name == "test-model"
 
