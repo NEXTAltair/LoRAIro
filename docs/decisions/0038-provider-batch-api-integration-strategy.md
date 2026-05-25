@@ -1,7 +1,7 @@
 # ADR 0038: Provider Batch API Integration Strategy
 
 - **日付**: 2026-05-25
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **関連 Issue**: #395
 
 ## Context
@@ -29,6 +29,7 @@ inference は Vertex AI BatchPredictionJob として Cloud Storage / BigQuery in
 | OpenAI | `/v1/batches` + uploaded JSONL file | 24h completion window、同期 API 比 50% discount、`/v1/responses` / `/v1/chat/completions` / `/v1/embeddings` / `/v1/completions` / `/v1/moderations` 対応。1 batch は 50,000 requests / 200 MB file limit。streaming 非対応、画像入力対応。 |
 | Anthropic | Message Batches API | Messages requests を非同期処理。多くは 1h 未満、24h で expire、50% discount。100,000 requests または 256 MB limit。results は 29 日取得可能。Vision / tool use / system messages / multi-turn / beta features を batch 可能。ZDR 対象外。 |
 | Google | Vertex AI Gemini BatchPredictionJob | Cloud Storage / BigQuery の JSONL or BigQuery input-output。50% discount、24h turnaround を目指す。GCS/BQ と Google Cloud project/region が前提。Vertex AI docs は Gemini Enterprise Agent Platform への移行注意がある。 |
+| OpenRouter | 対象外 | 公式 docs / OpenAPI spec では `/api/v1/chat/completions` などの同期 inference endpoint が中心で、provider batch job endpoint は公開されていない。OpenRouter は provider routing / fallback の同期 route として扱い、Batch API は direct provider route のみを対象にする。 |
 
 参考:
 - OpenAI Batch API guide: https://platform.openai.com/docs/guides/batch
@@ -38,8 +39,30 @@ inference は Vertex AI BatchPredictionJob として Cloud Storage / BigQuery in
 - Anthropic Message Batches API reference: https://docs.anthropic.com/en/api/messages-batches
 - Google Gemini batch inference: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/multimodal/batch-prediction-gemini
 - Google Gemini batch prediction API: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/model-reference/batch-prediction-api
+- OpenRouter quickstart: https://openrouter.ai/docs/quickstart
+- OpenRouter API reference / OpenAPI spec: https://openrouter.ai/docs/api/reference/overview
 
 ## Decision
+
+### 0. LoRAIro は Provider Batch API を採用するが、direct provider route のみに限定する
+
+LoRAIro は大量画像アノテーションの cost / rate-limit 対策として Provider Batch API を採用する。
+ただし対象は **provider が公式に batch job lifecycle を提供する direct route** に限定する。
+
+採用対象:
+- OpenAI direct route
+- Anthropic direct route
+- Google Vertex AI Gemini direct route
+
+採用しない対象:
+- OpenRouter route
+- LiteLLM / PydanticAI 経由の batch abstraction
+- 通常同期 API に対する LoRAIro 独自の並列 submit を「Batch API」と呼ぶ設計
+
+OpenRouter は LoRAIro の同期 WebAPI route としては維持するが、Provider Batch API pipeline には
+入れない。OpenRouter 経由の `openrouter/openai/...` や `openrouter/anthropic/...` は provider
+native batch discount / job status / result artifact lifecycle を LoRAIro が検証できないため、
+batch 対象 model selection から除外する。
 
 ### 1. Provider Batch API は `AnnotationWorker` に統合しない
 
@@ -48,7 +71,7 @@ Provider Batch API は同期 Worker の variant ではなく、独立した **Ba
 ```
 GUI / CLI
   -> ProviderBatchJobService
-      -> ProviderBatchAdapter (openai / anthropic / google)
+      -> ProviderBatchAdapter (openai / anthropic / google direct only)
       -> provider batch job submit / retrieve / cancel
       -> BatchImportService or provider-specific result importer
       -> AnnotationSaveService
@@ -77,7 +100,7 @@ GUI / CLI
 
 #### Phase 1: OpenAI MVP
 
-OpenAI を最初に実装する。理由:
+OpenAI direct route を最初に実装する。理由:
 - 既存 import サービスが OpenAI JSONL response shape を前提にしている
 - API key は既存 `ConfigurationService` の `openai_key` を流用できる
 - local file upload + output file download のモデルで、Google の GCS/BQ 前提より小さい
@@ -91,7 +114,7 @@ MVP の対象:
 
 #### Phase 2: Anthropic
 
-Anthropic は OpenAI MVP 後に追加する。理由:
+Anthropic direct route は OpenAI MVP 後に追加する。理由:
 - API shape は比較的近いが、OpenAI の JSONL endpoint file とは異なり `requests` array と results stream
   を扱う
 - `custom_id` と LoRAIro image identity の対応設計は OpenAI と共通化できる
@@ -99,11 +122,17 @@ Anthropic は OpenAI MVP 後に追加する。理由:
 
 #### Phase 3: Google Vertex AI Gemini
 
-Google は最後に追加する。理由:
+Google Vertex AI Gemini direct route は最後に追加する。理由:
 - Cloud Storage / BigQuery input-output、project / location / IAM / region が必須で、
   LoRAIro の現行 local-first 設定モデルより重い
 - `google_key` だけでは不十分で、service account / ADC / GCS bucket / project id / region 設定が必要
 - Vertex AI docs 自体に Gemini Enterprise Agent Platform への移行注意があり、仕様追従コストが高い
+
+#### Non-goal: OpenRouter route
+
+OpenRouter は Phase には含めない。OpenRouter の公式 API surface に provider batch job endpoint が
+追加され、request submit / status retrieve / cancel / result artifact download / provider-native
+discount / retention の仕様が公開された場合だけ、別 ADR amendment で再評価する。
 
 ### 4. Provider abstraction は最小 interface にする
 
@@ -228,6 +257,7 @@ Notes:
 UI 要件:
 - Batch job 作成ダイアログ
   - provider / model / endpoint / 対象画像 / task / estimated request count
+  - direct provider route の model のみ選択可能にし、OpenRouter route は同期 annotation へ誘導
   - provider retention / cost discount / expected delay の表示
   - OpenAI: local JSONL upload 方式
   - Google: project / location / GCS or BigQuery 設定が必要なことを明示
@@ -256,6 +286,10 @@ ADR 0023 の同期推論境界は維持する。Provider Batch API は PydanticA
 同期 inference は `AnnotatorLibraryAdapter` / `image-annotator-lib`、非同期 provider batch は
 `ProviderBatchAdapter` として別境界にする。
 
+OpenRouter は LiteLLM-compatible な同期 endpoint としては有用だが、Provider Batch API の
+SSoT にはしない。OpenRouter が内部で OpenAI / Anthropic / Google provider に route できることと、
+その provider の native batch job lifecycle を LoRAIro が管理できることは別問題である。
+
 ## Rationale
 
 ### なぜ separate pipeline か
@@ -269,6 +303,17 @@ Provider Batch API は provider 側に job state と artifact が存在する。
 LoRAIro は既に OpenAI Batch API の result JSONL import を持つ。最初に OpenAI submit/poll/download
 を追加すれば、既存 import path を活かして最小の垂直 slice を作れる。Anthropic と Google を同時に
 入れると、result shape / auth / storage の差分で最初の PR が大きくなりすぎる。
+
+### なぜ OpenRouter を対象外にするか
+
+OpenRouter は routing / fallback / unified billing のための同期 inference provider として扱う。
+Provider Batch API は provider job id、provider status、cancel、result file / stream、retention、
+discount 条件を LoRAIro が明示的に追跡できることが前提である。OpenRouter 公式 docs / OpenAPI spec
+にはこの job lifecycle がないため、OpenRouter 経由で「同じ batch API」を使う設計は採用しない。
+
+OpenRouter 経由で多数の同期 request を投げる実装は、rate limit mitigation や queueing の実装には
+なり得るが、本 ADR の Provider Batch API とは別機能であり、50% discount や 24h async turnaround
+を前提にした UX / DB schema に混ぜない。
 
 ### なぜ Google を Phase 3 にするか
 
@@ -292,6 +337,8 @@ Batch result は request order を保証しない。provider docs でも meaning
 - job state が DB に残るため、アプリ再起動後も polling / import を継続できる
 - `custom_id` SSoT により result import の照合が安定する
 - Google の GCS/BQ 前提を無理に MVP に混ぜず、段階的に導入できる
+- OpenRouter route を batch 対象外にすることで、ユーザーに存在しない discount / async job 管理を
+  暗示しない
 
 ### 悪い点・トレードオフ
 
@@ -300,6 +347,8 @@ Batch result は request order を保証しない。provider docs でも meaning
 - Batch API は provider retention / privacy policy に依存するため、ユーザーへ明示する UI が必要
 - Google support は API key 設定だけでは完結せず、別途 GCP 設定 UX が必要
 - `custom_id` を 64 文字以内に収めるため、人間可読性と情報量に制約がある
+- OpenRouter 経由でしか使っていない model は batch job 作成 UI では選べない
+- direct provider API key / credential を持たないユーザーは provider-native batch discount を使えない
 
 ### 実装方針 (分解 Issue 草案)
 
@@ -308,11 +357,12 @@ Batch result は request order を保証しない。provider docs でも meaning
 3. **OpenAI adapter**: request JSONL upload、batch create/retrieve/cancel、output/error file download を実装
 4. **OpenAI request builder**: 画像アノテーション用 `/v1/responses` JSONL と `custom_id` mapping を生成
 5. **OpenAI import bridge**: downloaded artifacts を既存 `BatchImportService` に接続し、item status を更新
-6. **GUI job list**: provider batch job 一覧、refresh、cancel、download、import 操作を追加
-7. **CLI**: submit/list/status/cancel/download/import subcommands を追加
-8. **Anthropic adapter**: Message Batches create/retrieve/cancel/results stream と parser を追加
-9. **Google investigation spike**: Vertex AI credential / GCS / region 設定 UX と schema 追加要否を検証
-10. **Docs**: Provider Batch API の利用条件、privacy / retention、cost tradeoff、同期 annotation との違いを記載
+6. **Batch model eligibility**: direct provider route だけを batch eligible とし、OpenRouter route を除外する
+7. **GUI job list**: provider batch job 一覧、refresh、cancel、download、import 操作を追加
+8. **CLI**: submit/list/status/cancel/download/import subcommands を追加
+9. **Anthropic adapter**: Message Batches create/retrieve/cancel/results stream と parser を追加
+10. **Google investigation spike**: Vertex AI credential / GCS / region 設定 UX と schema 追加要否を検証
+11. **Docs**: Provider Batch API の利用条件、privacy / retention、cost tradeoff、同期 annotation との違いを記載
 
 ## Related
 
