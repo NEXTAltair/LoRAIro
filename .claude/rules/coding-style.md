@@ -117,6 +117,47 @@ except Exception:  # 避ける
     pass
 ```
 
+### Manager 層のエラーハンドリング方針
+
+`ImageDatabaseManager` 等の Manager 層では以下のルールに従う:
+
+**許可: 期待される「見つからない」ケースに `return None/[]/0`**
+```python
+# 正しい: 「存在しない」は正常系扱い
+def get_image(self, image_id: int) -> ImageRecord | None:
+    try:
+        return self.image_repo.get_by_id(image_id)
+    except NoResultFound:
+        return None
+```
+
+**禁止: 予期しない例外を握りつぶす**
+```python
+# 禁止: DB 接続エラーを None で返すと呼び出し元が気づけない
+def get_image(self, image_id: int) -> ImageRecord | None:
+    try:
+        return self.image_repo.get_by_id(image_id)
+    except Exception:  # SQLAlchemyError も OperationalError も一括で隠す
+        return None
+```
+
+**正しいパターン:**
+```python
+def get_image(self, image_id: int) -> ImageRecord | None:
+    try:
+        return self.image_repo.get_by_id(image_id)
+    except NoResultFound:
+        return None          # 期待される「未登録」ケース
+    except SQLAlchemyError:
+        logger.error(f"DB error for image_id={image_id}", exc_info=True)
+        raise               # 予期しない DB エラーは伝播させる
+```
+
+**判断フロー:**
+1. この例外は「対象が存在しない」という正常な結果か? → `return None/[]/0`
+2. 呼び出し元が例外を知らないと問題になるか? → `raise` または `raise XxxError from e`
+3. `except Exception` を書きたくなったら設計を見直す
+
 ### 抑制コメント禁止
 ```python
 # 禁止: 根本原因を修正すること
