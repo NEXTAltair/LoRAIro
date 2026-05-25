@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
 from sqlalchemy.engine import Result
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..storage.file_system import FileSystemManager
@@ -69,7 +70,9 @@ class ImageDatabaseManager:
 
         .lorairo-project メタデータから logical name を読み、ensure_project() で
         projects テーブルに行を確保してからそのIDを返す。
-        失敗時は None を返し（project_id 未設定のまま挿入される）。
+        project root が解決できない場合や DB の論理的失敗 (SQLAlchemyError) は
+        None を返し、project_id 未設定のまま挿入される。
+        予期しない例外は呼び出し元に伝播する。
         """
         if self._cached_project_id is not None:
             return self._cached_project_id
@@ -80,16 +83,27 @@ class ImageDatabaseManager:
 
         try:
             project_root = get_current_project_root()
-            metadata_file = project_root / ".lorairo-project"
-            try:
-                metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
-                project_name = metadata.get("name") or project_root.name
-            except (OSError, json.JSONDecodeError, ValueError):
-                project_name = project_root.name
+        except (RuntimeError, OSError, ValueError):
+            # project root が未設定 / 解決不能の場合は project_id なしで挿入を続行
+            logger.debug(
+                "プロジェクト root 解決に失敗 — project_id は未設定のまま挿入します", exc_info=True
+            )
+            return None
 
+        metadata_file = project_root / ".lorairo-project"
+        try:
+            metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+            project_name = metadata.get("name") or project_root.name
+        except (OSError, json.JSONDecodeError, ValueError):
+            project_name = project_root.name
+
+        try:
             self._cached_project_id = self.repository.ensure_project(project_name, project_root)
-        except Exception:
-            logger.debug("プロジェクト ID 取得失敗 — project_id は未設定のまま挿入します", exc_info=True)
+        except SQLAlchemyError:
+            logger.error(
+                f"ensure_project 失敗 (project_name={project_name}) — project_id 未設定で続行",
+                exc_info=True,
+            )
             return None
 
         return self._cached_project_id
@@ -161,7 +175,11 @@ class ImageDatabaseManager:
         Returns:
             登録成功時は (image_id, original_metadata)、
             重複時は (existing_image_id, existing_metadata)、
-            失敗時は None。
+            入力起因の失敗 (ValueError / FileNotFoundError) 時は None。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元 (Worker boundary)
+                に伝播させる。Worker 層で error_occurred シグナルに変換される。
 
         """
         try:
@@ -170,38 +188,31 @@ class ImageDatabaseManager:
             if prepare_result is None:
                 return None
             original_metadata, phash, db_stored_original_path = prepare_result
-
-            # 2. 重複チェック (pHash)
-            existing_id = self.repository.find_duplicate_image_by_phash(phash)
-            if existing_id is not None:
-                return self._handle_duplicate_image(existing_id, image_path, fsm)
-
-            # 3. データベースに挿入（project_id を付与して project-scoped filter を有効化）
-            project_id = self._get_current_project_id()
-            if project_id is not None:
-                original_metadata["project_id"] = project_id
-            image_id = self.repository.add_original_image(original_metadata)
-            logger.debug(f"オリジナル画像を登録しました: ID={image_id}, Path={image_path}")
-
-            # 4. 512px サムネイル画像の自動生成
-            try:
-                self._generate_thumbnail_512px(image_id, db_stored_original_path, original_metadata, fsm)
-            except Exception as e:
-                logger.warning(
-                    f"512px サムネイル生成に失敗しましたが、処理を続行します: {image_path}, Error: {e}",
-                )
-
-            return image_id, original_metadata
-
         except (ValueError, FileNotFoundError):
-            # 既にログが出ているため、ここでは再ログしない
+            # 入力起因のスキップは正常系扱い (既にログ出力済み)
             return None
-        except Exception as e:
-            logger.error(
-                f"オリジナル画像の登録処理全体でエラーが発生しました: {image_path}, Error: {e}",
-                exc_info=True,
+
+        # 2. 重複チェック (pHash)
+        existing_id = self.repository.find_duplicate_image_by_phash(phash)
+        if existing_id is not None:
+            return self._handle_duplicate_image(existing_id, image_path, fsm)
+
+        # 3. データベースに挿入（project_id を付与して project-scoped filter を有効化）
+        project_id = self._get_current_project_id()
+        if project_id is not None:
+            original_metadata["project_id"] = project_id
+        image_id = self.repository.add_original_image(original_metadata)
+        logger.debug(f"オリジナル画像を登録しました: ID={image_id}, Path={image_path}")
+
+        # 4. 512px サムネイル画像の自動生成 (best-effort: 生成失敗で登録自体は失敗させない)
+        try:
+            self._generate_thumbnail_512px(image_id, db_stored_original_path, original_metadata, fsm)
+        except (SQLAlchemyError, OSError, ValueError, RuntimeError) as e:
+            logger.warning(
+                f"512px サムネイル生成に失敗しましたが、処理を続行します: {image_path}, Error: {e}",
             )
-            return None
+
+        return image_id, original_metadata
 
     def _handle_duplicate_image(
         self,
@@ -222,7 +233,9 @@ class ImageDatabaseManager:
         """
         logger.warning(f"重複画像を検出 (pHash): 既存ID={existing_id}, Path={image_path}")
 
-        # 重複画像の512px画像がなければ生成
+        # 重複画像の 512px 画像生成は best-effort: 失敗しても既存メタデータ返却の主処理は止めない。
+        # check_processed_image_exists / _generate_thumbnail_512px は SQLAlchemyError / OSError /
+        # ValueError / RuntimeError を投げ得るので、これらに限って握りつぶし他は伝播させる。
         try:
             existing_512px = self.check_processed_image_exists(existing_id, 512)
             if not existing_512px:
@@ -233,7 +246,7 @@ class ImageDatabaseManager:
                     self._generate_thumbnail_512px(existing_id, stored_path, existing_metadata, fsm)
             else:
                 logger.debug(f"重複画像に512px画像が既に存在します: ID={existing_id}")
-        except Exception as e:
+        except (SQLAlchemyError, OSError, ValueError, RuntimeError) as e:
             logger.warning(
                 f"重複画像の512px生成チェック中にエラー (処理続行): ID={existing_id}, Error: {e}",
             )
@@ -291,7 +304,7 @@ class ImageDatabaseManager:
                     f"512px サムネイル画像の生成は成功しましたが、DB登録に失敗しました: 元画像ID={image_id}",
                 )
 
-        except Exception as e:
+        except (SQLAlchemyError, OSError, ValueError, RuntimeError) as e:
             logger.error(
                 f"512px サムネイル生成中にエラーが発生しました: 元画像ID={image_id}, Error: {e}",
                 exc_info=True,
@@ -408,45 +421,45 @@ class ImageDatabaseManager:
             info (dict[str, Any]): 処理済み画像のメタデータ (width, height などを含む)。
 
         Returns:
-            int | None: 保存された処理済み画像のID。重複時も既存IDを返す。失敗時は None。
+            int | None: 保存された処理済み画像のID。重複時も既存IDを返す。
+                必須メタデータ不足時は None。
+
+        Raises:
+            SQLAlchemyError: DB 操作エラー時は呼び出し元に伝播させる。
+            ValueError: Repository が無効な入力で raise した場合。
 
         """
-        try:
-            # ファイルシステムの保存は呼び出し元で行う想定(パスを渡すため)
-            # fsm.save_processed_image(processed_path, ...)
-
-            # メタデータに必須情報とパスを追加
-            required_keys = ["width", "height", "has_alpha"]  # Repositoryでチェックされるが念のため
-            if not all(key in info for key in required_keys):
-                missing = [k for k in required_keys if k not in info]
-                logger.error(f"処理済み画像の必須メタデータが不足: {missing}")
-                return None
-
-            info.update(
-                {
-                    "image_id": image_id,
-                    "stored_image_path": str(processed_path),  # Path を文字列に
-                },
-            )
-
-            # データベースに挿入 (Repository が重複チェックを行う)
-            processed_image_id = self.repository.add_processed_image(info)
-            if processed_image_id is not None:
-                logger.debug(
-                    f"処理済み画像を登録/確認しました: ID={processed_image_id}, 元画像ID={image_id}",
-                )
-            # None が返るケースは Repository のエラーログで記録されるはず
-            return processed_image_id
-
-        except Exception as e:
-            logger.error(
-                f"処理済み画像の登録中にエラーが発生しました: 元画像ID={image_id}, Error: {e}",
-                exc_info=True,
-            )
+        # メタデータに必須情報とパスを追加
+        required_keys = ["width", "height", "has_alpha"]  # Repositoryでチェックされるが念のため
+        if not all(key in info for key in required_keys):
+            missing = [k for k in required_keys if k not in info]
+            logger.error(f"処理済み画像の必須メタデータが不足: {missing}")
             return None
 
+        info.update(
+            {
+                "image_id": image_id,
+                "stored_image_path": str(processed_path),  # Path を文字列に
+            },
+        )
+
+        # データベースに挿入 (Repository が重複チェックを行う)
+        processed_image_id = self.repository.add_processed_image(info)
+        if processed_image_id is not None:
+            logger.debug(
+                f"処理済み画像を登録/確認しました: ID={processed_image_id}, 元画像ID={image_id}",
+            )
+        # None が返るケースは Repository のエラーログで記録されるはず
+        return processed_image_id
+
     def save_tags(self, image_id: int, tags_data: list[TagAnnotationData]) -> None:
-        """指定された画像のタグ情報を保存・更新します。"""
+        """指定された画像のタグ情報を保存・更新します。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+            ValueError: Repository が無効な入力で raise した場合。
+
+        """
         try:
             annotations_to_save: AnnotationsDict = {
                 "tags": tags_data,
@@ -456,12 +469,18 @@ class ImageDatabaseManager:
             }
             self.repository.save_annotations(image_id, annotations_to_save)
             logger.debug(f"画像 ID {image_id} のタグ {len(tags_data)} 件を保存しました。")
-        except Exception as e:
+        except (SQLAlchemyError, ValueError) as e:
             logger.error(f"画像 ID {image_id} のタグ保存中にエラー: {e}", exc_info=True)
             raise
 
     def save_captions(self, image_id: int, captions_data: list[CaptionAnnotationData]) -> None:
-        """指定された画像のキャプション情報を保存・更新します。"""
+        """指定された画像のキャプション情報を保存・更新します。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+            ValueError: Repository が無効な入力で raise した場合。
+
+        """
         try:
             annotations_to_save: AnnotationsDict = {
                 "tags": [],
@@ -471,12 +490,18 @@ class ImageDatabaseManager:
             }
             self.repository.save_annotations(image_id, annotations_to_save)
             logger.info(f"画像 ID {image_id} のキャプション {len(captions_data)} 件を保存しました。")
-        except Exception as e:
+        except (SQLAlchemyError, ValueError) as e:
             logger.error(f"画像 ID {image_id} のキャプション保存中にエラー: {e}", exc_info=True)
             raise
 
     def save_scores(self, image_id: int, scores_data: list[ScoreAnnotationData]) -> None:
-        """指定された画像のスコア情報を保存・更新します。"""
+        """指定された画像のスコア情報を保存・更新します。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+            ValueError: Repository が無効な入力で raise した場合。
+
+        """
         try:
             annotations_to_save: AnnotationsDict = {
                 "tags": [],
@@ -486,12 +511,18 @@ class ImageDatabaseManager:
             }
             self.repository.save_annotations(image_id, annotations_to_save)
             logger.info(f"画像 ID {image_id} のスコア {len(scores_data)} 件を保存しました。")
-        except Exception as e:
+        except (SQLAlchemyError, ValueError) as e:
             logger.error(f"画像 ID {image_id} のスコア保存中にエラー: {e}", exc_info=True)
             raise
 
     def save_ratings(self, image_id: int, ratings_data: list[RatingAnnotationData]) -> None:
-        """指定された画像のレーティング情報を保存・更新します。"""
+        """指定された画像のレーティング情報を保存・更新します。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+            ValueError: Repository が無効な入力で raise した場合。
+
+        """
         try:
             annotations_to_save: AnnotationsDict = {
                 "tags": [],
@@ -501,12 +532,17 @@ class ImageDatabaseManager:
             }
             self.repository.save_annotations(image_id, annotations_to_save)
             logger.info(f"画像 ID {image_id} のレーティング {len(ratings_data)} 件を保存しました。")
-        except Exception as e:
+        except (SQLAlchemyError, ValueError) as e:
             logger.error(f"画像 ID {image_id} のレーティング保存中にエラー: {e}", exc_info=True)
             raise
 
     def register_prompt_tags(self, image_id: int, tags: list[str]) -> None:
-        """プロンプトなど、元ファイル由来のタグを登録します。"""
+        """プロンプトなど、元ファイル由来のタグを登録します。
+
+        best-effort: タグ登録の失敗は呼び出し元 (画像登録パイプライン) を止めないため、
+        DB エラー / 入力エラーは warning にしてフィルタアウトする。予期しない例外は伝播。
+
+        """
         if not tags:
             return
         tags_data: list[TagAnnotationData] = [
@@ -523,14 +559,19 @@ class ImageDatabaseManager:
         try:
             self.save_tags(image_id, tags_data)
             logger.info(f"画像 ID {image_id} のプロンプトタグ {len(tags)} 件を登録しました。")
-        except Exception as e:
+        except (SQLAlchemyError, ValueError) as e:
             # save_tags 内でログが出るのでここでは再ログしないか、レベルを変える
             logger.warning(f"画像 ID {image_id} のプロンプトタグ登録に失敗: {e}")
             # raise はしない(上位処理を止めない場合)
 
     # 旧 save_score を save_scores を使うように変更
     def save_score(self, image_id: int, score_dict: dict[str, Any]) -> None:
-        """単一のスコア情報を保存します (下位互換性のため)。"""
+        """単一のスコア情報を保存します (下位互換性のため)。
+
+        best-effort: 単一スコアの保存失敗は呼び出し元を止めない。DB エラー / 入力エラーは
+        warning に落として続行する。予期しない例外は伝播させる。
+
+        """
         score_float = score_dict.get("score")
         model_id = score_dict.get("model_id")
         if score_float is None or model_id is None:
@@ -545,7 +586,7 @@ class ImageDatabaseManager:
         try:
             self.save_scores(image_id, [score_data])
             # logger info は save_scores 内で出力される
-        except Exception as e:
+        except (SQLAlchemyError, ValueError) as e:
             logger.warning(f"画像 ID {image_id} のスコア保存に失敗: {e}")
 
     def get_low_res_image_path(self, image_id: int) -> str | None:
@@ -557,24 +598,23 @@ class ImageDatabaseManager:
         Returns:
             str | None: 最も解像度が低い処理済み画像のパス。見つからない場合はNone。
 
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+
         """
-        try:
-            # resolution=0 で最低解像度を取得
-            metadata = self.repository.get_processed_image(image_id, resolution=0, all_data=False)
-            if isinstance(metadata, dict):  # None でなく dict であることを確認
-                path = metadata.get("stored_image_path")
-                if isinstance(path, str) and path:
-                    logger.debug(f"画像ID {image_id} の低解像度画像パスを取得しました。")
-                    return path
-                logger.warning(
-                    f"画像ID {image_id} の低解像度画像のパスが見つかりません。 Metadata: {metadata}",
-                )
-            else:
-                logger.warning(f"画像ID {image_id} の低解像度画像メタデータが見つかりません。")
-            return None
-        except Exception as e:
-            logger.error(f"低解像度画像のパス取得中にエラーが発生しました: {e}", exc_info=True)
-            return None
+        # resolution=0 で最低解像度を取得 (見つからない場合は Repository が None / [] を返す正常系)
+        metadata = self.repository.get_processed_image(image_id, resolution=0, all_data=False)
+        if isinstance(metadata, dict):  # None でなく dict であることを確認
+            path = metadata.get("stored_image_path")
+            if isinstance(path, str) and path:
+                logger.debug(f"画像ID {image_id} の低解像度画像パスを取得しました。")
+                return path
+            logger.warning(
+                f"画像ID {image_id} の低解像度画像のパスが見つかりません。 Metadata: {metadata}",
+            )
+        else:
+            logger.warning(f"画像ID {image_id} の低解像度画像メタデータが見つかりません。")
+        return None
 
     def get_image_metadata(self, image_id: int) -> dict[str, Any] | None:
         """指定されたIDのオリジナル画像メタデータを取得します。
@@ -585,13 +625,16 @@ class ImageDatabaseManager:
         Returns:
             dict[str, Any] | None: 画像メタデータを含む辞書。画像が見つからない場合はNone。
 
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+
         """
         try:
             metadata = self.repository.get_image_metadata(image_id)
             if metadata is None:
                 logger.info(f"ID {image_id} の画像メタデータが見つかりません。")
             return metadata
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"画像メタデータ取得中にエラーが発生しました: {e}", exc_info=True)
             raise  # Repositoryでエラーが発生したら上に伝える
 
@@ -603,6 +646,9 @@ class ImageDatabaseManager:
 
         Returns:
             list[dict[str, Any]] | None: 処理済み画像のメタデータのリスト。見つからない場合は空リスト。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
 
         """
         try:
@@ -617,65 +663,100 @@ class ImageDatabaseManager:
                 f"get_processed_image(all_data=True) がリストを返しませんでした: {type(metadata_list)}",
             )
             return []
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"処理済み画像メタデータ取得中にエラーが発生しました: {e}", exc_info=True)
             raise
 
     def get_image_annotations(self, image_id: int) -> dict[str, list[dict[str, Any]]]:
-        """指定された画像のアノテーション(タグ、キャプション、スコア、レーティング)を取得します。"""
+        """指定された画像のアノテーション(タグ、キャプション、スコア、レーティング)を取得します。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元 (Worker boundary) に伝播させる。
+
+        """
         try:
             return self.repository.get_image_annotations(image_id)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"画像ID {image_id} のアノテーション取得中にエラー: {e}", exc_info=True)
-            return {"tags": [], "captions": [], "scores": [], "ratings": []}
+            raise
 
     def get_models(self) -> list[dict[str, Any]]:
-        """データベースに登録されている全てのモデル情報を取得します。"""
+        """データベースに登録されている全てのモデル情報を取得します。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+
+        """
         try:
             return self.repository.get_models()
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"全モデル情報の取得中にエラー: {e}", exc_info=True)
-            return []
+            raise
 
     def get_tagger_models(self) -> list[dict[str, Any]]:
-        """Tagger タイプのモデル情報を取得する (Issue #243: SSoT は `tags`)。"""
+        """Tagger タイプのモデル情報を取得する (Issue #243: SSoT は `tags`)。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+
+        """
         try:
             return self.repository.get_models_by_type("tags")
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Taggerモデル情報の取得中にエラー: {e}", exc_info=True)
-            return []
+            raise
 
     def get_score_models(self) -> list[dict[str, Any]]:
-        """Score タイプのモデル情報を取得する (Issue #243: SSoT は `scores`)。"""
+        """Score タイプのモデル情報を取得する (Issue #243: SSoT は `scores`)。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+
+        """
         try:
             return self.repository.get_models_by_type("scores")
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Scoreモデル情報の取得中にエラー: {e}", exc_info=True)
-            return []
+            raise
 
     def get_captioner_models(self) -> list[dict[str, Any]]:
-        """Captioner タイプのモデル情報を取得する (Issue #243: SSoT は `caption`)。"""
+        """Captioner タイプのモデル情報を取得する (Issue #243: SSoT は `caption`)。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+
+        """
         try:
             return self.repository.get_models_by_type("caption")
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Captionerモデル情報の取得中にエラー: {e}", exc_info=True)
-            return []
+            raise
 
     def get_upscaler_models(self) -> list[dict[str, Any]]:
-        """Upscaler タイプのモデル情報を取得する (SSoT は `upscaler` のまま)。"""
+        """Upscaler タイプのモデル情報を取得する (SSoT は `upscaler` のまま)。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+
+        """
         try:
             return self.repository.get_models_by_type("upscaler")
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Upscalerモデル情報の取得中にエラー: {e}", exc_info=True)
-            return []
+            raise
 
     def get_llm_models(self) -> list[dict[str, Any]]:
-        """LLM タイプのモデル情報を取得する (Issue #243: SSoT は `multimodal` に統合済み)。"""
+        """LLM タイプのモデル情報を取得する (Issue #243: SSoT は `multimodal` に統合済み)。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+
+        """
         try:
             return self.repository.get_models_by_type("multimodal")
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"LLMモデル情報の取得中にエラー: {e}", exc_info=True)
-            return []
+            raise
 
     def get_manual_edit_model_id(self) -> int:
         """手動編集用のモデルIDを取得します（キャッシュ機能付き）。
@@ -715,7 +796,7 @@ class ImageDatabaseManager:
             # criteriaが指定されていればそれを使用、なければkwargsから生成
             filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
             return self.repository.get_images_by_filter(filter_criteria)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"画像フィルタリング検索中にエラーが発生しました: {e}", exc_info=True)
             raise
 
@@ -727,54 +808,61 @@ class ImageDatabaseManager:
             image_path (Path): 検査する画像ファイルのパス
 
         Returns:
-            int | None: 重複する画像が見つかった場合はそのimage_id、見つからない場合はNone
+            int | None: 重複する画像が見つかった場合はそのimage_id、見つからない場合はNone。
+                pHash 計算に失敗した場合 (`ValueError` / `FileNotFoundError`) も None。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
 
         """
         image_name = image_path.name
 
+        # pHash 計算失敗は重複なしとして扱う (正常系扱い)
         try:
-            # pHash で視覚的重複検出
-            try:
-                phash = calculate_phash(image_path)
-            except (ValueError, FileNotFoundError) as e:
-                logger.warning(f"画像をスキップ: {e}")
-                return None  # pHash 計算失敗時は重複なしとして扱う
-
-            image_id = self.repository.find_duplicate_image_by_phash(phash)
-            if image_id is not None:
-                logger.debug(f"重複検出: pHash 一致 ID={image_id}, Name={image_name}, pHash={phash}")
-            else:
-                logger.debug(f"重複なし: Name={image_name}, pHash={phash}")
-            return image_id
-
-        except Exception as e:
-            logger.error(
-                f"重複画像検出プロセス中にエラーが発生しました: {image_path}, Error: {e}",
-                exc_info=True,
-            )
+            phash = calculate_phash(image_path)
+        except (ValueError, FileNotFoundError) as e:
+            logger.warning(f"画像をスキップ: {e}")
             return None
+
+        # DB 失敗は呼び出し元へ伝播させる
+        image_id = self.repository.find_duplicate_image_by_phash(phash)
+        if image_id is not None:
+            logger.debug(f"重複検出: pHash 一致 ID={image_id}, Name={image_name}, pHash={phash}")
+        else:
+            logger.debug(f"重複なし: Name={image_name}, pHash={phash}")
+        return image_id
 
     def get_images_count_only(
         self,
         criteria: ImageFilterCriteria | None = None,
         **kwargs: Any,
     ) -> int:
-        """指定条件に一致する画像件数のみを取得します。"""
+        """指定条件に一致する画像件数のみを取得します。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+
+        """
         try:
             filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
             return self.repository.get_images_count_only(filter_criteria)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"画像件数の取得中にエラーが発生しました: {e}", exc_info=True)
-            return 0
+            raise
 
     def get_total_image_count(self) -> int:
-        """データベース内に登録されたオリジナル画像の総数を取得します。"""
+        """データベース内に登録されたオリジナル画像の総数を取得します。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+
+        """
         try:
             count = self.repository.get_total_image_count()
             return count
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"総画像数の取得中にエラーが発生しました: {e}", exc_info=True)
-            return 0  # エラー時は0を返す
+            raise
 
     def get_image_ids_from_directory(self, directory_path: Path) -> list[int]:
         """指定されたディレクトリに含まれる画像のIDリストを取得します。
@@ -784,6 +872,10 @@ class ImageDatabaseManager:
 
         Returns:
             list[int]: 該当する画像のIDリスト
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+            OSError: ディレクトリ走査に失敗した場合 (FileNotFoundError 等)。
 
         """
         try:
@@ -806,32 +898,39 @@ class ImageDatabaseManager:
             logger.info(f"ディレクトリ {directory_path} から {len(image_ids)} 件の画像IDを取得しました")
             return image_ids
 
-        except Exception as e:
+        except (SQLAlchemyError, OSError) as e:
             logger.error(
                 f"ディレクトリからの画像ID取得中にエラー: {directory_path}, Error: {e}",
                 exc_info=True,
             )
-            return []
+            raise
 
     def get_dataset_status(self) -> dict[str, Any]:
         """データセット状態の取得（軽量な読み取り操作）
 
+        DB 失敗時は status="error" を返す UI 向けステータス API。
+        呼び出し元 (status バー等) が表示用に使うため、DB 例外は status へ畳む。
+
         Returns:
             dict: データセット状態情報 {"total_images": int, "status": str}
+                ステータス値: "ready" | "empty" | "error"
 
         """
         try:
             total_count = self.get_total_image_count()
-            return {"total_images": total_count, "status": "ready" if total_count > 0 else "empty"}
-        except Exception as e:
-            logger.error(f"データセット状態取得エラー: {e}")
+        except SQLAlchemyError as e:
+            logger.error(f"データセット状態取得エラー: {e}", exc_info=True)
             return {"total_images": 0, "status": "error"}
+        return {"total_images": total_count, "status": "ready" if total_count > 0 else "empty"}
 
     def get_annotation_status_counts(self) -> dict[str, int | float]:
         """アノテーション状態カウントを取得
 
         Returns:
             dict: アノテーション状態統計 {"total": int, "completed": int, "error": int, "completion_rate": float}
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
 
         """
         try:
@@ -865,9 +964,9 @@ class ImageDatabaseManager:
                     "completion_rate": completion_rate,
                 }
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"アノテーション状態カウント取得エラー: {e}", exc_info=True)
-            return {"total": 0, "completed": 0, "error": 0, "completion_rate": 0.0}
+            raise
 
     def filter_by_annotation_status(
         self,
@@ -882,6 +981,9 @@ class ImageDatabaseManager:
 
         Returns:
             list: フィルター後の画像リスト
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
 
         """
         try:
@@ -912,9 +1014,9 @@ class ImageDatabaseManager:
                 result: Result[Any] = session.execute(query)
                 return [dict(row._mapping) for row in result.fetchall()]
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"アノテーション状態フィルタリングエラー: {e}", exc_info=True)
-            return []
+            raise
 
     def get_directory_images_metadata(self, directory_path: Path) -> list[dict[str, Any]]:
         """ディレクトリ内画像のメタデータ取得（軽量な読み取り操作）
@@ -924,6 +1026,10 @@ class ImageDatabaseManager:
 
         Returns:
             list: ディレクトリ内の画像メタデータリスト
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+            OSError: ディレクトリ走査に失敗した場合 (FileNotFoundError 等)。
 
         """
         try:
@@ -943,9 +1049,9 @@ class ImageDatabaseManager:
             )
             return images
 
-        except Exception as e:
+        except (SQLAlchemyError, OSError) as e:
             logger.error(f"ディレクトリ画像メタデータ取得エラー: {directory_path}, {e}", exc_info=True)
-            return []
+            raise
 
     def check_processed_image_exists(self, image_id: int, target_resolution: int) -> dict[str, Any] | None:
         """指定された画像IDと目標解像度に一致する処理済み画像が存在するかチェックします。
@@ -956,6 +1062,9 @@ class ImageDatabaseManager:
 
         Returns:
             dict[str, Any] | None: 処理済み画像が存在する場合はそのメタデータ、存在しない場合はNone
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
 
         """
         try:
@@ -975,12 +1084,12 @@ class ImageDatabaseManager:
                 f"解像度 {target_resolution} に一致する処理済み画像は見つかりませんでした: 元画像ID={image_id}",
             )
             return None
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(
                 f"処理済み画像の存在チェック中にエラーが発生しました: 元画像ID={image_id}, 解像度={target_resolution}, Error: {e}",
                 exc_info=True,
             )
-            return None
+            raise
 
     def get_batch_available_resolutions(self, image_ids: list[int]) -> dict[int, list[int]]:
         """複数画像の利用可能な処理済み解像度を一括取得します。
@@ -1113,6 +1222,9 @@ class ImageDatabaseManager:
         Returns:
             bool: アノテーションが存在するかどうか
 
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+
         """
         try:
             session = self.repository.get_session()
@@ -1133,9 +1245,9 @@ class ImageDatabaseManager:
                 )
                 return has_annotation
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"アノテーション存在確認エラー: image_id={image_id}, error={e}", exc_info=True)
-            return False
+            raise
 
     def get_annotated_image_ids(self, image_ids: list[int]) -> set[int]:
         """指定IDリストからアノテーション済み画像IDを一括取得する。
@@ -1160,6 +1272,9 @@ class ImageDatabaseManager:
         Returns:
             tuple: (検索結果リスト, 総件数)
 
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+
         """
         try:
             # 既存のget_images_by_filterメソッドを活用
@@ -1168,9 +1283,9 @@ class ImageDatabaseManager:
             logger.info(f"フィルタリング検索実行完了: 条件={len(conditions)}項目, 結果={len(images)}件")
             return images, total_count
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"フィルタリング検索実行エラー: {e}", exc_info=True)
-            return [], 0
+            raise
 
     def save_error_record(
         self,
@@ -1185,7 +1300,11 @@ class ImageDatabaseManager:
         """エラーレコードを保存（Manager層Facade）
 
         Worker層から呼び出されるFacadeメソッド。
-        二次エラー（エラー保存中のエラー）を防ぐため、try-exceptで保護されています。
+        **二次エラー防止 (sentinel return)**: エラー保存中の例外は呼び出し元
+        (Worker の error handling 経路) を再 fail させない目的で、ここで
+        sentinel `-1` に畳む。`except Exception` は本メソッドのこの用途で
+        意図的に維持する (coding-style.md「Manager 層のエラーハンドリング方針」
+        が許容する二次エラー防止パターン)。
 
         Args:
             operation_type: 操作種別 ("registration" | "annotation" | "processing")
@@ -1197,7 +1316,8 @@ class ImageDatabaseManager:
             model_name: モデル名 (Optional)
 
         Returns:
-            int: 作成された error_record_id（二次エラー時は -1）
+            int: 作成された error_record_id。**二次エラー発生時は sentinel `-1`**
+                (DB 保存失敗を呼び出し元の error handling 経路から隠す)。
 
         """
         try:
@@ -1217,7 +1337,9 @@ class ImageDatabaseManager:
             return error_id
 
         except Exception as e:
-            # 二次エラーは致命的ではないので、ログだけ出力して処理続行
+            # 二次エラー防止 (sentinel return): ここで畳まないと error handling 経路が再失敗する。
+            # 本メソッドの本来の責務がエラー保存なので、保存自体の失敗は致命的に扱わず
+            # sentinel `-1` で返し、上位の error handling を止めない。
             logger.error(f"エラーレコード保存中にエラー（二次エラー）: {e}", exc_info=True)
             return -1
 
@@ -1229,12 +1351,16 @@ class ImageDatabaseManager:
 
         Returns:
             (成功フラグ, 解決済みマーク件数)
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+
         """
         try:
             return self.repository.mark_errors_resolved_batch(error_ids)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"一括解決マーク失敗（Manager）: {e}", exc_info=True)
-            return (False, 0)
+            raise
 
     def get_image_id_by_filepath(self, filepath: str) -> int | None:
         """ファイルパスから画像IDを取得（Manager層Facade）
@@ -1245,12 +1371,15 @@ class ImageDatabaseManager:
         Returns:
             int | None: 画像ID（見つからない場合は None）
 
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+
         """
         try:
             return self.repository.get_image_id_by_filepath(filepath)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"ファイルパスからの画像ID取得エラー: {e}", exc_info=True)
-            return None
+            raise
 
 
 # --- 初期化チェック ---
