@@ -66,10 +66,10 @@ class TestAnnotationWorkerInitialization:
         assert worker.db_manager is mock_db_manager
         assert worker.model_registry is mock_model_registry
 
-    def test_initialization_filters_legacy_sentinel_models(
+    def test_initialization_keeps_model_ids_without_legacy_filter(
         self, mock_annotation_logic, mock_model_registry
     ):
-        """legacy sentinel を受け取ると初期化時に除外して保持する。"""
+        """ADR 0033: Worker は legacy sentinel 互換フィルタを持たず入力IDを保持する。"""
         image_paths = ["/path/to/image1.jpg"]
         models = ["__legacy_17__", "gpt-4o-mini"]
         mock_db_manager = Mock()
@@ -82,7 +82,7 @@ class TestAnnotationWorkerInitialization:
             model_registry=mock_model_registry,
         )
 
-        assert worker.litellm_model_ids == ["gpt-4o-mini"]
+        assert worker.litellm_model_ids == models
 
 
 class TestAnnotationWorkerExecute:
@@ -180,8 +180,10 @@ class TestAnnotationWorkerExecute:
         assert result.total_images == 1
         assert result.models_used == ["gpt-4o-mini", "claude-3-haiku-20240307"]
 
-    def test_execute_skips_legacy_sentinel_models(self, mock_annotation_logic, mock_model_registry):
-        """legacy sentinel は execute 時の対象モデルから除外される。"""
+    def test_execute_does_not_filter_legacy_sentinel_models(
+        self, mock_annotation_logic, mock_model_registry
+    ):
+        """ADR 0033: Worker 実行時も legacy sentinel 互換フィルタを持たない。"""
         image_paths = ["/path/to/image.jpg"]
         models = ["__legacy_17__", "gpt-4o-mini"]
 
@@ -200,10 +202,10 @@ class TestAnnotationWorkerExecute:
         )
         result = worker.execute()
 
-        mock_annotation_logic.execute_annotation.assert_called_once()
-        assert result.models_used == ["gpt-4o-mini"]
-        called_kwargs = mock_annotation_logic.execute_annotation.call_args.kwargs
-        assert called_kwargs["litellm_model_ids"] == ["gpt-4o-mini"]
+        assert mock_annotation_logic.execute_annotation.call_count == 2
+        assert result.models_used == models
+        first_call_kwargs = mock_annotation_logic.execute_annotation.call_args_list[0].kwargs
+        assert first_call_kwargs["litellm_model_ids"] == ["__legacy_17__"]
 
     def test_execute_model_error_partial_success(self, mock_annotation_logic, mock_model_registry):
         """モデルエラー時の部分的成功"""
@@ -251,6 +253,108 @@ class TestAnnotationWorkerExecute:
         assert len(result.model_errors) == 1
         assert result.model_errors[0].model_name == "claude-3-haiku-20240307"
         assert "API Error" in result.model_errors[0].error_message
+        assert result.model_errors[0].error_type == "lib_call_exception"
+
+    def test_execute_collects_l1_result_error_without_error_record(
+        self, mock_annotation_logic, mock_model_registry
+    ):
+        """ADR 0033 L1: lib result.error は error_records に保存せず summary/statistics に載せる。"""
+        image_paths = ["/path/to/image.jpg"]
+        models = ["model-a", "model-b"]
+
+        mock_db_manager = Mock()
+        mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"phash1": 1}
+        mock_db_manager.repository.get_models_by_litellm_ids.return_value = {"model-b": Mock(id=2)}
+        mock_db_manager.repository.save_annotations = Mock()
+        mock_db_manager.repository.get_phashes_by_filepaths.return_value = {}
+
+        mock_annotation_logic.execute_annotation.side_effect = [
+            {"phash1": {"model-a": {"tags": [], "error": "rate_limited"}}},
+            {"phash1": {"model-b": {"tags": ["cat"], "formatted_output": {}, "error": None}}},
+        ]
+
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=image_paths,
+            litellm_model_ids=models,
+            db_manager=mock_db_manager,
+            model_registry=mock_model_registry,
+        )
+
+        result = worker.execute()
+
+        mock_db_manager.save_error_record.assert_not_called()
+        assert result.model_statistics["model-a"].error_count == 1
+        assert result.model_statistics["model-b"].success_count == 1
+        assert len(result.model_errors) == 1
+        assert result.model_errors[0].model_name == "model-a"
+        assert result.model_errors[0].error_type == "result_error"
+
+    def test_execute_records_integrity_violation_for_unexpected_model(
+        self, mock_annotation_logic, mock_model_registry
+    ):
+        """ADR 0033 integrity: 選択外 model_id が混入した結果は保存対象外で記録する。"""
+        image_paths = ["/path/to/image.jpg"]
+        models = ["model-a"]
+
+        mock_db_manager = Mock()
+        mock_db_manager.repository.find_image_ids_by_phashes.return_value = {}
+        mock_db_manager.repository.get_models_by_litellm_ids.return_value = {}
+        mock_db_manager.repository.save_annotations = Mock()
+        mock_db_manager.repository.get_phashes_by_filepaths.return_value = {"/path/to/image.jpg": "phash1"}
+        mock_db_manager.get_image_id_by_filepath.return_value = 1
+
+        mock_annotation_logic.execute_annotation.return_value = {
+            "phash1": {"unknown-model": {"tags": ["cat"], "error": None}}
+        }
+
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=image_paths,
+            litellm_model_ids=models,
+            db_manager=mock_db_manager,
+            model_registry=mock_model_registry,
+        )
+
+        result = worker.execute()
+
+        assert result.results == {}
+        assert len(result.model_errors) == 1
+        assert result.model_errors[0].model_name == "unknown-model"
+        assert result.model_errors[0].error_type == "integrity_violation"
+        call_kwargs = mock_db_manager.save_error_record.call_args.kwargs
+        assert call_kwargs["error_type"] == "integrity_violation"
+        assert call_kwargs["model_name"] == "unknown-model"
+
+    def test_execute_passes_registered_phash_list(self, mock_annotation_logic, mock_model_registry):
+        """登録済み画像は DB pHash を input order で AnnotationLogic に渡す。"""
+        image_paths = ["/path/to/a.jpg", "/path/to/b.jpg"]
+        models = ["model-a"]
+
+        mock_db_manager = Mock()
+        mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"phash-a": 1}
+        mock_db_manager.repository.get_models_by_litellm_ids.return_value = {"model-a": Mock(id=1)}
+        mock_db_manager.repository.save_annotations = Mock()
+        mock_db_manager.repository.get_phashes_by_filepaths.return_value = {
+            "/path/to/a.jpg": "phash-a",
+            "/path/to/b.jpg": "phash-b",
+        }
+        mock_annotation_logic.execute_annotation.return_value = {
+            "phash-a": {"model-a": {"tags": ["cat"], "error": None}}
+        }
+
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=image_paths,
+            litellm_model_ids=models,
+            db_manager=mock_db_manager,
+            model_registry=mock_model_registry,
+        )
+
+        worker.execute()
+
+        called_kwargs = mock_annotation_logic.execute_annotation.call_args.kwargs
+        assert called_kwargs["phash_list"] == ["phash-a", "phash-b"]
 
     def test_execute_all_models_fail(self, mock_annotation_logic, mock_model_registry):
         """全モデルエラー時（空結果）"""

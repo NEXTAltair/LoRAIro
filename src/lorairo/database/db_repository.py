@@ -3646,7 +3646,9 @@ class ImageRepository:
             filenames.add(resolved.name)
         return path_resolved, filenames
 
-    def _build_candidates_by_filename(self, candidates: list[Image]) -> dict[str, list[tuple[Path, int]]]:
+    def _build_candidates_by_filename(
+        self, candidates: list[Image]
+    ) -> dict[str, list[tuple[Path, int, str]]]:
         """candidates を filename をキーとする dict に集約する helper。
 
         ADR 0023 Phase 1.5 (Codex P2 r3209511028): row-level resolve guard 経由で
@@ -3656,17 +3658,17 @@ class ImageRepository:
             candidates: filename IN 句で取得した Image ORM 行のリスト。
 
         Returns:
-            filename -> [(resolved_abs Path, image_id), ...] の dict。
+            filename -> [(resolved_abs Path, image_id, phash), ...] の dict。
             同じ filename で複数 image (別ディレクトリ) があり得るため list 値。
         """
-        by_filename: dict[str, list[tuple[Path, int]]] = {}
+        by_filename: dict[str, list[tuple[Path, int, str]]] = {}
         for img in candidates:
             if img.filename is None:
                 continue
             resolved_abs = self._safe_resolve_stored_path(img.id, img.stored_image_path)
             if resolved_abs is None:
                 continue
-            by_filename.setdefault(img.filename, []).append((resolved_abs, img.id))
+            by_filename.setdefault(img.filename, []).append((resolved_abs, img.id, img.phash))
         return by_filename
 
     @staticmethod
@@ -3731,7 +3733,7 @@ class ImageRepository:
                 # input path ごとに対応する image_id を resolve 比較で確定
                 for raw, resolved_input in path_resolved.items():
                     matches = by_filename.get(resolved_input.name, [])
-                    for stored_resolved, image_id in matches:
+                    for stored_resolved, image_id, _phash in matches:
                         if stored_resolved == resolved_input:
                             result[raw] = image_id
                             break
@@ -3743,6 +3745,44 @@ class ImageRepository:
                 return result
             except Exception as e:
                 logger.error(f"バッチ画像 ID 解決エラー: {e}", exc_info=True)
+                return result
+
+    def get_phashes_by_filepaths(self, filepaths: list[str]) -> dict[str, str | None]:
+        """複数のファイルパスから pHash をバッチ解決する。
+
+        `get_image_ids_by_filepaths()` と同じ path resolve 規則で、登録済み画像の
+        pHash を input path 順に引けるようにする。未登録または resolve 不能な path
+        は None を返す。
+        """
+        if not filepaths:
+            return {}
+
+        path_resolved, filenames = self._normalize_input_paths(filepaths)
+        result: dict[str, str | None] = dict.fromkeys(filepaths)
+
+        if not filenames:
+            return result
+
+        with self.session_factory() as session:
+            try:
+                stmt = select(Image).where(Image.filename.in_(filenames))
+                candidates = list(session.execute(stmt).scalars().all())
+                by_filename = self._build_candidates_by_filename(candidates)
+
+                for raw, resolved_input in path_resolved.items():
+                    matches = by_filename.get(resolved_input.name, [])
+                    for stored_resolved, _image_id, phash in matches:
+                        if stored_resolved == resolved_input:
+                            result[raw] = phash
+                            break
+
+                logger.debug(
+                    f"バッチ pHash 解決: 入力 {len(filepaths)}件 → "
+                    f"解決 {sum(1 for v in result.values() if v is not None)}件"
+                )
+                return result
+            except Exception as e:
+                logger.error(f"バッチ pHash 解決エラー: {e}", exc_info=True)
                 return result
 
     def update_rating_batch(

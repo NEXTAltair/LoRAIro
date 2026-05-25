@@ -94,6 +94,32 @@ def partial_error_result() -> AnnotationExecutionResult:
 
 
 @pytest.fixture
+def integrity_violation_result() -> AnnotationExecutionResult:
+    """内部整合性違反を含むアノテーション結果"""
+    return AnnotationExecutionResult(
+        results={"phash1": {"gpt-4o-mini": {"tags": ["cat"]}}},
+        total_images=2,
+        models_used=["gpt-4o-mini"],
+        db_save_success=1,
+        db_save_skip=0,
+        model_errors=[
+            ModelErrorDetail(
+                model_name="unknown-model",
+                image_path="image_001.png",
+                error_message="Annotation result contains unexpected model_id: unknown-model",
+                error_type="integrity_violation",
+            ),
+            ModelErrorDetail(
+                model_name="gpt-4o-mini",
+                image_path="image_002.png",
+                error_message="Rate limit exceeded",
+                error_type="result_error",
+            ),
+        ],
+    )
+
+
+@pytest.fixture
 def all_error_result() -> AnnotationExecutionResult:
     """全失敗のアノテーション結果"""
     return AnnotationExecutionResult(
@@ -166,6 +192,45 @@ class TestAnnotationSummaryDialogLayout:
         assert table.item(0, 0).text() == "image_001.png"
         assert table.item(0, 1).text() == "claude-3-haiku"
         assert table.item(0, 2).text() == "Rate limit exceeded"
+
+    def test_integrity_violation_uses_dedicated_table(
+        self, qtbot, integrity_violation_result, find_child_widget
+    ):
+        """integrity_violation は通常エラーとは別テーブルに表示される"""
+        dialog = AnnotationSummaryDialog(integrity_violation_result)
+        qtbot.addWidget(dialog)
+
+        integrity_table = find_child_widget(dialog, QTableWidget, "integrityViolationTable")
+        assert integrity_table.rowCount() == 1
+        assert integrity_table.item(0, 0).text() == "image_001.png"
+        assert integrity_table.item(0, 1).text() == "unknown-model"
+        assert "unexpected model_id" in integrity_table.item(0, 2).text()
+
+        regular_table = find_child_widget(dialog, QTableWidget, "errorTable")
+        assert regular_table.rowCount() == 1
+        assert regular_table.item(0, 0).text() == "image_002.png"
+        assert regular_table.item(0, 1).text() == "gpt-4o-mini"
+
+    def test_only_integrity_violation_hides_regular_error_table(self, qtbot):
+        """通常エラーが無い場合は errorTable を作らず専用セクションだけ表示する"""
+        result = AnnotationExecutionResult(
+            results={},
+            total_images=1,
+            models_used=["gpt-4o-mini"],
+            model_errors=[
+                ModelErrorDetail(
+                    model_name="unknown-model",
+                    image_path="image_001.png",
+                    error_message="unexpected model",
+                    error_type="integrity_violation",
+                )
+            ],
+        )
+        dialog = AnnotationSummaryDialog(result)
+        qtbot.addWidget(dialog)
+
+        assert dialog.findChild(QTableWidget, "integrityViolationTable") is not None
+        assert dialog.findChild(QTableWidget, "errorTable") is None
 
     def test_summary_shows_image_count(self, qtbot, success_result):
         """概要セクションに画像件数が表示される"""
