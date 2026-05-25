@@ -8,7 +8,11 @@ from .date_formatter import format_datetime_for_display
 from .image_processing_service import ImageProcessingService
 from .model_sync_service import ModelSyncService
 from .provider_batch_service import (
+    BatchJobHandle,
+    BatchSubmitItem,
     BatchSubmitMetadata,
+    BatchSubmitRequest,
+    InvalidProviderBatchRequest,
     InvalidProviderBatchStatusTransition,
     ProviderBatchAdapter,
     ProviderBatchAdapterNotFoundError,
@@ -22,9 +26,13 @@ from .provider_batch_service import (
 from .service_container import ServiceContainer, get_service_container
 
 __all__ = [
+    "BatchJobHandle",
+    "BatchSubmitItem",
     "BatchSubmitMetadata",
+    "BatchSubmitRequest",
     "ConfigurationService",
     "ImageProcessingService",
+    "InvalidProviderBatchRequest",
     "InvalidProviderBatchStatusTransition",
     "ModelSyncService",
     "ProviderBatchAdapter",

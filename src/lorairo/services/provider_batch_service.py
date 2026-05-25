@@ -7,8 +7,9 @@ OpenAI / Anthropic / Google adapter を差し替え可能な Protocol と永続 
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -18,6 +19,7 @@ from lorairo.database.schema import ProviderBatchJob
 from lorairo.utils.log import logger
 
 ProviderBatchRawPayload = Mapping[str, Any] | str | None
+_CUSTOM_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 class ProviderBatchError(RuntimeError):
@@ -30,6 +32,50 @@ class ProviderBatchAdapterNotFoundError(ProviderBatchError):
 
 class InvalidProviderBatchStatusTransition(ProviderBatchError):
     """Provider Batch job status transition が許可されていない。"""
+
+
+class InvalidProviderBatchRequest(ProviderBatchError):
+    """Provider Batch submit request が ADR 0038 contract を満たしていない。"""
+
+
+@dataclass(frozen=True)
+class BatchSubmitItem:
+    """LoRAIro から library batch API に渡す job item。"""
+
+    custom_id: str
+    image_id: int
+    image_path: Path
+    task_type: str = "annotation"
+    model_id: int | None = None
+    raw_request: ProviderBatchRawPayload = None
+
+
+@dataclass(frozen=True)
+class BatchSubmitRequest:
+    """Provider 非依存の batch submit request。
+
+    Provider 固有 payload 構築、upload、response parse は image-annotator-lib 側に閉じ込める。
+    """
+
+    provider: str
+    endpoint: str
+    litellm_model_id: str
+    prompt_profile: str
+    api_keys: Mapping[str, str]
+    items: tuple[BatchSubmitItem, ...]
+    model_id: int | None = None
+    description: str | None = None
+    request_artifact_path: Path | None = None
+    raw_provider_payload: ProviderBatchRawPayload = None
+
+
+@dataclass(frozen=True)
+class BatchJobHandle:
+    """Provider batch job の stable handle。"""
+
+    provider: str
+    provider_job_id: str
+    api_keys: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -96,23 +142,23 @@ class ProviderBatchArtifacts:
 
 
 class ProviderBatchAdapter(Protocol):
-    """Provider Batch API adapter interface."""
+    """image-annotator-lib batch API client interface."""
 
     provider: str
 
-    def submit(self, request_file: Path, metadata: BatchSubmitMetadata) -> ProviderBatchSubmission:
+    def submit_batch(self, request: BatchSubmitRequest) -> ProviderBatchSubmission:
         """Provider batch job を投入する。"""
         ...
 
-    def retrieve(self, provider_job_id: str) -> ProviderBatchStatus:
+    def retrieve_batch(self, handle: BatchJobHandle) -> ProviderBatchStatus:
         """Provider batch job の最新状態を取得する。"""
         ...
 
-    def cancel(self, provider_job_id: str) -> ProviderBatchStatus:
+    def cancel_batch(self, handle: BatchJobHandle) -> ProviderBatchStatus:
         """Provider batch job を cancel する。"""
         ...
 
-    def download_results(self, provider_job_id: str, destination_dir: Path) -> ProviderBatchArtifacts:
+    def fetch_batch_results(self, handle: BatchJobHandle, destination_dir: Path) -> ProviderBatchArtifacts:
         """Provider batch job の output/error artifacts を download する。"""
         ...
 
@@ -212,10 +258,81 @@ class ProviderBatchJobService:
         """Provider adapter を追加登録する。"""
         self._adapters[self._normalize_provider_name(adapter.provider)] = adapter
 
+    @staticmethod
+    def build_custom_id(image_id: int) -> str:
+        """ADR 0038 の custom_id を生成する。"""
+        return f"img-{image_id}"
+
+    def submit_batch(self, request: BatchSubmitRequest) -> int:
+        """Provider batch job を投入し、job/items を DB に保存する。"""
+        request = replace(
+            request,
+            provider=self._normalize_provider_name(request.provider),
+            api_keys=self._normalize_api_keys(request.api_keys),
+        )
+        self._validate_submit_request(request)
+        adapter = self._get_adapter(request.provider)
+        submission = adapter.submit_batch(request)
+        status = self.normalize_status(
+            request.provider,
+            submission.status or submission.provider_status,
+        )
+        request_count = (
+            submission.request_count if submission.request_count is not None else len(request.items)
+        )
+
+        job_id = self._repository.create_provider_batch_job_with_items(
+            {
+                "provider": request.provider,
+                "provider_job_id": submission.provider_job_id,
+                "status": status,
+                "provider_status": submission.provider_status,
+                "endpoint": request.endpoint,
+                "model_id": request.model_id,
+                "request_count": request_count,
+                "submitted_at": submission.submitted_at,
+                "expires_at": submission.expires_at,
+                "input_artifact_path": str(request.request_artifact_path)
+                if request.request_artifact_path is not None
+                else None,
+                "raw_provider_payload": self._serialize_payload(
+                    submission.raw_provider_payload
+                    if submission.raw_provider_payload is not None
+                    else request.raw_provider_payload
+                ),
+            },
+            [
+                {
+                    "job_id": 0,
+                    "custom_id": item.custom_id,
+                    "image_id": item.image_id,
+                    "model_id": item.model_id if item.model_id is not None else request.model_id,
+                    "task_type": item.task_type,
+                    "status": status,
+                    "raw_request": self._serialize_payload(item.raw_request),
+                }
+                for item in request.items
+            ],
+        )
+        logger.info(
+            f"Provider batch job submitted: provider={request.provider}, "
+            f"provider_job_id={submission.provider_job_id}, job_id={job_id}, status={status}, "
+            f"items={len(request.items)}"
+        )
+        return job_id
+
     def submit(self, request_file: Path, metadata: BatchSubmitMetadata) -> int:
-        """Provider batch job を投入し、DB job を作成する。"""
+        """Provider batch job を投入し、DB job を作成する。
+
+        互換 wrapper。新規経路は ADR 0038 の ``submit_batch()`` を使う。
+        """
         provider = self._normalize_provider_name(metadata.provider)
         adapter = self._get_adapter(provider)
+        if not hasattr(adapter, "submit"):
+            raise ProviderBatchError(
+                "Legacy submit() requires a legacy adapter with submit(). "
+                "Use submit_batch() for ADR 0038 batch clients."
+            )
         submission = adapter.submit(request_file, metadata)
         status = self.normalize_status(
             provider,
@@ -249,17 +366,20 @@ class ProviderBatchJobService:
         )
         return job_id
 
-    def refresh(self, job_id: int) -> ProviderBatchJob:
+    def refresh(self, job_id: int, api_keys: Mapping[str, str] | None = None) -> ProviderBatchJob:
         """Provider から最新 status を取得し、DB job を更新する。"""
         job = self._require_job(job_id)
         if job.provider_job_id is None:
             raise ProviderBatchError(f"provider_job_id が未設定です: job_id={job_id}")
 
         adapter = self._get_adapter(job.provider)
-        provider_status = adapter.retrieve(job.provider_job_id)
+        if hasattr(adapter, "retrieve_batch"):
+            provider_status = adapter.retrieve_batch(self._build_handle(job, api_keys))
+        else:
+            provider_status = adapter.retrieve(job.provider_job_id)  # type: ignore[attr-defined]
         return self._apply_status(job, provider_status)
 
-    def cancel(self, job_id: int) -> ProviderBatchJob:
+    def cancel(self, job_id: int, api_keys: Mapping[str, str] | None = None) -> ProviderBatchJob:
         """Provider batch job を cancel し、DB job を更新する。"""
         job = self._require_job(job_id)
         if job.provider_job_id is None:
@@ -267,17 +387,30 @@ class ProviderBatchJobService:
         self.validate_transition(job.status, "canceling")
 
         adapter = self._get_adapter(job.provider)
-        provider_status = adapter.cancel(job.provider_job_id)
+        if hasattr(adapter, "cancel_batch"):
+            provider_status = adapter.cancel_batch(self._build_handle(job, api_keys))
+        else:
+            provider_status = adapter.cancel(job.provider_job_id)  # type: ignore[attr-defined]
         return self._apply_status(job, provider_status)
 
-    def download_results(self, job_id: int, destination_dir: Path) -> ProviderBatchArtifacts:
+    def download_results(
+        self,
+        job_id: int,
+        destination_dir: Path,
+        api_keys: Mapping[str, str] | None = None,
+    ) -> ProviderBatchArtifacts:
         """Provider result artifacts を download し、artifact records を保存する。"""
         job = self._require_job(job_id)
         if job.provider_job_id is None:
             raise ProviderBatchError(f"provider_job_id が未設定です: job_id={job_id}")
 
         adapter = self._get_adapter(job.provider)
-        artifacts = adapter.download_results(job.provider_job_id, destination_dir)
+        if hasattr(adapter, "fetch_batch_results"):
+            artifacts = adapter.fetch_batch_results(self._build_handle(job, api_keys), destination_dir)
+        else:
+            artifacts = adapter.download_results(  # type: ignore[attr-defined]
+                job.provider_job_id, destination_dir
+            )
         self._validate_provider_job_id(job, artifacts.provider_job_id)
 
         updates: dict[str, Any] = {}
@@ -386,6 +519,48 @@ class ProviderBatchJobService:
         if adapter is None:
             raise ProviderBatchAdapterNotFoundError(f"Provider batch adapter 未登録: {provider}")
         return adapter
+
+    def _build_handle(self, job: ProviderBatchJob, api_keys: Mapping[str, str] | None) -> BatchJobHandle:
+        if job.provider_job_id is None:
+            raise ProviderBatchError(f"provider_job_id が未設定です: job_id={job.id}")
+        return BatchJobHandle(
+            provider=job.provider,
+            provider_job_id=job.provider_job_id,
+            api_keys=self._normalize_api_keys(api_keys or {}),
+        )
+
+    @classmethod
+    def _validate_submit_request(cls, request: BatchSubmitRequest) -> None:
+        if not request.items:
+            raise InvalidProviderBatchRequest("batch submit item が空です")
+        custom_ids: set[str] = set()
+        for item in request.items:
+            expected_custom_id = cls.build_custom_id(item.image_id)
+            if item.custom_id != expected_custom_id:
+                raise InvalidProviderBatchRequest(
+                    f"custom_id は {expected_custom_id!r} である必要があります: {item.custom_id!r}"
+                )
+            if _CUSTOM_ID_PATTERN.fullmatch(item.custom_id) is None:
+                raise InvalidProviderBatchRequest(f"不正な custom_id です: {item.custom_id!r}")
+            if item.custom_id in custom_ids:
+                raise InvalidProviderBatchRequest(f"custom_id が重複しています: {item.custom_id!r}")
+            custom_ids.add(item.custom_id)
+
+    @staticmethod
+    def _normalize_api_keys(api_keys: Mapping[str, str]) -> dict[str, str]:
+        key_aliases = {
+            "openai_key": "openai",
+            "claude_key": "anthropic",
+            "anthropic_key": "anthropic",
+            "google_key": "google",
+            "openrouter_key": "openrouter",
+        }
+        normalized: dict[str, str] = {}
+        for key, value in api_keys.items():
+            if not value or not value.strip():
+                continue
+            normalized[key_aliases.get(key, key)] = value
+        return normalized
 
     @staticmethod
     def _validate_provider_job_id(job: ProviderBatchJob, provider_job_id: str) -> None:
