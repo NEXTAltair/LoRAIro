@@ -19,6 +19,7 @@ from ..domain.quality_tier import compute_quality_summary
 from ..utils.log import logger
 from .db_core import DefaultSessionLocal
 from .filter_criteria import ImageFilterCriteria
+from .repository.error_record import ErrorRecordRepository
 from .repository.model import ModelRepository
 from .repository.project import ProjectRepository
 from .schema import (
@@ -122,6 +123,10 @@ class ImageRepository:
         # 既存呼び出し (`image_repository.ensure_project()` 等) との互換性のため、
         # ImageRepository は内部で ProjectRepository への delegating facade を保持する。
         self._project_repo = ProjectRepository(session_factory=session_factory)
+        # ADR 0035 段階 3 (#423): ErrorRecord 関連は ErrorRecordRepository に移設。
+        # 既存呼び出し (`image_repository.save_error_record()` 等) との互換性のため、
+        # ImageRepository は内部で ErrorRecordRepository への delegating facade を保持する。
+        self._error_record_repo = ErrorRecordRepository(session_factory=session_factory)
         logger.info("ImageRepository initialized.")
 
         # 外部tag_db統合（公開API経由、グレースフルデグラデーション対応）
@@ -3078,7 +3083,14 @@ class ImageRepository:
                 )
                 raise
 
-    # --- Error Record Management Methods ---
+    # --- ErrorRecord methods (delegating facade, ADR 0035 段階 3) ---
+    # 実装は src/lorairo/database/repository/error_record.py の ErrorRecordRepository に移設済み。
+    # 既存呼び出し (`image_repository.save_error_record()` 等) との互換性のため delegating
+    # wrapper を残す。段階 4 以降で各 Service / Worker が `manager.error_record_repo` 経由で
+    # 直接 ErrorRecordRepository を参照するようになれば、本 facade は削除可能。
+    #
+    # NOTE: Manager 層 (`ImageDatabaseManager.save_error_record`) の二次エラー防止
+    # (sentinel `-1` return) は本 facade ではなく Manager 側で維持する (PR #476)。
 
     def save_error_record(
         self,
@@ -3090,75 +3102,20 @@ class ImageRepository:
         file_path: str | None = None,
         model_name: str | None = None,
     ) -> int:
-        """エラーレコードを保存
-
-        Args:
-            operation_type: 操作種別 ("registration" | "annotation" | "processing")
-            error_type: エラー種別 ("pHash calculation" | "API error" | "DB constraint")
-            error_message: エラーメッセージ
-            image_id: 画像ID (Optional)
-            stack_trace: スタックトレース (Optional)
-            file_path: ファイルパス (Optional)
-            model_name: モデル名 (Optional)
-
-        Returns:
-            int: 作成された error_record_id
-
-        Raises:
-            SQLAlchemyError: データベース操作でエラーが発生した場合
-
-        """
-        with self.session_factory() as session:
-            try:
-                record = ErrorRecord(
-                    image_id=image_id,
-                    operation_type=operation_type,
-                    error_type=error_type,
-                    error_message=error_message,
-                    stack_trace=stack_trace,
-                    file_path=file_path,
-                    model_name=model_name,
-                )
-                session.add(record)
-                session.flush()
-                error_id = record.id
-                session.commit()
-                logger.debug(
-                    f"エラーレコードを保存しました: ID={error_id}, "
-                    f"operation={operation_type}, type={error_type}",
-                )
-                return error_id
-            except SQLAlchemyError as e:
-                session.rollback()
-                logger.error(f"エラーレコードの保存中にエラーが発生しました: {e}", exc_info=True)
-                raise
+        """ErrorRecordRepository.save_error_record への delegate (ADR 0035 段階 3)。"""
+        return self._error_record_repo.save_error_record(
+            operation_type=operation_type,
+            error_type=error_type,
+            error_message=error_message,
+            image_id=image_id,
+            stack_trace=stack_trace,
+            file_path=file_path,
+            model_name=model_name,
+        )
 
     def get_error_count_unresolved(self, operation_type: str | None = None) -> int:
-        """未解決エラー件数を取得（resolved_at IS NULL）
-
-        Args:
-            operation_type: 操作種別（None = 全操作）
-
-        Returns:
-            int: 未解決エラー件数
-
-        Raises:
-            SQLAlchemyError: データベース操作でエラーが発生した場合
-
-        """
-        with self.session_factory() as session:
-            try:
-                query = select(func.count(ErrorRecord.id)).where(ErrorRecord.resolved_at.is_(None))
-                if operation_type:
-                    query = query.where(ErrorRecord.operation_type == operation_type)
-                count = session.execute(query).scalar() or 0
-                logger.debug(
-                    f"未解決エラー件数を取得: {count}件 (operation_type={operation_type or 'all'})",
-                )
-                return count
-            except SQLAlchemyError as e:
-                logger.error(f"未解決エラー件数の取得中にエラーが発生しました: {e}", exc_info=True)
-                raise
+        """ErrorRecordRepository.get_error_count_unresolved への delegate (ADR 0035 段階 3)。"""
+        return self._error_record_repo.get_error_count_unresolved(operation_type)
 
     def get_error_image_ids(
         self,
@@ -3166,46 +3123,12 @@ class ImageRepository:
         resolved: bool = False,
         error_types: list[str] | None = None,
     ) -> list[int]:
-        """エラー画像のID一覧を取得
-
-        Args:
-            operation_type: 操作種別フィルタ
-            resolved: True = 解決済み（resolved_at IS NOT NULL）、
-                     False = 未解決（resolved_at IS NULL）
-            error_types: 特定 error_type のみに絞る (e.g.
-                ["SafetyRefusalError", "ContentPolicyRefusalError"])。
-                None = 全 type。ADR 0023 Phase 1.5 の送信前 filter で使用。
-
-        Returns:
-            list[int]: 画像IDリスト（重複除去済み、Noneを除外）
-
-        Raises:
-            SQLAlchemyError: データベース操作でエラーが発生した場合
-
-        """
-        with self.session_factory() as session:
-            try:
-                query = select(ErrorRecord.image_id).distinct().where(ErrorRecord.image_id.is_not(None))
-                if resolved:
-                    query = query.where(ErrorRecord.resolved_at.is_not(None))
-                else:
-                    query = query.where(ErrorRecord.resolved_at.is_(None))
-                if operation_type:
-                    query = query.where(ErrorRecord.operation_type == operation_type)
-                if error_types:
-                    query = query.where(ErrorRecord.error_type.in_(error_types))
-
-                results = session.execute(query).scalars().all()
-                image_ids = [id for id in results if id is not None]
-                logger.debug(
-                    f"エラー画像ID一覧を取得: {len(image_ids)}件 "
-                    f"(operation_type={operation_type or 'all'}, resolved={resolved}, "
-                    f"error_types={error_types or 'all'})",
-                )
-                return image_ids
-            except SQLAlchemyError as e:
-                logger.error(f"エラー画像ID一覧の取得中にエラーが発生しました: {e}", exc_info=True)
-                raise
+        """ErrorRecordRepository.get_error_image_ids への delegate (ADR 0035 段階 3)。"""
+        return self._error_record_repo.get_error_image_ids(
+            operation_type=operation_type,
+            resolved=resolved,
+            error_types=error_types,
+        )
 
     def get_images_by_ids(self, image_ids: list[int]) -> list[dict[str, Any]]:
         """画像IDリストから画像メタデータを取得
@@ -3261,112 +3184,21 @@ class ImageRepository:
         limit: int = 100,
         offset: int = 0,
     ) -> list[ErrorRecord]:
-        """エラーレコードを取得（ページネーション対応）
-
-        Args:
-            operation_type: 操作種別フィルタ
-            resolved: None = 全て、True = 解決済み、False = 未解決
-            limit: 取得件数上限
-            offset: オフセット
-
-        Returns:
-            list[ErrorRecord]: エラーレコードリスト
-
-        Raises:
-            SQLAlchemyError: データベース操作でエラーが発生した場合
-
-        """
-        with self.session_factory() as session:
-            try:
-                query = select(ErrorRecord).order_by(ErrorRecord.created_at.desc())
-                if operation_type:
-                    query = query.where(ErrorRecord.operation_type == operation_type)
-                if resolved is not None:
-                    if resolved:
-                        query = query.where(ErrorRecord.resolved_at.is_not(None))
-                    else:
-                        query = query.where(ErrorRecord.resolved_at.is_(None))
-                query = query.limit(limit).offset(offset)
-                records = list(session.execute(query).scalars().all())
-                logger.debug(
-                    f"エラーレコードを取得: {len(records)}件 "
-                    f"(operation_type={operation_type or 'all'}, "
-                    f"resolved={resolved}, limit={limit}, offset={offset})",
-                )
-                return records
-            except SQLAlchemyError as e:
-                logger.error(f"エラーレコードの取得中にエラーが発生しました: {e}", exc_info=True)
-                raise
+        """ErrorRecordRepository.get_error_records への delegate (ADR 0035 段階 3)。"""
+        return self._error_record_repo.get_error_records(
+            operation_type=operation_type,
+            resolved=resolved,
+            limit=limit,
+            offset=offset,
+        )
 
     def mark_error_resolved(self, error_id: int) -> None:
-        """エラーを解決済みにマーク（resolved_at = 現在時刻）
-
-        Args:
-            error_id: エラーレコードID
-
-        Raises:
-            SQLAlchemyError: データベース操作でエラーが発生した場合
-
-        """
-        from datetime import UTC
-
-        with self.session_factory() as session:
-            try:
-                record = session.get(ErrorRecord, error_id)
-                if record:
-                    record.resolved_at = datetime.datetime.now(UTC)
-                    session.commit()
-                    logger.info(f"エラーレコードを解決済みにマーク: ID={error_id}")
-                else:
-                    logger.warning(f"エラーレコードが見つかりません: ID={error_id}")
-            except SQLAlchemyError as e:
-                session.rollback()
-                logger.error(f"エラーレコードの解決マーク中にエラーが発生しました: {e}", exc_info=True)
-                raise
+        """ErrorRecordRepository.mark_error_resolved への delegate (ADR 0035 段階 3)。"""
+        self._error_record_repo.mark_error_resolved(error_id)
 
     def mark_errors_resolved_batch(self, error_ids: list[int]) -> tuple[bool, int]:
-        """複数のエラーレコードを原子的に解決済みにマーク
-
-        単一トランザクションで全エラーを処理する。全件成功 or 全件ロールバック。
-        ADR-0012 (Batch Tag Atomic Transaction) パターン準拠。
-
-        Args:
-            error_ids: 対象エラーレコードのIDリスト
-
-        Returns:
-            (成功フラグ, 解決済みマーク件数)
-
-        Raises:
-            SQLAlchemyError: データベースエラー時（ロールバック後に再送出）
-        """
-        from datetime import UTC
-
-        if not error_ids:
-            logger.warning("mark_errors_resolved_batch: 空のerror_idsリストが渡されました")
-            return (False, 0)
-
-        with self.session_factory() as session:
-            try:
-                existing = (
-                    session.execute(select(ErrorRecord).where(ErrorRecord.id.in_(error_ids)))
-                    .scalars()
-                    .all()
-                )
-
-                now = datetime.datetime.now(UTC)
-                updated_count = 0
-                for record in existing:
-                    record.resolved_at = now
-                    updated_count += 1
-
-                session.commit()
-                logger.info(f"エラーレコード一括解決完了: 要求={len(error_ids)}件, 更新={updated_count}件")
-                return (True, updated_count)
-
-            except SQLAlchemyError as e:
-                session.rollback()
-                logger.error(f"エラーレコード一括解決失敗: {e}", exc_info=True)
-                raise
+        """ErrorRecordRepository.mark_errors_resolved_batch への delegate (ADR 0035 段階 3)。"""
+        return self._error_record_repo.mark_errors_resolved_batch(error_ids)
 
     def get_session(self) -> Session:
         """セッションを取得（Manager層で生SQLを実行する際に使用）

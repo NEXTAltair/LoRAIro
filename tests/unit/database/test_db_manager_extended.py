@@ -31,6 +31,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.error_record import ErrorRecordRepository
 from lorairo.database.repository.project import ProjectRepository
 from lorairo.services.configuration_service import ConfigurationService
 
@@ -60,8 +61,17 @@ def mock_project_repo() -> Mock:
 
 
 @pytest.fixture
+def mock_error_record_repo() -> Mock:
+    """モック化された ErrorRecordRepository を返す (ADR 0035 段階 3)。"""
+    return Mock(spec=ErrorRecordRepository)
+
+
+@pytest.fixture
 def manager(
-    mock_repository: Mock, mock_config_service: Mock, mock_project_repo: Mock
+    mock_repository: Mock,
+    mock_config_service: Mock,
+    mock_project_repo: Mock,
+    mock_error_record_repo: Mock,
 ) -> ImageDatabaseManager:
     """ImageDatabaseManager のインスタンスを返す（依存はすべてモック）。"""
     return ImageDatabaseManager(
@@ -69,6 +79,7 @@ def manager(
         config_service=mock_config_service,
         fsm=None,
         project_repo=mock_project_repo,
+        error_record_repo=mock_error_record_repo,
     )
 
 
@@ -716,11 +727,15 @@ class TestGetAnnotationStatusCounts:
         assert result == {"total": 0, "completed": 0, "error": 0, "completion_rate": 0.0}
 
     def test_returns_counts_when_images_exist(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self,
+        manager: ImageDatabaseManager,
+        mock_repository: Mock,
+        mock_error_record_repo: Mock,
     ) -> None:
         """画像が存在するとき、セッションを使ってカウントを返す。"""
         mock_repository.get_total_image_count.return_value = 10
-        mock_repository.get_error_count_unresolved.return_value = 2
+        # ADR 0035 段階 3 (#423): error_record_repo 経由で取得される。
+        mock_error_record_repo.get_error_count_unresolved.return_value = 2
 
         # セッションのモック
         mock_result = Mock()
@@ -797,10 +812,14 @@ class TestFilterByAnnotationStatusExtended:
         assert result[0]["id"] == 2
 
     def test_returns_error_images_when_error_ids_exist(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self,
+        manager: ImageDatabaseManager,
+        mock_repository: Mock,
+        mock_error_record_repo: Mock,
     ) -> None:
         """error=True でエラー ID が存在するとき、get_images_by_ids の結果を返す。"""
-        mock_repository.get_error_image_ids.return_value = [3, 4]
+        # ADR 0035 段階 3 (#423): error_record_repo 経由で取得される。
+        mock_error_record_repo.get_error_image_ids.return_value = [3, 4]
         expected = [{"id": 3}, {"id": 4}]
         mock_repository.get_images_by_ids.return_value = expected
 
@@ -814,10 +833,14 @@ class TestFilterByAnnotationStatusExtended:
         assert result == expected
 
     def test_returns_empty_list_when_error_mode_no_error_ids(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self,
+        manager: ImageDatabaseManager,
+        mock_repository: Mock,
+        mock_error_record_repo: Mock,
     ) -> None:
         """error=True でエラー ID が空のとき、空リストを返す (line 906)。"""
-        mock_repository.get_error_image_ids.return_value = []
+        # ADR 0035 段階 3 (#423): error_record_repo 経由で取得される。
+        mock_error_record_repo.get_error_image_ids.return_value = []
 
         mock_session = MagicMock()
         mock_session.__enter__ = Mock(return_value=mock_session)

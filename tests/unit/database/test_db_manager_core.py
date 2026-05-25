@@ -24,6 +24,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.error_record import ErrorRecordRepository
 from lorairo.database.repository.model import ModelRepository
 from lorairo.database.repository.project import ProjectRepository
 from lorairo.services.configuration_service import ConfigurationService
@@ -52,6 +53,12 @@ def mock_project_repo() -> Mock:
 
 
 @pytest.fixture
+def mock_error_record_repo() -> Mock:
+    """モック化された ErrorRecordRepository を返す (ADR 0035 段階 3)。"""
+    return Mock(spec=ErrorRecordRepository)
+
+
+@pytest.fixture
 def mock_config_service() -> Mock:
     """モック化された ConfigurationService を返す。"""
     svc = Mock(spec=ConfigurationService)
@@ -65,6 +72,7 @@ def manager(
     mock_config_service: Mock,
     mock_model_repo: Mock,
     mock_project_repo: Mock,
+    mock_error_record_repo: Mock,
 ) -> ImageDatabaseManager:
     """ImageDatabaseManager のインスタンスを返す（依存はすべてモック）。"""
     return ImageDatabaseManager(
@@ -73,6 +81,7 @@ def manager(
         fsm=None,
         model_repo=mock_model_repo,
         project_repo=mock_project_repo,
+        error_record_repo=mock_error_record_repo,
     )
 
 
@@ -422,13 +431,13 @@ class TestDetectDuplicateImage:
 
 @pytest.mark.unit
 class TestSaveErrorRecord:
-    """save_error_record メソッドのテスト"""
+    """save_error_record メソッドのテスト (ADR 0035 段階 3: error_record_repo 経由)"""
 
     def test_returns_error_id_on_success(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self, manager: ImageDatabaseManager, mock_error_record_repo: Mock
     ) -> None:
-        """正常系ではリポジトリが返した error_id を返す。"""
-        mock_repository.save_error_record.return_value = 10
+        """正常系では error_record_repo が返した error_id を返す。"""
+        mock_error_record_repo.save_error_record.return_value = 10
         result = manager.save_error_record(
             operation_type="annotation",
             error_type="APIError",
@@ -437,10 +446,10 @@ class TestSaveErrorRecord:
         assert result == 10
 
     def test_returns_minus_one_on_exception(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self, manager: ImageDatabaseManager, mock_error_record_repo: Mock
     ) -> None:
-        """例外が発生した場合は -1 を返す（二次エラー防止）。"""
-        mock_repository.save_error_record.side_effect = Exception("db error")
+        """例外が発生した場合は -1 を返す (二次エラー防止、PR #476)。"""
+        mock_error_record_repo.save_error_record.side_effect = Exception("db error")
         result = manager.save_error_record(
             operation_type="registration",
             error_type="FileNotFoundError",
@@ -456,19 +465,21 @@ class TestSaveErrorRecord:
 
 @pytest.mark.unit
 class TestMarkErrorsResolvedBatch:
-    """mark_errors_resolved_batch メソッドのテスト"""
+    """mark_errors_resolved_batch メソッドのテスト (ADR 0035 段階 3: error_record_repo 経由)"""
 
     def test_returns_success_tuple_on_success(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self, manager: ImageDatabaseManager, mock_error_record_repo: Mock
     ) -> None:
-        """正常系ではリポジトリの返値をそのまま返す。"""
-        mock_repository.mark_errors_resolved_batch.return_value = (True, 3)
+        """正常系では error_record_repo の返値をそのまま返す。"""
+        mock_error_record_repo.mark_errors_resolved_batch.return_value = (True, 3)
         result = manager.mark_errors_resolved_batch([1, 2, 3])
         assert result == (True, 3)
 
-    def test_raises_on_sqlalchemy_error(self, manager: ImageDatabaseManager, mock_repository: Mock) -> None:
+    def test_raises_on_sqlalchemy_error(
+        self, manager: ImageDatabaseManager, mock_error_record_repo: Mock
+    ) -> None:
         """DB 失敗時は SQLAlchemyError を呼び出し元へ伝播させる。"""
-        mock_repository.mark_errors_resolved_batch.side_effect = SQLAlchemyError("db error")
+        mock_error_record_repo.mark_errors_resolved_batch.side_effect = SQLAlchemyError("db error")
         with pytest.raises(SQLAlchemyError):
             manager.mark_errors_resolved_batch([1, 2, 3])
 
@@ -711,11 +722,15 @@ class TestFilterByAnnotationStatus:
     """filter_by_annotation_status メソッドのテスト"""
 
     def test_returns_empty_list_when_error_mode_has_no_errors(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self,
+        manager: ImageDatabaseManager,
+        mock_repository: Mock,
+        mock_error_record_repo: Mock,
     ) -> None:
         """error=True かつエラー画像 ID が空のとき空リストを返す。"""
         mock_repository.get_session.return_value = MagicMock()
-        mock_repository.get_error_image_ids.return_value = []
+        # ADR 0035 段階 3 (#423): error_record_repo 経由で取得される。
+        mock_error_record_repo.get_error_image_ids.return_value = []
         result = manager.filter_by_annotation_status(error=True)
         assert result == []
 
