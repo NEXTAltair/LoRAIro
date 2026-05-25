@@ -91,9 +91,9 @@ Provider Batch API は同期 Worker の variant ではなく、独立した **Ba
 ```
 GUI / CLI
   -> ProviderBatchJobService
-      -> ProviderBatchAdapter (openai / anthropic / google direct only)
-      -> provider batch job submit / retrieve / cancel
-      -> BatchImportService or provider-specific result importer
+      -> image-annotator-lib batch API (openai / anthropic / google direct only)
+      -> provider batch job submit / retrieve / cancel / fetch results
+      -> normalized BatchFetchResult
       -> AnnotationSaveService
 ```
 
@@ -105,15 +105,16 @@ GUI / CLI
 - 途中結果が provider 側に保持されるため、ローカル DB に job state を永続化する必要がある
 - cancel / retry / result import は annotation execution ではなく job lifecycle の責務
 
-### 2. 既存 Batch import は維持し、submit/poll と接続する
+### 2. 既存 Batch import は legacy/manual import として維持する
 
-既存 `BatchImportService` は OpenAI Batch API output JSONL import として維持する。
+既存 `BatchImportService` は OpenAI Batch API output JSONL の legacy/manual import として維持する。
+新しい Provider Batch submit/poll path では、provider result retrieval と response normalization は
+image-annotator-lib が担当し、LoRAIro は `BatchFetchResult` を既存 annotation save path に渡す。
 
 変更方針:
-- OpenAI MVP では provider から取得した output/error file をローカル `batch_results_dir` に保存し、
-  既存 `BatchImportService` に渡す
-- Anthropic / Google は result shape が異なるため、provider-specific parser を追加して
-  `AnnotationSaveService` に渡せる共通中間形式へ変換する
+- OpenAI output/error file は library が取得・parse し、normalized `BatchFetchResult` として LoRAIro に返す
+- Anthropic / Google の result shape 差分も library が吸収し、LoRAIro 側には provider-specific parser を置かない
+- 手動で取得済みの旧 OpenAI JSONL を取り込む GUI / CLI entrypoint は既存互換として残す
 - import 済み job は `imported_at` を記録し、二重 import を防ぐ
 
 ### 3. Provider support は段階導入する
@@ -121,7 +122,7 @@ GUI / CLI
 #### Phase 1: OpenAI MVP
 
 OpenAI direct route を最初に実装する。理由:
-- 既存 import サービスが OpenAI JSONL response shape を前提にしている
+- 既存 import サービスで OpenAI JSONL response shape の扱いを検証済みで、library 側 parser に知見を流用できる
 - API key は既存 `ConfigurationService` の `openai_key` を流用できる
 - local file upload + output file download のモデルで、Google の GCS/BQ 前提より小さい
 
@@ -130,7 +131,7 @@ MVP の対象:
 - batch file upload (`purpose=batch`)
 - batch create / retrieve / cancel
 - completed batch output/error file download
-- 既存 `BatchImportService` への接続
+- normalized `BatchFetchResult` と LoRAIro annotation save path への接続
 
 #### Phase 2: Anthropic
 
@@ -154,21 +155,80 @@ OpenRouter は Phase には含めない。OpenRouter の公式 API surface に p
 追加され、request submit / status retrieve / cancel / result artifact download / provider-native
 discount / retention の仕様が公開された場合だけ、別 ADR amendment で再評価する。
 
-### 4. Provider abstraction は最小 interface にする
+### 4. image-annotator-lib との Batch API contract は job 単位にする
 
-Provider adapter は以下の job lifecycle API だけを公開する。
+Provider 固有の payload 構築、submit / status / result fetch、result 正規化は
+image-annotator-lib が担当する。LoRAIro は provider 生 response / artifact format を直接 parse しない。
+
+LoRAIro から見る library boundary は以下の形にする。
 
 ```python
-class ProviderBatchAdapter(Protocol):
-    provider: str
+def list_batch_capable_models() -> list[BatchModelInfo]: ...
 
-    def submit(self, request_file: Path, metadata: BatchSubmitMetadata) -> ProviderBatchSubmission: ...
-    def retrieve(self, provider_job_id: str) -> ProviderBatchStatus: ...
-    def cancel(self, provider_job_id: str) -> ProviderBatchStatus: ...
-    def download_results(self, provider_job_id: str, destination_dir: Path) -> ProviderBatchArtifacts: ...
+def submit_batch(request: BatchSubmitRequest) -> BatchSubmitResult: ...
+
+def retrieve_batch(handle: BatchJobHandle) -> BatchStatusResult: ...
+
+def cancel_batch(handle: BatchJobHandle) -> BatchStatusResult: ...
+
+def fetch_batch_results(handle: BatchJobHandle, destination_dir: Path) -> BatchFetchResult: ...
 ```
 
-LoRAIro 内部では provider 生 response を UI/DB に直接流さず、`ProviderBatchStatus` に正規化する。
+`list_batch_capable_models()` は現在 batch 実行可能な direct-provider model をすべて返す。LoRAIro は
+endpoint / prompt profile を discovery 引数として渡さず、返された `litellm_model_id` と local DB の
+`discontinued_at IS NULL` model records を突き合わせて UI に表示する。`gpt-5.5-pro` family のような
+cost-safety denylist は image-annotator-lib 側で除外し、submit validation でも拒否する。
+
+`BatchSubmitRequest` は LoRAIro が生成した `custom_id`、DB image identity、送信用画像 path、job metadata
+を渡す。
+
+```python
+class BatchSubmitRequest:
+    provider: str
+    endpoint: str
+    litellm_model_id: str
+    prompt_profile: str
+    description: str | None
+    items: list[BatchSubmitItem]
+
+class BatchSubmitItem:
+    custom_id: str  # img-{image_id}
+    image_id: int
+    image_path: Path
+```
+
+`image_path` は LoRAIro が管理する resized image path を渡す。OpenAI MVP では既存の長辺 512px resized
+image を使い、`detail: high` 等の provider image fidelity option は実装しない。
+
+```text
+TODO: Consider provider image detail/fidelity options later. MVP uses existing resized image payloads.
+```
+
+`BatchFetchResult` は job 単位で返す。各 item の `annotation` は同期 annotation と同じ
+annotation result contract に正規化済みで、LoRAIro は provider-native batch response body を parse
+しない。
+
+```python
+class BatchFetchResult:
+    provider: str
+    provider_job_id: str
+    status: str
+    items: list[BatchResultItem]
+    artifacts: list[BatchArtifact]
+
+class BatchResultItem:
+    custom_id: str
+    status: str  # succeeded / failed
+    annotation: AnnotationResult | None
+    error: BatchItemError | None
+```
+
+LoRAIro は `BatchFetchResult.items` を走査し、`custom_id = img-{image_id}` から image_id を復元し、
+job metadata の model と合わせて既存 annotation save path に渡す。provider result retrieval と
+local annotation persistence は別 phase とし、local 保存で一部 item が失敗しても他 item の保存は
+継続する。
+
+LoRAIro 内部では provider 生 response を UI/DB に直接流さず、`BatchStatusResult` に正規化する。
 
 共通 status:
 - `draft`
@@ -182,7 +242,8 @@ LoRAIro 内部では provider 生 response を UI/DB に直接流さず、`Provi
 - `expired`
 - `imported`
 
-Provider 固有 status は raw JSON と `provider_status` に保持し、共通 status は service 層で map する。
+Provider 固有 status は raw JSON と `provider_status` に保持し、共通 status は library/service 境界で
+map する。
 
 ### 5. `custom_id` は LoRAIro 側で生成し、結果照合の SSoT とする
 
@@ -312,13 +373,13 @@ ADR 0023 の同期推論境界は維持する。Provider Batch API は PydanticA
   agent execution 抽象とは責務が異なる
 - LiteLLM の batch helper が存在しても provider ごとの upload / results / cancel / retention / GCS
   差分を完全には隠せない
-- LoRAIro は `custom_id` と DB item mapping を SSoT にする必要があるため、provider adapter を直接持つ
-  方が追跡しやすい
+- LoRAIro は provider artifact format ではなく、library が返す normalized batch result と
+  `custom_id` を SSoT にする
 
 同期 inference は `AnnotatorLibraryAdapter` / `image-annotator-lib`、非同期 provider batch は
-`ProviderBatchAdapter` として別境界にする。モデルの task capability と provider batch eligibility は
-image-annotator-lib が判定し、LoRAIro は `models.discontinued_at` による local gate と UI 表示・
-job persistence を担当する。
+image-annotator-lib の batch API として別境界にする。モデルの task capability と provider batch
+eligibility は image-annotator-lib が判定し、LoRAIro は `models.discontinued_at` による local gate、
+UI 表示、job persistence、既存 annotation save path への投入を担当する。
 
 OpenRouter は LiteLLM-compatible な同期 endpoint としては有用だが、Provider Batch API の
 SSoT にはしない。OpenRouter が内部で OpenAI / Anthropic / Google provider に route できることと、
@@ -389,9 +450,12 @@ image_id だけで足りる。model / endpoint / prompt profile は job metadata
 
 1. **DB migration**: `provider_batch_jobs` / `provider_batch_items` / `provider_batch_artifacts` を追加
 2. **Repository / Service**: provider batch job CRUD、status transition、artifact registration を実装
-3. **OpenAI adapter**: request JSONL upload、batch create/retrieve/cancel、output/error file download を実装
-4. **OpenAI request builder**: 画像アノテーション用 `/v1/responses` JSONL と `custom_id` mapping を生成
-5. **OpenAI import bridge**: downloaded artifacts を既存 `BatchImportService` に接続し、item status を更新
+3. **image-annotator-lib OpenAI batch API**: `/v1/responses` request JSONL build、file upload、
+   batch create/retrieve/cancel、output/error file fetch、normalized `BatchFetchResult` を実装
+4. **LoRAIro batch submit bridge**: `custom_id = img-{image_id}` と resized image path を持つ
+   `BatchSubmitRequest` を生成し、library batch API に渡す
+5. **LoRAIro batch import bridge**: `BatchFetchResult.items` を既存 annotation save path に接続し、
+   item status を更新
 6. **Batch model eligibility**: LoRAIro は `discontinued_at IS NULL` の direct provider route model だけを
    lib に渡し、lib は LiteLLM batch pricing fields と task capability から eligibility を都度返す
 7. **GUI job list**: provider batch job 一覧、refresh、cancel、download、import 操作を追加
