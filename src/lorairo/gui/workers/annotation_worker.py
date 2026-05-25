@@ -5,6 +5,7 @@ GUI Layer: 非同期処理とQt進捗管理のみ担当
 """
 
 import traceback
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -80,6 +81,19 @@ class AnnotationExecutionResult:
     model_statistics: dict[str, ModelStatistics] = field(default_factory=dict)
     phash_to_filename: dict[str, str] = field(default_factory=dict)
     total_processing_time_sec: float = 0.0
+
+
+class _CancellationCheckingModelList(list[str]):
+    """モデル iteration の各要素直前に Worker cancellation を確認する list。"""
+
+    def __init__(self, models: list[str], check_cancellation: Callable[[], None]) -> None:
+        super().__init__(models)
+        self._check_cancellation = check_cancellation
+
+    def __iter__(self) -> Iterator[str]:
+        for model in super().__iter__():
+            self._check_cancellation()
+            yield model
 
 
 class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
@@ -326,7 +340,10 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             self._check_cancellation()
             bulk_results = self.annotation_logic.execute_annotation(
                 image_paths=self.image_paths,
-                litellm_model_ids=list(self.litellm_model_ids),
+                litellm_model_ids=_CancellationCheckingModelList(
+                    self.litellm_model_ids,
+                    self._check_cancellation,
+                ),
                 phash_list=phash_list,
             )
             valid_results = self._collect_valid_model_results(
