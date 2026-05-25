@@ -38,6 +38,9 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0032](0032-copyable-readonly-text-display.md) | Copyable Read-Only Text Display Policy | 2026-05-23 | Accepted |
 | [0033](0033-annotation-worker-batch-execution-contract.md) | AnnotationWorker Batch Execution Contract | 2026-05-23 | Accepted |
 | [0034](0034-worker-operation-pipeline-lifecycle.md) | Worker / Operation / Pipeline Lifecycle Boundary | 2026-05-24 | Accepted |
+| [0035](0035-repository-aggregate-split-policy.md) | Repository Aggregate分割方針 | 2026-05-25 | Accepted |
+| [0036](0036-gui-compound-widget-split-policy.md) | GUI Compound Widget 分割方針 | 2026-05-25 | Accepted |
+| [0037](0037-api-facade-wiring-policy.md) | api/ Public Facade Wiring Policy | 2026-05-25 | Accepted |
 
 ## ADR テンプレート
 
