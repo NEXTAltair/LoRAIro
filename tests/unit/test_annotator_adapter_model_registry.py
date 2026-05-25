@@ -1,11 +1,11 @@
 """AnnotatorLibraryAdapter model registry tests."""
 
 from unittest.mock import MagicMock, patch
-from PIL import Image
 
 import pytest
 from image_annotator_lib import AnnotatorInfo
 from image_annotator_lib.core.types import TaskCapability
+from PIL import Image
 
 from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
 
@@ -378,7 +378,7 @@ def test_annotate_calls_library_annotate_with_correct_args() -> None:
     try:
         result = adapter.annotate(
             images=[fake_image],
-            litellm_model_ids=["openai/gpt-4o"],
+            litellm_model_ids=["openai/gpt-4o", "google/gemini-1.5-flash"],
             phash_list=["hash001"],
         )
     finally:
@@ -387,7 +387,7 @@ def test_annotate_calls_library_annotate_with_correct_args() -> None:
     assert result == expected_result
     mock_lib_annotate.assert_called_once_with(
         images_list=[fake_image],
-        model_name_list=["openai/gpt-4o"],
+        model_name_list=["openai/gpt-4o", "google/gemini-1.5-flash"],
         phash_list=["hash001"],
         api_keys={},
     )
