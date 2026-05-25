@@ -1,6 +1,11 @@
 {
   "version": 1,
   "skills": {
+    "agent-pr-maintainer": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
     "context7-openclaw-research": {
       "source": "/workspaces/LoRAIro/.agents/skills",
       "sourceType": "local",
