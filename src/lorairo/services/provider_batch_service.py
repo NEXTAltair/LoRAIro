@@ -157,6 +157,7 @@ _PROVIDER_STATUS_MAP: dict[str, dict[str, str]] = {
         "JOB_STATE_QUEUED": "validating",
         "JOB_STATE_RUNNING": "running",
         "JOB_STATE_SUCCEEDED": "completed",
+        "JOB_STATE_PARTIALLY_SUCCEEDED": "completed",
         "JOB_STATE_FAILED": "failed",
         "JOB_STATE_CANCELLING": "canceling",
         "JOB_STATE_CANCELLED": "canceled",
@@ -164,6 +165,7 @@ _PROVIDER_STATUS_MAP: dict[str, dict[str, str]] = {
         "pending": "validating",
         "running": "running",
         "succeeded": "completed",
+        "partially_succeeded": "completed",
         "failed": "failed",
         "cancelled": "canceled",
         "canceled": "canceled",
@@ -184,7 +186,7 @@ _ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     "submitted": {"validating", "running", "completed", "failed", "canceling", "canceled", "expired"},
     "validating": {"running", "completed", "failed", "canceling", "canceled", "expired"},
     "running": {"completed", "failed", "canceling", "canceled", "expired"},
-    "canceling": {"canceled", "failed"},
+    "canceling": {"completed", "canceled", "failed"},
     "completed": {"imported"},
     "failed": set(),
     "canceled": set(),
@@ -202,24 +204,27 @@ class ProviderBatchJobService:
         adapters: Mapping[str, ProviderBatchAdapter] | None = None,
     ) -> None:
         self._repository = repository
-        self._adapters = {name.lower(): adapter for name, adapter in (adapters or {}).items()}
+        self._adapters = {
+            self._normalize_provider_name(name): adapter for name, adapter in (adapters or {}).items()
+        }
 
     def register_adapter(self, adapter: ProviderBatchAdapter) -> None:
         """Provider adapter を追加登録する。"""
-        self._adapters[adapter.provider.lower()] = adapter
+        self._adapters[self._normalize_provider_name(adapter.provider)] = adapter
 
     def submit(self, request_file: Path, metadata: BatchSubmitMetadata) -> int:
         """Provider batch job を投入し、DB job を作成する。"""
-        adapter = self._get_adapter(metadata.provider)
+        provider = self._normalize_provider_name(metadata.provider)
+        adapter = self._get_adapter(provider)
         submission = adapter.submit(request_file, metadata)
         status = self.normalize_status(
-            metadata.provider,
+            provider,
             submission.status or submission.provider_status,
         )
 
         job_id = self._repository.create_provider_batch_job(
             {
-                "provider": metadata.provider,
+                "provider": provider,
                 "provider_job_id": submission.provider_job_id,
                 "status": status,
                 "provider_status": submission.provider_status,
@@ -232,12 +237,14 @@ class ProviderBatchJobService:
                 "expires_at": submission.expires_at,
                 "input_artifact_path": metadata.input_artifact_path or str(request_file),
                 "raw_provider_payload": self._serialize_payload(
-                    submission.raw_provider_payload or metadata.raw_provider_payload
+                    submission.raw_provider_payload
+                    if submission.raw_provider_payload is not None
+                    else metadata.raw_provider_payload
                 ),
             }
         )
         logger.info(
-            f"Provider batch job submitted: provider={metadata.provider}, "
+            f"Provider batch job submitted: provider={provider}, "
             f"provider_job_id={submission.provider_job_id}, job_id={job_id}, status={status}"
         )
         return job_id
@@ -271,24 +278,33 @@ class ProviderBatchJobService:
 
         adapter = self._get_adapter(job.provider)
         artifacts = adapter.download_results(job.provider_job_id, destination_dir)
+        self._validate_provider_job_id(job, artifacts.provider_job_id)
 
         updates: dict[str, Any] = {}
+        existing_artifact_keys = {
+            (registered.artifact_type, registered.local_path)
+            for registered in self._repository.list_provider_batch_artifacts(job_id)
+        }
         for artifact in artifacts.artifacts:
-            self._repository.create_provider_batch_artifact(
-                {
-                    "job_id": job_id,
-                    "artifact_type": artifact.artifact_type,
-                    "local_path": str(artifact.local_path),
-                    "provider_file_id": artifact.provider_file_id,
-                    "sha256": artifact.sha256,
-                }
-            )
+            local_path = str(artifact.local_path)
+            artifact_key = (artifact.artifact_type, local_path)
+            if artifact_key not in existing_artifact_keys:
+                self._repository.create_provider_batch_artifact(
+                    {
+                        "job_id": job_id,
+                        "artifact_type": artifact.artifact_type,
+                        "local_path": local_path,
+                        "provider_file_id": artifact.provider_file_id,
+                        "sha256": artifact.sha256,
+                    }
+                )
+                existing_artifact_keys.add(artifact_key)
             if artifact.artifact_type == "input":
-                updates["input_artifact_path"] = str(artifact.local_path)
+                updates["input_artifact_path"] = local_path
             elif artifact.artifact_type == "output":
-                updates["output_artifact_path"] = str(artifact.local_path)
+                updates["output_artifact_path"] = local_path
             elif artifact.artifact_type == "error":
-                updates["error_artifact_path"] = str(artifact.local_path)
+                updates["error_artifact_path"] = local_path
 
         if artifacts.raw_provider_payload is not None:
             updates["raw_provider_payload"] = self._serialize_payload(artifacts.raw_provider_payload)
@@ -304,7 +320,7 @@ class ProviderBatchJobService:
         if status in _COMMON_STATUSES:
             return status
 
-        provider_map = _PROVIDER_STATUS_MAP.get(provider.lower(), {})
+        provider_map = _PROVIDER_STATUS_MAP.get(cls._normalize_provider_name(provider), {})
         normalized = provider_map.get(status) or provider_map.get(status.lower())
         if normalized is None:
             raise ProviderBatchError(
@@ -328,6 +344,7 @@ class ProviderBatchJobService:
     def _apply_status(
         self, job: ProviderBatchJob, provider_status: ProviderBatchStatus
     ) -> ProviderBatchJob:
+        self._validate_provider_job_id(job, provider_status.provider_job_id)
         next_status = self.normalize_status(
             job.provider, provider_status.status or provider_status.provider_status
         )
@@ -336,8 +353,9 @@ class ProviderBatchJobService:
         updates: dict[str, Any] = {
             "status": next_status,
             "provider_status": provider_status.provider_status,
-            "raw_provider_payload": self._serialize_payload(provider_status.raw_provider_payload),
         }
+        if provider_status.raw_provider_payload is not None:
+            updates["raw_provider_payload"] = self._serialize_payload(provider_status.raw_provider_payload)
         optional_fields = {
             "request_count": provider_status.request_count,
             "succeeded_count": provider_status.succeeded_count,
@@ -364,10 +382,22 @@ class ProviderBatchJobService:
         return job
 
     def _get_adapter(self, provider: str) -> ProviderBatchAdapter:
-        adapter = self._adapters.get(provider.lower())
+        adapter = self._adapters.get(self._normalize_provider_name(provider))
         if adapter is None:
             raise ProviderBatchAdapterNotFoundError(f"Provider batch adapter 未登録: {provider}")
         return adapter
+
+    @staticmethod
+    def _validate_provider_job_id(job: ProviderBatchJob, provider_job_id: str) -> None:
+        if job.provider_job_id != provider_job_id:
+            raise ProviderBatchError(
+                "Provider batch adapter response job ID mismatch: "
+                f"job_id={job.id}, expected={job.provider_job_id}, actual={provider_job_id}"
+            )
+
+    @staticmethod
+    def _normalize_provider_name(provider: str) -> str:
+        return provider.strip().lower()
 
     @staticmethod
     def _serialize_payload(payload: ProviderBatchRawPayload) -> str | None:

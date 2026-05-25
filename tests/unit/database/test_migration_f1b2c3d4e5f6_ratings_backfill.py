@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, text
 
 
@@ -17,6 +18,12 @@ def _make_alembic_config(db_path: Path) -> Config:
     cfg.set_main_option("script_location", str(project_root / "src/lorairo/database/migrations"))
     cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
     return cfg
+
+
+def _get_current_head(cfg: Config) -> str:
+    heads = ScriptDirectory.from_config(cfg).get_heads()
+    assert len(heads) == 1
+    return heads[0]
 
 
 def _create_schema_at_f0(db_path: Path) -> None:
@@ -93,8 +100,9 @@ def _create_schema_at_f0(db_path: Path) -> None:
 def test_ratings_backfill_adds_associations_for_known_rating_models(tmp_path: Path) -> None:
     db_path = tmp_path / "ratings-backfill.db"
     _create_schema_at_f0(db_path)
+    cfg = _make_alembic_config(db_path)
 
-    command.upgrade(_make_alembic_config(db_path), "head")
+    command.upgrade(cfg, "head")
 
     engine = create_engine(f"sqlite:///{db_path}")
     with engine.connect() as conn:
@@ -113,7 +121,7 @@ def test_ratings_backfill_adds_associations_for_known_rating_models(tmp_path: Pa
         version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
     engine.dispose()
 
-    assert version == "b4c5d6e7f8a9"
+    assert version == _get_current_head(cfg)
     assert rows == [
         ("wd-vit-tagger-v3", "tags,ratings"),
         ("Z3D-E621-Convnext", "tags,ratings"),

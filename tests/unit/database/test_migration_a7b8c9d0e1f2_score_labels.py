@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 
 
@@ -17,6 +18,12 @@ def _make_alembic_config(db_path: Path) -> Config:
     cfg.set_main_option("script_location", str(project_root / "src/lorairo/database/migrations"))
     cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
     return cfg
+
+
+def _get_current_head(cfg: Config) -> str:
+    heads = ScriptDirectory.from_config(cfg).get_heads()
+    assert len(heads) == 1
+    return heads[0]
 
 
 def _create_d8_schema_with_precreated_score_labels(db_path: Path) -> None:
@@ -111,8 +118,9 @@ def test_score_labels_migration_converges_when_table_was_precreated(tmp_path: Pa
     """Upgrade succeeds even if create_all already added score_labels."""
     db_path = tmp_path / "stale.db"
     _create_d8_schema_with_precreated_score_labels(db_path)
+    cfg = _make_alembic_config(db_path)
 
-    command.upgrade(_make_alembic_config(db_path), "head")
+    command.upgrade(cfg, "head")
 
     engine = create_engine(f"sqlite:///{db_path}")
     inspector = inspect(engine)
@@ -121,7 +129,7 @@ def test_score_labels_migration_converges_when_table_was_precreated(tmp_path: Pa
         version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
     engine.dispose()
 
-    assert version == "b4c5d6e7f8a9"
+    assert version == _get_current_head(cfg)
     assert "ix_score_labels_image_id" in indexes
 
 
@@ -132,6 +140,7 @@ def test_project_database_prepare_upgrades_alembic_managed_db(tmp_path: Path) ->
 
     db_path = tmp_path / "project.db"
     _create_d8_schema_with_precreated_score_labels(db_path)
+    cfg = _make_alembic_config(db_path)
 
     engine = _prepare_project_database(db_path)
     engine.dispose()
@@ -142,7 +151,7 @@ def test_project_database_prepare_upgrades_alembic_managed_db(tmp_path: Path) ->
         score_label_count = conn.execute(text("SELECT count(*) FROM score_labels")).scalar_one()
     engine.dispose()
 
-    assert version == "b4c5d6e7f8a9"
+    assert version == _get_current_head(cfg)
     assert score_label_count == 0
 
 

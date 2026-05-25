@@ -88,6 +88,9 @@ class TestProviderBatchStatusMapping:
         assert ProviderBatchJobService.normalize_status("google", "JOB_STATE_PENDING") == "validating"
         assert ProviderBatchJobService.normalize_status("google", "JOB_STATE_RUNNING") == "running"
         assert ProviderBatchJobService.normalize_status("google", "JOB_STATE_SUCCEEDED") == "completed"
+        assert ProviderBatchJobService.normalize_status("google", "JOB_STATE_PARTIALLY_SUCCEEDED") == (
+            "completed"
+        )
 
     def test_unknown_status_raises(self) -> None:
         with pytest.raises(ProviderBatchError):
@@ -95,6 +98,7 @@ class TestProviderBatchStatusMapping:
 
     def test_invalid_transition_raises(self) -> None:
         ProviderBatchJobService.validate_transition("running", "completed")
+        ProviderBatchJobService.validate_transition("canceling", "completed")
         ProviderBatchJobService.validate_transition("completed", "completed")
 
         with pytest.raises(InvalidProviderBatchStatusTransition):
@@ -126,6 +130,43 @@ class TestProviderBatchJobService:
         assert job.input_artifact_path == "/tmp/input.jsonl"
         assert job.raw_provider_payload == '{"id": "batch_123", "status": "validating"}'
 
+    def test_submit_preserves_empty_submission_payload(
+        self,
+        test_repository: ImageRepository,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        adapter.submission = replace(adapter.submission, raw_provider_payload={})
+        service = ProviderBatchJobService(test_repository, {"openai": adapter})
+
+        job_id = service.submit(
+            Path("/tmp/input.jsonl"),
+            BatchSubmitMetadata(provider="openai", raw_provider_payload={"request": "metadata"}),
+        )
+
+        job = test_repository.get_provider_batch_job(job_id)
+        assert job is not None
+        assert job.raw_provider_payload == "{}"
+
+    def test_submit_normalizes_provider_before_persisting(
+        self,
+        test_repository: ImageRepository,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        service = ProviderBatchJobService(test_repository, {"openai": adapter})
+
+        job_id = service.submit(
+            Path("/tmp/input.jsonl"),
+            BatchSubmitMetadata(provider=" OpenAI ", endpoint="/v1/responses"),
+        )
+
+        job = test_repository.get_provider_batch_job(job_id)
+        assert job is not None
+        assert job.provider == "openai"
+        assert test_repository.get_provider_batch_job_by_provider_id("openai", "batch_123") is not None
+        assert [listed.id for listed in test_repository.list_provider_batch_jobs(provider="openai")] == [
+            job_id
+        ]
+
     def test_refresh_updates_job_status_counts_and_raw_payload(
         self,
         test_repository: ImageRepository,
@@ -141,6 +182,87 @@ class TestProviderBatchJobService:
         assert refreshed.succeeded_count == 2
         assert refreshed.failed_count == 0
         assert refreshed.raw_provider_payload == '{"id": "batch_123", "status": "completed"}'
+
+    def test_refresh_preserves_anthropic_terminal_counts_when_ended(
+        self,
+        test_repository: ImageRepository,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        adapter.provider = "anthropic"
+        adapter.submission = replace(adapter.submission, provider_status="in_progress")
+        adapter.retrieve_status = replace(
+            adapter.retrieve_status,
+            provider_status="ended",
+            succeeded_count=1,
+            failed_count=1,
+            canceled_count=0,
+            expired_count=0,
+        )
+        service = ProviderBatchJobService(test_repository, {"anthropic": adapter})
+        job_id = service.submit(Path("/tmp/input.jsonl"), BatchSubmitMetadata(provider="anthropic"))
+
+        refreshed = service.refresh(job_id)
+
+        assert refreshed.status == "completed"
+        assert refreshed.provider_status == "ended"
+        assert refreshed.succeeded_count == 1
+        assert refreshed.failed_count == 1
+
+    def test_refresh_allows_anthropic_canceling_to_end_as_completed(
+        self,
+        test_repository: ImageRepository,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        adapter.provider = "anthropic"
+        adapter.submission = replace(adapter.submission, provider_status="in_progress")
+        adapter.cancel_status = replace(adapter.cancel_status, provider_status="canceling")
+        adapter.retrieve_status = replace(
+            adapter.retrieve_status,
+            provider_status="ended",
+            succeeded_count=0,
+            failed_count=0,
+            canceled_count=2,
+        )
+        service = ProviderBatchJobService(test_repository, {"anthropic": adapter})
+        job_id = service.submit(Path("/tmp/input.jsonl"), BatchSubmitMetadata(provider="anthropic"))
+
+        canceling = service.cancel(job_id)
+        refreshed = service.refresh(job_id)
+
+        assert canceling.status == "canceling"
+        assert refreshed.status == "completed"
+        assert refreshed.provider_status == "ended"
+        assert refreshed.canceled_count == 2
+
+    def test_refresh_preserves_raw_payload_when_provider_omits_payload(
+        self,
+        test_repository: ImageRepository,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        adapter.retrieve_status = replace(adapter.retrieve_status, raw_provider_payload=None)
+        service = ProviderBatchJobService(test_repository, {"openai": adapter})
+        job_id = service.submit(Path("/tmp/input.jsonl"), BatchSubmitMetadata(provider="openai"))
+
+        refreshed = service.refresh(job_id)
+
+        assert refreshed.status == "completed"
+        assert refreshed.raw_provider_payload == '{"id": "batch_123", "status": "validating"}'
+
+    def test_refresh_rejects_mismatched_provider_job_id(
+        self,
+        test_repository: ImageRepository,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        adapter.retrieve_status = replace(adapter.retrieve_status, provider_job_id="batch_other")
+        service = ProviderBatchJobService(test_repository, {"openai": adapter})
+        job_id = service.submit(Path("/tmp/input.jsonl"), BatchSubmitMetadata(provider="openai"))
+
+        with pytest.raises(ProviderBatchError, match="job ID mismatch"):
+            service.refresh(job_id)
+
+        job = test_repository.get_provider_batch_job(job_id)
+        assert job is not None
+        assert job.status == "validating"
 
     def test_cancel_validates_transition_and_updates_job(
         self,
@@ -184,6 +306,35 @@ class TestProviderBatchJobService:
         assert job.output_artifact_path == "/tmp/output.jsonl"
         assert job.error_artifact_path == "/tmp/error.jsonl"
         assert job.raw_provider_payload == '{"output_file_id": "file_out"}'
+
+    def test_download_results_is_idempotent_for_existing_artifacts(
+        self,
+        test_repository: ImageRepository,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        service = ProviderBatchJobService(test_repository, {"openai": adapter})
+        job_id = service.submit(Path("/tmp/input.jsonl"), BatchSubmitMetadata(provider="openai"))
+
+        service.download_results(job_id, Path("/tmp"))
+        service.download_results(job_id, Path("/tmp"))
+
+        registered = test_repository.list_provider_batch_artifacts(job_id)
+        assert len(registered) == 2
+        assert [artifact.artifact_type for artifact in registered] == ["output", "error"]
+
+    def test_download_results_rejects_mismatched_provider_job_id(
+        self,
+        test_repository: ImageRepository,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        adapter.artifacts = replace(adapter.artifacts, provider_job_id="batch_other")
+        service = ProviderBatchJobService(test_repository, {"openai": adapter})
+        job_id = service.submit(Path("/tmp/input.jsonl"), BatchSubmitMetadata(provider="openai"))
+
+        with pytest.raises(ProviderBatchError, match="job ID mismatch"):
+            service.download_results(job_id, Path("/tmp"))
+
+        assert test_repository.list_provider_batch_artifacts(job_id) == []
 
     def test_missing_adapter_raises(self, test_repository: ImageRepository) -> None:
         service = ProviderBatchJobService(test_repository)
