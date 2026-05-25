@@ -22,6 +22,7 @@ from .db_repository import (
     TagAnnotationData,
 )
 from .filter_criteria import ImageFilterCriteria
+from .repository.error_record import ErrorRecordRepository
 from .repository.model import ModelRepository
 from .repository.project import ProjectRepository
 
@@ -42,6 +43,7 @@ class ImageDatabaseManager:
         fsm: FileSystemManager | None = None,
         model_repo: ModelRepository | None = None,
         project_repo: ProjectRepository | None = None,
+        error_record_repo: ErrorRecordRepository | None = None,
     ):
         """ImageDatabaseManagerのコンストラクタ。
 
@@ -55,6 +57,9 @@ class ImageDatabaseManager:
             project_repo (ProjectRepository): Project 関連の Repository (ADR 0035 段階 2)。
                 None の場合は `repository` の `session_factory` を流用して生成する。
                 テスト時にモック化可能。
+            error_record_repo (ErrorRecordRepository): ErrorRecord 関連の Repository
+                (ADR 0035 段階 3)。None の場合は `repository` の `session_factory` を
+                流用して生成する。テスト時にモック化可能。
 
         """
         self.repository = repository
@@ -78,6 +83,11 @@ class ImageDatabaseManager:
         if project_repo is None:
             project_repo = ProjectRepository(session_factory=session_factory)
         self.project_repo: ProjectRepository = project_repo
+        # ADR 0035 段階 3 (#423): ErrorRecord 関連を ErrorRecordRepository に集約。
+        # session_factory は他 Repository と同様に repository から取得する。
+        if error_record_repo is None:
+            error_record_repo = ErrorRecordRepository(session_factory=session_factory)
+        self.error_record_repo: ErrorRecordRepository = error_record_repo
         self._cached_project_id: int | None = None
         logger.info("ImageDatabaseManager initialized.")
 
@@ -991,7 +1001,10 @@ class ImageDatabaseManager:
                 completed_images: int = result.scalar() or 0
 
                 # エラー画像数取得 (未解決のアノテーションエラーのみ)
-                error_images = self.repository.get_error_count_unresolved(operation_type="annotation")
+                # ADR 0035 段階 3 (#423): injected error_record_repo 経由で呼び出し DI contract を維持。
+                error_images = self.error_record_repo.get_error_count_unresolved(
+                    operation_type="annotation"
+                )
 
                 completion_rate = (completed_images / total_images) * 100.0 if total_images > 0 else 0.0
 
@@ -1038,7 +1051,8 @@ class ImageDatabaseManager:
                     """)
                 elif error:
                     # エラー画像（未解決のアノテーションエラーのみ）
-                    error_image_ids = self.repository.get_error_image_ids(
+                    # ADR 0035 段階 3 (#423): injected error_record_repo 経由で呼び出し DI contract を維持。
+                    error_image_ids = self.error_record_repo.get_error_image_ids(
                         operation_type="annotation",
                         resolved=False,
                     )
@@ -1359,7 +1373,8 @@ class ImageDatabaseManager:
 
         """
         try:
-            error_id = self.repository.save_error_record(
+            # ADR 0035 段階 3 (#423): injected error_record_repo 経由で呼び出し DI contract を維持。
+            error_id = self.error_record_repo.save_error_record(
                 operation_type=operation_type,
                 error_type=error_type,
                 error_message=error_message,
@@ -1395,7 +1410,8 @@ class ImageDatabaseManager:
 
         """
         try:
-            return self.repository.mark_errors_resolved_batch(error_ids)
+            # ADR 0035 段階 3 (#423): injected error_record_repo 経由で呼び出し DI contract を維持。
+            return self.error_record_repo.mark_errors_resolved_batch(error_ids)
         except SQLAlchemyError as e:
             logger.error(f"一括解決マーク失敗（Manager）: {e}", exc_info=True)
             raise
