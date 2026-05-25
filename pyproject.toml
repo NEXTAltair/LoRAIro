@@ -231,6 +231,8 @@ omit = [
     "*/tests/*",
     "*/__pycache__/*",
     "src/lorairo/main.py",
+    # designer-generated UI glue widget (no logic, ConfigurationWindow_ui から使用、Issue #413)
+    "src/lorairo/gui/widgets/file_picker.py",
 ]
 
 [tool.coverage.report]
