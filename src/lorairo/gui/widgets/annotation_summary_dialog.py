@@ -24,10 +24,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lorairo.gui.workers.annotation_worker import AnnotationExecutionResult
+from lorairo.gui.workers.annotation_worker import AnnotationExecutionResult, ModelErrorDetail
 
 # テーブルの最大表示行数
 _MAX_TABLE_ROWS = 50
+_ERROR_TYPE_INTEGRITY = "integrity_violation"
 
 
 class AnnotationSummaryDialog(QDialog):
@@ -105,7 +106,10 @@ class AnnotationSummaryDialog(QDialog):
         if self._result.image_summaries:
             layout.addWidget(self._create_results_group())
 
-        if self._result.model_errors:
+        if self._integrity_violations:
+            layout.addWidget(self._create_integrity_violation_group())
+
+        if self._regular_model_errors:
             layout.addWidget(self._create_error_group())
 
         layout.addStretch()
@@ -155,12 +159,35 @@ class AnnotationSummaryDialog(QDialog):
             form.addRow("DB保存失敗:", fail_label)
 
         if self._result.model_errors:
-            unique_model_errors = len({e.model_name for e in self._result.model_errors})
-            error_label = QLabel(f"{unique_model_errors}モデルでエラー発生")
-            error_label.setStyleSheet("color: #FF9800;")
-            form.addRow("モデルエラー:", error_label)
+            if self._regular_model_errors:
+                unique_model_errors = len({e.model_name for e in self._regular_model_errors})
+                error_label = QLabel(f"{unique_model_errors}モデルでエラー発生")
+                error_label.setStyleSheet("color: #FF9800;")
+                form.addRow("モデルエラー:", error_label)
+            if self._integrity_violations:
+                integrity_label = QLabel(f"{len(self._integrity_violations)}件")
+                integrity_label.setStyleSheet("color: #F44336; font-weight: bold;")
+                form.addRow("整合性違反:", integrity_label)
 
         return group
+
+    @property
+    def _regular_model_errors(self) -> list[ModelErrorDetail]:
+        """integrity_violation 以外の通常モデルエラー。"""
+        return [
+            error
+            for error in self._result.model_errors
+            if getattr(error, "error_type", "model_error") != _ERROR_TYPE_INTEGRITY
+        ]
+
+    @property
+    def _integrity_violations(self) -> list[ModelErrorDetail]:
+        """内部整合性違反として分類されたエラー。"""
+        return [
+            error
+            for error in self._result.model_errors
+            if getattr(error, "error_type", "model_error") == _ERROR_TYPE_INTEGRITY
+        ]
 
     def _create_models_used_view(self) -> QTextBrowser:
         """使用モデル一覧を横に伸びないスクロール表示で作成する。"""
@@ -238,7 +265,7 @@ class AnnotationSummaryDialog(QDialog):
         Returns:
             エラー一覧テーブルを含むグループボックス。
         """
-        errors = self._result.model_errors
+        errors = self._regular_model_errors
         total_errors = len(errors)
         display_count = min(total_errors, _MAX_TABLE_ROWS)
 
@@ -266,6 +293,40 @@ class AnnotationSummaryDialog(QDialog):
 
         if total_errors > _MAX_TABLE_ROWS:
             overflow_label = QLabel(f"他 {total_errors - _MAX_TABLE_ROWS}件のエラー")
+            overflow_label.setStyleSheet("color: #999; font-style: italic;")
+            layout.addWidget(overflow_label)
+
+        return group
+
+    def _create_integrity_violation_group(self) -> QGroupBox:
+        """内部整合性違反セクションを作成する。"""
+        errors = self._integrity_violations
+        total_errors = len(errors)
+        display_count = min(total_errors, _MAX_TABLE_ROWS)
+
+        group = QGroupBox(f"整合性違反 ({total_errors}件)")
+        layout = QVBoxLayout(group)
+
+        table = QTableWidget(display_count, 3)
+        table.setObjectName("integrityViolationTable")
+        table.setHorizontalHeaderLabels(["画像", "モデル", "内容"])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setMaximumHeight(200)
+
+        for row, error in enumerate(errors[:_MAX_TABLE_ROWS]):
+            table.setItem(row, 0, QTableWidgetItem(error.image_path))
+            table.setItem(row, 1, QTableWidgetItem(error.model_name))
+            table.setItem(row, 2, QTableWidgetItem(error.error_message))
+
+        layout.addWidget(table)
+
+        if total_errors > _MAX_TABLE_ROWS:
+            overflow_label = QLabel(f"他 {total_errors - _MAX_TABLE_ROWS}件")
             overflow_label.setStyleSheet("color: #999; font-style: italic;")
             layout.addWidget(overflow_label)
 
