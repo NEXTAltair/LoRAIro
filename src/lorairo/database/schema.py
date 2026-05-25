@@ -15,6 +15,7 @@ from sqlalchemy import (
     Integer,
     String,
     Table,  # 中間テーブル定義で使用
+    Text,
     UniqueConstraint,
     func,
 )
@@ -111,6 +112,12 @@ class Model(Base):
     scores: Mapped[list[Score]] = relationship("Score", back_populates="model")
     score_labels: Mapped[list[ScoreLabel]] = relationship("ScoreLabel", back_populates="model")
     ratings: Mapped[list[Rating]] = relationship("Rating", back_populates="model")
+    provider_batch_jobs: Mapped[list[ProviderBatchJob]] = relationship(
+        "ProviderBatchJob", back_populates="model"
+    )
+    provider_batch_items: Mapped[list[ProviderBatchItem]] = relationship(
+        "ProviderBatchItem", back_populates="model"
+    )
 
     def __repr__(self) -> str:
         return f"<Model(id={self.id}, name='{self.name}')>"
@@ -218,6 +225,9 @@ class Image(Base):
     )
     error_records: Mapped[list[ErrorRecord]] = relationship(
         "ErrorRecord", back_populates="image", cascade="all, delete-orphan"
+    )
+    provider_batch_items: Mapped[list[ProviderBatchItem]] = relationship(
+        "ProviderBatchItem", back_populates="image"
     )
 
     # uuid と phash の組み合わせはユニークであるべき
@@ -496,6 +506,137 @@ class ImageFilenameAlias(Base):
         return f"<ImageFilenameAlias(id={self.id}, stem='{self.stem}', image_id={self.image_id})>"
 
 
+class ProviderBatchJob(Base):
+    """プロバイダ Batch API の永続 job 状態。"""
+
+    __tablename__ = "provider_batch_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider: Mapped[str] = mapped_column(String, nullable=False)
+    provider_job_id: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    provider_status: Mapped[str | None] = mapped_column(String)
+    endpoint: Mapped[str | None] = mapped_column(String)
+    model_id: Mapped[int | None] = mapped_column(ForeignKey("models.id", ondelete="SET NULL"))
+    request_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    succeeded_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    failed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    canceled_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    expired_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    submitted_at: Mapped[datetime.datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    completed_at: Mapped[datetime.datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    canceled_at: Mapped[datetime.datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    imported_at: Mapped[datetime.datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    expires_at: Mapped[datetime.datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    input_artifact_path: Mapped[str | None] = mapped_column(String)
+    output_artifact_path: Mapped[str | None] = mapped_column(String)
+    error_artifact_path: Mapped[str | None] = mapped_column(String)
+    raw_provider_payload: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    model: Mapped[Model | None] = relationship("Model", back_populates="provider_batch_jobs")
+    items: Mapped[list[ProviderBatchItem]] = relationship(
+        "ProviderBatchItem", back_populates="job", cascade="all, delete-orphan"
+    )
+    artifacts: Mapped[list[ProviderBatchArtifact]] = relationship(
+        "ProviderBatchArtifact", back_populates="job", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("ix_provider_batch_jobs_provider", "provider"),
+        Index("ix_provider_batch_jobs_status", "status"),
+        Index("ix_provider_batch_jobs_created_at", "created_at"),
+        Index(
+            "uq_provider_batch_jobs_provider_job",
+            "provider",
+            "provider_job_id",
+            unique=True,
+            sqlite_where=provider_job_id.is_not(None),
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ProviderBatchJob(id={self.id}, provider='{self.provider}', status='{self.status}')>"
+
+
+class ProviderBatchItem(Base):
+    """Provider Batch API job 内の request/result item。"""
+
+    __tablename__ = "provider_batch_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_id: Mapped[int] = mapped_column(
+        ForeignKey("provider_batch_jobs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    custom_id: Mapped[str] = mapped_column(String, nullable=False)
+    image_id: Mapped[int | None] = mapped_column(ForeignKey("images.id", ondelete="SET NULL"))
+    model_id: Mapped[int | None] = mapped_column(ForeignKey("models.id", ondelete="SET NULL"))
+    task_type: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    error_type: Mapped[str | None] = mapped_column(String)
+    error_message: Mapped[str | None] = mapped_column(String)
+    raw_request: Mapped[str | None] = mapped_column(Text)
+    raw_response: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    job: Mapped[ProviderBatchJob] = relationship("ProviderBatchJob", back_populates="items")
+    image: Mapped[Image | None] = relationship("Image", back_populates="provider_batch_items")
+    model: Mapped[Model | None] = relationship("Model", back_populates="provider_batch_items")
+
+    __table_args__ = (
+        UniqueConstraint("job_id", "custom_id", name="uix_provider_batch_items_job_custom_id"),
+        Index("ix_provider_batch_items_status", "status"),
+        Index("ix_provider_batch_items_image_id", "image_id"),
+        Index("ix_provider_batch_items_model_id", "model_id"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ProviderBatchItem(id={self.id}, job_id={self.job_id}, custom_id='{self.custom_id}')>"
+
+
+class ProviderBatchArtifact(Base):
+    """Provider Batch API job に紐づく local/provider artifact。"""
+
+    __tablename__ = "provider_batch_artifacts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_id: Mapped[int] = mapped_column(
+        ForeignKey("provider_batch_jobs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    artifact_type: Mapped[str] = mapped_column(String, nullable=False)
+    local_path: Mapped[str] = mapped_column(String, nullable=False)
+    provider_file_id: Mapped[str | None] = mapped_column(String)
+    sha256: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+
+    job: Mapped[ProviderBatchJob] = relationship("ProviderBatchJob", back_populates="artifacts")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "job_id",
+            "artifact_type",
+            "local_path",
+            name="uix_provider_batch_artifacts_job_type_path",
+        ),
+        Index("ix_provider_batch_artifacts_type", "artifact_type"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ProviderBatchArtifact(id={self.id}, job_id={self.job_id}, type='{self.artifact_type}')>"
+
+
 # --- TypedDicts for data transfer ---
 
 
@@ -612,4 +753,56 @@ class ErrorRecordData(TypedDict):
     file_path: NotRequired[str | None]
     model_name: NotRequired[str | None]
     resolved_at: NotRequired[datetime.datetime | None]
+    created_at: NotRequired[datetime.datetime]
+
+
+class ProviderBatchJobData(TypedDict):
+    id: NotRequired[int]
+    provider: str
+    provider_job_id: NotRequired[str | None]
+    status: str
+    provider_status: NotRequired[str | None]
+    endpoint: NotRequired[str | None]
+    model_id: NotRequired[int | None]
+    request_count: NotRequired[int]
+    succeeded_count: NotRequired[int]
+    failed_count: NotRequired[int]
+    canceled_count: NotRequired[int]
+    expired_count: NotRequired[int]
+    submitted_at: NotRequired[datetime.datetime | None]
+    completed_at: NotRequired[datetime.datetime | None]
+    canceled_at: NotRequired[datetime.datetime | None]
+    imported_at: NotRequired[datetime.datetime | None]
+    expires_at: NotRequired[datetime.datetime | None]
+    input_artifact_path: NotRequired[str | None]
+    output_artifact_path: NotRequired[str | None]
+    error_artifact_path: NotRequired[str | None]
+    raw_provider_payload: NotRequired[str | None]
+    created_at: NotRequired[datetime.datetime]
+    updated_at: NotRequired[datetime.datetime]
+
+
+class ProviderBatchItemData(TypedDict):
+    id: NotRequired[int]
+    job_id: int
+    custom_id: str
+    image_id: NotRequired[int | None]
+    model_id: NotRequired[int | None]
+    task_type: str
+    status: str
+    error_type: NotRequired[str | None]
+    error_message: NotRequired[str | None]
+    raw_request: NotRequired[str | None]
+    raw_response: NotRequired[str | None]
+    created_at: NotRequired[datetime.datetime]
+    updated_at: NotRequired[datetime.datetime]
+
+
+class ProviderBatchArtifactData(TypedDict):
+    id: NotRequired[int]
+    job_id: int
+    artifact_type: str
+    local_path: str
+    provider_file_id: NotRequired[str | None]
+    sha256: NotRequired[str | None]
     created_at: NotRequired[datetime.datetime]

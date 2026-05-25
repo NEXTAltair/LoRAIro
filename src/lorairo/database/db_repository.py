@@ -3,7 +3,7 @@
 import datetime
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 from genai_tag_db_tools import search_tags
 from genai_tag_db_tools.db.repository import MergedTagReader, get_default_reader
@@ -31,6 +31,12 @@ from .schema import (
     ModelType,
     ProcessedImage,
     Project,
+    ProviderBatchArtifact,
+    ProviderBatchArtifactData,
+    ProviderBatchItem,
+    ProviderBatchItemData,
+    ProviderBatchJob,
+    ProviderBatchJobData,
     Rating,
     Score,
     ScoreLabel,
@@ -64,6 +70,37 @@ class ImageRepository:
     # SQLite バインド変数上限の安全マージン（32,766の約半分）
     # IN句以外にもクエリ内で変数を使うため余裕を持たせる
     BATCH_CHUNK_SIZE = 15000
+    PROVIDER_BATCH_JOB_UPDATE_FIELDS: ClassVar[set[str]] = {
+        "provider_job_id",
+        "status",
+        "provider_status",
+        "endpoint",
+        "model_id",
+        "request_count",
+        "succeeded_count",
+        "failed_count",
+        "canceled_count",
+        "expired_count",
+        "submitted_at",
+        "completed_at",
+        "canceled_at",
+        "imported_at",
+        "expires_at",
+        "input_artifact_path",
+        "output_artifact_path",
+        "error_artifact_path",
+        "raw_provider_payload",
+    }
+    PROVIDER_BATCH_ITEM_UPDATE_FIELDS: ClassVar[set[str]] = {
+        "image_id",
+        "model_id",
+        "task_type",
+        "status",
+        "error_type",
+        "error_message",
+        "raw_request",
+        "raw_response",
+    }
 
     def __init__(self, session_factory: Callable[[], Session] = DefaultSessionLocal):
         """ImageRepositoryのコンストラクタ。
@@ -3285,6 +3322,228 @@ class ImageRepository:
                 logger.error(
                     f"手動編集フラグの更新中にエラーが発生しました (Type: {annotation_type}, ID: {annotation_id}): {e}",
                     exc_info=True,
+                )
+                raise
+
+    # --- Provider Batch Job Management Methods ---
+
+    def create_provider_batch_job(self, data: ProviderBatchJobData) -> int:
+        """Provider Batch API job を作成する。"""
+        with self.session_factory() as session:
+            try:
+                job = ProviderBatchJob(**data)
+                session.add(job)
+                session.flush()
+                job_id = job.id
+                session.commit()
+                logger.debug(
+                    f"Provider batch job を作成しました: ID={job_id}, "
+                    f"provider={job.provider}, status={job.status}",
+                )
+                return job_id
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"Provider batch job 作成中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    def get_provider_batch_job(self, job_id: int) -> ProviderBatchJob | None:
+        """Provider Batch API job を ID で取得する。"""
+        with self.session_factory() as session:
+            try:
+                stmt = (
+                    select(ProviderBatchJob)
+                    .options(
+                        selectinload(ProviderBatchJob.items),
+                        selectinload(ProviderBatchJob.artifacts),
+                    )
+                    .where(ProviderBatchJob.id == job_id)
+                )
+                return session.execute(stmt).scalar_one_or_none()
+            except SQLAlchemyError as e:
+                logger.error(f"Provider batch job 取得中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    def get_provider_batch_job_by_provider_id(
+        self,
+        provider: str,
+        provider_job_id: str,
+    ) -> ProviderBatchJob | None:
+        """provider と provider_job_id で Provider Batch API job を取得する。"""
+        with self.session_factory() as session:
+            try:
+                stmt = select(ProviderBatchJob).where(
+                    ProviderBatchJob.provider == provider,
+                    ProviderBatchJob.provider_job_id == provider_job_id,
+                )
+                return session.execute(stmt).scalar_one_or_none()
+            except SQLAlchemyError as e:
+                logger.error(
+                    f"Provider batch job provider ID 取得中にエラーが発生しました: {e}", exc_info=True
+                )
+                raise
+
+    def list_provider_batch_jobs(
+        self,
+        provider: str | None = None,
+        status: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[ProviderBatchJob]:
+        """Provider Batch API job 一覧を取得する。"""
+        with self.session_factory() as session:
+            try:
+                stmt = select(ProviderBatchJob).order_by(ProviderBatchJob.created_at.desc())
+                if provider is not None:
+                    stmt = stmt.where(ProviderBatchJob.provider == provider)
+                if status is not None:
+                    stmt = stmt.where(ProviderBatchJob.status == status)
+                stmt = stmt.limit(limit).offset(offset)
+                return list(session.execute(stmt).scalars().all())
+            except SQLAlchemyError as e:
+                logger.error(f"Provider batch job 一覧取得中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    def update_provider_batch_job(self, job_id: int, updates: dict[str, Any]) -> bool:
+        """Provider Batch API job を更新する。許可フィールドのみ更新対象。"""
+        invalid_fields = set(updates) - self.PROVIDER_BATCH_JOB_UPDATE_FIELDS
+        if invalid_fields:
+            raise ValueError(f"更新できない provider batch job フィールド: {sorted(invalid_fields)}")
+        if not updates:
+            return False
+
+        with self.session_factory() as session:
+            try:
+                stmt = (
+                    update(ProviderBatchJob)
+                    .where(ProviderBatchJob.id == job_id)
+                    .values(**updates, updated_at=func.now())
+                )
+                result = cast(CursorResult[Any], session.execute(stmt))
+                session.commit()
+                return bool(result.rowcount)
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"Provider batch job 更新中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    def delete_provider_batch_job(self, job_id: int) -> bool:
+        """Provider Batch API job を削除する。items / artifacts は cascade される。"""
+        with self.session_factory() as session:
+            try:
+                session.execute(delete(ProviderBatchArtifact).where(ProviderBatchArtifact.job_id == job_id))
+                session.execute(delete(ProviderBatchItem).where(ProviderBatchItem.job_id == job_id))
+                stmt = delete(ProviderBatchJob).where(ProviderBatchJob.id == job_id)
+                result = cast(CursorResult[Any], session.execute(stmt))
+                session.commit()
+                return bool(result.rowcount)
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"Provider batch job 削除中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    def create_provider_batch_item(self, data: ProviderBatchItemData) -> int:
+        """Provider Batch API job item を作成する。"""
+        with self.session_factory() as session:
+            try:
+                item = ProviderBatchItem(**data)
+                session.add(item)
+                session.flush()
+                item_id = item.id
+                session.commit()
+                return item_id
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"Provider batch item 作成中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    def list_provider_batch_items(
+        self,
+        job_id: int,
+        status: str | None = None,
+        limit: int = 1000,
+        offset: int = 0,
+    ) -> list[ProviderBatchItem]:
+        """Provider Batch API job item 一覧を取得する。"""
+        with self.session_factory() as session:
+            try:
+                stmt = (
+                    select(ProviderBatchItem)
+                    .where(ProviderBatchItem.job_id == job_id)
+                    .order_by(ProviderBatchItem.id)
+                )
+                if status is not None:
+                    stmt = stmt.where(ProviderBatchItem.status == status)
+                stmt = stmt.limit(limit).offset(offset)
+                return list(session.execute(stmt).scalars().all())
+            except SQLAlchemyError as e:
+                logger.error(f"Provider batch item 一覧取得中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    def update_provider_batch_item_by_custom_id(
+        self,
+        job_id: int,
+        custom_id: str,
+        updates: dict[str, Any],
+    ) -> bool:
+        """job_id + custom_id で Provider Batch API job item を更新する。"""
+        invalid_fields = set(updates) - self.PROVIDER_BATCH_ITEM_UPDATE_FIELDS
+        if invalid_fields:
+            raise ValueError(f"更新できない provider batch item フィールド: {sorted(invalid_fields)}")
+        if not updates:
+            return False
+
+        with self.session_factory() as session:
+            try:
+                stmt = (
+                    update(ProviderBatchItem)
+                    .where(
+                        ProviderBatchItem.job_id == job_id,
+                        ProviderBatchItem.custom_id == custom_id,
+                    )
+                    .values(**updates, updated_at=func.now())
+                )
+                result = cast(CursorResult[Any], session.execute(stmt))
+                session.commit()
+                return bool(result.rowcount)
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"Provider batch item 更新中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    def create_provider_batch_artifact(self, data: ProviderBatchArtifactData) -> int:
+        """Provider Batch API job artifact を作成する。"""
+        with self.session_factory() as session:
+            try:
+                artifact = ProviderBatchArtifact(**data)
+                session.add(artifact)
+                session.flush()
+                artifact_id = artifact.id
+                session.commit()
+                return artifact_id
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"Provider batch artifact 作成中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    def list_provider_batch_artifacts(
+        self,
+        job_id: int,
+        artifact_type: str | None = None,
+    ) -> list[ProviderBatchArtifact]:
+        """Provider Batch API job artifact 一覧を取得する。"""
+        with self.session_factory() as session:
+            try:
+                stmt = (
+                    select(ProviderBatchArtifact)
+                    .where(ProviderBatchArtifact.job_id == job_id)
+                    .order_by(ProviderBatchArtifact.id)
+                )
+                if artifact_type is not None:
+                    stmt = stmt.where(ProviderBatchArtifact.artifact_type == artifact_type)
+                return list(session.execute(stmt).scalars().all())
+            except SQLAlchemyError as e:
+                logger.error(
+                    f"Provider batch artifact 一覧取得中にエラーが発生しました: {e}", exc_info=True
                 )
                 raise
 
