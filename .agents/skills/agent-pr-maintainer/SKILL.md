@@ -32,7 +32,8 @@ the code-editing session that applies fixes in the existing worktree.
 - Allow up to 4 repair loops.
 - If repair loops continue after the 4th attempt, or review fixes create more design-level review findings,
   stop and escalate to design discussion.
-- Merge without human intervention only when bot review and required checks are clean.
+- Merge without human intervention only when bot review has completed cleanly and required checks are clean.
+- Treat an empty review/comment set as "review not completed yet", not as clean.
 - Use squash merge.
 
 ## Polling Workflow
@@ -47,6 +48,25 @@ gh pr view "$PR" --json \
   number,title,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,reviewDecision,statusCheckRollup,labels
 
 gh pr checks "$PR" --json name,state,bucket,link,startedAt,completedAt,workflow
+```
+
+Review completion gate:
+
+- Do not merge immediately after CI success.
+- Continue polling until the expected Codex/Bot review signal appears as a PR review, review comment,
+  issue comment, issue reaction, or other repository-standard bot review artifact.
+- Codex clean-review may appear as a `+1` reaction from `chatgpt-codex-connector[bot]` on the PR issue
+  rather than as a review/comment. Treat that reaction as a completed clean bot review when there are no
+  blocking review comments.
+- If CI is green but there are no reviews/comments/reactions yet, keep waiting until the 20 minute polling timeout.
+- Only treat review as clean after a bot review artifact exists and contains no blocking findings.
+- If no bot review artifact appears within 20 minutes, comment on the PR in Japanese that CI is green but
+  review did not complete within the polling window, then stop without merging.
+
+Commands to gather clean-reaction state:
+
+```bash
+gh api "repos/NEXTAltair/LoRAIro/issues/$PR/reactions"
 ```
 
 For failed CI jobs, use `gh` to fetch failed logs:
@@ -129,7 +149,8 @@ Before merge, verify:
 - PR is not draft.
 - Head SHA matches the last checked SHA.
 - Required checks are successful.
-- Bot review has no blocking findings.
+- Bot review has completed and has no blocking findings.
+- PR reviews/comments or PR issue reactions contain an expected bot review artifact.
 - Repair loop count is below the escalation threshold.
 - The PR is not in escalation state.
 
