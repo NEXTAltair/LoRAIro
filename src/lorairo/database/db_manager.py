@@ -22,6 +22,7 @@ from .db_repository import (
     TagAnnotationData,
 )
 from .filter_criteria import ImageFilterCriteria
+from .repository.model import ModelRepository
 
 if TYPE_CHECKING:
     from ..services.configuration_service import ConfigurationService
@@ -38,6 +39,7 @@ class ImageDatabaseManager:
         repository: ImageRepository,
         config_service: "ConfigurationService",
         fsm: FileSystemManager | None = None,
+        model_repo: ModelRepository | None = None,
     ):
         """ImageDatabaseManagerのコンストラクタ。
 
@@ -45,11 +47,27 @@ class ImageDatabaseManager:
             repository (ImageRepository): 使用するImageRepositoryインスタンス。
             config_service (ConfigurationService): 設定サービスインスタンス。
             fsm (FileSystemManager): ファイルシステムマネージャー（オプション）。
+            model_repo (ModelRepository): Model 関連の Repository (ADR 0035 段階 1)。
+                None の場合は `repository` の `session_factory` を流用して生成する。
+                テスト時にモック化可能。
 
         """
         self.repository = repository
         self.config_service = config_service
         self.fsm = fsm
+        # ADR 0035 段階 1 (#423): Model 関連を ModelRepository に集約。
+        # 通常 manager は repository の session_factory を共有して ModelRepository を生成する。
+        # `Mock(spec=ImageRepository)` で生成された mock には session_factory が無いため、
+        # その場合は DefaultSessionLocal にフォールバックする (各テストは model_repo を明示
+        # Mock 注入することで本フォールバック経路を経由してもテスト独立性を保てる)。
+        if model_repo is None:
+            session_factory = getattr(repository, "session_factory", None)
+            if session_factory is None:
+                from .db_core import DefaultSessionLocal
+
+                session_factory = DefaultSessionLocal
+            model_repo = ModelRepository(session_factory=session_factory)
+        self.model_repo: ModelRepository = model_repo
         self._cached_project_id: int | None = None
         logger.info("ImageDatabaseManager initialized.")
 
@@ -60,6 +78,7 @@ class ImageDatabaseManager:
 
         repository = ImageRepository()
         config_service = ConfigurationService()
+        # ModelRepository は __init__ で自動生成 (repository.session_factory を共有)。
         return cls(repository, config_service)
 
     # __enter__ と __exit__ はリポジトリがセッション管理するため、ここでは不要になることが多い
@@ -692,7 +711,7 @@ class ImageDatabaseManager:
 
         """
         try:
-            return self.repository.get_models()
+            return self.model_repo.get_models()
         except SQLAlchemyError as e:
             logger.error(f"全モデル情報の取得中にエラー: {e}", exc_info=True)
             raise
@@ -705,7 +724,7 @@ class ImageDatabaseManager:
 
         """
         try:
-            return self.repository.get_models_by_type("tags")
+            return self.model_repo.get_models_by_type("tags")
         except SQLAlchemyError as e:
             logger.error(f"Taggerモデル情報の取得中にエラー: {e}", exc_info=True)
             raise
@@ -718,7 +737,7 @@ class ImageDatabaseManager:
 
         """
         try:
-            return self.repository.get_models_by_type("scores")
+            return self.model_repo.get_models_by_type("scores")
         except SQLAlchemyError as e:
             logger.error(f"Scoreモデル情報の取得中にエラー: {e}", exc_info=True)
             raise
@@ -731,7 +750,7 @@ class ImageDatabaseManager:
 
         """
         try:
-            return self.repository.get_models_by_type("caption")
+            return self.model_repo.get_models_by_type("caption")
         except SQLAlchemyError as e:
             logger.error(f"Captionerモデル情報の取得中にエラー: {e}", exc_info=True)
             raise
@@ -744,7 +763,7 @@ class ImageDatabaseManager:
 
         """
         try:
-            return self.repository.get_models_by_type("upscaler")
+            return self.model_repo.get_models_by_type("upscaler")
         except SQLAlchemyError as e:
             logger.error(f"Upscalerモデル情報の取得中にエラー: {e}", exc_info=True)
             raise
@@ -757,7 +776,7 @@ class ImageDatabaseManager:
 
         """
         try:
-            return self.repository.get_models_by_type("multimodal")
+            return self.model_repo.get_models_by_type("multimodal")
         except SQLAlchemyError as e:
             logger.error(f"LLMモデル情報の取得中にエラー: {e}", exc_info=True)
             raise
@@ -776,8 +795,8 @@ class ImageDatabaseManager:
 
         """
         if not hasattr(self, "_manual_edit_model_id"):
-            with self.repository.session_factory() as session:
-                self._manual_edit_model_id = self.repository._get_or_create_manual_edit_model(session)
+            with self.model_repo.session_factory() as session:
+                self._manual_edit_model_id = ModelRepository._get_or_create_manual_edit_model(session)
                 session.commit()
             logger.debug(f"MANUAL_EDITモデルIDをキャッシュ: {self._manual_edit_model_id}")
         return self._manual_edit_model_id
