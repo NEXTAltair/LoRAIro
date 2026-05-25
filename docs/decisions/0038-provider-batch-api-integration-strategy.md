@@ -64,6 +64,26 @@ OpenRouter は LoRAIro の同期 WebAPI route としては維持するが、Prov
 native batch discount / job status / result artifact lifecycle を LoRAIro が検証できないため、
 batch 対象 model selection から除外する。
 
+#### Batch 対象モデルの責務境界
+
+LoRAIro の `models` table は annotation result が「どのモデル由来か」を参照するための
+local ledger であり、現在の model capability の SSoT ではない。`discontinued_at` は例外的に
+LoRAIro 側の local availability gate として扱う。
+
+- `models.discontinued_at IS NOT NULL` のモデルは batch eligibility を image-annotator-lib に
+  問い合わせず、batch job 作成 UI にも表示しない
+- `discontinued_at` の upstream / local DB 不一致は自動復活ロジックでは扱わない。必要なら operator
+  が local DB の `discontinued_at` を修正する
+- `discontinued_at IS NULL` のモデルだけを image-annotator-lib へ渡し、現在の task / provider batch
+  eligibility を都度問い合わせる
+- submit 直前にも image-annotator-lib 側で同じ model / task / provider batch eligibility を
+  validation する
+
+Batch eligibility は LoRAIro DB に永続化しない。OpenAI direct route では、LiteLLM 同梱 DB に
+`input_cost_per_token_batches` または `output_cost_per_token_batches` が存在することを
+Provider Batch API 対応の実用シグナルとして扱う。`cache_read_input_token_cost_batches` は補助的な
+料金 metadata とし、単独では対応判定に使わない。
+
 ### 1. Provider Batch API は `AnnotationWorker` に統合しない
 
 Provider Batch API は同期 Worker の variant ではなく、独立した **Batch Job pipeline** として扱う。
@@ -257,7 +277,9 @@ Notes:
 UI 要件:
 - Batch job 作成ダイアログ
   - provider / model / endpoint / 対象画像 / task / estimated request count
-  - direct provider route の model のみ選択可能にし、OpenRouter route は同期 annotation へ誘導
+  - `discontinued_at IS NULL` の direct provider route model だけを候補にし、Batch eligibility は
+    image-annotator-lib へ都度問い合わせる
+  - OpenRouter route と discontinued model は表示せず、同期 annotation または DB metadata 修正へ誘導
   - provider retention / cost discount / expected delay の表示
   - OpenAI: local JSONL upload 方式
   - Google: project / location / GCS or BigQuery 設定が必要なことを明示
@@ -284,7 +306,9 @@ ADR 0023 の同期推論境界は維持する。Provider Batch API は PydanticA
   方が追跡しやすい
 
 同期 inference は `AnnotatorLibraryAdapter` / `image-annotator-lib`、非同期 provider batch は
-`ProviderBatchAdapter` として別境界にする。
+`ProviderBatchAdapter` として別境界にする。モデルの task capability と provider batch eligibility は
+image-annotator-lib が判定し、LoRAIro は `models.discontinued_at` による local gate と UI 表示・
+job persistence を担当する。
 
 OpenRouter は LiteLLM-compatible な同期 endpoint としては有用だが、Provider Batch API の
 SSoT にはしない。OpenRouter が内部で OpenAI / Anthropic / Google provider に route できることと、
@@ -357,7 +381,8 @@ Batch result は request order を保証しない。provider docs でも meaning
 3. **OpenAI adapter**: request JSONL upload、batch create/retrieve/cancel、output/error file download を実装
 4. **OpenAI request builder**: 画像アノテーション用 `/v1/responses` JSONL と `custom_id` mapping を生成
 5. **OpenAI import bridge**: downloaded artifacts を既存 `BatchImportService` に接続し、item status を更新
-6. **Batch model eligibility**: direct provider route だけを batch eligible とし、OpenRouter route を除外する
+6. **Batch model eligibility**: LoRAIro は `discontinued_at IS NULL` の direct provider route model だけを
+   lib に渡し、lib は LiteLLM batch pricing fields と task capability から eligibility を都度返す
 7. **GUI job list**: provider batch job 一覧、refresh、cancel、download、import 操作を追加
 8. **CLI**: submit/list/status/cancel/download/import subcommands を追加
 9. **Anthropic adapter**: Message Batches create/retrieve/cancel/results stream と parser を追加
