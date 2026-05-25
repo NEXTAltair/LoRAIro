@@ -24,6 +24,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.model import ModelRepository
 from lorairo.services.configuration_service import ConfigurationService
 
 # ---------------------------------------------------------------------------
@@ -38,6 +39,12 @@ def mock_repository() -> Mock:
 
 
 @pytest.fixture
+def mock_model_repo() -> Mock:
+    """モック化された ModelRepository を返す (ADR 0035 段階 1)。"""
+    return Mock(spec=ModelRepository)
+
+
+@pytest.fixture
 def mock_config_service() -> Mock:
     """モック化された ConfigurationService を返す。"""
     svc = Mock(spec=ConfigurationService)
@@ -46,12 +53,15 @@ def mock_config_service() -> Mock:
 
 
 @pytest.fixture
-def manager(mock_repository: Mock, mock_config_service: Mock) -> ImageDatabaseManager:
+def manager(
+    mock_repository: Mock, mock_config_service: Mock, mock_model_repo: Mock
+) -> ImageDatabaseManager:
     """ImageDatabaseManager のインスタンスを返す（依存はすべてモック）。"""
     return ImageDatabaseManager(
         repository=mock_repository,
         config_service=mock_config_service,
         fsm=None,
+        model_repo=mock_model_repo,
     )
 
 
@@ -228,79 +238,79 @@ class TestGetImageAnnotations:
 
 @pytest.mark.unit
 class TestGetModels:
-    """モデル取得メソッドのテスト"""
+    """モデル取得メソッドのテスト (ADR 0035 段階 1: ModelRepository 経由)"""
 
     def test_get_models_raises_on_sqlalchemy_error(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self, manager: ImageDatabaseManager, mock_model_repo: Mock
     ) -> None:
         """get_models: SQLAlchemyError は呼び出し元に伝播 (silent return しない)。"""
-        mock_repository.get_models.side_effect = SQLAlchemyError("db error")
+        mock_model_repo.get_models.side_effect = SQLAlchemyError("db error")
         with pytest.raises(SQLAlchemyError):
             manager.get_models()
 
     def test_get_tagger_models_raises_on_sqlalchemy_error(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self, manager: ImageDatabaseManager, mock_model_repo: Mock
     ) -> None:
         """get_tagger_models: SQLAlchemyError は呼び出し元に伝播。"""
-        mock_repository.get_models_by_type.side_effect = SQLAlchemyError("db error")
+        mock_model_repo.get_models_by_type.side_effect = SQLAlchemyError("db error")
         with pytest.raises(SQLAlchemyError):
             manager.get_tagger_models()
 
     def test_get_score_models_raises_on_sqlalchemy_error(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self, manager: ImageDatabaseManager, mock_model_repo: Mock
     ) -> None:
         """get_score_models: SQLAlchemyError は呼び出し元に伝播。"""
-        mock_repository.get_models_by_type.side_effect = SQLAlchemyError("db error")
+        mock_model_repo.get_models_by_type.side_effect = SQLAlchemyError("db error")
         with pytest.raises(SQLAlchemyError):
             manager.get_score_models()
 
     def test_get_captioner_models_raises_on_sqlalchemy_error(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self, manager: ImageDatabaseManager, mock_model_repo: Mock
     ) -> None:
         """get_captioner_models: SQLAlchemyError は呼び出し元に伝播。"""
-        mock_repository.get_models_by_type.side_effect = SQLAlchemyError("db error")
+        mock_model_repo.get_models_by_type.side_effect = SQLAlchemyError("db error")
         with pytest.raises(SQLAlchemyError):
             manager.get_captioner_models()
 
     def test_get_upscaler_models_raises_on_sqlalchemy_error(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self, manager: ImageDatabaseManager, mock_model_repo: Mock
     ) -> None:
         """get_upscaler_models: SQLAlchemyError は呼び出し元に伝播。"""
-        mock_repository.get_models_by_type.side_effect = SQLAlchemyError("db error")
+        mock_model_repo.get_models_by_type.side_effect = SQLAlchemyError("db error")
         with pytest.raises(SQLAlchemyError):
             manager.get_upscaler_models()
 
     def test_get_llm_models_raises_on_sqlalchemy_error(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self, manager: ImageDatabaseManager, mock_model_repo: Mock
     ) -> None:
         """get_llm_models: SQLAlchemyError は呼び出し元に伝播。"""
-        mock_repository.get_models_by_type.side_effect = SQLAlchemyError("db error")
+        mock_model_repo.get_models_by_type.side_effect = SQLAlchemyError("db error")
         with pytest.raises(SQLAlchemyError):
             manager.get_llm_models()
 
     def test_get_models_returns_list_on_success(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self, manager: ImageDatabaseManager, mock_model_repo: Mock
     ) -> None:
-        """get_models: 正常系ではリポジトリの返値をそのまま返す。"""
+        """get_models: 正常系では ModelRepository の返値をそのまま返す。"""
         expected = [{"id": 1, "name": "model_a"}]
-        mock_repository.get_models.return_value = expected
+        mock_model_repo.get_models.return_value = expected
         assert manager.get_models() == expected
 
     def test_get_tagger_models_passes_correct_type(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self, manager: ImageDatabaseManager, mock_model_repo: Mock
     ) -> None:
-        """get_tagger_models は 'tags' タイプでリポジトリを呼び出す。"""
-        mock_repository.get_models_by_type.return_value = []
+        """get_tagger_models は 'tags' タイプで ModelRepository を呼び出す。"""
+        mock_model_repo.get_models_by_type.return_value = []
         manager.get_tagger_models()
-        mock_repository.get_models_by_type.assert_called_once_with("tags")
+        mock_model_repo.get_models_by_type.assert_called_once_with("tags")
 
     def test_get_llm_models_passes_multimodal_type(
-        self, manager: ImageDatabaseManager, mock_repository: Mock
+        self, manager: ImageDatabaseManager, mock_model_repo: Mock
     ) -> None:
-        """get_llm_models は 'multimodal' タイプでリポジトリを呼び出す。"""
-        mock_repository.get_models_by_type.return_value = []
+        """get_llm_models は 'multimodal' タイプで ModelRepository を呼び出す。"""
+        mock_model_repo.get_models_by_type.return_value = []
         manager.get_llm_models()
-        mock_repository.get_models_by_type.assert_called_once_with("multimodal")
+        mock_model_repo.get_models_by_type.assert_called_once_with("multimodal")
 
 
 # ---------------------------------------------------------------------------
