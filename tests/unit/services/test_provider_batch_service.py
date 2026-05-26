@@ -528,6 +528,56 @@ class TestProviderBatchJobService:
         assert job.provider_status == "completed"
         assert job.output_artifact_path == "/tmp/output.jsonl"
 
+    def test_download_results_does_not_rewrite_terminal_status_for_legacy_artifacts(
+        self,
+        test_repository: ImageRepository,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        adapter.fetch_result = ProviderBatchArtifacts(
+            provider_job_id="batch_123",
+            artifacts=(ProviderBatchArtifactRef("error", Path("/tmp/error.jsonl")),),
+        )
+        service = ProviderBatchJobService(test_repository, {"openai": adapter})
+        job_id = service.submit_batch(make_submit_request())
+        test_repository.update_provider_batch_job(job_id, {"status": "failed"})
+
+        service.download_results(job_id, Path("/tmp"))
+
+        job = test_repository.get_provider_batch_job(job_id)
+        assert job is not None
+        assert job.status == "failed"
+        assert job.error_artifact_path == "/tmp/error.jsonl"
+
+    def test_fetch_results_coerces_mapping_artifacts_and_timestamps(
+        self,
+        test_repository: ImageRepository,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        adapter.fetch_result = {
+            "provider_job_id": "batch_123",
+            "provider_status": "completed",
+            "completed_at": "2026-05-25T02:00:00+00:00",
+            "artifacts": [
+                {
+                    "artifact_type": "output",
+                    "local_path": "/tmp/output.jsonl",
+                    "provider_file_id": "file_out",
+                    "sha256": "abc",
+                }
+            ],
+        }
+        service = ProviderBatchJobService(test_repository, {"openai": adapter})
+        job_id = service.submit_batch(make_submit_request())
+
+        fetch_result = service.fetch_results(job_id, Path("/tmp"))
+
+        assert fetch_result.artifacts[0].local_path == Path("/tmp/output.jsonl")
+        job = test_repository.get_provider_batch_job(job_id)
+        assert job is not None
+        assert job.completed_at is not None
+        assert job.completed_at.isoformat() == "2026-05-25T02:00:00"
+        assert job.output_artifact_path == "/tmp/output.jsonl"
+
     def test_missing_adapter_raises(self, test_repository: ImageRepository) -> None:
         service = ProviderBatchJobService(test_repository)
 

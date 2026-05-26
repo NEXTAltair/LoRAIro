@@ -22,6 +22,7 @@ from lorairo.services.provider_batch_service import (
     BatchSubmitItem,
     BatchSubmitRequest,
     ProviderBatchAdapter,
+    ProviderBatchArtifactRef,
     ProviderBatchArtifacts,
     ProviderBatchError,
     ProviderBatchFetchResult,
@@ -407,7 +408,7 @@ class ProviderBatchWorkflowService:
         if isinstance(result, ProviderBatchArtifacts):
             return ProviderBatchFetchResult(
                 provider_job_id=result.provider_job_id,
-                provider_status="completed",
+                provider_status="",
                 artifacts=result.artifacts,
                 raw_provider_payload=result.raw_provider_payload,
             )
@@ -416,7 +417,16 @@ class ProviderBatchWorkflowService:
                 provider_job_id=str(result.get("provider_job_id") or fallback_provider_job_id),
                 provider_status=str(result.get("provider_status") or result.get("status") or "completed"),
                 status=cls._optional_str(result.get("status")),
-                artifacts=tuple(result.get("artifacts") or ()),
+                request_count=cls._optional_int(result.get("request_count")),
+                succeeded_count=cls._optional_int(result.get("succeeded_count")),
+                failed_count=cls._optional_int(result.get("failed_count")),
+                canceled_count=cls._optional_int(result.get("canceled_count")),
+                expired_count=cls._optional_int(result.get("expired_count")),
+                completed_at=cls._optional_datetime(result.get("completed_at")),
+                expires_at=cls._optional_datetime(result.get("expires_at")),
+                artifacts=tuple(
+                    cls._coerce_artifact_ref(artifact) for artifact in result.get("artifacts") or ()
+                ),
                 items=tuple(cls._coerce_result_item(item) for item in result.get("items") or ()),
                 raw_provider_payload=result.get("raw_provider_payload"),
             )
@@ -427,9 +437,39 @@ class ProviderBatchWorkflowService:
                 getattr(result, "provider_status", None) or getattr(result, "status", None) or "completed"
             ),
             status=cls._optional_str(getattr(result, "status", None)),
-            artifacts=tuple(getattr(result, "artifacts", ()) or ()),
+            request_count=cls._optional_int(getattr(result, "request_count", None)),
+            succeeded_count=cls._optional_int(getattr(result, "succeeded_count", None)),
+            failed_count=cls._optional_int(getattr(result, "failed_count", None)),
+            canceled_count=cls._optional_int(getattr(result, "canceled_count", None)),
+            expired_count=cls._optional_int(getattr(result, "expired_count", None)),
+            completed_at=cls._optional_datetime(getattr(result, "completed_at", None)),
+            expires_at=cls._optional_datetime(getattr(result, "expires_at", None)),
+            artifacts=tuple(
+                cls._coerce_artifact_ref(artifact) for artifact in getattr(result, "artifacts", ()) or ()
+            ),
             items=tuple(cls._coerce_result_item(item) for item in getattr(result, "items", ()) or ()),
             raw_provider_payload=getattr(result, "raw_provider_payload", None),
+        )
+
+    @classmethod
+    def _coerce_artifact_ref(
+        cls,
+        artifact: ProviderBatchArtifactRef | Mapping[str, Any] | Any,
+    ) -> ProviderBatchArtifactRef:
+        if isinstance(artifact, ProviderBatchArtifactRef):
+            return artifact
+        if isinstance(artifact, Mapping):
+            return ProviderBatchArtifactRef(
+                artifact_type=str(artifact["artifact_type"]),
+                local_path=Path(artifact["local_path"]),
+                provider_file_id=cls._optional_str(artifact.get("provider_file_id")),
+                sha256=cls._optional_str(artifact.get("sha256")),
+            )
+        return ProviderBatchArtifactRef(
+            artifact_type=str(artifact.artifact_type),
+            local_path=Path(artifact.local_path),
+            provider_file_id=cls._optional_str(getattr(artifact, "provider_file_id", None)),
+            sha256=cls._optional_str(getattr(artifact, "sha256", None)),
         )
 
     @staticmethod
@@ -490,6 +530,22 @@ class ProviderBatchWorkflowService:
         if value is None:
             return None
         return str(value)
+
+    @staticmethod
+    def _optional_int(value: Any) -> int | None:
+        if value is None:
+            return None
+        return int(value)
+
+    @staticmethod
+    def _optional_datetime(value: Any) -> datetime | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        raise ProviderBatchError(f"datetime に変換できない値です: {value!r}")
 
     @staticmethod
     def _serialize_payload(payload: ProviderBatchRawPayload) -> str | None:

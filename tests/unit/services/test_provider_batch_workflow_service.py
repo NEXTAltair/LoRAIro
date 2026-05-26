@@ -490,6 +490,63 @@ class TestProviderBatchWorkflowService:
         assert result.job_imported is True
         annotation_save.save_provider_batch_results_by_image_id.assert_called_once()
 
+    def test_import_results_preserves_mapping_fetch_counts_and_timestamps(
+        self,
+        test_repository: ImageRepository,
+        batch_config: Mock,
+        db_session_factory: sessionmaker,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        annotation_save = Mock()
+        annotation_save.save_provider_batch_results_by_image_id.return_value = AnnotationSaveResult(
+            success_count=1,
+            skip_count=0,
+            error_count=0,
+            total_count=1,
+        )
+        service = ProviderBatchWorkflowService(
+            test_repository,
+            batch_config,
+            adapters={"openai": adapter},
+            annotation_save_service=annotation_save,
+        )
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+        job_id = service.submit_images(
+            provider="openai",
+            endpoint="responses",
+            litellm_model_id="openai/gpt-test",
+            prompt_profile="default",
+            image_ids=[1],
+            model_id=10,
+        )
+
+        service.import_results(
+            job_id,
+            {
+                "provider_job_id": "batch_123",
+                "provider_status": "completed",
+                "request_count": "1",
+                "succeeded_count": "1",
+                "failed_count": "0",
+                "completed_at": "2026-05-25T02:00:00+00:00",
+                "items": [
+                    {
+                        "custom_id": "img-1",
+                        "status": "succeeded",
+                        "annotation": {"tags": ["tag"]},
+                    }
+                ],
+            },
+        )
+
+        job = test_repository.get_provider_batch_job(job_id)
+        assert job is not None
+        assert job.request_count == 1
+        assert job.succeeded_count == 1
+        assert job.failed_count == 0
+        assert job.completed_at is not None
+        assert job.completed_at.isoformat() == "2026-05-25T02:00:00"
+
     def test_import_results_does_not_mark_imported_when_no_annotations_were_saved(
         self,
         test_repository: ImageRepository,
