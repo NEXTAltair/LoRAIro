@@ -31,6 +31,23 @@ the code-editing session that applies fixes in the existing worktree.
 ## Core Policy
 
 - Continue in the same agent session and same dedicated worktree used to create the PR.
+- Create agent PRs ready for review by default. Do not pass `--draft` to `gh pr create` unless the user
+  explicitly asked for draft-only publication or the implementation is not reviewable yet.
+- Immediately after creating a PR, enforce the no-draft postcondition before polling CI or setting up auto-merge:
+
+  ```bash
+  IS_DRAFT="$(gh pr view "$PR" --json isDraft -q .isDraft)"
+  if [ "$IS_DRAFT" = "true" ]; then
+    gh pr ready "$PR"
+  fi
+
+  IS_DRAFT="$(gh pr view "$PR" --json isDraft -q .isDraft)"
+  if [ "$IS_DRAFT" = "true" ]; then
+    echo "PR is still draft; aborting auto-merge setup."
+    exit 1
+  fi
+  ```
+
 - Do not stop at the draft PR URL when the PR is reviewable. First mark it ready for review, then immediately
   enter the polling workflow.
 - Leave a PR in draft only when the user explicitly asked for draft-only publication, local validation is
@@ -165,6 +182,8 @@ On escalation:
 Before merge, verify:
 
 - PR is not draft.
+- The PR creation postcondition confirmed `isDraft == false`; if the PR is still draft, do not run
+  `gh pr merge --auto`.
 - Head SHA matches the last checked SHA.
 - Required checks are successful.
 - Bot review has completed and has no blocking findings.

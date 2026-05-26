@@ -46,6 +46,8 @@
 - Do not end issue or multi-file feature work after local implementation only. Report the PR URL and final monitored state as the outcome.
 - If PR creation is blocked by auth, network, failing validation, or unclear scope, report the blocker explicitly instead of silently stopping at local changes.
 - Agent-created PRs should normally be created ready for review, not draft. When a draft PR exists because the user explicitly asked to keep it draft, mark it ready for review as soon as the user allows review, then immediately start or resume PR maintenance automation: poll CI, watch bot review artifacts/comments, repair actionable findings in the PR worktree, reply in Japanese, merge when safe, and report the final monitored state.
+- After creating an agent PR, explicitly verify `gh pr view "$PR" --json isDraft -q .isDraft`. If it is
+  `true`, run `gh pr ready "$PR"` and re-check. Do not set up `gh pr merge --auto` while the PR is still draft.
 - Keep agent-specific rules as references to this file and `.claude/rules/git-workflow.md` rather than duplicating conflicting workflow text.
 
 ## Codex Parallel Agent Workflow
