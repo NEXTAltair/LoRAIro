@@ -288,6 +288,7 @@ class ProviderBatchWorkflowService:
         model_id = refreshed_job.model_id or self._first_item_model_id(refreshed_job)
         if results_by_image_id and model_id is None:
             raise ProviderBatchError(f"Provider batch import に model_id が必要です: job_id={job_id}")
+        self._validate_importable_job_state(refreshed_job, results_by_image_id)
         model_name = self._model_name_for_job(refreshed_job, model_id)
         save_result = self._annotation_save_service.save_provider_batch_results_by_image_id(
             results_by_image_id,
@@ -318,6 +319,13 @@ class ProviderBatchWorkflowService:
             missing_custom_ids=unique_missing_custom_ids,
             job_imported=job_imported,
         )
+
+    @staticmethod
+    def _validate_importable_job_state(
+        job: ProviderBatchJob, results_by_image_id: Mapping[int, Any]
+    ) -> None:
+        if results_by_image_id:
+            ProviderBatchJobService.validate_transition(job.status, "imported")
 
     def apply_result_items(
         self,

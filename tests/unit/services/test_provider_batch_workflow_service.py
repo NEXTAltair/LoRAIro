@@ -593,6 +593,46 @@ class TestProviderBatchWorkflowService:
         assert job.status == "completed"
         assert job.imported_at is None
 
+    def test_import_results_rejects_importable_items_before_completed(
+        self,
+        test_repository: ImageRepository,
+        batch_config: Mock,
+        db_session_factory: sessionmaker,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        annotation_save = Mock()
+        service = ProviderBatchWorkflowService(
+            test_repository,
+            batch_config,
+            adapters={"openai": adapter},
+            annotation_save_service=annotation_save,
+        )
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+        job_id = service.submit_images(
+            provider="openai",
+            endpoint="responses",
+            litellm_model_id="openai/gpt-test",
+            prompt_profile="default",
+            image_ids=[1],
+            model_id=10,
+        )
+
+        with pytest.raises(ProviderBatchError, match="running -> imported"):
+            service.import_results(
+                job_id,
+                ProviderBatchFetchResult(
+                    provider_job_id="batch_123",
+                    provider_status="running",
+                    items=(ProviderBatchResultItem("img-1", "succeeded", annotation={"tags": ["tag"]}),),
+                ),
+            )
+
+        annotation_save.save_provider_batch_results_by_image_id.assert_not_called()
+        job = test_repository.get_provider_batch_job(job_id)
+        assert job is not None
+        assert job.status == "running"
+        assert job.imported_at is None
+
     def test_import_results_rejects_already_imported_job(
         self,
         workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
