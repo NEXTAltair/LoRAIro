@@ -296,7 +296,7 @@ class ProviderBatchWorkflowService:
 
         unique_missing_custom_ids = tuple(sorted(set(missing_custom_ids)))
         job_imported = (
-            bool(normalized_fetch.items) and save_result.error_count == 0 and not unique_missing_custom_ids
+            save_result.success_count > 0 and save_result.error_count == 0 and not unique_missing_custom_ids
         )
         if job_imported:
             updates_by_custom_id = {custom_id: {"status": "imported"} for custom_id in imported_custom_ids}
@@ -370,11 +370,14 @@ class ProviderBatchWorkflowService:
         if not provider_status:
             return
         next_status = ProviderBatchJobService.normalize_status(job.provider, provider_status)
-        ProviderBatchJobService.validate_transition(job.status, next_status)
+        should_preserve_imported = job.status == "imported" and next_status == "completed"
+        if not should_preserve_imported:
+            ProviderBatchJobService.validate_transition(job.status, next_status)
         updates: dict[str, Any] = {
-            "status": next_status,
             "provider_status": fetch_result.provider_status,
         }
+        if not should_preserve_imported:
+            updates["status"] = next_status
         optional_fields = {
             "request_count": fetch_result.request_count,
             "succeeded_count": fetch_result.succeeded_count,
@@ -418,7 +421,8 @@ class ProviderBatchWorkflowService:
                 raw_provider_payload=result.get("raw_provider_payload"),
             )
         return ProviderBatchFetchResult(
-            provider_job_id=str(getattr(result, "provider_job_id", fallback_provider_job_id)),
+            provider_job_id=cls._optional_str(getattr(result, "provider_job_id", None))
+            or fallback_provider_job_id,
             provider_status=str(
                 getattr(result, "provider_status", None) or getattr(result, "status", None) or "completed"
             ),

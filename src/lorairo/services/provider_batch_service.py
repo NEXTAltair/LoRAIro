@@ -523,8 +523,9 @@ class ProviderBatchJobService:
         provider_status = fetch_result.status or fetch_result.provider_status
         if provider_status:
             next_status = self.normalize_status(job.provider, provider_status)
-            self.validate_transition(job.status, next_status)
-            updates["status"] = next_status
+            if not (job.status == "imported" and next_status == "completed"):
+                self.validate_transition(job.status, next_status)
+                updates["status"] = next_status
             updates["provider_status"] = fetch_result.provider_status
         optional_fields = {
             "request_count": fetch_result.request_count,

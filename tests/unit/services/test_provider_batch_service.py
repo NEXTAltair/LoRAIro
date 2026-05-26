@@ -506,6 +506,28 @@ class TestProviderBatchJobService:
 
         assert test_repository.list_provider_batch_artifacts(job_id) == []
 
+    def test_download_results_allows_completed_provider_status_after_import(
+        self,
+        test_repository: ImageRepository,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        adapter.fetch_result = ProviderBatchFetchResult(
+            provider_job_id="batch_123",
+            provider_status="completed",
+            artifacts=(ProviderBatchArtifactRef("output", Path("/tmp/output.jsonl")),),
+        )
+        service = ProviderBatchJobService(test_repository, {"openai": adapter})
+        job_id = service.submit_batch(make_submit_request())
+        test_repository.update_provider_batch_job(job_id, {"status": "imported"})
+
+        service.download_results(job_id, Path("/tmp"))
+
+        job = test_repository.get_provider_batch_job(job_id)
+        assert job is not None
+        assert job.status == "imported"
+        assert job.provider_status == "completed"
+        assert job.output_artifact_path == "/tmp/output.jsonl"
+
     def test_missing_adapter_raises(self, test_repository: ImageRepository) -> None:
         service = ProviderBatchJobService(test_repository)
 
