@@ -7,6 +7,7 @@ LoRAIroプロジェクト用コマンド制御・変換システム。
 機能:
 - uv run変換（python → uv run python など）
 - ブロックコマンド検出（git安全系、pip等）
+- PR draft作成ブロック（agent PR は ready for review で作成）
 - grep系コマンド制御（Grepツール推奨、git grepはコンテキストフラグ必須）
 """
 
@@ -72,6 +73,21 @@ def check_blocked(command: str, rules: dict[str, Any]) -> str | None:
     return None
 
 
+def check_draft_pr_create(command: str) -> str | None:
+    """agent-created PR が draft のまま放置されるのを防ぐ。"""
+    if not re.search(r"\bgh\s+pr\s+create\b", command):
+        return None
+    if not re.search(r"(^|\s)--draft(?:[=\s]|$)", command):
+        return None
+
+    log_debug(f"BLOCKING: draft PR create detected: {command}")
+    return (
+        "🚫 agent PR を draft で作成しないでください。\n"
+        "→ `--draft` を外して ready for review の PR を作成し、"
+        "作成直後に agent-pr-maintainer で CI/レビュー監視を開始してください。"
+    )
+
+
 def check_grep_command(command: str) -> str | None:
     """grep系コマンドの制御。
 
@@ -120,6 +136,12 @@ def main() -> None:
         if not rules:
             sys.exit(0)
 
+        # PR draft作成制御
+        draft_pr_msg = check_draft_pr_create(command)
+        if draft_pr_msg:
+            print(json.dumps({"decision": "block", "reason": draft_pr_msg}, ensure_ascii=False))
+            sys.exit(2)
+
         # grep系コマンド制御
         grep_msg = check_grep_command(command)
         if grep_msg:
@@ -135,10 +157,12 @@ def main() -> None:
         # uv run変換
         uv_cmd = apply_uv_transform(command, rules)
         if uv_cmd:
-            print(json.dumps({
-                "decision": "block",
-                "reason": f"🔄 uv run変換: {uv_cmd}\n元: {command}"
-            }, ensure_ascii=False))
+            print(
+                json.dumps(
+                    {"decision": "block", "reason": f"🔄 uv run変換: {uv_cmd}\n元: {command}"},
+                    ensure_ascii=False,
+                )
+            )
             sys.exit(2)
 
         sys.exit(0)
