@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 from collections.abc import Iterable
@@ -13,6 +14,7 @@ SECRET_PATH_RE = re.compile(
     r"(^|/)(\.env($|[./-])|env\.|secrets?($|[./_-])|credentials?($|[./_-])|\.?npmrc$|\.?pypirc$)",
     re.IGNORECASE,
 )
+MARKER_RE = re.compile(r"<!--\s*agent-pr-maintainer\s*(?P<payload>\{.*?\})\s*-->", re.DOTALL)
 
 
 def forbidden_reasons(paths: Iterable[str]) -> list[str]:
@@ -38,11 +40,35 @@ def _changed_paths(base_ref: str) -> list[str]:
     return result.stdout.splitlines()
 
 
+def _marker_status(body_file: str | None) -> str | None:
+    if body_file is None:
+        return None
+
+    with open(body_file, encoding="utf-8") as handle:
+        body = handle.read()
+    match = MARKER_RE.search(body)
+    if match is None:
+        return None
+
+    payload = json.loads(match.group("payload"))
+    status = payload.get("status")
+    return status if isinstance(status, str) else None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-ref", default="origin/main")
+    parser.add_argument(
+        "--state-marker-body",
+        help="PR body file containing the agent-pr-maintainer marker. If provided, enforce only in repairing state.",
+    )
     parser.add_argument("paths", nargs="*")
     args = parser.parse_args()
+
+    status = _marker_status(args.state_marker_body)
+    if args.state_marker_body is not None and status != "repairing":
+        print(f"Skipping forbidden automatic-repair check for marker status: {status or 'absent'}")
+        return 0
 
     paths = args.paths if args.paths else _changed_paths(args.base_ref)
     reasons = forbidden_reasons(paths)

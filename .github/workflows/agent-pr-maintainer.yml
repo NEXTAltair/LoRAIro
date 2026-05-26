@@ -112,7 +112,7 @@ jobs:
 
       - name: Check forbidden automatic-repair changes
         if: steps.scope.outputs.is_agent_pr == 'true'
-        run: python scripts/check_agent_forbidden_changes.py --base-ref origin/main
+        run: python scripts/check_agent_forbidden_changes.py --base-ref origin/main --state-marker-body pr-body-updated.md
 
       - name: Check Codex review gate
         if: steps.scope.outputs.is_agent_pr == 'true'

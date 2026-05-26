@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from helpers import load_script_module
 
-forbidden_reasons = load_script_module("check_agent_forbidden_changes").forbidden_reasons
+check_agent_forbidden_changes = load_script_module("check_agent_forbidden_changes")
+forbidden_reasons = check_agent_forbidden_changes.forbidden_reasons
+marker_status = check_agent_forbidden_changes._marker_status
 
 
 def test_forbidden_reasons_reject_workflow_changes() -> None:
@@ -22,3 +24,23 @@ def test_forbidden_reasons_reject_secret_paths() -> None:
 
 def test_forbidden_reasons_allows_application_changes() -> None:
     assert forbidden_reasons(["src/lorairo/main.py", "tests/unit/test_main.py"]) == []
+
+
+def test_marker_status_reads_repairing_state(tmp_path) -> None:
+    body_file = tmp_path / "body.md"
+    body_file.write_text(
+        """Body
+
+<!-- agent-pr-maintainer
+{
+  "loop": 1,
+  "last_checked_head_sha": "abc123",
+  "last_reviewed_head_sha": null,
+  "status": "repairing"
+}
+-->
+""",
+        encoding="utf-8",
+    )
+
+    assert marker_status(str(body_file)) == "repairing"

@@ -198,6 +198,8 @@ repairing the PR. The GitHub Actions watcher also stores the latest observed sta
 
 When resuming maintenance in a new session, read this marker before deciding whether the current head SHA has
 already been checked. If the marker is absent, reconstruct state from `gh pr view` and continue conservatively.
+Set `status` to `repairing` before applying automatic repair commits so the watcher enforces forbidden-change
+checks for workflow and secret/env paths.
 
 ## References
 

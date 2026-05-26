@@ -32,7 +32,8 @@ workflow runner は以下を行う。
 3. `@codex review for security regressions, missing tests, and risky behavior changes.` を投稿する
 4. PR state / checks / reviews / review comments / issue comments / reactions を `gh` / REST API で取得する
 5. PR body に `agent-pr-maintainer` hidden marker を保存し、確認済み head SHA と状態を永続化する
-6. 自動修正で禁止される `.github/workflows/**` と secret / env 系 path を検出する
+6. PR marker が `repairing` の場合、自動修正で禁止される `.github/workflows/**` と
+   secret / env 系 path を検出する
 7. Codex bot review artifact が存在し、blocking finding が残っていないことを check として検証する
 8. repository variable `AGENT_PR_AUTO_MERGE=true` が明示された場合のみ、
    `gh pr merge --squash --auto --delete-branch --match-head-commit "$HEAD_SHA"` を実行する
