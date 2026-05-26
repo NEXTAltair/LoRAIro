@@ -154,10 +154,6 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 
 ### バッチインポート
 
-#### AnnotationSaveService
-- **Path**: `src/lorairo/services/annotation_save_service.py`
-- **Purpose**: annotation result の保存経路を統一する service
-
 #### ProviderBatchJobService
 - **Path**: `src/lorairo/services/provider_batch_service.py`
 - **Purpose**: Provider Batch API job lifecycle の共通 service boundary
