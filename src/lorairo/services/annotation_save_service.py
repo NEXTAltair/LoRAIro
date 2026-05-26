@@ -6,6 +6,7 @@ CLI・GUI・API の3経路で共有する Qt-free サービス。
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -34,6 +35,11 @@ class AnnotationSaveResult:
     error_count: int
     total_count: int
     error_details: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class _ModelRef:
+    id: int
 
 
 class AnnotationSaveService:
@@ -498,6 +504,75 @@ class AnnotationSaveService:
         total_count = len(results)
         logger.info(f"DB保存完了: {success_count}/{total_count}件成功")
 
+        return AnnotationSaveResult(
+            success_count=success_count,
+            skip_count=skip_count,
+            error_count=error_count,
+            total_count=total_count,
+            error_details=error_details,
+        )
+
+    def save_provider_batch_results_by_image_id(
+        self,
+        results_by_image_id: Mapping[int, Any],
+        *,
+        model_id: int | None,
+        model_name: str,
+    ) -> AnnotationSaveResult:
+        """Provider Batch の normalized result を image_id keyed で保存する。
+
+        Provider Batch import は ``custom_id`` → ``provider_batch_items.image_id`` を
+        SSoT とするため、pHash や file stem fallback は使わない。
+        """
+        if not results_by_image_id:
+            return AnnotationSaveResult(
+                success_count=0,
+                skip_count=0,
+                error_count=0,
+                total_count=0,
+            )
+        if model_id is None:
+            raise ValueError("Provider Batch result 保存には model_id が必要です")
+
+        wrapped_results = {
+            int(image_id): {model_name: unified_result}
+            for image_id, unified_result in results_by_image_id.items()
+        }
+        _model_names, all_raw_tags = self._collect_names_and_tags(wrapped_results)
+        models_cache: dict[str, Any] = {model_name: _ModelRef(model_id)}
+        tag_id_cache = self._resolve_tag_ids(all_raw_tags)
+
+        success_count = 0
+        skip_count = 0
+        error_count = 0
+        error_details: list[str] = []
+
+        for image_id, image_annotations in wrapped_results.items():
+            try:
+                annotations_dict = self._build_annotations_dict(
+                    image_annotations,
+                    models_cache,
+                    image_id=image_id,
+                )
+                if not annotations_dict or not any(annotations_dict.values()):
+                    logger.debug(f"画像ID {image_id} に保存するアノテーションがありません")
+                    skip_count += 1
+                    continue
+                self._repository.save_annotations(
+                    image_id,
+                    annotations_dict,
+                    skip_existence_check=True,
+                    tag_id_cache=tag_id_cache if tag_id_cache else None,
+                )
+                success_count += 1
+            except Exception as e:
+                error_msg = f"image_id={image_id}: {e}"
+                error_details.append(error_msg)
+                error_count += 1
+                logger.error(f"Provider Batch result 保存失敗 image_id={image_id}: {e}", exc_info=True)
+
+        total_count = len(wrapped_results)
+        logger.info(f"Provider Batch result DB保存完了: {success_count}/{total_count}件成功")
         return AnnotationSaveResult(
             success_count=success_count,
             skip_count=skip_count,

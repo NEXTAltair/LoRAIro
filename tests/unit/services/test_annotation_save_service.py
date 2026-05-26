@@ -92,6 +92,67 @@ def test_save_annotation_results_with_known_phashes_saves_all(
 
 
 @pytest.mark.unit
+def test_save_provider_batch_results_by_image_id_saves_without_phash_lookup(
+    service: AnnotationSaveService,
+    mock_repository: MagicMock,
+) -> None:
+    """Provider Batch import は image_id keyed result を直接保存する。"""
+    mock_repository.batch_resolve_tag_ids.return_value = {}
+
+    result = service.save_provider_batch_results_by_image_id(
+        {7: _make_success_result(tags=["tag1"], captions=["caption"])},
+        model_id=10,
+        model_name="openai/gpt-test",
+    )
+
+    assert result.success_count == 1
+    assert result.skip_count == 0
+    assert result.error_count == 0
+    mock_repository.find_image_ids_by_phashes.assert_not_called()
+    mock_repository.get_models_by_litellm_ids.assert_not_called()
+    mock_repository.save_annotations.assert_called_once()
+    image_id_arg = mock_repository.save_annotations.call_args[0][0]
+    annotations_arg = mock_repository.save_annotations.call_args[0][1]
+    assert image_id_arg == 7
+    assert annotations_arg["tags"][0]["model_id"] == 10
+    assert annotations_arg["tags"][0]["tag"] == "tag1"
+    assert annotations_arg["captions"][0]["caption"] == "caption"
+
+
+@pytest.mark.unit
+def test_save_provider_batch_results_by_image_id_records_refusal(
+    service: AnnotationSaveService,
+    mock_repository: MagicMock,
+) -> None:
+    """Provider Batch 経由の refusal も image_id 付き error_records に残す。"""
+    refusal_result = MagicMock()
+    refusal_result.error = "SafetyRefusalError: policy refused"
+    refusal_result.tags = []
+    refusal_result.captions = []
+    refusal_result.scores = None
+    refusal_result.score_labels = None
+    refusal_result.ratings = None
+
+    result = service.save_provider_batch_results_by_image_id(
+        {7: refusal_result},
+        model_id=10,
+        model_name="openai/gpt-test",
+    )
+
+    assert result.success_count == 0
+    assert result.skip_count == 1
+    assert result.error_count == 0
+    mock_repository.save_error_record.assert_called_once_with(
+        operation_type="annotation",
+        error_type="SafetyRefusalError",
+        error_message="policy refused",
+        image_id=7,
+        model_name="openai/gpt-test",
+    )
+    mock_repository.save_annotations.assert_not_called()
+
+
+@pytest.mark.unit
 def test_save_annotation_results_with_unknown_phash_skips_silently(
     service: AnnotationSaveService,
     mock_repository: MagicMock,

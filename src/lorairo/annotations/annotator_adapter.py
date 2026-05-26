@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from lorairo.services.provider_batch_service import (
         BatchJobHandle,
         BatchSubmitRequest,
-        ProviderBatchArtifacts,
+        ProviderBatchFetchResult,
         ProviderBatchStatus,
         ProviderBatchSubmission,
     )
@@ -218,10 +218,12 @@ class AnnotatorLibraryAdapter:
         """Provider Batch API job の cancel を image-annotator-lib の公開 API へ委譲する。"""
         return cast("ProviderBatchStatus", self._call_batch_api("cancel_batch", handle))
 
-    def fetch_batch_results(self, handle: BatchJobHandle, destination_dir: Path) -> ProviderBatchArtifacts:
-        """Provider Batch API job の artifact 取得を image-annotator-lib の公開 API へ委譲する。"""
+    def fetch_batch_results(
+        self, handle: BatchJobHandle, destination_dir: Path
+    ) -> ProviderBatchFetchResult:
+        """Provider Batch API job の normalized result 取得を image-annotator-lib の公開 API へ委譲する。"""
         return cast(
-            "ProviderBatchArtifacts",
+            "ProviderBatchFetchResult",
             self._call_batch_api("fetch_batch_results", handle, destination_dir),
         )
 
