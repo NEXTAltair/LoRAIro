@@ -125,6 +125,52 @@ def test_gate_uses_latest_bot_review_for_current_head() -> None:
     assert reasons == []
 
 
+def test_gate_uses_rest_submitted_at_when_selecting_latest_review() -> None:
+    ok, reasons = evaluate(
+        reviews=[
+            {
+                "user": {"login": "chatgpt-codex-connector[bot]"},
+                "state": "CHANGES_REQUESTED",
+                "submitted_at": "2026-05-26T01:00:00Z",
+                "commit": {"oid": "def456"},
+            },
+            {
+                "user": {"login": "chatgpt-codex-connector[bot]"},
+                "state": "COMMENTED",
+                "submitted_at": "2026-05-26T02:00:00Z",
+                "commit": {"oid": "def456"},
+            },
+        ],
+        review_comments=[],
+        issue_comments=[],
+        reactions=[],
+        head_sha="def456",
+    )
+
+    assert ok
+    assert reasons == []
+
+
+def test_gate_ignores_dismissed_bot_review() -> None:
+    ok, reasons = evaluate(
+        reviews=[
+            {
+                "user": {"login": "chatgpt-codex-connector[bot]"},
+                "state": "DISMISSED",
+                "submitted_at": "2026-05-26T02:00:00Z",
+                "commit": {"oid": "def456"},
+            }
+        ],
+        review_comments=[],
+        issue_comments=[],
+        reactions=[],
+        head_sha="def456",
+    )
+
+    assert not ok
+    assert reasons == ["no Codex bot review artifact found"]
+
+
 def test_gate_ignores_review_comments_from_old_head() -> None:
     ok, reasons = evaluate(
         reviews=[

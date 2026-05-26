@@ -76,13 +76,20 @@ def _submitted_at(item: dict[str, Any]) -> str:
     submitted_at = item.get("submittedAt")
     if isinstance(submitted_at, str):
         return submitted_at
+    submitted_at = item.get("submitted_at")
+    if isinstance(submitted_at, str):
+        return submitted_at
     created_at = item.get("created_at")
     return created_at if isinstance(created_at, str) else ""
 
 
 def _latest_bot_review(reviews: list[dict[str, Any]], head_sha: str | None) -> dict[str, Any] | None:
     matching_reviews = [
-        review for review in reviews if _is_bot_artifact(review) and _commit_matches(review, head_sha)
+        review
+        for review in reviews
+        if _is_bot_artifact(review)
+        and _commit_matches(review, head_sha)
+        and str(review.get("state", "")).upper() != "DISMISSED"
     ]
     if not matching_reviews:
         return None

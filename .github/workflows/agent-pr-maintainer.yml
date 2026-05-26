@@ -44,7 +44,10 @@ jobs:
       (
         github.event_name == 'issue_comment' &&
         github.event.issue.pull_request &&
-        github.event.comment.user.login == 'chatgpt-codex-connector[bot]'
+          (
+            github.event.comment.user.login == 'chatgpt-codex-connector[bot]' ||
+            github.event.comment.user.login == 'chatgpt-codex-connector'
+          )
       )
     runs-on: ubuntu-latest
     env:
@@ -53,29 +56,34 @@ jobs:
       AGENT_PR_AUTO_MERGE: ${{ vars.AGENT_PR_AUTO_MERGE || 'false' }}
 
     steps:
-      - name: Checkout trusted policy scripts
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: recursive
-          path: trusted
-
       - name: Verify agent PR scope
         id: scope
-        working-directory: trusted
         run: |
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
             head_sha="$(gh pr view "$PR" --json headRefOid -q .headRefOid)"
+            base_ref="$(gh pr view "$PR" --json baseRefName -q .baseRefName)"
             echo "is_agent_pr=true" >> "${GITHUB_OUTPUT}"
             echo "head_sha=${head_sha}" >> "${GITHUB_OUTPUT}"
+            echo "base_ref=${base_ref}" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
           is_agent_pr="$(gh pr view "$PR" --json title,labels \
             -q 'if ((.labels | map(.name) | index("agent-pr")) or (.title | startswith("[codex]")) or (.title | startswith("[claude]"))) then "true" else "false" end')"
           head_sha="$(gh pr view "$PR" --json headRefOid -q .headRefOid)"
+          base_ref="$(gh pr view "$PR" --json baseRefName -q .baseRefName)"
           echo "is_agent_pr=${is_agent_pr}" >> "${GITHUB_OUTPUT}"
           echo "head_sha=${head_sha}" >> "${GITHUB_OUTPUT}"
+          echo "base_ref=${base_ref}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout trusted policy scripts
+        if: steps.scope.outputs.is_agent_pr == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.scope.outputs.base_ref }}
+          fetch-depth: 0
+          submodules: recursive
+          path: trusted
 
       - name: Checkout PR branch for diff inspection
         if: steps.scope.outputs.is_agent_pr == 'true'
@@ -102,10 +110,10 @@ jobs:
             > pr-state.json
           gh pr checks "$PR" --json name,state,bucket,link,startedAt,completedAt,workflow \
             > pr-checks.json
-          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/reviews" > pr-reviews.json
-          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/comments" > pr-review-comments.json
-          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" > pr-issue-comments.json
-          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/reactions" > pr-reactions.json
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR}/reviews" > pr-reviews.json
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR}/comments" > pr-review-comments.json
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" > pr-issue-comments.json
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${PR}/reactions" > pr-reactions.json
 
       - name: Persist watcher state marker
         if: steps.scope.outputs.is_agent_pr == 'true'
@@ -123,7 +131,7 @@ jobs:
         working-directory: pr
         run: |
           BASE_REF="$(python ../trusted/scripts/agent_pr_state.py base-ref --state-file ../trusted/pr-state.json)"
-          git fetch origin "${BASE_REF}" --depth=1
+          git fetch origin "${BASE_REF}"
           python ../trusted/scripts/check_agent_forbidden_changes.py \
             --base-ref "origin/${BASE_REF}" \
             --state-marker-body ../trusted/pr-body-updated.md
