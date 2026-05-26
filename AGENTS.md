@@ -38,6 +38,11 @@
 - PRs should include a clear description, test results, and screenshots for GUI changes.
 - Link related issues and note any migration or config changes.
 
+## Review Guidelines
+- Treat security regressions, missing tests, and risky behavior changes as P1 findings.
+- Pay special attention to GitHub Actions, permissions, secrets, environment variables, and merge automation.
+- For agent PR maintenance changes, verify that review gates cannot be bypassed by stale reviews or bot-authored unavailable responses.
+
 ## Agent Git Workflow
 - Issue resolution, feature work, PR preparation, and any multi-file implementation must start from a dedicated git worktree under `/tmp/worktrees/`.
 - Do not edit, stage, commit, rebase, or push from the shared main checkout at `/workspaces/LoRAIro` for implementation work.
