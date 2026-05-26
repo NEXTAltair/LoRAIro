@@ -165,7 +165,7 @@ from sqlalchemy.orm import sessionmaker
 
 # --- LoRAIro Imports (after patches are active) ---
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import AnnotationsDict, Base, ImageDict, Model, ModelType, ProcessedImageDict
 from lorairo.storage.file_system import FileSystemManager
 

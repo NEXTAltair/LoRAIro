@@ -62,8 +62,8 @@ class TestImageDBWriteService:
             "quality_summary": {"tier": "high"},
         }
 
-        mock_db_manager.repository.get_image_metadata.return_value = mock_image_metadata
-        mock_db_manager.repository.get_image_annotations.return_value = mock_annotation_data
+        mock_db_manager.image_repo.get_image_metadata.return_value = mock_image_metadata
+        mock_db_manager.image_repo.get_image_annotations.return_value = mock_annotation_data
 
         # 実行
         result = service.get_image_details(image_id)
@@ -99,13 +99,13 @@ class TestImageDBWriteService:
         assert result.annotation_data.quality_summary == {"tier": "high"}
 
         # モックメソッドの呼び出し確認
-        mock_db_manager.repository.get_image_metadata.assert_called_once_with(image_id)
-        mock_db_manager.repository.get_image_annotations.assert_called_once_with(image_id)
+        mock_db_manager.image_repo.get_image_metadata.assert_called_once_with(image_id)
+        mock_db_manager.image_repo.get_image_annotations.assert_called_once_with(image_id)
 
     def test_get_image_details_no_metadata(self, service, mock_db_manager):
         """画像メタデータが見つからない場合"""
         image_id = 999
-        mock_db_manager.repository.get_image_metadata.return_value = None
+        mock_db_manager.image_repo.get_image_metadata.return_value = None
 
         with patch("lorairo.gui.services.image_db_write_service.logger") as mock_logger:
             result = service.get_image_details(image_id)
@@ -127,7 +127,7 @@ class TestImageDBWriteService:
             "scores": [{"value": 0.92}],
         }
 
-        mock_db_manager.repository.get_image_annotations.return_value = mock_annotations
+        mock_db_manager.image_repo.get_image_annotations.return_value = mock_annotations
 
         # 実行
         result = service.get_annotation_data(image_id)
@@ -140,12 +140,12 @@ class TestImageDBWriteService:
         assert result.overall_score == 0
         assert result.score_type == "Aesthetic"
 
-        mock_db_manager.repository.get_image_annotations.assert_called_once_with(image_id)
+        mock_db_manager.image_repo.get_image_annotations.assert_called_once_with(image_id)
 
     def test_get_annotation_data_empty(self, service, mock_db_manager):
         """アノテーションデータがない場合"""
         image_id = 789
-        mock_db_manager.repository.get_image_annotations.return_value = {}
+        mock_db_manager.image_repo.get_image_annotations.return_value = {}
 
         result = service.get_annotation_data(image_id)
 
@@ -204,7 +204,7 @@ class TestImageDBWriteService:
         image_id = 400
 
         # DBエラーをシミュレート
-        mock_db_manager.repository.get_image_metadata.side_effect = Exception("Database connection error")
+        mock_db_manager.image_repo.get_image_metadata.side_effect = Exception("Database connection error")
 
         with patch("lorairo.gui.services.image_db_write_service.logger") as mock_logger:
             result = service.get_image_details(image_id)
@@ -224,7 +224,7 @@ class TestImageDBWriteService:
         tag = "landscape"
 
         # 新しい原子的バッチ追加メソッドのモック設定
-        mock_db_manager.repository.add_tag_to_images_batch.return_value = (True, 3)
+        mock_db_manager.annotation_repo.add_tag_to_images_batch.return_value = (True, 3)
         mock_db_manager.get_manual_edit_model_id.return_value = 42
 
         # 実行
@@ -232,7 +232,7 @@ class TestImageDBWriteService:
 
         # 検証
         assert result is True
-        mock_db_manager.repository.add_tag_to_images_batch.assert_called_once_with(
+        mock_db_manager.annotation_repo.add_tag_to_images_batch.assert_called_once_with(
             image_ids=image_ids, tag=tag, model_id=42
         )
 
@@ -242,7 +242,7 @@ class TestImageDBWriteService:
         tag = "landscape"
 
         # 新しい原子的バッチ追加メソッドのモック設定（重複により0件追加）
-        mock_db_manager.repository.add_tag_to_images_batch.return_value = (True, 0)
+        mock_db_manager.annotation_repo.add_tag_to_images_batch.return_value = (True, 0)
         mock_db_manager.get_manual_edit_model_id.return_value = 42
 
         # 実行
@@ -250,7 +250,7 @@ class TestImageDBWriteService:
 
         # 検証: 重複のため追加件数は0だが成功扱い
         assert result is True
-        mock_db_manager.repository.add_tag_to_images_batch.assert_called_once_with(
+        mock_db_manager.annotation_repo.add_tag_to_images_batch.assert_called_once_with(
             image_ids=image_ids, tag=tag, model_id=42
         )
 
@@ -260,7 +260,7 @@ class TestImageDBWriteService:
 
         # 検証: 早期リターンで False
         assert result is False
-        mock_db_manager.repository.add_tag_to_images_batch.assert_not_called()
+        mock_db_manager.annotation_repo.add_tag_to_images_batch.assert_not_called()
 
     def test_add_tag_batch_empty_tag(self, service, mock_db_manager):
         """空タグでの呼び出し"""
@@ -268,7 +268,7 @@ class TestImageDBWriteService:
 
         # 検証: 早期リターンで False
         assert result is False
-        mock_db_manager.repository.add_tag_to_images_batch.assert_not_called()
+        mock_db_manager.annotation_repo.add_tag_to_images_batch.assert_not_called()
 
     def test_add_tag_batch_exception_handling(self, service, mock_db_manager):
         """例外ハンドリングテスト"""
@@ -276,7 +276,7 @@ class TestImageDBWriteService:
         tag = "landscape"
 
         # 例外を発生させる
-        mock_db_manager.repository.add_tag_to_images_batch.side_effect = Exception("DB Error")
+        mock_db_manager.annotation_repo.add_tag_to_images_batch.side_effect = Exception("DB Error")
         mock_db_manager.get_manual_edit_model_id.return_value = 42
 
         # 実行
@@ -332,8 +332,8 @@ class TestImageDBWriteServiceIntegration:
             }
             return annotations_map.get(image_id, {})
 
-        mock_db_manager.repository.get_image_metadata.side_effect = get_metadata_side_effect
-        mock_db_manager.repository.get_image_annotations.side_effect = get_annotations_side_effect
+        mock_db_manager.image_repo.get_image_metadata.side_effect = get_metadata_side_effect
+        mock_db_manager.image_repo.get_image_annotations.side_effect = get_annotations_side_effect
 
         return mock_db_manager
 

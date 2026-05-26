@@ -13,20 +13,20 @@ from sqlalchemy.orm import Session
 from ..storage.file_system import FileSystemManager
 from ..utils.log import logger
 from ..utils.tools import calculate_phash
-from .db_repository import (
+from .filter_criteria import ImageFilterCriteria
+from .repository.annotation_record import AnnotationRepository
+from .repository.error_record import ErrorRecordRepository
+from .repository.image import ImageRepository
+from .repository.model import ModelRepository
+from .repository.project import ProjectRepository
+from .repository.provider_batch import ProviderBatchRepository
+from .schema import (
     AnnotationsDict,
     CaptionAnnotationData,
-    ImageRepository,
     RatingAnnotationData,
     ScoreAnnotationData,
     TagAnnotationData,
 )
-from .filter_criteria import ImageFilterCriteria
-from .repository.annotation_record import AnnotationRepository
-from .repository.error_record import ErrorRecordRepository
-from .repository.image import ImageRepository as _ImageRepositoryNew
-from .repository.model import ModelRepository
-from .repository.project import ProjectRepository
 
 if TYPE_CHECKING:
     from ..services.configuration_service import ConfigurationService
@@ -34,84 +34,75 @@ if TYPE_CHECKING:
 
 class ImageDatabaseManager:
     """画像データベース操作の高レベルインターフェースを提供するクラス。
-    ImageRepositoryを使用して、画像メタデータとアノテーションの
-    保存、取得、更新などの操作を行います。
+
+    ADR 0035 段階 6 (#423): legacy `db_repository.ImageRepository` god class を撤廃し、
+    Aggregate 単位 Repository (`ImageRepository` / `AnnotationRepository` /
+    `ModelRepository` / `ProjectRepository` / `ErrorRecordRepository` /
+    `ProviderBatchRepository`) を composition で保持する設計に移行。
     """
 
     def __init__(
         self,
-        repository: ImageRepository,
         config_service: "ConfigurationService",
         fsm: FileSystemManager | None = None,
+        *,
+        session_factory: Any | None = None,
         model_repo: ModelRepository | None = None,
         project_repo: ProjectRepository | None = None,
         error_record_repo: ErrorRecordRepository | None = None,
-        image_repo: _ImageRepositoryNew | None = None,
+        image_repo: ImageRepository | None = None,
         annotation_repo: AnnotationRepository | None = None,
+        provider_batch_repo: ProviderBatchRepository | None = None,
     ):
         """ImageDatabaseManagerのコンストラクタ。
 
+        ADR 0035 段階 6 (#423): legacy facade (`db_repository.ImageRepository`) が
+        撤廃されたため、`repository` 引数は廃止。Manager は Aggregate 単位の
+        Repository を composition で保持し、内部呼び出しは `self.X_repo.method()`
+        で行う。テスト時は各 Repo を Mock 注入することで独立性を保てる。
+
         Args:
-            repository (ImageRepository): 使用するImageRepositoryインスタンス。
-            config_service (ConfigurationService): 設定サービスインスタンス。
-            fsm (FileSystemManager): ファイルシステムマネージャー（オプション）。
-            model_repo (ModelRepository): Model 関連の Repository (ADR 0035 段階 1)。
-                None の場合は `repository` の `session_factory` を流用して生成する。
-                テスト時にモック化可能。
-            project_repo (ProjectRepository): Project 関連の Repository (ADR 0035 段階 2)。
-                None の場合は `repository` の `session_factory` を流用して生成する。
-                テスト時にモック化可能。
-            error_record_repo (ErrorRecordRepository): ErrorRecord 関連の Repository
-                (ADR 0035 段階 3)。None の場合は `repository` の `session_factory` を
-                流用して生成する。テスト時にモック化可能。
-            image_repo (ImageRepository): Image / ProcessedImage / FilenameAlias 関連の
-                新 Repository (ADR 0035 段階 4)。None の場合は `repository` の
-                `session_factory` を流用して生成する。テスト時にモック化可能。
-            annotation_repo (AnnotationRepository): Annotation 書き込み + 外部 tag_db
-                統合の Repository (ADR 0035 段階 5)。None の場合は `repository` の
-                `session_factory` を流用して生成する。テスト時にモック化可能。
+            config_service: 設定サービスインスタンス。
+            fsm: ファイルシステムマネージャー（オプション）。
+            session_factory: SQLAlchemy セッションファクトリ。None の場合は
+                `db_core.DefaultSessionLocal` を流用する。Repo を 1 つも指定しない
+                場合に本値で全 Repo を生成する。Repo を個別に Mock 注入する場合は
+                指定不要。
+            model_repo: Model 関連の Repository (ADR 0035 段階 1)。
+            project_repo: Project 関連の Repository (ADR 0035 段階 2)。
+            error_record_repo: ErrorRecord 関連の Repository (ADR 0035 段階 3)。
+            image_repo: Image / ProcessedImage / FilenameAlias の Repository
+                (ADR 0035 段階 4)。
+            annotation_repo: Annotation 書き込み + 外部 tag_db 統合の Repository
+                (ADR 0035 段階 5)。
+            provider_batch_repo: Provider Batch API job/item/artifact の Repository
+                (ADR 0035 段階 6)。
 
         """
-        self.repository = repository
         self.config_service = config_service
         self.fsm = fsm
-        # ADR 0035 段階 1 (#423): Model 関連を ModelRepository に集約。
-        # 通常 manager は repository の session_factory を共有して ModelRepository を生成する。
-        # `Mock(spec=ImageRepository)` で生成された mock には session_factory が無いため、
-        # その場合は DefaultSessionLocal にフォールバックする (各テストは model_repo を明示
-        # Mock 注入することで本フォールバック経路を経由してもテスト独立性を保てる)。
-        session_factory = getattr(repository, "session_factory", None)
         if session_factory is None:
             from .db_core import DefaultSessionLocal
 
             session_factory = DefaultSessionLocal
-        if model_repo is None:
-            model_repo = ModelRepository(session_factory=session_factory)
-        self.model_repo: ModelRepository = model_repo
-        # ADR 0035 段階 2 (#423): Project 関連を ProjectRepository に集約。
-        # session_factory は ModelRepository と同様に repository から取得する。
-        if project_repo is None:
-            project_repo = ProjectRepository(session_factory=session_factory)
-        self.project_repo: ProjectRepository = project_repo
-        # ADR 0035 段階 3 (#423): ErrorRecord 関連を ErrorRecordRepository に集約。
-        # session_factory は他 Repository と同様に repository から取得する。
-        if error_record_repo is None:
-            error_record_repo = ErrorRecordRepository(session_factory=session_factory)
-        self.error_record_repo: ErrorRecordRepository = error_record_repo
-        # ADR 0035 段階 4 (#423): Image / ProcessedImage / FilenameAlias 関連を
-        # 新 ImageRepository (`repository/image.py`) に集約。
-        # session_factory は他 Repository と同様に repository から取得する。
-        if image_repo is None:
-            image_repo = _ImageRepositoryNew(session_factory=session_factory)
-        self.image_repo: _ImageRepositoryNew = image_repo
-        # ADR 0035 段階 5 (#423): Annotation 書き込み + 外部 tag_db 統合を
-        # AnnotationRepository (`repository/annotation_record.py`) に集約。
-        # session_factory は他 Repository と同様 repository から取得する。
+        # ADR 0035 段階 1-6: Aggregate 単位 Repository を composition で保持。
+        # None の場合は session_factory を共有して生成する。
+        self.model_repo: ModelRepository = model_repo or ModelRepository(session_factory=session_factory)
+        self.project_repo: ProjectRepository = project_repo or ProjectRepository(
+            session_factory=session_factory
+        )
+        self.error_record_repo: ErrorRecordRepository = error_record_repo or ErrorRecordRepository(
+            session_factory=session_factory
+        )
+        self.image_repo: ImageRepository = image_repo or ImageRepository(session_factory=session_factory)
         # AnnotationRepository は __init__ 内で MergedTagReader / TagRegisterService の
         # 遅延初期化を試みる (失敗時は warning ログ + None でグレースフルデグラデーション)。
-        if annotation_repo is None:
-            annotation_repo = AnnotationRepository(session_factory=session_factory)
-        self.annotation_repo: AnnotationRepository = annotation_repo
+        self.annotation_repo: AnnotationRepository = annotation_repo or AnnotationRepository(
+            session_factory=session_factory
+        )
+        self.provider_batch_repo: ProviderBatchRepository = provider_batch_repo or ProviderBatchRepository(
+            session_factory=session_factory
+        )
         self._cached_project_id: int | None = None
         logger.info("ImageDatabaseManager initialized.")
 
@@ -120,10 +111,8 @@ class ImageDatabaseManager:
         """デフォルト設定でインスタンスを作成するファクトリメソッド"""
         from ..services.configuration_service import ConfigurationService
 
-        repository = ImageRepository()
         config_service = ConfigurationService()
-        # ModelRepository は __init__ で自動生成 (repository.session_factory を共有)。
-        return cls(repository, config_service)
+        return cls(config_service)
 
     # __enter__ と __exit__ はリポジトリがセッション管理するため、ここでは不要になることが多い
     # 必要であれば、リポジトリのセッションファクトリを使う処理を追加できる
@@ -261,7 +250,7 @@ class ImageDatabaseManager:
             return None
 
         # 2. 重複チェック (pHash)
-        existing_id = self.repository.find_duplicate_image_by_phash(phash)
+        existing_id = self.image_repo.find_duplicate_image_by_phash(phash)
         if existing_id is not None:
             return self._handle_duplicate_image(existing_id, image_path, fsm)
 
@@ -269,7 +258,7 @@ class ImageDatabaseManager:
         project_id = self._get_current_project_id()
         if project_id is not None:
             original_metadata["project_id"] = project_id
-        image_id = self.repository.add_original_image(original_metadata)
+        image_id = self.image_repo.add_original_image(original_metadata)
         logger.debug(f"オリジナル画像を登録しました: ID={image_id}, Path={image_path}")
 
         # 4. 512px サムネイル画像の自動生成 (best-effort: 生成失敗で登録自体は失敗させない)
@@ -308,7 +297,7 @@ class ImageDatabaseManager:
             existing_512px = self.check_processed_image_exists(existing_id, 512)
             if not existing_512px:
                 logger.info(f"重複画像に512px画像が存在しないため、生成を試行します: ID={existing_id}")
-                existing_metadata = self.repository.get_image_metadata(existing_id)
+                existing_metadata = self.image_repo.get_image_metadata(existing_id)
                 if existing_metadata:
                     stored_path = Path(existing_metadata["stored_image_path"])
                     self._generate_thumbnail_512px(existing_id, stored_path, existing_metadata, fsm)
@@ -320,7 +309,7 @@ class ImageDatabaseManager:
             )
 
         # 既存のメタデータを取得して返す
-        existing_metadata = self.repository.get_image_metadata(existing_id)
+        existing_metadata = self.image_repo.get_image_metadata(existing_id)
         if existing_metadata is None:
             logger.warning(f"既存画像のメタデータが取得できませんでした: ID={existing_id}")
             existing_metadata = {}
@@ -512,7 +501,7 @@ class ImageDatabaseManager:
         )
 
         # データベースに挿入 (Repository が重複チェックを行う)
-        processed_image_id = self.repository.add_processed_image(info)
+        processed_image_id = self.image_repo.add_processed_image(info)
         if processed_image_id is not None:
             logger.debug(
                 f"処理済み画像を登録/確認しました: ID={processed_image_id}, 元画像ID={image_id}",
@@ -535,7 +524,7 @@ class ImageDatabaseManager:
                 "scores": [],
                 "ratings": [],
             }
-            self.repository.save_annotations(image_id, annotations_to_save)
+            self.annotation_repo.save_annotations(image_id, annotations_to_save)
             logger.debug(f"画像 ID {image_id} のタグ {len(tags_data)} 件を保存しました。")
         except (SQLAlchemyError, ValueError) as e:
             logger.error(f"画像 ID {image_id} のタグ保存中にエラー: {e}", exc_info=True)
@@ -556,7 +545,7 @@ class ImageDatabaseManager:
                 "scores": [],
                 "ratings": [],
             }
-            self.repository.save_annotations(image_id, annotations_to_save)
+            self.annotation_repo.save_annotations(image_id, annotations_to_save)
             logger.info(f"画像 ID {image_id} のキャプション {len(captions_data)} 件を保存しました。")
         except (SQLAlchemyError, ValueError) as e:
             logger.error(f"画像 ID {image_id} のキャプション保存中にエラー: {e}", exc_info=True)
@@ -577,7 +566,7 @@ class ImageDatabaseManager:
                 "scores": scores_data,
                 "ratings": [],
             }
-            self.repository.save_annotations(image_id, annotations_to_save)
+            self.annotation_repo.save_annotations(image_id, annotations_to_save)
             logger.info(f"画像 ID {image_id} のスコア {len(scores_data)} 件を保存しました。")
         except (SQLAlchemyError, ValueError) as e:
             logger.error(f"画像 ID {image_id} のスコア保存中にエラー: {e}", exc_info=True)
@@ -598,7 +587,7 @@ class ImageDatabaseManager:
                 "scores": [],
                 "ratings": ratings_data,
             }
-            self.repository.save_annotations(image_id, annotations_to_save)
+            self.annotation_repo.save_annotations(image_id, annotations_to_save)
             logger.info(f"画像 ID {image_id} のレーティング {len(ratings_data)} 件を保存しました。")
         except (SQLAlchemyError, ValueError) as e:
             logger.error(f"画像 ID {image_id} のレーティング保存中にエラー: {e}", exc_info=True)
@@ -671,7 +660,7 @@ class ImageDatabaseManager:
 
         """
         # resolution=0 で最低解像度を取得 (見つからない場合は Repository が None / [] を返す正常系)
-        metadata = self.repository.get_processed_image(image_id, resolution=0, all_data=False)
+        metadata = self.image_repo.get_processed_image(image_id, resolution=0, all_data=False)
         if isinstance(metadata, dict):  # None でなく dict であることを確認
             path = metadata.get("stored_image_path")
             if isinstance(path, str) and path:
@@ -698,7 +687,7 @@ class ImageDatabaseManager:
 
         """
         try:
-            metadata = self.repository.get_image_metadata(image_id)
+            metadata = self.image_repo.get_image_metadata(image_id)
             if metadata is None:
                 logger.info(f"ID {image_id} の画像メタデータが見つかりません。")
             return metadata
@@ -721,7 +710,7 @@ class ImageDatabaseManager:
         """
         try:
             # all_data=True でリストが返る
-            metadata_list = self.repository.get_processed_image(image_id, all_data=True)
+            metadata_list = self.image_repo.get_processed_image(image_id, all_data=True)
             if isinstance(metadata_list, list):
                 if not metadata_list:
                     logger.info(f"ID {image_id} の元画像に関連する処理済み画像が見つかりません。")
@@ -743,7 +732,7 @@ class ImageDatabaseManager:
 
         """
         try:
-            return self.repository.get_image_annotations(image_id)
+            return self.image_repo.get_image_annotations(image_id)
         except SQLAlchemyError as e:
             logger.error(f"画像ID {image_id} のアノテーション取得中にエラー: {e}", exc_info=True)
             raise
@@ -865,7 +854,7 @@ class ImageDatabaseManager:
         try:
             # criteriaが指定されていればそれを使用、なければkwargsから生成
             filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
-            return self.repository.get_images_by_filter(filter_criteria)
+            return self.image_repo.get_images_by_filter(filter_criteria)
         except SQLAlchemyError as e:
             logger.error(f"画像フィルタリング検索中にエラーが発生しました: {e}", exc_info=True)
             raise
@@ -897,7 +886,7 @@ class ImageDatabaseManager:
             return None
 
         # DB 失敗は呼び出し元へ伝播させる
-        image_id = self.repository.find_duplicate_image_by_phash(phash)
+        image_id = self.image_repo.find_duplicate_image_by_phash(phash)
         if image_id is not None:
             logger.debug(f"重複検出: pHash 一致 ID={image_id}, Name={image_name}, pHash={phash}")
         else:
@@ -917,7 +906,7 @@ class ImageDatabaseManager:
         """
         try:
             filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
-            return self.repository.get_images_count_only(filter_criteria)
+            return self.image_repo.get_images_count_only(filter_criteria)
         except SQLAlchemyError as e:
             logger.error(f"画像件数の取得中にエラーが発生しました: {e}", exc_info=True)
             raise
@@ -930,7 +919,7 @@ class ImageDatabaseManager:
 
         """
         try:
-            count = self.repository.get_total_image_count()
+            count = self.image_repo.get_total_image_count()
             return count
         except SQLAlchemyError as e:
             logger.error(f"総画像数の取得中にエラーが発生しました: {e}", exc_info=True)
@@ -1013,7 +1002,7 @@ class ImageDatabaseManager:
                 return {"total": 0, "completed": 0, "error": 0, "completion_rate": 0.0}
 
             # 完了画像数取得 (タグまたはキャプションが存在)
-            session: Session = self.repository.get_session()
+            session: Session = self.image_repo.get_session()
             with session:
                 completed_query = text("""
                     SELECT COUNT(DISTINCT i.id) FROM images i
@@ -1062,7 +1051,7 @@ class ImageDatabaseManager:
 
         """
         try:
-            session: Session = self.repository.get_session()
+            session: Session = self.image_repo.get_session()
 
             with session:
                 if completed:
@@ -1082,7 +1071,7 @@ class ImageDatabaseManager:
                     )
                     if not error_image_ids:
                         return []
-                    return self.repository.get_images_by_ids(error_image_ids)
+                    return self.image_repo.get_images_by_ids(error_image_ids)
                 else:
                     # 全ての画像
                     query = text("SELECT * FROM images")
@@ -1145,7 +1134,7 @@ class ImageDatabaseManager:
         """
         try:
             # get_processed_image は resolution=0 以外の場合、dict | None を返す
-            processed_image_metadata = self.repository.get_processed_image(
+            processed_image_metadata = self.image_repo.get_processed_image(
                 image_id,
                 resolution=target_resolution,
                 all_data=False,
@@ -1177,7 +1166,7 @@ class ImageDatabaseManager:
             image_id -> 利用可能な解像度リスト のマッピング
 
         """
-        return self.repository.get_batch_available_resolutions(image_ids)
+        return self.image_repo.get_batch_available_resolutions(image_ids)
 
     def _parse_annotation_timestamp(self, update_time: datetime | str) -> datetime | None:
         """アノテーションのタイムスタンプをパースする。
@@ -1303,7 +1292,7 @@ class ImageDatabaseManager:
 
         """
         try:
-            session = self.repository.get_session()
+            session = self.image_repo.get_session()
             with session:
                 # タグまたはキャプションの存在確認
                 query = """
@@ -1335,7 +1324,7 @@ class ImageDatabaseManager:
             アノテーションが存在する画像IDのセット。
 
         """
-        return self.repository.get_annotated_image_ids(image_ids)
+        return self.image_repo.get_annotated_image_ids(image_ids)
 
     def execute_filtered_search(self, conditions: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
         """フィルタリング検索実行（データ層の適切な責任）
@@ -1454,7 +1443,7 @@ class ImageDatabaseManager:
 
         """
         try:
-            return self.repository.get_image_id_by_filepath(filepath)
+            return self.image_repo.get_image_id_by_filepath(filepath)
         except SQLAlchemyError as e:
             logger.error(f"ファイルパスからの画像ID取得エラー: {e}", exc_info=True)
             raise

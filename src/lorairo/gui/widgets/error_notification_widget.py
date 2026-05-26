@@ -61,7 +61,7 @@ class ErrorNotificationWidget(QLabel):
             return
 
         try:
-            count = self.db_manager.repository.get_error_count_unresolved()
+            count = self.db_manager.error_record_repo.get_error_count_unresolved()
             self.unresolved_count = count
 
             # 表示とスタイル更新

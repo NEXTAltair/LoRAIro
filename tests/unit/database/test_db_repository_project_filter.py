@@ -105,7 +105,7 @@ class TestApplyProjectFilter:
 
     @pytest.fixture
     def repository(self):
-        from lorairo.database.db_repository import ImageRepository
+        from lorairo.database.repository.image import ImageRepository
 
         return ImageRepository(session_factory=Mock())
 
@@ -123,7 +123,7 @@ class TestApplyProjectFilterPhaseC:
 
     @pytest.fixture
     def repository(self):
-        from lorairo.database.db_repository import ImageRepository
+        from lorairo.database.repository.image import ImageRepository
 
         return ImageRepository(session_factory=Mock())
 
@@ -181,7 +181,7 @@ class TestEnsureProject:
 
     def test_ensure_project_creates_new(self, memory_session_factory):
         """新規プロジェクトが作成され正の ID が返る。"""
-        from lorairo.database.db_repository import ImageRepository
+        from lorairo.database.repository.image import ImageRepository
 
         repo = ImageRepository(session_factory=memory_session_factory)
         project_id = repo.ensure_project("test_project", Path("/tmp/test"))
@@ -190,7 +190,7 @@ class TestEnsureProject:
 
     def test_ensure_project_returns_same_id_on_duplicate(self, memory_session_factory):
         """同名で2回呼んでも同じ ID が返る（upsert 動作）。"""
-        from lorairo.database.db_repository import ImageRepository
+        from lorairo.database.repository.image import ImageRepository
 
         repo = ImageRepository(session_factory=memory_session_factory)
         id1 = repo.ensure_project("test_project", Path("/tmp/test"))
@@ -199,7 +199,7 @@ class TestEnsureProject:
 
     def test_ensure_project_different_names_get_different_ids(self, memory_session_factory):
         """異なる名前では異なる ID が割り当てられる。"""
-        from lorairo.database.db_repository import ImageRepository
+        from lorairo.database.repository.image import ImageRepository
 
         repo = ImageRepository(session_factory=memory_session_factory)
         id_a = repo.ensure_project("project_a", Path("/tmp/a"))
@@ -208,7 +208,7 @@ class TestEnsureProject:
 
     def test_ensure_project_updates_path_on_change(self, memory_session_factory):
         """同名でパスが変わった場合、パスが更新される。"""
-        from lorairo.database.db_repository import ImageRepository
+        from lorairo.database.repository.image import ImageRepository
         from lorairo.database.schema import Project
 
         repo = ImageRepository(session_factory=memory_session_factory)
@@ -231,7 +231,7 @@ class TestGetImageIdsByProject:
     @pytest.fixture
     def repo_with_images(self, memory_session_factory):
         """proj_a に3枚、proj_b に2枚の画像を持つリポジトリ。"""
-        from lorairo.database.db_repository import ImageRepository
+        from lorairo.database.repository.image import ImageRepository
 
         repo = ImageRepository(session_factory=memory_session_factory)
         pid_a = repo.ensure_project("proj_a", Path("/tmp/a"))
@@ -289,7 +289,7 @@ class TestAssignImagesToProject:
     @pytest.fixture
     def repo_with_unassigned_images(self, memory_session_factory):
         """proj_a を持ち、未割り当て画像3枚を含むリポジトリ。"""
-        from lorairo.database.db_repository import ImageRepository
+        from lorairo.database.repository.image import ImageRepository
 
         repo = ImageRepository(session_factory=memory_session_factory)
         pid = repo.ensure_project("proj_a", Path("/tmp/a"))
@@ -338,7 +338,7 @@ class TestAddOriginalImageProjectId:
 
     @pytest.fixture
     def repository(self, memory_session_factory):
-        from lorairo.database.db_repository import ImageRepository
+        from lorairo.database.repository.image import ImageRepository
 
         return ImageRepository(session_factory=memory_session_factory)
 

@@ -194,7 +194,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             # ファイル名エイリアスを登録（バッチインポート時のマッチング用）
             # DBが未初期化の場合でも重複扱い（skipped）は変わらないため例外を握り潰す
             try:
-                self.db_manager.repository.add_filename_alias(duplicate_image_id, image_path.stem)
+                self.db_manager.image_repo.add_filename_alias(duplicate_image_id, image_path.stem)
             except SQLAlchemyError as e:
                 logger.warning(f"エイリアス登録失敗（スキップ扱いは継続）: {image_path.stem}, {e}")
             logger.debug(f"スキップ (重複): {image_path} - 関連ファイルは処理")
@@ -311,7 +311,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             return {}
 
         try:
-            cache = self.db_manager.repository.batch_resolve_tag_ids(all_tags)
+            cache = self.db_manager.annotation_repo.batch_resolve_tag_ids(all_tags)
             logger.info(
                 f"タグID一括解決完了: {sum(1 for v in cache.values() if v is not None)}/"
                 f"{len(all_tags)}件解決"
@@ -347,7 +347,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         if tags:
             from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 
-            from ...database.db_repository import TagAnnotationData
+            from ...database.schema import TagAnnotationData
 
             tags_data: list[TagAnnotationData] = [
                 {
@@ -368,7 +368,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         raw_captions = annotations.get("captions", [])
         captions = [c for c in raw_captions if isinstance(c, str)] if isinstance(raw_captions, list) else []
         if captions:
-            from ...database.db_repository import CaptionAnnotationData
+            from ...database.schema import CaptionAnnotationData
 
             captions_data: list[CaptionAnnotationData] = [
                 {

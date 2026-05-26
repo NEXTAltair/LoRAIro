@@ -21,7 +21,7 @@ from rich.progress import (
 from rich.table import Table
 
 if TYPE_CHECKING:
-    from lorairo.database.db_repository import ImageRepository
+    from lorairo.database.repository.image import ImageRepository
     from lorairo.services.batch_import_service import BatchImportResult
 
 from lorairo.api.batch_import import import_batch_annotations

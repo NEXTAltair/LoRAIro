@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.domain.rating_mapper import map_rating
 from lorairo.utils.log import logger
 

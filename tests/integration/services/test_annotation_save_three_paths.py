@@ -17,7 +17,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import Base, Image, Model, ModelType, Score, Tag
 from lorairo.gui.workers.annotation_worker import AnnotationWorker
 from lorairo.services.annotation_save_service import AnnotationSaveService

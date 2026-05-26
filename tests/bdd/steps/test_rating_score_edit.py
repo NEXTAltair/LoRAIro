@@ -80,7 +80,7 @@ def given_load_unrated_image(ctx: RatingEditContext) -> None:
 def given_load_mixed_rating_selection(ctx: RatingEditContext) -> None:
     mock_db_manager = Mock()
     mock_db_manager.repository = Mock()
-    mock_db_manager.repository.get_image_metadata.side_effect = [
+    mock_db_manager.image_repo.get_image_metadata.side_effect = [
         {"rating": "PG", "score_value": 5.0},
         {"rating": "X", "score_value": 5.0},
     ]

@@ -15,7 +15,7 @@ from lorairo.api.project import get_project as api_get_project
 from lorairo.api.types import RegistrationResult
 from lorairo.cli._console import make_console
 from lorairo.cli._glyphs import OK
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.services.service_container import get_service_container
 

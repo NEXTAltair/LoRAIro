@@ -22,7 +22,7 @@ from genai_tag_db_tools.models import TagSearchRequest
 from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 from sqlalchemy.exc import IntegrityError
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 
 
 @pytest.mark.integration

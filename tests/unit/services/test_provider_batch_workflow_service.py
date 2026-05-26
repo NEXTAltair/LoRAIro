@@ -9,7 +9,7 @@ from unittest.mock import Mock
 import pytest
 from sqlalchemy.orm import sessionmaker
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import Image
 from lorairo.services.annotation_save_service import AnnotationSaveResult
 from lorairo.services.provider_batch_service import (

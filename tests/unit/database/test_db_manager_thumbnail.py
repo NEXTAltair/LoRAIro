@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.storage.file_system import FileSystemManager
 

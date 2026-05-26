@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import pytest
 
-from lorairo.database.db_repository import ImageRepository, ModelRepository
 from lorairo.database.repository.base import BaseRepository
-from lorairo.database.repository.model import ModelRepository as ModelRepositoryDirect
+from lorairo.database.repository.image import ImageRepository
+from lorairo.database.repository.model import ModelRepository
 from lorairo.database.schema import (
     MANUAL_EDIT_LITELLM_ID,
     MANUAL_EDIT_NAME,
@@ -39,10 +39,6 @@ class TestModelRepositoryStructure:
     def test_inherits_base_repository(self) -> None:
         """ModelRepository は BaseRepository を継承する。"""
         assert issubclass(ModelRepository, BaseRepository)
-
-    def test_db_repository_reexport_is_canonical_class(self) -> None:
-        """`db_repository.ModelRepository` は repository.model.ModelRepository を re-export する。"""
-        assert ModelRepository is ModelRepositoryDirect
 
     def test_holds_session_factory(self, db_session_factory) -> None:
         """`session_factory` を BaseRepository 経由で保持する。"""

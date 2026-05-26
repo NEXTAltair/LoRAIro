@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import ErrorRecord, Image
 
 

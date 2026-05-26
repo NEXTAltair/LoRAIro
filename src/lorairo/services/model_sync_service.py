@@ -13,7 +13,7 @@ from typing import Any, ClassVar, Protocol, TypedDict
 from image_annotator_lib import AnnotatorInfo
 from image_annotator_lib.core.types import TaskCapability
 
-from ..database.db_repository import ImageRepository
+from ..database.repository.image import ImageRepository
 from ..services.configuration_service import ConfigurationService
 from ..utils.log import logger
 

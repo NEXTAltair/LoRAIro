@@ -21,7 +21,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import Base, ModelType
 from lorairo.storage.file_system import FileSystemManager
 

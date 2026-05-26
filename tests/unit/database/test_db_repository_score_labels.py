@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import ScoreLabel
 
 

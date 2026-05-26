@@ -11,9 +11,9 @@ from lorairo.gui.widgets.error_log_viewer_dialog import ErrorLogViewerDialog
 def mock_db_manager():
     db = Mock()
     db.repository = Mock()
-    db.repository.get_error_records.return_value = []
+    db.error_record_repo.get_error_records.return_value = []
     db.repository.get_error_count_total.return_value = 0
-    db.repository.get_error_count_unresolved.return_value = 0
+    db.error_record_repo.get_error_count_unresolved.return_value = 0
     return db
 
 
@@ -50,14 +50,14 @@ class TestErrorLogViewerDialogInit:
         from PySide6.QtWidgets import QApplication
 
         d = ErrorLogViewerDialog(db_manager=mock_db_manager, auto_load=False)
-        mock_db_manager.repository.get_error_records.assert_not_called()
+        mock_db_manager.error_record_repo.get_error_records.assert_not_called()
         d.close()
 
     def test_auto_load_true_loads_records(self, qtbot, mock_db_manager):
         """auto_load=True（デフォルト）では load_error_records が呼ばれる"""
         d = ErrorLogViewerDialog(db_manager=mock_db_manager, auto_load=True)
         qtbot.addWidget(d)
-        mock_db_manager.repository.get_error_records.assert_called()
+        mock_db_manager.error_record_repo.get_error_records.assert_called()
 
 
 class TestErrorLogViewerDialogSignals:

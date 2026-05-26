@@ -5,12 +5,12 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.provider_batch import ProviderBatchRepository
 
 
 @pytest.mark.unit
 class TestProviderBatchRepository:
-    def test_create_get_list_and_update_job(self, test_repository: ImageRepository) -> None:
+    def test_create_get_list_and_update_job(self, test_repository: ProviderBatchRepository) -> None:
         job_id = test_repository.create_provider_batch_job(
             {
                 "provider": "openai",
@@ -48,7 +48,7 @@ class TestProviderBatchRepository:
         assert updated.status == "completed"
         assert updated.succeeded_count == 3
 
-    def test_provider_job_id_unique_per_provider(self, test_repository: ImageRepository) -> None:
+    def test_provider_job_id_unique_per_provider(self, test_repository: ProviderBatchRepository) -> None:
         data = {
             "provider": "openai",
             "provider_job_id": "batch_dupe",
@@ -70,14 +70,14 @@ class TestProviderBatchRepository:
 
     def test_job_with_null_provider_job_id_can_be_created_multiple_times(
         self,
-        test_repository: ImageRepository,
+        test_repository: ProviderBatchRepository,
     ) -> None:
         first_id = test_repository.create_provider_batch_job({"provider": "openai", "status": "draft"})
         second_id = test_repository.create_provider_batch_job({"provider": "openai", "status": "draft"})
 
         assert first_id != second_id
 
-    def test_items_artifacts_and_delete_job(self, test_repository: ImageRepository) -> None:
+    def test_items_artifacts_and_delete_job(self, test_repository: ProviderBatchRepository) -> None:
         job_id = test_repository.create_provider_batch_job(
             {
                 "provider": "openai",
@@ -147,7 +147,7 @@ class TestProviderBatchRepository:
 
     def test_create_job_with_items_rolls_back_atomically_on_item_failure(
         self,
-        test_repository: ImageRepository,
+        test_repository: ProviderBatchRepository,
     ) -> None:
         with pytest.raises(IntegrityError):
             test_repository.create_provider_batch_job_with_items(
@@ -175,7 +175,7 @@ class TestProviderBatchRepository:
 
         assert test_repository.get_provider_batch_job_by_provider_id("openai", "batch_atomic") is None
 
-    def test_update_rejects_unknown_fields(self, test_repository: ImageRepository) -> None:
+    def test_update_rejects_unknown_fields(self, test_repository: ProviderBatchRepository) -> None:
         job_id = test_repository.create_provider_batch_job({"provider": "openai", "status": "draft"})
 
         with pytest.raises(ValueError):

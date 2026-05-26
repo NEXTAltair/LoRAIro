@@ -23,7 +23,7 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.database.repository.error_record import ErrorRecordRepository
 from lorairo.database.repository.model import ModelRepository
 from lorairo.database.repository.project import ProjectRepository

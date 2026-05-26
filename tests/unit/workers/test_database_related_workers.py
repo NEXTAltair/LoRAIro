@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.gui.workers.base import CancellationError
 from lorairo.gui.workers.registration_worker import (
     DatabaseRegistrationResult,
@@ -90,7 +90,7 @@ class TestDatabaseRegistrationWorker:
         # 分割済みworkerがインポート可能であることを確認
         # 依存するモジュールがインポート可能であることを確認
         from lorairo.database.db_core import resolve_stored_path  # インポートエラーを検出
-        from lorairo.database.db_repository import CaptionAnnotationData, TagAnnotationData
+        from lorairo.database.schema import CaptionAnnotationData, TagAnnotationData
         from lorairo.gui.workers.registration_worker import DatabaseRegistrationWorker
 
         # クラスが正しく定義されていることを確認

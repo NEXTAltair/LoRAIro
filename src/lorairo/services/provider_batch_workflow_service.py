@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.services.annotation_save_service import AnnotationSaveResult, AnnotationSaveService
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.provider_batch_library_compat import (

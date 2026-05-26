@@ -29,7 +29,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.db_repository import ImageRepository as LegacyImageRepository
+from lorairo.database.repository.image import ImageRepository as LegacyImageRepository
 from lorairo.database.repository.annotation_record import AnnotationRepository
 from lorairo.database.repository.base import BaseRepository
 from lorairo.database.schema import (

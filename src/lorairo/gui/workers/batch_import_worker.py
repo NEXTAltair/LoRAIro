@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
-from ...database.db_repository import ImageRepository
+from ...database.repository.image import ImageRepository
 from ...services.batch_import_service import BatchImportResult, BatchImportService
 from ...utils.log import logger
 from .base import LoRAIroWorkerBase

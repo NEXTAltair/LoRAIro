@@ -53,7 +53,7 @@ class ImageDBWriteService:
         """
         try:
             # ImageRepositoryを通じて画像メタデータを取得
-            image_metadata = self.db_manager.repository.get_image_metadata(image_id)
+            image_metadata = self.db_manager.image_repo.get_image_metadata(image_id)
 
             if not image_metadata:
                 logger.warning(f"Image not found for ID: {image_id}")
@@ -106,7 +106,7 @@ class ImageDBWriteService:
         """
         try:
             # ImageRepositoryを通じてアノテーション情報を取得
-            annotations = self.db_manager.repository.get_image_annotations(image_id)
+            annotations = self.db_manager.image_repo.get_image_annotations(image_id)
 
             # タグ情報取得
             tags_data = annotations.get("tags", [])
@@ -165,7 +165,7 @@ class ImageDBWriteService:
             }
 
             # Repositoryの save_annotations を呼び出し
-            self.db_manager.repository.save_annotations(
+            self.db_manager.annotation_repo.save_annotations(
                 image_id=image_id,
                 annotations={"ratings": [rating_data]},
             )
@@ -204,7 +204,7 @@ class ImageDBWriteService:
             }
 
             # Repositoryの save_annotations を呼び出し
-            self.db_manager.repository.save_annotations(
+            self.db_manager.annotation_repo.save_annotations(
                 image_id=image_id,
                 annotations={"scores": [score_data]},
             )
@@ -254,7 +254,7 @@ class ImageDBWriteService:
                 tags_data.append(tag_data)
 
             # Repositoryの save_annotations を呼び出し
-            self.db_manager.repository.save_annotations(
+            self.db_manager.annotation_repo.save_annotations(
                 image_id=image_id,
                 annotations={"tags": tags_data},
             )
@@ -291,7 +291,7 @@ class ImageDBWriteService:
             }
 
             # Repositoryの save_annotations を呼び出し
-            self.db_manager.repository.save_annotations(
+            self.db_manager.annotation_repo.save_annotations(
                 image_id=image_id,
                 annotations={"captions": [caption_data]},
             )
@@ -339,7 +339,7 @@ class ImageDBWriteService:
 
             # Repository層の原子的バッチ追加メソッドを使用
             model_id = self.db_manager.get_manual_edit_model_id()
-            success, added_count = self.db_manager.repository.add_tag_to_images_batch(
+            success, added_count = self.db_manager.annotation_repo.add_tag_to_images_batch(
                 image_ids=image_ids,
                 tag=tag,
                 model_id=model_id,
@@ -380,7 +380,7 @@ class ImageDBWriteService:
 
         try:
             model_id = self.db_manager.get_manual_edit_model_id()
-            success, updated_count = self.db_manager.repository.update_rating_batch(
+            success, updated_count = self.db_manager.annotation_repo.update_rating_batch(
                 image_ids=image_ids,
                 rating=rating,
                 model_id=model_id,
@@ -424,7 +424,7 @@ class ImageDBWriteService:
             db_score = score / 100.0
 
             model_id = self.db_manager.get_manual_edit_model_id()
-            success, updated_count = self.db_manager.repository.update_score_batch(
+            success, updated_count = self.db_manager.annotation_repo.update_score_batch(
                 image_ids=image_ids,
                 score=db_score,
                 model_id=model_id,

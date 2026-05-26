@@ -9,7 +9,7 @@ from PIL import Image
 
 from lorairo.database.db_core import create_db_engine
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.image_processing_service import ImageProcessingService
 from lorairo.storage.file_system import FileSystemManager
@@ -77,7 +77,7 @@ class TestUpscalerDatabaseIntegration:
         from sqlalchemy import inspect
 
         # リポジトリ経由でエンジンを取得し、テーブル情報を確認
-        with image_db_manager.repository.session_factory() as session:
+        with image_db_manager.image_repo.session_factory() as session:
             inspector = inspect(session.bind)
             columns = [col["name"] for col in inspector.get_columns("processed_images")]
 
@@ -100,7 +100,7 @@ class TestUpscalerDatabaseIntegration:
             "extension": ".jpg",
         }
 
-        image_id = image_db_manager.repository.add_original_image(original_metadata)
+        image_id = image_db_manager.image_repo.add_original_image(original_metadata)
         assert image_id is not None
 
         # アップスケーラー情報付きでProcessedImageを登録
@@ -121,7 +121,7 @@ class TestUpscalerDatabaseIntegration:
         assert processed_id is not None
 
         # データベースから取得して確認
-        result = image_db_manager.repository.get_processed_image(image_id, all_data=True)
+        result = image_db_manager.image_repo.get_processed_image(image_id, all_data=True)
         assert isinstance(result, list)
         assert len(result) == 1
 
@@ -145,7 +145,7 @@ class TestUpscalerDatabaseIntegration:
             "extension": ".jpg",
         }
 
-        image_id = image_db_manager.repository.add_original_image(original_metadata)
+        image_id = image_db_manager.image_repo.add_original_image(original_metadata)
         assert image_id is not None
 
         # アップスケーラー情報なしでProcessedImageを登録
@@ -166,7 +166,7 @@ class TestUpscalerDatabaseIntegration:
         assert processed_id is not None
 
         # データベースから取得して確認
-        result = image_db_manager.repository.get_processed_image(image_id, all_data=True)
+        result = image_db_manager.image_repo.get_processed_image(image_id, all_data=True)
         assert isinstance(result, list)
         assert len(result) == 1
 
@@ -190,7 +190,7 @@ class TestUpscalerDatabaseIntegration:
             "extension": ".jpg",
         }
 
-        image_id = image_db_manager.repository.add_original_image(original_metadata)
+        image_id = image_db_manager.image_repo.add_original_image(original_metadata)
         assert image_id is not None
 
         # ConfigurationServiceとFileSystemManagerをモック
@@ -236,7 +236,7 @@ class TestUpscalerDatabaseIntegration:
             "extension": ".jpg",
         }
 
-        image_id = image_db_manager.repository.add_original_image(original_metadata)
+        image_id = image_db_manager.image_repo.add_original_image(original_metadata)
         assert image_id is not None
 
         # アップスケールで生成された512px画像のメタデータを直接DBに登録
@@ -258,7 +258,7 @@ class TestUpscalerDatabaseIntegration:
         assert processed_id is not None
 
         # データベースから結果を確認
-        processed_images = image_db_manager.repository.get_processed_image(image_id, all_data=True)
+        processed_images = image_db_manager.image_repo.get_processed_image(image_id, all_data=True)
         assert isinstance(processed_images, list)
         assert len(processed_images) == 1
 
@@ -284,7 +284,7 @@ class TestUpscalerDatabaseIntegration:
             "extension": ".jpg",
         }
 
-        image_id = image_db_manager.repository.add_original_image(original_metadata)
+        image_id = image_db_manager.image_repo.add_original_image(original_metadata)
 
         # RealESRGAN_x4plusで処理された画像
         processed_metadata_1 = {
@@ -318,7 +318,7 @@ class TestUpscalerDatabaseIntegration:
         )
 
         # リポジトリを通じてクエリ実行（SQLite直接接続を回避）
-        with image_db_manager.repository.session_factory() as session:
+        with image_db_manager.image_repo.session_factory() as session:
             from lorairo.database.schema import ProcessedImage
 
             # RealESRGAN_x4plusで処理された画像を検索

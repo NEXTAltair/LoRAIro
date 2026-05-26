@@ -8,12 +8,8 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lorairo.database.db_repository import (
-    AnnotationsDict,
-    CaptionAnnotationData,
-    ImageRepository,
-    TagAnnotationData,
-)
+from lorairo.database.repository.image import ImageRepository
+from lorairo.database.schema import AnnotationsDict, CaptionAnnotationData, TagAnnotationData
 from lorairo.services.batch_content_parser import BatchContentParser, ParsedAnnotationContent
 from lorairo.services.batch_image_matcher import BatchImageMatcher
 from lorairo.utils.log import logger

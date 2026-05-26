@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..database.db_repository import ImageRepository
+from ..database.repository.image import ImageRepository
 from ..database.schema import Model
 from ..utils.log import logger
 from .model_route_service import DisplayModelOption, RoutePreference, build_display_options

@@ -266,4 +266,4 @@ class TestDatasetStateManager:
         state_manager._db_manager = mock_db_manager
 
         state_manager.refresh_images([])
-        mock_db_manager.repository.get_images_metadata_batch.assert_not_called()
+        mock_db_manager.image_repo.get_images_metadata_batch.assert_not_called()

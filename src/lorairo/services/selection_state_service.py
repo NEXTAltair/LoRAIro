@@ -9,7 +9,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from loguru import logger
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.gui.state.dataset_state import DatasetStateManager
 
 

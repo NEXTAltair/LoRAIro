@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import Image
 
 

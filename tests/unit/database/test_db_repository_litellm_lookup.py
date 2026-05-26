@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import (
     MANUAL_EDIT_LITELLM_ID,
     MANUAL_EDIT_NAME,

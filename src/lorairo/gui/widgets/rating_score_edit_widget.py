@@ -254,7 +254,7 @@ class RatingScoreEditWidget(QWidget):
         scores: set[float] = set()
 
         for image_id in image_ids:
-            metadata = db_manager.repository.get_image_metadata(image_id)
+            metadata = db_manager.image_repo.get_image_metadata(image_id)
             if metadata:
                 rating = metadata.get("rating")
                 if rating:

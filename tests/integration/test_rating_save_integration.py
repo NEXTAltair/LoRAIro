@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.schema import Image, Model, Rating
 from lorairo.services.annotation_save_service import AnnotationSaveService

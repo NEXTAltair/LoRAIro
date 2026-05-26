@@ -14,7 +14,7 @@ import pytest
 from PIL import Image
 from sqlalchemy.orm import sessionmaker
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.services.annotation_save_service import AnnotationSaveService
 
 
@@ -402,12 +402,14 @@ def test_safe_resolve_stored_path_returns_none_on_oserror(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`_safe_resolve_stored_path()` が OSError を吸収して None を返すことを確認。"""
-    from lorairo.database import db_repository as db_repo_mod
+    # ADR 0035 段階 6 (#423): legacy db_repository.py 撤廃に伴い、resolve_stored_path
+    # は repository/image.py 内で local import される。実モジュールに patch を当てる。
+    from lorairo.database.repository import image as image_repo_mod
 
     def raising_resolve(_path: str) -> Path:
         raise OSError("simulated symlink loop")
 
-    monkeypatch.setattr(db_repo_mod, "resolve_stored_path", raising_resolve, raising=False)
+    monkeypatch.setattr(image_repo_mod, "resolve_stored_path", raising_resolve, raising=False)
 
     # _safe_resolve_stored_path 内の遅延 import より、db_core を patch
     from lorairo.database import db_core

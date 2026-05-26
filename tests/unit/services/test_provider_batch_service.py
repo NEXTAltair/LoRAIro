@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.services.provider_batch_service import (
     BatchJobHandle,
     BatchSubmitItem,

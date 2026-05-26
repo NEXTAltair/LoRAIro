@@ -15,7 +15,7 @@ from PIL import Image
 from pytest_bdd import given, parsers, scenarios, then, when
 from sqlalchemy.orm import sessionmaker
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.services.annotation_save_service import (
     AnnotationSaveResult,
     AnnotationSaveService,

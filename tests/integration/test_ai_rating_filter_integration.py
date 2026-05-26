@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, Mock
 import pytest
 
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.services.search_criteria_processor import SearchCriteriaProcessor
 from lorairo.services.search_models import SearchConditions
 

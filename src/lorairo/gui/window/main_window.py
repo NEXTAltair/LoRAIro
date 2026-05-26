@@ -871,7 +871,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         if raw_results and isinstance(raw_results, dict):
             try:
-                phash_to_image_id = self.db_manager.repository.find_image_ids_by_phashes(
+                phash_to_image_id = self.db_manager.image_repo.find_image_ids_by_phashes(
                     set(raw_results.keys())
                 )
                 image_ids = [img_id for img_id in phash_to_image_id.values() if img_id is not None]

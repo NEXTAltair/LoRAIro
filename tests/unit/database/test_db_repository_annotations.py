@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import Caption, Image, Rating, Score, Tag
 
 
