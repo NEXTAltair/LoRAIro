@@ -68,3 +68,20 @@ def test_gate_fails_when_codex_connector_is_unavailable() -> None:
 
     assert not ok
     assert reasons == ["Codex review did not run: chatgpt-codex-connector"]
+
+
+def test_gate_ignores_stale_unavailable_comment_after_clean_review() -> None:
+    ok, reasons = evaluate(
+        reviews=[{"user": {"login": "chatgpt-codex-connector[bot]"}, "state": "COMMENTED"}],
+        review_comments=[],
+        issue_comments=[
+            {
+                "user": {"login": "chatgpt-codex-connector"},
+                "body": "To use Codex here, create a Codex account and connect to github.",
+            }
+        ],
+        reactions=[],
+    )
+
+    assert ok
+    assert reasons == []

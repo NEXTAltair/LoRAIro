@@ -51,9 +51,10 @@ jobs:
       )
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ secrets.CODEX_BOT_TOKEN || github.token }}
+      GH_TOKEN: ${{ github.token }}
       PR: ${{ github.event_name == 'workflow_dispatch' && inputs.pr || github.event.pull_request.number || github.event.issue.number }}
       AGENT_PR_AUTO_MERGE: ${{ vars.AGENT_PR_AUTO_MERGE || 'false' }}
+      CODEX_BOT_TOKEN_PRESENT: ${{ secrets.CODEX_BOT_TOKEN != '' }}
 
     steps:
       - name: Checkout repository
@@ -78,10 +79,16 @@ jobs:
         if: steps.scope.outputs.is_agent_pr == 'true'
         run: gh pr checkout "$PR"
 
-      - name: Normalize PR state and trigger Codex review
+      - name: Normalize PR state
         if: steps.scope.outputs.is_agent_pr == 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
         run: |
           gh pr ready "$PR" || true
+
+      - name: Trigger Codex review with connected bot token
+        if: steps.scope.outputs.is_agent_pr == 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && env.CODEX_BOT_TOKEN_PRESENT == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.CODEX_BOT_TOKEN }}
+        run: |
           gh pr comment "$PR" \
             --body '@codex review for security regressions, missing tests, and risky behavior changes.' \
             || true

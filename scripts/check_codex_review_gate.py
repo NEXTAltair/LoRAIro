@@ -68,18 +68,20 @@ def _review_reasons(reviews: list[dict[str, Any]]) -> tuple[bool, list[str]]:
     return bot_artifact_seen, reasons
 
 
-def _comment_reasons(comments: list[dict[str, Any]]) -> tuple[bool, list[str]]:
+def _comment_reasons(comments: list[dict[str, Any]]) -> tuple[bool, list[str], list[str]]:
     bot_artifact_seen = False
     reasons: list[str] = []
+    unavailable_reasons: list[str] = []
     for comment in comments:
         if not _is_bot_artifact(comment):
+            continue
+        if _is_unavailable_response(comment):
+            unavailable_reasons.append(f"Codex review did not run: {_login_from(comment)}")
             continue
         bot_artifact_seen = True
         if _has_blocking_text(comment):
             reasons.append(f"bot comment has blocking text: {_login_from(comment)}")
-        if _is_unavailable_response(comment):
-            reasons.append(f"Codex review did not run: {_login_from(comment)}")
-    return bot_artifact_seen, reasons
+    return bot_artifact_seen, reasons, unavailable_reasons
 
 
 def _has_approval_reaction(reactions: list[dict[str, Any]]) -> bool:
@@ -99,13 +101,15 @@ def evaluate(
     reasons: list[str] = []
 
     review_artifact_seen, review_reasons = _review_reasons(reviews)
-    comment_artifact_seen, comment_reasons = _comment_reasons([*review_comments, *issue_comments])
+    comment_artifact_seen, comment_reasons, unavailable_reasons = _comment_reasons(
+        [*review_comments, *issue_comments]
+    )
     bot_artifact_seen = review_artifact_seen or comment_artifact_seen or _has_approval_reaction(reactions)
     reasons.extend(review_reasons)
     reasons.extend(comment_reasons)
 
     if not bot_artifact_seen:
-        reasons.append("no Codex bot review artifact found")
+        reasons.extend(sorted(set(unavailable_reasons)) or ["no Codex bot review artifact found"])
 
     return len(reasons) == 0, reasons
 
