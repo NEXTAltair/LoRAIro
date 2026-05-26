@@ -125,6 +125,23 @@ def test_set_dependencies_filters_direct_batch_models(widget, dependencies):
 
 @pytest.mark.unit
 @pytest.mark.gui
+def test_unresolved_batch_capable_models_do_not_fallback_to_all_models(widget):
+    workflow = MagicMock()
+    repository = MagicMock()
+    model_source = MagicMock()
+    model_source.list_batch_capable_models.return_value = ("openai/missing-from-db",)
+    repository.get_model_by_litellm_id.return_value = None
+    repository.get_model_objects.return_value = [_model()]
+    repository.list_provider_batch_jobs.return_value = []
+
+    widget.set_dependencies(workflow, repository, model_source)
+
+    assert widget.comboBoxModel.count() == 0
+    repository.get_model_objects.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
 def test_use_selected_images_populates_manual_ids(widget):
     state = DatasetStateManager()
     state._selected_image_ids = [3, 5]

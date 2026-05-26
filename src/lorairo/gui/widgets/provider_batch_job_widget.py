@@ -232,10 +232,6 @@ class ProviderBatchJobWidget(QWidget):
 
         if resolved:
             return resolved
-
-        get_model_objects = getattr(self._repository, "get_model_objects", None)
-        if callable(get_model_objects):
-            return list(get_model_objects())
         return []
 
     @staticmethod
